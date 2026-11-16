@@ -91,8 +91,7 @@ export function calendarRange(view: CalendarView, settings: CalendarValue["setti
         }
     }
     const days: Date[] = [];
-    for (let at = from.getTime(); at < to.getTime(); at += DAY) {
-        const day = new Date(at);
+    for (let day = from; compareDate(day, to) < 0; day = new Date(day.getTime() + DAY)) {
         if (period === "day" || settings.weekends || (day.getUTCDay() !== 0 && day.getUTCDay() !== 6)) days.push(day);
     }
     return { from, to, days };

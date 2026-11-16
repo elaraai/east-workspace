@@ -48,7 +48,7 @@
  */
 
 import { useMemo } from "react";
-import { StringType, equalFor, type ValueTypeOf } from "@elaraai/east";
+import { DateTimeType, StringType, compareFor, equalFor, type ValueTypeOf } from "@elaraai/east";
 import { PLAN_PAGE_SIZE, planHideId, type PlanPayloadType } from "@elaraai/e3-ui/internal";
 import {
     useScheduleCells, type ScheduleCellBucket, type ScheduleCellKind, type ScheduleCellPaged, type ScheduleCellResources, type ScheduleCellSpan,
@@ -72,6 +72,7 @@ type Paged = Extract<PlanPayloadValue["paged"], { type: "some" }>["value"];
 type Links = PlanRootValue["links"];
 
 const stringEqual = equalFor(StringType);
+const compareDate = compareFor(DateTimeType);
 /** Whether two narrowings, as a source names them, are one — none being none (#1344). */
 const sameNarrowing = (a: string | undefined, b: string | undefined): boolean => (a === undefined || b === undefined ? a === b : stringEqual(a, b));
 
@@ -87,12 +88,12 @@ const sameNarrowing = (a: string | undefined, b: string | undefined): boolean =>
  */
 export function bucketsOver(scale: PlanScale, from: Date, to: Date): ScheduleCellBucket[] {
     const out: ScheduleCellBucket[] = [];
-    for (let at = from.getTime(); at < to.getTime();) {
-        const next = scale.offset(timeInstant(new Date(at)), 1);
-        const end = next.type === "time" ? next.value.getTime() : NaN;
-        if (!(end > at)) break;
-        out.push({ start: at, end });
-        at = end;
+    for (let at = from; compareDate(at, to) < 0;) {
+        const next = scale.offset(timeInstant(at), 1);
+        // A scale that steps no further, or not past where it stands, ends the buckets.
+        if (next.type !== "time" || compareDate(next.value, at) <= 0) break;
+        out.push({ start: at.getTime(), end: next.value.getTime() });
+        at = next.value;
     }
     return out;
 }

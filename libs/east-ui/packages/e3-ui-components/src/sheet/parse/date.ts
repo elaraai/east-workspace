@@ -29,7 +29,9 @@
  * @packageDocumentation
  */
 
+import { DateTimeType, compareFor } from "@elaraai/east";
 import { formatDatePattern, parseDatePattern } from "@elaraai/east-ui-components/internal";
+import { meetsWindow } from "../../shared/schedule/window.js";
 import type { SheetWords } from "../words.js";
 
 /** The cell's display pattern — `17 Nov 26`. */
@@ -42,6 +44,8 @@ export const DATE_LONG_PATTERN = "ddd D MMM YY";
 export const DATE_CLIPBOARD_PATTERN = "D/M/YYYY";
 
 const DAY_MS = 86_400_000;
+/** Two instants in order: East's own ordering (#1650). */
+const compareDate = compareFor(DateTimeType);
 
 /** The separators a numeric calendar form takes. */
 const SEPARATORS = ["/", "-", "."];
@@ -150,7 +154,7 @@ export function parseDate(text: string, ctx: DateParseContext): Date | null | un
     const year = base.getUTCFullYear();
     const thisYear = parseUndated(t, year);
     if (thisYear === undefined) return null;
-    return thisYear.getTime() < base.getTime() ? parseUndated(t, year + 1) ?? null : thisYear;
+    return compareDate(thisYear, base) < 0 ? parseUndated(t, year + 1) ?? null : thisYear;
 }
 
 /** `17 Nov 26` — the cell's display form. */
@@ -279,20 +283,21 @@ export function whenAccepts(level: WhenLevel, w: SheetWords): { chip: string; me
  * @returns The tag (`+1d` · `−3h` · `actual`), its tone, and the words the cell's detail says (`3 hours late`)
  */
 export function actualAgainst(wanted: Date, level: WhenLevel, actual: Date, w: SheetWords): { tag: string; tone: "on" | "late" | "early"; words: string } {
-    let lo: number;
-    let hi: number;
+    // The window the level names, from its start up to its end: the week, the day, an hour either side of a time.
+    let from: Date;
+    let to: Date;
     switch (level) {
-        case "week": lo = weekStart(wanted).getTime(); hi = lo + 7 * DAY_MS; break;
-        case "day": case "range": lo = utcMidnight(wanted).getTime(); hi = lo + DAY_MS; break;
-        case "time": lo = wanted.getTime() - 3_600_000; hi = wanted.getTime() + 3_600_000; break;
+        case "week": from = weekStart(wanted); to = addDays(from, 7); break;
+        case "day": case "range": from = utcMidnight(wanted); to = addDays(from, 1); break;
+        case "time": from = new Date(wanted.getTime() - 3_600_000); to = new Date(wanted.getTime() + 3_600_000); break;
     }
-    const t = actual.getTime();
-    if (t >= lo && t < hi) {
+    if (meetsWindow(actual, undefined, from, to)) {
         const on = { tone: "on", n: 0, count: w.number(0), unit: "d" } as const;
         return { tag: w.m.actualTag(on), tone: "on", words: w.m.actualWords(on) };
     }
-    const off = Math.abs(t - wanted.getTime());
-    const tone = t >= hi ? "late" : "early";
+    // How far from the wanted instant, in milliseconds: a duration's arithmetic.
+    const off = Math.abs(actual.getTime() - wanted.getTime());
+    const tone = compareDate(actual, to) >= 0 ? "late" : "early";
     const inDays = off >= 20 * 3_600_000;
     const n = inDays ? Math.max(1, Math.round(off / DAY_MS)) : Math.max(1, Math.round(off / 3_600_000));
     const p = { tone, n, count: w.number(n), unit: inDays ? "d" : "h" } as const;

@@ -40,7 +40,7 @@ import type { AllocationOptimised } from "./optimise.js";
 import { SplitPopover } from "./split.js";
 import { a, one, other, useNouns } from "./nouns.js";
 import { ChoiceCell, ChooserPopover, openKey, type ChoiceScene, type Open } from "./table.js";
-import { bandLine, narrowBands, rowStatus, tableBands, tableRows, type TableBand, type TableRow } from "./table-rows.js";
+import { bandLine, narrowBands, ownsRow, rowStatus, tableBands, tableRows, type TableBand, type TableRow } from "./table-rows.js";
 import type { TimelineFollow } from "./timeline.js";
 import {
     allocationWords, compareFloat, focusOf, partsOf, type AllocationStyles, type AllocationValue, type Bin, type Day, type FitAsk, type Load, type ResourceLine, type Selection, type Slot,
@@ -294,7 +294,7 @@ function RowCards({ props, words }: { props: CardsProps; words: CardWords }) {
     const board = allocationWords();
     // Selecting follows the selection (A12): the selected bin's or slot's card.
     const { selection } = props;
-    const followed = selection === undefined ? -1 : lines.findIndex(l => l.kind === "row" && ownRow(selection, l.row));
+    const followed = selection === undefined ? -1 : lines.findIndex(l => l.kind === "row" && ownsRow(selection, l.row));
     // The narrowing's empty state only under a choice of the viewer's (#1398, CL13; a page's scope is none, #1621).
     const { narrowed } = props;
     if (lines.length === 0) return <Box css={styles.cards} data-allocation-cards="table">{narrowed !== undefined && <NarrowedEmpty styles={styles} clear={narrowed.clear} />}</Box>;
@@ -337,12 +337,6 @@ function UnreadRowCard({ styles, band, index, lines, read }: { styles: Allocatio
     </Box>;
 }
 
-/** Whether a selection is a row's own (A44): its bin, or its free slot. */
-function ownRow(selection: Selection, row: TableRow): boolean {
-    if (selection.type === "bin") return row.bin === selection.id;
-    return selection.type === "slot" && row.kind === "free" && row.lane === selection.lane && row.slotAt.getTime() === selection.at;
-}
-
 /**
  * A row's card: its lane and time, what it holds and its status, one button
  * that selects it; and its actions — a free slot's `Book…` and `Reserve…`, a
@@ -364,7 +358,7 @@ function RowCard({ props, words, row, open, setOpen }: { props: CardsProps; word
     const unallocated = parts.length > 0 && compareFloat(remainder, 0) > 0;
     const check = parts.some(part => { const l = props.lines.get(part.key); return l !== undefined && (l.over || l.overlap); });
     const status = rowStatus(row.kind, parts.length > 0, check, draft);
-    const selected = props.selection !== undefined && ownRow(props.selection, row);
+    const selected = props.selection !== undefined && ownsRow(props.selection, row);
     // A bin's card's head takes the keyboard a pick in Search Records gives the bin (#1398).
     const given = useBinFocusTarget<HTMLButtonElement>(row.bin);
     const lane = words.choice.lane(row.lane), time = formatDatePattern("HH:mm", row.at);

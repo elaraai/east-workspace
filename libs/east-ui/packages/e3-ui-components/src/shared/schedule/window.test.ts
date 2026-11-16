@@ -4,12 +4,13 @@
  *
  * The one test of a place in time against a half-open window (east-workspace#1622, rule 11), which the Calendar, the
  * Plan and the Roster read a window and hold an optimiser's answer by: a span meets the window where it overlaps it, an
- * instant from its start to before the window's end, and an event with no place counts as inside.
+ * instant from its start to before the window's end, and an event with no place counts as inside; and whether two
+ * instants fall on one UTC day (east-workspace#1650), which a Calendar's today and a save's time are told by.
  */
 
 import { describe, expect, test } from "vitest";
 import { none, some } from "@elaraai/east";
-import { meetsWindow, placedOutside } from "./window.js";
+import { meetsWindow, placedOutside, sameDay } from "./window.js";
 
 /** A time in March 2028, UTC. */
 const at = (day: string) => new Date(`2028-03-${day}Z`);
@@ -37,6 +38,24 @@ describe("meetsWindow", () => {
             meetsWindow(FROM, FROM, FROM, TO),
             meetsWindow(at("06T00:00:00"), at("05T00:00:00"), FROM, TO),
         ]).toEqual([true, false, false, true, true]);
+    });
+});
+
+describe("sameDay", () => {
+    test("two instants fall on one UTC day from its midnight to just before the next's, whatever their times", () => {
+        expect([
+            sameDay(at("05T00:00:00"), at("05T23:59:59.999")),
+            sameDay(at("05T14:02:00"), at("05T14:02:00")),
+            sameDay(at("04T23:59:59.999"), at("05T00:00:00")),
+            sameDay(FROM, at("06T00:00:00")),
+        ]).toEqual([true, true, false, false]);
+    });
+
+    test("the same day of another month, or of another year, is another day", () => {
+        expect([
+            sameDay(at("05T09:00:00"), new Date("2028-04-05T09:00:00Z")),
+            sameDay(at("05T09:00:00"), new Date("2029-03-05T09:00:00Z")),
+        ]).toEqual([false, false]);
     });
 });
 

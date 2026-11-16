@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Box, Button, chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCalendarWeek, faCaretDown, faChevronLeft, faChevronRight } from "@fortawesome/free-solid-svg-icons";
+import { DateTimeType, equalFor } from "@elaraai/east";
 import { SliceEditPopover, useFormatters } from "@elaraai/east-ui-components";
 import { useSlotStyles } from "@elaraai/east-ui-components/internal";
 import { Seg } from "../schedule/segments.js";
@@ -21,6 +22,8 @@ const DAY_WEEK = [{ key: "day", label: "Days" }, { key: "week", label: "Weeks" }
 const DAY_WEEK_RANGE = [...DAY_WEEK, { key: "range", label: "Range" }] as const;
 const firstPanel = (period: Period, initial?: "day" | "week"): Panel => period === "year" ? "year" : period === "month" || period === "quarter" ? "month" : initial ?? (period === "week" ? "week" : "day");
 const monthStart = (date: number) => { const d = new Date(date); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1); };
+/** Whether two days, or two weeks' first days, are one: East's own equality (#1650). */
+const sameDate = equalFor(DateTimeType);
 
 /** Internal controlled time navigation. The host retains its Slice, records and view unit. */
 export interface TimeNavigatorProps {
@@ -77,7 +80,7 @@ export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, c
     const [dayPanel, setDayPanel] = useState<"day" | "week">(initialPanel ?? (period === "week" ? "week" : "day"));
     const current = dayStart(date);
     const start = weekStart(current, sunday);
-    const today = dayStart(now).getTime();
+    const today = dayStart(now);
     const year = new Date(month).getUTCFullYear();
     const yearBase = Math.floor(year / 12) * 12;
     const weeks = useMemo(() => {
@@ -117,7 +120,7 @@ export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, c
             {compact && controls !== undefined ? <FontAwesomeIcon icon={faCalendarWeek} /> : <><Box as="span" css={styles.label} data-time-label="">{compact ? shortLabel : fullLabel}</Box><FontAwesomeIcon icon={faCaretDown} /></>}
         </Button>}
         footLeft={<Box css={styles.footer}>{arrows}</Box>}
-        footActions={<Button size="xs" variant="solid" onClick={() => { choose(today); onToday?.(); }}>Today</Button>}>
+        footActions={<Button size="xs" variant="solid" onClick={() => { choose(today.getTime()); onToday?.(); }}>Today</Button>}>
         <Box css={styles.body} data-time-picker={scope} data-time-panel={panel}>
             {panel !== "range" && <Box css={styles.header}>
                 <Button size="xs" variant="ghost" aria-label={`Previous ${panel === "year" ? "12 years" : panel === "month" ? "year" : "month"}`} onClick={() => browse(-1)}><FontAwesomeIcon icon={faChevronLeft} /></Button>
@@ -128,16 +131,16 @@ export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, c
             {panel === "range" && rangeEditor}
             {panel === "week" && <Box css={styles.weeks}>{weeks.map(week => <chakra.button key={week.getTime()} type="button" css={styles.week}
                 {...{ [`data-${scope}-picker-week`]: week.toISOString().slice(0, 10) }} data-time-week={week.getTime()}
-                data-selected={week.getTime() === start.getTime() ? "" : undefined} aria-pressed={week.getTime() === start.getTime()}
-                aria-current={week.getTime() === weekStart(now, sunday).getTime() ? "date" : undefined}
+                data-selected={sameDate(week, start) ? "" : undefined} aria-pressed={sameDate(week, start)}
+                aria-current={sameDate(week, weekStart(now, sunday)) ? "date" : undefined}
                 onClick={() => choose(week.getTime() + current.getTime() - start.getTime())}>
                 {weekMarker?.(week)}{weekLabel(week)}
             </chakra.button>)}</Box>}
             {panel === "day" && <Box css={styles.days}>
                 {Array.from({ length: 7 }, (_, i) => <Box key={i} css={styles.weekday}>{format.weekday(new Date(weeks[0]!.getTime() + i * DAY))}</Box>)}
                 {weeks.flatMap(week => Array.from({ length: 7 }, (_, i) => new Date(week.getTime() + i * DAY))).map(day => <chakra.button key={day.getTime()} type="button" css={styles.day}
-                    aria-label={format.weekdayDate(day)} aria-pressed={day.getTime() === current.getTime()} aria-current={day.getTime() === today ? "date" : undefined}
-                    data-time-day={day.getTime()} data-selected={day.getTime() === current.getTime() ? "" : undefined} data-outside={day.getUTCMonth() !== new Date(month).getUTCMonth() ? "" : undefined}
+                    aria-label={format.weekdayDate(day)} aria-pressed={sameDate(day, current)} aria-current={sameDate(day, today) ? "date" : undefined}
+                    data-time-day={day.getTime()} data-selected={sameDate(day, current) ? "" : undefined} data-outside={day.getUTCMonth() !== new Date(month).getUTCMonth() ? "" : undefined}
                     onClick={() => choose(day.getTime())}>{format.number(day.getUTCDate())}
                     {dayMarker !== undefined && <Box as="span" css={styles.dayMark} data-time-daymark="">{dayMarker(day)}</Box>}</chakra.button>)}
             </Box>}

@@ -43,6 +43,7 @@ import { isoWeekUTC, timeScale, timeWords } from "../shared/time/scale.js";
 import { shadeBands } from "../shared/time/shading.js";
 import { MoveGhost } from "../shared/schedule/move-ghost.js";
 import type { HiddenWhy } from "../shared/schedule/hidden.js";
+import { meetsWindow } from "../shared/schedule/window.js";
 import { notOnPageText } from "../shared/schedule/words.js";
 import { remainderOf } from "./actions.js";
 import { useBinFocusTarget } from "./bin-focus.js";
@@ -437,7 +438,7 @@ export function AllocationTimeline(props: TimelineProps) {
     const weeks = useMemo(() => {
         const units = timeRulerUnits(ticks, time, "week")!;
         // `W19 · May 10` for a week that starts in view, `W18` for one cut at the axis's start.
-        return { ...units, buckets: units.buckets.map(b => ({ ...b, label: `${time.m.rulerWeek({ week: time.number(isoWeekUTC(b.start)) })}${b.start.getTime() >= axis.from.getTime() ? ` · ${props.format.monthDay(b.start)}` : ""}` })) };
+        return { ...units, buckets: units.buckets.map(b => ({ ...b, label: `${time.m.rulerWeek({ week: time.number(isoWeekUTC(b.start)) })}${compareDate(b.start, axis.from) >= 0 ? ` · ${props.format.monthDay(b.start)}` : ""}` })) };
     }, [ticks, time, axis, props.format]);
 
     // The hour at the top of the lane pane's view holds as the bands change (#1398, CL8): a day's bins landing grow its
@@ -560,7 +561,7 @@ export function AllocationTimeline(props: TimelineProps) {
                 <Box ref={ruler} css={styles.ruler}>
                     <TimeRulerRow scale={weeks} styles={styles} band="units" owner="allocation" />
                     <TimeRulerRow scale={ticks} styles={styles} band="ticks" owner="allocation" highlight={axis.today}
-                        marked={bucket => focusHold !== undefined && bucket.start.getTime() >= day.getTime() && bucket.start.getTime() < focusHold.to.getTime()} />
+                        marked={bucket => focusHold !== undefined && meetsWindow(bucket.start, undefined, day, focusHold.to)} />
                 </Box>
             </Box>}
             renderRow={index => {
@@ -940,7 +941,7 @@ const ResourceRowBody = memo(function ResourceRowBody({ resource, line, load, ax
             {shades.map((band, i) => <Box key={i} css={styles.shade} style={{ left: `${band.start * 100}%`, width: `${band.width * 100}%` }} />)}
             {mondays.map(monday => <Box key={monday.getTime()} css={styles.weekRule} style={{ left: `${axisFraction(axis, monday) * 100}%` }} />)}
             {resource.jobs.map((job, i) => bar(`job:${i}`, job.start, job.end,
-                { "data-kind": job.start.getTime() <= day.getTime() ? "prior" : "next", "data-refusal": about(job) ? "" : undefined }, job.label))}
+                { "data-kind": compareDate(job.start, day) <= 0 ? "prior" : "next", "data-refusal": about(job) ? "" : undefined }, job.label))}
             {/* A run's link into it, for the highlight (#1409): its load takes the landing's flare and the steady glow, its own fill kept. */}
             {loadSpan !== undefined && hold !== undefined && <Box css={styles.bar} style={loadSpan} data-kind="load" data-allocation-load=""
                 data-draft={draft ? "" : undefined} data-over={line.over ? "" : undefined} data-focus={focus ? "" : undefined} data-link-lit={lit ? "" : undefined}

@@ -2,7 +2,10 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-/** Shared UTC boundaries for Calendar and Roster, and the one test of a place in time against a window. */
+/**
+ * Shared UTC boundaries — a day's start, a week's, and whether two instants fall on one day — and the one test of a place
+ * in time against a window.
+ */
 import { DateTimeType, compareFor, type option } from "@elaraai/east";
 
 /** A day, in milliseconds. */
@@ -22,6 +25,19 @@ export function weekStart(date: Date, sunday: boolean): Date {
 }
 
 const compareDate = compareFor(DateTimeType);
+
+/**
+ * Whether two instants fall on one UTC day: their days' starts, by East's own ordering (east-workspace#1650), never by
+ * their epochs or the words a formatter prints of them. What marks a Calendar's day as today, and says a save's time
+ * alone where it was made today.
+ *
+ * @param a - One instant
+ * @param b - The other
+ * @returns Whether they fall on one UTC day
+ */
+export function sameDay(a: Date, b: Date): boolean {
+    return compareDate(dayStart(a), dayStart(b)) === 0;
+}
 
 /**
  * Whether a place in time meets a half-open window `[from, to)`: a span that

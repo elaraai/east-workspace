@@ -132,7 +132,10 @@ const ZOOM_TILES: ReadonlySet<string> = new Set<RecordTile>(["day", "week", "mon
 /** A bucket's mean length, in ms: how far a run of them around an instant reaches, before the calendar cuts them. */
 const BUCKET_MS: Readonly<Record<RecordTile, number>> = { day: 864e5, week: 6048e5, month: 2629746e3, quarter: 7889238e3, year: 31556952e3 };
 
-/** Each bucket of a resolution from one instant to another, by its start, in ms: at most ten thousand. */
+/**
+ * Each bucket of a resolution from one instant to another, by its start, in ms: at most ten thousand. The axis's domain
+ * is numbers, as a zoom's window is: arithmetic on them, never an ordering of East DateTimes (#1650).
+ */
 function bucketsOver(tile: RecordTile, from: number, to: number): number[] {
     const out: number[] = [];
     for (let at = tileStart(tile, new Date(from)); at.getTime() < to && out.length < 10_000; at = tileNext(tile, at)) out.push(at.getTime());

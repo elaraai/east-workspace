@@ -43,7 +43,7 @@ import { useBinFocusTarget } from "./bin-focus.js";
 import { arrivalChoices, resourceChoices, type ChoiceWords } from "./choices.js";
 import { dropTarget, gripCoord, laneCoord, resourceCellCoord, type AllocationDrag, type Grip, type Target } from "./drag.js";
 import type { AllocationFit } from "./fit.js";
-import { bandLine, narrowBands, rowStatus, tableBands, tableRows, type TableBand, type TableRow } from "./table-rows.js";
+import { bandLine, narrowBands, ownsRow, rowStatus, tableBands, tableRows, type TableBand, type TableRow } from "./table-rows.js";
 import { NarrowedEmpty, type AllocationNarrowed } from "./narrowed.js";
 import { a, lower, one, useNouns } from "./nouns.js";
 import type { AllocationBinOp, AllocationOptimised } from "./optimise.js";
@@ -298,8 +298,7 @@ function selects(selection: Selection | undefined, row: TableRow, plan: Day, hig
     const shown = row.bin === undefined ? undefined : plan.bins.get(row.bin);
     if (highlight !== undefined && shown?.arrival.type === "some" && shown.arrival.value === highlight) return "row";
     if (selection === undefined) return undefined;
-    if (selection.type === "bin") return row.bin === selection.id ? "row" : undefined;
-    if (selection.type === "slot") return row.kind === "free" && row.lane === selection.lane && row.slotAt.getTime() === selection.at ? "row" : undefined;
+    if (selection.type === "bin" || selection.type === "slot") return ownsRow(selection, row) ? "row" : undefined;
     const bin = row.bin === undefined ? undefined : plan.bins.get(row.bin);
     return bin?.parts.has(selection.key) === true ? "resource" : undefined;
 }

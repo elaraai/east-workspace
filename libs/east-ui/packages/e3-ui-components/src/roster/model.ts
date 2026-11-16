@@ -776,7 +776,8 @@ export const NO_PAY: WeekPay = { pay: new SortedMap([], compareString), failed: 
 export class RosterPayCache {
     private kept = new Map<string, Asked>();
     private context: Context | undefined;
-    private start: number | undefined;
+    /** The week the answers kept are of, by its first day: another week, by East's ordering, asks everyone again (#1650). */
+    private start: Date | undefined;
 
     /**
      * The week's pay.
@@ -789,7 +790,7 @@ export class RosterPayCache {
      * @returns Each duty's cost, and whose pay threw
      */
     run(domain: RosterDomain, pay: (bytes: Uint8Array) => Pay, week: Week, start: Date, context: Context): WeekPay {
-        if (!Object.is(context, this.context) || this.start !== start.getTime()) { this.kept.clear(); this.context = context; this.start = start.getTime(); }
+        if (!Object.is(context, this.context) || this.start === undefined || compareDate(this.start, start) !== 0) { this.kept.clear(); this.context = context; this.start = start; }
         const byWho = new SortedMap<string, { who: Who; duties: SortedMap<string, Assignment> }>([], compareString);
         for (const [key, duty] of week.assignments) {
             const id = whoKey(duty.who);
@@ -834,7 +835,8 @@ interface WorkedOut { readonly week: Week; readonly coverage: ReadonlyMap<Slot, 
  * they are. A new domain or context works out every week again.
  */
 export class RosterSpanCoverage {
-    private kept = new Map<number, WorkedOut>();
+    /** Each week's coverage as last worked out, by its first day, in East's order (#1650). */
+    private kept = new SortedMap<Date, WorkedOut>([], compareDate);
     private domain: RosterDomain | undefined;
     private context: Context | undefined;
 
@@ -850,13 +852,13 @@ export class RosterSpanCoverage {
     run(domain: RosterDomain, context: Context, weeks: readonly Pick<WeekState, "start" | "week">[],
         primary: { readonly start: Date; readonly coverage: ReadonlyMap<Slot, Coverage> }): readonly ReadonlyMap<Slot, Coverage>[] {
         if (!Object.is(domain, this.domain) || !Object.is(context, this.context)) { this.kept.clear(); this.domain = domain; this.context = context; }
-        const next = new Map<number, WorkedOut>();
+        const next = new SortedMap<Date, WorkedOut>([], compareDate);
         const made = weeks.map(({ start, week }) => {
-            const before = this.kept.get(start.getTime());
+            const before = this.kept.get(start);
             const coverage = compareDate(start, primary.start) === 0 ? primary.coverage
                 : before !== undefined && domain.sameWeek(before.week, week) ? before.coverage
                 : domain.coverage(week, context, NO_PAY.pay);
-            next.set(start.getTime(), { week, coverage });
+            next.set(start, { week, coverage });
             return coverage;
         });
         this.kept = next;

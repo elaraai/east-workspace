@@ -29,6 +29,8 @@ export function timeRulerUnits<I>(scale: Scale<I, string>, words: TimeWords = TI
     let start = interval.floor(new Date(min));
     if (decade) start.setUTCFullYear(Math.floor(start.getUTCFullYear() / 10) * 10);
     const buckets: ScaleBucket<Date>[] = [];
+    // The scale's own numbers, as `toNumber` reads its dates: each period's place along the track is arithmetic on them,
+    // never an ordering of East DateTimes (#1650).
     while (start.getTime() < covered && buckets.length < MAX_BUCKETS) {
         const end = interval.offset(start, decade ? 10 : 1);
         buckets.push({ index: buckets.length, start, end,

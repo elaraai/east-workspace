@@ -152,6 +152,7 @@ import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
 import { draftedRow, rowCodec } from "../shared/schedule/records.js";
 import { entryRefusals, refusedFields, type RefusedFields } from "../shared/schedule/refusals.js";
 import { kindPlural } from "../shared/schedule/words.js";
+import { sameDay } from "../shared/schedule/window.js";
 import { authorOf } from "../shared/records/author.js";
 import { entityId, refOfId, type DrawnItem, type DrawnLink, type DrawnNet, type DrawnZone, type SchematicDrawn, type SchematicRef } from "./canvas/drawn.js";
 import type { SchematicCounts, SchematicDrawingCount, SchematicSavedRecord, SchematicUncounted } from "./counts.js";
@@ -1203,7 +1204,9 @@ function DrawingView({ styles, words, counts, records }: ViewProps) {
     }), [records]);
     const { result } = useTrackedEvaluation(read);
     const saved = result.ok ? result.value : [];
-    const today = words.date(new Date());
+    // Each save's time when it was made today, its date and time otherwise: its day by East's ordering (#1650), never by
+    // the words the formatter prints of it.
+    const now = new Date();
     // Each count, its label and its name as running text writes it: a number, a placeholder while it is read, or — no
     // read can say it — a line naming it and why (#1393).
     const sorts = [
@@ -1245,7 +1248,7 @@ function DrawingView({ styles, words, counts, records }: ViewProps) {
                 <Box css={styles.section}>
                     {saved.map((save) => (
                         <Box key={save.slot} css={styles.fact} data-inspector-saved={save.slot}>
-                            {m.inspectorSaved({ name: save.name, when: stringEqual(words.date(save.at), today) ? words.time(save.at) : words.dateTime(save.at), by: save.by })}
+                            {m.inspectorSaved({ name: save.name, when: sameDay(save.at, now) ? words.time(save.at) : words.dateTime(save.at), by: save.by })}
                         </Box>
                     ))}
                 </Box>

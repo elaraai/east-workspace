@@ -75,6 +75,8 @@ export function horizonDensity(lo: number, hi: number, months: PlanNestedMonths,
     const interval = resolutionInterval(unit);
     const starts: number[] = [];
     const buckets: HorizonDensityBucket[] = [];
+    // The horizon is a span of milliseconds, each bucket a fraction of it: arithmetic on the track's numbers, never an
+    // ordering of East DateTimes (#1650).
     for (let start = interval.floor(new Date(lo)); start.getTime() < hi; start = interval.offset(start, 1)) {
         const end = interval.offset(start, 1).getTime();
         starts.push(start.getTime());

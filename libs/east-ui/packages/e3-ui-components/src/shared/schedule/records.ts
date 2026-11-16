@@ -24,13 +24,13 @@ import {
 import type { ScheduleKindType, SchedulePeriodsKindType } from "@elaraai/e3-ui/internal";
 import type { EditHistory, EntryVersion } from "@elaraai/east-ui-components";
 import type { ScheduleChange, ScheduleEditingRecord, ScheduleEntryRef, ScheduleRowRead } from "./editing.js";
+import { meetsWindow } from "./window.js";
 
 /** A builder's periods, as the payload carries them. */
 export type SchedulePeriodsValue = ValueTypeOf<typeof SchedulePeriodsKindType>;
 
 const stringEqual = equalFor(StringType);
 const sameTypeValue = equalFor(EastTypeType);
-const dateCompare = (a: Date, b: Date) => a.getTime() - b.getTime();
 const parseInstant = parseFor(DateTimeType);
 
 /** A record's rows, as bytes and back: a period's, a target's, by their row type. */
@@ -206,7 +206,7 @@ export function periodRowsRead(periods: SchedulePeriodsValue, from: Date, to: Da
     const rows = keptAtRevision(periods.entries, () => periods.rows(from, to));
     return key => {
         const at = parseInstant(key);
-        if (!at.success || dateCompare(at.value, from) < 0 || dateCompare(at.value, to) >= 0) return undefined;
+        if (!at.success || !meetsWindow(at.value, undefined, from, to)) return undefined;
         const got = rows();
         if (got.type !== "some") return none;
         const row = got.value.get(at.value);

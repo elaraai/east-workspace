@@ -72,6 +72,7 @@ export function calendarCommands(value: CalendarValue, editing: ScheduleEditing,
     const validate = (source: CalendarSource, at: CalendarPlacement): string | undefined => {
         const { kind } = source;
         if (!editing.available(kind.key)) return `${kind.name} is not ready to edit`;
+        // How long it lasts, in milliseconds: a duration's arithmetic, never an ordering of East DateTimes (#1650).
         if (!Number.isFinite(at.start.getTime()) || !Number.isFinite(at.end.getTime()) || at.end.getTime() - at.start.getTime() < QUARTER) return "An event must last at least 15 minutes";
         if (at.resource.type === "some") {
             const ref = at.resource.value;

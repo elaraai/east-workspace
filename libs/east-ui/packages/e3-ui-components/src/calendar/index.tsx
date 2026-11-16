@@ -77,7 +77,7 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
-import { SortedMap, StringType, compareFor, equalFor, fromEastTypeValue, none, some, type EastType } from "@elaraai/east";
+import { DateTimeType, SortedMap, StringType, compareFor, equalFor, fromEastTypeValue, none, some, type EastType } from "@elaraai/east";
 import { CalendarComponent } from "@elaraai/e3-ui/internal";
 import type { RecordTile } from "@elaraai/east-ui/internal";
 import {
@@ -228,9 +228,11 @@ function clearOfPanes(element: HTMLElement, shown: Pick<DOMRectReadOnly, "left" 
     view.scrollLeft += box.width >= right - left ? box.left - left : (box.left + box.right - left - right) / 2;
 }
 
-/** Whether two ranges are one window: the same bounds. */
+const sameDate = equalFor(DateTimeType);
+
+/** Whether two ranges are one window: the same bounds, by East's own equality (#1650). */
 function sameRange(a: CalendarRange, b: CalendarRange): boolean {
-    return a.from.getTime() === b.from.getTime() && a.to.getTime() === b.to.getTime();
+    return sameDate(a.from, b.from) && sameDate(a.to, b.to);
 }
 
 /** No drafts: a read-only Calendar's. */
@@ -627,8 +629,7 @@ function CalendarFrame(props: HostProps) {
     }, [editing, acted]);
     const displayRange = narrow ? (dates.windowParts.length > 0 ? range : calendarRange(view, value.settings)) : range;
     const standardRange = calendarRange(view, value.settings);
-    const rangeLabel = displayRange.from.getTime() !== standardRange.from.getTime() || displayRange.to.getTime() !== standardRange.to.getTime()
-        ? format.range(displayRange.from, new Date(displayRange.to.getTime() - 1)) : undefined;
+    const rangeLabel = !sameRange(displayRange, standardRange) ? format.range(displayRange.from, new Date(displayRange.to.getTime() - 1)) : undefined;
     const navigationDate = view.date;
     // A step of the period, as Previous and Next take it (#1398): what `[` and `]` do from anywhere in the frame, as the
     // Roster's and the Allocation's do.

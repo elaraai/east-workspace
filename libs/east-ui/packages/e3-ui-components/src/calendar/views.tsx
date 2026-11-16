@@ -51,7 +51,7 @@ import { Box, Button, chakra, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
 import type { IconName } from "@fortawesome/fontawesome-svg-core";
-import { equalFor, none } from "@elaraai/east";
+import { DateTimeType, SortedSet, compareFor, equalFor, none } from "@elaraai/east";
 import { Schedule } from "@elaraai/e3-ui/internal";
 import { tileNext } from "@elaraai/east-ui/internal";
 import { optimiseMessages, takeKey, useDragEventChip, useDragEventEdge, useDragMessages, useDropCell, type CellCoord, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
@@ -62,6 +62,7 @@ import {
 import { pagedLoadingMessages, type PeriodRead } from "../shared/loading.js";
 import type { ScheduleCellShade, ScheduleCellShading } from "../shared/schedule/cells.js";
 import { eventsNotCounted, lowerWord } from "../shared/schedule/words.js";
+import { meetsWindow, sameDay } from "../shared/schedule/window.js";
 import type { CalendarBucket } from "./cells.js";
 import { NowChip, NowLine } from "../shared/time/now-line.js";
 import { drawSpan } from "../shared/time/drag.js";
@@ -170,6 +171,10 @@ interface CalendarGhost {
     readonly run: string;
 }
 
+/** Two instants in order, and whether they are one: East's own ordering and equality (#1650). */
+const compareDate = compareFor(DateTimeType);
+const sameDate = equalFor(DateTimeType);
+
 /**
  * The ghosts a run's highlight shows (R15): where an event the run removed stood, struck through; where one it moved
  * stood, dashed — among the events as they stand now, while each is still the run's draft.
@@ -186,16 +191,16 @@ function ghostsOf(props: Pick<CalendarViewsProps, "optimised" | "lit" | "items" 
         if (op === undefined || was.start.type !== "some" || !draftedIn(editing, was)) continue;
         const now = items.find(item => item.kind === was.kind && item.key === was.key);
         if (op.op === "del" || now === undefined) { ghosts.push({ item: was, op: "del", run: op.run }); continue; }
-        const moved = now.start.type !== "some" || now.start.value.getTime() !== was.start.value.getTime()
-            || (now.end.type === "some" && was.end.type === "some" && now.end.value.getTime() !== was.end.value.getTime()) || !sameResourceOf(now, was);
+        const moved = now.start.type !== "some" || !sameDate(now.start.value, was.start.value)
+            || (now.end.type === "some" && was.end.type === "some" && !sameDate(now.end.value, was.end.value)) || !sameResourceOf(now, was);
         if (moved) ghosts.push({ item: was, op: "from", run: op.run });
     }
     return ghosts;
 }
 
-/** Whether two events are on one resource. */
+/** Whether two events are on one resource: the record contract's equality of their references. */
 function sameResourceOf(a: CalendarItem, b: CalendarItem): boolean {
-    return a.resource.type === "none" ? b.resource.type === "none" : b.resource.type === "some" && a.resource.value.kind === b.resource.value.kind && a.resource.value.key === b.resource.value.key;
+    return a.resource.type === "none" ? b.resource.type === "none" : b.resource.type === "some" && sameResource(a.resource.value, b.resource.value);
 }
 
 /**
@@ -214,17 +219,17 @@ function draftedIn(editing: ScheduleEditing | undefined, event: { readonly kind:
  * The days a run changed (§9.5): the day of every event it added or changed, now and before — whose heads' counts flash.
  *
  * @param props - The views' props
- * @returns Each day's date text
+ * @returns Each day, by its start, in East's order
  */
-function changedDaysOf(props: Pick<CalendarViewsProps, "optimised" | "items">): ReadonlySet<string> {
-    const days = new Set<string>();
+function changedDaysOf(props: Pick<CalendarViewsProps, "optimised" | "items">): SortedSet<Date> {
+    const days = new SortedSet<Date>([], compareDate);
     const { optimised, items } = props;
     if (optimised === undefined) return days;
     for (const [key] of optimised.ops) {
         const was = optimised.previous.get(key);
-        if (was?.start.type === "some") days.add(dateText(was.start.value));
+        if (was?.start.type === "some") days.add(dayStart(was.start.value));
         const now = items.find(item => opKey(item.kind, item.key) === key);
-        if (now?.start.type === "some") days.add(dateText(now.start.value));
+        if (now?.start.type === "some") days.add(dayStart(now.start.value));
     }
     return days;
 }
@@ -549,7 +554,7 @@ interface EventFacts {
  */
 function eventFacts(view: EventView, item: CalendarItem, window: { readonly from: Date; readonly to: Date } | undefined): EventFacts {
     const id = keyOf(item);
-    const start = item.start.type === "some" ? item.start.value.getTime() : view.range.from.getTime();
+    const startAt = item.start.type === "some" ? item.start.value : view.range.from;
     const drafted = draftedIn(view.editing, item);
     // What a run of the optimiser did to the event (#1409, R7, R17), while it is still the run's draft.
     const op = drafted ? calendarOpOf(view.optimised, item) : undefined;
@@ -565,9 +570,10 @@ function eventFacts(view: EventView, item: CalendarItem, window: { readonly from
         provenance: marked === "add" ? optimiseMessages.entryAdded({ run })
             : marked === "chg" && was !== undefined ? optimiseMessages.entryChanged({ previous: previousWords(was, view), run }) : undefined,
         revealing: view.reveal !== undefined && view.reveal === id, onRevealed: view.onRevealed,
-        start, continued: window !== undefined && item.start.type === "some" && start < window.from.getTime(),
-        startEdge: window === undefined || start >= window.from.getTime(),
-        endEdge: window === undefined || (item.end.type === "some" && item.end.value.getTime() <= window.to.getTime()),
+        // Its start as an epoch, a primitive its block's memo compares; where it stands against the window, by East's ordering.
+        start: startAt.getTime(), continued: window !== undefined && item.start.type === "some" && compareDate(item.start.value, window.from) < 0,
+        startEdge: window === undefined || compareDate(startAt, window.from) >= 0,
+        endEdge: window === undefined || (item.end.type === "some" && compareDate(item.end.value, window.to) <= 0),
         select: view.select, grab: view.drag.grab, open: view.onOpen,
     };
 }
@@ -890,7 +896,7 @@ function DropLane({ props, from, to, resource, along = "y", wholeDay = false, ch
             caption: props.drag.caption, name,
             onHover: (x, y, payload) => {
                 const next = props.drag.preview(coordinate(x, y, payload), payload);
-                setLanding(before => before?.start.getTime() === next?.start.getTime() && before?.end.getTime() === next?.end.getTime() ? before : next);
+                setLanding(before => before !== undefined && next !== undefined && sameDate(before.start, next.start) && sameDate(before.end, next.end) ? before : next);
             },
             // A drag resting elsewhere, or let go or cancelled, leaves no preview behind: a lane rested on again shows
             // where the drop lands now, never first where it landed before (#1594).
@@ -1118,7 +1124,7 @@ function TimeGrid(props: CalendarViewsProps) {
     const ghosts = ghostsOf(props);
     const changedDays = changedDaysOf(props);
     // Whether the now line's chip shows in the hour column: today among the grid's days — the Resources view's one day.
-    const today = resources ? columns.count > 0 && dateText(day) === dateText(props.now) : props.range.days.some(column => dateText(column) === dateText(props.now));
+    const today = resources ? columns.count > 0 && sameDay(day, props.now) : props.range.days.some(column => sameDay(column, props.now));
     return <><Box ref={scroll} css={props.styles.scroll} data-calendar-time-grid="" data-calendar-unread={props.read.state === "held" ? undefined : props.read.state}
         onScroll={event => { keep(event.currentTarget); follow(event.currentTarget, false); }}>
         <Box css={props.styles.timeGridContent} data-resources={resources ? "" : undefined} data-single={!resources && columns.count === 1 ? "" : undefined} style={{ "--calendar-columns": columns.count } as CSSProperties}>
@@ -1128,10 +1134,10 @@ function TimeGrid(props: CalendarViewsProps) {
                     <Box css={props.styles.resourceHeading}>{pagedFailureAt(paged!, column.at) === undefined && <PlaceholderShape kind="label" index={column.at} />}</Box>
                 </Box>
                 : <chakra.button type="button" key={column.key} css={props.styles.columnHead} style={place(i)} data-calendar-column={placed(i)}
-                data-today={dateText(column.day) === dateText(props.now) ? "" : undefined} onClick={() => !resources && props.setView({ ...props.view, period: "day", date: column.day.getTime() })}>
+                data-today={sameDay(column.day, props.now) ? "" : undefined} onClick={() => !resources && props.setView({ ...props.view, period: "day", date: column.day.getTime() })}>
                 {column.row === undefined ? <>
                     <Box css={props.styles.dayHeading} data-calendar-day-heading=""><Box as="span" css={props.styles.weekday}>{props.format.weekday(column.day)}</Box><Box as="span" css={props.styles.dayDate}>{column.day.getUTCDate()}</Box></Box>
-                    <Box css={props.styles.columnMeta} data-calendar-day-count="" data-opn={changedDays.has(dateText(column.day)) ? "" : undefined}>
+                    <Box css={props.styles.columnMeta} data-calendar-day-count="" data-opn={changedDays.has(dayStart(column.day)) ? "" : undefined}>
                         <Counted props={props} index={i}>{dayCountWords(props, props.items.filter(item => inWindow(item, column.day, new Date(column.day.getTime() + DAY))).length)}</Counted>
                     </Box>
                 </> : <>
@@ -1175,7 +1181,7 @@ function TimeGrid(props: CalendarViewsProps) {
                             const ge = Math.min(to.getTime(), ghost.item.end.type === "some" ? ghost.item.end.value.getTime() : gs);
                             return <GhostBlock key={`ghost:${eventKey(ghost.item)}`} ghost={ghost} props={props} geometry={{ top: (gs - from.getTime()) / DAY * height, height: Math.max(16, (ge - gs) / DAY * height), left: "2px", width: "calc(100% - 4px)" }} />;
                         })}
-                        {dateText(from) === dateText(props.now) && <NowLine styles={props.styles} at={(props.now.getTime() - from.getTime()) / DAY} along="y" dot data-calendar-now="" />}
+                        {sameDay(from, props.now) && <NowLine styles={props.styles} at={(props.now.getTime() - from.getTime()) / DAY} along="y" dot data-calendar-now="" />}
                     </DropLane>;
                 })}
             </Box>
@@ -1188,8 +1194,9 @@ function MonthDay({ props, day }: { props: CalendarViewsProps; day: Date }) {
     const ref = useRef<HTMLDivElement>(null);
     const [limit, setLimit] = useState(3);
     const next = new Date(day.getTime() + DAY);
-    const items = chronological(props.items.filter(item => item.start.type === "some" && item.start.value.getTime() >= day.getTime() && item.start.value.getTime() < next.getTime()));
-    const ghosts = ghostsOf(props).filter(ghost => ghost.item.start.type === "some" && ghost.item.start.value.getTime() >= day.getTime() && ghost.item.start.value.getTime() < next.getTime());
+    // The events starting on the day, and the ghosts of those that did: the day's half-open window, the shared test.
+    const items = chronological(props.items.filter(item => item.start.type === "some" && meetsWindow(item.start.value, undefined, day, next)));
+    const ghosts = ghostsOf(props).filter(ghost => ghost.item.start.type === "some" && meetsWindow(ghost.item.start.value, undefined, day, next));
     useLayoutEffect(() => {
         const element = ref.current; if (element === null) return;
         const measure = () => {
@@ -1200,7 +1207,7 @@ function MonthDay({ props, day }: { props: CalendarViewsProps; day: Date }) {
         measure(); const observer = new ResizeObserver(measure); observer.observe(element); return () => observer.disconnect();
     }, [items.length]);
     return <DropLane props={props} from={day} to={next} resource={none} wholeDay css={props.styles.monthDay} elementRef={ref} outside={day.getUTCMonth() !== new Date(props.view.date).getUTCMonth()}>
-        <chakra.button type="button" css={props.styles.dayNumber} data-calendar-day-number="" data-today={dateText(day) === dateText(props.now) ? "" : undefined} onClick={() => props.setView({ ...props.view, period: "day", date: day.getTime() })}>{day.getUTCDate() === 1 ? props.format.monthDay(day) : day.getUTCDate()}{dateText(day) === dateText(props.now) && " · TODAY"}</chakra.button>
+        <chakra.button type="button" css={props.styles.dayNumber} data-calendar-day-number="" data-today={sameDay(day, props.now) ? "" : undefined} onClick={() => props.setView({ ...props.view, period: "day", date: day.getTime() })}>{day.getUTCDate() === 1 ? props.format.monthDay(day) : day.getUTCDate()}{sameDay(day, props.now) && " · TODAY"}</chakra.button>
         {/* A period not read yet: the cell washed below its date, and no "+N more" (#1398). */}
         {pendingOf(props.read) && <Box css={props.styles.monthWash}><LoadingWash /></Box>}
         {items.slice(0, limit).map(item => <EventBlock key={keyOf(item)} item={item} facts={eventFacts(props, item, undefined)} chip />)}
@@ -1417,7 +1424,8 @@ const TimelinePlot = memo(function TimelinePlot({ ctx, row, layout, index }: Tim
         <PlotShading shades={shades} styles={styles} />
         {layout.items.map((item, i) => {
             const at = layout.spans[i]!;
-            // Out of the period, by the period's own rule.
+            // Out of the period, by the period's own rule — over the plot's spans, a month's rounded to whole days: arithmetic on
+            // the plot's numbers, never an ordering of East DateTimes (#1650).
             if (!(at.start < to && (at.end > from || at.start >= from))) return null;
             // Clipped to the period.
             const first = Math.max(from, at.start), last = Math.min(to, at.end);
@@ -1431,7 +1439,7 @@ const TimelinePlot = memo(function TimelinePlot({ ctx, row, layout, index }: Tim
             return <GhostBlock key={`ghost:${eventKey(ghost.item)}`} ghost={ghost} props={view} along="x" geometry={{ top: geometry.top(0), height: geometry.bar,
                 left: `${Math.max(0, gs - range.from.getTime()) / duration * 100}%`, width: `${Math.max(0, Math.min(range.to.getTime(), ge) - Math.max(range.from.getTime(), gs)) / duration * 100}%` }} />;
         })}
-        {now >= range.from && now < range.to && <NowLine styles={styles} at={(now.getTime() - range.from.getTime()) / duration} data-calendar-now="" />}
+        {meetsWindow(now, undefined, range.from, range.to) && <NowLine styles={styles} at={(now.getTime() - range.from.getTime()) / duration} data-calendar-now="" />}
     </DropLane>;
 }, sameTimelinePlot);
 /** A resource's row: its head, its booked hours and its plot — drawn again only as what it shows moves (CL9, `sameTimelineRow`). */
@@ -1622,7 +1630,7 @@ function Timeline(props: CalendarViewsProps) {
     useLayoutEffect(() => {
         const element = scroll.current;
         const at = props.now.getTime();
-        if (props.nowRevision === seenNow.current || element === null || element.clientWidth <= 0 || at < range.from.getTime() || at >= range.to.getTime()) return;
+        if (props.nowRevision === seenNow.current || element === null || element.clientWidth <= 0 || !meetsWindow(props.now, undefined, range.from, range.to)) return;
         seenNow.current = props.nowRevision;
         element.scrollLeft = timelineScrollTo(range, at, 1 / 3, timelineDayWidth(range, view.period, element.clientWidth), element.clientWidth);
         publish();

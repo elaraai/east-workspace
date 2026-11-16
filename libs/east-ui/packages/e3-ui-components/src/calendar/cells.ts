@@ -67,7 +67,7 @@
  */
 
 import { useMemo } from "react";
-import { StringType, equalFor } from "@elaraai/east";
+import { DateTimeType, StringType, compareFor, equalFor } from "@elaraai/east";
 import { tileNext, tileStart } from "@elaraai/east-ui/internal";
 import {
     useScheduleCells, type ScheduleCellBucket, type ScheduleCellKind, type ScheduleCellPaged, type ScheduleCellResources, type ScheduleCellSpan,
@@ -82,6 +82,7 @@ import type { CalendarEventPart } from "./window.js";
 export type CalendarBucket = "day" | "week" | "month";
 
 const stringEqual = equalFor(StringType);
+const compareDate = compareFor(DateTimeType);
 /** No event a kind's host wants by its key beyond what the reader reads: the Calendar reads one event by key itself. */
 const NO_WANTED: readonly string[] = [];
 
@@ -97,7 +98,7 @@ const NO_WANTED: readonly string[] = [];
  */
 export function calendarBuckets(range: { readonly from: Date; readonly to: Date }, bucket: CalendarBucket): ScheduleCellBucket[] {
     const out: ScheduleCellBucket[] = [];
-    for (let at = tileStart(bucket, range.from); at.getTime() < range.to.getTime();) {
+    for (let at = tileStart(bucket, range.from); compareDate(at, range.to) < 0;) {
         const next = tileNext(bucket, at);
         out.push({ start: at.getTime(), end: next.getTime() });
         at = next;

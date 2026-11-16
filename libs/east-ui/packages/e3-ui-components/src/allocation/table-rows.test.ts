@@ -12,7 +12,7 @@
  */
 import { describe, expect, test } from "vitest";
 import { SortedMap, SortedSet, StringType, compareFor, none, some, variant, type option } from "@elaraai/east";
-import { DEFAULT_BANDS, narrowBands, narrowRows, tableBands, tableRows, type TableRow } from "./table-rows.js";
+import { DEFAULT_BANDS, narrowBands, narrowRows, ownsRow, tableBands, tableRows, type TableRow } from "./table-rows.js";
 import type { Bin, Day, Slot } from "./model.js";
 
 const byString = compareFor(StringType);
@@ -222,6 +222,34 @@ describe("narrowBands (#1336)", () => {
                 expect(band.quantity).toBe(rows.filter(row => row.kind === "bin").reduce((sum, row) => sum + plan.bins.get(row.bin!)!.quantity, 0));
                 expect(band.bins + band.reserved + band.free).toBe(band.rows.length);
             });
+        }
+    });
+});
+
+describe("ownsRow (A44, #1650)", () => {
+    test("a bin's selection is its row's own alone, and a free slot's — its time as an epoch — its free row's alone, over 200 random days", () => {
+        for (let seed = 1; seed <= 200; seed++) {
+            const { slots, plan } = randomDay(seed);
+            const rows = tableRows(slots, plan);
+            for (const row of rows) {
+                const selection = row.bin !== undefined ? { type: "bin" as const, id: row.bin } : { type: "slot" as const, lane: row.lane, at: row.slotAt.getTime() };
+                expect(rows.filter(other => ownsRow(selection, other)), `seed ${seed} ${row.key}`).toEqual([row]);
+            }
+        }
+    });
+
+    test("a slot's selection owns no bin's row in its slot, nor a free row of another lane or another time; a resource's selection owns no row", () => {
+        for (let seed = 1; seed <= 50; seed++) {
+            const { slots, plan } = randomDay(seed);
+            for (const row of tableRows(slots, plan)) {
+                const at = row.slotAt.getTime();
+                if (row.kind !== "free") expect(ownsRow({ type: "slot", lane: row.lane, at }, row), `seed ${seed} ${row.key}`).toBe(false);
+                else {
+                    expect(ownsRow({ type: "slot", lane: row.lane, at: at + 60_000 }, row), `seed ${seed} ${row.key}`).toBe(false);
+                    expect(ownsRow({ type: "slot", lane: `${row.lane}-other`, at }, row), `seed ${seed} ${row.key}`).toBe(false);
+                }
+                expect(ownsRow({ type: "resource", key: RESOURCES[0]! }, row)).toBe(false);
+            }
         }
     });
 });

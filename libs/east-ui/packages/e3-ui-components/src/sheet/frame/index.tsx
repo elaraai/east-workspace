@@ -75,6 +75,7 @@ import {
 import { LoadingReveal, keptRead } from "@elaraai/east-ui-components/internal";
 import { FollowSources, type FollowedSources } from "../../shared/schedule/follow-sources.js";
 import { sourcePart, type KeyVisibilityWords } from "../../shared/schedule/visibility.js";
+import { sameDay } from "../../shared/schedule/window.js";
 import type { SheetDropCard, SheetDropHost, SheetDropTemplate } from "../drop.js";
 import { SheetFooter } from "../Footer.js";
 import {
@@ -167,7 +168,8 @@ export function useLastCommit(history: SheetValue["history"], words: SheetWords)
     const read = useCallback(() => (commits === undefined ? none : commits()), [commits]);
     const { result } = useTrackedEvaluation(read);
     const last = result.ok && result.value.type === "some" ? result.value.value[0] : undefined;
-    const when = last === undefined ? undefined : stringEqual(words.date(last.at), words.date(todayUtc())) ? words.time(last.at) : words.dateTime(last.at);
+    // Its time when it was made today: its day by East's ordering (#1650), never by the words the formatter prints of it.
+    const when = last === undefined ? undefined : sameDay(last.at, todayUtc()) ? words.time(last.at) : words.dateTime(last.at);
     // The person who made it; the platform's own commits — the deploy's (`system:deploy`) — and a write that named no
     // one name no one.
     const by = last === undefined ? undefined : authorOf(last.actor) ?? "";

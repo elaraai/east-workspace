@@ -31,7 +31,7 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
-import { ArrayType, StringType, equalFor, isVariant, none, some, variant, type option } from "@elaraai/east";
+import { ArrayType, SortedMap, StringType, equalFor, isVariant, none, some, variant, type option } from "@elaraai/east";
 import { RosterComponent, RosterContextType, RosterIssueType, SCHEDULE_REFERENCE } from "@elaraai/e3-ui/internal";
 import {
     BannerView, BuilderFrame, SessionBanners, fieldBreachIssue, historyShortcut, implementUIComponent, optimiseMessages, takeKey, typedInto, useContainerBelow, useDataStable,
@@ -170,12 +170,13 @@ function RosterFrame(props: FrameProps) {
     const domain = rosterDomain(source.duty.rowType);
     // Every person and activity, kept while its data holds: a payload built again asks the pay nothing again.
     const context = useDataStable(useMemo(() => rosterContext(source), [source]), sameContext);
-    // Each read's duties placed once: the reader asks whether the week holds any, and the frame draws them.
-    const placed = useRef<{ context: unknown; by: Map<number, WeakMap<ReadonlyMap<string, StoredDuty>, PlacedDuties>> }>({ context: undefined, by: new Map() });
+    // Each read's duties placed once: the reader asks whether the week holds any, and the frame draws them — each week's
+    // kept by its first day, in East's order (#1650).
+    const placed = useRef<{ context: unknown; by: SortedMap<Date, WeakMap<ReadonlyMap<string, StoredDuty>, PlacedDuties>> }>({ context: undefined, by: new SortedMap([], compareDate) });
     const place = useCallback((duties: ReadonlyMap<string, StoredDuty>, at: Date): PlacedDuties => {
-        if (!Object.is(placed.current.context, context)) placed.current = { context, by: new Map() };
-        let byDuties = placed.current.by.get(at.getTime());
-        if (byDuties === undefined) { byDuties = new WeakMap(); placed.current.by.set(at.getTime(), byDuties); }
+        if (!Object.is(placed.current.context, context)) placed.current = { context, by: new SortedMap([], compareDate) };
+        let byDuties = placed.current.by.get(at);
+        if (byDuties === undefined) { byDuties = new WeakMap(); placed.current.by.set(at, byDuties); }
         let got = byDuties.get(duties);
         if (got === undefined) { got = placeStored(domain, duties, at, context); byDuties.set(duties, got); }
         return got;
@@ -211,7 +212,7 @@ function RosterFrame(props: FrameProps) {
     // day pressed in a person's Details, in a Month with no Week, selects a duty of any of its weeks — else the span's first.
     const pickedStart = selectionWeek(selection);
     const pickedDuty = selection?.type === "assignment" ? selection.key : undefined;
-    const primary = (pickedStart !== undefined ? weekStates.find(held => held.start.getTime() === pickedStart)
+    const primary = (pickedStart !== undefined ? weekStates.find(held => compareDate(held.start, new Date(pickedStart)) === 0)
         : pickedDuty === undefined ? undefined
             : weekStates.find(held => held.week.assignments.has(pickedDuty)) ?? weekStates.find(held => held.held.assignments.has(pickedDuty))) ?? weekStates[0]!;
     const { start, week, held, duties: draftedDuties, heldDuties: storedDuties, targets, periods } = primary;

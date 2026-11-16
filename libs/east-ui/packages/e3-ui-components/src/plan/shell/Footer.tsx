@@ -34,12 +34,13 @@
 
 import { useMemo, useRef } from "react";
 import { Box } from "@chakra-ui/react";
-import { StringType, equalFor, type ValueTypeOf } from "@elaraai/east";
+import type { ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/e3-ui/internal";
 import { OptimiseLegendItem } from "@elaraai/east-ui-components";
 import { FooterMore, LoadingLine, RecordSliceSaveNotice, footerCut, useFooterFit, useLoadingReveal, useRevealed, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
 import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { pagedLoadingLine } from "../../shared/loading.js";
+import { sameDay } from "../../shared/schedule/window.js";
 import type { PlanTransport } from "./transport.js";
 import { usePlanWords } from "../words.js";
 import type { PlanEventCounts } from "../frame/counts.js";
@@ -58,8 +59,6 @@ export interface PlanSaveNotice {
     /** More than one (`rows`, `print job events`). */
     readonly plural: string;
 }
-
-const stringEqual = equalFor(StringType);
 
 /** Nothing to ask again: an inline canvas reads nothing. */
 const NO_RETRY = () => undefined;
@@ -119,8 +118,9 @@ export function PlanFooter({ styles, items, transport, noun, counts, unread, pen
     if (pending !== undefined) own.push({ key: "pending", text: m.footerPending({ n: pending, count: words.number(pending) }) });
     const saved = counts?.saved;
     if (saved !== undefined) {
-        // Its time when it was today, its date and time otherwise.
-        const today = stringEqual(words.date(saved), words.date(new Date()));
+        // Its time when it was today, its date and time otherwise: its day by East's ordering (#1650), never by the words
+        // the formatter prints of it.
+        const today = sameDay(saved, new Date());
         own.push({ key: "saved", text: m.footerSaved({ when: today ? words.time(saved) : words.dateTime(saved) }) });
     }
     // A run's line shows at once, whatever the reveal says: a run is not a read (#1409).
