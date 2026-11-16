@@ -300,12 +300,19 @@ export type PlanEntryExpr<R extends EastType> =
  * TS lets a callback ignore trailing arguments. A recursive entry arrives as
  * its node ({@link PlanEntryExpr}).
  *
+ * In a series that names one case of a variant field of its rows
+ * (`case: [field, tag]`, #1541), every accessor is handed that case's value
+ * after the row and its key: `(row, key, value)`.
+ *
  * @typeParam R - The entry type
  * @typeParam T - The accessor's East result type
  * @typeParam KT - The entries' key type
+ * @typeParam CV - The value of the case the series names; none for a series that names no case
  */
-export type PlanAccessor<R extends EastType, T extends EastType, KT extends EastType = StringType> =
-    (row: PlanEntryExpr<R>, key: ExprType<KT>) => SubtypeExprOrValue<T>;
+export type PlanAccessor<R extends EastType, T extends EastType, KT extends EastType = StringType, CV extends EastType = never> =
+    [CV] extends [never]
+        ? (row: PlanEntryExpr<R>, key: ExprType<KT>) => SubtypeExprOrValue<T>
+        : (row: PlanEntryExpr<R>, key: ExprType<KT>, value: ExprType<CV>) => SubtypeExprOrValue<T>;
 
 /**
  * An accessor returning a list of ELEMENTS (runs, tiles, chips, marks, …) —
@@ -317,13 +324,26 @@ export type PlanAccessor<R extends EastType, T extends EastType, KT extends East
  * @typeParam T - The element's East type
  * @typeParam K - The kind inferred from the returned elements
  * @typeParam KT - The entries' key type
+ * @typeParam CV - The value of the case the series names (`case`), handed after the key; none for a series that names no case
  */
-export type PlanElementsAccessor<R extends EastType, T extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType> =
-    (row: PlanEntryExpr<R>, key: ExprType<KT>) => PlanElementsInput<T, K>;
+export type PlanElementsAccessor<
+    R extends EastType, T extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType, CV extends EastType = never,
+> = [CV] extends [never]
+    ? (row: PlanEntryExpr<R>, key: ExprType<KT>) => PlanElementsInput<T, K>
+    : (row: PlanEntryExpr<R>, key: ExprType<KT>, value: ExprType<CV>) => PlanElementsInput<T, K>;
 
-/** An accessor returning one kinded VALUE (a `Plan.heatCells` / `Plan.tableCells` result). */
-export type PlanKindedAccessor<R extends EastType, V, KT extends EastType = StringType> =
-    (row: PlanEntryExpr<R>, key: ExprType<KT>) => V;
+/**
+ * An accessor returning one kinded VALUE (a `Plan.heatCells` / `Plan.tableCells` result, a chart's layers).
+ *
+ * @typeParam R - The entry type
+ * @typeParam V - What it returns
+ * @typeParam KT - The entries' key type
+ * @typeParam CV - The value of the case the series names (`case`), handed after the key; none for a series that names no case
+ */
+export type PlanKindedAccessor<R extends EastType, V, KT extends EastType = StringType, CV extends EastType = never> =
+    [CV] extends [never]
+        ? (row: PlanEntryExpr<R>, key: ExprType<KT>) => V
+        : (row: PlanEntryExpr<R>, key: ExprType<KT>, value: ExprType<CV>) => V;
 
 // ============================================================================
 // Identity + children
@@ -636,10 +656,14 @@ export type PlanItemInstantType = DateTimeType | FloatType | IntegerType | Strin
  * @typeParam R - The entry type
  * @typeParam KT - The entries' key type
  * @typeParam I - The collection's item type
+ * @typeParam CV - The value of the case the series names (`case`); none for a series that names no case
  */
-export type PlanItemsEdit<R extends EastType, KT extends EastType, I extends EastType> = true | {
-    /** The item a dropped card becomes, from the drop (the card, the row, the bucket's instant, the minted id), the row and its key. */
-    create: (drop: ExprType<PlanDropType>, row: PlanEntryExpr<R>, key: ExprType<KT>) => SubtypeExprOrValue<I>;
+export type PlanItemsEdit<R extends EastType, KT extends EastType, I extends EastType, CV extends EastType = never> = true | {
+    /** The item a dropped card becomes, from the drop (the card, the row, the bucket's instant, the minted id), the row and its
+     *  key — and, in a series that names a `case`, the case's value after them. */
+    create: [CV] extends [never]
+        ? (drop: ExprType<PlanDropType>, row: PlanEntryExpr<R>, key: ExprType<KT>) => SubtypeExprOrValue<I>
+        : (drop: ExprType<PlanDropType>, row: PlanEntryExpr<R>, key: ExprType<KT>, value: ExprType<CV>) => SubtypeExprOrValue<I>;
 };
 
 /**
@@ -649,9 +673,10 @@ export type PlanItemsEdit<R extends EastType, KT extends EastType, I extends Eas
  * @typeParam R - The entry type
  * @typeParam KT - The entries' key type
  * @typeParam F - The collection its elements' read names
+ * @typeParam CV - The value of the case the series names (`case`); none for a series that names no case
  */
-export type PlanEditOf<R extends EastType, KT extends EastType, F extends string> =
-    string extends F ? never : PlanItemsEdit<R, KT, PlanCollectionItem<R, F>>;
+export type PlanEditOf<R extends EastType, KT extends EastType, F extends string, CV extends EastType = never> =
+    string extends F ? never : PlanItemsEdit<R, KT, PlanCollectionItem<R, F>, CV>;
 
 /** An edit declaration with its entry type erased — what the build machinery reads. */
 type AnyEdit = true | { readonly create: (drop: ExprType<PlanDropType>, entry: ExprType<EastType>, key: ExprType<EastType>) => unknown };
@@ -671,10 +696,13 @@ type AnyEdit = true | { readonly create: (drop: ExprType<PlanDropType>, entry: E
  * @typeParam CU - One step-down's reads
  * @typeParam CF - The folds of its cells
  * @typeParam CS - Several step-downs' reads
+ * @typeParam VF - The variant field of the rows its `case` names
+ * @typeParam VT - The case of that field it draws
  */
 export interface PlanSeriesRowConfig<
     R extends EastType, KT extends EastType = StringType,
     CT extends PlanTreeField<R> = never, CU = unknown, CF = unknown, CS extends readonly unknown[] = never,
+    VF extends PlanVariantField<R> = never, VT extends PlanCaseTag<R, VF> = never,
 > extends PlanSeriesIdentity {
     /**
      * The East type of the entries' keys, as the accessors receive them —
@@ -684,24 +712,31 @@ export interface PlanSeriesRowConfig<
      */
     keyType?: KT;
     /** Membership — omitted ⇒ every entry belongs. Applies at every level the series walks. */
-    match?: PlanAccessor<R, BooleanType, KT>;
+    match?: PlanAccessor<R, BooleanType, KT, PlanCaseValue<R, VF, VT>>;
+    /**
+     * One case of a variant field of the rows (#1541, U2): `[field, tag]`. The series takes the entries whose `field`
+     * holds the case `tag` — of them, those its `match` takes — and each of its functions of the row is handed the case's
+     * value after the row and its key: `label: (row, key, value) => value.name`. `Plan.series.kinds` maps every case of a
+     * field at once, each to a resources series.
+     */
+    case?: readonly [field: VF, tag: VT];
     /**
      * Gutter label accessor. Left out only beneath a resource — in a resources series' or a kinds case's `series`
      * (#1541) — whose own row names it, each row then named by the series' title; anywhere else it is refused.
      */
-    label?: PlanAccessor<R, StringType, KT>;
+    label?: PlanAccessor<R, StringType, KT, PlanCaseValue<R, VF, VT>>;
     /** Render labels as mono row ids. */
     id?: boolean;
     /** Two-line gutter layout (label over sub). */
     stacked?: boolean;
     /** Gutter sub-line accessor — returns the field's `Option`. */
-    sub?: PlanAccessor<R, OptionType<StringType>, KT>;
+    sub?: PlanAccessor<R, OptionType<StringType>, KT, PlanCaseValue<R, VF, VT>>;
     /** Gutter value-slot accessor — returns the field's `Option`. */
-    value?: PlanAccessor<R, OptionType<StringType>, KT>;
+    value?: PlanAccessor<R, OptionType<StringType>, KT, PlanCaseValue<R, VF, VT>>;
     /** Per-row status-dot accessor — returns the field's `Option`. */
-    status?: PlanAccessor<R, OptionType<StatusValueType>, KT>;
+    status?: PlanAccessor<R, OptionType<StatusValueType>, KT, PlanCaseValue<R, VF, VT>>;
     /** Per-row expand-in-place accessor — returns the field's `Option`. */
-    expand?: PlanAccessor<R, OptionType<PlanExpandType>, KT>;
+    expand?: PlanAccessor<R, OptionType<PlanExpandType>, KT, PlanCaseValue<R, VF, VT>>;
     /**
      * The entry's children (#1436) — `field`, a `Dict` field holding more of
      * this series' own entries (a tree, to any depth), or
@@ -710,7 +745,7 @@ export interface PlanSeriesRowConfig<
      */
     children?: PlanChildrenOf<R, CT, CU, CF, CS>;
     /** Initial collapse of a row that has children — a constant, or per entry. */
-    collapsed?: boolean | PlanAccessor<R, BooleanType, KT>;
+    collapsed?: boolean | PlanAccessor<R, BooleanType, KT, PlanCaseValue<R, VF, VT>>;
 }
 
 /**
@@ -730,24 +765,27 @@ export interface PlanSeriesRowConfig<
  * @typeParam CF - The folds of its cells
  * @typeParam CS - Several step-downs' reads
  * @typeParam RL - Its `rollup`, as written
+ * @typeParam VF - The variant field of the rows its `case` names
+ * @typeParam VT - The case of that field it draws
  */
 export interface PlanSpanSeriesConfig<
     R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType,
     FR extends string = string, UR = unknown, UD = unknown, UP = unknown,
     CT extends PlanTreeField<R> = never, CU = unknown, CF = unknown, CS extends readonly unknown[] = never, RL extends PlanRollupLiteral = never,
-> extends PlanSeriesRowConfig<R, KT, CT, CU, CF, CS> {
+    VF extends PlanVariantField<R> = never, VT extends PlanCaseTag<R, VF> = never,
+> extends PlanSeriesRowConfig<R, KT, CT, CU, CF, CS, VF, VT> {
     /** The row's runs — `Plan.items(field, { from, to }, draw)` over the things people drag, or a function of the row; the runs' axis kind brands the series. */
-    runs: PlanElementsAccessor<R, PlanRunType, K, KT> | PlanItemsInput<R, FR, PlanSpanTimes, PlanRunLook, K, UR>;
+    runs: PlanElementsAccessor<R, PlanRunType, K, KT, PlanCaseValue<R, VF, VT>> | PlanItemsInput<R, FR, PlanSpanTimes, PlanRunLook, K, UR>;
     /** The row's decision diamonds — `Plan.items(field, { at }, draw)`, or a function of the row. */
-    decisions?: PlanElementsAccessor<R, PlanDecisionMarkType, K, KT> | PlanItemsInput<R, string, PlanPointTimes, PlanDecisionLook, K, UD>;
+    decisions?: PlanElementsAccessor<R, PlanDecisionMarkType, K, KT, PlanCaseValue<R, VF, VT>> | PlanItemsInput<R, string, PlanPointTimes, PlanDecisionLook, K, UD>;
     /** The row's ports — `Plan.values(field, draw)`, each at its key, or a function of the row. */
-    ports?: PlanElementsAccessor<R, typeof PlanPortType, K, KT> | PlanValuesInput<R, PlanPortLook, K, UP>;
+    ports?: PlanElementsAccessor<R, typeof PlanPortType, K, KT, PlanCaseValue<R, VF, VT>> | PlanValuesInput<R, PlanPortLook, K, UP>;
     /** How a row with children rolls its subtree's runs into its bands (default `"union"`). A `views` member, which
      *  declares no `children`, declares it to roll up the children the views nest under its row (#1219). */
     rollup?: SubtypeExprOrValue<PlanRollupType> | RL;
     /** What a gesture on a row writes (#1436): `true` — runs moved and resized, by the collection and times its
      *  `runs` read names; `{ create }` — and a dropped card's item too. */
-    edit?: PlanEditOf<R, KT, NoInfer<FR>>;
+    edit?: PlanEditOf<R, KT, NoInfer<FR>, PlanCaseValue<R, VF, VT>>;
 }
 
 /**
@@ -764,15 +802,18 @@ export interface PlanSpanSeriesConfig<
  * @typeParam CU - One step-down's reads
  * @typeParam CF - The folds of its cells
  * @typeParam CS - Several step-downs' reads
+ * @typeParam VF - The variant field of the rows its `case` names
+ * @typeParam VT - The case of that field it draws
  */
 export interface PlanHeatSeriesConfig<
     R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType,
     UC = unknown, FO extends PlanFoldLiteral | undefined = undefined, A extends PlanAggregateLiteral = "mean",
     CT extends PlanTreeField<R> = never, CU = unknown, CF = unknown, CS extends readonly unknown[] = never,
-> extends PlanSeriesRowConfig<R, KT, CT, CU, CF, CS> {
+    VF extends PlanVariantField<R> = never, VT extends PlanCaseTag<R, VF> = never,
+> extends PlanSeriesRowConfig<R, KT, CT, CU, CF, CS, VF, VT> {
     /** The row's cells — `Plan.heatCells` / `weightCells` / `segmentCells` over `Plan.values(field, draw)`, or a function of
      *  the row; its kind brands the series. A parent may hold no cells, and then shows its children's aggregate on `scale`. */
-    cells: PlanKindedAccessor<R, PlanHeatCellsInput<K>, KT> | PlanValuesUse<"heat", R, K, UC, FO>;
+    cells: PlanKindedAccessor<R, PlanHeatCellsInput<K>, KT, PlanCaseValue<R, VF, VT>> | PlanValuesUse<"heat", R, K, UC, FO>;
     /** How a parent with no cells of its own derives them from its children (default `"mean"`). */
     aggregate?: SubtypeExprOrValue<PlanAggregateType> | A;
     /** The scale a parent's derived cells paint on (min / max / warn threshold, #824); omit ⇒ the extent
@@ -795,21 +836,24 @@ export interface PlanHeatSeriesConfig<
  * @typeParam CU - One step-down's reads
  * @typeParam CF - The folds of its cells
  * @typeParam CS - Several step-downs' reads
+ * @typeParam VF - The variant field of the rows its `case` names
+ * @typeParam VT - The case of that field it draws
  */
 export interface PlanTableSeriesOfConfig<
     R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType,
     UC = unknown, S extends readonly unknown[] = never, FO extends PlanFoldLiteral = "sum", A extends TableAggregateLiteral = "sum",
     CT extends PlanTreeField<R> = never, CU = unknown, CF = unknown, CS extends readonly unknown[] = never,
-> extends PlanSeriesRowConfig<R, KT, CT, CU, CF, CS> {
+    VF extends PlanVariantField<R> = never, VT extends PlanCaseTag<R, VF> = never,
+> extends PlanSeriesRowConfig<R, KT, CT, CU, CF, CS, VF, VT> {
     /** The row's cells — `Plan.tableCells(Plan.values(field, draw))`, or a function of the row: sugar for one unstyled value
      *  series; its kind brands the series. A parent may hold none, and then shows its children's subtotal. */
-    cells?: PlanKindedAccessor<R, PlanTableCellsInput<K>, KT> | PlanValuesUse<"tableCells", R, K, UC>;
+    cells?: PlanKindedAccessor<R, PlanTableCellsInput<K>, KT, PlanCaseValue<R, VF, VT>> | PlanValuesUse<"tableCells", R, K, UC>;
     /** How a bucket folds the `cells` at a coarser resolution than theirs (default `"sum"`, #824) — a
      *  `series` position declares its own (`Plan.tableSeries({ fold })`). */
     fold?: FO | SubtypeExprOrValue<PlanFoldType>;
     /** The row's positions — `Plan.tableSeries({ cells: Plan.tableCells(Plan.values(…)) })` each, or a function of the
      *  row returning `Plan.tableSeries` results; exclusive with `cells`. */
-    series?: PlanElementsAccessor<R, PlanTableSeriesType, K, KT> | (S & readonly PlanValuesUse<"tableSeries", R, K, unknown, PlanFoldLiteral | undefined, boolean>[]);
+    series?: PlanElementsAccessor<R, PlanTableSeriesType, K, KT, PlanCaseValue<R, VF, VT>> | (S & readonly PlanValuesUse<"tableSeries", R, K, unknown, PlanFoldLiteral | undefined, boolean>[]);
     /** Part layout when several value series render — `"horizontal"` (default) / `"vertical"`. */
     split?: SubtypeExprOrValue<PlanTableSplitType> | PlanTableSplitLiteral;
     /** Row emphasis — `"body"` (default) / `"header"` / `"footer"`. */
@@ -837,21 +881,24 @@ export interface PlanTableSeriesOfConfig<
  * @typeParam CU - One step-down's reads
  * @typeParam CF - The folds of its cells
  * @typeParam CS - Several step-downs' reads
+ * @typeParam VF - The variant field of the rows its `case` names
+ * @typeParam VT - The case of that field it draws
  */
 export interface PlanBucketsSeriesConfig<
     R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType,
     FE extends string = string, UE = unknown, UM = unknown,
     CT extends PlanTreeField<R> = never, CU = unknown, CF = unknown, CS extends readonly unknown[] = never,
-> extends PlanSeriesRowConfig<R, KT, CT, CU, CF, CS> {
+    VF extends PlanVariantField<R> = never, VT extends PlanCaseTag<R, VF> = never,
+> extends PlanSeriesRowConfig<R, KT, CT, CU, CF, CS, VF, VT> {
     /** Per-row sub-slot lanes accessor; omitted ⇒ unbucketed rows. */
-    lanes?: PlanAccessor<R, ArrayType<PlanLaneType>, KT>;
+    lanes?: PlanAccessor<R, ArrayType<PlanLaneType>, KT, PlanCaseValue<R, VF, VT>>;
     /** The row's tiles — `Plan.items(field, { at }, draw)`, or a function of the row; the tiles' axis kind brands the series. */
-    events: PlanElementsAccessor<R, PlanBucketEventType, K, KT> | PlanItemsInput<R, FE, PlanPointTimes, PlanBucketEventLook, K, UE>;
+    events: PlanElementsAccessor<R, PlanBucketEventType, K, KT, PlanCaseValue<R, VF, VT>> | PlanItemsInput<R, FE, PlanPointTimes, PlanBucketEventLook, K, UE>;
     /** The row's cell markers — `Plan.values(field, draw)`, each at its key, or a function of the row. */
-    markers?: PlanElementsAccessor<R, PlanCellMarkerType, K, KT> | PlanValuesInput<R, PlanCellMarkerLook, K, UM>;
+    markers?: PlanElementsAccessor<R, PlanCellMarkerType, K, KT, PlanCaseValue<R, VF, VT>> | PlanValuesInput<R, PlanCellMarkerLook, K, UM>;
     /** What a gesture on a row writes (#1436): `true` — tiles moved, by the collection and the instant its `events` read
      *  names; `{ create }` — and a dropped card's item too. */
-    edit?: PlanEditOf<R, KT, NoInfer<FE>>;
+    edit?: PlanEditOf<R, KT, NoInfer<FE>, PlanCaseValue<R, VF, VT>>;
 }
 
 /**
@@ -866,17 +913,20 @@ export interface PlanBucketsSeriesConfig<
  * @typeParam CU - One step-down's reads
  * @typeParam CF - The folds of its cells
  * @typeParam CS - Several step-downs' reads
+ * @typeParam VF - The variant field of the rows its `case` names
+ * @typeParam VT - The case of that field it draws
  */
 export interface PlanCardsSeriesConfig<
     R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType,
     FC extends string = string, UC = unknown,
     CT extends PlanTreeField<R> = never, CU = unknown, CF = unknown, CS extends readonly unknown[] = never,
-> extends PlanSeriesRowConfig<R, KT, CT, CU, CF, CS> {
+    VF extends PlanVariantField<R> = never, VT extends PlanCaseTag<R, VF> = never,
+> extends PlanSeriesRowConfig<R, KT, CT, CU, CF, CS, VF, VT> {
     /** The row's chips — `Plan.items(field, { from, to }, draw)`, or a function of the row; the chips' axis kind brands the series. */
-    chips: PlanElementsAccessor<R, PlanChipType, K, KT> | PlanItemsInput<R, FC, PlanSpanTimes, PlanChipLook, K, UC>;
+    chips: PlanElementsAccessor<R, PlanChipType, K, KT, PlanCaseValue<R, VF, VT>> | PlanItemsInput<R, FC, PlanSpanTimes, PlanChipLook, K, UC>;
     /** What a gesture on a row writes (#1436): `true` — chips moved and resized, by the collection and times its `chips`
      *  read names; `{ create }` — and a dropped card's item too. */
-    edit?: PlanEditOf<R, KT, NoInfer<FC>>;
+    edit?: PlanEditOf<R, KT, NoInfer<FC>, PlanCaseValue<R, VF, VT>>;
 }
 
 /**
@@ -891,17 +941,20 @@ export interface PlanCardsSeriesConfig<
  * @typeParam CU - One step-down's reads
  * @typeParam CF - The folds of its cells
  * @typeParam CS - Several step-downs' reads
+ * @typeParam VF - The variant field of the rows its `case` names
+ * @typeParam VT - The case of that field it draws
  */
 export interface PlanEventsSeriesConfig<
     R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType,
     FM extends string = string, UM = unknown,
     CT extends PlanTreeField<R> = never, CU = unknown, CF = unknown, CS extends readonly unknown[] = never,
-> extends PlanSeriesRowConfig<R, KT, CT, CU, CF, CS> {
+    VF extends PlanVariantField<R> = never, VT extends PlanCaseTag<R, VF> = never,
+> extends PlanSeriesRowConfig<R, KT, CT, CU, CF, CS, VF, VT> {
     /** The row's marks — `Plan.items(field, { at }, draw)`, or a function of the row; the marks' axis kind brands the series. */
-    marks: PlanElementsAccessor<R, PlanEventMarkType, K, KT> | PlanItemsInput<R, FM, PlanPointTimes, PlanEventMarkLook, K, UM>;
+    marks: PlanElementsAccessor<R, PlanEventMarkType, K, KT, PlanCaseValue<R, VF, VT>> | PlanItemsInput<R, FM, PlanPointTimes, PlanEventMarkLook, K, UM>;
     /** What a gesture on a row writes (#1436): `true` — marks moved, by the collection and the instant its `marks` read
      *  names; `{ create }` — and a dropped card's item too. */
-    edit?: PlanEditOf<R, KT, NoInfer<FM>>;
+    edit?: PlanEditOf<R, KT, NoInfer<FM>, PlanCaseValue<R, VF, VT>>;
 }
 
 /**
@@ -916,18 +969,21 @@ export interface PlanEventsSeriesConfig<
  * @typeParam CU - One step-down's reads
  * @typeParam CF - The folds of its cells
  * @typeParam CS - Several step-downs' reads
+ * @typeParam VF - The variant field of the rows its `case` names
+ * @typeParam VT - The case of that field it draws
  */
 export interface PlanChartSeriesConfig<
     R extends EastType, KT extends EastType = StringType, K extends PlanAxisKindLiteral = never,
     L extends readonly unknown[] = never,
     CT extends PlanTreeField<R> = never, CU = unknown, CF = unknown, CS extends readonly unknown[] = never,
-> extends PlanSeriesRowConfig<R, KT, CT, CU, CF, CS> {
+    VF extends PlanVariantField<R> = never, VT extends PlanCaseTag<R, VF> = never,
+> extends PlanSeriesRowConfig<R, KT, CT, CU, CF, CS, VF, VT> {
     /** Per-row pinned accessor (`true` ⇒ above the virtualised body; `false` when omitted). */
-    pinned?: PlanAccessor<R, BooleanType, KT>;
+    pinned?: PlanAccessor<R, BooleanType, KT, PlanCaseValue<R, VF, VT>>;
     /** The row's layers — `Plan.line` / `area` / `column` / `scatter` / `band` over `Plan.values(field, draw)` and
      *  `Chart.ref*` annotations, or a function of the row returning Chart layers (bare or `Plan.layer`-wrapped). */
     layers:
-        | ((row: PlanEntryExpr<R>, key: ExprType<KT>) => PlanChartLayerInput | PlanChartLayerInput[])
+        | PlanKindedAccessor<R, PlanChartLayerInput | PlanChartLayerInput[], KT, PlanCaseValue<R, VF, VT>>
         | (L & readonly (PlanChartLayerInput | PlanValuesUse<"layer", R, K, unknown, PlanFoldLiteral | undefined>)[]);
     /** The left y-axis declaration (shared by this series' rows). */
     left?: PlanChartAxisInput;
@@ -957,17 +1013,20 @@ export interface PlanChartSeriesConfig<
  * @typeParam CU - One step-down's reads
  * @typeParam CF - The folds of its cells
  * @typeParam CS - Several step-downs' reads
+ * @typeParam VF - The variant field of the rows its `case` names
+ * @typeParam VT - The case of that field it draws
  */
 export interface PlanGroupSeriesConfig<
     R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType,
     US = unknown, FO extends PlanFoldLiteral | undefined = undefined, A extends PlanAggregateLiteral = never,
     CT extends PlanTreeField<R> = never, CU = unknown, CF = unknown, CS extends readonly unknown[] = never,
-> extends PlanSeriesRowConfig<R, KT, CT, CU, CF, CS> {
+    VF extends PlanVariantField<R> = never, VT extends PlanCaseTag<R, VF> = never,
+> extends PlanSeriesRowConfig<R, KT, CT, CU, CF, CS, VF, VT> {
     /** The strip's members — the entry's children (required: a group without members is a plain band). */
     children: PlanChildrenOf<R, CT, CU, CF, CS>;
     /** Explicit collapsed-strip cells per entry — `Plan.heatCells(Plan.values(field, draw))`, or a function of the row;
      *  exclusive with `summaryAggregate`. */
-    summary?: PlanKindedAccessor<R, PlanHeatCellsInput<K>, KT> | PlanValuesUse<"heat", R, K, US, FO>;
+    summary?: PlanKindedAccessor<R, PlanHeatCellsInput<K>, KT, PlanCaseValue<R, VF, VT>> | PlanValuesUse<"heat", R, K, US, FO>;
     /** DECLARED strip aggregation over the members' heat cells — `"mean"` / `"max"` / `"sum"`; exclusive with `summary`. */
     summaryAggregate?: SubtypeExprOrValue<PlanAggregateType> | A;
 }
@@ -1009,19 +1068,28 @@ export interface PlanSectionSeriesConfig<K extends PlanAxisKindLiteral = never> 
  * @typeParam CU - One step-down's reads
  * @typeParam CF - The folds of its cells
  * @typeParam CS - Several step-downs' reads
+ * @typeParam VF - The variant field of the rows its `case` names
+ * @typeParam VT - The case of that field it draws
  */
 export interface PlanViewsSeriesConfig<
     R extends EastType, KT extends EastType = StringType,
     CT extends PlanTreeField<R> = never, CU = unknown, CF = unknown, CS extends readonly unknown[] = never,
+    VF extends PlanVariantField<R> = never, VT extends PlanCaseTag<R, VF> = never,
 > extends PlanSeriesIdentity {
     /** The East type of the entries' keys, as the accessors receive them (default `StringType`). */
     keyType?: KT;
     /** Membership — omitted ⇒ every entry. A member series' own `match` then decides whether its row shows. */
-    match?: PlanAccessor<R, BooleanType, KT>;
+    match?: PlanAccessor<R, BooleanType, KT, PlanCaseValue<R, VF, VT>>;
+    /**
+     * One case of a variant field of the rows (#1541, U2): `[field, tag]`. The views take the entries whose `field` holds
+     * the case `tag`, and their own `match` and `collapsed` are handed the case's value after the row and its key. A
+     * member is built before the views are: one whose accessors read the case's value names the `case` itself.
+     */
+    case?: readonly [field: VF, tag: VT];
     /** The entry's children — under its first view row: a tree's field, or step-downs ({@link PlanChildrenInput}). */
     children?: PlanChildrenOf<R, CT, CU, CF, CS>;
     /** Initial collapse of the first view row, when the entry has children. */
-    collapsed?: boolean | PlanAccessor<R, BooleanType, KT>;
+    collapsed?: boolean | PlanAccessor<R, BooleanType, KT, PlanCaseValue<R, VF, VT>>;
 }
 
 /**
@@ -1032,29 +1100,39 @@ export interface PlanViewsSeriesConfig<
  * @typeParam R - The entry type
  * @typeParam KT - The entries' key type
  * @typeParam CT - A tree's field, as `children` names it
+ * @typeParam VF - The variant field of the rows its `case` names
+ * @typeParam VT - The case of that field it draws
  */
-export interface PlanResourcesSeriesConfig<R extends EastType, KT extends EastType = StringType, CT extends PlanTreeField<R> = never>
-    extends PlanSeriesIdentity {
+export interface PlanResourcesSeriesConfig<
+    R extends EastType, KT extends EastType = StringType, CT extends PlanTreeField<R> = never,
+    VF extends PlanVariantField<R> = never, VT extends PlanCaseTag<R, VF> = never,
+> extends PlanSeriesIdentity {
     /** The East type of the entries' keys, as the accessors receive them (default `StringType`): what an event's `resource` field holds. */
     keyType?: KT;
     /** Membership — omitted ⇒ every entry. */
-    match?: PlanAccessor<R, BooleanType, KT>;
+    match?: PlanAccessor<R, BooleanType, KT, PlanCaseValue<R, VF, VT>>;
+    /**
+     * One case of a variant field of the rows (#1541, U2): `[field, tag]`. The series takes the entries whose `field`
+     * holds the case `tag`, and each of its accessors is handed the case's value after the row and its key —
+     * one case of a `Plan.series.kinds` block, written alone.
+     */
+    case?: readonly [field: VF, tag: VT];
     /** The resource's name, in the gutter. */
-    label: PlanAccessor<R, StringType, KT>;
+    label: PlanAccessor<R, StringType, KT, PlanCaseValue<R, VF, VT>>;
     /** Render labels as mono row ids. */
     id?: boolean;
     /** Two-line gutter layout (label over sub). */
     stacked?: boolean;
     /** The gutter's sub line — the field's `Option`. */
-    sub?: PlanAccessor<R, OptionType<StringType>, KT>;
+    sub?: PlanAccessor<R, OptionType<StringType>, KT, PlanCaseValue<R, VF, VT>>;
     /** The gutter's value slot — the field's `Option`. */
-    value?: PlanAccessor<R, OptionType<StringType>, KT>;
+    value?: PlanAccessor<R, OptionType<StringType>, KT, PlanCaseValue<R, VF, VT>>;
     /** The gutter's status dot — the field's `Option`. */
-    status?: PlanAccessor<R, OptionType<StatusValueType>, KT>;
+    status?: PlanAccessor<R, OptionType<StatusValueType>, KT, PlanCaseValue<R, VF, VT>>;
     /** Expand in place — the field's `Option`. */
-    expand?: PlanAccessor<R, OptionType<PlanExpandType>, KT>;
+    expand?: PlanAccessor<R, OptionType<PlanExpandType>, KT, PlanCaseValue<R, VF, VT>>;
     /** The lanes a resource's tiles sit in, in order (AM, PM): every one drawn, empty or not, then any other its events name. */
-    lanes?: PlanAccessor<R, ArrayType<PlanLaneType>, KT>;
+    lanes?: PlanAccessor<R, ArrayType<PlanLaneType>, KT, PlanCaseValue<R, VF, VT>>;
     /** The rows beneath each resource, over its own row: `Plan.series.heat`, `table`, `chart`, `span`, `buckets`, `cards` or `events`. */
     series?: readonly PlanSeriesValue<PlanAxisKindLiteral>[];
     /** More of its own rows beneath each (a tree, to any depth): a Dict field of the row holding them, each a resource its kinds land on too. */
@@ -1062,7 +1140,7 @@ export interface PlanResourcesSeriesConfig<R extends EastType, KT extends EastTy
     /** How a resource with resources under it rolls their events into its bands (`"union"`, the default). */
     rollup?: SubtypeExprOrValue<PlanRollupType> | PlanRollupLiteral;
     /** Whether a resource with rows beneath it starts folded — a constant, or per entry. */
-    collapsed?: boolean | PlanAccessor<R, BooleanType, KT>;
+    collapsed?: boolean | PlanAccessor<R, BooleanType, KT, PlanCaseValue<R, VF, VT>>;
 }
 
 /** Whether a variant's cases are an Option's. */
@@ -1086,6 +1164,28 @@ export type PlanVariantField<R extends EastType> = {
  */
 export type PlanVariantCases<R extends EastType, F extends string> =
     F extends keyof PlanEntryFields<R> ? (PlanEntryFields<R>[F] extends VariantType<infer C> ? C : never) : never;
+
+/**
+ * The names of a variant field's cases: what the second place of a series'
+ * `case: [field, tag]` takes (#1541, U2).
+ *
+ * @typeParam R - The entry type
+ * @typeParam F - The variant field
+ */
+export type PlanCaseTag<R extends EastType, F extends string> = keyof PlanVariantCases<R, F> & string;
+
+/**
+ * The value of the case a series' `case: [field, tag]` names — what each of
+ * its functions of the row is handed after the row and its key (#1541, U2).
+ * `never` for a series that names no case, whose functions take the row and
+ * its key alone.
+ *
+ * @typeParam R - The entry type
+ * @typeParam F - The variant field
+ * @typeParam T - The case
+ */
+export type PlanCaseValue<R extends EastType, F extends string, T extends string> =
+    [F] extends [never] ? never : T extends keyof PlanVariantCases<R, F> ? PlanVariantCases<R, F>[T] & EastType : never;
 
 /** An accessor over an entry of a case: its row, its key, and the case's value (#1541, U2). */
 export type PlanCaseAccessor<R extends EastType, T extends EastType, KT extends EastType, V extends EastType> =
@@ -4439,6 +4539,115 @@ export type PlanTableReads<UC, S, FO, A, CT, CU, CF, CS extends readonly unknown
     & PlanChildrenReads<CT, CU, CF, CS, [CT] extends [never] ? A : never>>;
 
 /**
+ * The cases of a variant field of the rows, by name (#1541, U2).
+ *
+ * @param rowType - The entry type
+ * @param field - The field
+ * @returns Its cases, or `undefined` where the rows have no such field or it holds no variant
+ */
+function variantCasesOf(rowType: EastType, field: string): Record<string, EastType> | undefined {
+    const type = entryFieldsOf(rowType)?.[field] as { type: string; cases?: Record<string, EastType> } | undefined;
+    return type !== undefined && type.type === "Variant" ? type.cases : undefined;
+}
+
+/**
+ * Whether an entry holds a case of its variant field.
+ *
+ * @param node - The entry as an accessor receives it: its node, when the rows nest more of themselves
+ * @param field - The variant field
+ * @param tag - The case
+ * @returns Whether the field holds the case
+ */
+function holdsCase(node: ExprType<EastType>, field: string, tag: string): ExprType<BooleanType> {
+    return ((node as unknown as Record<string, ExprType<EastType>>)[field] as unknown as { hasTag: (t: string) => ExprType<BooleanType> }).hasTag(tag);
+}
+
+/**
+ * The value of a case an entry's variant field holds: what a kinds case's
+ * accessors, and those of a series that names a `case`, are handed after the
+ * row and its key.
+ *
+ * @param node - The entry as an accessor receives it: its node, when the rows nest more of themselves
+ * @param field - The variant field
+ * @param tag - The case, which the field holds
+ * @returns The case's value
+ */
+function caseValueOf(node: ExprType<EastType>, field: string, tag: string): ExprType<EastType> {
+    return ((node as unknown as Record<string, ExprType<EastType>>)[field] as unknown as { unwrap: (t: string) => ExprType<EastType> }).unwrap(tag);
+}
+
+/** A function of the row as a series that names a case is given it: the row, its key, and the case's value. */
+type CaseFn = (node: ExprType<EastType>, key: ExprType<EastType>, value: ExprType<EastType>) => unknown;
+
+/**
+ * The membership of a case's entries: those whose variant field holds the
+ * case, and of them those the series' own `match` takes, by the case's value.
+ *
+ * @param field - The variant field
+ * @param tag - The case
+ * @param own - The series' own `match`, handed the case's value, where it gives one
+ * @returns The membership, over the row and its key
+ */
+function caseMatch(field: string, tag: string, own: CaseFn | undefined): (node: ExprType<EastType>, key: ExprType<EastType>) => ExprType<BooleanType> {
+    return (node, key) => own === undefined
+        ? holdsCase(node, field, tag)
+        : holdsCase(node, field, tag).and(() => East.value(own(node, key, caseValueOf(node, field, tag)) as SubtypeExprOrValue<BooleanType>, BooleanType));
+}
+
+/** The options of a series that are functions of the row: what a `case` hands its value to. */
+const CASE_FUNCTIONS: readonly string[] = [
+    "label", "sub", "value", "status", "expand", "collapsed", "lanes", "pinned",
+    "runs", "decisions", "ports", "events", "markers", "chips", "marks", "cells", "series", "layers", "summary",
+];
+
+/**
+ * A series config that names one case of a variant field of its rows
+ * (`case: [field, tag]`, #1541 U2), as the build reads it: its entries those
+ * holding the case — of them, those its own `match` takes — and each of its
+ * functions of the row handed the case's value after the row and its key. A
+ * config that names no case is returned as it is.
+ *
+ * @typeParam C - The config
+ * @param rowType - The entry type
+ * @param config - The config, as given
+ * @param where - The series, for the messages
+ * @returns The config the build reads
+ * @throws {Error} Naming the field and its cases: a `case` that is no `[field, tag]`, a field that is no variant field of
+ *   the rows, or a tag that is no case of it
+ */
+function casedConfig<C extends object>(rowType: EastType, config: C, where: string): C {
+    const named = (config as { readonly case?: unknown }).case;
+    if (named === undefined) return config;
+    if (!Array.isArray(named) || named.length !== 2 || typeof named[0] !== "string" || typeof named[1] !== "string") {
+        throw new Error(`${where}: case is [field, tag] — a variant field of its rows, and the case of it the series draws`);
+    }
+    const [field, tag] = named as [string, string];
+    const cases = variantCasesOf(rowType, field);
+    if (cases === undefined) {
+        throw new Error(`${where}: case names "${field}", which is no variant field of its rows — name the variant field, and the case of it the series draws`);
+    }
+    if (!(tag in cases)) throw new Error(`${where}: "${tag}" is no case of "${field}" (${Object.keys(cases).join(", ")})`);
+    const over = (fn: CaseFn) => (node: ExprType<EastType>, key: ExprType<EastType>): unknown => fn(node, key, caseValueOf(node, field, tag));
+    const { case: _case, match, edit, ...rest } = config as Record<string, unknown>;
+    const out: Record<string, unknown> = { ...rest, match: caseMatch(field, tag, match as CaseFn | undefined) };
+    for (const name of CASE_FUNCTIONS) {
+        const fn = rest[name];
+        if (typeof fn === "function") out[name] = over(fn as CaseFn);
+    }
+    if (edit !== undefined) {
+        const create = typeof edit === "object" && edit !== null ? (edit as { create?: unknown }).create : undefined;
+        // A dropped card's item, handed the case's value after the drop, the row and its key.
+        out.edit = typeof create !== "function" ? edit : {
+            ...(edit as object),
+            create: (drop: ExprType<PlanDropType>, node: ExprType<EastType>, key: ExprType<EastType>): unknown =>
+                (create as (d: ExprType<PlanDropType>, n: ExprType<EastType>, k: ExprType<EastType>, v: ExprType<EastType>) => unknown)(
+                    drop, node, key, caseValueOf(node, field, tag)),
+        };
+    }
+    return out as C;
+}
+
+/**
  * A span series — one state-run row per entry; a row with children shows its
  * own runs plus bands over its subtree's runs (`rollup`) — each band sums its
  * runs' quantities unit by unit (#824).
@@ -4455,6 +4664,8 @@ export type PlanTableReads<UC, S, FO, A, CT, CU, CF, CS extends readonly unknown
  * @typeParam CF - The folds of its cells
  * @typeParam CS - Several step-downs' reads
  * @typeParam RL - Its `rollup`, as written
+ * @typeParam VF - The variant field of the rows its `case` names
+ * @typeParam VT - The case of that field it draws
  * @param rowType - The entry type (every builder takes it first — the `Slice.config` shape)
  * @param config - The reads, accessors and nesting ({@link PlanSpanSeriesConfig})
  * @returns A series value, branded with its kind and what it reads
@@ -4463,9 +4674,11 @@ export function createSeriesSpan<
     R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType,
     FR extends string = string, UR = unknown, UD = unknown, UP = unknown,
     CT extends PlanTreeField<R> = never, CU = unknown, CF = unknown, CS extends readonly unknown[] = never, RL extends PlanRollupLiteral = never,
->(rowType: R, config: PlanSpanSeriesConfig<R, K, KT, FR, UR, UD, UP, CT, CU, CF, CS, RL>): PlanSeriesValue<K, PlanSpanReads<UR, UD, UP, CT, CU, CF, CS, RL>> {
-    const cfg = config as unknown as PlanSpanSeriesConfig<EastType, PlanAxisKindLiteral, EastType>;
-    const where = `Plan.series.span "${cfg.key}"`;
+    VF extends PlanVariantField<R> = never, VT extends PlanCaseTag<R, VF> = never,
+>(rowType: R, config: PlanSpanSeriesConfig<R, K, KT, FR, UR, UD, UP, CT, CU, CF, CS, RL, VF, VT>): PlanSeriesValue<K, PlanSpanReads<UR, UD, UP, CT, CU, CF, CS, RL>> {
+    const given = config as unknown as PlanSpanSeriesConfig<EastType, PlanAxisKindLiteral, EastType>;
+    const where = `Plan.series.span "${given.key}"`;
+    const cfg = casedConfig(rowType, given, where);
     const edit = editRecipeOf(cfg.edit, "runs", "{ from, to }", cfg.runs, where);
     // A row rolls up its children: its own (`children`), or — declared on a
     // views member — the ones the views nest under it (#1219).
@@ -4509,6 +4722,8 @@ export function createSeriesSpan<
  * @typeParam CU - One step-down's reads
  * @typeParam CF - The folds of its cells
  * @typeParam CS - Several step-downs' reads
+ * @typeParam VF - The variant field of the rows its `case` names
+ * @typeParam VT - The case of that field it draws
  * @param rowType - The entry type
  * @param config - The reads, accessors and nesting ({@link PlanHeatSeriesConfig})
  * @returns A series value, branded with its kind, what it reads and the fold of its cells
@@ -4517,9 +4732,11 @@ export function createSeriesHeat<
     R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType,
     UC = unknown, FO extends PlanFoldLiteral | undefined = undefined, A extends PlanAggregateLiteral = "mean",
     CT extends PlanTreeField<R> = never, CU = unknown, CF = unknown, CS extends readonly unknown[] = never,
->(rowType: R, config: PlanHeatSeriesConfig<R, K, KT, UC, FO, A, CT, CU, CF, CS>): PlanSeriesValue<K, PlanHeatReads<UC, FO, A, CT, CU, CF, CS>> & PlanFoldsBrand<PlanFoldsOf<UC, FO>> {
-    const cfg = config as unknown as PlanHeatSeriesConfig<EastType, PlanAxisKindLiteral, EastType>;
-    const where = `Plan.series.heat "${cfg.key}"`;
+    VF extends PlanVariantField<R> = never, VT extends PlanCaseTag<R, VF> = never,
+>(rowType: R, config: PlanHeatSeriesConfig<R, K, KT, UC, FO, A, CT, CU, CF, CS, VF, VT>): PlanSeriesValue<K, PlanHeatReads<UC, FO, A, CT, CU, CF, CS>> & PlanFoldsBrand<PlanFoldsOf<UC, FO>> {
+    const given = config as unknown as PlanHeatSeriesConfig<EastType, PlanAxisKindLiteral, EastType>;
+    const where = `Plan.series.heat "${given.key}"`;
+    const cfg = casedConfig(rowType, given, where);
     const aggregate = cfg.children !== undefined
         ? East.value(some(resolveTag(cfg.aggregate ?? "mean", PlanAggregateType)), OptionType(PlanAggregateType))
         : East.value(none, OptionType(PlanAggregateType));
@@ -4552,6 +4769,8 @@ export function createSeriesHeat<
  * @typeParam CU - One step-down's reads
  * @typeParam CF - The folds of its cells
  * @typeParam CS - Several step-downs' reads
+ * @typeParam VF - The variant field of the rows its `case` names
+ * @typeParam VT - The case of that field it draws
  * @param rowType - The entry type
  * @param config - The reads, accessors and nesting ({@link PlanTableSeriesOfConfig})
  * @returns A series value, branded with its kind, what it reads and the folds of its positions
@@ -4560,11 +4779,13 @@ export function createSeriesTable<
     R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType,
     UC = unknown, S extends readonly unknown[] = never, FO extends PlanFoldLiteral = "sum", A extends TableAggregateLiteral = "sum",
     CT extends PlanTreeField<R> = never, CU = unknown, CF = unknown, CS extends readonly unknown[] = never,
+    VF extends PlanVariantField<R> = never, VT extends PlanCaseTag<R, VF> = never,
 >(
-    rowType: R, config: PlanTableSeriesOfConfig<R, K, KT, UC, S, FO, A, CT, CU, CF, CS>,
+    rowType: R, config: PlanTableSeriesOfConfig<R, K, KT, UC, S, FO, A, CT, CU, CF, CS, VF, VT>,
 ): PlanSeriesValue<K, PlanTableReads<UC, S, FO, A, CT, CU, CF, CS>> & PlanFoldsBrand<PlanReadsNormal<PlanFoldsOf<UC, FO> & PlanPositionsFolds<S>>> {
-    const cfg = config as unknown as PlanTableSeriesOfConfig<EastType, PlanAxisKindLiteral, EastType>;
-    const where = `Plan.series.table "${cfg.key}"`;
+    const given = config as unknown as PlanTableSeriesOfConfig<EastType, PlanAxisKindLiteral, EastType>;
+    const where = `Plan.series.table "${given.key}"`;
+    const cfg = casedConfig(rowType, given, where);
     if (cfg.cells !== undefined && cfg.series !== undefined) {
         throw new Error(`${where}: pass \`cells\` (one plain value series) OR \`series\` — not both`);
     }
@@ -4610,6 +4831,8 @@ export function createSeriesTable<
  * @typeParam CU - One step-down's reads
  * @typeParam CF - The folds of its cells
  * @typeParam CS - Several step-downs' reads
+ * @typeParam VF - The variant field of the rows its `case` names
+ * @typeParam VT - The case of that field it draws
  * @param rowType - The entry type
  * @param config - The reads and accessors ({@link PlanBucketsSeriesConfig})
  * @returns A series value, branded with its kind and what it reads
@@ -4617,9 +4840,11 @@ export function createSeriesTable<
 export function createSeriesBuckets<
     R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType,
     FE extends string = string, UE = unknown, UM = unknown, CT extends PlanTreeField<R> = never, CU = unknown, CF = unknown, CS extends readonly unknown[] = never,
->(rowType: R, config: PlanBucketsSeriesConfig<R, K, KT, FE, UE, UM, CT, CU, CF, CS>): PlanSeriesValue<K, PlanReadsNormal<UE & UM & PlanChildrenReads<CT, CU, CF, CS>>> {
-    const cfg = config as unknown as PlanBucketsSeriesConfig<EastType, PlanAxisKindLiteral, EastType>;
-    const where = `Plan.series.buckets "${cfg.key}"`;
+    VF extends PlanVariantField<R> = never, VT extends PlanCaseTag<R, VF> = never,
+>(rowType: R, config: PlanBucketsSeriesConfig<R, K, KT, FE, UE, UM, CT, CU, CF, CS, VF, VT>): PlanSeriesValue<K, PlanReadsNormal<UE & UM & PlanChildrenReads<CT, CU, CF, CS>>> {
+    const given = config as unknown as PlanBucketsSeriesConfig<EastType, PlanAxisKindLiteral, EastType>;
+    const where = `Plan.series.buckets "${given.key}"`;
+    const cfg = casedConfig(rowType, given, where);
     const edit = editRecipeOf(cfg.edit, "events", "{ at }", cfg.events, where);
     const events = elementField(rowType, cfg.events, "event", where, "events");
     if (events === undefined) throw new Error(`${where}: give its events — Plan.items(field, { at }, draw), or a function of the row`);
@@ -4649,6 +4874,8 @@ export function createSeriesBuckets<
  * @typeParam CU - One step-down's reads
  * @typeParam CF - The folds of its cells
  * @typeParam CS - Several step-downs' reads
+ * @typeParam VF - The variant field of the rows its `case` names
+ * @typeParam VT - The case of that field it draws
  * @param rowType - The entry type
  * @param config - The reads and accessors ({@link PlanCardsSeriesConfig})
  * @returns A series value, branded with its kind and what it reads
@@ -4656,9 +4883,11 @@ export function createSeriesBuckets<
 export function createSeriesCards<
     R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType,
     FC extends string = string, UC = unknown, CT extends PlanTreeField<R> = never, CU = unknown, CF = unknown, CS extends readonly unknown[] = never,
->(rowType: R, config: PlanCardsSeriesConfig<R, K, KT, FC, UC, CT, CU, CF, CS>): PlanSeriesValue<K, PlanReadsNormal<UC & PlanChildrenReads<CT, CU, CF, CS>>> {
-    const cfg = config as unknown as PlanCardsSeriesConfig<EastType, PlanAxisKindLiteral, EastType>;
-    const where = `Plan.series.cards "${cfg.key}"`;
+    VF extends PlanVariantField<R> = never, VT extends PlanCaseTag<R, VF> = never,
+>(rowType: R, config: PlanCardsSeriesConfig<R, K, KT, FC, UC, CT, CU, CF, CS, VF, VT>): PlanSeriesValue<K, PlanReadsNormal<UC & PlanChildrenReads<CT, CU, CF, CS>>> {
+    const given = config as unknown as PlanCardsSeriesConfig<EastType, PlanAxisKindLiteral, EastType>;
+    const where = `Plan.series.cards "${given.key}"`;
+    const cfg = casedConfig(rowType, given, where);
     const edit = editRecipeOf(cfg.edit, "chips", "{ from, to }", cfg.chips, where);
     const chips = elementField(rowType, cfg.chips, "chip", where, "chips");
     if (chips === undefined) throw new Error(`${where}: give its chips — Plan.items(field, { from, to }, draw), or a function of the row`);
@@ -4683,6 +4912,8 @@ export function createSeriesCards<
  * @typeParam CU - One step-down's reads
  * @typeParam CF - The folds of its cells
  * @typeParam CS - Several step-downs' reads
+ * @typeParam VF - The variant field of the rows its `case` names
+ * @typeParam VT - The case of that field it draws
  * @param rowType - The entry type
  * @param config - The reads and accessors ({@link PlanEventsSeriesConfig})
  * @returns A series value, branded with its kind and what it reads
@@ -4690,9 +4921,11 @@ export function createSeriesCards<
 export function createSeriesEvents<
     R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType,
     FM extends string = string, UM = unknown, CT extends PlanTreeField<R> = never, CU = unknown, CF = unknown, CS extends readonly unknown[] = never,
->(rowType: R, config: PlanEventsSeriesConfig<R, K, KT, FM, UM, CT, CU, CF, CS>): PlanSeriesValue<K, PlanReadsNormal<UM & PlanChildrenReads<CT, CU, CF, CS>>> {
-    const cfg = config as unknown as PlanEventsSeriesConfig<EastType, PlanAxisKindLiteral, EastType>;
-    const where = `Plan.series.events "${cfg.key}"`;
+    VF extends PlanVariantField<R> = never, VT extends PlanCaseTag<R, VF> = never,
+>(rowType: R, config: PlanEventsSeriesConfig<R, K, KT, FM, UM, CT, CU, CF, CS, VF, VT>): PlanSeriesValue<K, PlanReadsNormal<UM & PlanChildrenReads<CT, CU, CF, CS>>> {
+    const given = config as unknown as PlanEventsSeriesConfig<EastType, PlanAxisKindLiteral, EastType>;
+    const where = `Plan.series.events "${given.key}"`;
+    const cfg = casedConfig(rowType, given, where);
     const edit = editRecipeOf(cfg.edit, "marks", "{ at }", cfg.marks, where);
     const marks = elementField(rowType, cfg.marks, "mark", where, "marks");
     if (marks === undefined) throw new Error(`${where}: give its marks — Plan.items(field, { at }, draw), or a function of the row`);
@@ -4721,6 +4954,8 @@ export function createSeriesEvents<
  * @typeParam CU - One step-down's reads
  * @typeParam CF - The folds of its cells
  * @typeParam CS - Several step-downs' reads
+ * @typeParam VF - The variant field of the rows its `case` names
+ * @typeParam VT - The case of that field it draws
  * @param rowType - The entry type
  * @param config - The layers, accessors and shared axes ({@link PlanChartSeriesConfig})
  * @returns A series value, branded with its kind and what it reads
@@ -4728,9 +4963,11 @@ export function createSeriesEvents<
 export function createSeriesChart<
     R extends EastType, KT extends EastType = StringType, K extends PlanAxisKindLiteral = never,
     L extends readonly unknown[] = never, CT extends PlanTreeField<R> = never, CU = unknown, CF = unknown, CS extends readonly unknown[] = never,
->(rowType: R, config: PlanChartSeriesConfig<R, KT, K, L, CT, CU, CF, CS>): PlanSeriesValue<K, PlanReadsNormal<([L] extends [never] ? unknown : PlanIntersect<PlanUseReads<L[number]>>) & PlanChildrenReads<CT, CU, CF, CS>>> {
-    const cfg = config as unknown as PlanChartSeriesConfig<EastType, EastType>;
-    const where = `Plan.series.chart "${cfg.key}"`;
+    VF extends PlanVariantField<R> = never, VT extends PlanCaseTag<R, VF> = never,
+>(rowType: R, config: PlanChartSeriesConfig<R, KT, K, L, CT, CU, CF, CS, VF, VT>): PlanSeriesValue<K, PlanReadsNormal<([L] extends [never] ? unknown : PlanIntersect<PlanUseReads<L[number]>>) & PlanChildrenReads<CT, CU, CF, CS>>> {
+    const given = config as unknown as PlanChartSeriesConfig<EastType, EastType>;
+    const where = `Plan.series.chart "${given.key}"`;
+    const cfg = casedConfig(rowType, given, where);
     const layers = listField(rowType, cfg.layers, "layer", where, "layers");
     if (layers === undefined) throw new Error(`${where}: give its layers — Plan.line(Plan.values(field, draw)) and the like, or a function of the row`);
     const spec = dataSpec(rowType, cfg as AnyRowConfig, {
@@ -4775,6 +5012,8 @@ export function createSeriesChart<
  * @typeParam CU - One step-down's reads
  * @typeParam CF - The folds of its cells
  * @typeParam CS - Several step-downs' reads
+ * @typeParam VF - The variant field of the rows its `case` names
+ * @typeParam VT - The case of that field it draws
  * @param rowType - The entry type
  * @param config - The strip's accessors and its members ({@link PlanGroupSeriesConfig})
  * @returns A series value, branded with its kind and what it reads
@@ -4784,7 +5023,8 @@ export function createSeriesGroup<
     R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType,
     US = unknown, FO extends PlanFoldLiteral | undefined = undefined, A extends PlanAggregateLiteral = never,
     CT extends PlanTreeField<R> = never, CU = unknown, CF = unknown, CS extends readonly unknown[] = never,
->(rowType: R, config: PlanGroupSeriesConfig<R, K, KT, US, FO, A, CT, CU, CF, CS>): PlanSeriesValue<K, PlanReadsNormal<US & PlanChildrenReads<CT, CU, CF, CS, A>>> {
+    VF extends PlanVariantField<R> = never, VT extends PlanCaseTag<R, VF> = never,
+>(rowType: R, config: PlanGroupSeriesConfig<R, K, KT, US, FO, A, CT, CU, CF, CS, VF, VT>): PlanSeriesValue<K, PlanReadsNormal<US & PlanChildrenReads<CT, CU, CF, CS, A>>> {
     // The removed forms, named — a plain JS caller would otherwise meet an
     // unhelpful "label is not a function".
     if (arguments.length > 2 || "by" in (config as object)) {
@@ -4793,8 +5033,9 @@ export function createSeriesGroup<
             "strip is now one per ENTRY with its members nested in the entry (`children`); reshape a flat source " +
             "with `groupToDicts` first, and use `Plan.series.section(R, { key, title }, [series…])` for a fixed block");
     }
-    const cfg = config as unknown as PlanGroupSeriesConfig<EastType, PlanAxisKindLiteral, EastType>;
-    const where = `Plan.series.group "${cfg.key}"`;
+    const given = config as unknown as PlanGroupSeriesConfig<EastType, PlanAxisKindLiteral, EastType>;
+    const where = `Plan.series.group "${given.key}"`;
+    const cfg = casedConfig(rowType, given, where);
     if (cfg.children === undefined) {
         throw new Error(`${where}: a group strip needs its members — declare \`children\``);
     }
@@ -4868,6 +5109,8 @@ export function createSeriesSection<R extends EastType, K extends PlanAxisKindLi
  * @typeParam CU - One step-down's reads
  * @typeParam CF - The folds of its cells
  * @typeParam CS - Several step-downs' reads
+ * @typeParam VF - The variant field of the rows its `case` names
+ * @typeParam VT - The case of that field it draws
  * @param rowType - The entry type
  * @param config - Membership, collapse and children ({@link PlanViewsSeriesConfig})
  * @param members - The member series — one row each per entry, in order
@@ -4876,12 +5119,14 @@ export function createSeriesSection<R extends EastType, K extends PlanAxisKindLi
 export function createSeriesViews<
     R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType,
     S extends readonly unknown[] = PlanSeriesValue<K>[], CT extends PlanTreeField<R> = never, CU = unknown, CF = unknown, CS extends readonly unknown[] = never,
+    VF extends PlanVariantField<R> = never, VT extends PlanCaseTag<R, VF> = never,
 >(
     rowType: R,
-    config: PlanViewsSeriesConfig<R, KT, CT, CU, CF, CS>,
+    config: PlanViewsSeriesConfig<R, KT, CT, CU, CF, CS, VF, VT>,
     members: S & PlanSeriesValue<K>[],
 ): PlanSeriesValue<K, PlanReadsNormal<PlanIntersect<PlanReadsOfSeries<S[number]>> & PlanChildrenReads<CT, CU, CF, CS>>> {
-    const cfg = config as unknown as PlanViewsSeriesConfig<EastType, EastType>;
+    const given = config as unknown as PlanViewsSeriesConfig<EastType, EastType>;
+    const cfg = casedConfig(rowType, given, `Plan.series.views "${given.key}"`);
     const spec = viewsSpec(rowType, cfg, members);
     return seriesValue(rowType, cfg.keyType, spec, cfg) as PlanSeriesValue<K, PlanReadsNormal<PlanIntersect<PlanReadsOfSeries<S[number]>> & PlanChildrenReads<CT, CU, CF, CS>>>;
 }
@@ -4909,6 +5154,8 @@ export function createSeriesViews<
  * @typeParam KT - The entries' key type: what an event's resource field holds
  * @typeParam S - Its series, as written
  * @typeParam CT - A tree's field, as `children` names it
+ * @typeParam VF - The variant field of the rows its `case` names
+ * @typeParam VT - The case of that field it draws
  * @param rowType - The entry type
  * @param config - Its name, gutter, lanes, series and tree ({@link PlanResourcesSeriesConfig})
  * @returns A series value, branded with its series' kinds and what they read
@@ -4918,11 +5165,13 @@ export function createSeriesViews<
 export function createSeriesResources<
     R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType,
     const S extends readonly unknown[] = never, CT extends PlanTreeField<R> = never,
+    VF extends PlanVariantField<R> = never, VT extends PlanCaseTag<R, VF> = never,
 >(
     rowType: R,
-    config: PlanResourcesSeriesConfig<R, KT, CT> & { readonly series?: S & readonly PlanSeriesValue<K>[] },
+    config: PlanResourcesSeriesConfig<R, KT, CT, VF, VT> & { readonly series?: S & readonly PlanSeriesValue<K>[] },
 ): PlanSeriesValue<K, PlanReadsNormal<([S] extends [never] ? unknown : PlanIntersect<PlanReadsOfSeries<S[number]>>) & PlanChildrenReads<CT, unknown, unknown, never>>> {
-    const cfg = config as unknown as AnyLandingConfig & { readonly series?: readonly PlanSeriesValue<PlanAxisKindLiteral>[] };
+    const given = config as unknown as AnyLandingConfig & { readonly series?: readonly PlanSeriesValue<PlanAxisKindLiteral>[] };
+    const cfg = casedConfig(rowType, given, `Plan.series.resources "${given.key}"`);
     const spec = landingSpec(rowType, cfg, cfg.series ?? []);
     return seriesValue(rowType, cfg.keyType, spec, cfg) as PlanSeriesValue<K, PlanReadsNormal<([S] extends [never] ? unknown : PlanIntersect<PlanReadsOfSeries<S[number]>>) & PlanChildrenReads<CT, unknown, unknown, never>>>;
 }
@@ -4958,12 +5207,11 @@ export function createSeriesKinds<
     const C extends PlanKindsCases<R, KT, F> = PlanKindsCases<R, KT, F>,
 >(rowType: R, field: F, cases: C & { readonly [T in Exclude<keyof C, keyof PlanVariantCases<R, F>>]: never }): PlanSeriesValue {
     const where = `Plan.series.kinds "${field}"`;
-    const fields = entryFieldsOf(rowType);
-    const variantType = fields?.[field] as { type: string; cases?: Record<string, EastType> } | undefined;
-    if (variantType === undefined || variantType.type !== "Variant" || variantType.cases === undefined) {
+    const variantCases = variantCasesOf(rowType, field);
+    if (variantCases === undefined) {
         throw new Error(`${where}: "${field}" is no variant field of its rows — name the variant field whose cases are the kinds of row`);
     }
-    const tags = Object.keys(variantType.cases);
+    const tags = Object.keys(variantCases);
     const given = cases as unknown as Readonly<Record<string, PlanKindsCase<EastType, EastType, EastType> | false>>;
     for (const name of Object.keys(given)) {
         if (!tags.includes(name)) throw new Error(`${where}: "${name}" is no case of "${field}" (${tags.join(", ")})`);
@@ -4979,23 +5227,13 @@ export function createSeriesKinds<
     if (keyType !== undefined && keyTypes.some((k) => !isTypeEqual(k, keyType))) {
         throw new Error(`${where}: its cases read one collection's entries, keyed by one type — and they give keyType ${keyTypes.map((k) => printTypeSummary(k)).join(" and ")}`);
     }
-    const recursive = (rowType as { type: string }).type === "Recursive";
-    // The case's value, read off the entry (its node, when recursive): every accessor's third argument.
-    const caseOf = (row: ExprType<EastType>, tag: string): ExprType<EastType> => {
-        const node = recursive ? (row as unknown as RecursiveExpr<EastType>).unwrap() as ExprType<EastType> : row;
-        return ((node as unknown as Record<string, ExprType<EastType>>)[field] as unknown as { unwrap: (t: string) => ExprType<EastType> }).unwrap(tag);
-    };
-    const holds = (row: ExprType<EastType>, tag: string): ExprType<BooleanType> => {
-        const node = recursive ? (row as unknown as RecursiveExpr<EastType>).unwrap() as ExprType<EastType> : row;
-        return ((node as unknown as Record<string, ExprType<EastType>>)[field] as unknown as { hasTag: (t: string) => ExprType<BooleanType> }).hasTag(tag);
-    };
     const built = drawn.map((tag) => {
         const c = given[tag] as PlanKindsCase<EastType, EastType, EastType>;
         type Acc<T extends EastType> = PlanCaseAccessor<EastType, T, EastType, EastType> | undefined;
-        // A case's accessor over the row and its key: the case's value read off the row, handed after them.
+        // A case's accessor over the row and its key: the case's value read off the row as the accessor receives it — its
+        // node, where the rows nest more of themselves — and handed after them.
         const over = <T extends EastType>(fn: Acc<T>) => fn === undefined ? undefined
-            : (row: ExprType<EastType>, key: ExprType<EastType>) => fn(row as never, key, caseOf(row, tag));
-        const ownMatch = c.match;
+            : (row: ExprType<EastType>, key: ExprType<EastType>) => fn(row as never, key, caseValueOf(row, field, tag));
         const cfg: AnyLandingConfig = {
             key: c.key ?? tag,
             title: c.title,
@@ -5003,9 +5241,7 @@ export function createSeriesKinds<
             ...(c.icon !== undefined ? { icon: c.icon } : {}),
             ...(keyType !== undefined ? { keyType } : {}),
             // The entries holding the case, and of them those its own `match` takes.
-            match: (row, key) => ownMatch === undefined
-                ? holds(row as never, tag)
-                : holds(row as never, tag).and(() => East.value(ownMatch(row as never, key, caseOf(row as never, tag)), BooleanType)),
+            match: caseMatch(field, tag, c.match as CaseFn | undefined),
             label: over(c.label)!,
             ...(c.id !== undefined ? { id: c.id } : {}),
             ...(c.stacked !== undefined ? { stacked: c.stacked } : {}),

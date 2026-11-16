@@ -996,6 +996,19 @@ Allocation read; the options only a Plan read are refused, each naming
   `false` for one not drawn, so a case the variant gains fails to compile until
   it is listed. Its callbacks are handed the case's value after the row and its
   key: `(row, key, value)`.
+- **One case, on one series.** `case: [field, tag]` does the same for a
+  single series: a span, buckets, chart, heat, table, cards or events series,
+  a group, a `views` or a resources series. It draws the rows whose `field`
+  holds the case `tag`, and each of its functions of the row is handed the
+  case's value after the row and its key:
+  `Plan.series.chart(Row, { case: ["kind", "kpi"], label: (row, key, kpi) => kpi.name, … })`,
+  where a series wrote `match: (r) => r.kind.hasTag("kpi")` and
+  `r.kind.unwrap("kpi")` in each accessor. Its own `match` stays, for a test of
+  the case's value, which it is handed too. A member of a `views` is built
+  before the views are, so one that reads the value names the `case` itself.
+  A field that holds no variant, or a tag that is no case of it, fails to
+  compile, and is refused at build naming the field and its cases
+  (`planTargetState`).
 - **Every kind over paged rows is read a cell at a time**, through its source
   of the rail, over the resources the rows in view hold. One with no source,
   or whose source lists no series or no summary index, is refused at build,

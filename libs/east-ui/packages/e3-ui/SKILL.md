@@ -147,6 +147,7 @@ Task → What do you need?
     ├─ Draw what is scheduled on ONE shared axis — the Plan
     │   ├─ Rows derived from data by a series list            → <Plan axis={…} data={…} series={[…]} />
     │   ├─ Event kinds over records, on the rows they land on → series={[Plan.series.resources(Row, { key: "presses", title, label, series? })]} events={{ job: Schedule.events(record, { resource: { field, of: "presses" } }) }} · rows of mixed kinds: Plan.series.kinds(Row, "what", { press: { title, label }, crew: false }), a case each, exhaustive
+    │   ├─ One case of a variant field, on a single series    → Plan.series.chart(Row, { case: ["kind", "kpi"], label: (row, key, kpi) => kpi.name, … }): the rows holding the case, each accessor handed its value; match narrows them further
     │   ├─ Read-only rows: a dataset's, or hand-built         → rows={[Plan.over(data, [series…]), Plan.chart({…})]}
     │   ├─ Its axis: time, number or ordinal                  → Plan.axis / Plan.axis.number / Plan.axis.ordinal
     │   ├─ Rows, nested by what the data holds                → Plan.series.span / buckets / chart / heat / table / cards / events / group / section / views / rows

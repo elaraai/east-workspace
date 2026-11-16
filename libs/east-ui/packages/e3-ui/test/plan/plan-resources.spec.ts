@@ -22,34 +22,17 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, RecursiveType, SortedMap, StringType, StructType, VariantType,
-    compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, variant, type ValueTypeOf,
+    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, RecursiveType, StringType, StructType, VariantType,
+    decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { Plan } from "@elaraai/e3-ui/internal";
+import { entry, ids, labels, parents, readings, rowsOf, sameIds, sameLabels, sameParents } from "./plan-rows.fixtures.js";
 
 const W27 = new Date("2026-06-29T00:00:00Z");
 const W28 = new Date("2026-07-06T00:00:00Z");
 const axis = Plan.axis({ window: { min: W27, max: new Date("2026-09-21T00:00:00Z") }, resolution: "week" });
 
-type RowId = ValueTypeOf<typeof Plan.Types.RowId>;
-type Root = ValueTypeOf<typeof Plan.Types.Root>;
-const entry = (series: string, ...path: string[]): RowId => variant("entry", { series, path });
-const sameIds = equalFor(ArrayType(Plan.Types.RowId));
-const sameParents = equalFor(ArrayType(OptionType(Plan.Types.RowId)));
-const sameLabels = equalFor(ArrayType(StringType));
-
-/** The canvas's rows, every block's in order. */
-function rowsOf(root: Root) {
-    if (root.rows.type !== "inline") throw new Error("expected an inline canvas");
-    return root.rows.value.flatMap((block) => block.rows);
-}
-const ids = (root: Root) => rowsOf(root).map((r) => r.id);
-const parents = (root: Root) => rowsOf(root).map((r) => r.parent);
-const labels = (root: Root) => rowsOf(root).map((r) => r.gutter.label);
-
 // ── Presses, each with its readings beneath it, the bindery's lines a tree ───
-
-const readings = (...values: [Date, number][]) => new SortedMap(values, compareFor(DateTimeType));
 
 const Press = StructType({ name: StringType, readings: DictType(DateTimeType, FloatType) });
 const Presses = DictType(StringType, Press);

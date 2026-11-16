@@ -587,12 +587,12 @@ export const planTargetState = example({
                 // its plot keeping its value scale.
                 Plan.series.chart(TargetOpsRow, {
                     key: "ontime", title: "On-time",
-                    match: r => r.kind.hasTag("kpi"),
-                    label: r => r.kind.unwrap("kpi").name, id: true,
-                    pinned: r => r.kind.unwrap("kpi").pinned,
-                    value: r => some(r.kind.unwrap("kpi").headline),
+                    case: ["kind", "kpi"],
+                    label: (_r, _k, kpi) => kpi.name, id: true,
+                    pinned: (_r, _k, kpi) => kpi.pinned,
+                    value: (_r, _k, kpi) => some(kpi.headline),
                     status: _r => some(variant("warning", null)),
-                    expand: r => r.kind.unwrap("kpi").detail,
+                    expand: (_r, _k, kpi) => kpi.detail,
                     height: "spark", expandable: true,
                     left: { domain: [80, 110], tickValues: [80, 100] },
                     layers: [
@@ -604,9 +604,10 @@ export const planTargetState = example({
                     // Raw drops, each a resting tile at its week.
                     Plan.series.buckets(TargetOpsRow, {
                         key: "vans", title: "Vans",
-                        match: r => r.kind.hasTag("van").and(() => r.kind.unwrap("van").region.equal("local")),
-                        label: r => r.kind.unwrap("van").name,
-                        sub: r => r.kind.unwrap("van").sub,
+                        case: ["kind", "van"],
+                        match: (_r, _k, van) => van.region.equal("local"),
+                        label: (_r, _k, van) => van.name,
+                        sub: (_r, _k, van) => van.sub,
                         events: Plan.items("drops", { at: "at" }, (drop) => ({ state: drop.state })),
                         markers: Plan.values("alerts", (alert) => ({ message: alert.message, status: alert.status })),
                     }),
@@ -615,11 +616,12 @@ export const planTargetState = example({
                     // Tiles stored as they draw pass straight through, in their lanes.
                     Plan.series.buckets(TargetOpsRow, {
                         key: "regional", title: "Regional",
-                        match: r => r.kind.hasTag("van").and(() => r.kind.unwrap("van").region.equal("regional")),
-                        label: r => r.kind.unwrap("van").name,
-                        sub: r => r.kind.unwrap("van").sub,
-                        expand: r => r.kind.unwrap("van").detail,
-                        lanes: r => r.kind.unwrap("van").lanes,
+                        case: ["kind", "van"],
+                        match: (_r, _k, van) => van.region.equal("regional"),
+                        label: (_r, _k, van) => van.name,
+                        sub: (_r, _k, van) => van.sub,
+                        expand: (_r, _k, van) => van.detail,
+                        lanes: (_r, _k, van) => van.lanes,
                         events: Plan.items("tiles", { at: "at" }, (tile) => ({
                             state: tile.state, lane: tile.lane, label: tile.label, icon: tile.icon, status: tile.status, color: tile.color,
                             colorPalette: tile.colorPalette, stretch: tile.stretch, content: tile.content, animation: tile.animation,
@@ -634,28 +636,28 @@ export const planTargetState = example({
                 // count; the host's state folds Hall 3.
                 Plan.series.group(TargetOpsRow, {
                     key: "halls", title: "Halls",
-                    match: r => r.kind.hasTag("hall"),
+                    case: ["kind", "hall"],
                     label: (_r, hall) => hall,
                     collapsed: (_r, hall) => hall.equal("Hall 2"),
                     summaryAggregate: "mean",
                     children: Plan.children("members", [
                         Plan.series.span(TargetOpsRow, {
                             key: "presses", title: "Presses",
-                            match: r => r.kind.hasTag("press"),
+                            case: ["kind", "press"],
                             label: (_r, k) => k, id: true,
-                            value: r => rateText(r.kind.unwrap("press").rate),
-                            status: r => r.kind.unwrap("press").status,
-                            expand: r => r.kind.unwrap("press").detail,
+                            value: (_r, _k, press) => rateText(press.rate),
+                            status: (_r, _k, press) => press.status,
+                            expand: (_r, _k, press) => press.detail,
                             runs: Plan.items("jobs", { from: "start", to: "end" }, jobLook),
                             decisions: Plan.items("decisions", { at: "at" }, (decision) => ({ applied: decision.applied })),
                             ports: Plan.values("ports", (port) => ({ label: some(port.label) })),
                         }),
                         Plan.series.heat(TargetOpsRow, {
                             key: "hall-load", title: "Hall load",
-                            match: r => r.kind.hasTag("load"),
-                            label: r => r.kind.unwrap("load").name,
-                            sub: r => some(r.kind.unwrap("load").sub),
-                            expand: r => r.kind.unwrap("load").detail,
+                            case: ["kind", "load"],
+                            label: (_r, _k, load) => load.name,
+                            sub: (_r, _k, load) => some(load.sub),
+                            expand: (_r, _k, load) => load.detail,
                             cells: Plan.heatCells(Plan.values("load", loadLook), { min: 0, max: 100, warnAt: 95 }),
                         }),
                     ]),
@@ -664,18 +666,20 @@ export const planTargetState = example({
                 // proposed cut, a declined run)…
                 Plan.series.span(TargetOpsRow, {
                     key: "flavours", title: "Flavours",
-                    match: r => r.kind.hasTag("press").and(() => r.kind.unwrap("press").series.equal("flavours")),
+                    case: ["kind", "press"],
+                    match: (_r, _k, press) => press.series.equal("flavours"),
                     label: (_r, k) => k, id: true,
-                    value: r => rateText(r.kind.unwrap("press").rate),
+                    value: (_r, _k, press) => rateText(press.rate),
                     runs: Plan.items("jobs", { from: "start", to: "end" }, jobLook),
                 }),
                 // …sheets, an applied decision and a port on a stacked two-line gutter…
                 Plan.series.span(TargetOpsRow, {
                     key: "detail", title: "Detail",
-                    match: r => r.kind.hasTag("press").and(() => r.kind.unwrap("press").series.equal("detail")),
+                    case: ["kind", "press"],
+                    match: (_r, _k, press) => press.series.equal("detail"),
                     label: (_r, k) => k, id: true, stacked: true,
-                    sub: r => r.kind.unwrap("press").sub,
-                    expand: r => r.kind.unwrap("press").detail,
+                    sub: (_r, _k, press) => press.sub,
+                    expand: (_r, _k, press) => press.detail,
                     runs: Plan.items("jobs", { from: "start", to: "end" }, jobLook),
                     decisions: Plan.items("decisions", { at: "at" }, (decision) => ({ applied: decision.applied })),
                     ports: Plan.values("ports", (port) => ({ label: some(port.label) })),
@@ -685,7 +689,8 @@ export const planTargetState = example({
                 // runs up…
                 Plan.series.span(TargetOpsRow, {
                     key: "rollup", title: "Rollup",
-                    match: r => r.kind.hasTag("press").and(() => r.kind.unwrap("press").series.equal("rollup")),
+                    case: ["kind", "press"],
+                    match: (_r, _k, press) => press.series.equal("rollup"),
                     label: (_r, k) => k, id: true,
                     runs: Plan.items("jobs", { from: "start", to: "end" }, jobLook),
                     children: "presses", rollup: "union",
@@ -693,7 +698,8 @@ export const planTargetState = example({
                 // …a delivery whose run lands past the window…
                 Plan.series.span(TargetOpsRow, {
                     key: "delivery", title: "Deliveries",
-                    match: r => r.kind.hasTag("press").and(() => r.kind.unwrap("press").series.equal("delivery")),
+                    case: ["kind", "press"],
+                    match: (_r, _k, press) => press.series.equal("delivery"),
                     label: (_r, k) => k, id: true,
                     runs: Plan.items("jobs", { from: "start", to: "end" }, jobLook),
                 }),
@@ -701,7 +707,8 @@ export const planTargetState = example({
                 Plan.series.section(TargetOpsRow, { key: "contract-block", title: "Contracts", meta: "1 row" }, [
                     Plan.series.span(TargetOpsRow, {
                         key: "contracts", title: "Contracts",
-                        match: r => r.kind.hasTag("press").and(() => r.kind.unwrap("press").series.equal("contracts")),
+                        case: ["kind", "press"],
+                        match: (_r, _k, press) => press.series.equal("contracts"),
                         label: (_r, k) => k, id: true,
                         runs: Plan.items("jobs", { from: "start", to: "end" }, jobLook),
                         children: "presses", rollup: "byStatus",
@@ -713,53 +720,57 @@ export const planTargetState = example({
                 Plan.series.section(TargetOpsRow, { key: "quality-block", title: "Quality", meta: "1 row", value: "95%", status: "warning", collapsed: true, summaryAggregate: "mean" }, [
                     Plan.series.heat(TargetOpsRow, {
                         key: "quality", title: "Quality index", subtitle: "same kind, own entry",
-                        match: r => r.kind.hasTag("load"),
-                        label: r => r.kind.unwrap("load").name,
-                        sub: r => some(r.kind.unwrap("load").sub),
+                        case: ["kind", "load"],
+                        label: (_r, _k, load) => load.name,
+                        sub: (_r, _k, load) => some(load.sub),
                         cells: Plan.heatCells(Plan.values("load", loadLook), { min: 0, max: 100 }),
                     }),
                 ]),
                 // Chips derived from raw shifts on a two-line gutter…
                 Plan.series.cards(TargetOpsRow, {
                     key: "crews", title: "Crews",
-                    match: r => r.kind.hasTag("crew").and(() => r.kind.unwrap("crew").pool.not()),
-                    label: r => r.kind.unwrap("crew").name, stacked: true,
-                    sub: r => r.kind.unwrap("crew").sub,
-                    expand: r => r.kind.unwrap("crew").detail,
+                    case: ["kind", "crew"],
+                    match: (_r, _k, crew) => crew.pool.not(),
+                    label: (_r, _k, crew) => crew.name, stacked: true,
+                    sub: (_r, _k, crew) => crew.sub,
+                    expand: (_r, _k, crew) => crew.detail,
                     chips: Plan.items("shifts", { from: "from", to: "to" }, shiftLook),
                 }),
                 // …and chips stored as they draw, one with an icon.
                 Plan.series.section(TargetOpsRow, { key: "relief", title: "Relief pool", meta: "1 row" }, [
                     Plan.series.cards(TargetOpsRow, {
                         key: "pool", title: "Pool",
-                        match: r => r.kind.hasTag("crew").and(() => r.kind.unwrap("crew").pool),
-                        label: r => r.kind.unwrap("crew").name,
-                        value: r => r.kind.unwrap("crew").value,
+                        case: ["kind", "crew"],
+                        match: (_r, _k, crew) => crew.pool,
+                        label: (_r, _k, crew) => crew.name,
+                        value: (_r, _k, crew) => crew.value,
                         chips: Plan.items("chips", { from: "from", to: "to" }, (chip) => ({ label: chip.label, state: chip.state, icon: chip.icon })),
                     }),
                 ]),
                 Plan.series.events(TargetOpsRow, {
                     key: "milestones", title: "Milestones",
-                    match: r => r.kind.hasTag("stream").and(() => r.kind.unwrap("stream").cadence.hasTag("none")),
-                    label: r => r.kind.unwrap("stream").name, id: true,
+                    case: ["kind", "stream"],
+                    match: (_r, _k, stream) => stream.cadence.hasTag("none"),
+                    label: (_r, _k, stream) => stream.name, id: true,
                     value: r => some(East.print(r.marks.size())),
-                    expand: r => r.kind.unwrap("stream").detail,
+                    expand: (_r, _k, stream) => stream.detail,
                     marks: Plan.items("marks", { at: "at" }, (mark) => ({ kind: mark.kind, icon: mark.icon, label: mark.label })),
                 }),
                 Plan.series.section(TargetOpsRow, { key: "programs", title: "Programs", meta: "1 row" }, [
                     Plan.series.events(TargetOpsRow, {
                         key: "releases", title: "Releases",
-                        match: r => r.kind.hasTag("stream").and(() => r.kind.unwrap("stream").cadence.hasTag("some")),
-                        label: r => r.kind.unwrap("stream").name, id: true, stacked: true,
-                        sub: r => r.kind.unwrap("stream").cadence,
+                        case: ["kind", "stream"],
+                        match: (_r, _k, stream) => stream.cadence.hasTag("some"),
+                        label: (_r, _k, stream) => stream.name, id: true, stacked: true,
+                        sub: (_r, _k, stream) => stream.cadence,
                         marks: Plan.items("marks", { at: "at" }, (mark) => ({ kind: mark.kind, icon: mark.icon, label: mark.label })),
                     }),
                 ]),
                 Plan.series.table(TargetOpsRow, {
                     key: "delivered", title: "Delivered sheets",
-                    match: r => r.kind.hasTag("tally"),
-                    label: r => r.kind.unwrap("tally").name,
-                    expand: r => r.kind.unwrap("tally").detail,
+                    case: ["kind", "tally"],
+                    label: (_r, _k, tally) => tally.name,
+                    expand: (_r, _k, tally) => tally.detail,
                     cells: Plan.tableCells(Plan.values("delivered", (sheets) => ({ value: sheets }))),
                     format: whole,
                 }),
@@ -769,21 +780,21 @@ export const planTargetState = example({
                 // the machine; the gutter's sub-line names the view.
                 Plan.series.views(TargetOpsRow, {
                     key: "finishers", title: "Finishing", subtitle: "one machine, three views",
-                    match: r => r.kind.hasTag("finisher"),
+                    case: ["kind", "finisher"],
                 }, [
                     Plan.series.span(TargetOpsRow, {
                         key: "finisher-jobs", title: "Finisher jobs",
-                        label: r => r.kind.unwrap("finisher").name, id: true,
+                        case: ["kind", "finisher"], label: (_r, _k, finisher) => finisher.name, id: true,
                         runs: Plan.items("jobs", { from: "start", to: "end" }, jobLook),
                     }),
                     Plan.series.chart(TargetOpsRow, {
                         key: "finisher-util", title: "Finisher · utilisation",
-                        label: r => r.kind.unwrap("finisher").name, stacked: true, sub: _r => some("utilisation %"), height: "spark",
+                        case: ["kind", "finisher"], label: (_r, _k, finisher) => finisher.name, stacked: true, sub: _r => some("utilisation %"), height: "spark",
                         layers: [Plan.line(Plan.values("util", (pct) => ({ y: pct })))],
                     }),
                     Plan.series.table(TargetOpsRow, {
                         key: "finisher-sheets", title: "Finisher · sheets",
-                        label: r => r.kind.unwrap("finisher").name, stacked: true, sub: _r => some("sheets · plan Δ"),
+                        case: ["kind", "finisher"], label: (_r, _k, finisher) => finisher.name, stacked: true, sub: _r => some("sheets · plan Δ"),
                         cells: Plan.tableCells(Plan.values("sheets", (sheets) => ({ value: some(sheets) }))),
                         format: whole,
                     }),
