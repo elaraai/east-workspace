@@ -100,8 +100,7 @@
 import { Fragment, memo, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import {
-    DateTimeType, IntegerType, OptionType, StringType, StructType, encodeBeast2For, equalFor, fromEastTypeValue, none, some,
-    type EastType, type StructType as EastStructType, type option,
+    DateTimeType, IntegerType, OptionType, StringType, StructType, equalFor, none, some, type option,
 } from "@elaraai/east";
 import { Fields, type FieldSpecValue } from "@elaraai/east-ui/internal";
 import {
@@ -113,11 +112,11 @@ import { FOCUS_HOME_PROPS, useFocusHome } from "../shared/focus-home.js";
 import { useFieldAsk } from "../shared/schedule/field-ask.js";
 import { askHiding, hiddenLine, hiddenOf, type RowHidden, type RowHiding, type SourceHiding } from "../shared/schedule/hidden.js";
 import type { HiddenPicks } from "../shared/schedule/hidden-pick.js";
-import { draftedRow, rowCodec } from "../shared/schedule/records.js";
+import { draftedRow, fieldWrite, rowCodec } from "../shared/schedule/records.js";
 import { entryRefusals, refusedFields, type RefusedFields } from "../shared/schedule/refusals.js";
 import type { FlowchartDetailsModel } from "./details.js";
 import { FlowchartPaneReads } from "./details-pane.js";
-import { kindOf, type FlowchartEditing, type FlowchartFieldWrites } from "./editing.js";
+import { kindOf, type FlowchartEditing } from "./editing.js";
 import {
     deleteDecision, deleteLane, deleteLink, deleteStates, duplicateState, editLink, moveStates, rekey, renameLane, renameState, setFields, setRow,
     type FlowchartGesture, type FlowchartHolding, type GestureEdits,
@@ -138,8 +137,6 @@ type Styles = Record<string, SystemStyleObject>;
 type AnyKind = NonNullable<ReturnType<typeof kindOf>>;
 /** An author's own Details, decoded: the row as bytes and its writer, to UI. */
 type OwnDetails = Extract<AnyKind["inspector"], { type: "some" }>["value"];
-/** One field of the form written, as a kind's `set` takes it. */
-type FieldWrite = FlowchartFieldWrites[number];
 
 /** The inspector open: the design system's 320px, as the Schematic's, the Plan's and the Sheet's are. */
 const INSPECTOR_SIZE = "320px";
@@ -464,24 +461,6 @@ function useOwnDetails(author: OwnDetails | undefined, bytes: Uint8Array | undef
             return undefined;
         }
     }, [author, bytes, update, what]);
-}
-
-/**
- * A field of the form edited, as its kind's `set` takes it: its path, and its
- * value as bytes at the field's type — its spec's, else the row's own field's.
- *
- * @param specs - The form's specs
- * @param rowType - The row type
- * @param path - The field's path
- * @param next - Its new value
- * @returns The write; `undefined` for a path no field is at
- */
-function fieldWrite(specs: readonly FieldSpecValue[], rowType: AnyKind["rowType"], path: readonly string[], next: unknown): FieldWrite | undefined {
-    const spec = specs.find((field) => field.path.length === path.length && field.path.every((part, i) => stringEqual(part, path[i]!)));
-    const row = fromEastTypeValue(rowType) as EastStructType;
-    const type = spec !== undefined ? fromEastTypeValue(spec.type) as EastType : path.length === 1 ? row.fields[path[0]!] : undefined;
-    if (type === undefined) return undefined;
-    return { path: [...path], value: encodeBeast2For(type)(next as never) };
 }
 
 /** A row as Details holds it: as its drafts hold it, else its record; what its form is tinted against; its chip. */

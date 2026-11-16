@@ -120,6 +120,7 @@ import { FrameDrawer, PlaceholderShape } from "@elaraai/east-ui-components/inter
 import { breachTone } from "../../shared/bounds.js";
 import { heldRowOf } from "../../shared/schedule/editing.js";
 import { useFieldAsk } from "../../shared/schedule/field-ask.js";
+import { fieldChange } from "../../shared/schedule/records.js";
 import { removePlanEvents, type PlanEventChange, type PlanEventEditing } from "../edit/events.js";
 import { scheduleEventKey } from "../../shared/schedule/overlaps.js";
 import { entryRefusals, refusalsText, refusedFields } from "../../shared/schedule/refusals.js";
@@ -782,13 +783,13 @@ function OneEvent({ event, keys, words, styles, counts, chrome, selection }: One
     // One that records nothing — the edits off meanwhile, the write turning it down, nothing changed — draws the form
     // again, with nothing to say (#1585).
     const onField = useCallback((path: readonly string[], next: unknown) => {
-        const spec = specs.find((s) => samePath(s.path, path));
-        if (editing === undefined || spec === undefined) return;
-        const value = encodeBeast2For(spec.type)(next as never);
-        if (!writes.current || !editing.record([{ kind: kind.key, id: item.key, gesture: variant("field", { path: [...path], value }) }], "typed", labelOf("Edit", [event]))) {
+        // The form's edit as its kind writes it: the one rule every builder's inspector shares (`fieldChange`).
+        const change = specs.some((s) => samePath(s.path, path)) ? fieldChange(kind, item.key, path, next) : undefined;
+        if (editing === undefined || change === undefined) return;
+        if (!writes.current || !editing.record([change], "typed", labelOf("Edit", [event]))) {
             setRedraws((n) => n + 1);
         }
-    }, [editing, specs, kind.key, item.key, event]);
+    }, [editing, specs, kind, item.key, event]);
     // The kind's own inspector's `update` (PB60): the edited event, whole, one transaction — none while the edits are off,
     // whatever control of the kind's own the fieldset does not reach.
     const update = useCallback((edited: Uint8Array): null => {
