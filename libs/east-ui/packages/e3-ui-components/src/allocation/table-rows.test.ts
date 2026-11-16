@@ -12,6 +12,7 @@
  */
 import { describe, expect, test } from "vitest";
 import { SortedMap, SortedSet, StringType, compareFor, none, some, variant, type option } from "@elaraai/east";
+import { randomStream } from "@elaraai/east/internal";
 import { DEFAULT_BANDS, narrowBands, narrowRows, ownsRow, tableBands, tableRows, type TableRow } from "./table-rows.js";
 import type { Bin, Day, Slot } from "./model.js";
 
@@ -20,15 +21,9 @@ const DAY = new Date(Date.UTC(2027, 4, 11));
 const LANES = ["L-1", "L-2", "L-3", "L-4"];
 const RESOURCES = ["R-1", "R-2", "R-3", "R-4", "R-5", "R-6"];
 
-/** A seeded generator (mulberry32): the same cases on every run. */
+/** Draws from East's seeded stream: the same cases on every run. */
 function random(seed: number) {
-    let t = seed >>> 0;
-    const next = () => {
-        t = (t + 0x6d2b79f5) >>> 0;
-        let r = Math.imul(t ^ (t >>> 15), 1 | t);
-        r = (r + Math.imul(r ^ (r >>> 7), 61 | r)) ^ r;
-        return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
-    };
+    const next = randomStream(seed);
     return {
         int: (n: number) => Math.floor(next() * n),
         pick: <T,>(xs: readonly T[]) => xs[Math.floor(next() * xs.length)]!,

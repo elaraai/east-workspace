@@ -30,6 +30,10 @@
  */
 import { SortedMap, SortedSet } from "@elaraai/east";
 
+// A seeded generator of numbers in [0, 1), the same run for the same seed:
+// East's own seeded stream (mulberry32), which its fuzz generator draws from.
+export { randomStream as seeded } from "@elaraai/east/internal";
+
 /** One operation of a model, by name. */
 type Op = string;
 
@@ -78,23 +82,6 @@ export async function everyOrdering<T extends Explorable>(
     };
     await walk([], new Set());
     return count;
-}
-
-/**
- * A seeded generator of numbers in [0, 1): the same run for the same seed.
- *
- * @param seed - The seed
- * @returns The generator
- */
-export function seeded(seed: number): () => number {
-    let state = seed >>> 0;
-    return () => {
-        state = (state + 0x6D2B79F5) >>> 0;
-        let t = state;
-        t = Math.imul(t ^ (t >>> 15), t | 1);
-        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
 }
 
 /** An id the code makes at random: its 32 hex digits. A print names each by the order it meets them in. */

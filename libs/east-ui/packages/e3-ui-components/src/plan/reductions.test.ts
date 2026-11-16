@@ -8,23 +8,12 @@
  */
 
 import { describe, test, expect } from "vitest";
+import { randomStream } from "@elaraai/east/internal";
 import { appendAll, maxOf, minOf, peakConcurrency, type OrderInterval } from "./reductions.js";
 
 /** Past the engine's argument limit (~125,000 under vitest on Node 22), so a
  *  spread into a call throws here — the size these loops exist for. */
 const BEYOND_ARG_LIMIT = 250_000;
-
-/** mulberry32 — a hand-written seeded PRNG, so every run draws the same sets. */
-function mulberry32(seed: number): () => number {
-    let a = seed >>> 0;
-    return () => {
-        a = (a + 0x6d2b79f5) >>> 0;
-        let x = a;
-        x = Math.imul(x ^ (x >>> 15), x | 1);
-        x ^= x + Math.imul(x ^ (x >>> 7), x | 61);
-        return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
-    };
-}
 
 type Shape = "touching" | "nested" | "identical" | "zero" | "inverted" | "free";
 
@@ -88,7 +77,8 @@ function bruteForcePeak(set: readonly OrderInterval[]): number {
 
 describe("peakConcurrency — the rollup sweep line (#810)", () => {
     test("equals a brute-force oracle over 500 seeded random interval sets", () => {
-        const rand = mulberry32(810);
+        // East's seeded stream: every run draws the same sets.
+        const rand = randomStream(810);
         const seen = new Map<Shape, number>();
         for (let i = 0; i < 500; i++) {
             const { set, shapes } = randomSet(rand);

@@ -17,6 +17,7 @@ import assert from "node:assert/strict";
 import {
     ArrayType, DateTimeType, decodeBeast2For, encodeBeast2For, equalFor, none, parseFor, printFor, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
+import { randomStream } from "@elaraai/east/internal";
 import { RecordSliceIndexType, RecordSliceWhereType } from "../../src/platform/slice/record-types.js";
 import { MAX_RECORD_SLICE_RUNS, planRecordSlice, recordChoiceWhere } from "../../src/platform/slice/record-plan.js";
 import {
@@ -43,18 +44,6 @@ function dayOf(instant: Date): Date {
     const start = new Date(0);
     start.setUTCFullYear(instant.getUTCFullYear(), instant.getUTCMonth(), instant.getUTCDate());
     return start;
-}
-
-/** A seeded stream of numbers in [0, 1) (mulberry32): the same cases on every run. */
-function stream(seed: number): () => number {
-    let a = seed >>> 0;
-    return () => {
-        a = (a + 0x6D2B79F5) >>> 0;
-        let t = a;
-        t = Math.imul(t ^ (t >>> 15), t | 1);
-        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
 }
 
 test("a tile marker names its fields by role, marks a summary, and reads back as itself", () => {
@@ -120,7 +109,8 @@ test("a calendar tile of the first century is that century's, never one of the 1
 });
 
 test("every instant lies in the one tile its start names, whose next tile starts where it ends, at random over five thousand years", () => {
-    const next = stream(1039);
+    // East's seeded stream: the same cases on every run.
+    const next = randomStream(1039);
     for (let n = 0; n < 4000; n++) {
         // From about 460 BC to 4600 AD, to the millisecond.
         const instant = new Date(Math.floor((next() - 0.48) * 1.6e14));

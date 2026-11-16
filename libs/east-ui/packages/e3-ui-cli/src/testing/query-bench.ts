@@ -25,6 +25,7 @@ import {
     none, some, toEastTypeValue, variant,
     type ValueTypeOf,
 } from '@elaraai/east';
+import { randomStream } from '@elaraai/east/internal';
 import type { TreePath } from '@elaraai/e3-types';
 import { queryRoot } from '@elaraai/e3-ui-components/query';
 
@@ -88,20 +89,9 @@ const HOUR_MS = 3_600_000;
 /** The total the selective queries keep above: about the 99.9th percentile, so about 0.1% of orders pass. */
 export const THRESHOLD = 7850;
 
-/** mulberry32: a 32-bit seeded generator, each draw in [0, 1). */
-function mulberry32(seed: number): () => number {
-    let a = seed >>> 0;
-    return () => {
-        a = (a + 0x6d2b79f5) | 0;
-        let t = Math.imul(a ^ (a >>> 15), 1 | a);
-        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-}
-
-/** The catalog: 200 SKUs, cheap fasteners to dear assemblies. */
+/** The catalog: 200 SKUs, cheap fasteners to dear assemblies, drawn from East's seeded stream as the rest of the data is. */
 function catalog(): (readonly [sku: string, price: number])[] {
-    const draw = mulberry32(941);
+    const draw = randomStream(941);
     return Array.from({ length: 200 }, (_, i) => {
         const cheap = draw() < 0.45;
         const price = cheap ? Math.round((0.1 + draw() * 4.8) * 100) / 100 : Math.round((5 + draw() * 120) * 100) / 100;
@@ -118,7 +108,7 @@ export const customerId = (i: number): string => `C${String(i).padStart(6, '0')}
  * The first `n` of any count are the same orders.
  */
 export function* orders(count: number): Generator<{ order: Order; customer: number }> {
-    const draw = mulberry32(875941);
+    const draw = randomStream(875941);
     const skus = catalog();
     for (let i = 0; i < count; i++) {
         const customer = Math.floor(CUSTOMER_COUNT * draw() ** 1.8);
@@ -176,7 +166,7 @@ export function shipmentOf(order: Order): Shipment | undefined {
 
 /** The customers, in id order, each with the index of its region. */
 export function* customers(): Generator<{ id: string; customer: Customer; region: number }> {
-    const draw = mulberry32(100);
+    const draw = randomStream(100);
     for (let i = 0; i < CUSTOMER_COUNT; i++) {
         let r = draw();
         let region = REGIONS.length - 1;

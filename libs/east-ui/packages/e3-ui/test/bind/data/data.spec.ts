@@ -11,6 +11,7 @@ import {
     equalFor, isTypeEqual, printFor, some, variant,
     type ExprType, type FunctionType, type VariantType,
 } from "@elaraai/east";
+import { randomStream } from "@elaraai/east/internal";
 import {
     Reactive, Stat, Button, UIComponentType, RECORD_TILES, bindRecord, readAreaMarker, readTileMarker, resolveRowSource, tileNext, tileStart,
 } from "@elaraai/east-ui/internal";
@@ -569,15 +570,8 @@ describe("the client's tiles are e3's", () => {
     hostTest("every instant's tile starts where e3's does, and the next where e3's next does, before 1970 and in the first century too", () => {
         const sameInstant = equalFor(DateTimeType);
         const print = printFor(DateTimeType);
-        // A seeded stream of numbers in [0, 1) (mulberry32): the same instants on every run.
-        let a = 1039;
-        const next = () => {
-            a = (a + 0x6D2B79F5) >>> 0;
-            let t = a;
-            t = Math.imul(t ^ (t >>> 15), t | 1);
-            t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-            return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-        };
+        // East's seeded stream of numbers in [0, 1): the same instants on every run.
+        const next = randomStream(1039);
         // From about 460 BC to 4600 AD, to the millisecond, and some of the first century's.
         const instants = Array.from({ length: 3000 }, () => new Date(Math.floor((next() - 0.48) * 1.6e14)));
         for (const [year, month] of [[1, 0], [50, 4], [99, 11]] as const) {

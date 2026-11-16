@@ -16,6 +16,7 @@ import {
     ArrayType, FloatType, IntegerType, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, equalFor,
     none, parseFor, printFor, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
+import { randomStream } from "@elaraai/east/internal";
 import { RecordSliceAreaType, RecordSliceIndexType, RecordSliceWhereType } from "../../src/platform/slice/record-types.js";
 import { planRecordSlice } from "../../src/platform/slice/record-plan.js";
 import { recordOnPrinter, recordOnPrinters } from "../../src/platform/slice/record-on.js";
@@ -38,18 +39,6 @@ const BY_HALL = recordOnPrinter(StructType({ hall: StringType }));
 /** An index's printer, by the leading values a search names. */
 const printerOf = (prefix: readonly string[]) => prefix.length === 0 ? UNLED : BY_HALL;
 const printFloat = printFor(FloatType);
-
-/** A seeded stream of numbers in [0, 1) (mulberry32): the same cases on every run. */
-function stream(seed: number): () => number {
-    let a = seed >>> 0;
-    return () => {
-        a = (a + 0x6D2B79F5) >>> 0;
-        let t = a;
-        t = Math.imul(t ^ (t >>> 15), t | 1);
-        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-}
 
 /**
  * The key e3's area index files a box under, written out from §11.2 on its
@@ -175,7 +164,8 @@ function holds(sorted: readonly [bigint, bigint][], key: bigint): boolean {
 }
 
 test("a window's searches hold every row whose box meets it, each once, within the bound, at cells of several sizes", () => {
-    const next = stream(1385);
+    // East's seeded stream: the same cases on every run.
+    const next = randomStream(1385);
     for (const cell of [2 ** -7, 1, 2 ** 5]) {
         const boxes = Array.from({ length: 1500 }, () => randomBox(next, cell));
         const keys = boxes.map(box => filed(box, cell));
@@ -193,7 +183,7 @@ test("a window's searches hold every row whose box meets it, each once, within t
 });
 
 test("a window given a budget of searches asks no more than it, coarser at its last level, and still holds every row whose box meets it, each once (#1621)", () => {
-    const next = stream(1621);
+    const next = randomStream(1621);
     for (const cell of [2 ** -7, 1, 2 ** 5]) {
         const boxes = Array.from({ length: 1500 }, () => randomBox(next, cell));
         const keys = boxes.map(box => filed(box, cell));
@@ -267,7 +257,7 @@ test("a window planned again plans the same searches for each cell it shares, so
 });
 
 test("a window's searches are its cells, each where its search's key says — its level, its indices and its box — so a reader can weigh its count by how much of it a view holds", () => {
-    const next = stream(1393);
+    const next = randomStream(1393);
     for (const cell of [2 ** -7, 1, 2 ** 5]) {
         const half = cell * 2 ** 27;
         for (let w = 0; w < 60; w++) {
@@ -309,7 +299,7 @@ function cellIndex(at: number, cell: number, level: number): bigint {
 }
 
 test("a raster counts each row filed at its level or finer once, in the cell holding its centre, and reads each coarser row meeting its box by its key", () => {
-    const next = stream(1393);
+    const next = randomStream(1393);
     for (const cell of [2 ** -7, 1, 2 ** 5]) {
         const half = cell * 2 ** 27;
         const boxes = Array.from({ length: 1500 }, () => randomBox(next, cell));
