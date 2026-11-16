@@ -11,12 +11,15 @@
  * original, and a kind's rows are the same map while no row moves. And the
  * one rule of which drafted rows a builder draws (`DraftedStanding`): a row
  * its read holds, one its draft adds, one its narrowing holds — and, through
- * a carry-over, one it last drew.
+ * a carry-over, one it last drew. And a kind's rows with its drafts in place,
+ * for a builder that holds the kind's stored rows whole (`draftsInPlace`).
  */
 import { describe, expect, test } from "vitest";
 import { FloatType, IntegerType, StringType, StructType, decodeBeast2For, none, toEastTypeValue, variant, type ValueTypeOf } from "@elaraai/east";
 import type { EntryVersion } from "@elaraai/east-ui-components";
-import { DraftedStanding, draftedRowsOf, type DraftedRow, type DraftedRowsCache, type DraftedRowsKind, type DraftedRowsSession } from "./drafted-rows.js";
+import {
+    DraftedStanding, draftedRowsOf, draftsInPlace, type DraftedRow, type DraftedRows, type DraftedRowsCache, type DraftedRowsKind, type DraftedRowsSession,
+} from "./drafted-rows.js";
 import type { ScheduleEntryRef } from "./editing.js";
 
 /** A bench of a joinery shop: where it stands along the wall. */
@@ -203,5 +206,46 @@ describe("which drafted rows a builder draws (DraftedStanding)", () => {
         standing.drew(drawing("B1"));
         const asked = [1, 2, 3].map(() => [standing.stands("benches", "B1", bench(false, false), false), standing.stands("benches", "B1", bench(false, true), false)]);
         expect(asked).toEqual([[false, true], [false, true], [false, true]]);
+    });
+});
+
+describe("a kind's rows with its drafts in place, held whole (draftsInPlace)", () => {
+    const roles = (key: string, x: number): BenchRoles => ({ key, label: `Bench ${key}`, x });
+    /** The benches the read holds, in the record's order. */
+    const stored = new Map([["B1", { roles: roles("B1", 1) }], ["B2", { roles: roles("B2", 2) }], ["B3", { roles: roles("B3", 3) }]]);
+    const drafted = (key: string, x: number, created: boolean, carrying = false): DraftedRow<BenchRoles> => ({ roles: roles(key, x), created, carrying });
+    const placed = (drafts: DraftedRows<BenchRoles>, standing = new DraftedStanding(), hidden?: ReadonlySet<string>, waits?: (key: string) => void) => {
+        const drew = new Map<string, ReadonlySet<string>>();
+        const rows = draftsInPlace("benches", stored, drafts, standing, drew, hidden, waits);
+        return { rows: rows.map((row) => [row.key, row.roles.x, row.added] as const), drew: [...(drew.get("benches") ?? [])] };
+    };
+
+    test("each stored row as drafted, one its draft deletes nowhere, then each row its draft adds — the stored rows in their order", () => {
+        const { rows, drew } = placed(new Map<string, DraftedRow<BenchRoles> | undefined>([
+            ["B9", drafted("B9", 9, true)], ["B2", drafted("B2", 20, false)], ["B3", undefined],
+        ]));
+        expect(rows).toEqual([["B1", 1, false], ["B2", 20, false], ["B9", 9, true]]);
+        // What the builder remembers of the drafts: those it drew.
+        expect(drew).toEqual(["B2", "B9"]);
+    });
+
+    test("a drafted row no stored row shows that its draft does not add waits in its session, told in the drafts' order", () => {
+        const waiting: string[] = [];
+        const { rows } = placed(new Map([["B8", drafted("B8", 8, false)], ["B7", drafted("B7", 7, false)]]), new DraftedStanding(), undefined, (key) => { waiting.push(key); });
+        expect([rows.map(([key]) => key), waiting]).toEqual([["B1", "B2", "B3"], ["B8", "B7"]]);
+    });
+
+    test("a stored row hidden from the builder is not drawn, and its draft waits", () => {
+        const waiting: string[] = [];
+        const { rows } = placed(new Map([["B2", drafted("B2", 20, false)]]), new DraftedStanding(), new Set(["B2", "B3"]), (key) => { waiting.push(key); });
+        expect([rows, waiting]).toEqual([[["B1", 1, false]], ["B2"]]);
+    });
+
+    test("through a carry-over a drafted row the builder last drew stands, though no stored row holds it; a deletion is remembered as it stood", () => {
+        const standing = new DraftedStanding();
+        standing.drew(new Map([["benches", new Set(["B8", "B3"])]]));
+        const { rows, drew } = placed(new Map<string, DraftedRow<BenchRoles> | undefined>([["B8", drafted("B8", 8, false, true)], ["B3", undefined]]), standing);
+        expect(rows).toEqual([["B1", 1, false], ["B2", 2, false], ["B8", 8, true]]);
+        expect(drew).toEqual(["B8", "B3"]);
     });
 });
