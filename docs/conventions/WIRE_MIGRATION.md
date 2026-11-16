@@ -1299,7 +1299,11 @@ Each wire changed under this rule, with the kind it is.
   canvas's rows (`PlanEventSeamType`) — `placed`, the events read over a
   window and filed by landing, by way of drawing and by resource
   (`PlanEventPlacedType`, a struct where it was a dict), and `place`, which
-  fills the landing rows of any window with them. `PlanEventShownType` goes. A
+  fills the landing rows of any window with them. `PlanEventShownType` goes.
+  The canvas's root (`PlanRootType`) gains `unnarrowed`, after `rows`: where
+  the rail's `rows` source gives the canvas its rows, every row that source
+  narrows, made by the same series — what a pane names a resource the
+  narrowing leaves out by, its row read by its key — and none otherwise. A
   series value (`Plan.Types.Series`) gains the arms `resources` and `kinds`;
   its cases are in name order, so the tags of those after `kinds` move. The
   library's Series tab lists no resource kind and no measure, so a viewer's

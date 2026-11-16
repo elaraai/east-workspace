@@ -925,6 +925,104 @@ Each of the four elements sets `data-tone` and `data-ring` from its status
 and `markName` gain it: a host's translation of those three takes the
 status's words.
 
+## The rows are the resources (#1541)
+
+Before #1541 a Plan drew its event kinds on resources it was handed beside its
+rows: a dataset per resource kind (`resources`, each
+`Schedule.resources(rows, { … })`), whose rows the Plan made apart from its
+own. Now the rows are the resources. An event kind lands on a series of the
+Plan's own rows — `Plan.series.resources(Row, { key, title, icon, label, … })`,
+or a case of `Plan.series.kinds(Row, field, cases)` — and its
+`resource: { field, of }` names that series by its key. The record the rows
+are read from, through `data` or the rail's `rows` source, holds the
+resources, and everything the Plan does with its rows — nesting, tables,
+paging through a nested series index, the editing session, the Series tab —
+it does with them.
+
+```tsx
+// Before: a resource kind beside the rows.
+<Plan axis={axis} resources={{ presses: Schedule.resources(presses.read(), { name: "Press", icon: "print", label: (p) => p.name }) }}
+  events={{ job: Schedule.events(jobs, { …, resource: { field: "press", of: "presses" } }) }} />
+
+// Now: the presses are the rows, and the jobs land on their series.
+<Plan axis={axis} data={presses.read()}
+  series={[Plan.series.resources(PrintPress, { key: "presses", title: "Presses", icon: "print", label: (p) => p.name })]}
+  events={{ job: Schedule.events(jobs, { …, resource: { field: "press", of: "presses" } }) }} />
+```
+
+### The wire
+
+The payload loses `resources` and `blocks`, its `paged` becomes a Boolean,
+and it gains `landings` and `seam`; the root gains `unnarrowed`; a series
+value gains the arms `resources` and `kinds` (`WIRE_MIGRATION.md`). A stored
+`UIComponentType` value re-emits.
+
+### Removals and their replacements
+
+| Removed | Replacement | Example |
+|---|---|---|
+| `resources={{ <slot>: Schedule.resources(rows, { … }) }}` | the rows themselves, `data` or the rail's `rows` source, and a resources series of them, its key what `of` names | `planEvents`, `planWording`, `planConflicts`, `planOptimise` |
+| a resource kind for each kind of row | one record of rows, and `Plan.series.kinds(Row, field, cases)`: a case for each case of the variant `field`, each a resources series' config or `false`, its key the case's name unless it gives `key` | `planPrintWorks`, `planEventLinks` |
+| `Schedule.resources`' `group` | a group row the resources nest in: `Plan.series.group` with `children` | `planPrintWorks` |
+| `Schedule.resources`' `parent`, `rollup` and `collapsed` | a tree: `children: "field"` with `rollup`, and `collapsed` | |
+| `Schedule.resources`' `sub`, `value` and `status` | the series' or the case's own | `planEventLinks` |
+| `Schedule.resources`' `measures: [series]` | the series' or the case's `series`, drawn beneath its row | `planPrintWorks` |
+| a paged resource kind | the rows paged (`data={Data.bindPaged(record)}`, or the rail's `rows` source), each event kind read a cell at a time through its own source of the rail | `planWindows`, `planOptimiseWindows` |
+| a rail source named after a resource kind | the rail's `rows` source | `planSeriesByHall`, `planRecordIndexes` |
+
+A Plan given `resources` is refused at build, naming the series that replace
+it. `Schedule.resources` keeps what the Calendar, the Roster and the
+Allocation read; the options only a Plan read are refused, each naming
+`Plan.series.resources`' own, and `Schedule.Types.PlanResources` and
+`Schedule.Types.PlanResourceRow` are gone.
+
+### Behaviour that changed
+
+- **What a kind lands on.** `of` names a resources series or a `kinds` case
+  by its key, or one for each case of a variant field
+  (`{ bay: "bay", van: "van" }`). A name that is neither is refused at
+  build, and so is a field that does not hold the series' key type, naming
+  the field and both types. A key is a `String` for now: a series keyed by
+  another type is a later pull request of the epic's.
+- **How a resource's row draws.** It draws a row for each way the kinds
+  landing on it draw: the first on the row itself, each other a row after it,
+  labelled by its kinds' names. Then come its `series`, then its `children`, as
+  a resource kind's did. With no kind landing on it, it is the resource's own
+  empty lane.
+- **A series beneath a resource may leave out `label`**, in a resources
+  series' or a case's `series`: its row is named by the resource's. Anywhere
+  else a series with no `label` is refused at build, naming where it sits.
+- **The cases are exhaustive.** A `kinds` lists every case of its field,
+  `false` for one not drawn, so a case the variant gains fails to compile until
+  it is listed. Its callbacks are handed the case's value after the row and its
+  key: `(row, key, value)`.
+- **Every kind over paged rows is read a cell at a time**, through its source
+  of the rail, over the resources the rows in view hold. One with no source,
+  or whose source lists no series or no summary index, is refused at build,
+  naming the indexes to declare. Over rows read whole nothing changes: a kind
+  with no source is read whole within the cap, and an event on no resource
+  draws on the Unassigned row.
+- **The rail counts the `rows` source in the Plan's word for its rows**
+  (`vocabulary.rows`), and the footer's line names it so. A resource kind's
+  source was counted in its kind's name.
+- **A resource the page does not hold is still named.** Over rows read a page
+  at a time, and outside the rail's narrowing, the inspector, a bulk edit's
+  choices and the Backlog's cards name a resource by its row, read by its key.
+- **A paged canvas reads its rows again when the data they read moves.** A
+  new value of a dataset its rows read draws again. Before, it waited for the
+  paged source's revision to move.
+- **A series of a row that fails fails the Plan,** over rows read whole, until
+  the next good commit. A paged window's read, and an event kind's own, still
+  fail on the footer's line.
+
+### Renderer (`@elaraai/e3-ui-components`)
+
+The events join the canvas's rows through the payload's `seam` wherever the
+canvas makes them, a whole canvas, a page's window or a nested window:
+`placed` files the events read over a window, and `place` fills that window's
+landing rows with them. A kind's cells are read for the landing rows in view.
+A row of a landing's own series shows in the inspector as its resource.
+
 ## Extracted contracts (do this first when migrating imports)
 
 The shared audit vocabulary outlived the Planner and moved to `contracts/`:
