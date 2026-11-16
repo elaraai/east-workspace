@@ -34,11 +34,8 @@
 
 import { expect, type Locator } from "playwright/test";
 import { test } from "./kept-page";
-import { PLAN_EVENT_EXAMPLES, openExample, rowId } from "./plan-page";
+import { PLAN_EVENT_EXAMPLES, openExample, rowId, same, type Edges } from "./plan-page";
 import { printWorksPressId, type PrintWorksPress } from "./plan-builder-page";
-
-/** A box's edges, in client px. */
-interface Edges { top: number; bottom: number; left: number; right: number }
 
 /** One element a row draws: the attribute its draw carries, and its box. */
 interface Item extends Edges { draw: string }
@@ -107,9 +104,6 @@ async function rowsOf(entry: Locator): Promise<Row[]> {
 
 /** The rule under a row: its 1px line, inside its box. */
 const RULE = 1;
-
-/** Whether two edges are the same line, to the half pixel a browser lays out by. */
-const same = (a: number, b: number) => Math.abs(a - b) <= 0.5;
 
 test.describe("A resource's rows on the Plan (#1541)", () => {
     test("planPrintWorks: a press is its landing row, the row beside it at its level and its own series nested under it, together and in order @desktop", async ({ page }) => {

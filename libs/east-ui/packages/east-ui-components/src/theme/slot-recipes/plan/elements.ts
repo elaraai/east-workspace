@@ -32,8 +32,11 @@ export const elementsSlots = [
     "moveEdge", "moveGhost", "moveGhostLabel", "moveGhostSpan",
 ] as const;
 
-/** A lock's square (#1541, U9): Font Awesome's lock, 9px, in a bar or a chip. */
-export const PLAN_LOCK_W = "9px";
+/**
+ * A lock's square (#1541, U9): Font Awesome's lock, 8px, in a bar or a chip — even, as a bar's 20px (16px dense) and
+ * a chip's 18px are, so it centres on whole pixels; a tile's icons are 8px too.
+ */
+export const PLAN_LOCK_W = "8px";
 
 /**
  * A label after a lock and the gap (#1541, U9), a bar's and a chip's: a letter
@@ -116,6 +119,9 @@ export const elementsBase = {
             maskImage: "linear-gradient(to right, black 84%, transparent 99%)",
         },
         ...grab,
+        // Locked (#1541, U9): 4px either side, so the least bar the canvas draws (`--plan-bar-min-w`, 18px) holds its
+        // 8px lock whole. Before the strip's rule, which sets its own.
+        "&[data-locked]": { paddingInline: "4px" },
         // ── R1 GEOMETRY SHRINKS (#591) ──
         // The mark already owns a position and a width on the axis, so it
         // keeps both and drops to 7px. Ink goes `transparent` rather than
@@ -521,7 +527,7 @@ export const elementsBase = {
     },
     // ── Locks (#1541, U9) ──
     // What a bar or a chip its `locked` holds where it is leads with: Font
-    // Awesome's lock in the element's own ink, a 9px square. An element
+    // Awesome's lock in the element's own ink, an 8px square. An element
     // narrower inside than it draws none, never a part of it (#1264). In a
     // bar, whose one line is the bar's inside height, its box is that line's.
     lock: {

@@ -452,6 +452,9 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         ...planElementOverlap(CONFIRMED),
         // A chip that moves (#825) is picked up anywhere but its ends.
         "&[data-draggable]": { cursor: "grab" },
+        // Locked (#1541, U9): 6px either side, so the least chip the canvas draws (`--plan-chip-min-w`, 22px) holds
+        // its 8px lock whole. Before the strip's rule, which sets its own.
+        "&[data-locked]": { paddingInline: "6px" },
         // ── R1 GEOMETRY SHRINKS (#591) ──
         // The mark already owns a position and a width on the axis, so it
         // keeps both and drops to 7px. Ink goes `transparent` rather than

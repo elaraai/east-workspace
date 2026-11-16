@@ -15,6 +15,12 @@ import { printFor, variant } from "@elaraai/east";
 import { Plan } from "@elaraai/e3-ui/internal";
 import { settled } from "./settle";
 
+/** A box's edges, in client px. */
+export interface Edges { top: number; bottom: number; left: number; right: number }
+
+/** Whether two lengths — two edges, two sizes — are one, to the half pixel a browser lays out by. */
+export const same = (a: number, b: number): boolean => Math.abs(a - b) <= 0.5;
+
 /** The Plan's examples file in the catalog: e3-ui's (#1177), so under the e3
  *  section's `e3/` prefix — and drawn once the e3 the page runs has started. */
 export const PLAN_EXAMPLES = "e3/plan/plan";

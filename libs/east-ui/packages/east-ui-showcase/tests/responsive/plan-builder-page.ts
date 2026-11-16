@@ -81,11 +81,12 @@ export function regionAt(page: Page, at: { x: number; y: number }): Promise<stri
  * clear of the page's edge bands: in a box 760px wide its library overlays
  * main, 1440px wide it is pinned beside it — opened from its rail when it
  * rests there. A box 1440px wide is drawn in a window wide enough to hold it
- * left of the page's own "On this page" column.
+ * left of the page's own "On this page" column. Given `name`, another builder
+ * of the event kinds' examples with a library, opened the same way.
  */
-export async function openPrintWorks(page: Page, placement: "overlay" | "pinned", theme: "light" | "dark" = "light"): Promise<Locator> {
+export async function openPrintWorks(page: Page, placement: "overlay" | "pinned", theme: "light" | "dark" = "light", name = "planPrintWorks"): Promise<Locator> {
     if (placement === "pinned") await page.setViewportSize({ width: 1920, height: 1080 });
-    const entry = await openExample(page, "planPrintWorks", PLAN_EVENT_EXAMPLES, theme);
+    const entry = await openExample(page, name, PLAN_EVENT_EXAMPLES, theme);
     await sizeBox(page, planBox(entry), placement === "overlay" ? 760 : 1440);
     await entry.locator("[data-plan-frame]").evaluate((frame) => {
         frame.scrollIntoView({ block: "start" });
