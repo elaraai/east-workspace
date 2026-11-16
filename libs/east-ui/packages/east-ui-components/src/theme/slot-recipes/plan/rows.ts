@@ -17,7 +17,7 @@
 import type { SystemStyleObject } from "@chakra-ui/react";
 import { planElementFocus, planRowFocus } from "./focus.js";
 import { timeHeaderText } from "../time/axis.js";
-import { linkRibbons } from "../links/ribbons.js";
+import { linkRibbons, linkSelectedInk } from "../links/ribbons.js";
 
 /** The slots this part styles. */
 export const rowsSlots = [
@@ -448,6 +448,8 @@ export const rowsBase = {
         "@media (prefers-reduced-motion: reduce)": { animation: "none" },
         // The links themselves: the shared links layer's look (#1321).
         ...linkRibbons,
+        // A link kind's link selected (#1541, U10): in the ink, whether or not it has a caption to outline.
+        ...linkSelectedInk,
     },
     // The developer render region (R2) — fills the canvas below the
     // focused row (every other row hides for the focus); fades in once

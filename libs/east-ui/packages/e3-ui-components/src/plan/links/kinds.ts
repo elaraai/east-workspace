@@ -28,7 +28,7 @@
  * @packageDocumentation
  */
 
-import { printFor, variant, type ValueTypeOf } from "@elaraai/east";
+import { parseFor, printFor, variant, type ValueTypeOf } from "@elaraai/east";
 import { ScheduleEventRefType, type PlanLinkKindType } from "@elaraai/e3-ui/internal";
 import { draftedOf, draftsInPlace, type DraftedRowsByKind, type DraftedStanding } from "../../shared/schedule/drafted-rows.js";
 import type { ScheduleEditingRecord } from "../../shared/schedule/editing.js";
@@ -61,6 +61,7 @@ export const NO_LINK_KINDS_READ: PlanLinkKindsRead = { stored: new Map(), over: 
 export const NO_KIND_LINKS: readonly PlanLinkValue[] = [];
 
 const printEventRef = printFor(ScheduleEventRefType);
+const parseEventRef = parseFor(ScheduleEventRefType);
 
 /**
  * A link kind's link's key on the canvas: its kind's slot and its row's key, as East prints a reference.
@@ -71,6 +72,22 @@ const printEventRef = printFor(ScheduleEventRefType);
  */
 export function kindLinkKey(slot: string, id: string): string {
     return printEventRef({ kind: slot, key: id });
+}
+
+/**
+ * The link kind and the row a canvas key names ({@link kindLinkKey}).
+ *
+ * @param kinds - The link kinds
+ * @param key - A link's key on the canvas
+ * @returns The kind and the link's key's text; `undefined` for a key that names no link kind's link — a link built in
+ *   code, an event's element
+ */
+export function kindLinkOf(kinds: readonly PlanLinkKindValue[], key: string): { readonly kind: PlanLinkKindValue; readonly id: string } | undefined {
+    if (kinds.length === 0) return undefined;
+    const ref = parseEventRef(key);
+    if (!ref.success) return undefined;
+    const kind = kinds.find((one) => one.key === ref.value.kind);
+    return kind === undefined ? undefined : { kind, id: ref.value.key };
 }
 
 /**
