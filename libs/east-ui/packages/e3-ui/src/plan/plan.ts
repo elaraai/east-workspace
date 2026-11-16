@@ -89,11 +89,10 @@ import {
 import { FuncBindingType } from "../bind/func.js";
 import type { OptimiseHandle } from "../utils/optimise.js";
 import { PlanEventKindType, ScheduleCandidateType } from "../schedule/types.js";
-import { scheduleTitled } from "../schedule/index.js";
+import { scheduleEventKindsCheck, scheduleTitled } from "../schedule/index.js";
 import { checkSchedulePagedEventKinds, checkedScheduleTilings, type SchedulePaging } from "../schedule/cell-checks.js";
 import { scheduleOptimiseBinding } from "../schedule/optimise.js";
 import type { ScheduleEventKind } from "../schedule/events.js";
-import { SCHEDULE_DEF } from "../schedule/resources.js";
 import { recordSources, sliceSourceNames, templatesSource } from "../utils/record-sources.js";
 import { heldHandle } from "../utils/held.js";
 import { PlanRootType } from "./ir.js";
@@ -398,9 +397,11 @@ export interface PlanProps<K extends PlanAxisKindLiteral = PlanAxisKindLiteral, 
      * The inspector pane (#1197): what is selected on the canvas — one event,
      * several, a row, or the window's totals when nothing is. One event shows
      * its kind's form over `fields`, or the kind's own `inspector`
-     * (`Schedule.events`). Left out, or `false`, the Plan has no inspector
-     * pane. It shows the event kinds' events and the rows they land on, so it
-     * needs `events`.
+     * (`Schedule.events`). A row shows its own fields — a resource's name and
+     * lines, its series at the bucket a click on it named — with or without
+     * `events`, and over them the refusals holding Save while `ready` refuses
+     * the entry it came from, each naming its field (#1541, U5). Left out, or
+     * `false`, the Plan has no inspector pane.
      */
     inspector?: boolean;
     /**
@@ -607,7 +608,7 @@ function checkedRowsRange(config: ExprType<RecordSliceConfigType>): ExprType<Nul
  *   or ordinal axis; a link naming an event kind `events` has not; a `rows` item that is neither a hand-built row nor
  *   `Plan.over`'s; a `canDrop` over neither a drag nor a candidate, or over a candidate with no event kinds; an
  *   `optimise` with no event kinds, or one that is not `Func.bind` of a function from `OptimiseRequest` to
- *   `OptimiseResult(E)` over the event kinds' records (#1409, #1622); an `inspector` with no event kinds; over rows read a
+ *   `OptimiseResult(E)` over the event kinds' records (#1409, #1622); an `inspector` that is no boolean; over rows read a
  *   page at a time, an event kind with no source of the slice — its record read whole, or the days in view read through
  *   its day index (`window`) — naming the series and summary indexes to declare over the kind's own fields (#1039,
  *   #1541); a key the Plan gives its event rows that another series has; a `slice` that is not
@@ -654,7 +655,7 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
     if (events !== undefined) {
         // Each kind is a kind, and a Plan draws each event's title, which `Schedule.events` takes as optional (#1367):
         // checked before where the kinds land.
-        checkEventKinds(eventKinds);
+        scheduleEventKindsCheck(events, "Plan");
         scheduleTitled(events, "Plan");
     }
     // The series the event kinds land on (#1541, U1): each resources series and kinds case in `series`, known as the
@@ -735,10 +736,8 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
     if (inspector !== undefined && typeof inspector !== "boolean") {
         throw new Error("Plan: `inspector` is `true` for the inspector pane, or `false` or left out for none, and this one is no boolean — a kind's own inspector for one event is Schedule.events' `inspector`");
     }
+    // The pane shows a selected row's own fields with or without event kinds (#1541, U5).
     const inspected = inspector === true;
-    if (inspected && events === undefined) {
-        throw new Error("Plan: `inspector` shows the event kinds' events and the rows they land on, and this Plan has no event kinds — declare `events` (Schedule.events), or leave `inspector` out");
-    }
     // The drop veto, by what it vets: a drag on `data`'s rows, or an event kind's drop.
     let canvasCanDrop: unknown;
     let eventCanDrop: ExprType<PlanEventCanDropType> | undefined;
@@ -804,7 +803,7 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
         }
         const tabs = buildLibrary(library, { events: eventKinds, rows, picked, sources: sources.names });
         if (events === undefined) {
-            return East.value({ plan, landings: onWire, events: [], seam: none, paged, canDrop: veto, optimise: optimiser, settings, library: tabs, inspector: false, vocabulary: words, narrowed } as never, PlanPayloadType);
+            return East.value({ plan, landings: onWire, events: [], seam: none, paged, canDrop: veto, optimise: optimiser, settings, library: tabs, inspector: inspected, vocabulary: words, narrowed } as never, PlanPayloadType);
         }
         // The payload is assembled in one function, so each kind is built once: the seam made inside it captures the very
         // array of event kinds the payload holds (#1192).
@@ -866,29 +865,12 @@ function resourcesRefusal(): string {
 }
 
 /**
- * A Plan's `events`: at least one, each a `Schedule.events` kind.
- *
- * @param events - The event kinds, by slot
- * @throws {Error} Naming the slot and the remedy: none at all, or one that is no `Schedule.events` kind
- */
-function checkEventKinds(events: readonly (readonly [string, ScheduleEventKind<EastType, EastType>])[]): void {
-    if (events.length === 0) {
-        throw new Error("Plan: `events` declares at least one event kind — Schedule.events(record, { … }) under its slot name");
-    }
-    for (const [slot, kind] of events) {
-        if ((kind as { [SCHEDULE_DEF]?: string } | undefined)?.[SCHEDULE_DEF] !== "events") {
-            throw new Error(`Plan: events.${slot} is an event kind — Schedule.events(record, { … })`);
-        }
-    }
-}
-
-/**
  * The series a Plan's event kinds land on (#1541, U1), each kind's `resource.of` checked against them: every name it
  * gives is a resources series' or a kinds case's key, whose rows are keyed by String — what an event's resource field
  * holds.
  *
  * @param series - The `series` prop
- * @param events - The event kinds, by slot, each checked a kind ({@link checkEventKinds})
+ * @param events - The event kinds, by slot, each checked a kind ({@link scheduleEventKindsCheck})
  * @returns The landings, in the series tree's order, a kinds block's cases in its variant's, each with the series it is
  *   nested in
  * @throws {Error} Naming the slot and the remedy: a `series` known only as it runs, an `of` naming no landing series,

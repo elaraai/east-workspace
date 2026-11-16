@@ -1014,6 +1014,13 @@ Allocation read; the options only a Plan read are refused, each naming
 - **A series of a row that fails fails the Plan,** over rows read whole, until
   the next good commit. A paged window's read, and an event kind's own, still
   fail on the footer's line.
+- **`inspector` no longer needs `events`.** A Plan of rows alone is given its
+  pane too, where it was refused at build: a selected row shows its own
+  fields, as a resource's row does. Over a row, with or without event kinds,
+  the pane shows the refusals holding Save while `ready` refuses the entry
+  the row came from, each naming its field, as it does over an event's form.
+  With no event kinds, Nothing selected leaves out the hint about clicking an
+  event.
 
 ### Renderer (`@elaraai/e3-ui-components`)
 
@@ -1021,7 +1028,10 @@ The events join the canvas's rows through the payload's `seam` wherever the
 canvas makes them, a whole canvas, a page's window or a nested window:
 `placed` files the events read over a window, and `place` fills that window's
 landing rows with them. A kind's cells are read for the landing rows in view.
-A row of a landing's own series shows in the inspector as its resource.
+A row of a landing's own series shows in the inspector as its resource. The
+refusals over a row are its canvas's to read (`PlanCanvasInspect.refusals`),
+from the session its rows save through, by the shared
+`sessionEntryRefusals`.
 
 ## Extracted contracts (do this first when migrating imports)
 

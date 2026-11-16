@@ -28,8 +28,11 @@
  *   Duplicate and Delete;
  * - **several events** (PB39): how many, each kind's count, the list, and the
  *   bulk edit — the state, the resource and a shift in time;
- * - **a row** (PB40): a resource's name and lines — its landing row's
- *   (#1541) — the group it is drawn under, its overlaps — the pairs on the
+ * - **a row** (PB40), on a Plan with or without event kinds (#1541, U5): a
+ *   resource's name and lines — its landing row's (#1541) — the group it is
+ *   drawn under; the banner of its refusals holding Save while the Plan's
+ *   `ready` refuses its entry's drafts, in the session its rows save through,
+ *   each naming its field; its overlaps — the pairs on the
  *   resource in the window, each line selecting its pair (#1198) — its events
  *   in the window — how many, how long, how much of each unit — and its
  *   series' rows beneath it at the bucket a click on its plot named; an event
@@ -42,7 +45,7 @@
  *   are placeholders, never 0, until they land (#1398, CL13);
  * - **nothing** (PB41): the window's counts — the hours those of the kinds
  *   read, the kinds whose events or hours are not counted named in one line
- *   (#1039) — and three hints.
+ *   (#1039) — and three hints, or two on a Plan with no event kinds.
  *
  * Each event is read as the kinds' editing reads it (`read`, its kind's own
  * `planEvent`), its kind's drafts in place, tracked, so a commit to its record
@@ -114,7 +117,7 @@ import { heldRowOf } from "../../shared/schedule/editing.js";
 import { useFieldAsk } from "../../shared/schedule/field-ask.js";
 import { removePlanEvents, type PlanEventChange, type PlanEventEditing } from "../edit/events.js";
 import { scheduleEventKey } from "../../shared/schedule/overlaps.js";
-import { NO_REFUSED_FIELDS, refusalText, refusedFields, scheduleRefusals } from "../../shared/schedule/refusals.js";
+import { entryRefusals, refusalsText, refusedFields } from "../../shared/schedule/refusals.js";
 import { stateText } from "../a11y.js";
 import type { PlanSnapshot } from "../controller/index.js";
 import { usePlanSelector } from "../controller/react.js";
@@ -126,7 +129,7 @@ import { quantityText, totalsByUnit, totalsText, type PlanQuantityValue } from "
 import { scheduleCellId, scheduleWithinCap, type ScheduleCellsRead } from "../../shared/schedule/cells.js";
 import type { PlanChrome } from "../root/chrome.js";
 import { eventReadRange } from "../root/events.js";
-import { landingRowId, landingSeriesTargetOf, landingTargetOf, type PlanLandingTarget } from "../root/landings.js";
+import { landingRowId, landingSeriesTargetOf, landingTargetOf, resourceKeyOf, type PlanLandingTarget } from "../root/landings.js";
 import type { PlanScale } from "../scale.js";
 import type { PlanWords } from "../words.js";
 import type { PlanEventCounts } from "./counts.js";
@@ -442,7 +445,7 @@ function bodyView(props: BodyProps, styles: Styles): ReactNode {
         const row = chrome.inspect.row(selection.row);
         if (row !== undefined) return <RowView key={row.key} {...props} styles={styles} chrome={chrome} rowKey={row.key} at={selection.at} />;
     }
-    return <NothingSelected styles={styles} counts={props.counts} words={props.words} />;
+    return <NothingSelected styles={styles} counts={props.counts} words={props.words} events={props.kinds.length > 0} />;
 }
 
 // ============================================================================
@@ -739,8 +742,8 @@ function OneEvent({ event, keys, words, styles, counts, chrome, selection }: One
     const held = editing?.held(kind.key, item.key) ?? (drafted ? NEW_EVENT : value);
     // Its refusals holding Save (#1525): the app's `ready` refusing it while it stands, each field one names ringed, the
     // app's words for it under it.
-    const refusals = scheduleRefusals(editing?.sessions ?? []).filter((r) => stringEqual(r.kind, kind.key) && stringEqual(r.issue.entry, item.key));
-    const refused = refusals.length === 0 ? NO_REFUSED_FIELDS : refusedFields(refusals.map((r) => r.issue));
+    const refusals = entryRefusals(editing?.sessions ?? [], kind.key, item.key);
+    const refused = refusedFields(refusals);
     // What they say of a field a role reads, under its fact, which is where the Plan draws it — less the bound its
     // quantity breaks, which its fact's own line says: a readiness raises a breach as an issue in the bound's words.
     const factIssue = (role: option<string>, bound?: (typeof quantityBreach)): ReactNode => {
@@ -810,7 +813,7 @@ function OneEvent({ event, keys, words, styles, counts, chrome, selection }: One
             {/* Over its form, as the Calendar's inspector shows an event's: each refusal's field by its form's label. */}
             {refusals.length > 0 && (
                 <Box css={styles.refusals} data-inspector-refusals="">
-                    <BannerView status="warning" title={m.inspectorRefusals()} description={refusals.map((r) => refusalText(r.issue, kind.fields)).join("; ")} />
+                    <BannerView status="warning" title={m.inspectorRefusals()} description={refusalsText(refusals, kind.fields)} />
                 </Box>
             )}
             <Box as="dl" ref={facts} css={styles.facts} data-inspector-facts="">
@@ -921,7 +924,7 @@ function SeveralEvents({ events, kinds, landings, words, styles, chrome, selecti
         for (const landing of landings) {
             if (!slots.some((slot) => stringEqual(slot, landing.key))) continue;
             for (const row of chrome?.inspect.resources(landing.key) ?? []) {
-                const key = row.id.type === "entry" ? row.id.value.path[row.id.value.path.length - 1] : undefined;
+                const key = resourceKeyOf(row.id);
                 if (key !== undefined) add(landing.key, key, row.gutter.label);
             }
         }
@@ -1056,6 +1059,9 @@ type RowTarget = PlanLandingTarget | { readonly kind: "row" };
 
 /** No kind named. */
 const NO_NAMES: readonly string[] = [];
+
+/** No form: a row's refusals name each field by its name spelled out (#1541, U5). */
+const NO_SPECS: readonly FieldSpecValue[] = [];
 
 /** A row's events in the window: how many, how long, and their quantities — and the kinds counted none of. */
 interface WindowFacts {
@@ -1200,6 +1206,10 @@ function RowView({ rowKey, at, kinds, landings, chrome, counts, words, styles, h
     const title = target.kind === "resource" ? resource?.gutter.label ?? target.key
         : target.kind === "unassigned" ? m.inspectorUnassigned() : row.gutter.label;
     const eyebrow = target.kind === "resource" ? target.landing.name : target.kind === "unassigned" ? target.event.name : m.inspectorRow();
+    // Its refusals holding Save (#1541, U5): what the session the rows save through refuses of the entry the row came from
+    // while the Plan's `ready` refuses its drafts, each naming its field — a resource's read off its landing row, one of
+    // `data`'s own, so each of its rows shows them. A row that is none of `data`'s own has none.
+    const refusals = inspect.refusals(resource?.key ?? rowKey);
     return (
         <Box css={styles.root} data-plan-inspector="row">
             <Box css={styles.head} {...FOCUS_HOME_PROPS}>
@@ -1212,6 +1222,12 @@ function RowView({ rowKey, at, kinds, landings, chrome, counts, words, styles, h
                     </Box>
                 )}
             </Box>
+            {/* Under its head, as an event's are over its form: its rows have no form, so each field is named spelled out. */}
+            {refusals.length > 0 && (
+                <Box css={styles.refusals} data-inspector-refusals="">
+                    <BannerView status="warning" title={m.inspectorRefusals()} description={refusalsText(refusals, NO_SPECS)} />
+                </Box>
+            )}
             {pairs.length > 0 && (
                 <OverlapsBanner styles={styles}
                     title={m.inspectorRowOverlaps({ n: pairs.length, count: words.number(pairs.length) })}
@@ -1264,8 +1280,11 @@ function RowView({ rowKey, at, kinds, landings, chrome, counts, words, styles, h
 // Nothing selected (PB41)
 // ============================================================================
 
-/** Nothing selected: the window's counts, and three hints. */
-function NothingSelected({ styles, counts, words }: { styles: Styles; counts: PlanEventCounts | undefined; words: PlanWords }) {
+/**
+ * Nothing selected: the window's counts, and three hints — two on a Plan with no event kinds, which has no event to
+ * click (#1541, U5).
+ */
+function NothingSelected({ styles, counts, words, events }: { styles: Styles; counts: PlanEventCounts | undefined; words: PlanWords; events: boolean }) {
     const { m } = words;
     const touch = useContext(FrameDrawer);
     const stats = counts === undefined ? [] : [
@@ -1299,7 +1318,7 @@ function NothingSelected({ styles, counts, words }: { styles: Styles; counts: Pl
             )}
             <Box as="ul" css={styles.hints}>
                 {touch ? <Box as="li" css={styles.hint}>{m.inspectorHintTouch()}</Box>
-                    : ([1, 2, 3] as const).map((n) => <Box as="li" key={n} css={styles.hint}>{m.inspectorHint({ n })}</Box>)}
+                    : ([1, 2, 3] as const).filter((n) => events || n !== 1).map((n) => <Box as="li" key={n} css={styles.hint}>{m.inspectorHint({ n })}</Box>)}
             </Box>
         </Box>
     );

@@ -14,22 +14,27 @@
  * measures at the bucket a click on it named, or nothing — its edit controls
  * on, in one fieldset, as the event kinds take edits (#1194; what each does
  * is `plan-builder-editing.dom.test.tsx`'s), and over its form the refusals
- * holding Save while the app's `ready` refuses it (#1525). Each Plan is the
- * print works', or a test's own over its records, mounted through the
- * dispatcher under the record runtime a surface installs.
+ * holding Save while the app's `ready` refuses it (#1525). A Plan with no
+ * event kinds has its inspector too, and over a selected row the refusals of
+ * the entry it came from, in the session its rows save through (#1541, U5).
+ * Each Plan is the print works', or a test's own over its records, mounted
+ * through the dispatcher under the record runtime a surface installs.
  */
 
 import { describe, test, expect } from "vitest";
 import { fireEvent, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { East, none, some, variant, type ValueTypeOf } from "@elaraai/east";
-import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
+import { East, StringType, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { Editing, Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import { editingMessages } from "@elaraai/east-ui-components";
 import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
-import { el, entry, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
+import * as rowDrop from "@elaraai/e3-ui/examples/plan/plan";
+import { carryRun } from "../plan-move.test-utils.js";
+import { boundFrame } from "../../sheet/frame.test-utils.js";
+import { el, entry, planHarness, dropPressRow, rowAt, dropRunOf, settle, slot } from "./harness.test-utils.js";
 
-const h = planHarness();
+const h = planHarness({ "plan/plan-events": ex, "plan/plan": rowDrop });
 
 // ── The print works' rows and events ─────────────────────────────────────────
 
@@ -547,5 +552,102 @@ describe("an event's refusals holding Save (#1525)", () => {
         expect(banner()).toBeNull();
         expect(ringed()).toEqual([]);
         expect(reasons()).toEqual([]);
+    });
+});
+
+// ============================================================================
+// A Plan of rows alone: its inspector, and a row's refusals holding Save (#1541, U5)
+// ============================================================================
+
+/** Monday of ISO week 27, 2026, and of week 39: the ops record's twelve weeks. */
+const W27 = new Date("2026-06-29T00:00:00Z");
+const W39 = new Date("2026-09-21T00:00:00Z");
+
+/**
+ * The ops record's presses as a Plan of rows alone (#1541, U5): no event kinds, its rows saved through `record`, its
+ * `ready` letting a press hold one job — a press holding more is refused, by name, on its `jobs` — and its inspector.
+ */
+const pressesOneJobEach = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const ops = $.let(Data.bindPaged(rowDrop.planDropOps));
+    const record = $.let(Record.bind(rowDrop.planDropOps));
+    const ready = $.const(East.function([rowDrop.DropOpsRow, StringType], Editing.Types.Readiness, ($2, row, _key) => {
+        $2.if(row.jobs.size().greater(1n), ($3) => {
+            $3.return(East.value(variant("invalid", [{
+                field: "jobs", message: East.str`${row.label} holds ${East.print(row.jobs.size())} jobs — at most 1`,
+            }]), Editing.Types.Readiness));
+        });
+        return East.value(variant("ready", null), Editing.Types.Readiness);
+    }));
+    const axis = $.const(Plan.axis({ window: { min: W27, max: W39 }, resolution: "week" }));
+    return Plan({
+        axis, data: ops, record, ready, inspector: true,
+        series: [Plan.series.span(rowDrop.DropOpsRow, {
+            key: "press", title: "Press jobs", match: (r) => r.series.equal("press"), label: (r) => r.label, id: true,
+            runs: Plan.items("jobs", { from: "start", to: "end" }, (job) => ({ label: job.label, state: job.state })),
+            edit: true,
+        })],
+        // Shorter than the frame `boundFrame` lays out: its rows mount, as the print works' do.
+        style: { height: "360px" },
+    });
+}))) };
+
+/** Selects a press's row by its name, as a click on its header does. */
+async function selectPress(c: HTMLElement, key: string) {
+    fireEvent.click(dropPressRow(c, key).querySelector('[role="rowheader"]')!);
+    await settle();
+}
+
+describe("a Plan of rows alone: its inspector, and a row's refusals holding Save (#1541, U5)", () => {
+    test("given `inspector` with no event kinds, it has its pane: nothing selected gives the two hints of rows, none of an event's; a row selected shows the row", async () => {
+        const restore = boundFrame(2000);
+        try {
+            const { container } = await h.mount(pressesOneJobEach, { drag: true });
+            await settle();
+            expect(pane(container).getAttribute("data-frame-slot")).toBe("end");
+            expect(showing(container)).toBe("none");
+            // No event to click: the hint of clicking one is left out.
+            expect([...pane(container).querySelectorAll("li")].map((hint) => hint.textContent))
+                .toEqual(["Click a row's plot to see the row and its measures at that bucket.", "Esc clears what is selected."]);
+            await selectPress(container, "p03");
+            expect(showing(container)).toBe("row");
+            expect(pane(container).querySelector("[data-inspector-kind]")!.textContent).toBe("Row");
+            expect(pane(container).querySelector("[data-inspector-title]")!.textContent).toBe("H1-P03");
+            // Nothing drafted: nothing refused.
+            expect(pane(container).querySelector("[data-inspector-refusals]")).toBeNull();
+        } finally {
+            restore();
+        }
+    });
+
+    test("a run carried onto a press that may hold one job: the press's row shows its refusal naming its field, the press it left none; Undo takes it away", async () => {
+        const restore = boundFrame(2000);
+        try {
+            const { container: c } = await h.mount(pressesOneJobEach, { drag: true });
+            await settle();
+            const banner = () => pane(c).querySelector("[data-inspector-refusals]");
+            const save = () => within(slot(c, "toolbar")!).getByRole("button", { name: editingMessages.apply() });
+            // J-4624 carried up from H1-P04 onto H1-P03 by the keyboard, its weeks as they were.
+            await carryRun(dropRunOf(c, "p04", "j4624")!, { key: "ArrowUp" });
+            expect(dropRunOf(c, "p03", "j4624")).not.toBeNull();
+            // H1-P03 holds two jobs now: `ready` refuses it, which holds Save.
+            expect(save()).toHaveProperty("disabled", true);
+            await selectPress(c, "p03");
+            expect(showing(c)).toBe("row");
+            expect(banner()!.textContent).toBe("Not saved yet" + "Jobs: H1-P03 holds 2 jobs — at most 1");
+            // H1-P04, which it left, is drafted too, and refused nothing.
+            await selectPress(c, "p04");
+            expect(pane(c).querySelector("[data-inspector-title]")!.textContent).toBe("H1-P04");
+            expect(banner()).toBeNull();
+            // Undo: the job goes back, and with it the refusal.
+            await selectPress(c, "p03");
+            expect(banner()).not.toBeNull();
+            fireEvent.click(within(slot(c, "toolbar")!).getByRole("button", { name: editingMessages.undo() }));
+            await settle();
+            expect(dropRunOf(c, "p03", "j4624")).toBeNull();
+            expect(showing(c)).toBe("row");
+            expect(banner()).toBeNull();
+        } finally {
+            restore();
+        }
     });
 });

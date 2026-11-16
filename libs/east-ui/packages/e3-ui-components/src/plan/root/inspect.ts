@@ -6,14 +6,15 @@
  * Spec.md` PB40): what a heat, table or chart row draws in one bucket, in
  * words — the values the canvas draws there, folded to the period as the row
  * draws them (#824), each said as its own cell says it to a reader (#819) —
- * and a resource's name where the canvas does not hold its landing row, its
- * row read by its key (#1199, #1541).
+ * a resource's name where the canvas does not hold its landing row, its
+ * row read by its key (#1199, #1541), and a row's refusals holding Save
+ * (#1541, U5).
  *
  * @packageDocumentation
  */
 
 import { StringType, equalFor, none, printFor, some, type option } from "@elaraai/east";
-import { getSomeorUndefined } from "@elaraai/east-ui-components";
+import { getSomeorUndefined, type EditIssue } from "@elaraai/east-ui-components";
 import { windowedSourceOf } from "@elaraai/east-ui-components/internal";
 import { readKeyedEntry } from "../../shared/schedule/keyed-read.js";
 import { heatValueText, segmentsText, tablePartsText, weightValueText } from "../a11y.js";
@@ -67,6 +68,16 @@ export interface PlanCanvasInspect {
      * @returns Its rows; `undefined` over rows read a page at a time, which the canvas does not hold whole
      */
     resources(landing: string): readonly PlanRowValue[] | undefined;
+    /**
+     * The refusals holding Save of the entry a row came from (#1541, U5): what the session the rows save through refuses
+     * of it while the Plan's `ready` refuses its drafts — the entry the first step of the row's path names, for one of
+     * `data`'s own rows the canvas holds. Read as the pane draws, so it says the session's readiness now.
+     *
+     * @param key - The row's key
+     * @returns Its refusals, in the readiness's order; none for a read-only row, an event kind's Unassigned row, one the
+     *   canvas does not hold, or a Plan whose rows save through no session
+     */
+    refusals(key: RowKey): readonly EditIssue[];
 }
 
 /** A String key as the rows' key search takes it: its `.east` literal. */

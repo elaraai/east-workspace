@@ -133,8 +133,9 @@ import {
     PlanEventsReader, eventReadRange, initialEventLead, usePlanEventRoot, type PlanEventLead, type PlanEventRows,
 } from "./root/events.js";
 import { cellKinds, createCellSpanStore, seriesKinds, shownCellSpan } from "./root/cells.js";
-import { landingTargetOf } from "./root/landings.js";
+import { landingTargetOf, resourceKeyOf, type PlanLandingValue } from "./root/landings.js";
 import { scheduleCellId } from "../shared/schedule/cells.js";
+import { sessionEntryRefusals } from "../shared/schedule/refusals.js";
 import { NO_BREACHES, PlanBoundsReader, type PlanBreaches } from "./root/bounds.js";
 import { PlanNestedReader, createNestedViewStore, usePlanNestedRoot, usePlanWholeRows, type PlanNestedLead, type PlanNestedSpanRead, type SPAN_READING } from "./root/nested.js";
 import { NONE_HIDDEN, hidesRow, type PlanRowsHidden } from "./frame/hidden.js";
@@ -196,8 +197,6 @@ const printEventRef = printFor(ScheduleEventRefType);
 /** One event kind, as the Plan's payload carries it (#1190). */
 type PlanEventKindValue = ValueTypeOf<typeof PlanPayloadType>["events"][number];
 
-/** A series the event kinds land on, as the Plan's payload carries it (#1541). */
-type PlanLandingValue = ValueTypeOf<typeof PlanPayloadType>["landings"][number];
 
 /** One of the library's tabs, as the Plan's payload carries it (#1195). */
 type PlanLibraryTabValue = ValueTypeOf<typeof PlanPayloadType>["library"][number];
@@ -220,6 +219,8 @@ const NOTHING_AWAITED: { readonly run: boolean; readonly cells: boolean } = { ru
 const NO_ROWS_IN_VIEW: readonly PlanRowValue[] = [];
 /** No resource of a series on the canvas. */
 const NO_RESOURCE_ROWS: readonly PlanRowValue[] = [];
+/** No refusal holding Save: a row that is none of `data`'s own, or a Plan whose rows save through no session. */
+const NO_REFUSALS: readonly EditIssue[] = [];
 /** No row waiting on a read. */
 const NO_ROWS_WAITING: ReadonlySet<RowKey> = new Set();
 /** No link ends read through their rows (#1438). */
@@ -403,6 +404,15 @@ export function usePlanCanvas({
     const sourceRows = useMemo(
         () => (hostData.rows.type === "inline" ? canvasRowsOf(hostData.rows.value) : elementRowsOf(paging)),
         [hostData.rows, paging]);
+    // Each of them by its key, and the entry it came from: what the inspector reads a row's refusals by (#1541, U5).
+    const sourceEntries = useMemo(() => {
+        const out = new Map<RowKey, string>();
+        for (const row of sourceRows) {
+            const at = entryOf(row.id);
+            if (at !== undefined) out.set(row.key, at);
+        }
+        return out;
+    }, [sourceRows]);
     // Its gestures are steps of the Plan's one history once it holds the
     // session beside the event kinds' (#1194): the history is this render's,
     // read when a gesture lands.
@@ -1214,7 +1224,7 @@ export function usePlanCanvas({
         const bySeries = new Map<string, PlanRowValue[]>();
         for (const row of index.rows) {
             if (row.id.type !== "entry" || !slots.has(row.id.value.series)) continue;
-            const key = row.id.value.path[row.id.value.path.length - 1];
+            const key = resourceKeyOf(row.id);
             if (key === undefined) continue;
             const series = row.id.value.series;
             byRef.set(scheduleCellId(series, key), row);
@@ -1243,7 +1253,13 @@ export function usePlanCanvas({
             return left && rowsUnnarrowed !== undefined ? landingNameByKey(rowsUnnarrowed, landing, ref.key) : drawn;
         },
         resources: (landing) => (paged ? undefined : resourceRows.bySeries.get(landing) ?? NO_RESOURCE_ROWS),
-    }), [index, derived, scale, words, resourceRows, rowsDrawn, rowsUnnarrowed, landingsByKey, paged]);
+        // What the session the rows save through refuses of the entry a row came from (#1541, U5), read as the pane draws:
+        // a read-only row, an Unassigned row, or a Plan whose rows save through none, has none.
+        refusals: (key) => {
+            const at = sourceEntries.get(key);
+            return at === undefined || !editing.enabled ? NO_REFUSALS : sessionEntryRefusals(editing.session, at);
+        },
+    }), [index, derived, scale, words, resourceRows, rowsDrawn, rowsUnnarrowed, landingsByKey, paged, sourceEntries, editing.enabled, editing.session]);
     // Events selected from the frame (#1198) — the overlaps chip's pair, the
     // inspector's banner, a duplicate the inspector made (#1194): on the row
     // given, else the row that draws the first, which the controller brings

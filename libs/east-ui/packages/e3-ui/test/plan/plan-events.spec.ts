@@ -411,17 +411,26 @@ describe("its narrowing (#1344): one Slice.bindRecords, each source named after 
     });
 });
 
-describe("the inspector's refusals (#1197)", () => {
+describe("the inspector (#1197, #1541 U5)", () => {
     const axis = Plan.axis({ window: WINDOW, resolution: "day" });
 
-    test("an `inspector` on a Plan with no event kinds, or one that is not a boolean, naming the kind's own", () => {
-        assert.match(refusal(($) => Plan.Payload({ axis, data: $.const(ROWS, Rows), series: [MARKS], inspector: true })),
-            /^Plan: `inspector` shows the event kinds' events and the rows they land on, and this Plan has no event kinds — declare `events` \(Schedule\.events\), or leave `inspector` out$/);
+    test("an `inspector` that is not a boolean is refused, naming the kind's own", () => {
         const own = East.function([ex.PrintJob, FunctionType([ex.PrintJob], NullType)], UIComponentType, (_$2, job) => Text.Root(job.title));
         assert.match(refusal(($) => Plan.Payload({ axis, data: pressRows($), series: [PRESSES], events: { job: jobsOf($) }, inspector: own as never })),
             /^Plan: `inspector` is `true` for the inspector pane, or `false` or left out for none, and this one is no boolean — a kind's own inspector for one event is Schedule\.events' `inspector`$/);
-        // An `inspector: false` asks for nothing: it passes with no event kinds.
-        assert.equal(refusal(($) => Plan.Payload({ axis, data: $.const(ROWS, Rows), series: [MARKS], inspector: false })), "");
+    });
+
+    test("a Plan with no event kinds has its pane when given `inspector`: a selected row shows its own fields, with or without event kinds", () => {
+        const pane = (inspector: boolean | undefined): boolean => {
+            const ui = East.compile(East.function([], UIComponentType, ($) => PublicPlan({
+                axis, data: $.const(ROWS, Rows), series: [MARKS], ...(inspector === undefined ? {} : { inspector }),
+            })), [])();
+            if (ui.type !== "Extension") assert.fail(`expected the Plan extension, got the ${ui.type} arm`);
+            const payload = decodeBeast2For(PlanPayloadType)(ui.value.payload);
+            assert.equal(payload.events.length, 0);
+            return payload.inspector;
+        };
+        assert.deepEqual([pane(true), pane(false), pane(undefined)], [true, false, false]);
     });
 });
 
