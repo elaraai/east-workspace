@@ -21,6 +21,9 @@
  * - A choice changes nothing drawn early: until its first window lands the
  *   last view stands in, retained, and no cell is read for it.
  * - Drafts are the jobs' session's whatever the halls, and Save commits them.
+ * - A hall chosen builds the Plan no more (#1354), and the bulk edit's Chooser
+ *   offers the presses the selected jobs are on, by their names, whether the
+ *   hall chosen shows them or not.
  * - The press at the top of a bounded view keeps its place where the halls
  *   chosen hold it, and the view starts at the top where they do not.
  *
@@ -30,9 +33,9 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi, type MockInstance } from "vitest";
-import { fireEvent, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import {
-    East, OptionType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, parseFor, printFor, some, variant,
+    DateTimeType, East, OptionType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, parseFor, printFor, some, variant,
     type ValueTypeOf,
 } from "@elaraai/east";
 import { Reactive, RecordSliceStateType, Slice, UIComponentType } from "@elaraai/east-ui/internal";
@@ -47,7 +50,8 @@ import { width } from "../../e3-web-mount.test-utils.js";
 import { PLAN_GEOMETRY } from "../geometry.js";
 import { rowKeyOf } from "../model.js";
 import { emulateWindowScroll } from "../window-scroll.test-utils.js";
-import { act, el, entry, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
+import { countBuilds } from "../../shared/builds.test-utils.js";
+import { act, el, entry, planHarness, programOf, rowAt, settle, slot } from "./harness.test-utils.js";
 
 const h = planHarness({ "plan/plan-windows": ex });
 
@@ -226,6 +230,15 @@ async function press(node: Element) {
         fireEvent.click(node);
     });
     await settle();
+}
+
+/** Opens a form's select, reads what it offers, and closes it again. */
+async function offered(field: HTMLElement) {
+    const trigger = field.querySelector<HTMLElement>("[data-scope=select][data-part=trigger]")!;
+    await press(trigger);
+    const choices = within(screen.getByRole("listbox")).getAllByRole("option").map((option) => option.textContent ?? "");
+    await press(trigger);
+    return choices;
 }
 
 /** A press's row height, at the default density: a two-line gutter, its hall the second line. */
@@ -415,6 +428,49 @@ describe("a bounded view of the narrowed presses (#1344)", () => {
         // Back to Hall 2: the guide where it was saved.
         await chooseHalls(["Hall 2"]);
         await waitFor(() => expect(bar(c, "W-0003", "P-1002")?.getAttribute("aria-label")).toMatch(/^Museum guide, Oct 7, 2026, 06:00/));
+    });
+
+    test("a hall chosen, and the window's navigation, build the Plan no more: the presses follow over the payload it mounted with (#1354)", async () => {
+        const builds = countBuilds("Plan", programOf(hallsPlan(`${VIEWPORT}px`)));
+        try {
+            const { container: c } = await h.mount(hallsPlan(`${VIEWPORT}px`), { program: builds.program });
+            await settle();
+            const mounted = [builds.runs, builds.decodes];
+            expect(Math.min(...mounted)).toBeGreaterThan(0);
+            // The rows' source: Hall 2's presses, then Hall 3's.
+            await chooseHalls(["Hall 2"]);
+            await waitFor(() => expect(pressRows(c)[0]).toBe(rowKeyOf(pressRow("P-1002"))));
+            await chooseHalls(["Hall 3"]);
+            await waitFor(() => expect(pressRows(c)[0]).toBe(rowKeyOf(pressRow("P-1003"))));
+            // The window a day on, written into the jobs' source's range — their start an Option, as the rail prints it.
+            await press(within(slot(c, "toolbar")!).getByRole("button", { name: "Next day" }));
+            const maybeTime = printFor(OptionType(DateTimeType));
+            expect(state("job").where.get("start")).toEqual(variant("range", {
+                from: maybeTime(some(new Date("2026-10-06T00:00:00Z"))), to: maybeTime(some(new Date("2026-10-20T00:00:00Z"))),
+            }));
+            expect([builds.runs, builds.decodes], "no choice and no navigation runs the body again or decodes a payload").toEqual(mounted);
+        } finally {
+            builds.restore();
+        }
+    });
+
+    test("the bulk edit's Chooser offers the presses the selected jobs are on, each by its name — never the hall's other presses, which the canvas holds a page at a time — and still names them once the next hall chosen hides them (#1541)", async () => {
+        const { container: c } = await h.mount(hallsPlan(`${VIEWPORT}px`));
+        await settle();
+        await chooseHalls(["Hall 2"]);
+        // The museum guide on Press 1002 and the menu cards on Press 1010, the hall's first two presses, selected.
+        await waitFor(() => expect(bar(c, "W-0006", "P-1010")).not.toBeNull());
+        await act(async () => { fireEvent.click(bar(c, "W-0003", "P-1002")!); });
+        await settle();
+        await act(async () => { fireEvent.click(bar(c, "W-0006", "P-1010")!, { shiftKey: true }); });
+        await settle();
+        const chooser = () => slot(c, "end")!.querySelector<HTMLElement>('[data-inspector-bulk] [data-field="resource"]')!;
+        // After Unassigned, which takes the jobs off every press.
+        expect(await offered(chooser())).toEqual(["Unassigned", "Press 1002", "Press 1010"]);
+        // Hall 3 chosen: both presses leave the canvas, and the Chooser still names them.
+        await chooseHalls(["Hall 3"]);
+        expect([plot(c, "P-1002"), plot(c, "P-1010")]).toEqual([null, null]);
+        expect(await offered(chooser())).toEqual(["Unassigned", "Press 1002", "Press 1010"]);
     });
 
     test("while a choice's first window is read the presses shown stand in, retained, and take no write by any route: the inspector's edits are off and Delete takes nothing, until the window lands (#1398, CL8)", async () => {

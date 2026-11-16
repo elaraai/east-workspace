@@ -146,21 +146,20 @@ Task → What do you need?
     │
     ├─ Draw what is scheduled on ONE shared axis — the Plan
     │   ├─ Rows derived from data by a series list            → <Plan axis={…} data={…} series={[…]} />
-    │   ├─ Event kinds over records, on resource rows         → <Plan axis={…} resources={{ presses: Schedule.resources(…) }} events={{ job: Schedule.events(record, {…}) }} />
+    │   ├─ Event kinds over records, on the rows they land on → series={[Plan.series.resources(Row, { key: "presses", title, label, series? })]} events={{ job: Schedule.events(record, { resource: { field, of: "presses" } }) }} · rows of mixed kinds: Plan.series.kinds(Row, "what", { press: { title, label }, crew: false }), a case each, exhaustive
     │   ├─ Read-only rows: a dataset's, or hand-built         → rows={[Plan.over(data, [series…]), Plan.chart({…})]}
     │   ├─ Its axis: time, number or ordinal                  → Plan.axis / Plan.axis.number / Plan.axis.ordinal
     │   ├─ Rows, nested by what the data holds                → Plan.series.span / buckets / chart / heat / table / cards / events / group / section / views / rows
     │   ├─ Data too large to hold whole                       → data={paged}, a Data.bindPaged handle
-    │   ├─ Narrow its rows, event kinds, resources, templates → slice={{ slice: Slice.bindRecords(key, { rows?, job?, presses?, jobTemplates? }) }} (Schedule.templates(rows, { …, source }))
-    │   ├─ Event kinds over records too large to read whole   → the kind's source over its interval index (range: "start") + Schedule.events(record, { entries }); drawn within 10,000 events
-    │   ├─ …on paged resources: read a cell at a time         → the kind's source lists index.series + index.summary beside its interval index
+    │   ├─ Narrow its rows, event kinds, templates            → slice={{ slice: Slice.bindRecords(key, { rows?, job?, jobTemplates? }) }} (Schedule.templates(rows, { …, source })); the rows source narrows the resources, which are rows
+    │   ├─ Event kinds over records too large to read whole   → the kind's source over its interval index (range: "start") + Schedule.events(record, { entries }), drawn within 10,000 events; over paged rows its source lists index.series + index.summary too, read a cell at a time
     │   ├─ A link between two runs, or two events             → Plan.link({ from: Plan.ref(…), fromRun, … }) / Plan.link({ from: Plan.eventRef(kind, key), … })
     │   ├─ Its library pane: templates, backlog, series, cards → library={[Plan.library.events(), Plan.library.backlog(), Plan.library.series(), Plan.library.tab(rows, {…})]}
     │   ├─ Which series show, and the viewer's own choice     → hidden={["utilisation"]}, the keys off to start: any series of `series`, nested or not, a member of a views or a case of a kinds · with Plan.library.series() the Series tab switches each alone, kept under id
     │   ├─ A run's, a tile's, a chip's or a mark's status      → its map's status: Plan.status("Over dwell", "warning"), its words and its tone · { ring: true } draws it as an open ring, as a tentative one · an Option of one passes as it is
     │   ├─ The app's own words for what it draws              → vocabulary={{ unassigned, backlog, rows, dueThisWeek, confirmed, … }}
     │   ├─ Its inspector pane: what is selected               → inspector (+ an event kind's own: Schedule.events(record, { inspector }))
-    │   ├─ Drags of templates, backlog cards and events       → built in with resources + events (+ library); canDrop={fn(Schedule.Types.Candidate) => Option<String>}
+    │   ├─ Drags of templates, backlog cards and events       → built in with event kinds (+ library); canDrop={fn(Schedule.Types.Candidate) => Option<String>}
     │   ├─ The app's optimiser over the window and the backlog → optimise={Func.bind(e3.function)} from Plan.Types.OptimiseRequest (the window, the zoom's unit, the run, the rail's narrowing; no row) to Plan.Types.OptimiseResult({ job: Jobs }), a patch of each kind's record
     │   ├─ Overlap warnings, without dropping overlapping events → Schedule.events(record, { overlaps: "warn" | "allow" })
     │   └─ Dropped cards and moves of data rows as drafts      → a series' edit + record={Record.bind(rows)}, the record its data is read from (+ onPatch, ready)
@@ -367,9 +366,9 @@ and saves nothing. A draft that no longer fits its record ends the call
   fields (`title: "title"` or a function of the row, `start: "start"`,
   `resource: { field, of }`) and stores nothing of its own. Editable data is
   `Record.bind(record)` over a record declaring `mutation.patch()`.
-  `Schedule.events` / `resources` / `templates` / `periods` are the shared
-  vocabulary for kinds of events and resources (Plan, Calendar, Roster,
-  Allocation).
+  `Schedule.events` / `templates` / `periods` are the shared vocabulary for
+  kinds of events (Plan, Calendar, Roster, Allocation), `Schedule.resources`
+  for their resources but the Plan's, which are its rows.
 - **Every gesture is a draft.** Drags, drops, typed cells and form edits are
   steps of one session with Undo / Redo, saved with one checked Save through
   each record's patch door (or the host's `onApply`), surviving paging,
@@ -390,7 +389,7 @@ and saves nothing. A draft that no longer fits its record ends the call
   the **e3** skill): an event kind through an interval index
   (`index.interval({ from: "start", to: "end" })`) with `range: "start"` and
   `entries: Data.bindPaged(record)` for reads by key; events on paged
-  resources a cell at a time through `index.series` + `index.summary`; a
+  rows a cell at a time through `index.series` + `index.summary`; a
   drawing a window at a time through `index.area`.
 - **The app's optimiser**: `optimise={Func.bind(fn)}`, an `e3.function` from
   the builder's `Types.OptimiseRequest` — the period in view, the run and the
@@ -416,7 +415,7 @@ and saves nothing. A draft that no longer fits its record ends the call
 
 | Builder | What it draws | Start from |
 |---|---|---|
-| `<Plan>` | Heterogeneous rows on one time / number / ordinal axis: series over data, event kinds over records, read-only rows | `e3-ui:plan-events.examples.tsx:planEvents` (smallest), `e3-ui:plan.examples.tsx:planTargetState`, `e3-ui:plan-windows.examples.tsx:planWindows`, `e3-ui:plan-records.examples.tsx:planRecordIndexes` |
+| `<Plan>` | Heterogeneous rows on one time / number / ordinal axis: series over data, event kinds over records landing on its rows, read-only rows | `e3-ui:plan-events.examples.tsx:planEvents` (smallest), `e3-ui:plan.examples.tsx:planTargetState`, `e3-ui:plan-windows.examples.tsx:planWindows`, `e3-ui:plan-records.examples.tsx:planRecordIndexes` |
 | `<Sheet>` | A planning spreadsheet over a record, the host's rows or a paged source: typed columns, registers, groups, copilot, Excel round-trip | `e3-ui:sheet.examples.tsx:sheetBasic` (smallest), `e3-ui:sheet.examples.tsx:sheetWorkshop`, `e3-ui:sheet.examples.tsx:sheetPaged`, `e3-ui:sheet-records.examples.tsx:sheetRecordIndexes` |
 | `<Record>` | A system of records' rows as a table: the Sheet's kinds with title, person, boolean, toggle, cycle, age and audit; column groups, columns from data, marks and locks, Add and Delete | `e3-ui:record.examples.tsx:recordBasic` (smallest), `e3-ui:record.examples.tsx:recordSkillsMatrix`, `e3-ui:record.examples.tsx:recordEveryKind`, `e3-ui:record.examples.tsx:recordFinishes`, `e3-ui:record.examples.tsx:recordHoursByProject` (columns from data), `e3-ui:record.examples.tsx:recordSkillHistory` (a dated history, read and written at the day) |
 | `<Calendar>` | Calendar, Resources and Timeline layouts over event records with a backlog | `e3-ui:calendar.examples.tsx:calendarMinimal` (smallest), `e3-ui:calendar.examples.tsx:calendarOperations`, `e3-ui:calendar-records.examples.tsx:calendarRecordIndexes` |

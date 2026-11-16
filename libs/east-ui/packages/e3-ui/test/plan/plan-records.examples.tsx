@@ -129,7 +129,8 @@ export const planOperations = e3.record("plan_operations", Operations, {
 /**
  * The Sheet's 50,000 work orders on a Plan, a row each, and their operations
  * a record of their own placed on them (#1344, #1039, #1541). The work orders
- * are the canvas's rows, laid out by a `Plan.series.resources`, narrowed
+ * are the canvas's rows, laid out by a `Plan.series.resources`, counted as
+ * work orders, the Plan's word for its rows (`vocabulary`), and narrowed
  * through the rail's `rows` source over their indexes: by Status, Due, Job, Quantity,
  * Urgent and Tag, with the presets and the search, opening on the orders Ready
  * and due in the first fortnight of October. The canvas pages the narrowing's
@@ -172,6 +173,8 @@ export const planRecordIndexes = example({
                 },
             }, { presets: [{ id: "ready", name: "Ready", where: { rows: { status: ["Ready"] } } }, { id: "urgent", name: "Urgent", where: { rows: { urgent: [true] } } }] }));
             return <Box width="100%" height="760px"><Plan id="planRecordIndexes" slice={{ slice }}
+                // Its rows are work orders, in the Plan's word for them: what the rail counts and the footer's line names.
+                vocabulary={{ rows: { one: "Work order", other: "Work orders" } }}
                 axis={Plan.axis({ window: { min: new Date("2026-10-01T00:00:00Z"), max: new Date("2026-10-15T00:00:00Z") }, resolution: "day", resolutions: ["month", "week", "day"] })}
                 series={[Plan.series.resources(IndexedWork, { key: "orders", title: "Work orders", icon: "clipboard-list", label: (w) => w.reference, sub: (w) => some(w.status) })]}
                 events={{
@@ -217,6 +220,7 @@ export const planRecordIndexesMobile = example({
                 },
             }, { presets: [{ id: "ready", name: "Ready", where: { rows: { status: ["Ready"] } } }, { id: "urgent", name: "Urgent", where: { rows: { urgent: [true] } } }] }));
             return <Box width="100%" maxWidth="390px" height="760px"><Plan id="planRecordIndexesMobile" slice={{ slice }}
+                vocabulary={{ rows: { one: "Work order", other: "Work orders" } }}
                 library={[Plan.library.series()]}
                 inspector
                 axis={Plan.axis({ window: { min: new Date("2026-10-01T00:00:00Z"), max: new Date("2026-10-15T00:00:00Z") }, resolution: "day", resolutions: ["month", "week", "day"] })}

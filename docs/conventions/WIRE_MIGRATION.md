@@ -1284,3 +1284,38 @@ Each wire changed under this rule, with the kind it is.
   it, and a fit's now names the drafts its function lists. A fit's call is a
   function call as any other, kept as #1619 (above) keeps one, and no stored
   form changes, so no repository upgrade step ships with it.
+- **e3-ui's `Plan` draws its event kinds on its own rows, which are the
+  resources (#1541, U1, U2)** — package-borne. The `Plan` extension's payload
+  loses `resources`, the resource kinds (`PlanResourcesType`, each holding its
+  rows, `PlanResourceRowType`), and `blocks`, the seam that made their rows
+  (`PlanEventBlocksType`); its `paged`, the seam over a paged resource kind's
+  windows (`PlanEventPagedType`), becomes a Boolean, whether the canvas's rows
+  are read a page at a time. It gains `landings`, after `plan`: the series of
+  its own rows the event kinds land on (`PlanLandingType`), each resources
+  series and `kinds` case by its key, with its name, its icon, the ways its
+  kinds draw, the kinds landing on it, its own series' keys, and whether its
+  resources are the canvas's own entries, read by their keys over rows read a
+  page at a time. And it gains `seam`, after `events`: how the events join the
+  canvas's rows (`PlanEventSeamType`) — `placed`, the events read over a
+  window and filed by landing, by way of drawing and by resource
+  (`PlanEventPlacedType`, a struct where it was a dict), and `place`, which
+  fills the landing rows of any window with them. `PlanEventShownType` goes. A
+  series value (`Plan.Types.Series`) gains the arms `resources` and `kinds`;
+  its cases are in name order, so the tags of those after `kinds` move. The
+  library's Series tab lists no resource kind and no measure, so a viewer's
+  hidden ids that named one (`resources.<slot>`, `measures.<key>`), kept by
+  the browser, name nothing, and hide nothing.
+  `Schedule.resources` loses its Plan half: `Schedule.Types.PlanResources` and
+  `Schedule.Types.PlanResourceRow` are removed, and the options only a Plan
+  read (`parent`, `sub`, `value`, `status`, `rollup`, `collapsed`,
+  `measures`) are refused, each naming `Plan.series.resources`' own; the
+  Calendar's, the Roster's and the Allocation's resource kinds keep their
+  forms. A Plan given `resources` is refused at build, naming the series that
+  replace it. A UI value encoded under either type does not decode under the
+  other: packages are re-exported, and the dataflow computes each UI task's
+  output again under the new type. A UI task's output is not stored state, so
+  no repository upgrade step ships with it. An application's records keep
+  their types: the resources a Plan drew are the rows of the record its `data`
+  or its rail's `rows` source reads, and moving resources kept in records of
+  their own into one record is that record's own migration, as with any
+  record whose type an application changes.

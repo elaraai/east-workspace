@@ -5,9 +5,9 @@
  *
  * A Plan's rows hold still while its dates move (#1344), on e3 itself: the
  * dates on screen never decide which rows are listed. The work orders Plan
- * (`planRecordIndexes`) pages its work orders, a resource kind, through its
- * slice's `orders` source, whose Due is a field of the rail; the operations'
- * source holds the window. A pan, a step of the date navigator and the horizon
+ * (`planRecordIndexes`) pages its work orders, its rows, through its slice's
+ * `rows` source, whose Due is a field of the rail; the operations' source
+ * holds the window. A pan, a step of the date navigator and the horizon
  * brush move it — written into the operations' source — read no work order,
  * leave the rows in view as they are and read only the operations' cells the
  * canvas does not hold; the resolution reads no work order either, and the
@@ -147,14 +147,14 @@ describe("the work orders Plan: its rows hold still while its dates move", () =>
         await waitFor(() => expect(c.querySelector(FIRST_BAR)).not.toBeNull());
         await settle();
         // Its chip is the rail's, as every field of the work orders' is.
-        expect(slot(c, "toolbar").querySelector("[data-record-slice-source='orders'][data-record-slice-field='due']")).not.toBeNull();
+        expect(slot(c, "toolbar").querySelector("[data-record-slice-source='rows'][data-record-slice-field='due']")).not.toBeNull();
         const keys = keysOf(c);
         const from = anchorOf(c);
         const at = h.requests().length;
         // The orders due from 8 October to 22 October, as the Due editor writes the rail's state.
-        const state = stateOf("orders");
+        const state = stateOf("rows");
         await act(async () => {
-            getStore().write("ex.planRecordIndexes.orders", encodeState({ ...state, where: new Map(state.where).set("due", range(OCT(8), OCT(22))) }));
+            getStore().write("ex.planRecordIndexes.rows", encodeState({ ...state, where: new Map(state.where).set("due", range(OCT(8), OCT(22))) }));
         });
         await waitFor(() => expect(keysOf(c)).not.toEqual(keys));
         await settle();

@@ -1204,6 +1204,8 @@ export function usePlanCanvas({
     // The series the event kinds land on, by their keys; and the rows a resource the canvas does not hold is read from.
     const landingsByKey = useMemo(() => new Map(landings.map((landing) => [landing.key, landing] as const)), [landings]);
     const rowsDrawn = data.rows;
+    // Every row the slice's `rows` source narrows (#1541): where one the narrowing leaves out is read by its key.
+    const rowsUnnarrowed = getSomeorUndefined(data.unnarrowed);
     // The resources the canvas holds (#1541): each landing row, by its series and the last step of its path — as the cells'
     // reader names them — and each series' in the canvas's order.
     const resourceRows = useMemo(() => {
@@ -1232,10 +1234,16 @@ export function usePlanCanvas({
         },
         resource: (ref) => resourceRows.byRef.get(scheduleCellId(ref.kind, ref.key)),
         // A resource it does not hold, named by its landing row read by its key (#1199, #1541): the rows as the canvas
-        // draws them, its drafts in place.
-        resourceByKey: (ref) => landingNameByKey(rowsDrawn, landingsByKey.get(ref.kind), ref.key),
+        // draws them, its drafts in place — and one the slice's `rows` source leaves out, which they never find, among
+        // every row the source narrows.
+        resourceByKey: (ref) => {
+            const landing = landingsByKey.get(ref.kind);
+            const drawn = landingNameByKey(rowsDrawn, landing, ref.key);
+            const left = drawn.type === "some" && drawn.value.type === "none";
+            return left && rowsUnnarrowed !== undefined ? landingNameByKey(rowsUnnarrowed, landing, ref.key) : drawn;
+        },
         resources: (landing) => (paged ? undefined : resourceRows.bySeries.get(landing) ?? NO_RESOURCE_ROWS),
-    }), [index, derived, scale, words, resourceRows, rowsDrawn, landingsByKey, paged]);
+    }), [index, derived, scale, words, resourceRows, rowsDrawn, rowsUnnarrowed, landingsByKey, paged]);
     // Events selected from the frame (#1198) — the overlaps chip's pair, the
     // inspector's banner, a duplicate the inspector made (#1194): on the row
     // given, else the row that draws the first, which the controller brings

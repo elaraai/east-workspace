@@ -6,14 +6,16 @@
  *
  * The Plan follows its rail (#1344) over the print works' records: one
  * `Slice.bindRecords`, a source per event kind it narrows — the jobs and the
- * shifts, each through its interval index — per resource kind, per templates
- * record, and the customers an author's tab names. The window is every event
+ * shifts, each through its interval index — per templates record, and the
+ * customers an author's tab names. The works' rows — each group a strip, its
+ * presses and crews beneath it, the resources the event kinds land on (#1541)
+ * — are read whole, and no source narrows them: the bulk edit's Chooser offers
+ * every press the canvas holds. The window is every event
  * source's range: the toolbar's navigation writes them all, a range written to
  * the leading one is written to the others, and the resolution goes to each.
  * Each source narrows every place its records appear: the jobs' choices their
  * events and their backlog, the Backlog tab counting `N of M` and its Clear
- * filters keeping the window; the presses' their rows and the bulk edit's
- * Chooser, which keeps a selected event's own; a templates record's the Events
+ * filters keeping the window; a templates record's the Events
  * tab; the customers' the tab that names them — each tab counting what it
  * shows and saying so, with Clear filters, when the rail leaves it none. A Save
  * that moves a job out of its kind's narrowing says so in the footer, and the
@@ -121,19 +123,23 @@ async function pick(node: Element | null | undefined, add = false) {
 }
 
 const toolbar = (c: HTMLElement) => within(slot(c, "toolbar")!);
-/** A press's row of bars, by its hall and its key. */
-const pressRow = (hall: string, key: string) => entry("presses.span", hall, key);
-/** A crew's row of chips, by its hall and its key. */
-const crewRow = (hall: string, key: string) => entry("crews.cards", hall, key);
+/** Each hall's group of presses and of crews, by the hall's name: the works' groups, by their keys (#1541). */
+const PRESSES = { "Hall A": "1-presses-a", "Hall B": "2-presses-b" } as const;
+const CREWS = { "Hall A": "3-crews-a", "Hall B": "4-crews-b" } as const;
+type Hall = keyof typeof PRESSES;
+/** A press's own row, which its jobs' bars land on, by its hall and its key. */
+const pressRow = (hall: Hall, key: string) => entry("presses", PRESSES[hall], key);
+/** A crew's own row, which its shifts' chips land on, by its hall and its key. */
+const crewRow = (hall: Hall, key: string) => entry("crews", CREWS[hall], key);
 /** A job's bar on a press's row. */
-const bar = (c: HTMLElement, key: string, hall: string, press: string) => c.querySelector<HTMLElement>(`${rowAt(pressRow(hall, press))} ${el("data-run", "job", key)}`);
+const bar = (c: HTMLElement, key: string, hall: Hall, press: string) => c.querySelector<HTMLElement>(`${rowAt(pressRow(hall, press))} ${el("data-run", "job", key)}`);
 /** A shift's chip on a crew's row. */
-const chip = (c: HTMLElement, key: string, hall: string, crew: string) => c.querySelector<HTMLElement>(`${rowAt(crewRow(hall, crew))} ${el("data-chip", "shift", key)}`);
+const chip = (c: HTMLElement, key: string, hall: Hall, crew: string) => c.querySelector<HTMLElement>(`${rowAt(crewRow(hall, crew))} ${el("data-chip", "shift", key)}`);
 /** Whether the canvas draws a row. */
 const draws = (c: HTMLElement, id: PlanRowId) => slot(c, "main")!.querySelector(rowAt(id)) !== null;
-/** Whether the canvas draws a resource kind's group strip, by its group. */
-const drawsStrip = (c: HTMLElement, kind: string, group: string) =>
-    slot(c, "main")!.querySelector(`[data-plan-group=${JSON.stringify(rowKeyOf(entry(`${kind}.group`, group)))}]`) !== null;
+/** Whether the canvas draws a group's strip, by the group's key. */
+const drawsStrip = (c: HTMLElement, group: string) =>
+    slot(c, "main")!.querySelector(`[data-plan-group=${JSON.stringify(rowKeyOf(entry("groups", group)))}]`) !== null;
 
 /** The library pane. */
 const pane = (c: HTMLElement) => slot(c, "start")!;
@@ -243,30 +249,28 @@ describe("each source narrows every place its records appear (#1344)", () => {
         expect(narrowing("job").get("start")).toEqual(start);
     });
 
-    test("the presses' source narrows their rows and strips, never the crews'; the bulk edit's Chooser offers the presses it shows and those the selected jobs are on", async () => {
+    test("the works' rows are read whole, and no source narrows them: a stock chosen leaves every press and crew and each hall's strips, and the bulk edit's Chooser offers every press the canvas holds (#1541)", async () => {
         const { container } = await h.mount(ex.planPrintWorks);
         await settle();
-        await pick(bar(container, "J-1001", "Hall A", "a1"));
-        await pick(bar(container, "J-1013", "Hall B", "b1"), true);
-        await narrow("presses", where(["hall", values(text("Hall A"))]));
-        expect(draws(container, pressRow("Hall A", "a1"))).toBe(true);
-        expect(draws(container, pressRow("Hall B", "b1"))).toBe(false);
-        expect(drawsStrip(container, "presses", "Hall B")).toBe(false);
-        // The crews follow no source: both halls stay.
-        expect(drawsStrip(container, "crews", "Hall B")).toBe(true);
-        expect(draws(container, crewRow("Hall B", "c3"))).toBe(true);
-        // The holiday catalogue runs on Press B1, which the rail hides: the Chooser keeps it beside Hall A's presses,
+        await pick(bar(container, "J-1005", "Hall A", "a1"));
+        await pick(bar(container, "J-1022", "Hall B", "b3"), true);
+        // The jobs on board stock chosen — the menu cards and the box sleeves are: their presses, and every other, stay.
+        const start = narrowing("job").get("start")!;
+        await narrow("job", where(["start", start], ["stock", values(stockOf(variant("board", null)))]));
+        expect([pressRow("Hall A", "a2"), pressRow("Hall B", "b1"), crewRow("Hall B", "c3")].every((id) => draws(container, id))).toBe(true);
+        expect(["1-presses-a", "2-presses-b", "3-crews-a", "4-crews-b"].every((group) => drawsStrip(container, group))).toBe(true);
+        // The two jobs selected land on the presses: the Chooser offers each press the canvas holds, by its row's name,
         // after Unassigned, which takes the jobs off every press.
         const resource = slot(container, "end")!.querySelector<HTMLElement>('[data-inspector-bulk] [data-field="resource"]')!;
-        expect(await offered(resource)).toEqual(["Unassigned", "Press A1", "Press A2", "Press A3", "Press B1"]);
+        expect(await offered(resource)).toEqual(["Unassigned", "Press A1", "Press A2", "Press A3", "Press B1", "Press B2", "Press B3"]);
     });
 
     test("the customers' tab follows their source, its count `6 of 16`; one the rail empties says so, and its Clear filters clears that source alone", async () => {
         const { container } = await h.mount(ex.planPrintWorks);
         await settle();
-        expect(tabs(pane(container))).toEqual(["Events 12", "Backlog 8", "Series 15", "Customers 16"]);
+        expect(tabs(pane(container))).toEqual(["Events 12", "Backlog 8", "Series 16", "Customers 16"]);
         await narrow("customers", where(["district", values(text("Old Town"))]));
-        expect(tabs(pane(container))).toEqual(["Events 12", "Backlog 8", "Series 15", "Customers 6 of 16"]);
+        expect(tabs(pane(container))).toEqual(["Events 12", "Backlog 8", "Series 16", "Customers 6 of 16"]);
         await openTab(container, "Customers");
         expect(cardNames(container)).toEqual(["Alder & Finch", "Copperleaf Cafe", "Granite Hall", "Heathfield Theatre", "Larkspur Home", "Orchard Street Market"]);
         await narrow("customers", where(["district", values(text("Nowhere"))]));
@@ -463,11 +467,8 @@ describe("a filter change rebuilds no builder (#1354)", () => {
             await settle();
             const mounted = [builds.runs, builds.decodes];
             expect(Math.min(...mounted)).toBeGreaterThan(0);
-            // A resource kind's source: Hall B's presses go.
-            await narrow("presses", where(["hall", values(text("Hall A"))]));
-            expect(draws(container, pressRow("Hall A", "a1"))).toBe(true);
-            expect(draws(container, pressRow("Hall B", "b1"))).toBe(false);
-            // A tab's source: its count follows.
+            // A tab's source: its count follows. (A choice of the rows' own source builds nothing either: the halls'
+            // presses, `plan-series-halls.dom.test.tsx`.)
             await narrow("customers", where(["district", values(text("Old Town"))]));
             expect(tabs(pane(container))[3]).toBe("Customers 6 of 16");
             // An event kind's source: the coated jobs go, and the backlog counts what the choice hides.
@@ -602,7 +603,7 @@ const pagedRead = (request: E3Request) => ["find", "page", "rows", "runs", "plac
 describe("drafts the window leaves out ask e3 nothing (#1409, R24; #1599)", () => {
     test("more drafts than the windows the paging runtime keeps, each of whose rows a step of the dates leaves out, read no row by its key — each is told from a new event's by the row its session began from — and the reads settle", async () => {
         // Another planner adds proof runs on the window's first day, more than the runtime keeps windows, a press apiece in turn.
-        const presses = [["Hall A", "a1"], ["Hall A", "a2"], ["Hall A", "a3"], ["Hall B", "b1"], ["Hall B", "b2"], ["Hall B", "b3"]] as const;
+        const presses = [["Hall A", "a1"], ["Hall A", "a2"], ["Hall A", "a3"], ["Hall B", "b1"], ["Hall B", "b2"], ["Hall B", "b3"]] as const satisfies readonly (readonly [Hall, string])[];
         const added = Array.from({ length: MAX_RETAINED_WINDOWS + 6 }, (_, i) => ({ key: `J-2${String(i).padStart(3, "0")}`, on: presses[i % presses.length]! }));
         const jobs = new Map(ex.planPrintJobs.default as ReadonlyMap<string, Job>);
         for (const [i, { key, on }] of added.entries()) {

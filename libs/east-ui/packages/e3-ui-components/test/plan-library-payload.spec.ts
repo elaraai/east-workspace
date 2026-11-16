@@ -124,7 +124,7 @@ describe("the tabs `library` lists (PB26, PB61)", () => {
 });
 
 describe("the Series tab (PB29)", () => {
-    test("the event kinds; then the Plan's rows — a hand-built row by its key, the rows nested in it going with it, a Plan.over series by its own — each with its glyph, and what hiding it hides; `data`'s series through the canvas's own pick, a resources series one line, its series beneath it going with it (#1541)", async () => {
+    test("the event kinds; then the Plan's rows — a hand-built row by its key, the rows nested in it going with it, a Plan.over series by its own — each with its glyph, and what hiding it hides; `data`'s series through the canvas's own pick, a resources series and each of its series a line of its own (#1541, U3)", async () => {
         const payload = await payloadOf(($) => {
             const presses = $.let(Record.bind(ex.planPrintPresses, []));
             const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
@@ -175,9 +175,10 @@ describe("the Series tab (PB29)", () => {
                 { item: line("rows.ms", "Milestones", undefined, "flag"), hides: variant("rows", "ms") },
             ],
         })), JSON.stringify(tabOf(payload, "series").value.rows.map((r) => r.item.id)));
-        // `data`'s series, through the canvas's own pick: the presses one line, their series beneath them going with them.
+        // `data`'s series, through the canvas's own pick: every series of the tree, each before what nests in it — the
+        // presses, then each of their series, switched alone (U3).
         if (payload.plan.pick.type !== "some") assert.fail("expected `data`'s series picked");
-        assert.deepEqual(payload.plan.pick.value.items.map((item) => [item.id, item.title]), [["presses", "Presses"]]);
+        assert.deepEqual(payload.plan.pick.value.items.map((item) => [item.id, item.title]), [["presses", "Presses"], ["util", "Utilisation"], ["speed", "Speed"]]);
     });
 });
 

@@ -7,7 +7,8 @@
 
 /**
  * Search Records over the source of the rows a Plan pages (#1513), on e3 — the
- * works' `rows` source, and the work orders' paged resource kind's: the box finds
+ * works' `rows` source, and the work orders', read through their indexes, the
+ * resources their operations land on (#1541): the box finds
  * a row the rail hides, its line names the choices hiding it, and a pick clears
  * just those and goes to the row where the narrowing left holds it, in that
  * narrowing's index's order, its row taking the keyboard.
@@ -144,9 +145,9 @@ describe("Search Records over a scoped Plan's rows source (#1621)", () => {
     });
 });
 
-describe("Search Records over a paged resource kind's source", () => {
-    /** The orders' source narrowing, as the rail holds it. */
-    const ordersNarrowing = () => [...decodeState(getStore().read("ex.planRecordIndexes.orders")!).where.keys()];
+describe("Search Records over the work orders' rows source, read through their indexes", () => {
+    /** The work orders' `rows` source's narrowing, as the rail holds it. */
+    const ordersNarrowing = () => [...decodeState(getStore().read("ex.planRecordIndexes.rows")!).where.keys()];
 
     test("finds an order the rail hides, names what hides it, and a pick clears that and goes to its row", async () => {
         const { container: c } = await h.mount(records.planRecordIndexes);

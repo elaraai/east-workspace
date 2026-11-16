@@ -53,7 +53,8 @@ export interface PlanCanvasInspect {
     resource(ref: { readonly kind: string; readonly key: string }): PlanRowValue | undefined;
     /**
      * A resource's name where the canvas does not hold its landing row (#1199, #1541): its row read by its key
-     * ({@link landingNameByKey}). Called inside a tracked evaluation, so a pane names it once the read lands.
+     * ({@link landingNameByKey}) — among the canvas's rows, then, for one the slice's `rows` source leaves out, among
+     * every row the source narrows. Called inside a tracked evaluation, so a pane names it once the read lands.
      *
      * @param ref - The resource: its series' key and its key's text
      * @returns `none` while the read is in flight; `some(none)` where no row is read for it; else `some(some(name))`
@@ -80,9 +81,11 @@ const stringEqual = equalFor(StringType);
  * one-row page reads it (the shared keyed read), and its landing row names it
  * as the canvas draws it. Rows read whole are held every one; a resource
  * nested beneath another of their rows is no entry of theirs; and rows with
- * no key search find none: no row is read for any of them.
+ * no key search find none: no row is read for any of them. A narrowing's key
+ * search finds only what it keeps, so a resource it leaves out is read from
+ * every row it narrows (the root's `unnarrowed`).
  *
- * @param rows - The canvas's rows
+ * @param rows - The rows it is read from: the canvas's, or every row the slice's `rows` source narrows
  * @param landing - The resource's landing, as the payload carries it; `undefined` for a series no kind lands on
  * @param key - The resource's key's text
  * @returns `none` while the search or its page is in flight; `some(none)` where no row is read for it, or the rows hold

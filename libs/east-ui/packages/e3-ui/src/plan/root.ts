@@ -502,7 +502,7 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
     }
     if (config.series !== undefined) checkSeries(config.series, "Plan", axisKindOf(config.axis));
     const data = config.data;
-    if (data === undefined) return rootOf(config, East.value(variant("inline", extra!), PlanRowsType), undefined, chrome, undefined, undefined);
+    if (data === undefined) return rootOf(config, East.value(variant("inline", extra!), PlanRowsType), undefined, chrome, undefined, undefined, undefined);
     // The canvas applies the list it was given, leaving out what is hidden (#1541, U3): the pick's state where the
     // series are picked, read wherever rows are made, or the keys `hidden` names. A gesture writes the data whichever
     // series show (#1440): the session's writer is built over the whole list, so a number written as its series is
@@ -568,6 +568,15 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
             !carries ? undefined : ordered !== undefined ? ordered.carried
                 : (source) => (source as unknown as ExprType<DictType<EastType, EastType>>).toArray((_$, value, key) => ({ id: entryId(key), entry: East.Blob.encodeBeast(value, "v2") })),
         ) as unknown as ExprType<PlanRowsType>;
+        // The rows the Slice's `rows` source narrows, every one (#1541): the record's own entries through the binding the
+        // narrowing narrows, made by the same series — what a pane names a resource the narrowing leaves out by, its row
+        // read by its key, where the narrowing's own key search finds none of them.
+        // Its entries come as the canvas's own do: in an index's order, where the binding serves them so.
+        const every = rowsBinding === undefined ? undefined : resolveRowSource(rowsBinding as unknown as SubtypeExprOrValue<EastType>, "Plan");
+        const everyOrdered = every?.kind === "ordered" ? orderedPlanSource(every) : undefined;
+        const unnarrowed = every === undefined ? undefined
+            : buildCarriedRowSource(every, PlanBlocksType, (source) => (everyOrdered === undefined ? apply(source) : everyOrdered.make(apply, source)),
+                undefined) as unknown as ExprType<PlanRowsType>;
         const editing = config.editing === undefined ? undefined : buildPlanEditing(resolved, seriesInput, apply, config.editing, planNestedIndex(nested));
         // Paged beside their nested series index (#1438): the seam the reader reads the index's cells through, and the window
         // its rows are drawn from with what it read — the binding's, or the one the Slice's `rows` source narrows.
@@ -582,7 +591,7 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
             uses,
             rows: ordered.nestedRows(apply, binding.fill.unwrap(), new Set(uses.filter((use) => use.shade.type === "booked").map((use) => use.series))),
         } as never, PlanNestedType) as ExprType<PlanNestedType>;
-        return rootOf(config, rowsValue, editing === undefined ? undefined : ordered?.editing(editing) ?? editing, chrome, nestedSeam, shown?.pick);
+        return rootOf(config, rowsValue, editing === undefined ? undefined : ordered?.editing(editing) ?? editing, chrome, nestedSeam, shown?.pick, unnarrowed);
     }) as ExprType<PlanRootType>;
 }
 
@@ -595,11 +604,12 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
  * @param chrome - The chrome of the Plan's `Slice.bindRecords`; `none` with no slice
  * @param nested - What its paged rows' reader reads of their nested series index, if it reads it (#1438)
  * @param pick - The pick over `data`'s series, where they are picked (#1541, U3)
+ * @param unnarrowed - Every row the Slice's `rows` source narrows, where it gives the canvas its rows (#1541)
  * @returns An East expression of {@link PlanRootType}
  */
 function rootOf(config: PlanCanvasOptions, rowsValue: ExprType<PlanRowsType>, editing: ExprType<PlanEditingType> | undefined,
     chrome: option<ExprType<RecordSlicesChromeType>>, nested: ExprType<PlanNestedType> | undefined,
-    pick: ExprType<PickBindType> | undefined): ExprType<PlanRootType> {
+    pick: ExprType<PickBindType> | undefined, unnarrowed: ExprType<PlanRowsType> | undefined): ExprType<PlanRootType> {
     const style = config.style;
     const styleValue = style !== undefined
         ? some(East.value({
@@ -611,6 +621,7 @@ function rootOf(config: PlanCanvasOptions, rowsValue: ExprType<PlanRowsType>, ed
         : none;
     return East.value({
         rows:     rowsValue,
+        unnarrowed: unnarrowed !== undefined ? some(unnarrowed) : none,
         links:    East.value(config.links ?? [], ArrayType(PlanLinkType)),
         axis:     config.axis as SubtypeExprOrValue<PlanAxisType>,
         grain:    config.grain !== undefined ? some(resolveTag(config.grain, PlanGrainType)) : none,

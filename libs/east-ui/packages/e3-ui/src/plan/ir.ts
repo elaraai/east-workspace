@@ -59,6 +59,12 @@ import { PlanNestedType } from "./nested-read.js";
  */
 export const PlanRootType = StructType({
     rows: PlanRowsType,
+    // The rows the slice's `rows` source narrows, every one (#1541): the record's
+    // own entries, read through the binding the narrowing narrows and made by the
+    // same series — what a pane names a resource the narrowing leaves out by, its
+    // row read by its key. None where the rows are no narrowing: their own key
+    // search finds every one of them.
+    unnarrowed: OptionType(PlanRowsType),
     // The link graph (R1) — run-edge to run-edge quantity links; the
     // links-focus control gathers a row's transitive family over it.
     links: ArrayType(PlanLinkType),
