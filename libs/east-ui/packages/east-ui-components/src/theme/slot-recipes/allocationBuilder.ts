@@ -74,7 +74,7 @@ import { CONFLICT_RING, conflictRing } from "../conflict-ring.js";
 import { builderFooter, builderFooterItem } from "./builder-footer.js";
 import { INSPECTOR_STATUS } from "./inspector.js";
 import { heldToolbarSlot, retainedColumn, retainedRow, widestToolbarSlot } from "./loading.js";
-import { linkRibbons } from "./links/ribbons.js";
+import { linkRibbons, linkSelectedInk } from "./links/ribbons.js";
 import { planElementConflict, planElementFocus, planRowFocus } from "./plan/focus.js";
 import { moveGhostBase, moveGhostSlots } from "./time/move-ghost.js";
 import { nowBase, nowSlots } from "./time/now.js";
@@ -493,10 +493,7 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             // cards they cross — surfacing in the gaps between the lanes and in the channel — never over their words; a drag brings it back up.
             "&[data-under]": { zIndex: 1 },
             // The selected link, in the ink, at rest (A68); during a drag its caption keeps its outline alone.
-            "[data-allocation-timeline]:not([data-allocation-drag]) > &": {
-                "& [data-plan-link][data-selected] [data-plan-ribbon-band]": { stroke: "fg" },
-                "& [data-plan-link][data-selected] [data-plan-ribbon-head]": { fill: "fg" },
-            },
+            "[data-allocation-timeline]:not([data-allocation-drag]) > &": linkSelectedInk,
             // A caption takes the pointer as its line does, in the strong ink while lit; a grip, a hand to pick it up (A69).
             "& [data-plan-ribbon-label]": { pointerEvents: "auto", cursor: "pointer" },
             "& [data-plan-ribbon-label][data-allocation-grip]": { cursor: "grab", touchAction: "none" },

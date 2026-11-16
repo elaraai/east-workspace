@@ -18,14 +18,15 @@
  */
 
 import { describe, test, expect, vi } from "vitest";
-import { fireEvent } from "@testing-library/react";
+import { act, fireEvent, within } from "@testing-library/react";
+import { editingMessages } from "@elaraai/east-ui-components";
 import { ArrayType, DictType, East, RecursiveType, StringType, StructType, some, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import { Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import { rowKeyOf, type PlanRowId } from "./model.js";
 import { PLAN_GEOMETRY } from "./geometry.js";
-import { el, elementKey, entry, planHarness, rowAt, settle } from "./frame/harness.test-utils.js";
+import { el, elementKey, entry, planHarness, rowAt, settle, slot } from "./frame/harness.test-utils.js";
 
 // The print works on e3.
 const h = planHarness({ "plan/plan-events": ex });
@@ -299,6 +300,56 @@ describe("a link's event ends", () => {
         }
     });
 
+    test("a link kind's link selects by a click and is removed by Delete or by its ×, each a draft that Undo takes back (#1541, U10)", async () => {
+        const restore = ribbonWidth();
+        try {
+            const { container } = await h.mount(ex.planEventLinks);
+            await settle();
+            fireEvent.click(container.querySelector(`${rowAt(entry("presses", "a1"))} [data-plan-control="links"]`)!);
+            await settle();
+            const flow = (key: string) => elementKey("flow", key);
+            const hit = (key: string) => [...container.querySelectorAll("[data-link]")].find((path) => path.getAttribute("data-link-key") === key);
+            const group = (key: string) => hit(key)?.closest("[data-plan-link]") ?? null;
+            const keys = () => [...container.querySelectorAll("[data-link]")].map((path) => path.getAttribute("data-link-key"));
+            const toolbar = within(slot(container, "toolbar")!);
+            const undo = () => toolbar.getByRole("button", { name: editingMessages.undo() }) as HTMLButtonElement;
+            const discard = () => toolbar.getByRole("button", { name: editingMessages.discard() }) as HTMLButtonElement;
+            expect(keys()).toHaveLength(17);
+            expect(discard().disabled).toBe(true);
+
+            // The plates' flow carries no quantity, so no caption: selected, it is drawn in the ink all the same, with no ×.
+            await act(async () => { fireEvent.click(hit(flow("plates"))!); });
+            await settle();
+            expect([group(flow("plates"))!.hasAttribute("data-selected"), container.querySelectorAll("[data-plan-link][data-selected]").length]).toEqual([true, 1]);
+            expect(container.querySelector("[data-plan-ribbon-unlink]")).toBeNull();
+            // Delete removes it: one draft, which Save waits on; the other sixteen stand.
+            await act(async () => { fireEvent.keyDown(container.querySelector("[data-builder-frame]")!, { key: "Delete" }); });
+            await settle();
+            expect([keys().includes(flow("plates")), keys().length, discard().disabled]).toEqual([false, 16, false]);
+            // Undo brings it back.
+            await act(async () => { fireEvent.click(undo()); });
+            await settle();
+            expect([keys().includes(flow("plates")), keys().length]).toEqual([true, 17]);
+
+            // The covers' flow has a caption: selected, its × removes it, named for its kind.
+            await act(async () => { fireEvent.click(hit(flow("covers"))!); });
+            await settle();
+            expect(group(flow("covers"))!.hasAttribute("data-selected")).toBe(true);
+            const unlink = container.querySelector<HTMLElement>("[data-plan-ribbon-unlink] button");
+            expect(unlink?.getAttribute("aria-label")).toBe("Remove flow");
+            await act(async () => { fireEvent.click(unlink!); });
+            await settle();
+            // It is gone, and nothing is selected. What it alone joined to Press A1's family leaves the focus with it, so
+            // fewer than sixteen draw.
+            expect([keys().includes(flow("covers")), keys().length < 17, container.querySelectorAll("[data-plan-link][data-selected]").length]).toEqual([false, true, 0]);
+            await act(async () => { fireEvent.click(undo()); });
+            await settle();
+            expect(keys()).toHaveLength(17);
+        } finally {
+            restore();
+        }
+    });
+
     /** A triangle's tip — its second vertex. */
     const tipOf = (d: string): [number, number] => {
         const nums = d.trim().split(/[\sMLZ]+/).filter((s) => s !== "").map(Number);
@@ -335,6 +386,10 @@ describe("a link's event ends", () => {
             // its kind's icon, so the link meets the left edge of the icon's box.
             const head = container.querySelector('[data-plan-link="0"] [data-plan-ribbon-head]')!;
             expect(tipOf(head.getAttribute("d")!)[0]).toBe(Number((168 + (2.5 / 28) * 1000 - PLAN_GEOMETRY.default.markIconWidth / 2).toFixed(1)));
+            // A link built in code is no link kind's row (#1541, U10): a click on it selects nothing.
+            fireEvent.click(container.querySelector('[data-link="0"]')!);
+            await settle();
+            expect(container.querySelector("[data-plan-link][data-selected]")).toBeNull();
         } finally {
             restore();
         }

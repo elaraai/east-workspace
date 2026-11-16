@@ -106,6 +106,7 @@ import type { KeyVisibilityWords } from "../../shared/schedule/visibility.js";
 import { usePlanCanvas } from "../canvas.js";
 import { usePlanSelector } from "../controller/react.js";
 import { removePlanEvents } from "../edit/events.js";
+import { kindLinkOf } from "../links/kinds.js";
 import type { PlanCanvasParts } from "../root/chrome.js";
 import type { PlanEventRows } from "../root/events.js";
 import { ROWS_SOURCE, planFollowedSources, planNouns, type PlanEventPart } from "../root/sources.js";
@@ -298,7 +299,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({
     });
     return <>{canvas.provide(
         <PlanFrame canvas={canvas} root={value} kinds={kinds ?? NO_KINDS} landings={landings} library={library}
-            inspector={inspector === true} hidden={hidden} onHidden={onHidden} followed={followed} />,
+            inspector={inspector === true} hidden={hidden} onHidden={onHidden} followed={followed} linkKinds={linkKinds ?? NO_LINK_KINDS} />,
     )}</>;
 }, (prev, next) => planRootEqual(prev.value, next.value) && prev.storageKey === next.storageKey
     && (prev.followed ?? NONE_FOLLOWED) === (next.followed ?? NONE_FOLLOWED)
@@ -331,6 +332,22 @@ interface PlanFrameProps {
     onHidden: (next: readonly string[]) => void;
     /** What each source of the slice the frame follows shows (#1344). */
     followed: FollowedSources;
+    /** The link kinds (#1541, U10): a selected link of one is removed by Delete, as a selected event is. */
+    linkKinds: PlanLinkKinds;
+}
+
+/**
+ * What Delete's step of the history is called: a link kind's links by their own word, any other selection as the
+ * events it is.
+ *
+ * @param keys - The selected elements' keys
+ * @param linkKinds - The link kinds
+ * @returns The label; `undefined` for a selection of events alone, which names itself
+ */
+function deleteLabel(keys: readonly string[], linkKinds: PlanLinkKinds): string | undefined {
+    const links = keys.filter((key) => kindLinkOf(linkKinds, key) !== undefined).length;
+    if (links === 0) return undefined;
+    return links === keys.length ? `Delete ${links} ${links === 1 ? "link" : "links"}` : `Delete ${keys.length} selected`;
 }
 
 /**
@@ -366,7 +383,7 @@ function useKeptPick(pick: PlanPickValue | undefined, listed: boolean): PlanPick
 }
 
 /** The frame, its regions holding the canvas and its chrome — inside the canvas's contexts. */
-function PlanFrame({ canvas, root, kinds, landings, library, inspector, hidden, onHidden, followed }: PlanFrameProps) {
+function PlanFrame({ canvas, root, kinds, landings, library, inspector, hidden, onHidden, followed, linkKinds }: PlanFrameProps) {
     planFrameRenderProbe?.();
     const { chrome, main, bound, vars } = canvas;
     const recipe = useSlotRecipe({ key: "plan" });
@@ -420,13 +437,13 @@ function PlanFrame({ canvas, root, kinds, landings, library, inspector, hidden, 
             onAction(action);
         } else if (!event.ctrlKey && !event.metaKey && !event.altKey && (event.key === "Delete" || event.key === "Backspace") && writable) {
             // What stays selected is what stayed: an event its kind's lock holds where it is (#1541, U9).
-            const stayed = removePlanEvents(selectedEvents, eventEditing);
+            const stayed = removePlanEvents(selectedEvents, eventEditing, deleteLabel(selectedEvents, linkKinds));
             if (stayed !== undefined) {
                 takeKey(event);
                 selectEvents?.(stayed);
             }
         }
-    }, [onAction, selectedEvents, eventEditing, selectEvents, writable]);
+    }, [onAction, selectedEvents, eventEditing, selectEvents, writable, linkKinds]);
     // A Plan with no control to show — no slice, no search, no group to fold, no overlaps, no editing — draws no toolbar.
     const toolbar = items.some((item) => item !== undefined && item !== false) ? items : undefined;
     // Each session's banners, in the history's order: `data`'s, then each event kind's, named — then each source the

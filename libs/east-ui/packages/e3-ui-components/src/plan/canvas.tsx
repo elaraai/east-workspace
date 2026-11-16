@@ -109,8 +109,11 @@ import { PLAN_PAGE_SIZE, bandElements } from "./use-plan-paging.js";
 import type { RowKey } from "./plan-state.js";
 import { conflictPlaceOf, entryOf, usePlanEditing, type PlanEntryRef } from "./use-plan-editing.js";
 import { timeInstant } from "./instant.js";
-import { usePlanEventEditing } from "./edit/events.js";
-import { NO_LINK_KINDS, NO_LINK_KINDS_READ, kindLinks, linkKindRecords, linkedEventKinds, readLinkKinds, type PlanLinkKindValue } from "./links/kinds.js";
+import { removePlanEvents, usePlanEventEditing } from "./edit/events.js";
+import {
+    NO_LINK_KINDS, NO_LINK_KINDS_READ, kindLinkOf, kindLinks, linkKindRecords, linkedEventKinds, readLinkKinds, type PlanLinkKindValue,
+} from "./links/kinds.js";
+import type { PlanLinkUnlink } from "./shell/LinksOverlay.js";
 import { DraftedStanding } from "../shared/schedule/drafted-rows.js";
 import { useDraftedRows } from "../shared/schedule/use-drafted-rows.js";
 import { scheduleIssueName } from "../shared/schedule/editing.js";
@@ -1243,8 +1246,9 @@ export function usePlanCanvas({
     const resolvers = useMemo<PlanResolvers>(
         () => ({ onElementClick: clickable ? controller.elementClick : undefined }),
         [clickable, controller]);
-    // What the elements select by (#1197): an event kind's element, its event.
-    const selectable = useMemo(() => selectableOf(eventKinds), [eventKinds]);
+    // What the elements select by (#1197): an event kind's element, its event — and a link kind's link, its row (#1541,
+    // U10), whose key names its kind's slot as an event's names its kind's.
+    const selectable = useMemo(() => selectableOf([...(eventKinds ?? []), ...linkKinds.map((kind) => kind.key)]), [eventKinds, linkKinds]);
     // The series the event kinds land on, by their keys; and the rows a resource the canvas does not hold is read from.
     const landingsByKey = useMemo(() => new Map(landings.map((landing) => [landing.key, landing] as const)), [landings]);
     const rowsDrawn = data.rows;
@@ -1317,6 +1321,18 @@ export function usePlanCanvas({
         }
         controller.selectEvents(keys, row ?? indexRef.current?.rows.find((r) => holdsElement(r, first))?.key ?? null);
     }, [controller]);
+    // A link kind's link removed from the canvas (#1541, U10): the selected link's ×, where its kind is bound with its
+    // patch door and the canvas takes a write — one step of the history, as Delete's is.
+    const takesWrites = !locked && !retained;
+    const unlink = useMemo((): PlanLinkUnlink | undefined => (linkKinds.length === 0 ? undefined : {
+        can: (key) => takesWrites && kindLinkOf(linkKinds, key)?.kind.editable === true,
+        run: (key) => {
+            const named = kindLinkOf(linkKinds, key);
+            if (named === undefined || !takesWrites) return;
+            if (removePlanEvents([key], eventEditing, `Delete ${named.kind.name.toLocaleLowerCase(words.locale)}`)) selectEvents([]);
+        },
+        label: (key) => words.m.linkRemove({ name: (kindLinkOf(linkKinds, key)?.kind.name ?? "").toLocaleLowerCase(words.locale) }),
+    }), [linkKinds, takesWrites, eventEditing, selectEvents, words]);
     // What every row of this render shares (#616: per-row facts are computed
     // from it, and each row's memo skips unless ITS facts moved).
     const marks = editing.marks;
@@ -2297,7 +2313,7 @@ export function usePlanCanvas({
                             <LinksOverlay styles={styles} links={data.links} visibleKeys={focusVisibleKeys}
                                 body={ribbonRows} beyond={beyond} scale={scale} element={linkedElementOf}
                                 gutterPx={gutterW}
-                                frame={frameFills ? frameRefs : undefined} />
+                                frame={frameFills ? frameRefs : undefined} unlink={unlink} />
                         </PlanPartBoundary>
                     ) : null}
                     count={body.items.length}

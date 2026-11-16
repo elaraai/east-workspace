@@ -46,12 +46,18 @@
  * for it, reading the ref back from the hit path's attributes like any
  * element's.
  *
+ * A link kind's link (#1541, U10) selects as an event's element does: its key
+ * names its kind and its row, and a click selects it — Shift, ⌘ or Ctrl adding
+ * it to the selection or taking it out — so the inspector shows it and Delete
+ * removes it. Selected, it draws in the ink, its caption outlined, with the
+ * layer's × where its kind takes a removal (`unlink`).
+ *
  * The drawing is the shared links layer's (`shared/links/layer.tsx`, #1321),
  * which the Allocation's links draw through too; this overlay lays Plan's
  * links out from its rows and names what a hit on each is.
  */
 
-import { useCallback, useMemo, useRef, type RefObject } from "react";
+import { useCallback, useContext, useMemo, useRef, type MouseEvent, type RefObject } from "react";
 import { Box } from "@chakra-ui/react";
 import { variant } from "@elaraai/east";
 import { layoutRibbons, type LinkedElement, type RibbonBeyond, type RibbonBody } from "./ribbon-layout.js";
@@ -59,7 +65,9 @@ import { LinksLayer, type LinkRibbon } from "../../shared/links/layer.js";
 import { useScrollTop } from "../../shared/links/scroll.js";
 import { rowKeyOf, type PlanLinkValue } from "../model.js";
 import type { PlanScale } from "../scale.js";
-import { usePlanResolvers, type PlanElementRefValue } from "../context.js";
+import { usePlanDispatch, usePlanResolvers, type PlanElementRefValue } from "../context.js";
+import { usePlanSelector } from "../controller/react.js";
+import { PlanSelectableContext } from "../rows/element-select.js";
 import { usePlanWords } from "../words.js";
 import { useElementHeight, useElementWidth } from "../use-element-height.js";
 
@@ -90,14 +98,42 @@ export interface LinksOverlayProps {
      *  what the view is read from. Absent for an unbounded frame, which shows
      *  every row. */
     frame?: { scrollElRef: RefObject<HTMLElement | null>; headerRef: RefObject<HTMLElement | null> } | undefined;
+    /**
+     * Removing a link kind's link from the canvas (#1541, U10): whether a link's kind takes a removal now, what removes
+     * it, and the words of its ×. Left out, no link is removed here.
+     */
+    unlink?: PlanLinkUnlink | undefined;
 }
+
+/** How a link kind's link is removed from the canvas: the selected link's ×. */
+export interface PlanLinkUnlink {
+    /** Whether the link of a key is a link kind's that takes a removal now. */
+    readonly can: (key: string) => boolean;
+    /** Removes it, as one step of the history. */
+    readonly run: (key: string) => void;
+    /** The ×'s words. */
+    readonly label: (key: string) => string;
+}
+
+/** The selected elements, by their keys. */
+const selectElements = (s: { store: { ui: { elements: readonly string[] } } }): readonly string[] => s.store.ui.elements;
 
 /** The links-focus ribbon layer — `VirtualRows`' overlay, in the rows' coordinates. */
 export function LinksOverlay({
-    styles, links, visibleKeys, body, beyond, scale, element, gutterPx, frame,
+    styles, links, visibleKeys, body, beyond, scale, element, gutterPx, frame, unlink,
 }: LinksOverlayProps) {
     const words = usePlanWords();
     const { onElementClick } = usePlanResolvers();
+    const dispatch = usePlanDispatch();
+    // A link kind's link selects by its key, as an event's element does (#1541, U10).
+    const selectable = useContext(PlanSelectableContext);
+    const elements = usePlanSelector(selectElements);
+    // The one link the layer draws selected: the first of the selection that is a link.
+    const selected = useMemo(() => {
+        if (elements.length === 0) return undefined;
+        const at = links.findIndex((link) => selectable(link.key) && elements.includes(link.key));
+        return at < 0 ? undefined : at;
+    }, [links, elements, selectable]);
     const layerRef = useRef<HTMLDivElement | null>(null);
     // The plot's px are the layer's width less the gutter's.
     const width = useElementWidth(layerRef, true);
@@ -131,9 +167,16 @@ export function LinksOverlay({
             "data-link-key": l.key,
             "data-link-from": rowKeyOf(l.from.row), "data-link-from-run": l.from.run,
             "data-link-to": rowKeyOf(l.to.row), "data-link-to-run": l.to.run,
-            onClick: () => onElementClick?.(variant("link", { key: l.key, from: l.from, to: l.to }) as PlanElementRefValue),
+            onClick: (event: MouseEvent) => {
+                if (selectable(l.key)) dispatch({ t: "element.select", key: l.key, row: rowKeyOf(l.from.row), additive: event.shiftKey || event.metaKey || event.ctrlKey });
+                onElementClick?.(variant("link", { key: l.key, from: l.from, to: l.to }) as PlanElementRefValue);
+            },
         };
-    }, [links, onElementClick]);
+    }, [links, onElementClick, selectable, dispatch]);
+    // The selected link's ×, where its kind takes a removal.
+    const removable = selected !== undefined && unlink !== undefined && unlink.can(links[selected]!.key);
+    const onUnlink = useCallback((id: number) => { unlink?.run(links[id]!.key); }, [unlink, links]);
+    const unlinkLabel = useCallback((r: LinkRibbon) => unlink?.label(links[r.id]!.key) ?? "", [unlink, links]);
     // Drawn inside the treegrid, over its rows, and pointer-only: a reader
     // hears the family from the rows' own Upstream / Downstream / Linked Tags
     // and the focus announcement instead (#819). A ribbon's `aria-label`
@@ -141,7 +184,8 @@ export function LinksOverlay({
     return (
         <Box ref={layerRef} css={styles.ribbons} data-plan-ribbons aria-hidden="true">
             <LinksLayer ribbons={ribbons} edgeSlots={layout.edgeSlots} width={width} height={body.height}
-                clip={{ left: gutterPx, width: plotWidth }} hit={hit} />
+                clip={{ left: gutterPx, width: plotWidth }} hit={hit} selected={selected}
+                onUnlink={removable ? onUnlink : undefined} unlinkLabel={removable ? unlinkLabel : undefined} />
         </Box>
     );
 }

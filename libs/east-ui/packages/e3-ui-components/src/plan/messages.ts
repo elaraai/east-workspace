@@ -304,6 +304,8 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     inspectorLockedDetail: () => string;
     /** How many of several events selected are locked, which the bulk edit and Delete leave as they are — `2 locked: left as they are`. */
     inspectorLockedCount: (p: { n: number; count: string }) => string;
+    /** The words of a selected link's × (#1541, U10) — `Remove flow`: its link kind's name. */
+    linkRemove: (p: { name: string }) => string;
 
     // ── The horizon, the ruler, the axis in words ──────────────────────────
     /** The horizon strip's caption — `HORIZON · 26 WK`. */
@@ -715,6 +717,7 @@ export const planMessages: PlanMessages = {
     inspectorLocked: () => "Locked",
     inspectorLockedDetail: () => "It can't be moved, changed or deleted.",
     inspectorLockedCount: ({ count }) => `${count} locked: left as they are`,
+    linkRemove: ({ name }) => `Remove ${name}`,
 
     horizon: ({ count, unit }) => `HORIZON · ${count} ${HORIZON_UNIT[unit]}`,
     horizonMax: ({ n, count, unit }) => `max ${count} ${plural(n, "item", "items")} / ${HORIZON_PER[unit]}`,
