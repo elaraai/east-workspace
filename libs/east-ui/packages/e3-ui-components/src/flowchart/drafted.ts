@@ -42,7 +42,7 @@
  */
 
 import { readBeforeSaves } from "@elaraai/east-ui-components/internal";
-import { DraftedStanding, type DraftedRow, type DraftedRows } from "../shared/schedule/drafted-rows.js";
+import { DraftedStanding, draftsInPlace, type DraftedRow, type DraftedRows } from "../shared/schedule/drafted-rows.js";
 import type {
     FlowchartDecisionRoles, FlowchartKindKeys, FlowchartLaneRoles, FlowchartRow, FlowchartRows, FlowchartStateRoles, FlowchartTransitionRoles,
 } from "./model.js";
@@ -160,25 +160,9 @@ const NO_KEYS: ReadonlySet<string> = new Set<string>();
 function merged<R>(sort: FlowchartSort, stored: FlowchartStored<R>, drafts: KindDrafts<R>, waits: (key: string, roles: R) => FlowchartWaiting,
     dimmed: (key: string) => boolean, hidden: ReadonlySet<string>, waiting: FlowchartWaiting[], standing: DraftedStanding,
     drew: Map<string, ReadonlySet<string>>): FlowchartRow<R>[] {
-    const out: FlowchartRow<R>[] = [];
-    const stood = new Set<string>();
-    drew.set(sort, stood);
-    for (const [key, entry] of stored) {
-        if (hidden.has(key)) continue;
-        if (!drafts.has(key)) { out.push({ key, roles: entry.roles, dimmed: dimmed(key) }); continue; }
-        const drafted = drafts.get(key);
-        if (drafted !== undefined) { stood.add(key); out.push({ key, roles: drafted.roles, dimmed: dimmed(key) }); }
-    }
-    for (const [key, drafted] of drafts) {
-        // A row its draft deletes stands nowhere, and is remembered as it stood: the deletion taken back finds it so.
-        if (drafted === undefined) { if (standing.stood(sort, key)) stood.add(key); continue; }
-        if (stored.has(key) && !hidden.has(key)) continue;
-        // A row its draft adds draws whatever the narrowing; any other the read doesn't show waits in its session — but
-        // through a carry-over, its session yet to judge it where its record is, one the canvas last drew stands.
-        if (!stored.has(key) && standing.stands(sort, key, drafted, false)) { stood.add(key); out.push({ key, roles: drafted.roles, dimmed: false }); }
-        else waiting.push(waits(key, drafted.roles));
-    }
-    return out;
+    // The one rule of a kind held whole (`draftsInPlace`): a row its draft adds draws as itself, never as context.
+    return draftsInPlace(sort, stored, drafts, standing, drew, hidden, (key, roles) => { waiting.push(waits(key, roles)); })
+        .map(({ key, roles, added }) => ({ key, roles, dimmed: added ? false : dimmed(key) }));
 }
 
 /**
