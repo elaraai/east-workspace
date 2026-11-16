@@ -4,8 +4,8 @@
  */
 
 /**
- * A file a command writes where its caller said: replaced, never written
- * into.
+ * A file a command writes where its caller said, on the machine that runs
+ * the command: replaced, never written into.
  *
  * @packageDocumentation
  */
@@ -13,8 +13,8 @@
 import { createWriteStream } from 'node:fs';
 import { realpath, stat, unlink } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
-import { isNotFoundError } from './errors.js';
-import { renameWithRetry } from './storage/local/localHelpers.js';
+import { isNotFoundError } from '../../errors.js';
+import { renameWithRetry } from './localHelpers.js';
 
 /**
  * Writes a file its caller named, replacing the file that is there: the bytes
@@ -55,10 +55,19 @@ export async function writeOutputFile(file: string, bytes: Uint8Array | string |
     if (!isNotFoundError(err)) throw err;
   }
   const staging = `${target}.${Math.random().toString(36).slice(2, 10)}.partial`;
+  const staged = createWriteStream(staging, { flags: 'wx', ...(mode !== undefined && { mode }) });
   try {
-    await pipeline(source, createWriteStream(staging, { flags: 'wx', ...(mode !== undefined && { mode }) }));
+    await pipeline(source, staged);
     await renameWithRetry(staging, target);
   } catch (err) {
+    // The stream may still be opening the file when its bytes fail: it is
+    // removed once the stream has closed, or the open would make it again
+    if (!staged.closed) {
+      await new Promise<void>((resolve) => {
+        staged.once('close', resolve);
+        staged.destroy();
+      });
+    }
     await unlink(staging).catch(() => { /* never made, or renamed already */ });
     throw err;
   }

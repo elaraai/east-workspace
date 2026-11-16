@@ -341,7 +341,11 @@ it('leaves an ad-hoc run\'s lease on Ctrl-C and tells its rack to stop, writing 
 });
 
 it('runs a task split over its input on a rack with --rack-only, its pieces and merges leased, and says where they ran', async () => {
-  const f = await enrolled({ resources: { cores: 4, memoryBytes: 8 * 1024 ** 3, gpus: 0 } }); await withCalls(f);
+  // A rack that holds a whole task's cap (16 GiB for the default size): where
+  // this machine's budget has no guard, as on Windows, a split task's first
+  // piece runs alone to be measured, capped as a whole task is, and a rack
+  // too small for that cap would send it here by name
+  const f = await enrolled({ resources: { cores: 4, memoryBytes: 32 * 1024 ** 3, gpus: 0 } }); await withCalls(f);
   f.agent.start();
   // Enough rows for several segments, a piece each at the test's piece size
   const table = new SortedMap(Array.from({ length: 3_600 }, (_, i) => [BigInt(i), `row-${i}`] as [bigint, string]), compareFor(IntegerType));

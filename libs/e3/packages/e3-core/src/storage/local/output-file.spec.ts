@@ -7,7 +7,7 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { chmodSync, linkSync, lstatSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { createTempDir, removeTempDir } from './test-helpers.js';
+import { createTempDir, removeTempDir } from '../../test-helpers.js';
 import { writeOutputFile } from './output-file.js';
 
 const posix = process.platform === 'win32' ? 'POSIX file modes, links and devices' : false;
@@ -48,6 +48,19 @@ describe('writeOutputFile', () => {
     await assert.rejects(() => writeOutputFile(file, failing), /a segment is missing/);
     assert.equal(readFileSync(file, 'utf8'), 'the first model');
     assert.deepEqual(readdirSync(dir), ['model.beast2']);
+  });
+
+  it('leaves nothing beside the file however its bytes\' failure falls against the opening of the new file', async () => {
+    // The bytes fail a turn after the first of them, while the new file may
+    // still be opening: removed before it has opened, it would be made after
+    // all. One write in sixteen left its file behind so, before the write
+    // waited for the open to end.
+    const file = join(dir, 'model.beast2');
+    for (let i = 0; i < 300; i++) {
+      const failing = (async function* () { yield new Uint8Array([1]); await Promise.resolve(); throw new Error('a segment is missing'); })();
+      await assert.rejects(() => writeOutputFile(file, failing), /a segment is missing/);
+    }
+    assert.deepEqual(readdirSync(dir), []);
   });
 
   it('keeps the mode of the file it replaces', { skip: posix }, async () => {

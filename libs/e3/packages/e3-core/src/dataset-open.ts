@@ -574,6 +574,45 @@ export async function taskInputRead(
   return object === null ? { waiting: `Input '${path}': ${indexNotHeld(path, index!)}` } : { object };
 }
 
+/** How much of an object that is the value itself is read at once. */
+const CHUNK_BYTES = 8 * 1024 * 1024;
+
+/**
+ * The whole value of a stored dataset as its bytes come, which joined are one
+ * beast2 blob of its type: a collection a segment at a time, in the order its
+ * manifest names them, and any other value as the object it is, a range at a
+ * time, so no value is held whole however large it is.
+ *
+ * @remarks
+ * What a task's output becomes for a caller who asked for it as a file (`e3
+ * run -o`): the value itself, which every runner and decoder reads, where a
+ * collection's manifest names segments the file would not have beside it.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param hash - The dataset object's content hash: the manifest, for a
+ *   collection
+ * @param readAhead - How many of a collection's segments are read ahead of
+ *   the one being taken
+ * @returns The value's beast2 bytes, in order
+ * @throws {ObjectNotFoundError} When an object the value is made of is
+ *   missing, as its bytes are reached
+ * @example
+ * for await (const chunk of readDatasetChunks(storage, repo, result.outputHash)) file.write(chunk);
+ */
+export async function* readDatasetChunks(storage: StorageBackend, repo: string, hash: string, readAhead = 4): AsyncGenerator<Uint8Array, void, void> {
+  const opened = await openDatasetObject(storage, repo, hash);
+  const { manifest } = opened;
+  if (manifest !== null) {
+    yield* (await DatasetSegments.of(storage, repo, { ...opened, manifest })).splice({ readAhead });
+    return;
+  }
+  const size = opened.size ?? (await storage.objects.stat(repo, opened.hash)).size;
+  for (let at = 0; at < size; at += CHUNK_BYTES) {
+    yield await storage.objects.readRange(repo, opened.hash, at, Math.min(CHUNK_BYTES, size - at));
+  }
+}
+
 /**
  * The whole value of a stored dataset as one blob.
  *

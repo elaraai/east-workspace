@@ -33,9 +33,10 @@ import { stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import {
   packageRead,
-  datasetWriteFile,
+  readDatasetChunks,
   taskExecute,
   withRunningWork,
+  writeOutputFile,
   LocalStorage,
   LocalTaskRunner,
   type Budget,
@@ -184,8 +185,9 @@ export async function runCommand(
         await rack?.close();
       }
       const elapsed = Date.now() - startTime;
-      // The value itself, a collection's from its segments
-      if (result.state === 'success' && result.outputHash) await datasetWriteFile(storage, repoPath, result.outputHash, output);
+      // The value itself, a collection's from its segments, in a file that
+      // replaces the one at -o and is never written into it
+      if (result.state === 'success' && result.outputHash) await writeOutputFile(output, readDatasetChunks(storage, repoPath, result.outputHash));
       return { result, elapsed };
     });
     // Ctrl-C leaves a rack's leases, from before the session opens; a run

@@ -344,6 +344,7 @@ export {
   DatasetSegments,
   readManifest,
   openDatasetObject,
+  readDatasetChunks,
   readDatasetWhole,
   inputObject,
   taskInputRead,
