@@ -24,23 +24,14 @@ import {
 } from "@elaraai/east";
 import { Chart, EventStateType, StatusValueType } from "@elaraai/east-ui";
 import { Plan, PlanReadsBrand, type PlanSeriesValue } from "@elaraai/e3-ui/internal";
+import { rowsOf, sameIds, sameParents, type Row as PlanRow } from "./plan-rows.fixtures.js";
 
 const day = (d: number, h = 0) => new Date(Date.UTC(2026, 9, d, h));
 /** Values at their instants — East keeps a Dict keyed by DateTime as a `SortedMap` in its order. */
 const atInstants = <V,>(entries: Iterable<[Date, V]>): SortedMap<Date, V> => new SortedMap(entries, compareFor(DateTimeType));
 const axis = Plan.axis({ window: { min: day(5), max: day(19) }, resolution: "day" });
 
-type Root = ValueTypeOf<typeof Plan.Types.Root>;
-type PlanRow = ValueTypeOf<typeof Plan.Types.Row>;
 const sameKinds = equalFor(ArrayType(Plan.Types.RowKind));
-const sameIds = equalFor(ArrayType(Plan.Types.RowId));
-const sameParents = equalFor(ArrayType(OptionType(Plan.Types.RowId)));
-
-/** The canvas's rows, every block's in order. */
-function rowsOf(root: Root): PlanRow[] {
-    if (root.rows.type !== "inline") throw new Error("expected an inline canvas");
-    return root.rows.value.flatMap((b) => b.rows);
-}
 
 // ── A row holding every kind of collection, each a Dict ─────────────────────
 

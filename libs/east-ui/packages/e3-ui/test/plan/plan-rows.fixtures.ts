@@ -31,17 +31,22 @@ export const sameParents: (a: option<RowId>[], b: option<RowId>[]) => boolean = 
 /** Whether two lists of labels are the same. */
 export const sameLabels: (a: string[], b: string[]) => boolean = equalFor(ArrayType(StringType));
 
+/** One block of a canvas's rows, decoded. */
+export type Block = ValueTypeOf<typeof Plan.Types.Block>;
+
 /**
- * The canvas's rows, every block's in order.
+ * The canvas's blocks, in order.
  *
  * @param root - The Plan's root
- * @returns Its rows
+ * @returns Its blocks
  * @throws {Error} When the canvas is not inline
  */
-export function rowsOf(root: Root): Row[] {
+export function blocksOf(root: Root): Block[] {
     if (root.rows.type !== "inline") throw new Error("expected an inline canvas");
-    return root.rows.value.flatMap((block) => block.rows);
+    return root.rows.value;
 }
+/** The canvas's rows, every block's in order. */
+export const rowsOf = (root: Root): Row[] => blocksOf(root).flatMap((block) => block.rows);
 /** Each row's id, in order. */
 export const ids = (root: Root): RowId[] => rowsOf(root).map((r) => r.id);
 /** Each row's parent, in order. */

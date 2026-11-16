@@ -22,33 +22,21 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, SortedMap, StringType, StructType,
-    compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, some, variant, walkIR,
+    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType,
+    decodeBeast2For, encodeBeast2For, equalFor, none, some, variant, walkIR,
     type BlockBuilder, type ValueTypeOf,
 } from "@elaraai/east";
 import { PickItemType } from "@elaraai/east-ui";
 import { Plan, planKeys } from "@elaraai/e3-ui/internal";
+import { blocksOf, entry, readings, rowsOf, sameIds, sameParents, type Root, type RowId } from "./plan-rows.fixtures.js";
 
 const W27 = new Date("2026-06-29T00:00:00Z");
 const W28 = new Date("2026-07-06T00:00:00Z");
 const axis = Plan.axis({ window: { min: W27, max: new Date("2026-09-21T00:00:00Z") }, resolution: "week" });
 
-type RowId = ValueTypeOf<typeof Plan.Types.RowId>;
-type Root = ValueTypeOf<typeof Plan.Types.Root>;
-const entry = (series: string, ...path: string[]): RowId => variant("entry", { series, path });
 const section = (series: string, ...path: string[]): RowId => variant("section", { series, path });
-const sameIds = equalFor(ArrayType(Plan.Types.RowId));
-const sameParents = equalFor(ArrayType(OptionType(Plan.Types.RowId)));
 const sameFolds = equalFor(ArrayType(BooleanType));
 const sameCharts = equalFor(ArrayType(OptionType(IntegerType)));
-
-/** The canvas's blocks. */
-function blocksOf(root: Root) {
-    if (root.rows.type !== "inline") throw new Error("expected an inline canvas");
-    return root.rows.value;
-}
-/** The canvas's rows, every block's in order. */
-const rowsOf = (root: Root) => blocksOf(root).flatMap((block) => block.rows);
 
 // ── Presses, each drawn three ways, its parts beneath ────────────────────────
 
@@ -56,7 +44,6 @@ const Part = StructType({ v: FloatType });
 const Press = StructType({ v: FloatType, jobs: BooleanType, parts: DictType(StringType, Part), readings: DictType(DateTimeType, FloatType) });
 const Presses = DictType(StringType, Press);
 type PressValue = ValueTypeOf<typeof Press>;
-const readings = (...values: [Date, number][]) => new SortedMap(values, compareFor(DateTimeType));
 const PRESSES: ValueTypeOf<typeof Presses> = new Map<string, PressValue>([
     ["p03", { v: 1.0, jobs: true, parts: new Map([["k1", { v: 5.0 }]]), readings: readings([W27, 10]) }],
     ["p04", { v: 2.0, jobs: false, parts: new Map(), readings: readings() }],
