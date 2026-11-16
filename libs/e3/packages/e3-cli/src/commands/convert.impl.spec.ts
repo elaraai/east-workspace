@@ -16,7 +16,7 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { linkSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { ArrayType, IntegerType, StringType, StructType, encodeBeast2For, printType } from '@elaraai/east';
 import { convertCore } from './convert.impl.js';
 import { createTestDir, removeTestDir, writeTestFile } from '../cli-test-helpers.js';
@@ -31,6 +31,17 @@ describe('convert command', () => {
 
   afterEach(() => {
     removeTestDir(testDir);
+  });
+
+  it('replaces its output file and never writes into it, so a store that holds the old file as an object keeps its bytes', async () => {
+    const outputPath = `${testDir}/table.beast2`;
+    assert.strictEqual((await convertCore(writeTestFile(testDir, 'first.east', '41'), 'beast2', outputPath)).success, true);
+    // A store that took the delivery in by a hard link holds it under its hash
+    const object = `${testDir}/object`;
+    linkSync(outputPath, object);
+    assert.strictEqual((await convertCore(writeTestFile(testDir, 'second.east', '42'), 'beast2', outputPath)).success, true);
+    assert.deepStrictEqual(readFileSync(outputPath), Buffer.from(encodeBeast2For(IntegerType)(42n)));
+    assert.deepStrictEqual(readFileSync(object), Buffer.from(encodeBeast2For(IntegerType)(41n)), 'the object still holds the first delivery');
   });
 
   describe('.east to .east (identity)', () => {

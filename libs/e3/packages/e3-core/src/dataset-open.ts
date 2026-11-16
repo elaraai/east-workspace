@@ -134,7 +134,26 @@ export class DatasetSegments {
     // status call reports the same number — the manifest object alone would
     // say a 10 MiB dataset is 12 KiB. A manifest the head read held whole is
     // its size already, so no store call asks it (#1573).
-    const manifestBytes = (opened.hash === hash ? size : undefined) ?? opened.size ?? (await storage.objects.stat(repo, opened.hash)).size;
+    const manifestBytes = (opened.hash === hash ? size : undefined) ?? opened.size;
+    return DatasetSegments.of(storage, repo, { hash: opened.hash, manifest: opened.manifest, ...(manifestBytes !== undefined && { size: manifestBytes }) });
+  }
+
+  /**
+   * The segment-addressed reads of a collection already opened
+   * ({@link openDatasetObject}): its manifest is the one that open decoded,
+   * and is not read again.
+   *
+   * @param storage - Storage backend
+   * @param repo - Repository identifier
+   * @param opened - The collection object's hash and manifest, and its byte
+   *   size when the open learned it
+   * @returns The opened dataset
+   * @example
+   * const opened = await openDatasetObject(storage, repo, hash);
+   * if (opened.manifest !== null) await DatasetSegments.of(storage, repo, { ...opened, manifest: opened.manifest });
+   */
+  static async of(storage: StorageBackend, repo: string, opened: { hash: string; manifest: CollectionManifest; size?: number }): Promise<DatasetSegments> {
+    const manifestBytes = opened.size ?? (await storage.objects.stat(repo, opened.hash)).size;
     return new DatasetSegments(storage, repo, opened.hash, opened.manifest, manifestByteSize(opened.manifest) + manifestBytes);
   }
 
@@ -570,8 +589,9 @@ export async function taskInputRead(
  */
 export async function readDatasetWhole(storage: StorageBackend, repo: string, hash: string): Promise<Uint8Array> {
   const opened = await openDatasetObject(storage, repo, hash);
-  if (opened.manifest === null) return storage.objects.read(repo, opened.hash);
-  const segments = await DatasetSegments.open(storage, repo, opened.hash);
+  const { manifest } = opened;
+  if (manifest === null) return storage.objects.read(repo, opened.hash);
+  const segments = await DatasetSegments.of(storage, repo, { ...opened, manifest });
   const chunks: Uint8Array[] = [];
   let total = 0;
   for await (const chunk of segments.splice()) {

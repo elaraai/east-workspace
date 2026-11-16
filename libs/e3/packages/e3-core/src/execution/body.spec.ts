@@ -191,6 +191,13 @@ describe('detached call executor', () => {
   beforeEach(() => { repo = createTestRepo(); });
   afterEach(() => removeTestRepo(repo));
 
+  it('rejects, and never throws at its caller, when its hook throws before it waits on anything', async () => {
+    const runner = new LocalTaskRunner(repo, undefined, { detached: () => { throw new Error('no rack session'); } });
+    let pending: Promise<DetachedResult> | undefined;
+    assert.doesNotThrow(() => { pending = runner.runDetached(call(2n)); });
+    await assert.rejects(() => pending!, /no rack session/);
+  });
+
   it('hands a call to its hook before anything of it runs here: no core, no environment, no scratch directory', async () => {
     const budget = new Budget({ cores: 1, memory: 1024 ** 3 }, { sampler: null });
     const held = await budget.acquire();

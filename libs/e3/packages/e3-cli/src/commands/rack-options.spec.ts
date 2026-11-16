@@ -86,5 +86,11 @@ it('says every reason work runs here to a command that names one piece of work, 
   placement(hostCoupled);
   placement({ kind: 'placed', ...unit, where: 'rack', rackLabel: 'rack-a', leaseId: 'u' });
   assert.deepEqual(lines, ['  [LOCAL] fn:read_config (host-coupled:fs_read_file)']);
-  assert.equal(unattachedLine('fn:score', 'no rack hub is running'), '  [LOCAL] fn:score (no-rack-session: no rack hub is running)');
+});
+
+it('says a command\'s work ran here with no rack session only of work that ran', () => {
+  const unattached = { unattached: 'no rack hub is running' };
+  assert.equal(unattachedLine(unattached, 'fn:score', true), '  [LOCAL] fn:score (no-rack-session: no rack hub is running)');
+  assert.equal(unattachedLine(unattached, 'train', false), undefined, 'a run the cache answered ran nowhere');
+  assert.equal(unattachedLine({}, 'train', true), undefined, 'a session\'s work is placed by its own lines');
 });

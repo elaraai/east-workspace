@@ -25,8 +25,11 @@ it('matches whole names, literal punctuation, wildcards, and first-rule preceden
   assert.equal(selectTask(policy, 'train_xgb').target, 'local');
   assert.equal(selectTask(policy, 'other').size, 'small');
   assert.equal(selectTask(policy, 'other').timeoutMinutes, 12);
+  assert.equal(selectTask(policy, 'other').ruleTimeoutMinutes, 12, 'the time is its rule\'s own');
   assert.equal(selectTask(policy, 'train').size, 'large');
   assert.equal(selectTask(policy, 'train').timeoutMinutes, 1440);
+  assert.equal(selectTask(policy, 'train').ruleTimeoutMinutes, null, 'its rule sets none: the default is the policy\'s');
+  assert.equal(selectTask(DEFAULT_RACK_POLICY, 'train').ruleTimeoutMinutes, null, 'no rule matches it');
   const literal = setRule(DEFAULT_RACK_POLICY, 'task[?].*', 'rack');
   assert.equal(selectTask(literal, 'task[x].anything').target, 'rack');
   assert.equal(selectTask(literal, 'taskxx.anything').target, 'local');

@@ -20,7 +20,7 @@ import { connectHub } from '../client/connect.js';
 import { TestRackAgent } from '../testing/test-rack-agent.js';
 import { DEFAULT_RACK_POLICY, setMode } from '../routing/policy.js';
 import { openRackRunner } from './rack-runner.js';
-import type { RackPlacementEvent } from './rack-body.js';
+import type { RackPlacementEvent } from '../protocol/placement.js';
 import type { RackLeaseEvent } from '../protocol/task-envelope.js';
 
 const cleanup: Array<() => Promise<void>> = [];

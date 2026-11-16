@@ -353,8 +353,11 @@ stderr, its value to stdout: `[RACK] fn:train_once → workshop (cap 32 GB)`, or
 A call is a lease of its own, never joined to another's, sized as a whole task
 is, its program and any argument past 192 KiB staged as objects with its
 closure. Its value comes back with its completion, or past 192 KiB as the
-object the completion commits. Its deadline is its own timeout, counted from
-its lease.
+object the completion commits. Its time is its rule's timeout when a rule
+that matches `fn:<name>` sets one, longer or shorter than its caller's, and
+else its caller's own (ten minutes from the CLI); it is counted from when its
+lease is first queued. Ctrl-C leaves the lease of a call, and the leases of
+an ad-hoc run.
 
 | The call | What it comes to |
 | --- | --- |

@@ -25,7 +25,7 @@ import { TestRackAgent } from '../testing/test-rack-agent.js';
 import { pinnedFetch } from '../tls/tls.js';
 import { DEFAULT_RACK_POLICY, setMode, setRule } from '../routing/policy.js';
 import { openRackRunner, type OpenRackRunnerOptions } from './rack-runner.js';
-import type { RackPlacementEvent } from './rack-body.js';
+import type { RackPlacementEvent } from '../protocol/placement.js';
 import { describeRackSummary } from './summary.js';
 
 const MiB = 1024 ** 2;

@@ -11,11 +11,12 @@
  * as the object its completion commits.
  */
 
-import { isObjectHash, uuidv7, type DetachedArg, type DetachedCallExecutor, type DetachedResult, type StorageBackend } from '@elaraai/e3-core';
+import { isObjectHash, uuidv7, type DetachedArg, type DetachedCallExecutor, type DetachedResult, type DetachedSpec, type StorageBackend } from '@elaraai/e3-core';
 import type { LeaseHandle } from '../client/session.js';
 import { detachedClosure, recordClosure } from '../lease/closure.js';
 import { RACK_INLINE_ARGS_MAX, RACK_LEASE_VERSION, type RackFunctionResult, type RackLeaseEvent, type RackReason } from '../protocol/task-envelope.js';
 import { detachedSpecToWire } from '../runner-event.js';
+import { selectTask } from '../routing/policy.js';
 import { RackPlacementReport, admitWork, awaitLease, fallbackReason, hostBound, leaveLease, outgrownCap, readDelegation, thrownFallback, transferFailed,
   wholeResources, type RackDelegationOptions } from './rack-lease.js';
 
@@ -78,18 +79,23 @@ async function valueOf(storage: StorageBackend, repo: string, outcome: RackFunct
  * Its program, and each value argument past {@link RACK_INLINE_ARGS_MAX} in
  * all, are written to the repository's store, unrooted, and staged through
  * the lease's closure, as a stored dataset argument is: the caller holds off
- * a sweep while it runs (`withRunningWork`). The call's deadline is its
- * caller's, its timeout from when its lease is first queued: a call the rack
+ * a sweep while it runs (`withRunningWork`).
+ *
+ * The call's time is its rule's, when a rule that matches its name sets one,
+ * longer or shorter than its caller's; else its caller's own. It is counted
+ * from when its lease is first queued, on the host's clock: a call the rack
  * has not answered by then is `timed_out`, and one that falls back to run
- * here runs with the time it has left.
+ * here runs with the time it has left. A call that is never leased runs here
+ * with the same time.
  *
  * What each end does:
  * - a value, inline or the object its completion committed, is the call's
  *   value; `too_large` and `timed_out` are its answer, as a local run's are;
  * - the function's failure is its answer, unless the policy retries failures
  *   locally, as is its cap stopping it;
- * - the rack's fault — no outcome, a value it could not relay, a lost lease,
- *   a transfer that failed its tries, a stop of its own — runs it here;
+ * - the rack's fault — no outcome, an outcome with a reason of the rack's own
+ *   (any but `task-error`), a value it could not relay, a lost lease, a
+ *   transfer that failed its tries, a stop of its own — runs it here;
  * - the caller's abort leaves the lease, and ends the call as an aborted
  *   local call ends.
  *
@@ -104,9 +110,12 @@ export function createRackCall(options: RackDelegationOptions): DetachedCallExec
   const delegation = readDelegation(options);
   const { rackOnly, unreachableWaitMs } = delegation;
   return async (request, local) => {
-    const { spec, repo } = request;
+    const { repo } = request;
     const signal = request.options.signal;
     const taskName = `fn:${request.options.functionName ?? 'anonymous'}`;
+    // The call's time: its rule's when its rule sets one, else its caller's
+    const ruled = request.options.functionName === undefined ? null : selectTask(policy, taskName).ruleTimeoutMinutes;
+    const spec: DetachedSpec = ruled === null ? request.spec : { ...request.spec, limits: { ...request.spec.limits, timeoutMs: ruled * 60_000 } };
     const report = new RackPlacementReport(options.onPlacement, { taskName, role: 'call' });
     let handle: LeaseHandle | undefined;
     let leavingRack = false;
@@ -121,7 +130,7 @@ export function createRackCall(options: RackDelegationOptions): DetachedCallExec
       await leaveLease(handle);
       report.local(reason, detail);
       let result: DetachedResult;
-      if (deadline === undefined) result = await local();
+      if (deadline === undefined) result = await local(spec);
       else {
         const left = deadline - Date.now();
         if (left <= 0) return timedOut();
@@ -136,7 +145,9 @@ export function createRackCall(options: RackDelegationOptions): DetachedCallExec
     const admitted = await admitWork({ session, delegation, signal, storage: request.options.storage, repo, unit: false,
       judge: (storage) => delegation.evaluator.evaluateCall(request, storage), hostBound: hostBound(request.settings, request.options.extraEnv),
       asks: wholeResources, onEnvironment: options.onEnvironment });
-    if (admitted.kind === 'aborted') return local();
+    // A caller that aborts while its call waits for a rack, or for its
+    // environment's layers, starts nothing here either
+    if (admitted.kind === 'aborted') return aborted();
     if (admitted.kind === 'local') return runLocal(admitted.why.reason, admitted.why.detail, admitted.why.said);
     const { verdict, fleet, resources, storage } = admitted;
     const canSpill = () => delegation.spills(request.budget);
@@ -155,9 +166,9 @@ export function createRackCall(options: RackDelegationOptions): DetachedCallExec
         else args.push({ dataset: await storage.objects.write(repo, arg) });
       }
       const closure = await recordClosure(storage, repo, await detachedClosure(storage, repo, program, args, verdict.environment ?? undefined));
-      const timeoutMs = Math.min(verdict.timeoutMinutes * 60000, spec.limits.timeoutMs);
+      const timeoutMs = spec.limits.timeoutMs;
       // The program travels by its hash, as the lease names it
-      const wire = detachedSpecToWire({ ...spec, bodyIr: new Uint8Array(), args, limits: { ...spec.limits, timeoutMs } });
+      const wire = detachedSpecToWire({ ...spec, bodyIr: new Uint8Array(), args });
       leases: for (;;) {
         handle = undefined;
         const event: RackLeaseEvent = { version: RACK_LEASE_VERSION,
@@ -205,6 +216,9 @@ export function createRackCall(options: RackDelegationOptions): DetachedCallExec
           leasedAgain = true;
           continue leases;
         }
+        // A reason of the rack's own is its fault, whatever outcome it
+        // answered with it: only `task-error` names the function's failure
+        if (reason !== undefined && reason.code !== 'task-error') return await fallback(result.error, 'the rack failed the call');
         const outcome = result.detached;
         if (outcome === undefined) return await fallback(result.error, 'the rack answered no outcome of the call');
         // A value the rack could not relay to this source runs here

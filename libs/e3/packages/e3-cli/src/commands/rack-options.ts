@@ -5,7 +5,7 @@
 
 import type { OpenRackRunnerOptions, RackEnvironmentEvent, RackPlacementEvent, RackRunnerHandle } from '@elaraai/e3-rack';
 // The protocol's entry alone, which loads no hub, route or TLS
-import { leaseReserve } from '@elaraai/e3-rack/protocol';
+import { leaseReserve, ranLocally } from '@elaraai/e3-rack/protocol';
 import { formatSize } from '../format.js';
 
 /** Rack flags shared by dataflow run and watch, and by run and call, which take `--rack` alone. */
@@ -107,9 +107,8 @@ export function rackPlacementLine(event: RackPlacementEvent, everyReason = false
   }
   if (event.detail !== undefined) return `  [LOCAL] ${event.taskName} (${event.reason.replace(/^fallback:/, '')})`;
   if (event.role === 'unit') return undefined;
-  return everyReason || event.reason === 'spill' || event.reason === 'source-unreachable' || event.reason.startsWith('fallback:') || event.reason.startsWith('no-rack-') ||
-    event.reason.startsWith('environment:')
-    ? `  [LOCAL] ${event.taskName} (${event.reason})` : undefined;
+  // A rack's work that ran here after all, by the rule a run's summary counts by
+  return everyReason || ranLocally(event) ? `  [LOCAL] ${event.taskName} (${event.reason})` : undefined;
 }
 
 /**
@@ -129,15 +128,41 @@ export function commandPlacement(print: (line: string) => void): (event: RackPla
 }
 
 /**
- * What a command that names one piece of work says when it opened no rack
- * session, whose work then runs here without a placement of its own.
+ * Opens the rack session of a command that names one piece of work and asks
+ * for a rack for it (`e3 run --rack`, `e3 call --rack`): its work is a rack's
+ * whatever the repository's policy selects, and every line of where it runs,
+ * and of an environment built for it, goes where the command prints.
  *
- * @param name - The work's name: a task's, or a call's `fn:<name>`
- * @param why - Why the session was not opened, in words
- * @returns The line
+ * @param options - The repository, what the rack's activity view names the
+ *   work by, the session's label, the command's budget, whether the work is
+ *   kept for a rack, the signal that ends its wait and its lease, and where a
+ *   line goes: a run's progress, or, for a call whose value goes to stdout,
+ *   the terminal's stderr
+ * @returns The session's handle
  */
-export function unattachedLine(name: string, why: string): string {
-  return `  [LOCAL] ${name} (no-rack-session: ${why})`;
+export function openCommandRack(
+  options: Pick<OpenRackRunnerOptions, 'repoPath' | 'workspace' | 'storage' | 'label' | 'budget' | 'rackOnly' | 'signal'> & { print: (line: string) => void },
+): Promise<RackRunnerHandle> {
+  const { print, ...session } = options;
+  return openRack({ ...session, selected: true, onPlacement: commandPlacement(print), onEnvironment: (event) => print(rackEnvironmentLine(event)), log: print });
+}
+
+/**
+ * What a command that names one piece of work says when it opened no rack
+ * session, whose work then ran here without a placement of its own: nothing
+ * of work that did not run, as a run the cache answered did not.
+ *
+ * @param rack - The command's rack handle: why its session was not opened,
+ *   when it was not
+ * @param name - The work's name: a task's, or a call's `fn:<name>`
+ * @param ran - Whether the work ran
+ * @returns The line, or undefined when there is none to print
+ * @example
+ * const line = unattachedLine(rack, 'train', !result.cached);
+ * if (line !== undefined) console.log(line);
+ */
+export function unattachedLine(rack: Pick<RackRunnerHandle, 'unattached'>, name: string, ran: boolean): string | undefined {
+  return rack.unattached !== undefined && ran ? `  [LOCAL] ${name} (no-rack-session: ${rack.unattached})` : undefined;
 }
 
 /**

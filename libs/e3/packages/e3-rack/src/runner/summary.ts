@@ -3,7 +3,7 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { ranLocally, type RackPlacementEvent } from './rack-body.js';
+import { ranLocally, type RackPlacementEvent } from '../protocol/placement.js';
 
 /** What a run's rack work came to. */
 export interface RackRunSummary {

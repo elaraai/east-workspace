@@ -10,9 +10,8 @@
  * @packageDocumentation
  */
 
-import { createWriteStream } from 'node:fs';
-import { pipeline } from 'node:stream/promises';
 import { DatasetSegments, openDatasetObject } from './dataset-open.js';
+import { writeOutputFile } from './output-file.js';
 import type { StorageBackend } from './storage/interfaces.js';
 
 /** How much of an object that is the value itself is read at once. */
@@ -31,7 +30,8 @@ const READ_AHEAD = 4;
  * What a task's output becomes for a caller who asked for it as a file (`e3
  * run -o`): the value itself, which every runner and decoder reads, where a
  * collection's manifest names segments the file would not have beside it. The
- * file is replaced if it exists.
+ * file is replaced if it exists, never written into ({@link writeOutputFile}):
+ * a write that fails leaves it as it was.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -45,10 +45,11 @@ const READ_AHEAD = 4;
  */
 export async function datasetWriteFile(storage: StorageBackend, repo: string, hash: string, file: string): Promise<number> {
   const opened = await openDatasetObject(storage, repo, hash);
+  const { manifest } = opened;
   let written = 0;
   async function* chunks(): AsyncIterable<Uint8Array> {
-    if (opened.manifest !== null) {
-      for await (const chunk of (await DatasetSegments.open(storage, repo, opened.hash)).splice({ readAhead: READ_AHEAD })) {
+    if (manifest !== null) {
+      for await (const chunk of (await DatasetSegments.of(storage, repo, { ...opened, manifest })).splice({ readAhead: READ_AHEAD })) {
         written += chunk.length;
         yield chunk;
       }
@@ -61,6 +62,6 @@ export async function datasetWriteFile(storage: StorageBackend, repo: string, ha
       yield chunk;
     }
   }
-  await pipeline(chunks, createWriteStream(file));
+  await writeOutputFile(file, chunks());
   return written;
 }

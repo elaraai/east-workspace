@@ -1052,7 +1052,9 @@ e3 call <repo> -w <ws> <fn> [args...] --rack                # on an enrolled rac
   from its IR file — on an enrolled rack, whatever the repository's rack policy
   selects, and say where it ran and why on the terminal's stderr. Both are
   refused on a server's URL before any credential is read: a server decides
-  where its own work runs.
+  where its own work runs. Under either, a rack rule that matches `fn:<name>`
+  and sets a timeout gives the call that time, in place of the CLI's ten
+  minutes; a call with neither flag keeps the CLI's.
 
 ## 8. Execution semantics
 

@@ -61,7 +61,7 @@
  * server's package runs within one request and keeps nothing.
  */
 
-import { readFile, writeFile } from 'fs/promises';
+import { readFile } from 'fs/promises';
 import { basename, extname } from 'path';
 import {
   IntegerType,
@@ -87,6 +87,7 @@ import {
   readProgram,
   recordDescribe,
   withRunningWork,
+  writeOutputFile,
   LocalStorage,
   LocalTaskRunner,
   type Budget,
@@ -112,8 +113,9 @@ import {
 import { parseRepoLocation, resolvePackageVersion, formatError, exitError } from '../utils.js';
 import { parseTaskSpec } from './run.js';
 import { commandBudget, refuseRemoteBudget, type BudgetFlags } from './budget.js';
-import { commandPlacement, openRack, rackEnvironmentLine, refuseRemoteRack, unattachedLine, type RackFlags } from './rack-options.js';
+import { openCommandRack, refuseRemoteRack, unattachedLine, type RackFlags } from './rack-options.js';
 import { arityRefusal, parseMutationSpec } from './mutation-spec.js';
+import { untilInterrupted } from '../interrupt.js';
 
 /** How long a remote call's start waits for it to end before the call is
  *  named, and polled: a call any longer can be stopped with Ctrl-C at once. */
@@ -456,7 +458,8 @@ async function renderResult(
     case 'success': {
       const bytes = outcome.value.value as Uint8Array;
       if (outputPath) {
-        await writeFile(outputPath, bytes);
+        // Replaced, never written into: the file may be a store's object
+        await writeOutputFile(outputPath, bytes);
         console.log(`Output: ${outputPath}`);
       } else {
         const type = fromEastTypeValue(outputType);
@@ -575,24 +578,20 @@ async function callOnRack<T>(
   options: CallOptions,
   run: (runner: TaskRunner, signal: AbortSignal) => Promise<T>,
 ): Promise<T | null> {
-  const rack = await openRack({ repoPath, workspace: label, storage, label: `e3 call ${program.name} (pid ${process.pid})`, budget,
-    rackOnly: options.rackOnly, selected: true, onPlacement: commandPlacement((line) => console.error(line)),
-    onEnvironment: (event) => console.error(rackEnvironmentLine(event)), log: (line) => console.error(line) });
-  // Ctrl-C leaves the lease; a second stops this process at once
-  const stop = new AbortController();
-  const interrupt = (): void => stop.abort(new Error('interrupted'));
-  process.once('SIGINT', interrupt);
-  try {
-    if (rack.unattached !== undefined) console.error(unattachedLine(`fn:${program.name}`, rack.unattached));
-    const result = await withRunningWork(storage, repoPath, () => run(rack.runner, stop.signal));
-    if (!stop.signal.aborted) return result;
-    console.error('Interrupted: the call\'s rack is told to stop it');
-    process.exitCode = 130;
-    return null;
-  } finally {
-    process.off('SIGINT', interrupt);
-    await rack.close();
-  }
+  // Ctrl-C ends the wait for a rack and leaves the call's lease, from before
+  // its session opens
+  return untilInterrupted(async (signal) => {
+    const rack = await openCommandRack({ repoPath, workspace: label, storage, label: `e3 call ${program.name} (pid ${process.pid})`, budget,
+      rackOnly: options.rackOnly, signal, print: (line) => console.error(line) });
+    try {
+      // A call always runs: with no session, here
+      const unattached = unattachedLine(rack, `fn:${program.name}`, true);
+      if (unattached !== undefined) console.error(unattached);
+      return await withRunningWork(storage, repoPath, () => run(rack.runner, signal));
+    } finally {
+      await rack.close();
+    }
+  }, 'the call\'s rack is told to stop it');
 }
 
 /**
@@ -650,11 +649,7 @@ async function callLocal(
     }
     pinned = { args: values, inputs: [] };
   } else {
-    const args: CallArg[] = [];
-    for (let i = 0; i < rawArgs.length; i++) {
-      args.push(await callArg(rawArgs[i]!, signature.argTypes[i]!, i));
-    }
-    pinned = await pinCallArguments(storage, repoPath, workspace, args, { inputs: signature.inputs });
+    pinned = await pinCallArguments(storage, repoPath, workspace, await serverArgs(signature, rawArgs), { inputs: signature.inputs });
   }
   if (!('args' in pinned)) {
     // An unassigned dataset, and nothing ran
@@ -682,26 +677,14 @@ async function callLocal(
  * @param start - Starts the call, given how it is stopped and told of
  * @returns The call's result, or null once Ctrl-C has stopped it
  */
-async function keptCall(start: (call: WorkspaceFunctionCallOptions) => Promise<ExecuteResult>): Promise<ExecuteResult | null> {
-  const stop = new AbortController();
-  const interrupt = (): void => stop.abort(new Error('interrupted'));
-  process.once('SIGINT', interrupt);
-  try {
-    return await start({
-      signal: stop.signal,
-      startWaitMs: CALL_START_WAIT_MS,
-      onStarted: (id) => console.error(`Call ${id} runs on; Ctrl-C asks the server to stop it`),
-    });
-  } catch (err) {
-    if (!stop.signal.aborted) throw err;
-    // The client asks the server to stop the call as it gives it up: this
-    // process exits once that request has gone
-    console.error('Interrupted: the server is asked to stop the call');
-    process.exitCode = 130;
-    return null;
-  } finally {
-    process.off('SIGINT', interrupt);
-  }
+function keptCall(start: (call: WorkspaceFunctionCallOptions) => Promise<ExecuteResult>): Promise<ExecuteResult | null> {
+  // The client asks the server to stop the call as it gives it up: this
+  // process exits once that request has gone
+  return untilInterrupted((signal) => start({
+    signal,
+    startWaitMs: CALL_START_WAIT_MS,
+    onStarted: (id) => console.error(`Call ${id} runs on; Ctrl-C asks the server to stop it`),
+  }), 'the server is asked to stop the call');
 }
 
 /** Reads a call's arguments as a server takes them: values, and with a

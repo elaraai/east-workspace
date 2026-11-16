@@ -5,7 +5,7 @@
 
 import { afterEach, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { link, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -307,10 +307,37 @@ it('runs an ad-hoc task on a rack with --rack, recorded as a local run is, and l
   assert.equal(outputs.length, 2); assert.equal(outputs[0], outputs[1], 'the rack\'s run and the local run wrote the same output');
   assert.equal(decodeBeast2For(IntegerType)(await readFile(here)), 4n);
 
-  // A run the cache answers is no rack's work
+  // A run the cache answers is no rack's work. Its output file is replaced,
+  // never written into: what else names the old file keeps the old file
+  const kept = join(f.home, 'kept.beast2'); await link(onRack, kept);
   const cached = ok(await f.cli('run', '.', 'cli_rack.train_a', input, '-o', onRack, '--rack'));
   assert.match(cached, /^Cached /m); assert.doesNotMatch(cached, /\[RACK\]|Rack summary/);
   assert.equal((await f.client.status()).capacity.queued, 0n);
+  assert.notEqual((await stat(onRack, { bigint: true })).ino, (await stat(kept, { bigint: true })).ino, 'the output is a new file');
+
+  // The input stays its user's to write again: the store took a copy, so a
+  // run of the first bytes after the file was written into reads those bytes
+  await writeFile(input, encodeBeast2For(StringType)('seven!!'));
+  const first = join(f.home, 'first.beast2'); await writeFile(first, encodeBeast2For(StringType)('four'));
+  ok(await f.cli('run', '.', 'cli_rack.train_a', first, '-o', here, '--force'));
+  assert.equal(decodeBeast2For(IntegerType)(await readFile(here)), 4n, 'the stored input holds the bytes it was stored under');
+});
+
+it('leaves an ad-hoc run\'s lease on Ctrl-C and tells its rack to stop, writing no output', {
+  skip: process.platform === 'win32' ? 'a test cannot deliver Ctrl-C on Windows: process.kill ends the CLI outright' : false,
+}, async () => {
+  const f = await enrolled(); await asProject(f);
+  const input = join(f.home, 'text.beast2'); await writeFile(input, encodeBeast2For(StringType)('four'));
+  const out = join(f.home, 'out.beast2');
+  const run = spawnE3Command(['run', '.', 'cli_rack.train_a', input, '-o', out, '--rack'], f.repo, { env: f.env });
+  cleanup.push(async () => { run.kill('SIGKILL'); await run.result; });
+  const grant = await f.agent.claim(); assert(grant);
+  run.kill('SIGINT');
+  const result = await run.result;
+  assert.equal(result.exitCode, 130, result.stderr);
+  assert.match(result.stderr, /Interrupted: the task's racks are told to stop it/);
+  assert.deepEqual((await f.agent.heartbeat([grant])).stop, [{ repo: grant.repo, leaseId: grant.leaseId }]);
+  await assert.rejects(() => stat(out), /ENOENT/, 'nothing was written');
 });
 
 it('runs a task split over its input on a rack with --rack-only, its pieces and merges leased, and says where they ran', async () => {

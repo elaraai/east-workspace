@@ -965,9 +965,11 @@ e3 call . -w dev read_config --rack                      # [LOCAL] fn:read_confi
 merges, as a dataflow run does, and ends with the rack summary. A call is a
 lease of its own, sized as a whole task is: its arguments past 192 KiB, and a
 value past 192 KiB, travel as objects of the repository through the lease's
-data path. A call's lines go to stderr, so its value can be piped. Ctrl-C
-leaves its lease, and its rack is told to stop it. A local API server's calls
-stay local.
+data path. A call's lines go to stderr, so its value can be piped. A call has
+the CLI's ten minutes, counted from when its lease is queued, unless a rack
+rule that matches `fn:<name>` sets a timeout, which it then has instead. Ctrl-C
+leaves a call's lease, or a run's, and its rack is told to stop it. A local
+API server's calls stay local.
 
 Plain HTTP (`e3 rack config --no-tls`) is for a TLS terminator in front of the
 hub, and is served only on the loopback or a private address, to the addresses
@@ -992,8 +994,11 @@ runs the greatest version the repository holds. Slashes are no longer accepted.
 Each input file is taken in as `e3 dataset set --from-file` takes one, saying
 how far it has got: a collection by intake units, a piece of its segments
 each, never read whole, so a task split over it runs in pieces; any other value
-as the object the file is. The output is written to `-o` as the value itself,
-a collection from its segments a segment at a time.
+as a copy of the file, which stays yours to write again. Each is checked by
+its header, as a delivery is, and is not decoded whole. The output is written
+to `-o` as the value itself, a collection from its segments a segment at a
+time: the file at `-o` is replaced, never written into, as `e3 call -o` and
+`e3 convert -o` replace theirs.
 
 ### Call (named functions)
 

@@ -397,6 +397,21 @@ describe('path-initialised inputs', () => {
       }
     });
 
+    it('takes a value its caller may write into again in as a copy, which a later write into the file leaves alone', async () => {
+      const bytes = encodeBeast2For(RowType)({ id: 7n, name: 'row-7' });
+      const file = join(tempDir, 'working.beast2');
+      writeFileSync(file, bytes);
+
+      const result = await objectAdoptFile(storage, testRepo, file, { link: false });
+
+      assert.deepEqual(result, { hash: computeHash(bytes), size: bytes.length, taken: 'carried' });
+      const object = statSync(objectPath(testRepo, result.hash), { bigint: true });
+      assert.notEqual(object.ino, statSync(file, { bigint: true }).ino, 'the object is not the file by another name');
+      // The file is written into, as a tool that makes it again does
+      writeFileSync(file, encodeBeast2For(RowType)({ id: 8n, name: 'row-8' }));
+      assert.deepEqual(readFileSync(objectPath(testRepo, result.hash)), Buffer.from(bytes), 'the object keeps the bytes it is stored under');
+    });
+
     // A supplier replaces a delivery by writing a new file and renaming it over
     // the old one. A rename landing after the adoption hashed the first file
     // would pair that file's hash with the second file's bytes.

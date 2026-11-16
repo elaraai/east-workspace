@@ -9,26 +9,7 @@ import { recordClosure, stagedObjects, taskClosure } from '../lease/closure.js';
 import { RACK_LEASE_VERSION, leaseReserve, type RackLeaseEvent, type RackLeaseResources, type RackReason } from '../protocol/task-envelope.js';
 import { splitUnitToWire } from '../runner-event.js';
 import { RackPlacementReport, admitWork, awaitLease, fallbackReason, hostBound, leaveLease, outgrownCap, readDelegation, thrownFallback, transferFailed,
-  wholeResources, type RackDelegationOptions, type RackPlacementEvent, type RackVerdict } from './rack-lease.js';
-
-// What a run's executors are configured with and report, which this module's
-// callers name by it
-export type { RackDelegationOptions, RackPlacementEvent } from './rack-lease.js';
-
-/**
- * Whether a local placement is of work a rack was to run: what a run prints
- * and counts as having run locally. Work that was never a rack's is not.
- *
- * @param event - A placement event
- * @returns Whether it is a rack's work run locally
- * @example
- * if (ranLocally(event)) console.log(`[LOCAL] ${event.taskName} (${event.reason})`);
- */
-export function ranLocally(event: RackPlacementEvent): event is Extract<RackPlacementEvent, { where: 'local' }> {
-  return event.kind === 'placed' && event.where === 'local' &&
-    (event.detail !== undefined || event.reason === 'spill' || event.reason === 'source-unreachable' || event.reason.startsWith('fallback:') ||
-      event.reason.startsWith('no-rack-') || event.reason.startsWith('environment:'));
-}
+  wholeResources, type RackDelegationOptions, type RackVerdict } from './rack-lease.js';
 
 /**
  * What a body's lease asks of a rack, and what the rack books for it.
@@ -130,7 +111,9 @@ export function createRackBody(options: RackDelegationOptions): TaskBodyExecutor
     const admitted = await admitWork({ session, delegation, signal, storage: request.storage, repo: request.repo, unit: request.unit !== undefined,
       judge: () => delegation.evaluator.evaluate(request), hostBound: hostBound(request.options, request.options.extraEnv),
       asks: (verdict, mostCores) => leaseResources(request, verdict, mostCores), onEnvironment: options.onEnvironment });
-    if (admitted.kind === 'aborted') return local();
+    // A run aborted while its work waited for a rack, or for its
+    // environment's layers, starts nothing here either
+    if (admitted.kind === 'aborted') return await stop('cancelled', 'cancelled: e3 did not start the rack execution because the run was aborted');
     if (admitted.kind === 'local') return runLocal(admitted.why.reason, admitted.why.detail, admitted.why.said);
     const { verdict, fleet } = admitted;
     // What the lease asks: a unit its cap stopped asks more of its next lease.

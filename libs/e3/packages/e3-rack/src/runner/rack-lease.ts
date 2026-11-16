@@ -15,6 +15,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { EnvironmentTargetRefused, type Budget, type StorageBackend } from '@elaraai/e3-core';
 import type { CreateLease } from '../protocol/control.js';
 import type { LeaseAttempt, LeaseHandle, LeaseUpdate, RackSession } from '../client/session.js';
+import type { RackPlacementEvent } from '../protocol/placement.js';
 import { describeRackReason, readRackReason, readRackRetries, type RackLeaseResources, type RackLeaseResult, type RackReason, type RackTransferRetry } from '../protocol/task-envelope.js';
 import type { RackResources } from '../protocol/rack-json.js';
 import { EligibilityEvaluator, type Eligibility } from '../routing/eligibility.js';
@@ -119,43 +120,6 @@ export class RackLayerBuilds {
 /** The verdict that work may go to a rack: its tier, its rule's size,
  *  timeout, memory limit and GPU, and the environment it declares. */
 export type RackVerdict = Extract<Eligibility, { eligible: true }>;
-
-/**
- * Reports where one task body, split unit or function call runs, and what
- * happens to it on a rack:
- * - `placed` on a rack, when one claims its lease;
- * - `placed` locally, with why: never a rack's work (`reason` is why it is not
- *   eligible), or a rack's work that this machine runs after all (`spill`,
- *   `no-rack-for-tier:<tier>`, `source-unreachable` when the racks that run
- *   its tier are not healthy, or have not yet said what they are to a hub
- *   that has just started, `no-rack-caps-units:<tier>` when it is a unit
- *   and none of them caps one, `no-rack-for-environment:<tier>` when none of
- *   them composes environments, an `environment:` reason when the
- *   environment it declares cannot go to a rack, or a `fallback:` with what
- *   went wrong, and the rack's `detail` when its result gave a reason);
- * - `retried`: a transfer of its lease failed a try and was given another;
- * - `waiting`: its lease is queued, and no rack has room for what it asks
- *   now. `rackLabel` is the rack with the most memory free, and `free` what
- *   that rack has, when it admits by its resources. A lease that waited says
- *   for how long once a rack claims it (`waitedMs`);
- * - `outgrew`: its rack stopped it at its cap. A unit of a split task runs
- *   again under a larger one (`againBytes`); a whole task or a call does not,
- *   and fails;
- * - `stopped`: its rack's host ran short of memory, and the rack stopped it,
- *   the newest work it held, at `peakBytes`: a unit runs again reserving what
- *   it reached (`againBytes`), as the local budget's guard runs one again.
- *
- * A claim says what the lease asked of its rack (`needs`), and, when the work
- * was leased before and is leased again, that it is (`again`). A call's
- * `taskName` is `fn:<name>`, as its rule and its lease name it.
- */
-export type RackPlacementEvent =
-  | { kind: 'placed'; taskName: string; role: 'task' | 'unit' | 'call'; where: 'rack'; rackLabel: string; leaseId: string; needs?: RackLeaseResources; waitedMs?: number; again?: true }
-  | { kind: 'outgrew'; taskName: string; role: 'task' | 'unit' | 'call'; where: 'rack'; rackLabel: string; leaseId: string; capBytes: number; againBytes?: number }
-  | { kind: 'stopped'; taskName: string; role: 'task' | 'unit' | 'call'; where: 'rack'; rackLabel: string; leaseId: string; peakBytes: number; againBytes: number }
-  | { kind: 'waiting'; taskName: string; role: 'task' | 'unit' | 'call'; where: 'rack'; rackLabel: string; leaseId: string; needs: RackLeaseResources; free?: RackResources }
-  | { kind: 'placed'; taskName: string; role: 'task' | 'unit' | 'call'; where: 'local'; reason: string; detail?: RackReason }
-  | { kind: 'retried'; taskName: string; role: 'task' | 'unit' | 'call'; where: 'rack'; rackLabel: string; leaseId: string; retry: RackTransferRetry };
 
 /**
  * Configures a run's rack executors without acquiring local resources: its

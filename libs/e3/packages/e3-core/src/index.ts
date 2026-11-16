@@ -320,6 +320,7 @@ export {
 } from './dataset-adopt-file.js';
 // And a stored value written out to a file, a segment or a range at a time
 export { datasetWriteFile } from './dataset-write-file.js';
+export { writeOutputFile } from './output-file.js';
 export {
   datasetAdoptObject,
   datasetAdoptKnown,

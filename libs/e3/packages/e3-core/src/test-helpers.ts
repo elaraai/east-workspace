@@ -222,6 +222,34 @@ export function withLogStore(storage: StorageBackend, logs: LogStore): StorageBa
 }
 
 /**
+ * A backend that is `storage`, telling `asked` each object its object store
+ * is asked about by hash: the method asked, and the hash.
+ *
+ * @remarks
+ * A test of what a path reads counts by it: an object read once, or never
+ * asked for. A method that takes no single hash (`writeMany`, `touch`) is not
+ * told.
+ *
+ * @param storage - The backend
+ * @param asked - Told the object store's method and the object's hash, before
+ *   the method runs
+ * @returns The backend
+ */
+export function watchObjects(storage: StorageBackend, asked: (method: string, hash: string) => void): StorageBackend {
+  const objects = new Proxy(storage.objects, {
+    get(target, key) {
+      const member: unknown = Reflect.get(target, key, target);
+      if (typeof member !== 'function') return member;
+      return (...args: unknown[]): unknown => {
+        if (typeof key === 'string' && typeof args[1] === 'string') asked(key, args[1]);
+        return Reflect.apply(member, target, args);
+      };
+    },
+  });
+  return new Proxy(storage, { get: (target, key) => (key === 'objects' ? objects : Reflect.get(target, key, target) as unknown) });
+}
+
+/**
  * What a reader read of an execution's log as a record of how it ended was
  * written.
  */

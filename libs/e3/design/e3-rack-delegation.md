@@ -429,6 +429,15 @@ a server decides where its own work runs.
 runs its tasks: a whole task's body is leased, and a split task's pieces and
 merges are, its planning and assembly staying here. It ends with the rack
 summary a dataflow run ends with, which says where a split task's pieces ran.
+Ctrl-C leaves its leases, from before the session opens, and their racks are
+told to stop the work.
+
+An ad-hoc run's files stay its user's. A value input is stored as a copy
+(`objectAdoptFile` with `link: false`), never as the file itself by a hard
+link, so a file written again between runs leaves the stored object its
+bytes. Its `-o`, like `e3 call -o` and `e3 convert -o`, is replaced and never
+written into (`writeOutputFile`): a path that names an earlier delivery, which
+a store may hold as an object, keeps that object whole.
 
 A call is a `run-detached` lease (`createRackCall`, beside `createRackBody`;
 `openRackRunner` gives e3-core's runner both). e3-core hands a detached call to
@@ -452,8 +461,11 @@ and logs, or a call's value and deadline.
   running work while the call runs, so no sweep takes them.
 - **Its lease** is sized as a whole task's is (`wholeResources`), from its
   rule's size or the policy's default.
-- **Its deadline** is its own timeout, counted from when its lease is first
-  queued; a call that falls back to run here runs with the time left.
+- **Its time** is its rule's timeout, when a rule that matches its name sets
+  one, longer or shorter than its caller's; else its caller's own (the CLI
+  gives a call ten minutes). It is counted from when its lease is first
+  queued, on the host's clock; a call that falls back to run here runs with
+  the time left, and one that is never leased with the same time.
 - **Its value** returns inline up to `RACK_INLINE_VALUE_MAX` (192 KiB); a
   larger one is committed as the lease's output and named by hash, to a source
   that takes one (above). The shared routes take a hash only as the output a
@@ -469,7 +481,8 @@ and logs, or a call's value and deadline.
 | Its cap stops it | Fails, `memory-limit-exceeded`, naming the cap and the rack |
 | The rack cannot relay its value (`rackResultTooLarge`) | Runs here (`fallback:value-too-large-to-relay`) |
 | The hub or the lease is lost, or the rack's infrastructure fails | Runs here, with the time left |
-| Ctrl-C | The lease is left, its rack told to stop it; ends as an aborted local call |
+| An outcome with a reason of the rack's own (any but `task-error`) | Runs here: the reason is the rack's fault, whatever outcome came with it |
+| Ctrl-C | The lease is left, its rack told to stop it; ends as an aborted local call. Before a lease is made, nothing starts here either |
 
 ## Versions and persisted forms
 

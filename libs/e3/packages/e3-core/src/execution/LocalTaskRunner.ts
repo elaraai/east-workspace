@@ -346,12 +346,14 @@ export class LocalTaskRunner implements TaskRunner {
    * Runs a detached call: through the runner's `detached` executor when it has
    * one, which runs it here only if it calls `local`, and here otherwise.
    */
-  runDetached(spec: DetachedSpec, options: DetachedRunOptions = {}): Promise<DetachedResult> {
+  async runDetached(spec: DetachedSpec, options: DetachedRunOptions = {}): Promise<DetachedResult> {
     const local = (call: DetachedSpec = spec) => this.runDetachedHere(call, options);
     const { detached: hook, env, uid, gid } = this.settings;
     if (hook === undefined) return local();
     const settings: ProcessSettings = { ...(env !== undefined && { env }), ...(uid !== undefined && { uid }), ...(gid !== undefined && { gid }) };
-    return hook({ repo: this.repo, spec, options, settings, ...(this.budget !== undefined && { budget: this.budget }) }, local);
+    // An executor that throws before it waits on anything rejects the call,
+    // as every other failure of it does
+    return await hook({ repo: this.repo, spec, options, settings, ...(this.budget !== undefined && { budget: this.budget }) }, local);
   }
 
   /** Runs a detached call here: its environment materialized, in a scratch

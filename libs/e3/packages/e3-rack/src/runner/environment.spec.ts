@@ -33,7 +33,7 @@ import { ENV_LAYER_MEDIA_TYPE, type EnvLayerManifest } from '../server/env-publi
 import type { RackLeaseEvent } from '../protocol/task-envelope.js';
 import { E3_RACK_VERSION } from '../version.js';
 import { openRackRunner, type OpenRackRunnerOptions } from './rack-runner.js';
-import { ranLocally, type RackPlacementEvent } from './rack-body.js';
+import { ranLocally, type RackPlacementEvent } from '../protocol/placement.js';
 import type { RackEnvironmentEvent } from './environment.js';
 import { describeRackSummary } from './summary.js';
 

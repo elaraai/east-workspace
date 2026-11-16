@@ -8,6 +8,7 @@
  */
 
 import * as fs from 'fs/promises';
+import { writeOutputFile } from '@elaraai/e3-core';
 import {
   decodeBeast2,
   printFor,
@@ -188,13 +189,10 @@ export async function convertCore(
       outputData = Buffer.from(encoder(value));
     }
 
-    // Write to output file if specified
+    // Write to output file if specified: replaced, never written into, since
+    // a file a store took in before may be an object of that store
     if (outputPath) {
-      if (outputData instanceof Buffer) {
-        await fs.writeFile(outputPath, outputData);
-      } else {
-        await fs.writeFile(outputPath, outputData, 'utf-8');
-      }
+      await writeOutputFile(outputPath, outputData);
       return {
         success: true,
         format: toFormat,

@@ -5,7 +5,7 @@
 
 import { it } from 'node:test';
 import assert from 'node:assert/strict';
-import { ranLocally, type RackPlacementEvent } from './rack-body.js';
+import { ranLocally, type RackPlacementEvent } from '../protocol/placement.js';
 import { RackTally, describeRackSummary } from './summary.js';
 
 const task = { taskName: 'train', role: 'task' as const };

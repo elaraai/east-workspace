@@ -182,7 +182,8 @@ export function intakeReporter(progress: Progress, now: () => number = Date.now)
  *   lines call it: a dataset's path, or the file's path as it was given
  * @param sources - Every file taken in together: how many, and their bytes
  * @param options - The type the destination declares, when it declares one,
- *   and the runner that takes a collection in
+ *   the runner that takes a collection in, `link: false` for a file its user
+ *   may write into again, and a signal that stops the intake
  * @returns What the file was taken in as
  * @throws What `objectAdoptFile` throws, once the live line has ended
  */
@@ -193,7 +194,7 @@ export async function adoptFileReported(
   file: string,
   path: string,
   sources: DeploySourceProgress['sources'],
-  options: { declared?: { subject: string; type: EastTypeValue }; runner: TaskRunner },
+  options: { declared?: { subject: string; type: EastTypeValue }; runner: TaskRunner; link?: boolean; signal?: AbortSignal },
 ): Promise<ObjectAdoptResult> {
   let adopted: ObjectAdoptResult;
   try {

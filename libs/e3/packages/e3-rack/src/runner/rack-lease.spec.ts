@@ -10,8 +10,9 @@ import { Budget } from '@elaraai/e3-core';
 import { DEFAULT_RACK_POLICY } from '../routing/policy.js';
 import { E3_RACK_VERSION } from '../version.js';
 import type { SnapshotRack } from './capacity.js';
-import { RACK_ONLY_WAIT_MS, RackLayerBuilds, RackPlacementReport, fallbackReason, hostBound, leaveLease, outgrownCap, readDelegation, thrownFallback, transferFailed,
-  type RackPlacementEvent } from './rack-lease.js';
+import type { RackPlacementEvent } from '../protocol/placement.js';
+import { RACK_ONLY_WAIT_MS, RackLayerBuilds, RackPlacementReport, fallbackReason, hostBound, leaveLease, outgrownCap, readDelegation, thrownFallback,
+  transferFailed } from './rack-lease.js';
 
 const GiB = 1024 ** 3;
 const needs = { kind: 'task' as const, cores: 8, memoryBytes: 16 * GiB, gpu: false };
