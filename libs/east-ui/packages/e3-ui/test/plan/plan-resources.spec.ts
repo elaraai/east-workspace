@@ -22,7 +22,7 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
     ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, RecursiveType, SortedMap, StringType, StructType, VariantType,
-    compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, some, variant, type ValueTypeOf,
+    compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { Plan } from "@elaraai/e3-ui/internal";
 
@@ -238,3 +238,111 @@ describe("a kinds block", () => {
         }), /two series share the key "press"/);
     });
 });
+
+// ── #1541 §3.5's series, over a plain record of the works' groups ───────────
+// A crew's roles are keyed by their name here: child rows keyed by a variant
+// (§3.5's `keyType: RoleType`) are #1540's, which a later pull request lands.
+
+const RoleHoursType = StructType({ hours: DictType(DateTimeType, FloatType) });
+const ResourceRowType = StructType({
+    name: StringType,
+    what: VariantType({ press: StructType({ sheets_per_hour: FloatType }), line: NullType, crew: NullType, bay: NullType, van: NullType }),
+    utilisation: DictType(DateTimeType, FloatType),
+    hours: DictType(StringType, RoleHoursType),
+});
+const GroupRowType = StructType({ name: StringType, resources: DictType(StringType, ResourceRowType) });
+const Groups = DictType(StringType, GroupRowType);
+type ResourceRow = ValueTypeOf<typeof ResourceRowType>;
+const resource = (name: string, what: ResourceRow["what"], hours: ResourceRow["hours"] = new Map()): ResourceRow =>
+    ({ name, what, utilisation: readings([W27, 96]), hours });
+const GROUPS: ValueTypeOf<typeof Groups> = new Map([
+    ["hall-a", { name: "Hall A", resources: new Map([
+        ["a1", resource("Press A1", variant("press", { sheets_per_hour: 12000.0 }))],
+        ["c1", resource("Crew 1", variant("crew", null), new Map([
+            ["assistant", { hours: readings([W27, 30]) }], ["operator", { hours: readings([W27, 40]) }],
+        ]))],
+    ]) }],
+    ["dispatch", { name: "Dispatch", resources: new Map([["bay", resource("Bay", variant("bay", null))], ["van1", resource("Van 1", variant("van", null))]]) }],
+]);
+
+/** §3.5's series as the issue writes them: no `label` on the series beneath a resource, its row named by the resource. */
+const worksSeries = () => [
+    Plan.series.group(GroupRowType, {
+        key: "groups", title: "Works", label: (group) => group.name,
+        children: Plan.children("resources", [
+            Plan.series.kinds(ResourceRowType, "what", {
+                press: {
+                    title: "Presses", icon: "print", label: (press) => press.name,
+                    series: [
+                        Plan.series.heat(ResourceRowType, {
+                            key: "utilisation", title: "Utilisation",
+                            cells: Plan.heatCells(Plan.values("utilisation", (pct) => ({ value: some(pct) })), { min: 0, max: 100, warnAt: 95 }),
+                        }),
+                    ],
+                },
+                line: { title: "Bindery lines", icon: "book-open", label: (line) => line.name },
+                crew: {
+                    title: "Crews", icon: "users", label: (crew) => crew.name,
+                    series: [
+                        Plan.series.table(ResourceRowType, {
+                            key: "hours", title: "Hours", aggregate: "sum", collapsed: true,
+                            children: Plan.children("hours", [Plan.series.table(RoleHoursType, {
+                                key: "role", title: "Role", edit: true,
+                                label: (_hours, role) => role.equal("assistant").ifElse(() => "Assistant", () => "Operator"),
+                                cells: Plan.tableCells(Plan.values("hours", (h) => ({ value: some(h) }))),
+                            })]),
+                        }),
+                    ],
+                },
+                bay: { title: "Bays", icon: "warehouse", label: (bay) => bay.name },
+                van: { title: "Vans", icon: "truck", label: (van) => van.name },
+            }),
+        ]),
+    }),
+];
+
+describe("#1541 §3.5's series", () => {
+    test("build as written: each group's resources drawn by their kind, a press's utilisation and a crew's hours beneath it, each named by its title", () => {
+        const root = East.function([], Plan.Types.Root, ($) => {
+            const data = $.const(GROUPS, Groups);
+            return Plan.Root({ axis, data, series: worksSeries() });
+        }).toIR().compile([])();
+        // The groups in their keys' order, as a Dict holds them: "dispatch", then "hall-a".
+        assert.ok(sameLabels(labels(root), [
+            "Dispatch", "Bay", "Van 1",
+            "Hall A", "Press A1", "Utilisation", "Crew 1", "Hours", "Assistant", "Operator",
+        ]), printFor(ArrayType(StringType))(labels(root)));
+        const at = (series: string, ...path: string[]) => rowsOf(root).find((r) => sameIds([r.id], [entry(series, ...path)]));
+        // Each resource's landing row at its path under its case's key; its series at the same path beneath it.
+        assert.ok(at("press", "hall-a", "a1") !== undefined && at("utilisation", "hall-a", "a1") !== undefined);
+        assert.ok(at("crew", "hall-a", "c1") !== undefined && at("hours", "hall-a", "c1") !== undefined);
+        assert.ok(at("bay", "dispatch", "bay") !== undefined && at("van", "dispatch", "van1") !== undefined);
+        assert.ok(sameParents([at("utilisation", "hall-a", "a1")!.parent], [some(entry("press", "hall-a", "a1"))]));
+    });
+
+    test("a series given no `label` stands beneath a resource alone: anywhere else it is refused, naming where it sits", () => {
+        const unlabelled = () => Plan.series.heat(Press, { key: "utilisation", title: "Utilisation", cells: () => Plan.heatCells([]) });
+        assert.throws(() => East.function([], Plan.Types.Root, ($) => {
+            const data = $.const(PRESSES, Presses);
+            return Plan.Root({ axis, data, series: [unlabelled()] });
+        }), /^Error: Plan: series\[0\] heat "Utilisation" gives no `label` — each of its rows is an entry's, named by it: give `label`, or lay it beneath a resource, in a resources series' or a kinds case's `series`, whose own row names it$/);
+        // A views member writes its label again in each series.
+        assert.throws(() => Plan.series.views(Press, { key: "views", title: "Views" }, [unlabelled()]),
+            /gives no `label` — each of its rows is an entry's, named by it/);
+        // Beneath a resource it builds, named by its title.
+        assert.doesNotThrow(() => Plan.series.resources(Press, { key: "presses", title: "Presses", label: (p) => p.name, series: [unlabelled()] }));
+    });
+});
+
+/** Never run: each line marked below must fail to compile, or the build fails on the unused directive. */
+export function planKindsTypeChecks(): void {
+    // Every case of the variant is listed: one left out fails to compile, as an East `match` does.
+    // @ts-expect-error — "bay" is not listed
+    Plan.series.kinds(Resource, "what", { press: { title: "Presses", label: (r) => r.name }, crew: false });
+    // A case the variant lacks fails too.
+    // @ts-expect-error — "van" is no case of "what"
+    Plan.series.kinds(Resource, "what", { press: false, crew: false, bay: { title: "Bays", label: (r) => r.name }, van: false });
+    // A field that holds no variant is no kinds block's.
+    // @ts-expect-error — "name" holds a String
+    Plan.series.kinds(Resource, "name", {});
+}

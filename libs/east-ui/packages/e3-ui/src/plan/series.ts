@@ -685,8 +685,11 @@ export interface PlanSeriesRowConfig<
     keyType?: KT;
     /** Membership — omitted ⇒ every entry belongs. Applies at every level the series walks. */
     match?: PlanAccessor<R, BooleanType, KT>;
-    /** Gutter label accessor. */
-    label: PlanAccessor<R, StringType, KT>;
+    /**
+     * Gutter label accessor. Left out only beneath a resource — in a resources series' or a kinds case's `series`
+     * (#1541) — whose own row names it, each row then named by the series' title; anywhere else it is refused.
+     */
+    label?: PlanAccessor<R, StringType, KT>;
     /** Render labels as mono row ids. */
     id?: boolean;
     /** Two-line gutter layout (label over sub). */
@@ -1224,6 +1227,8 @@ interface PlanSeriesSpec {
     readonly nested: readonly PlanSeriesSpec[];
     /** Whether the series declares `children`. */
     readonly nests: boolean;
+    /** Whether a data series was given no `label`: allowed only beneath a resource, its rows named by its title (#1541). */
+    readonly unlabelled?: boolean;
     /**
      * How many chart rows each of its entries makes, when every entry makes as many — a fact of its definition
      * (#1398): a chart series' entry one, a `views` entry one a chart member, a section's its members' together, `0`
@@ -2462,7 +2467,8 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
             return planRow({
                 id, parent,
                 gutter: planGutter({
-                    label: cfg.label(entry, key),
+                    // Beneath a resource, a series given no label names each row by its title (#1541).
+                    label: cfg.label !== undefined ? cfg.label(entry, key) : cfg.title,
                     ...(cfg.id !== undefined ? { id: cfg.id } : {}),
                     ...(cfg.stacked !== undefined ? { stacked: cfg.stacked } : {}),
                     ...(cfg.sub !== undefined ? { sub: cfg.sub(entry, key) } : {}),
@@ -2902,6 +2908,7 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
         arm: recipe.arm,
         nested,
         nests: children !== undefined,
+        unlabelled: cfg.label === undefined,
         charts,
         reads: recipe.reads ?? [],
         nest: {
@@ -3873,15 +3880,20 @@ function rowsSpec(identity: PlanSeriesIdentity, rows: PlanRowsValue): PlanSeries
 
 /**
  * Refuse two series sharing a key anywhere in a series tree — a row's id is
- * its series key and its path, so a repeated key would give two rows one id.
+ * its series key and its path, so a repeated key would give two rows one id —
+ * and a data series given no `label` anywhere but beneath a resource (#1541):
+ * a row of an entry is named by it, where a resource's own row names those
+ * beneath it.
  *
  * @param specs - The series, in order
  * @param where - Who is asking, for the message
- * @throws {Error} Naming both series and where each sits
+ * @param labels - Whose labels are checked: `"all"`, a list placed on the canvas; `"nested"`, a series being made,
+ *   whose own place is not yet known
+ * @throws {Error} Naming both series and where each sits, or the series with no label and where it sits
  */
-function assertUniqueKeys(specs: readonly PlanSeriesSpec[], where: string): void {
+function assertUniqueKeys(specs: readonly PlanSeriesSpec[], where: string, labels: "all" | "nested" = "nested"): void {
     const seen = new Map<string, string>();
-    const walk = (list: readonly PlanSeriesSpec[], trail: string) => {
+    const walk = (list: readonly PlanSeriesSpec[], trail: string, beneath: PlanLanding | undefined, top: boolean) => {
         list.forEach((spec, i) => {
             const site = `${trail}[${i}] ${nameOf(spec)}`;
             const prior = seen.get(spec.key);
@@ -3891,10 +3903,15 @@ function assertUniqueKeys(specs: readonly PlanSeriesSpec[], where: string): void
                     "series key and its path, so every series key must be unique across the whole series tree.");
             }
             seen.set(spec.key, site);
-            walk(spec.nested, `${site} ›`);
+            const placed = !top || labels === "all";
+            if (spec.unlabelled === true && placed && !(beneath?.series.includes(spec.key) ?? false)) {
+                throw new Error(`${where}: ${site} gives no \`label\` — each of its rows is an entry's, named by it: give \`label\`, or lay it ` +
+                    "beneath a resource, in a resources series' or a kinds case's `series`, whose own row names it");
+            }
+            walk(spec.nested, `${site} ›`, spec.landing, false);
         });
     };
-    walk(specs, "series");
+    walk(specs, "series", undefined, true);
 }
 
 // ============================================================================
@@ -4084,7 +4101,7 @@ export function planPickables(series: unknown): readonly PlanPickable[] | undefi
 export function checkSeries(series: PlanSeriesInput, where: string, axisKind?: PlanAxisKindLiteral): void {
     if (!Array.isArray(series)) return;
     const specs = series.map((s) => specOf(s)).filter((s): s is PlanSeriesSpec => s !== undefined);
-    assertUniqueKeys(specs, where);
+    assertUniqueKeys(specs, where, "all");
     // A values collection is keyed by its instant (#1436): one keyed by String
     // rides only an ordinal axis.
     if (axisKind === undefined || axisKind === "ordinal") return;
@@ -4913,7 +4930,7 @@ export function createSeriesResources<
 export function createSeriesKinds<
     R extends EastType, F extends PlanVariantField<R>, KT extends EastType = StringType,
     const C extends PlanKindsCases<R, KT, F> = PlanKindsCases<R, KT, F>,
->(rowType: R, field: F, cases: C): PlanSeriesValue {
+>(rowType: R, field: F, cases: C & { readonly [T in Exclude<keyof C, keyof PlanVariantCases<R, F>>]: never }): PlanSeriesValue {
     const where = `Plan.series.kinds "${field}"`;
     const fields = entryFieldsOf(rowType);
     const variantType = fields?.[field] as { type: string; cases?: Record<string, EastType> } | undefined;
