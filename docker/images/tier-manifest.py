@@ -1,0 +1,99 @@
+#!/usr/bin/env python3
+# Copyright (c) 2025 Elara AI Pty Ltd
+# Licensed under BSL 1.1. See LICENSE for details.
+"""Writes what this image's Python holds: its tier manifest.
+
+An environment a rack runs over this image is built without what the manifest
+says the image already holds (e3: environments built over their base tier).
+The manifest names the interpreter, its site directory, and each installed
+distribution by name, version and the digest of the files it installed.
+
+Run with the interpreter the image's tasks run with:
+
+    /opt/venv/bin/python tier-manifest.py /opt/e3/tier-manifest.json
+
+The standard library alone, so it runs in any image.
+"""
+
+import csv
+import hashlib
+import json
+import platform
+import re
+import sys
+import sysconfig
+from importlib import metadata
+
+# What an installer writes beside a distribution's files, which says how it
+# was installed and not what was: left out of the files' digest.
+BOOKKEEPING = {"RECORD", "INSTALLER", "REQUESTED", "direct_url.json"}
+
+
+def canonical_name(name):
+    """A distribution's name as PEP 503 writes it."""
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def files_digest(record):
+    """The digest of the files a distribution installed, from its RECORD.
+
+    Each file in the site directory, by its path, hash and size, sorted by
+    path. Left out: the installer's bookkeeping, compiled files, and what is
+    installed outside the site directory (a script, whose first line names
+    the interpreter it was installed for).
+    """
+    rows = []
+    for row in csv.reader(record.splitlines()):
+        if len(row) < 3:
+            continue
+        path, digest, size = row[0], row[1], row[2]
+        parts = path.split("/")
+        if parts[0] == "..":
+            continue
+        if len(parts) == 2 and parts[0].endswith(".dist-info") and parts[1] in BOOKKEEPING:
+            continue
+        if "__pycache__" in parts or path.endswith(".pyc"):
+            continue
+        rows.append((path, digest, size))
+    lines = "".join(f"{path}\t{digest}\t{size}\n" for path, digest, size in sorted(rows))
+    return "sha256:" + hashlib.sha256(lines.encode("utf-8")).hexdigest()
+
+
+def tier_manifest():
+    """This interpreter's manifest: itself, and what is installed for it."""
+    distributions = {}
+    for dist in metadata.distributions():
+        name = dist.metadata["Name"]
+        record = dist.read_text("RECORD")
+        # One with no RECORD cannot be told from another: it is never left out
+        if name is None or record is None:
+            continue
+        distributions[canonical_name(name)] = {
+            "name": canonical_name(name),
+            "version": dist.version,
+            "files": files_digest(record),
+        }
+    return {
+        "version": 1,
+        "python": {
+            "version": platform.python_version(),
+            "executable": sys.executable,
+            "site": sysconfig.get_path("purelib"),
+        },
+        "distributions": [distributions[name] for name in sorted(distributions)],
+    }
+
+
+def main(argv):
+    if len(argv) != 2:
+        sys.stderr.write("usage: tier-manifest.py <output.json>\n")
+        return 2
+    # One form, so the same image writes the same bytes: its digest names it
+    text = json.dumps(tier_manifest(), sort_keys=True, separators=(",", ":")) + "\n"
+    with open(argv[1], "w", encoding="utf-8") as out:
+        out.write(text)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

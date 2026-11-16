@@ -322,6 +322,10 @@ export {
 // And a stored value written out to a file, a segment or a range at a time
 export { writeOutputFile, type WriteOutputFileOptions } from './storage/local/output-file.js';
 export {
+  canonicalDistributionName, installedFilesDigest, readTierManifest, tierHolds, tierManifestDigest,
+  type TierDistribution, type TierManifest,
+} from './tier-manifest.js';
+export {
   datasetAdoptObject,
   datasetAdoptKnown,
   datasetSetStored,

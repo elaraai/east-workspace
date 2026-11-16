@@ -55,8 +55,8 @@ Each python runtime image (`docker/images/Dockerfile.east-py`,
 ```
 
 - Written to `/opt/e3/tier-manifest.json` by `docker/images/tier-manifest.py`
-  (standard library alone), sorted by name, and named on the image by a label
-  holding its digest.
+  (standard library alone), sorted by name. An image's later layer that
+  installs more writes it again: the datascience image's is its own.
 - A manifest's **digest** is the SHA-256 of its bytes.
 - The node and C tiers write none: this change is python environments.
 
