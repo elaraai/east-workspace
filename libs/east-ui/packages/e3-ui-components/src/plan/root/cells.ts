@@ -64,6 +64,7 @@ import { timeInstant } from "../instant.js";
 import type { PlanRootValue, PlanWireBlock } from "../model.js";
 import type { PlanScale } from "../scale.js";
 import type { PlanEventPart } from "./sources.js";
+import { resourceKeyOf } from "./landings.js";
 
 type PlanPayloadValue = ValueTypeOf<typeof PlanPayloadType>;
 /** One event kind, as the payload carries it. */
@@ -146,7 +147,7 @@ export function landingKeysOf(blocks: readonly PlanWireBlock[], landings: Readon
     for (const block of blocks) {
         for (const row of block.rows) {
             if (row.id.type !== "entry" || !landings.has(row.id.value.series)) continue;
-            const key = row.id.value.path[row.id.value.path.length - 1];
+            const key = resourceKeyOf(row.id);
             if (key !== undefined) out.push({ slot: row.id.value.series, key });
         }
     }

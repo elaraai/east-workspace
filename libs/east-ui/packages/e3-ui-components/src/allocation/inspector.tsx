@@ -69,7 +69,7 @@ import { FOCUS_HOME_PROPS, useFocusHome } from "../shared/focus-home.js";
 import type { PeriodRead } from "../shared/loading.js";
 import { useFieldAsk } from "../shared/schedule/field-ask.js";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
-import { NO_REFUSED_FIELDS, refusedFields, type RefusedFields } from "../shared/schedule/refusals.js";
+import { NO_REFUSED_FIELDS, refusalsOfEntry, refusalsText, refusedFields, type RefusedFields } from "../shared/schedule/refusals.js";
 import { drawnStatus, type DrawnStatus } from "../shared/status.js";
 import { Seg } from "../shared/schedule/segments.js";
 import { linkedQuantity, remainderOf, splitOf, type AllocationCommands } from "./actions.js";
@@ -210,11 +210,11 @@ interface BinRefusals {
  * event's — the fields they name, which its form rings, and the tone its forms say a bound it breaks in.
  */
 function refusalsOf(args: InspectorArgs, id: string): BinRefusals {
-    const own = args.refusals.filter(r => keyEqual(r.kind, args.value.bin.kind.key) && keyEqual(r.issue.entry, id));
+    const own = refusalsOfEntry(args.refusals, args.value.bin.kind.key, id).map(r => r.issue);
     if (own.length === 0) return { banners: [], fields: NO_REFUSED_FIELDS, breaches: "warn" };
     return {
-        banners: [{ status: "warning", title: "Not saved yet", text: own.map(r => r.text).join("; ") }],
-        fields: refusedFields(own.map(r => r.issue)),
+        banners: [{ status: "warning", title: "Not saved yet", text: refusalsText(own, args.value.bin.kind.fields) }],
+        fields: refusedFields(own),
         breaches: "error",
     };
 }

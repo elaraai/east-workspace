@@ -77,7 +77,7 @@ export function landingRowSeries(landings: readonly PlanLandingValue[]): Readonl
 export function landingTargetOf(id: PlanRowId, landings: readonly PlanLandingValue[], kinds: readonly PlanEventKindValue[]): PlanLandingTarget | undefined {
     if (id.type !== "entry") return undefined;
     const { series, path } = id.value;
-    const key = path[path.length - 1];
+    const key = resourceKeyOf(id);
     if (key !== undefined) {
         for (const landing of landings) {
             const d = landing.draws.find((one) => stringEqual(series, drawSeries(landing, one.type)!));
@@ -101,7 +101,7 @@ export function landingTargetOf(id: PlanRowId, landings: readonly PlanLandingVal
 export function landingSeriesTargetOf(id: PlanRowId, landings: readonly PlanLandingValue[]): PlanLandingTarget | undefined {
     if (id.type !== "entry") return undefined;
     const { series, path } = id.value;
-    const key = path[path.length - 1];
+    const key = resourceKeyOf(id);
     if (key === undefined) return undefined;
     const landing = landings.find((l) => l.series.some((s) => stringEqual(s, series)));
     return landing === undefined ? undefined : { kind: "resource", landing, key, path, draw: "" };
@@ -130,4 +130,16 @@ export function kindRowId(kind: PlanEventKindValue, target: PlanLandingTarget): 
  */
 export function landingRowId(landing: string, path: readonly string[]): PlanRowId {
     return variant("entry", { series: landing, path: [...path] }) as PlanRowId;
+}
+
+/**
+ * The resource a landing's row names, by the row's id ({@link landingRowId}'s inverse): the last step of its path, as a
+ * landing row's path ends in its resource's key — and a row beside it for a further way its kinds draw, or one of its
+ * series beneath it, at the same path.
+ *
+ * @param id - The row's id
+ * @returns Its resource's key's text; `undefined` for a row with no path, or none of an entry's
+ */
+export function resourceKeyOf(id: PlanRowId): string | undefined {
+    return id.type === "entry" ? id.value.path[id.value.path.length - 1] : undefined;
 }

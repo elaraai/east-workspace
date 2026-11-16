@@ -172,3 +172,23 @@ export function madeFrom(root: ParentNode, attr: "data-run" | "data-chip" | "dat
 
 /** A key made from another's over a kind read a window at a time: the other's, and eight hex digits drawn at random. */
 export const drawnFrom = (from: string) => new RegExp(`^${from}-[0-9a-f]{8}$`);
+
+/**
+ * A press's row of the ops record `planRowDrop` edits (#1436): a row of its `press` series, by the press's key.
+ *
+ * @param container - The render's container
+ * @param press - The press's key: `p03`
+ * @returns Its row
+ */
+export const dropPressRow = (container: HTMLElement, press: string) => container.querySelector<HTMLElement>(rowAt(entry("press", press)))!;
+
+/**
+ * A run of a press's row of the ops record (#1436), by its job's id — what a run of `data`'s own rows is keyed by.
+ *
+ * @param container - The render's container
+ * @param press - The press's key
+ * @param id - The job's id: `j4642`
+ * @returns Its run, if the row draws it
+ */
+export const dropRunOf = (container: HTMLElement, press: string, id: string) =>
+    container.querySelector<HTMLElement>(`${rowAt(entry("press", press))} [data-run=${JSON.stringify(id)}]`);

@@ -67,7 +67,7 @@ import {
     SortedMap, StringType, compareFor, equalFor, equivalentFor, none, printFor, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import {
-    Plan, PlanEventDraftsType, PlanEventPlacedType, PlanEventReadsType, PlanEventSeamType, PlanEventShadingType, PlanLandingType,
+    Plan, PlanEventDraftsType, PlanEventPlacedType, PlanEventReadsType, PlanEventSeamType, PlanEventShadingType,
     ScheduleEventRefType, planHideId,
 } from "@elaraai/e3-ui/internal";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
@@ -80,6 +80,7 @@ import type { PlanInstantValue } from "../instant.js";
 import { windowedArm, type PlanPagedSourceValue } from "../use-plan-paging.js";
 import type { ScheduleCellsRead } from "../../shared/schedule/cells.js";
 import { usePlanCells, type PlanCellSpanStore, type PlanCellsArgs } from "./cells.js";
+import type { PlanLandingValue } from "./landings.js";
 
 /** The payload's seam, decoded: the events of a range, filed, and how they join any rows (#1541). */
 export type PlanEventSeamValue = ValueTypeOf<typeof PlanEventSeamType>;
@@ -87,8 +88,8 @@ export type PlanEventSeamValue = ValueTypeOf<typeof PlanEventSeamType>;
 /** The events of a range, filed by the series they land on, the way they draw and the resource's key (#1541). */
 export type PlanEventPlacedValue = ValueTypeOf<typeof PlanEventPlacedType>;
 
-/** A series the event kinds land on, as the payload carries it (#1541). */
-export type PlanLandingValue = ValueTypeOf<typeof PlanLandingType>;
+/** A series the event kinds land on, as the payload carries it (#1541): `landings.ts`'s, which every reader of one names. */
+export type { PlanLandingValue };
 
 /** What a Plan of event kinds hands its canvas (#1192, #1541). */
 export interface PlanEventRows {

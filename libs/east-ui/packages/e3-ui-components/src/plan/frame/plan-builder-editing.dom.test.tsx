@@ -37,10 +37,10 @@ import * as rowDrop from "@elaraai/e3-ui/examples/plan/plan";
 import { announced, pointAt } from "@elaraai/east-ui-components/testing";
 import { usePlanEventEditing, type PlanEventChange } from "../edit/events.js";
 import type { PlanEntryRef } from "../use-plan-editing.js";
-import { carrySaid, keyOn } from "../plan-move.test-utils.js";
+import { carryRun, carrySaid, keyOn, type KeyPress } from "../plan-move.test-utils.js";
 import { boundFrame } from "../../sheet/frame.test-utils.js";
 import { offering } from "../../shared/schedule/keys.test-utils.js";
-import { act, drawnFrom, el, entry, madeFrom, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
+import { act, drawnFrom, el, entry, madeFrom, planHarness, dropPressRow, rowAt, dropRunOf, settle, slot } from "./harness.test-utils.js";
 import { conflictCards, evaluatesAgain, reloadPage } from "../../e3-web-mount.test-utils.js";
 import type { E3Request } from "../../e3-web.test-utils.js";
 import { editedThroughReload, redrawnThroughReload, savedThroughReload } from "../../shared/save-held.test-utils.js";
@@ -921,22 +921,11 @@ const readOps = () => h.read(rowDrop.planDropOps);
 const jobsOf = async (press: string) => (await readOps()).get(press)!.jobs;
 /** Whether `jobs` hold `job` under `id`, field for field. */
 const holds = (jobs: ReadonlyMap<string, DropJob>, id: string, job: DropJob) => jobs.has(id) && sameJob(jobs.get(id)!, job);
-/** A press's run, by its job's id. */
-const runOf = (c: HTMLElement, press: string, id: string) => c.querySelector<HTMLElement>(`${rowAt(entry("press", press))} [data-run=${JSON.stringify(id)}]`);
-/** A press's row. */
-const pressRow = (c: HTMLElement, press: string) => c.querySelector<HTMLElement>(rowAt(entry("press", press)))!;
 /** The Save requests the ops record was sent. */
 const opsWrites = () => h.requests("mutate", rowDrop.planDropOps.name);
 /** A palette card in the Plan's own library panel, by its key. */
 const paletteCard = (c: HTMLElement, key: string) =>
     slot(c, "start")!.querySelector<HTMLElement>(`[role="tabpanel"]:not([hidden]) [data-library-item=${JSON.stringify(key)}]`)!;
-/** Picks a run up by the keyboard, presses the keys given, and puts it down. */
-async function carryRun(run: HTMLElement, ...keys: { key: string; shiftKey?: boolean }[]) {
-    run.focus();
-    await keyOn({ key: " " });
-    for (const key of keys) await keyOn(key);
-    await keyOn({ key: " " });
-}
 
 describe("data's rows, their items written by id (#1436)", () => {
     test("a run moved along its row, resized by its end and another carried to another row: Save sends one write, and each job reads back under its id", async () => {
@@ -949,15 +938,15 @@ describe("data's rows, their items written by id (#1436)", () => {
             const j4642 = (await jobsOf("p03")).get("j4642")!;
             const j4624 = (await jobsOf("p04")).get("j4624")!;
             // J-4642 a week on along H1-P03, then its end a week further.
-            await carryRun(runOf(c, "p03", "j4642")!, { key: "ArrowRight" });
+            await carryRun(dropRunOf(c, "p03", "j4642")!, { key: "ArrowRight" });
             expect(carrySaid(c)).toMatch(/^Dropped RUN · J-4642 on H1-P03/);
-            await carryRun(runOf(c, "p03", "j4642")!, { key: "ArrowRight", shiftKey: true });
+            await carryRun(dropRunOf(c, "p03", "j4642")!, { key: "ArrowRight", shiftKey: true });
             // J-4624 carried up from H1-P04 onto H1-P03, its weeks as they were.
-            await carryRun(runOf(c, "p04", "j4624")!, { key: "ArrowUp" });
-            expect(runOf(c, "p03", "j4624")).not.toBeNull();
-            expect(runOf(c, "p04", "j4624")).toBeNull();
-            expect(pressRow(c, "p03").hasAttribute("data-draft")).toBe(true);
-            expect(pressRow(c, "p04").hasAttribute("data-draft")).toBe(true);
+            await carryRun(dropRunOf(c, "p04", "j4624")!, { key: "ArrowUp" });
+            expect(dropRunOf(c, "p03", "j4624")).not.toBeNull();
+            expect(dropRunOf(c, "p04", "j4624")).toBeNull();
+            expect(dropPressRow(c, "p03").hasAttribute("data-draft")).toBe(true);
+            expect(dropPressRow(c, "p04").hasAttribute("data-draft")).toBe(true);
             // Nothing written yet: the gestures are drafts.
             expect(opsWrites()).toEqual([]);
 
@@ -987,7 +976,7 @@ describe("data's rows, their items written by id (#1436)", () => {
             await settle();
             const deployed = await commits(rowDrop.planDropOps.name);
             fireEvent.pointerDown(paletteCard(c, "job-poster"), { clientX: 0, clientY: 0 });
-            pointAt(pressRow(c, "p04").querySelector("[data-drag-cell]"));
+            pointAt(dropPressRow(c, "p04").querySelector("[data-drag-cell]"));
             fireEvent.pointerMove(document, { clientX: 10, clientY: 10 });
             // The new job's id is the Plan's to mint: offered one.
             offering(["job-minted"]);
@@ -995,7 +984,7 @@ describe("data's rows, their items written by id (#1436)", () => {
             await settle();
             // jsdom's zero-width rect puts the pointer in the first week.
             expect(announced()).toBe("Poster run was dropped on H1-P04, Week of Jun 29, 2026.");
-            expect(runOf(c, "p04", "job-minted")).not.toBeNull();
+            expect(dropRunOf(c, "p04", "job-minted")).not.toBeNull();
 
             await press(historyButton(c, SAVE));
             await settle();
@@ -1023,15 +1012,15 @@ describe("data's rows, their items written by id (#1436)", () => {
             const { container: c } = await h.mount(rowDrop.planRowDrop, { drag: true });
             await settle();
             const deployed = await commits(rowDrop.planDropOps.name);
-            runOf(c, "p03", "j4642")!.focus();
+            dropRunOf(c, "p03", "j4642")!.focus();
             await keyOn({ key: " " });
             await keyOn({ key: "ArrowDown" });
             // H1-P04's jobs keep their ids unique: the row refuses it, and the carry goes on.
             expect(carrySaid(c)).toBe("RUN · J-4642 cannot be dropped on H1-P04, Jul 6, 2026 – Jul 27, 2026");
             await keyOn({ key: " " });
             await keyOn({ key: "Escape" });
-            expect(pressRow(c, "p03").hasAttribute("data-draft")).toBe(false);
-            expect(pressRow(c, "p04").hasAttribute("data-draft")).toBe(false);
+            expect(dropPressRow(c, "p03").hasAttribute("data-draft")).toBe(false);
+            expect(dropPressRow(c, "p04").hasAttribute("data-draft")).toBe(false);
             expect(historyButton(c, SAVE).disabled).toBe(true);
             expect(opsWrites()).toEqual([]);
             expect(await commits(rowDrop.planDropOps.name)).toEqual(deployed);
@@ -1050,11 +1039,7 @@ describe("the conflicts example (planConflicts)", () => {
         await settle();
         // Its presses are the canvas's own rows, in no hall.
         const job = () => bar(c, "J-3001", entry("presses", "a1"));
-        job()!.focus();
-        await keyOn({ key: " " });
-        await keyOn({ key: "ArrowRight" });
-        await keyOn({ key: "ArrowRight" });
-        await keyOn({ key: " " });
+        await carryRun(job()!, { key: "ArrowRight" }, { key: "ArrowRight" });
         expect(job()!.hasAttribute("data-draft")).toBe(true);
         // Someone else's save moves every job a day later: theirs and the carry here differ.
         await act(async () => { fireEvent.click(within(c).getByRole("button", { name: "Someone else saves" })); });
@@ -1071,16 +1056,13 @@ describe("the conflicts example (planConflicts)", () => {
         const { container: c } = await h.mount(ex.planConflicts, { drag: true });
         await settle();
         const job = () => bar(c, "J-3001", entry("presses", "a1"));
-        const carries: { key: string; shiftKey?: boolean; altKey?: boolean }[][] = [
+        const carries: KeyPress[][] = [
             [{ key: "ArrowRight", shiftKey: true }, { key: "ArrowLeft", shiftKey: true }],
             [{ key: "ArrowLeft", shiftKey: true }],
             [{ key: "ArrowRight", altKey: true }],
         ];
         for (const keys of carries) {
-            job()!.focus();
-            await keyOn({ key: " " });
-            for (const key of keys) await keyOn(key);
-            await keyOn({ key: " " });
+            await carryRun(job()!, ...keys);
             expect(carrySaid(c)).toBe("Spring catalogue was not moved");
         }
         expect([pending(c), job()!.hasAttribute("data-draft")]).toEqual(["0 pending", false]);

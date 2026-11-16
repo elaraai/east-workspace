@@ -284,10 +284,27 @@ export async function dragTo(from: HTMLElement, at: { x: number; y: number }, to
     await letGo();
 }
 
+/** A key pressed on the keyboard, with Shift or Alt held. */
+export type KeyPress = { key: string; shiftKey?: boolean; altKey?: boolean };
+
 /** Press a key on the focused element — it bubbles to the canvas. */
-export async function keyOn(init: { key: string; shiftKey?: boolean; altKey?: boolean }): Promise<void> {
+export async function keyOn(init: KeyPress): Promise<void> {
     await act(async () => { fireEvent.keyDown(document.activeElement ?? document.body, init); });
     await settle();
+}
+
+/**
+ * Picks an element up by the keyboard — a run, a chip, a mark — presses the keys given, and puts it down: Space, the
+ * keys, Space, each landing before the next.
+ *
+ * @param element - The element carried
+ * @param keys - The keys pressed while it is held
+ */
+export async function carryRun(element: HTMLElement, ...keys: KeyPress[]): Promise<void> {
+    element.focus();
+    await keyOn({ key: " " });
+    for (const key of keys) await keyOn(key);
+    await keyOn({ key: " " });
 }
 
 /** What the keyboard carry last said. */

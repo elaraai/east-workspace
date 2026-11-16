@@ -6,7 +6,7 @@ import { useCallback, useMemo } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck, faMinus } from "@fortawesome/free-solid-svg-icons";
 import { Box, Button, chakra, useSlotRecipe } from "@chakra-ui/react";
-import { StringType, equalFor, some } from "@elaraai/east";
+import { some } from "@elaraai/east";
 import { BannerView, EastChakraComponent, FieldForm, useTrackedEvaluation, type BuilderFrameDock, type EditIssue } from "@elaraai/east-ui-components";
 import { PlaceholderShape } from "@elaraai/east-ui-components/internal";
 import { FOCUS_HOME_PROPS, useFocusHome } from "../shared/focus-home.js";
@@ -14,7 +14,7 @@ import { useFieldAsk } from "../shared/schedule/field-ask.js";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
 import { madeFromValues } from "../shared/schedule/records.js";
 import { drawnStatus } from "../shared/status.js";
-import { NO_REFUSED_FIELDS, refusedFields, type RefusedFields } from "../shared/schedule/refusals.js";
+import { refusalsOfEntry, refusalsText, refusedFields, type RefusedFields } from "../shared/schedule/refusals.js";
 import { Seg } from "../shared/schedule/segments.js";
 import { shownWhole, type KeyVisibility } from "../shared/schedule/visibility.js";
 import { plural } from "../shared/schedule/words.js";
@@ -62,7 +62,6 @@ type Args = RosterViewsProps & {
     /** Whether a choice of the viewer's narrows who shows, and how many people the page holds (#1621): what the Summary counts out of. */
     peopleShown: Pick<KeyVisibility, "chosen" | "held">;
 };
-const keyEqual = equalFor(StringType);
 function fixLabel(issue: Issue, props: Args) {
     if (issue.fix.type === "none") return "";
     const fix = issue.fix.value;
@@ -179,14 +178,14 @@ function OneAssignment({ props, id, assignment: a }: { props: Args; id: string; 
     const position = props.value.positions.find(p => p.key === a.position);
     // Its refusals holding Save (#1525): over its form, as the Calendar's banner shows an event's, each field named ringed
     // and saying the app's words for it under it.
-    const refusals = props.refusals.filter(r => keyEqual(r.kind, props.value.duty.kind.key) && keyEqual(r.issue.entry, id));
-    const refused = refusals.length === 0 ? NO_REFUSED_FIELDS : refusedFields(refusals.map(r => r.issue));
+    const refusals = refusalsOfEntry(props.refusals, props.value.duty.kind.key, id);
+    const refused = refusedFields(refusals.map(r => r.issue));
     // A bound its row breaks (#1585), said in the tone its Save stands in: as stored it warns; its change refused, holding
     // Save, it is an error.
     const breaches = refusals.length > 0 ? "error" : "warn";
     return <><ScheduleInspectorHead styles={props.styles} kind={{ name: `Duty · ${groupName(props.value, a.place.group)} · ${props.value.shifts.find(s => s.key === a.place.shift)?.label}`, icon: a.who.type === "request" ? "building" : "user" }} title={assignmentName(props.value, a)}
         when={`${position === undefined ? "" : `${position.label} · `}${props.format.weekdayDate(dayOfSlot(props.start, a.place))}${person?.trainer ? " · trainer" : person?.trainee ? " · trainee" : ""}`} status={drawnStatus(state, removed ? "warning" : "neutral", changed)} pending={changed ? baseline === undefined ? "new" : "pending" : undefined} home />
-        {!removed && refusals.length > 0 && <Box css={props.styles.section} data-roster-refusals=""><BannerView status="warning" title="Not saved yet" description={refusals.map(r => r.text).join("; ")} /></Box>}
+        {!removed && refusals.length > 0 && <Box css={props.styles.section} data-roster-refusals=""><BannerView status="warning" title="Not saved yet" description={refusalsText(refusals.map(r => r.issue), props.value.duty.kind.fields)} /></Box>}
         {!removed && <RosterIssues props={props} issues={props.issues.filter(issue => issue.assignment.type === "some" && issue.assignment.value === id)} />}
         {!removed && <Box css={props.styles.fields}>
             {/* Where the duty kind's group takes none (#1548): the groups and No group, a choice moving the duty there —

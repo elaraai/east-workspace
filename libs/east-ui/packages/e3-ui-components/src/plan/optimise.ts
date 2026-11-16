@@ -37,6 +37,7 @@ import { landOptimiseEvents } from "../shared/schedule/optimise-events.js";
 import type { PlanEventEditing, PlanEventReadValue } from "./edit/events.js";
 import type { PlanInstantValue } from "./instant.js";
 import type { PlanRowValue } from "./model.js";
+import { resourceKeyOf } from "./root/landings.js";
 import type { PlanElementOp, PlanGhost } from "./rows/element-optimise.js";
 import type { PlanResolution } from "./scale.js";
 
@@ -159,8 +160,10 @@ function placedOf(rows: readonly PlanRowValue[]): Map<string, PlacedElement> {
  * @returns The name
  */
 function resourceName(rows: readonly PlanRowValue[], at: { readonly kind: string; readonly key: string }): string {
-    const row = rows.find((r) => r.id.type === "entry" && stringEqual(r.id.value.series, at.kind)
-        && r.id.value.path.length > 0 && stringEqual(r.id.value.path[r.id.value.path.length - 1]!, at.key));
+    const row = rows.find((r) => {
+        const key = resourceKeyOf(r.id);
+        return key !== undefined && r.id.type === "entry" && stringEqual(r.id.value.series, at.kind) && stringEqual(key, at.key);
+    });
     return row?.gutter.label ?? at.key;
 }
 

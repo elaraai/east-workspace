@@ -35,7 +35,7 @@ import { FOCUS_HOME_PROPS, useFocusHome } from "../shared/focus-home.js";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
 import { EMPTY_SCHEDULE_DRAFTS, heldRowOf, type ScheduleHeldRows } from "../shared/schedule/editing.js";
 import { useFieldAsk } from "../shared/schedule/field-ask.js";
-import { refusalText, refusedFields } from "../shared/schedule/refusals.js";
+import { refusalsText, refusedFields, sessionEntryRefusals } from "../shared/schedule/refusals.js";
 import type { ScheduleOverlaps } from "../shared/schedule/overlaps.js";
 import { PagedChooser, pagedControl, useCalendarChooser } from "./chooser.js";
 import { EventActions, PlacementFields, useCalendarFieldWords, type CalendarShownResources } from "./controls.js";
@@ -202,12 +202,13 @@ function OneEvent({ event, value, shown, styles, commands, storageKey, range, ov
         catch { return { error: "The custom inspector could not be rendered." }; }
     }, [commands, kind.inspector, event.row, update]);
     const peers = overlaps.peers.get(eventKey(item)) ?? [];
-    const session = commands?.editing.sessions.find(held => held.kind === kind.key)?.session;
-    const readiness = session?.readiness;
-    const issues = (readiness !== undefined && readiness.type !== "ready" ? readiness.value : session?.issues ?? []).filter(issue => issue.entry === item.key);
+    const session = commands?.editing.sessions.find(held => stringEqual(held.kind, kind.key))?.session;
+    // Its refusals holding Save; while its session refuses nothing, the issues it raises of the event in their place.
+    const refusals = sessionEntryRefusals(session, item.key);
+    const issues = session === undefined || session.readiness.type !== "ready" ? refusals : session.issues.filter(issue => stringEqual(issue.entry, item.key));
     // A bound its row breaks (#1585), said in the tone its Save stands in: as stored it warns; its change refused, holding
     // Save, it is an error.
-    const breaches = readiness !== undefined && readiness.type !== "ready" && readiness.value.some(issue => stringEqual(issue.entry, item.key)) ? "error" : "warn";
+    const breaches = refusals.length > 0 ? "error" : "warn";
     // Each field an issue names, ringed in whichever of its forms draws it, the issue's words under it.
     const refused = refusedFields(issues);
     // The field an issue or a warning gone to names takes the keyboard, in whichever of its forms draws it.
@@ -223,7 +224,7 @@ function OneEvent({ event, value, shown, styles, commands, storageKey, range, ov
         {/* Each field it names by its form's label, as the Roster's, the Allocation's and the Plan's do. In its section, as
             the Plan's: standing alone in the pane's column, the banner was squeezed to its least height, its lines run out under it. */}
         {issues.length > 0 && <Box css={styles.refusals} data-calendar-inspector-refusals="">
-            <BannerView status="warning" title={item.title} description={issues.map(issue => refusalText(issue, kind.fields)).join("; ")} />
+            <BannerView status="warning" title={item.title} description={refusalsText(issues, kind.fields)} />
         </Box>}
         <Box css={styles.fields}><Box css={styles.sectionHead}>Schedule</Box>
         <FieldForm specs={roleSpecs} words={fieldWords} value={row} baseline={baseline} options={options} onChange={onField} readOnly={fieldsReadOnly} renderControl={chooser === undefined ? undefined : renderReference}

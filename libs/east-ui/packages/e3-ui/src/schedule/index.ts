@@ -97,14 +97,9 @@ export function scheduleCheck(
             throw new Error(`${builder}: resources.${slot} is a resource kind — Schedule.resources(rows, { name, icon, label })`);
         }
     }
-    const kinds = Object.entries(events);
-    if (kinds.length === 0) {
-        throw new Error(`${builder}: \`events\` declares at least one event kind — Schedule.events(record, { … }) under its slot name`);
-    }
-    for (const [slot, kind] of kinds) {
-        if ((kind as { [SCHEDULE_DEF]?: string } | undefined)?.[SCHEDULE_DEF] !== "events") {
-            throw new Error(`${builder}: events.${slot} is an event kind — Schedule.events(record, { … })`);
-        }
+    // Each kind's own faults before where it lands: the refusal names the first change to make.
+    scheduleEventKindsCheck(events, builder);
+    for (const [slot, kind] of Object.entries(events)) {
         for (const taken of kind.takes) {
             const target = resources[taken];
             if (target === undefined) {
@@ -113,6 +108,26 @@ export function scheduleCheck(
             if (!isTypeEqual(target.keyType, StringType)) {
                 throw new Error(`${builder}: events.${slot}'s resource field holds String keys of resources.${taken}, which is keyed by ${printType(target.keyType)} — key the resources by String`);
             }
+        }
+    }
+}
+
+/**
+ * The check a builder makes of its event kinds alone: at least one, each a `Schedule.events` kind — {@link scheduleCheck}'s
+ * first, and the whole of a Plan's, which takes no resource kinds: its rows are its resources (#1541).
+ *
+ * @param events - The builder's event kinds, by slot
+ * @param builder - The builder, for the refusals (`Calendar.Builder`, `Plan`)
+ * @throws {Error} Naming the slot and the remedy: none at all, or one that is no `Schedule.events` kind
+ */
+export function scheduleEventKindsCheck(events: Readonly<Record<string, ScheduleEventKind<EastType, EastType>>>, builder: string): void {
+    const kinds = Object.entries(events);
+    if (kinds.length === 0) {
+        throw new Error(`${builder}: \`events\` declares at least one event kind — Schedule.events(record, { … }) under its slot name`);
+    }
+    for (const [slot, kind] of kinds) {
+        if ((kind as { [SCHEDULE_DEF]?: string } | undefined)?.[SCHEDULE_DEF] !== "events") {
+            throw new Error(`${builder}: events.${slot} is an event kind — Schedule.events(record, { … })`);
         }
     }
 }
