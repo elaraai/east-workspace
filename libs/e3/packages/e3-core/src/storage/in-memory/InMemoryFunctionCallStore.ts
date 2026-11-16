@@ -3,9 +3,9 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { some } from '@elaraai/east';
 import { decodeFunctionCallJob, encodeFunctionCallJob, type FunctionCallCancel, type FunctionCallJob } from '@elaraai/e3-types';
 import type { FunctionCallEnd, FunctionCallListOptions, FunctionCallListPage, FunctionCallStore, StoredFunctionCall } from '../interfaces.js';
+import { applyCallTransition, callCancelAsked, callEnded, callExpired, callInputsPinned, callListed } from '../function-call-transitions.js';
 import { checkId, checkName, checkPageLimit } from '../../errors.js';
 import type { InMemoryRepositoryRecords } from './InMemoryRepoStore.js';
 
@@ -49,42 +49,15 @@ export class InMemoryFunctionCallStore implements FunctionCallStore, InMemoryRep
   }
 
   async end(repo: string, workspace: string, id: string, end: FunctionCallEnd): Promise<FunctionCallJob | null> {
-    const key = this.key(repo, workspace, id);
-    const job = this.live(key);
-    if (job === null || job.call.state.type !== 'running') return job;
-    const ended: FunctionCallJob = {
-      ...job,
-      call: {
-        ...job.call,
-        state: end.state,
-        endedAt: some(end.endedAt),
-        expiresAt: end.expiresAt,
-        stdout: end.stdout,
-        stderr: end.stderr,
-        stdoutTruncated: end.stdoutTruncated,
-        stderrTruncated: end.stderrTruncated,
-      },
-    };
-    this.calls.set(key, { job: ended });
-    return ended;
+    return this.transition(this.key(repo, workspace, id), (job) => callEnded(job, end));
   }
 
   async requestCancel(repo: string, workspace: string, id: string, cancel: FunctionCallCancel): Promise<FunctionCallJob | null> {
-    const key = this.key(repo, workspace, id);
-    const job = this.live(key);
-    if (job === null || job.call.state.type !== 'running' || job.cancel.type === 'some') return job;
-    const asked: FunctionCallJob = { ...job, cancel: some(cancel) };
-    this.calls.set(key, { job: asked });
-    return asked;
+    return this.transition(this.key(repo, workspace, id), (job) => callCancelAsked(job, cancel));
   }
 
   async pinInputs(repo: string, workspace: string, id: string, inputs: FunctionCallJob['call']['inputs']): Promise<FunctionCallJob | null> {
-    const key = this.key(repo, workspace, id);
-    const job = this.live(key);
-    if (job === null || job.call.state.type !== 'running') return job;
-    const pinned: FunctionCallJob = { ...job, call: { ...job.call, inputs } };
-    this.calls.set(key, { job: pinned });
-    return pinned;
+    return this.transition(this.key(repo, workspace, id), (job) => callInputsPinned(job, inputs));
   }
 
   async list(repo: string, workspace: string, options: FunctionCallListOptions): Promise<FunctionCallListPage> {
@@ -106,10 +79,7 @@ export class InMemoryFunctionCallStore implements FunctionCallStore, InMemoryRep
         // Bytes that do not decode keep no call a reader can be shown
         continue;
       }
-      if (job === null) continue;
-      // A function's calls: a one-shot names none
-      if (options.function !== undefined && !(job.call.function.type === 'some' && job.call.function.value === options.function)) continue;
-      if (options.state !== undefined && job.call.state.type !== options.state) continue;
+      if (job === null || !callListed(job, options)) continue;
       calls.push(job);
       // A full page names the next while calls are left before its last
       if (calls.length >= options.limit) return at < ids.length - 1 ? { calls, next: id } : { calls };
@@ -178,6 +148,11 @@ export class InMemoryFunctionCallStore implements FunctionCallStore, InMemoryRep
     return `${prefix}${id}`;
   }
 
+  /** One of the call's transitions, applied to it as held, in one step: nothing yields between its read and its write. */
+  private transition(key: string, next: (job: FunctionCallJob) => FunctionCallJob | undefined): Promise<FunctionCallJob | null> {
+    return applyCallTransition(this.live(key), next, (moved) => { this.calls.set(key, { job: moved }); });
+  }
+
   /**
    * The call a key holds, or null when there is none or it has expired, which
    * drops it. A call held as the bytes it was written back as is decoded once,
@@ -195,7 +170,7 @@ export class InMemoryFunctionCallStore implements FunctionCallStore, InMemoryRep
     } else {
       job = held.job;
     }
-    if (job.call.expiresAt.getTime() <= this.now()) {
+    if (callExpired(job, this.now())) {
       this.calls.delete(key);
       return null;
     }

@@ -73,6 +73,18 @@ export type {
   StorageBackend,
 } from './storage/interfaces.js';
 
+// The transitions every function call store makes of a kept call, and the
+// rules its reads and lists keep: each a pure function the store applies in
+// one atomic step of its own (east-workspace#1554, #1619)
+export {
+  applyCallTransition,
+  callEnded,
+  callCancelAsked,
+  callInputsPinned,
+  callExpired,
+  callListed,
+} from './storage/function-call-transitions.js';
+
 // How a log store cuts a window of a log, as every one does: at the longest
 // prefix of its bytes that holds whole characters
 export { completeUtf8Length } from './storage/utf8.js';

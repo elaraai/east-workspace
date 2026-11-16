@@ -215,8 +215,16 @@ whose items expire on their own (a DynamoDB `ttl`) leaves the removal to them,
 and the local, in-memory and in-page stores remove one as a read passes it and
 as gc sweeps. A call still recorded running past its deadline and a grace is
 recorded `lost` as it is read: its host stopped before it ended, whatever the
-backend. A store's behaviour is `functionCallStoreTests`; a route's, the
-`calls` suite of e3-api-tests.
+backend. A call's transitions are rules every store shares
+(`storage/function-call-transitions.ts`, through the portable entry): its end,
+the first standing (`callEnded`), a request to cancel it, asked once
+(`callCancelAsked`), and the pin of a running call's inputs
+(`callInputsPinned`), each applied by `applyCallTransition` in the store's own
+atomic step — a lock over a file, a records transaction, a conditional write —
+and when a call has expired (`callExpired`) and whether a list takes it
+(`callListed`). A store implements only how it reads and writes. A store's
+behaviour is `functionCallStoreTests`; a route's, the `calls` suite of
+e3-api-tests.
 
 **A call's drafts are laid by the job every backend shares.** A call may pass
 drafts: unsaved edits of the records its function reads, each a mutation call

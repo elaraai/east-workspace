@@ -54,6 +54,16 @@ export {
   type StorageBackend,
 } from './interfaces.js';
 
+// The transitions every function call store makes of a kept call, which each applies in its own atomic step
+export {
+  applyCallTransition,
+  callEnded,
+  callCancelAsked,
+  callInputsPinned,
+  callExpired,
+  callListed,
+} from './function-call-transitions.js';
+
 // Local filesystem implementation
 export {
   LocalStorage,
