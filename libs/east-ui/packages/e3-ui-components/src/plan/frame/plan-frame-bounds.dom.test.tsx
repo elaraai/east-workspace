@@ -41,7 +41,9 @@ const bounded = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(E
     const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
     return Plan({
         axis, inspector: true,
-        resources: { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) },
+        // The presses are the canvas's rows, a landing row each (#1541).
+        data: presses.read(),
+        series: [Plan.series.resources(ex.PrintPress, { key: "presses", title: "Presses", icon: "print", label: (p) => p.name })],
         events: {
             job: Schedule.events(jobs, {
                 name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" },
@@ -62,7 +64,7 @@ test("a stored job's sheets under their least: its bar wears the warn ring, the 
     const save = () => within(slot(container, "toolbar")!).getByRole<HTMLButtonElement>("button", { name: editingMessages.apply() });
     const issues = () => slot(container, "toolbar")!.querySelector<HTMLButtonElement>('[data-slot="historyIssues"] button')!;
     const banner = () => pane().querySelector("[data-inspector-refusals]");
-    const bar = (key: string) => container.querySelector<HTMLElement>(`${rowAt(entry("presses.span", "a1"))} ${el("data-run", "job", key)}`)!;
+    const bar = (key: string) => container.querySelector<HTMLElement>(`${rowAt(entry("presses", "a1"))} ${el("data-run", "job", key)}`)!;
     const select = async (key: string) => {
         fireEvent.click(bar(key));
         await settle();

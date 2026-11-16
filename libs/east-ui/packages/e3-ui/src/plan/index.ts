@@ -635,8 +635,8 @@ export interface PlanNamespace extends PlanTagType {
     band: typeof createBand;
     /** Pins a chart row to an explicit pixel height. */
     fixed: typeof createFixedHeight;
-    /** What the library's Series tab lists of a series list (#590, #1541): each series at the top of the list, a
-     *  `views` as its members — no state binding. */
+    /** What the library's Series tab lists of a series list (#590, #1541): every series of its tree, a `views` as its
+     *  members and a `kinds` as its cases — no state binding. */
     pickItems: typeof createPlanPickItems;
     /** The Plan East types. */
     Types: {

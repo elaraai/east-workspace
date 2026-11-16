@@ -43,10 +43,10 @@ function jobsWith(changes: { readonly [key: string]: Partial<Job> }): Jobs {
     return jobs as unknown as Jobs;
 }
 
-/** Press B2's and Press A1's bars, under their halls. */
-const B2 = entry("presses.span", "Hall B", "b2");
-const A1 = entry("presses.span", "Hall A", "a1");
-const A2 = entry("presses.span", "Hall A", "a2");
+/** Press B2's and Press A1's landing rows, of their bars, under their halls' groups of the works' record (#1541). */
+const B2 = entry("presses", "2-presses-b", "b2");
+const A1 = entry("presses", "1-presses-a", "a1");
+const A2 = entry("presses", "1-presses-a", "a2");
 
 /** A job's bar on a press's row. */
 const bar = (c: HTMLElement, row: PlanRowId, key: string) => c.querySelector<HTMLElement>(`${rowAt(row)} ${el("data-run", "job", key)}`);
@@ -80,7 +80,9 @@ const warnedByPress = { fn: East.function([], UIComponentType, (_$) => Reactive.
     const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
     return Plan({
         axis,
-        resources: { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) },
+        // The presses are the canvas's rows, a landing row each (#1541).
+        data: presses.read(),
+        series: [Plan.series.resources(ex.PrintPress, { key: "presses", title: "Presses", icon: "print", label: (p) => p.name })],
         events: {
             job: Schedule.events(jobs, {
                 name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
@@ -97,7 +99,9 @@ const allowedByPress = { fn: East.function([], UIComponentType, (_$) => Reactive
     const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
     return Plan({
         axis,
-        resources: { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) },
+        // The presses are the canvas's rows, a landing row each (#1541).
+        data: presses.read(),
+        series: [Plan.series.resources(ex.PrintPress, { key: "presses", title: "Presses", icon: "print", label: (p) => p.name })],
         events: {
             job: Schedule.events(jobs, {
                 name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
@@ -114,7 +118,9 @@ const drawnThreeWays = { fn: East.function([], UIComponentType, (_$) => Reactive
     const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
     return Plan({
         axis,
-        resources: { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) },
+        // The presses are the canvas's rows, a landing row each (#1541).
+        data: presses.read(),
+        series: [Plan.series.resources(ex.PrintPress, { key: "presses", title: "Presses", icon: "print", label: (p) => p.name })],
         events: {
             chips: Schedule.events(jobs, {
                 name: "Job chip", icon: "file-lines", draw: "cards", title: "title", start: "start", end: "end",
@@ -164,7 +170,7 @@ describe("an overlap pair (#1198, PB51)", () => {
         warned.unmount();
         const allowed = await h.mount(allowedByPress);
         await settle();
-        expect(bar(allowed.container, entry("presses.span", "b2"), "J-1019")).not.toBeNull();
+        expect(bar(allowed.container, entry("presses", "b2"), "J-1019")).not.toBeNull();
         expect(ringed(allowed.container)).toEqual(new Set());
         expect(chip(allowed.container)).toBeNull();
         allowed.unmount();
@@ -193,7 +199,7 @@ describe("the overlaps chip (#1198, PB52)", () => {
         const { container } = await h.mount(ex.planPrintWorks);
         await settle();
         expect(chip(container)!.textContent).toBe("2 overlaps");
-        // The bindery starts collapsed, so the first action may be Expand all.
+        // A group that starts collapsed makes the first action Expand all.
         const fold = () => slot(container, "toolbar")!.querySelector("[data-plan-fold-all]")!;
         if (fold().getAttribute("aria-label") === "Expand all") {
             fireEvent.click(fold());
@@ -211,7 +217,7 @@ describe("the overlaps chip (#1198, PB52)", () => {
         expect(selectedRow(container)).toBe(rowKeyOf(A1));
         expect(announced(container)).toBe("2 events selected");
         // Only the selected row's ancestors open. Other halls stay folded.
-        const hallB = container.querySelector(`[data-plan-group=${JSON.stringify(rowKeyOf(entry("presses.group", "Hall B")))}]`)!;
+        const hallB = container.querySelector(`[data-plan-group=${JSON.stringify(rowKeyOf(entry("groups", "2-presses-b")))}]`)!;
         expect(hallB.getAttribute("aria-expanded")).toBe("false");
         expect(pane(container).querySelector("[data-inspector-several]")!.textContent).toBe("2 events");
     });
@@ -256,7 +262,7 @@ describe("the overlaps chip (#1198, PB52)", () => {
         try {
             const { container } = await h.mount(warnedByPress);
             await settle();
-            const B9 = `[data-plan-card=${JSON.stringify(rowKeyOf(entry("presses.span", "b9")))}]`;
+            const B9 = `[data-plan-card=${JSON.stringify(rowKeyOf(entry("presses", "b9")))}]`;
             expect(container.querySelector(B9)).toBeNull();
             fireEvent.click(chip(container)!);
             await settle();
@@ -321,7 +327,8 @@ describe("the inspector's overlaps (#1198, PB53, PB40)", () => {
     test("a press's view lists its pairs, each over when they overlap; a click selects the pair; a press with none shows none", async () => {
         const { container } = await h.mount(ex.planPrintWorks);
         await settle();
-        fireEvent.click(container.querySelector(`${rowAt(B2)} [role="rowheader"]`)!);
+        // A press's row holds its utilisation beneath it (#1541): its name folds it, and a click on its plot selects it.
+        fireEvent.click(container.querySelector(`${rowAt(B2)} [data-plan-plot]`)!);
         await settle();
         expect(banner(container)!.textContent).toContain("1 overlap");
         const pair = [elementKey("job", "J-1018"), elementKey("job", "J-1019")].join(" ");
@@ -329,7 +336,7 @@ describe("the inspector's overlaps (#1198, PB53, PB40)", () => {
         fireEvent.click(banner(container)!.querySelector("[data-inspector-overlap]")!);
         await settle();
         expect(pressed(container)).toEqual(new Set([elementKey("job", "J-1018"), elementKey("job", "J-1019")]));
-        fireEvent.click(container.querySelector(`${rowAt(A2)} [role="rowheader"]`)!);
+        fireEvent.click(container.querySelector(`${rowAt(A2)} [data-plan-plot]`)!);
         await settle();
         expect(banner(container)).toBeNull();
     });

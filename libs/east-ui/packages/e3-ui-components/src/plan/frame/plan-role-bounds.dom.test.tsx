@@ -40,7 +40,9 @@ const bounded = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(E
     const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
     return Plan({
         axis, inspector: true,
-        resources: { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) },
+        // The presses are the canvas's rows, a landing row each (#1541).
+        data: presses.read(),
+        series: [Plan.series.resources(ex.PrintPress, { key: "presses", title: "Presses", icon: "print", label: (p) => p.name })],
         events: {
             job: Schedule.events(jobs, {
                 name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" },
@@ -62,7 +64,7 @@ async function mounted() {
     const form = () => pane().querySelector<HTMLElement>("[data-inspector-fields='form']")!;
     const quantity = () => pane().querySelector<HTMLElement>("[data-inspector-facts] [data-fact='quantity']");
     const select = async (key: string) => {
-        fireEvent.click(container.querySelector<HTMLElement>(`${rowAt(entry("presses.span", "a1"))} ${el("data-run", "job", key)}`)!);
+        fireEvent.click(container.querySelector<HTMLElement>(`${rowAt(entry("presses", "a1"))} ${el("data-run", "job", key)}`)!);
         await settle();
     };
     /** Retypes the selected job's customer, committed with Enter. */

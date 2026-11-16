@@ -126,7 +126,7 @@ import { quantityText, totalsByUnit, totalsText, type PlanQuantityValue } from "
 import { scheduleCellId, scheduleWithinCap, type ScheduleCellsRead } from "../../shared/schedule/cells.js";
 import type { PlanChrome } from "../root/chrome.js";
 import { eventReadRange } from "../root/events.js";
-import { landingRowId, landingTargetOf, type PlanLandingTarget } from "../root/landings.js";
+import { landingRowId, landingSeriesTargetOf, landingTargetOf, type PlanLandingTarget } from "../root/landings.js";
 import type { PlanScale } from "../scale.js";
 import type { PlanWords } from "../words.js";
 import type { PlanEventCounts } from "./counts.js";
@@ -1042,8 +1042,8 @@ function SeveralEvents({ events, kinds, landings, words, styles, chrome, selecti
 
 /**
  * What a row stands for (`../root/landings.ts`): a resource — its landing row,
- * or the row beside it for a further way its kinds draw — an event kind's
- * events on none, or neither.
+ * the row beside it for a further way its kinds draw, or a row of its series
+ * beneath it — an event kind's events on none, or neither.
  */
 type RowTarget = PlanLandingTarget | { readonly kind: "row" };
 
@@ -1168,7 +1168,8 @@ function RowView({ rowKey, at, kinds, landings, chrome, counts, words, styles, h
     const { m } = words;
     const { inspect, scale } = chrome;
     const row = inspect.row(rowKey)!;
-    const target = useMemo((): RowTarget => landingTargetOf(row.id, landings, kinds) ?? { kind: "row" }, [row.id, landings, kinds]);
+    const target = useMemo((): RowTarget => landingTargetOf(row.id, landings, kinds) ?? landingSeriesTargetOf(row.id, landings) ?? { kind: "row" },
+        [row.id, landings, kinds]);
     const facts = useWindowFacts(target, kinds, scale, chrome.events?.drafts ?? NONE_DRAFTED, chrome.cells, hidden);
     // Its overlaps (#1198, PB40): the pairs on its resource in the window, a line each, which selects the pair.
     const on = target.kind === "resource" ? some({ kind: target.landing.key, key: target.key }) : undefined;

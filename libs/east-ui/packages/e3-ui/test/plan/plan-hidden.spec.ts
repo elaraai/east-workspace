@@ -7,14 +7,15 @@
  * Which of a Plan's series show (#1541, U3): `series` is the list and `hidden`
  * names the ones off to start. What is checked here needs no state: a Plan
  * whose library lists no Series tab binds none, and `hidden` names the series
- * it does not draw — a series at the top of the list whole, its subtree with
+ * it does not draw — any series of the list, nested or not, its subtree with
  * it, and a member of a `views` alone, the entry's children nesting under the
  * first member left. The same rows are made wherever the canvas makes them: a
  * draft's too, while a gesture writes the data whichever series show.
  *
  * Where the library lists `Plan.library.series()` the series are picked: the
- * pick the root carries lists a `views` as its members, is bound under the
- * Plan's `id`, and is seeded with `hidden`. The refusals are word for word.
+ * pick the root carries lists every series of the tree, a `views` as its
+ * members, is bound under the Plan's `id`, and is seeded with `hidden`. The
+ * refusals are word for word.
  * What a viewer switches in the tab is e3-ui-components' to check, on a page.
  */
 
@@ -144,6 +145,14 @@ describe("`hidden` names the series a Plan does not draw (#1541, U3)", () => {
         assert.ok(sameParents(one.slice(0, 2).map((row) => row.parent), [none, some(entry("press-readings", "p03"))]));
     });
 
+    test("a series nested in another leaves alone: the entry's children, and a section's member — its header stays", () => {
+        assert.ok(sameIds(rowsOf(canvas(["parts"])).map((row) => row.id), [...EVERY_ROW.slice(0, 3), ...EVERY_ROW.slice(4)]));
+        const rows = rowsOf(canvas(["marks"]));
+        assert.ok(sameIds(rows.map((row) => row.id), [...EVERY_ROW.slice(0, 7), entry("works", "shutdown")]));
+        // The section's member makes no block: its header's stands, and the presses' and the works'.
+        assert.equal(blocksOf(canvas(["marks"])).length, 3);
+    });
+
     test("every member of a `views` off leaves no row of its entries, and none beneath them", () => {
         const rows = rowsOf(canvas(["press-jobs", "press-load", "press-readings"]));
         assert.ok(sameIds(rows.map((row) => row.id), EVERY_ROW.slice(6)));
@@ -212,13 +221,15 @@ describe("`hidden` names the series a Plan does not draw (#1541, U3)", () => {
 });
 
 describe("the series are picked where the library lists the Series tab (#1541, U3)", () => {
-    test("the tab's lines: each series at the top of the list, a `views` as its members, by title, role line and icon", () => {
+    test("the tab's lines: every series of the tree in the canvas's order, each before what nests in it, a `views` as its members, by title, role line and icon", () => {
         const items = East.compile(East.function([], ArrayType(PickItemType), () => Plan.pickItems(pressSeries())), [])();
-        assert.deepEqual(items.map((item) => item.id), ["press-jobs", "press-load", "press-readings", "notes", "works"]);
-        assert.deepEqual(items.map((item) => item.title), ["Jobs", "Load", "Readings", "Notes", "Works"]);
-        assert.deepEqual(items.map((item) => (item.subtitle.type === "some" ? item.subtitle.value : null)), ["what runs", null, null, null, null]);
+        // The views' members, then the entry's children; the section, then its member; the hand-built rows.
+        assert.deepEqual(items.map((item) => item.id), ["press-jobs", "press-load", "press-readings", "parts", "notes", "marks", "works"]);
+        assert.deepEqual(items.map((item) => item.title), ["Jobs", "Load", "Readings", "Parts", "Notes", "Marks", "Works"]);
+        assert.deepEqual(items.map((item) => (item.subtitle.type === "some" ? item.subtitle.value : null)), ["what runs", null, null, null, null, null, null]);
         // A member's own icon, else its kind's.
-        assert.deepEqual(items.map((item) => (item.icon.type === "some" ? item.icon.value.name : null)), ["bars-staggered", "gauge", "table-list", "heading", "list"]);
+        assert.deepEqual(items.map((item) => (item.icon.type === "some" ? item.icon.value.name : null)),
+            ["bars-staggered", "gauge", "table-list", "table-cells-large", "heading", "flag", "list"]);
         assert.ok(items.every((item) => item.count.type === "none" && !item.narrowed));
     });
 
@@ -230,17 +241,17 @@ describe("the series are picked where the library lists the Series tab (#1541, U
 
 describe("what `hidden` and the removed `pick` are refused in (#1541, U3)", () => {
     const data = ($: BlockBuilder<NullType>) => $.const(PRESSES, Presses);
-    const NAMES = '"press-jobs", "press-load", "press-readings", "notes", "works"';
+    const NAMES = '"press-jobs", "press-load", "press-readings", "parts", "notes", "marks", "works"';
+    const NAMED = "it names a series of `series`, nested or not, or a member of a `views` or a case of a `kinds`";
 
-    test("`hidden` names a series at the top of `series`, or a member of a `views` there", () => {
+    test("`hidden` names any series of `series`, nested or not, or a member of a `views`", () => {
         const hidden = (names: readonly string[]) => refusalIn(($) => Plan.Payload({ axis, data: data($), series: pressSeries(), hidden: names }));
         assert.equal(hidden(["press-jobs", "notes", "works"]), "");
+        assert.equal(hidden(["parts", "marks"]), "");
         assert.equal(hidden(["utilisation"]),
-            `Plan: \`hidden\` names "utilisation", which is no series of this Plan — it names a series at the top of \`series\`, or a member of a \`views\` there: ${NAMES}`);
-        assert.equal(hidden(["marks"]),
-            `Plan: \`hidden\` names "marks", a series nested in another, which shows and hides with it — it names a series at the top of \`series\`, or a member of a \`views\` there: ${NAMES}`);
+            `Plan: \`hidden\` names "utilisation", which is no series of this Plan — ${NAMED}: ${NAMES}`);
         assert.equal(hidden(["presses"]),
-            `Plan: \`hidden\` names "presses", a \`views\`, whose members show and hide each alone — it names a series at the top of \`series\`, or a member of a \`views\` there: ${NAMES}`);
+            `Plan: \`hidden\` names "presses", a \`views\` or a \`kinds\` block, whose members and cases show and hide each alone — ${NAMED}: ${NAMES}`);
         assert.equal(refusalIn(($) => Plan.Payload({ axis, data: data($), series: pressSeries(), hidden: "notes" as never })),
             'Plan: `hidden` lists the keys of the series off to start — hidden={["utilisation"]}');
     });

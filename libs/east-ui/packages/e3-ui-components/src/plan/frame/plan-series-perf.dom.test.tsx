@@ -27,7 +27,7 @@ import { East, StringType, compareFor, some, variant, type ValueTypeOf } from "@
 import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui/internal";
 import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-windows";
-import type { PrintJob } from "@elaraai/e3-ui/examples/plan/plan-events";
+import { PrintPress, type PrintJob } from "@elaraai/e3-ui/examples/plan/plan-events";
 import type { TreePath } from "@elaraai/e3-types";
 import { PLAN_GEOMETRY } from "../geometry.js";
 import { emulateWindowScroll } from "../window-scroll.test-utils.js";
@@ -64,8 +64,10 @@ function benchPlan(min: Date, max: Date, resolution: "day" | "month") {
         return Plan({
             axis: Plan.axis({ window: { min, max }, resolution, resolutions: ["day", "week", "month"] }),
             slice: { slice },
-            // Each press's hall its second line, as `planWindows` draws it: a row of the stacked height the scrolls below count in.
-            resources: { presses: Schedule.resources(pressPages, { name: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) }) },
+            // The presses the canvas's rows, a landing row each (#1541), each press's hall its second line, as `planWindows`
+            // draws it: a row of the stacked height the scrolls below count in.
+            data: pressPages,
+            series: [Plan.series.resources(PrintPress, { key: "presses", title: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) })],
             events: {
                 job: Schedule.events(jobs, {
                     name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", state: "state",
@@ -77,7 +79,7 @@ function benchPlan(min: Date, max: Date, resolution: "day" | "month") {
 }
 
 /** A press's row. */
-const pressRow = (key: string) => rowAt(entry("presses.span", key));
+const pressRow = (key: string) => rowAt(entry("presses", key));
 
 /** What each request kind is called in the results. */
 const KINDS = ["find", "runs", "page", "rows", "within", "read"] as const;

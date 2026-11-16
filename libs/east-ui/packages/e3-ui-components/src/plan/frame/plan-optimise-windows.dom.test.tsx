@@ -24,7 +24,7 @@ import { layOut } from "@elaraai/east-ui-components/testing";
 import { Data, Func, Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as windows from "@elaraai/e3-ui/examples/plan/plan-windows";
 import * as ex from "@elaraai/e3-ui/examples/plan/optimise-windows";
-import { PrintJob } from "@elaraai/e3-ui/examples/plan/plan-events";
+import { PrintJob, PrintPress } from "@elaraai/e3-ui/examples/plan/plan-events";
 import { fitCalls } from "../../shared/func/fit-calls.test-utils.js";
 import { carry } from "../plan-move.test-utils.js";
 import { act, el, elementKey, entry, planHarness, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
@@ -54,7 +54,9 @@ const cellsPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root
             resolution: "day", resolutions: ["day", "week", "month", "quarter"], now: new Date("2026-10-14T09:00:00Z"),
         }),
         slice: { slice }, optimise,
-        resources: { presses: Schedule.resources(presses, { name: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) }) },
+        // The presses are the canvas's rows, read a page at a time, a landing row each (#1541).
+        data: presses,
+        series: [Plan.series.resources(PrintPress, { key: "presses", title: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) })],
         events: {
             job: Schedule.events(jobs, {
                 name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
@@ -74,7 +76,7 @@ const eye = (c: HTMLElement) => c.querySelector<HTMLButtonElement>("[data-optimi
 const history = (c: HTMLElement, name: string) => within(slot(c, "toolbar")!).getByRole("button", { name }) as HTMLButtonElement;
 const banner = (c: HTMLElement, kind: string) => c.querySelector<HTMLElement>(`[data-optimise-banner="${kind}"]`);
 /** A job's bar on a press's row. */
-const bar = (c: HTMLElement, key: string, press: string) => c.querySelector<HTMLElement>(`${rowAt(entry("presses.span", press))} ${el("data-run", "job", key)}`);
+const bar = (c: HTMLElement, key: string, press: string) => c.querySelector<HTMLElement>(`${rowAt(entry("presses", press))} ${el("data-run", "job", key)}`);
 const pending = (c: HTMLElement) => slot(c, "footer")!.querySelector('[data-plan-count="pending"]')?.textContent ?? null;
 const commits = async () => (await h.history(windows.planWindowJobs)).commits.map((commit) => commit.mutation);
 async function press(node: Element | null) { expect(node).toBeTruthy(); await act(async () => { fireEvent.click(node!); }); await settle(); }
@@ -94,7 +96,7 @@ describe("the optimiser over jobs read a cell at a time (east-workspace#1622)", 
         // The presses' plots, stacked 40px apart across the fortnight, a day 100px wide from x 200.
         const rects = new Map<Element, { left: number; top: number; width: number; height: number }>();
         ["P-1001", "P-1002", DOWN].forEach((p, i) => {
-            rects.set(c.querySelector(`${rowAt(entry("presses.span", p))} [data-plan-plot]`)!, { left: 200, top: 40 * i, width: 1400, height: 32 });
+            rects.set(c.querySelector(`${rowAt(entry("presses", p))} [data-plan-plot]`)!, { left: 200, top: 40 * i, width: 1400, height: 32 });
         });
         layOut(rects);
         // The drag: the order forms onto the press's Monday, 12 October — a draft, saved nowhere.

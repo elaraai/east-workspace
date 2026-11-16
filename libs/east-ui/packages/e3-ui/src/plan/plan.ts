@@ -105,7 +105,7 @@ import { buildPlanRoot, type PlanConfig, type PlanRecordHandle } from "./root.js
 import { pickRefusal, planShown } from "./pick.js";
 import { nestedPartOf } from "./nested-checks.js";
 import { overSeriesKeys, type PlanOverRows } from "./over.js";
-import { planLandings, planSeriesKeys, type PlanLanding, type PlanSeriesInput } from "./series.js";
+import { planLandings, planSeriesKeys, type PlanLanding, type PlanSeriesInput, type PlanTreeLanding } from "./series.js";
 import type { PlanNestedChecked, PlanRowsNestedOf } from "./nested.js";
 import { PlanEventSeamType, PlanLandingType, createEventSeam, eventDrawsOf, landingsOnWire } from "./event-rows.js";
 import { PlanLibraryTabType, buildLibrary, type PlanLibraryTab } from "./library.js";
@@ -810,7 +810,8 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
                 plan: root,
                 landings: onWire,
                 events: built,
-                seam: some(createEventSeam(landings, eventKinds, built, vocabulary?.unassigned)),
+                // What the viewer hides is read at each placing: a landing hidden puts nothing on the Unassigned rows (U3).
+                seam: some(createEventSeam(landings, eventKinds, built, vocabulary?.unassigned, shown.hidden)),
                 paged,
                 canDrop: canDropFn,
                 optimise: optimiseFn,
@@ -883,11 +884,12 @@ function checkEventKinds(events: readonly (readonly [string, ScheduleEventKind<E
  *
  * @param series - The `series` prop
  * @param events - The event kinds, by slot, each checked a kind ({@link checkEventKinds})
- * @returns The landings, in the series tree's order, a kinds block's cases in its variant's
+ * @returns The landings, in the series tree's order, a kinds block's cases in its variant's, each with the series it is
+ *   nested in
  * @throws {Error} Naming the slot and the remedy: a `series` known only as it runs, an `of` naming no landing series,
  *   and a landing series keyed by another type
  */
-function eventLandings(series: unknown, events: readonly (readonly [string, ScheduleEventKind<EastType, EastType>])[]): readonly PlanLanding[] {
+function eventLandings(series: unknown, events: readonly (readonly [string, ScheduleEventKind<EastType, EastType>])[]): readonly PlanTreeLanding[] {
     const landings = planLandings(series);
     if (landings === undefined) {
         throw new Error("Plan: the event kinds land on the rows of a resources series, known as the Plan is built — give `series` the list " +

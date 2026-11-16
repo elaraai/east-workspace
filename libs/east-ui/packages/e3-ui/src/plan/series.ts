@@ -1348,6 +1348,17 @@ export interface PlanLanding {
     readonly series: readonly string[];
 }
 
+/**
+ * A landing where the series tree holds it (#1541, U3): with the series it is
+ * nested in, any of which a viewer hiding hides its rows with it.
+ *
+ * @internal
+ * @property within - The keys of the series it is nested in, outermost first
+ */
+export interface PlanTreeLanding extends PlanLanding {
+    readonly within: readonly string[];
+}
+
 /** Every series value a builder made, with its build spec. */
 const SPECS = new WeakMap<object, PlanSeriesSpec>();
 
@@ -4065,10 +4076,11 @@ export interface PlanPickable {
 
 /**
  * What the Series tab lists of a series list (#1541, U3), in the order the
- * canvas draws them: each series at the top of the list by its key — a
- * section, a group and their like whole, its subtree leaving with it — and,
- * for a `views`, each of its members alone, since each is a row of its own
- * beside the others.
+ * canvas draws them: every series of the tree by its key, each followed by
+ * the series nested in it — save a `views` and a `kinds` block, which draw no
+ * row of their own, so each member of a `views` and each case of a `kinds` is
+ * a line alone. A series switched off takes what is nested in it with it,
+ * whatever their own lines say.
  *
  * @param series - The `series` input
  * @returns The lines; `undefined` for an East expression of a list, or a list holding a series no `Plan.series.*`
@@ -4078,12 +4090,16 @@ export interface PlanPickable {
 export function planPickables(series: unknown): readonly PlanPickable[] | undefined {
     if (!Array.isArray(series)) return undefined;
     const lines: PlanPickable[] = [];
-    const line = (spec: PlanSeriesSpec): PlanPickable => ({ key: spec.key, title: spec.title, subtitle: spec.subtitle, icon: spec.icon, arm: spec.arm });
+    const walk = (spec: PlanSeriesSpec): void => {
+        if (spec.arm !== "views" && spec.arm !== "kinds") {
+            lines.push({ key: spec.key, title: spec.title, subtitle: spec.subtitle, icon: spec.icon, arm: spec.arm });
+        }
+        spec.nested.forEach(walk);
+    };
     for (const one of series) {
         const spec = specOf(one);
         if (spec === undefined) return undefined;
-        if ((spec.arm === "views" || spec.arm === "kinds") && spec.nest !== undefined) lines.push(...spec.nest.members.map(line));
-        else lines.push(line(spec));
+        walk(spec);
     }
     return lines;
 }
@@ -4188,24 +4204,26 @@ export function planSeriesKeys(series: unknown): readonly string[] | undefined {
  * The series a list's event kinds may land on (#1541, U1): every `resources`
  * series and `kinds` case in its tree, in the tree's order — a kinds block's
  * cases in its variant's, whose entries the canvas draws in their source's
- * order, mixed — what an event kind's `resource.of` names.
+ * order, mixed — what an event kind's `resource.of` names; each with the
+ * series it is nested in (U3).
  *
  * @param series - The `series` input
  * @returns The landings; `undefined` for an East expression list, or one holding a series no `Plan.series.*` builder
  *   made in place, whose series are not known until it runs
  * @internal
  */
-export function planLandings(series: unknown): readonly PlanLanding[] | undefined {
+export function planLandings(series: unknown): readonly PlanTreeLanding[] | undefined {
     if (!Array.isArray(series)) return undefined;
-    const out: PlanLanding[] = [];
-    const walk = (spec: PlanSeriesSpec): void => {
-        if (spec.landing !== undefined) out.push(spec.landing);
-        spec.nested.forEach(walk);
+    const out: PlanTreeLanding[] = [];
+    const walk = (spec: PlanSeriesSpec, within: readonly string[]): void => {
+        if (spec.landing !== undefined) out.push({ ...spec.landing, within });
+        const below = [...within, spec.key];
+        for (const nested of spec.nested) walk(nested, below);
     };
     for (const one of series) {
         const spec = specOf(one);
         if (spec === undefined) return undefined;
-        walk(spec);
+        walk(spec, []);
     }
     return out;
 }

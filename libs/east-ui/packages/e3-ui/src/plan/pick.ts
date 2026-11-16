@@ -16,12 +16,13 @@
  *
  * The contract holds identified things and does not know what they are, so an
  * adopter supplies what it cannot: the things. For a Plan they are the lines
- * of its series list (`planPickables`): each series at the top of the list
- * whole — a section or a group leaves with its subtree — and each member of a
- * `views` alone, since each is a row of its own beside the others. A list
- * known only as it runs (an East expression) is read as it runs, an
- * eleven-arm match over the series variant: every arm carries the same four
- * identity fields, and the arm itself picks the kind's icon.
+ * of its series list (`planPickables`): every series of its tree, each
+ * followed by the series nested in it — one switched off takes them with it —
+ * and each member of a `views` and each case of a `kinds` alone, since
+ * neither block draws a row of its own. A list known only as it runs (an East
+ * expression) is read as it runs, its series each whole, by a match over
+ * every arm of the series variant: every arm carries the same four identity
+ * fields, and the arm itself picks the kind's icon.
  *
  * There are no per-series row counts (#822): a count means something only when
  * every entry is in hand, and nothing on a Plan may behave differently because
@@ -168,10 +169,11 @@ function lineItem(line: PlanPickable): ExprType<PickItemType> {
  * what the Series tab lists of them, in the order the canvas draws them.
  *
  * @remarks
- * A list written in place is read as the Plan is built: each series at the
- * top of the list by its key, and each member of a `views` alone (#1541, U3).
- * A list known only as it runs — an East expression, or one holding a series
- * bound elsewhere — lists each of its series whole, read off the value.
+ * A list written in place is read as the Plan is built: every series of its
+ * tree by its key, each followed by the series nested in it, and each member
+ * of a `views` and each case of a `kinds` alone (#1541, U3). A list known only
+ * as it runs — an East expression, or one holding a series bound elsewhere —
+ * lists each of its series whole, read off the value.
  *
  * The pick a Plan binds lists exactly these, so proving this proves the bound
  * path too. Split out because `State.bind` is not runnable in a `describeEast`
@@ -231,8 +233,8 @@ const quoted = (names: readonly string[]): string => names.map((name) => `"${nam
 
 /**
  * Refuses a `hidden` that names something no viewer could switch back on: a
- * key the series list does not hold, a series nested in another, or a `views`
- * itself.
+ * key the series tree does not hold, or a `views` or a `kinds` block itself,
+ * whose members and cases show and hide each alone.
  *
  * @param series - The `series` input
  * @param hidden - The keys `hidden` names
@@ -247,14 +249,12 @@ function checkHidden(series: PlanSeriesInput, hidden: readonly string[]): void {
     if (lines === undefined) return;
     const names = lines.map((line) => line.key);
     const tree = planSeriesKeys(series) ?? [];
-    // Each series at the top of the list, by its own key: one that is no line is a `views`, listed as its members.
-    const top = (series as readonly unknown[]).map((one) => planSeriesKeys([one])?.[0]);
     for (const name of hidden) {
         if (names.includes(name)) continue;
-        const what = !tree.includes(name) ? "which is no series of this Plan"
-            : top.includes(name) ? "a `views`, whose members show and hide each alone"
-                : "a series nested in another, which shows and hides with it";
-        throw new Error(`Plan: \`hidden\` names "${name}", ${what} — it names a series at the top of \`series\`, or a member of a \`views\` there: ${quoted(names)}`);
+        // A key of the tree that is no line is a `views` or a `kinds` block, listed as its members or its cases.
+        const what = tree.includes(name) ? "a `views` or a `kinds` block, whose members and cases show and hide each alone"
+            : "which is no series of this Plan";
+        throw new Error(`Plan: \`hidden\` names "${name}", ${what} — it names a series of \`series\`, nested or not, or a member of a \`views\` or a case of a \`kinds\`: ${quoted(names)}`);
     }
 }
 

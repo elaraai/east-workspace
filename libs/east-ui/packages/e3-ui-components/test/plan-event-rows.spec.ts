@@ -157,7 +157,7 @@ const HALLS = ["1-presses-a", "2-presses-b", "3-crews-a", "4-crews-b"];
  * kind — jobs as bars and stops as marks on the presses, shifts as chips on the
  * crews — a press's utilisation beneath it.
  */
-function printWorks($: BlockBuilder<typeof PlanPayloadType>, options: { util?: boolean } = {}): ExprType<typeof PlanPayloadType> {
+function printWorks($: BlockBuilder<typeof PlanPayloadType>, options: { util?: boolean; hidden?: readonly string[] } = {}): ExprType<typeof PlanPayloadType> {
     const works = $.let(Data.bind(ex.planPrintWorksRows));
     const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
     const stops = $.let(Record.bind(ex.planPrintStops, ["patch"]));
@@ -171,6 +171,7 @@ function printWorks($: BlockBuilder<typeof PlanPayloadType>, options: { util?: b
     return Plan.Payload({
         axis: Plan.axis({ window: WINDOW, resolution: "day" }),
         data: halls,
+        ...(options.hidden === undefined ? {} : { hidden: options.hidden }),
         series: [Plan.series.group(ex.PrintWorksGroup, {
             key: "groups", title: "Works", label: (g) => g.name,
             children: Plan.children("resources", [Plan.series.kinds(ex.PrintResource, "what", {
@@ -235,7 +236,7 @@ async function inFlightSeam(): Promise<ValueTypeOf<typeof PlanEventSeamType>> {
         const kind = $.let(Object.fromEntries(Object.keys(PlanEventKindType.fields).map((f) =>
             [f, f === "planItems" ? inFlight : read[f]!])) as never, PlanEventKindType);
         const kinds = $.let([kind], ArrayType(PlanEventKindType));
-        const presses = { key: "presses", title: "Presses", icon: undefined, keyType: StringType, rowType: ex.PrintPress, lanes: false, series: [] };
+        const presses = { key: "presses", title: "Presses", icon: undefined, keyType: StringType, rowType: ex.PrintPress, lanes: false, series: [], within: [] };
         return createEventSeam([presses], Object.entries(events), kinds);
     });
     const { platform } = await h.platform(program);
@@ -623,6 +624,21 @@ describe("what the viewer hides (PB29, #1195)", () => {
         assert.deepEqual(keysOn(rowAt(oneHidden, entry("presses.marks", "a1"))), [elementKey("check", "S-01")]);
         const bothHidden = blocksOf(shared, FIRST, WEEK2, NO_DRAFTS, ["events.stop", "events.check"]);
         assert.ok(sameIds(ownRows(bothHidden).slice(0, 2).map((r) => r.id), [entry("presses", "a1"), entry("presses", "a2")]), printed(ownRows(bothHidden)));
+    });
+
+    test("a resources series hidden, or a series it is nested in, takes its rows and the events landing on them: none draws on an Unassigned row, and one on no resource still does (#1541, U3)", async () => {
+        // The presses hidden: their rows go, their halls' strips and the crews' rows stay, and their jobs and stops draw nowhere.
+        const presses = await payloadOf(($) => printWorks($, { hidden: ["presses"] }));
+        const noPresses = blocksOf(presses, FIRST, WEEK2);
+        assert.ok(sameIds(ownRows(noPresses).map((r) => r.id), [...PRESSES.map(([hall]) => entry("groups", hall)), ...crewRows()]), printed(ownRows(noPresses)));
+        assert.deepEqual(lostRows(noPresses), []);
+        // A job on no press is on no landing the viewer hides: its kind's Unassigned row holds it.
+        const drafts = jobDrafts([["J-1002", draftOf(variant("value", { ...(await job("J-1002")), press: none }))]]);
+        assert.ok(sameIds(lostRows(blocksOf(presses, FIRST, WEEK2, drafts)).map((r) => r.id), [entry("job.unassigned", "span")]));
+        // The works hidden, which every landing is nested in: no row, and nothing unassigned.
+        const works = await payloadOf(($) => printWorks($, { hidden: ["groups"] }));
+        const noWorks = blocksOf(works, FIRST, WEEK2);
+        assert.deepEqual([ownRows(noWorks).length, lostRows(noWorks).length], [0, 0]);
     });
 
     test("a hidden kind's events that no row holds go with it, and with them its Unassigned row", async () => {

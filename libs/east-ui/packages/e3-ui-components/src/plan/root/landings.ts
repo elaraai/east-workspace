@@ -89,6 +89,25 @@ export function landingTargetOf(id: PlanRowId, landings: readonly PlanLandingVal
 }
 
 /**
+ * The resource a row of a landing's own series stands beneath (#1541): its
+ * landing row's resource — what the inspector shows the row as, its measures
+ * among them. Such a row draws none of the kinds' ways, so no event lands on
+ * it: its `draw` is none of theirs.
+ *
+ * @param id - The row's id
+ * @param landings - The series the event kinds land on
+ * @returns The resource it stands beneath; `undefined` for a row of no landing's series
+ */
+export function landingSeriesTargetOf(id: PlanRowId, landings: readonly PlanLandingValue[]): PlanLandingTarget | undefined {
+    if (id.type !== "entry") return undefined;
+    const { series, path } = id.value;
+    const key = path[path.length - 1];
+    if (key === undefined) return undefined;
+    const landing = landings.find((l) => l.series.some((s) => stringEqual(s, series)));
+    return landing === undefined ? undefined : { kind: "resource", landing, key, path, draw: "" };
+}
+
+/**
  * The id of the row a kind's events draw on, for what a row stands for: the
  * resource's row of the way the kind draws, or the kind's own Unassigned row.
  *

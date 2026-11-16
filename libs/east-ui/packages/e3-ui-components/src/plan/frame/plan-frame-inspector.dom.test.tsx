@@ -33,13 +33,16 @@ const h = planHarness();
 
 // ── The print works' rows and events ─────────────────────────────────────────
 
-/** Press A1's bars, its marks, and Crew 1's chips. */
-const A1 = entry("presses.span", "Hall A", "a1");
-const A1_MARKS = entry("presses.marks", "Hall A", "a1");
-const A2 = entry("presses.span", "Hall A", "a2");
-const C1 = entry("crews.cards", "Hall A", "c1");
-/** The dispatch bay's buckets. */
-const BAY = entry("bays.buckets", "bay");
+/**
+ * Press A1's landing row of bars and its row of marks beside it, Press A2's, and Crew 1's landing row of chips — each
+ * under its group of the works' record (#1541).
+ */
+const A1 = entry("presses", "1-presses-a", "a1");
+const A1_MARKS = entry("presses.marks", "1-presses-a", "a1");
+const A2 = entry("presses", "1-presses-a", "a2");
+const C1 = entry("crews", "3-crews-a", "c1");
+/** The dispatch bay's landing row of buckets. */
+const BAY = entry("bays", "7-dispatch", "bay");
 
 /** A job's bar on Press A1. */
 const job = (c: HTMLElement, key: string) => c.querySelector<HTMLElement>(`${rowAt(A1)} ${el("data-run", "job", key)}`)!;
@@ -124,11 +127,11 @@ describe("selecting events (#1197, the Calendar's B15)", () => {
         fireEvent.click(job(container, "J-1002"), { shiftKey: true });
         await settle();
         expect(selectedEvents(container)).toHaveLength(2);
-        // Another press's name.
-        fireEvent.click(container.querySelector(`${rowAt(A2)} [role="rowheader"]`)!);
+        // A crew's name — a row with nothing beneath it: a press's name folds its utilisation (#1541).
+        fireEvent.click(container.querySelector(`${rowAt(C1)} [role="rowheader"]`)!);
         await settle();
         expect(selectedEvents(container)).toEqual([]);
-        expect(selectedRow(container)).toBe(rowKey(container, A2));
+        expect(selectedRow(container)).toBe(rowKey(container, C1));
         // The same press's plot, beside its jobs.
         fireEvent.click(job(container, "J-1001"));
         await settle();
@@ -168,7 +171,7 @@ describe("selecting events (#1197, the Calendar's B15)", () => {
         jobs.set("J-1001", { ...jobs.get("J-1001")!, press: some("b3") });
         await h.commit(ex.planPrintJobs, jobs);
         expect(container.querySelector(`${rowAt(A1)} ${el("data-run", "job", "J-1001")}`)).toBeNull();
-        const moved = container.querySelector<HTMLElement>(`${rowAt(entry("presses.span", "Hall B", "b3"))} ${el("data-run", "job", "J-1001")}`)!;
+        const moved = container.querySelector<HTMLElement>(`${rowAt(entry("presses", "2-presses-b", "b3"))} ${el("data-run", "job", "J-1001")}`)!;
         expect(moved.getAttribute("aria-pressed")).toBe("true");
         expect(selectedEvents(container)).toEqual([key(moved)]);
     });
@@ -181,7 +184,9 @@ describe("selecting events (#1197, the Calendar's B15)", () => {
             const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
             return Plan({
                 axis,
-                resources: { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) },
+                // The presses are the canvas's rows, a landing row each (#1541).
+                data: presses.read(),
+                series: [Plan.series.resources(ex.PrintPress, { key: "presses", title: "Presses", icon: "print", label: (p) => p.name })],
                 events: { job: Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" } }) },
                 // Each paper stock's order, over the dataset: a run of the Plan's own.
                 rows: [Plan.over(stock, [Plan.series.span(ex.PrintStock, {
@@ -194,7 +199,7 @@ describe("selecting events (#1197, the Calendar's B15)", () => {
         await settle();
         const board = container.querySelector<HTMLElement>(`${rowAt(entry("orders", "board"))} [data-run="order"]`)!;
         expect(board.hasAttribute("aria-pressed")).toBe(false);
-        fireEvent.click(container.querySelector<HTMLElement>(`${rowAt(entry("presses.span", "a1"))} ${el("data-run", "job", "J-1001")}`)!);
+        fireEvent.click(container.querySelector<HTMLElement>(`${rowAt(entry("presses", "a1"))} ${el("data-run", "job", "J-1001")}`)!);
         await settle();
         fireEvent.click(board);
         await settle();
@@ -202,7 +207,7 @@ describe("selecting events (#1197, the Calendar's B15)", () => {
         expect(board.hasAttribute("data-selected")).toBe(false);
         expect(selectedRow(container)).toBe(rowKey(container, entry("orders", "board")));
         // Shift on it adds nothing either.
-        fireEvent.click(container.querySelector<HTMLElement>(`${rowAt(entry("presses.span", "a1"))} ${el("data-run", "job", "J-1001")}`)!);
+        fireEvent.click(container.querySelector<HTMLElement>(`${rowAt(entry("presses", "a1"))} ${el("data-run", "job", "J-1001")}`)!);
         await settle();
         fireEvent.click(board, { shiftKey: true });
         await settle();
@@ -323,7 +328,8 @@ describe("the inspector (#1197, PB38–PB41, PB60)", () => {
         try {
             const { container } = await h.mount(ex.planPrintWorks);
             await settle();
-            fireEvent.click(container.querySelector(`${rowAt(A1)} [role="rowheader"]`)!);
+            // Its marks' row's name selects it, naming no bucket: its own name folds the utilisation beneath it (#1541).
+            fireEvent.click(container.querySelector(`${rowAt(A1_MARKS)} [role="rowheader"]`)!);
             await settle();
             expect(showing(container)).toBe("row");
             expect(pane(container).querySelector("[data-inspector-kind]")!.textContent).toBe("Presses");
@@ -345,8 +351,8 @@ describe("the inspector (#1197, PB38–PB41, PB60)", () => {
             await settle();
             expect(pane(container).querySelector("[data-inspector-title]")!.textContent).toBe("Press A1");
             expect(fact(container, "measure:util")).toBe("50");
-            // So is its utilisation row, a measure: Tuesday 6 October's reading, 12.
-            fireEvent.click(container.querySelector(`${rowAt(entry("util", "Hall A", "a1"))} [data-plan-plot]`)!, { clientX: 15 });
+            // So is its utilisation row, a series beneath it: Tuesday 6 October's reading, 12.
+            fireEvent.click(container.querySelector(`${rowAt(entry("util", "1-presses-a", "a1"))} [data-plan-plot]`)!, { clientX: 15 });
             await settle();
             expect(pane(container).querySelector("[data-inspector-title]")!.textContent).toBe("Press A1");
             expect(["events", "hours"].map((name) => fact(container, name))).toEqual(["7", "33"]);
@@ -413,7 +419,7 @@ describe("the inspector (#1197, PB38–PB41, PB60)", () => {
         fireEvent.click(job(container, "J-1002"), { shiftKey: true });
         await settle();
         expect(detail()).toBe("2 events");
-        fireEvent.click(container.querySelector(`${rowAt(A2)} [role="rowheader"]`)!);
+        fireEvent.click(container.querySelector(`${rowAt(A2)} [data-plan-plot]`)!);
         await settle();
         expect(detail()).toBe("Press A2");
     });
@@ -425,7 +431,9 @@ describe("the inspector (#1197, PB38–PB41, PB60)", () => {
             const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
             return Plan({
                 axis,
-                resources: { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) },
+                // The presses are the canvas's rows, a landing row each (#1541).
+                data: presses.read(),
+                series: [Plan.series.resources(ex.PrintPress, { key: "presses", title: "Presses", icon: "print", label: (p) => p.name })],
                 events: {
                     job: Schedule.events(jobs, {
                         name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",

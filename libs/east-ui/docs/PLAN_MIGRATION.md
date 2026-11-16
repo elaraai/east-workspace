@@ -829,17 +829,21 @@ given to `series`.
 
 ### Behaviour that changed
 
-- **A `views` is listed as its members.** The Series tab lists each series at
-  the top of the list whole — a section or a group leaves with its subtree —
-  and each member of a `views` there alone, since each is a row of its own
-  beside the others. A member switched off takes its rows alone, and the
-  entry's children nest under the first member left, which carries the fold.
-  With every member off the entry draws no row, and none beneath one.
-- **What `hidden` may name.** A series at the top of `series`, or a member of
-  a `views` there, by its key. A key naming no series, a series nested in
-  another, or a `views` itself is refused at build, listing the keys it may
-  name. A list known only as it runs (an East expression) is listed whole, a
-  series a line, and a key naming none of them is ignored.
+- **Every series is listed, a `views` as its members.** The Series tab lists
+  every series of the tree, each followed by the series nested in it — one
+  switched off takes them with it — and each member of a `views` and each
+  case of a `kinds` alone, since neither block draws a row of its own. A
+  member switched off takes its rows alone, and the entry's children nest
+  under the first member left, which carries the fold. With every member off
+  the entry draws no row, and none beneath one. A resources series or a case
+  switched off takes the events landing on its rows with it: they draw
+  nowhere, never on an Unassigned row.
+- **What `hidden` may name.** Any series of `series`, nested or not, or a
+  member of a `views` or a case of a `kinds`, by its key. A key naming no
+  series, or a `views` or a `kinds` block itself, is refused at build,
+  listing the keys it may name. A list known only as it runs (an East
+  expression) is listed whole, a series a line, and a key naming none of them
+  is ignored.
 - **The pick is the Plan's.** Its state is kept under `plan.<id>.pick`
   (`plan.pick` with no `id`), and what the tab switches is kept for the viewer
   under that key. A viewer's choice made through an earlier `Plan.pick` key is

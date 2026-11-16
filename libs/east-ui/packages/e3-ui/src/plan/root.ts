@@ -194,7 +194,7 @@ export interface PlanBindHandle {
  * @property axis - The shared axis declaration (`Plan.axis` / `.time` / `.number` / `.ordinal`)
  * @property data - The source — a `Dict<K, R>` value/expression, a bind handle over one, or a paged source of one; pairs with `series`
  * @property series - The row series over `data` — `Plan.series.*` values; the list IS the layout
- * @property hidden - The keys of the series off to start (#1541, U3): a series at the top of `series`, or a member of a `views` there
+ * @property hidden - The keys of the series off to start (#1541, U3): any series of `series`, nested or not, or a member of a `views` or a case of a `kinds`
  * @property picked - The State key the series' pick is kept under, where they are picked: what `<Plan>` gives where its library lists the Series tab
  * @property links - The link graph (R1) — run-edge quantity links (`Plan.link` values)
  * @property grain - Initial grain (`"group"` / `"resource"`; default resource)
@@ -245,20 +245,23 @@ export interface PlanConfig<K extends PlanAxisKindLiteral = PlanAxisKindLiteral>
      *  series on a `"number"` axis fails to compile here. */
     series?: PlanSeriesInput<NoInfer<K>>;
     /**
-     * The keys of the series off to start (#1541, U3) — a series at the top of
-     * `series`, or a member of a `views` there, each by its one key.
+     * The keys of the series off to start (#1541, U3) — any series of
+     * `series`, nested or not, or a member of a `views` or a case of a
+     * `kinds`, each by its one key.
      *
      * @remarks
      * Where the Plan's library lists `Plan.library.series()` the series are
-     * picked: the Series tab lists each with its eye — a `views` as its
-     * members, each switched alone — what a viewer switches there is kept
-     * under the Plan's `id`, and `hidden` is what a viewer who has switched
-     * nothing sees off. A Plan without the tab binds no state, and `hidden`
-     * names the series it does not draw.
+     * picked: the Series tab lists each with its eye, each followed by the
+     * series nested in it — a `views` as its members and a `kinds` as its
+     * cases, each switched alone — what a viewer switches there is kept under
+     * the Plan's `id`, and `hidden` is what a viewer who has switched nothing
+     * sees off. A Plan without the tab binds no state, and `hidden` names the
+     * series it does not draw. A series off takes what is nested in it with
+     * it; a resources series or a case off, the events landing on its rows.
      *
-     * A key naming no series, a series nested in another (which shows and
-     * hides with it) or a `views` itself (its members show and hide each
-     * alone) is refused as the Plan is built.
+     * A key naming no series, or a `views` or a `kinds` block itself (its
+     * members and cases show and hide each alone), is refused as the Plan is
+     * built.
      */
     hidden?: readonly string[];
     /**

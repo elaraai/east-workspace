@@ -26,7 +26,8 @@
  *   every one of them. A landing row the resources' shading names draws its
  *   heat in place of its events. Over rows read whole, it adds the
  *   Unassigned rows after them all: each kind's events on no resource, or on
- *   one no row of the canvas holds.
+ *   one no row of the canvas holds — save the events of a landing the viewer
+ *   hides, its own series or one it is nested in (U3), which draw nowhere.
  *
  * A row's id stays its series' key and its path, so the canvas folds,
  * selects and pages the rows as it does any other. What the rail narrows of
@@ -39,7 +40,7 @@
 import {
     ArrayType, BlobType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, OptionType, SetType,
     StringType, StructType, none, some, variant,
-    type EastType, type ExprType,
+    type BlockBuilder, type EastType, type ExprType,
 } from "@elaraai/east";
 import { IconType, PickStateType } from "@elaraai/east-ui";
 import { PlanEventItemType, PlanEventKindType, ScheduleDraftsType, ScheduleEventRefType, ScheduleStatusType } from "../schedule/types.js";
@@ -54,7 +55,7 @@ import {
 import { planGutter, planRow } from "./assemble.js";
 import { bucketsKind, cardsKind, eventsKind, spanKind } from "./factories.js";
 import { planHideId } from "./library.js";
-import type { PlanLanding } from "./series.js";
+import { PlanHiddenType, type PlanLanding, type PlanTreeLanding } from "./series.js";
 
 // ============================================================================
 // The wire
@@ -387,18 +388,23 @@ function drawnKind(draw: PlanDrawLiteral, list: ExprType<typeof PlacedListType>,
  * payload's own array of event kinds: the seam captures it, and the payload
  * carries each kind once.
  *
- * @param landings - The series the event kinds land on, in the series tree's order, a kinds block's cases in its variant's
+ * @param landings - The series the event kinds land on, in the series tree's order, a kinds block's cases in its variant's,
+ *   each with the series it is nested in
  * @param events - The event kinds, by slot, in order
  * @param built - The event kinds as the payload holds them, in the same order
  * @param unassigned - What the app calls an event kind's row of events on no resource (#1516)
+ * @param seriesHidden - The keys of the series the canvas leaves out (U3), read at each placing, so a viewer's switch
+ *   since is seen: a landing hidden, or nested in a series hidden, puts no event on the Unassigned row; none, every
+ *   series shows
  * @returns The seam
  * @internal
  */
 export function createEventSeam(
-    landings: readonly PlanLanding[],
+    landings: readonly PlanTreeLanding[],
     events: readonly (readonly [string, AnyEventKind])[],
     built: ExprType<ArrayType<PlanEventKindType>>,
     unassigned: string = "Unassigned",
+    seriesHidden?: ExprType<PlanHiddenType>,
 ): ExprType<PlanEventSeamType> {
     const ByDraw = DictType(StringType, DictType(StringType, PlacedListType));
     const placed = East.function(
@@ -482,6 +488,15 @@ export function createEventSeam(
             };
             const noEvents = $.const([], PlacedListType);
             const noShades = $.const([], ArrayType(PlanEventShadeType));
+            // The series the viewer hides, as they stand at this placing (U3).
+            const off = seriesHidden === undefined ? undefined : $.let(seriesHidden, PlanHiddenType);
+            // Whether the viewer shows a landing's rows: its own series and every one it is nested in shown; known
+            // shown where nothing is hidden.
+            const shows = (key: string): ExprType<BooleanType> | undefined => {
+                if (off === undefined) return undefined;
+                const within = landings.find((landing) => landing.key === key)?.within ?? [];
+                return [...within, key].reduce<ExprType<BooleanType>>((all, one) => all.and(() => off.has(one).not()), East.value(true, BooleanType));
+            };
             // The resources a row of the canvas holds, by series then by key: what the Unassigned rows leave out.
             const held = $.let(new Map(), DictType(StringType, SetType(StringType)));
             for (const p of plans) $(held.insert(p.key, East.value(new Set<string>(), SetType(StringType))));
@@ -537,21 +552,28 @@ export function createEventSeam(
                 events.forEach(([slot, kind]) => {
                     const lost = $2.let(given.lost.get(slot, () => noEvents).copy());
                     for (const key of kind.takes) {
-                        $2.match(given.on.tryGet(key), {
-                            some: ($3, byDraw) => {
-                                $3.match(byDraw.tryGet(kind.draw), {
-                                    some: ($4, byKey) => {
-                                        const rowsHeld = $4.let(held.get(key, () => East.value(new Set<string>(), SetType(StringType))));
-                                        $4.for(byKey, ($5, list, resource) => {
-                                            $5.if(rowsHeld.has(resource).not(), ($6) => {
-                                                // Only this kind's events: another kind drawing alike on the series files its own.
-                                                $6.for(list, ($7, one) => { $7.if(one.item.kind.equal(slot), ($8) => { $8(lost.pushLast(one)); }); });
+                        const gather = <B extends EastType>($g: BlockBuilder<B>) => {
+                            $g.match(given.on.tryGet(key), {
+                                some: ($3, byDraw) => {
+                                    $3.match(byDraw.tryGet(kind.draw), {
+                                        some: ($4, byKey) => {
+                                            const rowsHeld = $4.let(held.get(key, () => East.value(new Set<string>(), SetType(StringType))));
+                                            $4.for(byKey, ($5, list, resource) => {
+                                                $5.if(rowsHeld.has(resource).not(), ($6) => {
+                                                    // Only this kind's events: another kind drawing alike on the series files its own.
+                                                    $6.for(list, ($7, one) => { $7.if(one.item.kind.equal(slot), ($8) => { $8(lost.pushLast(one)); }); });
+                                                });
                                             });
-                                        });
-                                    },
-                                });
-                            },
-                        });
+                                        },
+                                    });
+                                },
+                            });
+                        };
+                        // A landing the viewer hides, or one nested in a series hidden (U3): its events draw nowhere, never
+                        // on the Unassigned row.
+                        const shown = shows(key);
+                        if (shown === undefined) gather($2);
+                        else $2.if(shown, gather);
                     }
                     $2.if(lost.size().greater(0n), ($3) => {
                         const id = $3.let(East.value(variant("entry", { series: `${slot}.unassigned`, path: [kind.draw] }), PlanRowIdType));
