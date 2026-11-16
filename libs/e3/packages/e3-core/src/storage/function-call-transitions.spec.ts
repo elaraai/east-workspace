@@ -86,7 +86,7 @@ describe('the function call transitions', () => {
   });
 
   it("pins a running call's inputs whole, and no input of a call that has ended", () => {
-    const inputs: FunctionCallJob['call']['inputs'] = [{ path: [variant('field', 'records'), variant('field', 'jobs')], hash: '2'.repeat(64) }];
+    const inputs: FunctionCallJob['call']['inputs'] = [{ path: [variant('field', 'records'), variant('field', 'jobs')], index: none, hash: '2'.repeat(64) }];
     const pinned = callInputsPinned(running(), inputs);
     assert.ok(pinned !== undefined && jobEqual(pinned, { ...running(), call: { ...running().call, inputs } }), 'its inputs, and nothing else of it');
     assert.equal(callInputsPinned(callEnded(running(), succeeded)!, inputs), undefined);
