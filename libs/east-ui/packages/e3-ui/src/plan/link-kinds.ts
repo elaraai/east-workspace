@@ -46,14 +46,14 @@ import {
 } from "@elaraai/east";
 import { TickFormatType, type FieldHints } from "@elaraai/east-ui/internal";
 import {
-    checkKeyField, fieldOf, keyFieldRef, keyFieldRole, keyFieldSlots, keyFieldValue,
-    type FieldsOf, type KeyEndField, type KeyEndOf, type KeyField, type KeyFieldRole,
+    fieldOf, keyFieldRef, keyFieldRole, keyFieldSlots,
+    type FieldsOf, type KeyEndField, type KeyEndOf, type KeyFieldRole,
 } from "../schedule/fields.js";
 import { SCHEDULE_EVENT_CAP } from "../schedule/record-window.js";
 import { ScheduleEventRefType } from "../schedule/types.js";
 import { optionOf, typeText } from "../schedule/window.js";
 import {
-    KindSideFields, checkMadeKeys, fieldTypeOf, keyBuilderOf, kindBinding, kindWholeRows, readOf, recordSide, rowWith, storedRows, valuesTypeOf,
+    KindSideFields, checkMadeKeys, fieldTypeOf, keyBuilderOf, kindBinding, kindWholeRows, linkEndFields, linkEndsWriter, readOf, recordSide, storedRows, valuesTypeOf,
     type KindKeyBuilder,
 } from "../utils/record-kind.js";
 import { PlanQuantityType } from "./types.js";
@@ -495,23 +495,10 @@ export function planLinks<R extends StructType, FF extends KeyEndField<R>, TF ex
         door: `${where}: the links' record is bound without its patch door — its record declares patch: mutation.patch(), which Save writes each link through`,
     });
     const rowType = bound.rowType;
-    const fields = rowType.fields as Record<string, EastType>;
     const typeOf = fieldTypeOf(rowType, where);
     if (typeof config.icon !== "string") throw new Error(`${where}: \`icon\` is a Font Awesome solid icon's name`);
-    const end = (prop: "from" | "to", given: { field: string; of: unknown } | undefined): KeyField => {
-        if (given === undefined || typeof given.field !== "string") {
-            throw new Error(`${where}: \`${prop}\` is { field, of } — the field holding an event's key, and the event kind it holds keys of`);
-        }
-        const checked = checkKeyField(given.field, typeOf(`${prop}.field`, given.field), given.of, { where, prop, noun: "event" });
-        if (checked.optional) {
-            throw new Error(`${where}: a link has both its ends — \`${prop}.field\` names a field holding an event's key, or a variant holding one per case, ` +
-                `never an Option — and "${given.field}" holds ${typeText(fields[given.field]!)}`);
-        }
-        return checked;
-    };
-    const from = end("from", config.from as { field: string; of: unknown });
-    const to = end("to", config.to as { field: string; of: unknown });
-    if (from.field === to.field) throw new Error(`${where}: \`from\` and \`to\` both name "${from.field}" — a link's ends are two fields`);
+    // Its two ends, as every link kind over a record declares them (`linkEndFields`): each an event's key, or one per case.
+    const { from, to } = linkEndFields(rowType, config.from, config.to, { where, noun: "event", of: "the event kind" });
     // What it moves: a Float field, or an Option of one, a link holding none drawn with no quantity.
     const quantity = config.quantity;
     let quantityOptional = false;
@@ -528,8 +515,6 @@ export function planLinks<R extends StructType, FF extends KeyEndField<R>, TF ex
     checkMadeKeys(bound, keyBuilt, where, "links", "Connect makes one");
     const fromRef = keyFieldRef(from, rowType);
     const toRef = keyFieldRef(to, rowType);
-    const fromValue = keyFieldValue(from, fields[from.field]!);
-    const toValue = keyFieldValue(to, fields[to.field]!);
     const quantityOf = (value: ExprType<FloatType>) => East.value({
         value,
         unit: quantity?.unit === undefined ? none : some(quantity.unit),
@@ -554,21 +539,8 @@ export function planLinks<R extends StructType, FF extends KeyEndField<R>, TF ex
     // end of a kind the field holds no keys of.
     const ValuesType = valuesTypeOf(rowType, [from.field, to.field]);
     const blank = East.value(defaultValue(ValuesType) as never, ValuesType) as ExprType<EastType>;
-    const create = East.function([PlanLinkEndsType], OptionType(BlobType), ($, ends) => {
-        const fromOf = $.const(fromValue);
-        const toOf = $.const(toValue);
-        const result = $.let(East.value(none, OptionType(BlobType)), OptionType(BlobType));
-        $.match(fromOf(some(ends.from)), {
-            some: ($2, f) => {
-                $2.match(toOf(some(ends.to)), {
-                    some: ($3, t) => {
-                        $3.assign(result, East.value(some(East.Blob.encodeBeast(rowWith(rowType, blank, { [from.field]: f, [to.field]: t }), "v2")), OptionType(BlobType)));
-                    },
-                });
-            },
-        });
-        return result;
-    });
+    const ended = linkEndsWriter(rowType, from, to);
+    const create = East.function([PlanLinkEndsType], OptionType(BlobType), ($, ends) => ended($ as never, blank, ends) as never);
 
     // Read whole, counted first, and read only within the cap an event kind is read under.
     const Held = DictType(bound.keyType, rowType);
