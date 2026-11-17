@@ -322,9 +322,10 @@ describe("a move is a draft of the session (#825)", () => {
         const letGo = await carry(elementOf(c, "jobs", "m1", "j1")!, { x: xAt(28), y: y("jobs", "m1") }, { x: xAt(29), y: y("jobs", "m2") });
         expect(plotOf(c, "jobs", "m2").hasAttribute("data-drop-invalid")).toBe(true);
         expect(plotOf(c, "jobs", "m2").hasAttribute("data-drop-active")).toBe(false);
-        expect(announced()).toBe("M2, Jul 13, 2026 – Jul 27, 2026 does not take J1.");
+        // Said with the check's words, resting there and let go (#1680's review).
+        expect(announced()).toBe("M2, Jul 13, 2026 – Jul 27, 2026 does not take J1: Press 2 takes no moved job.");
         await letGo();
-        expect(announced()).toBe("J1 was not dropped.");
+        expect(announced()).toBe("J1 was not dropped: Press 2 takes no moved job.");
         expect(canvas.patches).toEqual([]);
         expect(keysOf(c, "jobs", "m1")).toEqual(["j1"]);
         // The same press's backlog takes it.

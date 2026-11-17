@@ -317,7 +317,8 @@ test("a template is refused, red, where the sheet's edits add no row or no group
     expect(line.hasAttribute("data-drop-active")).toBe(false);
     await release();
     expect(sheetText(container)).toEqual(before);
-    expect(announced()).toBe("Sand was not dropped.");
+    // Said with the ghost's words (#1680's review).
+    expect(announced()).toBe("Sand was not dropped: No new lines here.");
     pickUp(templateOf(container, "groupTemplates", "finishing"));
     restOn(bandOf(container, "B-102"), "top");
     expect(caption()).toEqual({ text: "No new batches here", refused: true });

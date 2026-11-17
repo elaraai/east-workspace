@@ -188,8 +188,10 @@ export interface DragTargetConfig {
     /**
      * Receives every completed drag on this surface. Answering `false` says
      * it did not take the drag — its own write refused it, or it changed
-     * nothing — and the drop is announced as not dropped; any other answer
-     * takes it.
+     * nothing — and the drop is announced as not dropped; `{ said }` takes it
+     * and is announced in those words, for a drop that did something else than
+     * land where it was dropped (a link drawn to what it was dropped on,
+     * #1680's review); any other answer takes it.
      */
     onDrag?: (event: DragEventValue, meta?: DragMeta) => unknown;
     /**
@@ -433,11 +435,18 @@ interface InFlight {
     release: () => void;
 }
 
-/** How a drag ended — what the end announcement says. */
+/** How a drag ended — what the end announcement says: a drop in its surface's own words where it gave some, a refusal with the destination's reason. */
 type Outcome =
-    | { kind: "dropped"; item: string; target: string }
-    | { kind: "notDropped"; item: string }
+    | { kind: "dropped"; item: string; target: string; said?: string | undefined }
+    | { kind: "notDropped"; item: string; reason?: string | undefined }
     | { kind: "targetGone"; item: string };
+
+/** The words a surface's answer to a drop says it in (`{ said }`, {@link DragTargetConfig.onDrag}); `undefined` for any other answer. */
+function saidOf(answer: unknown): string | undefined {
+    if (answer === null || typeof answer !== "object" || !("said" in answer)) return undefined;
+    const said = (answer as { said: unknown }).said;
+    return typeof said === "string" && said !== "" ? said : undefined;
+}
 
 /** The keys a keyboard drag answers to — Tab cancels, rather than dropping where the drag rests. */
 const KEYBOARD_CODES: KeyboardCodes = {
@@ -1017,24 +1026,28 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
             }
             if (!(cell.canDrop?.(event) ?? true)) {
                 target.onRefuse?.(event);
-                outcome.current = { kind: "notDropped", item };
+                // Said with the cell's reason, as its caption gave it to the ghost (#1680's review).
+                outcome.current = { kind: "notDropped", item, reason: captionOf(cell.caption?.(coord, payload, false, track.altKey), true)?.text };
                 return;
             }
             const taken = target.onDrag(event, payload.kind === "item" && payload.label !== undefined ? { label: payload.label } : undefined);
-            // A target whose own write refused the drop says so.
-            outcome.current = taken === false ? { kind: "notDropped", item } : { kind: "dropped", item, target: name };
+            // A target whose own write refused the drop says so; one that did something else than land it there says what.
+            outcome.current = taken === false ? { kind: "notDropped", item } : { kind: "dropped", item, target: name, said: saidOf(taken) };
             return;
         }
         if (sink !== undefined && sinkValid(sink, payload) && payload.kind === "event") {
             // The surface's verdict is asked once more, of the return about to be delivered (#1196).
+            const target = targets.current.get(payload.from.surface);
             if (!returnAllowed(sink, payload)) {
-                outcome.current = { kind: "notDropped", item };
+                const refusal = sink.kind === "library" && sink.library !== undefined
+                    ? target?.returns?.caption?.(returnEvent(sink, payload.from), sink.library, false) : undefined;
+                outcome.current = { kind: "notDropped", item, reason: captionOf(refusal, true)?.text };
                 return;
             }
-            const target = targets.current.get(payload.from.surface);
             const meta = sink.kind === "library" && sink.library !== undefined ? { library: sink.library } : undefined;
             const taken = target?.onDrag?.(returnEvent(sink, payload.from), meta);
-            outcome.current = taken === false ? { kind: "notDropped", item } : { kind: "dropped", item, target: targetName(el, point, payload, d.keyboard) };
+            outcome.current = taken === false ? { kind: "notDropped", item }
+                : { kind: "dropped", item, target: targetName(el, point, payload, d.keyboard), said: saidOf(taken) };
             return;
         }
         outcome.current = { kind: "notDropped", item };
@@ -1081,7 +1094,10 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
             const cell = cells.current.get(el)?.current;
             const sink = cell === undefined ? sinks.current.get(el) : undefined;
             const taken = cell !== undefined ? allows(cell, payload, point, d.keyboard) : sink === undefined || returnAllowed(sink, payload);
-            const message = taken ? words.over({ item, target }) : words.refused({ item, target });
+            // Refused, with its reason: what the ghost's caption says here, which the move handler just set (#1680's review).
+            const shown = caption.get();
+            const message = taken ? words.over({ item, target })
+                : words.refused({ item, target, reason: shown?.refused === true ? shown.text : undefined });
             if (message === spoken.current) return undefined;
             spoken.current = message;
             return message;
@@ -1097,16 +1113,16 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
                 const payload = payloadOf(active);
                 const done = outcome.current;
                 if (payload === undefined || done === undefined) return undefined;
-                if (done.kind === "dropped") return words.dropped({ item: done.item, target: done.target });
+                if (done.kind === "dropped") return done.said ?? words.dropped({ item: done.item, target: done.target });
                 if (done.kind === "targetGone") return words.targetGone({ item: done.item });
-                return words.notDropped({ item: done.item });
+                return words.notDropped({ item: done.item, reason: done.reason });
             },
             onDragCancel: ({ active }) => {
                 const payload = payloadOf(active);
                 return payload !== undefined ? words.cancelled({ item: itemName(payload) }) : undefined;
             },
         };
-    }, [words, targetName, allows, returnAllowed]);
+    }, [words, targetName, allows, returnAllowed, caption]);
     const accessibility = useMemo(() => ({
         announcements,
         screenReaderInstructions: { draggable: words.instructions() },

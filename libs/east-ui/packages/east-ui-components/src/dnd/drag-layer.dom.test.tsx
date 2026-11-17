@@ -1189,6 +1189,28 @@ describe("the ghost's caption (#1187)", () => {
         expect(caption()).toBeNull();
     });
 
+    test("a cell that refuses the drag says why to a screen reader in its caption's words — resting over it, and dropped on it — and a drop its target takes in words of its own is said in them (#1680's review)", () => {
+        const refuseFri: DropVeto = (e) => !(e.type === "add" && e.value.into.slot === "fri");
+        const { getByTestId } = render(
+            <DragLayerProvider>
+                <Target config={{ id: "roster", sources: ["people"], kinds: KINDS_ALL, onDrag: () => ({ said: "patel linked to thu." }) }} />
+                <Card library="people" itemKey="patel" />
+                <CaptionCell row="patel" slot="thu" />
+                <CaptionCell row="patel" slot="fri" canDrop={refuseFri} />
+            </DragLayerProvider>,
+        );
+        engage(getByTestId("card-patel"), null);
+        restOver(getByTestId("cell-patel-fri"), 30);
+        expect(announced()).toBe("patel · fri does not take patel: fri is full.");
+        fireEvent.pointerUp(document, { pointerId: 1, clientX: 30, clientY: 10 });
+        expect(announced()).toBe("patel was not dropped: fri is full.");
+        // Taken, in the target's own words: what its drop did, never that it was dropped.
+        engage(getByTestId("card-patel"), null);
+        restOver(getByTestId("cell-patel-thu"), 20);
+        fireEvent.pointerUp(document, { pointerId: 1, clientX: 20, clientY: 10 });
+        expect(announced()).toBe("patel linked to thu.");
+    });
+
     test("a caption speaks of the coordinate the drag rests on — a continuous cell's, at the pointer — and goes when the drag is cancelled", () => {
         // One cell whose slot is the pointer's half: left or right.
         function HalfCell() {
@@ -1364,7 +1386,8 @@ describe("returns to a library (#1196)", () => {
         expect(backlog.hasAttribute("data-drop-invalid")).toBe(true);
         expect(backlog.hasAttribute("data-drop-active")).toBe(false);
         expect(caption()).toEqual({ text: "s2 → backlog: no backlog", refused: true });
-        expect(announced()).toBe("Return to backlog does not take s2.");
+        // Said with its reason, the caption's words (#1680's review).
+        expect(announced()).toBe("Return to backlog does not take s2: s2 → backlog: no backlog.");
         // Nothing of the surface's is thrown away: no trash zone.
         expect(document.querySelector("[data-drag-trash]")).toBeNull();
         // The library it takes cards from is no place its elements return to.
@@ -1377,7 +1400,7 @@ describe("returns to a library (#1196)", () => {
         pointAt(backlog);
         fireEvent.pointerUp(document, { pointerId: 1, clientX: 30, clientY: 30 });
         expect(events).toHaveLength(0);
-        expect(announced()).toBe("s2 was not dropped.");
+        expect(announced()).toBe("s2 was not dropped: s2 → backlog: no backlog.");
         // `s1` over the backlog: taken, said, and delivered as a return to its source, the library named.
         engage(getByTestId("chip-s1"), backlog);
         expect(backlog.hasAttribute("data-drop-active")).toBe(true);

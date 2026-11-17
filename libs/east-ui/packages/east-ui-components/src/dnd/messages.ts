@@ -33,14 +33,14 @@ export interface DragMessages {
     pickedUp: (p: { item: string }) => string;
     /** The drag rests over a target that takes it. */
     over: (p: { item: string; target: string }) => string;
-    /** The drag rests over a target that refuses it. */
-    refused: (p: { item: string; target: string }) => string;
+    /** The drag rests over a target that refuses it — `reason`, the target's own words for why, as its ghost says them. */
+    refused: (p: { item: string; target: string; reason?: string | undefined }) => string;
     /** The drag rests over nothing that could take it. */
     notOver: (p: { item: string }) => string;
     /** The drop landed. */
     dropped: (p: { item: string; target: string }) => string;
-    /** The drop landed nowhere, or on a target that refused it. */
-    notDropped: (p: { item: string }) => string;
+    /** The drop landed nowhere, or on a target that refused it — `reason`, the target's own words for why, where it has any. */
+    notDropped: (p: { item: string; reason?: string | undefined }) => string;
     /** The drop's target left the screen during the drag, and nothing took its place. */
     targetGone: (p: { item: string }) => string;
     /** The drag was cancelled. */
@@ -61,10 +61,10 @@ export const dragMessages: DragMessages = {
     draggable: () => "draggable",
     pickedUp: ({ item }) => `Picked up ${item}.`,
     over: ({ item, target }) => `${item} is over ${target}.`,
-    refused: ({ item, target }) => `${target} does not take ${item}.`,
+    refused: ({ item, target, reason }) => (reason === undefined ? `${target} does not take ${item}.` : `${target} does not take ${item}: ${reason}.`),
     notOver: ({ item }) => `${item} is not over a drop target.`,
     dropped: ({ item, target }) => `${item} was dropped on ${target}.`,
-    notDropped: ({ item }) => `${item} was not dropped.`,
+    notDropped: ({ item, reason }) => (reason === undefined ? `${item} was not dropped.` : `${item} was not dropped: ${reason}.`),
     targetGone: ({ item }) => `${item} was not dropped: its target left the screen.`,
     cancelled: ({ item }) => `Dragging ${item} was cancelled.`,
     trash: () => "Remove",

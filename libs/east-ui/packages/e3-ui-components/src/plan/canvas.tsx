@@ -126,7 +126,7 @@ import type { PlanLinkUnlink } from "./shell/LinksOverlay.js";
 import { DraftedStanding } from "../shared/schedule/drafted-rows.js";
 import { useDraftedRows } from "../shared/schedule/use-drafted-rows.js";
 import { scheduleIssueName } from "../shared/schedule/editing.js";
-import { drawnKinds, usePlanEventDrag, type PlanConnecting } from "./edit/event-drag.js";
+import { drawnKinds, usePlanEventDrag, type PlanConnecting, type PlanDropAnswer } from "./edit/event-drag.js";
 import { createPlanVeto, type PlanCanDropFn } from "./edit/candidate.js";
 import { PlanNarrow, PLAN_NARROW_BELOW } from "./narrow/index.js";
 import type { PlanNarrowPaging } from "./narrow/demand.js";
@@ -1131,7 +1131,7 @@ export function usePlanCanvas({
         },
     });
     eventDragRef.current = eventDrag;
-    const onDrag = useCallback((event: DragEventValue, meta?: DragMeta): boolean => {
+    const onDrag = useCallback((event: DragEventValue, meta?: DragMeta): PlanDropAnswer => {
         // Nothing lands while a run of the optimiser is out (R2).
         if (locked) return false;
         if (event.type === "add") {
@@ -1145,7 +1145,8 @@ export function usePlanCanvas({
         if (event.type !== "move" && event.type !== "resize") return false;
         const { grab, proposal } = editStore;
         editStore.disarm();
-        // Connect held (#1541, U10): the drop draws a link to the event it landed on, and moves nothing.
+        // Connect held (#1541, U10): the drop draws a link to the event it landed on, and moves nothing — announced as the
+        // link it drew, never as the element dropped (#1680's review).
         if (eventDrag?.connecting === true) {
             return event.type === "move" && grab !== null && eventDrag.isEvent(grab.movable)
                 && eventDrag.connectElement(grab.movable, getSomeorUndefined(event.value.to.event));

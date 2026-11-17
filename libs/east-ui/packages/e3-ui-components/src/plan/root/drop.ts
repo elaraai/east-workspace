@@ -36,7 +36,7 @@
 import { useId, useMemo } from "react";
 import { getSomeorUndefined, useDragTarget, type DragEventValue, type DragMeta, type DragTargetConfig } from "@elaraai/east-ui-components";
 import type { PlanVeto } from "../edit/candidate.js";
-import type { PlanEventDrop } from "../edit/event-drag.js";
+import type { PlanDropAnswer, PlanEventDrop } from "../edit/event-drag.js";
 import type { PlanRootValue } from "../model.js";
 import type { PlanRowDrop } from "../rows/RowShell.js";
 
@@ -51,7 +51,7 @@ const NO_LIBRARIES: readonly string[] = [];
  * @param value - The latest root (its `id`)
  * @param sources - The library ids beside the Plan accepted for `add` drags (data-stable)
  * @param panel - The library ids of the Plan's own panel tabs whose cards land on its rows (data-stable)
- * @param onDrop - Where a completed drag goes — a card's drop, an element's move or resize, an element's return — answering whether it was taken (stable)
+ * @param onDrop - Where a completed drag goes — a card's drop, an element's move or resize, an element's return — answering whether it was taken, or the words a drop that did something else is announced by (stable)
  * @param data - Whether `data`'s editing session takes a gesture now
  * @param events - The event kinds' drag and drop (#1196), for a Plan of event kinds
  * @param veto - The Plan's veto over what a drop would do (#1541, U7): the root's `canDrop`, which `data`'s rows ask
@@ -62,7 +62,7 @@ export function usePlanDropTarget(
     value: PlanRootValue,
     sources: readonly string[],
     panel: readonly string[],
-    onDrop: (event: DragEventValue, meta?: DragMeta) => boolean,
+    onDrop: (event: DragEventValue, meta?: DragMeta) => PlanDropAnswer,
     data: boolean,
     events?: PlanEventDrop,
     veto?: PlanVeto,

@@ -117,6 +117,12 @@ export interface PlanConnecting {
     readonly veto: ConnectVetoOf;
 }
 
+/**
+ * How the canvas answers a drop, as the drag layer hears it (`DragTargetConfig.onDrag`): whether it took it, or — a
+ * drop that did something else than land where it was dropped — the words it is announced by (#1680's review).
+ */
+export type PlanDropAnswer = boolean | { readonly said: string };
+
 /** The event a link runs from, as a route that draws one names it: its element's key, and the row it is on, where it is known. */
 export interface PlanLinkSource {
     /** Its element's key. */
@@ -247,9 +253,10 @@ export interface PlanEventDrop {
      *
      * @param movable - The element the drag ran from
      * @param event - The element it was dropped on, by its key, when there is one
-     * @returns Whether it was recorded
+     * @returns `false` where nothing was recorded; recorded, the words its drop is announced by — the link drawn, never
+     *   the element dropped (#1680's review)
      */
-    connectElement(movable: PlanMovable, event: string | undefined): boolean;
+    connectElement(movable: PlanMovable, event: string | undefined): PlanDropAnswer;
     /**
      * The verdict over a link of a kind from one event to another, whatever tool is held (#1541, U10): what the
      * inspector's Connect to… asks, by the same rules as Connect's drag.
@@ -318,6 +325,8 @@ interface PlanEventGesture {
     readonly label: string;
     /** The events it selects once recorded, and the row they are on. */
     readonly selects: { readonly keys: readonly string[]; readonly row: RowKey | undefined } | undefined;
+    /** What its drop is announced by, where it does something else than land where it was dropped: a link drawn (#1680's review). */
+    readonly said?: string | undefined;
 }
 
 /** An element moved, as a candidate says it. */
@@ -914,6 +923,7 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
                 verdict: { allowed: true, caption: m.linkDrawn({ kind: kind.name, from: titleOf(from), to: titleOf(to) }), span },
                 changes: [made.change], origin: "insert", label: linkStepLabel("Connect", [kind]),
                 selects: { keys: [made.key], row: movable.rowKey },
+                said: m.linkDrawnSaid({ kind: kind.name, from: titleOf(from), to: titleOf(to) }),
             };
         };
         const connectGesture = (connect: PlanConnecting | undefined, movable: PlanLinkSource, event: string | undefined) =>
@@ -982,7 +992,10 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
                 return !unmoved(movable, to) && record(elementGesture(row, movable, to));
             },
             returnElement: (event, library) => record(returnGesture(event, library)),
-            connectElement: (movable, event) => record(connectGesture(latest.current.connect, movable, event)),
+            connectElement: (movable, event) => {
+                const gesture = connectGesture(latest.current.connect, movable, event);
+                return record(gesture) && (gesture.said === undefined || { said: gesture.said });
+            },
             linkEvents: (kind, from, to) => record(connectGesture(linking(kind), from, to)),
         };
     }, [active, libraries, connecting]);

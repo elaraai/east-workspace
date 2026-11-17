@@ -314,7 +314,8 @@ test("racks bound read only refuse every drop of a card that lands on them, the 
     restOn(9.6, 2.9);
     expect(caption()).toEqual({ text: "Racks are read only", refused: true });
     await release(9.6, 2.9);
-    expect(announced()).toBe("Elmway College was not dropped.");
+    // Said with the ghost's words (#1680's review).
+    expect(announced()).toBe("Elmway College was not dropped: Racks are read only.");
     await tap(canvasOf(container), CAM, 9.6, 2.9);
     await enter(libraryCard(container, "elmway"));
     expect(refused(container)).toBe("Racks are read only");

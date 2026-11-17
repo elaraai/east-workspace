@@ -237,6 +237,8 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     connectGhost: (p: { kind: string }) => string;
     /** What Connect's ghost says where its link may land: the kind and the two events it joins — `Feed · Catalogue covers → Catalogue`. */
     linkDrawn: (p: { kind: string; from: string; to: string }) => string;
+    /** What a screen reader is told as Connect's drop draws its link — `Drew a feed from Catalogue covers to Catalogue.` (#1680's review). */
+    linkDrawnSaid: (p: { kind: string; from: string; to: string }) => string;
     /**
      * Why Connect's draft doesn't land: its kind's end — `start` its `from`, `end` its `to` — holds no event of that
      * kind: `Feed can't end at Van 2`.
@@ -715,6 +717,7 @@ export const planMessages: PlanMessages = {
     connectDraws: () => "Connect draws",
     connectGhost: ({ kind }) => `Draw ${withArticle(lowerWord(kind))}`,
     linkDrawn: ({ kind, from, to }) => `${kind} · ${from} → ${to}`,
+    linkDrawnSaid: ({ kind, from, to }) => `Drew ${withArticle(lowerWord(kind))} from ${from} to ${to}.`,
     linkEndRefused: ({ kind, end, item }) => `${kind} can't ${end} at ${item}`,
     linkHeld: ({ kind }) => `That ${lowerWord(kind)} is drawn already`,
     linkUnkeyed: ({ kind }) => `No key can be made for a new ${lowerWord(kind)}`,

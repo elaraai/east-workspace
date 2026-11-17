@@ -455,7 +455,8 @@ describe("a template card dropped on a resource's row (PB32)", () => {
         expect(plotOf(c, C1).hasAttribute("data-drop-active")).toBe(false);
         expect(caption()).toBe("refused: Needs presses");
         await letGo();
-        expect(announced()).toBe("Brochure run was not dropped.");
+        // Said with the ghost's words (#1680's review).
+        expect(announced()).toBe("Brochure run was not dropped: Needs presses.");
         expect(chip(c, "brochure-2")).toBeNull();
         expect(pending(c)).toBe("0 pending");
     });
@@ -612,7 +613,7 @@ describe("an element moved along its row or onto another resource's (PB34)", () 
             expect(plotOf(c, target).hasAttribute("data-drop-invalid")).toBe(true);
             expect(caption()).toBe(`refused: ${reason}`);
             await letGo();
-            expect(announced()).toBe("Spring catalogue was not dropped.");
+            expect(announced()).toBe(`Spring catalogue was not dropped: ${reason}.`);
             expect(pending(c)).toBe("0 pending");
         }
     });
@@ -1250,6 +1251,8 @@ describe("Connect draws a link kind's link from one event to another (#1541, U10
         expect(caption()).toBe("refused: Price lists are already at the bindery");
         await release();
         expect(pending(c)).toBe("0 pending");
+        // A screen reader hears the refusal in the Plan's words too (#1680's review).
+        expect(announced()).toBe("Catalogue covers was not dropped: Price lists are already at the bindery.");
     });
 
     test("a link kind's template, held in the library's Events tab by a click, gives the link Connect draws its other fields; let go, a link takes their defaults", async () => {
@@ -1267,6 +1270,8 @@ describe("Connect draws a link kind's link from one event to another (#1541, U10
         const y = layOutPlots(c, [LINK_A1, LINK_A2], [[linkJob(c, LINK_A2, "J-2004"), PRICE_LISTS]]);
         const release = await carry(linkJob(c, LINK_A1, "J-2001"), { x: xAt(COVERS_AT.day, COVERS_AT.hour), y: y(LINK_A1) }, { x: xAt(3, 0), y: y(LINK_A2) });
         await release();
+        // Said as the link it drew, never as the job dropped somewhere: Connect moves nothing (#1680's review).
+        expect(announced()).toBe("Drew a flow from Catalogue covers to Price lists.");
         // The flow drawn moves what the preset holds: twelve thousand sheets.
         expect(inspected(c)).toBe("Catalogue covers → Price lists");
         expect(slot(c, "end")!.querySelector('[data-fact="quantity"]')?.textContent).toBe("12 k sheets");

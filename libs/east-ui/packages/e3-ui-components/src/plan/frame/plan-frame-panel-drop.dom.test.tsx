@@ -210,7 +210,8 @@ describe("the library panel's cards on the rows that take them (#1259)", () => {
         expect([said?.textContent, said?.hasAttribute("data-refused")]).toEqual(["Only a job goes on a press", true]);
         fireEvent.pointerUp(document, { clientX: 10, clientY: 10 });
         await settle();
-        expect(announced()).toBe("Van drop was not dropped.");
+        // Said with the check's words, as the ghost says them (#1680's review).
+        expect(announced()).toBe("Van drop was not dropped: Only a job goes on a press.");
         expect(rowOf(c, "p1").hasAttribute("data-draft")).toBe(false);
         expect(runsOf(c, "p1")).toEqual([]);
         expect(slot(c, "footer")!.textContent).toContain("LAST · none");
