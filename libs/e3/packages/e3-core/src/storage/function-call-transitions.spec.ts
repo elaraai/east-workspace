@@ -34,6 +34,7 @@ function running(fn: string | null = 'quote'): FunctionCallJob {
       args: [],
       inputs: [],
       drafts: [],
+      draftEnd: none,
       limits: { timeoutMs: 60_000n, maxResultBytes: 1024n, maxLogBytes: 1024n },
       expiresAt: new Date(NOW + HOUR_MS),
       stdout: '',
@@ -61,6 +62,7 @@ const succeeded: FunctionCallEnd = {
   stderr: 'err\n',
   stdoutTruncated: false,
   stderrTruncated: true,
+  draftEnd: none,
 };
 
 describe('the function call transitions', () => {
@@ -75,6 +77,22 @@ describe('the function call transitions', () => {
       },
     }), 'its state, times and logs, and nothing else of it');
     assert.equal(callEnded(ended, { ...succeeded, state: variant('failed', { exitCode: 1n }) }), undefined);
+  });
+
+  it("ends a call with how its drafts ended it, as its end names it (#1680's review)", () => {
+    const drafted: FunctionCallEnd = {
+      ...succeeded,
+      state: variant('failed', { exitCode: 1n }),
+      draftEnd: some(variant('draft', { record: 'jobs', mutation: 'patch', place: 1n, of: 2n, how: variant('failed', null) })),
+    };
+    const ended = callEnded(running(), drafted);
+    assert.ok(ended !== undefined && jobEqual(ended, {
+      ...running(),
+      call: {
+        ...running().call, state: drafted.state, endedAt: some(drafted.endedAt), expiresAt: drafted.expiresAt,
+        stdout: 'out\n', stderr: 'err\n', stdoutTruncated: false, stderrTruncated: true, draftEnd: drafted.draftEnd,
+      },
+    }), 'its state, times, logs, and the draft that ended it');
   });
 
   it('asks a running call to cancel once, and no call that has ended', () => {

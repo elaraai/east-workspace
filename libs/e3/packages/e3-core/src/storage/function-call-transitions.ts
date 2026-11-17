@@ -20,7 +20,8 @@ import type { FunctionCallCancel, FunctionCallJob } from '@elaraai/e3-types';
 import type { FunctionCallEnd, FunctionCallListOptions } from './interfaces.js';
 
 /**
- * The call as its end leaves it: its end's state, times and logs.
+ * The call as its end leaves it: its end's state, times and logs, and what of
+ * its drafts ended it.
  *
  * @param job - The call, as the store holds it
  * @param end - How it ended
@@ -39,6 +40,7 @@ export function callEnded(job: FunctionCallJob, end: FunctionCallEnd): FunctionC
       stderr: end.stderr,
       stdoutTruncated: end.stdoutTruncated,
       stderrTruncated: end.stderrTruncated,
+      draftEnd: end.draftEnd,
     },
   };
 }

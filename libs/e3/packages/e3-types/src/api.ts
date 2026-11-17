@@ -1285,6 +1285,43 @@ export const FunctionDraftedType = StructType({
 });
 
 /**
+ * The draft whose mutation ended a call `failed` or `timed_out`, before its
+ * function ran. A call whose timeout ended between two drafts' runs names the
+ * draft that did not start.
+ *
+ * @property record - The record the draft was of
+ * @property mutation - The draft's mutation
+ * @property place - The draft's place among the call's, from 1
+ * @property of - How many drafts the call passed
+ * @property how - How its mutation ended: as a Save of it would have
+ */
+export const FunctionDraftFailureType = StructType({
+  record:   StringType,
+  mutation: StringType,
+  place:    IntegerType,
+  of:       IntegerType,
+  how:      VariantType({ failed: NullType, timed_out: NullType }),
+});
+
+/**
+ * How a call's drafts ended it before its function ran, as its result names
+ * it (#1619, #1680's review).
+ *
+ * - `draft`: a draft's mutation ended it ({@link FunctionDraftFailureType})
+ * - `laid`: its timeout ended once its drafts were all laid, before its
+ *   function ran: `of` drafts, every one laid
+ *
+ * The first line of its stderr says the same, for people to read (`draft
+ * jobs.patch (2 of 3) failed`, `drafts laid (3 of 3), and the call's timeout
+ * ended before its function ran`). A caller learns what ended a call from this
+ * alone, never from that line: a function's own stderr may begin the same way.
+ */
+export const FunctionDraftEndType = VariantType({
+  draft: FunctionDraftFailureType,
+  laid:  StructType({ of: IntegerType }),
+});
+
+/**
  * A dataset a call read, and the hash it was pinned at: one of a function's
  * inputs, or a dataset argument.
  *
@@ -1315,13 +1352,15 @@ export const InputReadType = StructType({
  *   function's body did not run ({@link FunctionDraftConflictType})
  *
  * A call a draft's mutation ended `failed` or `timed_out`, before the
- * function's body ran, says which draft in the first line of its `stderr`:
- * `draft jobs.patch (2 of 3) failed`, or `… timed out`, and the mutation's own
- * stderr follows it. `functionDraftEnded` reads the draft back from a result.
- * A call whose timeout ended once its drafts were all laid, before its body
- * ran, says so in its first line instead (`drafts laid (3 of 3), and the
- * call's timeout ended before its function ran`), which
- * `functionDraftsOutlasted` reads.
+ * function's body ran, names the draft in `draftEnd`
+ * ({@link FunctionDraftEndType}), and says so in the first line of its
+ * `stderr`: `draft jobs.patch (2 of 3) failed`, or `… timed out`, the
+ * mutation's own stderr following it. A call whose timeout ended once its
+ * drafts were all laid, before its body ran, names that in `draftEnd` instead,
+ * and says so in its first line (`drafts laid (3 of 3), and the call's timeout
+ * ended before its function ran`). `functionDraftEnded` and
+ * `functionDraftsOutlasted` read `draftEnd`, never the line: a function's own
+ * stderr may begin the same way. It is `none` for every other call.
  *
  * `inputs` names what the call read ({@link InputReadType}): each input the
  * function declares, then each dataset argument, with the hash its dataset was
@@ -1358,6 +1397,7 @@ export const ExecuteResultType = StructType({
   stderrTruncated: BooleanType,
   inputs: ArrayType(InputReadType),
   drafts: ArrayType(FunctionDraftedType),
+  draftEnd: OptionType(FunctionDraftEndType),
 });
 
 /**
@@ -1593,8 +1633,7 @@ export const SplitCallStatusType = VariantType({
  * - `running`: it has not ended
  * - `succeeded`: it returned, and `value` is the object its value was stored as
  * - `failed`: its runner exited non-zero (see its stderr), or a draft's
- *   mutation failed before its body ran, which the first line of its stderr
- *   names
+ *   mutation failed before its body ran, which its `draftEnd` names
  * - `invalid`: it was refused before it ran: a wrong arity, a runner the
  *   caller may not name, an input with no value, a draft the function does not
  *   take or one its record's mutation does not
@@ -1685,6 +1724,9 @@ export const FunctionCallSummaryType = StructType({
  * @property drafts - The drafts it passed, in order; none for a call that
  *   passed none, and for one refused as it started, which keeps no argument
  *   either. Its result names the commit each drafted record stood at
+ * @property draftEnd - How its drafts ended it before its function ran
+ *   ({@link FunctionDraftEndType}); `none` while it runs, and for a call they
+ *   did not end
  * @property limits - The limits it ran under
  * @property expiresAt - When it is forgotten: its lifetime's end, which its
  *   end sets. A running call's is past its deadline by a grace and then a
@@ -1706,6 +1748,7 @@ export const FunctionCallType = StructType({
   args:            ArrayType(FunctionCallArgType),
   inputs:          ArrayType(InputReadType),
   drafts:          ArrayType(FunctionCallDraftType),
+  draftEnd:        OptionType(FunctionDraftEndType),
   limits:          StructType({ timeoutMs: IntegerType, maxResultBytes: IntegerType, maxLogBytes: IntegerType }),
   expiresAt:       DateTimeType,
   stdout:          StringType,
@@ -2020,6 +2063,8 @@ export type CallArg = ValueTypeOf<typeof CallArgType>;
 export type FunctionDraft = ValueTypeOf<typeof FunctionDraftType>;
 export type FunctionDraftConflict = ValueTypeOf<typeof FunctionDraftConflictType>;
 export type FunctionDrafted = ValueTypeOf<typeof FunctionDraftedType>;
+export type FunctionDraftFailure = ValueTypeOf<typeof FunctionDraftFailureType>;
+export type FunctionDraftEnd = ValueTypeOf<typeof FunctionDraftEndType>;
 export type FunctionCallRequest = ValueTypeOf<typeof FunctionCallRequestType>;
 export type FunctionSignature = ValueTypeOf<typeof FunctionSignatureType>;
 export type OneShotRequest = ValueTypeOf<typeof OneShotRequestType>;

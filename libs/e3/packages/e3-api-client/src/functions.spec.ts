@@ -36,7 +36,7 @@ const sameResult = equalFor(ExecuteResultType);
 /** A call's result: its value, 5. */
 const FIVE: ExecuteResult = {
   outcome: variant('success', { value: encodeBeast2For(IntegerType)(5n) }),
-  stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false, inputs: [], drafts: [],
+  stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false, inputs: [], drafts: [], draftEnd: none,
 };
 
 /** A BEAST2 success, as the server sends one. */

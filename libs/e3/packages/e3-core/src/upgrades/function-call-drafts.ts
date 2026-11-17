@@ -6,12 +6,14 @@
 /**
  * The repository upgrade that carries kept function calls into the form in
  * which a call holds its drafts (east-workspace#1619): the call gained
- * `drafts`, its state the case `conflict`, and the record its store keeps
- * `drafted`, what the call's run lays its drafts from.
+ * `drafts`, and `draftEnd`, how its drafts ended it before its function ran
+ * (#1680's review); its state the case `conflict`; and the record its store
+ * keeps `drafted`, what the call's run lays its drafts from.
  *
  * A kept call's beast2 header names its whole type, and a decode refuses a
  * header whose type differs, so every call an earlier release filed is
- * rewritten, whatever its state: it passed no draft, and holds none.
+ * rewritten, whatever its state: it passed no draft, holds none, and none
+ * ended it.
  *
  * Both forms are frozen copies, which nothing but an upgrade reads: the step
  * reads what the releases before it wrote and writes what it shipped, however
@@ -23,7 +25,7 @@
 
 import {
   ArrayType, BooleanType, DateTimeType, DictType, IntegerType, NullType, OptionType, StringType, StructType, VariantType,
-  decodeBeast2For, encodeBeast2For, isTypeValueEqual, readBeast2Type, toEastTypeValue,
+  decodeBeast2For, encodeBeast2For, isTypeValueEqual, none, readBeast2Type, toEastTypeValue,
   type EastType, type EastTypeValue, type ValueTypeOf,
 } from '@elaraai/east';
 import { OBJECT_CONCURRENCY } from '../concurrency.js';
@@ -82,6 +84,20 @@ const FrozenDraftType = StructType({
   record:   StringType,
   mutation: StringType,
   args:     OptionType(StringType),
+});
+
+/** How a call's drafts ended it before its function ran, as this upgrade's
+ *  form holds it: the draft whose mutation did, `failed` or `timed_out`, or
+ *  its timeout, once they were all laid. */
+const FrozenDraftEndType = VariantType({
+  draft: StructType({
+    record:   StringType,
+    mutation: StringType,
+    place:    IntegerType,
+    of:       IntegerType,
+    how:      VariantType({ failed: NullType, timed_out: NullType }),
+  }),
+  laid:  StructType({ of: IntegerType }),
 });
 
 /** A record a call drafts, as this upgrade's form holds it for the call's
@@ -144,14 +160,17 @@ export const FunctionCallJobBeforeDraftsType = StructType({
 });
 
 /**
- * A kept call as this upgrade writes it, frozen: it holds its drafts; its
- * state may be `conflict`; and its store keeps, beside it, what its run lays
- * the drafts from, with the commit each drafted record stood at.
+ * A kept call as this upgrade writes it, frozen: it holds its drafts, and how
+ * they ended it; its state may be `conflict`; and its store keeps, beside it,
+ * what its run lays the drafts from, with the commit each drafted record stood
+ * at.
  *
  * @internal
  */
 export const FunctionCallJobWithDraftsType = StructType({
-  call: StructType({ ...callHead(FrozenStateWithConflictType), drafts: ArrayType(FrozenDraftType), ...CALL_TAIL }),
+  call: StructType({
+    ...callHead(FrozenStateWithConflictType), drafts: ArrayType(FrozenDraftType), draftEnd: OptionType(FrozenDraftEndType), ...CALL_TAIL,
+  }),
   ...JOB_TAIL,
   drafted: ArrayType(FrozenDraftedType),
 });
@@ -191,9 +210,9 @@ function beforeDrafts(bytes: Uint8Array): JobBeforeDrafts | null {
 }
 
 /** A call of the form before this upgrade, in the form it writes: it passed
- *  no draft, so it holds none, and its run lays none. */
+ *  no draft, so it holds none, none ended it, and its run lays none. */
 function withDrafts(job: JobBeforeDrafts): JobWithDrafts {
-  return { ...job, call: { ...job.call, drafts: [] }, drafted: [] };
+  return { ...job, call: { ...job.call, drafts: [], draftEnd: none }, drafted: [] };
 }
 
 /**

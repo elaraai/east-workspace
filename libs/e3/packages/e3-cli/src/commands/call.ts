@@ -327,11 +327,13 @@ async function renderResult(
   forwardLog(result.stderr, result.stderrTruncated, 'stderr');
 
   const outcome = result.outcome;
-  // The draft whose mutation ended the call, which its stderr's first line names
+  // The draft whose mutation ended the call, as its result names it: never read
+  // from its stderr, whose first line says so for people, and which a function's
+  // own stderr may begin the same way (#1680's review)
   const draft = functionDraftEnded(result);
-  const drafted = draft === null ? null : `Draft ${draft.record}.${draft.mutation} (${draft.place} of ${draft.of})`;
+  const drafted = draft === null ? null : `Draft ${draft.record}.${draft.mutation} (${printInteger(draft.place)} of ${printInteger(draft.of)})`;
   // Every draft laid, and the call's timeout ended before its function ran, as
-  // its stderr's first line says
+  // its result names it
   const outlasted = functionDraftsOutlasted(result);
   switch (outcome.type) {
     case 'success': {

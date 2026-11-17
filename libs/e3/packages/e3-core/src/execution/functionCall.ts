@@ -576,6 +576,8 @@ function filedCall(
       args,
       inputs,
       drafts: drafts.drafts,
+      // Its drafts end it only once its run lays them
+      draftEnd: none,
       limits: {
         timeoutMs: BigInt(filing.limits.timeoutMs),
         maxResultBytes: BigInt(filing.limits.maxResultBytes),
@@ -675,12 +677,12 @@ export interface FunctionCallRun {
  *    (`FunctionCallStore.pinInputs`), which the call keeps alive from there on
  *    and its result names. A draft that does not lay ends the call as a Save
  *    of it would have ended, and its function does not run: `failed` or
- *    `timed_out`, the first line of its stderr naming the draft and the
- *    mutation's own stderr after it, or `conflict`, naming the draft by its
- *    place and the refusal's words. Such a call names its inputs as its
- *    start pinned them. A call whose timeout ends once its drafts are laid
- *    ends `timed_out`, its first line saying so, and its function does not
- *    run.
+ *    `timed_out`, its `draftEnd` naming the draft, the first line of its
+ *    stderr saying so and the mutation's own stderr after it; or `conflict`,
+ *    naming the draft by its place and the refusal's words. Such a call names
+ *    its inputs as its start pinned them. A call whose timeout ends once its
+ *    drafts are laid ends `timed_out`, its `draftEnd` `laid` and its first
+ *    line saying so, and its function does not run.
  * 2. **Its function runs** on `runner` with `runDetached`: its inputs, then its
  *    arguments, each staged as the stored object it is — an input that is an
  *    index of a record as the index's manifest in the state the input names —
@@ -722,7 +724,8 @@ export async function functionCallRun(
   // The call as it stands: as filed, then with its inputs at the states its
   // drafts left
   let job: FunctionCallJob = filed;
-  const end = (state: FunctionCallState, streams: typeof QUIET): Promise<FunctionCallJob> => endCall(storage, repo, job, state, streams, now());
+  const end = (state: FunctionCallState, streams: typeof QUIET, draftEnd: ExecuteResult['draftEnd'] = none): Promise<FunctionCallJob> =>
+    endCall(storage, repo, job, state, streams, now(), draftEnd);
   if (job.cancel.type === 'some') return { job: await end(variant('cancelled', { by: job.cancel.value.by }), QUIET), result: null };
   if (job.deadline.getTime() - now() <= 0) {
     return { job: await end(variant('timed_out', { ms: job.call.limits.timeoutMs }), QUIET), result: null };
@@ -848,8 +851,9 @@ export async function functionCallRun(
   if ('unrun' in ran) {
     // A laying stops at the run's own signal alone, which is not aborted
     if (unrun === null) return { job: await end(variant('lost', { message: 'the laying of the call\'s drafts was stopped' }), streams), result: null };
-    return { job: await end(unrun.outcome, streams), result: { outcome: unrun.outcome, ...streams, ...read } };
+    return { job: await end(unrun.outcome, streams, unrun.draftEnd), result: { outcome: unrun.outcome, ...streams, ...read, draftEnd: unrun.draftEnd } };
   }
+  // Its function ran, so no draft ended it, whatever its stderr says
   const { result } = ran;
   switch (result.kind) {
     case 'success': {
@@ -858,22 +862,22 @@ export async function functionCallRun(
         const hash = await storeDatasetBytes(storage, repo, value);
         return end(variant('succeeded', { value: hash }), streams);
       });
-      return { job: ended, result: { outcome: variant('success', { value }), ...streams, ...read } };
+      return { job: ended, result: { outcome: variant('success', { value }), ...streams, ...read, draftEnd: none } };
     }
     case 'failed':
       return {
         job: await end(variant('failed', { exitCode: BigInt(result.exitCode) }), streams),
-        result: { outcome: variant('failed', { exitCode: BigInt(result.exitCode) }), ...streams, ...read },
+        result: { outcome: variant('failed', { exitCode: BigInt(result.exitCode) }), ...streams, ...read, draftEnd: none },
       };
     case 'too_large':
       return {
         job: await end(variant('too_large', { bytes: BigInt(result.bytes), limit: BigInt(result.limit) }), streams),
-        result: { outcome: variant('too_large', { bytes: BigInt(result.bytes), limit: BigInt(result.limit) }), ...streams, ...read },
+        result: { outcome: variant('too_large', { bytes: BigInt(result.bytes), limit: BigInt(result.limit) }), ...streams, ...read, draftEnd: none },
       };
     case 'timed_out':
       return {
         job: await end(variant('timed_out', { ms: job.call.limits.timeoutMs }), streams),
-        result: { outcome: variant('timed_out', { ms: job.call.limits.timeoutMs }), ...streams, ...read },
+        result: { outcome: variant('timed_out', { ms: job.call.limits.timeoutMs }), ...streams, ...read, draftEnd: none },
       };
   }
 }
@@ -964,11 +968,14 @@ export async function functionCallStatus(storage: StorageBackend, repo: string, 
  */
 export async function functionCallResult(storage: StorageBackend, repo: string, job: FunctionCallJob): Promise<ExecuteResult> {
   const { call } = job;
+  // Its log tails, and how its drafts ended it, which its stderr's first line
+  // says too
   const streams = {
     stdout: call.stdout,
     stderr: call.stderr,
     stdoutTruncated: call.stdoutTruncated,
     stderrTruncated: call.stderrTruncated,
+    draftEnd: call.draftEnd,
   };
   const state = call.state;
   const read = { inputs: functionCallInputs(job), drafts: functionCallDrafted(job) };
@@ -1082,9 +1089,10 @@ export function functionCallDrafted(job: FunctionCallJob): ExecuteResult['drafts
   return callDraftsRead(job.drafted);
 }
 
-/** Records how a call ended, with the lifetime its end gives it, and answers
- *  it as it stands: as the store has it, or as it ended when the store keeps
- *  it no longer (its workspace was removed meanwhile). */
+/** Records how a call ended, with the lifetime its end gives it and how its
+ *  drafts ended it (`none` unless they did), and answers it as it stands: as
+ *  the store has it, or as it ended when the store keeps it no longer (its
+ *  workspace was removed meanwhile). */
 async function endCall(
   storage: StorageBackend,
   repo: string,
@@ -1092,11 +1100,12 @@ async function endCall(
   state: FunctionCallState,
   streams: typeof QUIET,
   at: number,
+  draftEnd: ExecuteResult['draftEnd'] = none,
 ): Promise<FunctionCallJob> {
   const keepMs = state.type === 'succeeded' || state.type === 'cancelled' ? job.keep.succeeded : job.keep.failed;
-  const end: FunctionCallEnd = { state, endedAt: new Date(at), expiresAt: new Date(at + Number(keepMs)), ...streams };
+  const end: FunctionCallEnd = { state, endedAt: new Date(at), expiresAt: new Date(at + Number(keepMs)), ...streams, draftEnd };
   const ended = await storage.calls.end(repo, job.workspace, job.call.id, end);
-  return ended ?? { ...job, call: { ...job.call, state, endedAt: some(end.endedAt), expiresAt: end.expiresAt, ...streams } };
+  return ended ?? { ...job, call: { ...job.call, state, endedAt: some(end.endedAt), expiresAt: end.expiresAt, ...streams, draftEnd } };
 }
 
 /** Waits `ms`, or until `signal` aborts. */

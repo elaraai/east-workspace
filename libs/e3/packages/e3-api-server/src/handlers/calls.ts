@@ -371,6 +371,8 @@ export async function syncCallAnswer(
         stderrTruncated: false,
         inputs: functionCallInputs(current),
         drafts: functionCallDrafted(current),
+        // Its run has not recorded how it ended, so it names no draft that ended it
+        draftEnd: none,
       });
     case 'cancelled': {
       const by = status.value.by.type === 'some' ? ` by ${status.value.by.value}` : '';

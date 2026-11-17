@@ -138,7 +138,6 @@ export {
   functionDraftEnded,
   functionDraftsLaidLine,
   functionDraftsOutlasted,
-  type FunctionDraftEnd,
 } from './function-draft.js';
 
 // Record objects
@@ -471,6 +470,8 @@ export {
   FunctionDraftType,
   FunctionDraftConflictType,
   FunctionDraftedType,
+  FunctionDraftFailureType,
+  FunctionDraftEndType,
   FunctionCallRequestType,
   FunctionSignatureType,
   OneShotRequestType,
@@ -564,6 +565,8 @@ export {
   type FunctionDraft,
   type FunctionDraftConflict,
   type FunctionDrafted,
+  type FunctionDraftFailure,
+  type FunctionDraftEnd,
   type FunctionCallRequest,
   type FunctionSignature,
   type OneShotRequest,

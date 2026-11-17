@@ -24,14 +24,14 @@ import assert from 'node:assert/strict';
 import { dirname, join } from 'node:path';
 import {
   ArrayType, DictType, East, IntegerType, NullType, OptionType, PatchType, SortedMap, StringType, StructType,
-  compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, sha256Hex, some, variant,
+  compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, sha256Hex, some, variant,
   type PatchTypeOf, type ValueTypeOf,
 } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import {
   ExecuteResultType, FunctionCallDraftType, FunctionCallDraftedType, decodeFunctionCallJob, encodeFunctionCallJob,
   functionDraftEnded, functionDraftsLaidLine, functionDraftsOutlasted,
-  type ExecuteResult, type FunctionCallJob, type FunctionCallRequest, type FunctionDraft, type TreePath,
+  type ExecuteResult, type FunctionCallJob, type FunctionCallRequest, type FunctionDraft, type FunctionDraftFailure, type TreePath,
 } from '@elaraai/e3-types';
 import { DatasetSegments, readDatasetWhole } from '../dataset-open.js';
 import { inputsHash } from '../executions.js';
@@ -89,6 +89,18 @@ const sameDrafts = equalFor(ArrayType(FunctionCallDraftType));
 const sameDrafted = equalFor(ArrayType(FunctionCallDraftedType));
 const sameResult = equalFor(ExecuteResultType);
 const sameCaller = equalFor(OptionType(StringType));
+const sameEnd = equalFor(ExecuteResultType.fields.draftEnd);
+const printEnd = printFor(ExecuteResultType.fields.draftEnd);
+
+/** What a call names as the draft that ended it: the draft, its place among the call's, and how it ended it. */
+function endedBy(record: string, mutation: string, place: bigint, of: bigint, how: FunctionDraftFailure['how']): ExecuteResult['draftEnd'] {
+  return some(variant('draft', { record, mutation, place, of, how }));
+}
+
+/** What a call names when its timeout ended as its last draft was laid: how many were. */
+function laidAll(of: bigint): ExecuteResult['draftEnd'] {
+  return some(variant('laid', { of }));
+}
 
 /** The jobs the record is deployed with. */
 const SAVED_JOBS: Jobs = new Map([['j1', { press: 'P1', hours: 2n }], ['j2', { press: 'P2', hours: 3n }]]);
@@ -470,12 +482,15 @@ describe('a call\'s drafts', () => {
       assert.equal(job.call.state.value.exitCode, 3n);
       assert.equal(job.call.stderr, 'draft tally.add (2 of 3) failed\nthe tail', 'the draft, then as much of its program\'s stderr as the call\'s log limit keeps');
       assert.equal(job.call.stderrTruncated, true);
+      assert.ok(sameEnd(job.call.draftEnd, endedBy('tally', 'add', 2n, 3n, variant('failed', null))),
+        `the call keeps the draft that ended it, which a caller reads it by: ${printEnd(job.call.draftEnd)}`);
       assert.equal(job.call.stdout, '');
       assert.equal(job.call.expiresAt.getTime(), T + FAILED_MS, 'kept as a failure is');
       assert.equal(failing.getCalls().length, 2, 'the draft after it did not run');
       assert.equal(failing.getDetachedCalls().length, 0, 'nor the function');
       if (result === null || result.outcome.type !== 'failed') assert.fail('the run answers the failure');
       assert.equal(result.stderr, job.call.stderr);
+      assert.ok(sameEnd(result.draftEnd, job.call.draftEnd), `and its result names it: ${printEnd(result.draftEnd)}`);
       assert.ok(sameInputs(result.inputs, filed.call.inputs), 'it names its inputs as its start pinned them');
       assert.ok(sameRead(result.drafts, [{ record: 'tally', commit: tallyHead.commit }]));
       const status = await functionCallStatus(storage, REPO, job);
@@ -497,8 +512,10 @@ describe('a call\'s drafts', () => {
       assert.equal(job.call.state.value.ms, 40n, 'the call\'s timeout, which the draft ran under');
       assert.equal(job.call.stderr, 'draft tally.add (1 of 1) timed out\nslow reducer');
       assert.equal(job.call.stderrTruncated, false);
+      assert.ok(sameEnd(job.call.draftEnd, endedBy('tally', 'add', 1n, 1n, variant('timed_out', null))), printEnd(job.call.draftEnd));
       assert.equal(slow.getDetachedCalls().length, 0, 'its function does not run');
       assert.ok(result?.outcome.type === 'timed_out' && result.outcome.value.ms === 40n);
+      assert.ok(sameEnd(result.draftEnd, job.call.draftEnd), `its result names the draft: ${printEnd(result.draftEnd)}`);
     });
 
     it('ends a call timed out when its timeout ended before a draft started, or as the last was laid', async () => {
@@ -513,6 +530,7 @@ describe('a call\'s drafts', () => {
       if (unstarted.job?.call.state.type !== 'timed_out') assert.fail(`the call ended ${unstarted.job?.call.state.type}`);
       assert.equal(unstarted.job.call.state.value.ms, 600_000n);
       assert.equal(unstarted.job.call.stderr, 'draft tally.add (2 of 2) timed out\n', 'the draft that did not start');
+      assert.ok(sameEnd(unstarted.job.call.draftEnd, endedBy('tally', 'add', 2n, 2n, variant('timed_out', null))), printEnd(unstarted.job.call.draftEnd));
       assert.equal(first.getCalls().length, 1);
       assert.equal(first.getDetachedCalls().length, 0);
 
@@ -522,6 +540,7 @@ describe('a call\'s drafts', () => {
       if (laid.job?.call.state.type !== 'timed_out') assert.fail(`the call ended ${laid.job?.call.state.type}`);
       assert.equal(laid.job.call.stderr, 'drafts laid (1 of 1), and the call\'s timeout ended before its function ran\n',
         'no draft ended it: its first line says its drafts took the time');
+      assert.ok(sameEnd(laid.job.call.draftEnd, laidAll(1n)), `the call keeps that its drafts were laid: ${printEnd(laid.job.call.draftEnd)}`);
       if (laid.result === null) assert.fail('the run answers its result');
       assert.ok(functionDraftsOutlasted(laid.result) && functionDraftEnded(laid.result) === null, 'which a caller reads back');
       assert.equal(second.getDetachedCalls().length, 0, 'its function does not start');
@@ -548,6 +567,7 @@ describe('a call\'s drafts', () => {
       assert.equal(job.call.state.value.message, 'primary: Cannot apply replace - expected "P1", found "P2"');
       assert.equal(job.call.expiresAt.getTime(), T + FAILED_MS, 'kept as a failure is');
       assert.equal(job.call.stderr, '');
+      assert.ok(sameEnd(job.call.draftEnd, none), 'a conflict names its draft in its state, and no end beside it');
       assert.equal(runner.getDetachedCalls().length, 0, 'its function does not run');
       if (result === null || result.outcome.type !== 'conflict') assert.fail('the run answers the conflict');
       assert.equal(result.outcome.value.message, job.call.state.value.message);
@@ -555,6 +575,20 @@ describe('a call\'s drafts', () => {
       assert.deepEqual(await head('jobs'), jobsHead, 'and the record stands where the Save left it');
       const status = await functionCallStatus(storage, REPO, job);
       assert.ok(status.type === 'completed' && sameResult(status.value, result), 'read back, the kept call answers the same');
+    });
+
+    it('names no draft as the end of a call whose function ran and failed, whatever its own stderr says (#1680\'s review)', async () => {
+      // The draft is laid; then the function fails, its own stderr beginning as a draft's end is said
+      const own = 'draft tally.add (1 of 1) failed\nError: refused\n';
+      const units = new UnitRunner(async () => succeeded(5n));
+      units.setDetachedResult(ran({ kind: 'failed', exitCode: 1, stderr: own }));
+      const filed = await start('load', [], [add()]);
+      const { job, result } = await run(filed.call.id, units);
+      if (job?.call.state.type !== 'failed' || result === null) assert.fail(`the call ended ${job?.call.state.type}`);
+      assert.equal(units.getDetachedCalls().length, 1, 'its function ran');
+      assert.equal(job.call.stderr, own, 'and wrote the line a draft\'s end is said in');
+      assert.ok(sameEnd(job.call.draftEnd, none) && sameEnd(result.draftEnd, none), `no draft ended it: ${printEnd(result.draftEnd)}`);
+      assert.deepEqual([functionDraftEnded(result), functionDraftsOutlasted(result)], [null, false], 'which a caller reads');
     });
 
     it('stops laying at a request to cancel the call, and at its host\'s stop', async () => {
@@ -735,6 +769,7 @@ describe('a call\'s drafts', () => {
       assert.equal(failed.outcome.value.exitCode, 3n);
       assert.equal(failed.stderr, 'draft tally.add (2 of 3) failed\nthe tail', 'the draft, then as much of its program\'s stderr as the call\'s log limit keeps');
       assert.equal(failed.stderrTruncated, true);
+      assert.ok(sameEnd(failed.draftEnd, endedBy('tally', 'add', 2n, 3n, variant('failed', null))), `its result names the draft: ${printEnd(failed.draftEnd)}`);
       assert.equal(first.getCalls().length, 2, 'the draft after it did not run');
       assert.equal(first.getDetachedCalls().length, 0, 'nor the function');
       assert.ok(sameInputs(failed.inputs, [{ path: TALLY, index: none, hash: tallyHead.state }, { path: JOBS, index: none, hash: jobsHead.state }]), 'it names its inputs as they were pinned');
@@ -778,6 +813,7 @@ describe('a call\'s drafts', () => {
       const unstarted = await unkept('load', [], [add(), add()], first);
       assert.ok(unstarted.outcome.type === 'timed_out' && unstarted.outcome.value.ms === 600_000n);
       assert.equal(unstarted.stderr, 'draft tally.add (2 of 2) timed out\n', 'the draft that did not start');
+      assert.ok(sameEnd(unstarted.draftEnd, endedBy('tally', 'add', 2n, 2n, variant('timed_out', null))), printEnd(unstarted.draftEnd));
       assert.equal(first.getCalls().length, 1);
       assert.equal(first.getDetachedCalls().length, 0);
 
@@ -789,6 +825,7 @@ describe('a call\'s drafts', () => {
       assert.ok(laid.outcome.type === 'timed_out' && laid.outcome.value.ms === 600_000n);
       assert.equal(laid.stderr, 'drafts laid (2 of 2), and the call\'s timeout ended before its function ran\n');
       assert.equal(laid.stderr, `${functionDraftsLaidLine(2)}\n`);
+      assert.ok(sameEnd(laid.draftEnd, laidAll(2n)), `its result names its drafts laid: ${printEnd(laid.draftEnd)}`);
       assert.ok(functionDraftsOutlasted(laid), 'which a caller reads back');
       assert.equal(functionDraftEnded(laid), null, 'no draft ended it');
       assert.equal(second.getDetachedCalls().length, 0, 'its function does not start');
@@ -798,7 +835,7 @@ describe('a call\'s drafts', () => {
       assert.ok(sameResult(laid, await kept('load', [], outlasting(), spending(600_000), some({
         timeoutMs: some(600_000n), maxResultBytes: none, maxLogBytes: none,
       }))), 'the call a store keeps answers the same');
-      assert.ok(!functionDraftsOutlasted(cut), 'a call whose function ran out of the time is not one its drafts outlasted');
+      assert.ok(!functionDraftsOutlasted(cut) && sameEnd(cut.draftEnd, none), 'a call whose function ran out of the time is not one its drafts outlasted');
     });
   });
 });
@@ -1015,6 +1052,8 @@ describe('a call\'s drafts, on the real runner', () => {
     assert.match(rest.join('\n'), /refused: not today/, 'the mutation\'s own stderr follows, as a Save returns it');
     assert.equal(runner.detached, 0, 'the function\'s body did not run');
     assert.ok(result?.outcome.type === 'failed');
+    const end = endedBy('plans', 'refuse', 2n, 2n, variant('failed', null));
+    assert.ok(sameEnd(job.call.draftEnd, end) && sameEnd(result.draftEnd, end), `the call and its result name the draft: ${printEnd(result.draftEnd)}`);
     assert.deepEqual(await storage.datasets.read(repo, ws, 'records/plans'), before, 'and nothing is saved');
   });
 });

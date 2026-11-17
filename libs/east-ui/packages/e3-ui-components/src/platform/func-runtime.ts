@@ -256,18 +256,20 @@ export function signatureOfFuncHandleType(handleType: EastTypeValue): FuncHandle
  *
  * A draft that ended the call before the function ran is named by its place
  * among the call's: by the outcome itself where the record refused it
- * (`conflict`), in the first line of the call's stderr where its mutation
- * failed or the call's time ran out (`functionDraftEnded` reads it back), and
- * in the diagnostic where the call may not pass it (`invalid`). Where its
- * mutation failed, the error carries the draft too: its place and what its
- * record said of it, the message the mutation's program raised after that
- * first line. A call whose time ran out once its drafts were all laid says so
- * (`functionDraftsOutlasted`), not that its function ran out of it.
+ * (`conflict`), by the result's `draftEnd` where its mutation failed or the
+ * call's time ran out (`functionDraftEnded` reads it, never the stderr, which
+ * a function's own output may begin the same way: #1680's review), and in the
+ * diagnostic where the call may not pass it (`invalid`). Where its mutation
+ * failed, the error carries the draft too: its place and what its record said
+ * of it, the message the mutation's program raised after the first line of
+ * the call's stderr, which names the draft. A call whose time ran out once its
+ * drafts were all laid says so (`functionDraftsOutlasted`), not that its
+ * function ran out of it.
  */
 function errorOfExecuteResult(result: ExecuteResult): FuncError {
     const outcome = result.outcome;
     const ended = functionDraftEnded(result);
-    const draft = ended === null ? null : functionDraftLabel(ended, ended.place, ended.of);
+    const draft = ended === null ? null : functionDraftLabel(ended, Number(ended.place), Number(ended.of));
     switch (outcome.type) {
         case "conflict": {
             const refused = functionDraftLabel(outcome.value, Number(outcome.value.place), Number(outcome.value.of));
@@ -283,7 +285,7 @@ function errorOfExecuteResult(result: ExecuteResult): FuncError {
                 kind: variant("failed", {
                     exitCode: outcome.value.exitCode,
                     // The draft whose mutation failed, and what its record said of it: what follows the line naming it.
-                    draft: ended === null ? none : some({ place: BigInt(ended.place), refusal: draftWords(result.stderr) }),
+                    draft: ended === null ? none : some({ place: ended.place, refusal: draftWords(result.stderr) }),
                 }),
                 message: draft === null
                     ? `runner exited with code ${printInteger(outcome.value.exitCode)}`
@@ -918,6 +920,7 @@ export function createInMemoryFunctionApi(functions: InMemoryFunctionDef[]): Fun
                     stderrTruncated: false,
                     inputs: [],
                     drafts: [],
+                    draftEnd: none,
                 } as ExecuteResult;
             }
             const args = req.args.map((bytes, i) => decodeBeast2For(def.argTypes[i]!)(bytes));
@@ -928,9 +931,10 @@ export function createInMemoryFunctionApi(functions: InMemoryFunctionDef[]): Fun
                 stderr: "",
                 stdoutTruncated: false,
                 stderrTruncated: false,
-                // A call of values reads no dataset, and drafts no record.
+                // A call of values reads no dataset, drafts no record, and is ended by none.
                 inputs: [],
                 drafts: [],
+                draftEnd: none,
             } as ExecuteResult;
         },
     };

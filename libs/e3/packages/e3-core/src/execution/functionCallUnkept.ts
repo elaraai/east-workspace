@@ -157,6 +157,7 @@ export async function functionCallUnkept(
           stderrTruncated: staged.end.stderrTruncated,
           inputs: staged.read,
           drafts: read,
+          draftEnd: staged.end.draftEnd,
         };
       case 'staged': {
         const result = detachedToExecuteResult(await runner.runDetached({

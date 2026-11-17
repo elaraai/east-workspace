@@ -75,6 +75,8 @@ const TALLY_PATH: TreePath = [variant('field', 'records'), variant('field', 'tal
 const InputsType = ExecuteResultType.fields.inputs;
 /** The records a result names it drafted, each with the commit it stood at. */
 const DraftedType = ExecuteResultType.fields.drafts;
+/** What of its drafts a result names ended it. */
+const DraftEndType = ExecuteResultType.fields.draftEnd;
 /** A draft's arguments as a kept call holds them: the tuple a commit names a
  *  mutation's by. */
 const DraftArgsType = ArrayType(BlobType);
@@ -93,6 +95,8 @@ const jobKeys = compareFor(StringType);
 const sameJobs = equalFor(DraftJobsType);
 const sameInputs = equalFor(InputsType);
 const sameDrafted = equalFor(DraftedType);
+const sameDraftEnd = equalFor(DraftEndType);
+const printDraftEnd = printFor(DraftEndType);
 const printJobs = printFor(DraftJobsType);
 const printInputs = printFor(InputsType);
 const printDrafted = printFor(DraftedType);
@@ -445,6 +449,7 @@ export function functionDraftTests(setup: TestSetup<TestContext>): void {
       const ran = await called(ctx, ws, 'count_after', request(zero), opts);
       assert.equal(valueOf(ran.result, IntegerType), 3n);
       assert.match(ran.result.stdout, /counting the jobs/);
+      assert.ok(sameDraftEnd(ran.result.draftEnd, none), `a call whose function ran names no draft that ended it: ${printDraftEnd(ran.result.draftEnd)}`);
 
       // A mutation that fails as it runs: its Save fails, and so does the
       // call that drafts it, after a draft that lays
@@ -458,13 +463,17 @@ export function functionDraftTests(setup: TestSetup<TestContext>): void {
       const [line, ...own] = failed.result.stderr.split('\n');
       assert.equal(line, 'draft jobs.refuse (2 of 2) failed', 'the first line of its stderr says which draft');
       assert.match(own.join('\n'), /refused: not today/, 'and the mutation\'s own stderr follows it');
-      assert.deepEqual(functionDraftEnded(failed.result), { record: 'jobs', mutation: 'refuse', place: 2, of: 2, how: 'failed' });
+      // Its result names the draft as what ended it, which a caller reads it by, never the line (#1680's review)
+      const end: ExecuteResult['draftEnd'] = some(variant('draft', { record: 'jobs', mutation: 'refuse', place: 2n, of: 2n, how: variant('failed', null) }));
+      assert.ok(sameDraftEnd(failed.result.draftEnd, end), `its result names the draft that ended it: ${printDraftEnd(failed.result.draftEnd)}`);
+      assert.equal(functionDraftEnded(failed.result)?.mutation, 'refuse', 'which functionDraftEnded reads');
       assert.equal(failed.result.stdout, '', 'the function did not run');
       assertInputs(failed.result, [stored], 'a call a draft ended names its input as it was pinned');
       assertDrafted(failed.result, [{ record: 'jobs', commit: head }], 'a call a draft ended');
       const failure = await workspaceCallGet(base, ctx.repoName, ws, failed.id, opts);
       assert.equal(failure.state.type, 'failed');
       assert.equal(failure.stderr, failed.result.stderr, 'the kept call holds the same stderr');
+      assert.ok(sameDraftEnd(failure.draftEnd, end), `and the same end: ${printDraftEnd(failure.draftEnd)}`);
       assert.equal(failure.drafts.length, 2, 'and both its drafts');
 
       // An edit made over the jobs as they were read, j2 deleted; and another
@@ -477,6 +486,7 @@ export function functionDraftTests(setup: TestSetup<TestContext>): void {
       assert.deepEqual([conflict.record, conflict.mutation, conflict.place, conflict.of], ['jobs', 'patch', 1n, 1n]);
       assert.match(conflict.message, /j2/, 'the refusal names the row');
       assert.equal(unfit.result.stdout, '', 'the function did not run');
+      assert.ok(sameDraftEnd(unfit.result.draftEnd, none), 'a conflict names its draft in its outcome, and no other end');
       // A Save of the same edit ends in conflict, in the same words
       const lost = await save(ctx, ws, stale, opts);
       if (lost.outcome.type !== 'conflict') assert.fail(`expected the Save to conflict, got ${printSave(lost)}`);

@@ -165,13 +165,13 @@ function callBeforeDrafts(
 }
 
 /** A call a release before `function-call-drafts` kept, as that step and
- *  `function-call-index-inputs` after it carry it: it passed no draft, and
- *  holds none; and each of its inputs was a dataset itself, and names no
- *  index. */
+ *  `function-call-index-inputs` after it carry it: it passed no draft, holds
+ *  none, and none ended it; and each of its inputs was a dataset itself, and
+ *  names no index. */
 function withNoDrafts(job: CallBeforeDrafts): FunctionCallJob {
   return {
     ...job,
-    call: { ...job.call, inputs: job.call.inputs.map(({ path, hash }) => ({ path, index: none, hash })), drafts: [] },
+    call: { ...job.call, inputs: job.call.inputs.map(({ path, hash }) => ({ path, index: none, hash })), drafts: [], draftEnd: none },
     drafted: [],
   };
 }

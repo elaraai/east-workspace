@@ -243,7 +243,8 @@ if (drafted.outcome.type === 'conflict') {
   // The record changed under the edit: { record, mutation, place, of, message }
 }
 const ended = functionDraftEnded(drafted);
-// { record, mutation, place, of, how: 'failed' | 'timed_out' } when a draft's mutation ended the call, else null
+// { record, mutation, place, of, how: <failed | timed_out> } when a draft's mutation ended the call, else null:
+// read from drafted.draftEnd, never from its stderr
 const outlasted = functionDraftsOutlasted(drafted);
 // true when the drafts were all laid and the call's timeout ended before its function ran
 ```
@@ -258,8 +259,11 @@ draft found wrong — a record
 the function does not list, an unknown mutation, arguments of the wrong number
 or type — is an `invalid` result naming the draft, and nothing runs. A draft
 the record refuses ends the call as its Save would have ended, before the
-function runs: `failed` or `timed_out`, the first line of `stderr` naming it
-(`draft jobs.move (1 of 1) failed`), or `conflict`, naming it by its place. A draft is passed only
+function runs: `failed` or `timed_out`, the result's `draftEnd` naming it and
+the first line of `stderr` saying so for people
+(`draft jobs.move (1 of 1) failed`), or `conflict`, naming it by its place. A
+caller reads which draft ended a call from `draftEnd`, never from the line,
+which a function's own stderr may begin the same way. A draft is passed only
 where its mutation may be committed: one the server does not let the caller
 pass throws `ApiError` `permission_denied`, its `path`
 `draft <record>.<mutation>`. A call through the package (`functionCall`) reads

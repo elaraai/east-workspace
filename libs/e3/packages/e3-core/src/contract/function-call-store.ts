@@ -8,9 +8,10 @@
  * (east-workspace#1554). A call is filed as it starts, ended once, asked to
  * stop while it runs, listed the latest first, kept for its lifetime and no
  * longer, rooted for gc while it is kept, and removed with its workspace. A
- * running call's inputs are pinned again once its drafts are laid, and each
- * call is read and written as the bytes the store holds, for a repository
- * upgrade step (east-workspace#1619).
+ * running call's inputs are pinned again once its drafts are laid, its end
+ * keeps how its drafts ended it (#1680's review), and each call is read and
+ * written as the bytes the store holds, for a repository upgrade step
+ * (east-workspace#1619).
  */
 
 import { describe, it } from 'node:test';
@@ -57,6 +58,7 @@ function filed(workspace: string, options: Filed = {}): FunctionCallJob {
       args: options.args ?? [],
       inputs: options.inputs ?? [],
       drafts: options.drafts ?? [],
+      draftEnd: none,
       limits: { timeoutMs: 60_000n, maxResultBytes: 1024n, maxLogBytes: 1024n },
       expiresAt: options.expiresAt ?? new Date(now + HOUR_MS),
       stdout: '',
@@ -98,8 +100,8 @@ async function listAll(storage: StorageBackend, repo: string, workspace: string,
   }
 }
 
-/** How a call ended, kept for `keepMs` from now. */
-function ending(state: FunctionCallState, keepMs: number = HOUR_MS): FunctionCallEnd {
+/** How a call ended, kept for `keepMs` from now, its drafts ending it as `draftEnd` says: none unless given. */
+function ending(state: FunctionCallState, keepMs: number = HOUR_MS, draftEnd: FunctionCallEnd['draftEnd'] = none): FunctionCallEnd {
   const now = Date.now();
   return {
     state,
@@ -109,6 +111,7 @@ function ending(state: FunctionCallState, keepMs: number = HOUR_MS): FunctionCal
     stderr: 'err\n',
     stdoutTruncated: false,
     stderrTruncated: true,
+    draftEnd,
   };
 }
 
@@ -261,6 +264,21 @@ export function functionCallStoreTests(setup: BackendSetup): void {
       assert.equal(ended.call.state.value.message, 'the row at "j1" changed under the edit');
       assert.ok(jobEqual(ended, { ...job, call: { ...ended.call, drafts: job.call.drafts } }), 'its drafts and what it lays them from as filed');
       assert.deepEqual(await listAll(storage, repo, WS, { limit: 10, state: 'conflict' }), [job.call.id], 'and a list finds it by how it ended');
+    });
+
+    it("keeps how a call's drafts ended it, as its end names it, which a read finds: a draft's mutation, or every draft laid as its timeout ended (#1680's review)", async (t) => {
+      const { storage, repo } = await setup(t);
+      const draftEndEqual = equalFor(FunctionCallJobType.fields.call.fields.draftEnd);
+      const failed: FunctionCallEnd['draftEnd'] = some(variant('draft', { record: 'jobs', mutation: 'patch', place: 2n, of: 3n, how: variant('failed', null) }));
+      const laid: FunctionCallEnd['draftEnd'] = some(variant('laid', { of: 3n }));
+      for (const [state, draftEnd] of [[variant('failed', { exitCode: 1n }), failed], [variant('timed_out', { ms: 60_000n }), laid]] as const) {
+        const job = filed(WS);
+        await storage.calls.create(repo, job);
+        const ended = await storage.calls.end(repo, WS, job.call.id, ending(state, HOUR_MS, draftEnd));
+        assert.ok(ended !== null && draftEndEqual(ended.call.draftEnd, draftEnd), `ended ${state.type}, it names how its drafts ended it`);
+        const read = await storage.calls.get(repo, WS, job.call.id);
+        assert.ok(read !== null && jobEqual(read, ended), 'and is what a read finds');
+      }
     });
 
     it("roots what a kept call lays its drafts from: each draft's arguments, the state each drafted record stood at and its mutations", async (t) => {

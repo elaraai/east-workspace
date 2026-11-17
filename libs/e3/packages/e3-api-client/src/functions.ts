@@ -293,14 +293,17 @@ export interface WorkspaceFunctionCallOptions {
  * function does not list, an unknown mutation, arguments of the wrong number
  * or type — is an `invalid` result, naming the draft, and nothing runs. A
  * draft whose mutation fails or runs out of the call's time ends the call
- * `failed` or `timed_out` before the function runs, the first line of
- * `stderr` naming it (`draft jobs.patch (2 of 3) failed`, which
- * `functionDraftEnded` reads back); a call whose timeout ends once its drafts
- * are all laid ends `timed_out` too, its first line `drafts laid (3 of 3), and
- * the call's timeout ended before its function ran`, which
- * `functionDraftsOutlasted` reads; one that no longer fits the record, which
- * changed under the edit, ends it `conflict`, naming the record, the
- * mutation, the draft's place among the call's and the refusal's words.
+ * `failed` or `timed_out` before the function runs, the result's `draftEnd`
+ * naming it, which `functionDraftEnded` reads, and the first line of its
+ * `stderr` saying so for people (`draft jobs.patch (2 of 3) failed`); a call
+ * whose timeout ends once its drafts are all laid ends `timed_out` too, its
+ * `draftEnd` saying they were laid, which `functionDraftsOutlasted` reads, and
+ * its first line `drafts laid (3 of 3), and the call's timeout ended before
+ * its function ran`. A caller reads the end from `draftEnd`, never from the
+ * line, which a function's own stderr may begin the same way. A draft that no
+ * longer fits the record, which changed under the edit, ends the call
+ * `conflict`, naming the record, the mutation, the draft's place among the
+ * call's and the refusal's words.
  *
  * @param url - Base URL of the e3 API server
  * @param repo - Repository name

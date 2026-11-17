@@ -50,9 +50,10 @@
 > drafts of them: mutation calls that are not committed, laid by a Save's first
 > half, read by the function, and never saved (§3.4). The function object and
 > its signature gain `drafts: Array<String>`, the call request `drafts`, the
-> result `drafts` and the outcome `conflict`, and the kept call its drafts and
-> the state `conflict` (hard cutovers, with a repository upgrade step for the
-> kept call: `docs/conventions/WIRE_MIGRATION.md`). Who may pass a draft is the
+> result `drafts`, `draftEnd` (what of its drafts ended the call: #1680's
+> review) and the outcome `conflict`, and the kept call its drafts, its
+> `draftEnd` and the state `conflict` (hard cutovers, with a repository upgrade
+> step for the kept call: `docs/conventions/WIRE_MIGRATION.md`). Who may pass a draft is the
 > host's `DraftAccess`, which `createWorkspaceFunctionRoutes` takes (§7.1).
 > Audience: e3 maintainers + an implementing agent. This is the **local/shared**
 > spec (e3 monorepo). The AWS cloud implementation is specified in the companion
@@ -425,10 +426,14 @@ which is a mutation's declaration before `e3.record` builds it.
   that holds another commit knows its edits were laid over newer saves.
 - **A draft the record refuses** ends the call as a Save of it would have
   ended, and the body does not run (`callDraftsEnd`). `failed` and
-  `timed_out` say which draft in the first line of stderr — `draft jobs.patch
-  (2 of 3) failed`, `draft jobs.patch (2 of 3) timed out` — and the mutation's
-  own stderr follows it; one helper writes the line and reads it back
-  (`functionDraftEndLine`, `functionDraftEnded`, e3-types). A patch that no
+  `timed_out` name the draft in the result's `draftEnd` (`FunctionDraftEndType`'s
+  `draft`, a `FunctionDraftFailureType`: the record, the mutation, its place
+  among the call's and how it ended), which a caller reads
+  (`functionDraftEnded`, e3-types) and the kept call keeps. The first line of
+  stderr says it for people — `draft jobs.patch (2 of 3) failed`, `draft
+  jobs.patch (2 of 3) timed out` (`functionDraftEndLine`) — and the
+  mutation's own stderr follows it. No reader reads the line back: a
+  function's own stderr may begin the same way (#1680's review). A patch that no
   longer fits the record, which changed under the edit, ends the call
   `conflict`, carrying the record, the mutation, the draft's place among the
   call's (`place` of `of`) and the refusal's words
@@ -441,13 +446,15 @@ which is a mutation's declaration before `e3.record` builds it.
   outside that limit. A draft still running, or yet to run, when the call's
   timeout ends, ends the call `timed_out`, with the call's timeout; a call
   whose timeout ends once its drafts are all laid ends `timed_out` too, its
-  first line `drafts laid (3 of 3), and the call's timeout ended before its
-  function ran` (`functionDraftsLaidLine`, read back by
-  `functionDraftsOutlasted`), so a caller tells the time its drafts took from
-  a function that ran out of it.
+  `draftEnd` `laid`, with how many were, which `functionDraftsOutlasted`
+  reads, and its first line `drafts laid (3 of 3), and the call's timeout
+  ended before its function ran` (`functionDraftsLaidLine`), so a caller
+  tells the time its drafts took from a function that ran out of it.
 - **Kept.** The call the server keeps holds its drafts as it holds its
   arguments (`FunctionCallType.drafts`, each `FunctionCallDraftType`: the
-  record, the mutation and the arguments' object), and each drafted record
+  record, the mutation and the arguments' object), what of them ended it
+  (`FunctionCallType.draftEnd`, which its store writes as the call ends:
+  `FunctionCallEnd.draftEnd`), and each drafted record
   once, with what laying its drafts reads and the commit it stood at
   (`FunctionCallJobType.drafted`, each `FunctionCallDraftedType`), which the
   result names. Each draft's mutation runs as a Save's does, an execution
@@ -486,8 +493,9 @@ which is a mutation's declaration before `e3.record` builds it.
   `--`.
 - **Another backend** implements `FunctionCallStore.pinInputs` and
   `FunctionCallStore.readStored` (the upgrade step reads a call in the form an
-  earlier release kept it), keeps what a kept call's inputs name through its
-  gc, and gives the routes its `draftAccess`
+  earlier release kept it), writes a call's `draftEnd` as its end gives it
+  (`callEnded` does for a store built on it), keeps what a kept call's inputs
+  name through its gc, and gives the routes its `draftAccess`
   (`docs/conventions/E3_BACKEND_SEAMS.md`).
 
 Not in this change: drafts on a task (a task reads what is saved); keeping a
@@ -649,6 +657,7 @@ export const ExecuteResultType = StructType({
   stderrTruncated: BooleanType,
   inputs: ArrayType(StructType({ path: TreePathType, hash: StringType })),   // what it read (#1031)
   drafts: ArrayType(FunctionDraftedType),   // { record, commit }: each record it drafted, and where it stood (#1619)
+  draftEnd: OptionType(FunctionDraftEndType), // what of its drafts ended it before its function ran (#1619, #1680's review)
 }); // ValueTypeOf → ExecuteResult
 
 /** A draft: a call of a record's mutation that is not committed (#1619, §3.4). */
@@ -656,6 +665,17 @@ export const FunctionDraftType = StructType({
   record:   StringType,
   mutation: StringType,
   args:     ArrayType(BlobType),        // as a mutation call takes them
+});
+
+/** A draft whose mutation ended a call: failed, or ran out of the call's time. */
+export const FunctionDraftFailureType = StructType({
+  record: StringType, mutation: StringType, place: IntegerType, of: IntegerType,
+  how: VariantType({ failed: NullType, timed_out: NullType }),
+});
+/** What of its drafts ended a call: a draft, or every draft laid as its timeout ended. */
+export const FunctionDraftEndType = VariantType({
+  draft: FunctionDraftFailureType,
+  laid:  StructType({ of: IntegerType }),
 });
 
 /** Named function call. Positional args, one per param: a beast2-encoded value,
@@ -1497,16 +1517,22 @@ paths.
       all; several drafts of one record, and of two, run in order; each
       refusal as the call starts, and each ending a draft gives (`failed`,
       `timed_out` over a clock the spec sets, `conflict` where a Save changed
-      a row under the edit), with the body shown not to have run; a cancel
+      a row under the edit), with the body shown not to have run and the
+      `draftEnd` the call and its result name; no end named for a function
+      that ran and wrote a draft's line itself; a cancel
       while a draft runs; the record's commit, history and dependents as they
       were, and a Save racing the call landing with the call's read unmoved;
       the drafted state kept through a collection for as long as the call is
       kept, and gone after.
     - e3-core contract suites, which every backend's stores run:
       `functionCallStoreTests` (a running call's inputs pinned whole, which gc
-      keeps from then on; a call that has ended left as it is; a call read in
-      the form it was stored) and `repositoryRecordTests` (the upgrade step
-      rewrites every call an earlier release kept).
+      keeps from then on; a call that has ended left as it is; how a call's
+      drafts ended it kept as its end names it; a call read in the form it was
+      stored) and `repositoryRecordTests` (the upgrade step rewrites every
+      call an earlier release kept).
+    - e3-types `function-draft.spec.ts`: the lines a call says its end in, and
+      the end read from `draftEnd` alone — none for a result whose stderr
+      begins with a draft's line and names no end.
     - e3-api-server `handlers/functions.spec.ts`: the host's rule is asked for
       each draft, in order, before anything is read; a refusal is
       `permission_denied`, naming the draft, and nothing is filed or run; a
@@ -1518,7 +1544,8 @@ paths.
       same edit; nothing saved, for the caller and for another reader; drafts
       in order over one record and two, and an input read as stored beside a
       drafted one; the kept call's drafts and commits, and its drafted state
-      through a collection; each refusal and each ending; a reader who may not
+      through a collection; each refusal and each ending, the `draftEnd` the
+      result and the kept call name among them; a reader who may not
       commit the mutation refused the draft where the server refuses the Save.
     - e3-cli `call.spec.ts`, e3-api-tests `cliTests` and integration
       `function-call.spec.ts`: `--draft` read against its mutation, drafts in

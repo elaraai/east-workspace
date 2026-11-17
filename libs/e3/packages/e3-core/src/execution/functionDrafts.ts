@@ -54,6 +54,7 @@ import {
   type FunctionCallDraft,
   type FunctionCallDrafted,
   type FunctionDraft,
+  type FunctionDraftFailure,
   type FunctionObject,
   type PackageObject,
   type TreePath,
@@ -260,21 +261,23 @@ export interface LayCallDraftsOptions {
 /**
  * How laying a call's drafts came out ({@link layCallDrafts}).
  *
- * A call a draft ended `failed` or `timed_out` says which draft in the first
- * line of its `stderr`, `draft jobs.patch (2 of 3) failed` or `draft jobs.patch
- * (2 of 3) timed out` (`functionDraftEndLine`, which a caller reads back with
- * `functionDraftEnded`), and the mutation's own stderr follows it, as a Save
- * returns it; `stderrTruncated` says whether that is the tail of a longer log.
+ * A call a draft ended `failed` or `timed_out` names the draft (`draft`),
+ * which the call's result names as its `draftEnd` and a caller reads back with
+ * `functionDraftEnded`, and says which draft in the first line of its
+ * `stderr`, for people to read: `draft jobs.patch (2 of 3) failed` or `draft
+ * jobs.patch (2 of 3) timed out` (`functionDraftEndLine`). The mutation's own
+ * stderr follows it, as a Save returns it; `stderrTruncated` says whether that
+ * is the tail of a longer log.
  */
 export type CallDraftsLaid =
   /** Every draft was laid: each drafted record's path, and the hash of the
    *  state its drafts left. */
   | { readonly kind: 'laid'; readonly states: ReadonlyArray<{ readonly path: TreePath; readonly hash: string }> }
   /** A draft's mutation failed, as a Save of it would have. */
-  | { readonly kind: 'failed'; readonly exitCode: number; readonly stderr: string; readonly stderrTruncated: boolean }
+  | { readonly kind: 'failed'; readonly draft: FunctionDraftFailure; readonly exitCode: number; readonly stderr: string; readonly stderrTruncated: boolean }
   /** A draft's mutation was still running, or was yet to run, when the call's
    *  timeout ended. */
-  | { readonly kind: 'timed_out'; readonly stderr: string; readonly stderrTruncated: boolean }
+  | { readonly kind: 'timed_out'; readonly draft: FunctionDraftFailure; readonly stderr: string; readonly stderrTruncated: boolean }
   /** A draft no longer fits its record, which changed under the edit: the
    *  record, the mutation, the draft's place among the call's and how many
    *  the call passed, and the refusal's words. */
@@ -288,13 +291,21 @@ export type CallDraftsLaid =
 /**
  * How a call ends when one of its drafts did not lay, or when its timeout
  * ended before its function ran: its outcome, as the call's state and its
- * result both hold it, and the stderr that says why.
+ * result both hold it, what ended it, and the stderr that says why.
  */
 export interface CallDraftsEnd {
   /** `failed` or `timed_out`, as a Save of the draft would have ended, or
    *  `conflict`, naming the record, the mutation, the draft's place among the
    *  call's and the refusal's words. */
   readonly outcome: Extract<ExecuteResult['outcome'], { type: 'failed' | 'timed_out' | 'conflict' }>;
+  /**
+   * What ended the call, as its result and its kept form name it
+   * (`FunctionDraftEndType`): the draft, for a `failed` or `timed_out` a
+   * draft's mutation ended, or that did not start; `laid`, for a call whose
+   * timeout ended once every draft was laid. `none` for a `conflict`, whose
+   * outcome names its draft, and for a call that passed no draft.
+   */
+  readonly draftEnd: ExecuteResult['draftEnd'];
   /**
    * The draft in its first line, then its mutation's own stderr, for a
    * `failed` or `timed_out` a draft's mutation ended; the line alone, naming
@@ -331,14 +342,21 @@ export function callDraftsEnd(
 ): CallDraftsEnd {
   switch (ended.kind) {
     case 'failed':
-      return { outcome: variant('failed', { exitCode: BigInt(ended.exitCode) }), stderr: ended.stderr, stderrTruncated: ended.stderrTruncated };
+      return {
+        outcome: variant('failed', { exitCode: BigInt(ended.exitCode) }), draftEnd: some(variant('draft', ended.draft)),
+        stderr: ended.stderr, stderrTruncated: ended.stderrTruncated,
+      };
     case 'timed_out':
-      return { outcome: variant('timed_out', { ms: timeoutMs }), stderr: ended.stderr, stderrTruncated: ended.stderrTruncated };
+      return {
+        outcome: variant('timed_out', { ms: timeoutMs }), draftEnd: some(variant('draft', ended.draft)),
+        stderr: ended.stderr, stderrTruncated: ended.stderrTruncated,
+      };
     case 'conflict':
       return {
         outcome: variant('conflict', {
           record: ended.record, mutation: ended.mutation, place: BigInt(ended.place), of: BigInt(ended.of), message: ended.message,
         }),
+        draftEnd: none,
         stderr: '',
         stderrTruncated: false,
       };
@@ -347,17 +365,19 @@ export function callDraftsEnd(
 
 /**
  * The end a call comes to when its timeout ended before its function ran:
- * once its drafts were all laid, its stderr's first line says so
- * (`functionDraftsLaidLine`), so a caller tells the time its drafts took from
- * a function that ran out of it; a call that passed none says nothing.
+ * once its drafts were all laid, it names that (`laid`), and its stderr's first
+ * line says so (`functionDraftsLaidLine`), so a caller tells the time its
+ * drafts took from a function that ran out of it; a call that passed none says
+ * nothing.
  *
  * @param drafts - How many drafts the call passed, every one laid
  * @param timeoutMs - The call's timeout, which the end names
- * @returns The call's outcome, `timed_out`, and its stderr
+ * @returns The call's outcome, `timed_out`, what ended it, and its stderr
  */
 function timedOutBeforeRun(drafts: number, timeoutMs: bigint): CallDraftsEnd {
   return {
     outcome: variant('timed_out', { ms: timeoutMs }),
+    draftEnd: drafts === 0 ? none : some(variant('laid', { of: BigInt(drafts) })),
     stderr: drafts === 0 ? '' : `${functionDraftsLaidLine(drafts)}\n`,
     stderrTruncated: false,
   };
@@ -417,11 +437,15 @@ export async function layCallDrafts(
     drafted.map((record, at) => [record.record, { drafted: record, state: states[at]! }]));
   for (const [at, draft] of drafts.entries()) {
     const named = { record: draft.record, mutation: draft.mutation, place: at + 1, of: drafts.length };
+    /** The draft, ending the call as its mutation did: what the call names as its `draftEnd`. */
+    const ending = (how: FunctionDraftFailure['how']): FunctionDraftFailure =>
+      ({ record: draft.record, mutation: draft.mutation, place: BigInt(named.place), of: BigInt(named.of), how });
+    const failed = ending(variant('failed', null)), timedOut = ending(variant('timed_out', null));
     /** The first line of the call's stderr, when this draft ends it. */
-    const ends = (how: 'failed' | 'timed_out'): string => `${functionDraftEndLine({ ...named, how })}\n`;
+    const ends = (end: FunctionDraftFailure): string => `${functionDraftEndLine(end)}\n`;
     if (options.signal?.aborted) return { kind: 'aborted' };
     const left = options.deadline - now();
-    if (left <= 0) return { kind: 'timed_out', stderr: ends('timed_out'), stderrTruncated: false };
+    if (left <= 0) return { kind: 'timed_out', draft: timedOut, stderr: ends(timedOut), stderrTruncated: false };
     const record = records.get(draft.record);
     const mutation = record?.drafted.mutations.get(draft.mutation);
     if (record === undefined || mutation === undefined) {
@@ -438,9 +462,9 @@ export async function layCallDrafts(
         record.state = laid.state;
         break;
       case 'failed':
-        return { kind: 'failed', exitCode: laid.exitCode, stderr: `${ends('failed')}${laid.stderr}`, stderrTruncated: laid.stderrTruncated };
+        return { kind: 'failed', draft: failed, exitCode: laid.exitCode, stderr: `${ends(failed)}${laid.stderr}`, stderrTruncated: laid.stderrTruncated };
       case 'timed_out':
-        return { kind: 'timed_out', stderr: `${ends('timed_out')}${laid.stderr}`, stderrTruncated: laid.stderrTruncated };
+        return { kind: 'timed_out', draft: timedOut, stderr: `${ends(timedOut)}${laid.stderr}`, stderrTruncated: laid.stderrTruncated };
       case 'conflict':
         return { kind: 'conflict', ...named, message: laid.detail };
       case 'aborted':

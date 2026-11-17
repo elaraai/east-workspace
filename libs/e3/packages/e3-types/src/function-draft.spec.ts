@@ -4,80 +4,66 @@
  */
 
 /**
- * The line a call says which of its drafts ended it in (east-workspace#1619),
- * and the line a call whose timeout ended once its drafts were all laid says so
- * in: each written and read back alike, and read only from a call it can be
- * of.
+ * How a call says which of its drafts ended it (east-workspace#1619): the
+ * lines its stderr says it in, for people to read, and the end its result
+ * names, which a caller reads it from — never the line, which a function's own
+ * stderr may say too (#1680's review).
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { variant } from '@elaraai/east';
-import type { ExecuteResult } from './api.js';
-import {
-  functionDraftEndLine, functionDraftEnded, functionDraftLabel, functionDraftsLaidLine, functionDraftsOutlasted, type FunctionDraftEnd,
-} from './function-draft.js';
+import { equalFor, none, some, variant } from '@elaraai/east';
+import { FunctionDraftFailureType, type ExecuteResult, type FunctionDraftFailure } from './api.js';
+import { functionDraftEndLine, functionDraftEnded, functionDraftLabel, functionDraftsLaidLine, functionDraftsOutlasted } from './function-draft.js';
 
-/** A call's result, as far as the line's reader reads it. */
-function ended(outcome: ExecuteResult['outcome'], stderr: string, drafted = ['jobs']): Pick<ExecuteResult, 'outcome' | 'stderr' | 'drafts'> {
-  return { outcome, stderr, drafts: drafted.map((record) => ({ record, commit: 'c'.repeat(64) })) };
+const sameFailure = equalFor(FunctionDraftFailureType);
+
+/** A draft that ended a call, as its result names it. */
+function draft(record: string, mutation: string, place: bigint, of: bigint, how: 'failed' | 'timed_out'): FunctionDraftFailure {
+  return { record, mutation, place, of, how: how === 'failed' ? variant('failed', null) : variant('timed_out', null) };
 }
+
+/** A call's result, as far as the readers read it: what ended it, its outcome and its stderr. */
+type Ended = Pick<ExecuteResult, 'outcome' | 'stderr' | 'draftEnd'>;
 
 const failed = variant('failed', { exitCode: 3n });
 const timedOut = variant('timed_out', { ms: 600_000n });
 
-describe('the line a call names the draft that ended it in', () => {
-  it('names a draft by its record, its mutation and its place among the call\'s', () => {
+describe('the lines a call says what of its drafts ended it in', () => {
+  it("names a draft by its record, its mutation and its place among the call's, and how many were laid", () => {
     assert.equal(functionDraftLabel({ record: 'jobs', mutation: 'patch' }, 2, 3), 'draft jobs.patch (2 of 3)');
-    assert.equal(functionDraftEndLine({ record: 'jobs', mutation: 'patch', place: 2, of: 3, how: 'failed' }), 'draft jobs.patch (2 of 3) failed');
-    assert.equal(functionDraftEndLine({ record: 'jobs', mutation: 'patch', place: 1, of: 1, how: 'timed_out' }), 'draft jobs.patch (1 of 1) timed out');
-  });
-
-  it('reads back the draft each end names, with the mutation\'s own stderr after it or none', () => {
-    const ends: FunctionDraftEnd[] = [
-      { record: 'jobs', mutation: 'patch', place: 2, of: 3, how: 'failed' },
-      { record: 'jobs', mutation: 'move', place: 12, of: 12, how: 'timed_out' },
-      // A record's name is all before the mutation's dot
-      { record: 'plant.jobs', mutation: 'patch', place: 1, of: 1, how: 'failed' },
-    ];
-    for (const end of ends) {
-      const outcome = end.how === 'failed' ? failed : timedOut;
-      const line = functionDraftEndLine(end);
-      assert.deepEqual(functionDraftEnded(ended(outcome, `${line}\nError: refused\n  at somewhere\n`)), end);
-      assert.deepEqual(functionDraftEnded(ended(outcome, `${line}\n`)), end, 'a draft that did not start has no stderr of its own');
-      assert.deepEqual(functionDraftEnded(ended(outcome, line)), end);
-    }
-  });
-
-  it('names no draft for a call none can have ended, or whose first line says no such thing', () => {
-    const line = 'draft jobs.patch (1 of 1) failed';
-    assert.equal(functionDraftEnded(ended(failed, `${line}\n`, [])), null, 'a call that passed no draft');
-    assert.equal(functionDraftEnded(ended(variant('success', { value: new Uint8Array() }), `${line}\n`)), null, 'a call whose function ran to its end');
-    assert.equal(functionDraftEnded(ended(variant('conflict', { record: 'jobs', mutation: 'patch', place: 1n, of: 1n, message: 'gone' }), '')), null,
-      'a conflict, whose outcome names its draft');
-    assert.equal(functionDraftEnded(ended(timedOut, `${line}\n`)), null, 'a line of another end than the call\'s');
-    assert.equal(functionDraftEnded(ended(timedOut, `${functionDraftsLaidLine(1)}\n`)), null, 'a timeout that ended once every draft was laid');
-    assert.equal(functionDraftEnded(ended(failed, 'Error: the function failed\n')), null, 'the function\'s own failure');
-    assert.equal(functionDraftEnded(ended(failed, `warming up\n${line}\n`)), null, 'the words on a later line');
-    assert.equal(functionDraftEnded(ended(failed, 'draft jobs.patch (1 of 1) failed, again\n')), null);
+    assert.equal(functionDraftEndLine(draft('jobs', 'patch', 2n, 3n, 'failed')), 'draft jobs.patch (2 of 3) failed');
+    assert.equal(functionDraftEndLine(draft('jobs', 'patch', 1n, 1n, 'timed_out')), 'draft jobs.patch (1 of 1) timed out');
+    assert.equal(functionDraftsLaidLine(3), 'drafts laid (3 of 3), and the call\'s timeout ended before its function ran');
   });
 });
 
-describe('the line a call whose drafts outlasted its timeout says so in', () => {
-  it('says how many drafts were laid, every one of them, and is read back from a timed-out call that passed drafts', () => {
-    assert.equal(functionDraftsLaidLine(3), 'drafts laid (3 of 3), and the call\'s timeout ended before its function ran');
-    assert.equal(functionDraftsOutlasted(ended(timedOut, `${functionDraftsLaidLine(3)}\n`)), true);
-    assert.equal(functionDraftsOutlasted(ended(timedOut, functionDraftsLaidLine(1))), true, 'with no line end');
+describe('what of its drafts ended a call, as its result names it', () => {
+  it('reads back the draft a call names as its end, whatever its record\'s name holds', () => {
+    const ends = [draft('jobs', 'patch', 2n, 3n, 'failed'), draft('jobs', 'move', 12n, 12n, 'timed_out'), draft('plant.jobs', 'patch', 1n, 1n, 'failed')];
+    for (const end of ends) {
+      const result: Ended = { outcome: end.how.type === 'failed' ? failed : timedOut, stderr: `${functionDraftEndLine(end)}\n`, draftEnd: some(variant('draft', end)) };
+      const read = functionDraftEnded(result);
+      assert.ok(read !== null && sameFailure(read, end), functionDraftEndLine(end));
+      assert.equal(functionDraftsOutlasted(result), false, 'a draft that ended it is no timeout once every draft was laid');
+    }
   });
 
-  it('is read from no other call: one that passed no draft, one that did not time out, one whose first line says another thing', () => {
-    const line = `${functionDraftsLaidLine(2)}\n`;
-    assert.equal(functionDraftsOutlasted(ended(timedOut, line, [])), false, 'a call that passed no draft');
-    assert.equal(functionDraftsOutlasted(ended(failed, line)), false, 'a call that failed');
-    assert.equal(functionDraftsOutlasted(ended(timedOut, '')), false, 'a function that ran out of the time');
-    assert.equal(functionDraftsOutlasted(ended(timedOut, 'draft jobs.patch (2 of 2) timed out\n')), false, 'a draft that did not start');
-    assert.equal(functionDraftsOutlasted(ended(timedOut, `warming up\n${line}`)), false, 'the words on a later line');
-    assert.equal(functionDraftsOutlasted(ended(timedOut, 'drafts laid (1 of 2), and the call\'s timeout ended before its function ran\n')), false,
-      'a count that is not every draft');
+  it('reads that a call\'s timeout ended once its drafts were all laid, naming no draft', () => {
+    const result: Ended = { outcome: timedOut, stderr: `${functionDraftsLaidLine(3)}\n`, draftEnd: some(variant('laid', { of: 3n })) };
+    assert.equal(functionDraftsOutlasted(result), true);
+    assert.equal(functionDraftEnded(result), null);
+  });
+
+  it('names no end for a call its drafts did not end, whatever its stderr says: a function that ran and wrote the lines itself (#1680\'s review)', () => {
+    const line = functionDraftEndLine(draft('jobs', 'patch', 1n, 1n, 'failed'));
+    const mimic: Ended = { outcome: failed, stderr: `${line}\nError: refused\n`, draftEnd: none };
+    assert.equal(functionDraftEnded(mimic), null, 'a function whose own stderr begins with a draft\'s end');
+    const outlasting: Ended = { outcome: timedOut, stderr: `${functionDraftsLaidLine(2)}\n`, draftEnd: none };
+    assert.equal(functionDraftsOutlasted(outlasting), false, 'a function whose own stderr says its drafts were laid');
+    const success: Ended = { outcome: variant('success', { value: new Uint8Array() }), stderr: `${line}\n`, draftEnd: none };
+    assert.deepEqual([functionDraftEnded(success), functionDraftsOutlasted(success)], [null, false], 'a call whose function ran to its end');
+    const conflict: Ended = { outcome: variant('conflict', { record: 'jobs', mutation: 'patch', place: 1n, of: 1n, message: 'gone' }), stderr: '', draftEnd: none };
+    assert.equal(functionDraftEnded(conflict), null, 'a conflict, whose outcome names its draft');
   });
 });

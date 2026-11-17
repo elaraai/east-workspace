@@ -27,8 +27,9 @@ const jobsPath = [variant('field', 'records'), variant('field', 'jobs')];
 const pricesPath = [variant('field', 'inputs'), variant('field', 'prices')];
 
 /** A call as the release before the step kept it: of `jobs_on`, which read a
- *  record and an input, and laid a draft over the record. */
-function earlierCall(id: string, state: Earlier['call']['state']): Earlier {
+ *  record and an input, and laid a draft over the record, which ended it as
+ *  `draftEnd` says: none unless given. */
+function earlierCall(id: string, state: Earlier['call']['state'], draftEnd: Earlier['call']['draftEnd'] = none): Earlier {
   return {
     call: {
       id,
@@ -41,6 +42,7 @@ function earlierCall(id: string, state: Earlier['call']['state']): Earlier {
       args: [variant('value', 'a'.repeat(64)), variant('dataset', { path: pricesPath, hash: 'b'.repeat(64) })],
       inputs: [{ path: jobsPath, hash: 'c'.repeat(64) }, { path: pricesPath, hash: 'b'.repeat(64) }],
       drafts: [{ record: 'jobs', mutation: 'patch', args: some('d'.repeat(64)) }],
+      draftEnd,
       limits: { timeoutMs: 60_000n, maxResultBytes: 1024n, maxLogBytes: 1024n },
       expiresAt: new Date('2026-11-21T08:00:02.000Z'),
       stdout: 'laid\n',
@@ -78,6 +80,9 @@ describe('function-call-index-inputs', () => {
       earlierCall('019a7f2e-4b6c-7d1a-9c3e-5f6a7b8c9d0e', variant('succeeded', { value: '3'.repeat(64) })),
       earlierCall('019a7f2e-5c7d-7e2b-8d4f-6a7b8c9d0e1f', variant('running', null)),
       earlierCall('019a7f2e-6d8e-7f3c-9e5a-7b8c9d0e1f2a', variant('conflict', { record: 'jobs', mutation: 'patch', place: 1n, of: 1n, message: 'the row changed' })),
+      // One its draft ended, which it carries as it was (#1680's review)
+      earlierCall('019a7f2e-8fa0-7b5e-9a7c-9d0e1f2a3b4c', variant('failed', { exitCode: 1n }),
+        some(variant('draft', { record: 'jobs', mutation: 'patch', place: 1n, of: 1n, how: variant('failed', null) }))),
     ];
     const stored = async (id: string) => {
       const found = (await storage.calls.readStored('repo')).find((call) => call.id === id);

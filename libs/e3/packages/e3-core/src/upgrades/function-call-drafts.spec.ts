@@ -64,12 +64,12 @@ const decodeEarlier = decodeBeast2For(FunctionCallJobBeforeDraftsType);
 const decodeWritten = decodeBeast2For(FunctionCallJobWithDraftsType);
 
 /** A call an earlier release kept, as this release reads it once both steps
- *  of a kept call's form have carried it: holding no draft, each of its inputs
- *  naming no index. */
+ *  of a kept call's form have carried it: holding no draft, none ending it,
+ *  each of its inputs naming no index. */
 function carriedOf(earlier: ValueTypeOf<typeof FunctionCallJobBeforeDraftsType>): FunctionCallJob {
   return {
     ...earlier,
-    call: { ...earlier.call, inputs: earlier.call.inputs.map(({ path, hash }) => ({ path, index: none, hash })), drafts: [] },
+    call: { ...earlier.call, inputs: earlier.call.inputs.map(({ path, hash }) => ({ path, index: none, hash })), drafts: [], draftEnd: none },
     drafted: [],
   };
 }
@@ -108,8 +108,8 @@ describe('function-call-drafts', () => {
       const rewritten = await (await stored(earlier.call.id)).read();
       assert.ok(rewritten !== null, 'the store holds the call still, its lifetime ended or not');
       const written = decodeWritten(rewritten);
-      assert.ok(equalFor(FunctionCallJobWithDraftsType)(written, { ...earlier, call: { ...earlier.call, drafts: [] }, drafted: [] }),
-        `the ${earlier.call.state.type} call is stored in the form the step writes, as it was and holding no draft: ${printFor(FunctionCallJobWithDraftsType)(written)}`);
+      assert.ok(equalFor(FunctionCallJobWithDraftsType)(written, { ...earlier, call: { ...earlier.call, drafts: [], draftEnd: none }, drafted: [] }),
+        `the ${earlier.call.state.type} call is stored in the form the step writes, as it was, holding no draft and none ending it: ${printFor(FunctionCallJobWithDraftsType)(written)}`);
     }
 
     assert.equal(await functionCallIndexInputs.apply(storage, 'repo', null, Date.now() + 60_000), null, 'the next step, whole');

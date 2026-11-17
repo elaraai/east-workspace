@@ -450,6 +450,7 @@ describe('draft access', () => {
     const file = () => functionCallStart(storage, REPO, WS, 'planned', { args: [], runner: none, limits: none, drafts: [] }, { caller: null, grant: 'any', sync: {} });
     const ended = (state: FunctionCallEnd['state']): FunctionCallEnd => ({
       state, endedAt: new Date(), expiresAt: new Date(Date.now() + 3_600_000), stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false,
+      draftEnd: none,
     });
     // Filed and never run: the wait ends with it running, and it ends, cancelled or lost, before the request reads it again.
     for (const [end, said] of [

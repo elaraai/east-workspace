@@ -132,7 +132,7 @@ function stderrOf(call: PreparedQuery): string {
     throw new Error("the call's body raises no error");
 }
 
-/** What e3 returns for a call that ran: each dataset argument pinned at its hash, in argument order, and no record drafted. */
+/** What e3 returns for a call that ran: each dataset argument pinned at its hash, in argument order, no record drafted, and no draft that ended it. */
 function executed(call: PreparedQuery, outcome: ExecuteResult["outcome"], stderr = ""): ExecuteResult {
     return {
         outcome,
@@ -145,6 +145,7 @@ function executed(call: PreparedQuery, outcome: ExecuteResult["outcome"], stderr
             return { path: pathOf(name), index: none, hash: hashOf(name) };
         }),
         drafts: [],
+        draftEnd: none,
     };
 }
 
@@ -158,6 +159,7 @@ function invalid(message: string): ExecuteResult {
         stderrTruncated: false,
         inputs: [],
         drafts: [],
+        draftEnd: none,
     };
 }
 

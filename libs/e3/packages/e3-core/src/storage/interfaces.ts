@@ -1199,6 +1199,13 @@ export interface FunctionCallEnd {
   readonly stdoutTruncated: boolean;
   /** Whether `stderr` holds less than all of it */
   readonly stderrTruncated: boolean;
+  /**
+   * How its drafts ended it before its function ran (`FunctionDraftEndType`):
+   * the draft whose mutation ended it, or all of them laid as its timeout
+   * ended; `none` for any other end. What its result names, whatever its
+   * stderr says (#1680's review).
+   */
+  readonly draftEnd: FunctionCallJob['call']['draftEnd'];
 }
 
 /**

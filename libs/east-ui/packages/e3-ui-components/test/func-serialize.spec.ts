@@ -24,7 +24,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
     East, ArrayType, FloatType, IntegerType, StringType, StructType, FunctionType, NullType,
-    encodeBeast2For, decodeBeast2For, equalFor, printFor, toEastTypeValue, variant,
+    encodeBeast2For, decodeBeast2For, equalFor, none, printFor, toEastTypeValue, variant,
     type EastType, type ValueTypeOf,
 } from "@elaraai/east";
 import { FuncBindDraftsHandleType, FuncBindHandleType, FuncBindingType, FuncDraftType, FuncDraftedType } from "@elaraai/e3-ui/internal";
@@ -64,7 +64,7 @@ function recordingApi(received: Received[], result: number, drafted: () => FuncD
             received.push({ fn, args: req.args, drafts: req.drafts });
             return {
                 outcome: variant("success", { value: encodeBeast2For(FloatType)(result) }),
-                stdout: "", stderr: "", stdoutTruncated: false, stderrTruncated: false, inputs: [], drafts: drafted(),
+                stdout: "", stderr: "", stdoutTruncated: false, stderrTruncated: false, inputs: [], drafts: drafted(), draftEnd: none,
             } as ExecuteResult;
         },
     } as unknown as FunctionApi;

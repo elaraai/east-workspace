@@ -1012,19 +1012,28 @@ Each wire changed under this rule, with the kind it is.
   one the program passes — re-export its package. No store keeps a request: a
   kept call holds its drafts in a form of its own (below), so no repository
   upgrade step ships for it.
-- **A call's result names the records it drafted, and may end `conflict`
-  (#1619)** — neither package-borne nor stored in a repository: the function,
-  one-shot and split-call routes' answers. `ExecuteResultType` gains `drafts`,
-  after `inputs`: each record the call drafted, once, with the commit it stood
-  at as the call started, which its drafts were laid over
-  (`FunctionDraftedType`), and none for a call that passed no draft; and its
+- **A call's result names the records it drafted and what of its drafts ended
+  it, and may end `conflict` (#1619)** — neither package-borne nor stored in a
+  repository: the function, one-shot and split-call routes' answers.
+  `ExecuteResultType` gains `drafts`, after `inputs`: each record the call
+  drafted, once, with the commit it stood at as the call started, which its
+  drafts were laid over (`FunctionDraftedType`), and none for a call that
+  passed no draft. It gains `draftEnd`, after `drafts`: what of its drafts
+  ended a call before its function ran (`FunctionDraftEndType`) — `draft`, the
+  draft whose mutation failed or ran out of the call's time, with its record,
+  its mutation, its place among the call's, their count and how it ended
+  (`FunctionDraftFailureType`), or `laid`, every draft laid as the call's
+  timeout ended, and how many — and none for any other end. A caller reads
+  that from the result, never from its stderr, whose first line says it for
+  people, and which a function's own output may begin the same way. And its
   `outcome` gains `conflict`, a draft that no longer fits its record, with
   the record, the mutation, the draft's place among the call's and the
   refusal's words (`FunctionDraftConflictType`). The result is what a sync call answers, and
   two more answers hold it: a kept call's status (`FunctionCallStatusType`'s
   `completed`) and a split call's (`SplitCallStatusType`'s `completed`, as its
-  `result`). A one-shot and a split call take no draft, so theirs names none
-  and never ends so; its type changes all the same. With the struct changed,
+  `result`). A one-shot and a split call take no draft, so theirs names none,
+  no draft ends it, and it never ends `conflict`; its type changes all the
+  same. With the struct changed,
   no naming of the case would keep an answer readable (#1104, above), so it
   has the name a Save's outcome has (`MutationResultType`): an answer of
   either release does not decode as the other's, and a client refuses a
@@ -1036,11 +1045,15 @@ Each wire changed under this rule, with the kind it is.
   result — a kept call keeps a state of its own (below), and a split call's
   job an outcome of its own (`SplitCallOutcomeType`), whose type does not
   change — so no repository upgrade step ships for it.
-- **A kept call holds its drafts, and may end `conflict` (#1619)** — stored
-  state, and the call routes' answers. `FunctionCallType` gains `drafts`,
-  after `inputs`: each draft the call passed, in order
-  (`FunctionCallDraftType`) — its record, its mutation, and its arguments by
-  the object they were stored as, `none` for a mutation that takes none. The
+- **A kept call holds its drafts and what of them ended it, and may end
+  `conflict` (#1619)** — stored state, and the call routes' answers.
+  `FunctionCallType` gains `drafts`, after `inputs`: each draft the call
+  passed, in order (`FunctionCallDraftType`) — its record, its mutation, and
+  its arguments by the object they were stored as, `none` for a mutation that
+  takes none. It gains `draftEnd`, after `drafts`: what of its drafts ended
+  it, as its result names it (above), which a store writes as the call ends
+  (`FunctionCallEnd`'s `draftEnd`) and the call store's contract suite holds
+  every backend to. The
   commit a drafted record stood at is the record's, held once for it below and
   named by the call's result (`FunctionDraftedType`), never once a draft.
   `FunctionCallStateType` gains `conflict`, how a call ended whose draft no
@@ -1057,7 +1070,8 @@ Each wire changed under this rule, with the kind it is.
   names.
   The release ships the repository upgrade step `function-call-drafts`
   (e3-core `upgrades/function-call-drafts.ts`): every call an earlier release
-  kept is rewritten in the new form, holding no draft, whatever its state. It
+  kept is rewritten in the new form, holding no draft and none ending it,
+  whatever its state. It
   reads each call as its store holds it and writes it back the same way
   (`FunctionCallStore.readStored`, which every backend's call store
   implements). A unit of the step is a call, keyed `<workspace>/<id>`, 16 at

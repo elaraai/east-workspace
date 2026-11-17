@@ -734,8 +734,9 @@ export async function splitCallResult(
     stdoutTruncated: outcome.stdoutTruncated,
     stderrTruncated: outcome.stderrTruncated,
     inputs: read.map(({ path, hash }) => ({ path, index: none, hash })),
-    // A split call is a one-shot's, which lays no draft
+    // A split call is a one-shot's, which lays no draft, and so is ended by none
     drafts: [],
+    draftEnd: none,
   };
   const ended = outcome.outcome;
   switch (ended.type) {

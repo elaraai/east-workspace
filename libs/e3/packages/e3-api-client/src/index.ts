@@ -241,8 +241,8 @@ export {
 } from './functions.js';
 
 // Which of a call's drafts ended it, or whether its drafts outlasted its
-// timeout, read from the first line of its stderr
-export { functionDraftEnded, functionDraftsOutlasted, type FunctionDraftEnd } from '@elaraai/e3-types';
+// timeout, read from its result's `draftEnd`, never its stderr
+export { functionDraftEnded, functionDraftsOutlasted, type FunctionDraftEnd, type FunctionDraftFailure } from '@elaraai/e3-types';
 
 // Records (describe + mutations + history + compaction)
 export { workspaceRecordDescribe, workspaceRecordMutate, workspaceRecordCompact, workspaceRecordHistory } from './records.js';
