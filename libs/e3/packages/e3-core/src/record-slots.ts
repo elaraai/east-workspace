@@ -207,15 +207,67 @@ function caseOf(key: unknown): string {
 }
 
 /**
- * Whether a state of a composite record holds any entry of a source.
+ * Where a source's entries lie among a composite record's segments.
  *
  * @remarks
  * A record's rows are in key order, and a variant key orders by its case's
- * name first, so a source's entries are one run of them. The run is looked for
- * among the fences the state's manifest holds, which costs no read: a segment
- * whose first key is of the source says yes. When no segment starts inside the
- * run, it lies, if anywhere, within the one segment before it, which is read
- * and scanned up to the run.
+ * name first, so a source's entries are one run of them. Its bounds are found
+ * among the fences the manifest holds, which costs no read: the segments
+ * `[from, to)` each start with an entry of the source. The run may begin in
+ * the segment before `from`, and the last of them may hold the next source's
+ * first entries; when no segment starts inside the run (`from` equals `to`),
+ * it lies, if anywhere, within the one segment before `from`.
+ *
+ * @param segments - The record's rows, opened
+ * @param source - The source's name: a case of the record's key
+ * @returns The first segment whose first key is of the source or after it,
+ *   and the first whose first key is after it
+ * @throws {Error} When the record's keys are not a variant's
+ */
+export async function sourceSegments(segments: DatasetSegments, source: string): Promise<{ from: number; to: number }> {
+  const caseAt = async (i: number): Promise<string> => caseOf(await segments.fence(i));
+  // The first segment whose first key's case answers `at`
+  const first = async (at: (order: number) => boolean): Promise<number> => {
+    let before = -1;
+    let found = segments.segmentCount;
+    while (found - before > 1) {
+      const mid = (before + found) >> 1;
+      if (at(byName(await caseAt(mid), source))) found = mid;
+      else before = mid;
+    }
+    return found;
+  };
+  return { from: await first((order) => order >= 0), to: await first((order) => order > 0) };
+}
+
+/**
+ * The entries of a source one segment of a composite record holds, in order.
+ *
+ * @param segments - The record's rows, opened
+ * @param segment - The segment
+ * @param source - The source's name: a case of the record's key
+ * @returns Each of its entries of the source, as the segment holds it: a
+ *   `[key, value]` pair of a Dict, or an element of a Set
+ * @throws {Error} When the record's keys are not a variant's
+ */
+export async function* sourceEntriesIn(segments: DatasetSegments, segment: number, source: string): AsyncGenerator<unknown> {
+  const keyed = segments.typeValue.type === 'Dict';
+  for await (const element of decodeBeast2ElementsFor(segments.typeValue)([await segments.segment(segment)])) {
+    const order = byName(caseOf(keyed ? (element as [unknown, unknown])[0] : element), source);
+    if (order === 0) yield element;
+    // The source's entries are one run: none comes after a later case
+    if (order > 0) return;
+  }
+}
+
+/**
+ * Whether a state of a composite record holds any entry of a source.
+ *
+ * @remarks
+ * Found among the fences the state's manifest holds ({@link sourceSegments}),
+ * which costs no read: a segment whose first key is of the source says yes.
+ * When no segment starts inside the run, it lies, if anywhere, within the one
+ * segment before it, which is read and scanned up to the run.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -227,25 +279,11 @@ function caseOf(key: unknown): string {
  */
 export async function sourceHoldsEntries(storage: StorageBackend, repo: string, state: string, source: string): Promise<boolean> {
   const segments = await DatasetSegments.open(storage, repo, state);
-  const count = segments.segmentCount;
-  const caseAt = async (i: number): Promise<string> => caseOf(await segments.fence(i));
-  // The first segment whose first key is of the source, or of one after it
-  let before = -1;
-  let from = count;
-  while (from - before > 1) {
-    const mid = (before + from) >> 1;
-    if (byName(await caseAt(mid), source) < 0) before = mid;
-    else from = mid;
-  }
-  if (from < count && byName(await caseAt(from), source) === 0) return true;
+  const { from, to } = await sourceSegments(segments, source);
+  if (to > from) return true;
   // No segment starts inside the run, so it lies within the one before, if anywhere
-  if (before < 0) return false;
-  const keyed = segments.typeValue.type === 'Dict';
-  for await (const element of decodeBeast2ElementsFor(segments.typeValue)([await segments.segment(before)])) {
-    const order = byName(caseOf(keyed ? (element as [unknown, unknown])[0] : element), source);
-    if (order === 0) return true;
-    if (order > 0) return false;
-  }
+  if (from === 0) return false;
+  for await (const _entry of sourceEntriesIn(segments, from - 1, source)) return true;
   return false;
 }
 

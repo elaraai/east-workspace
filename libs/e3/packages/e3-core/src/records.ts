@@ -466,8 +466,9 @@ export async function withSharedWorkspaceLock<T>(
 }
 
 /** Jittered exponential backoff (ms) before a compare-and-swap retry, so hot
- *  records don't lock-step their (expensive) reducer re-runs under contention. */
-function casBackoffMs(attempt: number): number {
+ *  records don't lock-step their (expensive) reducer re-runs under contention.
+ *  @internal */
+export function casBackoffMs(attempt: number): number {
   return Math.min(2 ** attempt, 64) * (0.5 + Math.random());
 }
 
@@ -672,14 +673,14 @@ async function keptObject<T>(storage: StorageBackend, repo: string, hash: string
 }
 
 /** An object's bytes, and the hash its content gives it before it is
- *  stored. */
-interface NamedObject {
+ *  stored. @internal */
+export interface NamedObject {
   bytes: Uint8Array;
   hash: string;
 }
 
-/** An object named by its content's hash. */
-function named(bytes: Uint8Array): NamedObject {
+/** An object named by its content's hash. @internal */
+export function named(bytes: Uint8Array): NamedObject {
   return { bytes, hash: computeHash(bytes) };
 }
 
@@ -718,8 +719,9 @@ async function storeNamed(storage: StorageBackend, repo: string, objects: readon
  * @param commit - The commit, but for the state and the arguments it names
  * @param args - The arguments' tuple, when the commit has arguments
  * @returns The state's hash, which the ref names, and the commit's
+ * @internal
  */
-async function storeCommit(
+export async function storeCommit(
   storage: StorageBackend,
   repo: string,
   state: RecordStateRefs,
@@ -1166,8 +1168,9 @@ export async function recordMutate(
  *   once this commit is its head, newest first: those the ref being replaced
  *   remembers, unless given
  * @returns the vector to write
+ * @internal
  */
-function nextVersions(
+export function nextVersions(
   previous: ReadonlyMap<string, string> | undefined,
   selfKeypath: string,
   commitHash: string,
