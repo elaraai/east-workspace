@@ -128,6 +128,9 @@ for (const failure of [
   { state: 'failed' as const, exitCode: -1, error: 'runner killed by signal', retry: false, expected: 'failed' },
   { state: 'failed' as const, exitCode: 7, error: 'task refused input', retry: true, expected: 'success' },
   { state: 'error' as const, exitCode: -1, error: 'timed out: e3 stopped the runner', retry: true, expected: 'error' },
+  // A failure the rack gives a reason of its own for is the rack's, whatever its words begin with
+  { state: 'error' as const, exitCode: -1, error: 'timed out: waiting for the guest to take its lease', reason: { code: 'guest-boot-failed', detail: 'no guest in 120 s' },
+    retry: false, expected: 'success' },
   // An infrastructure error that mentions a timeout is the rack's, not the task's time used up
   { state: 'error' as const, exitCode: -1, error: 'connect ETIMEDOUT 10.0.0.2:7331', retry: false, expected: 'success' },
   // A task's own failure is its verdict whatever its message mentions, unless the policy retries failures locally
@@ -139,7 +142,8 @@ for (const failure of [
   const rack = await f.open({ policy });
   const running = rack.runner.execute(f.storage, f.hash, f.inputs, { taskName: 'length' });
   const grant = await agent.claim(); assert(grant);
-  await agent.complete(grant, { taskName: 'length', status: 'failed', state: failure.state, exitCode: failure.exitCode, error: failure.error });
+  await agent.complete(grant, { taskName: 'length', status: 'failed', state: failure.state, exitCode: failure.exitCode, error: failure.error,
+    ...('reason' in failure && { reason: failure.reason }) });
   const result = await running;
   assert.equal(result.state, failure.expected, result.error);
   if (result.state === 'success') {

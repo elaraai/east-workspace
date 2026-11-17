@@ -213,13 +213,20 @@ export interface RackLeaseEvent {
  * | `memory-limit-exceeded` | `needsBytes`, `limitBytes` | the launching machine, when a cap would pass its ceiling |
  * | `input-transfer-failed`, `output-transfer-failed` | `attempts`, `cause` | the rack, after its tries |
  * | `source-unreachable` | `ms` | the rack |
- * | `guest-crashed` | `detail` | the rack |
+ * | `guest-crashed` | `detail` | the rack, when the guest ended without an outcome once it had its lease |
+ * | `guest-boot-failed` | `detail` | the rack, when no guest took the lease: its VM did not boot |
+ * | `tier-image-failed` | `detail` | the rack, when it could not make the image of the lease's tier |
  * | `environment-failed` | `detail` | the rack, when it could not compose the lease's environment |
+ * | `work-disk-full` | `detail` | the rack, when the work filled the disk it writes on |
+ * | `no-room` | `detail` | the rack, when it no longer had room for the lease once its grant settled |
+ * | `rack-stopping` | `detail` | the rack, when it or its host is stopping and gave the work up |
+ * | `rack-failed` | `detail` | the rack, for a cause of its own that no other word names |
  * | `requeued-pressure` | `peakBytes` | a rack that books reservations, when its host ran short and it stopped the newest work it holds |
  * | `task-error` | | the rack: the task's own failure |
  */
 export const RACK_REASON_CODES = ['outgrew-cap', 'memory-limit-exceeded', 'input-transfer-failed', 'output-transfer-failed',
-  'source-unreachable', 'guest-crashed', 'environment-failed', 'requeued-pressure', 'task-error'] as const;
+  'source-unreachable', 'guest-crashed', 'guest-boot-failed', 'tier-image-failed', 'environment-failed', 'work-disk-full', 'no-room',
+  'rack-stopping', 'rack-failed', 'requeued-pressure', 'task-error'] as const;
 
 /** A reason's code this build knows. */
 export type RackReasonCode = typeof RACK_REASON_CODES[number];

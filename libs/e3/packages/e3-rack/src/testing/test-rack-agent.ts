@@ -130,7 +130,7 @@ export interface TestRackAgentOptions {
   transfersAtOnce?: number;
   /**
    * The manifest of the image the agent boots environments over, as the
-   * image's script wrote it (`docker/images/tier-manifest.py`): this
+   * image's script wrote it (e3-core's `tier/tier-manifest.py`): this
    * machine's own Python's, since the agent's guest is this machine. With it
    * the agent says it composes environments built over a tier, names the
    * manifest for every tier it runs, sends its text to a source that reads

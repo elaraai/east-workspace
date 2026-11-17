@@ -451,7 +451,8 @@ Rack summary: 1 task and 12 units on workshop · 1 waited for capacity (longest 
 | `reason.code` | Carries | Who sets it | The work |
 | --- | --- | --- | --- |
 | `input-transfer-failed`, `output-transfer-failed` | `attempts`, `cause` | The rack, after its five tries. | Runs locally; under `--rack-only`, is leased once more first. |
-| `guest-crashed` | `detail` | The rack. | Runs locally: a rack's fault never fails a run. |
+| `guest-crashed` | `detail` | The rack, when the guest ended without an outcome once it had its lease. | Runs locally: a rack's fault never fails a run. |
+| `guest-boot-failed`, `tier-image-failed`, `work-disk-full`, `no-room`, `rack-stopping`, `rack-failed` | `detail` | The rack: its VM did not boot; it could not make the tier's image; the work filled its disk; it had no room once the grant settled; it or its host is stopping; a cause of its own no other word names. | Runs locally. |
 | `environment-failed` | `detail` | The rack, when it could not compose the lease's environment from its layers. | Runs locally. |
 | `source-unreachable` | `ms` | The rack, whose source has not answered for two minutes; the launching machine, when the racks that run the work's tier are enrolled but not healthy. | Runs locally: at once, or under `--rack-only` once two minutes have passed with none healthy. |
 | `task-error` | | The rack: the task's own failure. | Its failure is its verdict, unless the policy retries failures locally. |

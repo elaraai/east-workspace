@@ -408,7 +408,8 @@ planning and final assembly stay local; both pieces and merge bodies delegate.
 A lease's result gives its `reason` when it did not succeed: a code and what
 it carries (`protocol/task-envelope.ts`: `outgrew-cap`, `memory-limit-exceeded`,
 `input-transfer-failed`, `output-transfer-failed`, `source-unreachable`,
-`guest-crashed`, `environment-failed`, `requeued-pressure`, `task-error`), read for the fields a build
+`guest-crashed`, `guest-boot-failed`, `tier-image-failed`, `environment-failed`, `work-disk-full`, `no-room`,
+`rack-stopping`, `rack-failed`, `requeued-pressure`, `task-error`), read for the fields a build
 knows, and a code it does not know is a rack's fault it cannot name. It also
 lists the tries of its transfers that were followed by another. The body places
 the work by the reason, a placement event carries it (`kind`, `detail`), a run
