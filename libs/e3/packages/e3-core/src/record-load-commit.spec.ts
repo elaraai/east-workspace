@@ -20,8 +20,7 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { dirname, join } from 'node:path';
 import {
-  DictType, East, IntegerType, NullType, PatchType, SortedMap, StringType, StructType, VariantType,
-  compareFor, decodeBeast2For, encodeBeast2For, equalFor, printFor, some, variant, type ValueTypeOf,
+  StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, printFor, some, type ValueTypeOf,
 } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { RecordLoadArgsType, decodeRecordCommit, decodeRecordLoadObject, type RecordLoadArgs } from '@elaraai/e3-types';
@@ -39,16 +38,18 @@ import {
 import { storeCollection } from './store-collection.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { StorageBackend } from './storage/interfaces.js';
-import { createTempDir, createTestRepo, removeTempDir, removeTestRepo, seededStream } from './test-helpers.js';
+import {
+  ErpDeliveryType, LedgerKeyType, LedgerOrdersType, SourcedOrderType, createTempDir, createTestRepo, ledgerOrders, ledgerRows, removeTempDir,
+  removeTestRepo, seededStream, type LedgerErpLoad,
+} from './test-helpers.js';
 import { workspaceCreate, workspaceDeploy } from './workspaces.js';
 
-const Order = StructType({ customer: StringType, qty: IntegerType });
+const Order = SourcedOrderType;
 /** What a source is delivered, and what its load patches: its entries by its own key. */
-const Entries = DictType(StringType, Order);
-const OrdersKey = VariantType({ erp: StringType, own: StringType, wms: StringType });
-const Orders = DictType(OrdersKey, Order);
+const Entries = ErpDeliveryType;
+const Orders = LedgerOrdersType;
 type OrderRow = ValueTypeOf<typeof Order>;
-type OrderKey = ValueTypeOf<typeof OrdersKey>;
+type OrderKey = ValueTypeOf<typeof LedgerKeyType>;
 
 const decodeOrders = decodeBeast2For(Orders);
 const decodeLoadArgs = decodeBeast2For(RecordLoadArgsType);
@@ -59,45 +60,17 @@ const sameOrders = equalFor(Orders);
 const sameArgs = equalFor(RecordLoadArgsType);
 const printOrders = printFor(Orders);
 
-/** The orders a record holds, by source and id. */
-function ordersOf(rows: Array<[OrderKey['type'], string, OrderRow]>): ValueTypeOf<typeof Orders> {
-  return new SortedMap<OrderKey, OrderRow>(rows.map(([source, id, row]) => [variant(source, id), row]), compareFor(OrdersKey));
-}
-
 const acme: OrderRow = { customer: 'Acme', qty: 5n };
 const birch: OrderRow = { customer: 'Birch', qty: 2n };
 const cedar: OrderRow = { customer: 'Cedar', qty: 7n };
 
-/** The source's entries become the delivery's. */
-const loadAll = East.function([Entries, Entries], PatchType(Entries), (_$, delivery, current) => East.diff(current, delivery));
-
-/** A load whose patch names a key its delivery and its entries do not hold, which its program refuses by name. */
-const loadStray = East.function([Entries, Entries], PatchType(Entries), ($, delivery, current) => {
-  const stray = $.let(delivery.copy());
-  $(stray.insert('ZZ-9', { customer: 'Nobody', qty: 0n }));
-  return East.diff(current, stray);
-});
-
 /**
- * A version of the package the cases deploy: `orders`, delivered from the ERP
- * (`erp`) and the warehouse (`wms`), with the solution's own orders (`own`),
- * which `plan` writes, indexed by customer. `own` holds `ownRows` from the
- * deploy.
+ * A version of the package the cases deploy: the ledger's `orders`
+ * ({@link ledgerOrders}), its `erp` loaded as `erp` says, and holding `own`
+ * from the deploy.
  */
-function ledgerPackage(version: string, erpLoad: typeof loadAll, ownRows: ReadonlyMap<string, OrderRow>): ReturnType<typeof e3.package> {
-  const orders = e3.recordComposite('orders', Order, {
-    sources: (source) => ({
-      erp: source.load(StringType, Entries, erpLoad), own: source.mutations(StringType), wms: source.load(StringType, Entries, loadAll),
-    }),
-    initial: { own: new Map(ownRows) },
-    indexes: (index) => ({ by_customer: index.on(['customer']) }),
-    mutations: (mutation, { state, edit }) => ({
-      plan: mutation.edit(East.function([state, StringType, Order, edit], NullType, ($, _orders, id, order, edit) => {
-        $(edit.set(variant('own', id), order));
-      })),
-    }),
-  });
-  return e3.package('ledger', version, orders);
+function ledgerPackage(version: string, erp: LedgerErpLoad, own: ReadonlyMap<string, OrderRow>): ReturnType<typeof e3.package> {
+  return e3.package('ledger', version, ledgerOrders({ erp, own }));
 }
 
 /** A load commit's outcome, in words. */
@@ -122,11 +95,11 @@ describe('a load\'s commit', () => {
     storage = new LocalStorage(dirname(repoDir));
     runner = new LocalTaskRunner(repoDir);
     const zips: Array<[string, ReturnType<typeof e3.package>]> = [
-      ['ledger.zip', ledgerPackage('1.0.0', loadAll, new Map([['P-1', birch]]))],
+      ['ledger.zip', ledgerPackage('1.0.0', 'book', new Map([['P-1', birch]]))],
       // A load whose patch strays outside its delivery and its entries
-      ['stray.zip', ledgerPackage('1.1.0', loadStray, new Map([['P-1', birch]]))],
+      ['stray.zip', ledgerPackage('1.1.0', 'stray', new Map([['P-1', birch]]))],
       // The solution's own orders, many, so the record is cut into many segments
-      ['bulk.zip', ledgerPackage('1.2.0', loadAll, new Map(Array.from({ length: 6000 }, (_, i): [string, OrderRow] =>
+      ['bulk.zip', ledgerPackage('1.2.0', 'book', new Map(Array.from({ length: 6000 }, (_, i): [string, OrderRow] =>
         [`P-${String(i).padStart(5, '0')}`, { customer: `C-${i % 97}`, qty: BigInt(i) }])))],
     ];
     for (const [name, pkg] of zips) {
@@ -207,7 +180,7 @@ describe('a load\'s commit', () => {
   /** Asserts the record holds these orders, and no other. */
   const holds = async (ws: string, rows: Array<[OrderKey['type'], string, OrderRow]>): Promise<void> => {
     const got = await held(ws);
-    assert.ok(sameOrders(got, ordersOf(rows)), `the record holds ${printOrders(got)}`);
+    assert.ok(sameOrders(got, ledgerRows(rows)), `the record holds ${printOrders(got)}`);
   };
 
   /**

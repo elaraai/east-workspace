@@ -78,7 +78,7 @@ describe('a load, as a client and a server exchange it', () => {
       variant('pieces', { done: 3n, total: 12n, cached: 2n }),
       variant('commit', null),
       variant('restarted', 'the entries of source \'erp\' changed under its load'),
-      variant('stopped', null),
+      variant('stopped', 'a deploy of main started. The load goes on once the deploy is done…'),
     ];
     for (const step of steps) roundTrips(RecordLoadProgressType, step, step.type);
   });

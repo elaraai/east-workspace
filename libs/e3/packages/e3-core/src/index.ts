@@ -292,12 +292,16 @@ export {
 } from './records.js';
 // What a composite record's readers wait for: the external sources yet to deliver
 export { PENDING_SLOT, pendingSources, pendingWaitWords } from './record-slots.js';
-// A load of a delivery into an external source of a composite record: its source's run, and its commit
+// A load of a delivery into an external source of a composite record: the load, its source's run, and its commit
 export {
+  LOAD_WAIT_TURN_MS,
+  loadQueueLock,
+  recordLoad,
   recordLoadCommit,
   recordSourceRun,
   type RecordLoadCommitOptions,
   type RecordLoadCommitOutcome,
+  type RecordLoadOptions,
 } from './record-load.js';
 
 // Tree and dataset operations (low-level, by hash)
@@ -647,6 +651,8 @@ export {
   WorkspaceExistsError,
   WorkspaceLockError,
   RecordDeployRefusedError,
+  RecordLoadRefusedError,
+  RecordLoadStoppedError,
   lockStateToHolderInfo,
   type LockHolderInfo,
   // Package

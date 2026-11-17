@@ -17,9 +17,7 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
-import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
   DictType, East, IntegerType, PatchType, SortedMap, StringType, StructType, compareFor, diffFor, encodeBeast2For, equalFor, variant,
   type ValueTypeOf,
@@ -32,7 +30,7 @@ import { packageRead } from './packages.js';
 import { datasetWrite } from './trees.js';
 import { workspaceCreate } from './workspaces.js';
 import { workspaceDeploy } from './workspace-files.js';
-import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, withLogStore } from './test-helpers.js';
+import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, inProjectWithoutEastC, withLogStore } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
 import type { LogStore, StorageBackend } from './index.js';
@@ -111,29 +109,6 @@ describe('a record\'s programs on east-c', () => {
     assert.strictEqual(outcome.kind, 'committed', JSON.stringify(outcome));
   }
 
-  /**
-   * A project whose runners e3 finds before any other — its runners are
-   * searched for from its directory, where it puts them first — and runs
-   * `body` in it: east-node, and an east-c launcher that finds no native
-   * binary to start, as one whose platform's package was not installed does,
-   * so no east-c runs whatever this machine has installed.
-   */
-  async function inProjectWithoutEastC(body: () => Promise<void>): Promise<void> {
-    const project = join(tempDir, 'project');
-    const bin = join(project, 'node_modules', '.bin');
-    mkdirSync(bin, { recursive: true });
-    const eastNode = join(dirname(fileURLToPath(import.meta.resolve('@elaraai/east-node-cli'))), '..', 'bin', 'east-node.mjs');
-    writeFileSync(join(bin, 'east-node'), `#!/bin/sh\nexec node ${JSON.stringify(eastNode)} "$@"\n`, { mode: 0o755 });
-    writeFileSync(join(bin, 'east-c'), '#!/bin/sh\necho "east-c: the native binary for this platform is not installed" >&2\nexit 1\n', { mode: 0o755 });
-    const cwd = process.cwd();
-    process.chdir(project);
-    try {
-      await body();
-    } finally {
-      process.chdir(cwd);
-    }
-  }
-
   it('declares its mutations and its indexes on east-c, naming no platform, when they name no runner', async () => {
     await deploy(storage, new LocalTaskRunner(repo), 'main');
     const resolved = await resolveRecord(storage, repo, 'main', 'rows');
@@ -149,7 +124,7 @@ describe('a record\'s programs on east-c', () => {
   }, async () => {
     const kept: string[] = [];
     const logged = withLogStore(storage, keeping(storage.logs, kept));
-    await inProjectWithoutEastC(async () => {
+    await inProjectWithoutEastC(tempDir, async () => {
       // Every run goes through the store whose logs are kept: the first whose
       // east-c could not run — the deploy's index build, or the first write —
       // says so, and none after it.
@@ -173,7 +148,7 @@ describe('a record\'s programs on east-c', () => {
     await packageImport(storage, repo, zip);
     const taskHash = (await packageRead(storage, repo, 'next', '1.0.0')).tasks.get('next')!;
     const input = await datasetWrite(storage, repo, 1n, IntegerType);
-    await inProjectWithoutEastC(async () => {
+    await inProjectWithoutEastC(tempDir, async () => {
       const runner = new LocalTaskRunner(repo);
       const result = await runner.execute(storage, taskHash, [input]);
       assert.strictEqual(result.state, 'failed', JSON.stringify(result));

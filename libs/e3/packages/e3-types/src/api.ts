@@ -2032,8 +2032,11 @@ export const RecordLoadResultType = StructType({
  * - `commit`: its pieces are done, and it commits
  * - `restarted`: its commit found the source's entries changed under it, and
  *   sent it back to its pieces; the case carries why
- * - `stopped`: a deploy holds the workspace, and the load goes on once the
- *   deploy is done
+ * - `stopped`: a deploy or an export of the workspace started, and the load
+ *   let the workspace go, and goes on once it is done; the case carries what
+ *   started, in words: `a deploy of main started. The load goes on once the
+ *   deploy is done…`, or `an export of main started. The load goes on once it
+ *   is done…`
  */
 export const RecordLoadProgressType = VariantType({
   commit:    NullType,
@@ -2041,7 +2044,7 @@ export const RecordLoadProgressType = VariantType({
   pieces:    StructType({ done: IntegerType, total: IntegerType, cached: IntegerType }),
   queued:    NullType,
   restarted: StringType,
-  stopped:   NullType,
+  stopped:   StringType,
 });
 
 /**

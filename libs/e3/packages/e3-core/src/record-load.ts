@@ -20,19 +20,32 @@
  * @packageDocumentation
  */
 
-import { DateTimeType, StringType, compareFor, encodeBeast2For, equalFor, none, parseFor, printFor, some, variant } from '@elaraai/east';
 import {
-  RecordLoadArgsType, decodeRecordCommit, loadCommitName, loadCommitSource, type RecordCommit, type RecordLoadArgs,
+  DateTimeType, StringType, compareFor, encodeBeast2For, equalFor, isTypeValueEqual, none, parseFor, printFor, some, variant,
+} from '@elaraai/east';
+import {
+  RecordLoadArgsType, decodeRecordCommit, decodeRecordLoadObject, loadCommitName, loadCommitSource, pathToString,
+  type LockOperation, type PartitionProgress, type RecordCommit, type RecordLoadArgs, type RecordLoadObject, type RecordLoadProgress,
+  type RecordLoadResult,
 } from '@elaraai/e3-types';
 import { applyDelta, summarizeDelta } from './record-apply.js';
 import { PENDING_SLOT, pendingSources, sourceEntriesIn, sourceLoadSlots, sourceSegments, sourcesSlot } from './record-slots.js';
 import {
-  casBackoffMs, encodeMutationArgs, named, nextVersions, readRecordState, storeCommit, type RecordStateRefs, type ResolvedRecord,
+  casBackoffMs, encodeMutationArgs, named, nextVersions, readRecordState, resolveRecord, storeCommit, type RecordStateRefs,
+  type ResolvedRecord,
 } from './records.js';
 import { DatasetSegments } from './dataset-open.js';
+import { adoptProgressToIntakeFile, deliveryAdoptStored } from './dataset-adopt.js';
+import { INTENT_PROBE_MS, acquireWorkspaceShared, announcedIntent, intentWords, workspaceIntentLock } from './deploy-lock.js';
+import { inputsHash } from './executions.js';
+import { touchReachable } from './gc-graph.js';
+import { withRunningWork } from './running-work.js';
 import { storeCollection, type CollectionSource } from './store-collection.js';
-import { DatasetRefConflictError, ObjectNotFoundError } from './errors.js';
-import type { StorageBackend } from './storage/interfaces.js';
+import {
+  DatasetRefConflictError, ObjectNotFoundError, RecordLoadRefusedError, RecordLoadStoppedError,
+} from './errors.js';
+import type { TaskRunner } from './execution/interfaces.js';
+import type { LockHandle, StorageBackend } from './storage/interfaces.js';
 
 const encodeLoadArgs = encodeBeast2For(RecordLoadArgsType);
 const printTime = printFor(DateTimeType);
@@ -329,4 +342,508 @@ function laterAsOf(held: string | undefined, asOf: Date | undefined): string | u
   if (asOf === undefined) return undefined;
   const parsed = held === undefined ? undefined : parseTime(held);
   return parsed?.success === true && byTime(parsed.value, asOf) > 0 ? printTime(parsed.value) : printTime(asOf);
+}
+
+// =============================================================================
+// The load job
+// =============================================================================
+
+/**
+ * How long one turn of a load's wait asks for a lock — its turn among its
+ * source's loads, or a deploy's end — before it re-references its delivery
+ * and asks again.
+ *
+ * @remarks
+ * The waits themselves have no bound: the load ahead may take hours. A turn
+ * is how often a waiting load renews what keeps its delivery.
+ */
+export const LOAD_WAIT_TURN_MS = 30_000;
+
+/**
+ * The lock one source's loads take in turn, so they apply one at a time, in
+ * the order asked.
+ *
+ * @param ws - Workspace name
+ * @param record - The record
+ * @param source - The external source
+ * @returns `<ws>#load~<record>~<source>`, which no workspace's lock can be: a
+ *   lock's name may hold the `#` a workspace's may not
+ */
+export function loadQueueLock(ws: string, record: string, source: string): string {
+  return `${ws}#load~${record}~${source}`;
+}
+
+/** How {@link recordLoad} loads a delivery. */
+export interface RecordLoadOptions {
+  /** Who the load's commit names. */
+  readonly actor: string;
+  /** The time the delivery says its data is as of. A delivery older than the
+   *  source's last is answered `superseded`, and nothing runs. */
+  readonly asOf?: Date;
+  /** Hears how far the load has got, each step as it happens. */
+  readonly onProgress?: (progress: RecordLoadProgress) => void;
+  /** Stops the load — its waits, its intake, its pieces, and its commit
+   *  before it writes — which then throws {@link RecordLoadStoppedError}. */
+  readonly signal?: AbortSignal;
+}
+
+/**
+ * Loads a delivery into an external source of a composite record: the whole
+ * of a load, from the delivery the store holds to its one commit.
+ *
+ * @remarks
+ * What `e3 load` runs in process, and a load job runs on a server. Its steps:
+ *
+ * 1. It holds the repository's running work for its whole length, so no sweep
+ *    runs meanwhile, and re-references the delivery: one the store no longer
+ *    holds fails the load. A record or source that is not in the workspace, a
+ *    solution's source, and a source the dataflow loads from its feed, are
+ *    refused here.
+ * 2. It takes its turn among its source's loads ({@link loadQueueLock}), so
+ *    they apply one at a time, in the order asked, reporting `queued` once
+ *    when an earlier one holds it.
+ * 3. A delivery the source last loaded, under the same load, is answered
+ *    `again` with the commit that applied it; one older than the source's
+ *    as-of is answered `superseded`. Nothing runs for either.
+ * 4. It holds the workspace shared, as a record's write does, once nothing
+ *    has announced itself on the workspace's intent.
+ * 5. It takes the delivery in as a stored value of the source's delivery
+ *    type, reporting `intake`.
+ * 6. It stores the source's run of the record's head ({@link recordSourceRun}).
+ * 7. It runs the load's task over the delivery and the run, its pieces on
+ *    any runtime and each cached, reporting `pieces`.
+ * 8. It commits the delta ({@link recordLoadCommit}), reporting `commit`. A
+ *    commit that finds the source's entries changed sends the load back to
+ *    step 6, reporting `restarted`; its pieces whose inputs did not change come
+ *    from the cache.
+ *
+ * Its waits — its turn, and a deploy's end — are turns of
+ * {@link LOAD_WAIT_TURN_MS} with no bound, each re-referencing the delivery.
+ *
+ * While it holds the workspace it asks once a second whether something that
+ * takes the workspace whole has announced itself. A deploy or an export of
+ * it stops the load's work, and the load lets the workspace go, reports
+ * `stopped`, waits until it is done, and goes on from step 4, keeping its
+ * turn: what changed under it fails it, naming the change, and a changed load
+ * function runs. A removal of the workspace, or a copy onto it, fails the load.
+ *
+ * @param storage - Storage backend
+ * @param runner - The runner that takes the delivery in and runs the pieces
+ * @param repo - Repository identifier
+ * @param ws - Workspace name
+ * @param record - The composite record
+ * @param source - The external source the delivery is for
+ * @param delivery - The stored hash of the delivery: an object the store holds
+ * @param options - Who loads, the delivery's as-of, progress and a signal
+ * @returns What the load did: `loaded`, with its commit and its counts;
+ *   `again`; or `superseded`
+ * @throws {RecordLoadRefusedError} When the record or the source is not one a
+ *   delivery is loaded into, or the dataflow loads the source from its feed
+ * @throws {RecordLoadStoppedError} When its signal stopped it before its
+ *   commit wrote: nothing was loaded
+ * @throws {Error} When the store no longer holds the delivery, the delivery
+ *   is not of the source's delivery type, a piece fails, the delta does not
+ *   apply, a deploy removed or changed the source, or the workspace was
+ *   removed or copied onto
+ *
+ * @example
+ * ```ts
+ * const loaded = await recordLoad(storage, runner, repo, 'main', 'orders', 'erp', delivery, {
+ *   actor: 'cli:ada', asOf: new Date('2026-11-02T03:00:00Z'),
+ *   onProgress: (progress) => console.log(progress.type),
+ * });
+ * if (loaded.outcome.type === 'loaded') console.log(`${loaded.set} set, ${loaded.deleted} deleted`);
+ * ```
+ */
+export async function recordLoad(
+  storage: StorageBackend,
+  runner: TaskRunner,
+  repo: string,
+  ws: string,
+  record: string,
+  source: string,
+  delivery: string,
+  options: RecordLoadOptions,
+): Promise<RecordLoadResult> {
+  const name = `${record}.${source}`;
+  const { signal } = options;
+  const report = (progress: RecordLoadProgress): void => options.onProgress?.(progress);
+  const stopIfAsked = (): void => {
+    if (signal?.aborted === true) throw new RecordLoadStoppedError(name);
+  };
+  return withRunningWork(storage, repo, async () => {
+    await reference(storage, repo, delivery);
+    const began = await sourceToLoad(storage, repo, ws, record, source);
+    const queue = await queueTaken(storage, repo, ws, record, source, delivery, name, signal, report);
+    try {
+      stopIfAsked();
+      // A deploy that landed while it waited its turn may have changed the source
+      const answered = await answeredAlready(storage, repo, ws, await sourceToLoad(storage, repo, ws, record, source, began), source, delivery, options.asOf);
+      if (answered !== null) return answered;
+      for (;;) {
+        await intentWaitedOut(storage, repo, ws, name, delivery, signal, report);
+        const lock = await acquireWorkspaceShared(storage, repo, ws, variant('dataset_write', null));
+        // Something announced itself since the look: wait it out
+        if (lock === null) continue;
+        const watch = watchIntent(storage, repo, ws, signal);
+        try {
+          const declared = await sourceToLoad(storage, repo, ws, record, source, began);
+          const loaded = await loadHeld(storage, runner, repo, ws, name, declared, source, delivery, options, watch.signal, report);
+          if (loaded !== null) return loaded;
+        } catch (err) {
+          // What stopped it is told below: its caller, or the intent
+          if (!watch.signal.aborted) throw err;
+        } finally {
+          watch.stop();
+          await lock.release();
+        }
+        stopIfAsked();
+      }
+    } finally {
+      await queue.release();
+    }
+  });
+}
+
+/** The source a delivery loads, as the workspace's package declares it. */
+interface LoadDeclared {
+  /** The record, as it resolves. */
+  readonly record: ResolvedRecord;
+  /** The hash of the source's load object, which its `.load` slot names. */
+  readonly loadHash: string;
+  /** The source's load object. */
+  readonly load: RecordLoadObject;
+}
+
+/** What the workspace's package declares of a source a delivery is for. */
+type Declared =
+  | { readonly kind: 'loaded'; readonly declared: LoadDeclared }
+  | { readonly kind: 'no_record' }
+  | { readonly kind: 'no_source' }
+  | { readonly kind: 'mutations' }
+  | { readonly kind: 'fed'; readonly feed: string };
+
+/** What the workspace's package declares of a source, read now. */
+async function declaredSource(storage: StorageBackend, repo: string, ws: string, record: string, source: string): Promise<Declared> {
+  const resolved = await resolveRecord(storage, repo, ws, record);
+  if (resolved === null) return { kind: 'no_record' };
+  const declared = resolved.sources.get(source);
+  if (declared === undefined) return { kind: 'no_source' };
+  if (declared.type !== 'load') return { kind: 'mutations' };
+  const load = decodeRecordLoadObject(await storage.objects.read(repo, declared.value));
+  if (load.feed.type === 'some') return { kind: 'fed', feed: pathToString(load.feed.value) };
+  return { kind: 'loaded', declared: { record: resolved, loadHash: declared.value, load } };
+}
+
+/**
+ * The source a load is for, as the workspace's package declares it now.
+ *
+ * @param began - The source as the load found it when it began; none at its
+ *   start
+ * @returns The source, declared now
+ * @throws {RecordLoadRefusedError} At the load's start, when the source is not
+ *   one a delivery is loaded into
+ * @throws {Error} Once the load has begun, when a deploy removed the record or
+ *   the source, or changed what it loads: the deploy's words
+ */
+async function sourceToLoad(
+  storage: StorageBackend, repo: string, ws: string, record: string, source: string, began?: LoadDeclared,
+): Promise<LoadDeclared> {
+  const name = `${record}.${source}`;
+  const now = await declaredSource(storage, repo, ws, record, source);
+  if (began === undefined) {
+    if (now.kind === 'loaded') return now.declared;
+    throw new RecordLoadRefusedError(name, refusalWords(now, record, source));
+  }
+  const of = `source '${source}' of record '${record}'`;
+  if (now.kind !== 'loaded') throw new Error(changedWords(now, record, source));
+  if (!isTypeValueEqual(now.declared.load.key, began.load.key)) throw new Error(`the deploy changed the key type of ${of}`);
+  if (!isTypeValueEqual(now.declared.load.delivery, began.load.delivery)) throw new Error(`the deploy changed the delivery type of ${of}`);
+  return now.declared;
+}
+
+/** Why a load is refused at its start. */
+function refusalWords(declared: Exclude<Declared, { kind: 'loaded' }>, record: string, source: string): string {
+  switch (declared.kind) {
+    case 'no_record': return `record '${record}' not found`;
+    case 'no_source': return `record '${record}' has no source '${source}'`;
+    case 'mutations': return `source '${source}' of record '${record}' is the solution's: its mutations write it, and no delivery is loaded into it`;
+    case 'fed': return `${record}.${source} is fed by ${declared.feed}, and the dataflow loads it`;
+  }
+}
+
+/** Why a load that has begun fails once a deploy changed its source. */
+function changedWords(declared: Exclude<Declared, { kind: 'loaded' }>, record: string, source: string): string {
+  const of = `source '${source}' of record '${record}'`;
+  switch (declared.kind) {
+    case 'no_record': return `the deploy removed record '${record}'`;
+    case 'no_source': return `the deploy removed ${of}`;
+    case 'mutations': return `the deploy gave ${of} to its mutations: nothing loaded`;
+    case 'fed': return `the deploy fed ${of} from ${declared.feed}, and the dataflow loads it: nothing loaded`;
+  }
+}
+
+/**
+ * Re-references a delivery, and all it names, so a sweep keeps it.
+ *
+ * @throws {Error} When the store no longer holds it
+ */
+async function reference(storage: StorageBackend, repo: string, delivery: string): Promise<void> {
+  if (!await touchReachable(storage, repo, [delivery])) {
+    throw new Error(`delivery ${delivery} is not in the repository: upload it again`);
+  }
+}
+
+/** What a lock asked for with a wait came to once its asker was stopped. */
+const STOPPED = Symbol('stopped');
+
+/**
+ * A lock asked for with a wait, given up at once when the signal fires: a
+ * lock that comes after it is let go as it comes.
+ */
+async function unlessStopped(asked: Promise<LockHandle | null>, signal: AbortSignal | undefined): Promise<LockHandle | null | typeof STOPPED> {
+  if (signal === undefined) return asked;
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const stop = (): void => {
+      if (settled) return;
+      settled = true;
+      // The lock may still come: it is let go when it does
+      asked.then((handle) => handle?.release(), () => undefined);
+      resolve(STOPPED);
+    };
+    if (signal.aborted) {
+      stop();
+      return;
+    }
+    signal.addEventListener('abort', stop, { once: true });
+    asked.then((handle) => {
+      signal.removeEventListener('abort', stop);
+      if (settled) return;
+      settled = true;
+      resolve(handle);
+    }, (err: unknown) => {
+      signal.removeEventListener('abort', stop);
+      if (settled) return;
+      settled = true;
+      reject(err);
+    });
+  });
+}
+
+/**
+ * Takes the load's turn among its source's loads: at once when no other holds
+ * it, and otherwise in turns of {@link LOAD_WAIT_TURN_MS}, reporting `queued`
+ * once, and re-referencing the delivery each turn.
+ *
+ * @returns The turn, which the load lets go once it ends
+ * @throws {RecordLoadStoppedError} When the signal fires while it waits
+ */
+async function queueTaken(
+  storage: StorageBackend, repo: string, ws: string, record: string, source: string, delivery: string, name: string,
+  signal: AbortSignal | undefined, report: (progress: RecordLoadProgress) => void,
+): Promise<LockHandle> {
+  const lock = loadQueueLock(ws, record, source);
+  const operation = variant('dataset_write', null);
+  const free = await storage.locks.acquire(repo, lock, operation);
+  if (free !== null) return free;
+  report(variant('queued', null));
+  for (;;) {
+    const turn = await unlessStopped(storage.locks.acquire(repo, lock, operation, { wait: true, timeout: LOAD_WAIT_TURN_MS }), signal);
+    if (turn === STOPPED) throw new RecordLoadStoppedError(name);
+    if (turn !== null) return turn;
+    if (signal?.aborted === true) throw new RecordLoadStoppedError(name);
+    await reference(storage, repo, delivery);
+  }
+}
+
+/**
+ * What a load does about what has announced itself on its workspace's
+ * intent: it waits a deploy or an export out, saying so, and fails for a
+ * removal of the workspace or a copy onto it, which leave nothing to load
+ * into.
+ */
+function intentStop(operation: LockOperation, ws: string): { readonly waits: boolean; readonly words: string } {
+  const started = intentWords(operation, ws);
+  switch (operation.type) {
+    case 'deployment': return { waits: true, words: `${started} started. The load goes on once the deploy is done…` };
+    case 'removal': return { waits: false, words: `${started} removed the workspace: nothing loaded` };
+    case 'workspace_copy': return { waits: false, words: `${started} replaced the workspace: nothing loaded` };
+    // An export reads the workspace, and leaves it as it was; nothing else announces itself
+    case 'export':
+    case 'dataflow':
+    case 'dataset_write': return { waits: true, words: `${started} started. The load goes on once it is done…` };
+  }
+}
+
+/**
+ * Waits until nothing has announced itself on the workspace's intent: a
+ * deploy or an export, each in turns of {@link LOAD_WAIT_TURN_MS} with no
+ * bound, reporting `stopped` once for each, and re-referencing the delivery
+ * each turn.
+ *
+ * @throws {RecordLoadStoppedError} When the signal fires while it waits
+ * @throws {Error} When a removal of the workspace, or a copy onto it, has
+ *   announced itself
+ */
+async function intentWaitedOut(
+  storage: StorageBackend, repo: string, ws: string, name: string, delivery: string,
+  signal: AbortSignal | undefined, report: (progress: RecordLoadProgress) => void,
+): Promise<void> {
+  let told: string | undefined;
+  for (;;) {
+    if (signal?.aborted === true) throw new RecordLoadStoppedError(name);
+    const operation = await announcedIntent(storage, repo, ws);
+    if (operation === null) return;
+    const stop = intentStop(operation, ws);
+    if (!stop.waits) throw new Error(stop.words);
+    if (stop.words !== told) report(variant('stopped', stop.words));
+    told = stop.words;
+    // A turn: the intent taken shared, which comes once what announced itself
+    // lets it go, and let go at once, so nothing reads the load as an intent
+    const turn = await unlessStopped(storage.locks.acquire(repo, workspaceIntentLock(ws), variant('dataset_write', null), {
+      mode: 'shared', wait: true, timeout: LOAD_WAIT_TURN_MS,
+    }), signal);
+    if (turn === STOPPED) throw new RecordLoadStoppedError(name);
+    await turn?.release();
+    await reference(storage, repo, delivery);
+  }
+}
+
+/** What watches the workspace's intent while a load holds the workspace. */
+interface IntentWatch {
+  /** Fires once something announces itself on the intent, or once the
+   *  load's own signal does. */
+  readonly signal: AbortSignal;
+  /** Stops the watch. */
+  stop(): void;
+}
+
+/**
+ * Asks, every {@link INTENT_PROBE_MS}, whether something that takes the
+ * workspace whole has announced itself, as a run in flight asks.
+ */
+function watchIntent(storage: StorageBackend, repo: string, ws: string, outer: AbortSignal | undefined): IntentWatch {
+  const announced = new AbortController();
+  let probing = false;
+  const timer = setInterval(() => {
+    if (probing || announced.signal.aborted) return;
+    probing = true;
+    announcedIntent(storage, repo, ws)
+      .then((operation) => {
+        if (operation !== null) announced.abort();
+      })
+      // A probe that failed is made again at the next, as a run's is
+      .catch(() => undefined)
+      .finally(() => {
+        probing = false;
+      });
+  }, INTENT_PROBE_MS);
+  return {
+    signal: outer === undefined ? announced.signal : AbortSignal.any([outer, announced.signal]),
+    stop: () => clearInterval(timer),
+  };
+}
+
+/**
+ * Answers a delivery the source last loaded, under the same load (`again`),
+ * or one older than the source's as-of (`superseded`).
+ *
+ * @returns The answer, or null when the delivery is to be loaded
+ */
+async function answeredAlready(
+  storage: StorageBackend, repo: string, ws: string, declared: LoadDeclared, source: string, delivery: string, asOf: Date | undefined,
+): Promise<RecordLoadResult | null> {
+  const held = await storage.datasets.read(repo, ws, declared.record.refPath);
+  if (held === null || held.type !== 'value') return null;
+  const { versions } = held.value;
+  const slots = sourceLoadSlots(source);
+  const last = versions.get(slots.delivery);
+  const lastLoad = versions.get(slots.load);
+  const none0 = { set: 0n, deleted: 0n, unchanged: 0n };
+  if (last !== undefined && lastLoad !== undefined && sameObject(last, delivery) && sameObject(lastLoad, declared.loadHash)) {
+    // The commit that applied it, unless a compaction cut it from the chain
+    const commit = versions.get(slots.commit);
+    const state = commit === undefined || commit.length === 0 ? null : await commitState(storage, repo, commit);
+    return {
+      commit: commit !== undefined && state !== null ? some(commit) : none, state: state === null ? none : some(state), delivery, ...none0,
+      outcome: variant('again', null),
+    };
+  }
+  if (asOf === undefined) return null;
+  const heldAsOf = versions.get(slots.asOf);
+  const parsed = heldAsOf === undefined ? undefined : parseTime(heldAsOf);
+  if (parsed?.success !== true || byTime(parsed.value, asOf) <= 0) return null;
+  return { commit: none, state: none, delivery, ...none0, outcome: variant('superseded', parsed.value) };
+}
+
+/** The state a commit left, or null once the store no longer holds it. */
+async function commitState(storage: StorageBackend, repo: string, commit: string): Promise<string | null> {
+  try {
+    return decodeRecordCommit(await storage.objects.read(repo, commit)).state;
+  } catch (err) {
+    if (err instanceof ObjectNotFoundError) return null;
+    throw err;
+  }
+}
+
+/**
+ * Steps 5 to 8 of a load, while it holds the workspace: the intake, the
+ * source's run, the pieces and the commit, with a restart back to the run.
+ *
+ * @param work - Fires when the load is to stop: its caller's signal, or the
+ *   intent's watch
+ * @returns What the load did, or null once `work` stopped it before its
+ *   commit wrote
+ */
+async function loadHeld(
+  storage: StorageBackend, runner: TaskRunner, repo: string, ws: string, name: string, declared: LoadDeclared, source: string,
+  delivery: string, options: RecordLoadOptions, work: AbortSignal, report: (progress: RecordLoadProgress) => void,
+): Promise<RecordLoadResult | null> {
+  const { record, load, loadHash } = declared;
+  const adopted = await deliveryAdoptStored(storage, repo, ws, { address: name, type: load.delivery }, delivery, {
+    runner, signal: work, onProgress: (progress) => report(variant('intake', adoptProgressToIntakeFile(name, progress))),
+  });
+  for (;;) {
+    const held = await storage.datasets.read(repo, ws, record.refPath);
+    if (held === null || held.type !== 'value') throw new Error(`record ${record.selfKeypath} holds no state`);
+    const base = held.value.versions.get(record.selfKeypath);
+    const run = await recordSourceRun(storage, repo, held.value.hash, source);
+    let cached = 0;
+    const ran = await runner.execute(storage, load.task, [adopted.hash, run], {
+      anyRuntime: true,
+      // As a load in a run is named
+      taskName: name,
+      signal: work,
+      onPartitionProgress: (progress: PartitionProgress) => {
+        if (progress.phase !== 'partition') return;
+        if (progress.state === 'completed' && progress.cached === true) cached++;
+        report(variant('pieces', { done: BigInt(progress.completed), total: BigInt(progress.total), cached: BigInt(cached) }));
+      },
+    });
+    if (work.aborted) return null;
+    if (ran.state !== 'success' || ran.outputHash === undefined) {
+      throw new Error(`the load of ${name} failed: ${ran.error ?? `exit code ${ran.exitCode ?? 'unknown'}`}`);
+    }
+    report(variant('commit', null));
+    const committed = await recordLoadCommit(storage, repo, ws, record, source, {
+      delta: ran.outputHash,
+      run,
+      ...(base !== undefined && { base }),
+      delivery,
+      load: loadHash,
+      ...(options.asOf !== undefined && { asOf: options.asOf }),
+      execution: { inputsHash: inputsHash([adopted.hash, run]), executionId: ran.executionId },
+      actor: options.actor,
+      signal: work,
+    });
+    if (committed.kind === 'stopped') return null;
+    if (committed.kind === 'committed') {
+      const { set, deleted, unchanged } = committed.args;
+      return {
+        commit: some(committed.commit), state: some(committed.state), delivery, set, deleted, unchanged, outcome: variant('loaded', null),
+      };
+    }
+    report(variant('restarted', committed.reason));
+  }
 }
