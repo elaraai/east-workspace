@@ -24,7 +24,7 @@ import type { Identity } from '../identity.js';
 import { cancelRecordLoad, getRecordLoadStatus, startRecordLoad, type LoadAddress } from '../handlers/record-loads.js';
 import { PackageJobResponseType, TransferDoneResponseType, TransferUploadRequestType, TransferUploadResponseType } from '../types.js';
 import { resolveActor } from './records.js';
-import { protocolProblem, stagedUploadAnswers } from './transfer.js';
+import { DEFAULT_COMMIT_WAIT_MS, protocolProblem, stagedUploadAnswers } from './transfer.js';
 
 /** Whether two names are one: a repository's or a workspace's. */
 const sameName = equalFor(StringType);
@@ -176,7 +176,7 @@ export function createObjectUploadRoutes(
 ) {
   const app = new Hono();
   const uploads = transferBackend.objectUpload;
-  const answers = stagedUploadAnswers(uploads, options.commitWaitMs ?? 5_000, variant('processing', null) as ObjectCommitStatus, sendObjectStatus);
+  const answers = stagedUploadAnswers(uploads, options.commitWaitMs ?? DEFAULT_COMMIT_WAIT_MS, variant('processing', null) as ObjectCommitStatus, sendObjectStatus);
 
   /** The upload `id`, if it was made through this request's repository and workspace. */
   async function uploadAt(c: Context, id: string): Promise<ObjectUploadJob | null> {

@@ -35,7 +35,9 @@ export interface TransferRouteOptions {
   commitWaitMs?: number;
 }
 
-const DEFAULT_COMMIT_WAIT_MS = 5_000;
+/** How long an upload's commit is waited for unless the host says: the
+ *  dataset upload's and the object upload's alike. @internal */
+export const DEFAULT_COMMIT_WAIT_MS = 5_000;
 
 /**
  * Why a request does not speak this server's transfer protocol, or `null`
