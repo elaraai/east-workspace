@@ -10,7 +10,9 @@
  * §7): while a cell edits, its editor's 2 px ring is the one ring — no field
  * inside it casts the page's focus glow, carries an outline or draws a box of
  * its own, in every kind of cell and in a group band's title, and the date
- * segment being typed into is marked by the brand's tint alone.
+ * segment being typed into is marked by the brand's tint alone. The first
+ * row's editor stands its date's segments on whole pixels, as every row's
+ * does (#1638, `box-words.ts`).
  *
  * Numbering: a row's number stands clear of its checkbox however many digits
  * it has — deep in fifty thousand rows as at the top — every row's gutter as
@@ -22,6 +24,7 @@
  */
 
 import { expect, type Locator, type Page } from "playwright/test";
+import { expectWholeBoxWords } from "./box-words";
 import { test } from "./kept-page";
 import { settled } from "./settle";
 
@@ -83,7 +86,11 @@ test("a cell that edits draws one ring, its editor's: no field inside it glows, 
         const drawn = await editing(cell);
         expect(drawn.ring, kind).toMatch(/inset/);
         expect(drawn.faults, kind).toEqual([]);
-        if (kind === "date") expect(drawn.segment, "the date's focused segment").toBe(tint);
+        if (kind === "date") {
+            expect(drawn.segment, "the date's focused segment").toBe(tint);
+            // The first row's editor, its segments on whole pixels: it stands in the cell's own height (#1646's review).
+            await expectWholeBoxWords(cell.locator("[data-slot=editor]"), "the first row's date editor", 48);
+        }
         await page.keyboard.press("Escape");
         await expect(cell.locator("[data-slot=editor]")).toHaveCount(0);
     }

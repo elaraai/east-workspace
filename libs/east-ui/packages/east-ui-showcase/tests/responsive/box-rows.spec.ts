@@ -40,26 +40,10 @@
 
 import { readFileSync } from "node:fs";
 import { expect, type Page } from "playwright/test";
+import { BOX_WORDS_ROOT, TALLEST, boxWords, type Fault } from "./box-words";
 import { test } from "./kept-page";
 import { catalogPathKeys, examplesFile } from "./routes";
 import { settled } from "./settle";
-
-/** The tallest box the rule holds: past it a pixel is a small share of the room about the words. */
-const TALLEST = 34;
-
-/** A box whose words start at a fraction of a pixel under its top edge. */
-interface Fault {
-    /** The box, and the element its words are in: each one's tag, slot and data attributes. */
-    part: string;
-    /** The box's height. */
-    height: number;
-    /** How far under the box's top edge its words start. */
-    words: number;
-    /** The words' face and line. */
-    type: string;
-    /** The words, cut short. */
-    text: string;
-}
 
 /** The examples a file exports, by name, in the file's order. */
 function examplesOf(key: string): string[] {
@@ -73,89 +57,18 @@ function examplesOf(key: string): string[] {
  * @param route - The example's route: its file's path key, then its name
  * @returns How many boxes the rule held, and those whose words start at a fraction
  */
-async function read(page: Page, route: string): Promise<{ held: number; faults: Fault[] }> {
+async function read(page: Page, route: string): Promise<{ boxed: number; held: number; faults: Fault[] }> {
     const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${route}"]`) });
     await entry.scrollIntoViewIfNeeded();
     await settled(page);
     expect(await entry.locator("[data-example-deferred]").count(), `${route}: its preview is mounted`).toBe(0);
-    return entry.evaluate((root, tallest) => {
-        // A colour is clear where its alpha is 0: `transparent`, a function's alpha after its slash (`color(srgb … / 0)`,
-        // `oklch(… / 0)`), or `rgba()`'s fourth. `rgb(r, g, 0)` is opaque.
-        const clear = (color: string) => {
-            if (color === "transparent") return true;
-            const slash = /\/\s*([\d.]+)%?\s*\)$/.exec(color);
-            if (slash !== null) return Number.parseFloat(slash[1]!) === 0;
-            const rgba = /^rgba\((?:[^,]+,){3}\s*([\d.]+)%?\s*\)$/.exec(color);
-            return rgba !== null && Number.parseFloat(rgba[1]!) === 0;
-        };
-        const named = (el: Element) => [...el.attributes].some((a) => a.name.startsWith("data-")) || [...el.classList].some((c) => /^(elara|east)-/.test(c));
-        const said = (el: Element) => {
-            const data = [...el.attributes].map((a) => a.name).filter((n) => n.startsWith("data-") && !/^data-(index|state|orientation|scope|part|slot|uid|testid)$/.test(n)).sort();
-            const slot = el.getAttribute("data-slot") ?? el.getAttribute("data-part");
-            return `${el.tagName.toLowerCase()}${slot === null ? "" : `[${slot}]`}${data.length > 0 ? `{${data.join(",")}}` : ""}`;
-        };
-        // The preview's own frame: at least 96px tall, panning sideways (`PatternEntry`).
+    // The preview's own frame, which the rule reads in: at least 96px tall, panning sideways (`PatternEntry`).
+    await entry.evaluate((root, mark) => {
         const preview = [...root.querySelectorAll("div")].find((el) => { const s = getComputedStyle(el); return s.minHeight === "96px" && s.overflowX === "auto"; });
         if (preview === undefined) throw new Error("the example's preview frame was not found");
-        // Whether an element is drawn at a zoom: scaled or turned by its own transform, or by that of anything it is in.
-        // Read from the styles, never from the box's size against its layout's, which is a whole number of pixels: a
-        // chip 30.4px wide is no zoom.
-        const zooms = new Map<Element, boolean>();
-        const zoomed = (el: Element | null): boolean => {
-            if (el === null) return false;
-            const known = zooms.get(el);
-            if (known !== undefined) return known;
-            const s = getComputedStyle(el);
-            const matrix = s.transform === "none" ? null : new DOMMatrixReadOnly(s.transform);
-            const own = (matrix !== null && (Math.abs(matrix.a - 1) > 0.001 || Math.abs(matrix.d - 1) > 0.001 || Math.abs(matrix.b) > 0.001 || Math.abs(matrix.c) > 0.001))
-                || !["none", "1", undefined].includes(s.scale) || !["none", "0deg", undefined].includes(s.rotate)
-                || !["", "normal", "1", undefined].includes(s.zoom);
-            const found = own || zoomed(el.parentElement);
-            zooms.set(el, found);
-            return found;
-        };
-        const faults: Fault[] = [];
-        let held = 0;
-        const walker = document.createTreeWalker(preview, NodeFilter.SHOW_TEXT);
-        for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
-            if ((node.textContent ?? "").trim() === "") continue;
-            const parent = node.parentElement;
-            if (parent === null) continue;
-            const range = document.createRange();
-            range.selectNodeContents(node);
-            const words = range.getClientRects()[0];
-            if (words === undefined || words.width === 0 || words.height === 0) continue;
-            const style = getComputedStyle(parent);
-            if (style.visibility === "hidden" || Number(style.opacity) === 0) continue;
-            // The nearest box around the words that paints an edge, a fill or an inset ring.
-            let box: Element | null = parent;
-            for (; box !== null && preview.contains(box); box = box.parentElement) {
-                const s = getComputedStyle(box);
-                const edge = parseFloat(s.borderTopWidth) > 0 && s.borderTopStyle !== "none" && !clear(s.borderTopColor);
-                const fill = !clear(s.backgroundColor) || s.backgroundImage !== "none";
-                if (edge || fill || /inset/.test(s.boxShadow)) break;
-            }
-            if (box === null || !preview.contains(box) || !(box instanceof HTMLElement)) continue;
-            const at = box.getBoundingClientRect();
-            if (at.height === 0 || at.height > tallest) continue;
-            // Under a zoom, the box is drawn at another size than it is laid out at.
-            if (zoomed(box)) continue;
-            // Words the box cuts are no line in it.
-            if (words.top < at.top - 0.5 || words.bottom > at.bottom + 0.5) continue;
-            if (!named(box) && !named(parent)) continue;
-            held += 1;
-            const under = Math.round((words.top - at.top) * 64) / 64;
-            if (Math.abs(under - Math.round(under)) < 1 / 128) continue;
-            faults.push({
-                part: `${said(box)} › ${box === parent ? "its own words" : said(parent)}`,
-                height: Math.round(at.height * 64) / 64,
-                words: under,
-                type: `${style.fontSize} on ${style.lineHeight}`,
-                text: (node.textContent ?? "").trim().slice(0, 24),
-            });
-        }
-        return { held, faults };
-    }, TALLEST);
+        preview.setAttribute(mark, "");
+    }, BOX_WORDS_ROOT);
+    return entry.locator(`[${BOX_WORDS_ROOT}]`).first().evaluate(boxWords, TALLEST);
 }
 
 const keys = catalogPathKeys();
@@ -168,6 +81,7 @@ test.describe("a small box's words start a whole number of pixels under its top 
             expect(names.length, `${key} exports examples`).toBeGreaterThan(0);
             const faults: Array<Fault & { example: string }> = [];
             let held = 0;
+            let boxed = 0;
             for (const [i, name] of names.entries()) {
                 const route = `${key}/${name}`;
                 if (i === 0) {
@@ -180,11 +94,13 @@ test.describe("a small box's words start a whole number of pixels under its top 
                 }
                 const found = await read(page, route);
                 held += found.held;
+                boxed += found.boxed;
                 for (const fault of found.faults) faults.push({ example: name, ...fault });
             }
-            // A file whose examples hold no box the rule reads is one the check has stopped reading: a preview never mounted,
-            // a recipe that stopped naming its parts.
-            expect(held, `${key}: the small boxes the rule held`).toBeGreaterThan(0);
+            // A file whose examples draw small boxes around a line of words, none of which the rule reads, is one the check
+            // has stopped reading: its recipes stopped naming their parts. A file that draws none — a skeleton, a slider, a
+            // breadcrumb, a preview a phone draws at a zoom — has nothing to read.
+            expect(boxed > 0 && held === 0, `${key}: draws ${boxed} small boxes around words, and the rule reads none of them`).toBe(false);
             expect(faults, "boxes whose words start at a fraction of a pixel under their top edge").toEqual([]);
         });
     }

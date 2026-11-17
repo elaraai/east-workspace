@@ -31,7 +31,9 @@
  * beside it, each row's actions one 44 × 44 button whose tap opens its menu
  * and whose drag moves the row; and the paged sheet's key search folds to its
  * icon, its history whole beside it, the icon opening its box in a popover —
- * as ⌘F does (#1221). In both themes; every measurement is polled until it
+ * as ⌘F does (#1221). A line's Details on a phone: a change the session holds
+ * marks its head Pending, the chip's words on whole pixels (#1638,
+ * `box-words.ts`). In both themes; every measurement is polled until it
  * holds, on a page at rest.
  *
  * Run: `make test-responsive` (libs/east-ui), or
@@ -39,6 +41,7 @@
  */
 
 import { expect, type Locator, type Page } from "playwright/test";
+import { expectWholeBoxWords } from "./box-words";
 import { test } from "./kept-page";
 import { settled } from "./settle";
 import { frameAt, type Box } from "./builder-frame";
@@ -343,6 +346,24 @@ test.describe("The Sheet's frame — the library pane (#1186)", () => {
 test.describe("The Sheet's frame — on a phone (#1184)", () => {
     test.skip(({ isMobile }) => !isMobile, "measured on the phone");
 
+    test("a line's Details on a phone: a change the session holds marks its head Pending, the chip's words on whole pixels (#1638)", async ({ page }) => {
+        const box = await openSheet(page, "light", 390);
+        const frame = box.locator("[data-builder-frame][data-phone]");
+        // The first operation of the first order: a line, never a band.
+        await frame.locator("[data-frame-slot=main] [data-slot=row]:not(:has([data-slot=groupSummary])) [data-slot=cell]").first().click();
+        await settled(page);
+        await frame.locator("[data-pane-tab='end']").click();
+        await settled(page);
+        const details = frame.locator("[data-frame-drawer][data-open] [data-sheet-inspector][data-phone]");
+        await expect(details).toBeVisible();
+        const notes = details.locator('[data-field="notes"]').getByRole("textbox");
+        await notes.fill("Board edged and checked");
+        await notes.press("Enter");
+        await expect(details.locator('[data-state="pending"]')).toHaveText("Pending");
+        await settled(page);
+        // The phone's head: its chip a one-line box, its words on whole pixels (#1646's review).
+        await expectWholeBoxWords(details, "a phone's Details");
+    });
 });
 
 test.describe("The Sheet's frame — the inspector (#1188)", () => {

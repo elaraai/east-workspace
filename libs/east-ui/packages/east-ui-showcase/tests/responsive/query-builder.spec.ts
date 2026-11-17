@@ -22,13 +22,15 @@
  * builder frame (#1125 F3): on a desktop the pane is pinned, the results
  * beside it; on a phone it rests on its rail, and opened it floats over the
  * results from its edge, the results where they were, under the scrim —
- * which a tap closes.
+ * which a tap closes. A step's slots, and the step a Sort by adds, stand their
+ * words on whole pixels (#1638, `box-words.ts`).
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test query-builder --project desktop`.
  */
 
 import { expect, type Locator, type Page } from "playwright/test";
+import { expectWholeBoxWords } from "./box-words";
 import { test } from "./kept-page";
 import { settled } from "./settle";
 import { frameAt, type Box } from "./builder-frame";
@@ -190,6 +192,9 @@ test.describe("Query builder (#940)", () => {
             const last = [...root.querySelectorAll("[data-step-id]")].pop()!;
             return [last.hasAttribute("data-unfinished"), getComputedStyle(last).borderTopStyle];
         })).toEqual([true, "dashed"]);
+        // Each step's slots — the one it adds among them — their words on whole pixels (#1646's review).
+        await settled(page);
+        await expectWholeBoxWords(builder.locator("[data-query-tab=query]"), "the Query tab's steps");
 
         // A field the rows don't have, written in the jq and read back as steps.
         await builder.locator("[data-query-view] button", { hasText: "jq" }).click();
