@@ -182,8 +182,14 @@ export async function acquireForDeploy(
     resource: held.resource,
     report: (progress) => held.report(progress),
     async release() {
-      await held.release();
-      await intent.release();
+      // The intent goes whatever becomes of the workspace's lock: one left
+      // held would refuse every write and run start of the workspace for as
+      // long as this process lives
+      try {
+        await held.release();
+      } finally {
+        await intent.release();
+      }
     },
   };
 }
