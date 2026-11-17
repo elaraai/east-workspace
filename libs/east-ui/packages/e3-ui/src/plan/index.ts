@@ -453,6 +453,7 @@ export {
     type PlanResourcesSeriesConfig,
     type PlanLanding,
     type PlanKindsCase,
+    type PlanKindsCaseOptions,
     type PlanKindsCases,
     type PlanCaseAccessor,
     type PlanVariantField,
