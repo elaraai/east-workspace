@@ -35,7 +35,7 @@ import { variant, type ValueTypeOf } from "@elaraai/east";
 import type { PlanLinkKindType } from "@elaraai/e3-ui/internal";
 import { parseEventRef, printEventRef } from "../../shared/schedule/event-ref.js";
 import { draftedOf, draftsInPlace, type DraftedRowsByKind, type DraftedStanding } from "../../shared/schedule/drafted-rows.js";
-import type { ScheduleEditingRecord } from "../../shared/schedule/editing.js";
+import type { ScheduleChange, ScheduleEditingRecord } from "../../shared/schedule/editing.js";
 import { lowerWord } from "../../shared/schedule/words.js";
 import type { PlanLinkValue } from "../model.js";
 
@@ -87,6 +87,53 @@ export const NO_LINKS_OVER: readonly PlanLinksOver[] = [];
  */
 export function kindLinkKey(slot: string, id: string): string {
     return printEventRef({ kind: slot, key: id });
+}
+
+/** An event, as a link's end names it: its kind's slot and its key's text. */
+export interface PlanLinkEnd {
+    /** Its kind's slot. */
+    readonly kind: string;
+    /** Its key's text. */
+    readonly key: string;
+}
+
+/**
+ * Why a kind makes no link between two events: its `start` or its `end` holds no event of that kind — or, at its
+ * `end`, no key that event's prints as; no `key` can be made for it; or the record `held`s a link under the key its
+ * row builds.
+ */
+export type PlanConnectRefusal = "start" | "end" | "key" | "held";
+
+/** The link a Connect makes: its key on the canvas, and the change that records its row. */
+export interface PlanConnectMade {
+    /** Its key on the canvas ({@link kindLinkKey}). */
+    readonly key: string;
+    /** Its row, whole, as one change of its kind's session. */
+    readonly change: ScheduleChange;
+}
+
+/**
+ * The link a Connect would draw between two events (#1541, U10): a new row of the kind's record, its ends their keys
+ * and every other field its type's default, under a key its row builds (`rowKey`) or its session makes.
+ *
+ * @param kind - The link kind Connect draws
+ * @param ends - The event it runs from, and the one it runs to
+ * @param mint - Makes a new key's text for the kind's record; `undefined` where it can make none
+ * @param holds - Whether the kind's record, its drafts in place, holds a row under a key's text
+ * @returns The link, or why the kind makes none
+ */
+export function connectLink(
+    kind: PlanLinkKindValue, ends: { readonly from: PlanLinkEnd; readonly to: PlanLinkEnd },
+    mint: (slot: string) => string | undefined, holds: (slot: string, id: string) => boolean,
+): PlanConnectMade | { readonly refused: PlanConnectRefusal } {
+    if (!kind.ends.from.includes(ends.from.kind)) return { refused: "start" };
+    if (!kind.ends.to.includes(ends.to.kind)) return { refused: "end" };
+    const made = kind.create(ends);
+    if (made.type !== "some") return { refused: "end" };
+    const id = kind.rowKey.type === "some" ? kind.rowKey.value(made.value) : mint(kind.key);
+    if (id === undefined) return { refused: "key" };
+    if (holds(kind.key, id)) return { refused: "held" };
+    return { key: kindLinkKey(kind.key, id), change: { kind: kind.key, id, row: made.value, created: true } };
 }
 
 /**

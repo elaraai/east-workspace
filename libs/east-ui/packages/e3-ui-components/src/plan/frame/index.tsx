@@ -95,7 +95,7 @@
 
 import { Fragment, memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
-import { StringType, equalFor, equivalentFor, type ValueTypeOf } from "@elaraai/east";
+import { StringType, equalFor, equivalentFor, none, some, type ValueTypeOf } from "@elaraai/east";
 import { FuncBindingType, Plan, PlanComponent, PlanEventSeamType, PlanPayloadType, planKeys } from "@elaraai/e3-ui/internal";
 import {
     BannerView, BuilderFrame, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, takeKey, typedInto, useDataStable, usePersistedState,
@@ -138,6 +138,8 @@ type PlanLibraryTabs = PlanValue["library"];
 
 /** The Plan's link kinds, as its payload carries them (#1541, U10). */
 type PlanLinkKinds = PlanValue["linkKinds"];
+/** The Plan's `canConnect`, decoded. */
+type PlanCanConnect = Extract<PlanValue["canConnect"], { readonly type: "some" }>["value"];
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -169,6 +171,10 @@ const NO_LIBRARY: PlanLibraryTabs = [];
 const NO_LINK_KINDS: PlanLinkKinds = [];
 /** Whether two lists of link kinds read the same records, their functions compared by their IR and what they capture. */
 const linkKindsEquivalent = equivalentFor(PlanPayloadType.fields.linkKinds);
+/** Whether two `canConnect`s are one veto: the same function, by its IR. */
+const canConnectEquivalent = equivalentFor(PlanPayloadType.fields.canConnect);
+/** A veto as the payload carries it: `none` for no veto. */
+const optionOf = (veto: PlanCanConnect | undefined): PlanValue["canConnect"] => (veto === undefined ? none : some(veto));
 
 /** Whether two libraries list the same tabs and cards: they hold data alone. */
 const libraryEqual = equalFor(PlanPayloadType.fields.library);
@@ -268,6 +274,8 @@ export interface EastChakraPlanProps {
     autosave?: boolean | undefined;
     /** The link kinds (#1541, U10), whose links the canvas draws beside the root's own — the payload carries them; none, a Plan with none. */
     linkKinds?: PlanLinkKinds | undefined;
+    /** The Plan's veto over the link a Connect would draw (#1541, U10): the payload's `canConnect`; none, every pair is allowed. */
+    canConnect?: PlanCanConnect | undefined;
 }
 
 /**
@@ -278,6 +286,7 @@ export interface EastChakraPlanProps {
  */
 export const EastChakraPlan = memo(function EastChakraPlan({
     value, storageKey, events, kinds, landings: givenLandings, library: given, inspector, followed = NONE_FOLLOWED, optimise, autosave, linkKinds,
+    canConnect,
 }: EastChakraPlanProps) {
     const library = useDataStable(given ?? NO_LIBRARY, libraryEqual);
     const id = getSomeorUndefined(value.id);
@@ -300,7 +309,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({
     const landings = givenLandings ?? NO_LANDINGS;
     const canvas = usePlanCanvas({
         value, storageKey, events, hidden, rowsHidden, eventKinds, panel, kinds: kinds ?? NO_KINDS,
-        landings, tabs: library, optimise, autosave: autosave === true, linkKinds: linkKinds ?? NO_LINK_KINDS,
+        landings, tabs: library, optimise, autosave: autosave === true, linkKinds: linkKinds ?? NO_LINK_KINDS, canConnect,
     });
     return <>{canvas.provide(
         <PlanFrame canvas={canvas} root={value} kinds={kinds ?? NO_KINDS} landings={landings} library={library}
@@ -315,6 +324,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({
     && (prev.kinds === next.kinds || eventKindsEquivalent(prev.kinds ?? NO_KINDS, next.kinds ?? NO_KINDS))
     && (prev.landings === next.landings || landingsEqual(prev.landings ?? NO_LANDINGS, next.landings ?? NO_LANDINGS))
     && (prev.linkKinds === next.linkKinds || linkKindsEquivalent(prev.linkKinds ?? NO_LINK_KINDS, next.linkKinds ?? NO_LINK_KINDS))
+    && (prev.canConnect === next.canConnect || canConnectEquivalent(optionOf(prev.canConnect), optionOf(next.canConnect)))
     && (prev.library === next.library || libraryEqual(prev.library ?? NO_LIBRARY, next.library ?? NO_LIBRARY)));
 
 /** Props of {@link PlanFrame}. */
@@ -610,7 +620,7 @@ function PlanPayloadFrame({ value, storageKey }: EastChakraPlanPayloadProps) {
                 <EastChakraPlan value={value.plan} storageKey={storageKey} events={events} kinds={value.events}
                     landings={value.landings} library={value.library} inspector={value.inspector}
                     followed={followed} optimise={getSomeorUndefined(value.optimise)}
-                    autosave={value.settings.autosave} linkKinds={value.linkKinds} />
+                    autosave={value.settings.autosave} linkKinds={value.linkKinds} canConnect={getSomeorUndefined(value.canConnect)} />
             )}
         </FollowSources>
     );

@@ -112,17 +112,19 @@ import { conflictPlaceOf, entryOf, usePlanEditing, type PlanEntryRef } from "./u
 import { timeInstant } from "./instant.js";
 import { removePlanEvents, usePlanEventEditing } from "./edit/events.js";
 import { lowerWord } from "../shared/schedule/words.js";
+import { parseEventRef } from "../shared/schedule/event-ref.js";
 import {
     NO_LINK_KINDS, NO_LINK_KINDS_READ, kindLinkOf, kindLinks, linkKindRecords, linkStepLabel, linkedEventKinds, linksOver, readLinkKinds,
-    type PlanLinkKindValue,
+    type PlanLinkEnd, type PlanLinkKindValue,
 } from "./links/kinds.js";
 import { NO_LINK_CHOICES, planToolsInForce, usePlanTools, type PlanToolsChrome } from "./links/connect.js";
+import { connectVetoOf, type ConnectVetoFn } from "../shared/links/veto.js";
 import type { LinkChoice } from "../shared/held-tools.js";
 import type { PlanLinkUnlink } from "./shell/LinksOverlay.js";
 import { DraftedStanding } from "../shared/schedule/drafted-rows.js";
 import { useDraftedRows } from "../shared/schedule/use-drafted-rows.js";
 import { scheduleIssueName } from "../shared/schedule/editing.js";
-import { drawnKinds, usePlanEventDrag } from "./edit/event-drag.js";
+import { drawnKinds, usePlanEventDrag, type PlanConnecting } from "./edit/event-drag.js";
 import { createPlanVeto, type PlanCanDropFn } from "./edit/candidate.js";
 import { PlanNarrow, PLAN_NARROW_BELOW } from "./narrow/index.js";
 import type { PlanNarrowPaging } from "./narrow/demand.js";
@@ -323,6 +325,8 @@ export interface PlanCanvasArgs {
      * saved in a session of its own, under the one history; none, a Plan of the root's links alone.
      */
     linkKinds?: readonly PlanLinkKindValue[] | undefined;
+    /** The Plan's veto over the link a Connect would draw (#1541, U10): told its kind and its two events; `undefined` for none. */
+    canConnect?: ConnectVetoFn<PlanLinkEnd> | undefined;
 }
 
 /** No panel tab whose cards land on the rows. */
@@ -339,7 +343,7 @@ const NO_PANEL: readonly string[] = [];
  */
 export function usePlanCanvas({
     value: hostValue, storageKey, events, hidden, rowsHidden, eventKinds, panel, kinds = NO_KINDS,
-    landings = NO_LANDINGS, tabs = NO_TABS, optimise, autosave = false, linkKinds = NO_LINK_KINDS,
+    landings = NO_LANDINGS, tabs = NO_TABS, optimise, autosave = false, linkKinds = NO_LINK_KINDS, canConnect,
 }: PlanCanvasArgs): PlanCanvasParts {
     planRootRenderProbe?.();
     // Changes identity on a DATA change only — read data fields through it,
@@ -1016,8 +1020,28 @@ export function usePlanCanvas({
     // The Plan's one check of a drop (#1541, U7), over what it would do — an event kind's or one on `data`'s rows: the
     // root's `canDrop`, its answers kept while it is the same function.
     const veto = useMemo(() => createPlanVeto(getSomeorUndefined(hostData.canDrop) as PlanCanDropFn | undefined), [hostData.canDrop]);
+    // Whether the canvas takes a write now: no run's call is out, and what it shows is no window being replaced.
+    const takesWrites = !locked && !retained;
+    // The tools (#1541, U10): Connect is offered while a link kind is bound with its patch door and the canvas takes a
+    // write; what the viewer holds is kept under the Plan's `id`, and held as the Plan offers it.
+    const [heldTools, pickTools] = usePlanTools(keys.tools);
+    const connectable = useMemo((): readonly LinkChoice[] => (takesWrites
+        ? linkKinds.filter((kind) => kind.editable).map((kind) => ({ key: kind.key, name: kind.name })) : NO_LINK_CHOICES), [linkKinds, takesWrites]);
+    const tools = useMemo(() => planToolsInForce(heldTools, connectable.map((link) => link.key)), [heldTools, connectable]);
+    const toolsChrome = useMemo((): PlanToolsChrome | undefined => (connectable.length === 0 ? undefined
+        : { held: tools, links: connectable, pick: pickTools }), [connectable, tools, pickTools]);
+    // What Connect draws while it is held (#1541, U10): the kind its menu chose, and the Plan's `canConnect`, which
+    // hears the kind and the two events — its answers kept while it is the same function.
+    const connectVeto = useMemo(() => connectVetoOf(canConnect, (key: string) => {
+        const ref = parseEventRef(key);
+        return ref.success ? ref.value : undefined;
+    }, "Plan"), [canConnect]);
+    const connecting = useMemo((): PlanConnecting | undefined => {
+        const kind = tools.tool === "connect" ? linkKinds.find((one) => one.key === tools.link) : undefined;
+        return kind === undefined ? undefined : { kind, veto: connectVeto };
+    }, [tools, linkKinds, connectVeto]);
     const eventDrag = usePlanEventDrag({
-        kinds, landings, tabs, keys, editing: eventEditing, veto, scale, words, store: editStore,
+        kinds, landings, tabs, keys, editing: eventEditing, veto, connect: connecting, scale, words, store: editStore,
         rowOf: (key) => indexRef.current?.byKey.get(key),
         resource: (ref) => resourceRowsRef.current?.byRef.get(scheduleCellId(ref.kind, ref.key)),
         selected: () => controller.getSnapshot().store.ui.elements,
@@ -1043,6 +1067,11 @@ export function usePlanCanvas({
         if (event.type !== "move" && event.type !== "resize") return false;
         const { grab, proposal } = editStore;
         editStore.disarm();
+        // Connect held (#1541, U10): the drop draws a link to the event it landed on, and moves nothing.
+        if (eventDrag?.connecting === true) {
+            return event.type === "move" && grab !== null && eventDrag.isEvent(grab.movable)
+                && eventDrag.connectElement(grab.movable, getSomeorUndefined(event.value.to.event));
+        }
         const row = event.type === "move" ? event.value.to.row : event.value.event.row;
         if (grab === null || proposal === null || proposal.rowKey !== row || unmoved(grab.movable, proposal)) return false;
         const request: PlanMoveRequest = {
@@ -1325,7 +1354,6 @@ export function usePlanCanvas({
     }, [controller]);
     // A link kind's link removed from the canvas (#1541, U10): the selected link's ×, where its kind is bound with its
     // patch door and the canvas takes a write — one step of the history, as Delete's is.
-    const takesWrites = !locked && !retained;
     const unlink = useMemo((): PlanLinkUnlink | undefined => (linkKinds.length === 0 ? undefined : {
         can: (key) => takesWrites && kindLinkOf(linkKinds, key)?.kind.editable === true,
         run: (key) => {
@@ -1335,14 +1363,6 @@ export function usePlanCanvas({
         },
         label: (key) => words.m.linkRemove({ name: lowerWord(kindLinkOf(linkKinds, key)?.kind.name ?? "") }),
     }), [linkKinds, takesWrites, eventEditing, selectEvents, words]);
-    // The tools (#1541, U10): Connect is offered while a link kind is bound with its patch door and the canvas takes a
-    // write; what the viewer holds is kept under the Plan's `id`, and held as the Plan offers it.
-    const [heldTools, pickTools] = usePlanTools(keys.tools);
-    const connectable = useMemo((): readonly LinkChoice[] => (takesWrites
-        ? linkKinds.filter((kind) => kind.editable).map((kind) => ({ key: kind.key, name: kind.name })) : NO_LINK_CHOICES), [linkKinds, takesWrites]);
-    const tools = useMemo(() => planToolsInForce(heldTools, connectable.map((link) => link.key)), [heldTools, connectable]);
-    const toolsChrome = useMemo((): PlanToolsChrome | undefined => (connectable.length === 0 ? undefined
-        : { held: tools, links: connectable, pick: pickTools }), [connectable, tools, pickTools]);
     // What every row of this render shares (#616: per-row facts are computed
     // from it, and each row's memo skips unless ITS facts moved).
     const marks = editing.marks;
@@ -1824,8 +1844,9 @@ export function usePlanCanvas({
         ? {
             store: editStore, surface: moveSurface, helpId, styles, words, scale,
             dataMoves: rowDrop?.data === true, eventMove: rowDrop?.events?.rowMove, typing,
+            connecting: rowDrop?.events?.connecting === true ? connecting?.kind.name : undefined,
         }
-        : null), [editStore, moveSurface, helpId, styles, words, scale, rowDrop, typing]);
+        : null), [editStore, moveSurface, helpId, styles, words, scale, rowDrop, typing, connecting]);
     /** Focus an element where it is now — else its row. */
     const focusElement = useCallback((rowKey: string, key: string) => {
         const bodyEl = focusBodyRef.current;

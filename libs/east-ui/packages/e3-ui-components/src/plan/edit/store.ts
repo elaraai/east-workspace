@@ -288,6 +288,11 @@ export interface PlanEditContextValue {
      * that is no event kind's, and while the canvas takes no event's drag.
      */
     eventMove: ((row: PlanRowValue) => PlanRowMove | undefined) | undefined;
+    /**
+     * The link kind Connect draws while its tool is held (#1541, U10), by its name: an element's ghost says the link
+     * it draws, where it says where a move would land — `undefined` while Select is held.
+     */
+    connecting: string | undefined;
     /** The id of the words that tell a keyboard reader how to move an element. */
     helpId: string;
     /** The Plan recipe's styles — the ghost's look. */
