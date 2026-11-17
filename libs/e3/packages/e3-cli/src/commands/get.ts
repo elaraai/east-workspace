@@ -13,13 +13,28 @@
  *
  * Paths use the flat form `<ws>.<name>`. The resolver maps `<name>` to
  * its storage location (input or task output) automatically.
+ *
+ * `-f beast2` writes the value as it is stored, decoding nothing: a
+ * collection's segments spliced under their header as they are read, and any
+ * other value's stored bytes, a range at a time. A dataset of any size is
+ * written without being held, from a local repository and from a server alike.
  */
 
-import { datasetRead, workspaceGetDatasetHash, LocalStorage } from '@elaraai/e3-core';
-import { datasetGet as datasetGetRemote } from '@elaraai/e3-api-client';
-import { printFor, toJSONFor, decodeBeast2, encodeBeast2For, toEastTypeValue, isVariant, type EastTypeValue } from '@elaraai/east';
+import { datasetRead, readDatasetChunks, workspaceGetDatasetHash, LocalStorage } from '@elaraai/e3-core';
+import { datasetGet as datasetGetRemote, datasetGetStream } from '@elaraai/e3-api-client';
+import { printFor, toJSONFor, decodeBeast2, toEastTypeValue, isVariant, type EastTypeValue } from '@elaraai/east';
 import { parseRepoLocation, formatError, exitError } from '../utils.js';
 import { resolveDatasetPath } from '../path-resolver.js';
+
+/** Writes a value's bytes to the standard output as they come — redirect it to
+ *  a file (`> out.beast2`), which `e3 dataset set` takes back unchanged. */
+async function writeOut(chunks: AsyncIterable<Uint8Array>): Promise<void> {
+  for await (const chunk of chunks) {
+    await new Promise<void>((resolve, reject) => {
+      process.stdout.write(chunk, (err) => (err ? reject(err) : resolve()));
+    });
+  }
+}
 
 /** Supported output formats for `e3 dataset get`. */
 export type GetFormat = 'east' | 'json' | 'beast2';
@@ -49,9 +64,6 @@ export async function getCommand(
 
     let type: EastTypeValue;
     let value: unknown;
-    // the remote API hands us the wire beast2 verbatim — reuse it for `-f beast2`
-    // instead of a decode → re-encode round-trip (matters on multi-GB datasets)
-    let rawBeast2: Uint8Array | null = null;
 
     if (location.type === 'local') {
       const storage = new LocalStorage();
@@ -66,10 +78,19 @@ export async function getCommand(
         return;
       }
 
+      if (format === 'beast2') {
+        await writeOut(readDatasetChunks(storage, location.path, hash));
+        return;
+      }
       const dataset = await datasetRead(storage, location.path, hash);
       type = isVariant(dataset.type) ? dataset.type as EastTypeValue : toEastTypeValue(dataset.type);
       value = dataset.value;
     } else {
+      if (format === 'beast2') {
+        const { chunks } = await datasetGetStream(location.baseUrl, location.repo, ws, path, { token: location.token });
+        await writeOut(chunks);
+        return;
+      }
       const { data: beast2Data } = await datasetGetRemote(
         location.baseUrl,
         location.repo,
@@ -81,7 +102,6 @@ export async function getCommand(
       const decoded = decodeBeast2(beast2Data);
       type = decoded.type;
       value = decoded.value;
-      rawBeast2 = beast2Data;
     }
 
     switch (format) {
@@ -96,17 +116,6 @@ export async function getCommand(
         console.log(JSON.stringify(jsonValue, null, 2));
         break;
       }
-      case 'beast2': {
-        // binary to stdout — redirect to a file (`> out.beast2`); round-trips
-        // through `e3 dataset set` unchanged
-        const bytes = rawBeast2 ?? encodeBeast2For(type)(value as never);
-        await new Promise<void>((resolve, reject) => {
-          process.stdout.write(bytes, (err) => (err ? reject(err) : resolve()));
-        });
-        break;
-      }
-      default:
-        exitError(`Unknown format: ${format}. Use: east, json, beast2`);
     }
   } catch (err) {
     exitError(formatError(err));
