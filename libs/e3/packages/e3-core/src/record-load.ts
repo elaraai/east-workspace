@@ -419,6 +419,8 @@ export interface RecordLoadOptions {
  * `stopped`, waits until it is done, and goes on from step 4, keeping its
  * turn: what changed under it fails it, naming the change, and a changed load
  * function runs. A removal of the workspace, or a copy onto it, fails the load.
+ * What the load does follows from what stopped it, whether or not that is
+ * done by the time the load has let the workspace go.
  *
  * @param storage - Storage backend
  * @param runner - The runner that takes the delivery in and runs the pieces
@@ -473,8 +475,11 @@ export async function recordLoad(
       // A deploy that landed while it waited its turn may have changed the source
       const answered = await answeredAlready(storage, repo, ws, await sourceToLoad(storage, repo, ws, record, source, began), source, delivery, options.asOf);
       if (answered !== null) return answered;
+      // The words the load last said of what stopped it, while that holds the workspace's intent
+      let told: string | undefined;
       for (;;) {
-        await intentWaitedOut(storage, repo, ws, name, delivery, signal, report);
+        await intentWaitedOut(storage, repo, ws, name, delivery, signal, report, told);
+        told = undefined;
         const lock = await acquireWorkspaceShared(storage, repo, ws, variant('dataset_write', null));
         // Something announced itself since the look: wait it out
         if (lock === null) continue;
@@ -491,6 +496,10 @@ export async function recordLoad(
           await lock.release();
         }
         stopIfAsked();
+        // What stopped it, as the watch saw it: it may be done by now, but the
+        // load was stopped by it, so says so, or fails for it
+        const seen = watch.seen();
+        if (seen !== null) told = stoppedFor(seen, ws, undefined, report);
       }
     } finally {
       await queue.release();
@@ -670,28 +679,42 @@ function intentStop(operation: LockOperation, ws: string): { readonly waits: boo
 }
 
 /**
+ * What a load does about an operation that stopped it: it reports `stopped`
+ * for a deploy or an export, unless it said these words last, and fails for a
+ * removal of the workspace or a copy onto it.
+ *
+ * @param told - The words the load said last of what stopped it
+ * @returns The words it said
+ * @throws {Error} For a removal of the workspace, or a copy onto it
+ */
+function stoppedFor(operation: LockOperation, ws: string, told: string | undefined, report: (progress: RecordLoadProgress) => void): string {
+  const stop = intentStop(operation, ws);
+  if (!stop.waits) throw new Error(stop.words);
+  if (stop.words !== told) report(variant('stopped', stop.words));
+  return stop.words;
+}
+
+/**
  * Waits until nothing has announced itself on the workspace's intent: a
  * deploy or an export, each in turns of {@link LOAD_WAIT_TURN_MS} with no
  * bound, reporting `stopped` once for each, and re-referencing the delivery
  * each turn.
  *
+ * @param told - The words the load last said of what stopped it, which it
+ *   does not say again while the same holds the intent
  * @throws {RecordLoadStoppedError} When the signal fires while it waits
  * @throws {Error} When a removal of the workspace, or a copy onto it, has
  *   announced itself
  */
 async function intentWaitedOut(
   storage: StorageBackend, repo: string, ws: string, name: string, delivery: string,
-  signal: AbortSignal | undefined, report: (progress: RecordLoadProgress) => void,
+  signal: AbortSignal | undefined, report: (progress: RecordLoadProgress) => void, told: string | undefined,
 ): Promise<void> {
-  let told: string | undefined;
   for (;;) {
     if (signal?.aborted === true) throw new RecordLoadStoppedError(name);
     const operation = await announcedIntent(storage, repo, ws);
     if (operation === null) return;
-    const stop = intentStop(operation, ws);
-    if (!stop.waits) throw new Error(stop.words);
-    if (stop.words !== told) report(variant('stopped', stop.words));
-    told = stop.words;
+    told = stoppedFor(operation, ws, told, report);
     // A turn: the intent taken shared, which comes once what announced itself
     // lets it go, and let go at once, so nothing reads the load as an intent
     const turn = await unlessStopped(storage.locks.acquire(repo, workspaceIntentLock(ws), variant('dataset_write', null), {
@@ -708,6 +731,8 @@ interface IntentWatch {
   /** Fires once something announces itself on the intent, or once the
    *  load's own signal does. */
   readonly signal: AbortSignal;
+  /** What announced itself, once something has: what stopped the load. */
+  seen(): LockOperation | null;
   /** Stops the watch. */
   stop(): void;
 }
@@ -718,13 +743,16 @@ interface IntentWatch {
  */
 function watchIntent(storage: StorageBackend, repo: string, ws: string, outer: AbortSignal | undefined): IntentWatch {
   const announced = new AbortController();
+  let seen: LockOperation | null = null;
   let probing = false;
   const timer = setInterval(() => {
     if (probing || announced.signal.aborted) return;
     probing = true;
     announcedIntent(storage, repo, ws)
       .then((operation) => {
-        if (operation !== null) announced.abort();
+        if (operation === null) return;
+        seen = operation;
+        announced.abort();
       })
       // A probe that failed is made again at the next, as a run's is
       .catch(() => undefined)
@@ -734,6 +762,7 @@ function watchIntent(storage: StorageBackend, repo: string, ws: string, outer: A
   }, INTENT_PROBE_MS);
   return {
     signal: outer === undefined ? announced.signal : AbortSignal.any([outer, announced.signal]),
+    seen: () => seen,
     stop: () => clearInterval(timer),
   };
 }

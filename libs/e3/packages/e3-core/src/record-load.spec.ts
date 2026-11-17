@@ -446,12 +446,34 @@ describe('a load of a delivery', () => {
    * as an export, a copy onto it or its removal does: what the load did, and
    * every step it reported, once the operation has had the workspace and let
    * it go.
+   *
+   * The load looks at the workspace's intent again only once the operation is
+   * done, as a slow machine can make it look: its release of the workspace
+   * returns then. What it does must follow from what stopped it, not from
+   * whether that is still there when it looks.
    */
   const loadMeeting = async (operation: LockOperation, rows: Array<[string, OrderRow]>) => {
     const ws = await fresh();
     const gated = new GatedTaskRunner(runner, ['orders.erp']);
     const steps: RecordLoadProgress[] = [];
-    const running = recordLoad(storage, gated, repoDir, ws, 'orders', 'erp', await deliver(rows), {
+    let operationDone!: () => void;
+    const done = new Promise<void>((resolve) => { operationDone = resolve; });
+    const late = withStores(storage, {
+      locks: overriding(storage.locks, {
+        acquire: async (repo, resource, taking, options) => {
+          const handle = await storage.locks.acquire(repo, resource, taking, options);
+          // The load's shared hold of the workspace, let go before the operation takes it
+          if (handle === null || resource !== ws || options?.mode !== 'shared') return handle;
+          return overriding(handle, {
+            release: async () => {
+              await handle.release();
+              await done;
+            },
+          });
+        },
+      }),
+    });
+    const running = recordLoad(late, gated, repoDir, ws, 'orders', 'erp', await deliver(rows), {
       actor: 'cli:ada', onProgress: (step) => steps.push(step),
     }).then((result) => ({ result }), (error: unknown) => ({ error }));
     await gated.launched('orders.erp');
@@ -459,6 +481,7 @@ describe('a load of a delivery', () => {
     // It announces itself, and has the workspace once the load lets it go
     const whole = await acquireWorkspaceExclusive(storage, repoDir, ws, operation);
     await whole.release();
+    operationDone();
     return { ws, steps, ...await running };
   };
 
