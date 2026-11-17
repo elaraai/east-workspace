@@ -126,6 +126,17 @@ export interface PlanGeometry {
     markTriangleWidth: number;
     /** The box an event mark's icon fits in, across and down. */
     markIconWidth: number;
+    // ── A bar's label (#1680's review): the links stand back from it and the room its bar pads it with ──
+    /** A bar's padding either side, which its label starts in from. */
+    barPadWidth: number;
+    /** A locked bar's padding either side. */
+    barPadLockedWidth: number;
+    /** The gap between a bar's lock, its label and its quantity. */
+    barGapWidth: number;
+    /** A bar's lock, across. */
+    lockWidth: number;
+    /** One glyph of a bar's label — its mono face at the bar's size draws every glyph this wide (`1ch`). */
+    barGlyphWidth: number;
 }
 
 const DEFAULT: PlanGeometry = {
@@ -148,6 +159,8 @@ const DEFAULT: PlanGeometry = {
     // way to its room, down to its two 1.5px rings (3).
     barMinWidth: 18, chipMinWidth: 22, cellMinWidth: 12, tileMinWidth: 20, tileLeastWidth: 3,
     markDotWidth: 10, markDiamondWidth: 11, markTriangleWidth: 10, markIconWidth: 12,
+    // A bar's label: Chivo Mono at the bar's 11px draws every glyph 7 across (measured in the showcase, #1680's review).
+    barPadWidth: 7, barPadLockedWidth: 4, barGapWidth: 4, lockWidth: 8, barGlyphWidth: 7,
 };
 
 /** The two densities' tables. Dense tightens the shared row — the heat row

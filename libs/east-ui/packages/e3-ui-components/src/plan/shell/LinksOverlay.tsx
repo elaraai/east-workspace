@@ -62,7 +62,7 @@ import { useCallback, useContext, useMemo, useRef, type MouseEvent, type RefObje
 import { Box } from "@chakra-ui/react";
 import { variant } from "@elaraai/east";
 import { layoutRibbons, type LinkedElement, type RibbonBeyond, type RibbonBody, type RibbonLanes } from "./ribbon-layout.js";
-import { LinksLayer, type LinkRibbon } from "../../shared/links/layer.js";
+import { LinksLayer, type LinkRibbon, type LinksLayerProps } from "../../shared/links/layer.js";
 import { useScrollTop } from "../../shared/links/scroll.js";
 import { rowKeyOf, type PlanLinkValue } from "../model.js";
 import type { PlanScale } from "../scale.js";
@@ -99,6 +99,8 @@ export interface LinksOverlayProps {
     gutterPx: number;
     /** The focus's lane plan (`planFocusLanes`), whose rules the body opened into bands (#1680's review); left out, none. */
     lanes?: RibbonLanes | undefined;
+    /** The boxes the links stand back from: each bar's label, with its bar's padding (`labelBoxes`, #1680's review). */
+    standBack?: LinksLayerProps["standBack"];
     /** A bounded frame's scroll element and the sticky chrome above its rows —
      *  what the view is read from. Absent for an unbounded frame, which shows
      *  every row. */
@@ -125,7 +127,7 @@ const selectElements = (s: { store: { ui: { elements: readonly string[] } } }): 
 
 /** The links-focus ribbon layer — `VirtualRows`' overlay, in the rows' coordinates. */
 export function LinksOverlay({
-    styles, links, visibleKeys, body, beyond, scale, element, gutterPx, lanes, frame, unlink,
+    styles, links, visibleKeys, body, beyond, scale, element, gutterPx, lanes, standBack, frame, unlink,
 }: LinksOverlayProps) {
     const words = usePlanWords();
     const { onElementClick } = usePlanResolvers();
@@ -193,7 +195,7 @@ export function LinksOverlay({
         <Box ref={layerRef} css={styles.ribbons} data-plan-ribbons aria-hidden="true">
             <LinksLayer ribbons={ribbons} edgeSlots={layout.edgeSlots} width={width} height={body.height}
                 clip={{ left: gutterPx, width: plotWidth }} hit={hit} selected={selected}
-                onUnlink={removable ? onUnlink : undefined} unlinkLabel={removable ? unlinkLabel : undefined} />
+                onUnlink={removable ? onUnlink : undefined} unlinkLabel={removable ? unlinkLabel : undefined} standBack={standBack} />
         </Box>
     );
 }

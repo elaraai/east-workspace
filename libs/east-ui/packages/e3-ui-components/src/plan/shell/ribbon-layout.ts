@@ -49,6 +49,7 @@ import { ribbonForward, type RibbonEdgeSlot, type RibbonEnd, type RibbonOff, typ
 import { ribbonWeight } from "../../shared/links/captions.js";
 import { planLanes, sCaptionAt, type LaidBand, type LanePlan, type LaneTrack, type PlannedLink } from "../../shared/links/lanes.js";
 import { routeLinks } from "../../shared/links/route.js";
+import type { LinkBox } from "../../shared/links/layer.js";
 
 // The weight, the caption measures and the off-window slot are the shared
 // link parts' (#1321).
@@ -453,6 +454,48 @@ function elementAcross(
         }
     }
     return { leftX, rightX, offWindow };
+}
+
+/**
+ * The boxes the links stand back from (#1680's review): each bar's label in
+ * the rows the body holds, with the room its bar pads it with — laid out from
+ * the model as the recipe draws it (the table's widths, which a guard ties to
+ * the recipe), never read from the page (#818): the run across the plot, its
+ * bar down its row, its label's glyphs after its lock, cut short at the bar's
+ * end; none where the bar is too short to show its label, or lies off the
+ * window.
+ *
+ * @param body - The body as the ribbons see it
+ * @param rowOf - A row, by its key
+ * @param scale - The shared scale
+ * @param plot - The plot column, in the rows' own px
+ * @returns The boxes, in the rows' own px
+ */
+export function labelBoxes(
+    body: RibbonBody,
+    rowOf: (key: RowKey) => PlanRowValue | undefined,
+    scale: PlanScale,
+    plot: { left: number; width: number },
+): LinkBox[] {
+    const g = body.geometry;
+    const boxes: LinkBox[] = [];
+    for (const [key, slot] of body.slots) {
+        const kind = rowOf(key)?.kind;
+        if (kind?.type !== "span") continue;
+        for (const run of kind.value.runs) {
+            if (run.label === "") continue;
+            const { leftX, rightX, offWindow } = elementAcross({ start: run.start, end: run.end, draw: { kind: "bar" } }, plot, scale, g);
+            if (offWindow !== undefined) continue;
+            const pad = run.locked ? g.barPadLockedWidth : g.barPadWidth;
+            const lead = run.locked ? g.lockWidth + g.barGapWidth : 0;
+            // The label shows from two glyphs, after the lock and its gap.
+            if (rightX - leftX - 2 * pad < lead + 2 * g.barGlyphWidth) continue;
+            const [top, bottom] = drawnY(undefined, slot, g);
+            const right = Math.min(rightX, leftX + 2 * pad + lead + [...run.label].length * g.barGlyphWidth);
+            boxes.push({ x: leftX, y: top, width: right - leftX, height: bottom - top });
+        }
+    }
+    return boxes;
 }
 
 /** A link's size: its quantity's value, or `undefined` for a link with none (#824). */

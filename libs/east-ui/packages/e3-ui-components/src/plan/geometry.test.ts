@@ -112,6 +112,18 @@ describe("the Plan geometry table (#817)", () => {
         expect([slot("markIcon").width, slot("markIcon").height]).toEqual([v("markIconWidth"), v("markIconWidth")]);
     });
 
+    test("a bar's label is laid out from the table as the recipe draws it: its padding, a locked bar's, the gap after its lock, the lock, and two glyphs before it shows (#1680's review)", () => {
+        const g = PLAN_GEOMETRY.default;
+        const bar = slot("bar");
+        expect(bar.padding).toBe(`0 ${g.barPadWidth}px`);
+        expect(bar.columnGap).toBe(`${g.barGapWidth}px`);
+        expect((bar["&[data-locked]"] as Record<string, unknown>).paddingInline).toBe(`${g.barPadLockedWidth}px`);
+        expect(slot("lock").fontSize).toBe(`${g.lockWidth}px`);
+        expect(Object.keys(slot("barLabel")["[data-locked] > &"] as Record<string, unknown>))
+            .toEqual([`@container (width < calc(${g.lockWidth}px + ${g.barGapWidth}px + 2ch))`]);
+        expect(Object.keys(slot("barLabel")).filter((k) => k.startsWith("@container"))).toEqual(["@container (width < 2ch)"]);
+    });
+
     test("density is geometry — the recipe carries no density variant", () => {
         expect(planSlotRecipe.variants).toBeUndefined();
         expect(planSlotRecipe.defaultVariants).toBeUndefined();

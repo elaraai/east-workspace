@@ -132,7 +132,7 @@ import { PlanNarrow, PLAN_NARROW_BELOW } from "./narrow/index.js";
 import type { PlanNarrowPaging } from "./narrow/demand.js";
 import { LinksOverlay } from "./shell/LinksOverlay.js";
 import { ConnectOverlay } from "./shell/ConnectOverlay.js";
-import { linkedElement, placedBeyond, planFocusLanes, ribbonBody, type LinkedElement, type RibbonBeyond } from "./shell/ribbon-layout.js";
+import { labelBoxes, linkedElement, placedBeyond, planFocusLanes, ribbonBody, type LinkedElement, type RibbonBeyond } from "./shell/ribbon-layout.js";
 import { useElementWidth } from "./use-element-height.js";
 import type { PlanDiagnostics } from "./shell/Diagnostics.js";
 import type { PlanTransport } from "./shell/transport.js";
@@ -1206,6 +1206,12 @@ export function usePlanCanvas({
     const ribbonRows = useMemo(
         () => (linksFocus ? ribbonBody(body.items, body.heights, geometry) : undefined),
         [linksFocus, body.items, body.heights, geometry]);
+    // The links stand back from each bar's label (#1680's review): laid out from the model as the bars draw it.
+    const standBack = useMemo(
+        () => (ribbonRows !== undefined && scale !== undefined && plotPx > 0
+            ? labelBoxes(ribbonRows, (key) => index.byKey.get(key), scale, { left: gutterW, width: plotPx })
+            : undefined),
+        [ribbonRows, index, scale, gutterW, plotPx]);
     // A pinned row renders in the header, above every body row; a row of an
     // evicted paged window sits where its window does in its block's band
     // (#823) — or, its band folded with the links focus's other rows, at the
@@ -2475,7 +2481,7 @@ export function usePlanCanvas({
                             <PlanPartBoundary part={LINKS_LAYER} resetKey={focusVisibleKeys} styles={styles}>
                                 <LinksOverlay styles={styles} links={data.links} visibleKeys={focusVisibleKeys}
                                     body={ribbonRows} beyond={beyond} scale={scale} element={linkedElementOf}
-                                    gutterPx={gutterW} lanes={lanes}
+                                    gutterPx={gutterW} lanes={lanes} standBack={standBack}
                                     frame={frameFills ? frameRefs : undefined} unlink={unlink} />
                             </PlanPartBoundary>
                         ) : null}

@@ -198,6 +198,35 @@ const outsidePlot = (root: Element): string[] => {
 };
 
 /**
+ * Every bar label in view under a links focus, and whether the links stand back from it (#1680's review): each lies
+ * inside a box the layer's mask cuts out of the links — the model's box, its glyphs and its bar's padding, held against
+ * the text as drawn. Returns how many labels there are, and each one left uncut.
+ */
+const labelsUncut = (root: Element): { labels: number; uncut: string[] } => {
+    const svg = root.querySelector<SVGSVGElement>("[data-plan-ribbons] svg");
+    if (svg === null) return { labels: 0, uncut: ["no links layer"] };
+    const origin = svg.getBoundingClientRect();
+    const cuts = [...svg.querySelectorAll("[data-plan-standback] > rect")].map((r) => ({
+        x: Number(r.getAttribute("x")), y: Number(r.getAttribute("y")), w: Number(r.getAttribute("width")), h: Number(r.getAttribute("height")),
+    }));
+    const uncut: string[] = [];
+    let labels = 0;
+    for (const label of root.querySelectorAll<HTMLElement>("[data-virtual-extent] [data-run] > [data-plan-label]")) {
+        const b = label.getBoundingClientRect();
+        // What of it its plot cell shows: a run past the window mounts at its true place for a pan, clipped from view.
+        const cell = label.closest("[data-plan-plot]")!.getBoundingClientRect();
+        const [left, right] = [Math.max(b.left, cell.left), Math.min(b.right, cell.right)];
+        if (right - left <= 0.5 || b.height <= 0) continue;
+        labels += 1;
+        const [x0, x1, y0, y1] = [left - origin.left, right - origin.left, b.top - origin.top, b.bottom - origin.top];
+        if (!cuts.some((c) => c.x - 0.5 <= x0 && x1 <= c.x + c.w + 0.5 && c.y - 0.5 <= y0 && y1 <= c.y + c.h + 0.5)) {
+            uncut.push(`${label.closest("[data-plan-row]")?.getAttribute("data-plan-row")} ${label.textContent}`);
+        }
+    }
+    return { labels, uncut };
+};
+
+/**
  * Every loopback's lane, and each bar it runs across (#1680's review): a lane runs on a rule or in a band of tracks,
  * never across a row's bar. A lane is its stroke's longest level run at neither end's height, read along the drawn
  * path; a crossing is a bar of a row, the link's own ends' or another's, whose box the lane's line passes through.
@@ -590,6 +619,15 @@ test.describe("Plan links focus (#818, #1258)", { tag: "@desktop" }, () => {
             expect(crossings).toEqual([]);
             // H1-P09's family holds the loopback from H2-P11 back to H1-P09, past Contract A's H1-P03.
             if (focus === FOCUSES[0]) expect(loops).toBeGreaterThan(0);
+        });
+    });
+
+    test("the links stand back from every bar label in view: each lies inside a box the layer cuts out of the links (#1680's review)", async ({ page }) => {
+        for (const focus of FOCUSES) await test.step(focus.label, async () => {
+            const entry = await focusLinks(page, focus, WIDTHS[0]);
+            const { labels, uncut } = await entry.evaluate(labelsUncut);
+            expect(uncut).toEqual([]);
+            expect(labels).toBeGreaterThan(0);
         });
     });
 

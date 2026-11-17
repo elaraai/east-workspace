@@ -27,7 +27,7 @@ import type { PlanInstantValue } from "../instant.js";
 import { PLAN_CELL_INSET, PLAN_GEOMETRY } from "../geometry.js";
 import { PLAN_WORDS } from "../words.js";
 import {
-    RIBBON_CAPTION_CHAR, RIBBON_CAPTION_PAD, linkedElement, layoutRibbons, planFocusLanes, ribbonBody, ribbonWeight,
+    RIBBON_CAPTION_CHAR, RIBBON_CAPTION_PAD, labelBoxes, linkedElement, layoutRibbons, planFocusLanes, ribbonBody, ribbonWeight,
     type RibbonLayoutInput, type RibbonViewport,
 } from "./ribbon-layout.js";
 import { LINK_CAPTION_DROP } from "../../shared/links/look.js";
@@ -115,6 +115,35 @@ describe("the ribbon body (#818)", () => {
         expect(ribbonBody([rowItem(p, false), rowItem(c)], [32, 32], G).slots.get(rowKey("p"))!.bar).toBe(G.bar);
         // Dense tightens the bar the table says.
         expect(ribbonBody([rowItem(c)], [24], PLAN_GEOMETRY.dense).slots.get(rowKey("c"))!.bar).toBe(PLAN_GEOMETRY.dense.bar);
+    });
+});
+
+describe("the labels a links focus's links stand back from (#1680's review)", () => {
+    const labelled = (key: string, runs: { key: string; label: string; from: Date; to: Date; locked?: boolean }[]): PlanRowValue =>
+        ({
+            ...spanRow(key),
+            kind: variant("span", {
+                runs: runs.map((r) => ({ key: r.key, label: r.label, start: t(r.from), end: t(r.to), locked: r.locked === true })),
+                decisions: [], ports: [], rollup: none,
+            }),
+        }) as unknown as PlanRowValue;
+
+    test("each bar's label and the bar's padding round it, laid out from the model; none where the bar cannot show its label", () => {
+        const a = labelled("a", [
+            { key: "long", label: "RUN · J-4642", from: at("2026-07-06"), to: at("2026-08-03") },
+            // One day: its bar draws 18 wide, 4 inside its padding — under the two glyphs its label shows from.
+            { key: "tiny", label: "X", from: at("2026-08-10"), to: at("2026-08-11") },
+            { key: "lock", label: "AB", from: at("2026-08-17"), to: at("2026-09-07"), locked: true },
+        ]);
+        const body = ribbonBody([rowItem(a)], [32], G);
+        const boxes = labelBoxes(body, (k) => (k === a.key ? a : undefined), scale, PLOT);
+        const top = centre(0, 32) - G.bar / 2;
+        expect(boxes).toEqual([
+            // Its padding, its twelve glyphs at 7, its padding.
+            { x: xOf(at("2026-07-06")), y: top, width: 7 + 12 * 7 + 7, height: G.bar },
+            // A locked bar's 4px padding, its lock and the gap after it, its two glyphs.
+            { x: xOf(at("2026-08-17")), y: top, width: 4 + 8 + 4 + 2 * 7 + 4, height: G.bar },
+        ]);
     });
 });
 
