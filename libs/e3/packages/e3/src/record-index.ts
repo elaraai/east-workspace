@@ -174,8 +174,12 @@ export interface NestedSeriesIndexSpec<T extends EastType = EastType> {
   value?: never;
 }
 
-/** A nested series index's entry key, at the record's key type (e3-types' `NestedEntryKeyType`). */
-export type NestedKeyOf<T extends EastType> = ReturnType<typeof NestedEntryKeyType<KeyOf<T>>>;
+/**
+ * A nested series index's entry key, at the record's key type (e3-types' `NestedEntryKeyType`). Its ids — a child
+ * row's key and an item's id, each in its own type under its collection's case (#1540) — are the index's own, read
+ * off its declaration as it is built: a reader of the index names them and is given them typed.
+ */
+export type NestedKeyOf<T extends EastType> = ReturnType<typeof NestedEntryKeyType<KeyOf<T>, EastType>>;
 
 /** A nested series index's entry value (e3-types' `NestedEntryType`), its items' variant nesting as `S` declares. */
 export type NestedValueOf<T extends EastType, S extends NestedSeriesIndexSpec<T>> =

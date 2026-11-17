@@ -50,9 +50,9 @@ import {
   type CallableFunctionExpr, type EastType, type Expr, type FunctionExpr, type VariantExpr,
 } from '@elaraai/east';
 import {
-  NestedEntryKeyType, NestedEntryType, NestedSpanKeyType, RecordLevelType, RecordNestedItemType, RecordNestedPathType, RecordNestedRunType,
+  NestedEntryKeyType, NestedEntryType, NestedSpanKeyType, RecordLevelType, RecordNestedPathType, RecordNestedRunType,
   RecordNestedTotalsType, RecordRollupType, RecordSummaryTotalsType, nestedSpanName,
-  type RecordLevel,
+  type NestedItemType, type NestedPathType, type RecordLevel, type RecordNestedPath,
 } from '@elaraai/e3-types';
 import { checkNested, type NestedCollection, type NestedDeclaration, type NestedGroup, type NestedItems, type NestedValues } from './record-nested.js';
 import {
@@ -71,32 +71,64 @@ import { lazyBuilds } from './lazy-build.js';
 
 // ── Fixed shapes ──────────────────────────────────────────────────────────────
 
-/** A node's keys, from the row down to it, as a row's tree is walked: an Array, which a key may not hold. */
-const KeysType = ArrayType(StringType);
-
-/** A node of a row's tree: its keys, and its group, which tells nodes of two groups at one path apart. */
-const NodeKeyType = StructType({ path: KeysType, group: IntegerType });
-
 /**
  * A node of a group, as the walk gives it: its keys, the node above it — none
  * for the row — and the node itself.
  *
+ * @param shapes - The index's shapes
  * @param node - The group's node type
  * @returns The struct type
  */
-function NodeAtType(node: EastType) {
-  return StructType({ path: KeysType, parent: OptionType(NodeKeyType), node });
+function NodeAtType(shapes: Pick<NestedShapes, 'KeysType' | 'NodeKeyType'>, node: EastType) {
+  return StructType({ path: shapes.KeysType, parent: OptionType(shapes.NodeKeyType), node });
 }
 
 /**
  * A node of a group: `(keys, parent, node) → NodeAt`.
  *
+ * @param shapes - The index's shapes
  * @param node - The group's node type
  * @returns The constructor
  */
-function nodeAtOf(node: EastType) {
-  const type = NodeAtType(node);
-  return East.function([KeysType, OptionType(NodeKeyType), node], type, (_$, path, parent, at) => ({ path, parent, node: at }));
+function nodeAtOf(shapes: Pick<NestedShapes, 'KeysType' | 'NodeKeyType'>, node: EastType) {
+  const type = NodeAtType(shapes, node);
+  return East.function([shapes.KeysType, OptionType(shapes.NodeKeyType), node], type, (_$, path, parent, at) => ({ path, parent, node: at }));
+}
+
+/**
+ * A collection's place as an entry's key holds it (e3-types'
+ * `RecordNestedPathType`): its field names, folded from the last.
+ *
+ * @param place - The field names from the row down to the collection
+ * @returns The place, as a key's value
+ */
+export function placePath(place: readonly string[]): RecordNestedPath {
+  return place.reduceRight<RecordNestedPath>((rest, key) => variant('step', { key, rest }), variant('end', null));
+}
+
+/**
+ * `(keys) → Path` for an index's readers: a node's keys — each an id of the
+ * index's — as its entry key holds them ({@link shapesFor}'s `pathOf`).
+ *
+ * @param decl - The checked declaration
+ * @param entryKey - The entry key, `IK`
+ * @returns The function, and the keys' Array type it takes
+ */
+export function nestedPathOf(decl: NestedDeclaration, entryKey: EastType) {
+  const shapes = shapesOf(decl, entryKey);
+  return { pathOf: shapes.fns.pathOf, KeysType: shapes.KeysType, ItemType: shapes.ItemType };
+}
+
+/**
+ * `(keys) → Option<keys>`: the keys of the node above, within a walk of a
+ * Dict's rows; none for one of its own.
+ *
+ * @param keys - The keys' Array type
+ * @returns The function, over those keys
+ */
+function keysAboveOf<A extends ArrayType<EastType>>(keys: A) {
+  return East.function([keys], OptionType(keys), (_$, at) =>
+    East.greater(at.size(), 1n).ifElse(() => some(at.slice(0n, at.size().subtract(1n))), () => none) as never);
 }
 
 /** No totals: a tile's before any item touches it. */
@@ -129,17 +161,8 @@ const SubtotalTilesType = VariantType({ all: NullType, only: DictType(RecordLeve
 
 // ── Parents' subtotals: composed bottom-up ────────────────────────────────────
 
-/** A node of the tree from a row down to a collection of values rolled up: where it is, the node above it, and its own values as Floats. */
-const SubtotalNodeType = StructType({ key: NodeKeyType, parent: OptionType(NodeKeyType), own: DictType(DateTimeType, FloatType) });
-
 /** What a node draws by one rollup, at one level, in one tile. */
 const DrawKeyType = StructType({ rollup: RecordRollupType, level: RecordLevelType, tile: DateTimeType });
-
-/** A parent's subtotal: its path, the rollup, the level and the tile. */
-const SubtotalKeyType = StructType({ path: RecordNestedPathType, rollup: RecordRollupType, level: RecordLevelType, tile: DateTimeType });
-
-/** A node's result, carried to its parent: what it draws, and the subtotals of every parent at or beneath it. */
-const ComposedType = StructType({ draws: DictType(DrawKeyType, FloatType), subtotals: DictType(SubtotalKeyType, FloatType) });
 
 /** What a node's own values in a tile come to, before a rollup's fold picks one: their sum and how many, the least, the greatest and the latest. */
 const FoldedType = StructType({ sum: FloatType, n: IntegerType, min: FloatType, max: FloatType, last: FloatType });
@@ -150,7 +173,7 @@ const GatheredType = StructType({ sum: FloatType, n: IntegerType, min: FloatType
 // ── What a declaration's types make ───────────────────────────────────────────
 
 /** An entry's key, `IK` (e3-types' `NestedEntryKeyType`), at some row key. */
-type EntryKeyType = ReturnType<typeof NestedEntryKeyType<EastType>>;
+type EntryKeyType = ReturnType<typeof NestedEntryKeyType<EastType, EastType>>;
 
 /** An entry's value, `P` (e3-types' `NestedEntryType`), at some places. */
 type EntryValueType = ReturnType<typeof NestedEntryType<EastType>>;
@@ -178,6 +201,8 @@ interface NestedTypes {
   readonly summary: RecordLevel | undefined;
   /** The levels a parent's subtotals are kept at: from the index's tile up to the year. */
   readonly levels: readonly RecordLevel[];
+  /** The shapes that hold the index's ids, and the functions over them ({@link shapesFor}). */
+  readonly shapes: NestedShapes;
 }
 
 /** A row's entries before a write and after it. */
@@ -331,11 +356,11 @@ function noValues(nodeType: EastType): FunctionExpr<[EastType], DictType<DateTim
  * field — beside `recursive()`, with every row beneath them through it, by
  * `flattenTree` — each with its keys and the node above it.
  */
-function groupNodes(decl: NestedDeclaration, rowType: EastType): readonly NodesOf[] {
+function groupNodes(decl: NestedDeclaration, shapes: NestedShapes, rowType: EastType): readonly NodesOf[] {
   const nodes: NodesOf[] = [];
   for (const group of decl.groups) {
-    const nodeAt = ArrayType(NodeAtType(group.type));
-    const make = nodeAtOf(group.type);
+    const nodeAt = ArrayType(NodeAtType(shapes, group.type));
+    const make = nodeAtOf(shapes, group.type);
     if (group.parent === undefined) {
       nodes.push(East.function([rowType], nodeAt, ($, row) => {
         const at = $.const(make);
@@ -345,49 +370,89 @@ function groupNodes(decl: NestedDeclaration, rowType: EastType): readonly NodesO
     }
     const parent = decl.groups[group.parent.group]!;
     const above = nodes[parent.index]!;
-    const rowsOf = fieldOf(parent.type, group.parent.field, DictType(StringType, group.type));
+    // The group's rows by their keys, each key an id of the index's under the group's case (#1540).
+    const keyed = keyedOf(group);
+    const rowsType = DictType(keyed.type, group.type);
+    const rowsOf = fieldOf(parent.type, group.parent.field, rowsType);
+    const idOf = idIn(decl, keyed.idCase, keyed.type);
     const parentGroup = BigInt(parent.index);
     const ownGroup = BigInt(group.index);
     if (group.through === undefined) {
       nodes.push(East.function([rowType], nodeAt, ($, row) => {
         const up = $.const(above);
         const rows = $.const(rowsOf);
+        const id = $.const(idOf);
         const nodeAt = $.const(make);
         return up(row).flatMap((_$, at) => rows(at.node).toArray((_$, node, key) =>
-          nodeAt(at.path.concat([key]), some({ path: at.path, group: parentGroup }), node)));
+          nodeAt(at.path.concat([id(key)]), some({ path: at.path, group: parentGroup }), node)));
       }));
       continue;
     }
-    const deeper = fieldOf(group.type, group.through, DictType(StringType, group.type));
+    const deeper = fieldOf(group.type, group.through, rowsType);
     nodes.push(East.function([rowType], nodeAt, ($, row) => {
       const up = $.const(above);
       const rows = $.const(rowsOf);
       const beneath = $.const(deeper);
-      const keysOver = $.const(NESTED_FNS.keysAbove);
+      const id = $.const(idOf);
+      const keysOver = $.const(shapes.fns.keysAbove);
       const nodeAt = $.const(make);
-      return up(row).flatMap((_$, at) => rows(at.node).flattenTree((_$, node) => beneath(node)).map((_$, entry) => nodeAt(
-        at.path.concat(entry.path),
-        // A node's parent: the row above it in this walk, or the parent group's node holding the walk's root.
-        some(keysOver(entry.path).match({
-          some: (_$, keys) => ({ path: at.path.concat(keys), group: ownGroup }),
-          none: () => ({ path: at.path, group: parentGroup }),
-        })),
-        entry.node,
-      )));
+      return up(row).flatMap((_$, at) => rows(at.node).flattenTree((_$, node) => beneath(node)).map(($2, entry) => {
+        const ids = $2.let(entry.path.map((_$, key) => id(key)), shapes.KeysType);
+        return nodeAt(
+          at.path.concat(ids),
+          // A node's parent: the row above it in this walk, or the parent group's node holding the walk's root.
+          some(keysOver(ids).match({
+            some: (_$, keys) => ({ path: at.path.concat(keys), group: ownGroup }),
+            none: () => ({ path: at.path, group: parentGroup }),
+          })),
+          entry.node,
+        );
+      }));
     }));
   }
   return nodes;
 }
 
 /** A group's nodes from a row, as a function a part is given: `(V) → Array<NodeAt>`. */
-function WalkType(rowType: EastType, group: NestedGroup) {
-  return FunctionType([rowType], ArrayType(NodeAtType(group.type)));
+function WalkType(types: Pick<NestedTypes, 'shapes' | 'rowType'>, group: NestedGroup) {
+  return FunctionType([types.rowType], ArrayType(NodeAtType(types.shapes, group.type)));
+}
+
+/** What a group's nodes are keyed by beneath the node holding them: every group's but the row's. */
+function keyedOf(group: NestedGroup): NonNullable<NestedGroup['keyed']> {
+  if (group.keyed === undefined) throw new Error('a nested series index\'s row is keyed by its record, not beneath a node');
+  return group.keyed;
+}
+
+/**
+ * A key as the index's id (#1540): `(K) → Id`, the key under its collection's
+ * case of the index's ids, in its own type.
+ *
+ * @param decl - The checked declaration
+ * @param idCase - The collection's case of the index's ids
+ * @param keyType - The collection's Dict's key type
+ * @returns The wrapping
+ */
+function idIn(decl: NestedDeclaration, idCase: string, keyType: EastType): FunctionExpr<[EastType], EastType> {
+  const idType: EastType = decl.idType;
+  return East.function([keyType], idType, (_$, key) => East.inCase(idType, idCase, key));
+}
+
+/**
+ * An id's key (#1540): `(Id) → K`, the key out of its collection's case of the
+ * index's ids. The inverse of {@link idIn}.
+ *
+ * @param decl - The checked declaration
+ * @param idCase - The collection's case of the index's ids
+ * @param keyType - The collection's Dict's key type
+ * @returns The unwrapping
+ */
+function idOut(decl: NestedDeclaration, idCase: string, keyType: EastType): FunctionExpr<[EastType], EastType> {
+  const idType: EastType = decl.idType;
+  return East.function([idType], keyType, (_$, id) => (id as unknown as VariantExpr<Record<string, EastType>>).unwrap(idCase) as never);
 }
 
 // ── A program's kit ───────────────────────────────────────────────────────────
-
-/** `(keys) → Path`: `pathOf`'s type. */
-const PathFnType = FunctionType([KeysType], RecordNestedPathType);
 
 /** `(tile, start, end, what, startOf, nextOf) → Array<TileFiling>`: `placedFilingsOver`'s type. */
 const FileFnType = FunctionType(
@@ -416,49 +481,175 @@ const WithinFnType = FunctionType([SetType(DateTimeType), RecordLevelType, TileS
 /** `(instants, levels, startOf, nextOf) → SubtotalTiles`: `subtotalTiles`' type. */
 const LevelsWithinFnType = FunctionType([SetType(DateTimeType), ArrayType(RecordLevelType), TileStepFnType, TileStepFnType], SubtotalTilesType);
 
-/** `(nodes, rollups, levels, tiles, startOf) → Dict<SubtotalKey, Float>`: `subtotalsOf`' type. */
-const SubtotalsFnType = FunctionType(
-  [ArrayType(SubtotalNodeType), ArrayType(RecordRollupType), ArrayType(RecordLevelType), SubtotalTilesType, TileStepFnType],
-  DictType(SubtotalKeyType, FloatType));
+// ── The shapes an index's ids make ────────────────────────────────────────────
 
 /**
- * A program's kit: the functions its parts call, bound once in the program's
- * body and handed to every part ({@link programKit}), so a program holds each
- * once, however many of its parts call it. A function stepping through the
- * tiles is given the kit's `startOf` and `nextOf` by its caller.
+ * The shapes of a nested series index that hold its ids (#1540): a child
+ * row's key on the way from a row down to a node, each in its own type under
+ * its collection's case. They are the index's own, made once of its ids and
+ * of its key's path and item types, with the functions over them, each built
+ * the first time it is read.
+ *
+ * @param id - The index's ids (e3-types' `NestedIdType`)
+ * @param PathType - Its key's path type, over those ids
+ * @param ItemType - Its key's item type, over them
+ * @returns The shapes, and the functions over them
  */
-const KitType = StructType({
-  /** `tileStart` */
-  startOf: TileStepFnType,
-  /** `tileNext` */
-  nextOf: TileStepFnType,
-  /** `pathOf` */
-  path: PathFnType,
-  /** Where an item is filed: `placedFilingsOver` */
-  file: FileFnType,
-  /** An item's shares of the tiles it touches: `placedSharesOver` */
-  share: ShareFnType,
-  /** `sharedTotals` */
-  totalled: TotalledFnType,
-  /** `instantTotals` */
-  counted: CountedFnType,
-  /** `valueTotals` */
-  summed: SummedFnType,
-  /** `inSpan` */
-  kept: KeptFnType,
-  /** `tilesWithin` */
-  within: WithinFnType,
-  /** `subtotalTiles` */
-  levelsWithin: LevelsWithinFnType,
-  /** `subtotalsOf` */
-  subtotals: SubtotalsFnType,
-});
-type KitType = typeof KitType;
+function shapesFor(id: EastType, PathType: ReturnType<typeof NestedPathType<EastType>>, ItemType: ReturnType<typeof NestedItemType<EastType, EastType>>) {
+  /** A node's keys, from the row down to it, as a row's tree is walked: an Array, which a key may not hold. */
+  const KeysType = ArrayType(id);
+  /** A node of a row's tree: its keys, and its group, which tells nodes of two groups at one path apart. */
+  const NodeKeyType = StructType({ path: KeysType, group: IntegerType });
+  /** A node's items' shares of the summary tiles they touch. */
+  const NodeSharesType = StructType({ path: KeysType, shares: ArrayType(TileShareType) });
+  /** A node of the tree from a row down to a collection of values rolled up: where it is, the node above it, and its own values as Floats. */
+  const SubtotalNodeType = StructType({ key: NodeKeyType, parent: OptionType(NodeKeyType), own: DictType(DateTimeType, FloatType) });
+  /** A parent's subtotal: its path, the rollup, the level and the tile. */
+  const SubtotalKeyType = StructType({ path: PathType, rollup: RecordRollupType, level: RecordLevelType, tile: DateTimeType });
+  /** A node's result, carried to its parent: what it draws, and the subtotals of every parent at or beneath it. */
+  const ComposedType = StructType({ draws: DictType(DrawKeyType, FloatType), subtotals: DictType(SubtotalKeyType, FloatType) });
+  /** Where a node's items are filed: its collection's place and its path, as an entry's key holds them. */
+  const NodePlaceType = StructType({ collection: RecordNestedPathType, path: PathType });
+  /** `(keys) → Path`: `pathOf`'s type. */
+  const PathFnType = FunctionType([KeysType], PathType);
+  /** `(nodes, rollups, levels, tiles, startOf) → Dict<SubtotalKey, Float>`: `subtotalsOf`' type. */
+  const SubtotalsFnType = FunctionType(
+    [ArrayType(SubtotalNodeType), ArrayType(RecordRollupType), ArrayType(RecordLevelType), SubtotalTilesType, TileStepFnType],
+    DictType(SubtotalKeyType, FloatType));
+  /**
+   * A program's kit: the functions its parts call, bound once in the program's
+   * body and handed to every part ({@link programKit}), so a program holds each
+   * once, however many of its parts call it. A function stepping through the
+   * tiles is given the kit's `startOf` and `nextOf` by its caller.
+   */
+  const KitType = StructType({
+    /** `tileStart` */
+    startOf: TileStepFnType,
+    /** `tileNext` */
+    nextOf: TileStepFnType,
+    /** `pathOf` */
+    path: PathFnType,
+    /** Where an item is filed: `placedFilingsOver` */
+    file: FileFnType,
+    /** An item's shares of the tiles it touches: `placedSharesOver` */
+    share: ShareFnType,
+    /** `sharedTotals` */
+    totalled: TotalledFnType,
+    /** `instantTotals` */
+    counted: CountedFnType,
+    /** `valueTotals` */
+    summed: SummedFnType,
+    /** `inSpan` */
+    kept: KeptFnType,
+    /** `tilesWithin` */
+    within: WithinFnType,
+    /** `subtotalTiles` */
+    levelsWithin: LevelsWithinFnType,
+    /** `subtotalsOf` */
+    subtotals: SubtotalsFnType,
+  });
+  const fns = lazyBuilds({
+    /** `(keys) → Path`: a node's keys as a key holds them, folded from the last. */
+    get pathOf() {
+      return East.function([KeysType], PathType, ($, keys) => {
+        const end = $.const(variant('end', null), PathType);
+        return keys.reverse().reduce((_$, rest, key) => variant('step', { key, rest }) as never, end);
+      });
+    },
+    /** `(path) → keys`: a node's keys out of a key's path, from the row down — the inverse of `pathOf`. */
+    get keysOf() {
+      return East.function([PathType], KeysType, ($, path) => {
+        const keys = $.let([], KeysType);
+        const at = $.let(path);
+        $.while(true, ($2, label) => {
+          $2.match(at.unwrap(), {
+            step: ($3, step) => {
+              $3(keys.pushLast(step.key));
+              $3.assign(at, step.rest);
+            },
+            end: ($3) => {
+              $3.break(label);
+            },
+          });
+        });
+        return keys;
+      });
+    },
+    /** `(keys) → Option<keys>`: the keys of the node above, within a walk of a Dict's rows; none for one of its own. */
+    get keysAbove() {
+      return keysAboveOf(KeysType);
+    },
+    /**
+     * `(node, children, rollups, levels, tiles, startOf) → Composed`: a node's
+     * result, at the tiles asked for. One holding values of its own draws them,
+     * and keeps no subtotal; one holding none draws its children's, and keeps what
+     * it draws, where it draws, as its subtotals. Either way, it carries every
+     * subtotal beneath it on to its parent.
+     */
+    get composed() {
+      return East.function(
+        [SubtotalNodeType, ArrayType(ComposedType), ArrayType(RecordRollupType), ArrayType(RecordLevelType), SubtotalTilesType, TileStepFnType],
+        ComposedType,
+        ($, node, children, rollups, levels, tiles, startOf) => {
+          const own = $.const(NESTED_FNS.ownDraws);
+          const gathered = $.const(NESTED_FNS.childDraws);
+          const path = $.const(fns.pathOf);
+          const beneath = $.let(children.flatMap((_$, child) => child.subtotals.toArray((_$, value, key) => ({ key, value })))
+            .toDict((_$, subtotal) => subtotal.key, (_$, subtotal) => subtotal.value));
+          $.if(East.greater(node.own.size(), 0n), ($) => {
+            $.return({ draws: own(node.own, rollups, levels, tiles, startOf), subtotals: beneath });
+          });
+          const draws = $.let(gathered(children.map((_$, child) => child.draws)));
+          const here = $.let(path(node.key.path));
+          $(beneath.unionInPlace(draws.toDict(
+            (_$, _value, key) => ({ path: here, rollup: key.rollup, level: key.level, tile: key.tile }),
+            (_$, value) => value,
+          )));
+          return { draws, subtotals: beneath };
+        },
+      );
+    },
+    /**
+     * `(nodes, rollups, levels, tiles, startOf) → Dict<SubtotalKey, Float>`:
+     * every parent's subtotals of a collection of values at the tiles asked for,
+     * composed bottom-up by `toTree` over the nodes from the row down to the
+     * collection, each node's result carried to its parent. A tile no
+     * descendant's value touches has none.
+     */
+    get subtotalsOf() {
+      return East.function(SubtotalsFnType.inputs, SubtotalsFnType.output, ($, nodes, rollups, levels, tiles, startOf) => {
+        const compose = $.const(fns.composed);
+        const roots = $.let(nodes.toTree(ComposedType, (_$, node) => node.key, (_$, node) => node.parent,
+          (_$, node, _i, children) => compose(node, children, rollups, levels, tiles, startOf)));
+        return roots.flatMap((_$, root) => root.subtotals.toArray((_$, value, key) => ({ key, value })))
+          .toDict((_$, subtotal) => subtotal.key, (_$, subtotal) => subtotal.value);
+      });
+    },
+    /** `subtotalsOf`, as a kit holds it where none of its program's parts calls it: one of its type making nothing. */
+    get noSubtotals() {
+      return East.function(SubtotalsFnType.inputs, SubtotalsFnType.output, () => new Map());
+    },
+  });
+  return { id, KeysType, PathType, ItemType, NodeKeyType, NodeSharesType, SubtotalNodeType, SubtotalKeyType, ComposedType, NodePlaceType, KitType, fns };
+}
+
+/** The shapes of a nested series index that hold its ids ({@link shapesFor}). */
+type NestedShapes = ReturnType<typeof shapesFor>;
+/** A node's keys, from the row down to it ({@link shapesFor}). */
+type KeysType = NestedShapes['KeysType'];
+/** A node's items' shares of the summary tiles they touch ({@link shapesFor}). */
+type NodeSharesType = NestedShapes['NodeSharesType'];
+/** A node of the tree from a row down to a collection of values rolled up ({@link shapesFor}). */
+type SubtotalNodeType = NestedShapes['SubtotalNodeType'];
+/** A program's kit ({@link shapesFor}). */
+type KitType = NestedShapes['KitType'];
 
 /** A function of a program's kit only some parts call, by its name: every part calls the tiles' steps and a path's. */
 type KitName = 'file' | 'share' | 'totalled' | 'counted' | 'summed' | 'kept' | 'within' | 'levelsWithin' | 'subtotals';
 
-/** Each function of a kit only some parts call, as they call it: each read the first time a kit holds it (#1466). */
+
+
+/** Each function of a kit only some parts call that every index shares, as they call it: each read the first time a kit holds it (#1466). */
 export const KIT_CALLED = lazyBuilds({
   get file() { return TILE_FNS.placedFilingsOver; },
   get share() { return TILE_FNS.placedSharesOver; },
@@ -468,14 +659,14 @@ export const KIT_CALLED = lazyBuilds({
   get kept() { return NESTED_FNS.inSpan; },
   get within() { return NESTED_FNS.tilesWithin; },
   get levelsWithin() { return NESTED_FNS.subtotalTiles; },
-  get subtotals() { return NESTED_FNS.subtotalsOf; },
 });
 
 /**
- * Each function of a kit only some parts call, as a kit holds it where none of
- * its program's parts calls it: one of its type making nothing, so a program
- * holds only the functions its parts call. Each built the first time a kit
- * holds it ({@link lazyBuilds}, #1466).
+ * Each function of a kit only some parts call that every index shares, as a
+ * kit holds it where none of its program's parts calls it: one of its type
+ * making nothing, so a program holds only the functions its parts call. Each
+ * built the first time a kit holds it ({@link lazyBuilds}, #1466). A parent's
+ * subtotals are an index's own, over its ids ({@link shapesFor}).
  */
 export const KIT_UNCALLED = lazyBuilds({
   get file() { return East.function(FileFnType.inputs, FileFnType.output, () => []); },
@@ -486,22 +677,23 @@ export const KIT_UNCALLED = lazyBuilds({
   get kept() { return East.function(KeptFnType.inputs, KeptFnType.output, () => false); },
   get within() { return East.function(WithinFnType.inputs, WithinFnType.output, () => variant('all', null)); },
   get levelsWithin() { return East.function(LevelsWithinFnType.inputs, LevelsWithinFnType.output, () => variant('all', null)); },
-  get subtotals() { return East.function(SubtotalsFnType.inputs, SubtotalsFnType.output, () => new Map()); },
 });
 
 /**
- * A program's kit ({@link KitType}): `() → Kit`, each function its parts call
- * bound once — the tiles' steps and a path's always, each other the parts
+ * A program's kit ({@link shapesFor}): `() → Kit`, each function its parts
+ * call bound once — the tiles' steps and a path's always, each other the parts
  * name, and in place of each they do not, one making nothing.
  *
+ * @param shapes - The index's shapes
  * @param calls - What the program's parts call of the kit, beside the tiles' steps and a path's
  * @returns The kit
  */
-function programKit(calls: ReadonlySet<KitName>): CallableFunctionExpr<[], KitType> {
+function programKit(shapes: NestedShapes, calls: ReadonlySet<KitName>): CallableFunctionExpr<[], KitType> {
+  const { KitType, fns } = shapes;
   const kit = {
     startOf: TILE_FNS.tileStart,
     nextOf: TILE_FNS.tileNext,
-    path: NESTED_FNS.pathOf,
+    path: fns.pathOf,
     file: calls.has('file') ? KIT_CALLED.file : KIT_UNCALLED.file,
     share: calls.has('share') ? KIT_CALLED.share : KIT_UNCALLED.share,
     totalled: calls.has('totalled') ? KIT_CALLED.totalled : KIT_UNCALLED.totalled,
@@ -510,7 +702,7 @@ function programKit(calls: ReadonlySet<KitName>): CallableFunctionExpr<[], KitTy
     kept: calls.has('kept') ? KIT_CALLED.kept : KIT_UNCALLED.kept,
     within: calls.has('within') ? KIT_CALLED.within : KIT_UNCALLED.within,
     levelsWithin: calls.has('levelsWithin') ? KIT_CALLED.levelsWithin : KIT_UNCALLED.levelsWithin,
-    subtotals: calls.has('subtotals') ? KIT_CALLED.subtotals : KIT_UNCALLED.subtotals,
+    subtotals: calls.has('subtotals') ? fns.subtotalsOf : fns.noSubtotals,
   };
   return East.function([], KitType, () => kit);
 }
@@ -598,13 +790,14 @@ function touchedItems(keyType: EastType, itemType: EastType): DictWalk {
  * updated as its own walk leaves it — and none where one on the way was
  * replaced.
  *
+ * @param keyType - The child rows' Dict's key type
  * @param nodeType - The child rows' type
  * @param walk - Their walk
  * @returns The walk
  */
-function touchedRows(nodeType: EastType, walk: NodeWalk): DictWalk {
-  const rowsType = DictType(StringType, nodeType);
-  const patchType = dictPatchType(StringType, nodeType);
+function touchedRows(keyType: EastType, nodeType: EastType, walk: NodeWalk): DictWalk {
+  const rowsType = DictType(keyType, nodeType);
+  const patchType = dictPatchType(keyType, nodeType);
   const pairType = StructType<{ held: EastType; next: EastType }>({ held: rowsType, next: rowsType });
   return East.function([rowsType, rowsType, patchType], OptionType(pairType), ($, held, next, patch) => {
     const child = $.const(walk);
@@ -767,12 +960,13 @@ function rowWalk(decl: NestedDeclaration): NodeWalk {
     }
     walks[group.index] = touchedStruct(group.type, [
       ...group.collections.map((collection): FieldWalk => {
-        const type = collection.kind === 'items' ? DictType(StringType, collection.itemType) : DictType(DateTimeType, collection.valueType);
+        const type = filledType(collection);
         return { field: collection.field, type, walk: touchedItems(type.key, type.value) };
       }),
       ...group.rows.map((child): FieldWalk => {
-        const childType = decl.groups[child.group]!.type;
-        return { field: child.field, type: DictType(StringType, childType), walk: touchedRows(childType, walks[child.group]!) };
+        const childGroup = decl.groups[child.group]!;
+        const keyType = keyedOf(childGroup).type;
+        return { field: child.field, type: DictType(keyType, childGroup.type), walk: touchedRows(keyType, childGroup.type, walks[child.group]!) };
       }),
     ]);
   }
@@ -785,9 +979,6 @@ function rowWalk(decl: NestedDeclaration): NodeWalk {
 function whatWords(collection: NestedCollection): string {
   return collection.place.join(' ');
 }
-
-/** A node's items' shares of the summary tiles they touch. */
-const NodeSharesType = StructType({ path: KeysType, shares: ArrayType(TileShareType) });
 
 /** No items or values: a tile's totals before any is counted. */
 const NO_SPAN_TOTALS = { count: 0n, ms: 0n };
@@ -820,10 +1011,10 @@ type SpanPart = CallableFunctionExpr<[EastType, EastType, KitType], SpanTotalsTy
 type NodesEntries = CallableFunctionExpr<[EastType, EastType, WalkFnType, KitType], EntriesType>;
 
 /** Things people drag's entries from their shares: `(K, Array<{ path, shares }>, Kit) → Dict<IK, P>`. */
-type SharedEntries = CallableFunctionExpr<[EastType, ArrayType<typeof NodeSharesType>, KitType], EntriesType>;
+type SharedEntries = CallableFunctionExpr<[EastType, ArrayType<NodeSharesType>, KitType], EntriesType>;
 
 /** Each node's items' shares of the tiles asked for: `(K, V, Within, Nodes, Kit) → Array<{ path, shares }>`. */
-type NodesShares = CallableFunctionExpr<[EastType, EastType, typeof WithinType, WalkFnType, KitType], ArrayType<typeof NodeSharesType>>;
+type NodesShares = CallableFunctionExpr<[EastType, EastType, typeof WithinType, WalkFnType, KitType], ArrayType<NodeSharesType>>;
 
 /** A collection of values' totals at the tiles asked for: `(K, V, Within, Nodes, Kit) → Dict<IK, P>`. */
 type WithinEntries = CallableFunctionExpr<[EastType, EastType, typeof WithinType, WalkFnType, KitType], EntriesType>;
@@ -839,13 +1030,14 @@ type NodesChanged = CallableFunctionExpr<[EastType, EastType, EastType, EastType
 type NodesSpan = CallableFunctionExpr<[EastType, EastType, WalkFnType, KitType], SpanTotalsType>;
 
 /** Every node from the row down to a collection of values' group: `(V, Nodes) → Array<SubtotalNode>`. */
-type Gathered = CallableFunctionExpr<[EastType, WalkFnType], ArrayType<typeof SubtotalNodeType>>;
+type Gathered = CallableFunctionExpr<[EastType, WalkFnType], ArrayType<SubtotalNodeType>>;
 
 /** Every parent's subtotals of a collection of values: `(K, Array<SubtotalNode>, SubtotalTiles, Kit) → Dict<IK, P>`. */
-type SubtotalEntries = CallableFunctionExpr<[EastType, ArrayType<typeof SubtotalNodeType>, typeof SubtotalTilesType, KitType], EntriesType>;
+type SubtotalEntries = CallableFunctionExpr<[EastType, ArrayType<SubtotalNodeType>, typeof SubtotalTilesType, KitType], EntriesType>;
 
 /** `(K, V, Nodes, Kit) → Dict<IK, P>`: parts' entries, one after another, each a function calling the parts before it. */
 function nodesUnion(types: NestedTypes, nodesType: WalkFnType, parts: readonly NodesEntries[]): NodesEntries {
+  const { KitType } = types.shapes;
   const [first, ...rest] = parts;
   if (first === undefined) return East.function([types.keyType, types.rowType, nodesType, KitType], types.entries, () => new Map());
   return rest.reduce<NodesEntries>((before, part) => East.function([types.keyType, types.rowType, nodesType, KitType], types.entries,
@@ -858,6 +1050,7 @@ function nodesUnion(types: NestedTypes, nodesType: WalkFnType, parts: readonly N
 
 /** `(K, shares, Kit) → Dict<IK, P>`: two parts' entries from the same shares, one's then the other's. */
 function sharedBoth(types: NestedTypes, first: SharedEntries, second: SharedEntries): SharedEntries {
+  const { NodeSharesType, KitType } = types.shapes;
   return East.function([types.keyType, ArrayType(NodeSharesType), KitType], types.entries, ($, key, shared, kit) => {
     const all = $.let(first(key, shared, kit));
     $(all.unionInPlace(second(key, shared, kit)));
@@ -867,6 +1060,7 @@ function sharedBoth(types: NestedTypes, first: SharedEntries, second: SharedEntr
 
 /** `(K, V, V, V, V, Nodes, Kit) → { before, after }`: what parts change, one after another, each a function calling the parts before it. */
 function changedUnion(types: NestedTypes, nodesType: WalkFnType, parts: readonly NodesChanged[]): NodesChanged {
+  const { KitType } = types.shapes;
   const { keyType, rowType, changed } = types;
   const [first, ...rest] = parts;
   if (first === undefined) {
@@ -884,6 +1078,7 @@ function changedUnion(types: NestedTypes, nodesType: WalkFnType, parts: readonly
 
 /** `(K, V, Nodes, Kit) → Dict<{ collection, tile }, Totals>`: parts' months, one after another, each a function calling the parts before it. */
 function spanNodesUnion(types: NestedTypes, nodesType: WalkFnType, parts: readonly NodesSpan[]): NodesSpan {
+  const { KitType } = types.shapes;
   const [first, ...rest] = parts;
   if (first === undefined) return East.function([types.keyType, types.rowType, nodesType, KitType], SpanTotalsType, () => new Map());
   return rest.reduce<NodesSpan>((before, part) => East.function([types.keyType, types.rowType, nodesType, KitType], SpanTotalsType,
@@ -904,6 +1099,7 @@ function spanNodesUnion(types: NestedTypes, nodesType: WalkFnType, parts: readon
  * @returns The part
  */
 function groupEntries(types: NestedTypes, nodes: NodesOf, entries: NodesEntries): EntriesPart {
+  const { KitType } = types.shapes;
   return East.function([types.keyType, types.rowType, KitType], types.entries, ($, key, row, kit) => {
     const walk = $.const(nodes);
     return entries(key, row, walk, kit);
@@ -920,6 +1116,7 @@ function groupEntries(types: NestedTypes, nodes: NodesOf, entries: NodesEntries)
  * @returns The part
  */
 function groupPatched(types: NestedTypes, nodes: NodesOf, changed: NodesChanged): PatchedPart {
+  const { KitType } = types.shapes;
   const { keyType, rowType } = types;
   return East.function([keyType, rowType, rowType, rowType, rowType, KitType], types.changed, ($, key, held, next, heldTouched, nextTouched, kit) => {
     const walk = $.const(nodes);
@@ -937,6 +1134,7 @@ function groupPatched(types: NestedTypes, nodes: NodesOf, changed: NodesChanged)
  * @returns The part
  */
 function groupSpan(types: NestedTypes, nodes: NodesOf, span: NodesSpan): SpanPart {
+  const { KitType } = types.shapes;
   return East.function([types.keyType, types.rowType, KitType], SpanTotalsType, ($, key, row, kit) => {
     const walk = $.const(nodes);
     return span(key, row, walk, kit);
@@ -956,6 +1154,7 @@ function groupSpan(types: NestedTypes, nodes: NodesOf, span: NodesSpan): SpanPar
  * @returns The collection's part
  */
 function patchedWith(types: NestedTypes, nodesType: WalkFnType, filed: NodesEntries, moved: NodesChanged | undefined): NodesChanged {
+  const { KitType } = types.shapes;
   const { keyType, rowType, changed } = types;
   if (moved === undefined) {
     return East.function([keyType, rowType, rowType, rowType, rowType, nodesType, KitType], changed,
@@ -981,12 +1180,15 @@ function patchedWith(types: NestedTypes, nodesType: WalkFnType, filed: NodesEntr
 
 /** Things people drag, filed: `(K, V, Nodes, Kit) → Dict<IK, P>`, each item once (or once a year past a year), at the level its length fits, under its node. */
 function itemEntries(decl: NestedDeclaration, types: NestedTypes, collection: NestedItems, nodesType: WalkFnType): NodesEntries {
+  const placed = placePath(collection.place);
+  const { KitType, ItemType } = types.shapes;
   const group = decl.groups[collection.group]!;
   const { keyType, rowType, entryKey, entries, tile } = types;
-  const holding = fieldOf(group.type, collection.field, DictType(StringType, collection.itemType));
-  const readStart = fieldReader(StringType, collection.itemType, { option: collection.start });
-  const readEnd = fieldReader(StringType, collection.itemType, { option: collection.end });
+  const holding = fieldOf(group.type, collection.field, DictType(collection.keyType, collection.itemType));
+  const readStart = fieldReader(collection.keyType, collection.itemType, { option: collection.start });
+  const readEnd = fieldReader(collection.keyType, collection.itemType, { option: collection.end });
   const place = placedItem(decl, collection, collection.itemType, types.entryValue);
+  const asId = idIn(decl, collection.idCase, collection.keyType);
   const words = whatWords(collection);
   return East.function([keyType, rowType, nodesType, KitType], entries, ($, key, row, nodes, kit) => {
     const startOf = $.const(kit.startOf);
@@ -997,15 +1199,17 @@ function itemEntries(decl: NestedDeclaration, types: NestedTypes, collection: Ne
     const begins = $.const(readStart);
     const ends = $.const(readEnd);
     const into = $.const(place);
-    const collectionPath = $.let(path(East.value([...collection.place], KeysType)));
+    const idOf = $.const(asId);
+    const collectionPath = $.let(placed, RecordNestedPathType);
     return nodes(row).flattenToDict(($, node) => {
       const here = $.let(path(node.path));
       return held(node.node).flattenToDict(($, item, id) => {
         const value = $.let(into(item));
+        const filed = $.let(variant('id', idOf(id)), ItemType);
         return file(tile, begins(id, item), ends(id, item), East.str`${East.print(key)} ${words} ${East.print(id)}`, startOf, nextOf).toDict(
           (_$, filing) => East.value({
             collection: collectionPath, row: key, path: here, run: variant('items', null), level: filing.level, tile: filing.tile,
-            item: variant('id', id),
+            item: filed as never,
           }, entryKey),
           () => value,
         );
@@ -1021,12 +1225,15 @@ function itemEntries(decl: NestedDeclaration, types: NestedTypes, collection: Ne
  * the ancestor down naming the item.
  */
 function itemSubtreeEntries(decl: NestedDeclaration, types: NestedTypes, collection: NestedItems, nodesType: WalkFnType): NodesEntries {
+  const placed = placePath(collection.place);
+  const { KitType, ItemType } = types.shapes;
   const group = decl.groups[collection.group]!;
   const { keyType, rowType, entryKey, entries, tile } = types;
-  const holding = fieldOf(group.type, collection.field, DictType(StringType, collection.itemType));
-  const readStart = fieldReader(StringType, collection.itemType, { option: collection.start });
-  const readEnd = fieldReader(StringType, collection.itemType, { option: collection.end });
+  const holding = fieldOf(group.type, collection.field, DictType(collection.keyType, collection.itemType));
+  const readStart = fieldReader(collection.keyType, collection.itemType, { option: collection.start });
+  const readEnd = fieldReader(collection.keyType, collection.itemType, { option: collection.end });
   const place = placedItem(decl, collection, collection.itemType, types.entryValue);
+  const asId = idIn(decl, collection.idCase, collection.keyType);
   const words = whatWords(collection);
   return East.function([keyType, rowType, nodesType, KitType], entries, ($, key, row, nodes, kit) => {
     const startOf = $.const(kit.startOf);
@@ -1037,17 +1244,19 @@ function itemSubtreeEntries(decl: NestedDeclaration, types: NestedTypes, collect
     const begins = $.const(readStart);
     const ends = $.const(readEnd);
     const into = $.const(place);
-    const collectionPath = $.let(path(East.value([...collection.place], KeysType)));
+    const idOf = $.const(asId);
+    const collectionPath = $.let(placed, RecordNestedPathType);
     return nodes(row).flattenToDict(($, node) => held(node.node).flattenToDict(($, item, id) => {
       const value = $.let(into(item));
       const filings = $.let(file(tile, begins(id, item), ends(id, item), East.str`${East.print(key)} ${words} ${East.print(id)}`, startOf, nextOf));
+      const itemId = $.let(idOf(id));
       return East.Array.range(0n, node.path.size()).flattenToDict(($, depth) => {
         const ancestor = $.let(path(node.path.slice(0n, depth)));
-        const under = $.let(variant('under', { path: path(node.path.slice(depth, node.path.size())), id }));
+        const under = $.let(variant('under', { path: path(node.path.slice(depth, node.path.size())), id: itemId }), ItemType);
         return filings.toDict(
           (_$, filing) => East.value({
             collection: collectionPath, row: key, path: ancestor, run: variant('subtree', null), level: filing.level, tile: filing.tile,
-            item: under,
+            item: under as never,
           }, entryKey),
           () => value,
         );
@@ -1068,10 +1277,11 @@ function itemsFiled(decl: NestedDeclaration, types: NestedTypes, collection: Nes
  * shared out at all — an item with no start touching none.
  */
 function itemShares(decl: NestedDeclaration, types: NestedTypes, collection: NestedItems, nodesType: WalkFnType, level: RecordLevel): NodesShares {
+  const { NodeSharesType, KitType } = types.shapes;
   const group = decl.groups[collection.group]!;
-  const holding = fieldOf(group.type, collection.field, DictType(StringType, collection.itemType));
-  const readStart = fieldReader(StringType, collection.itemType, { option: collection.start });
-  const readEnd = fieldReader(StringType, collection.itemType, { option: collection.end });
+  const holding = fieldOf(group.type, collection.field, DictType(collection.keyType, collection.itemType));
+  const readStart = fieldReader(collection.keyType, collection.itemType, { option: collection.start });
+  const readEnd = fieldReader(collection.keyType, collection.itemType, { option: collection.end });
   const words = whatWords(collection);
   return East.function([types.keyType, types.rowType, WithinType, nodesType, KitType], ArrayType(NodeSharesType), ($, key, row, within, nodes, kit) => {
     const startOf = $.const(kit.startOf);
@@ -1099,11 +1309,13 @@ function itemShares(decl: NestedDeclaration, types: NestedTypes, collection: Nes
 
 /** Things people drag, totalled from their shares ({@link SharedEntries}): each node's items' count and milliseconds in each summary tile they touch. */
 function itemTotals(types: NestedTypes, collection: NestedItems, summary: RecordLevel): SharedEntries {
+  const placed = placePath(collection.place);
+  const { NodeSharesType, KitType } = types.shapes;
   const { keyType, entryKey, entryValue, entries } = types;
   return East.function([keyType, ArrayType(NodeSharesType), KitType], entries, ($, key, shared, kit) => {
     const totalled = $.const(kit.totalled);
     const path = $.const(kit.path);
-    const collectionPath = $.let(path(East.value([...collection.place], KeysType)));
+    const collectionPath = $.let(placed, RecordNestedPathType);
     return shared.flattenToDict(($, node) => {
       const here = $.let(path(node.path));
       return totalled(node.shares).toDict(
@@ -1121,11 +1333,13 @@ function itemTotals(types: NestedTypes, collection: NestedItems, summary: Record
  * from their shares ({@link SharedEntries}): in the run `subtreeTotals`.
  */
 function itemSubtreeTotals(types: NestedTypes, collection: NestedItems, summary: RecordLevel): SharedEntries {
+  const placed = placePath(collection.place);
+  const { NodeSharesType, KitType } = types.shapes;
   const { keyType, entryKey, entryValue, entries } = types;
   return East.function([keyType, ArrayType(NodeSharesType), KitType], entries, ($, key, shared, kit) => {
     const totalled = $.const(kit.totalled);
     const path = $.const(kit.path);
-    const collectionPath = $.let(path(East.value([...collection.place], KeysType)));
+    const collectionPath = $.let(placed, RecordNestedPathType);
     // Every node's shares, under each of its ancestors: the row, and each node on the way.
     const beneath = $.let(shared.flatMap((_$, node) => East.Array.range(0n, node.path.size()).flatMap((_$, depth) =>
       node.shares.map((_$, share) => ({ ancestor: path(node.path.slice(0n, depth)), share })))));
@@ -1148,6 +1362,7 @@ function itemsTotalled(types: NestedTypes, collection: NestedItems, summary: Rec
 
 /** `(K, V, Nodes, Kit) → Dict<IK, P>`: things people drag's totals at every summary tile — their shares, totalled. */
 function itemsTotalledAll(types: NestedTypes, nodesType: WalkFnType, shares: NodesShares, totals: SharedEntries): NodesEntries {
+  const { KitType } = types.shapes;
   return East.function([types.keyType, types.rowType, nodesType, KitType], types.entries, (_$, key, row, nodes, kit) =>
     totals(key, shares(key, row, variant('all', null), nodes, kit), kit));
 }
@@ -1158,6 +1373,7 @@ function itemsTotalledAll(types: NestedTypes, nodesType: WalkFnType, shares: Nod
  * and after.
  */
 function itemsMoved(types: NestedTypes, nodesType: WalkFnType, summary: RecordLevel, shares: NodesShares, totals: SharedEntries): NodesChanged {
+  const { KitType } = types.shapes;
   const { keyType, rowType, changed } = types;
   return East.function([keyType, rowType, rowType, rowType, rowType, nodesType, KitType], changed,
     ($, key, held, next, heldTouched, nextTouched, nodes, kit) => {
@@ -1178,9 +1394,10 @@ function itemsMoved(types: NestedTypes, nodesType: WalkFnType, summary: RecordLe
  * across a month's end counted in each.
  */
 function itemsSpan(types: NestedTypes, collection: NestedItems, nodesType: WalkFnType, shares: NodesShares): NodesSpan {
+  const placed = placePath(collection.place);
+  const { KitType } = types.shapes;
   return East.function([types.keyType, types.rowType, nodesType, KitType], SpanTotalsType, ($, key, row, nodes, kit) => {
-    const path = $.const(kit.path);
-    const at = $.let(path(East.value([...collection.place], KeysType)));
+    const at = $.let(placed, RecordNestedPathType);
     return shares(key, row, variant('all', null), nodes, kit).flatMap((_$, node) => node.shares).groupReduce(
       (_$, share) => ({ collection: at, tile: share.tile }),
       ($) => $.const(NO_SPAN_TOTALS, RecordSummaryTotalsType),
@@ -1191,11 +1408,13 @@ function itemsSpan(types: NestedTypes, collection: NestedItems, nodesType: WalkF
 
 /** A collection of values, filed: `(K, V, Nodes, Kit) → Dict<IK, P>`, each value at its instant, at the index's tile. */
 function valueEntries(decl: NestedDeclaration, types: NestedTypes, collection: NestedValues, nodesType: WalkFnType): NodesEntries {
+  const { KitType } = types.shapes;
   const group = decl.groups[collection.group]!;
   const { keyType, rowType, entryKey, entries, tile } = types;
   const holding = fieldOf(group.type, collection.field, DictType(DateTimeType, collection.valueType));
   const place = placedItem(decl, collection, collection.valueType, types.entryValue);
   const words = whatWords(collection);
+  const collectionPlace = placePath(collection.place);
   return East.function([keyType, rowType, nodesType, KitType], entries, ($, key, row, nodes, kit) => {
     const startOf = $.const(kit.startOf);
     const nextOf = $.const(kit.nextOf);
@@ -1203,7 +1422,7 @@ function valueEntries(decl: NestedDeclaration, types: NestedTypes, collection: N
     const path = $.const(kit.path);
     const held = $.const(holding);
     const into = $.const(place);
-    const collectionPath = $.let(path(East.value([...collection.place], KeysType)));
+    const collectionPath = $.let(collectionPlace, RecordNestedPathType);
     return nodes(row).flattenToDict(($, node) => {
       const here = $.let(path(node.path));
       return held(node.node).flattenToDict(($, value, at) => {
@@ -1226,7 +1445,8 @@ function valueEntries(decl: NestedDeclaration, types: NestedTypes, collection: N
  * Dict<tile, Totals>` — numbers' carry their values (`valueTotals`);
  * any other's count them (`instantTotals`).
  */
-function valuesTotalled(collection: NestedValues) {
+function valuesTotalled(types: NestedTypes, collection: NestedValues) {
+  const { KitType } = types.shapes;
   const valuesType = DictType(DateTimeType, collection.valueType);
   const totalsType = DictType(DateTimeType, RecordNestedTotalsType);
   if (collection.numeric === undefined) {
@@ -1251,17 +1471,19 @@ function valuesTotalled(collection: NestedValues) {
  * numbers, their sum, the least, the greatest and the latest.
  */
 function valueTotalsOf(decl: NestedDeclaration, types: NestedTypes, collection: NestedValues, nodesType: WalkFnType, summary: RecordLevel): WithinEntries {
+  const placed = placePath(collection.place);
+  const { KitType } = types.shapes;
   const group = decl.groups[collection.group]!;
   const { keyType, rowType, entryKey, entryValue, entries } = types;
   const holding = fieldOf(group.type, collection.field, DictType(DateTimeType, collection.valueType));
-  const totalsOf = valuesTotalled(collection);
+  const totalsOf = valuesTotalled(types, collection);
   return East.function([keyType, rowType, WithinType, nodesType, KitType], entries, ($, key, row, within, nodes, kit) => {
     const startOf = $.const(kit.startOf);
     const kept = $.const(kit.kept);
     const path = $.const(kit.path);
     const held = $.const(holding);
     const totalled = $.const(totalsOf);
-    const collectionPath = $.let(path(East.value([...collection.place], KeysType)));
+    const collectionPath = $.let(placed, RecordNestedPathType);
     return nodes(row).flattenToDict(($, node) => {
       const here = $.let(path(node.path));
       const values = $.let(held(node.node));
@@ -1281,6 +1503,7 @@ function valueTotalsOf(decl: NestedDeclaration, types: NestedTypes, collection: 
 
 /** `(K, V, Nodes, Kit) → Dict<IK, P>`: a collection of values' totals at every summary tile. */
 function valuesTotalledAll(types: NestedTypes, nodesType: WalkFnType, totals: WithinEntries): NodesEntries {
+  const { KitType } = types.shapes;
   return East.function([types.keyType, types.rowType, nodesType, KitType], types.entries, (_$, key, row, nodes, kit) =>
     totals(key, row, variant('all', null), nodes, kit));
 }
@@ -1291,6 +1514,7 @@ function valuesTotalledAll(types: NestedTypes, nodesType: WalkFnType, totals: Wi
  * and after.
  */
 function valuesMoved(decl: NestedDeclaration, types: NestedTypes, collection: NestedValues, nodesType: WalkFnType, summary: RecordLevel, totals: WithinEntries): NodesChanged {
+  const { KitType } = types.shapes;
   const group = decl.groups[collection.group]!;
   const { keyType, rowType, changed } = types;
   const holding = fieldOf(group.type, collection.field, DictType(DateTimeType, collection.valueType));
@@ -1315,10 +1539,11 @@ function valuesMoved(decl: NestedDeclaration, types: NestedTypes, collection: Ne
  * group's, holding its values as Floats.
  */
 function valuesGathered(decl: NestedDeclaration, types: NestedTypes, collection: NestedValues, nodesOf: readonly NodesOf[], numeric: 'Float' | 'Integer'): Gathered {
+  const { SubtotalNodeType } = types.shapes;
   const { rowType } = types;
   const group = decl.groups[collection.group]!;
   // The nodes of each group above the collection's, from the row down.
-  const above = chainTo(decl, collection.group).slice(0, -1).reduce<FunctionExpr<[EastType], ArrayType<typeof SubtotalNodeType>>>((before, at) => {
+  const above = chainTo(decl, collection.group).slice(0, -1).reduce<FunctionExpr<[EastType], ArrayType<SubtotalNodeType>>>((before, at) => {
     const nodes = nodesOf[at.index]!;
     const atGroup = BigInt(at.index);
     const none = noValues(at.type);
@@ -1333,7 +1558,7 @@ function valuesGathered(decl: NestedDeclaration, types: NestedTypes, collection:
   }, East.function([rowType], ArrayType(SubtotalNodeType), () => []));
   const own = valuesAsFloats(group.type, collection, numeric);
   const ownGroup = BigInt(group.index);
-  const nodesType = WalkType(rowType, group);
+  const nodesType = WalkType(types, group);
   return East.function([rowType, nodesType], ArrayType(SubtotalNodeType), ($, row, nodes) => {
     const earlier = $.const(above);
     const values = $.const(own);
@@ -1343,12 +1568,13 @@ function valuesGathered(decl: NestedDeclaration, types: NestedTypes, collection:
 
 /** A collection of values rolled up, every parent's subtotals at the tiles asked for ({@link SubtotalEntries}), composed bottom-up (`subtotalsOf`). */
 function valueSubtotals(types: NestedTypes, collection: NestedValues): SubtotalEntries {
+  const placed = placePath(collection.place);
+  const { SubtotalNodeType, KitType } = types.shapes;
   const { keyType, entryKey, entryValue, entries, levels } = types;
   return East.function([keyType, ArrayType(SubtotalNodeType), SubtotalTilesType, KitType], entries, ($, key, nodes, tiles, kit) => {
     const startOf = $.const(kit.startOf);
     const compose = $.const(kit.subtotals);
-    const path = $.const(kit.path);
-    const collectionPath = $.let(path(East.value([...collection.place], KeysType)));
+    const collectionPath = $.let(placed, RecordNestedPathType);
     const rollups = $.let([...collection.rollups], ArrayType(RecordRollupType));
     const tiers = $.let([...levels], ArrayType(RecordLevelType));
     return compose(nodes, rollups, tiers, tiles, startOf).toDict(
@@ -1363,6 +1589,7 @@ function valueSubtotals(types: NestedTypes, collection: NestedValues): SubtotalE
 
 /** `(K, V, Nodes, Kit) → Dict<IK, P>`: a collection of values rolled up, every parent's subtotals at every tile. */
 function valuesSubtotalledAll(types: NestedTypes, nodesType: WalkFnType, gathered: Gathered, subtotals: SubtotalEntries): NodesEntries {
+  const { KitType } = types.shapes;
   return East.function([types.keyType, types.rowType, nodesType, KitType], types.entries, (_$, key, row, nodes, kit) =>
     subtotals(key, gathered(row, nodes), variant('all', null), kit));
 }
@@ -1376,6 +1603,7 @@ function valuesSubtotalledAll(types: NestedTypes, nodesType: WalkFnType, gathere
  * one losing its last begins to at every tile.
  */
 function valuesSubtotalsMoved(decl: NestedDeclaration, types: NestedTypes, collection: NestedValues, nodesType: WalkFnType, gathered: Gathered, subtotals: SubtotalEntries): NodesChanged {
+  const { KitType } = types.shapes;
   const { keyType, rowType, changed, levels } = types;
   if (decl.groups[collection.group]!.through !== undefined) {
     return East.function([keyType, rowType, rowType, rowType, rowType, nodesType, KitType], changed,
@@ -1402,14 +1630,15 @@ function valuesSubtotalsMoved(decl: NestedDeclaration, types: NestedTypes, colle
 
 /** The months a row's values are in, each with how many are in it ({@link SpanPart}), a value covering no milliseconds. */
 function valuesSpan(decl: NestedDeclaration, types: NestedTypes, collection: NestedValues, nodesType: WalkFnType): NodesSpan {
+  const placed = placePath(collection.place);
+  const { KitType } = types.shapes;
   const group = decl.groups[collection.group]!;
   const holding = fieldOf(group.type, collection.field, DictType(DateTimeType, collection.valueType));
   const month = levelOf(SPAN_TILE);
   return East.function([types.keyType, types.rowType, nodesType, KitType], SpanTotalsType, ($, _key, row, nodes, kit) => {
     const startOf = $.const(kit.startOf);
-    const path = $.const(kit.path);
     const held = $.const(holding);
-    const at = $.let(path(East.value([...collection.place], KeysType)));
+    const at = $.let(placed, RecordNestedPathType);
     return nodes(row).flatMap((_$, node) => held(node.node).toArray((_$, _value, instant) => startOf(month, instant))).groupReduce(
       (_$, tile) => ({ collection: at, tile }),
       ($) => $.const(NO_SPAN_TOTALS, RecordSummaryTotalsType),
@@ -1431,7 +1660,7 @@ function valuesSpan(decl: NestedDeclaration, types: NestedTypes, collection: Nes
  * @returns Its entries
  */
 function collectionEntries(decl: NestedDeclaration, types: NestedTypes, collection: NestedCollection, nodesOf: readonly NodesOf[]): NodesEntries {
-  const nodesType = WalkType(types.rowType, decl.groups[collection.group]!);
+  const nodesType = WalkType(types, decl.groups[collection.group]!);
   const { summary } = types;
   if (collection.kind === 'items') {
     const filed = itemsFiled(decl, types, collection, nodesType);
@@ -1460,7 +1689,7 @@ function collectionEntries(decl: NestedDeclaration, types: NestedTypes, collecti
  * @returns Its part
  */
 function collectionPatched(decl: NestedDeclaration, types: NestedTypes, collection: NestedCollection, nodesOf: readonly NodesOf[]): NodesChanged {
-  const nodesType = WalkType(types.rowType, decl.groups[collection.group]!);
+  const nodesType = WalkType(types, decl.groups[collection.group]!);
   const { summary } = types;
   if (collection.kind === 'items') {
     const filed = itemsFiled(decl, types, collection, nodesType);
@@ -1478,7 +1707,7 @@ function collectionPatched(decl: NestedDeclaration, types: NestedTypes, collecti
 
 /** A collection's months of a row, for the index's span, given its group's nodes ({@link NodesSpan}). */
 function collectionSpan(decl: NestedDeclaration, types: NestedTypes, collection: NestedCollection): NodesSpan {
-  const nodesType = WalkType(types.rowType, decl.groups[collection.group]!);
+  const nodesType = WalkType(types, decl.groups[collection.group]!);
   if (collection.kind === 'items') return itemsSpan(types, collection, nodesType, itemShares(decl, types, collection, nodesType, levelOf(SPAN_TILE)));
   return valuesSpan(decl, types, collection, nodesType);
 }
@@ -1520,6 +1749,7 @@ function kitCalls(decl: NestedDeclaration, types: NestedTypes, collection: Neste
 
 /** `(K, V, Kit) → Dict<IK, P>`: parts' entries, one after another, each a function calling the parts before it. */
 function entriesUnion(types: NestedTypes, parts: readonly EntriesPart[]): EntriesPart {
+  const { KitType } = types.shapes;
   const [first, ...rest] = parts;
   if (first === undefined) return East.function([types.keyType, types.rowType, KitType], types.entries, () => new Map());
   return rest.reduce<EntriesPart>((before, part) => East.function([types.keyType, types.rowType, KitType], types.entries, ($, key, row, kit) => {
@@ -1531,6 +1761,7 @@ function entriesUnion(types: NestedTypes, parts: readonly EntriesPart[]): Entrie
 
 /** `(K, V, V, V, V, Kit) → { before, after }`: parts of a write's entries, one after another, each a function calling the parts before it. */
 function patchedUnion(types: NestedTypes, parts: readonly PatchedPart[]): PatchedPart {
+  const { KitType } = types.shapes;
   const { keyType, rowType, changed } = types;
   const [first, ...rest] = parts;
   if (first === undefined) {
@@ -1549,6 +1780,7 @@ function patchedUnion(types: NestedTypes, parts: readonly PatchedPart[]): Patche
 
 /** `(K, V, Kit) → Dict<{ collection, tile }, Totals>`: parts of the span, one after another, each a function calling the parts before it. */
 function spanUnion(types: NestedTypes, parts: readonly SpanPart[]): SpanPart {
+  const { KitType } = types.shapes;
   const [first, ...rest] = parts;
   if (first === undefined) return East.function([types.keyType, types.rowType, KitType], SpanTotalsType, () => new Map());
   return rest.reduce<SpanPart>((before, part) => East.function([types.keyType, types.rowType, KitType], SpanTotalsType, ($, key, row, kit) => {
@@ -1560,11 +1792,12 @@ function spanUnion(types: NestedTypes, parts: readonly SpanPart[]): SpanPart {
 
 /** The types a nested series index's programs are built over ({@link NestedTypes}). */
 function nestedTypes(decl: NestedDeclaration, keyType: EastType, rowType: EastType, tile: RecordTile, summary: RecordTile | undefined): NestedTypes {
-  const entryKey = NestedEntryKeyType(keyType);
+  const entryKey: EntryKeyType = NestedEntryKeyType(keyType, decl.idType);
   const entryValue = NestedEntryType(decl.places);
   const entries = DictType(entryKey, entryValue);
   return {
     keyType, rowType, entryKey, entryValue, entries,
+    shapes: shapesOf(decl, entryKey),
     changed: StructType({ before: entries, after: entries }),
     tile: levelOf(tile),
     summary: summary === undefined ? undefined : levelOf(summary),
@@ -1574,14 +1807,28 @@ function nestedTypes(decl: NestedDeclaration, keyType: EastType, rowType: EastTy
 
 /** A program's kit, holding each function its collections' parts call ({@link kitCalls}). */
 function kitOf(decl: NestedDeclaration, types: NestedTypes, program: 'entries' | 'byPatch' | 'span'): CallableFunctionExpr<[], KitType> {
-  return programKit(new Set(decl.collections.flatMap((collection) => kitCalls(decl, types, collection, program))));
+  return programKit(types.shapes, new Set(decl.collections.flatMap((collection) => kitCalls(decl, types, collection, program))));
+}
+
+/**
+ * The shapes of an index's ids ({@link shapesFor}), over the path and the item
+ * its entry key holds: the key's own types, so a path the programs make is
+ * the key's.
+ *
+ * @param decl - The checked declaration
+ * @param entryKey - The entry key, `IK`
+ * @returns The shapes
+ */
+function shapesOf(decl: NestedDeclaration, entryKey: EastType): NestedShapes {
+  const fields = (entryKey as EntryKeyType).fields;
+  return shapesFor(decl.idType, fields.path, fields.item);
 }
 
 /** A row's entries: `(K, V) → Dict<IK, P>`, each group's part's, over a kit binding once each function they call. */
 function entriesProgram(decl: NestedDeclaration, types: NestedTypes, nodesOf: readonly NodesOf[]): RowEntries {
   const kit = kitOf(decl, types, 'entries');
   const parts = entriesUnion(types, groupsHolding(decl).map((group) => groupEntries(types, nodesOf[group.index]!, nodesUnion(
-    types, WalkType(types.rowType, group), group.collections.map((collection) => collectionEntries(decl, types, collection, nodesOf))))));
+    types, WalkType(types, group), group.collections.map((collection) => collectionEntries(decl, types, collection, nodesOf))))));
   return East.function([types.keyType, types.rowType], types.entries, ($, key, row) => {
     const tools = $.const(kit());
     return parts(key, row, tools);
@@ -1619,7 +1866,7 @@ function nestedByPatch(decl: NestedDeclaration, types: NestedTypes, nodesOf: rea
   const walk = rowWalk(decl);
   const kit = kitOf(decl, types, 'byPatch');
   const parts = patchedUnion(types, groupsHolding(decl).map((group) => groupPatched(types, nodesOf[group.index]!, changedUnion(
-    types, WalkType(rowType, group), group.collections.map((collection) => collectionPatched(decl, types, collection, nodesOf))))));
+    types, WalkType(types, group), group.collections.map((collection) => collectionPatched(decl, types, collection, nodesOf))))));
   const patchType = patchTypeOf(rowType);
   const patchedType = NestedPatchedType(entries);
   return East.function([keyType, rowType, rowType, patchType], patchedType, ($, key, held, next, patch) => {
@@ -1664,7 +1911,7 @@ export function nestedEntries(
   readonly entryValue: EastType;
 } {
   const types = nestedTypes(decl, keyType, rowType, tile, summary);
-  const nodesOf = groupNodes(decl, rowType);
+  const nodesOf = groupNodes(decl, types.shapes, rowType);
   return {
     entries: entriesProgram(decl, types, nodesOf),
     byPatch: nestedByPatch(decl, types, nodesOf),
@@ -1693,10 +1940,10 @@ export function nestedEntries(
  */
 export function nestedSpan(decl: NestedDeclaration, keyType: EastType, rowType: EastType, tile: RecordTile): FunctionExpr<[EastType, EastType], SpanTotalsType> {
   const types = nestedTypes(decl, keyType, rowType, tile, undefined);
-  const nodesOf = groupNodes(decl, rowType);
+  const nodesOf = groupNodes(decl, types.shapes, rowType);
   const kit = kitOf(decl, types, 'span');
   const parts = spanUnion(types, groupsHolding(decl).map((group) => groupSpan(types, nodesOf[group.index]!, spanNodesUnion(
-    types, WalkType(rowType, group), group.collections.map((collection) => collectionSpan(decl, types, collection))))));
+    types, WalkType(types, group), group.collections.map((collection) => collectionSpan(decl, types, collection))))));
   return East.function([keyType, rowType], SpanTotalsType, ($, key, row) => {
     const tools = $.const(kit());
     return parts(key, row, tools);
@@ -1739,9 +1986,6 @@ function nestedSpanDefinition(
   };
 }
 
-/** Where a node's items are filed: its collection's place and its path, as an entry's key holds them. */
-const NodePlaceType = StructType({ collection: RecordNestedPathType, path: RecordNestedPathType });
-
 /**
  * An item out of its entry's value: `(P) → I`, from the outside in — the
  * `item` case, then each child rows' field from the row down, then the
@@ -1773,24 +2017,33 @@ export function itemOf(decl: NestedDeclaration, collection: NestedCollection, it
  * filed in several tiles once.
  *
  * @param decl - The declaration
+ * @param shapes - The index's shapes
  * @param collection - The collection
  * @param entry - An entry's type, `{ ik, value }`
  * @param entryValue - The entry value, `P`
  * @returns The filling
  */
-function collectionFill(decl: NestedDeclaration, collection: NestedCollection, entry: EastType, entryValue: EastType): FunctionExpr<[typeof KeysType, EastType], EastType> {
+function collectionFill(
+  decl: NestedDeclaration, shapes: NestedShapes, collection: NestedCollection, entry: EastType, entryValue: EastType,
+): FunctionExpr<[KeysType, EastType], EastType> {
+  const placed = placePath(collection.place);
+  const { KeysType, NodePlaceType, ItemType } = shapes;
   const byPlace = DictType(NodePlaceType, ArrayType(entry));
   const itemType: EastType = collection.kind === 'items' ? collection.itemType : collection.valueType;
   const filled = filledType(collection);
   const item = itemOf(decl, collection, itemType, entryValue);
+  // An item by its id, out of its collection's case of the index's ids, in the collection's own key type (#1540).
   const keyOf = collection.kind === 'items'
-    ? East.function([entry], StringType, (_$, filed) => East.field(East.field(filed, 'ik'), 'item', RecordNestedItemType).unwrap('id'))
-    : East.function([entry], DateTimeType, (_$, filed) => East.field(East.field(filed, 'ik'), 'item', RecordNestedItemType).unwrap('at'));
+    ? ((unwrap) => East.function([entry], collection.keyType, ($, filed) => {
+      const key = $.const(unwrap);
+      return key(East.field(East.field(filed, 'ik'), 'item', ItemType).unwrap('id'));
+    }))(idOut(decl, collection.idCase, collection.keyType))
+    : East.function([entry], DateTimeType, (_$, filed) => East.field(East.field(filed, 'ik'), 'item', ItemType).unwrap('at'));
   return East.function([KeysType, byPlace], filled, ($, keys, entries) => {
-    const path = $.const(NESTED_FNS.pathOf);
+    const path = $.const(shapes.fns.pathOf);
     const itemFrom = $.const(item);
     const key = $.const(keyOf);
-    const here = $.let({ collection: path(East.value([...collection.place], KeysType)), path: path(keys) }, NodePlaceType);
+    const here = $.let({ collection: placed, path: path(keys) }, NodePlaceType);
     return entries.get(here, () => East.value([], ArrayType(entry))).toDict(
       (_$, filed) => key(filed),
       (_$, filed) => itemFrom(East.field(filed, 'value', entryValue)),
@@ -1799,9 +2052,9 @@ function collectionFill(decl: NestedDeclaration, collection: NestedCollection, e
   });
 }
 
-/** A collection's type: its items by their ids, or its values by their instants. */
-function filledType(collection: NestedCollection): EastType {
-  return collection.kind === 'items' ? DictType(StringType, collection.itemType) : DictType(DateTimeType, collection.valueType);
+/** A collection's type: its items by their ids, in its own key type, or its values by their instants. */
+function filledType(collection: NestedCollection): DictType<EastType, EastType> {
+  return collection.kind === 'items' ? DictType(collection.keyType, collection.itemType) : DictType(DateTimeType, collection.valueType);
 }
 
 /**
@@ -1810,20 +2063,22 @@ function filledType(collection: NestedCollection): EastType {
  * holding it, its path the parent's then the keys down to it, its item its id;
  * a total or a subtotal none.
  *
+ * @param shapes - The index's shapes
  * @param entry - An entry's type, `{ ik, value }`
  * @returns The placing
  */
-function fillingEntry(entry: StructType<{ ik: EastType; value: EastType }>) {
+function fillingEntry(shapes: NestedShapes, entry: StructType<{ ik: EastType; value: EastType }>) {
+  const { PathType, ItemType } = shapes;
   return East.function([entry], OptionType(entry), ($, filed) => {
-    const keys = $.const(NESTED_FNS.keysOf);
+    const keys = $.const(shapes.fns.keysOf);
     const ik = $.let(filed.ik);
     return East.field(ik, 'run', RecordNestedRunType).match({
       items: () => some(filed),
       subtree: ($2) => {
-        const under = $2.let(East.field(ik, 'item', RecordNestedItemType).unwrap('under'));
-        const path = $2.let(keys(East.field(ik, 'path', RecordNestedPathType)).reverse().reduce(
-          (_$, rest, key) => variant('step', { key, rest }), under.path));
-        const item = $2.let(variant('id', under.id), RecordNestedItemType);
+        const under = $2.let(East.field(ik, 'item', ItemType).unwrap('under'));
+        const path = $2.let(keys(East.field(ik, 'path', PathType)).reverse().reduce(
+          (_$, rest, key) => variant('step', { key, rest }) as never, under.path));
+        const item = $2.let(variant('id', under.id), ItemType);
         return some({ ik: East.withField(East.withField(ik, 'path', path), 'item', item), value: filed.value });
       },
     }, () => none);
@@ -1849,24 +2104,27 @@ function fillingEntry(entry: StructType<{ ik: EastType; value: EastType }>) {
  * @returns The filling
  */
 export function nestedFill(decl: NestedDeclaration, keyType: EastType, rowType: EastType, entryKey: EastType, entryValue: EastType) {
+  const shapes = shapesOf(decl, entryKey);
+  const { KeysType, NodePlaceType, PathType } = shapes;
   const entry = StructType({ ik: entryKey, value: entryValue });
   const byPlace = DictType(NodePlaceType, ArrayType(entry));
-  // Each group's node filled, `(N, keys, byPlace) → N`, and its rows filled under a node at keys, `(Dict<String, N>, keys, byPlace) → Dict`:
+  // Each group's node filled, `(N, keys, byPlace) → N`, and its rows filled under a node at keys, `(Dict<K, N>, keys, byPlace) → Dict`:
   // its child groups' first.
-  const fillOf: FunctionExpr<[EastType, typeof KeysType, typeof byPlace], EastType>[] = [];
-  const rowsFillOf: FunctionExpr<[EastType, typeof KeysType, typeof byPlace], DictType<StringType, EastType>>[] = [];
+  const fillOf: FunctionExpr<[EastType, KeysType, typeof byPlace], EastType>[] = [];
+  const rowsFillOf: FunctionExpr<[EastType, KeysType, typeof byPlace], DictType<EastType, EastType>>[] = [];
   for (const group of [...decl.groups].reverse()) {
-    const fields: { readonly field: string; readonly fill: FunctionExpr<[EastType, typeof KeysType, typeof byPlace], EastType> }[] = [];
+    const fields: { readonly field: string; readonly fill: FunctionExpr<[EastType, KeysType, typeof byPlace], EastType> }[] = [];
     for (const collection of group.collections) {
-      const filled = collectionFill(decl, collection, entry, entryValue);
-      const type = filledType(collection);
+      const filled = collectionFill(decl, shapes, collection, entry, entryValue);
+      const type = filledType(collection) as EastType;
       fields.push({ field: collection.field, fill: East.function([group.type, KeysType, byPlace], type, ($, _node, keys, entries) => {
         const fill = $.const(filled);
         return fill(keys, entries);
       }) });
     }
     for (const child of group.rows) {
-      const rowsType = DictType(StringType, decl.groups[child.group]!.type);
+      const childGroup = decl.groups[child.group]!;
+      const rowsType = DictType(keyedOf(childGroup).type, childGroup.type);
       const rowsOf = fieldOf(group.type, child.field, rowsType);
       const rowsFill = rowsFillOf[child.group]!;
       fields.push({ field: child.field, fill: East.function([group.type, KeysType, byPlace], rowsType, ($, node, keys, entries) => {
@@ -1875,7 +2133,7 @@ export function nestedFill(decl: NestedDeclaration, keyType: EastType, rowType: 
         return fill(rows(node), keys, entries);
       }) });
     }
-    const own = fields.reduce<FunctionExpr<[EastType, typeof KeysType, typeof byPlace], EastType>>(
+    const own = fields.reduce<FunctionExpr<[EastType, KeysType, typeof byPlace], EastType>>(
       (before, { field, fill }) => East.function([group.type, KeysType, byPlace], group.type, ($, node, keys, entries) => {
         const earlier = $.const(before);
         const value = $.const(fill);
@@ -1885,37 +2143,43 @@ export function nestedFill(decl: NestedDeclaration, keyType: EastType, rowType: 
       East.function([group.type, KeysType, byPlace], group.type, (_$, node) => node),
     );
     fillOf[group.index] = own;
-    const rowsType = DictType(StringType, group.type);
+    // The row's own group is the record's row, held by no node: no rows of it are filled.
+    if (group.keyed === undefined) continue;
+    const rowsType = DictType(group.keyed.type, group.type);
+    const idOf = idIn(decl, group.keyed.idCase, group.keyed.type);
     if (group.through === undefined) {
       rowsFillOf[group.index] = East.function([rowsType, KeysType, byPlace], rowsType, ($, rows, keys, entries) => {
         const fill = $.const(own);
-        return rows.map((_$, node, key) => fill(node, keys.concat([key]), entries));
+        const id = $.const(idOf);
+        return rows.map((_$, node, key) => fill(node, keys.concat([id(key)]), entries));
       });
       continue;
     }
     // Beside recursive(): every row beneath, flattened, each filled at its keys, then rebuilt bottom-up, holding its own rebuilt rows.
-    const keyed = StructType({ key: StringType, node: group.type });
+    const keyed = StructType({ key: group.keyed.type, node: group.type });
     const deeper = fieldOf(group.type, group.through, rowsType);
     const holding = withField(group.type, group.through, rowsType);
+    const keysAbove = keysAboveOf(ArrayType(group.keyed.type));
     rowsFillOf[group.index] = East.function([rowsType, KeysType, byPlace], rowsType, ($, rows, keys, entries) => {
       const beneath = $.const(deeper);
       const fill = $.const(own);
       const hold = $.const(holding);
-      const above = $.const(NESTED_FNS.keysAbove);
+      const id = $.const(idOf);
+      const above = $.const(keysAbove);
       const roots = $.let(rows.flattenTree((_$, node) => beneath(node)).toTree(
         keyed,
         (_$, at) => at.path,
         (_$, at) => above(at.path),
         (_$, at, _i, children) => ({
           key: at.path.get(at.path.size().subtract(1n)),
-          node: hold(fill(at.node, keys.concat(at.path), entries), children.toDict((_$, child) => child.key, (_$, child) => child.node)),
+          node: hold(fill(at.node, keys.concat(at.path.map((_$, key) => id(key))), entries), children.toDict((_$, child) => child.key, (_$, child) => child.node)),
         }),
       ));
       return roots.toDict((_$, root) => root.key, (_$, root) => root.node);
     });
   }
   const rowFill = fillOf[0]!;
-  const filling = fillingEntry(entry);
+  const filling = fillingEntry(shapes, entry);
   return East.function([keyType, rowType, ArrayType(entry)], rowType, ($, _key, row, entries) => {
     const fill = $.const(rowFill);
     const place = $.const(filling);
@@ -1923,7 +2187,7 @@ export function nestedFill(decl: NestedDeclaration, keyType: EastType, rowType: 
       .filterMap((_$, filed) => place(filed))
       .groupToArrays(($2, filed) => {
         const ik = $2.let(East.field(filed, 'ik'));
-        const place = $2.let({ collection: East.field(ik, 'collection', RecordNestedPathType), path: East.field(ik, 'path', RecordNestedPathType) }, NodePlaceType);
+        const place = $2.let({ collection: East.field(ik, 'collection', RecordNestedPathType), path: East.field(ik, 'path', PathType) }, NodePlaceType);
         return place;
       }));
     return fill(row, East.value([], KeysType), own);
@@ -1944,14 +2208,15 @@ export function nestedFill(decl: NestedDeclaration, keyType: EastType, rowType: 
 export function nestedLean(decl: NestedDeclaration, keyType: EastType, rowType: EastType): FunctionExpr<[EastType, EastType], EastType> {
   // Each group's own lean form, its child groups' first: their collections emptied, their child rows' lean.
   const leanOf: FunctionExpr<[EastType], EastType>[] = [];
-  const rowsLeanOf: FunctionExpr<[EastType], DictType<StringType, EastType>>[] = [];
+  const rowsLeanOf: FunctionExpr<[EastType], DictType<EastType, EastType>>[] = [];
   for (const group of [...decl.groups].reverse()) {
     const fields: Record<string, FunctionExpr<[EastType], EastType>> = {};
     const struct = group.type.type === 'Recursive' ? group.type.node : group.type;
     if (struct.type !== 'Struct') throw new Error(`a nested series index's node is a Struct, not ${struct.type}`);
     for (const collection of group.collections) fields[collection.field] = emptied(group.type, struct.fields[collection.field] as DictType<EastType, EastType>);
     for (const child of group.rows) {
-      const rowsType = DictType(StringType, decl.groups[child.group]!.type);
+      const childGroup = decl.groups[child.group]!;
+      const rowsType = DictType(keyedOf(childGroup).type, childGroup.type);
       const rowsOf = fieldOf(group.type, child.field, rowsType);
       const leanRows = rowsLeanOf[child.group]!;
       fields[child.field] = East.function([group.type], rowsType, ($, node) => {
@@ -1962,7 +2227,9 @@ export function nestedLean(decl: NestedDeclaration, keyType: EastType, rowType: 
     }
     const own = rebuiltNode(group.type, fields);
     leanOf[group.index] = own;
-    const rowsType = DictType(StringType, group.type);
+    // The row's own group is the record's row, held by no node: no rows of it are made lean.
+    if (group.keyed === undefined) continue;
+    const rowsType = DictType(group.keyed.type, group.type);
     if (group.through === undefined) {
       rowsLeanOf[group.index] = East.function([rowsType], rowsType, ($, rows) => {
         const lean = $.const(own);
@@ -1971,14 +2238,15 @@ export function nestedLean(decl: NestedDeclaration, keyType: EastType, rowType: 
       continue;
     }
     // Beside recursive(): every row beneath, flattened, then rebuilt bottom-up, each lean and holding its own rebuilt rows.
-    const keyed = StructType({ key: StringType, node: group.type });
+    const keyed = StructType({ key: group.keyed.type, node: group.type });
     const deeper = fieldOf(group.type, group.through, rowsType);
     const holding = withField(group.type, group.through, rowsType);
+    const keysAbove = keysAboveOf(ArrayType(group.keyed.type));
     rowsLeanOf[group.index] = East.function([rowsType], rowsType, ($, rows) => {
       const beneath = $.const(deeper);
       const lean = $.const(own);
       const hold = $.const(holding);
-      const above = $.const(NESTED_FNS.keysAbove);
+      const above = $.const(keysAbove);
       const roots = $.let(rows.flattenTree((_$, node) => beneath(node)).toTree(
         keyed,
         (_$, entry) => entry.path,
@@ -2069,35 +2337,11 @@ export function nestedDefinition(
 /**
  * A nested series index's shared East functions, each built the first time it
  * is read, with no location captured ({@link lazyBuilds}, #1466): importing
- * the SDK builds none of them.
+ * the SDK builds none of them. The functions over an index's ids — a path of
+ * its keys, and a parent's subtotals by path — are the index's own
+ * ({@link shapesFor}).
  */
 export const NESTED_FNS = lazyBuilds({
-  /** `(keys) → Path`: a node's keys as a key holds them (e3-types' `RecordNestedPathType`), folded from the last. */
-  get pathOf() {
-    return East.function([KeysType], RecordNestedPathType, ($, keys) => {
-      const end = $.const(variant('end', null), RecordNestedPathType);
-      return keys.reverse().reduce((_$, rest, key) => variant('step', { key, rest }), end);
-    });
-  },
-  /** `(path) → keys`: a node's keys out of a key's path, from the row down — the inverse of `pathOf`. */
-  get keysOf() {
-    return East.function([RecordNestedPathType], KeysType, ($, path) => {
-      const keys = $.let([], KeysType);
-      const at = $.let(path);
-      $.while(true, ($2, label) => {
-        $2.match(at.unwrap(), {
-          step: ($3, step) => {
-            $3(keys.pushLast(step.key));
-            $3.assign(at, step.rest);
-          },
-          end: ($3) => {
-            $3.break(label);
-          },
-        });
-      });
-      return keys;
-    });
-  },
   /** `(shares) → Dict<tile, Totals>`: items' totals in each summary tile they touch — how many, and the milliseconds they cover. */
   get sharedTotals() {
     return East.function([ArrayType(TileShareType)], DictType(DateTimeType, RecordNestedTotalsType), (_$, shares) =>
@@ -2152,11 +2396,6 @@ export const NESTED_FNS = lazyBuilds({
   /** `(Dict<DateTime, Float>) → Dict<DateTime, Float>`: Float values as their totals and subtotals take them. */
   get floatsAsFloats() {
     return East.function([DictType(DateTimeType, FloatType)], DictType(DateTimeType, FloatType), (_$, values) => values);
-  },
-  /** `(keys) → Option<keys>`: the keys of the node above, within a walk of a Dict's rows; none for one of its own. */
-  get keysAbove() {
-    return East.function([KeysType], OptionType(KeysType), (_$, keys) =>
-      East.greater(keys.size(), 1n).ifElse(() => some(keys.slice(0n, keys.size().subtract(1n))), () => none));
   },
   /** `(tiles, level, nextOf) → Within`: a write's tiles of a level, and their span. */
   get tilesWithin() {
@@ -2282,14 +2521,14 @@ export const NESTED_FNS = lazyBuilds({
     );
   },
   /**
-   * `(children) → Dict<DrawKey, Float>`: what a parent draws, by each rollup, at
+   * `(children's draws) → Dict<DrawKey, Float>`: what a parent draws, by each rollup, at
    * each level, in each tile one of its children draws in: what they draw there,
    * in key order, by the rollup's aggregate — their sum, mean, least or
    * greatest; under a count, their counts' sum.
    */
   get childDraws() {
-    return East.function([ArrayType(ComposedType)], DictType(DrawKeyType, FloatType), ($, children) => {
-      const drawn = $.let(children.flatMap((_$, child) => child.draws.toArray((_$, value, key) => ({ key, value }))));
+    return East.function([ArrayType(DictType(DrawKeyType, FloatType))], DictType(DrawKeyType, FloatType), ($, children) => {
+      const drawn = $.let(children.flatMap((_$, draws) => draws.toArray((_$, value, key) => ({ key, value }))));
       const gathered = $.let(drawn.groupReduce(
         (_$, draw) => draw.key,
         ($) => $.const({ sum: 0.0, n: 0n, min: 0.0, max: 0.0 }, GatheredType),
@@ -2308,55 +2547,5 @@ export const NESTED_FNS = lazyBuilds({
         count: () => all.sum,
       }));
     });
-  },
-  /**
-   * `(node, children, rollups, levels, tiles, startOf) → Composed`: a node's
-   * result, at the tiles asked for. One holding values of its own draws them,
-   * and keeps no subtotal; one holding none draws its children's, and keeps what
-   * it draws, where it draws, as its subtotals. Either way, it carries every
-   * subtotal beneath it on to its parent.
-   */
-  get composed() {
-    return East.function(
-      [SubtotalNodeType, ArrayType(ComposedType), ArrayType(RecordRollupType), ArrayType(RecordLevelType), SubtotalTilesType, TileStepFnType],
-      ComposedType,
-      ($, node, children, rollups, levels, tiles, startOf) => {
-        const own = $.const(NESTED_FNS.ownDraws);
-        const gathered = $.const(NESTED_FNS.childDraws);
-        const path = $.const(NESTED_FNS.pathOf);
-        const beneath = $.let(children.flatMap((_$, child) => child.subtotals.toArray((_$, value, key) => ({ key, value })))
-          .toDict((_$, subtotal) => subtotal.key, (_$, subtotal) => subtotal.value));
-        $.if(East.greater(node.own.size(), 0n), ($) => {
-          $.return({ draws: own(node.own, rollups, levels, tiles, startOf), subtotals: beneath });
-        });
-        const draws = $.let(gathered(children));
-        const here = $.let(path(node.key.path));
-        $(beneath.unionInPlace(draws.toDict(
-          (_$, _value, key) => ({ path: here, rollup: key.rollup, level: key.level, tile: key.tile }),
-          (_$, value) => value,
-        )));
-        return { draws, subtotals: beneath };
-      },
-    );
-  },
-  /**
-   * `(nodes, rollups, levels, tiles, startOf) → Dict<SubtotalKey, Float>`:
-   * every parent's subtotals of a collection of values at the tiles asked for,
-   * composed bottom-up by `toTree` over the nodes from the row down to the
-   * collection, each node's result carried to its parent. A tile no
-   * descendant's value touches has none.
-   */
-  get subtotalsOf() {
-    return East.function(
-      [ArrayType(SubtotalNodeType), ArrayType(RecordRollupType), ArrayType(RecordLevelType), SubtotalTilesType, TileStepFnType],
-      DictType(SubtotalKeyType, FloatType),
-      ($, nodes, rollups, levels, tiles, startOf) => {
-        const compose = $.const(NESTED_FNS.composed);
-        const roots = $.let(nodes.toTree(ComposedType, (_$, node) => node.key, (_$, node) => node.parent,
-          (_$, node, _i, children) => compose(node, children, rollups, levels, tiles, startOf)));
-        return roots.flatMap((_$, root) => root.subtotals.toArray((_$, value, key) => ({ key, value })))
-          .toDict((_$, subtotal) => subtotal.key, (_$, subtotal) => subtotal.value);
-      },
-    );
   },
 });

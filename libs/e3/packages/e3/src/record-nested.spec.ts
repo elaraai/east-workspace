@@ -19,11 +19,11 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import {
-  ArrayType, DateTimeType, DictType, East, FloatType, IRType, IntegerType, OptionType, RecursiveType, SortedMap, StringType,
+  ArrayType, DateTimeType, DictType, East, FloatType, IRType, IntegerType, NullType, OptionType, RecursiveType, SortedMap, StringType,
   StructType, VariantType, compareFor, encodeBeast2For, encodeBeast2PagedFor, isTypeEqual, printFor, printType,
   variant, walkIR, type EastType, type IR, type ValueTypeOf,
 } from '@elaraai/east';
-import { NestedEntryKeyType, NestedEntryType, RecordNestedDeclType } from '@elaraai/e3-types';
+import { NestedEntryKeyType, NestedEntryType, NestedIdType, RecordNestedDeclType } from '@elaraai/e3-types';
 import { record } from './record.js';
 import type { NestedSeriesIndexSpec } from './record-index.js';
 import type { IndexBuilder } from './record-builders.js';
@@ -98,6 +98,28 @@ const halls = () => record('halls', Halls, {
   mutations: (mutation) => ({ patch: mutation.patch() }),
 });
 const hallsInTime = (rec: ReturnType<typeof halls>) => rec.indexes.halls_in_time;
+
+/** A role in a crew (#1540): what a crew's planned hours are keyed by. */
+const Role = VariantType({ assistant: NullType, operator: NullType });
+/** A role's planned hours, a value a week, and the shifts booked for it, by a number. */
+const Shift = StructType({ at: DateTimeType, who: StringType });
+const RoleHours = StructType({ hours: DictType(DateTimeType, FloatType), shifts: DictType(IntegerType, Shift) });
+/** A crew and its hours by role. */
+const Crew = StructType({ name: StringType, hours: DictType(Role, RoleHours) });
+const Crews = DictType(StringType, Crew);
+/** The crews: each crew's hours by role, a week at a time, the roles summed a crew. */
+const crews = () => record('crews', Crews, {
+  initial: new Map(),
+  indexes: (index) => ({
+    crews_in_time: index.nested({
+      collections: { hours: index.nested.rows({ hours: index.nested.values({ rollup: 'sum' }), shifts: index.nested.items({ at: 'at' }) }) },
+      tile: 'week',
+      summary: 'month',
+    }),
+  }),
+  mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+const crewsInTime = (rec: ReturnType<typeof crews>) => rec.indexes.crews_in_time;
 
 /** An assembly's parts, each holding its jobs and more parts, to any depth; a part's bands are its subtree's jobs. */
 const Part = RecursiveType((self) => StructType({ name: StringType, jobs: DictType(StringType, Job), parts: DictType(StringType, self) }));
@@ -197,7 +219,9 @@ function state<T extends EastType>(type: T, rows: Readonly<Record<string, string
 describe('index.nested — its declaration', () => {
   it('types its entries from the record and the declaration, and carries the declaration, its tile and its summary', () => {
     const def = machinesInTime(machines());
-    assert.ok(isTypeEqual(def.keyType, NestedEntryKeyType(StringType)), `its key is ${printType(def.keyType)}`);
+    // Its ids: a case for each collection keyed by an id, by its place, holding its Dict's key type (#1540).
+    const ids = NestedIdType({ alarms: StringType, jobs: StringType, stops: StringType });
+    assert.ok(isTypeEqual(def.keyType, NestedEntryKeyType(StringType, ids)), `its key is ${printType(def.keyType)}`);
     const places = VariantType({ alarms: Alarm, jobs: Job, load: FloatType, output: IntegerType, stops: Stop });
     assert.ok(isTypeEqual(def.valueType, NestedEntryType(places)), `its value is ${printType(def.valueType)}`);
     assert.deepEqual(def.on, []);
@@ -259,7 +283,7 @@ describe('index.nested — its declaration', () => {
 
     it('a field that is not a Dict, or not one of the row\'s', () => {
       refused({ collections: { status: jobs }, tile: 'week' },
-        'collections.status is \'status\', of type .String — a collection is a Dict: Dict<String, Item> keyed by an id, or Dict<DateTime, V> keyed by its instant');
+        'collections.status is \'status\', of type .String — a collection is a Dict: Dict<K, Item> keyed by an id, or Dict<DateTime, V> keyed by its instant');
       refused({ collections: { job: jobs }, tile: 'week' }, 'collections names unknown row field \'job\'');
     });
 
@@ -267,7 +291,7 @@ describe('index.nested — its declaration', () => {
       const Bay = StructType({ name: StringType, loads: DictType(StringType, FloatType) });
       const bays = record('bays', DictType(StringType, Bay), { initial: new Map() });
       assert.throws(() => series('halls_in_time', bays, { collections: { loads: series.rows({}) } as never, tile: 'day' }),
-        /^Error: e3\.record 'bays': index\.nested 'halls_in_time' collections.loads is rows\(…\), and 'loads' holds \.Float — items and child rows are a Dict<String, Struct>$/);
+        /^Error: e3\.record 'bays': index\.nested 'halls_in_time' collections.loads is rows\(…\), and 'loads' holds \.Float — items and child rows are a Dict<K, Struct> keyed by an id$/);
     });
 
     it('a time of another type', () => {
@@ -308,7 +332,7 @@ describe('index.nested — a row\'s entries', () => {
     const row = parsed(Machine, machine({ 'j-0042': job('2026-10-02T06:00:00.000', '2026-10-06T06:00:00.000') }, { '2026-10-05T00:00:00.000': 0.82 }));
     const all = entries(def, 'M-7', row);
     assertEast(DictType(def.keyType, def.valueType), all, parsed(DictType(def.keyType, def.valueType), `{
-      (collection=.step (key="jobs", rest=.end), row="M-7", path=.end, run=.items, level=.week, tile=2026-09-28T00:00:00.000, item=.id "j-0042"):
+      (collection=.step (key="jobs", rest=.end), row="M-7", path=.end, run=.items, level=.week, tile=2026-09-28T00:00:00.000, item=.id .jobs "j-0042"):
         .item .jobs ${job('2026-10-02T06:00:00.000', '2026-10-06T06:00:00.000')},
       (collection=.step (key="jobs", rest=.end), row="M-7", path=.end, run=.totals, level=.month, tile=2026-10-01T00:00:00.000, item=.none):
         .totals (count=1, ms=345600000, values=.none),
@@ -335,7 +359,7 @@ describe('index.nested — a row\'s entries', () => {
       assert.ok(level === 'week' || level === 'month', `filed at ${level}`);
     }
     assertEntry(def, all,
-      '(collection=.step (key="alarms", rest=.end), row="M-7", path=.end, run=.items, level=.week, tile=2026-10-05T00:00:00.000, item=.id "a-1")',
+      '(collection=.step (key="alarms", rest=.end), row="M-7", path=.end, run=.items, level=.week, tile=2026-10-05T00:00:00.000, item=.id .alarms "a-1")',
       '.item .alarms (code="E1", severity="high", at=2026-10-07T09:30:00.000)');
     assertEntry(def, all,
       '(collection=.step (key="alarms", rest=.end), row="M-7", path=.end, run=.totals, level=.month, tile=2026-10-01T00:00:00.000, item=.none)',
@@ -360,7 +384,7 @@ describe('index.nested — a row\'s entries', () => {
     })`);
     const all = entries(def, 'H1', row);
     assertEntry(def, all,
-      '(collection=.step (key="members", rest=.step (key="load", rest=.end)), row="H1", path=.step (key="m-3", rest=.end), run=.items, level=.day, ' +
+      '(collection=.step (key="members", rest=.step (key="load", rest=.end)), row="H1", path=.step (key=.members "m-3", rest=.end), run=.items, level=.day, ' +
       'tile=2026-10-05T00:00:00.000, item=.at 2026-10-05T00:00:00.000)',
       '.item .members .load 0.82');
     // Ada's 0.82 and Bo's mean of 0.5 and 0.7, 0.6, averaged.
@@ -376,15 +400,15 @@ describe('index.nested — a row\'s entries', () => {
     const chain = ['p4', 'p3', 'p2', 'p1'].reduce((inner, name, i) =>
       `(name="${name}", jobs={:}, parts={"${['p5', 'p4', 'p3', 'p2'][i]}":${inner}})`, deepest);
     const all = entries(def, 'A-1', parsed(Assembly, `(name="Assembly 1", parts={"p1":${chain}})`));
-    const pathOf = (names: readonly string[]) => names.reduceRight((rest, key) => `.step (key="${key}", rest=${rest})`, '.end');
+    const pathOf = (names: readonly string[]) => names.reduceRight((rest, key) => `.step (key=.parts "${key}", rest=${rest})`, '.end');
     const names = ['p1', 'p2', 'p3', 'p4', 'p5'];
     const value = `.item .parts .jobs ${job('2026-10-02T00:00:00.000', '2026-10-03T00:00:00.000')}`;
     const where = '(collection=.step (key="parts", rest=.step (key="jobs", rest=.end)), row="A-1"';
-    assertEntry(def, all, `${where}, path=${pathOf(names)}, run=.items, level=.week, tile=2026-09-28T00:00:00.000, item=.id "j-9")`, value);
+    assertEntry(def, all, `${where}, path=${pathOf(names)}, run=.items, level=.week, tile=2026-09-28T00:00:00.000, item=.id .\`parts.jobs\` "j-9")`, value);
     for (let depth = 0; depth < names.length; depth++) {
       assertEntry(def, all,
         `${where}, path=${pathOf(names.slice(0, depth))}, run=.subtree, level=.week, tile=2026-09-28T00:00:00.000, ` +
-        `item=.under (path=${pathOf(names.slice(depth))}, id="j-9"))`, value);
+        `item=.under (path=${pathOf(names.slice(depth))}, id=.\`parts.jobs\` "j-9"))`, value);
     }
     const subtree = [...all.keys()].filter((key) => (key as { run: variant<string, unknown> }).run.type === 'subtree');
     assert.equal(subtree.length, 5, 'under each of its five ancestors, and no other');
@@ -459,7 +483,7 @@ describe('index.nested — every parent\'s subtotals, by hand', () => {
   })`;
   const def = ledgersInTime(ledgers());
   const all = entries(def, 'L1', parsed(Ledger, ledger));
-  const pathOf = (names: readonly string[]) => names.reduceRight((rest, key) => `.step (key="${key}", rest=${rest})`, '.end');
+  const pathOf = (names: readonly string[]) => names.reduceRight((rest, key) => `.step (key=.measures "${key}", rest=${rest})`, '.end');
   const ROLLUPS = {
     sum: '(fold=.sum, aggregate=.sum)', mean: '(fold=.mean, aggregate=.mean)', count: '(fold=.count, aggregate=.count)',
     last: '(fold=.last, aggregate=.sum)',
@@ -578,6 +602,57 @@ function filled(def: RecordIndexDef, key: string, lean: unknown, read: readonly 
   return fill(key, lean, read.map(([ik, value]) => ({ ik, value })));
 }
 
+describe('index.nested — child rows and items keyed by any type (#1540)', () => {
+  const def = crewsInTime(crews());
+  const crew = parsed(Crew, '(name="Crew 1", hours={' +
+    '.assistant:(hours={2026-10-05T00:00:00.000:4.0}, shifts={:}), ' +
+    '.operator:(hours={2026-10-05T00:00:00.000:8.0, 2026-10-12T00:00:00.000:6.0}, shifts={2:(at=2026-10-06T06:00:00.000, who="Ada"), 10:(at=2026-10-07T06:00:00.000, who="Bo")})})');
+  const all = entries(def, 'C1', crew);
+  const HOURS = '(collection=.step (key="hours", rest=.step (key="hours", rest=.end)), row="C1"';
+  const SHIFTS = '(collection=.step (key="hours", rest=.step (key="shifts", rest=.end)), row="C1"';
+  const role = (name: string) => `.step (key=.hours .${name}, rest=.end)`;
+
+  it('holds a child row\'s key and an item\'s id in their own types, each under its collection\'s case of the index\'s ids', () => {
+    const ids = NestedIdType({ hours: Role, 'hours.shifts': IntegerType });
+    assert.ok(isTypeEqual(def.keyType, NestedEntryKeyType(StringType, ids)), `its key is ${printType(def.keyType)}`);
+  });
+
+  it('files each role\'s hours under the role, a Role value, and each shift under its number', () => {
+    assertEntry(def, all, `${HOURS}, path=${role('operator')}, run=.items, level=.week, tile=2026-10-05T00:00:00.000, item=.at 2026-10-05T00:00:00.000)`,
+      '.item .hours .hours 8.0');
+    assertEntry(def, all, `${HOURS}, path=${role('assistant')}, run=.items, level=.week, tile=2026-10-05T00:00:00.000, item=.at 2026-10-05T00:00:00.000)`,
+      '.item .hours .hours 4.0');
+    assertEntry(def, all, `${SHIFTS}, path=${role('operator')}, run=.items, level=.week, tile=2026-10-05T00:00:00.000, item=.id .\`hours.shifts\` 10)`,
+      '.item .hours .shifts (at=2026-10-07T06:00:00.000, who="Bo")');
+  });
+
+  it('keeps its keys in their types\' own order: a role\'s shifts by their numbers, 2 before 10, never as their text sorts', () => {
+    const print = printFor(def.keyType);
+    const shifts = [...all.keys()].map((ik) => print(ik as never)).filter((text) => text.includes('key="shifts"') && text.includes('run=.items'));
+    assert.deepEqual(shifts.map((text) => /item=\.id \.`hours\.shifts` (\d+)/.exec(text)?.[1]), ['2', '10']);
+  });
+
+  it('sums a crew\'s roles: the crew\'s subtotal of a week is its roles\' hours in it', () => {
+    const subtotal = (tile: string) => entryAt(def, all,
+      `${HOURS}, path=.end, run=.subtotals (fold=.sum, aggregate=.sum), level=.week, tile=${tile}T00:00:00.000, item=.none)`);
+    assertEast(def.valueType, subtotal('2026-10-05'), parsed(def.valueType, '.subtotal 12.0'), 'the week both roles have hours in');
+    assertEast(def.valueType, subtotal('2026-10-12'), parsed(def.valueType, '.subtotal 6.0'), 'the week the operator alone has');
+  });
+
+  it('refuses a collection whose field\'s name holds a dot, and rows that recurse keyed by another type than the rows listing them', () => {
+    const Dotted = StructType({ name: StringType, 'a.b': DictType(StringType, Job) });
+    const dotted = record('dotted', DictType(StringType, Dotted), { initial: new Map() });
+    assert.throws(() => series('dotted_in_time', dotted, { collections: { 'a.b': series.items({ from: 'start', to: 'end' }) } as never, tile: 'week' }),
+      /^Error: e3\.record 'dotted': index\.nested 'dotted_in_time' collections\.a\.b is 'a\.b' — an index names its child rows and items by their place, its field names joined by '\.': name the field without one$/);
+    const Node = RecursiveType((self) => StructType({ name: StringType, load: DictType(DateTimeType, FloatType), children: DictType(IntegerType, self) }));
+    const Tree = StructType({ name: StringType, nodes: DictType(StringType, Node) });
+    const trees = record('trees', DictType(StringType, Tree), { initial: new Map() });
+    assert.throws(() => series('trees_in_time', trees, {
+      collections: { nodes: series.rows({ load: series.values(), children: series.recursive() }) } as never, tile: 'week',
+    }), /^Error: e3\.record 'trees': index\.nested 'trees_in_time' collections\.nodes\.children is recursive\(\), and 'children' is keyed by \.Integer, where the rows listing it are keyed by \.String — rows that recurse are keyed by one type all the way down$/);
+  });
+});
+
 describe('index.nested — a lean row filled with the entries read of it (#1438)', () => {
   const [machinesIndex, hallsIndex, assembliesIndex, ledgersIndex] =
     [machinesInTime(machines()), hallsInTime(halls()), assembliesInTime(assemblies()), ledgersInTime(ledgers())];
@@ -600,8 +675,13 @@ describe('index.nested — a lean row filled with the entries read of it (#1438)
     '"m1.2":(label="M1.2", readings={2026-10-05T00:00:00.000:5.0}, stock={:}, children={:})})})');
 
   it('is the row, filled with every entry it files: items, values, child rows and a tree, an item filed in two tiles once', () => {
+    // A crew's hours by role, and a role's shifts by their number: child rows and items keyed by other types than String (#1540).
+    const crewRow = parsed(Crew, '(name="Crew 1", hours={' +
+      '.assistant:(hours={2026-10-05T00:00:00.000:4.0}, shifts={:}), ' +
+      '.operator:(hours={2026-10-05T00:00:00.000:8.0, 2026-10-12T00:00:00.000:6.0}, shifts={2:(at=2026-10-06T06:00:00.000, who="Ada"), 10:(at=2026-10-07T06:00:00.000, who="Bo")})})');
     const cases: [RecordIndexDef, EastType, unknown][] = [
       [machinesIndex, Machine, machineRow], [hallsIndex, Hall, hallRow], [assembliesIndex, Assembly, assemblyRow], [ledgersIndex, Ledger, ledgerRow],
+      [crewsInTime(crews()), Crew, crewRow],
     ];
     for (const [def, rowType, row] of cases) {
       const all = entries(def, 'R-1', row);
@@ -609,7 +689,7 @@ describe('index.nested — a lean row filled with the entries read of it (#1438)
     }
     // The job past a year long is filed in 2026's year tile and 2027's, and comes back once.
     const machineEntries = [...entries(machinesIndex, 'R-1', machineRow).keys()]
-      .filter((ik) => printFor(machinesIndex.keyType)(ik as never).includes('item=.id "j-3"'));
+      .filter((ik) => printFor(machinesIndex.keyType)(ik as never).includes('item=.id .jobs \"j-3\"'));
     assert.equal(machineEntries.length, 2, 'filed twice');
   });
 
@@ -645,7 +725,7 @@ describe('index.nested — a lean row filled with the entries read of it (#1438)
     const lean = leanOf(def, 'R-1', assemblyRow);
     assertEast(Assembly, filled(def, 'R-1', lean, under), assemblyRow as never, 'every part holding its own jobs');
     // Under p1 alone: p1.2's job in p1.2, and none of p1's own, which is filed under the row.
-    const p1 = under.filter(([ik]) => /path=\.step \(key="p1", rest=\.end\), run=/.test(print(ik as never)));
+    const p1 = under.filter(([ik]) => /path=\.step \(key=\.parts "p1", rest=\.end\), run=/.test(print(ik as never)));
     assertEast(Assembly, filled(def, 'R-1', lean, p1), parsed(Assembly, '(name="Assembly 1", parts={"p1":(name="p1", jobs={:}, parts={' +
       '"p1.2":(name="p1.2", jobs={"j-9":' + job('2026-11-03T06:00:00.000', '2026-11-03T14:00:00.000') + '}, parts={:})})})'), 'p1\'s descendants\' jobs');
     // Beside each job's own entry, each job once.
@@ -951,12 +1031,12 @@ describe('index.nested — a write by its patch', () => {
     const held = parsed(Machine, machine({ 'j-1': job(OCT_2, OCT_2_NIGHT), ...others }, load));
     const next = parsed(Machine, machine({ 'j-1': job(NOV_3, NOV_3_NIGHT), ...others }, load));
     assertCompared(index, byPatch(index, 'M-7', held, next), `{
-      (collection=.step (key="jobs", rest=.end), row="M-7", path=.end, run=.items, level=.week, tile=2026-09-28T00:00:00.000, item=.id "j-1"):
+      (collection=.step (key="jobs", rest=.end), row="M-7", path=.end, run=.items, level=.week, tile=2026-09-28T00:00:00.000, item=.id .jobs "j-1"):
         .item .jobs ${job(OCT_2, OCT_2_NIGHT)},
       (collection=.step (key="jobs", rest=.end), row="M-7", path=.end, run=.totals, level=.month, tile=2026-10-01T00:00:00.000, item=.none):
         .totals (count=2, ms=28800000, values=.none)
     }`, `{
-      (collection=.step (key="jobs", rest=.end), row="M-7", path=.end, run=.items, level=.week, tile=2026-11-02T00:00:00.000, item=.id "j-1"):
+      (collection=.step (key="jobs", rest=.end), row="M-7", path=.end, run=.items, level=.week, tile=2026-11-02T00:00:00.000, item=.id .jobs "j-1"):
         .item .jobs ${job(NOV_3, NOV_3_NIGHT)},
       (collection=.step (key="jobs", rest=.end), row="M-7", path=.end, run=.totals, level=.month, tile=2026-10-01T00:00:00.000, item=.none):
         .totals (count=1, ms=0, values=.none),
@@ -969,8 +1049,8 @@ describe('index.nested — a write by its patch', () => {
     const index = hallsInTime(halls());
     const hall = (load: string) => parsed(Hall,
       `(name="Hall 1", site="North", members={"m-3":(name="Ada", load={2026-10-05T00:00:00.000:${load}}), "m-4":(name="Bo", load={2026-10-05T00:00:00.000:0.6})})`);
-    const member = '(collection=.step (key="members", rest=.step (key="load", rest=.end)), row="H1", path=.step (key="m-3", rest=.end)';
-    const other = '(collection=.step (key="members", rest=.step (key="load", rest=.end)), row="H1", path=.step (key="m-4", rest=.end)';
+    const member = '(collection=.step (key="members", rest=.step (key="load", rest=.end)), row="H1", path=.step (key=.members "m-3", rest=.end)';
+    const other = '(collection=.step (key="members", rest=.step (key="load", rest=.end)), row="H1", path=.step (key=.members "m-4", rest=.end)';
     const parent = '(collection=.step (key="members", rest=.step (key="load", rest=.end)), row="H1", path=.end, run=.subtotals (fold=.mean, aggregate=.mean)';
     const entries = (load: number) => `{
       ${member}, run=.items, level=.day, tile=2026-10-05T00:00:00.000, item=.at 2026-10-05T00:00:00.000): .item .members .load ${load},
@@ -993,8 +1073,8 @@ describe('index.nested — a write by its patch', () => {
     const NOV_9 = '2026-11-09T00:00:00.000';
     const hall = (load: string) => parsed(Hall, `(name="Hall 1", site="North", members={` +
       `"m-3":(name="Ada", load={${OCT_5}:${load}, ${NOV_9}:0.5}), "m-4":(name="Bo", load={${OCT_5}:0.6, ${NOV_9}:0.4})})`);
-    const member = '(collection=.step (key="members", rest=.step (key="load", rest=.end)), row="H1", path=.step (key="m-3", rest=.end)';
-    const other = '(collection=.step (key="members", rest=.step (key="load", rest=.end)), row="H1", path=.step (key="m-4", rest=.end)';
+    const member = '(collection=.step (key="members", rest=.step (key="load", rest=.end)), row="H1", path=.step (key=.members "m-3", rest=.end)';
+    const other = '(collection=.step (key="members", rest=.step (key="load", rest=.end)), row="H1", path=.step (key=.members "m-4", rest=.end)';
     const parent = '(collection=.step (key="members", rest=.step (key="load", rest=.end)), row="H1", path=.end, run=.subtotals (fold=.mean, aggregate=.mean)';
     // October 5's day, week and month hold the two members' values that day; its quarter and its year hold November's too.
     const entries = (load: number) => `{

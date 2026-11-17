@@ -21,8 +21,8 @@ import {
   decodeBeast2For, encodeBeast2For, none, printFor, some, variant,
   type EastType, type ValueTypeOf,
 } from '@elaraai/east';
-import e3, { NestedUnderType } from '@elaraai/e3';
-import { RecordNestedPathType, RecordNestedTotalsType, RecordSummaryTotalsType, type ExecuteResult } from '@elaraai/e3-types';
+import e3 from '@elaraai/e3';
+import { NestedIdType, NestedPathType, RecordNestedTotalsType, RecordSummaryTotalsType, type ExecuteResult } from '@elaraai/e3-types';
 import { DatasetSegments } from './dataset-open.js';
 import { functionCallUnkept } from './execution/functionCallUnkept.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
@@ -60,7 +60,12 @@ const UnitType = StructType({ jobs: JobsType, sheets: SheetsType });
 const UnitsType = DictType(StringType, UnitType);
 const LineType = StructType({ name: StringType, units: UnitsType });
 const LinesType = DictType(StringType, LineType);
-const Beneath = DictType(NestedUnderType, NullType);
+/** The lines' index's ids (#1540): a unit's key under `units`, a job's id under `units.jobs`, each in its own type. */
+const LineIds = NestedIdType({ units: StringType, 'units.jobs': StringType });
+/** The units' keys from a line down to a node, as the index's key holds them. */
+const LinePath = NestedPathType(LineIds);
+/** A job beneath a line, as its subtree's read names it: the units' keys down to the unit holding it, and its id. */
+const Beneath = DictType(StructType({ path: LinePath, id: LineIds }), NullType);
 const MonthTotals = DictType(DateTimeType, RecordNestedTotalsType);
 
 const WS = 'main';
@@ -257,11 +262,11 @@ describe('a reader for each kind of index, on every runner', { timeout: 900_000,
       }),
       e3.function('plain_line_jobs', { inputs: [lines], args: [StringType, DateTimeType, DateTimeType], output: Beneath }, ($, rows, line, from, to) => {
         const inWindow = $.const(overlaps);
-        const end = $.const(variant('end', null), RecordNestedPathType);
+        const end = $.const(variant('end', null), LinePath);
         const kept = $.let(new Map(), Beneath);
         $.for(rows.get(line).units, ($, unit, key) => {
           $.for(unit.jobs, ($, job, id) => {
-            $.if(East.less(from, to).and(() => inWindow(job, from, to)), ($) => { $(kept.insert({ path: variant('step', { key, rest: end }), id }, null)); });
+            $.if(East.less(from, to).and(() => inWindow(job, from, to)), ($) => { $(kept.insert({ path: variant('step', { key: variant('units', key), rest: end }), id: variant('units.jobs', id) }, null)); });
           });
         });
         return kept;
@@ -363,18 +368,18 @@ describe('a reader for each kind of index, on every runner', { timeout: 900_000,
           entries.of(part).collect($)),
         e3.function(onRuntime('unit_jobs', runtime), { inputs: [linesInTime], args: [StringType, StringType, DateTimeType, DateTimeType], output: Keys, ...on }, ($, entries, line, unit, from, to) => {
           const kept = $.let(new Map(), Keys);
-          entries.items({ collection: ['units', 'jobs'], row: line, path: [unit], from, to }).each($, ($, _job, id) => { $(kept.insert(id, null)); });
+          entries.items({ collection: ['units', 'jobs'], row: line, path: [variant('units', unit)], from, to }).each($, ($, _job, id) => { $(kept.insert(id, null)); });
           return kept;
         }),
         e3.function(onRuntime('line_jobs', runtime), { inputs: [linesInTime], args: [StringType, DateTimeType, DateTimeType], output: Beneath, ...on }, ($, entries, line, from, to) => {
           const kept = $.let(new Map(), Beneath);
-          entries.subtree({ collection: ['units', 'jobs'], row: line, from, to }).each($, ($, _job, under) => { $(kept.insert(under, null)); });
+          entries.subtree({ collection: ['units', 'jobs'], row: line, from, to }).each($, ($, _job, under) => { $(kept.insert(under as never, null)); });
           return kept;
         }),
         e3.function(onRuntime('unit_sheets', runtime), { inputs: [linesInTime], args: [StringType, StringType, DateTimeType, DateTimeType], output: SheetsType, ...on }, ($, entries, line, unit, from, to) =>
-          entries.items({ collection: ['units', 'sheets'], row: line, path: [unit], from, to }).collect($)),
+          entries.items({ collection: ['units', 'sheets'], row: line, path: [variant('units', unit)], from, to }).collect($)),
         e3.function(onRuntime('unit_months', runtime), { inputs: [linesInTime], args: [StringType, StringType, DateTimeType, DateTimeType], output: MonthTotals, ...on }, ($, entries, line, unit, from, to) =>
-          entries.totals({ collection: ['units', 'sheets'], row: line, path: [unit], from, to }).collect($)),
+          entries.totals({ collection: ['units', 'sheets'], row: line, path: [variant('units', unit)], from, to }).collect($)),
         e3.function(onRuntime('line_weeks', runtime), { inputs: [linesInTime], args: [StringType, DateTimeType, DateTimeType], output: SheetsType, ...on }, ($, entries, line, from, to) =>
           entries.subtotals({ collection: ['units', 'sheets'], row: line, rollup: 'sum', from, to }).collect($)),
       ];
