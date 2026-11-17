@@ -29,7 +29,7 @@ import type { CatchUpPhase } from '../dataflow.js';
 import type { OrchestratorStartOptions } from '../dataflow/orchestrator/interfaces.js';
 import type { DeferReason } from '../dataflow/types.js';
 import { acquireForDeploy, deployIntentLock } from '../deploy-lock.js';
-import { DataflowAbortedError, WorkspaceLockError } from '../errors.js';
+import { DataflowAbortedError, ObjectNotFoundError, WorkspaceLockError } from '../errors.js';
 import { GatedTaskRunner } from '../execution/GatedTaskRunner.js';
 import { LocalOrchestrator } from '../execution/local-orchestrator.js';
 import { MockTaskRunner } from '../execution/MockTaskRunner.js';
@@ -993,6 +993,80 @@ export function dataflowFollowCases(setup: BackendSetup): void {
     for (const name of tasks.keys()) while (runner.holding(name) > 0) runner.release(name);
     const second = new LocalOrchestrator(stateStore);
     assert.equal((await second.wait(await second.resume(storage, repo, 'ws', handle.id, { runner }))).success, true);
+  });
+
+  it('reads a record as of the oldest commit its inputs name that the store still holds: one a compaction cut and gc swept is passed over', async (t) => {
+    const context = await setup(t);
+    const { repo } = context;
+    // Once a commit is named gone, the store holds it no more: a compaction cut it from the record's history, and gc
+    // swept it
+    let gone: string | null = null;
+    const storage = standIn(context.storage, {
+      objects: standIn(context.storage.objects, {
+        read: (...args: Parameters<StorageBackend['objects']['read']>) =>
+          (gone !== null && args[1] === gone ? Promise.reject(new ObjectNotFoundError(gone)) : context.storage.objects.read(...args)),
+        touch: async (...args: Parameters<StorageBackend['objects']['touch']>) =>
+          (await context.storage.objects.touch(...args)).map((held, at) => held && args[1][at] !== gone),
+      }),
+    });
+    const tasks = await deployChecked(t, context);
+    const runner = gatedRunner(context.storage, repo, tasks);
+    const lines = new RunLines();
+    const orchestrator = new LocalOrchestrator(stateStoreOf(context));
+    const c0 = await ordersHead(context.storage, repo);
+    const handle = await orchestrator.start(storage, repo, 'ws', { runner, ...lines.callbacks });
+    // A task's next launch, or the run's end before it, which fails the case
+    const ended = orchestrator.wait(handle).then(() => {
+      throw new Error('the run ended first');
+    });
+    ended.catch(() => undefined);
+    const launched = (task: string): ReturnType<GatedTaskRunner['launched']> => Promise.race([runner.launched(task), ended]);
+
+    // clean runs on c0, and slow keeps the run in flight. An edit commits c1, and c0 is gone
+    await runner.launched('slow');
+    assert.deepEqual((await runner.launched('clean')).inputHashes, [c0.state]);
+    const c1 = await commitOrders(context.storage, repo, [['a', 1n]]);
+    assert.equal(await orchestrator.wake(storage, repo, 'ws'), true);
+    gone = c0.commit;
+
+    // clean lands on c0 and runs again on c1. check reads the record directly at c1, and clean's result at c0, which
+    // it passes over: it waits for clean's run on c1, and reads both there
+    runner.release('clean');
+    assert.deepEqual((await launched('clean')).inputHashes, [c1.state]);
+    runner.release('clean');
+    assert.deepEqual((await launched('check')).inputHashes, [c1.state, made('clean', c1.state)]);
+    for (const name of tasks.keys()) runner.pass(name);
+    runner.release('check');
+    runner.release('slow');
+    assert.equal((await orchestrator.wait(handle)).success, true);
+  });
+
+  it('takes in what was edited while it yielded before it decides a task again: a resumed run runs each task on the edit', async (t) => {
+    const context = await setup(t);
+    const { storage, repo } = context;
+    const tasks = await deployChain(t, context);
+    const runner = gatedRunner(storage, repo, tasks);
+    const stateStore = stateStoreOf(context);
+    const first = new LocalOrchestrator(stateStore);
+    let yielding = false;
+    const handle = await first.start(storage, repo, 'ws', { runner, shouldYield: () => yielding });
+
+    // The run yields while clean runs on the input as the run found it, and the input is edited meanwhile
+    await runner.launched('clean');
+    yielding = true;
+    await first.wake(storage, repo, 'ws');
+    assert.equal((await first.wait(handle)).yielded, true);
+    await workspaceSetDataset(storage, repo, 'ws', inputPath('sales'), 9n, IntegerType);
+    const edited = (await held(storage, repo, 'inputs/sales'))!;
+
+    // Another orchestrator takes the run up: clean runs on the edit
+    const second = new LocalOrchestrator(stateStore);
+    const resumed = await second.resume(storage, repo, 'ws', handle.id, { runner });
+    assert.deepEqual((await runner.launched('clean')).inputHashes, [edited], 'the resumed run decides clean on the edit');
+    for (const name of tasks.keys()) runner.pass(name);
+    for (const name of tasks.keys()) while (runner.holding(name) > 0) runner.release(name);
+    assert.equal((await second.wait(resumed)).success, true);
+    assert.equal(await held(storage, repo, 'tasks/report/output'), made('report', made('forecast', made('clean', edited))));
   });
 
   it('asks a change\'s readers again once the look that found it has failed: a wake that failed loses no edit', async (t) => {

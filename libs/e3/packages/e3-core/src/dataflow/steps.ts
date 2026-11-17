@@ -512,9 +512,12 @@ export async function stepDetectInputChanges(
  *
  * - **A record**: the oldest commit of it its inputs name — the run's
  *   snapshot, for a record the task reads directly, and a result's own for
- *   one it reads through that result. The record is read there from its
- *   history, and a result made from a newer commit from the execution cache,
- *   or by a catch-up run ({@link stepPrepareTask}).
+ *   one it reads through that result — that the store still holds. The record
+ *   is read there from its history, and a result made from a newer commit
+ *   from the execution cache, or by a catch-up run ({@link stepPrepareTask}).
+ *   A commit a compaction cut from the record's history is gone once garbage
+ *   collection has swept it, and a result made from it is read as of the
+ *   next, as one made from a newer commit is ({@link oldestHeld}).
  * - **A plain input**: the value its inputs agree on. A plain input keeps no
  *   earlier value to read, so a task whose inputs read one at different
  *   values is deferred until they agree.
@@ -566,13 +569,42 @@ export async function stepTaskCommits(
           reason: { kind: 'plain', input: root, through: [...through.filter((each) => each === root), ...through.filter((each) => each !== root)] },
         };
       }
-      for (const each of names.slice(1)) {
-        version = await recordCommitOrder(storage, state, root, version, each.version);
-      }
+      version = await oldestHeld(storage, state, root, names.map((each) => each.version));
     }
     versions.set(root, version);
   }
   return { kind: 'commits', versions };
+}
+
+/**
+ * The oldest of the commits of a record a task's inputs name that the store
+ * still holds.
+ *
+ * @remarks
+ * A commit a compaction cut from the record's history is gone once garbage
+ * collection has swept it — while the run yielded, or beside the running work
+ * — and no task can read the record there. Each oldest is asked of the store
+ * as a touch, which re-references a commit it holds, so a sweep beside the
+ * running work leaves it while the task reads it; one gone is passed over for
+ * the next oldest. Where none is held, the task reads the record as the run's
+ * snapshot holds it.
+ *
+ * @param storage - Storage backend
+ * @param state - The run's state
+ * @param record - The record's keypath
+ * @param named - The commits the task's inputs name
+ * @returns The commit the task reads the record at
+ */
+async function oldestHeld(storage: StorageBackend, state: DataflowExecutionState, record: string, named: readonly string[]): Promise<string> {
+  let commits = named.filter((commit, at) => named.findIndex((each) => sameVersion(each, commit)) === at);
+  while (commits.length > 0) {
+    let oldest = commits[0]!;
+    for (const each of commits.slice(1)) oldest = await recordCommitOrder(storage, state, record, oldest, each);
+    const [held] = await storage.objects.touch(state.repo, [oldest]);
+    if (held === true) return oldest;
+    commits = commits.filter((each) => !sameVersion(each, oldest));
+  }
+  return state.inputSnapshot.get(record) ?? named[0]!;
 }
 
 /**

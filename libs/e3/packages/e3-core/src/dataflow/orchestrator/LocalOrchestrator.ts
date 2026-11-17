@@ -421,6 +421,10 @@ interface RunningExecution {
    *  due: a look that failed once it had recorded a change leaves them here,
    *  and the next look asks them again, so no change is lost to it */
   unasked: Set<string>;
+  /** Whether the run looks for changed inputs before its first pass: a run
+   *  resumed, whose snapshot is the one it yielded with, takes in what was
+   *  edited meanwhile before it decides a task again */
+  lookFirst: boolean;
   /** Settles as a wake's look ends: what the pass of the loop that made it
    *  waits on beside what it has in flight */
   woken: { promise: Promise<void>; resolve: () => void };
@@ -627,6 +631,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         externalLock,
         options,
         taskExecutions: new Map(),
+        resumed: false,
       });
     } catch (err) {
       // Always release the dataflow lock on initialization failure
@@ -733,6 +738,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         externalLock,
         options,
         taskExecutions,
+        resumed: true,
       });
     } catch (err) {
       await dataflowLock!.release();
@@ -757,6 +763,8 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       externalLock: boolean;
       options: OrchestratorStartOptions;
       taskExecutions: Map<string, TaskExecutionRecord>;
+      /** Whether the run is one resumed, which looks for changed inputs first */
+      resumed: boolean;
     }
   ): ExecutionHandle {
     const { options } = init;
@@ -799,6 +807,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       moved: 0,
       landed: 0,
       unasked: new Set(),
+      lookFirst: init.resumed,
       woken: deferred(),
       closing: false,
       probing: false,
@@ -1067,12 +1076,14 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         // A wake's look that failed once it had recorded a change left that
         // change's readers unasked: they are asked before the run goes on, or
         // ends. A look that fails again fails the run, which would otherwise
-        // end having recorded a change none of its tasks ran on.
-        if (execution.unasked.size > 0 && execution.wakes === 0 && !checkAborted()) {
+        // end having recorded a change none of its tasks ran on. A run
+        // resumed looks first of all, for what was edited while it yielded.
+        if ((execution.unasked.size > 0 || execution.lookFirst) && execution.wakes === 0 && !checkAborted()) {
           await execution.mutex.runExclusive(async () => {
             await this.handleInputChanges(storage, execution);
             await this.persistState(execution, state);
           });
+          execution.lookFirst = false;
         }
 
         // Check if we're done: no task is due, ready, in flight or catching

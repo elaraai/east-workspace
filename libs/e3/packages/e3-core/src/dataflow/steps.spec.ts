@@ -12,6 +12,7 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
+import { createHash } from 'node:crypto';
 import { some, none, variant, StringType, encodeBeast2For } from '@elaraai/east';
 import { E3_RELEASE, dataflowForce, type DataflowForce, type TreePath, type Structure } from '@elaraai/e3-types';
 import {
@@ -745,19 +746,21 @@ describe('stepTaskCommits', () => {
   });
 
   it('reads a record its inputs name at different commits as of the older, by the order the run took its snapshots', async () => {
-    const state = run({ orders: 'c1', rates: 'r1' }, { orders: 'c2', rates: 'r1' });
-    state.inputSnapshot.set('.records.orders', 'c1');
-    dataflowSnapshotTaken(state, '.records.orders', 'c2');
+    const c1 = await commit(null, '$init');
+    const c2 = await commit(c1, 'edit');
+    const state = run({ orders: c1, rates: 'r1' }, { orders: c2, rates: 'r1' });
+    state.inputSnapshot.set('.records.orders', c1);
+    dataflowSnapshotTaken(state, '.records.orders', c2);
     assert.deepStrictEqual(await stepTaskCommits(storage, state, 'plan'), {
-      kind: 'commits', versions: new Map([['.records.orders', 'c1'], ['.rates', 'r1']]),
+      kind: 'commits', versions: new Map([['.records.orders', c1], ['.rates', 'r1']]),
     });
     // Whichever input names the older
-    const other = run({ orders: 'c2', rates: 'r1' }, { orders: 'c1', rates: 'r1' });
-    other.inputSnapshot.set('.records.orders', 'c1');
-    dataflowSnapshotTaken(other, '.records.orders', 'c2');
+    const other = run({ orders: c2, rates: 'r1' }, { orders: c1, rates: 'r1' });
+    other.inputSnapshot.set('.records.orders', c1);
+    dataflowSnapshotTaken(other, '.records.orders', c2);
     const at = await stepTaskCommits(storage, other, 'plan');
     assert.ok(at.kind === 'commits');
-    assert.strictEqual(at.versions.get('.records.orders'), 'c1');
+    assert.strictEqual(at.versions.get('.records.orders'), c1);
   });
 
   it('takes a commit the run never took a snapshot of for older than those it took, and orders two such by the record\'s history', async () => {
@@ -813,6 +816,27 @@ describe('stepTaskCommits', () => {
     assert.strictEqual(await recordCommitOrder(storage, state, '.records.orders', c(5), c(21)), c(5));
     assert.strictEqual(await recordCommitOrder(storage, state, '.records.orders', c(20), c(19)), c(19));
     assert.strictEqual(await recordCommitOrder(storage, state, '.records.orders', c(7), c(4)), c(4));
+  });
+
+  it('reads a record as of the oldest commit its inputs name that the store still holds, or as the run\'s snapshot holds it where none is', async () => {
+    const first = await commit(null, '$init');
+    // Two commits a compaction cut and gc swept: the store holds neither
+    const swept = (what: string): string => createHash('sha256').update(what).digest('hex');
+    const [goneA, goneB] = [swept('a commit gc swept'), swept('another')];
+
+    // x's result was made at a commit swept, y's at one the store holds: the task passes over the first
+    const state = run({ orders: goneA, rates: 'r1' }, { orders: first, rates: 'r1' });
+    state.inputSnapshot.set('.records.orders', first);
+    assert.deepStrictEqual(await stepTaskCommits(storage, state, 'plan'), {
+      kind: 'commits', versions: new Map([['.records.orders', first], ['.rates', 'r1']]),
+    });
+
+    // Both were made at commits swept: the task reads the record as the run's snapshot holds it
+    const both = run({ orders: goneA, rates: 'r1' }, { orders: goneB, rates: 'r1' });
+    both.inputSnapshot.set('.records.orders', first);
+    assert.deepStrictEqual(await stepTaskCommits(storage, both, 'plan'), {
+      kind: 'commits', versions: new Map([['.records.orders', first], ['.rates', 'r1']]),
+    });
   });
 
   it('takes no order from a read of the history that failed: it is raised, and the history is read again by the next to ask', async () => {
