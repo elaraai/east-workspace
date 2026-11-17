@@ -180,7 +180,7 @@ import { PlanEditContext, PlanEditStore, type PlanEditContextValue } from "./edi
 import { PlanTypingStore, planZooms, type PlanTyping } from "./edit/typing.js";
 import { originOf, unmoved, usePlanCarry, type PlanMoveRequest } from "./edit/use-carry.js";
 import { PlanCarryAnnouncer } from "./edit/announce.js";
-import { PlanSelectableContext, elementKeyOf, holdsElement, selectableOf } from "./rows/element-select.js";
+import { PlanSelectableContext, elementKeyOf, elementKeys, holdsElement, selectableOf } from "./rows/element-select.js";
 import { PlanBoundedContext, PlanConflictCellsContext, PlanConflictedContext, PlanDraftedContext } from "./rows/element-draft.js";
 import { PlanOptimisedContext, type PlanOptimisedMarks } from "./rows/element-optimise.js";
 import { landingNameByKey, rowValueAt, type PlanCanvasInspect } from "./root/inspect.js";
@@ -1026,11 +1026,20 @@ export function usePlanCanvas({
     // The tools (#1541, U10): Connect is offered while a link kind is bound with its patch door and the canvas takes a
     // write; what the viewer holds is kept under the Plan's `id`, and held as the Plan offers it.
     const [heldTools, pickTools] = usePlanTools(keys.tools);
-    const connectable = useMemo((): readonly LinkChoice[] => (takesWrites
-        ? linkKinds.filter((kind) => kind.editable).map((kind) => ({ key: kind.key, name: kind.name })) : NO_LINK_CHOICES), [linkKinds, takesWrites]);
+    const connectableKinds = useMemo(() => (takesWrites ? linkKinds.filter((kind) => kind.editable) : NO_LINK_KINDS), [linkKinds, takesWrites]);
+    const connectable = useMemo((): readonly LinkChoice[] => (connectableKinds.length === 0 ? NO_LINK_CHOICES
+        : connectableKinds.map((kind) => ({ key: kind.key, name: kind.name }))), [connectableKinds]);
     const tools = useMemo(() => planToolsInForce(heldTools, connectable.map((link) => link.key)), [heldTools, connectable]);
-    const toolsChrome = useMemo((): PlanToolsChrome | undefined => (connectable.length === 0 ? undefined
-        : { held: tools, links: connectable, pick: pickTools }), [connectable, tools, pickTools]);
+    // The inspector's Connect to… draws a link through the event kinds' drag, by the rules Connect's own drag is held to.
+    const eventDragRef = useRef<ReturnType<typeof usePlanEventDrag>>(undefined);
+    const toolsChrome = useMemo((): PlanToolsChrome | undefined => (connectable.length === 0 ? undefined : {
+        held: tools, links: connectable, kinds: connectableKinds, pick: pickTools,
+        refusal: (kind, from, to) => {
+            const verdict = eventDragRef.current?.link(kind, from, to);
+            return verdict === undefined || verdict.allowed ? undefined : verdict.caption ?? "";
+        },
+        draw: (kind, from, to) => eventDragRef.current?.linkEvents(kind, from, to) === true,
+    }), [connectable, connectableKinds, tools, pickTools]);
     // What Connect draws while it is held (#1541, U10): the kind its menu chose, and the Plan's `canConnect`, which
     // hears the kind and the two events — its answers kept while it is the same function.
     const connectVeto = useMemo(() => connectVetoOf(canConnect, (key: string) => {
@@ -1042,7 +1051,7 @@ export function usePlanCanvas({
         return kind === undefined ? undefined : { kind, veto: connectVeto };
     }, [tools, linkKinds, connectVeto]);
     const eventDrag = usePlanEventDrag({
-        kinds, landings, tabs, keys, editing: eventEditing, veto, connect: connecting, scale, words, store: editStore,
+        kinds, landings, tabs, keys, editing: eventEditing, veto, connect: connecting, connectVeto, scale, words, store: editStore,
         rowOf: (key) => indexRef.current?.byKey.get(key),
         resource: (ref) => resourceRowsRef.current?.byRef.get(scheduleCellId(ref.kind, ref.key)),
         selected: () => controller.getSnapshot().store.ui.elements,
@@ -1054,6 +1063,7 @@ export function usePlanCanvas({
             if (row !== undefined && first !== undefined) editStore.focusAfterDraw(row, first);
         },
     });
+    eventDragRef.current = eventDrag;
     const onDrag = useCallback((event: DragEventValue, meta?: DragMeta): boolean => {
         // Nothing lands while a run of the optimiser is out (R2).
         if (locked) return false;
@@ -1327,6 +1337,17 @@ export function usePlanCanvas({
         resource,
         resourceByKey,
         resources: (landing) => (paged ? undefined : resourceRows.bySeries.get(landing) ?? NO_RESOURCE_ROWS),
+        // The events the canvas draws of the kinds given (#1541, U10), each once, in the rows' order.
+        events: (slots) => {
+            const drawn = new Set<string>();
+            for (const row of index.rows) {
+                for (const key of elementKeys(row)) {
+                    const ref = parseEventRef(key);
+                    if (ref.success && slots.includes(ref.value.kind)) drawn.add(key);
+                }
+            }
+            return [...drawn];
+        },
         // What the session the rows save through refuses of the entry a row came from (#1541, U5), read as the pane draws:
         // a read-only row, an Unassigned row, or a Plan whose rows save through none, has none.
         refusals: (key) => {

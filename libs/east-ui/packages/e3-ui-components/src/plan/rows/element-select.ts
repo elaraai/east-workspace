@@ -36,15 +36,29 @@ export const PLAN_EVENT_ELEMENT_SELECTOR = "[data-run],[data-event],[data-chip],
  * @returns Whether one of its elements has that key
  */
 export function holdsElement(row: PlanRowValue, key: string): boolean {
+    return elementKeys(row).some((held) => held === key);
+}
+
+/**
+ * The keys of the elements a row draws — its runs, its chips, its tiles or its
+ * marks — in the order it draws them; none for a row of another kind.
+ *
+ * @param row - The row
+ * @returns Its elements' keys
+ */
+export function elementKeys(row: PlanRowValue): readonly string[] {
     const kind = row.kind;
     switch (kind.type) {
-        case "span": return kind.value.runs.some((run) => run.key === key);
-        case "cards": return kind.value.chips.some((chip) => chip.key === key);
-        case "buckets": return kind.value.events.some((tile) => tile.key === key);
-        case "events": return kind.value.marks.some((mark) => mark.key === key);
-        default: return false;
+        case "span": return kind.value.runs.map((run) => run.key);
+        case "cards": return kind.value.chips.map((chip) => chip.key);
+        case "buckets": return kind.value.events.map((tile) => tile.key);
+        case "events": return kind.value.marks.map((mark) => mark.key);
+        default: return NO_ELEMENT_KEYS;
     }
 }
+
+/** A row that draws no element. */
+const NO_ELEMENT_KEYS: readonly string[] = [];
 
 /**
  * An element ref's own key — what its element is keyed by on its row.

@@ -130,6 +130,8 @@ import { useFieldAsk } from "../../shared/schedule/field-ask.js";
 import { fieldChange, fieldWrite, rowCodec } from "../../shared/schedule/records.js";
 import { removePlanEvents, type PlanEventChange, type PlanEventEditing } from "../edit/events.js";
 import { kindLinkOf, linkStepLabel, type PlanLinkKindValue, type PlanLinkRolesValue } from "../links/kinds.js";
+import type { PlanToolsChrome } from "../links/connect.js";
+import type { PlanLinkSource } from "../edit/event-drag.js";
 import { scheduleEventKey } from "../../shared/schedule/overlaps.js";
 import { entryRefusals, refusalsText, refusedFields } from "../../shared/schedule/refusals.js";
 import { stateText } from "../a11y.js";
@@ -836,6 +838,8 @@ function OneEvent({ event, keys, words, styles, counts, chrome, selection, links
     // again as the edits turn off and on.
     const writes = useRef(writable);
     writes.current = writable;
+    // The event as a link's start (#1541, U10): what Connect to… draws from.
+    const source = useMemo((): PlanLinkSource => ({ key: event.key, rowKey: selection.row ?? undefined }), [event.key, selection.row]);
     // What it overlaps (#1198, PB53): its kind's events on its resource at once — a line each, which selects it.
     const peers = counts?.overlaps.peers.get(event.key) ?? [];
     const start = getSomeorUndefined(item.start);
@@ -981,6 +985,11 @@ function OneEvent({ event, keys, words, styles, counts, chrome, selection, links
                             onChange={editing !== undefined ? onField : NO_EDIT} />
                     </Box>
                 )}
+                {/* Connect to… (#1541, U10): the keyboard's way to draw a link from the event. */}
+                {chrome?.tools !== undefined && editing !== undefined && (
+                    <ConnectTo styles={styles} words={words} tools={chrome.tools} from={source}
+                        kind={kind.key} events={chrome.inspect.events} editing={editing} writes={writes} />
+                )}
                 <Box css={styles.actions} data-inspector-actions="">
                     <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} disabled={!canDuplicate([event], editing)}
                         data-inspector-action="duplicate" onClick={() => { if (writes.current) duplicateEvents([event], editing, chrome, selection.row); }}>
@@ -992,6 +1001,87 @@ function OneEvent({ event, keys, words, styles, counts, chrome, selection, links
                     </chakra.button>
                 </Box>
             </chakra.fieldset>
+        </Box>
+    );
+}
+
+// ============================================================================
+// Connect to… (#1541, U10)
+// ============================================================================
+
+/** The form Connect to… is: the link kind it draws, by its slot, and the event it runs to, by its element's key. */
+const CONNECT_KIND = "kind";
+const CONNECT_TO = "to";
+
+/** Props of {@link ConnectTo}. */
+interface ConnectToProps {
+    styles: Styles;
+    words: PlanWords;
+    /** The tools' chrome: the editable link kinds, the kind Connect draws, and what draws a link. */
+    tools: PlanToolsChrome;
+    /** The selected event: its element's key, and the row it is on. */
+    from: PlanLinkSource;
+    /** Its kind's slot. */
+    kind: string;
+    /** The events the canvas draws of the kinds given. */
+    events: PlanChrome["inspect"]["events"];
+    /** The Plan's editing: what an event is named by. */
+    editing: PlanEventEditing;
+    /** Whether the pane takes an edit now. */
+    writes: { readonly current: boolean };
+}
+
+/**
+ * An event's Connect to… (#1541, U10): the keyboard's way to draw a link — a chooser over the events the canvas
+ * draws that a link of the kind may run to from it, and, while several link kinds may run from it, the kind, which
+ * the toolbar's Connect menu follows. A choice draws the link, one step, as a Connect drag from the event onto the
+ * one chosen does, and the chooser is clear again for the next; refused — its kind's end, or the Plan's `canConnect`
+ * — the field says why, and nothing is drawn. No link kind running from the event's kind, there is none.
+ */
+function ConnectTo({ styles, words, tools, from, kind: slot, events, editing, writes }: ConnectToProps) {
+    const m = words.m;
+    // The chooser is drawn again, clear, once a link is drawn.
+    const [drawn, setDrawn] = useState(0);
+    // The link kinds that may run from the event: its kind among their start's slots.
+    const choices = useMemo(() => tools.kinds.filter((kind) => kind.ends.from.some((end) => stringEqual(end, slot))), [tools.kinds, slot]);
+    const kind = choices.find((choice) => tools.held.link !== undefined && stringEqual(choice.key, tools.held.link)) ?? choices[0];
+    const specs = useMemo((): FieldSpecValue[] => {
+        const reference = (path: string, label: string): FieldSpecValue => ({
+            path: [path], label, help: none, group: none, type: toEastTypeValue(OptionType(StringType)), optional: true,
+            editor: variant("reference", { of: path }),
+        });
+        return [
+            ...(choices.length > 1 ? [reference(CONNECT_KIND, m.inspectorConnectField({ field: "kind" }))] : []),
+            reference(CONNECT_TO, m.inspectorConnectField({ field: "to" })),
+        ];
+    }, [choices.length, m]);
+    const to = kind?.ends.to;
+    const options = useMemo(() => ({
+        [CONNECT_KIND]: choices.map((choice): FieldOption => ({ key: choice.key, label: choice.name })),
+        // The events its end may hold, but the event itself: a link joins two.
+        [CONNECT_TO]: to === undefined ? [] : events(to).filter((key) => !stringEqual(key, from.key)).flatMap((key): FieldOption[] => {
+            const ref = parseEventRef(key);
+            return ref.success ? [{ key, label: linkEndTitle(editing, ref.value) }] : [];
+        }),
+    }), [choices, to, events, from.key, editing]);
+    const value = useMemo(() => ({ [CONNECT_KIND]: kind === undefined ? none : some(kind.key), [CONNECT_TO]: none }), [kind]);
+    const onChange = useCallback((path: readonly string[], next: unknown): string | void => {
+        if (kind === undefined || !writes.current) return undefined;
+        const chosen = getSomeorUndefined(next as option<string>);
+        if (stringEqual(path[0]!, CONNECT_KIND)) {
+            if (chosen !== undefined) tools.pick({ tool: tools.held.tool, link: chosen });
+            return undefined;
+        }
+        if (chosen === undefined) return undefined;
+        const refusal = tools.refusal(kind, from, chosen);
+        if (refusal !== undefined) return refusal;
+        if (tools.draw(kind, from, chosen)) setDrawn((n) => n + 1);
+        return undefined;
+    }, [kind, tools, from, writes]);
+    if (kind === undefined) return null;
+    return (
+        <Box css={styles.fields} data-inspector-fields="connect" role="group" aria-label={m.inspectorConnect({ kind: kind.name })}>
+            <FieldForm key={drawn} specs={specs} value={value} options={options} onChange={onChange} />
         </Box>
     );
 }

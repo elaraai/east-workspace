@@ -219,7 +219,7 @@ function Items({ parts, overlaps }: { parts: ChromeParts; overlaps?: PlanOverlap
         // Whether a command writes now: the toolbar's items write nothing of their own.
         writable: true,
         // The inspector's reads: the toolbar takes none.
-        inspect: { row: () => undefined, valueAt: () => undefined, resource: () => undefined, resourceByKey: () => some(none), resources: () => undefined, refusals: () => [] },
+        inspect: { row: () => undefined, valueAt: () => undefined, resource: () => undefined, resourceByKey: () => some(none), resources: () => undefined, events: () => [], refusals: () => [] },
         // The overlaps chip's selection (#1198): its own test hears it.
         selectEvents: () => {},
         // Whether the panel's cards drag (#1259, #1196): the toolbar never reads it.
@@ -306,6 +306,9 @@ function needs(forms: ReadonlyMap<string, number>): number {
     });
     return drawn.reduce((a, b) => a + b, 0) + 10 * Math.max(0, drawn.length - 1);
 }
+
+/** What the tools' chrome holds for the inspector's Connect to…, which the toolbar never reads. */
+const NO_LINKING = { kinds: [], refusal: () => undefined, draw: () => false } as const;
 
 describe("the Plan's toolbar items (#952, #1193, #1344)", () => {
     test("they are one row in §7.1's order: the rail's chips, the fold toggle, the date navigator, the resolution; at the end the rail's summary and the history (PB20)", async () => {
@@ -475,7 +478,7 @@ describe("the Plan's toolbar items (#952, #1193, #1344)", () => {
 
     test("the tools are one strip, Select and Connect, while a link kind is editable: a pick holds the tool; short of room they keep their icons, named by their names (#1541, U10)", () => {
         const picked: PlanToolsState[] = [];
-        const parts: ChromeParts = { tools: { held: { tool: "select", link: "feed" }, links: [{ key: "feed", name: "Feed" }], pick: (next) => { picked.push(next); } } };
+        const parts: ChromeParts = { tools: { ...NO_LINKING, held: { tool: "select", link: "feed" }, links: [{ key: "feed", name: "Feed" }], pick: (next) => { picked.push(next); } } };
         row.px = 180;
         const ui = render(<ChakraProvider value={system}><Harness parts={parts} /></ChakraProvider>);
         const strip = () => within(ui.container).getByRole("radiogroup", { name: "Tools" });
@@ -497,6 +500,7 @@ describe("the Plan's toolbar items (#952, #1193, #1344)", () => {
         const picked: PlanToolsState[] = [];
         const parts: ChromeParts = {
             tools: {
+                ...NO_LINKING,
                 held: { tool: "select", link: "feed" },
                 links: [{ key: "feed", name: "Feed" }, { key: "runoff", name: "Runoff" }],
                 pick: (next) => { picked.push(next); },

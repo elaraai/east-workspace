@@ -113,6 +113,14 @@ export interface PlanConnecting {
     readonly veto: ConnectVetoOf;
 }
 
+/** The event a link runs from, as a route that draws one names it: its element's key, and the row it is on, where it is known. */
+export interface PlanLinkSource {
+    /** Its element's key. */
+    readonly key: string;
+    /** The row it is on: where the new link is selected from. */
+    readonly rowKey: RowKey | undefined;
+}
+
 /** The event kinds' drag and drop, as the canvas's rows, its drop target and its carry ask it — see the module docs. */
 export interface PlanEventDrop {
     /** The libraries whose cards the event kinds take: the Events tab's, the Backlog tab's, and each author's tab's with a `drop` or a `create`. */
@@ -238,6 +246,25 @@ export interface PlanEventDrop {
      * @returns Whether it was recorded
      */
     connectElement(movable: PlanMovable, event: string | undefined): boolean;
+    /**
+     * The verdict over a link of a kind from one event to another, whatever tool is held (#1541, U10): what the
+     * inspector's Connect to… asks, by the same rules as Connect's drag.
+     *
+     * @param kind - The link kind
+     * @param from - The event it runs from: its element's key, and the row it is on
+     * @param to - The event it runs to, by its element's key
+     * @returns The verdict
+     */
+    link(kind: PlanLinkKindValue, from: PlanLinkSource, to: string): PlanEventVerdict;
+    /**
+     * A link of a kind drawn from one event to another: a draft of its kind's session, and selected.
+     *
+     * @param kind - The link kind
+     * @param from - The event it runs from
+     * @param to - The event it runs to, by its element's key
+     * @returns Whether it was recorded
+     */
+    linkEvents(kind: PlanLinkKindValue, from: PlanLinkSource, to: string): boolean;
 }
 
 /** What {@link usePlanEventDrag} reads — the latest render's. */
@@ -256,6 +283,8 @@ export interface PlanEventDragArgs {
     veto: PlanVeto | undefined;
     /** What Connect draws while its tool is held (#1541, U10); `undefined` while Select is. */
     connect: PlanConnecting | undefined;
+    /** The Plan's `canConnect`, as its routes ask it (#1541, U10): what a link is held to, whatever tool is held. */
+    connectVeto: ConnectVetoOf;
     /** A resource's landing row on the canvas, where it holds it: the row a candidate names for an event that keeps its resource. */
     resource: (ref: { readonly kind: string; readonly key: string }) => PlanRowValue | undefined;
     /** The shared scale: a time scale beside event kinds. */
@@ -381,7 +410,7 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
         /** The answers kept for what the latest render reads — none, once any of it moved. */
         const kept = (): Map<string, PlanEventGesture> => {
             const a = latest.current;
-            const read = [a.kinds, a.landings, a.tabs, a.editing.drafts, a.editing.version, a.veto, a.scale, a.words, a.selected(), a.connect];
+            const read = [a.kinds, a.landings, a.tabs, a.editing.drafts, a.editing.version, a.veto, a.scale, a.words, a.selected(), a.connect, a.connectVeto];
             const was = held.current;
             if (was.read.length !== read.length || read.some((r, i) => !Object.is(r, was.read[i]))) {
                 held.current = { read, gestures: new Map() };
@@ -787,14 +816,14 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
             const end = read === undefined ? undefined : getSomeorUndefined(read.item.end);
             return start !== undefined && end !== undefined ? { start: timeInstant(start), end: timeInstant(end) } : undefined;
         };
-        /** The link Connect would draw from an element to the event under the pointer (#1541, U10). */
-        const planConnect = (movable: PlanMovable, event: string | undefined): PlanEventGesture => {
+        /** The link of a kind drawn from an event to another (#1541, U10): Connect's draft, and the inspector's Connect to…. */
+        const planConnect = (connect: PlanConnecting | undefined, movable: PlanLinkSource, event: string | undefined): PlanEventGesture => {
             const a = latest.current;
             const from = refOf(movable.key);
             const to = event === undefined ? undefined : refOf(event);
-            // No event under the pointer to end at, or the one it runs from: nowhere to land, and nothing to say.
-            if (a.connect === undefined || event === undefined || from === undefined || to === undefined || stringEqual(event, movable.key)) return refused(undefined);
-            const { kind, veto } = a.connect;
+            // No event to end at, or the one it runs from: nowhere to land, and nothing to say.
+            if (connect === undefined || event === undefined || from === undefined || to === undefined || stringEqual(event, movable.key)) return refused(undefined);
+            const { kind, veto } = connect;
             const m = a.words.m;
             // Where it would end: the event under the pointer, which the row's landing band spans, refused or not.
             const span = extentOf(to);
@@ -812,8 +841,10 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
                 selects: { keys: [made.key], row: movable.rowKey },
             };
         };
-        const connectGesture = (movable: PlanMovable, event: string | undefined) =>
-            ask(`connect|${movable.rowKey}|${movable.key}|${event ?? ""}`, () => planConnect(movable, event));
+        const connectGesture = (connect: PlanConnecting | undefined, movable: PlanLinkSource, event: string | undefined) =>
+            ask(`connect|${connect?.kind.key ?? ""}|${movable.rowKey ?? ""}|${movable.key}|${event ?? ""}`, () => planConnect(connect, movable, event));
+        /** A link kind with the Plan's veto: what a route that names its kind itself asks by. */
+        const linking = (kind: PlanLinkKindValue): PlanConnecting => ({ kind, veto: latest.current.connectVeto });
         /** Record a gesture the kinds let land as one step, and select what it selects. */
         const record = (gesture: PlanEventGesture): boolean => {
             const a = latest.current;
@@ -859,7 +890,8 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
                 }
                 return elementGesture(row, movable, to).verdict;
             },
-            connect: (movable, event) => connectGesture(movable, event).verdict,
+            connect: (movable, event) => connectGesture(latest.current.connect, movable, event).verdict,
+            link: (kind, from, to) => connectGesture(linking(kind), from, to).verdict,
             returning: (event, library) => returnGesture(event, library).verdict,
             dropCard: (event) => {
                 if (event.type !== "add") return false;
@@ -875,7 +907,8 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
                 return !unmoved(movable, to) && record(elementGesture(row, movable, to));
             },
             returnElement: (event, library) => record(returnGesture(event, library)),
-            connectElement: (movable, event) => record(connectGesture(movable, event)),
+            connectElement: (movable, event) => record(connectGesture(latest.current.connect, movable, event)),
+            linkEvents: (kind, from, to) => record(connectGesture(linking(kind), from, to)),
         };
     }, [active, libraries, connecting]);
 }
