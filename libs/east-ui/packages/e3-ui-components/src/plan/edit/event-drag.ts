@@ -285,6 +285,8 @@ export interface PlanEventDragArgs {
     connect: PlanConnecting | undefined;
     /** The Plan's `canConnect`, as its routes ask it (#1541, U10): what a link is held to, whatever tool is held. */
     connectVeto: ConnectVetoOf;
+    /** The values of the template the library holds for a link kind, by its slot, as bytes (#1541, U10): what a new link's other fields take; `undefined` for none held. */
+    linkValues: (slot: string) => Uint8Array | undefined;
     /** A resource's landing row on the canvas, where it holds it: the row a candidate names for an event that keeps its resource. */
     resource: (ref: { readonly kind: string; readonly key: string }) => PlanRowValue | undefined;
     /** The shared scale: a time scale beside event kinds. */
@@ -410,7 +412,7 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
         /** The answers kept for what the latest render reads — none, once any of it moved. */
         const kept = (): Map<string, PlanEventGesture> => {
             const a = latest.current;
-            const read = [a.kinds, a.landings, a.tabs, a.editing.drafts, a.editing.version, a.veto, a.scale, a.words, a.selected(), a.connect, a.connectVeto];
+            const read = [a.kinds, a.landings, a.tabs, a.editing.drafts, a.editing.version, a.veto, a.scale, a.words, a.selected(), a.connect, a.connectVeto, a.linkValues];
             const was = held.current;
             if (was.read.length !== read.length || read.some((r, i) => !Object.is(r, was.read[i]))) {
                 held.current = { read, gestures: new Map() };
@@ -827,7 +829,7 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
             const m = a.words.m;
             // Where it would end: the event under the pointer, which the row's landing band spans, refused or not.
             const span = extentOf(to);
-            const made = connectLink(kind, { from, to }, (slot) => a.editing.mint(slot, "", NONE_MINTED), (slot, id) => a.editing.row(slot, id)?.type === "some");
+            const made = connectLink(kind, { from, to }, (slot) => a.editing.mint(slot, "", NONE_MINTED), (slot, id) => a.editing.row(slot, id)?.type === "some", a.linkValues(kind.key));
             if ("refused" in made) {
                 return refused(made.refused === "start" ? m.linkEndRefused({ kind: kind.name, end: "start", item: titleOf(from) })
                     : made.refused === "end" ? m.linkEndRefused({ kind: kind.name, end: "end", item: titleOf(to) })

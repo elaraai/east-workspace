@@ -10,7 +10,7 @@
  * test gives one.
  */
 
-import { East, OptionType, StringType, type ExprType, type FunctionType } from "@elaraai/east";
+import { DictType, East, FloatType, OptionType, StringType, StructType, some, type ExprType, type FunctionType } from "@elaraai/east";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import { Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
@@ -22,13 +22,26 @@ const LAST = new Date("2026-11-02T00:00:00Z");
 /** A Plan's veto over the link a Connect would draw. */
 export type FlowsCanConnect = ExprType<FunctionType<[typeof Plan.Types.ConnectCandidate], OptionType<StringType>>>;
 
+/** A flow's preset: its name, and a value for every field of a flow but its two ends. */
+const FlowPreset = StructType({ name: StringType, values: StructType({ sheets: OptionType(FloatType) }) });
+/** The flows' presets: one, moving twelve thousand sheets. */
+const FLOW_PRESETS = new Map([["standard", { name: "Standard run", values: { sheets: some(12.0) } }]]);
+
+/** What a test asks of the flows' Plan beyond example 16's own. */
+export interface FlowsPlanOptions {
+    /** The Plan's veto over a connection, built inside the Plan's own block; left out, none. */
+    canConnect?: () => FlowsCanConnect;
+    /** Whether the flows have their presets, listed in the library's Events tab; left out, none and no library. */
+    templates?: boolean;
+}
+
 /**
  * Example 16's Plan, with its inspector.
  *
- * @param canConnect - The Plan's veto over a connection, built inside the Plan's own block; left out, none
+ * @param options - The Plan's veto, and whether the flows have templates
  * @returns The program, for the harness's `mount`
  */
-export function flowsPlan(canConnect?: () => FlowsCanConnect) {
+export function flowsPlan({ canConnect, templates = false }: FlowsPlanOptions = {}) {
     return { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
         const works = $.let(Record.bind(ex.planLinkWorks, []));
         const plates = $.let(Record.bind(ex.planLinkPlates));
@@ -58,8 +71,12 @@ export function flowsPlan(canConnect?: () => FlowsCanConnect) {
                     from: { field: "from", of: { plate: "plate", job: "job", binding: "binding" } },
                     to: { field: "to", of: { job: "job", binding: "binding", delivery: "delivery" } },
                     quantity: { field: "sheets", unit: "k sheets" },
+                    ...(templates ? {
+                        templates: Schedule.templates($.const(FLOW_PRESETS, DictType(StringType, FlowPreset)), { name: (preset) => preset.name, values: (preset) => preset.values }),
+                    } : {}),
                 }),
             },
+            ...(templates ? { library: [Plan.library.events()] } : {}),
             ...(canConnect === undefined ? {} : { canConnect: $.const(canConnect()) }),
             inspector: true,
         });

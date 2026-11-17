@@ -65,6 +65,10 @@ export interface PlanToolsChrome {
     readonly refusal: (kind: PlanLinkKindValue, from: PlanLinkSource, to: string) => string | undefined;
     /** Draws it: a draft of its kind's session, one step of the history, selected. Whether it was recorded. */
     readonly draw: (kind: PlanLinkKindValue, from: PlanLinkSource, to: string) => boolean;
+    /** The template the library holds for each link kind, by the kind's slot: its key. A link drawn takes its values. */
+    readonly templates: ReadonlyMap<string, string>;
+    /** Holds a link kind's template — or, held already, lets it go. */
+    readonly holdTemplate: (slot: string, key: string) => void;
 }
 
 /**

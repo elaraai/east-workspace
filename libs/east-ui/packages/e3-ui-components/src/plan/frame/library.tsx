@@ -74,7 +74,8 @@ import { Box } from "@chakra-ui/react";
 import { DateTimeType, StringType, compareFor, equalFor, none, some, type ValueTypeOf } from "@elaraai/east";
 import type { PickBindType } from "@elaraai/east-ui";
 import type { planKeys } from "@elaraai/e3-ui/internal";
-import { printEventRef } from "../../shared/schedule/event-ref.js";
+import { parseEventRef, printEventRef } from "../../shared/schedule/event-ref.js";
+import type { PlanToolsChrome } from "../links/connect.js";
 import {
     EastChakraLibrary, EastChakraPickPanel, EmptyStateView, getSomeorUndefined,
     type BuilderFrameDock, type LibraryEmpty, type LibraryNarrowing, type LibraryValue,
@@ -146,6 +147,11 @@ export interface PlanLibraryProps {
     library: PlanValue["library"];
     /** The event kinds: their templates and their backlogs. */
     kinds: PlanValue["events"];
+    /**
+     * The tools' chrome (#1541, U10), while a link kind is editable: the Events tab lists each such kind's templates
+     * under its name, and a click holds one — a link Connect draws takes its values. `undefined`, none is listed.
+     */
+    tools?: PlanToolsChrome | undefined;
     /** The series the event kinds land on (#1541): what a template's card names its kind's series by. */
     landings: PlanValue["landings"];
     /** What the canvas reads of its rows (#1199, #1541): a backlog card names its resource by its landing row, else by its row read by its key. */
@@ -323,7 +329,7 @@ function tabBody(styles: Record<string, Record<string, unknown>>, tab: string, p
  * @returns The pane — its tabs the ones `library` lists, each with its count; 272px wide; its collapsed state kept per viewer — or `undefined`, no pane, when `library` lists none
  */
 export function usePlanLibrary({
-    library, kinds, landings, inspect, pick, keys, hidden, onHidden, now, words, takesCards,
+    library, kinds, tools, landings, inspect, pick, keys, hidden, onHidden, now, words, takesCards,
     unscheduled: read, takesEvents = false, patchKinds = NO_PATCH_KINDS, followed = NONE_FOLLOWED, backlogNarrowing = NO_BACKLOG_NARROWING,
     backlogRetained = false, backlogFlash = false,
 }: PlanLibraryProps): BuilderFrameDock | undefined {
@@ -342,9 +348,37 @@ export function usePlanLibrary({
     // ── Events: every kind's templates, under its name, then their group (PB27) ──
     // Each kind's list following its source of the rail (#1344).
     const templatesFollow = useMemo(() => templatesTab(kinds, followed, words), [kinds, followed, words]);
+    // The editable link kinds' templates (#1541, U10), after the event kinds': each under its kind's name, the one held
+    // drawn as picked. A link has no row to be dropped on: its card is held by a click, and drags nowhere.
+    const linkTemplates = useMemo(() => (tools?.kinds ?? []).flatMap((kind) => kind.templates.map((template) => {
+        const group = getSomeorUndefined(template.group);
+        const held = tools?.templates.get(kind.key);
+        const line = m.linkTemplateLine({ kind: kind.name });
+        return card({
+            key: printEventRef({ kind: kind.key, key: template.key }),
+            label: template.name,
+            sublabel: some(line),
+            icon: some(kind.icon),
+            status: none,
+            trailing: none,
+            draggable: false,
+            filtered: false,
+            placed: held !== undefined && stringEqual(held, template.key),
+            search: some([template.name, group ?? "", line].join(" · ")),
+            groups: new Map([["kind", m.templateGroup({ kind: kind.name, group })]]),
+        });
+    })), [tools, m]);
+    // A click on a link kind's template holds it, or lets it go; an event kind's template takes no click.
+    const holdTemplate = tools?.holdTemplate;
+    const linkSlots = useMemo(() => new Set((tools?.kinds ?? []).map((kind) => kind.key)), [tools?.kinds]);
+    const onTemplateClick = useCallback((key: string) => {
+        const ref = parseEventRef(key);
+        if (ref.success && linkSlots.has(ref.value.kind)) holdTemplate?.(ref.value.kind, ref.value.key);
+        return null;
+    }, [linkSlots, holdTemplate]);
     const templates = useMemo(() => libraryOf({
         id: eventsLibrary(keys),
-        items: templatesFollow.cards.map(({ kind, template }) => {
+        items: [...templatesFollow.cards.map(({ kind, template }) => {
             const group = getSomeorUndefined(template.group);
             const takes = kind.takes.map((slot) => (landingNames.get(slot) ?? slot).toLocaleLowerCase(words.locale));
             const line = m.templateLine({
@@ -366,11 +400,11 @@ export function usePlanLibrary({
                 search: some([template.name, group ?? "", line].join(" · ")),
                 groups: new Map([["kind", m.templateGroup({ kind: kind.name, group })]]),
             });
-        }),
+        }), ...linkTemplates],
         groupOptions: [{ key: "kind", label: m.libraryGroupBy({ tab: "events" }) }],
         noun: noun("events"),
-        onCardClick: none,
-    }), [keys, templatesFollow, landingNames, words, m, noun, takesEvents]);
+        onCardClick: linkTemplates.length > 0 ? some(onTemplateClick) : none,
+    }), [keys, templatesFollow, landingNames, words, m, noun, takesEvents, linkTemplates, onTemplateClick]);
 
     // ── Backlog: every kind's unscheduled events, by when they are due (PB28) ──
     // Read through each kind's seam with its drafts in place, with the footer's
@@ -511,7 +545,9 @@ export function usePlanLibrary({
             switch (tab.type) {
                 case "events":
                     // Its templates the rail shows, counted, and what it says when the rail leaves it none (#1344).
-                    return { key: "events", label: m.libraryTab({ tab: "events" }), count: templatesFollow.count, shown: templates.items.length,
+                    return { key: "events", label: m.libraryTab({ tab: "events" }), shown: templates.items.length,
+                        // The link kinds' templates follow no source: counted beside what the rail shows of the event kinds'.
+                        count: typeof templatesFollow.count === "number" ? templatesFollow.count + linkTemplates.length : templatesFollow.count,
                         body: tabBody(styles, "events", templatesFollow.pane, (
                             <EastChakraLibrary value={templates} storageKey={`${keys.library}.events`}
                                 empty={templatesFollow.empty === undefined ? undefined : empty("events", "")}
@@ -569,5 +605,5 @@ export function usePlanLibrary({
             persist: "local",
             tabs: tabs.map(({ shown: _shown, ...pane }) => pane),
         };
-    }, [library, m, words, templates, templatesFollow, backlog, backlogFollow, backlogRead, backlogRetained, seriesPick, authorLibraries, authorFollows, keys, empty, listsBacklog, styles, backlogFlash]);
+    }, [library, m, words, templates, templatesFollow, linkTemplates.length, backlog, backlogFollow, backlogRead, backlogRetained, seriesPick, authorLibraries, authorFollows, keys, empty, listsBacklog, styles, backlogFlash]);
 }

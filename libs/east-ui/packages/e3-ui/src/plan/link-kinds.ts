@@ -41,7 +41,7 @@
 
 import {
     ArrayType, BlobType, DictType, East, EastTypeType, FloatType, FunctionType, IntegerType, OptionType, StringType, StructType,
-    defaultValue, isTypeEqual, none, some, toEastTypeValue,
+    defaultValue, isTypeEqual, none, printType, some, toEastTypeValue,
     type EastType, type ExprType, type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { TickFormatType, type FieldHints } from "@elaraai/east-ui/internal";
@@ -50,7 +50,9 @@ import {
     type FieldsOf, type KeyEndField, type KeyEndOf, type KeyFieldRole,
 } from "../schedule/fields.js";
 import { SCHEDULE_EVENT_CAP } from "../schedule/record-window.js";
-import { ScheduleEventRefType } from "../schedule/types.js";
+import { ScheduleEventRefType, ScheduleTemplateType } from "../schedule/types.js";
+import { SCHEDULE_TEMPLATES, type ScheduleTemplates } from "../schedule/templates.js";
+import type { ScheduleValuesOf } from "../schedule/events.js";
 import { optionOf, typeText } from "../schedule/window.js";
 import {
     KindSideFields, checkMadeKeys, fieldTypeOf, keyBuilderOf, kindBinding, kindWholeRows, linkEndFields, linkEndsWriter, readOf, recordSide, storedRows, valuesTypeOf,
@@ -105,8 +107,9 @@ export type PlanLinkEndsType = typeof PlanLinkEndsType;
  * @property rows - Its stored links, by their keys' text, each one's roles beside its bytes; `none` past the cap
  *   (`SCHEDULE_EVENT_CAP`), where no link is read
  * @property read - A drafted link's roles, from its bytes and its key's text
- * @property create - A new link between two events, every other field its type's default; `none` for an end of a kind
- *   its field holds no keys of, or a key no key of that kind prints as
+ * @property templates - Its presets, as the library lists them: each a value for every field but its two ends
+ * @property create - A new link between two events, its other fields a template's values, or, given none, their
+ *   types' defaults; `none` for an end of a kind its field holds no keys of, or a key no key of that kind prints as
  * @property rowKey - A new link's key's text, built from its row; `none`, a String key is made up and an Integer one
  *   counted on
  * @property keyType - Its record's key type
@@ -120,7 +123,8 @@ export const PlanLinkKindType = StructType({
     count: FunctionType([], IntegerType),
     rows: FunctionType([], OptionType(DictType(StringType, PlanLinkEntryType))),
     read: FunctionType([BlobType, StringType], PlanLinkRolesType),
-    create: FunctionType([PlanLinkEndsType], OptionType(BlobType)),
+    templates: ArrayType(ScheduleTemplateType),
+    create: FunctionType([PlanLinkEndsType, OptionType(BlobType)], OptionType(BlobType)),
     rowKey: OptionType(FunctionType([BlobType], StringType)),
     keyType: EastTypeType,
 });
@@ -198,11 +202,42 @@ export interface PlanLinksConfig<R extends StructType, FF extends string, TF ext
     /** Hints for the inspector's form over every field but its ends. */
     fields?: FieldHints<R["fields"]>;
     /**
+     * Its presets, a templates record's — `Schedule.templates(rows, { name, group?, values })`, `values` every field of
+     * the row but its two ends: the library lists them under the kind's name, and a link Connect draws takes the
+     * values of the one held there. A link has no time: a template giving `at` or `duration` is refused.
+     */
+    templates?: ScheduleTemplates<ScheduleValuesOf<R, FF | TF>>;
+    /**
      * A new link's key, built from its row — `(feed) => ({ from: feed.from, to: feed.to })`: what a Connect makes one
      * under. Omitted, a String key is made up and an Integer one is one past the largest; an editable kind keyed by
      * any other type needs it.
      */
     key?: KindKeyBuilder<R, K>;
+}
+
+/**
+ * A link kind's templates on the wire, checked: a templates record's, each a value for every field of the row but its
+ * two ends, and none giving a time, which a link has none of.
+ *
+ * @param templates - The kind's `templates`
+ * @param expected - The row's fields less its two ends
+ * @param ends - The two ends' fields
+ * @param where - The kind, as a refusal names it
+ * @returns The templates; none for a kind given none
+ * @throws {Error} For a list written in the code, timed templates, or values of another type, naming both
+ */
+function linkTemplates(templates: unknown, expected: StructType, ends: readonly [string, string], where: string): ExprType<ArrayType<ScheduleTemplateType>> {
+    if (templates === undefined) return East.value([], ArrayType(ScheduleTemplateType));
+    const declared = templates as Partial<ScheduleTemplates<StructType>> | null;
+    if (typeof declared !== "object" || declared === null || declared[SCHEDULE_TEMPLATES] !== true) {
+        throw new Error(`${where}: templates are a record's — Schedule.templates(templates.read(), { name, values }) over a record of the app's, never a list written in the code`);
+    }
+    const given = declared as ScheduleTemplates<StructType>;
+    if (given.timed) throw new Error(`${where}: a link has no time — its templates give no \`duration\`, and no \`at\``);
+    if (!isTypeEqual(given.valuesType, expected)) {
+        throw new Error(`${where}: its templates' \`values\` give every field of the row but \`${ends[0]}\` and \`${ends[1]}\` — ${printType(expected)} — and these give ${printType(given.valuesType)}`);
+    }
+    return given.items;
 }
 
 /** What marks a link kind's declaration. */
@@ -539,7 +574,16 @@ export function planLinks<R extends StructType, FF extends KeyEndField<R>, TF ex
     const ValuesType = valuesTypeOf(rowType, [from.field, to.field]);
     const blank = East.value(defaultValue(ValuesType) as never, ValuesType) as ExprType<EastType>;
     const ended = linkEndsWriter(rowType, from, to);
-    const create = East.function([PlanLinkEndsType], OptionType(BlobType), ($, ends) => ended($ as never, blank, ends) as never);
+    const create = East.function([PlanLinkEndsType, OptionType(BlobType)], OptionType(BlobType), ($, ends, values) => {
+        // Its other fields: the template's values, or, given none, their types' defaults.
+        const others = $.let(values.match({
+            some: (_$2, bytes) => bytes.decodeBeast(ValuesType, "v2") as ExprType<EastType>,
+            none: (_$2) => blank,
+        }), ValuesType);
+        return ended($ as never, others, ends) as never;
+    });
+    // Its presets: a templates record's, each a value for every field but its ends — and none of them timed.
+    const templates = linkTemplates(config.templates, ValuesType, [from.field, to.field], where);
 
     // Read whole, counted first, and read only within the cap an event kind is read under.
     const Held = DictType(bound.keyType, rowType);
@@ -575,6 +619,7 @@ export function planLinks<R extends StructType, FF extends KeyEndField<R>, TF ex
                 count,
                 rows: storedRows(capped, bound.keyType, rolesOf, PlanLinkEntryType),
                 read: readOf(bound.keyType, rowType, rolesOf, PlanLinkRolesType),
+                templates,
                 create,
                 rowKey: keyBuilt === undefined ? none : some(keyBuilt),
                 keyType: toEastTypeValue(bound.keyType),

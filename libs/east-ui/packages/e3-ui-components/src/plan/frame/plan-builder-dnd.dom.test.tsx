@@ -1111,13 +1111,13 @@ describe("Connect draws a link kind's link from one event to another (#1541, U10
     });
 
     test("the Plan's `canConnect` hears the kind and the two events, and its words refuse the draft on the ghost", async () => {
-        const vetoedFlows = flowsPlan(() => East.function([Plan.Types.ConnectCandidate], OptionType(StringType), ($, candidate) => {
+        const vetoedFlows = flowsPlan({ canConnect: () => East.function([Plan.Types.ConnectCandidate], OptionType(StringType), ($, candidate) => {
             const said = $.let(none, OptionType(StringType));
             $.if(candidate.kind.equal("flow").and(() => candidate.from.kind.equal("job")).and(() => candidate.to.key.equal("J-2004")), ($2) => {
                 $2.assign(said, some("Price lists are already at the bindery"));
             });
             return said;
-        }));
+        }) });
         const { container: c } = await h.mount(vetoedFlows, DRAG);
         await settle();
         await press(tool(c, "Connect"));
@@ -1126,5 +1126,26 @@ describe("Connect draws a link kind's link from one event to another (#1541, U10
         expect(caption()).toBe("refused: Price lists are already at the bindery");
         await release();
         expect(pending(c)).toBe("0 pending");
+    });
+
+    test("a link kind's template, held in the library's Events tab by a click, gives the link Connect draws its other fields; let go, a link takes their defaults", async () => {
+        const { container: c } = await h.mount(flowsPlan({ templates: true }), DRAG);
+        await settle();
+        // The flows' preset, under the kind's name: a card that drags nowhere, and is held by a click.
+        const preset = () => cardOf(c, elementKey("flow", "standard"))!;
+        expect(preset().textContent).toContain("Standard run");
+        expect(preset().hasAttribute("data-placed")).toBe(false);
+        await press(preset());
+        expect(preset().hasAttribute("data-placed")).toBe(true);
+        await press(tool(c, "Connect"));
+        const y = layOutPlots(c, [LINK_A1, LINK_A2], [[linkJob(c, LINK_A2, "J-2004"), PRICE_LISTS]]);
+        const release = await carry(linkJob(c, LINK_A1, "J-2001"), { x: xAt(COVERS_AT.day, COVERS_AT.hour), y: y(LINK_A1) }, { x: xAt(3, 0), y: y(LINK_A2) });
+        await release();
+        // The flow drawn moves what the preset holds: twelve thousand sheets.
+        expect(inspected(c)).toBe("Catalogue covers → Price lists");
+        expect(slot(c, "end")!.querySelector('[data-fact="quantity"]')?.textContent).toBe("12 k sheets");
+        // Let go by a second click, the next flow moves none: a flow's sheets are an Option, none by default.
+        await press(preset());
+        expect(preset().hasAttribute("data-placed")).toBe(false);
     });
 });
