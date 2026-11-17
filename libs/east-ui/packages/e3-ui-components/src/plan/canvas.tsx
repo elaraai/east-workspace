@@ -66,8 +66,8 @@
  * element's popover, hover card and tooltip come from ONE overlay layer the
  * body delegates to (#816, `root/overlays.tsx`).
  *
- * The body is a TREEGRID (#819): every row, group band, gap band and window
- * band is a `row` at its `aria-rowindex` (`root/grid.ts`), with ONE tab stop
+ * The body is a TREEGRID (#819): every row, group band, links focus band and
+ * window band is a `row` at its `aria-rowindex` (`root/grid.ts`), with ONE tab stop
  * roving between them, a keyboard map over rows and their elements
  * (`root/keyboard.ts`), a polite live region (`root/announce.tsx`), and words
  * for everything the canvas says only by shape or colour (`a11y.ts`).
@@ -102,8 +102,8 @@ import { axisNow, axisResolutions, ordinalIndexOf } from "./axis.js";
 import type { PlanEvent } from "./plan-state.js";
 import type { PlanPart } from "./messages.js";
 import {
-    bodyItemKey, canvasRowsOf, derivePlan, indexRows, linkedRowKeys, pinnedRows, pxOf, rowHeight, rowItemKey, rowKeyOf,
-    rowKeyWords, visibleRows,
+    bodyItemKey, canvasRowsOf, derivePlan, focusRoleCounts, indexRows, linkedRowKeys, pinnedRows, pxOf, rowHeight, rowItemKey,
+    rowKeyOf, rowKeyWords, visibleRows,
     type PlanBand, type PlanBodyItem, type PlanRootValue, type PlanRowIndex, type PlanRowValue, type VisibleRow,
 } from "./model.js";
 import { PLAN_PAGE_SIZE, bandElements } from "./use-plan-paging.js";
@@ -132,7 +132,7 @@ import { PlanNarrow, PLAN_NARROW_BELOW } from "./narrow/index.js";
 import type { PlanNarrowPaging } from "./narrow/demand.js";
 import { LinksOverlay } from "./shell/LinksOverlay.js";
 import { ConnectOverlay } from "./shell/ConnectOverlay.js";
-import { linkedElement, ribbonBody, type LinkedElement, type RibbonBeyond } from "./shell/ribbon-layout.js";
+import { linkedElement, placedBeyond, ribbonBody, type LinkedElement, type RibbonBeyond } from "./shell/ribbon-layout.js";
 import type { PlanDiagnostics } from "./shell/Diagnostics.js";
 import type { PlanTransport } from "./shell/transport.js";
 import { retryPeriod, type PagedLoading } from "../shared/loading.js";
@@ -160,7 +160,7 @@ import type { PlanCanvasParts, PlanSessionBanner } from "./root/chrome.js";
 import { useHostBound } from "./root/host-bound.js";
 import { usePlanExpand, usePlanFocus } from "./root/focus.js";
 import { groupEndsOf, usePlanBody, usePlanRangeReport, usePlanScrollTarget } from "./root/body.js";
-import { PlanGapBand, PlanStickyParent, renderPlanRow, type PlanRowContext } from "./root/rows.js";
+import { PlanFocusBandRow, PlanStickyParent, renderPlanRow, type PlanRowContext } from "./root/rows.js";
 import { PlanHeader } from "./root/Header.js";
 import { usePlanCursorController } from "./root/cursor.js";
 import { usePlanDropTarget } from "./root/drop.js";
@@ -892,7 +892,7 @@ export function usePlanCanvas({
         [rowsFind, hiddenPick, seekSearch]);
 
     // ── Row focus and the visible rows ────────────────────────────────────
-    const { linkFamily, focusVisibleKeys, focusCtx } = usePlanFocus(view.focus, data.links);
+    const { focusVisibleKeys, focusCtx } = usePlanFocus(view.focus, data.links);
     // The links focus's ends whose runs a row read lean does not hold, once its rows draw (#1438): their rows are read
     // whole (above), and stay so while the focus lasts. A row the canvas has not placed has no end to draw.
     const linksFocusKey = view.focus?.kind === "links" ? view.focus.key : undefined;
@@ -918,11 +918,11 @@ export function usePlanCanvas({
     }, [linksFocusKey, readsWhole, focusVisibleKeys, data.links, index, linkedElementOf, linkEnds]);
     // Keyed on the view FIELDS the walk reads (`grain`, `collapsed`), and each
     // row object kept while it holds, so a row's memo survives both a store
-    // change that did not move it and a window landing (#616, #815).
+    // change that did not move it and a window landing (#616, #815). A links
+    // focus gathers its rows wherever they sit (`focusBodyItems`): the walk is
+    // the same under it.
     const { grain, collapsed, chartsExpanded } = view;
-    const walked = useMemo(
-        () => visibleRows(index, { grain, collapsed }, focusVisibleKeys),
-        [index, grain, collapsed, focusVisibleKeys]);
+    const walked = useMemo(() => visibleRows(index, { grain, collapsed }), [index, grain, collapsed]);
     const visible = useStableVisible(walked);
     const pinned = useMemo(
         () => pinnedRows(index).map((row): VisibleRow => ({ row, depth: 0, collapsed: false })),
@@ -1162,7 +1162,10 @@ export function usePlanCanvas({
     const rowDrop = usePlanDropTarget(value, data.sources, panel ?? NO_PANEL, onDrag, editing.available && !locked, locked ? undefined : eventDrag, veto);
 
     // ── The body ──────────────────────────────────────────────────────────
-    const body = usePlanBody(visible, index, derived, paging, focusCtx, heightCtx, dense, chartsExpanded);
+    // A row of a paged source's evicted window has a place the canvas knows: a links focus counts it with its role, and
+    // its links end where it is (#1680's review). The driver's, read as the paging moves — which renews the body.
+    const placed = useCallback((key: RowKey) => paged && controller.placeOf(key) !== undefined, [paged, controller]);
+    const body = usePlanBody(visible, index, derived, paging, focusCtx, heightCtx, dense, chartsExpanded, placed);
     const target = usePlanScrollTarget(body.items, index, derived, scroll);
     // The rows' pitch where a run stands for rows not read yet (#1398, CL2): the height most resident rows draw at —
     // a two-line row's 42, a span row's 32 — else the default row's.
@@ -1189,14 +1192,15 @@ export function usePlanCanvas({
         [linksFocus, body.items, body.heights, geometry]);
     // A pinned row renders in the header, above every body row; a row of an
     // evicted paged window sits where its window does in its block's band
-    // (#823) — a row never seen has no place, and its edges are not drawn.
+    // (#823) — or, its band folded with the links focus's other rows, at the
+    // band they fold into (#1680's review); a row never seen has no place,
+    // and its edges are not drawn.
     const pinnedKeys = useMemo(() => new Set(pinned.map((v) => v.row.key)), [pinned]);
     // (A band moves only with the body, so the ribbons' body is what renews it.)
     const beyond = useCallback((key: string): RibbonBeyond | undefined => {
         if (pinnedKeys.has(key)) return { off: "above" };
         const place = paged ? controller.placeOf(key) : undefined;
-        const top = place !== undefined ? ribbonRows?.bands.get(`${place.block}:${place.at}`) : undefined;
-        return place !== undefined && top !== undefined ? { y: top + place.px } : undefined;
+        return place !== undefined && ribbonRows !== undefined ? placedBeyond(place, ribbonRows) : undefined;
     }, [pinnedKeys, paged, controller, ribbonRows]);
     // What a bounded frame's view is read from — its scroll element and the
     // sticky chrome above its rows.
@@ -1265,7 +1269,9 @@ export function usePlanCanvas({
     // under a parent whose own row has scrolled off, that parent — and, on a
     // deep tree, the path to it — is pinned under the header. The same inline
     // and paged: a paged window holds its entries whole, and a section's
-    // header is a fixed block, so a row's parent is always on the canvas.
+    // header is a fixed block, so a row's parent is always on the canvas. A row
+    // a links focus gathers stands under its role's band, which its sub line
+    // names its parents beside (#1680's review): it pins nothing.
     const itemIndex = useMemo(() => {
         const m = new Map<string, number>();
         body.items.forEach((it, i) => m.set(bodyItemKey(it), i));
@@ -1273,7 +1279,7 @@ export function usePlanCanvas({
     }, [body.items]);
     const stickyParent = useCallback((top: number): ReactNode => {
         const item = body.items[top];
-        if (item?.kind !== "row" || item.row.row.parent.type !== "some") return null;
+        if (item?.kind !== "row" || item.row.gathered !== undefined || item.row.row.parent.type !== "some") return null;
         const parent = index.byKey.get(item.row.row.parent.value);
         // Its own row still in view (or below): nothing to pin.
         const at = parent !== undefined ? itemIndex.get(rowItemKey(parent.key)) : undefined;
@@ -1491,11 +1497,13 @@ export function usePlanCanvas({
         : (row: PlanRowValue) => rowsInFlight.has(row.key) || unread?.(row) === true), [unread, rowsInFlight]);
     const rowCtx = useMemo<PlanRowContext>(() => ({
         styles, gridTemplate, dense, storageKey, index, derived,
-        dispatch: controller.dispatch, chartsExpanded, focusCtx, heightCtx, linkFamily, linkedKeys,
+        dispatch: controller.dispatch, chartsExpanded, focusCtx, heightCtx, linkedKeys,
         canExpand, expandBody, expandGutterBody, partial, rowDrop, marks, groupEnds, unread: unreadOrInFlight,
     }), [styles, gridTemplate, dense, storageKey, index, derived, controller, chartsExpanded,
-        focusCtx, heightCtx, linkFamily, linkedKeys, canExpand, expandBody, expandGutterBody, partial, rowDrop, marks,
+        focusCtx, heightCtx, linkedKeys, canExpand, expandBody, expandGutterBody, partial, rowDrop, marks,
         groupEnds, unreadOrInFlight]);
+    // The rows each role band of a links focus gathers, which its caption counts (#1680's review).
+    const linkCounts = useMemo(() => focusRoleCounts(body.items), [body.items]);
 
     // The resolution segment is a TIME-axis affordance; the now instant rides
     // whichever arm the axis declares.
@@ -1782,7 +1790,7 @@ export function usePlanCanvas({
             case "event":
                 controller.dispatch(move.event);
                 // Focus stays on (or lands on) its item: the event may have
-                // re-rendered it as another element — a rail becoming a row.
+                // re-rendered it as another element — a strip becoming a row.
                 controller.focusItem(move.focus);
                 break;
             case "none":
@@ -2137,9 +2145,7 @@ export function usePlanCanvas({
             focusLabel={view.focus !== null
                 ? index.byKey.get(view.focus.key)?.gutter.label ?? rowKeyWords(view.focus.key)
                 : undefined}
-            linkCounts={linkFamily !== undefined
-                ? { upstream: linkFamily.upstream.size, downstream: linkFamily.downstream.size }
-                : undefined} />
+            linkCounts={linkCounts} />
     );
 
     // An element's activation from the keyboard does what its click does:
@@ -2291,7 +2297,7 @@ export function usePlanCanvas({
         e.preventDefault();
         controller.dispatch(ev);
         // A key pressed on a row keeps focus on it: the ladder may re-render
-        // it as another element (a rail returning to a row).
+        // it as another element (a strip returning to a row).
         const item = gridItemOf(t, bodyEl);
         if (item !== null && item === t) controller.focusItem(item.getAttribute("data-plan-item") ?? "");
         return true;
@@ -2408,11 +2414,11 @@ export function usePlanCanvas({
                     fillParent={frameFills}
                     // Every body item pins the exact height it gives the
                     // frame in `sizes` — `RowShell` sets `height: {h}px`
-                    // from the same `rowHeight()`, the rail / gap bands
-                    // read the same geometry table's variables in the
-                    // recipe (#817), and the R2 render pins its clamped
-                    // `px`. Measuring fixed-height rows drifts under
-                    // fractional zoom and paints hairline seams (#533).
+                    // from the same `rowHeight()`, a group band or a links
+                    // focus band the geometry table's (#817), and the R2
+                    // render pins its clamped `px`. Measuring fixed-height
+                    // rows drifts under fractional zoom and paints hairline
+                    // seams (#533).
                     measureRows={false}
                     scrollToIndex={target.toIndex}
                     scrollNonce={target.nonce}
@@ -2475,8 +2481,9 @@ export function usePlanCanvas({
                         const item = body.items[i];
                         switch (item?.kind) {
                             case undefined: return null;
-                            case "gap":
-                                return <PlanGapBand gap={item.gap} h={body.heights[i] ?? 0} styles={styles}
+                            // A links focus's band (#1680's review): a role's, or the one its other rows fold into.
+                            case "focus":
+                                return <PlanFocusBandRow band={item.band} h={body.heights[i] ?? 0} styles={styles}
                                     gridTemplate={gridTemplate} dispatch={controller.dispatch} />;
                             // A run of rows not drawn yet (#1398, CL2): an unloaded run, or a failed window.
                             case "band":

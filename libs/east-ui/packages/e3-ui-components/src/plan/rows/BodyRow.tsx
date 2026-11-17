@@ -28,7 +28,6 @@
  */
 
 import { memo, useEffect, type ReactNode } from "react";
-import { Box, VisuallyHidden } from "@chakra-ui/react";
 import { RowShell, type PlanGutterLane, type PlanRowDrop } from "./RowShell.js";
 import { GroupRow } from "./GroupRow.js";
 import { ChartLeftTicks } from "./ChartRow.js";
@@ -40,9 +39,6 @@ import { rowToggle } from "./row-facts.js";
 import type { PlanDraftMark } from "../use-plan-editing.js";
 import { usePlanRowState } from "../controller/react.js";
 import { usePlanGridRow } from "../root/grid.js";
-import { statusText } from "../a11y.js";
-import { usePlanWords } from "../words.js";
-import type { PlanFocusTagWord } from "../messages.js";
 import { rowItemKey, spansWindows, type PlanDerived, type VisibleRow } from "../model.js";
 import type { PlanEvent } from "../plan-state.js";
 
@@ -88,13 +84,13 @@ export interface PlanBodyRowProps {
     derived: PlanDerived;
     dispatch: (e: PlanEvent) => void;
     /**
-     * This row's presentation under the canvas's row focus:
-     * `none` (no focus, or full-height family), `rail` (R1 unrelated — 11px),
-     * `ctx` (R2 context strip — 16px), `focal` (the R2 focused row).
+     * This row's presentation under the canvas's row focus (`planRowRole`):
+     * `none` (no focus, or a row a links focus gathers or folds away), `pinned`
+     * (R1 — a pinned row it does not gather, a 16px strip keeping its name,
+     * value and dot), `ctx` (R2 context strip — 16px), `focal` (the R2 focused
+     * row).
      */
-    focusRole: "none" | "rail" | "ctx" | "focal";
-    /** The links-focus family tag (R1). */
-    focusTag: PlanFocusTagWord | undefined;
+    focusRole: "none" | "pinned" | "ctx" | "focal";
     /** The expand render's axis treatment (R2, focal row only). */
     axisMode: "dim" | "off" | undefined;
     /** Whether the row grows the links / expand focus controls. */
@@ -168,10 +164,10 @@ function sameBodyRow(a: PlanBodyRowProps, b: PlanBodyRowProps): boolean {
         && Object.is(da.diagnostics.get(k), db.diagnostics.get(k)));
 }
 
-/** One body row — a group band, an R1 rail, or a kind row in its shell. */
+/** One body row — a group band, or a kind row in its shell. */
 export const PlanBodyRow = memo(function PlanBodyRow({
     v, h, styles, gridTemplate, hasChildren, derived,
-    dispatch, focusRole, focusTag, axisMode,
+    dispatch, focusRole, axisMode,
     showLinksControl, showExpandControl, partial, rowDrop, draft, groupEnd, unread,
     expandBody, expandGutter, bandHeight,
 }: PlanBodyRowProps) {
@@ -180,7 +176,6 @@ export const PlanBodyRow = memo(function PlanBodyRow({
     const { selected, chartExpanded, activeControl, active, focusSeq } = usePlanRowState(v.row.key);
     // Its place in the treegrid and its share of the tab stop (#819).
     const grid = usePlanGridRow(rowItemKey(v.row.key), active, focusSeq);
-    const words = usePlanWords();
     const mountedAs = v.row.key;
     useEffect(() => {
         bodyRowMountProbe?.(mountedAs, "mount");
@@ -191,31 +186,6 @@ export const PlanBodyRow = memo(function PlanBodyRow({
     // A row that cannot be placed on the axis renders in place as its
     // diagnostic (#811) — gutter kept, marks replaced by the reason.
     const diagnostic = derived.diagnostics.get(v.row.key);
-
-    // R1 rails — unrelated rows collapse to 11px, never removed: order,
-    // scroll and the status dot survive, and the rail itself returns.
-    if (focusRole === "rail") {
-        const railTone = v.row.status.type === "some" ? v.row.status.value.type : undefined;
-        return (
-            <Box ref={grid.ref} css={styles.rail} style={{ gridTemplateColumns: gridTemplate }} data-plan-rail={v.row.key}
-                role="row" aria-level={v.depth + 1} aria-selected={selected}
-                tabIndex={grid.tabIndex} onFocus={grid.onFocus} data-plan-item={rowItemKey(v.row.key)}
-                // The recipe sizes the rail from the geometry variable; this
-                // is the height the model laid it out at (#817).
-                data-plan-h={h}
-                onClick={() => dispatch({ t: "focus.clear" })}>
-                {/* 11px carries no name — a reader still hears which row it is. */}
-                <Box position="relative" role="rowheader">
-                    <VisuallyHidden>{v.row.gutter.label}</VisuallyHidden>
-                    {railTone !== undefined && (
-                        <Box as="span" css={styles.statusDot} data-tone={railTone}
-                            role="img" aria-label={statusText(railTone, words)}
-                            position="absolute" right="12px" top="2px" />
-                    )}
-                </Box>
-            </Box>
-        );
-    }
 
     if (kind.type === "group") {
         return (
@@ -228,15 +198,17 @@ export const PlanBodyRow = memo(function PlanBodyRow({
         );
     }
 
-    const isCtx = focusRole === "ctx";
+    // A pinned row a links focus does not gather strips as an expand focus's context rows do — keeping its value and
+    // dot in their cells (#1680's review).
+    const isCtx = focusRole === "ctx" || focusRole === "pinned";
     const isFocal = focusRole === "focal" && expandBody !== undefined;
     // What the caret toggles is the one answer the keyboard reads too (`rowToggle`, #819). Carets only fold (#1680's
     // review): an expandable chart's spark ↔ chart is its expand control's.
     const toggle = rowToggle(v, hasChildren, chartExpanded);
     const fold = toggle !== undefined && toggle.event.t !== "chart.toggle" ? toggle : undefined;
     const chartToggle = toggle !== undefined && toggle.event.t === "chart.toggle" ? toggle : undefined;
-    // The row-scoped focus controls + family tags. The expand control opens the row's render (R2) where it declares
-    // one, its chart drawn expanded in its band; else it toggles an expandable chart.
+    // The row-scoped focus controls. The expand control opens the row's render (R2) where it declares one, its chart
+    // drawn expanded in its band; else it toggles an expandable chart.
     const rowControls: ReadonlyArray<{ kind: "links" | "expand"; active: boolean; onClick: () => void }> = [
         ...(showLinksControl ? [{
             kind: "links" as const,
@@ -256,7 +228,9 @@ export const PlanBodyRow = memo(function PlanBodyRow({
     const shellBase = {
         row: v.row, styles, gridTemplate, depth: v.depth,
         selected,
-        controls: isCtx ? undefined : rowControls, focusTag, axisMode, ctx: isCtx,
+        controls: isCtx ? undefined : rowControls, axisMode, ctx: isCtx, keep: focusRole === "pinned",
+        // A row a links focus gathers says what it nests under on its sub line (#1680's review).
+        path: v.gathered?.path,
         ...(isFocal ? {
             expandBody,
             bandHeight,

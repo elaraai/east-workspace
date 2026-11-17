@@ -18,10 +18,10 @@
 import { describe, test, expect } from "vitest";
 import { some, none, variant } from "@elaraai/east";
 import {
-    canvasRowsOf, derivePlan, indexRows, keyAcrossBlocks, restUi, rowHeight, rowIdOfKey, rowKeyOf, pxOf,
+    canvasRowsOf, deriveLinkFamily, derivePlan, indexRows, keyAcrossBlocks, restUi, rowHeight, rowIdOfKey, rowKeyOf, pxOf,
     skeletonHeight, toCanvasRows, visibleRows, windowRestHeight, windowSkeleton,
-    HEAT_ROW_H, ROW_H, ROW_H_STACKED, GROUP_STRIP_H, GROUP_H, STRIP_H, RAIL_H,
-    type PlanRowValue, type PlanWireBlock, type PlanWireRow, type SkeletonUi, type VisibleRow,
+    HEAT_ROW_H, ROW_H, ROW_H_STACKED, GROUP_STRIP_H, GROUP_H, STRIP_H,
+    type PlanLinkValue, type PlanRowValue, type PlanWireBlock, type PlanWireRow, type SkeletonUi, type VisibleRow,
 } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
 import { rowId, rowIdEqual, rowKey } from "./plan.test-utils.js";
@@ -171,18 +171,29 @@ describe("Plan rowHeight (§8)", () => {
     });
 });
 
-describe("Plan row focus heights (R1 rails)", () => {
+describe("Plan row focus heights (R1 links / R2 strips)", () => {
     const expand = (height?: string) => ({
         render: () => null,
         height: height !== undefined ? some(height) : none,
         axis: variant("keep", null),
     });
 
-    test("links focus: family + groups keep height, everything else rails at 11", () => {
-        const focus = { kind: "links" as const, key: rowKey("focus"), family: new Set([rowKey("fam")]) };
-        expect(rowHeight(visible(row(spanKind, { key: "other" })), false, new Set(), focus)).toBe(RAIL_H);
-        expect(rowHeight(visible(row(spanKind, { key: "fam" })), false, new Set(), focus)).toBe(ROW_H);
+    test("links focus: a body row keeps its height; one it gathers says its path on a second line; a pinned row it does not gather strips to 16 (#1680's review)", () => {
+        const fam = {
+            key: "f>fam", from: { row: rowId("focus"), run: "a" }, to: { row: rowId("fam"), run: "b" }, quantity: none,
+        } as unknown as PlanLinkValue;
+        const focus = { kind: "links" as const, key: rowKey("focus"), links: { family: deriveLinkFamily([fam], rowKey("focus")), others: false } };
+        // The rows its others' band folds, and its groups, draw as they are.
+        expect(rowHeight(visible(row(spanKind, { key: "other" })), false, new Set(), focus)).toBe(ROW_H);
         expect(rowHeight(visible(row(groupKind(), { key: "g" })), false, new Set(), focus)).toBe(GROUP_H);
+        // Gathered: under a row, its path makes a second line; at the top, with none, one.
+        const gathered = (key: string, path: string[]): VisibleRow => ({ ...visible(row(spanKind, { key })), depth: 1, gathered: { role: "downstream", path } });
+        expect(rowHeight(gathered("fam", ["Hall 1"]), false, new Set(), focus)).toBe(ROW_H_STACKED);
+        expect(rowHeight(gathered("fam", []), false, new Set(), focus)).toBe(ROW_H);
+        // Pinned, above the body: a strip — unless it is the focus's own, or its family's.
+        expect(rowHeight(visible(row(spanKind, { key: "pin", pinned: true })), false, new Set(), focus)).toBe(STRIP_H);
+        expect(rowHeight(visible(row(spanKind, { key: "fam", pinned: true })), false, new Set(), focus)).toBe(ROW_H);
+        expect(rowHeight(visible(row(spanKind, { key: "pin", pinned: true })), false, new Set())).toBe(ROW_H);
     });
 
     test("expand focus: the focal row keeps its kind height, every other DATA row strips to 16px", () => {
@@ -336,8 +347,9 @@ describe("win skeletons — the heights of evicted rows (#823)", () => {
         }
         // Collapse ALL — the group grain folds both top groups to their bands.
         expect(skeletonHeight(sk, state({ grain: "group", collapsed: [], charts: [] }), false)).toBe(GROUP_STRIP_H + GROUP_H);
-        // A links focus elides runs ACROSS windows, which no win can say:
-        // its windows measure as though unfocused.
+        // A links focus gathers its rows out of every window into its role
+        // bands, and draws its other rows as they are: its windows measure as
+        // though unfocused.
         const links = { kind: "links" as const, key: rowKey("a") };
         expect(skeletonHeight(sk, state(states[0]!), false, links)).toBe(drawn(win, states[0]!));
     });

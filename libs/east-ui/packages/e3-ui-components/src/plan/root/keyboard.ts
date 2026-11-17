@@ -3,18 +3,20 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  *
  * The canvas's keyboard map (#819), as a model: the grid's items in order
- * (pinned rows, then the body — rows, gap bands, the bands standing for a
- * paged source's unloaded runs, failed windows), and what a key does from one
- * of them. Pure, so the whole map is testable without a DOM; the canvas root
- * runs the moves it returns (`index.tsx`).
+ * (pinned rows, then the body — rows, a links focus's bands, the bands
+ * standing for a paged source's unloaded runs, failed windows), and what a key
+ * does from one of them. Pure, so the whole map is testable without a DOM; the
+ * canvas root runs the moves it returns (`index.tsx`).
  *
  * # Rows
  *
  * ↑ / ↓ step between items, Home / End go to the first / last, PgUp / PgDn
  * move a viewport's worth. → opens a closed section (or chart) and, on an open
  * section, steps to its first child; ← closes an open one, or steps to its
- * parent. Enter does what a click on the row does — select it, or return from
- * a row focus on a rail or strip — and Space toggles its section or chart.
+ * parent — a row a links focus gathers, to its role's band. Enter does what a
+ * click on the row does — select it, or return from a row focus on a strip —
+ * and Space toggles its section or chart. A links focus's others' band opens
+ * and folds as a section's does (#1680's review); a role's band opens nothing.
  *
  * # Bands
  *
@@ -54,7 +56,9 @@
 import type { PlanEvent, RowKey } from "../plan-state.js";
 import type { PlanViewport } from "../use-plan-paging.js";
 import type { PlanNavAlign } from "../controller/index.js";
-import { bodyItemKey, rowItemKey, type PlanBodyItem, type PlanFocusCtx, type PlanRowIndex, type VisibleRow } from "../model.js";
+import {
+    bodyItemKey, focusBandKey, rowItemKey, type PlanBodyItem, type PlanFocusCtx, type PlanRowIndex, type VisibleRow,
+} from "../model.js";
 import { appendAll } from "../reductions.js";
 import { planRowRole, rowToggle } from "../rows/row-facts.js";
 import { PLAN_ELEMENT_SELECTOR } from "./overlays.js";
@@ -63,8 +67,8 @@ import { PLAN_ELEMENT_SELECTOR } from "./overlays.js";
 export interface PlanNavItem {
     /** Its `bodyItemKey`. */
     key: string;
-    /** What it is. */
-    kind: "row" | "group" | "gap" | "band" | "failed";
+    /** What it is — a links focus's band is a group's. */
+    kind: "row" | "group" | "band" | "failed";
     /** A band's block and side, and its pixel height (End reaches its far
      *  edge) — a move onto it asks that block for the window beside its run
      *  (#823). */
@@ -78,9 +82,6 @@ export interface PlanNavItem {
     nests: boolean;
     /** What Enter does — the row's click. */
     activate?: PlanEvent | undefined;
-    /** Where focus goes once Enter has done it, when not here — a gap band
-     *  goes away as its rows come back, and focus lands on the first. */
-    activateLands?: string | undefined;
     /** Its height (px) — how far PgUp / PgDn travel. */
     h: number;
 }
@@ -97,7 +98,7 @@ export interface PlanNavSource {
     index: PlanRowIndex;
     /** The chart rows the user expanded. */
     chartsExpanded: ReadonlySet<RowKey>;
-    /** The row focus, if any — its rails and strips return on Enter. */
+    /** The row focus, if any — its strips return on Enter. */
     focusCtx: PlanFocusCtx | undefined;
 }
 
@@ -110,12 +111,13 @@ export interface PlanNavSource {
  */
 export function planNavItems(src: PlanNavSource): PlanNavItem[] {
     const row = (v: VisibleRow, h: number): PlanNavItem => {
-        const parent = v.row.parent.type === "some" ? rowItemKey(v.row.parent.value) : undefined;
-        const nests = (src.index.children.get(v.row.key)?.length ?? 0) > 0;
+        // A row a links focus gathers stands under its role's band, and opens nothing: its subtree is the others'.
+        const parent = v.gathered !== undefined ? focusBandKey(v.gathered.role)
+            : v.row.parent.type === "some" ? rowItemKey(v.row.parent.value) : undefined;
+        const nests = v.gathered === undefined && (src.index.children.get(v.row.key)?.length ?? 0) > 0;
         const role = planRowRole(v, src.focusCtx, false);
-        // A rail or a strip is the way back from a row focus — its click
-        // returns, and it has no caret.
-        if (role === "rail" || role === "ctx") {
+        // A strip is the way back from a row focus — its click returns, and it has no caret.
+        if (role === "pinned" || role === "ctx") {
             return { key: rowItemKey(v.row.key), kind: "row", parent, nests, activate: { t: "focus.clear" }, h };
         }
         const toggle = rowToggle(v, nests, src.chartsExpanded.has(v.row.key));
@@ -132,10 +134,12 @@ export function planNavItems(src: PlanNavSource): PlanNavItem[] {
         const h = src.heights[i] ?? 0;
         switch (item.kind) {
             case "row": out.push(row(item.row, h)); break;
-            case "gap": out.push({
-                key: bodyItemKey(item), kind: "gap", nests: false,
-                activate: { t: "focus.clear" }, activateLands: rowItemKey(item.gap.first), h,
-            }); break;
+            case "focus": {
+                // The others' band opens and folds in place, as a section does; a role's band is a heading.
+                const toggle = item.band.role === "others" ? { event: { t: "focus.others" } as const, open: item.band.open } : undefined;
+                out.push({ key: bodyItemKey(item), kind: "group", nests: false, toggle, activate: toggle?.event, h });
+                break;
+            }
             case "band": out.push({
                 key: bodyItemKey(item), kind: "band",
                 band: { block: item.band.block, at: item.band.at, px: item.band.px }, nests: false, h,
@@ -177,7 +181,7 @@ export type PlanNavMove =
     | { t: "wait"; key: PlanWaitKey }
     /** An interaction on the item — focus stays on (or lands on) `focus`,
      *  since the interaction may re-render the item as another element (a
-     *  rail becoming a row) or take it away (a gap band). */
+     *  strip becoming a row). */
     | { t: "event"; event: PlanEvent; focus: string }
     /** A key the map owns that does nothing here (the edge of the grid). */
     | { t: "none" };
@@ -259,7 +263,7 @@ export function planNavKey(items: readonly PlanNavItem[], from: string, key: str
         }
         case "Enter":
             return cur.activate !== undefined
-                ? { t: "event", event: cur.activate, focus: cur.activateLands ?? cur.key }
+                ? { t: "event", event: cur.activate, focus: cur.key }
                 : { t: "none" };
         case " ":
             return toggleIt();

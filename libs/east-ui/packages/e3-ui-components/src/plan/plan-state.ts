@@ -32,7 +32,7 @@
  *   the component writes them as the slice arm the axis speaks.
  * - **One row focus per canvas** (R1 links / R2 expand): invoking a second
  *   focus control returns the first; invoking the active row's own control
- *   returns it.
+ *   returns it. A links focus's other rows' band opens and folds within it.
  * - **Grain changes rows, never the axis**: `grain.set` clears `selected`,
  *   keeps `expanded` / the window.
  * - **One selection** (#1197, the Calendar's B15): a row — at the bucket a
@@ -76,8 +76,9 @@ export interface PlanUiState {
     chartsExpanded: ReadonlySet<RowKey>;
     /** Whether a horizon-brush drag is in flight (esc-ladder rung). */
     brush: { active: true } | null;
-    /** The row-scoped focus (R1 links / R2 expand) — at most one per canvas. */
-    focus: { kind: "links" | "expand"; key: RowKey } | null;
+    /** The row-scoped focus (R1 links / R2 expand) — at most one per canvas. A links focus's `others` says whether the
+     *  band its other rows fold into is open (#1680's review); absent, it is folded. */
+    focus: { kind: "links" | "expand"; key: RowKey; others?: boolean } | null;
 }
 
 /** Every interaction the surface can report. */
@@ -105,6 +106,8 @@ export type PlanEvent =
     | { t: "focus.links"; key: RowKey }
     | { t: "focus.expand"; key: RowKey }
     | { t: "focus.clear" }
+    /** A links focus's other rows' band opened, or folded again (#1680's review). */
+    | { t: "focus.others" }
     /** A zoom to a resolution — about the middle given, in the axis's numbers: a coarser table cell's period, where a
      *  double click on it zooms to edit it (#1438) — else about the window's own middle. */
     | { t: "resolution.set"; resolution: string; about?: number | undefined }
@@ -281,6 +284,10 @@ export function planReducer(
         case "focus.clear":
             if (s.focus === null) return { state: s, effects: [] };
             return { state: { ...s, focus: null }, effects: [] };
+        case "focus.others":
+            // The band a links focus folds its other rows into opens in place, and folds again; the focus holds.
+            if (s.focus === null || s.focus.kind !== "links") return { state: s, effects: [] };
+            return { state: { ...s, focus: { ...s.focus, others: s.focus.others !== true } }, effects: [] };
         case "resolution.set":
             return { state: s, effects: [{ t: "slice.setResolution", resolution: e.resolution, about: e.about }] };
         case "pan":

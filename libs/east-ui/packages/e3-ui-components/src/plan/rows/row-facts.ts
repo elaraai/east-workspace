@@ -12,26 +12,27 @@
  * @packageDocumentation
  */
 
-import type { PlanFocusCtx, VisibleRow } from "../model.js";
+import { focusGathers, type PlanFocusCtx, type VisibleRow } from "../model.js";
 import type { PlanEvent } from "../plan-state.js";
 
 /**
- * A row's presentation under the canvas's row focus: `rail` (R1 — a row the
- * links focus does not gather, 11px), `ctx` (R2 — a context strip beside the
- * expanded row, 16px), `focal` (the R2 expanded row, when it has a render), or
- * `none`. Group bands are wayfinding and never compress.
+ * A row's presentation under the canvas's row focus: `pinned` (R1 — a pinned
+ * row the links focus does not gather: above the body, it cannot fold away, so
+ * it strips to 16px, its name, value and dot kept in their cells; #1680's
+ * review), `ctx` (R2 — a context strip beside the expanded row, 16px), `focal`
+ * (the R2 expanded row, when it has a render), or `none` — every row a links
+ * focus gathers or folds into its others' band among them. Group bands are
+ * wayfinding and never compress.
  *
  * @param v - The visible row
  * @param focusCtx - The canvas's row focus, if any
  * @param hasRender - Whether the expand render resolved to a body
  * @returns The row's role
  */
-export function planRowRole(v: VisibleRow, focusCtx: PlanFocusCtx | undefined, hasRender: boolean): "rail" | "ctx" | "focal" | "none" {
+export function planRowRole(v: VisibleRow, focusCtx: PlanFocusCtx | undefined, hasRender: boolean): "pinned" | "ctx" | "focal" | "none" {
     if (focusCtx === undefined || v.row.kind.type === "group") return "none";
     const key = v.row.key;
-    if (focusCtx.kind === "links") {
-        return key !== focusCtx.key && !(focusCtx.family?.has(key) ?? false) ? "rail" : "none";
-    }
+    if (focusCtx.kind === "links") return v.row.pinned && !focusGathers(focusCtx, key) ? "pinned" : "none";
     if (key !== focusCtx.key) return "ctx";
     return hasRender ? "focal" : "none";
 }

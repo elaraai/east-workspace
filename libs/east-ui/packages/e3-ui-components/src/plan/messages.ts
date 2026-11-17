@@ -32,6 +32,7 @@ import { pagedLoadingMessages, type PagedLoadingMessages } from "../shared/loadi
 import { eventsNotCounted, hiddenByText, joinedWords as joined, kindPlural as pluralName, lowerWord, type HiddenWords } from "../shared/schedule/words.js";
 import { timeMessages, type TimeMessages } from "../shared/time/scale.js";
 import type { PlanTool } from "./links/connect.js";
+import type { PlanFocusRole } from "./body-items.js";
 
 /** A lifecycle state as the words name it — `EventStateType`, with the
  *  proposal arms spelled out. */
@@ -66,9 +67,6 @@ export type PlanChartLayerWord = "line" | "area" | "column" | "scatter" | "band"
 
 /** An event mark's kind, as its name says it. */
 export type PlanMarkWord = "milestone" | "decision" | "exception";
-
-/** A links-focus family tag (R1). */
-export type PlanFocusTagWord = "UPSTREAM" | "DOWNSTREAM" | "LINKED";
 
 /** A tab of the library pane (#1195): the templates, the backlog, the series, or one of the author's own. */
 export type PlanLibraryTabWord = "events" | "backlog" | "series" | "tab";
@@ -371,13 +369,19 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     // ── Row focus (R1 / R2) ────────────────────────────────────────────────
     /** The focus band's way back. */
     allRows: () => string;
-    /** The links focus caption — `Links · H1-P03 · 4 upstream · 6 downstream`
-     *  (the band sets it in capitals); `label` is the focused row's gutter label. */
-    focusLinks: (p: { label: string; upstream: string | undefined; downstream: string | undefined }) => string;
+    /** The links focus caption — `Links · H1-P03 · 2 upstream · 1 linked · 3 downstream` (the band sets it in
+     *  capitals); `label` is the focused row's gutter label, each count the rows its role gathers, formatted —
+     *  `linked` `undefined` where no row is both upstream and downstream (#1680's review). */
+    focusLinks: (p: { label: string; upstream: string | undefined; linked: string | undefined; downstream: string | undefined }) => string;
     /** The expand focus caption — `label` is the focused row's gutter label. */
     focusExpanded: (p: { label: string }) => string;
-    /** A row's family Tag under a links focus — `Upstream`, `Downstream`, `Linked`. */
-    focusTag: (p: { tag: PlanFocusTagWord }) => string;
+    /** A links focus's role band (#1680's review) — `Upstream`, `Focused`, `Linked`, `Downstream`. */
+    focusRole: (p: { role: PlanFocusRole }) => string;
+    /** What a role band with no rows says beside its name — `none`. */
+    focusNone: () => string;
+    /** A row a links focus gathers: its sub line — the rows it nests under, outermost first, then its own sub when it
+     *  has one: `Contract A`, `Hall 1 / Press bay · 12k/h` (#1680's review). */
+    focusPath: (p: { path: readonly string[]; sub: string | undefined }) => string;
     /** The links-focus control's accessible name. */
     linksControl: () => string;
     /** The expand control's accessible name. */
@@ -389,8 +393,6 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
      *  the one parent whose members span windows, #822) it is a short bar,
      *  never a count (#1398, CL13). */
     groupMeta: (p: { n: number; count: string }) => string;
-    /** What a links focus's gap band stands for — `12 hidden rows`. */
-    hiddenRows: (p: { n: number; count: string; what: "row" | "group" }) => string;
     // A run of rows not drawn yet says nothing (#1398, CL3); a failed one says so once, in the footer line's words
     // (`lineFailed`, `retryRange`, `PagedLoadingMessages`).
     /** A failed window's retry button. */
@@ -469,7 +471,8 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     /** A tab's count where a paged source's entries make no fixed number of what it lists — the Measures tab's, where
      *  some entries make more chart rows than others (#1398): `not counted`, as the Plan's event counts say theirs. */
     tabNotCounted: () => string;
-    /** The card and section for rows in no group. */
+    /** The card and section for rows in no group — and the band a links focus folds the rows it does not gather into
+     *  (#1680's review). */
     otherRows: () => string;
     /** Back to the group list. */
     backToGroups: () => string;
@@ -616,9 +619,9 @@ const LAYER_WORD: Record<PlanChartLayerWord, string> = {
     line: "line", area: "area", column: "columns", scatter: "points", band: "range",
 };
 
-/** A family row's Tag (`Plan links.html`, #1258). */
-const FOCUS_TAG: Record<PlanFocusTagWord, string> = {
-    UPSTREAM: "Upstream", DOWNSTREAM: "Downstream", LINKED: "Linked",
+/** A links focus's role band (#1680's review). */
+const FOCUS_ROLE: Record<PlanFocusRole, string> = {
+    upstream: "Upstream", focused: "Focused", linked: "Linked", downstream: "Downstream",
 };
 
 /** The parts of a list that are there, comma-joined. */
@@ -792,15 +795,20 @@ export const planMessages: PlanMessages = {
     now: () => "NOW",
 
     allRows: () => "← All rows",
-    focusLinks: ({ label, upstream, downstream }) =>
-        `Links · ${label}${upstream !== undefined && downstream !== undefined ? ` · ${upstream} upstream · ${downstream} downstream` : ""}`,
+    focusLinks: ({ label, upstream, linked, downstream }) => [
+        `Links · ${label}`,
+        upstream !== undefined ? `${upstream} upstream` : undefined,
+        linked !== undefined ? `${linked} linked` : undefined,
+        downstream !== undefined ? `${downstream} downstream` : undefined,
+    ].filter((p): p is string => p !== undefined).join(" · "),
     focusExpanded: ({ label }) => `EXPANDED · ${label}`,
-    focusTag: ({ tag }) => FOCUS_TAG[tag],
+    focusRole: ({ role }) => FOCUS_ROLE[role],
+    focusNone: () => "none",
+    focusPath: ({ path, sub }) => (sub !== undefined && sub !== "" ? `${path.join(" / ")} · ${sub}` : path.join(" / ")),
     linksControl: () => "Focus linked rows",
     expandControl: () => "Expand row",
 
     groupMeta: ({ n, count }) => `${count} ${plural(n, "row", "rows")}`,
-    hiddenRows: ({ n, count, what }) => `${count} hidden ${what}${n === 1 ? "" : "s"}`,
     retry: () => "Retry",
     moved: ({ count }) => `moved ×${count}`,
     rollupCaption: ({ count, quantity }) =>
@@ -959,10 +967,6 @@ export function planMessagesIn(parent: PlanMessages, v: PlanVocabulary): PlanMes
         // An event's resource is one of the rows: `Press`, as a group is a `Hall` (review of #1481, finding 5).
         inspectorFact: ({ fact }) => (fact === "group" && groups !== undefined ? groups.one
             : fact === "resource" && rows !== undefined ? rows.one : parent.inspectorFact({ fact })),
-        hiddenRows: (p) => {
-            const noun = p.what === "group" ? groups : rows;
-            return noun === undefined ? parent.hiddenRows(p) : `${p.count} hidden ${lowerWord(plural(p.n, noun.one, noun.other))}`;
-        },
         tabRows: () => rows?.other ?? parent.tabRows(),
         allRows: () => (rowsText === undefined ? parent.allRows() : `← All ${rowsText}`),
         backToAllRows: () => (rowsText === undefined ? parent.backToAllRows() : `← All ${rowsText}`),

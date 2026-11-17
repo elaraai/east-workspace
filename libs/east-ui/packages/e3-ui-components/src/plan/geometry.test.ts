@@ -67,8 +67,7 @@ describe("the Plan geometry table (#817)", () => {
         // The rule under a row sits inside its height — its plot cell, where
         // the link ribbons centre on its bars, is the row less it (#818).
         expect(slot("row").borderBottomWidth).toBe(v("rule"));
-        expect(slot("rail").height).toBe(v("rail"));
-        expect(slot("focusGap").height).toBe(v("gap"));
+        // A group band — and a links focus's band, which wears its look (#1680's review).
         expect(slot("groupBand").minHeight).toBe(v("group"));
         expect(slot("toneCell").height).toBe(v("stripMark"));
         // A span bar — a parent's folded or open, what it rolls up its bands — and one in a strip (#1258).

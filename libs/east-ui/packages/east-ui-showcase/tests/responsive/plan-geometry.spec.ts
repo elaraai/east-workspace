@@ -5,11 +5,13 @@
 
 /**
  * The Plan's geometry, measured in a real browser (#817): every body item —
- * row, group band, rail, gap band — renders at exactly the height the model
- * laid it out at (`rowHeight`, which each item carries as `data-plan-h`), for
- * every row kind the Plan examples draw, at each density, with chart rows at
- * rest and expanded, and under both row focuses (R1 rails and gap bands, R2
- * context strips and the grown focal row).
+ * row, group band, a links focus's band — renders at exactly the height the
+ * model laid it out at (`rowHeight`, which each item carries as `data-plan-h`),
+ * for every row kind the Plan examples draw, at each density, with chart rows
+ * at rest and expanded, and under both row focuses (R1 the role bands, the
+ * rows they gather, the band every other row folds into, open and folded, and
+ * the pinned rows' strips, #1680's review; R2 context strips and the grown
+ * focal row).
  *
  * The model and the recipe read ONE geometry table — the model directly, the
  * recipe through the CSS variables the canvas writes — so a mismatch here
@@ -42,7 +44,7 @@ async function mismatches(entry: Locator): Promise<string[]> {
         const rendered = el.getBoundingClientRect().height;
         if (Math.abs(model - rendered) <= 0.5) return [];
         const name = el.getAttribute("data-plan-row") ?? el.getAttribute("data-plan-group")
-            ?? el.getAttribute("data-plan-rail") ?? `gap ${el.getAttribute("data-plan-gap")}`;
+            ?? el.getAttribute("data-plan-item") ?? el.tagName;
         return [`${name}: model ${model}px, rendered ${rendered}px`];
     }));
 }
@@ -314,27 +316,38 @@ const rowControlsLaidOut = (root: Element): string[] => {
 };
 
 /**
- * How each links-focus tag draws (#1277), by its row: `whole`; `ellipsized`,
- * a letter and the ellipsis at least inside its padding; or `hidden`, wrapped
- * off its line, out of sight — by #1264's rule. Anything else is said in words.
+ * A links focus as its body draws it (#1680's review), top to bottom: each
+ * band by its role, its height and what it says — its caption, then its count
+ * or the word for none — and each row by its id, its height and its second
+ * line, which a row the focus gathers from inside a section begins with the
+ * section's name; then the pinned rows the focus does not gather, each a strip
+ * by its id and height, with the value and the status it keeps.
  */
-const tagStates = (root: Element): { row: string; state: string }[] => [...root.querySelectorAll("[data-plan-gutter='named']")].map((line) => {
-    const row = line.closest("[data-plan-row]")!.getAttribute("data-plan-row")!;
-    const tag = line.querySelector<HTMLElement>(":scope > [data-plan-focustag]")!;
-    if (tag.getBoundingClientRect().top >= line.getBoundingClientRect().bottom - 0.5) return { row, state: "hidden" };
-    if (tag.scrollWidth <= tag.clientWidth) return { row, state: "whole" };
-    const cs = getComputedStyle(tag);
-    const probe = document.body.appendChild(document.createElement("span"));
-    probe.style.cssText = `position: fixed; visibility: hidden; white-space: pre; font: ${cs.font}; letter-spacing: ${cs.letterSpacing}`;
-    probe.textContent = "00";
-    const twoCh = probe.getBoundingClientRect().width;
-    probe.remove();
-    const inside = tag.clientWidth - Number.parseFloat(cs.paddingLeft) - Number.parseFloat(cs.paddingRight);
-    return { row, state: inside + 0.5 >= twoCh ? "ellipsized" : `cut to ${inside.toFixed(1)}px, under a letter and the ellipsis (${twoCh.toFixed(1)}px)` };
-});
-
-/** The ways #1264's rule lets a tag draw. */
-const TAG_DRAWN = ["whole", "ellipsized", "hidden"];
+const focusBody = (root: Element) => {
+    const top = (el: Element) => el.getBoundingClientRect().top;
+    const text = (el: Element | null) => (el === null ? null : (el.textContent ?? "").trim());
+    const h = (el: Element) => el.getBoundingClientRect().height;
+    return {
+        body: [...root.querySelectorAll("[data-virtual-extent] [data-plan-item]")].sort((x, y) => top(x) - top(y)).map((el) => {
+            const band = el.getAttribute("data-plan-focusband");
+            if (band !== null) {
+                const said = [text(el.querySelector("[data-plan-gutter='label']")), text(el.querySelector("[data-plan-gutter='meta'], [data-plan-focusnone]"))];
+                return `${band} ${h(el)} · ${said.filter((s) => s !== null).join(" ")}`;
+            }
+            return `${el.getAttribute("data-plan-row") ?? el.getAttribute("data-plan-item")} ${h(el)} · ${text(el.querySelector("[data-plan-gutter='sub']")) ?? "—"}`;
+        }),
+        strips: [...root.querySelectorAll("[data-plan-row][data-ctx]")].map((el) => {
+            const value = el.querySelector("[data-plan-gutter='value']");
+            const dot = el.querySelector("[data-tone]");
+            return {
+                row: el.getAttribute("data-plan-row"),
+                h: h(el),
+                value: value === null || getComputedStyle(value).display === "none" ? null : text(value),
+                dot: dot === null || getComputedStyle(dot).display === "none" ? null : `${dot.getBoundingClientRect().width}px`,
+            };
+        }),
+    };
+};
 
 /** The row kinds among the entry's measured rows. */
 async function kindsMeasured(entry: Locator): Promise<string[]> {
@@ -407,15 +420,20 @@ test.describe("Plan geometry (#817)", { tag: "@desktop" }, () => {
         expect(rowAt.CONDENSED).toBe(rowAt.COMFORTABLE);
     });
 
-    test("row focus holds — rails and gap bands (R1), context strips and the grown focal row (R2)", async ({ page }) => {
+    test("row focus holds — the role bands, the rows they gather, the band the others fold into, open and folded, and the pinned rows' strips (R1), context strips and the grown focal row (R2)", async ({ page }) => {
         // Wide enough that a strip's tile has the room for its two parts beside the 240px gutter (#1680's review): at
         // 1440px a week's cell leaves its tiles 10.8px, short of a grip and its word.
         await page.setViewportSize({ width: 1920, height: 900 });
         const entry = await openExample(page, "planTargetState");
         await entry.locator('[data-plan-control="links"]').first().click();
-        // Rails and gap bands are measured items too — they carry the model's height.
-        await expect(entry.locator("[data-plan-rail][data-plan-h], [data-plan-gap][data-plan-h]").first()).toBeVisible();
+        // A links focus's bands are measured items too — they carry the model's height (#1680's review).
+        await expect(entry.locator("[data-plan-focusband][data-plan-h]").first()).toBeVisible();
         await expect.poll(() => mismatches(entry), "R1").toEqual([]);
+        // Opened, the band the others fold into holds them as the canvas lays them out, each at its model height.
+        const others = entry.locator('[data-plan-focusband="others"]');
+        await others.click();
+        await expect(others).toHaveAttribute("aria-expanded", "true");
+        await expect.poll(() => mismatches(entry), "R1, the others open").toEqual([]);
         await entry.locator("[data-plan-focusback]").click();
         await entry.locator('[data-plan-control="expand"]').first().click();
         await expect(entry.locator("[data-plan-row][data-ctx][data-plan-h]").first()).toBeVisible();
@@ -458,19 +476,35 @@ test.describe("Plan links focus (#818, #1258)", { tag: "@desktop" }, () => {
      *  window (dlv's run starts where the window ends). H1-P03's one link, its
      *  family's largest, leaves a run that abuts the next and enters one that
      *  abuts the last. planEventLinks is every case at once (`EVENT_ROUTES`
-     *  below), on a bounded canvas: at rest the two links between rows below its
-     *  view draw nothing. */
+     *  below), on a bounded canvas: its focus gathers ten rows under its role
+     *  bands (#1680's review), 484px in a 271px view, so at rest the six links
+     *  between rows below its view draw nothing. */
     const FOCUSES = [
         // The heaviest weighs 6 (ruled 17 Nov 2026, over §15's 8).
         { label: "planTargetState (H1-P09's family)", name: "planTargetState", file: PLAN_EXAMPLES, row: rowSel("detail", "H1-P09"), weights: [2, 4, 6, 4, 2, 6], slots: 1 },
         { label: "planTargetState (H1-P03's transfer)", name: "planTargetState", file: PLAN_EXAMPLES, row: rowSel("presses", "Hall 1", "H1-P03"), weights: [6], slots: 0 },
         {
             label: "planEventLinks", name: "planEventLinks", file: PLAN_EVENT_EXAMPLES, row: rowSel("presses", "a1"),
-            // Its flows draw in their record's order, by key (#1541, U10): the book blocks first, the plates' — which
-            // carry no quantity — sixth.
-            weights: [4, 2, 2, 6, 4, 1.5, 2, 2, 2, 4, 4, 4, 6, 2, 4], slots: 2,
+            // Its flows draw in their record's order, by key (#1541, U10): those in view at rest, the card first, the
+            // plates' — which carry no quantity — fifth.
+            weights: [2, 2, 6, 4, 1.5, 2, 2, 2, 4, 6, 2], slots: 1,
         },
     ] as const;
+
+    /** H1-P09's links focus as its body draws it ({@link focusBody}): its one upstream row; itself, its hall on its sub
+     *  line; the two contract presses both ways, each saying Contract A, which tells Contract A's H1-P03 from Hall 1's;
+     *  the delivery; and the 29 other data rows folded. The pinned on-time KPI is a 16 strip that keeps its value and its
+     *  8px status. */
+    const FOCUS_BODY: ReturnType<typeof focusBody> = {
+        body: [
+            "upstream 26 · Upstream 1", `${rowId("flavours", "H1-P07")} 32 · —`,
+            "focused 26 · Focused", `${rowId("detail", "H1-P09")} 42 · Hall 1`,
+            "linked 26 · Linked 2", `${rowId("rollup", "Contract A", "H1-P03")} 42 · Contract A`, `${rowId("rollup", "Contract A", "H2-P11")} 42 · Contract A`,
+            "downstream 26 · Downstream 1", `${rowId("delivery", "dlv")} 32 · —`,
+            "others 26 · Other rows 29",
+        ],
+        strips: [{ row: rowId("ontime", "ontime"), h: 16, value: "94.2%", dot: "8px" }],
+    };
     /** The desktop project's width, and a laptop's. */
     const WIDTHS = [1280, 1024] as const;
 
@@ -516,20 +550,19 @@ test.describe("Plan links focus (#818, #1258)", { tag: "@desktop" }, () => {
     const flows = (routes: Readonly<Record<string, string>>): Record<string, string> =>
         Object.fromEntries(Object.entries(routes).map(([key, route]) => [flow(key), route]));
 
-    /** planEventLinks' flows by their rows' keys, and the figure each draws at rest: every case of the grammar once. The two
-     *  links between rows below the view (`folded`, `books`) draw nothing; four reach a row below it in a stub. */
+    /** planEventLinks' flows by their rows' keys, and the figure each draws at rest, its focus's ten rows gathered under
+     *  their role bands (#1680's review): the six links between rows below the view draw nothing, and seven reach a
+     *  row below it in a stub. */
     const EVENT_ROUTES_AT_REST = {
-        plates: "s", covers: "s", card: "s", inserts: "loop", "report-covers": "loop", "seed-prints": "loop",
-        tags: "feed", pads: "runoff", proofs: "loop", "proof-sheets": "s", tickets: "s",
-        sections: "stub", "sections-more": "stub", posters: "stub", "book-blocks": "stub",
+        card: "stub", covers: "s", inserts: "stub", pads: "runoff", plates: "s", posters: "stub", "proof-sheets": "s",
+        proofs: "stub", "report-covers": "stub", "seed-prints": "stub", tags: "feed",
     };
-    /** …and scrolled to the end, the paper stock's rows under the events (#1259): the plates and the tags draw
-     *  nothing, and five leave a row above the view in a stub. The folded sheets' bindery starts too soon after their
-     *  print beside the 240px gutter for an S (#1680's review): a loop. */
+    /** …and scrolled to the end, the band the other rows fold into under them: the plates and the tags draw nothing,
+     *  and five leave a row above the view in a stub. */
     const EVENT_ROUTES_AT_THE_END = {
-        covers: "stub", card: "stub", inserts: "stub", "report-covers": "loop", "seed-prints": "loop",
-        pads: "runoff", proofs: "loop", "proof-sheets": "stub", tickets: "s", sections: "s", "sections-more": "s",
-        folded: "loop", books: "s", posters: "stub", "book-blocks": "loop",
+        "book-blocks": "loop", books: "s", card: "stub", covers: "stub", folded: "loop", inserts: "stub", pads: "runoff",
+        posters: "stub", "proof-sheets": "stub", proofs: "loop", "report-covers": "loop", sections: "s", "sections-more": "s",
+        "seed-prints": "loop", tickets: "s",
     };
 
     test("planEventLinks: every case its own link — each draws its figure at rest and scrolled to the end, meeting its elements as they draw; scrolled between, the posters' link crosses the view as a band; the night run is entered from above; the layer lies in the rows' own stacking context", async ({ page }) => {
@@ -537,6 +570,11 @@ test.describe("Plan links focus (#818, #1258)", { tag: "@desktop" }, () => {
         const routes = () => entry.evaluate((root) => Object.fromEntries([...root.querySelectorAll("[data-plan-link]")].map((g) =>
             [g.querySelector("[data-link]")!.getAttribute("data-link-key"), g.getAttribute("data-plan-route")])));
         await expect.poll(routes).toEqual(flows(EVENT_ROUTES_AT_REST));
+        const frame = entry.locator('[data-virtual-rows="bounded"]');
+        await frame.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+        await expect.poll(routes).toEqual(flows(EVENT_ROUTES_AT_THE_END));
+        await expect.poll(() => entry.evaluate(ribbonEnds)).toEqual([]);
+        await expect.poll(() => entry.evaluate(outsidePlot)).toEqual([]);
         // The night run starts at the window's start: its link drops onto it, its head pointing down onto the bar.
         const proofsHead = () => entry.evaluate((root, key) => {
             const g = [...root.querySelectorAll("[data-link-key]")].find((el) => el.getAttribute("data-link-key") === key)!.closest("[data-plan-link]")!;
@@ -544,13 +582,8 @@ test.describe("Plan links focus (#818, #1258)", { tag: "@desktop" }, () => {
             return n[1] === n[5] && n[3]! > n[1]! ? "down" : "level";
         }, flow("proofs"));
         expect(await proofsHead()).toBe("down");
-        const frame = entry.locator('[data-virtual-rows="bounded"]');
-        await frame.evaluate((el) => { el.scrollTop = el.scrollHeight; });
-        await expect.poll(routes).toEqual(flows(EVENT_ROUTES_AT_THE_END));
-        await expect.poll(() => entry.evaluate(ribbonEnds)).toEqual([]);
-        await expect.poll(() => entry.evaluate(outsidePlot)).toEqual([]);
-        // Between: the shop posters' press above the view and the dispatch bay below it.
-        await frame.evaluate((el) => { el.scrollTop = 80; });
+        // Between: a1, the focused press, above the view and the dispatch bay below it — the shop posters' link between them.
+        await frame.evaluate((el) => { el.scrollTop = 140; });
         await expect.poll(async () => (await routes())[flow("posters")]).toBe("band");
         await expect.poll(() => entry.evaluate(outsidePlot)).toEqual([]);
         // In the rows' translated column, the layer sorts with what they draw: the row controls and the now line over it.
@@ -664,7 +697,7 @@ test.describe("Plan links focus (#818, #1258)", { tag: "@desktop" }, () => {
         await expect(undo).toBeDisabled();
     });
 
-    test("planTargetState: the focus band is 32 tall, its link and caption 20 in from its ends; each family row's Tag is 20 tall and the focused row has none; a lone unrelated row is an 11 rail and each run of hidden rows one 22 gap band", async ({ page }) => {
+    test("planTargetState: the focus band is 32 tall, its link and caption 20 in from its ends, its caption counting each role's rows; the family stands under its role bands, 26 tall — upstream, the focused row, the rows linked both ways, downstream — a row from inside a section saying the section on its second line, two lines tall; every other row folds into one band, which counts them, and a pinned row the focus does not gather is a 16 strip keeping its value and its status (#1680's review)", async ({ page }) => {
         const entry = await focusLinks(page, FOCUSES[0], 1280);
         const read = await entry.evaluate((root) => {
             const band = root.querySelector("[data-plan-focusbar]")!;
@@ -678,49 +711,16 @@ test.describe("Plan links focus (#818, #1258)", { tag: "@desktop" }, () => {
                 back: back.textContent,
                 caption: caption.textContent,
                 capitals: getComputedStyle(caption).textTransform,
-                tags: [...root.querySelectorAll("[data-plan-focustag]")].map((t) => ({
-                    row: t.closest("[data-plan-row]")!.getAttribute("data-plan-row"),
-                    word: t.textContent,
-                    h: t.getBoundingClientRect().height,
-                })),
-                rails: [...root.querySelectorAll("[data-plan-rail]")].map((r) => r.getBoundingClientRect().height),
-                gaps: [...root.querySelectorAll("[data-plan-gap]")].map((g) => {
-                    const cell = g.querySelector("[role='gridcell']")!;
-                    return {
-                        h: g.getBoundingClientRect().height,
-                        // The count beside the ⋯ icon (its svg is hidden too).
-                        count: cell.querySelector("span[aria-hidden='true']")?.textContent,
-                        heard: cell.lastElementChild?.textContent,
-                    };
-                }),
             };
         });
         expect(read).toEqual({
             h: 32, backIn: 20, captionIn: 20,
             back: "← All rows",
-            caption: "Links · H1-P09 · 3 upstream · 3 downstream",
+            // H1-P03 and H2-P11 are both upstream and downstream of H1-P09: linked.
+            caption: "Links · H1-P09 · 1 upstream · 2 linked · 1 downstream",
             capitals: "uppercase",
-            tags: [
-                { row: rowId("flavours", "H1-P07"), word: "Upstream", h: 20 },
-                { row: rowId("rollup", "Contract A", "H1-P03"), word: "Linked", h: 20 },
-                { row: rowId("rollup", "Contract A", "H2-P11"), word: "Linked", h: 20 },
-                { row: rowId("delivery", "dlv"), word: "Downstream", h: 20 },
-            ],
-            // A lone unrelated row: the KPI, each van, Contract A between its two family presses, each crew, the
-            // milestones and the delivered sheets.
-            rails: [11, 11, 11, 11, 11, 11, 11, 11],
-            // Each run of hidden rows, in order: the local and the regional vans' section headers, each alone and its
-            // group counted; the halls' strips and their members; the contracts' section header; Contract B and its
-            // press; the folded quality section; the relief pool's header; the finishers' three views of two
-            // machines; and the planned works.
-            gaps: [
-                { h: 22, count: "1", heard: "1 hidden group" }, { h: 22, count: "1", heard: "1 hidden group" },
-                { h: 22, count: "10", heard: "10 hidden rows" }, { h: 22, count: "1", heard: "1 hidden group" },
-                { h: 22, count: "2", heard: "2 hidden rows" }, { h: 22, count: "1", heard: "1 hidden row" },
-                { h: 22, count: "1", heard: "1 hidden group" }, { h: 22, count: "6", heard: "6 hidden rows" },
-                { h: 22, count: "3", heard: "3 hidden rows" },
-            ],
         });
+        expect(await entry.evaluate(focusBody)).toEqual(FOCUS_BODY);
     });
 
     test("planTargetState: a link takes the pointer along its band — lit, it is drawn over the others with its casing and haloes the two runs it joins 4 outside them, and its caption is the canvas's tooltip", async ({ page }) => {
@@ -761,20 +761,19 @@ test.describe("Plan links focus (#818, #1258)", { tag: "@desktop" }, () => {
         await expect(g).not.toHaveAttribute("data-lit", "");
     });
 
-    test("planTargetState: in H1-P03's transfer focus at the Plan's default gutter, every family row's controls end inside its gutter cell after its label, value and status, and its tag is whole, ellipsized after a whole letter or off its line — H1-P04's, with no room for a letter, off it, its word said on hover (#1277)", async ({ page }) => {
+    test("planTargetState: in H1-P03's transfer focus at the Plan's default gutter, every gathered row's controls end inside its gutter cell after its label, value and status, and each press says its hall first on its second line, whole (#1277, #1680's review)", async ({ page }) => {
         const entry = await focusLinks(page, FOCUSES[1], 1280);
         await expect.poll(() => entry.evaluate(rowControlsLaidOut)).toEqual([]);
-        const states = () => entry.evaluate(tagStates);
-        await expect.poll(async () => (await states()).filter((t) => !TAG_DRAWN.includes(t.state))).toEqual([]);
-        expect((await states()).find((t) => t.row === rowId("presses", "Hall 1", "H1-P04"))?.state).toBe("hidden");
-        await entry.locator(`${rowSel("presses", "Hall 1", "H1-P04")} [data-plan-gutter='named']`).hover();
-        await expect(page.locator('[data-plan-overlay="tooltip"]')).toHaveText("Downstream");
+        for (const press of ["H1-P03", "H1-P04"]) {
+            const sub = entry.locator(`${rowSel("presses", "Hall 1", press)} [data-plan-gutter='sub']`);
+            await expect(sub, press).toHaveText(/^Hall 1( · |$)/);
+            expect(await sub.evaluate((el) => el.scrollWidth <= el.clientWidth), `${press}'s second line whole`).toBe(true);
+        }
     });
 
-    test("planTargetState: in H1-P09's links focus at the Plan's default gutter, H1-P07's controls end inside its line with its value shown and its label whole — its tag gives its room up first, whole, ellipsized after a whole letter or off its line (#1277)", async ({ page }) => {
+    test("planTargetState: in H1-P09's links focus at the Plan's default gutter, H1-P07's controls end inside its line with its value shown and its label whole (#1277)", async ({ page }) => {
         const entry = await focusLinks(page, FOCUSES[0], 1280);
         await expect.poll(() => entry.evaluate(rowControlsLaidOut)).toEqual([]);
-        await expect.poll(async () => (await entry.evaluate(tagStates)).filter((t) => !TAG_DRAWN.includes(t.state))).toEqual([]);
         const row = entry.locator(rowSel("flavours", "H1-P07"));
         const read = () => row.evaluate((el) => {
             const line = el.querySelector("[data-plan-gutter='name']")!.getBoundingClientRect();

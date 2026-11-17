@@ -7,7 +7,7 @@
  * The links-focus layer (R1) — `Plan links.html` (#1258): one ARROW per family
  * edge, out of its source run's end and into its destination run's start
  * (`shared/links/geometry.ts`), stroked at its WEIGHT — its quantity's third of the
- * family's largest, 2, 4 or 8, and 1.5 with none — in the muted ink over a
+ * family's largest, 2, 4 or 6 (ruled 17 Nov 2026), and 1.5 with none — in the muted ink over a
  * paper CASING one px either side, so it reads over any bar it crosses. Every
  * link's casing lies under every link's ink; the lit link is drawn last, over
  * the others. A caption sits on a paper knockout 12 tall, 4 either side of its
@@ -32,8 +32,8 @@
  * edge to it, with a stub pointing toward its row.
  *
  * A linked element OUTSIDE the time window lands on its row's plot edge in a
- * dashed slot as tall as it draws, open toward the edge. Edges whose rows the
- * focus rails are not drawn. Each link names the figure it draws
+ * dashed slot as tall as it draws, open toward the edge. An edge with an end
+ * the focus does not gather is not drawn. Each link names the figure it draws
  * (`data-plan-route`: `s`, `loop`, `feed`, `runoff`, `stub` or `band`).
  *
  * Each link is hit-testable along its centerline (its stroke and 5 either
@@ -183,9 +183,10 @@ export function LinksOverlay({
     const onUnlink = useCallback((id: number) => { unlink?.run(links[id]!.key); }, [unlink, links]);
     const unlinkLabel = useCallback((r: LinkRibbon) => unlink?.label(links[r.id]!.key) ?? "", [unlink, links]);
     // Drawn inside the treegrid, over its rows, and pointer-only: a reader
-    // hears the family from the rows' own Upstream / Downstream / Linked Tags
-    // and the focus announcement instead (#819). A ribbon's `aria-label`
-    // stays — it is the tooltip's text.
+    // hears the family from the role bands the rows stand under — Upstream,
+    // Focused, Linked, Downstream (#1680's review) — and the focus
+    // announcement instead (#819). A ribbon's `aria-label` stays — it is the
+    // tooltip's text.
     return (
         <Box ref={layerRef} css={styles.ribbons} data-plan-ribbons aria-hidden="true">
             <LinksLayer ribbons={ribbons} edgeSlots={layout.edgeSlots} width={width} height={body.height}

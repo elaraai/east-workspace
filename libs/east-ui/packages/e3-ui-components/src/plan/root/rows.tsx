@@ -4,7 +4,7 @@
  *
  * The thin per-row adapter (#616): compute one row's PRIMITIVE facts under
  * the canvas's focus and hand them to the memoized `PlanBodyRow` — plus the
- * R1 gap band that stands in for a run of unrelated rows.
+ * bands a links focus gathers its rows under (#1680's review).
  *
  * The row reads its own selection, chart toggle and active control from the
  * controller (#815), so none of those pass through here: a selection click
@@ -16,20 +16,20 @@
 import type { ComponentProps, ReactNode } from "react";
 import { Box, VisuallyHidden } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faEllipsis } from "@fortawesome/free-solid-svg-icons";
+import { faCaretDown } from "@fortawesome/free-solid-svg-icons";
 import { EastChakraComponent } from "@elaraai/east-ui-components";
 import { PlanBodyRow } from "../rows/BodyRow.js";
+import { BandPlot } from "../rows/GroupRow.js";
 import { PlanPartBoundary } from "../rows/PartBoundary.js";
 import { planRowRole } from "../rows/row-facts.js";
 import type { PlanRowDrop } from "../rows/RowShell.js";
 import type { PlanDraftMark } from "../use-plan-editing.js";
 import { usePlanItemNav } from "../controller/react.js";
-import { statusText } from "../a11y.js";
-import { usePlanWords, type PlanWords } from "../words.js";
+import { usePlanWords } from "../words.js";
 import { usePlanGridRow } from "./grid.js";
 import {
-    bodyItemKey, chartsOpenFor, rowHeight,
-    type FocusGap, type LinkFamily, type PlanDerived, type PlanFocusCtx, type PlanRowIndex, type PlanRowValue, type VisibleRow,
+    chartsOpenFor, focusBandKey, rowHeight,
+    type PlanDerived, type PlanFocusBand, type PlanFocusCtx, type PlanRowIndex, type PlanRowValue, type VisibleRow,
 } from "../model.js";
 import type { PlanEvent, RowKey } from "../plan-state.js";
 
@@ -51,8 +51,6 @@ export interface PlanRowContext {
     focusCtx: PlanFocusCtx | undefined;
     /** The same, with the expand clamp — what the heights need. */
     heightCtx: PlanFocusCtx | undefined;
-    /** The links focus's family. */
-    linkFamily: LinkFamily | undefined;
     /** The rows any link edge touches — they grow the links control. */
     linkedKeys: ReadonlySet<RowKey>;
     /** Whether the root declares `expandRender`. */
@@ -82,19 +80,16 @@ export interface PlanRowContext {
  * @returns The row element
  */
 export function renderPlanRow(v: VisibleRow, ctx: PlanRowContext): ReactNode {
-    const { focusCtx, linkFamily, expandBody, expandGutterBody, styles, storageKey } = ctx;
+    const { focusCtx, expandBody, expandGutterBody, styles, storageKey } = ctx;
     const h = rowHeight(v, ctx.dense, ctx.chartsExpanded, ctx.heightCtx, ctx.derived);
-    // R1 rails (unrelated data rows under a links focus, 11px), R2 context
-    // strips (every data row but the focused one under an expand focus,
-    // 16px) and the FOCUSED row, which carries the render inside itself —
-    // what makes it (and its gutter) tall, see `PlanFocusCtx.renderPx`. Group
-    // bands are exempt: they are wayfinding, and a wall of strips with no
+    // R1 pinned strips (a pinned row a links focus does not gather, 16px), R2
+    // context strips (every data row but the focused one under an expand
+    // focus, 16px) and the FOCUSED row, which carries the render inside itself
+    // — what makes it (and its gutter) tall, see `PlanFocusCtx.renderPx`.
+    // Group bands are exempt: they are wayfinding, and a wall of strips with no
     // structure between them is unreadable (`planRowRole`).
     const role = planRowRole(v, focusCtx, expandBody !== null);
     const isFocal = role === "focal";
-    const up = linkFamily?.upstream.has(v.row.key) ?? false;
-    const down = linkFamily?.downstream.has(v.row.key) ?? false;
-    const focusTag = up && down ? "LINKED" as const : up ? "UPSTREAM" as const : down ? "DOWNSTREAM" as const : undefined;
     // R2 — the focused row keeps its NORMAL anatomy; `axis` washes /
     // suppresses the shared lines inside its plot.
     const rowExpand = v.row.expand.type === "some" ? v.row.expand.value : undefined;
@@ -107,11 +102,11 @@ export function renderPlanRow(v: VisibleRow, ctx: PlanRowContext): ReactNode {
             h={h}
             styles={styles}
             gridTemplate={ctx.gridTemplate}
-            hasChildren={(ctx.index.children.get(v.row.key)?.length ?? 0) > 0}
+            // A gathered row opens nothing: its subtree is the others' (#1680's review).
+            hasChildren={v.gathered === undefined && (ctx.index.children.get(v.row.key)?.length ?? 0) > 0}
             derived={ctx.derived}
             dispatch={ctx.dispatch}
             focusRole={role}
-            focusTag={focusTag}
             axisMode={axisMode}
             showLinksControl={ctx.linkedKeys.has(v.row.key)}
             showExpandControl={v.row.expand.type === "some" && ctx.canExpand}
@@ -145,19 +140,6 @@ export function renderPlanRow(v: VisibleRow, ctx: PlanRowContext): ReactNode {
 }
 
 /**
- * The words a gap band stands for (#819) — how many rows (or group bands) the
- * links focus folded into it.
- *
- * @param gap - The gap
- * @param w - The canvas's words (#820)
- * @returns `12 hidden rows`
- */
-export function gapText(gap: FocusGap, w: PlanWords): string {
-    const n = gap.rows > 0 ? gap.rows : gap.groups;
-    return w.m.hiddenRows({ n, count: w.number(n), what: gap.rows > 0 ? "row" : "group" });
-}
-
-/**
  * The sticky parent (#823) — pinned under a bounded frame's header while the
  * rows in view belong to a parent whose own row has scrolled off: the
  * parent's name — for a deep tree, the path of its ancestors down to it — in
@@ -187,43 +169,58 @@ export function PlanStickyParent({ parent, path, styles, gridTemplate, onGo }: {
 }
 
 /**
- * The R1 gap band — ONE double-height ⋯ band replacing a run of unrelated
- * rows (their count rides beside the icon, the worst hidden tone at right);
- * a click returns to all rows, like a rail. A grid row of its own (#819):
- * Enter returns, as the click does.
+ * A links focus's band (#1680's review) — the open group band's look, a 26px
+ * heading over the rows its role gathers: `Upstream · 2`, `Focused`, `Linked ·
+ * 1`, `Downstream · 3`, a role with no rows saying so; or `Other rows · 27`,
+ * which every row the focus does not gather folds into, and which opens in
+ * place as a section does — its caret, a click, Enter or Space. A grid row of
+ * its own (#819), at the first level: the rows a role gathers stand one in.
  */
-export function PlanGapBand({ gap, h, styles, gridTemplate, dispatch }: {
-    gap: FocusGap;
-    /** The height the model laid the band out at — the recipe sizes it from
-     *  the same geometry variable (#817). */
+export function PlanFocusBandRow({ band, h, styles, gridTemplate, dispatch }: {
+    band: PlanFocusBand;
+    /** The height the model laid the band out at (#817). */
     h: number;
     styles: Styles;
     gridTemplate: string;
     dispatch: (e: PlanEvent) => void;
 }) {
     const words = usePlanWords();
-    const itemKey = bodyItemKey({ kind: "gap", gap });
+    const itemKey = focusBandKey(band.role);
     const { active, focusSeq } = usePlanItemNav(itemKey);
     const grid = usePlanGridRow(itemKey, active, focusSeq);
+    const others = band.role === "others";
+    const caption = band.role === "others" ? words.m.otherRows() : words.m.focusRole({ role: band.role });
+    // The focused row's band holds the one row: it counts nothing. A role with no rows says so.
+    const counted = band.role !== "focused" && band.count > 0;
     return (
-        <Box ref={grid.ref} css={styles.focusGap} style={{ gridTemplateColumns: gridTemplate }}
-            role="row" aria-level={1} tabIndex={grid.tabIndex} onFocus={grid.onFocus}
+        <Box ref={grid.ref} css={styles.groupBand} style={{ gridTemplateColumns: gridTemplate, height: `${h}px` }}
+            role="row" aria-level={1} aria-expanded={others ? band.open : undefined}
+            tabIndex={grid.tabIndex} onFocus={grid.onFocus}
             data-plan-item={itemKey}
-            data-plan-gap={gap.rows + gap.groups}
+            data-plan-focusband={band.role}
             data-plan-h={h}
-            onClick={() => dispatch({ t: "focus.clear" })}>
-            <Box css={styles.focusGapInner} role="gridcell">
-                <FontAwesomeIcon icon={faEllipsis} />
-                <Box as="span" aria-hidden="true">{words.number(gap.rows > 0 ? gap.rows : gap.groups)}</Box>
-                <VisuallyHidden>{gapText(gap, words)}</VisuallyHidden>
+            // A role's band opens nothing: no click, no hand.
+            data-static={others ? undefined : ""}
+            onClick={others ? () => dispatch({ t: "focus.others" }) : undefined}>
+            {/* Its heading spans the row whether the band is open or not, its plot in the row's first line under it,
+                so the band, folded, is never marked so: its caret says it, as `aria-expanded` does. At the first
+                level, the recipe's own padding. */}
+            <Box css={styles.groupName} role="rowheader" data-open="">
+                <Box as="span" css={styles.caret} data-collapsed={others && !band.open ? "" : undefined}>
+                    {others && <FontAwesomeIcon icon={faCaretDown} />}
+                </Box>
+                <Box as="span" data-plan-gutter="title">
+                    <Box as="span" css={styles.gutterLabel} data-plan-gutter="label">{caption}</Box>
+                    {counted ? (
+                        <>
+                            <Box as="span" css={styles.groupMeta} data-plan-gutter="meta" aria-hidden="true">{words.number(band.count)}</Box>
+                            <VisuallyHidden>{words.m.groupMeta({ n: band.count, count: words.number(band.count) })}</VisuallyHidden>
+                        </>
+                    ) : band.count === 0 && <Box as="span" css={styles.focusNone} data-plan-focusnone>{words.m.focusNone()}</Box>}
+                </Box>
+                <Box as="span" />
             </Box>
-            <Box position="relative" role="gridcell">
-                {gap.tone !== undefined && (
-                    <Box as="span" css={styles.statusDot} data-tone={gap.tone}
-                        role="img" aria-label={statusText(gap.tone, words)}
-                        position="absolute" right="12px" top="50%" transform="translateY(-50%)" />
-                )}
-            </Box>
+            <BandPlot styles={styles} />
         </Box>
     );
 }

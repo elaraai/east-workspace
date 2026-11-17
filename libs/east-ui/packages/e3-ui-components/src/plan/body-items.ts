@@ -5,18 +5,19 @@
 
 /**
  * The canvas body's items and the link graph they are gathered by (split out
- * of `model.ts`, #815): the R1 family closure and the gap bands that elide a
- * links focus, the unloaded bands of a paged source (#577), the error bands of
- * failed windows (#811), and each item's identity (#812).
+ * of `model.ts`, #815): the R1 family closure and the role bands a links focus
+ * gathers it under, the unloaded bands of a paged source (#577), the error
+ * bands of failed windows (#811), and each item's identity (#812).
  *
  * @packageDocumentation
  */
 
-import type { PlanFocusCtx, PlanLinkValue, PlanRowIndex, VisibleRow } from "./model.js";
+import type { PlanFocusCtx, PlanLinkValue, PlanRowIndex, PlanRowValue, VisibleRow } from "./model.js";
 import type { RowKey } from "./plan-state.js";
 import type { PlanRowDiagnostic } from "./derive.js";
 import { ancestorsOf } from "./row-tree.js";
 import { rowKeyOf } from "./row-key.js";
+import { appendAll } from "./reductions.js";
 
 // ── The R1 link graph (renderer-derived over the decoded `links` edges) ─────
 
@@ -29,19 +30,39 @@ export function linkedRowKeys(links: readonly PlanLinkValue[]): ReadonlySet<RowK
     return out;
 }
 
-/** One elided run in a links focus — replaces N consecutive unrelated rows. */
-export interface FocusGap {
-    /** Stable key (the first elided row's key). */
-    key: string;
-    /** The first elided row — where keyboard focus lands when the gap is
-     *  opened and its rows come back (#819). */
-    first: RowKey;
-    /** Data rows hidden inside the run (collapsed subtrees counted through). */
-    rows: number;
-    /** Group bands hidden inside the run. */
-    groups: number;
-    /** Pessimistic status tone across the hidden rows (undefined ⇒ quiet). */
-    tone: string | undefined;
+/**
+ * A row's part in a links focus (#1680's review): the focused row itself, a row
+ * only upstream of it, a row only downstream of it, or a row both — linked.
+ */
+export type PlanFocusRole = "upstream" | "focused" | "linked" | "downstream";
+
+/** The roles a links focus gathers its rows under, in the order their bands stand: upstream, the focused row, the rows
+ *  linked both ways, downstream. */
+export const PLAN_FOCUS_ROLES: readonly PlanFocusRole[] = ["upstream", "focused", "linked", "downstream"];
+
+/**
+ * A band of a links focus's body (#1680's review): a role's, over the rows it
+ * gathers, or the one every other row folds into.
+ */
+export interface PlanFocusBand {
+    /** Its role, or `others` for the band the rows the focus does not gather fold into. */
+    role: PlanFocusRole | "others";
+    /**
+     * The rows it stands for: a role's family rows wherever the canvas draws them — under the band, pinned above the
+     * body, or not held, folded into the others' band — or the other data rows (their groups' bands not counted).
+     */
+    count: number;
+    /** Whether its rows show under it: a role's always do, the others' once the band is opened. */
+    open: boolean;
+}
+
+/** A row a links focus gathers under its role's band (#1680's review). */
+export interface PlanGathered {
+    /** Its role. */
+    readonly role: PlanFocusRole;
+    /** The labels of the rows it nests under, outermost first — its sub line says them, which tells two rows of one
+     *  name apart. Empty for a row at the top. */
+    readonly path: readonly string[];
 }
 
 /**
@@ -94,9 +115,9 @@ export interface PlanWindowFailure {
     error: string;
 }
 
-/** One line of the canvas body: a row, the R2 developer render, an elided run
- *  (R1), an unloaded run of the source (#577, one per paged block's end —
- *  #823), or a window whose read failed (#811).
+/** One line of the canvas body: a row, a links focus's band (#1680's review),
+ *  an unloaded run of the source (#577, one per paged block's end — #823), or a
+ *  window whose read failed (#811).
  *
  *  The R2 developer render is NOT an item here — it renders inside the
  *  focused row, which grows to hold it (see {@link PlanFocusCtx.renderPx}).
@@ -104,13 +125,13 @@ export interface PlanWindowFailure {
  *  render in the row is what lets the GUTTER grow with it. */
 export type PlanBodyItem =
     | { kind: "row"; row: VisibleRow }
-    | { kind: "gap"; gap: FocusGap }
+    | { kind: "focus"; band: PlanFocusBand }
     | { kind: "band"; band: PlanBand }
     | { kind: "failed"; failure: PlanWindowFailure };
 
 /**
- * A body item's identity (#812) — its row's key, its gap's first row, its
- * band's block and end, its failed window's block and window — prefixed by
+ * A body item's identity (#812) — its row's key, a links focus band's role,
+ * its band's block and end, its failed window's block and window — prefixed by
  * kind, so no two items of a body share one. The virtualizer keys rows by it,
  * so a row keeps its component instance when a collapse, a focus or a landing
  * window moves it; keyed by index, the instance at a moved row's old index was
@@ -122,10 +143,21 @@ export type PlanBodyItem =
 export function bodyItemKey(item: PlanBodyItem): string {
     switch (item.kind) {
         case "row": return rowItemKey(item.row.row.key);
-        case "gap": return `g:${item.gap.key}`;
+        case "focus": return focusBandKey(item.band.role);
         case "band": return `b:${item.band.block}:${item.band.at}`;
         case "failed": return `f:${item.failure.block}:${item.failure.w}`;
     }
+}
+
+/**
+ * A links focus band's item key (#1680's review) — what {@link bodyItemKey}
+ * gives it, and what a gathered row's ← steps to.
+ *
+ * @param role - The band's role
+ * @returns Its item key
+ */
+export function focusBandKey(role: PlanFocusRole | "others"): string {
+    return `l:${role}`;
 }
 
 /**
@@ -207,69 +239,137 @@ export function firstDiagnosticItem(
     return undefined;
 }
 
-/** Status severity rank — higher is worse; gaps wear the worst hidden tone. */
-const TONE_RANK: Record<string, number> = { info: 1, neutral: 1, success: 0, warning: 2, danger: 3 };
+/**
+ * A row's role in a links focus (#1680's review): `focused` for the focused
+ * row, `linked` for one both upstream and downstream of it, else `upstream` or
+ * `downstream` — `undefined` for a row the focus does not gather.
+ *
+ * @param family - The focused row's family ({@link deriveLinkFamily})
+ * @param focus - The focused row
+ * @param key - The row
+ * @returns Its role
+ */
+export function focusRoleOf(family: LinkFamily, focus: RowKey, key: RowKey): PlanFocusRole | undefined {
+    if (key === focus) return "focused";
+    const up = family.upstream.has(key);
+    const down = family.downstream.has(key);
+    return up && down ? "linked" : up ? "upstream" : down ? "downstream" : undefined;
+}
 
 /**
- * Elide a links-focus row list for scale (R1): family rows and the focus keep
- * full height; a group keeps its wayfinding band ONLY while its subtree holds
- * family; every other row is elidable. A lone elidable data row stays an 11px
- * rail (today's rhythm); any longer run — including family-less group bands
- * and their subtrees — coalesces into ONE double-height gap band, so a
- * thousand-tank canvas gathers to family + a handful of bands.
+ * Whether a links focus gathers a row: the focused row, or one of its family.
+ *
+ * @param focus - The row focus
+ * @param key - The row
+ * @returns Whether a links focus gathers it — `false` under any other focus
  */
-export function elideForFocus(
-    vis: ReadonlyArray<VisibleRow>,
-    index: PlanRowIndex,
-    focus: PlanFocusCtx,
-): PlanBodyItem[] {
-    const kept = (key: RowKey): boolean => key === focus.key || (focus.family?.has(key) ?? false);
-    // "Does this group's subtree hold family?" precomputed as the kept keys'
-    // ancestor set — O(family × depth), not a per-row downward recursion
-    // (#616; the same fix as `visibleRows`' reveal test).
-    const keptAncestors = ancestorsOf(index, new Set([focus.key, ...(focus.family ?? [])]));
-    const subtreeHasFamily = (key: RowKey): boolean => keptAncestors.has(key);
-    const subtreeDataRows = (key: RowKey): number =>
-        (index.children.get(key) ?? []).reduce(
-            (n, c) => n + (c.kind.type === "group" ? 0 : 1) + subtreeDataRows(c.key), 0);
-    const worse = (a: string | undefined, b: string | undefined): string | undefined =>
-        b === undefined ? a : a === undefined || (TONE_RANK[b] ?? 0) > (TONE_RANK[a] ?? 0) ? b : a;
+export function focusGathers(focus: PlanFocusCtx, key: RowKey): boolean {
+    return focus.kind === "links" && (key === focus.key || (focus.links?.family.all.has(key) ?? false));
+}
 
-    const out: PlanBodyItem[] = [];
-    let run: VisibleRow[] = [];
-    const flush = () => {
-        if (run.length === 0) return;
-        if (run.length === 1 && run[0]!.row.kind.type !== "group") {
-            out.push({ kind: "row", row: run[0]! });
-        } else {
-            const gap: FocusGap = { key: `gap-${run[0]!.row.key}`, first: run[0]!.row.key, rows: 0, groups: 0, tone: undefined };
-            for (const v of run) {
-                if (v.row.kind.type === "group") {
-                    gap.groups += 1;
-                    // A collapsed elided group hides its whole subtree —
-                    // count those rows through, they're part of the gap.
-                    if (v.collapsed) gap.rows += subtreeDataRows(v.row.key);
-                } else {
-                    gap.rows += 1;
-                }
-                gap.tone = worse(gap.tone, v.row.status.type === "some" ? v.row.status.value.type : undefined);
-            }
-            out.push({ kind: "gap", gap });
-        }
-        run = [];
-    };
-    for (const v of vis) {
-        const isGroup = v.row.kind.type === "group";
-        const keep = kept(v.row.key) || (isGroup && subtreeHasFamily(v.row.key));
-        if (keep) {
-            flush();
-            out.push({ kind: "row", row: v });
-        } else {
-            run.push(v);
-        }
+/** The labels of the rows a row nests under, outermost first. */
+function pathOf(index: PlanRowIndex, row: PlanRowValue): string[] {
+    const path: string[] = [];
+    for (let p = row.parent; p.type === "some";) {
+        const parent = index.byKey.get(p.value);
+        if (parent === undefined) break;
+        path.unshift(parent.gutter.label);
+        p = parent.parent;
     }
-    flush();
+    return path;
+}
+
+/**
+ * A links focus's body (#1680's review): its family gathered under one band
+ * per role — upstream, the focused row, linked (only where a row is both),
+ * downstream — each 26px, in the open group band's look, its rows under it in
+ * stream order at one level, wherever they sit and however their sections are
+ * folded; then ONE band every other row folds into, which opens in place.
+ *
+ * @remarks
+ * A role with no rows keeps its band, which says so — the Linked band alone
+ * stands only for a family that has one. A gathered row says the rows it nests
+ * under on its sub line, which tells two rows of one name apart, and opens
+ * nothing: its subtree is the other rows'. Pinned rows draw above the body, and
+ * a row under one draws nowhere — neither is gathered. A role's band counts its
+ * family's rows wherever the canvas draws them: the rows under it, a pinned row
+ * of the family, and a row the canvas does not hold but has placed — one of a
+ * paged source's evicted windows — whose links end at the others' band while
+ * it is folded, where that row is. The others' band counts every other data row
+ * the canvas holds, folded or not; opened, it holds the body's own items for
+ * them — their groups, the unloaded runs of a paged source and its failed
+ * windows among them — as they draw with no focus.
+ *
+ * @param index - The row index
+ * @param focus - The focused row
+ * @param family - Its family ({@link deriveLinkFamily})
+ * @param others - Whether the others' band is open, and the items it holds when it is
+ * @param placed - Whether the canvas has placed a row it does not hold (a paged source's evicted window's); none, inline
+ * @returns The body's items
+ */
+export function focusBodyItems(
+    index: PlanRowIndex,
+    focus: RowKey,
+    family: LinkFamily,
+    others: { readonly open: boolean; readonly items: readonly PlanBodyItem[] },
+    placed: (key: RowKey) => boolean = () => false,
+): PlanBodyItem[] {
+    const byRole = new Map<PlanFocusRole, VisibleRow[]>(PLAN_FOCUS_ROLES.map((role) => [role, []]));
+    const counts = new Map<PlanFocusRole, number>(PLAN_FOCUS_ROLES.map((role) => [role, 0]));
+    const counted = (role: PlanFocusRole) => counts.set(role, counts.get(role)! + 1);
+    let otherRows = 0;
+    // A pinned row, and every row under one, draws outside the body.
+    const outside = new Set<RowKey>();
+    for (const row of index.rows) {
+        const role = focusRoleOf(family, focus, row.key);
+        if (row.pinned || (row.parent.type === "some" && outside.has(row.parent.value))) {
+            outside.add(row.key);
+            // A pinned row of the family draws above the body; a row under one, nowhere.
+            if (row.pinned && role !== undefined) counted(role);
+            continue;
+        }
+        // A row whose parent is nowhere in the stream draws nowhere (`visibleRows`).
+        if (!index.depth.has(row.key)) continue;
+        if (role === undefined) {
+            if (row.kind.type !== "group") otherRows += 1;
+            continue;
+        }
+        counted(role);
+        byRole.get(role)!.push({ row, depth: 1, collapsed: false, gathered: { role, path: pathOf(index, row) } });
+    }
+    // A row of the family the canvas has placed but does not hold: folded with the others, where its links end.
+    for (const key of family.all) {
+        if (!index.byKey.has(key) && placed(key)) counted(focusRoleOf(family, focus, key)!);
+    }
+    const out: PlanBodyItem[] = [];
+    for (const role of PLAN_FOCUS_ROLES) {
+        const count = counts.get(role)!;
+        if (role === "linked" && count === 0) continue;
+        out.push({ kind: "focus", band: { role, count, open: true } });
+        for (const row of byRole.get(role)!) out.push({ kind: "row", row });
+    }
+    out.push({ kind: "focus", band: { role: "others", count: otherRows, open: others.open } });
+    if (others.open) appendAll(out, others.items);
     return out;
+}
+
+/**
+ * The rows a links focus's role bands count, as its caption counts them
+ * (#1680's review): only upstream, both ways, only downstream.
+ *
+ * @param items - The body's items
+ * @returns Each role's count — `undefined` for a body with no links focus
+ */
+export function focusRoleCounts(items: readonly PlanBodyItem[]): { upstream: number; linked: number; downstream: number } | undefined {
+    const counts = { upstream: 0, linked: 0, downstream: 0 };
+    let focused = false;
+    for (const item of items) {
+        if (item.kind !== "focus") continue;
+        focused = true;
+        const role = item.band.role;
+        if (role === "upstream" || role === "linked" || role === "downstream") counts[role] = item.band.count;
+    }
+    return focused ? counts : undefined;
 }
 
 /** A focused row's transitive family over the link graph. */
@@ -285,7 +385,7 @@ export interface LinkFamily {
 /**
  * Derive the focused row's transitive upstream + downstream family — the
  * links-focus gather set (R1). Any depth, wherever the rows live; a row
- * reachable both ways lands in both sets (rendered as the `LINKED` tag).
+ * reachable both ways lands in both sets (gathered under the Linked band).
  */
 export function deriveLinkFamily(links: readonly PlanLinkValue[], key: RowKey): LinkFamily {
     const fwd = new Map<RowKey, RowKey[]>();

@@ -12,7 +12,7 @@
 
 import { useRef } from "react";
 import { reconciledUi, type PlanReconcileModel, type PlanSnapshot } from "../controller/index.js";
-import type { PlanGrain, RowKey } from "../plan-state.js";
+import type { PlanGrain, PlanUiState, RowKey } from "../plan-state.js";
 import { stableDerived, type PlanDerived, type VisibleRow } from "../model.js";
 
 /** The UI facts the canvas root lays the body out from. Selection is not one:
@@ -21,7 +21,8 @@ export interface PlanUiView {
     grain: PlanGrain;
     collapsed: ReadonlySet<RowKey>;
     chartsExpanded: ReadonlySet<RowKey>;
-    focus: { kind: "links" | "expand"; key: RowKey } | null;
+    /** The row-scoped focus, as the store holds it. */
+    focus: PlanUiState["focus"];
 }
 
 /**
@@ -52,7 +53,7 @@ function sameSet(a: ReadonlySet<RowKey>, b: ReadonlySet<RowKey>): boolean {
 export function sameUiView(a: PlanUiView, b: PlanUiView): boolean {
     return a.grain === b.grain
         && (a.focus === b.focus || (a.focus !== null && b.focus !== null
-            && a.focus.kind === b.focus.kind && a.focus.key === b.focus.key))
+            && a.focus.kind === b.focus.kind && a.focus.key === b.focus.key && a.focus.others === b.focus.others))
         && sameSet(a.collapsed, b.collapsed)
         && sameSet(a.chartsExpanded, b.chartsExpanded);
 }

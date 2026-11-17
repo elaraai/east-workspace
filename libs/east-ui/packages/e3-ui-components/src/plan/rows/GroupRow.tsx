@@ -14,6 +14,7 @@
  * `rowheader`.
  */
 
+import type { ReactNode } from "react";
 import { Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCaretDown } from "@fortawesome/free-solid-svg-icons";
@@ -54,6 +55,24 @@ export function groupStrip(kind: GroupKindValue, derived: HeatCellsValue | undef
     return arm;
 }
 
+/**
+ * A band's plot cell: what the band draws over the plot, then the now line
+ * across it. A group's band and a links focus's band (#1680's review) draw
+ * their plots through it.
+ *
+ * @param props.styles - The Plan's slot styles
+ * @param props.children - What the band draws in its plot, if anything
+ */
+export function BandPlot({ styles, children }: { styles: Styles; children?: ReactNode }) {
+    const scale = usePlanScale();
+    return (
+        <Box css={styles.plot} role="gridcell" data-plan-band-plot>
+            {children}
+            {scale.nowFrac !== undefined && <NowLine styles={styles} at={scale.nowFrac} data-plan-now />}
+        </Box>
+    );
+}
+
 export interface GroupRowProps {
     row: PlanRowValue;
     kind: GroupKindValue;
@@ -89,7 +108,6 @@ export interface GroupRowProps {
 
 /** One group band — full-width strip on the shared template. */
 export function GroupRow({ row, kind, styles, gridTemplate, height, depth, collapsed, strip, memberCount, partial, diagnostic, grid, groupEnd }: GroupRowProps) {
-    const scale = usePlanScale();
     const dispatch = usePlanDispatch();
     const words = usePlanWords();
     // A declared meta line wins; otherwise the derived member count stands in — a short bar while it covers only the
@@ -140,7 +158,7 @@ export function GroupRow({ row, kind, styles, gridTemplate, height, depth, colla
                     ? <Box as="span" css={styles.statusDot} data-tone={statusTone} role="img" aria-label={statusText(statusTone, words)} />
                     : <Box as="span" />}
             </Box>
-            <Box css={styles.plot} role="gridcell" data-plan-band-plot>
+            <BandPlot styles={styles}>
                 {diagnostic !== undefined && <RowDiagnostic diagnostic={diagnostic} styles={styles} />}
                 {summary !== undefined && (
                     <PlanPartBoundary part={{ kind: "group", label: row.gutter.label }} resetKey={summary} styles={styles}>
@@ -152,8 +170,7 @@ export function GroupRow({ row, kind, styles, gridTemplate, height, depth, colla
                             onCellClick={() => dispatch({ t: "group.toggle", key: row.key })} />
                     </PlanPartBoundary>
                 )}
-                {scale.nowFrac !== undefined && <NowLine styles={styles} at={scale.nowFrac} data-plan-now />}
-            </Box>
+            </BandPlot>
         </Box>
     );
 }

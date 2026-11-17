@@ -56,8 +56,10 @@ function spanRow(key: string, opts?: { parent?: string; sub?: boolean }): PlanRo
 }
 const rowItem = (r: PlanRowValue, collapsed = false): PlanBodyItem =>
     ({ kind: "row", row: { row: r, depth: 0, collapsed } as VisibleRow });
-const gapItem = (key: string): PlanBodyItem =>
-    ({ kind: "gap", gap: { key, first: key, rows: 3, groups: 0, tone: undefined } });
+/** A links focus's band (#1680's review) — 26 tall, a group band's height. */
+const focusItem: PlanBodyItem = { kind: "focus", band: { role: "downstream", count: 2, open: true } };
+/** An unloaded run standing between rows — `px` tall. */
+const runItem = (block: number, px: number): PlanBodyItem => ({ kind: "band", band: { block, at: "head", from: 0, to: 9, px } });
 /** A link names its ends by run ref — a row id (#822) and a run key — and
  *  carries its quantity in sheets (#824); `null` carries none. (Not
  *  `undefined`: passed explicitly, it would take the default.) */
@@ -89,20 +91,20 @@ function input(over: Partial<RibbonLayoutInput> & Pick<RibbonLayoutInput, "links
 }
 
 describe("the ribbon body (#818)", () => {
-    test("each row's top is the sum of every item above it — rows, gaps and bands alike", () => {
+    test("each row's top is the sum of every item above it — rows, a links focus's bands and runs alike", () => {
         const a = spanRow("a");
         const b = spanRow("b", { sub: true });
         const items: PlanBodyItem[] = [
             { kind: "band", band: { block: 0, at: "head", from: 0, to: 199, px: 640 } },
-            rowItem(a), gapItem("gap-x"), rowItem(b),
+            rowItem(a), focusItem, rowItem(b),
             { kind: "band", band: { block: 0, at: "tail", from: 400, to: 999, px: 900 } },
         ];
-        const body = ribbonBody(items, [640, 32, 22, 42, 900], G);
+        const body = ribbonBody(items, [640, 32, 26, 42, 900], G);
         expect(body.slots.get(rowKey("a"))).toEqual({ top: 640, height: 32, bar: G.bar });
-        expect(body.slots.get(rowKey("b"))).toEqual({ top: 640 + 32 + 22, height: 42, bar: G.bar });
-        expect(body.height).toBe(640 + 32 + 22 + 42 + 900);
+        expect(body.slots.get(rowKey("b"))).toEqual({ top: 640 + 32 + 26, height: 42, bar: G.bar });
+        expect(body.height).toBe(640 + 32 + 26 + 42 + 900);
         // Each band's top, by block and end — where an evicted row is placed from (#823).
-        expect(body.bands).toEqual(new Map([["0:head", 0], ["0:tail", 640 + 32 + 22 + 42]]));
+        expect(body.bands).toEqual(new Map([["0:head", 0], ["0:tail", 640 + 32 + 26 + 42]]));
     });
 
     test("a span parent's runs ride the full bar, folded or open: what it rolls up is its bands", () => {
@@ -119,8 +121,8 @@ describe("ribbon endpoints come from the model (#818)", () => {
     const a = spanRow("a");
     const b = spanRow("b");
     const c = spanRow("c", { sub: true });
-    const items = [rowItem(a), gapItem("gap-x"), rowItem(b), rowItem(c)];
-    const heights = [32, 22, 32, 42];
+    const items = [rowItem(a), focusItem, rowItem(b), rowItem(c)];
+    const heights = [32, 26, 32, 42];
     const body = ribbonBody(items, heights, G);
     const element = barsOf({
         "a|ra": [at("2026-06-29"), at("2026-07-13")],
@@ -142,10 +144,10 @@ describe("ribbon endpoints come from the model (#818)", () => {
             leftX: xOf(at("2026-06-29")), rightX: xOf(at("2026-07-13")),
             top: centre(0, 32) - G.bar / 2, bottom: centre(0, 32) + G.bar / 2, row: { top: 0, bottom: 32 },
         });
-        // b sits below a (32) and the gap band (22).
+        // b sits below a (32) and the focus's band (26).
         expect(r.to).toEqual({
             leftX: xOf(at("2026-07-20")), rightX: xOf(at("2026-08-03")),
-            top: centre(54, 32) - G.bar / 2, bottom: centre(54, 32) + G.bar / 2, row: { top: 54, bottom: 86 },
+            top: centre(58, 32) - G.bar / 2, bottom: centre(58, 32) + G.bar / 2, row: { top: 58, bottom: 90 },
         });
         expect(r.link).toBe(0);
         expect(r.label).toBe("10 k sheets");
@@ -153,7 +155,7 @@ describe("ribbon endpoints come from the model (#818)", () => {
 
     test("a two-line row's bar is centred in its full plot cell", () => {
         const { ribbons } = layoutRibbons(input({ links: [link("a", "ra", "c", "rc")], body, element }));
-        const mid = centre(32 + 22 + 32, 42);
+        const mid = centre(32 + 26 + 32, 42);
         expect([ribbons[0]!.to.top, ribbons[0]!.to.bottom]).toEqual([mid - G.bar / 2, mid + G.bar / 2]);
     });
 
@@ -167,7 +169,7 @@ describe("ribbon endpoints come from the model (#818)", () => {
         const { ribbons, edgeSlots } = layoutRibbons(input({
             links: [link("c", "early", "a", "ra"), link("a", "ra", "c", "late")], body, element,
         }));
-        const mid = centre(32 + 22 + 32, 42);
+        const mid = centre(32 + 26 + 32, 42);
         expect(ribbons[0]!.from.leftX).toBe(PLOT.left);
         expect(ribbons[0]!.from.rightX).toBe(PLOT.left);
         expect([ribbons[1]!.to.leftX, ribbons[1]!.to.rightX]).toEqual([PLOT.left + PLOT.width, PLOT.left + PLOT.width]);
@@ -198,7 +200,7 @@ describe("ribbon endpoints come from the model (#818)", () => {
         const collapsed = ribbonBody([rowItem(a), rowItem(b), rowItem(c)], [32, 32, 42], G);
         const after = layoutRibbons(input({ links: [link("a", "ra", "b", "rb")], body: collapsed, element })).ribbons[0]!;
         expect(after.from).toEqual(before.from);
-        expect(after.to.top).toBe(before.to.top - 22);
+        expect(after.to.top).toBe(before.to.top - 26);
         expect(after.stroke).not.toBe(before.stroke);
     });
 
@@ -212,10 +214,10 @@ describe("ribbon endpoints come from the model (#818)", () => {
 });
 
 describe("the view (#818)", () => {
-    // Rows at 0–32, 200–232, 400–432, 600–632.
+    // Rows at 0–32, 200–232, 400–432, 600–632, a run of 168 between each two.
     const rows = ["r0", "r1", "r2", "r3"].map((k) => spanRow(k));
-    const items = rows.flatMap((r, i) => (i === 0 ? [rowItem(r)] : [gapItem(`g${i}`), rowItem(r)]));
-    const heights = items.map((it) => (it.kind === "gap" ? 168 : 32));
+    const items = rows.flatMap((r, i) => (i === 0 ? [rowItem(r)] : [runItem(i, 168), rowItem(r)]));
+    const heights = items.map((it) => (it.kind === "band" ? 168 : 32));
     const body = ribbonBody(items, heights, G);
     const element = barsOf({
         "r0|x": [at("2026-06-29"), at("2026-07-06")],

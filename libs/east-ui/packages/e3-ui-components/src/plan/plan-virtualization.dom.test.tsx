@@ -632,7 +632,8 @@ describe("a link into an evicted window (#823, #818)", () => {
     });
     afterEach(() => { Object.defineProperty(Element.prototype, "clientWidth", realClientWidth); });
 
-    test("its end sits at that window's offset in the band — and clamps and stubs like any row out of view", async () => {
+    test("its row counts with its role, and its end sits at the band the focus folds its other rows into — opened, at its window's offset in its block's band; and it clamps and stubs like any row out of view (#1680's review)", async () => {
+        const G = PLAN_GEOMETRY.default;
         const { container } = renderPlan(planRoot([], { height: "400px", source, links }), "plan-823-links");
         await waitFor(() => expect(asked).toEqual(expect.arrayContaining([0, 1, 2])));
         await waitFor(() => expect(container.querySelector(rowSel("w0000r000"))).toBeTruthy());
@@ -645,24 +646,31 @@ describe("a link into an evicted window (#823, #818)", () => {
         }, { timeout: 10_000 });
         expect(container.querySelector(rowSel("w0001r000"))).toBeNull();
         fireEvent.click(container.querySelector(`${rowSel("w0007r000")} [data-plan-control="links"]`)!);
-        // Over the head band, 40px above window 1's place in it. (The scroll
-        // is read before it settles — a settled one would bring window 1 back.)
-        // The far end is drawn AT its window's offset, unclamped; the near
-        // end, below the view, stubs toward its row. The far run starts at the
-        // window's start, so the link enters it from below, onto its bottom
-        // edge — never through the gutter (#1258).
-        scrollFrame(container, W - 40);
+        // The body is the focus's: Upstream with none, Focused over w0007r000, Downstream counting the row the canvas
+        // does not hold, and the band every other row folds into — folded. (The scroll is read before it settles.)
+        scrollFrame(container, 0);
+        expect(container.querySelector('[data-plan-focusband="downstream"] [data-plan-gutter="meta"]')!.textContent).toBe("1");
+        const othersTop = 3 * G.group + G.row;
         const link = () => container.querySelector('[data-plan-link="0"]')!;
-        expect(link()).toBeTruthy();
         const head = () => link().querySelector("[data-plan-ribbon-head]")!;
+        // Its far end is at that band, a bar centred in its plot cell: the run starts at the window's start, so the link
+        // drops onto its top edge — never through the gutter (#1258).
         expect(head().hasAttribute("data-plan-stub")).toBe(false);
-        expect(tipOf(head().getAttribute("d")!)[1]).toBe(W + PLAN_GEOMETRY.default.bar);
-        expect(link().querySelector('[data-plan-stub="below"]')).toBeTruthy();
-        // Down at the focused row, the far end is above the view: it clamps to
-        // the view's top and stubs up toward its window.
-        const near = 6 * W;
-        scrollFrame(container, near - 100);
-        expect(head().getAttribute("data-plan-stub")).toBe("above");
-        expect(tipOf(head().getAttribute("d")!)[1]).toBe(near - 100);
+        expect(tipOf(head().getAttribute("d")!)[1]).toBe(othersTop + (G.group - G.rule - G.bar) / 2);
+
+        // Opened, the band holds the canvas as it draws with no focus — the head band first, standing for windows 0–5.
+        fireEvent.click(container.querySelector('[data-plan-focusband="others"]')!);
+        // Over the head band, 40px above window 1's place in it: the far end is drawn AT its window's offset, unclamped;
+        // the near end, above the view, stubs toward its row.
+        const window1 = othersTop + G.group + W;
+        scrollFrame(container, window1 - 40);
+        expect(head().hasAttribute("data-plan-stub")).toBe(false);
+        expect(tipOf(head().getAttribute("d")!)[1]).toBe(window1);
+        expect(link().querySelector('[data-plan-stub="above"]')).toBeTruthy();
+        // Up at the focused row, the far end is below the view — the bounded frame's 400px less the header's 40 and the
+        // focus bar's 30: it clamps to the view's bottom and stubs down toward its window.
+        scrollFrame(container, 0);
+        expect(head().getAttribute("data-plan-stub")).toBe("below");
+        expect(tipOf(head().getAttribute("d")!)[1]).toBe(400 - 40 - FOCUS_BAR);
     });
 });

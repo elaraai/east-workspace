@@ -39,7 +39,6 @@ import { usePlanCursor, usePlanDispatch, usePlanGeometry, usePlanScale } from ".
 import { rowItemKey, type PlanRowValue } from "../model.js";
 import { statusText } from "../a11y.js";
 import { usePlanWords } from "../words.js";
-import type { PlanFocusTagWord } from "../messages.js";
 import type { PlanGridRow } from "../root/grid.js";
 import type { PlanDraftMark } from "../use-plan-editing.js";
 import { PLAN_EVENT_ELEMENT_SELECTOR } from "./element-select.js";
@@ -151,8 +150,9 @@ export interface RowShellProps {
     controls?: ReadonlyArray<{ kind: "links" | "expand"; active: boolean; onClick: () => void }> | undefined;
     /** A laned row's lanes (#1680's review): a gutter line each, the lane's height, its caption in the value cell. */
     lanes?: readonly PlanGutterLane[] | undefined;
-    /** The links-focus family tag (R1) — shown in the canvas's words. */
-    focusTag?: PlanFocusTagWord | undefined;
+    /** The labels of the rows it nests under, outermost first, where a links focus gathers it (#1680's review): its sub
+     *  line says them, then its own sub — which tells two rows of one name apart. */
+    path?: readonly string[] | undefined;
     /** The expand render's axis treatment inside this row (R2; default keep). */
     axisMode?: "dim" | "off" | undefined;
     /** R2 (#591) — the focused row's developer render, mounted INSIDE this
@@ -169,6 +169,9 @@ export interface RowShellProps {
      *  scroll position and the status dot survive, and the strip itself is
      *  the return click target. */
     ctx?: boolean | undefined;
+    /** A strip that keeps its value and its status dot in their cells — a pinned row a links focus does not gather
+     *  (#1680's review). */
+    keep?: boolean | undefined;
     /** DnD drop registration for this row's plot. Absent ⇒ the row registers
      *  no cell, so it is never a destination and never lights up. */
     drop?: PlanRowDrop | undefined;
@@ -195,7 +198,7 @@ export interface RowShellProps {
 export function RowShell({
     row, styles, gridTemplate, height, depth, selected,
     caret, onCaretClick, emphasis, noGrid,
-    controls, lanes: gutterLanes, focusTag, axisMode, ctx, drop, draft, children,
+    controls, lanes: gutterLanes, path, axisMode, ctx, keep, drop, draft, children,
     expandBody, expandGutter, bandHeight, grid, expandedState, groupEnd, unread,
 }: RowShellProps) {
     const scale = usePlanScale();
@@ -209,12 +212,15 @@ export function RowShell({
     // own the styling (`&[data-ctx]` in the recipe) — this only says which
     // elements are in a strip.
     const ctxAttr = ctx === true ? "" : undefined;
+    const keepAttr = ctx === true && keep === true ? "" : undefined;
     // The row is EXPANDED when it carries a render. Everything the expanded
     // state changes — the tint, the top-aligned tall gutter, the banded plot —
     // keys off this one flag.
     const expanded = expandBody !== undefined;
     const expandedAttr = expanded ? "" : undefined;
-    const sub = gutter.sub.type === "some" ? gutter.sub.value : undefined;
+    const own = gutter.sub.type === "some" ? gutter.sub.value : undefined;
+    // A gathered row's sub line: what it nests under, then its own sub (#1680's review).
+    const sub = path !== undefined && path.length > 0 ? words.m.focusPath({ path, sub: own }) : own;
     const meta = gutter.meta.type === "some" ? gutter.meta.value : undefined;
     const value = gutter.value.type === "some" ? gutter.value.value : undefined;
     const isId = gutter.id;
@@ -603,11 +609,12 @@ export function RowShell({
             </Box>
         );
     };
-    // The line's cells after the name's — each always there: the value, the status dot, and the controls.
-    const valueCell = <Box as="span" css={styles.gutterValue} data-ctx={ctxAttr} data-plan-gutter="value">{value}</Box>;
+    // The line's cells after the name's — each always there: the value, the status dot, and the controls. A strip drops
+    // its value and dot, but for a pinned row a links focus does not gather (`keep`).
+    const valueCell = <Box as="span" css={styles.gutterValue} data-ctx={ctxAttr} data-keep={keepAttr} data-plan-gutter="value">{value}</Box>;
     // The dot's colour IS the status — its name says it (#819).
     const dotCell = statusTone !== undefined
-        ? <Box as="span" css={styles.statusDot} data-tone={statusTone} data-ctx={ctxAttr} role="img" aria-label={statusText(statusTone, words)} />
+        ? <Box as="span" css={styles.statusDot} data-tone={statusTone} data-ctx={ctxAttr} data-keep={keepAttr} role="img" aria-label={statusText(statusTone, words)} />
         : <Box as="span" />;
     // Row controls (R1/R2) — always shown (#1258), each named by the canvas's tooltip (`root/overlays.tsx`); a control
     // click never selects or toggles the row. Out of the tab order: the row's Tab walk reaches them (#819).
@@ -619,14 +626,7 @@ export function RowShell({
     );
     const nameCell = (
         <Box as="span" css={styles.gutterNameCell} data-plan-gutter="title">
-            {/* The links-focus family tag (R1) — settles in after the gather choreography — on its own line with the label,
-                where it gives its room up first (#1277). */}
-            {focusTag !== undefined ? (
-                <Box css={styles.gutterNamed} data-plan-gutter="named">
-                    <Box as="span" css={styles.gutterLabel} data-plan-gutter="label">{gutter.label}</Box>
-                    <Box as="span" css={styles.focusTag} data-plan-focustag={focusTag}>{words.m.focusTag({ tag: focusTag })}</Box>
-                </Box>
-            ) : <Box as="span" css={styles.gutterLabel} data-plan-gutter="label">{gutter.label}</Box>}
+            <Box as="span" css={styles.gutterLabel} data-plan-gutter="label">{gutter.label}</Box>
             {meta !== undefined && <Box as="span" css={styles.gutterMeta} data-ctx={ctxAttr} data-plan-gutter="meta">{meta}</Box>}
         </Box>
     );

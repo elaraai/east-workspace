@@ -134,7 +134,6 @@ export {
     type PlanMessagesProviderProps,
     type PlanAxisWord,
     type PlanChartLayerWord,
-    type PlanFocusTagWord,
     type PlanGrainWord,
     type PlanHorizonUnit,
     type PlanMarkWord,

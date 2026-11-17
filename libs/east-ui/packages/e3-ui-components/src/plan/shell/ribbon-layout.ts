@@ -78,6 +78,12 @@ export interface RibbonBody {
     geometry: Readonly<PlanGeometry>;
     /** The body's full height — the sum of every item's. */
     height: number;
+    /**
+     * Where a links focus draws a row it has folded with the others while their band is folded (#1680's review): a bar
+     * centred in that band's plot cell, its top here — what a row of a paged source's evicted window is placed at, its
+     * own band not in the body. `undefined` while no such band is folded.
+     */
+    folded?: number | undefined;
 }
 
 /** Where a row the body does not hold is drawn: past an edge of the rows (a
@@ -202,6 +208,7 @@ export function ribbonBody(
 ): RibbonBody {
     const slots = new Map<RowKey, RibbonSlot>();
     const bands = new Map<string, number>();
+    let folded: number | undefined;
     let y = 0;
     items.forEach((item, i) => {
         const h = heights[i] ?? 0;
@@ -210,10 +217,28 @@ export function ribbonBody(
             slots.set(item.row.row.key, { top: y, height: h, bar: geometry.bar });
         } else if (item.kind === "band") {
             bands.set(`${item.band.block}:${item.band.at}`, y);
+        } else if (item.kind === "focus" && item.band.role === "others" && !item.band.open) {
+            // The others' band, folded: a bar centred in its plot cell — the band less the rule under it.
+            folded = y + (h - geometry.rule - geometry.bar) / 2;
         }
         y += h;
     });
-    return { slots, bands, geometry, height: y };
+    return { slots, bands, geometry, height: y, folded };
+}
+
+/**
+ * Where a row of a paged source's evicted window is drawn (#823): at its
+ * window's offset in its block's band — or, that band folded with a links
+ * focus's other rows, at the band they fold into (#1680's review).
+ *
+ * @param place - The row's place: its block's band, which end, and its window's offset in it (the paging driver's)
+ * @param body - The canvas body as the ribbons see it
+ * @returns Where it is drawn; `undefined` where the body holds neither — its edges are not drawn
+ */
+export function placedBeyond(place: { readonly block: number; readonly at: string; readonly px: number }, body: RibbonBody): RibbonBeyond | undefined {
+    const top = body.bands.get(`${place.block}:${place.at}`);
+    if (top !== undefined) return { y: top + place.px };
+    return body.folded !== undefined ? { y: body.folded } : undefined;
 }
 
 /** The part of the rows a bounded frame shows, in the rows' own px. */

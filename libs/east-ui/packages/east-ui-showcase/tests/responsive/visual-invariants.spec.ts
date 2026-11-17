@@ -381,7 +381,7 @@ test.describe("Visual invariants — the Plan", () => {
             expect(read.summary).toBe("16 of 24 orders");
         });
 
-        test(`planTargetState (${theme}): a links focus inks as \`Plan links.html\` does — the muted ink over the paper casing, captions on paper knockouts, an end past the window in a slot dashed in the subtle ink; lit, the strong ink and its halo; its band, Tags, rails and pressed control in their tokens (#1258)`, async ({ page }) => {
+        test(`planTargetState (${theme}): a links focus inks as \`Plan links.html\` does — the muted ink over the paper casing, captions on paper knockouts, an end past the window in a slot dashed in the subtle ink; lit, the strong ink and its halo; its band, its role bands — a group band's paper and caption, the band the others fold into the only one with a hand — and its pressed control in their tokens (#1258, #1680's review)`, async ({ page }) => {
             const entry = await openExample(page, "planTargetState", PLAN_EXAMPLES, theme);
             await entry.locator(`${rowSel("detail", "H1-P09")} [data-plan-control="links"]`).click();
             await expect(entry.locator('[data-plan-linkslot="right"]')).toHaveCount(1);
@@ -392,8 +392,7 @@ test.describe("Visual invariants — the Plan", () => {
                 subtle: await tokenColour(page, "--chakra-colors-fg-subtle"),
                 paper: await tokenColour(page, "--chakra-colors-bg-surface"),
                 paper2: await tokenColour(page, "--chakra-colors-bg-canvas"),
-                paper3: await tokenColour(page, "--chakra-colors-bg-subtle"),
-                rule: await tokenColour(page, "--chakra-colors-border-subtle"),
+                panel: await tokenColour(page, "--chakra-colors-bg-panel"),
                 link: await tokenColour(page, "--chakra-colors-link"),
                 tint: await tokenColour(page, "--chakra-colors-brand-tint"),
                 pressed: await tokenColour(page, "--chakra-colors-brand-pressed"),
@@ -417,7 +416,13 @@ test.describe("Visual invariants — the Plan", () => {
                     focusBand: one("[data-plan-focusbar]", (s) => s.backgroundColor),
                     back: one("[data-plan-focusback]", (s) => `${s.color} ${s.fontSize} ${s.fontWeight}`),
                     focusCaption: one("[data-plan-focusbar] > :last-child", (s) => `${s.color} ${s.fontSize} ${s.fontWeight} ${s.textTransform} ${/mono/i.test(s.fontFamily) ? "mono" : s.fontFamily}`),
-                    tag: all("[data-plan-focustag]", (s) => `${s.backgroundColor} ${s.color} ${s.borderTopWidth} ${s.borderTopColor} ${s.borderTopLeftRadius} ${s.fontSize} ${s.fontWeight}`),
+                    // Each band, the one the others fold into apart: its paper, and its hand where a click opens it.
+                    roleBands: [...new Set([...root.querySelectorAll("[data-plan-focusband]")].map((el) => {
+                        const s = getComputedStyle(el);
+                        return `${el.getAttribute("data-plan-focusband") === "others" ? "others" : "role"} ${s.backgroundColor} ${s.cursor}`;
+                    }))].sort(),
+                    roleCaption: all("[data-plan-focusband] [data-plan-gutter='label']", (s) => `${s.color} ${s.fontSize} ${s.fontWeight} ${s.textTransform} ${/mono/i.test(s.fontFamily) ? "mono" : s.fontFamily}`),
+                    roleCount: all("[data-plan-focusband] [data-plan-gutter='meta']", (s) => `${s.color} ${s.fontSize} ${s.fontWeight} ${s.textTransform}`),
                     pressed: one("[data-plan-control='links'][aria-pressed='true']", (s) => `${s.backgroundColor} ${s.color}`),
                 };
             });
@@ -436,7 +441,11 @@ test.describe("Visual invariants — the Plan", () => {
                 focusBand: T.paper2,
                 back: `${T.link} 12.5px 500`,
                 focusCaption: `${T.subtle} 10px 600 uppercase mono`,
-                tag: [`${T.paper3} ${T.muted} 1px ${T.rule} 4px 10px 500`],
+                // A group band's paper; the band the others fold into opens on a click, a role's opens nothing.
+                roleBands: [`others ${T.panel} pointer`, `role ${T.panel} default`],
+                // A group band's caption, and the row metas' voice for its count.
+                roleCaption: [`${T.subtle} 10px 600 uppercase mono`],
+                roleCount: [`${T.subtle} 10px 400 none`],
                 pressed: `${T.tint} ${T.pressed}`,
             });
             // Lit: the pointer on a link's band.
@@ -453,12 +462,6 @@ test.describe("Visual invariants — the Plan", () => {
                 litBand: [T.strong], litHead: [T.strong],
                 halo: [`${T.strong} 1px none`],
             });
-            // A rail and a gap band, hovered, step to the third paper.
-            for (const sel of ["[data-plan-rail]", "[data-plan-gap]"]) {
-                const target = entry.locator(sel).first();
-                await target.hover();
-                await expect(target, sel).toHaveCSS("background-color", T.paper3);
-            }
         });
     }
 });

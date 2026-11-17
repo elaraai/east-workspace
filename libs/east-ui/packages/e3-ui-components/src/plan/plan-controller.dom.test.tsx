@@ -189,7 +189,7 @@ describe("the canvas over its controller (#815)", () => {
         expect(container.querySelector(rowSel("r2"))!.hasAttribute("data-selected")).toBe(false);
     });
 
-    test("a value without the FOCUSED row commits once with no focus — no frame of rails around a row that is gone", () => {
+    test("a value without the FOCUSED row commits once with no focus — no frame of role bands around a row that is gone", () => {
         initializeStore(new UIStore());
         const all = ["r1", "r2", "r3", "r4"].map((k) => planRow(k));
         const links = [{
@@ -197,13 +197,13 @@ describe("the canvas over its controller (#815)", () => {
             quantity: some({ value: 1, unit: none, format: none, text: some("L") }),
         }];
         // What EVERY commit put on screen — read as the commit lands.
-        const frames: { rails: number; bar: boolean }[] = [];
+        const frames: { bands: number; bar: boolean }[] = [];
         let container: HTMLElement | undefined;
         const frame = (n: ReactNode) => (
             <Profiler id="frames" onRender={() => {
                 if (container === undefined) return;
                 frames.push({
-                    rails: container.querySelectorAll("[data-plan-rail]").length,
+                    bands: container.querySelectorAll("[data-plan-focusband]").length,
                     bar: container.querySelector("[data-plan-focusbar]") !== null,
                 });
             }}>{n}</Profiler>
@@ -213,13 +213,14 @@ describe("the canvas over its controller (#815)", () => {
         container = view.container;
         fireEvent.click(container.querySelector(`${rowSel("r2")} [data-plan-control="links"]`)!);
         expect(container.querySelector("[data-plan-focusbar]")).toBeTruthy();
-        expect(container.querySelectorAll("[data-plan-rail]").length).toBeGreaterThan(0);
+        // Upstream, Focused, Downstream, and the band the other rows fold into (#1680's review).
+        expect(container.querySelectorAll("[data-plan-focusband]").length).toBe(4);
 
         commits.length = 0;
         frames.length = 0;
         view.rerender(tree(planRoot(without(all, "r2"), { links }), "plan-815-focus", commits, frame));
         expect(commits).toEqual(["update"]);
-        expect(frames).toEqual([{ rails: 0, bar: false }]);
+        expect(frames).toEqual([{ bands: 0, bar: false }]);
     });
 
     test("an element's open popover goes with its element — it does not come back when the element mounts again", async () => {

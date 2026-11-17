@@ -217,15 +217,17 @@ describe("one message table (#820)", () => {
         // The grid's name, and every accessible name the canvas composes.
         expect(container.querySelector("[role='treegrid']")!.getAttribute("aria-label")).toBe("⟦Plan");
         expect(container.querySelector("[data-run='r1']")!.getAttribute("aria-label")).toMatch(/^⟦/u);
-        // A links focus: the control's name, the way back, the caption, and
-        // the family tag each related row wears.
+        // A links focus: the control's name, the way back, the caption, its
+        // role bands — each its role's word, a count in the locale's numerals
+        // with what a reader hears of it, or the word for none — the band its
+        // other rows fold into, and a gathered row's path (#1680's review).
         const control = container.querySelector(`${itemSel("s")} [data-plan-control='links']`)!;
         expect(control.getAttribute("aria-label")).toBe("⟦Focus linked rows");
         fireEvent.click(control);
         allMarked(words(container.querySelector("[data-plan-focusbar]")!));
-        const tags = [...container.querySelectorAll("[data-plan-focustag]")];
-        expect(tags.length).toBeGreaterThan(0);
-        allMarked(tags.flatMap(words));
+        const bands = [...container.querySelectorAll("[data-plan-focusband] [data-plan-gutter='title']")].map(words);
+        expect(bands).toEqual([["⟦Upstream", "⟦none"], ["⟦Focused"], ["⟦Downstream", "1", "⟦1 row"], ["⟦Other rows", "1", "⟦1 row"]]);
+        expect(words(container.querySelector(`${rowSel("u")} [data-plan-gutter='sub']`)!)).toEqual(["⟦Hall 1"]);
     });
 
     test("paged: a failed window's line and its Retry, said once (#1398, CL11)", async () => {
