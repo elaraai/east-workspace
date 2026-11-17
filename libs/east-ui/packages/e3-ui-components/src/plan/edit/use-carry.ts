@@ -40,7 +40,7 @@ import type { RowKey } from "../plan-state.js";
 import type { PlanScale } from "../scale.js";
 import type { PlanWords } from "../words.js";
 import { spanWords } from "./movable.js";
-import type { PlanCarry, PlanEditStore, PlanMovable, PlanProposal, PlanSpan } from "./store.js";
+import { sameLane, type PlanCarry, type PlanEditStore, type PlanMovable, type PlanProposal, type PlanSpan } from "./store.js";
 import { rowIdOfKey } from "../row-key.js";
 import { itemCandidate, itemRef, type PlanCandidateGesture, type PlanCandidateValue, type PlanVeto } from "./candidate.js";
 
@@ -89,7 +89,7 @@ export type PlanMoveOrigin = { kind: "move" } | { kind: "resize"; edge: "start" 
 export function unmoved(movable: PlanMovable, to: PlanProposal): boolean {
     return to.rowKey === movable.rowKey && equalInstants(to.span.start, movable.span.start) && equalInstants(to.span.end, movable.span.end)
         // A lane the landing names that is not the element's own moves it (#1541, U1).
-        && (to.lane === undefined || to.lane === movable.lane);
+        && (to.lane === undefined || sameLane(to.lane, movable.lane));
 }
 
 /**

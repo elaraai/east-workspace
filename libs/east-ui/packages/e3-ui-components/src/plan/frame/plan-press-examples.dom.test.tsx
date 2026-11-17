@@ -21,13 +21,13 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
-import { waitFor } from "@testing-library/react";
+import { fireEvent, waitFor } from "@testing-library/react";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import { boundFrame, frameScrolls } from "../../sheet/frame.test-utils.js";
 import { planMessages } from "../messages.js";
 import { rowKeyOf, type PlanRowId } from "../model.js";
 import { axisFormatter } from "../rows/chart-geometry.js";
-import { el, entry, planHarness, rowAt, settle } from "./harness.test-utils.js";
+import { el, entry, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
 import { pressKindStep } from "./press.test-utils.js";
 
 const h = planHarness();
@@ -74,6 +74,18 @@ const tasksOn = (c: HTMLElement, row: PlanRowId) => TASKS.flatMap((key) => {
 });
 /** Anything a mounted Plan could not draw. */
 const refused = (c: HTMLElement) => [...c.querySelectorAll("[data-plan-diagnostic],[data-plan-error],[role='alert']")].map((node) => node.textContent ?? "");
+/** The inspector's pane. */
+const pane = (c: HTMLElement) => slot(c, "end")!;
+/** One of the inspector's facts, by its name: its value's words; `null` where it shows none. */
+const fact = (c: HTMLElement, name: string) => pane(c).querySelector(`[data-fact=${JSON.stringify(name)}]`)?.textContent ?? null;
+/** What the inspector says the row is: its eyebrow. */
+const eyebrow = (c: HTMLElement) => pane(c).querySelector('[data-plan-inspector="row"] [data-inspector-kind]')?.textContent ?? null;
+/** Selects a row by a click on it, as a planner does — a press's head folds its rows: the inspector shows the row. */
+async function selectRow(c: HTMLElement, row: PlanRowId) {
+    fireEvent.click(c.querySelector<HTMLElement>(rowAt(row))!);
+    await settle();
+    expect(pane(c).querySelector('[data-plan-inspector="row"]')).not.toBeNull();
+}
 /** The kinds of request a record was read with through one of its indexes. */
 const readsOf = (dataset: string, index: string) => h.requests()
     .filter((request) => request.dataset === dataset && (request.query.get("index") ?? undefined) === index).map((request) => request.kind);
@@ -122,6 +134,20 @@ describe("the works' page (planPressTasks)", () => {
             expect(cell, `lane ${lane}`).not.toBeNull();
             expect(cell!.querySelector("[data-event]")).toBeNull();
         }
+    });
+
+    test("the inspector shows a kind's row as its press's tasks of that kind, and the press's own row as the press with all of them (#1660's review)", async () => {
+        const { container: c } = await h.mount(ex.planPressTasks);
+        await settle();
+        await waitFor(() => expect(task(c, "T-02", INK_3)).not.toBeNull());
+        // The cyan and the black: the press's tasks on its row of ink fills, read by the press its row stands beneath.
+        await selectRow(c, INK_3);
+        expect(eyebrow(c)).toBe("Tasks");
+        await waitFor(() => expect(fact(c, "events")).toBe("2"));
+        // The press's own row draws none of them, and stands for the press: every task of its kinds' rows.
+        await selectRow(c, entry("press", "P03"));
+        expect(eyebrow(c)).toBe("Presses");
+        await waitFor(() => expect(fact(c, "events")).toBe("5"));
     });
 
     test("the machines are read a page at a time through their indexes, and the tasks a cell at a time by their press", async () => {

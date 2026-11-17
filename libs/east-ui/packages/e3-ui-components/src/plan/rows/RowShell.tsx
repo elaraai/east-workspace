@@ -314,7 +314,7 @@ export function RowShell({
             return { surface, row: row.key, slot };
         }
         // A card rests in the lane the pointer is over (#1541, U1): what the event kinds judge it by, and land it in.
-        if (store !== undefined && eventTarget !== undefined) store.cardLane = laneAt(clientY, keyboard)?.key;
+        if (store !== undefined && eventTarget !== undefined) store.cardLane = { row: row.key, lane: laneAt(clientY, keyboard)?.key };
         const slot = slotHere();
         // An author's card lands on the event under the pointer (#1196): the coordinate names it.
         const event = eventTarget !== undefined && events?.landsOnEvent(payload.from.library) === true ? eventAt(clientX, clientY) : undefined;

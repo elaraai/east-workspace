@@ -19,7 +19,7 @@ import { eventRowId, type PlanLandingValue } from "./landings.js";
 
 /** A landing series its kinds draw bars and marks on: the canvas's own entries, or rows beneath a group's. */
 const landing = (key: string, top: boolean): PlanLandingValue =>
-    ({ key, name: key, draws: [variant("span", null), variant("marks", null)], kinds: ["job", "stop"], series: [], top }) as PlanLandingValue;
+    ({ key, name: key, draws: [variant("span", null), variant("marks", null)], kinds: ["job", "stop"], series: [], top, under: none }) as PlanLandingValue;
 const LANDINGS = [landing("presses", true), landing("crews", false)];
 /** An event kind that draws marks, by what a candidate's row reads of it. */
 const STOPS = { key: "stop", draw: variant("marks", null) } as Parameters<typeof eventRowId>[0];

@@ -88,13 +88,9 @@ export function fieldWrite(specs: readonly FieldSpecValue[], rowType: EastTypeVa
  * @returns The write; `undefined` for a field the row lacks, and for a text no key of the field's type prints as
  */
 export function keyFieldWrite(rowType: EastTypeValue, field: string, text: string): ScheduleFieldWrite | undefined {
-    const type = (fromEastTypeValue(rowType) as StructType).fields[field] as EastType | undefined;
-    if (type === undefined) return undefined;
-    const inner = optionOf(type);
-    const keyType = inner ?? type;
-    const parsed = keyType.type === "String" ? { success: true as const, value: text as unknown } : parseFor(keyType)(text);
-    if (!parsed.success) return undefined;
-    return { path: [field], value: encodeBeast2For(type)((inner === undefined ? parsed.value : some(parsed.value)) as never) };
+    const codec = fieldCodec(rowType, field);
+    const key = codec?.key(text);
+    return codec === undefined || key === undefined ? undefined : { path: [field], value: codec.encode(key.value) };
 }
 
 /**
@@ -107,11 +103,63 @@ export function keyFieldWrite(rowType: EastTypeValue, field: string, text: strin
  * @returns The write; `undefined` for a field the row lacks, and for a variant with no such case
  */
 export function laneFieldWrite(rowType: EastTypeValue, field: string, lane: string): ScheduleFieldWrite | undefined {
-    const type = (fromEastTypeValue(rowType) as StructType).fields[field] as EastType | undefined;
-    if (type === undefined) return undefined;
-    if (type.type === "String") return { path: [field], value: encodeBeast2For(type)(lane as never) };
+    const codec = fieldCodec(rowType, field);
+    if (codec === undefined) return undefined;
+    const type = codec.type;
+    if (type.type === "String") return { path: [field], value: codec.encode(lane) };
     if (type.type !== "Variant" || !Object.hasOwn(type.cases as Record<string, EastType>, lane)) return undefined;
-    return { path: [field], value: encodeBeast2For(type)(variant(lane, null) as never) };
+    return { path: [field], value: codec.encode(variant(lane, null)) };
+}
+
+/** A row type's field, as a gesture's write takes it: its type, its values' encoder, and its key's text read back. */
+interface FieldCodec {
+    readonly type: EastType;
+    readonly encode: (value: unknown) => Uint8Array;
+    /** A key's text read at the field's type — an Option's, at the type it holds, the value its `some`; `undefined` for a text no key prints as. */
+    readonly key: (text: string) => { readonly value: unknown } | undefined;
+}
+
+/** Each row type's fields' codecs: by the type value as it is passed, and by East's word on which row types are the same. */
+const fieldCodecs: { type: EastTypeValue; fields: Map<string, FieldCodec | undefined> }[] = [];
+const fieldCodecsSeen = new WeakMap<object, Map<string, FieldCodec | undefined>>();
+
+/**
+ * A row type's field's codec, made the first time a write names it: a drag names one at every step, and makes none
+ * again.
+ *
+ * @param rowType - The record's row type
+ * @param field - The field
+ * @returns Its codec; `undefined` for a field the row lacks
+ */
+function fieldCodec(rowType: EastTypeValue, field: string): FieldCodec | undefined {
+    let fields = fieldCodecsSeen.get(rowType);
+    if (fields === undefined) {
+        fields = fieldCodecs.find((c) => sameTypeValue(c.type, rowType))?.fields;
+        if (fields === undefined) {
+            fields = new Map();
+            fieldCodecs.push({ type: rowType, fields });
+        }
+        fieldCodecsSeen.set(rowType, fields);
+    }
+    if (fields.has(field)) return fields.get(field);
+    const type = (fromEastTypeValue(rowType) as StructType).fields[field] as EastType | undefined;
+    let codec: FieldCodec | undefined;
+    if (type !== undefined) {
+        const inner = optionOf(type);
+        const keyType = inner ?? type;
+        const parse = keyType.type === "String" ? undefined : parseFor(keyType);
+        codec = {
+            type,
+            encode: encodeBeast2For(type) as (value: unknown) => Uint8Array,
+            key: (text) => {
+                const read = parse === undefined ? { success: true as const, value: text as unknown } : parse(text);
+                if (!read.success) return undefined;
+                return { value: inner === undefined ? read.value : some(read.value) };
+            },
+        };
+    }
+    fields.set(field, codec);
+    return codec;
 }
 
 /**

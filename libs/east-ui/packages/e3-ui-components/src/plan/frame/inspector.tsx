@@ -145,7 +145,7 @@ import { quantityText, totalsByUnit, totalsText, type PlanQuantityValue } from "
 import { scheduleCellId, scheduleWithinCap, type ScheduleCellsRead } from "../../shared/schedule/cells.js";
 import type { PlanChrome } from "../root/chrome.js";
 import { eventReadRange } from "../root/events.js";
-import { landingRowId, landingSeriesTargetOf, landingTargetOf, resourceKeyOf, type PlanLandingTarget } from "../root/landings.js";
+import { landingResourceOf, landingRowId, landingSeriesTargetOf, landingTargetOf, resourceKeyOf, type PlanLandingTarget } from "../root/landings.js";
 import type { PlanScale } from "../scale.js";
 import type { PlanWords } from "../words.js";
 import type { PlanEventCounts } from "./counts.js";
@@ -1408,6 +1408,29 @@ function SeveralLinks({ links, words, styles, chrome }: SeveralLinksProps) {
  */
 type RowTarget = PlanLandingTarget | { readonly kind: "row" };
 
+/**
+ * What a row's events are on: the resource, by the rule every part of the canvas reads it by (`landingResourceOf`) —
+ * its own, or, for a row a step beneath one (#1541, U1), the one it stands beneath — and there the child's key its
+ * events name; for an Unassigned row, none.
+ *
+ * @param target - What the row stands for
+ * @returns The resource, as an event names it, and the child's key beneath it; `undefined` for a resource's row whose
+ *   path names no resource, which has no events
+ */
+function rowEventsOn(target: RowTarget):
+    { readonly on: ValueTypeOf<OptionType<typeof ScheduleResourceRefType>> | undefined; readonly beneath: string | undefined } | undefined {
+    if (target.kind !== "resource") return { on: undefined, beneath: undefined };
+    const at = landingResourceOf(target);
+    return at === undefined ? undefined : { on: some(at.ref), beneath: at.beneath };
+}
+
+/** Whether an event is on the row a step beneath its resource its child's key names: none beneath, every one is. */
+function onChild(item: { readonly child: option<string> }, beneath: string | undefined): boolean {
+    if (beneath === undefined) return true;
+    const child = getSomeorUndefined(item.child);
+    return child !== undefined && stringEqual(child, beneath);
+}
+
 /** No kind named. */
 const NO_NAMES: readonly string[] = [];
 
@@ -1466,14 +1489,20 @@ function useWindowFacts(
     const readTo = range?.to.getTime();
     const read = useCallback((): WindowFacts | typeof READING | typeof ROW_LOADING | undefined => {
         if (target.kind === "row" || from === undefined || to === undefined || readFrom === undefined || readTo === undefined) return undefined;
-        const on = target.kind === "resource" ? some({ kind: target.landing.key, key: target.key }) : undefined;
+        const at = rowEventsOn(target);
+        if (at === undefined) return undefined;
+        const { on, beneath } = at;
         let counted = false;
         let events = 0;
         let minutes = 0;
         const quantities: PlanQuantityValue[] = [];
         const uncounted: PlanEventKindValue[] = [];
         for (const kind of kinds) {
-            if (target.kind === "resource" ? !kind.takes.some((slot) => stringEqual(slot, target.landing.key)) : !stringEqual(kind.key, target.event.key)) continue;
+            // The row's kinds: those on its resource — beneath one, those whose `child` names its series (#1541, U1).
+            const lands = target.kind !== "resource" ? stringEqual(kind.key, target.event.key)
+                : beneath !== undefined ? target.landing.kinds.some((slot) => stringEqual(slot, kind.key))
+                    : kind.takes.some((slot) => stringEqual(slot, target.landing.key));
+            if (!lands) continue;
             // Hidden in the Series tab: no part of what the canvas shows — in no figure, and nothing says so.
             if (hides(hidden, planHideId.events(kind.key))) continue;
             // Past the cap: none of its events is read, so the row counts none of them — not counted, never 0.
@@ -1484,8 +1513,8 @@ function useWindowFacts(
             const held = cells?.reads.get(kind.key);
             // Read by its cells, which the reader holds none of for this resource — scrolled out of the blocks read, or
             // not landed yet: its figures are on their way, never 0 (#1398, CL13).
-            if (held !== undefined && !cells!.windowed.has(kind.key) && target.kind === "resource" && cells!.drawn !== undefined
-                && !cells!.drawn.has(scheduleCellId(target.landing.key, target.key))) return ROW_LOADING;
+            if (held !== undefined && !cells!.windowed.has(kind.key) && on !== undefined && on.type === "some" && cells!.drawn !== undefined
+                && !cells!.drawn.has(scheduleCellId(on.value.kind, on.value.key))) return ROW_LOADING;
             // Every kind is counted before it is read: given no cells, it is read over the window once it is within the cap.
             if (held === undefined) {
                 const within = scheduleWithinCap(kind.count, new Date(readFrom), new Date(readTo));
@@ -1496,7 +1525,7 @@ function useWindowFacts(
             if (items.type === "none") return READING;
             counted = true;
             for (const item of items.value) {
-                if (on !== undefined ? !resourceEqual(item.resource, on) : item.resource.type !== "none") continue;
+                if (on !== undefined ? !resourceEqual(item.resource, on) || !onChild(item, beneath) : item.resource.type !== "none") continue;
                 events += 1;
                 minutes += Number(item.minutes);
                 const quantity = getSomeorUndefined(item.quantity);
@@ -1535,9 +1564,11 @@ function RowView({ rowKey, at, kinds, landings, chrome, counts, words, styles, h
     const target = useMemo((): RowTarget => landingTargetOf(row.id, landings, kinds) ?? landingSeriesTargetOf(row.id, landings) ?? { kind: "row" },
         [row.id, landings, kinds]);
     const facts = useWindowFacts(target, kinds, scale, chrome.events?.drafts ?? NONE_DRAFTED, chrome.cells, hidden);
-    // Its overlaps (#1198, PB40): the pairs on its resource in the window, a line each, which selects the pair.
-    const on = target.kind === "resource" ? some({ kind: target.landing.key, key: target.key }) : undefined;
-    const pairs = on === undefined ? [] : (counts?.overlaps.pairs ?? []).filter((pair) => resourceEqual(pair.first.resource, on));
+    // Its overlaps (#1198, PB40): the pairs on its resource in the window — beneath one, on its row (#1541, U1) — a line each,
+    // which selects the pair.
+    const eventsOn = rowEventsOn(target);
+    const on = eventsOn?.on;
+    const pairs = on === undefined ? [] : (counts?.overlaps.pairs ?? []).filter((pair) => resourceEqual(pair.first.resource, on) && onChild(pair.first, eventsOn?.beneath));
     // Its resource (#1541): its landing row — the row itself, or the one beside it for a further way its kinds draw — its
     // lines the row's sub and value, its group the group strip it is drawn under.
     const resource = target.kind === "resource" ? inspect.row(rowKeyOf(landingRowId(target.landing.key, target.path))) : undefined;

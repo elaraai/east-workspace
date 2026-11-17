@@ -8,10 +8,11 @@
  * (#1541, U1): the works' machines read whole, each press with the kinds of
  * task it takes as rows beneath it, and the tasks' one event kind landing on
  * those rows — by its press and its kind — in its half's lane, with its
- * inspector.
+ * inspector; and, where a test asks, a tab of work orders whose cards make
+ * tasks, and the Plan's own check, which takes no task in an afternoon.
  */
 
-import { East, printFor, variant } from "@elaraai/east";
+import { DictType, East, OptionType, StringType, StructType, none, printFor, some, variant } from "@elaraai/east";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import { Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
@@ -30,19 +31,28 @@ const printKind = printFor(ex.PressTaskKind);
  */
 export const pressKindStep = (kind: keyof typeof ex.PressTaskKind.cases): string => printKind(variant(kind, null));
 
+/** A work order, a card of the Orders tab: what it is. */
+const WorkOrder = StructType({ title: StringType });
+/** The work orders: one blanket wash. */
+const WORK_ORDERS = new Map([["W-1", { title: "Blanket wash order" }]]);
+
 /** What a test asks of the press tasks' Plan. */
 export interface PressPlanOptions {
     /** Whether a press's own row is drawn; left out, it is. */
     pressRow?: boolean;
+    /** Whether the library lists the work orders, whose cards make tasks; left out, there is no library. */
+    cards?: boolean;
+    /** Whether the Plan's check refuses a drop in an afternoon's lane: `No afternoons`; left out, there is no check. */
+    noAfternoons?: boolean;
 }
 
 /**
  * The press tasks' Plan, with its inspector.
  *
- * @param options - Whether a press's own row is drawn
+ * @param options - Whether a press's own row is drawn, the work orders listed, and the afternoons refused
  * @returns The program, for the harness's `mount`
  */
-export function pressPlan({ pressRow = true }: PressPlanOptions = {}) {
+export function pressPlan({ pressRow = true, cards = false, noAfternoons = false }: PressPlanOptions = {}) {
     return { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
         const machines = $.let(Record.bind(ex.planPressMachines, []));
         const tasks = $.let(Record.bind(ex.planPressTaskRows));
@@ -71,6 +81,22 @@ export function pressPlan({ pressRow = true }: PressPlanOptions = {}) {
                     lane: "half",
                 }),
             },
+            ...(cards ? {
+                library: [Plan.library.tab($.const(WORK_ORDERS, DictType(StringType, WorkOrder)), {
+                    name: "Orders", icon: "inbox", label: (order) => order.title,
+                    create: {
+                        kind: "task",
+                        values: (order) => ({ title: order.title, kind: variant("blanket_wash", null), half: variant("am", null), state: variant("proposed", variant("added", null)) }),
+                    },
+                })],
+            } : {}),
+            ...(noAfternoons ? {
+                canDrop: $.const(East.function([Plan.Types.Candidate], OptionType(StringType), ($2, candidate) => {
+                    const said = $2.let(none, OptionType(StringType));
+                    $2.if(candidate.lane.equal(some("pm")), ($3) => { $3.assign(said, some("No afternoons")); });
+                    return said;
+                })),
+            } : {}),
             inspector: true,
         });
     }))), inputs: [] as [] };

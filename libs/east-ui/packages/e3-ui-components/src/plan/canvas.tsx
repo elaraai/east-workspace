@@ -84,7 +84,7 @@ import { StringType, equalFor, none, type PatchPath, type ValueTypeOf } from "@e
 import { Plan, planKeys, type PlanPayloadType } from "@elaraai/e3-ui/internal";
 import { printEventRef } from "../shared/schedule/event-ref.js";
 import {
-    getSomeorUndefined, optimiseMessages, useCoarsePointer, useContainerBelow, useDataStable, useFormatters, useLanding, useLandingStyles, usePersistedState,
+    getSomeorUndefined, optimiseMessages, useCoarsePointer, useContainerBelow, useDataStable, useDragLayerOptional, useFormatters, useLanding, useLandingStyles, usePersistedState,
     historyShortcut, takeKey, useSliceReactivity, useTrackedEvaluation,
     type EditHistory, type EditHistoryJoined, type EditIssue, type DragEventValue, type DragMeta, type HistoryAction,
 } from "@elaraai/east-ui-components";
@@ -1022,6 +1022,9 @@ export function usePlanCanvas({
     // event — an event's element moved or resized, and an element returned to
     // the Backlog tab (`edit/event-drag.ts`).
     const [editStore] = useState(() => new PlanEditStore());
+    // A card's lane is the drag's that rested in it (#1541, U1): let go as the drag ends, so the next begins with none.
+    const dragging = useDragLayerOptional()?.active ?? false;
+    useEffect(() => { if (!dragging) editStore.cardLane = null; }, [dragging, editStore]);
     const { drop: draftDrop, move: draftMove } = editing;
     const keys = useMemo(() => planKeys(getSomeorUndefined(hostData.id)), [hostData.id]);
     // The Plan's one check of a drop (#1541, U7), over what it would do — an event kind's or one on `data`'s rows: the
@@ -1197,7 +1200,9 @@ export function usePlanCanvas({
             const item = body.items[i];
             if (item?.kind === "row") rows.push(item.row.row);
             // Each row by the resource its events are read by: a row beneath a resource, by the one it stands beneath.
-            if (item?.kind === "row" && item.row.row.id.type === "entry") inView.push({ key: item.row.row.key, path: readPathOf(item.row.row.id, landings) });
+            if (item?.kind === "row" && item.row.row.id.type === "entry") {
+                inView.push({ key: item.row.row.key, path: readPathOf(item.row.row, landings, (key) => indexRef.current?.byKey.get(key)) });
+            }
             else if (item?.kind === "band" || item?.kind === "failed") notRead = true;
             // A run whose windows are on their way: the view waits for them.
             if (item?.kind === "band" && item.band.loading !== undefined) run = true;

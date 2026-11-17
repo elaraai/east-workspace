@@ -23,6 +23,7 @@
  */
 
 import { createContext, useContext } from "react";
+import { StringType, equalFor } from "@elaraai/east";
 import type { CarrySteps, MoveMode, Span } from "../../shared/time/drag.js";
 import { equalInstants, type PlanInstantValue } from "../instant.js";
 import type { PlanRowValue } from "../model.js";
@@ -118,10 +119,23 @@ export interface PlanSaid {
     readonly seq: number;
 }
 
-/** Two proposals alike — the same row, extents East calls equal, and the same units. */
+const stringEqual = equalFor(StringType);
+
+/**
+ * Whether two lanes a gesture names are one, as East compares them: none and none, or the same lane.
+ *
+ * @param a - A lane, or none
+ * @param b - Another, or none
+ * @returns Whether they are one
+ */
+export function sameLane(a: string | undefined, b: string | undefined): boolean {
+    return a === undefined ? b === undefined : b !== undefined && stringEqual(a, b);
+}
+
+/** Two proposals alike — the same row, extents East calls equal, the same units and the same lane. */
 function sameProposal(a: PlanProposal | null, b: PlanProposal): boolean {
     return a !== null && a.rowKey === b.rowKey && equalInstants(a.span.start, b.span.start) && equalInstants(a.span.end, b.span.end)
-        && a.units === b.units && a.fine === b.fine && a.lane === b.lane;
+        && a.units === b.units && a.fine === b.fine && sameLane(a.lane, b.lane);
 }
 
 /**
@@ -141,11 +155,12 @@ export class PlanEditStore {
     /** Connect's draft, while its drag rests on a row (#1541, U10). */
     connectDraft: PlanConnectDraft | null = null;
     /**
-     * The lane a card dragged from a library rests in (#1541, U1): the one the pointer is over, on a row with lanes;
-     * `undefined` on a row with none, and for a drag the keyboard carries. Read as the drop is judged and made, and
-     * never drawn from: nothing listens for it.
+     * The lane a card dragged from a library rests in (#1541, U1), by the row the pointer is over: on a row with lanes,
+     * the one the pointer is over; `undefined` on a row with none, and for a drag the keyboard carries. Read as the drop
+     * on that row alone is judged and made — any other row's asks none — and let go as the drag ends (the canvas), so
+     * the next drag begins with none. Never drawn from: nothing listens for it.
      */
-    cardLane: string | undefined = undefined;
+    cardLane: { readonly row: RowKey; readonly lane: string | undefined } | null = null;
     /** Each element's movable, by its node — how a key finds what Space picks up. */
     private readonly nodes = new WeakMap<Element, PlanMovable>();
     /** The element to focus once the canvas has drawn a keyboard drop. */

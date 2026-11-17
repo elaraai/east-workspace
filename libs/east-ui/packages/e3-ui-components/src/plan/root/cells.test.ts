@@ -102,10 +102,24 @@ describe("the resources a window's rows are read by (#1541, U1)", () => {
         expect(readResourceOf(kinds, ["P03", ".ink_fill"])).toEqual({ slot: "press", key: "P03" });
         // A path too short to hold the resource names none.
         expect(readResourceOf(kinds, [".ink_fill"])).toBeUndefined();
-        expect(readPathOf(entry("press", "P03"), landings)).toEqual(["P03"]);
-        expect(readPathOf(entry("kinds", "P03", ".ink_fill"), landings)).toEqual(["P03"]);
-        // A row of no landing — a series beneath the press — keeps its path, which ends in the press's key.
-        expect(readPathOf(entry("temperature", "P03"), landings)).toEqual(["P03"]);
+        // Rows by key, each under its parent: the press, a kind of task beneath it, a heat row of the kind's own and a row
+        // a step beneath that.
+        const rows = new Map([
+            ["press", { id: entry("press", "P03"), parent: none }],
+            ["kind", { id: entry("kinds", "P03", ".ink_fill"), parent: some("press") }],
+            ["kind-heat", { id: entry("kind-heat", "P03", ".ink_fill"), parent: some("kind") }],
+            ["kind-part", { id: entry("kind-parts", "P03", ".ink_fill", "nozzle"), parent: some("kind-heat") }],
+            ["temperature", { id: entry("temperature", "P03"), parent: some("press") }],
+        ]);
+        const pathOf = (key: string) => readPathOf(rows.get(key)!, landings, (k) => rows.get(k));
+        expect(pathOf("press")).toEqual(["P03"]);
+        expect(pathOf("kind")).toEqual(["P03"]);
+        // Any row beneath a row a step beneath the press is read by the press too: a series of the kind's own, and a row
+        // a further step down (#1660's review).
+        expect(pathOf("kind-heat")).toEqual(["P03"]);
+        expect(pathOf("kind-part")).toEqual(["P03"]);
+        // A row of no landing beneath the press — a series of its own — keeps its path, which ends in the press's key.
+        expect(pathOf("temperature")).toEqual(["P03"]);
     });
 
     test("a resource's own row and the rows beneath it name it once, in the order the rows draw them", () => {

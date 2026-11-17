@@ -21,7 +21,7 @@
 
 import { StringType, equalFor, variant, type option, type ValueTypeOf } from "@elaraai/east";
 import type { PlanLandingType, PlanPayloadType } from "@elaraai/e3-ui/internal";
-import type { PlanRowId } from "../model.js";
+import type { PlanRowId, PlanRowValue } from "../model.js";
 
 /** A series the event kinds land on, as the payload carries it. */
 export type PlanLandingValue = ValueTypeOf<typeof PlanLandingType>;
@@ -91,8 +91,9 @@ export function landingTargetOf(id: PlanRowId, landings: readonly PlanLandingVal
 /**
  * The resource a row of a landing's own series stands beneath (#1541): its
  * landing row's resource — what the inspector shows the row as, its measures
- * among them. Such a row draws none of the kinds' ways, so no event lands on
- * it: its `draw` is none of theirs.
+ * among them — and the resource's own row where none of its kinds draws on it,
+ * its kinds landing a step beneath it (U1). Such a row draws none of the
+ * kinds' ways, so no event lands on it: its `draw` is none of theirs.
  *
  * @param id - The row's id
  * @param landings - The series the event kinds land on
@@ -103,7 +104,7 @@ export function landingSeriesTargetOf(id: PlanRowId, landings: readonly PlanLand
     const { series, path } = id.value;
     const key = resourceKeyOf(id);
     if (key === undefined) return undefined;
-    const landing = landings.find((l) => l.series.some((s) => stringEqual(s, series)));
+    const landing = landings.find((l) => l.series.some((s) => stringEqual(s, series)) || (l.draws.length === 0 && stringEqual(l.key, series)));
     return landing === undefined ? undefined : { kind: "resource", landing, key, path, draw: "" };
 }
 
@@ -176,19 +177,42 @@ export function readResourceOf(landing: PlanLandingValue, path: readonly string[
 }
 
 /**
- * A row's path to the resource its events are read by ({@link readResourceOf}): its own, which ends in its resource's
- * key — or, for a row of a landing standing beneath another, its path less its last step. A row of no landing keeps
- * its path.
+ * The resource a resource's row stands for, as an event names it (#1541, U1) — by {@link readResourceOf}: the row's
+ * own, or the one it stands a step beneath — and there the child's key its events name.
  *
- * @param id - The row's id
+ * @param target - The row's landing series and its path
+ * @returns The resource and the child's key beneath it; `undefined` for a path too short to name one
+ */
+export function landingResourceOf(target: { readonly landing: PlanLandingValue; readonly path: readonly string[] }):
+    { readonly ref: { readonly kind: string; readonly key: string }; readonly beneath: string | undefined } | undefined {
+    const at = readResourceOf(target.landing, target.path);
+    if (at === undefined) return undefined;
+    return { ref: { kind: at.slot, key: at.key }, beneath: target.landing.under.type === "some" ? target.path[target.path.length - 1] : undefined };
+}
+
+/** A row as {@link readPathOf} walks it: its id, and its parent's key. */
+type PathRow = Pick<PlanRowValue, "id" | "parent">;
+
+/**
+ * A row's path to the resource its events are read by ({@link readResourceOf}): its own, which ends in its resource's
+ * key — or, for a row a step beneath a resource, and any row beneath one (#1541, U1), the resource's path: the path
+ * of the nearest landing row at or above it, less its last step. A row beneath no landing row keeps its path.
+ *
+ * @param row - The row: its id and its parent's key
  * @param landings - The series the event kinds land on
+ * @param rowOf - A row by its key: what its parents are found by
  * @returns The path, the resource's key last
  */
-export function readPathOf(id: PlanRowId, landings: readonly PlanLandingValue[]): readonly string[] {
-    if (id.type !== "entry") return [];
-    const { series, path } = id.value;
-    const landing = landings.find((l) => l.draws.some((d) => stringEqual(series, drawSeries(l, d.type)!)));
-    return landing?.under.type === "some" ? path.slice(0, -1) : path;
+export function readPathOf(row: PathRow, landings: readonly PlanLandingValue[], rowOf: (key: string) => PathRow | undefined): readonly string[] {
+    if (row.id.type !== "entry") return [];
+    const own = row.id.value.path;
+    for (let at: PathRow | undefined = row; at !== undefined && at.id.type === "entry";) {
+        const { series, path } = at.id.value;
+        const landing = landings.find((l) => l.draws.some((d) => stringEqual(series, drawSeries(l, d.type)!)));
+        if (landing !== undefined) return landing.under.type === "some" ? path.slice(0, -1) : own;
+        at = at.parent.type === "some" ? rowOf(at.parent.value) : undefined;
+    }
+    return own;
 }
 
 /**

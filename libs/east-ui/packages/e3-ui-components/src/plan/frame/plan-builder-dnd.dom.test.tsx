@@ -1321,6 +1321,36 @@ describe("a kind landing on the rows beneath its resource: a drop writes what pl
         expect(historyButton(c, UNDO).disabled).toBe(true);
     });
 
+    test("carried onto another kind's row of its press with another task selected, the grabbed task takes the row's kind, and the other keeps its own (#1660's review)", async () => {
+        const { container: c } = await h.mount(pressPlan(), DRAG);
+        await settle();
+        await select(task(c, "T-01", WASH_3)!);
+        await select(task(c, "T-04", PLATES_3)!, true);
+        const y = layOutPlots(c, [WASH_3, INK_3, PLATES_3]);
+        await drop(task(c, "T-01", WASH_3)!, { x: xAt(1), y: y(WASH_3) + AM }, { x: xAt(1), y: y(INK_3) + AM });
+        expect(cellOf(task(c, "T-01", INK_3))).toBe("1:0");
+        // The plate check stays the plate check: it is on the same press, and keeps its own row beneath it.
+        expect(task(c, "T-04", INK_3)).toBeNull();
+        expect(task(c, "T-04", PLATES_3)).not.toBeNull();
+    });
+
+    test("a card's lane is its drag's alone: refused in an afternoon, the next drag's rows are judged in no lane until it rests in one (#1660's review)", async () => {
+        const { container: c } = await h.mount(pressPlan({ cards: true, noAfternoons: true }), DRAG);
+        await settle();
+        await openTab(c, "Orders");
+        let y = layOutPlots(c, [WASH_3, INK_3, ROLLERS_4]);
+        // Over the ink fill's afternoon: the Plan's check refuses it there.
+        const refused = await carry(cardOf(c, "W-1")!, OFF, { x: xAt(1), y: y(INK_3) + PM });
+        expect(caption()).toBe("refused: No afternoons");
+        await refused();
+        // The next drag, resting on no row yet: the sweep judges every kind's row in no lane, and each takes the card.
+        y = layOutPlots(c, [WASH_3, INK_3, ROLLERS_4]);
+        const plots = () => [WASH_3, INK_3, ROLLERS_4].map((row) => plotOf(c, row).hasAttribute("data-drop-valid"));
+        const next = await carry(cardOf(c, "W-1")!, OFF, { x: OFF.x, y: OFF.y + 40 });
+        expect(plots()).toEqual([true, true, true]);
+        await next();
+    });
+
     test("a task dragged onto a kind's row of another press writes its press with its kind, on the day it lands", async () => {
         const { container: c } = await h.mount(pressPlan(), DRAG);
         await settle();
