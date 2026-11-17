@@ -1312,6 +1312,50 @@ whole shares (`shared/schedule/drafted-rows.ts`), so the links focus, the
 ribbons and a far end's read take them as they are. Each editable kind is a
 record of the Plan's shared editing, its session named by its slot.
 
+## Rows beneath a resource, and a kind landing on them (#1541)
+
+A resource's own child rows — the kinds of task a press takes, the bays of a
+hall — are rows of the Plan beneath it, and an event kind lands a step down,
+on the child row its event names.
+
+| What | How it is written | Example |
+|---|---|---|
+| a case's child rows | `children: Plan.children("kinds", [series…])` on a `Plan.series.kinds` case, drawn after the case's `series` | `planPressTasks` |
+| the same rows beneath every resource, from a list of the app's own | `Plan.children.of(() => kinds.read(), [series…])`: the rows a function of the row and its key returns, read with the row | `planPressKinds` |
+| a case whose own row is not drawn | `row: false` on the case: its `series` and its `children` stand where its row would | `planOnePress` |
+| a kind landing on a child row | `child: { field, of }` beside `resource`: `of` names a resources series among the resource's `children`, `field` the event's field holding the child row's key | `planPressTasks` |
+| a lane for each case of a variant | `lane: "half"`, a variant field: every case draws its lane, event or none, in the order the landing series' `lanes` lists them, or by case name | `planPressTasks` |
+
+- **Keys of any type.** A child row's Dict may be keyed by any type but a
+  DateTime, which is a values collection: a variant, a number, a String. A
+  resources series over it names the type (`keyType`), and a kind's `child`
+  field holds a value of it. Beside a nested series index the record declares
+  the rows, `index.nested.rows({ … })` — `rows({})` for rows that nest nothing
+  of their own — and e3 holds each key in its own type (e3's
+  `reference/record-indexes.md`).
+- **Where a kind with `child` lands.** Only on the rows `child.of` names: its
+  resource's own row draws none of its events and takes no drop of one. A
+  drop on a child row writes the resource's field, the child's and, where the
+  row has lanes, the lane's, as one draft. A carry by keyboard names no lane,
+  so it keeps the event's own.
+- **What is refused at build,** each in words naming the fix: a kind landing
+  on a `row: false` case with no `child`; a `child.of` that names no
+  resources series, or one not beneath the kind's resource, or one another
+  kind lands on as its resource; a `child` field of another type than the
+  rows' key; a series under `Plan.children.of` that declares `edit`, since a
+  list's rows are read only; and child rows keyed by a DateTime, which are
+  read with `Plan.values`.
+- **Read a page at a time,** a kind's events are read by its resource,
+  whichever of the resource's rows the view shows: a page that draws no row
+  of the resource's own reads them by the rows beneath it. A pinned row's
+  nested series are read wherever the view rests.
+- **Not yet child-aware.** Past the event cap, a paged kind's shading stands
+  in on its resource's rows as before; a child row draws no shading of its
+  own.
+
+The Plan's payload gains an event kind's `child` and a landing's `under`
+(`WIRE_MIGRATION.md`). A stored `UIComponentType` value re-emits.
+
 ## Extracted contracts (do this first when migrating imports)
 
 The shared audit vocabulary outlived the Planner and moved to `contracts/`:
