@@ -109,7 +109,7 @@ import { nestedPartOf } from "./nested-checks.js";
 import { overSeriesKeys, type PlanOverRows } from "./over.js";
 import { planLandings, planSeriesKeys, type PlanLanding, type PlanSeriesInput, type PlanTreeLanding } from "./series.js";
 import type { PlanNestedChecked, PlanRowsNestedOf } from "./nested.js";
-import { PlanEventSeamType, PlanLandingType, createEventSeam, eventDrawsOf, landingsOnWire } from "./event-rows.js";
+import { PlanEventSeamType, PlanLandingType, createEventSeam, eventDrawsOf, landingUnder, landingsOnWire } from "./event-rows.js";
 import { PlanLibraryTabType, buildLibrary, type PlanLibraryTab } from "./library.js";
 import { VocabularyNounType, vocabularyNoun, vocabularyWord, type VocabularyNoun } from "../utils/vocabulary.js";
 
@@ -995,7 +995,9 @@ function resourcesRefusal(): string {
  * @returns The landings, in the series tree's order, a kinds block's cases in its variant's, each with the series it is
  *   nested in
  * @throws {Error} Naming the slot and the remedy: a `series` known only as it runs, an `of` naming no landing series,
- *   and a landing series keyed by another type
+ *   a landing series keyed by another type, a kind landing on a series that draws no row of its own with no `child`, and
+ *   a `child` naming no landing series, one not among its resource's children, one keyed by another type than its field
+ *   holds, or one another kind's resource names
  */
 function eventLandings(series: unknown, events: readonly (readonly [string, ScheduleEventKind<EastType, EastType>])[]): readonly PlanTreeLanding[] {
     const landings = planLandings(series);
@@ -1015,6 +1017,35 @@ function eventLandings(series: unknown, events: readonly (readonly [string, Sche
                 throw new Error(`Plan: events.${slot}'s resource field "${kind.resourceField ?? ""}" holds .String, the key of a row of "${taken}" — ` +
                     `and those rows are keyed by ${printType(landing.keyType)}: key them by String`);
             }
+            // A series that draws no row of its own takes no event on it (#1541, U2).
+            if (!landing.row && kind.child === undefined) {
+                throw new Error(`Plan: events.${slot} lands on the rows of "${taken}", and that series draws no row of its own (row: false) — ` +
+                    "give the kind `child`, the rows beneath each it lands on, or draw the series' rows");
+            }
+        }
+        // A step down (#1541, U1): the rows beneath its resource, of a resources series among the resource's children, by
+        // their own key.
+        const child = kind.child;
+        if (child === undefined) continue;
+        const landing = landings.find((l) => l.key === child.of);
+        if (landing === undefined) {
+            throw new Error(`Plan: events.${slot}'s child names "${child.of}", and no resources series or kinds case has that key ` +
+                `(${keys.join(", ") || "none"}) — \`child.of\` names a resources series among the \`children\` of the series its resource names`);
+        }
+        const under = landingUnder(landing, landings);
+        if (under === undefined || !kind.takes.includes(under)) {
+            throw new Error(`Plan: events.${slot}'s child names "${child.of}", whose rows stand beneath ${under === undefined ? "no resources series" : `"${under}"`} — ` +
+                `\`child.of\` names a resources series among the \`children\` of the series its resource names (${kind.takes.join(", ") || "none"})`);
+        }
+        if (!isTypeEqual(landing.keyType, child.type)) {
+            throw new Error(`Plan: events.${slot}'s child field "${child.field}" holds ${printType(child.type)}, the key of a row of "${child.of}" — ` +
+                `and those rows are keyed by ${printType(landing.keyType)}`);
+        }
+        // Its rows are filed by their resource's key and their own: no kind lands on them by its resource alone.
+        const direct = events.find(([, other]) => other.takes.includes(child.of));
+        if (direct !== undefined) {
+            throw new Error(`Plan: events.${slot}'s child and events.${direct[0]}'s resource both name "${child.of}" — a series' rows are a kind's resources, ` +
+                "or the rows beneath one, never both");
         }
     }
     return landings;

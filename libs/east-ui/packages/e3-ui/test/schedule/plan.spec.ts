@@ -151,7 +151,21 @@ describe("Schedule.events — Plan's options refused at build (PB6)", () => {
     test("a `state`, `quantity` or `lane` field of another type", () => {
         assert.throws(() => kindOver(jobsRecord, { ...times, state: "stock" }), /`state` names an EventStateType field, the lifecycle an event wears — "stock" holds \.Variant/);
         assert.throws(() => kindOver(jobsRecord, { ...times, quantity: { field: "title" } }), /`quantity\.field` names a Float field, the quantity a bar prints — "title" holds \.String/);
-        assert.throws(() => kindOver(jobsRecord, { ...times, lane: "sheets" }), /`lane` names a String field, the lane a tile sits in — "sheets" holds \.Float/);
+        assert.throws(() => kindOver(jobsRecord, { ...times, lane: "sheets" }), /`lane` names a String field, or a variant whose cases hold no value, the lane a tile sits in — "sheets" holds \.Float/);
+        // A variant of bare cases is a lane a case (#1541, U1); one whose cases hold values names no lane.
+        assert.doesNotThrow(() => kindOver(stopsRecord, { at: "at", lane: "kind" }));
+        assert.throws(() => kindOver(jobsRecord, { ...times, lane: "state" }), /`lane` names a String field, or a variant whose cases hold no value, the lane a tile sits in — "state" holds \.Variant/);
+    });
+
+    test("a `child` that is no { field, of }, has no `resource` to stand beneath, names the resource's own field, or a field the row lacks (#1541, U1)", () => {
+        const on = { ...times, resource: { field: "press", of: "presses" } };
+        assert.doesNotThrow(() => kindOver(jobsRecord, { ...on, child: { field: "customer", of: "kinds" } }));
+        assert.throws(() => kindOver(jobsRecord, { ...on, child: "customer" }),
+            /`child` is \{ field, of \} — the field holding the key of a row beneath the event's resource, and the resources series those rows are of, by its key/);
+        assert.throws(() => kindOver(jobsRecord, { ...times, child: { field: "customer", of: "kinds" } }), /`child` is a row beneath the event's resource — give `resource` too/);
+        assert.throws(() => kindOver(jobsRecord, { ...on, child: { field: "press", of: "kinds" } }),
+            /`child\.field` and `resource\.field` both name "press" — the row beneath a resource has a key of its own/);
+        assert.throws(() => kindOver(jobsRecord, { ...on, child: { field: "nope", of: "kinds" } }), /`child\.field` names "nope", a field the row does not have/);
     });
 
     test("a `review`, which is removed (#1260), whatever it names", () => {

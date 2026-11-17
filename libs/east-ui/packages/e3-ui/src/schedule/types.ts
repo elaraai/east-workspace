@@ -458,9 +458,12 @@ export type ScheduleResourcesType = typeof ScheduleResourcesType;
  *
  * @property state - The lifecycle it wears, from its kind's `state` field; confirmed when the kind has none
  * @property quantity - Its kind's `quantity` field, with the kind's unit and format: what a bar prints and a parent's rollup sums
- * @property lane - The lane its tile sits in, from its kind's `lane` field
+ * @property lane - The lane its tile sits in, from its kind's `lane` field: a String field's text, or a variant field's case
  * @property locked - Whether its kind's `locked` holds it where it is (#1541, U9): not moved, resized or removed, its
  *   form read only, and an optimiser's answer that changes it refused; `false` for a kind with no such rule
+ * @property child - The row beneath its resource it is on (#1541, U1), from its kind's `child` field: that row's key as
+ *   its row's path ends in it — a String key as it is, any other as East prints it; `none` for a kind with no `child`,
+ *   and for an event whose field holds none
  */
 export const PlanEventItemType = StructType({
     ...ScheduleItemType.fields,
@@ -468,6 +471,7 @@ export const PlanEventItemType = StructType({
     quantity: OptionType(PlanQuantityType),
     lane: OptionType(StringType),
     locked: BooleanType,
+    child: OptionType(StringType),
 });
 
 /** Type representing {@link PlanEventItemType}. */
@@ -491,7 +495,7 @@ export type PlanEventReadType = typeof PlanEventReadType;
  *
  * @property state - The `EventStateType` field
  * @property quantity - The `Float` quantity field
- * @property lane - The `String` lane field
+ * @property lane - The lane field: a String, or a variant a lane a case
  */
 export const PlanEventRolesType = StructType({
     state: OptionType(StringType),
@@ -503,6 +507,17 @@ export const PlanEventRolesType = StructType({
 export type PlanEventRolesType = typeof PlanEventRolesType;
 
 /**
+ * The rows beneath its resource an event kind lands on (#1541, U1): its `child`.
+ *
+ * @property field - The field holding the row's key, in the rows' series' own key type, or an Option of it
+ * @property of - The resources series those rows are of, by its key: one among the resource's `children`
+ */
+export const PlanEventChildType = StructType({ field: StringType, of: StringType });
+
+/** Type representing {@link PlanEventChildType}. */
+export type PlanEventChildType = typeof PlanEventChildType;
+
+/**
  * One event kind as Plan's builder takes it: the Calendar's closed kind
  * ({@link ScheduleKindType}), field for field — its cells' seams and its count
  * among them (#1039) — with how the kind draws and its roles, its events as
@@ -512,6 +527,7 @@ export type PlanEventRolesType = typeof PlanEventRolesType;
  * @property instant - Whether each of its events is one instant (`at`), its start and its end the same
  * @property overlaps - Whether two of its events on one resource at once are a conflict
  * @property roles - The fields its roles read
+ * @property child - The rows beneath its resource it lands on; `none`, it lands on its resource's own rows
  * @property planItems - Its events overlapping `[from, to)` as Plan draws them, as `items` reads them: the drafts in place, from the entries a reader read by its cells when it is given them, else over the window; `none` while a read is in flight
  * @property planUnscheduled - Its backlog as Plan draws it, as `unscheduled` reads it
  * @property planEvent - One event by its key's text, the drafts in place (#1197): as Plan draws it, and its row, as `event` reads it; `none` when there is no such event
@@ -524,6 +540,7 @@ export const PlanEventKindType = StructType({
     instant: BooleanType,
     overlaps: ScheduleOverlapsType,
     roles: PlanEventRolesType,
+    child: OptionType(PlanEventChildType),
     planItems: FunctionType([DateTimeType, DateTimeType, ScheduleDraftsType, OptionType(BlobType)], OptionType(ArrayType(PlanEventItemType))),
     planUnscheduled: FunctionType([DateTimeType, DateTimeType, ScheduleDraftsType, OptionType(BlobType)], OptionType(ArrayType(PlanEventItemType))),
     planEvent: FunctionType([StringType, ScheduleDraftsType, DateTimeType, DateTimeType, OptionType(OptionType(BlobType))], OptionType(PlanEventReadType)),
