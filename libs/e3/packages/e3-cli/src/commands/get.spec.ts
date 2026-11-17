@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { DictType, IntegerType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import {
-  LocalStorage, LocalTaskRunner, packageImport, readDatasetWhole, workspaceCreate, workspaceDeploy, workspaceGetDatasetHash,
+  LocalStorage, LocalTaskRunner, packageImport, readDatasetWhole, workspaceCreate, workspaceDeploy, workspaceGetDatasetHash, workspaceSetDataset,
 } from '@elaraai/e3-core';
 import { createTempDir, createTestRepo, removeTempDir, removeTestRepo } from '@elaraai/e3-core/test';
 import { parseGetFormat } from './get.js';
@@ -88,17 +88,31 @@ describe('e3 dataset get -f beast2', () => {
     assert.equal(run.status, 0, run.stderr.toString());
     return new Uint8Array(run.stdout);
   };
-  /** The hash an input of `main` holds. */
-  const held = async (input: string): Promise<string> => {
-    const { hash } = await workspaceGetDatasetHash(storage, repo, 'main', [variant('field', 'inputs'), variant('field', input)]);
+  /** The hash an input of a workspace holds. */
+  const held = async (input: string, ws = 'main'): Promise<string> => {
+    const { hash } = await workspaceGetDatasetHash(storage, repo, ws, [variant('field', 'inputs'), variant('field', input)]);
     assert.ok(hash !== null);
     return hash;
   };
 
-  it('writes a collection as it is stored, its segments spliced, and any other value as its stored bytes', async () => {
+  it('R71 — writes a collection as it is stored, its segments spliced, and any other value as its stored bytes', async () => {
     const bytes = written('counts');
     assert.deepEqual(bytes, await readDatasetWhole(storage, repo, await held('counts')), 'the collection as it is stored');
     assert.ok(equalFor(CountsType)(decodeBeast2For(CountsType)(bytes), counts), 'and its value');
     assert.deepEqual(written('total'), new Uint8Array(await storage.objects.read(repo, await held('total'))), 'any other value: its stored bytes');
+  });
+
+  it('R71 — writes a file that loads into another workspace as the same stored value', async () => {
+    const file = join(dir, 'counts-written.beast2');
+    writeFileSync(file, written('counts'));
+    await workspaceCreate(storage, repo, 'other');
+    await workspaceDeploy(storage, repo, 'other', 'counts', '1.0.0', { runner: new LocalTaskRunner(repo) });
+    // Another value first, so the file is what puts the collection there
+    await workspaceSetDataset(storage, repo, 'other', [variant('field', 'inputs'), variant('field', 'counts')], new Map(), CountsType);
+    assert.notEqual(await held('counts', 'other'), await held('counts'));
+
+    const set = spawnSync(process.execPath, [CLI, 'dataset', 'set', repo, 'other.counts', '--from-file', file], { encoding: 'utf-8' });
+    assert.equal(set.status, 0, set.stderr);
+    assert.equal(await held('counts', 'other'), await held('counts'), 'the same value, stored as the same segments');
   });
 });
