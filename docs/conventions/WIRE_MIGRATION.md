@@ -1392,6 +1392,26 @@ Each wire changed under this rule, with the kind it is.
   decode under the other: packages are re-exported, and the dataflow computes
   each UI task's output again under the new type. A UI task's output is not
   stored state, so no repository upgrade step ships with it.
+- **A nested series index holds its keys in their own types (#1540)** —
+  package-borne, and stored. A nested series index's entry key
+  (`NestedEntryKeyType(rowKey, id)`) holds a child row's key, on the path from a
+  row down to a node, and an item's id as the index's ids
+  (`NestedIdType`): one variant with a case for each collection of child rows
+  and of items, named by its place's field names joined with a dot
+  (`nestedIdCase`), each holding that collection's Dict's key type. A path
+  (`NestedPathType(id)`) is a list of ids, and an item (`NestedItemType`) is
+  `id` an id, `at` an instant, `under` a path and an id, or `none`; they were
+  text (`RecordNestedPathType`'s String steps and `RecordNestedItemType`, which
+  is removed). A collection's place stays `RecordNestedPathType`, its field
+  names, and a span's key (`NestedSpanKeyType`) is unchanged. So child rows
+  and items may be keyed by any type a Dict is but a DateTime, and their keys
+  sort in their types' own order. Every nested series index's stored form
+  changes, one whose child rows and items are keyed by String included: a
+  package is re-exported, and a deploy builds each nested series index again
+  under its new index object, as it builds any index whose object changed; no
+  repository upgrade step ships, and no reader keeps the earlier form. A page's
+  reader names a node by its typed path, and a task's or a function's reader
+  takes one (`path: [variant('members', key)]`).
 - **A Plan's events land a step beneath their resource (#1541, U1)** —
   package-borne. An event as the Plan draws it (`PlanEventItemType`) gains
   `child`, last: the key of the row beneath its resource it is on, as that
