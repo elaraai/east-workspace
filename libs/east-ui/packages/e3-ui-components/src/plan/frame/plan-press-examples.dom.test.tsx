@@ -20,7 +20,7 @@
  *   (`Plan.children.of`), a row for each whether the press takes it or not.
  */
 
-import { describe, test, expect, beforeEach, afterEach } from "vitest";
+import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { waitFor } from "@testing-library/react";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import { boundFrame, frameScrolls } from "../../sheet/frame.test-utils.js";
@@ -32,10 +32,19 @@ import { pressKindStep } from "./press.test-utils.js";
 
 const h = planHarness();
 
-// The examples' frames as a browser lays them: 700px tall, each mounted row as tall as it draws.
+// The examples' frames as a browser lays them: 700px tall, each mounted row as tall as it draws. And what a Plan says
+// on the console of a read it could not make: a page whose records lack an index a read needs says so there alone.
 let restore: (() => void)[] = [];
-beforeEach(() => { restore = [boundFrame(700), frameScrolls()]; });
+const said: string[] = [];
+beforeEach(() => {
+    said.length = 0;
+    // The console's own words are plain text: a Plan's start with its name.
+    const spy = vi.spyOn(console, "error").mockImplementation((...words: unknown[]) => { said.push(words.map((word) => `${word as string}`).join(" ")); });
+    restore = [boundFrame(700), frameScrolls(), () => spy.mockRestore()];
+});
 afterEach(() => { for (const undo of restore.reverse()) undo(); });
+/** What the Plan said on the console of reads it could not make. */
+const unread = () => said.filter((line) => line.startsWith("[Plan]"));
 
 /** A press's row of a kind of task. */
 const kindRow = (press: string, kind: Parameters<typeof pressKindStep>[0]) => entry("kinds", press, pressKindStep(kind));
@@ -87,6 +96,7 @@ describe("the works' page (planPressTasks)", () => {
             entry("press", "P04"), entry("temperature", "P04"), WASH_4, ROLLERS_4,
         )));
         expect(refused(c)).toEqual([]);
+        expect(unread()).toEqual([]);
     });
 
     test("each task is on its press's row of its kind, in its half's lane, and a press's own row draws none", async () => {
@@ -121,6 +131,9 @@ describe("the works' page (planPressTasks)", () => {
         expect(readsOf("records.plan_press_machines", "plan_press_machines_by_name")).toContain("page");
         expect(readsOf("records.plan_press_machines", "plan_press_machines_in_time")).toEqual(expect.arrayContaining(["find", "runs"]));
         expect(readsOf("records.plan_press_tasks", "plan_press_tasks_by_press_week")).toEqual(expect.arrayContaining(["find", "runs"]));
+        // The footer counts the tasks of the window, eight of them, through their days' index.
+        await waitFor(() => expect(c.querySelector('[data-plan-count="events"]')?.textContent).toMatch(/^8 /));
+        expect(unread()).toEqual([]);
         // A press's ink temperature, read through the machines' nested series index: 28 °C rising half a degree a day, five days round.
         await waitFor(() => expect(c.querySelector(`${rowAt(entry("temperature", "P03"))} [data-plan-chart]`)?.getAttribute("aria-label"))
             .toBe(temperatureSaid(28, 30, 29.5)));
@@ -133,6 +146,7 @@ describe("one press's own page (planOnePress)", () => {
         await settle();
         await waitFor(() => expect(rowsOf(c)).toEqual(keys(entry("temperature", "P03"), WASH_3, INK_3, PLATES_3)));
         expect(refused(c)).toEqual([]);
+        expect(unread()).toEqual([]);
     });
 
     test("its tasks are read by the press its rows stand beneath, though the page draws no row of the press's own", async () => {
@@ -167,6 +181,7 @@ describe("the works' own list of kinds beneath every press (planPressKinds)", ()
             entry("press", "P04"), WASH_4, INK_4, PLATES_4, ROLLERS_4,
         )));
         expect(refused(c)).toEqual([]);
+        expect(unread()).toEqual([]);
         expect(tasksOn(c, WASH_3)).toEqual(["T-01 1:0", "T-05 4:1"]);
         expect(tasksOn(c, ROLLERS_3)).toEqual([]);
         expect(tasksOn(c, INK_4)).toEqual([]);
