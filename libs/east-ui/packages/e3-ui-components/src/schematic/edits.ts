@@ -78,6 +78,7 @@ import { entityId, refOfId, type SchematicDrawn, type SchematicRef } from "./can
 import type { SchematicValue } from "./data.js";
 import type { SchematicMove, SchematicNewKey } from "./editing.js";
 import { detailsKey } from "./record-keys.js";
+import { connectVetoOf, type ConnectVetoOf } from "../shared/links/veto.js";
 
 /** A point in world units. */
 type Point = ValueTypeOf<typeof Schematic.Types.Point>;
@@ -592,38 +593,19 @@ export type ConnectVeto = Extract<SchematicValue["canConnect"], { readonly type:
  * A connection, as every route asks the host's veto of it: the link or net kind it writes, by its slot, and the item it
  * runs from and the one it runs to, by their ids — its words refusing it, or `undefined` allowing it.
  */
-export type ConnectVetoOf = (kind: string, from: string, to: string) => string | undefined;
+export type { ConnectVetoOf };
 
 /**
  * The host's veto as every route that connects two items asks it (#1401, D34): a Connect drag's draft and its release, a
  * Retarget's and an Extend's, and the inspector's Connect to…, ends and sides (#1394). Its verdict on each candidate is
- * kept, so a pointer's moves never ask it again for one; one that throws is logged and allows, so a broken veto never
- * blocks editing.
+ * kept, and one that throws is logged and allows (`shared/links/veto.ts`).
  *
  * @param veto - The host's veto; `undefined` for none, which allows every connection
  * @param refOf - An item's reference, by its id: what the veto hears it as; `undefined` for one it can't name, which it allows
  * @returns The veto, by the candidate's kind and its items' ids
  */
 export function connectVeto(veto: ConnectVeto | undefined, refOf: (id: string) => SchematicRef | undefined): ConnectVetoOf {
-    if (veto === undefined) return () => undefined;
-    const verdicts = new Map<string, string | null>();
-    return (kind, from, to) => {
-        const key = `${kind}\u0000${from}\u0000${to}`;
-        const kept = verdicts.get(key);
-        if (kept !== undefined) return kept ?? undefined;
-        let refusal: string | null = null;
-        const fromRef = refOf(from), toRef = refOf(to);
-        if (fromRef !== undefined && toRef !== undefined) {
-            try {
-                const said = veto({ kind, from: fromRef, to: toRef });
-                refusal = said.type === "some" ? said.value : null;
-            } catch (err) {
-                console.error("[Schematic] canConnect veto failed (allowing):", err);
-            }
-        }
-        verdicts.set(key, refusal);
-        return refusal ?? undefined;
-    };
+    return connectVetoOf(veto, refOf, "Schematic");
 }
 
 /**
