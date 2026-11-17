@@ -1574,7 +1574,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     if (execution.stoppedBy === 'refused') {
       await Promise.allSettled(execution.runningTasks.values());
       for (const [taskName, run] of [...execution.splits]) {
-        await run.split.suspend('superseded').catch(() => { /* the task is the other process's to end */ });
+        await this.leaveSplit(run, 'superseded').catch(() => { /* the task is the other process's to end */ });
         execution.splits.delete(taskName);
       }
       throw new DataflowSupersededError(state.id);
@@ -1620,9 +1620,10 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     execution.yielded = true;
     await execution.mutex.runExclusive(async () => {
       // A split task in progress is left mid-stage: its state keeps naming
-      // the stage's plan, which a resumed run takes up again.
+      // the stage's plan, which a resumed run takes up again. A catch-up run
+      // is no task's, and is ended for good.
       for (const run of execution.splits.values()) {
-        await run.split.suspend();
+        await this.leaveSplit(run, 'yielded');
       }
       stepYield(state);
       await execution.writer?.write(state);
@@ -2112,7 +2113,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       if (execution.yielded || execution.stoppedBy === 'refused') {
         // The run yielded while the task was planned, or another process took
         // it up: a run that takes the run up takes the task up too.
-        await split.suspend(execution.yielded ? 'yielded' : 'superseded');
+        await this.leaveSplit({ split, target }, execution.yielded ? 'yielded' : 'superseded');
         return;
       }
       execution.splits.set(key, { split, target, startTime, next: 0, inFlight: 0, stopped: false, results: [], thrown: [] });
@@ -2135,6 +2136,24 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         }
       });
     execution.runningTasks.set(key, planned);
+  }
+
+  /**
+   * Leaves a split task's run where the loop stops mid-stage — the run yields,
+   * or another process took it up. The task's own is left mid-stage, its plan
+   * rooted, for the run that takes the run up to take the stage up again. A
+   * catch-up run lives in this loop's memory alone, so no run takes it up: it
+   * is ended for good, its plan let go, and a run that still reads its result
+   * there makes it again, its finished units answered from the cache.
+   */
+  private async leaveSplit(run: Pick<SplitRun, 'split' | 'target'>, by: 'yielded' | 'superseded'): Promise<void> {
+    if (run.target.own) {
+      await run.split.suspend(by);
+      return;
+    }
+    await run.split.abandon(by === 'yielded'
+      ? 'cancelled: the run yielded, and no run takes a catch-up run up again: the resumed run makes it again where a task still reads it'
+      : 'cancelled: another process took the run up, and no run takes a catch-up run up again: that process makes it again where a task still reads it');
   }
 
   /**

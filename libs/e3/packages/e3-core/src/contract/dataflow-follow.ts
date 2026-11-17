@@ -34,6 +34,7 @@ import { GatedTaskRunner } from '../execution/GatedTaskRunner.js';
 import { LocalOrchestrator } from '../execution/local-orchestrator.js';
 import { MockTaskRunner } from '../execution/MockTaskRunner.js';
 import { inputsHash } from '../executions.js';
+import { readTestPieceBytesFrom } from '../execution/pieces.js';
 import { packageImport } from '../package-files.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 import { datasetWrite, workspaceSetDataset } from '../trees.js';
@@ -928,6 +929,70 @@ export function dataflowFollowCases(setup: BackendSetup): void {
     assert.equal(await held(storage, repo, 'tasks/report/output'), made('report', made('forecast', made('clean', v2))));
     const run = await storage.refs.dataflowRunGet(repo, 'ws', result.runId);
     assert.deepEqual([...run!.taskExecutions.keys()].sort(), ['clean', 'forecast', 'report'], 'the run\'s record covers both incarnations');
+  });
+
+  it('ends a split catch-up run for good when its run yields mid-stage: no run takes it up, so its plan is let go, and its record says why', async (t) => {
+    // Pieces of 16 to 256 stored bytes: a record of thousands of rows, stored in several segments, is cut a piece a
+    // segment
+    readTestPieceBytesFrom(() => '64');
+    t.after(() => readTestPieceBytesFrom(() => process.env.E3_TEST_PIECE_BYTES));
+    const context = await setup(t);
+    const { storage, repo } = context;
+    const tasks = await deployCombined(t, context, 1, { split: true });
+    const runner = gatedRunner(storage, repo, tasks);
+    const lines = new RunLines();
+    const stateStore = stateStoreOf(context);
+    const first = new LocalOrchestrator(stateStore);
+    const rates = (await held(storage, repo, 'inputs/rates'))!;
+    const rows = (count: number): Array<[string, bigint]> => Array.from({ length: count }, (_, i) => [`k${String(i).padStart(5, '0')}`, BigInt(i)]);
+    await commitOrders(storage, repo, rows(5));
+    let yielding = false;
+    const handle = await first.start(storage, repo, 'ws', { runner, ...lines.callbacks, shouldYield: () => yielding });
+    const edit = async (count: number): Promise<{ commit: string; state: string }> => {
+      const commit = await commitOrders(storage, repo, rows(count));
+      assert.equal(await first.wake(storage, repo, 'ws'), true);
+      return commit;
+    };
+
+    // forecast's result moves to c1, and capacity's, whose own runs go straight through from here, to c2
+    await runner.launched('forecast');
+    await runner.launched('capacity');
+    runner.pass('capacity');
+    const c1 = await edit(8000);
+    runner.release('forecast');
+    assert.deepEqual((await runner.launched('forecast')).inputHashes, [c1.state, rates]);
+    await edit(8001);
+    runner.release('forecast');
+    await runner.launched('forecast');
+    runner.release('capacity');
+    await lines.said('[DONE] capacity', 2);
+
+    // plan ran on c0; it reads both as of c1, where capacity never ran, and a catch-up run of it starts, its first unit
+    // held
+    runner.hold('capacity');
+    await runner.launched('plan');
+    runner.release('plan');
+    await lines.said('[CATCH-UP] capacity for plan');
+    await runner.launched('capacity');
+
+    // The run yields while the catch-up run is mid-stage
+    yielding = true;
+    await first.wake(storage, repo, 'ws');
+    assert.equal((await first.wait(handle)).yielded, true);
+
+    // No run takes a catch-up run up: it ended for good, its plan let go, and its record says why
+    const inHash = inputsHash([c1.state, rates]);
+    const ended = await storage.refs.executionGetLatest(repo, tasks.get('capacity')!, inHash);
+    assert.ok(ended?.type === 'cancelled', `the catch-up run ended, not left mid-stage: ${ended?.type}`);
+    assert.equal(ended.value.reason.message,
+      'cancelled: the run yielded, and no run takes a catch-up run up again: the resumed run makes it again where a task still reads it');
+    assert.equal(await storage.refs.executionPlanRead(repo, tasks.get('capacity')!, inHash), null, 'its plan is not rooted');
+
+    // Another orchestrator takes the run up, and it completes: plan is decided again where its inputs stand
+    for (const name of tasks.keys()) runner.pass(name);
+    for (const name of tasks.keys()) while (runner.holding(name) > 0) runner.release(name);
+    const second = new LocalOrchestrator(stateStore);
+    assert.equal((await second.wait(await second.resume(storage, repo, 'ws', handle.id, { runner }))).success, true);
   });
 
   it('asks a change\'s readers again once the look that found it has failed: a wake that failed loses no edit', async (t) => {
