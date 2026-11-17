@@ -292,6 +292,28 @@ describe("a resource's child rows of another type (#1541, U2)", () => {
         ]));
     });
 
+    test("a case with `row: false` draws no row of its own: its series and its children stand at its level, under what it was under", () => {
+        const root = East.function([], Plan.Types.Root, ($) => {
+            const data = $.const(MACHINES, Machines);
+            return Plan.Root({
+                axis, data,
+                series: [Plan.series.kinds(Machine, "what", {
+                    press: { title: "Press", row: false, series: [utilisation()], children: Plan.children("kinds", [kindRows()]) },
+                    folder: false,
+                })],
+            });
+        }).toIR().compile([])();
+        assert.ok(sameIds(ids(root), [
+            entry("utilisation", "P03"), entry("kinds", "P03", "ink"), entry("kinds", "P03", "wash"),
+            entry("utilisation", "P04"),
+        ]));
+        assert.ok(sameParents(parents(root), [none, none, none, none]));
+        assert.ok(sameLabels(labels(root), ["Utilisation", "Ink fill", "Blanket wash", "Utilisation"]));
+        // Any other `row` is refused, naming the case.
+        assert.throws(() => Plan.series.kinds(Machine, "what", { press: { title: "Press", row: true as never, label: (m) => m.name }, folder: false }),
+            /Plan\.series\.kinds "what": case "press": row is false — its own row not drawn, its series and children at its level — or left out/);
+    });
+
     test("child rows from a list (U12) draw beneath each row, read with it: the same kinds under every press", () => {
         const Kinds = DictType(StringType, TaskKindRow);
         const root = East.function([], Plan.Types.Root, ($) => {
