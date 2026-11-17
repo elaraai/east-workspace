@@ -8,14 +8,14 @@
  * carrier, holding the pages record's value, the listed components, the page's
  * key and which of its layouts to draw — and its surface's manifest (R4),
  * which reads the record, writes nothing, and holds exactly what its
- * components read.
+ * components read and the sources it lists (#1669).
  */
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-    ArrayType, East, FloatType, SortedMap, compareFor, decodeBeast2For, none, some, variant,
+    ArrayType, East, FloatType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, none, some, variant,
     type ValueTypeOf,
 } from "@elaraai/east";
 import e3 from "@elaraai/e3";
@@ -38,7 +38,7 @@ const PAGES = new SortedMap<Key, Entry>([
         draft: {
             title: "Overview",
             cells: [
-                { key: "c-note", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, component: "note" },
+                { key: "c-note", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, content: variant("component", "note") },
             ],
         },
         live: some({
@@ -46,7 +46,7 @@ const PAGES = new SortedMap<Key, Entry>([
             page: {
                 title: "Overview",
                 cells: [
-                    { key: "c-note", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "note" },
+                    { key: "c-note", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "note") },
                 ],
             },
         }),
@@ -84,6 +84,30 @@ describe("<Studio.Page> (#993)", () => {
         assert.deepEqual(manifest.paths.map(pathKey).sort(), ["field:inputs/field:studio_page_visits", "field:records/field:studio_page_record"]);
     });
 
+    test("#1669: the sources a page lists are bound by its surface, so its manifest holds them — a source read whole under paths, one read a window at a time under pages — known when it is built", () => {
+        const Row = StructType({ region: StringType, revenue: FloatType });
+        const sales = e3.input("studio_page_sales", ArrayType(Row), variant("value", []));
+        const orders = e3.input("studio_page_orders", ArrayType(Row), variant("value", []));
+        const pages = e3.record("studio_page_sources_record", StudioPagesType, { initial: new SortedMap<Key, Entry>([], keys) });
+        const surface = ui("studio_page_sources_surface", [], East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+            const components = $.let([note]);
+            const all = $.let(Data.bind(pages));
+            const whole = $.let(Data.bind(sales));
+            const paged = $.let(Data.bindPaged(orders));
+            return Studio.Page({
+                pages: all.read(), components, page: { project: "ops", page: "overview" },
+                sources: {
+                    sales: Studio.source(whole, { name: "Sales", icon: "receipt", search: ["region"] }),
+                    orders: Studio.source(paged, { name: "Orders", icon: "cart-shopping", split: ["region"] }),
+                },
+            });
+        }))));
+        const manifest = surface.role.value!;
+        assert.deepEqual(manifest.records, []);
+        assert.deepEqual(manifest.paths.map(pathKey).sort(), ["field:inputs/field:studio_page_sales", "field:records/field:studio_page_sources_record"]);
+        assert.deepEqual(manifest.pages.map(pathKey), ["field:inputs/field:studio_page_orders"]);
+    });
+
     test("it is an interface the browser draws — the StudioPage carrier, holding the record's value, the components, the page and its version: the live one unless the draft is asked for", () => {
         const live = payloadOf(East.compile(East.function([], UIComponentType, ($) => {
             const components = $.let([note]);
@@ -92,6 +116,7 @@ describe("<Studio.Page> (#993)", () => {
         assert.deepEqual(live.page, { project: "ops", page: "overview" });
         assert.deepEqual(live.version, variant("live", null));
         assert.deepEqual(live.components.map((component) => component.key), ["note"]);
+        assert.deepEqual(live.sources, [], "no sources listed is none");
         assert.deepEqual(live.pages.get({ project: "ops", page: "overview" }), PAGES.get({ project: "ops", page: "overview" }));
 
         const draft = payloadOf(East.compile(East.function([], UIComponentType, ($) => {

@@ -8,7 +8,7 @@ import * as component from "./component.examples.js";
 import * as page from "./page.examples.js";
 import * as studio from "./studio.examples.js";
 
-describeEast("Studio examples (#991–#1000)", (test) => {
+describeEast("Studio examples (#991–#1000, #1669)", (test) => {
     Assert.examples(test, {
         studioComponent: component.studioComponent,
         studioPage: page.studioPage,
@@ -17,5 +17,6 @@ describeEast("Studio examples (#991–#1000)", (test) => {
         studioLibrary: studio.studioLibrary,
         studioOpsConsole: studio.studioOpsConsole,
         studioConflicts: studio.studioConflicts,
+        studioContent: studio.studioContent,
     });
 }, { platformFns: TestImpl });

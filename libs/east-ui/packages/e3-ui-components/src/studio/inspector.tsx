@@ -6,8 +6,10 @@
 /**
  * `StudioInspector` — the builder's inspector (#996), the body of its pane
  * after the canvas, under the pane's tab row. It draws the selected placement
- * East computed — its name and key, what it reads (each named in words,
- * never a keypath), its description, its layout — and sends every layout
+ * East computed — its name; for a component what it reads (each named in
+ * words, never a keypath) and its description; for a visual (#1669) its
+ * source and its view; for a text block neither; and its layout — and sends
+ * every layout
  * edit through `onRequest`, which asks the canvas for it; the canvas takes it
  * as one gesture of the page's session, and the placement comes back drawn
  * anew.
@@ -180,39 +182,56 @@ export const StudioInspector = memo(function StudioInspector({ value, phone }: S
     const layout = selection.layout;
     const span = Number(layout.span);
     const most = Number(layout.most);
-    const description = selection.description.type === "some" ? selection.description.value : undefined;
+    // What it holds: a component's reads and description, a visual's source and view, or a text block's nothing.
+    const content = selection.content;
+    const component = content.type === "component" ? content.value : undefined;
+    const visual = content.type === "visual" ? content.value : undefined;
+    const description = component !== undefined && component.description.type === "some" ? component.description.value : undefined;
+    const reads = component !== undefined ? component.reads : visual !== undefined ? [visual.source] : [];
     const aligned: Align = layout.align.type;
     const heightKey = height === undefined ? "auto" : String(height);
 
     return (
         <Box css={styles.root} data-studio-inspector="">
             <Box css={styles.selection} data-inspector="selection">
-                <Box as="span" css={styles.eyebrow}>{m.selectedComponent()}</Box>
+                <Box as="span" css={styles.eyebrow}>{content.type === "component" ? m.selectedComponent() : content.type === "visual" ? m.selectedVisual() : m.selectedText()}</Box>
                 <Box as="span" css={styles.name} data-inspector-name="">{selection.name}</Box>
                 {phone !== undefined && <Box as="span" css={ps.meta} data-inspector-where="">{m.phoneWhere({ row: words.number(Number(layout.row)), first: words.number(phone.first), last: words.number(phone.first + span - 1) })}</Box>}
             </Box>
-            <Box css={styles.data} data-inspector="data">
-                <Box as="span" css={styles.eyebrow}>{m.data()}</Box>
-                {selection.reads.length > 0 ? (
-                    <Box as="ul" css={styles.reads} aria-label={m.data()}>
-                        {selection.reads.map((name, at) => <Box as="li" key={at} css={styles.read}>{name}</Box>)}
+            {content.type !== "text" && (
+                <Box css={styles.data} data-inspector="data">
+                    <Box as="span" css={styles.eyebrow}>{m.data()}</Box>
+                    {reads.length > 0 ? (
+                        <Box as="ul" css={styles.reads} aria-label={m.data()}>
+                            {reads.map((name, at) => <Box as="li" key={at} css={styles.read}>{name}</Box>)}
+                        </Box>
+                    ) : (
+                        <Box as="span" css={styles.noReads}>{m.readsNothing()}</Box>
+                    )}
+                </Box>
+            )}
+            {component !== undefined && (
+                <Box css={styles.config} data-inspector="config">
+                    <Box css={styles.configHead}>
+                        <Box as="span" css={styles.eyebrow}>{m.configuration()}</Box>
+                        <Box as="span" css={styles.lockNote}>
+                            <FontAwesomeIcon icon={faLock} />
+                            {m.fixedByDeveloper()}
+                        </Box>
                     </Box>
-                ) : (
-                    <Box as="span" css={styles.noReads}>{m.readsNothing()}</Box>
-                )}
-            </Box>
-            <Box css={styles.config} data-inspector="config">
-                <Box css={styles.configHead}>
-                    <Box as="span" css={styles.eyebrow}>{m.configuration()}</Box>
-                    <Box as="span" css={styles.lockNote}>
-                        <FontAwesomeIcon icon={faLock} />
-                        {m.fixedByDeveloper()}
+                    <Box as="p" css={styles.description} data-empty={description === undefined ? "" : undefined}>
+                        {description ?? m.noDescription()}
                     </Box>
                 </Box>
-                <Box as="p" css={styles.description} data-empty={description === undefined ? "" : undefined}>
-                    {description ?? m.noDescription()}
+            )}
+            {visual !== undefined && (
+                <Box css={styles.config} data-inspector="view">
+                    <Box css={styles.configHead}>
+                        <Box as="span" css={styles.eyebrow}>{m.view()}</Box>
+                    </Box>
+                    <Box as="p" css={styles.description} data-inspector-view="">{visual.view}</Box>
                 </Box>
-            </Box>
+            )}
             <Box css={styles.layout} data-inspector="layout">
                 <Box as="span" css={styles.eyebrow}>{m.layout()}</Box>
                 {phone !== undefined ? (
@@ -327,10 +346,12 @@ export const StudioInspector = memo(function StudioInspector({ value, phone }: S
                 </Box>
                 </>}
             </Box>
-            <Box css={styles.footer} data-inspector="footer">
-                <FontAwesomeIcon icon={faLock} />
-                {m.published()}
-            </Box>
+            {component !== undefined && (
+                <Box css={styles.footer} data-inspector="footer">
+                    <FontAwesomeIcon icon={faLock} />
+                    {m.published()}
+                </Box>
+            )}
         </Box>
     );
 });

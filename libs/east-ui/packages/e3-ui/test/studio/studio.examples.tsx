@@ -10,7 +10,10 @@
  * operators build, and the three surfaces it mounts: the builder, the page
  * library and a published page. The record holds the mock of record's resting
  * state: the Ops console's Overview, live as v3 and drafted since, and the page
- * library's projects, pages and templates.
+ * library's projects, pages and templates. A second record holds a page whose
+ * placements hold content (#1669) — a text block and visuals over a source the
+ * surface lists — and declares the one step that carries a workspace's pages
+ * stored before a placement held content.
  */
 
 import {
@@ -288,10 +291,10 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
             draft: {
                 title: "Account detail",
                 cells: [
-                    { key: "a-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail" },
-                    { key: "a-orders", row: "r2", span: 8n, height: some(240n), align: variant("top", null), title: none, component: "orders_by_week" },
-                    { key: "a-bars", row: "r2", span: 4n, height: some(240n), align: variant("stretch", null), title: none, component: "breakdown_bars" },
-                    { key: "a-trend", row: "r3", span: 12n, height: some(200n), align: variant("top", null), title: none, component: "revenue_trend" },
+                    { key: "a-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
+                    { key: "a-orders", row: "r2", span: 8n, height: some(240n), align: variant("top", null), title: none, content: variant("component", "orders_by_week") },
+                    { key: "a-bars", row: "r2", span: 4n, height: some(240n), align: variant("stretch", null), title: none, content: variant("component", "breakdown_bars") },
+                    { key: "a-trend", row: "r3", span: 12n, height: some(200n), align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
                 ],
             },
             live: none,
@@ -300,10 +303,10 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
             draft: {
                 title: "Overview",
                 cells: [
-                    { key: "o-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail" },
-                    { key: "o-trend", row: "r2", span: 8n, height: none, align: variant("stretch", null), title: none, component: "revenue_trend" },
-                    { key: "o-bars", row: "r2", span: 4n, height: none, align: variant("stretch", null), title: none, component: "breakdown_bars" },
-                    { key: "o-board", row: "r3", span: 12n, height: none, align: variant("top", null), title: none, component: "assignment_board" },
+                    { key: "o-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
+                    { key: "o-trend", row: "r2", span: 8n, height: none, align: variant("stretch", null), title: none, content: variant("component", "revenue_trend") },
+                    { key: "o-bars", row: "r2", span: 4n, height: none, align: variant("stretch", null), title: none, content: variant("component", "breakdown_bars") },
+                    { key: "o-board", row: "r3", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "assignment_board") },
                 ],
             },
             live: some({
@@ -311,9 +314,9 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
                 page: {
                     title: "Overview",
                     cells: [
-                        { key: "o-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail" },
-                        { key: "o-trend", row: "r2", span: 12n, height: none, align: variant("stretch", null), title: none, component: "revenue_trend" },
-                        { key: "o-board", row: "r3", span: 12n, height: none, align: variant("top", null), title: none, component: "assignment_board" },
+                        { key: "o-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
+                        { key: "o-trend", row: "r2", span: 12n, height: none, align: variant("stretch", null), title: none, content: variant("component", "revenue_trend") },
+                        { key: "o-board", row: "r3", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "assignment_board") },
                     ],
                 },
             }),
@@ -322,9 +325,9 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
             draft: {
                 title: "Regional rollup",
                 cells: [
-                    { key: "r-trend", row: "r1", span: 12n, height: some(240n), align: variant("top", null), title: none, component: "revenue_trend" },
-                    { key: "r-bars", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: some("By region"), component: "breakdown_bars" },
-                    { key: "r-visits", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: none, component: "visits_sparkline" },
+                    { key: "r-trend", row: "r1", span: 12n, height: some(240n), align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
+                    { key: "r-bars", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: some("By region"), content: variant("component", "breakdown_bars") },
+                    { key: "r-visits", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: none, content: variant("component", "visits_sparkline") },
                 ],
             },
             live: some({
@@ -332,9 +335,9 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
                 page: {
                     title: "Regional rollup",
                     cells: [
-                        { key: "r-trend", row: "r1", span: 12n, height: some(240n), align: variant("top", null), title: none, component: "revenue_trend" },
-                        { key: "r-bars", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: some("By region"), component: "breakdown_bars" },
-                        { key: "r-visits", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: none, component: "visits_sparkline" },
+                        { key: "r-trend", row: "r1", span: 12n, height: some(240n), align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
+                        { key: "r-bars", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: some("By region"), content: variant("component", "breakdown_bars") },
+                        { key: "r-visits", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: none, content: variant("component", "visits_sparkline") },
                     ],
                 },
             }),
@@ -343,8 +346,8 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
             draft: {
                 title: "Weekly export",
                 cells: [
-                    { key: "w-orders", row: "r1", span: 12n, height: some(320n), align: variant("top", null), title: none, component: "orders_by_week" },
-                    { key: "w-roster", row: "r2", span: 12n, height: some(240n), align: variant("top", null), title: none, component: "shift_roster" },
+                    { key: "w-orders", row: "r1", span: 12n, height: some(320n), align: variant("top", null), title: none, content: variant("component", "orders_by_week") },
+                    { key: "w-roster", row: "r2", span: 12n, height: some(240n), align: variant("top", null), title: none, content: variant("component", "shift_roster") },
                 ],
             },
             live: some({ version: 2n, page: { title: "Weekly export", cells: [] } }),
@@ -352,31 +355,31 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
         [{ project: "Ops console", page: "Ops board" }, variant("template", {
             title: "Ops board",
             cells: [
-                { key: "t-orders", row: "r1", span: 8n, height: some(320n), align: variant("top", null), title: none, component: "orders_by_week" },
-                { key: "t-bars", row: "r1", span: 4n, height: some(320n), align: variant("stretch", null), title: none, component: "breakdown_bars" },
+                { key: "t-orders", row: "r1", span: 8n, height: some(320n), align: variant("top", null), title: none, content: variant("component", "orders_by_week") },
+                { key: "t-bars", row: "r1", span: 4n, height: some(320n), align: variant("stretch", null), title: none, content: variant("component", "breakdown_bars") },
             ],
         })],
         [{ project: "Ops console", page: "Report brief" }, variant("template", {
             title: "Report brief",
             cells: [
-                { key: "t-trend", row: "r1", span: 12n, height: some(240n), align: variant("top", null), title: none, component: "revenue_trend" },
-                { key: "t-orders", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: none, component: "orders_by_week" },
-                { key: "t-visits", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: none, component: "visits_sparkline" },
+                { key: "t-trend", row: "r1", span: 12n, height: some(240n), align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
+                { key: "t-orders", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: none, content: variant("component", "orders_by_week") },
+                { key: "t-visits", row: "r2", span: 6n, height: some(200n), align: variant("top", null), title: none, content: variant("component", "visits_sparkline") },
             ],
         })],
         [{ project: "Ops console", page: "Summary" }, variant("template", {
             title: "Summary",
             cells: [
-                { key: "t-kpi", row: "r1", span: 12n, height: some(96n), align: variant("top", null), title: none, component: "kpi_rail" },
-                { key: "t-trend", row: "r2", span: 8n, height: some(240n), align: variant("top", null), title: none, component: "revenue_trend" },
-                { key: "t-bars", row: "r2", span: 4n, height: some(240n), align: variant("stretch", null), title: none, component: "breakdown_bars" },
+                { key: "t-kpi", row: "r1", span: 12n, height: some(96n), align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
+                { key: "t-trend", row: "r2", span: 8n, height: some(240n), align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
+                { key: "t-bars", row: "r2", span: 4n, height: some(240n), align: variant("stretch", null), title: none, content: variant("component", "breakdown_bars") },
             ],
         })],
         [{ project: "Finance portal", page: "Ledger" }, variant("page", {
             draft: {
                 title: "Ledger",
                 cells: [
-                    { key: "l-trend", row: "r1", span: 12n, height: some(240n), align: variant("top", null), title: none, component: "revenue_trend" },
+                    { key: "l-trend", row: "r1", span: 12n, height: some(240n), align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
                 ],
             },
             live: none,
@@ -385,7 +388,7 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
             draft: {
                 title: "Rota",
                 cells: [
-                    { key: "h-roster", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "shift_roster" },
+                    { key: "h-roster", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "shift_roster") },
                 ],
             },
             live: some({
@@ -393,7 +396,7 @@ export const studioPages = e3.record("studio_pages", Studio.Types.Pages, {
                 page: {
                     title: "Rota",
                     cells: [
-                        { key: "h-roster", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "shift_roster" },
+                        { key: "h-roster", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "shift_roster") },
                     ],
                 },
             }),
@@ -460,7 +463,7 @@ const tilesNarrower = East.function([Studio.Types.Page], Studio.Types.Page, (_$,
     cells: page.cells.map((_$2, cell) => ({
         key: cell.key, row: cell.row,
         span: cell.span.greater(3n).ifElse(() => cell.span.subtract(1n), () => cell.span),
-        height: cell.height, align: cell.align, title: cell.title, component: cell.component,
+        height: cell.height, align: cell.align, title: cell.title, content: cell.content,
     })),
 }));
 
@@ -531,6 +534,89 @@ export const studioLibrary = example({
             return (
                 <Box height="764px">
                     <Studio.Library pages={pages} components={components} project="Ops console" page={open.read()} onOpen={go} />
+                </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+// ============================================================================
+// Content — a text block, and visuals over a source the surface lists (#1669)
+// ============================================================================
+
+/** This week's revenue by region, as columns split by channel. */
+const revenueByRegion = Studio.visual.of("sales", Studio.visual.column({
+    x: Studio.visual.group("region"),
+    values: [Studio.visual.sum("revenue", { label: "Revenue" })],
+    split: "channel",
+    stack: "stacked",
+}));
+
+/** The regions by revenue, largest first, each with a bar. */
+const topRegions = Studio.visual.of("sales", Studio.visual.list({
+    item: Studio.visual.group("region", { sort: "high", top: 5n }),
+    values: [Studio.visual.sum("revenue")],
+    bar: true,
+}));
+
+/**
+ * The pages of a project whose placements hold content: a text block, two
+ * visuals over the sales and a developer's component. Its one migration step
+ * carries a workspace whose pages were stored before a placement held content
+ * — each component key becomes `component(key)` — and a workspace deployed
+ * fresh counts it applied.
+ */
+export const studioContentPages = e3.record("studio_content_pages", Studio.Types.Pages, {
+    initial: new SortedMap<Key, Entry>([
+        [{ project: "Sales desk", page: "This week" }, variant("page", {
+            draft: {
+                title: "This week",
+                cells: [
+                    { key: "s-note", row: "r1", span: 12n, height: none, align: variant("top", null), title: none,
+                        content: Studio.visual.text("Figures are to last night's close.\n\nRevenue is in US dollars, before returns.", "About these numbers") },
+                    { key: "s-revenue", row: "r2", span: 8n, height: some(240n), align: variant("top", null), title: some("Revenue by region"), content: revenueByRegion },
+                    { key: "s-top", row: "r2", span: 4n, height: some(240n), align: variant("stretch", null), title: none, content: topRegions },
+                    { key: "s-kpi", row: "r3", span: 12n, height: none, align: variant("top", null), title: none, content: Studio.visual.component("kpi_rail") },
+                ],
+            },
+            live: none,
+        })],
+    ], compareFor(Studio.Types.Key)),
+    mutations: (mutation) => ({
+        // The record's one write.
+        patch: mutation.patch(),
+    }),
+    // Pages stored before a placement held content are carried by this one step.
+    migrations: (migration) => [migration.rows("cell_content", Studio.migrations.cellContent)],
+});
+
+export const studioContent = example({
+    keywords: [
+        "Studio", "Studio.source", "sources", "source", "fields", "Studio.visual", "visual", "KPI", "chart", "column", "list", "table", "slicer",
+        "text block", "text", "content", "Studio.Types.Content", "Studio.migrations", "cellContent", "migration.rows", "migrations",
+        "Data.bind", "Studio.Builder", "e3.record",
+    ],
+    description: "A page whose placements hold content: a text block, visuals over a source the surface lists — revenue by region as stacked columns, the top regions as a list — and a developer's component. The surface lists its sources with Studio.source — a bound handle, a name, an icon and its fields' labels and formats — the page's seeds are built with Studio.visual, and its pages record declares Studio.migrations.cellContent, the one step that carries pages stored before a placement held content",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const components = $.let([kpiRail]);
+            const pages = $.let(Record.bind(studioContentPages));
+            const sales = $.let(Data.bind(studioSales));
+            return (
+                <Box height="760px">
+                    <Studio.Builder pages={pages} components={components} project="Sales desk" id="studioContent"
+                        sources={{
+                            sales: Studio.source(sales, {
+                                name: "Sales", icon: "receipt", description: "One row per region per channel",
+                                fields: {
+                                    region: { label: "Region" },
+                                    channel: { label: "Channel" },
+                                    revenue: { label: "Revenue", format: { currency: { code: "USD" } } },
+                                },
+                                search: ["region", "channel"], split: ["channel"],
+                            }),
+                        }} />
                 </Box>
             );
         }}</Reactive>

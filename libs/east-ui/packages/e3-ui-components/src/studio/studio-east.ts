@@ -5,9 +5,10 @@
 
 /**
  * The Studio's East, compiled for its renderers (#1000) — what the builder's
- * palette, canvas, inspector and publish preview, and the page library, show
- * and write is computed by the functions `@elaraai/e3-ui` declares, compiled
- * once, on first use; nothing here restates them.
+ * palette, canvas, inspector and publish preview, the page library, and a
+ * placement's content (#1669) show and write is computed by the functions
+ * `@elaraai/e3-ui` declares, compiled once, on first use; nothing here
+ * restates them.
  *
  * @packageDocumentation
  */
@@ -16,6 +17,8 @@ import { East, type TypeOf, type ValueTypeOf } from "@elaraai/east";
 import {
     Studio,
     canvasTiles,
+    contentTile,
+    contentWords,
     inspectorSelection,
     libraryPages,
     libraryProjects,
@@ -26,6 +29,9 @@ import {
     publishRefusal,
     publishSummary,
     saveCells,
+    sourceNames,
+    textParagraphs,
+    viewIcon,
 } from "@elaraai/e3-ui/internal";
 
 /** The JavaScript function an East function compiles to. */
@@ -39,6 +45,16 @@ export interface StudioEast {
     palettePages: Compiled<typeof palettePages>;
     /** Each listed component's tile on the canvas. */
     canvasTiles: Compiled<typeof canvasTiles>;
+    /** The tile of what a placement holds: a listed component's, a visual's, a text block's. */
+    contentTile: Compiled<typeof contentTile>;
+    /** What a placement holds, in words. */
+    contentWords: Compiled<typeof contentWords>;
+    /** A view's icon. */
+    viewIcon: Compiled<typeof viewIcon>;
+    /** A text block's paragraphs. */
+    textParagraphs: Compiled<typeof textParagraphs>;
+    /** Each listed source's name, by its key. */
+    sourceNames: Compiled<typeof sourceNames>;
     /** The selected placement, as the inspector shows it. */
     inspectorSelection: Compiled<typeof inspectorSelection>;
     /** What the publish preview shows of the open entry. */
@@ -74,6 +90,16 @@ function compileStudio(): StudioEast {
         palettePages: East.compile(palettePages, []),
         /** Each listed component's tile on the canvas. */
         canvasTiles: East.compile(canvasTiles, []),
+        /** The tile of what a placement holds: a listed component's, a visual's, a text block's. */
+        contentTile: East.compile(contentTile, []),
+        /** What a placement holds, in words. */
+        contentWords: East.compile(contentWords, []),
+        /** A view's icon. */
+        viewIcon: East.compile(viewIcon, []),
+        /** A text block's paragraphs. */
+        textParagraphs: East.compile(textParagraphs, []),
+        /** Each listed source's name, by its key. */
+        sourceNames: East.compile(sourceNames, []),
         /** The selected placement, as the inspector shows it. */
         inspectorSelection: East.compile(inspectorSelection, []),
         /** What the publish preview shows of the open entry. */
