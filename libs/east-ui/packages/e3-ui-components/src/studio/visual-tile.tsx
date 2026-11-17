@@ -6,10 +6,11 @@
 /**
  * A visual's tile (#1670): its programs printed, asked on e3, and its state
  * drawn — waiting, on the shared loading clock; a well it needs empty; a
- * field its source lacks; a value over another period with no date window;
- * its source's error; no rows; or its answer's size, until the tiles that draw
- * it land. What it asks and how is the query layer's (`query/visual/`); this
- * draws.
+ * field its source lacks; a value over another period over a source with no
+ * date range, or on a page with no date window; its source's error, with a
+ * Retry when asking again may mend it; no rows; or its answer's size, until
+ * the tiles that draw it land. What it asks and how is the query layer's
+ * (`query/visual/`); this draws.
  *
  * @packageDocumentation
  */
@@ -17,10 +18,11 @@
 import { useMemo } from "react";
 import { none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import type { StudioContentType } from "@elaraai/e3-ui/internal";
-import { Box } from "@chakra-ui/react";
+import { Box, Button } from "@chakra-ui/react";
 import { BannerView, EastChakraSkeleton, EmptyStateView, useFormatters, type SkeletonValue } from "@elaraai/east-ui-components";
 import { useLoadingReveal } from "@elaraai/east-ui-components/internal";
 import { useVisualAnswers, useVisualSource } from "../query/visual/answers.js";
+import { visualReadRows } from "../query/visual/ask.js";
 import { printVisual, type PrintState, type VisualAsk } from "../query/visual/print.js";
 import { printSourceOf } from "../query/visual/source.js";
 import { useStudioMessages } from "./messages.js";
@@ -71,6 +73,8 @@ export function StudioVisualTile({ content, names }: StudioVisualTileProps) {
         case "missing":
             return <EmptyStateView icon={{ prefix: "fas", name: "circle-exclamation" }}
                 title={m.fieldMissing({ source: sourceName, field: printed.fields.join(", ") })} description={m.fieldMissingHint()} />;
+        case "range":
+            return <EmptyStateView icon={{ prefix: "fas", name: "calendar" }} title={m.noRange({ source: sourceName })} description={m.noRangeHint()} />;
         case "window":
             return <EmptyStateView icon={{ prefix: "fas", name: "calendar" }} title={m.needsWindow({ source: sourceName })} description={m.needsWindowHint()} />;
         case "asks":
@@ -96,8 +100,13 @@ function AskedVisual({ asks, source, sourceName, title, icon }: AskedVisualProps
     switch (asked.status) {
         case "waiting":
             return shown ? <Box data-studio-visual="waiting"><EastChakraSkeleton value={WAITING} /></Box> : null;
-        case "failed":
-            return <BannerView status="error" title={m.sourceError({ source: sourceName })} description={asked.message} />;
+        case "failed": {
+            const retry = asked.retry;
+            return (
+                <BannerView status="error" title={m.sourceError({ source: sourceName })} description={asked.message}
+                    actions={retry === undefined ? undefined : <Button size="xs" variant="outline" onClick={retry}>{m.retry()}</Button>} />
+            );
+        }
         case "answered": {
             const problem = asked.answers.find((answer) => answer.kind === "problem");
             if (problem !== undefined) {
@@ -105,13 +114,14 @@ function AskedVisual({ asks, source, sourceName, title, icon }: AskedVisualProps
                 const said = outcome.type === "error" ? outcome.value[0]?.message : undefined;
                 return <BannerView status="error" title={m.sourceError({ source: sourceName })} description={said ?? m.answerStopped()} />;
             }
-            const first = asked.answers[0];
-            if (first === undefined || first.kind !== "answered" || first.n === 0) {
+            // No data when no program read a row — every period's, not the first's alone.
+            const read = asked.answers.find((answer) => answer.kind === "answered" && answer.n > 0);
+            if (!visualReadRows(asked.answers) || read === undefined || read.kind !== "answered") {
                 return <EmptyStateView icon={{ prefix: "fas", name: icon }} title={m.noData()} description={m.noDataReason({ source: sourceName })} />;
             }
             return (
                 <EmptyStateView icon={{ prefix: "fas", name: icon }} title={title}
-                    description={m.answerGroups({ n: first.groups, groups: words.number(first.groups), nr: first.n, rows: words.number(first.n) })} />
+                    description={m.answerGroups({ n: read.groups, groups: words.number(read.groups), nr: read.n, rows: words.number(read.n) })} />
             );
         }
     }

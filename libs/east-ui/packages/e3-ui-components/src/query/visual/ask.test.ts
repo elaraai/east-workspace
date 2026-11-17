@@ -11,22 +11,30 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { ArrayType, DateTimeType, FloatType, IntegerType, StringType, StructType, none, some, toEastTypeValue, variant, type ValueTypeOf } from "@elaraai/east";
+import { ArrayType, DateTimeType, FloatType, IntegerType, StringType, StructType, none, parseFor, some, toEastTypeValue, variant, type ValueTypeOf } from "@elaraai/east";
 import { Studio } from "@elaraai/e3-ui";
 import type { QueryCall, QuerySplitCall } from "../hooks.js";
 import { createInMemoryQueryCall, createInMemorySourceStatus, createInMemorySplitCall } from "../in-memory-call.js";
 import { AnswerCache, type KeptResult } from "../model/summaries.js";
 import { queryRoot } from "../one-shot.js";
-import { askProgram, VisualAnswers, VisualAskError, visualValue, type VisualAnswer } from "./ask.js";
+import { askProgram, VisualAnswers, VisualAskError, visualAnswerType, visualReadRows, visualValue, type VisualAnswer } from "./ask.js";
 import { printVisual } from "./print.js";
 import { printSourceOf } from "./source.js";
+
+const parseAt = parseFor(DateTimeType);
+/** An instant, written as East prints a DateTime, read by East's parser. */
+function at(text: string): Date {
+    const read = parseAt(text);
+    if (!read.success) throw new Error(read.error);
+    return read.value;
+}
 
 const Row = StructType({ ordered_at: DateTimeType, region: StringType, revenue: FloatType, units: IntegerType });
 const PATH = [variant("field", "inputs"), variant("field", "orders")];
 const ORDERS: ValueTypeOf<typeof Row>[] = [
-    { ordered_at: new Date("2026-07-03T10:00:00Z"), region: "SA", revenue: 100, units: 4n },
-    { ordered_at: new Date("2026-07-20T10:00:00Z"), region: "NSW", revenue: 50, units: 1n },
-    { ordered_at: new Date("2026-08-02T10:00:00Z"), region: "SA", revenue: 60, units: 2n },
+    { ordered_at: at("2026-07-03T10:00:00"), region: "SA", revenue: 100, units: 4n },
+    { ordered_at: at("2026-07-20T10:00:00"), region: "NSW", revenue: 50, units: 1n },
+    { ordered_at: at("2026-08-02T10:00:00"), region: "SA", revenue: 60, units: 2n },
 ];
 const DATASETS = [{ path: PATH, type: ArrayType(Row), value: ORDERS }];
 const ROOT = queryRoot([{ name: "orders", path: PATH, type: toEastTypeValue(ArrayType(Row)) }]);
@@ -122,6 +130,30 @@ describe("AnswerCache", () => {
         expect(tries).toBe(2);
     });
 
+    it("serves an asker who has come to know a hash its run's askers did not, and runs again for another hash", async () => {
+        let runs = 0;
+        const finish: ((result: KeptResult<string>) => void)[] = [];
+        const cache = new AnswerCache<{ prefix: string; reads: string[] }, string>(() => {
+            runs += 1;
+            return new Promise((resolve) => { finish.push(resolve); });
+        });
+        const request = { prefix: ".orders | length", reads: ["orders"] };
+        // A tile asks before the page's poll has read its source's hash, and again once it has: one run.
+        const before = cache.ensure(request, NO_HASHES);
+        const after = cache.ensure(request, new Map([["orders", "h1"]]));
+        expect(runs).toBe(1);
+        // Another hash than the run's askers knew: another run.
+        const moved = cache.ensure(request, new Map([["orders", "h2"]]));
+        expect(runs).toBe(2);
+        // The first run ends before it reads: its answer is kept by the hash its later asker knew.
+        finish[0]!({ value: "problem", hashes: NO_HASHES });
+        expect(await Promise.all([before, after])).toEqual(["problem", "problem"]);
+        expect(cache.get(request, new Map([["orders", "h1"]]))).toBe("problem");
+        finish[1]!({ value: "rows", hashes: new Map([["orders", "h2"]]) });
+        expect(await moved).toBe("rows");
+        expect(runs).toBe(2);
+    });
+
     it("keeps a run whose last asker stops and asks again in the same turn, as a page drawn again does", async () => {
         let runs = 0;
         let given: AbortSignal | undefined;
@@ -180,6 +212,23 @@ describe("askProgram", () => {
             .rejects.toBeInstanceOf(VisualAskError);
         const refused = await askProgram(".orders | .nope", ROOT, { call: undefined, split: undefined, collection: undefined, status: undefined }, {}, new AbortController().signal);
         expect(refused?.value.kind).toBe("problem");
+    });
+
+    it("refuses an answer that is not a visual program's: its rows, groups and n", async () => {
+        const seams = { call: createInMemoryQueryCall(DATASETS), split: undefined, collection: undefined, status: undefined };
+        await expect(askProgram(".orders | length", ROOT, seams, {}, new AbortController().signal)).rejects.toThrow("not its rows, groups and n");
+        expect(visualAnswerType(IntegerType)).toBeUndefined();
+        expect(visualAnswerType(StructType({ rows: ArrayType(IntegerType), groups: IntegerType, n: IntegerType }))).toBeUndefined();
+    });
+});
+
+describe("visualReadRows", () => {
+    it("is no data only when no program read a row: an earlier period's empty answer leaves this one's", async () => {
+        const seams = { call: createInMemoryQueryCall(DATASETS), split: undefined, collection: undefined, status: undefined };
+        const ask = async (program: string) => (await askProgram(program, ROOT, seams, {}, new AbortController().signal))!.value;
+        const empty = await ask(`.orders | map(select(.region == "WA")) | {rows: [{v0: length, n: length}], groups: 1, n: length}`);
+        const read = await ask(".orders | {rows: [{v0: length, n: length}], groups: 1, n: length}");
+        expect([visualReadRows([empty, read]), visualReadRows([empty]), visualReadRows([])]).toEqual([true, false, false]);
     });
 });
 

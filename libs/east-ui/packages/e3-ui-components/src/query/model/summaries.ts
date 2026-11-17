@@ -155,20 +155,43 @@ function keptHashes(request: KeptRequest, asked: ReadonlyMap<string, string>, re
     return kept;
 }
 
-/** A run in flight: its answer, how to give it up, and how many still wait for it. */
+/** A run in flight: its answer, how to give it up, how many still wait for it, and what its askers knew. */
 interface InFlight<V> {
-    readonly answer: Promise<V | undefined>;
+    answer: Promise<V | undefined>;
     readonly controller: AbortController;
     waiting: number;
+    /** Each data source it reads whose hash one of its askers knew, by that hash. */
+    readonly asked: Map<string, string>;
+}
+
+/**
+ * Whether a run in flight serves an asker: for each data source it reads, the
+ * run's askers knew no hash of it, the asker knows none, or both know the same
+ * one. A tile that asked before the page's poll first read its source's hash
+ * is served by the run it started once it knows that hash, rather than asking
+ * again.
+ *
+ * @param run - the run in flight
+ * @param request - the request: the data sources it reads
+ * @param hashes - each data source's hash as the asker sees it
+ * @returns whether the run's answer is the asker's
+ */
+function serves(run: InFlight<unknown>, request: KeptRequest, hashes: ReadonlyMap<string, string>): boolean {
+    return request.reads.every((source) => {
+        const was = run.asked.get(source);
+        const now = hashes.get(source);
+        return was === undefined || now === undefined || was === now;
+    });
 }
 
 /**
  * Answers kept by their program and the hashes of the data sources they read
  * (#934, #1670): the query builder's summaries, and a Studio page's tiles.
  * One run per program and hashes, however many ask for it while it is in
- * flight; given up once every one that asked has stopped waiting, and none
- * has asked again in the same turn — a page drawn again re-asks at once, and
- * keeps its runs.
+ * flight — an asker who has come to know a hash the run's askers did not
+ * know is served by it too; given up once every one that asked has stopped
+ * waiting, and none has asked again in the same turn — a page drawn again
+ * re-asks at once, and keeps its runs.
  *
  * @example
  * ```ts
@@ -178,7 +201,8 @@ interface InFlight<V> {
  */
 export class AnswerCache<R extends KeptRequest, V> {
     private readonly entries = new Map<string, KeptResult<V>>();
-    private readonly pending = new Map<string, InFlight<V>>();
+    /** The runs in flight, by program: more than one where their askers knew different hashes. */
+    private readonly pending = new Map<string, readonly InFlight<V>[]>();
 
     /**
      * @param run - runs a request's program; given up by its signal, it answers `undefined`
@@ -205,9 +229,10 @@ export class AnswerCache<R extends KeptRequest, V> {
     /**
      * Runs a request's program unless the cache holds its answer: once per
      * program and hashes, however often it is asked for while the run is in
-     * flight. The answer is kept by the hashes the run read, and a source the
-     * run named none for by the hash in `hashes` — so an answer that ended
-     * before reading, a problem, stands until that source moves.
+     * flight ({@link serves}). The answer is kept by the hashes the run read,
+     * and a source the run named none for by the hash its askers knew — so an
+     * answer that ended before reading, a problem, stands until that source
+     * moves.
      *
      * @param request - the request
      * @param hashes - each data source's current hash, by name
@@ -218,39 +243,51 @@ export class AnswerCache<R extends KeptRequest, V> {
         const held = this.get(request, hashes);
         if (held !== undefined) return Promise.resolve(held);
         if (signal?.aborted === true) return Promise.resolve(undefined);
-        const key = `${request.prefix}\u0000${request.reads.map(s => hashes.get(s) ?? "").join("\u0000")}`;
-        let inFlight = this.pending.get(key);
-        if (inFlight === undefined) {
-            const controller = new AbortController();
-            const answer = this.run(request, controller.signal).then(result => {
-                if (this.pending.get(key) === inFlight) this.pending.delete(key);
+        const runs = this.pending.get(request.prefix) ?? [];
+        let run = runs.find((inFlight) => serves(inFlight, request, hashes));
+        if (run === undefined) {
+            const made: InFlight<V> = { answer: Promise.resolve(undefined), controller: new AbortController(), waiting: 0, asked: new Map() };
+            made.answer = this.run(request, made.controller.signal).then(result => {
+                this.drop(request.prefix, made);
                 if (result === undefined) return undefined;
-                this.entries.set(request.prefix, { value: result.value, hashes: keptHashes(request, hashes, result.hashes) });
+                this.entries.set(request.prefix, { value: result.value, hashes: keptHashes(request, made.asked, result.hashes) });
                 return result.value;
             }, (err: unknown) => {
                 // A run that failed keeps nothing: its askers hear why, and the next ask runs again.
-                if (this.pending.get(key) === inFlight) this.pending.delete(key);
+                this.drop(request.prefix, made);
                 throw err;
             });
-            inFlight = { answer, controller, waiting: 0 };
-            this.pending.set(key, inFlight);
+            this.pending.set(request.prefix, [...runs, made]);
+            run = made;
         }
-        const run = inFlight;
-        run.waiting += 1;
+        // What this asker knows of the sources it reads, the run keeps: its answer is kept by it where the run reads none.
+        for (const source of request.reads) {
+            const hash = hashes.get(source);
+            if (hash !== undefined) run.asked.set(source, hash);
+        }
+        const waited = run;
+        waited.waiting += 1;
         signal?.addEventListener("abort", () => {
-            run.waiting -= 1;
-            if (run.waiting > 0) return;
+            waited.waiting -= 1;
+            if (waited.waiting > 0) return;
             // The last asker gone: the run is given up, and the next ask starts another — unless an asker
             // asks for it again in the same turn, as a page drawn again stops its effects and starts them
             // at once, which keeps it running.
             queueMicrotask(() => {
-                if (run.waiting === 0 && this.pending.get(key) === run) {
-                    this.pending.delete(key);
-                    run.controller.abort();
+                if (waited.waiting === 0 && this.pending.get(request.prefix)?.includes(waited) === true) {
+                    this.drop(request.prefix, waited);
+                    waited.controller.abort();
                 }
             });
         }, { once: true });
-        return run.answer;
+        return waited.answer;
+    }
+
+    /** Forgets a run that is no longer in flight: it settled, or was given up. */
+    private drop(prefix: string, run: InFlight<V>): void {
+        const left = (this.pending.get(prefix) ?? []).filter((inFlight) => inFlight !== run);
+        if (left.length === 0) this.pending.delete(prefix);
+        else this.pending.set(prefix, left);
     }
 }
 
