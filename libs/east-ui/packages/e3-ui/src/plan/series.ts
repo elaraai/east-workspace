@@ -1227,11 +1227,40 @@ export type PlanCaseAccessor<R extends EastType, T extends EastType, KT extends 
  * entries holding the case, each accessor handed the case's value after the
  * row and its key.
  *
+ * @remarks
+ * A case names its resources with `label`, unless its own row is not drawn
+ * (`row: false`), which needs none.
+ *
  * @typeParam R - The entry type
  * @typeParam KT - The entries' key type
  * @typeParam V - The case's value type
  */
-export interface PlanKindsCase<R extends EastType, KT extends EastType, V extends EastType> {
+export type PlanKindsCase<R extends EastType, KT extends EastType, V extends EastType> = PlanKindsCaseOptions<R, KT, V> & (
+    | {
+        /** The resource's name, in the gutter. */
+        label: PlanCaseAccessor<R, StringType, KT, V>;
+        row?: undefined;
+    }
+    | {
+        /**
+         * `false`: the case's own row is not drawn, and its `series` and `children` stand at its level (#1541, U2) — one
+         * press's page, its rows at the root. No event kind lands on the row itself (one landing on a child row beneath
+         * it names its `child`), and the row can't be selected, so a page that edits its fields draws it.
+         */
+        row: false;
+        /** The resource's name: unread, its row not being drawn. */
+        label?: PlanCaseAccessor<R, StringType, KT, V>;
+    }
+);
+
+/**
+ * What every case of `Plan.series.kinds` takes, its own row drawn or not (#1541, U2).
+ *
+ * @typeParam R - The entry type
+ * @typeParam KT - The entries' key type
+ * @typeParam V - The case's value type
+ */
+export interface PlanKindsCaseOptions<R extends EastType, KT extends EastType, V extends EastType> {
     /** Its key, unique across the series tree: what an event kind's `resource.of` names. Omitted, the case's name. */
     key?: string;
     /** Its name, as the Series tab and a viewer read it ("Presses"). */
@@ -1244,8 +1273,6 @@ export interface PlanKindsCase<R extends EastType, KT extends EastType, V extend
     keyType?: KT;
     /** Membership among the case's entries — omitted ⇒ every one of them. */
     match?: PlanCaseAccessor<R, BooleanType, KT, V>;
-    /** The resource's name, in the gutter. */
-    label: PlanCaseAccessor<R, StringType, KT, V>;
     /** Render labels as mono row ids. */
     id?: boolean;
     /** Two-line gutter layout. */
@@ -1321,6 +1348,8 @@ type MatchFn = ExprType<FunctionType<[EastType, EastType], BooleanType>>;
 type CollapsedFn = ExprType<FunctionType<[EastType, EastType], BooleanType>>;
 /** An entry's children rows: `(value, key, id, path, hidden) → rows`. */
 type ChildrenFn = ExprType<FunctionType<[EastType, EastType, PlanRowIdType, ArrayType<StringType>, PlanHiddenType], PlanRowsCollectionType>>;
+/** An entry's step-downs' rows: `(value, key, parent, path, hidden) → rows` — nested under `parent`, or at the top under none. */
+type StepsFn = ExprType<FunctionType<[EastType, EastType, OptionType<PlanRowIdType>, ArrayType<StringType>, PlanHiddenType], PlanRowsCollectionType>>;
 /**
  * A series' writer for entries of a collection (#880): `(entry, key, path,
  * depth, series, gesture, carried) → the entry written`. `path[0 … depth)`
@@ -1389,6 +1418,8 @@ interface PlanSeriesSpec {
     entryParts?(entry: EastType, key: EastType, where: string): EntryParts;
     /** A data series' children rows for entries keyed by `key` (`views` reuses it for its own children). */
     childrenFor?(key: EastType): ChildrenFn | undefined;
+    /** A data series' step-downs' rows for entries keyed by `key`, under the row given, or none (a resources series reuses it). */
+    stepsFor?(key: EastType): StepsFn | undefined;
     /** A data series' collapse for entries keyed by `key` (`views` reuses it for its first row). */
     collapsedFor?(key: EastType): CollapsedFn | undefined;
     /** This series' writer for entries of `collection` (#880) — `undefined` when nothing in its tree takes a gesture. */
@@ -1484,6 +1515,8 @@ export interface PlanLanding {
     readonly rowType: EastType;
     readonly lanes: boolean;
     readonly series: readonly string[];
+    /** Whether its own row is drawn: a case with `row: false` draws none, so nothing lands on it (U2). */
+    readonly row: boolean;
 }
 
 /**
@@ -2620,6 +2653,7 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
     const matches = new ByType<MatchFn | undefined>();
     const collapses = new ByType<CollapsedFn | undefined>();
     const kids = new ByType<ChildrenFn | undefined>();
+    const stepLists = new ByType<StepsFn | undefined>();
     const walks = new ByType<ExprType<FunctionType<[EastType, ArrayType<StringType>, PlanRowIdType], PlanRowsCollectionType>>>();
     const emitters = new ByType<EmitFn>();
     const blockLists = new ByType<BlocksFn>();
@@ -2738,6 +2772,14 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
             return East.function([rowType, kt, PlanRowIdType, PathType, PlanHiddenType], PlanRowsCollectionType,
                 (_$, value, key, id, path, _hidden) => walk(of(value, key), path, id)) as unknown as ChildrenFn;
         }
+        const below = stepsFor(kt)!;
+        return East.function([rowType, kt, PlanRowIdType, PathType, PlanHiddenType], PlanRowsCollectionType,
+            (_$, value, key, id, path, hidden) => below(value, key, East.value(some(id), IdOptType), path, hidden)) as unknown as ChildrenFn;
+    });
+
+    /** Its step-downs' rows for entries keyed by `kt`, nested under the row given — or under none, at the top. */
+    const stepsFor = (kt: EastType): StepsFn | undefined => stepLists.get(kt, () => {
+        if (steps.length === 0) return undefined;
         const parts = steps.map((step, i) => {
             const at = `${where} › children[${i}]`;
             const of = building(at, kt, () => reifyAccessor([rowType, kt], onEntry(stepOf(step)))) as unknown as
@@ -2746,15 +2788,14 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
             const blocks = step.series.map((s) => nestedSpec(s, at).emitter(cc, at));
             return { of, cc, blocks };
         });
-        return East.function([rowType, kt, PlanRowIdType, PathType, PlanHiddenType], PlanRowsCollectionType, ($, value, key, id, path, hidden) => {
+        return East.function([rowType, kt, IdOptType, PathType, PlanHiddenType], PlanRowsCollectionType, ($, value, key, under, path, hidden) => {
             const out = $.let([], PlanRowsCollectionType);
-            const under = $.let(East.value(some(id), IdOptType), IdOptType);
             for (const part of parts) {
                 const coll = $.let(part.of(value, key), part.cc);
                 for (const block of part.blocks) $(out.append(block(coll, path, under, hidden)));
             }
             return out;
-        }) as unknown as ChildrenFn;
+        }) as unknown as StepsFn;
     });
 
     // ── Writing a gesture back (#880, #1436) ──────────────────────────────
@@ -3144,6 +3185,7 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
             return { match: matchFor(kt), row: rowFor(kt) };
         },
         childrenFor,
+        stepsFor,
         collapsedFor,
         writer(collection, at) {
             const { entry, key: kt } = shapeOf(collection, at);
@@ -3508,7 +3550,11 @@ function viewsSpec(rowType: EastType, cfg: PlanViewsSeriesConfig<EastType, EastT
 const LANDING_MEMBER_ARMS: readonly PlanSeriesArm[] = ["span", "buckets", "chart", "heat", "table", "cards", "events"];
 
 /** A `resources` series' config with its entry type erased: what the build machinery reads. */
-type AnyLandingConfig = Omit<PlanResourcesSeriesConfig<EastType, EastType>, "children" | "series"> & { readonly children?: unknown };
+type AnyLandingConfig = Omit<PlanResourcesSeriesConfig<EastType, EastType>, "children" | "series"> & {
+    readonly children?: unknown;
+    /** A kinds case's `row: false` (#1541, U2): its own row not drawn, its series and children at its level. */
+    readonly row?: false;
+};
 
 /**
  * The build spec of a `resources` series (#1541, U1).
@@ -3556,6 +3602,8 @@ function landingSpec(rowType: EastType, cfg: AnyLandingConfig, members: readonly
     // back, as a `views`' is — built by the same machinery.
     const tree = typeof cfg.children === "string" ? cfg.children : undefined;
     if (tree !== undefined) checkTree(rowType, tree, where);
+    // `row: false` (#1541, U2): the entry's own row is not drawn, and its series and children stand at its level.
+    const drawn = cfg.row !== false;
     const host = cfg.children === undefined || tree !== undefined ? undefined : dataSpec(rowType, {
         key: cfg.key, title: cfg.title, label: () => "",
         ...(cfg.keyType !== undefined ? { keyType: cfg.keyType } : {}),
@@ -3721,7 +3769,7 @@ function landingSpec(rowType: EastType, cfg: AnyLandingConfig, members: readonly
         },
         landing: {
             key: cfg.key, title: cfg.title, icon: cfg.icon, keyType: cfg.keyType ?? StringType, rowType, lanes: cfg.lanes !== undefined,
-            series: memberSpecs.map((m) => m.key),
+            series: memberSpecs.map((m) => m.key), row: drawn,
         },
         emitter(collection, at) {
             return emitters.get(collection, () => {
@@ -3733,7 +3781,7 @@ function landingSpec(rowType: EastType, cfg: AnyLandingConfig, members: readonly
                 const { single, emits } = membersFor(kt);
                 const of = tree === undefined ? undefined : childOf(kt);
                 const walk = of === undefined ? undefined : walkFor((Expr.type(of) as unknown as { output: EastType }).output);
-                const steps = host?.childrenFor!(kt);
+                const steps = host?.stepsFor!(kt);
                 const seg = segmentOf(kt);
                 return East.function([collection, PathType, IdOptType, PlanHiddenType], PlanRowsCollectionType, ($, coll, prefix, parent, hidden) => {
                     // Every function the loop calls, bound ONCE (see the data walk).
@@ -3752,21 +3800,24 @@ function landingSpec(rowType: EastType, cfg: AnyLandingConfig, members: readonly
                                 const segs = $3.let(East.value([seg(key as ExprType<EastType>)], PathType), PathType);
                                 const path = $3.let(prefix.concat(segs), PathType);
                                 const id = $3.let(East.value(variant("entry", { series: cfg.key, path }), PlanRowIdType), PlanRowIdType);
-                                const under = $3.let(East.value(some(id), IdOptType), IdOptType);
+                                // What stands beneath it nests under its row — or, its row not drawn, where it would have.
+                                const under = drawn ? $3.let(East.value(some(id), IdOptType), IdOptType) : parent;
                                 const one = $3.let(new Map(), single);
                                 $3(one.insert(key as ExprType<EastType>, value as ExprType<EastType>));
                                 const sub = $3.let([], PlanRowsCollectionType);
                                 for (const rowsOf of memberRows) $3(sub.append(rowsOf(one, prefix, under, hidden)));
                                 // Its step-downs' child rows, after its series (#1541, U2).
-                                if (stepRows !== undefined) $3(sub.append(stepRows(value, key, id, path, hidden)));
+                                if (stepRows !== undefined) $3(sub.append(stepRows(value, key, under, path, hidden)));
                                 const rolls = $3.let(false, BooleanType);
                                 if (walkBelow !== undefined && childrenOf !== undefined) {
                                     const kids = $3.let(walkBelow(childrenOf(value, key), path, id, hidden), PlanRowsCollectionType);
                                     $3.assign(rolls, kids.size().greater(0n));
                                     $3(sub.append(kids));
                                 }
-                                const fold = collapseOf($3 as never, collapse, value as ExprType<EastType>, key as ExprType<EastType>);
-                                $3(out.pushLast(entryRow(value, key, id, parent, rolls, fold)));
+                                if (drawn) {
+                                    const fold = collapseOf($3 as never, collapse, value as ExprType<EastType>, key as ExprType<EastType>);
+                                    $3(out.pushLast(entryRow(value, key, id, parent, rolls, fold)));
+                                }
                                 $3(out.append(sub));
                             };
                             if (member === undefined) emit($2);
@@ -5305,7 +5356,11 @@ export function createSeriesKinds<
     }
     const built = drawn.map((tag) => {
         const c = given[tag] as PlanKindsCase<EastType, EastType, EastType>;
-        if (typeof c.label !== "function") throw new Error(`${where}: case "${tag}": ${LANDING_LABEL}`);
+        if (c.row !== undefined && c.row !== false) {
+            throw new Error(`${where}: case "${tag}": row is false — its own row not drawn, its series and children at its level — or left out`);
+        }
+        // A case names its resources — unless its own row is not drawn, which reads no name.
+        if (c.row !== false && typeof c.label !== "function") throw new Error(`${where}: case "${tag}": ${LANDING_LABEL}`);
         type Acc<T extends EastType> = PlanCaseAccessor<EastType, T, EastType, EastType> | undefined;
         // A case's accessor over the row and its key: the case's value read off the row as the accessor receives it — its
         // node, where the rows nest more of themselves — and handed after them.
@@ -5319,7 +5374,7 @@ export function createSeriesKinds<
             ...(keyType !== undefined ? { keyType } : {}),
             // The entries holding the case, and of them those its own `match` takes.
             match: caseMatch(field, tag, c.match as CaseFn | undefined),
-            label: over(c.label)!,
+            label: over(c.label) ?? (() => ""),
             ...(c.id !== undefined ? { id: c.id } : {}),
             ...(c.stacked !== undefined ? { stacked: c.stacked } : {}),
             ...(c.sub !== undefined ? { sub: over(c.sub)! } : {}),
@@ -5328,6 +5383,7 @@ export function createSeriesKinds<
             ...(c.expand !== undefined ? { expand: over(c.expand)! } : {}),
             ...(c.lanes !== undefined ? { lanes: over(c.lanes)! } : {}),
             ...(c.children !== undefined ? { children: c.children } : {}),
+            ...(c.row === false ? { row: false as const } : {}),
             ...(c.rollup !== undefined ? { rollup: c.rollup } : {}),
             ...(c.collapsed !== undefined ? { collapsed: typeof c.collapsed === "boolean" ? c.collapsed : over(c.collapsed)! } : {}),
         } as AnyLandingConfig;
