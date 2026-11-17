@@ -12,13 +12,14 @@
 import { describe, expect, it } from "vitest";
 import {
     ArrayType, BooleanType, DateTimeType, DictType, FloatType, IntegerType, OptionType, StringType, StructType,
-    checkJq, evaluateJq, none, parseJq, some, toEastTypeValue, variant,
+    checkJq, evaluateJq, isValueOf, none, parseFor, parseJq, some, toEastTypeValue, variant,
     type EastType, type JqNode, type ValueTypeOf,
 } from "@elaraai/east";
 import { Studio } from "@elaraai/e3-ui";
 import type { StudioSourceType } from "@elaraai/e3-ui/internal";
 import { draftPlan } from "../plan.js";
 import { queryRoot } from "../one-shot.js";
+import { visualAnswerType } from "./ask.js";
 import { periodWindow, printVisual, type PrintedVisual, type VisualAsk } from "./print.js";
 import { printSourceOf } from "./source.js";
 
@@ -28,26 +29,32 @@ const Row = StructType({
 });
 type RowValue = ValueTypeOf<typeof Row>;
 
-const at = (text: string) => new Date(text);
+const parseAt = parseFor(DateTimeType);
+/** An instant, written as East prints a DateTime, read by East's parser. */
+function at(text: string): Date {
+    const read = parseAt(text);
+    if (!read.success) throw new Error(read.error);
+    return read.value;
+}
 const ORDERS: RowValue[] = [
-    { ordered_at: at("2026-07-03T10:00:00Z"), region: "SA", customer: "Northwind", revenue: 100.5, units: 3n, export: true, margin: some(0.2), shipped_at: some(at("2026-07-05T00:00:00Z")) },
-    { ordered_at: at("2026-07-20T10:00:00Z"), region: "NSW", customer: "Harbour", revenue: 50, units: 1n, export: false, margin: none, shipped_at: none },
-    { ordered_at: at("2026-08-02T10:00:00Z"), region: "SA", customer: "Summit", revenue: 70, units: 2n, export: true, margin: some(0.1), shipped_at: some(at("2026-08-09T00:00:00Z")) },
-    { ordered_at: at("2025-07-10T10:00:00Z"), region: "VIC", customer: "Northwind", revenue: 40, units: 4n, export: true, margin: some(0.3), shipped_at: none },
+    { ordered_at: at("2026-07-03T10:00:00"), region: "SA", customer: "Northwind", revenue: 100.5, units: 3n, export: true, margin: some(0.2), shipped_at: some(at("2026-07-05T00:00:00")) },
+    { ordered_at: at("2026-07-20T10:00:00"), region: "NSW", customer: "Harbour", revenue: 50, units: 1n, export: false, margin: none, shipped_at: none },
+    { ordered_at: at("2026-08-02T10:00:00"), region: "SA", customer: "Summit", revenue: 70, units: 2n, export: true, margin: some(0.1), shipped_at: some(at("2026-08-09T00:00:00")) },
+    { ordered_at: at("2025-07-10T10:00:00"), region: "VIC", customer: "Northwind", revenue: 40, units: 4n, export: true, margin: some(0.3), shipped_at: none },
 ];
 
-/** A listed source over the orders, as a Studio surface lists it. */
-function sourceOver(type: EastType): ValueTypeOf<typeof StudioSourceType> {
+/** A listed source over the orders, as a Studio surface lists it: its range the order's date, unless it is given another. */
+function sourceOver(type: EastType, range: ValueTypeOf<typeof StudioSourceType>["range"] = some("ordered_at")): ValueTypeOf<typeof StudioSourceType> {
     return {
         key: "orders", name: "Orders", icon: "receipt", description: none,
         binding: { name: "orders", source: variant("value", [variant("field", "inputs"), variant("field", "orders")]), type: toEastTypeValue(type) },
-        fields: [], range: some("ordered_at"), search: [], split: [],
+        fields: [], range, search: [], split: [],
     };
 }
 
 const SOURCE = printSourceOf(sourceOver(ArrayType(Row)))!;
 const ROOT = StructType({ orders: ArrayType(Row) });
-const WINDOW = { from: at("2026-07-01T00:00:00Z"), to: at("2026-10-01T00:00:00Z") };
+const WINDOW = { from: at("2026-07-01T00:00:00"), to: at("2026-10-01T00:00:00") };
 
 /** A jq condition, as a filter holds it. */
 function condition(text: string): JqNode {
@@ -68,12 +75,15 @@ function asksOf(printed: PrintedVisual): readonly VisualAsk[] {
     return printed.asks;
 }
 
-/** A program's answer over the fixture, once it checks against the root. */
+/** A program's answer over the fixture, once it checks against the root: the struct every visual program answers, checked by its type. */
 function answerOf(program: string, orders: unknown = ORDERS, root: EastType = ROOT) {
     const checked = checkJq(program, root, { root: true });
     const errors = checked.diagnostics.filter(d => d.severity.type === "error");
     expect(errors.map(e => e.message), program).toEqual([]);
-    return evaluateJq(checked, { orders }) as { rows: Record<string, unknown>[]; groups: bigint; n: bigint };
+    const type = checked.elementType === null ? undefined : visualAnswerType(checked.elementType);
+    const answer = evaluateJq(checked, { orders });
+    if (type === undefined || !isValueOf(answer, type)) throw new Error(`not a visual's answer: ${program}`);
+    return answer as ValueTypeOf<typeof type>;
 }
 
 /** Whether a program splits over the orders' pieces, as the planner would cut a large dataset. */
@@ -158,6 +168,47 @@ describe("printVisual", () => {
         expect(answer.rows[0]).toEqual({ g0: "Harbour", c: "NSW", v0s: 0, v0c: 0n, v1: 1n, n: 1n });
     });
 
+    it("orders groups high or low by a mean, a ratio and a least, made of their parts — a group with none last either way", () => {
+        const order = (value: ReturnType<typeof v.count>, by: string, sort: "high" | "low") => {
+            const list = visualOf(v.of("orders", v.list({ item: v.group(by, { sort }), values: [value] })));
+            const ask = asksOf(printVisual(list, SOURCE, { filters: [] }))[0]!;
+            expect(splits(ask.program)).toBe(true);
+            return answerOf(ask.program).rows.map(r => r["g0"]);
+        };
+        // Margins: Northwind 0.2 and 0.3, Summit 0.1, Harbour none.
+        expect(order(v.mean("margin"), "customer", "high")).toEqual(["Northwind", "Summit", "Harbour"]);
+        expect(order(v.mean("margin"), "customer", "low")).toEqual(["Summit", "Northwind", "Harbour"]);
+        expect(order(v.min("margin"), "customer", "high")).toEqual(["Northwind", "Summit", "Harbour"]);
+        expect(order(v.min("margin"), "customer", "low")).toEqual(["Summit", "Northwind", "Harbour"]);
+        // Revenue per unit: NSW 50, SA 34.1, VIC 10.
+        expect(order(v.ratio("revenue", "units"), "region", "high")).toEqual(["NSW", "SA", "VIC"]);
+        expect(order(v.ratio("revenue", "units"), "region", "low")).toEqual(["VIC", "SA", "NSW"]);
+    });
+
+    it("orders each period's program by the first of the visual's values it holds", () => {
+        const list = visualOf(v.of("orders", v.list({ item: v.group("customer", { sort: "high" }), values: [v.sum("revenue", { period: "previous" }), v.count()] })));
+        const asks = asksOf(printVisual(list, SOURCE, { filters: [], window: WINDOW }));
+        expect(asks.map(a => [a.period, a.values])).toEqual([["previous", [0]], ["current", [1]]]);
+        // This quarter's orders: one each.
+        expect(answerOf(asks[1]!.program).rows.map(r => [r["g0"], r["v1"]])).toEqual([["Harbour", 1n], ["Northwind", 1n], ["Summit", 1n]]);
+        expect(answerOf(asks[0]!.program).groups).toBe(0n);
+    });
+
+    it("lists a list's items when it has no values", () => {
+        const list = visualOf(v.of("orders", v.list({ item: v.group("region"), values: [] })));
+        const asks = asksOf(printVisual(list, SOURCE, { filters: [] }));
+        expect(asks.map(a => [a.role, a.period, a.values])).toEqual([["groups", "current", []]]);
+        expect(answerOf(asks[0]!.program).rows).toEqual([{ g0: "NSW", n: 1n }, { g0: "SA", n: 2n }, { g0: "VIC", n: 1n }]);
+    });
+
+    it("counts an optional field's present values: none dropped, false kept", () => {
+        const Flagged = StructType({ ordered_at: DateTimeType, flag: OptionType(BooleanType) });
+        const flagged = printSourceOf(sourceOver(ArrayType(Flagged)))!;
+        const kpi = visualOf(v.of("orders", v.kpi({ value: v.distinct("flag") })));
+        const rows = [{ ordered_at: at("2026-07-03T10:00:00"), flag: some(true) }, { ordered_at: at("2026-07-04T10:00:00"), flag: some(false) }, { ordered_at: at("2026-07-05T10:00:00"), flag: none }];
+        expect(answerOf(asksOf(printVisual(kpi, flagged, { filters: [] }))[0]!.program, rows, StructType({ orders: ArrayType(Flagged) })).rows).toEqual([{ v0: 2n, n: 3n }]);
+    });
+
     it("buckets an optional date, and drops the rows that have none", () => {
         const shipped = visualOf(v.of("orders", v.column({ x: v.group("shipped_at", { bucket: "day" }), values: [v.count()] })));
         const answer = answerOf(asksOf(printVisual(shipped, SOURCE, { filters: [] }))[0]!.program);
@@ -179,7 +230,7 @@ describe("printVisual", () => {
         const named = printSourceOf(sourceOver(ArrayType(Named)))!;
         const kpi = visualOf(v.of("orders", v.kpi({ value: v.sum("net revenue"), compare: v.max("unit.price") })));
         const asks = asksOf(printVisual(kpi, named, { filters: [] }));
-        const rows = [{ ordered_at: at("2026-07-03T10:00:00Z"), "net revenue": 10, "unit.price": 2.5 }, { ordered_at: at("2026-07-04T10:00:00Z"), "net revenue": 5, "unit.price": 4 }];
+        const rows = [{ ordered_at: at("2026-07-03T10:00:00"), "net revenue": 10, "unit.price": 2.5 }, { ordered_at: at("2026-07-04T10:00:00"), "net revenue": 5, "unit.price": 4 }];
         expect(answerOf(asks[0]!.program, rows, StructType({ orders: ArrayType(Named) })).rows).toEqual([{ v0: 15, v1: some(4), n: 2n }]);
     });
 
@@ -190,12 +241,19 @@ describe("printVisual", () => {
         expect(printVisual(visualOf(v.of("orders", v.kpi({ value: v.sum("revenue", { period: "previous" }) }))), SOURCE, { filters: [] })).toEqual({ kind: "window" });
         expect(printVisual(visualOf(v.of("orders", v.slicer(["range"]))), SOURCE, { filters: [] })).toEqual({ kind: "none" });
     });
+
+    it("says a source with no date range has none to compare periods by, whatever the page's window", () => {
+        const undated = printSourceOf(sourceOver(ArrayType(Row), none))!;
+        const kpi = visualOf(v.of("orders", v.kpi({ value: v.sum("revenue"), compare: v.sum("revenue", { period: "year_ago" }) })));
+        expect(printVisual(kpi, undated, { filters: [], window: WINDOW })).toEqual({ kind: "range" });
+        expect(printVisual(kpi, undated, { filters: [] })).toEqual({ kind: "range" });
+    });
 });
 
 describe("periodWindow", () => {
     it("moves a window back by its length, or a year", () => {
-        expect(periodWindow(WINDOW, "previous")).toEqual({ from: at("2026-03-31T00:00:00Z"), to: WINDOW.from });
-        expect(periodWindow(WINDOW, "year_ago")).toEqual({ from: at("2025-07-01T00:00:00Z"), to: at("2025-10-01T00:00:00Z") });
+        expect(periodWindow(WINDOW, "previous")).toEqual({ from: at("2026-03-31T00:00:00"), to: WINDOW.from });
+        expect(periodWindow(WINDOW, "year_ago")).toEqual({ from: at("2025-07-01T00:00:00"), to: at("2025-10-01T00:00:00") });
         expect(periodWindow(WINDOW, "current")).toBe(WINDOW);
     });
 });

@@ -88,6 +88,10 @@ export interface StudioMessages {
     fieldMissing: (p: { source: string; field: string }) => string;
     /** Under it. */
     fieldMissingHint: () => string;
+    /** A visual with a value over another period, over a source with no date range to move the page's window along — its heading. */
+    noRange: (p: { source: string }) => string;
+    /** Under it. */
+    noRangeHint: () => string;
     /** A visual with a value over another period, on a page with no date window — its heading. */
     needsWindow: (p: { source: string }) => string;
     /** Under it. */
@@ -98,6 +102,8 @@ export interface StudioMessages {
     noDataReason: (p: { source: string }) => string;
     /** A visual whose source could not be read — the banner's title. */
     sourceError: (p: { source: string }) => string;
+    /** The banner's action, which asks the visual's programs again. */
+    retry: () => string;
     /** A visual's answer, before it is drawn — `12 groups from 340 rows`. */
     answerGroups: (p: { n: number; groups: string; nr: number; rows: string }) => string;
     /** A visual whose query stopped before it answered: out of time, too large, or needing a platform function. */
@@ -325,11 +331,14 @@ export const studioMessages: StudioMessages = {
     wellNeeded: ({ well }) => (well === "values" ? "A number in Values" : well === "columns" ? "A field in Columns" : well === "rows" ? "A field in Rows" : `A field in ${well}`),
     fieldMissing: ({ source, field }) => `${source} has no field ${field}`,
     fieldMissingHint: () => "Pick another field for this visual.",
+    noRange: ({ source }) => `${source} has no date to compare periods by`,
+    noRangeHint: () => "Measure this value over the current period instead.",
     needsWindow: ({ source }) => `Comparing periods needs a date filter on ${source}`,
     needsWindowHint: () => "Filter the page by date to compare it with another period.",
     noData: () => "no data",
     noDataReason: ({ source }) => `No rows of ${source} match.`,
     sourceError: ({ source }) => `${source} could not be read`,
+    retry: () => "Retry",
     answerGroups: ({ n, groups, nr, rows }) => `${groups} ${n === 1 ? "group" : "groups"} from ${rows} ${nr === 1 ? "row" : "rows"}`,
     answerStopped: () => "Its query stopped before it answered.",
     notPublished: ({ page }) => `${page} is not published yet`,

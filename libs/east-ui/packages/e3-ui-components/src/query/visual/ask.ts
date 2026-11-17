@@ -16,11 +16,12 @@
  * @packageDocumentation
  */
 
-import { decodeBeast2, fromEastTypeValue, type EastType, type option } from "@elaraai/east";
+import { ArrayType, IntegerType, StructType, decodeBeast2, fromEastTypeValue, isValueOf, printType, type EastType, type option, type ValueTypeOf } from "@elaraai/east";
 import { AnswerCache, readHashes, type KeptRequest, type KeptResult } from "../model/summaries.js";
 import { queryResultOf, type QueryResult, type QueryRoot } from "../one-shot.js";
 import { draftPlan, type PlanOptions } from "../plan.js";
-import { messageOf, runDraft, type DraftRunSeams } from "../run-draft.js";
+import { runDraft, type DraftRunSeams } from "../run-draft.js";
+import { messageOf } from "../../shared/message.js";
 import { optionPayload, rowOf } from "../steps/shape.js";
 import type { VisualValue } from "./print.js";
 
@@ -53,18 +54,32 @@ export class VisualAskError extends Error {
     }
 }
 
-/** The answer's struct, as every visual program gives it. */
-interface AnswerStruct {
-    readonly rows: readonly Readonly<Record<string, unknown>>[];
-    readonly groups: bigint;
-    readonly n: bigint;
+/**
+ * The struct every visual program answers — its rows, how many groups there
+ * were before the cut, and how many source rows it read — its rows' type the
+ * answer's own, known only once it is read: what an answer's value is checked
+ * against.
+ *
+ * @param type - The answer's type
+ * @returns The struct of `rows`, `groups` and `n`; `undefined` for a type that is no such struct
+ */
+export function visualAnswerType(type: EastType): StructType<{ rows: ArrayType<StructType>; groups: IntegerType; n: IntegerType }> | undefined {
+    if (type.type !== "Struct") return undefined;
+    const rows = (type.fields as Record<string, EastType | undefined>)["rows"];
+    const row = rows === undefined ? undefined : rowOf(rows);
+    return row?.type === "Struct" ? StructType({ rows: ArrayType(row), groups: IntegerType, n: IntegerType }) : undefined;
 }
 
-/** Each column of an answer's rows, with its East type: the fields of each row `rows` holds, as the query's steps read rows. */
-function columnsOf(type: EastType): ReadonlyMap<string, EastType> {
-    const rows = type.type === "Struct" ? (type.fields as Record<string, EastType | undefined>)["rows"] : undefined;
-    const row = rows === undefined ? undefined : rowOf(rows);
-    return row?.type === "Struct" ? new Map(Object.entries(row.fields as Record<string, EastType>)) : new Map();
+/**
+ * Whether any of a visual's programs read a row of its source: "no data" when
+ * none did — counted over every period's program, so a visual whose earlier
+ * period has no rows still draws this one's.
+ *
+ * @param answers - Its programs' answers
+ * @returns Whether one read a row
+ */
+export function visualReadRows(answers: readonly VisualAnswer[]): boolean {
+    return answers.some((answer) => answer.kind === "answered" && answer.n > 0);
 }
 
 /**
@@ -77,7 +92,9 @@ function columnsOf(type: EastType): ReadonlyMap<string, EastType> {
  * @param options - How it plans
  * @param signal - Gives it up
  * @returns Its answer and the hashes of the datasets it read; `undefined` when it was given up
- * @throws {VisualAskError} When a call never answered: e3 could not be reached, or refused it
+ * @throws {VisualAskError} When a call never answered: e3 could not be reached,
+ *   or refused it; and when its answer is not a visual program's
+ *   ({@link visualAnswerType})
  */
 export async function askProgram(
     program: string, root: QueryRoot, seams: DraftRunSeams, options: PlanOptions, signal: AbortSignal,
@@ -107,8 +124,15 @@ export async function askProgram(
             const hashes = readHashes(result);
             if (result.outcome.type !== "ok") return { value: { kind: "problem", result }, hashes };
             const decoded = decodeBeast2(result.outcome.value.result);
-            const answer = decoded.value as AnswerStruct;
-            return { value: { kind: "answered", result, rows: answer.rows, columns: columnsOf(fromEastTypeValue(decoded.type)), groups: Number(answer.groups), n: Number(answer.n) }, hashes };
+            const read = fromEastTypeValue(decoded.type);
+            // The answer is checked against the struct its type says it is, its rows' fields read by their types.
+            const type = visualAnswerType(read);
+            if (type === undefined || !isValueOf(decoded.value, type)) {
+                throw new VisualAskError("refused", `A visual's program answered ${printType(read)}, not its rows, groups and n`);
+            }
+            const answer = decoded.value as ValueTypeOf<typeof type>;
+            const columns = new Map(Object.entries(type.fields.rows.value.fields as Record<string, EastType>));
+            return { value: { kind: "answered", result, rows: answer.rows, columns, groups: Number(answer.groups), n: Number(answer.n) }, hashes };
         }
     }
 }
