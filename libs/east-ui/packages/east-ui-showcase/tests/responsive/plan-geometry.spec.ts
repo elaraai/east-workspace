@@ -1511,7 +1511,8 @@ test.describe("Plan bucket cells' +n (#1267)", { tag: "@desktop" }, () => {
         const cell = entry.locator(VAN1_CELL);
         const chip = cell.locator("[data-tile-more]");
         await expect(chip).toHaveText("+2");
-        await expect(chip).toHaveAttribute("aria-label", "2 more events, Week of Aug 24, 2026");
+        // Its two events, neither drawn: two events, none more than another (#1680's review).
+        await expect(chip).toHaveAttribute("aria-label", "2 events, Week of Aug 24, 2026");
         await chip.click();
         const items = page.locator("[data-tile-more-menu]").getByRole("menuitem");
         await expect(items).toHaveText(["Event, Week of Aug 24, 2026, confirmed", "Event, Week of Aug 24, 2026, recommended"]);
@@ -1570,7 +1571,8 @@ test.describe("Plan bucket cells with no room for a tile (#1276)", { tag: "@desk
         const cell = entry.locator(floorCell("a0"));
         await expect.poll(() => cell.evaluate(floorDrawn)).toEqual({
             shown: [],
-            chip: { words: "+1", label: "1 more event, Week of Jun 29, 2026", count: false, spans: true, inside: true },
+            // The cell's one event: one event, never one more (#1680's review).
+            chip: { words: "+1", label: "1 event, Week of Jun 29, 2026", count: false, spans: true, inside: true },
         });
         await expect.poll(() => entry.evaluate(cutText)).toEqual([]);
         await cell.locator("[data-tile-more]").click();
@@ -1588,7 +1590,7 @@ test.describe("Plan bucket cells with no room for a tile (#1276)", { tag: "@desk
         const cell = entry.locator(floorCell("m5"));
         await expect.poll(() => cell.evaluate(floorDrawn)).toEqual({
             shown: [],
-            chip: { words: "+1", label: "1 more event, Week of Jul 20, 2026, PM", count: false, spans: true, inside: true },
+            chip: { words: "+1", label: "1 event, Week of Jul 20, 2026, PM", count: false, spans: true, inside: true },
         });
         const chip = cell.locator("[data-tile-more]");
         await chip.click();

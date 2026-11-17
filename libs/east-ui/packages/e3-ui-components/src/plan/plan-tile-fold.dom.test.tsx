@@ -210,11 +210,11 @@ describe("a bucket cell with more tiles than room (#1267)", () => {
         });
     });
 
-    test("with no room for any tile beside it, the chip alone counts them all", () => {
+    test("with no room for any tile beside it, the chip alone counts them all — every event in the cell, none more than another (#1680's review)", () => {
         room = 40;
         const { container } = renderPlan("plan-1267-chip-alone");
         expect(cellOf(container)).toEqual({
-            shown: [], folded: ["a", "b", "c"], chip: ["+3", "3 more events, Week of Jul 6, 2026"], measuring: false,
+            shown: [], folded: ["a", "b", "c"], chip: ["+3", "3 events, Week of Jul 6, 2026"], measuring: false,
         });
     });
 
@@ -295,11 +295,12 @@ describe("a bucket cell with more tiles than room (#1267)", () => {
         const { container } = renderPlan("plan-1276-no-room");
         // Jul 6's three tiles, and DELTA alone in Jul 20's cell: every one folds, kept or not.
         expect(cellOf(container)).toEqual({
-            shown: [], folded: ["a", "b", "c"], chip: ["+3", "3 more events, Week of Jul 6, 2026"], measuring: false,
+            shown: [], folded: ["a", "b", "c"], chip: ["+3", "3 events, Week of Jul 6, 2026"], measuring: false,
         });
         const lone = container.querySelector<HTMLElement>(`${rowSel("van")} [data-plan-cell="3:0"]`)!;
         const chip = lone.querySelector<HTMLElement>("[data-tile-more]")!;
-        expect([chip.textContent, chip.getAttribute("aria-label")]).toEqual(["+1", "1 more event, Week of Jul 20, 2026"]);
+        // The cell's one event: its chip names it as one event, never one more (#1680's review).
+        expect([chip.textContent, chip.getAttribute("aria-label")]).toEqual(["+1", "1 event, Week of Jul 20, 2026"]);
         expect([chip.hasAttribute("data-no-room"), tileOf(container, "d").hasAttribute("data-folded")]).toEqual([true, true]);
         await act(async () => { fireEvent.click(chip); });
         expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["DELTA, Week of Jul 20, 2026, confirmed"]);
@@ -313,7 +314,7 @@ describe("a bucket cell with more tiles than room (#1267)", () => {
     test("with no room beside the chip for a kept tile's floor, the kept tile shows alone; let go, it folds and hands the focus to the chip", async () => {
         room = 40;
         const { container } = renderPlan("plan-1267-alone");
-        expect(cellOf(container).chip).toEqual(["+3", "3 more events, Week of Jul 6, 2026"]);
+        expect(cellOf(container).chip).toEqual(["+3", "3 events, Week of Jul 6, 2026"]);
         await openMenu(container);
         await pick(/^ALPHA/);
         // ALPHA alone: 40 less the chip leaves no room for its 20px floor beside it.
@@ -323,7 +324,7 @@ describe("a bucket cell with more tiles than room (#1267)", () => {
         // Esc closes the popover and hands the focus back to ALPHA, which the cell no longer keeps: it folds, and
         // the chip, back, takes the focus.
         fireEvent.keyDown(tileOf(container, "a"), { key: "Escape" });
-        await waitFor(() => expect(cellOf(container).chip).toEqual(["+3", "3 more events, Week of Jul 6, 2026"]));
+        await waitFor(() => expect(cellOf(container).chip).toEqual(["+3", "3 events, Week of Jul 6, 2026"]));
         expect(document.activeElement).toBe(chipOf(container));
     });
 });

@@ -246,7 +246,7 @@ export function BucketCell(props: BucketCellProps) {
                                 data-no-room={noRoom ? "" : undefined}
                                 // In the row's walk where the tiles it folds would be (#819).
                                 data-plan-frac={frac.toFixed(4)} tabIndex={-1}
-                                aria-label={words.m.tileMoreLabel({ n: folded.length, count: words.number(folded.length), bucket, lane })}
+                                aria-label={words.m.tileMoreLabel({ n: folded.length, count: words.number(folded.length), bucket, lane, every: folded.length === tiles.length })}
                                 onClick={stop}>
                                 <span data-tile-more-count="">{words.m.tileMore({ n: folded.length, count: words.number(folded.length) })}</span>
                             </chakra.button>

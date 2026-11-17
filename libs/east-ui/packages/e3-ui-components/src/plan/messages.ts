@@ -411,8 +411,9 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     planChip: () => string;
     /** A bucket cell's `+n` chip (#1267) — `+2`: the cell's tiles it has no room for. */
     tileMore: (p: { n: number; count: string }) => string;
-    /** The chip's accessible name — `2 more events, Week of Jul 13, 2026, AM`: its cell's bucket and lane in words. */
-    tileMoreLabel: (p: { n: number; count: string; bucket: string; lane: string | undefined }) => string;
+    /** The chip's accessible name — `2 more events, Week of Jul 13, 2026, AM`: its cell's bucket and lane in words;
+     *  `every` where it stands for every event the cell holds, none of them drawn — `1 event, …` (#1680's review). */
+    tileMoreLabel: (p: { n: number; count: string; bucket: string; lane: string | undefined; every: boolean }) => string;
 
     // ── Moves (#825) ───────────────────────────────────────────────────────
     /** How a keyboard reader moves an element — the description of every one that moves. */
@@ -818,7 +819,8 @@ export const planMessages: PlanMessages = {
     quantities: ({ parts }) => parts.join(" · "),
     planChip: () => "plan",
     tileMore: ({ count }) => `+${count}`,
-    tileMoreLabel: ({ n, count, bucket, lane }) => listed([`${count} more ${plural(n, "event", "events")}`, bucket, lane]),
+    tileMoreLabel: ({ n, count, bucket, lane, every }) =>
+        listed([`${count} ${every ? "" : "more "}${plural(n, "event", "events")}`, bucket, lane]),
 
     moveHelp: () =>
         "Press Space to pick it up. The arrow keys then move it — Shift with left or right moves its end, Alt its start — " +
