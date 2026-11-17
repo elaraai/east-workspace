@@ -146,6 +146,7 @@ export {
     QueryGroupByType,
     QueryInputType,
     QueryMatchType,
+    QueryOpenType,
     QueryPickFieldType,
     QueryResultType,
     QueryRootEntryType,

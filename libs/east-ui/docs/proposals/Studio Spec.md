@@ -142,8 +142,8 @@ The public `Studio` namespace is exactly this: `Studio.component`,
 
 | Component | Carrier | Payload |
 |---|---|---|
-| `<Studio.Builder>` | `StudioBuilder` | `pages` — the bound record's `read`, `history` and `commit.patch`; `components`; `project`; `env`, `audience`, `rollout`, `id` as options |
-| `<Studio.Library>` | `StudioLibrary` | `pages` as above; `components`; `project`; `id`; `onOpen` |
+| `<Studio.Builder>` | `StudioBuilder` | `pages` — the bound record's `read`, `history` and `commit.patch`; `components`; `project`; `page`, `onOpen`, `env`, `audience`, `rollout`, `id` as options |
+| `<Studio.Library>` | `StudioLibrary` | `pages` as above; `components`; `project`; `onOpen`; `page` as an option |
 | `<Studio.Page>` | `StudioPage` | `pages` — the record's value; `components`; `page`; `version` |
 
 A surface's `ui()` manifest follows from the payload: the builder's and the
@@ -177,10 +177,14 @@ change list (`pageChanges`) and the writes' patches.
   two Library galleries whose media are wireframes of each layout.
 - **A page** lays its layout's placements out on the snap grid; each placement
   runs its component's function, re-run when what it read changes.
-- **The open page** is the UI store's, under the builder's key
-  (`builderKeys(id).page`), where `State.bind` keeps State: the page library
-  writes it when it opens a page, and the builder reads it. It begins as the
-  project's first page.
+- **The open page** is the host's (#1668): a route's params, or the surface's
+  own State. The builder shows the `page` it is given, and tells the host in
+  `onOpen` when its palette's Pages tab asks for another; the page library
+  tells the host in `onOpen` and opens nothing itself, marking the `page` it
+  is given. A builder given no `page` holds its own, kept in the browser under
+  its storage key, and begins at the project's first page. Nothing is shared
+  through a store entry named by `id`, which names the builder's drag sources
+  alone.
 
 ---
 

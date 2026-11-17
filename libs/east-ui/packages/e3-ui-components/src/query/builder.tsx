@@ -7,16 +7,18 @@
  * `EastChakraQueryBuilder` — the renderer of the `QueryBuilder` extension
  * declared in `@elaraai/e3-ui` (#935): the query builder, built in the browser
  * from its interface — the saved queries record bound with its patch, the data
- * sources it may read, and its name.
+ * sources it may read, the query it shows and who to tell of another, and its
+ * name.
  *
  * As Studio's builder is the canvas's, it is:
  * - **the record**, read where the builder renders and again when it moves;
  *   a failed read is a banner;
  * - **the root**, each bound data source a root field, by its name
  *   ({@link useQueryRoot});
- * - **the open query**, the UI store's under the builder's key, which the
- *   query library writes when it opens a query; it begins as the saved query
- *   the payload names, else a new query on the first bound data source;
+ * - **the open query**, its host's when it gives one — the builder shows it,
+ *   and tells the host when its own tabs ask for another — else the builder's
+ *   own, kept under its storage key ({@link useOpen}, #1668), a new query on
+ *   the first bound data source to begin with;
  * - **the editing session**, one per open query ({@link useQuerySession}):
  *   every gesture of the surfaces is one transaction, which the history item
  *   in the one toolbar undoes, redoes and discards, and Apply — the builder's
@@ -44,8 +46,8 @@
  * Datasets tab (#939) lists the data sources, and a click starts a new query
  * on one; the Library tab lists this viewer's recent runs and the saved
  * queries, and a click opens one, which runs. A query opened or started there
- * arrives with its notice — as one a query library sharing the builder's id
- * opens does (#1063) — and ⌘/Ctrl / opens the Datasets tab. The builder fills
+ * arrives with its notice, and one its host opens in it with the builder's own
+ * ("Opened “Big orders”."); ⌘/Ctrl / opens the Datasets tab. The builder fills
  * its host and draws no border around itself.
  *
  * @packageDocumentation
@@ -73,7 +75,7 @@ import { describeQuery, type QueryWords } from "./model/words.js";
 import type { Card } from "./model/cards.js";
 import type { QueryResult, QueryRoot } from "./one-shot.js";
 import { LibraryTab } from "./library-tab.js";
-import { newQuery, useOpenQuery, type OpenQueryWrite, type QueryArrival, type QueryOpen } from "./open-query.js";
+import { OPEN_QUERY, newQuery, querySourceId, type OpenQueryWrite, type QueryArrival, type QueryOpen } from "./open-query.js";
 import { usePartStyles, type Styles } from "./parts.js";
 import { QueryTabPanel } from "./query-tab.js";
 import { QueryLiveBand, phoneQueryToolbar } from "./phone.js";
@@ -89,6 +91,7 @@ import { queryToolbarItems, type QueryView } from "./toolbar.js";
 import { useQueryEditor } from "./use-query-editor.js";
 import { useQuerySession, type QuerySessionState } from "./use-query-session.js";
 import { useQueryEditingWords, useQueryWords } from "./words.js";
+import { useOpen } from "../shared/open.js";
 import { shownView, shownViews } from "../shared/views.js";
 
 /** The renderer's payload, decoded. */
@@ -161,12 +164,32 @@ export const EastChakraQueryBuilder = memo(function EastChakraQueryBuilder({ val
     // The root: each bound data source, by its name.
     const root = useQueryRoot(datasets, words);
 
-    // The open query — the saved query the payload names, else a new query on the first data source, until another is opened.
+    // The open query: its host's, else its own — a new query on the first data source until another is opened.
     const firstSource = datasets[0]?.name ?? "";
-    const opening = value.query.type === "some" ? value.query.value : undefined;
-    const first = useMemo((): QueryOpen => (opening !== undefined ? variant("saved", opening) : variant("new", { id: "first", source: firstSource, from: none })),
-        [opening, firstSource]);
-    const [open, writeOpen, arrival] = useOpenQuery(keys.query, first);
+    const first = useMemo((): QueryOpen => variant("new", { id: "first", source: firstSource, from: none }), [firstSource]);
+    // The query it kept stands while it is still saved, or its data source still bound.
+    const stands = useCallback((kept: QueryOpen) => {
+        if (record === undefined || typeof root === "string") return false;
+        return kept.type === "saved" ? record.has(kept.value) : root.entries.some((entry) => nameEqual(entry.name, kept.value.source));
+    }, [record, root]);
+    const [open, openAnother] = useOpen({
+        codec: OPEN_QUERY, storageKey: `${storageKey}.open`, given: value.query, first, stands,
+        onOpen: value.onOpen.type === "some" ? value.onOpen.value : undefined,
+    });
+    const sourceId = querySourceId(open);
+    // What its own tabs last asked for, and the notice they gave it — none for a query asked for without one.
+    const [asked, setAsked] = useState<{ sourceId: string; text: string | undefined } | undefined>(undefined);
+    const writeOpen = useCallback<OpenQueryWrite>((next, notice) => {
+        setAsked({ sourceId: querySourceId(next), text: notice });
+        openAnother(next);
+    }, [openAnother]);
+    // The notice the open query arrives with: its own tab's when one of them asked for it, else — its host opened it —
+    // the builder's own words.
+    const arrival = useMemo((): QueryArrival | undefined => {
+        if (asked !== undefined && asked.sourceId === sourceId) return asked.text === undefined ? undefined : { sourceId, text: asked.text };
+        if (open.type === "saved") return { sourceId, text: m.opened({ name: open.value }) };
+        return { sourceId, text: open.value.from.type === "some" ? m.opened({ name: open.value.from.value.name }) : m.startedOn({ name: open.value.source }) };
+    }, [asked, sourceId, open, m]);
     const session = useQuerySession({ handle, record, root, open, writeOpen, storageKey: `${storageKey}.query`, words });
     const views = useMemo(() => shownViews(QUERY_VIEWS, value.views), [value.views]);
     const resultViews = useMemo(() => shownViews(RESULT_VIEWS, value.resultViews), [value.resultViews]);
@@ -198,9 +221,9 @@ interface QueryBuilderViewProps {
     readonly root: QueryRoot;
     /** The open query. */
     readonly open: QueryOpen;
-    /** Opens another query, with the notice it arrives with. */
+    /** Asks for another query — the builder's own opens, a host's is the host's to change — with the notice it arrives with. */
     readonly writeOpen: OpenQueryWrite;
-    /** The notice the last query opened arrived with. */
+    /** The notice the open query arrives with. */
     readonly arrival: QueryArrival | undefined;
     /** The words. */
     readonly words: QueryWords;
@@ -282,7 +305,7 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
     const onOpenSaved = useCallback((name: string) => writeOpen(variant("saved", name)), [writeOpen]);
 
     // ── Opening and starting queries from the Datasets and Library tabs (#939) ──
-    // The query opened arrives with its notice, shown when it opens — as one a query library opens does (#1063).
+    // The query opened arrives with its notice, shown when it opens.
     const arrive = useCallback((next: QueryOpen, text: string) => writeOpen(next, text), [writeOpen]);
     const onStart = useCallback((name: string) => arrive(newQuery(name), m.startedOn({ name })), [arrive, m]);
     const onOpenFromLibrary = useCallback((name: string) => arrive(variant("saved", name), m.openedFromLibrary({ name })), [arrive, m]);

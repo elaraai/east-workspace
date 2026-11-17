@@ -128,15 +128,17 @@ Task → What do you need?
     ├─ Offer components for operators to arrange on pages (Studio)
     │   ├─ Declare one — self-contained, like a ui() body   → Studio.component(key, meta, fn)
     │   ├─ Store the pages operators build                  → e3.record("pages", Studio.Types.Pages, { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }) })
-    │   ├─ The builder: canvas, palette, inspector, preview → <Studio.Builder pages components project env? audience? rollout? id? />
-    │   ├─ Templates, pages, and where new pages start      → <Studio.Library pages components project onOpen? id? />
+    │   ├─ The builder: canvas, palette, inspector, preview → <Studio.Builder pages components project page? onOpen? env? audience? rollout? id? />
+    │   ├─ Templates, pages, and where new pages start      → <Studio.Library pages components project onOpen page? />
+    │   ├─ Open a page from the library in the builder      → hold the open page (a route's params, or State.bind([Studio.Types.Key], …)); give it to both as `page`, change it in `onOpen`
     │   └─ Show one page, live or draft, with no chrome     → <Studio.Page pages components page version? />
     │
     ├─ Let users query the bound datasets and save their queries (typed jq)
     │   ├─ Store the queries they save                    → e3.record("queries", Query.Types.Saved, { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }) })
     │   ├─ Ship queries in the record, checked at build   → Query.value({ orders, customers }, [{ name, jq, description?, savedAt }])
-    │   ├─ The builder: steps or jq, checked, run, saved  → <Query.Builder queries datasets query? id? />
-    │   └─ The saved queries, and where new ones start    → <Query.Library queries datasets onOpen? id? />
+    │   ├─ The builder: steps or jq, checked, run, saved  → <Query.Builder queries datasets query? onOpen? id? />
+    │   ├─ The saved queries, and where new ones start    → <Query.Library queries datasets onOpen query? id? />
+    │   └─ Open a query from the library in the builder   → hold the open query (Query.Types.Open: Query.open.saved(name), Query.open.on(source)); give it to both as `query`, change it in `onOpen`
     │
     ├─ Run the Decide loop over reasoning-task decisions
     │   ├─ Union the bound decision views into one handle → Decision.bind([Contract]?, { decisions, judgements })
@@ -467,12 +469,19 @@ start and end are `Option<DateTime>` when it can wait in the backlog. A
   `<Studio.Builder>` and `<Studio.Library>` take `Record.bind(pages)`;
   `<Studio.Page>` takes `Data.bind(pages).read()`. Each takes the components
   as one `$.let([...])` list in palette order; the surface's manifest is the
-  union of their reads.
+  union of their reads. The open page is the host's: a builder shows the
+  `page` it is given and calls `onOpen` when its palette asks for another, and
+  the page library calls `onOpen` and opens nothing itself — the host
+  navigates, or writes the State both read. A builder given no `page` holds
+  its own; `page` without `onOpen` is refused when the surface is built.
 - **Queries.** One `Query.Types.Saved` record with a patch mutation holds the
   saved jq queries; `Query.value(sources, queries)` ships some, checked at
   build. `<Query.Builder queries datasets />` edits a query as steps or jq,
   checks it, runs it on e3 (split over a large dataset's pieces) and saves it;
-  `<Query.Library>` lists them. A run of one program is a call the workspace
+  `<Query.Library>` lists them. The open query is the host's, as Studio's open
+  page is: a `Query.Types.Open` — `Query.open.saved(name)`, or
+  `Query.open.on(source)` for a new query — given to both as `query` and
+  changed in `onOpen` (a builder's `query` takes a saved query's name too). A run of one program is a call the workspace
   keeps, as it keeps a function's (the **e3** skill): held to its own timeout,
   never a request's, and listed among the workspace's calls, naming no
   function. A split run's plan read-out says how many pieces it cut and how

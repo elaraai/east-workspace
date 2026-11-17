@@ -447,7 +447,9 @@ describe("<Query.Builder> — Visual · jq and saving (#936 U2)", () => {
         await act(async () => { fireEvent.click(viewButton("Visual")); });
         await settle();
         expect(cardsOf(container).map(titleOf)).toEqual(["jq step"]);
-        expect(container.querySelector("[data-query-tab=query] [role=status]")!.textContent).toBe("1 part of the jq doesn't match a visual step, so it stays as jq.");
+        // Under the notice the query arrived with, which its host opened (#1668).
+        expect([...container.querySelectorAll("[data-query-tab=query] [role=status]")].map((notice) => notice.textContent))
+            .toEqual(["Opened “Big orders”.", "1 part of the jq doesn't match a visual step, so it stays as jq."]);
         // Each jq typed and left is one gesture: undone, the jq that did not parse is back, in the jq view; undone again, the steps.
         await press("Undo");
         expect([container.querySelector("[data-query-tab=query]")!.getAttribute("data-mode"), jqField().value])

@@ -7,8 +7,8 @@
  * `<Query.Builder>`'s shell (#935), rendered over the saved queries record on
  * e3 (#1376), its patch door e3's own: the one toolbar with the history item,
  * the pane with its three tabs, the results and the status line, and no
- * border; the record read; the open query from the UI store, or a new one on
- * the first data source. And the open query's editing session, through the
+ * border; the record read; the open query its host's, or its own — a new one
+ * on the first data source to begin with (#1668). And the open query's editing session, through the
  * history item (E1–E7): one gesture is one transaction, undone, redone and
  * discarded; Apply is one patch of one entry; readiness is the check's; a save
  * another session's overtakes is a conflict; a new query is named on its first
@@ -18,19 +18,20 @@
 
 import { describe, test, expect, beforeEach } from "vitest";
 import { useCallback, useMemo } from "react";
-import { fireEvent, renderHook, screen } from "@testing-library/react";
+import { fireEvent, renderHook, screen, within } from "@testing-library/react";
 import {
     East, JqType, PatchType, SortedMap, checkJq, equalFor, none, some, variant,
     type ValueTypeOf,
 } from "@elaraai/east";
 import { Toolbar, editingMessages, getRegisteredPlatformImplementations, historyToolbarItem, system, useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { Query, QueriesHandleType, Record, RecordBindHandleType, queryKeys } from "@elaraai/e3-ui/internal";
+import { reloadPage } from "../e3-web-mount.test-utils.js";
 import * as ex from "@elaraai/e3-ui/examples/query/query";
 import { TreePathType } from "@elaraai/e3-types";
 import { useRecentQueries } from "./hooks.js";
-import { querySourceId, useOpenQuery, type QueryOpen } from "./open-query.js";
+import { querySourceId } from "./open-query.js";
 import { CUSTOMERS, ROOT, keys, savedQuery, type Saved } from "./fixture.test-utils.js";
-import { act, enabled, openQuery, press, queryHarness, settle } from "./query.test-utils.js";
+import { act, enabled, firstQuery, hostQuery, openQuery, press, queryHarness, settle, sharedEntry, useHostQuery } from "./query.test-utils.js";
 import { entriesQuery, queryEntries, savedOffers, type QueryEntry, type SavedQuery } from "./session.js";
 import { newStep } from "./steps/edit.js";
 import { layOutSteps } from "./steps/print.js";
@@ -84,7 +85,7 @@ describe("<Query.Builder> — the shell (#935)", () => {
         expect(Object.keys(recipe.base.root).filter(k => /^border/i.test(k) || /^(outline|boxShadow)$/.test(k))).toEqual([]);
     });
 
-    test("it opens a new query on the first data source, and a saved query the query library opens, from the record it reads", async () => {
+    test("it shows the query its host holds — a new query on the first data source here — and a saved query its host opens, from the record it reads", async () => {
         const { container } = await h.mountBuilder();
         const builder = () => container.querySelector<HTMLElement>("[data-query-builder]")!;
         expect(builder().getAttribute("data-query-open")).toBe(querySourceId(variant("new", { id: "first", source: "orders", from: none })));
@@ -106,6 +107,72 @@ describe("<Query.Builder> — the shell (#935)", () => {
     });
 });
 
+// ─── The query it shows (#1668) ──────────────────────────────────────────────
+
+describe("<Query.Builder> — the query it shows (#1668)", () => {
+    /** The builder. */
+    const builder = () => document.querySelector<HTMLElement>("[data-query-builder]")!;
+    /** The open query's session, as the builder says it. */
+    const shown = () => builder().getAttribute("data-query-open");
+    /** The Query tab's notices. */
+    const notices = () => [...document.querySelectorAll("[data-query-tab=query] [role=status]")].map((n) => n.textContent);
+    /** Opens the pane's Library tab and presses a saved query's card. */
+    async function pressSaved(name: string) {
+        await act(async () => { fireEvent.click(screen.getByRole("tab", { name: "Library" })); });
+        await settle();
+        const card = [...document.querySelectorAll<HTMLElement>("[data-query-tab=library] [role=button][data-clickable]")]
+            .find((c) => within(c).queryByText(name, { exact: true }) !== null);
+        if (card === undefined) throw new Error(`no card “${name}”`);
+        await act(async () => { fireEvent.click(card); });
+        await settle();
+    }
+
+    test("given its query, it shows it, and a query its host opens arrives with the builder's own words — “Opened …”, “Started a new query on …”", async () => {
+        await h.mountBuilder({ query: "Big orders" });
+        expect(shown()).toBe(`query.saved:"Big orders"`);
+        // The query it mounts with arrives with nothing.
+        expect(notices()).toEqual([]);
+        await openQuery(variant("saved", "Order count"));
+        expect([shown(), notices()]).toEqual([`query.saved:"Order count"`, ["Opened “Order count”."]]);
+        await openQuery(variant("new", { id: "another", source: "customers", from: none }));
+        expect([shown(), notices()]).toEqual([`query.new:"another"`, ["Started a new query on customers."]]);
+        expect(sharedEntry()).toBeUndefined();
+    });
+
+    test("given its query, its own Library tab tells the host the query asked for: the host changes it, and it arrives with the tab's notice", async () => {
+        await h.mountBuilder({ query: "Big orders" });
+        await pressSaved("Order count");
+        expect(hostQuery()).toEqual(variant("saved", "Order count"));
+        expect([shown(), notices()]).toEqual([`query.saved:"Order count"`, ["Opened “Order count” from the library."]]);
+        expect(sharedEntry()).toBeUndefined();
+    });
+
+    test("given no query, it holds its own — a new query on the first data source to begin with: its Library tab opens a query in it, and a reload shows that query again", async () => {
+        await h.mountBuilder({ own: true });
+        expect(shown()).toBe(querySourceId(firstQuery("orders")));
+        await pressSaved("Order count");
+        expect([shown(), notices()]).toEqual([`query.saved:"Order count"`, ["Opened “Order count” from the library."]]);
+        // Its own, never a host's or a shared entry.
+        expect([hostQuery(), sharedEntry()]).toEqual([undefined, undefined]);
+
+        reloadPage();
+        await h.mountBuilder({ own: true });
+        expect(shown()).toBe(`query.saved:"Order count"`);
+    });
+
+    test("the query it kept is shown only while it stands: one no longer saved gives way to a new query on the first data source", async () => {
+        await h.mountBuilder({ own: true });
+        await pressSaved("Order count");
+        expect(shown()).toBe(`query.saved:"Order count"`);
+
+        reloadPage();
+        // Another session removes Order count while the page is away.
+        await h.seed([BIG_ORDERS]);
+        await h.mountBuilder({ own: true });
+        expect(shown()).toBe(querySourceId(firstQuery("orders")));
+    });
+});
+
 // ─── The editing session, through the history item ──────────────────────────
 
 /** The record bound with its patch door, as a surface binds it: what the session's surface reads, and what loads before it renders. */
@@ -121,8 +188,9 @@ function SessionHarness({ onState }: { onState: (state: QuerySessionState) => vo
     const read = useCallback(() => handle.read(), [handle]);
     const { result } = useTrackedEvaluation(read);
     const record = result.ok ? result.value : undefined;
-    const first = useMemo((): QueryOpen => variant("new", { id: "first", source: "orders", from: none }), []);
-    const [open, writeOpen] = useOpenQuery(queryKeys(undefined).query, first);
+    // The open query is its host's: what the tests open through `openQuery`.
+    const first = useMemo(() => firstQuery("orders"), []);
+    const [open, writeOpen] = useHostQuery(first);
     const state = useQuerySession({ handle, record, root: ROOT, open, writeOpen, storageKey: "session-test", words });
     onState(state);
     return (
