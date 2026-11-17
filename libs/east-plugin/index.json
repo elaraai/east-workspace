@@ -1,7 +1,7 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1376,
+    "totalEntries": 1377,
     "totalFiles": 226,
     "packages": {
       "east": 595,
@@ -9,7 +9,7 @@
       "east-node-io": 63,
       "east-py-datascience": 94,
       "east-ui": 308,
-      "e3-ui": 213,
+      "e3-ui": 214,
       "e3": 34,
       "e3-ui-cli": 8,
       "e3-create": 6
