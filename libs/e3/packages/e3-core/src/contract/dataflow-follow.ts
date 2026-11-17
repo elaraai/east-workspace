@@ -641,6 +641,58 @@ export function dataflowFollowCases(setup: BackendSetup): void {
     assert.equal(ended?.tasks.get('capacity')?.status, 'completed', 'capacity itself did not fail');
   });
 
+  it('leaves a task as another path settled it when the catch-up run it waited for fails: one skipped for its producer\'s failure is not failed too', async (t) => {
+    const context = await setup(t);
+    const { storage, repo } = context;
+    const tasks = await deployCombined(t, context);
+    const runner = gatedRunner(storage, repo, tasks);
+    const lines = new RunLines();
+    const stateStore = stateStoreOf(context);
+    const orchestrator = new LocalOrchestrator(stateStore);
+    const handle = await orchestrator.start(storage, repo, 'ws', { runner, ...lines.callbacks });
+    const edit = async (rows: ReadonlyArray<[string, bigint]>): Promise<{ commit: string; state: string }> => {
+      const commit = await commitOrders(storage, repo, rows);
+      assert.equal(await orchestrator.wake(storage, repo, 'ws'), true);
+      return commit;
+    };
+
+    // forecast's result moves to c1 while capacity's goes from c0 to c2, and plan runs on c0
+    await runner.launched('forecast');
+    await runner.launched('capacity');
+    const c1 = await edit([['a', 1n]]);
+    runner.release('forecast');
+    await runner.launched('forecast');
+    await edit([['a', 1n], ['b', 2n]]);
+    runner.release('capacity');
+    await runner.launched('capacity');
+    await runner.launched('plan');
+    runner.release('plan');
+    await lines.said('[DONE] plan');
+    runner.release('capacity');
+    await lines.said('[DONE] capacity', 2);
+
+    // An edit makes capacity due, and its own run starts on c3; then forecast lands c1, and plan, reading both as of
+    // c1, waits for a catch-up run of capacity there: both of capacity's runs are in flight
+    const c3 = await edit([['a', 1n], ['b', 2n], ['c', 3n]]);
+    assert.deepEqual((await runner.launched('capacity')).inputHashes, [c3.state, (await held(storage, repo, 'inputs/rates'))!]);
+    runner.release('forecast');
+    await lines.said('[CATCH-UP] capacity for plan');
+    assert.deepEqual((await runner.launched('capacity')).inputHashes, [c1.state, (await held(storage, repo, 'inputs/rates'))!]);
+
+    // capacity's own run fails first, and plan, which reads it, is skipped; then the catch-up run fails too
+    runner.fail('capacity', 'the capacity model did not converge');
+    await lines.said('[SKIPPED] plan');
+    runner.fail('capacity', 'the capacity model did not converge');
+    await runner.launched('forecast');
+    runner.release('forecast');
+
+    const result = await orchestrator.wait(handle);
+    assert.deepEqual([result.success, result.failed, result.skipped], [false, 1, 1], 'capacity failed, and plan was skipped: counted once each');
+    assert.deepEqual(lines.printed.filter((line) => line.endsWith(' plan') && !line.startsWith('[START]') && !line.startsWith('[DONE]')),
+      ['[CATCH-UP] capacity for plan', '[SKIPPED] plan'], 'plan is told skipped, and never failed');
+    assert.equal((await stateStore.read(repo, 'ws', handle.id))?.tasks.get('plan')?.status, 'skipped');
+  });
+
   it('defers a task whose inputs read a plain input at two values until they agree, saying so once', async (t) => {
     const context = await setup(t);
     const { storage, repo } = context;

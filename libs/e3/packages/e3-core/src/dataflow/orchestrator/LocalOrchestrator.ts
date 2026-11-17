@@ -1809,7 +1809,9 @@ export class LocalOrchestrator implements DataflowOrchestrator {
   /**
    * Completes a catch-up run: its output is kept for the tasks that wait to
    * read it, which are prepared again; or, when it failed, each of them
-   * fails, naming the run's task and the versions it ran at.
+   * fails, naming the run's task and the versions it ran at. A task another
+   * path settled meanwhile — skipped for a failure upstream, left waiting, or
+   * failed — keeps what it was, and lets go of the runs it waited for.
    */
   private async completeCatchUp(execution: RunningExecution, run: CatchUpRun, forTask: string, outcome: TaskOutcome): Promise<void> {
     const { state, options } = execution;
@@ -1830,6 +1832,10 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       for (const [taskName, waiting] of [...execution.catchingUp]) {
         if (!waiting.waits.has(key)) continue;
         this.releaseCatchUps(execution, taskName);
+        // Only a task still waiting to launch waits for this run: one settled
+        // otherwise is counted, and told of, as it was settled
+        const status = state.tasks.get(taskName)?.status;
+        if (status !== 'pending' && status !== 'ready') continue;
         execution.hasFailure = true;
         const { result: failed } = stepTaskFailed(state, taskName, error, outcome.exitCode, 0);
         options.onTaskComplete?.({ name: taskName, cached: false, state: 'error', error, exitCode: outcome.exitCode, duration: 0 });
