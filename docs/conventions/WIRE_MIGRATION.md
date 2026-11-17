@@ -1472,3 +1472,16 @@ Each wire changed under this rule, with the kind it is.
   spec's bytes and hash change with the case, and each task of a re-exported
   package that names an environment runs again. Packages are re-exported, so
   no repository upgrade step ships.
+- **A run's start answers what became of it** — neither package-borne nor
+  stored in a repository: the dataflow start route's answer.
+  `DataflowStartResultType` is a Variant where the answer was `Null`:
+  `started` for a start that began a run, and `handed`, with the run's cursor
+  `since`, for a start a run in flight took in, which a poll follows that run
+  from. An answer of either release does not decode as the other's: a client
+  refuses a server's answer of the other release, naming both types, as it
+  refuses any type it does not read, and `e3 dataflow run`, e3-ui's views and
+  the server they start a run on are of one release. A program that starts a
+  run from East, through e3-api-client's `e3_dataflow_start`, is answered
+  `Null` as before, so its IR holds no changed type and its package is not
+  re-exported for this. No store keeps a start's answer, and a run's stored
+  state and events keep their forms, so no repository upgrade step ships.

@@ -40,7 +40,7 @@ An e3 repository holds and manages datasets and East programs, and automatically
  - **dataflow run** - a complete execution of a workspace's dataflow, tracking which task executions were used
  - **per-dataset ref** - each dataset has its own atomic ref record (`workspaces/<ws>/data/<path>.beast2`) instead of a single root tree hash, enabling concurrent per-dataset writes
  - **version vector** - a `Map<string, string>` tracking which root input content hashes contributed to each dataset, used to detect stale reads in diamond dependencies
- - **reactive execution** - after each task completes, the orchestrator detects root input changes, invalidates affected tasks, and re-executes until a fixpoint is reached
+ - **reactive execution** - a run follows its inputs: after each task completes, and when a start that finds it in flight wakes it, the orchestrator looks for root input changes; every result lands, a task whose inputs moved runs once more on the newest, and the run ends once no task is due or in flight; a deploy that announces itself stops it
  - **storage backend** - `StorageBackend` interface in e3-core abstracts object/dataset-ref storage (the local filesystem; a browser's IndexedDB, OPFS and Web Locks in e3-web's `WebStorage`; S3/DynamoDB or EFS in cloud deployments)
  - **task runner** - `TaskRunner` interface in e3-core abstracts task execution; `LocalTaskRunner` spawns local processes, e3-web's `WebTaskRunner` runs units on a pool of Web Workers, `MockTaskRunner` is used in tests
  - **orchestrator** - `DataflowOrchestrator` (e.g. `LocalOrchestrator`) drives a resumable dataflow execution using a pluggable `ExecutionStateStore` (`InMemoryStateStore`, `FileStateStore`)
