@@ -113,13 +113,16 @@ function groupLabels(grid: Locator): Promise<GroupLabel[]> {
  *
  * @param grid - The Record's grid
  * @param when - What the read follows, for a failure to say
- * @returns The labels at rest
+ * @returns The labels at rest: the read that passed, never a read after it, which a glide still finishing could move
  */
 async function placedLabels(grid: Locator, when: string): Promise<GroupLabel[]> {
-    await expect.poll(async () => (await groupLabels(grid))
-        .filter((label) => label.left < label.from - 0.5 || label.right > label.to + 0.5)
-        .map((label) => `${label.text}: ${label.left}–${label.right}, its group in view ${label.from}–${label.to}`), when).toEqual([]);
-    return groupLabels(grid);
+    let placed: GroupLabel[] = [];
+    await expect.poll(async () => {
+        placed = await groupLabels(grid);
+        return placed.filter((label) => label.left < label.from - 0.5 || label.right > label.to + 0.5)
+            .map((label) => `${label.text}: ${label.left}–${label.right}, its group in view ${label.from}–${label.to}`);
+    }, when).toEqual([]);
+    return placed;
 }
 
 /**

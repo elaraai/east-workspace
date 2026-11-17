@@ -79,7 +79,15 @@ async function read(page: Page, route: string): Promise<{ held: number; faults: 
     await settled(page);
     expect(await entry.locator("[data-example-deferred]").count(), `${route}: its preview is mounted`).toBe(0);
     return entry.evaluate((root, tallest) => {
-        const clear = (color: string) => color === "transparent" || /rgba?\([^)]*,\s*0\)$/.test(color);
+        // A colour is clear where its alpha is 0: `transparent`, a function's alpha after its slash (`color(srgb … / 0)`,
+        // `oklch(… / 0)`), or `rgba()`'s fourth. `rgb(r, g, 0)` is opaque.
+        const clear = (color: string) => {
+            if (color === "transparent") return true;
+            const slash = /\/\s*([\d.]+)%?\s*\)$/.exec(color);
+            if (slash !== null) return Number.parseFloat(slash[1]!) === 0;
+            const rgba = /^rgba\((?:[^,]+,){3}\s*([\d.]+)%?\s*\)$/.exec(color);
+            return rgba !== null && Number.parseFloat(rgba[1]!) === 0;
+        };
         const named = (el: Element) => [...el.attributes].some((a) => a.name.startsWith("data-")) || [...el.classList].some((c) => /^(elara|east)-/.test(c));
         const said = (el: Element) => {
             const data = [...el.attributes].map((a) => a.name).filter((n) => n.startsWith("data-") && !/^data-(index|state|orientation|scope|part|slot|uid|testid)$/.test(n)).sort();
@@ -159,13 +167,24 @@ test.describe("a small box's words start a whole number of pixels under its top 
             const names = examplesOf(key);
             expect(names.length, `${key} exports examples`).toBeGreaterThan(0);
             const faults: Array<Fault & { example: string }> = [];
-            for (const name of names) {
+            let held = 0;
+            for (const [i, name] of names.entries()) {
                 const route = `${key}/${name}`;
-                await page.goto(`/?theme=light#${route}`);
-                await page.waitForSelector("header", { timeout: 20_000 });
+                if (i === 0) {
+                    await page.goto(`/?theme=light#${route}`);
+                    await page.waitForSelector("header", { timeout: 20_000 });
+                } else {
+                    // The file's next example on the page the first visit drew: its hash scrolls the list to it, with none
+                    // of the reset a visit runs (`kept-page.ts`).
+                    await page.evaluate((hash) => { location.hash = hash; }, route);
+                }
                 const found = await read(page, route);
+                held += found.held;
                 for (const fault of found.faults) faults.push({ example: name, ...fault });
             }
+            // A file whose examples hold no box the rule reads is one the check has stopped reading: a preview never mounted,
+            // a recipe that stopped naming its parts.
+            expect(held, `${key}: the small boxes the rule held`).toBeGreaterThan(0);
             expect(faults, "boxes whose words start at a fraction of a pixel under their top edge").toEqual([]);
         });
     }

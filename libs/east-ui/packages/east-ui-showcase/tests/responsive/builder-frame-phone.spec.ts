@@ -256,6 +256,20 @@ function phoneFaults(entry: Locator, name: string): Promise<string[]> {
         // The query builder's Run stands 12 from the edge (QP1), and Studio's Publish (ST1).
         if (clear > (builder === "Query" || builder === "Studio" ? 12.5 : 8)) faults.push("the first row's controls short of its end");
         if (clear < 3.5) faults.push(`the first row's last control ${round(clear)}px from its end`);
+        // It pads nothing over its items, with a mouse as under a finger: they fill the band, and an open view's underline —
+        // the 2px at its tab's foot — shows over the band's rule, never wholly past its clip (#1646's review).
+        const band = slot("toolbar");
+        if (band !== null && getComputedStyle(band).display !== "none") {
+            const pad = getComputedStyle(band).paddingTop;
+            if (pad !== "0px") faults.push(`the first row padded ${pad} over its items`);
+            const clip = band.getBoundingClientRect().top + band.clientTop + band.clientHeight;
+            for (const open of band.querySelectorAll<HTMLElement>("[data-active]")) {
+                const look = getComputedStyle(open);
+                if (look.borderBottomWidth !== "2px" || look.borderBottomStyle === "none") continue;
+                const underline = open.getBoundingClientRect().bottom - 2;
+                if (underline > clip - 0.5) faults.push(`the open view's underline past the first row's clip, ${round(underline - clip)}px under it`);
+            }
+        }
         // A Filters button that is set: a 44px target, its fill clear of the row's edges.
         const set = frame.querySelector<HTMLElement>("[data-rail-phone][data-active]");
         if (set !== null) {
