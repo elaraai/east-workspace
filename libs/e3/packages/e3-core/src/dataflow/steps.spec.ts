@@ -38,7 +38,7 @@ import { DataflowError, TaskNotFoundError } from '../errors.js';
 import * as root from '../index.js';
 import * as portable from '../portable.js';
 import type { DataflowExecutionState, TaskState, Mutable } from './types.js';
-import { dataflowSnapshotTaken, recordCommitOrder, type DataflowGraph } from '../dataflow.js';
+import { dataflowRootsHeld, dataflowSnapshotTaken, recordCommitOrder, type DataflowGraph } from '../dataflow.js';
 import { createTestRepo, removeTestRepo, writableStrings } from '../test-helpers.js';
 import { LocalStorage } from '../storage/local/index.js';
 import { workspaceDeploy } from '../workspaces.js';
@@ -779,6 +779,40 @@ describe('stepTaskCommits', () => {
     const at = await stepTaskCommits(storage, state, 'plan');
     assert.ok(at.kind === 'commits');
     assert.strictEqual(at.versions.get('.records.orders'), before);
+  });
+
+  it('lets go of the versions older than every one the run names as it takes a newer snapshot, and orders one let go as the older still', async () => {
+    // A record edited c1 to c21, a commit at a time, and two commits outside its history
+    const commits: string[] = [];
+    for (let i = 1; i <= 21; i++) commits.push(await commit(commits.at(-1) ?? null, 'edit'));
+    const c = (n: number): string => commits[n - 1]!;
+    const [apart, elsewhere] = [await commit(null, 'apart'), await commit(null, 'elsewhere')];
+    const state = run({ orders: c(1), rates: 'r1' }, { orders: c(1), rates: 'r1' });
+    state.inputSnapshot.set('.records.orders', c(1));
+    state.inputSnapshot.set('.rates', 'r1');
+    /** The run takes a snapshot of the record, as a look for changed inputs does */
+    const take = (version: string): void => {
+      dataflowSnapshotTaken(state, '.records.orders', version);
+      state.inputSnapshot.set('.records.orders', version);
+      state.versionVectors.set('.records.orders', new Map([['.records.orders', version]]));
+    };
+
+    // The run takes c2 to c20 while both results stay made at c1: it holds each, and the order of a pair it never took
+    for (let n = 2; n <= 20; n++) take(c(n));
+    assert.strictEqual(await recordCommitOrder(storage, state, '.records.orders', apart, elsewhere), [apart, elsewhere].sort()[0]);
+    assert.deepStrictEqual(dataflowRootsHeld(state), { versions: 21, pairs: 1 }, 'c1 to c20, and r1');
+
+    // Both results land on c19: the next snapshot lets go of every version before it, and of the pair
+    state.versionVectors.set('.x_out', new Map([['.records.orders', c(19)], ['.rates', 'r1']]));
+    state.versionVectors.set('.y_out', new Map([['.records.orders', c(19)], ['.rates', 'r1']]));
+    take(c(21));
+    assert.deepStrictEqual(dataflowRootsHeld(state), { versions: 4, pairs: 0 }, 'c19 to c21, and r1');
+
+    // A result made at a version let go — a task's in flight, launched at c5 — is the older; two let go are ordered
+    // by the record's history
+    assert.strictEqual(await recordCommitOrder(storage, state, '.records.orders', c(5), c(21)), c(5));
+    assert.strictEqual(await recordCommitOrder(storage, state, '.records.orders', c(20), c(19)), c(19));
+    assert.strictEqual(await recordCommitOrder(storage, state, '.records.orders', c(7), c(4)), c(4));
   });
 
   it('takes no order from a read of the history that failed: it is raised, and the history is read again by the next to ask', async () => {

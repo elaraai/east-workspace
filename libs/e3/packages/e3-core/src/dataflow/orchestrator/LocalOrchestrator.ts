@@ -1872,7 +1872,11 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     if (execution.stoppedBy === 'refused') return;
     const key = catchUpKey(run);
     if (outcome.state === 'success' && outcome.outputHash) {
-      execution.caughtUp.set(key, outcome.outputHash);
+      // Kept for the tasks that wait to read it, which let it go as they are
+      // prepared again: none waits once each was settled otherwise
+      if ([...execution.catchingUp.values()].some((waiting) => waiting.waits.has(key))) {
+        execution.caughtUp.set(key, outcome.outputHash);
+      }
       options.onCatchUp?.(run.task, forTask, { state: 'completed', duration: outcome.duration });
       return;
     }

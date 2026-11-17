@@ -694,13 +694,76 @@ function rootsOf(state: DataflowExecutionState): RunRoots {
  * Called before the run's state takes the snapshot, so the one it replaces
  * is numbered before it where the run's memory begins here.
  *
+ * A run that follows people's edits takes a snapshot of every commit, for as
+ * long as it lives, so each snapshot lets go of what the run's memory holds of
+ * the versions older than every one it still names — its snapshots, and the
+ * versions its results were made from. A version let go is older than every
+ * version kept, which is what {@link recordCommitOrder} answers for one it
+ * holds no number of, and two let go are ordered by the record's history, as
+ * two the run never took are: a result made at one — a task's in flight,
+ * which lands with the versions it was launched at — is ordered as before.
+ * The order of two commits the run never took is let go once either is
+ * named no more.
+ *
  * @param state - The run's state
  * @param path - The root's keypath
  * @param version - Its version in the snapshot: a record's commit
  * @internal
  */
 export function dataflowSnapshotTaken(state: DataflowExecutionState, path: string, version: string): void {
-  numberVersion(rootsOf(state), path, version);
+  const roots = rootsOf(state);
+  numberVersion(roots, path, version);
+  letGoVersions(state, roots);
+}
+
+/** Lets go of the versions older than every one the run's state names, and of
+ *  the order of each pair of commits it never took that it names no more. */
+function letGoVersions(state: DataflowExecutionState, roots: RunRoots): void {
+  const named = new Map<string, Set<string>>();
+  const name = (root: string, version: string): void => {
+    let versions = named.get(root);
+    if (versions === undefined) {
+      versions = new Set();
+      named.set(root, versions);
+    }
+    versions.add(version);
+  };
+  for (const [root, version] of state.inputSnapshot) name(root, version);
+  for (const vector of state.versionVectors.values()) {
+    for (const [root, version] of versionRoots(vector)) name(root, version);
+  }
+  for (const [root, taken] of roots.taken) {
+    let least: number | undefined;
+    for (const version of named.get(root) ?? []) {
+      const number = taken.get(version);
+      if (number !== undefined && (least === undefined || number < least)) least = number;
+    }
+    if (least === undefined) continue;
+    for (const [version, number] of [...taken]) {
+      if (number < least) taken.delete(version);
+    }
+  }
+  for (const key of [...roots.older.keys()]) {
+    const [record, first, second] = key.split('\n') as [string, string, string];
+    const versions = named.get(record);
+    if (versions === undefined || !versions.has(first) || !versions.has(second)) roots.older.delete(key);
+  }
+}
+
+/**
+ * What a run's memory holds of its roots: the versions its snapshots
+ * numbered, and the orders of pairs of commits it never took.
+ *
+ * @param state - The run's state
+ * @returns How many of each it holds
+ * @internal
+ */
+export function dataflowRootsHeld(state: DataflowExecutionState): { versions: number; pairs: number } {
+  const roots = runRoots.get(state);
+  if (roots === undefined) return { versions: 0, pairs: 0 };
+  let versions = 0;
+  for (const taken of roots.taken.values()) versions += taken.size;
+  return { versions, pairs: roots.older.size };
 }
 
 /**
@@ -737,7 +800,8 @@ export function dataflowRecords(storage: StorageBackend, state: DataflowExecutio
  * @remarks
  * The run numbers each snapshot of a record it takes, so two commits it took
  * compare by number. A commit it never took — one a result named before the
- * run resumed — is older than its first snapshot. Two such are ordered by
+ * run resumed — or one it let go ({@link dataflowSnapshotTaken}) is older than
+ * the first snapshot it holds. Two such are ordered by
  * walking back from that snapshot a parent at a time: the first of the two
  * met is the newer, and one never met, which a compaction cut from the
  * record's history, is the older. The history ends at a commit the store no
