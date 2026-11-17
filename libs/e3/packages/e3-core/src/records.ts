@@ -41,7 +41,9 @@ import {
   indexCollectionType,
   indexWindowType,
   isCollectionRoot,
+  loadCommitSource,
   mutationDeltaType,
+  RecordLoadArgsType,
   type DeltaTarget,
   type MutationObject,
   type PackageObject,
@@ -56,7 +58,7 @@ import {
 } from '@elaraai/e3-types';
 import { DeltaConflictError, ExternalEntryError, SummaryIntegrityError, applyDelta, applyDeltaEntries, type DeltaEntry } from './record-apply.js';
 import {
-  compactedSourceSlots, deploySourceSlots, genesisSourceSlots, pendingSources, slotNames, sourceLastDelivery,
+  compactedSourceSlots, deploySourceSlots, genesisSourceSlots, pendingSources, slotNames, sourceLastDelivery, systemCommitSourceSlots,
 } from './record-slots.js';
 import { readManifest, readRecordStateObject } from './dataset-open.js';
 import { storedDatasetValue } from './dataset-adopt.js';
@@ -66,7 +68,7 @@ import { computeHash } from './objects.js';
 import { inputsHash } from './executions.js';
 import { workspaceGetPackage } from './workspaces.js';
 import { refPathToKeypath } from './dataset-refs.js';
-import { DatasetRefConflictError, checkName } from './errors.js';
+import { DatasetRefConflictError, ObjectNotFoundError, checkName } from './errors.js';
 import { acquireWorkspaceShared, workspaceLockRefusal } from './deploy-lock.js';
 import { touchReachable } from './gc-graph.js';
 import { acquireRunningWork } from './running-work.js';
@@ -2530,6 +2532,12 @@ export interface RecordSystemCommitOptions {
  * rollback is answered by the write the operator rolled back rather than
  * applied again.
  *
+ * A composite record's deliveries are the exception: a rollback forgets each
+ * delivery it undoes, and a restore every delivery, since the record no longer
+ * holds what was sent; and which external sources wait for a first delivery
+ * is read from the state it commits ({@link systemCommitSourceSlots}). The
+ * same delivery sent again is then loaded again, its pieces from the cache.
+ *
  * Migrations run forward only. A rollback past a `$migrate` or `$reset` commit
  * is refused: the state it would go back to is not at the migrations the
  * record has applied, and a `rekey`, or a `rows` step, can keep the record's
@@ -2612,7 +2620,7 @@ export async function recordSystemCommit(
       if (opts.expectedHead !== undefined && head !== opts.expectedHead) {
         return { kind: 'invalid', message: `record '${recordName}' has moved on from the head expected, ${opts.expectedHead}: read its history again` };
       }
-      const target = current === null
+      const target: { state: string; undone?: ReadonlyMap<string, boolean> | null } | { refusal: string } = current === null
         ? await genesisState(storage, repo, recordName, chain, opts.target)
         : await systemCommitState(storage, repo, recordName, head, current.versions, opts.target);
       if ('refusal' in target) return { kind: 'invalid', message: target.refusal };
@@ -2620,6 +2628,11 @@ export async function recordSystemCommit(
       const state = await readRecordState(storage, repo, target.state);
       const refusal = await stateRefusal(storage, repo, recordName, target.state, state.primary, resolved.type);
       if (refusal !== null) return { kind: 'invalid', message: refusal };
+      // A composite's deliveries the commit undoes are forgotten, and which of
+      // its sources wait is read from the state it commits
+      const external = externalSources(resolved);
+      const sourceSlots = current === null || external.length === 0 ? {}
+        : await systemCommitSourceSlots(storage, repo, current.versions, external, state.primary, target.undone ?? null);
 
       const build = new Map<string, string>();
       for (const [name, indexHash] of resolved.indexes) {
@@ -2649,7 +2662,7 @@ export async function recordSystemCommit(
           [SCHEMA_SLOT]: chain.length === 0 ? undefined : chain.join(','),
           [MIGRATIONS_SLOT]: migrationsSlot(chain.map((name) => [name, { at, commit: commitHash }] as const)),
         })
-        : nextVersions(current.versions, resolved.selfKeypath, commitHash);
+        : nextVersions(current.versions, resolved.selfKeypath, commitHash, sourceSlots);
       try {
         await storage.datasets.writeIf(
           repo, ws, resolved.refPath,
@@ -2720,13 +2733,18 @@ async function genesisState(
  * re-referenced with everything it names (`touchReachable`) before the commit
  * roots it: gc beside running work leaves it meanwhile.
  *
+ * A rollback's walk reads each load's commit it passes: a delivery of a
+ * composite record's source the rollback undoes, which the source forgets.
+ *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param recordName - The record, as a refusal names it
  * @param head - The record's head commit
  * @param versions - The record ref's version vector
  * @param target - What the commit points the record at
- * @returns The state to commit, or the refusal
+ * @returns The state to commit, and, for a rollback, each source whose
+ *   delivery it undoes and whether it undid the source's first (`null` for a
+ *   restore, which undoes every delivery); or the refusal
  */
 async function systemCommitState(
   storage: StorageBackend,
@@ -2735,7 +2753,7 @@ async function systemCommitState(
   head: string | undefined,
   versions: ReadonlyMap<string, string>,
   target: RecordSystemCommitTarget,
-): Promise<{ state: string } | { refusal: string }> {
+): Promise<{ state: string; undone: ReadonlyMap<string, boolean> | null } | { refusal: string }> {
   if ('state' in target) {
     const applied = appliedMigrations(versions);
     if (target.applied.length !== applied.length || target.applied.some((name, i) => applied[i] !== name)) {
@@ -2747,9 +2765,12 @@ async function systemCommitState(
     if (!await touchReachable(storage, repo, [target.state])) {
       return { refusal: `the state ${target.state} is not in the repository, whole` };
     }
-    return { state: target.state };
+    return { state: target.state, undone: null };
   }
   const seen = new Set<string>();
+  // Each source a load's commit the walk passes loaded: a delivery the
+  // rollback undoes, and whether it undid the source's first
+  const undone = new Map<string, boolean>();
   let at = head;
   while (at !== undefined && !seen.has(at)) {
     seen.add(at);
@@ -2759,19 +2780,52 @@ async function systemCommitState(
     } catch {
       break;
     }
-    if (at === target.commit) return { state: commit.state };
+    if (at === target.commit) return { state: commit.state, undone };
     if (commit.mutation === '$reset' || commit.mutation.startsWith('$migrate:')) {
       return {
         refusal: `rolling record '${recordName}' back to ${target.commit} goes past its '${commit.mutation}' commit: ` +
           `migrations run forward only, so a record rolls back no further than its last migration or reset`,
       };
     }
+    const loaded = loadCommitSource(commit.mutation);
+    if (loaded !== null) undone.set(loaded, (undone.get(loaded) ?? false) || await loadWasFirst(storage, repo, commit));
     at = commit.parent.type === 'some' ? commit.parent.value : undefined;
   }
   return {
     refusal: `commit ${target.commit} is not in record '${recordName}''s history: ` +
       `a compaction has cut it from the chain, or it is another record's`,
   };
+}
+
+/** Reads the one value of a load's commit's arguments. */
+const decodeLoadArgs = decodeBeast2For(RecordLoadArgsType);
+
+/**
+ * Whether a load's commit took its source out of the sources its record
+ * waited on: what a rollback that undoes it reads, so the source waits again.
+ *
+ * @remarks
+ * A commit whose arguments the store no longer holds is taken as the
+ * source's first, so a rollback errs toward waiting: the state it commits
+ * then says whether the source holds entries, and one that does waits for
+ * nothing.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param commit - The load's commit
+ * @returns Whether it was its source's first delivery
+ */
+async function loadWasFirst(storage: StorageBackend, repo: string, commit: RecordCommit): Promise<boolean> {
+  if (commit.args.type !== 'some') return true;
+  let tuple: Uint8Array;
+  try {
+    tuple = await storage.objects.read(repo, commit.args.value);
+  } catch (err) {
+    if (err instanceof ObjectNotFoundError) return true;
+    throw err;
+  }
+  const [args] = decodeMutationArgs(tuple);
+  return args === undefined || decodeLoadArgs(args).first;
 }
 
 /**

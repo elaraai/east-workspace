@@ -37,7 +37,7 @@ import type { TaskRunner } from './execution/interfaces.js';
 import { repoGc } from './gc.js';
 import { packageImport } from './package-files.js';
 import { loadQueueLock, recordLoad, type RecordLoadOptions } from './record-load.js';
-import { sourceLoadSlots } from './record-slots.js';
+import { PENDING_SLOT, sourceLoadSlots } from './record-slots.js';
 import { readRecordState, recordHistory, recordMutate, recordSystemCommit, resolveRecord } from './records.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { LockHandle, StorageBackend } from './storage/interfaces.js';
@@ -604,5 +604,66 @@ describe('a load of a delivery', () => {
       assert.equal(result.set, 8000n);
       assert.deepEqual(granted.slice(0, 4), ['unit', 'unit', 'unit', 'task'], `the save's program took the first core freed: ${granted.join(', ')}`);
     });
+  });
+
+  /** A rollback of `orders` to a commit of its history. */
+  const rollback = async (ws: string, commit: string): Promise<void> => {
+    const outcome = await recordSystemCommit(storage, runner, repoDir, ws, 'orders', { name: '$rollback', target: { commit }, actor: 'ada@example.com' });
+    assert.equal(outcome.kind, 'committed');
+  };
+  /** Asserts the record remembers no delivery of a source. */
+  const forgets = async (ws: string, source: string): Promise<void> => {
+    const versions = (await ref(ws)).versions;
+    for (const slot of Object.values(sourceLoadSlots(source))) assert.equal(versions.has(slot), false, `${slot} is forgotten`);
+  };
+
+  it('R30, R80 — a rollback forgets each delivery it undoes; a source waits again once its first is undone, and no longer once a later rollback brings its rows back (§4.12)', async () => {
+    const ws = await fresh();
+    const minted = (await ref(ws)).versions.get('.records.orders')!;
+    const waiting = async (): Promise<string | undefined> => (await ref(ws)).versions.get(PENDING_SLOT);
+    assert.equal(await waiting(), 'erp,wms', 'minted, both sources wait');
+    await load(ws, 'erp', await deliver([['SO-3001', acme]]), { asOf: new Date('2026-11-02T03:00:00Z') });
+    assert.equal(await waiting(), 'wms', 'the first load: erp waits no more');
+    const edit = await save(ws, 'P-2', cedar);
+    const second = await deliver([['SO-3001', acme], ['SO-3002', birch]]);
+    await load(ws, 'erp', second);
+
+    // Rolled back to the edit: the second load is undone and forgotten, as-of
+    // and all, though the record holds the first delivery's entries again
+    await rollback(ws, edit);
+    await forgets(ws, 'erp');
+    assert.equal(await waiting(), 'wms', 'erp waits for nothing: its first delivery stands');
+    await holds(ws, [['erp', 'SO-3001', acme], ['own', 'P-1', birch], ['own', 'P-2', cedar]]);
+    // The same delivery sent again loads again: nothing remembers it
+    assert.equal((await load(ws, 'erp', second)).result.outcome.type, 'loaded');
+
+    // Rolled back to the mint: the first delivery is undone too, and erp waits again
+    await rollback(ws, minted);
+    assert.equal(await waiting(), 'erp,wms');
+    await forgets(ws, 'erp');
+
+    // And rolled back again to the edit, through the rollback that undid it:
+    // erp's rows are back, so it waits no more, and its slots stay forgotten
+    await rollback(ws, edit);
+    assert.equal(await waiting(), 'wms');
+    await forgets(ws, 'erp');
+    await holds(ws, [['erp', 'SO-3001', acme], ['own', 'P-1', birch], ['own', 'P-2', cedar]]);
+  });
+
+  it('R31 — a restore forgets every delivery, and the sources wait that the restored state holds no entry of', async () => {
+    const ws = await fresh();
+    await load(ws, 'erp', await deliver([['SO-3101', acme]]), { asOf: new Date('2026-11-02T03:00:00Z') });
+    // A state from before the warehouse's first delivery, as a backup holds one
+    const backup = (await ref(ws)).hash;
+    await load(ws, 'wms', await deliver([['W-3101', cedar]]));
+    assert.equal((await ref(ws)).versions.has(PENDING_SLOT), false, 'every source has delivered');
+
+    const restored = await recordSystemCommit(storage, runner, repoDir, ws, 'orders', {
+      name: '$restore', target: { state: backup, applied: [] }, actor: 'ada@example.com',
+    });
+    assert.equal(restored.kind, 'committed');
+    await forgets(ws, 'erp');
+    await forgets(ws, 'wms');
+    assert.equal((await ref(ws)).versions.get(PENDING_SLOT), 'wms', 'erp holds entries in the restored state; wms holds none, and waits');
   });
 });

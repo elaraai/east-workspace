@@ -407,3 +407,53 @@ export function compactedSourceSlots(versions: ReadonlyMap<string, string>): Rec
   }
   return owned;
 }
+
+/**
+ * The slots a rollback or a restore writes on a composite record: the
+ * deliveries it undoes are forgotten, and of the sources that might wait,
+ * those wait that the state it commits holds no entry of.
+ *
+ * @remarks
+ * - A rollback forgets each delivery it undoes — every slot of it, its as-of
+ *   too, since the record no longer holds what the source sent. A source
+ *   whose first delivery it undid waits again, beside those that waited, and
+ *   of all these one the state holds entries of does not
+ *   ({@link sourceHoldsEntries}): a rollback through an earlier rollback brings
+ *   rows back, and their readers run on them. It brings back none of a
+ *   delivery's slots, since a commit keeps no copy of them.
+ * - A restore commits a state from outside the history, which says nothing of
+ *   what each source sent: every delivery is forgotten, and every external
+ *   source waits that the state holds no entry of.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param prior - The version vector of the ref being replaced
+ * @param external - The record's external sources
+ * @param state - The state the commit commits: a record state, or its rows'
+ *   manifest
+ * @param undone - For a rollback, each source whose delivery it undoes, and
+ *   whether it undid the source's first; `null` for a restore
+ * @returns The slots to write: a value writes one, `undefined` drops it
+ */
+export async function systemCommitSourceSlots(
+  storage: StorageBackend,
+  repo: string,
+  prior: ReadonlyMap<string, string>,
+  external: readonly string[],
+  state: string,
+  undone: ReadonlyMap<string, boolean> | null,
+): Promise<Record<string, string | undefined>> {
+  const owned: Record<string, string | undefined> = {};
+  for (const source of undone === null ? external : undone.keys()) {
+    for (const slot of Object.values(sourceLoadSlots(source))) owned[slot] = undefined;
+  }
+  const mayWait = new Set(undone === null
+    ? external
+    : [...pendingSources(prior), ...[...undone].flatMap(([source, first]) => first ? [source] : [])]);
+  const pending: string[] = [];
+  for (const source of mayWait) {
+    if (!(await sourceHoldsEntries(storage, repo, state, source))) pending.push(source);
+  }
+  owned[PENDING_SLOT] = sourcesSlot(pending);
+  return owned;
+}
