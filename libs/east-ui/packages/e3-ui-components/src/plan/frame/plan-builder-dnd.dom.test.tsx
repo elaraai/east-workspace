@@ -35,6 +35,7 @@ import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import { rowKeyOf, type PlanRowId } from "../model.js";
 import { carry, carrySaid, dragTo, keyOn } from "../plan-move.test-utils.js";
 import { act, drawnFrom, el, elementKey, entry, madeFrom, planHarness, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
+import { flowsPlan } from "./flows.test-utils.js";
 
 const h = planHarness();
 
@@ -1131,5 +1132,90 @@ describe("a series of data's beneath a press", () => {
         run.focus();
         await keyOn({ key: " " });
         expect(carrySaid(c)).toBe("");
+    });
+});
+
+// ── Connect (#1541, U10) ──────────────────────────────────────────────────────
+
+/** Example 16's rows: Presses A1 and A2, and the plate room's platesetter. */
+const LINK_A1 = entry("presses", "a1");
+const LINK_A2 = entry("presses", "a2");
+const LINK_PS = entry("setters", "ps");
+/** A tool of the toolbar's strip, by its name. */
+const tool = (c: HTMLElement, name: string) =>
+    within(within(slot(c, "toolbar")!).getByRole("radiogroup", { name: "Tools" })).getByRole("radio", { name });
+/** A job's bar on one of example 16's presses. */
+const linkJob = (c: HTMLElement, row: PlanRowId, key: string) => c.querySelector<HTMLElement>(`${rowAt(row)} ${el("data-run", "job", key)}`)!;
+/** Where Catalogue covers (J-2001) is pressed: Thursday 8 October, 07:00. */
+const COVERS_AT = { day: 3, hour: 7 };
+/** Price lists' bar (J-2004) on Press A2, the second row laid out: Wednesday noon to Thursday 18:00. */
+const PRICE_LISTS: Rect = { left: xAt(2, 12), top: 44, width: 125, height: 24 };
+
+describe("Connect draws a link kind's link from one event to another (#1541, U10)", () => {
+    test("held, a drag from an event to another draws a link in place of a move: the ghost names it, the drop drafts it and selects it, and Undo takes it back", async () => {
+        const { container: c } = await h.mount(flowsPlan(), DRAG);
+        await settle();
+        // Select until the viewer picks: the tools show while the flows are bound with their patch door.
+        expect(tool(c, "Select").getAttribute("aria-checked")).toBe("true");
+        await press(tool(c, "Connect"));
+        expect(tool(c, "Connect").getAttribute("aria-checked")).toBe("true");
+        const covers = linkJob(c, LINK_A1, "J-2001");
+        const y = layOutPlots(c, [LINK_A1, LINK_A2], [[linkJob(c, LINK_A2, "J-2004"), PRICE_LISTS]]);
+        const release = await carry(covers, { x: xAt(COVERS_AT.day, COVERS_AT.hour), y: y(LINK_A1) }, { x: xAt(3, 0), y: y(LINK_A2) });
+        expect(caption()).toBe("Flow · Catalogue covers → Price lists");
+        await release();
+        // One more flow, a draft of the flows' record, selected: the inspector shows it. The job is where it was.
+        expect(pending(c)).toBe("1 pending");
+        expect(inspected(c)).toBe("Catalogue covers → Price lists");
+        expect(linkJob(c, LINK_A1, "J-2001")).not.toBeNull();
+        expect(c.querySelector(`${rowAt(LINK_A2)} ${el("data-run", "job", "J-2001")}`)).toBeNull();
+        // One step of the history: Undo takes the flow back, and nothing else stands to undo.
+        await press(historyButton(c, UNDO));
+        expect(pending(c)).toBe("0 pending");
+        expect(historyButton(c, UNDO).disabled).toBe(true);
+    });
+
+    test("an event its kind's end takes none of refuses the draft, the ghost saying why in the kind's own words, and the drop draws nothing", async () => {
+        const { container: c } = await h.mount(flowsPlan(), DRAG);
+        await settle();
+        await press(tool(c, "Connect"));
+        const plates = c.querySelector<HTMLElement>(`${rowAt(LINK_PS)} [role="button"]${el("data-mark", "plate", "P-01")}`)!;
+        // The plate room's row is laid out second: the plates' glyph at Monday noon.
+        const y = layOutPlots(c, [LINK_A1, LINK_PS], [[plates, { left: xAt(0, 12) - 6, top: 44, width: 12, height: 24 }]]);
+        const release = await carry(linkJob(c, LINK_A1, "J-2001"), { x: xAt(COVERS_AT.day, COVERS_AT.hour), y: y(LINK_A1) }, { x: xAt(0, 12), y: y(LINK_PS) });
+        // A flow ends at a job, a bindery job or a delivery: never at plates.
+        expect(caption()).toBe("refused: Flow can't end at Catalogue plates");
+        await release();
+        expect(pending(c)).toBe("0 pending");
+    });
+
+    test("over no event the draft has nowhere to land: nothing is said, and letting go there draws nothing and moves nothing", async () => {
+        const { container: c } = await h.mount(flowsPlan(), DRAG);
+        await settle();
+        await press(tool(c, "Connect"));
+        const y = layOutPlots(c, [LINK_A1, LINK_A2]);
+        const release = await carry(linkJob(c, LINK_A1, "J-2001"), { x: xAt(COVERS_AT.day, COVERS_AT.hour), y: y(LINK_A1) }, { x: xAt(20, 0), y: y(LINK_A2) });
+        expect(caption()).toBeNull();
+        await release();
+        expect(pending(c)).toBe("0 pending");
+        expect(linkJob(c, LINK_A1, "J-2001")).not.toBeNull();
+    });
+
+    test("the Plan's `canConnect` hears the kind and the two events, and its words refuse the draft on the ghost", async () => {
+        const vetoedFlows = flowsPlan(() => East.function([Plan.Types.ConnectCandidate], OptionType(StringType), ($, candidate) => {
+            const said = $.let(none, OptionType(StringType));
+            $.if(candidate.kind.equal("flow").and(() => candidate.from.kind.equal("job")).and(() => candidate.to.key.equal("J-2004")), ($2) => {
+                $2.assign(said, some("Price lists are already at the bindery"));
+            });
+            return said;
+        }));
+        const { container: c } = await h.mount(vetoedFlows, DRAG);
+        await settle();
+        await press(tool(c, "Connect"));
+        const y = layOutPlots(c, [LINK_A1, LINK_A2], [[linkJob(c, LINK_A2, "J-2004"), PRICE_LISTS]]);
+        const release = await carry(linkJob(c, LINK_A1, "J-2001"), { x: xAt(COVERS_AT.day, COVERS_AT.hour), y: y(LINK_A1) }, { x: xAt(3, 0), y: y(LINK_A2) });
+        expect(caption()).toBe("refused: Price lists are already at the bindery");
+        await release();
+        expect(pending(c)).toBe("0 pending");
     });
 });

@@ -34,6 +34,7 @@ import { carryRun } from "../plan-move.test-utils.js";
 import { retypeNumber } from "../../e3-web-mount.test-utils.js";
 import { boundFrame } from "../../sheet/frame.test-utils.js";
 import { el, elementKey, entry, planHarness, dropPressRow, ribbonWidth, rowAt, dropRunOf, settle, slot } from "./harness.test-utils.js";
+import { flowsPlan } from "./flows.test-utils.js";
 
 const h = planHarness({ "plan/plan-events": ex, "plan/plan": rowDrop });
 
@@ -655,40 +656,7 @@ describe("a Plan of rows alone: its inspector, and a row's refusals holding Save
 
 describe("a link kind's link in the inspector (#1541, U10)", () => {
     /** Example 16's Plan — the works' centres, their four event kinds and the flows between them — with its inspector. */
-    const flows = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-        const works = $.let(Record.bind(ex.planLinkWorks, []));
-        const plates = $.let(Record.bind(ex.planLinkPlates));
-        const jobs = $.let(Record.bind(ex.planLinkCaseJobs));
-        const bindings = $.let(Record.bind(ex.planLinkBindings));
-        const deliveries = $.let(Record.bind(ex.planLinkDeliveries));
-        const links = $.let(Record.bind(ex.planLinkFlows));
-        const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "week" }));
-        return Plan({
-            axis,
-            data: works.read(),
-            series: [
-                Plan.series.resources(ex.PrintLinkCentre, { key: "setters", title: "Plate room", icon: "layer-group", match: (c) => c.what.hasTag("setter"), label: (c) => c.name }),
-                Plan.series.resources(ex.PrintLinkCentre, { key: "presses", title: "Presses", icon: "print", match: (c) => c.what.hasTag("press"), label: (c) => c.name }),
-                Plan.series.resources(ex.PrintLinkCentre, { key: "lines", title: "Bindery", icon: "book", match: (c) => c.what.hasTag("line"), label: (c) => c.name }),
-                Plan.series.resources(ex.PrintLinkCentre, { key: "bays", title: "Dispatch", icon: "warehouse", match: (c) => c.what.hasTag("bay"), label: (c) => c.name }),
-            ],
-            events: {
-                plate: Schedule.events(plates, { name: "Plates", icon: "clone", title: "title", at: "at", resource: { field: "setter", of: "setters" } }),
-                job: Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" } }),
-                binding: Schedule.events(bindings, { name: "Bindery job", icon: "book-open", draw: "cards", title: "title", start: "start", end: "end", resource: { field: "line", of: "lines" } }),
-                delivery: Schedule.events(deliveries, { name: "Delivery", icon: "truck", draw: "buckets", title: "title", at: "at", resource: { field: "bay", of: "bays" } }),
-            },
-            links: {
-                flow: Plan.links(links, {
-                    name: "Flow", icon: "arrow-right-long",
-                    from: { field: "from", of: { plate: "plate", job: "job", binding: "binding" } },
-                    to: { field: "to", of: { job: "job", binding: "binding", delivery: "delivery" } },
-                    quantity: { field: "sheets", unit: "k sheets" },
-                }),
-            },
-            inspector: true,
-        });
-    }))) };
+    const flows = flowsPlan();
     const hit = (c: HTMLElement, key: string) => [...c.querySelectorAll("[data-link]")].find((path) => path.getAttribute("data-link-key") === elementKey("flow", key));
     const fact = (c: HTMLElement, name: string) => pane(c).querySelector(`[data-fact="${name}"]`)?.textContent ?? null;
     const toolbar = (c: HTMLElement) => within(slot(c, "toolbar")!);

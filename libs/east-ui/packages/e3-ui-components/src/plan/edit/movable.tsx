@@ -80,7 +80,9 @@ function PlanMoveGhost({ edit, movable }: { edit: PlanEditContextValue; movable:
     const proposal = useSyncExternalStore(edit.store.subscribe, () => edit.store.proposal);
     const span = proposal?.span ?? movable.span;
     const styles = edit.styles;
-    return <MoveGhost styles={styles} label={movable.label} detail={spanWords(edit.scale, movable, span, edit.words)} planKind={movable.kind} />;
+    // Connect held (#1541, U10): the ghost says the link the element's drag draws, in place of where a move would land.
+    const detail = edit.connecting !== undefined ? edit.words.m.connectGhost({ kind: edit.connecting }) : spanWords(edit.scale, movable, span, edit.words);
+    return <MoveGhost styles={styles} label={movable.label} detail={detail} planKind={movable.kind} />;
 }
 
 /**

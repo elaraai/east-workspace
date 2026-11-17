@@ -270,6 +270,15 @@ export function RowShell({
     }, []);
     const resolveCoord = useCallback((clientX: number, clientY: number, payload: DragPayload): CellCoord => {
         const surface = drop?.surface ?? "";
+        // Connect held (#1541, U10): an element's drag ends at the event under the pointer, and moves nothing — the
+        // coordinate names that event, at the bucket the pointer is in.
+        if (payload.kind !== "item" && eventTarget !== undefined && events?.connecting === true) {
+            const bi = scale.bucketAtFrac(fracAt(clientX));
+            const bucket = bi >= 0 ? scale.buckets[bi] : undefined;
+            const slot = bucket !== undefined ? toPlanSlot(bucket.start) : "";
+            const event = eventAt(clientX, clientY);
+            return event !== undefined ? { surface, row: row.key, slot, event } : { surface, row: row.key, slot };
+        }
         if (payload.kind !== "item") {
             const at = landing(clientX);
             if (at === undefined) return { surface, row: row.key, slot: "" };
@@ -366,6 +375,12 @@ export function RowShell({
             : candidate.type === "move" ? candidate.value.to.slot
                 : candidate.type === "resize" ? candidate.value.event.slot : "-";
         if (slot === "") return false;
+        // Connect held (#1541, U10): the event kinds judge the link the drag would draw to the event it rests on.
+        if (eventTarget !== undefined && events?.connecting === true && candidate.type === "move") {
+            const grab = store?.grab;
+            return grab !== null && grab !== undefined && events.isEvent(grab.movable)
+                && events.connect(grab.movable, getSomeorUndefined(candidate.value.to.event)).allowed;
+        }
         // A row's items keep their keys unique (#825): an element from another
         // row lands here only when none of this row's elements has its key.
         if (candidate.type === "move" && candidate.value.from.row !== row.key
@@ -401,6 +416,8 @@ export function RowShell({
         if (payload.kind === "item") return events.card(row, payload.from, coord.slot, coord.event).caption;
         const grab = store?.grab;
         if (grab === null || grab === undefined || !events.isEvent(grab.movable)) return undefined;
+        // Connect held (#1541, U10): the link it would draw to the event under the pointer, or why not.
+        if (events.connecting) return events.connect(grab.movable, coord.event).caption;
         return events.element(row, grab.movable, landingHere()).caption;
     }, [eventTarget, events, row, store, landingHere, drop, cardRefusal]);
 
@@ -423,6 +440,18 @@ export function RowShell({
     const positionPreview = useCallback((clientX: number, clientY: number, payload: DragPayload) => {
         const el = previewRef.current;
         if (el === null) return;
+        if (payload.kind !== "item" && eventTarget !== undefined && events?.connecting === true) {
+            // Connect held (#1541, U10): the band spans the event the link would end at — none under the pointer, it
+            // stays where it was, on a cell the verdict leaves inactive.
+            const grab = store?.grab;
+            const span = grab === null || grab === undefined ? undefined : events.connect(grab.movable, eventAt(clientX, clientY)).span;
+            if (previewTextRef.current !== null) previewTextRef.current.textContent = "";
+            if (span === undefined) return;
+            const { left, right } = spanFracs(scale, span);
+            el.style.left = `${left * 100}%`;
+            el.style.width = `${(right - left) * 100}%`;
+            return;
+        }
         if (payload.kind !== "item") {
             // A moved element: the extent it would take, labelled with it.
             const at = landing(clientX);
@@ -453,7 +482,7 @@ export function RowShell({
         }
         el.style.left = `${bucket.x0 * 100}%`;
         el.style.width = `${(bucket.x1 - bucket.x0) * 100}%`;
-    }, [scale, landing, fracAt, edit, words, eventTarget, events, eventAt, row]);
+    }, [scale, landing, fracAt, edit, words, eventTarget, events, eventAt, row, store]);
 
     // A keyboard drag rests at bucket centres, the announcements name the row
     // and its bucket — or, for a moved element, the span it would take — in

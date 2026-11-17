@@ -233,6 +233,19 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     toolHint: (p: { tool: PlanTool; kind: string }) => string;
     /** Connect's menu's accessible name: the link kind it draws. */
     connectDraws: () => string;
+    /** What Connect's ghost says of the event it drags from: the link kind it draws, by its name — `Draw a feed`. */
+    connectGhost: (p: { kind: string }) => string;
+    /** What Connect's ghost says where its link may land: the kind and the two events it joins — `Feed · Catalogue covers → Catalogue`. */
+    linkDrawn: (p: { kind: string; from: string; to: string }) => string;
+    /**
+     * Why Connect's draft doesn't land: its kind's end — `start` its `from`, `end` its `to` — holds no event of that
+     * kind: `Feed can't end at Van 2`.
+     */
+    linkEndRefused: (p: { kind: string; end: "start" | "end"; item: string }) => string;
+    /** Why Connect's draft doesn't land: the kind's record holds a link under the key this one's row builds. */
+    linkHeld: (p: { kind: string }) => string;
+    /** Why Connect's draft doesn't land: no key can be made for a new link of the kind. */
+    linkUnkeyed: (p: { kind: string }) => string;
 
     // ── The library pane (#1195) ───────────────────────────────────────────
     /** The library pane's name. */
@@ -685,6 +698,11 @@ export const planMessages: PlanMessages = {
         ? `Connect — drag from one event to another to draw ${withArticle(lowerWord(kind))}`
         : "Select — a tap selects, a drag moves an event"),
     connectDraws: () => "Connect draws",
+    connectGhost: ({ kind }) => `Draw ${withArticle(lowerWord(kind))}`,
+    linkDrawn: ({ kind, from, to }) => `${kind} · ${from} → ${to}`,
+    linkEndRefused: ({ kind, end, item }) => `${kind} can't ${end} at ${item}`,
+    linkHeld: ({ kind }) => `That ${lowerWord(kind)} is drawn already`,
+    linkUnkeyed: ({ kind }) => `No key can be made for a new ${lowerWord(kind)}`,
 
     libraryPane: () => "Library",
     libraryTab: ({ tab }) => (tab === "events" ? "Events" : tab === "backlog" ? "Backlog" : "Series"),
