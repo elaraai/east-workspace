@@ -74,6 +74,7 @@ import {
     type ToolbarItem,
 } from "@elaraai/east-ui-components";
 
+import { VisualAnswersProvider } from "../query/visual/answers.js";
 import { openCodec, useOpen } from "../shared/open.js";
 import { StudioInspector } from "./inspector.js";
 import { useStudioMessages } from "./messages.js";
@@ -551,20 +552,23 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
     return (
         <Box ref={widthRef} css={styles.root} data-studio-builder="">
             <Box css={styles.canvas} hidden={previewing} data-studio-canvas="">
-                <SnapGridEditor
-                    value={canvas}
-                    storageKey={`${storageKey}.canvas`}
-                    toolbar={toolbar}
-                    renderContent={renderContent}
-                    panes={{
-                        start: { ...palette, collapsed: collapsed.start, onCollapsedChange: panePaletteCollapse },
-                        end: { ...inspectorPane, collapsed: collapsed.end, onCollapsedChange: paneInspectorCollapse },
-                    }}
-                    phone={{
-                        eyebrow: open.project, title, placing, onPlacing: setPlacing,
-                        onAdd: () => { setPlacing(undefined); setCollapsed((was) => ({ ...was, start: false })); },
-                    }}
-                />
+                {/* The canvas's visuals ask their programs over the sources the surface lists (#1670). */}
+                <VisualAnswersProvider sources={sources}>
+                    <SnapGridEditor
+                        value={canvas}
+                        storageKey={`${storageKey}.canvas`}
+                        toolbar={toolbar}
+                        renderContent={renderContent}
+                        panes={{
+                            start: { ...palette, collapsed: collapsed.start, onCollapsedChange: panePaletteCollapse },
+                            end: { ...inspectorPane, collapsed: collapsed.end, onCollapsedChange: paneInspectorCollapse },
+                        }}
+                        phone={{
+                            eyebrow: open.project, title, placing, onPlacing: setPlacing,
+                            onAdd: () => { setPlacing(undefined); setCollapsed((was) => ({ ...was, start: false })); },
+                        }}
+                    />
+                </VisualAnswersProvider>
             </Box>
             {previewing && preview !== undefined && (
                 <StudioPublishPreview value={preview}

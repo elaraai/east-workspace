@@ -9,7 +9,8 @@
  * Studio components take them — each one's key, what operators see of it, its
  * binding and its fields, their kinds read from the row's type; the refusals,
  * where the surface is built, of a key a query can't read, of rows that are
- * not Structs, and of a field its rows lack; and each source's name by key.
+ * not Structs, and of a field its rows lack; each source's name by key; and
+ * a source's rows, which a visual's printer reads too (#1670).
  */
 
 import { describe, test } from "node:test";
@@ -22,7 +23,7 @@ import {
 import { DatasetStatusType, TreePathType } from "@elaraai/e3-types";
 
 import { Query, Studio, type StudioSourceDeclaration } from "@elaraai/e3-ui";
-import { DataBindHandleType, DataPagedHandleType, StudioSourceType, sourceName, sourceNames, studioSources } from "@elaraai/e3-ui/internal";
+import { DataBindHandleType, DataPagedHandleType, StudioSourceType, sourceName, sourceNames, sourceRowsOf, studioSources } from "@elaraai/e3-ui/internal";
 
 type Source = ValueTypeOf<typeof Studio.Types.Source>;
 type TreePath = ValueTypeOf<typeof TreePathType>;
@@ -226,6 +227,20 @@ describe("Studio.source — the sources a surface lists (#1669)", () => {
         // One source's name by its key, wherever a placement's content is said in words: its key where none is listed under it.
         const nameOf = East.compile(sourceName, []);
         assert.deepEqual([nameOf("orders", names(sources)), nameOf("stock", names(sources))], ["Orders", "stock"]);
+    });
+
+    test("a source's rows are an Array's elements or a Dict's values, each a Struct, keyed when a Dict's — and none of any other value (#1670)", () => {
+        const orders = sourceRowsOf(OrdersType);
+        if (orders === undefined) assert.fail("an Array of Structs has rows");
+        assert.ok(isTypeEqual(orders.row, OrderType), "an Array's element is its row");
+        assert.equal(orders.keyed, false);
+        const assets = sourceRowsOf(AssetsType);
+        if (assets === undefined) assert.fail("a Dict of Structs has rows");
+        assert.ok(isTypeEqual(assets.row, AssetsType.value), "a Dict's value is its row");
+        assert.equal(assets.keyed, true, "a Dict's rows are keyed");
+        assert.equal(sourceRowsOf(RegionsType), undefined, "a Dict of Strings holds no rows");
+        assert.equal(sourceRowsOf(OrderType), undefined, "a Struct is one value, not rows");
+        assert.equal(sourceRowsOf(ArrayType(OptionType(OrderType))), undefined, "an Array of Options of Structs holds no rows");
     });
 
     test("Studio.Types.Source is data only: its binding is the query builder's data source, and it holds no function", () => {
