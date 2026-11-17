@@ -27,7 +27,7 @@
  * @packageDocumentation
  */
 
-import { DateTimeType, StringType, compareFor, decodeBeast2ElementsFor, isVariant, parseFor } from '@elaraai/east';
+import { DateTimeType, StringType, compareFor, decodeBeast2ElementsFor, equalFor, isVariant, parseFor } from '@elaraai/east';
 import { parseKeypath } from '@elaraai/e3-types';
 import { DatasetSegments } from './dataset-open.js';
 import type { StorageBackend } from './storage/interfaces.js';
@@ -38,6 +38,9 @@ const byName = compareFor(StringType);
 
 /** Reads an as-of, as East prints a DateTime. */
 const parseTime = parseFor(DateTimeType);
+
+/** Whether a keypath's field is the one named. */
+const sameField = equalFor(StringType);
 
 /** Reserved slot naming the external sources a record's readers wait for the
  *  first delivery of, sorted and separated by commas; absent when none waits. */
@@ -101,7 +104,7 @@ export function sourceLoadSlots(source: string): SourceLoadSlots {
  */
 export function slotNames(versions: ReadonlyMap<string, string>, slot: string): string[] {
   const held = versions.get(slot);
-  return held === undefined || held === '' ? [] : held.split(',');
+  return held === undefined || held.length === 0 ? [] : held.split(',');
 }
 
 /**
@@ -149,7 +152,7 @@ export function pendingSources(versions: ReadonlyMap<string, string>): string[] 
  */
 export function pendingWaitWords(record: string, sources: readonly string[]): string {
   const path = parseKeypath(record);
-  const name = path.length === 2 && path[0]!.value === 'records' ? path[1]!.value : record;
+  const name = path.length === 2 && sameField(path[0]!.value, 'records') ? path[1]!.value : record;
   return `record '${name}' waits for the first delivery of ${sources.join(', ')}`;
 }
 
@@ -189,7 +192,7 @@ export function sourceLastDelivery(versions: ReadonlyMap<string, string>, source
   const asOf = said === undefined ? undefined : parseTime(said);
   return {
     delivery,
-    ...(commit !== undefined && commit !== '' && { commit }),
+    ...(commit !== undefined && commit.length > 0 && { commit }),
     ...(asOf?.success === true && { asOf: asOf.value }),
   };
 }
