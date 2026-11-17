@@ -25,6 +25,7 @@ import {
   keypathToRefPath,
   refPathToKeypath,
   computeRootHash,
+  versionRoots,
   writeRefsFromTree,
 } from './dataset-refs.js';
 import { LocalStorage } from './storage/local/index.js';
@@ -60,6 +61,17 @@ describe('refPathToKeypath', () => {
 
   it('quotes non-identifier segments', () => {
     assert.equal(refPathToKeypath('inputs/sales 2026'), '.inputs.`sales 2026`');
+  });
+});
+
+describe('versionRoots', () => {
+  it('answers the roots a vector names, in its order, and leaves its reserved slots out', () => {
+    assert.deepEqual(
+      versionRoots(new Map([['$idem', 'k1'], ['.records.orders', 'c2'], ['$idem.commit', 'c2'], ['.inputs.rates', 'r1']])),
+      [['.records.orders', 'c2'], ['.inputs.rates', 'r1']],
+    );
+    assert.deepEqual(versionRoots(new Map([['$schema', 'add_site']])), [], 'a vector of slots alone names no root');
+    assert.deepEqual(versionRoots(new Map()), []);
   });
 });
 

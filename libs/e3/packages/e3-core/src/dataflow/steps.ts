@@ -47,6 +47,7 @@ import {
   inputVersionVector,
   snapshotInputVersions,
   detectInputChanges,
+  versionRoots,
 } from '../dataset-refs.js';
 import type { DataflowGraph } from '../dataflow.js';
 import type {
@@ -509,9 +510,8 @@ const sameVersion = equalFor(StringType);
  * and are left out.
  */
 function sameVersions(a: VersionVector, b: VersionVector): boolean {
-  const roots = (vector: VersionVector): Array<[string, string]> => [...vector].filter(([root]) => !root.startsWith('$'));
-  const left = roots(a);
-  if (left.length !== roots(b).length) return false;
+  const left = versionRoots(a);
+  if (left.length !== versionRoots(b).length) return false;
   return left.every(([root, version]) => {
     const other = b.get(root);
     return other !== undefined && sameVersion(other, version);
@@ -561,8 +561,7 @@ export async function stepTaskCommits(
   const named = new Map<string, Array<{ version: string; through: string }>>();
   for (const inputPath of new Set(task.inputs)) {
     const through = producerOf.get(inputPath) ?? inputPath;
-    for (const [root, version] of state.versionVectors.get(inputPath) ?? []) {
-      if (root.startsWith('$')) continue;
+    for (const [root, version] of versionRoots(state.versionVectors.get(inputPath) ?? new Map())) {
       let names = named.get(root);
       if (names === undefined) {
         names = [];

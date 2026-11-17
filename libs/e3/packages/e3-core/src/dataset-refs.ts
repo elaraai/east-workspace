@@ -33,6 +33,30 @@ export function inputVersionVector(path: string, hash: string): VersionVector {
 }
 
 /**
+ * The roots a version vector names, each with its version: the datasets a
+ * value was made from.
+ *
+ * @remarks
+ * A ref's vector also carries reserved slots, whose keys begin `$`: a
+ * record's own bookkeeping, which names no dataset. Whatever compares two
+ * vectors, or reads what one was made from, reads its roots through here, so
+ * a slot a writer changed between two reads is never taken for a root that
+ * moved.
+ *
+ * @param vector - A version vector
+ * @returns Its roots' entries, in the vector's order
+ *
+ * @example
+ * ```ts
+ * versionRoots(new Map([['$idem', 'k1'], ['.records.orders', 'c2'], ['.inputs.rates', 'r1']]));
+ * // [['.records.orders', 'c2'], ['.inputs.rates', 'r1']]
+ * ```
+ */
+export function versionRoots(vector: VersionVector): Array<[string, string]> {
+  return [...vector].filter(([root]) => !root.startsWith('$'));
+}
+
+/**
  * Convert a TreePath-style keypath (e.g., ".inputs.sales") to a filesystem-style
  * dataset ref path (e.g., "inputs/sales") for use with DatasetRefStore.
  */

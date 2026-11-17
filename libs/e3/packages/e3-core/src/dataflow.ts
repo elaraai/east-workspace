@@ -29,7 +29,7 @@ import {
 import { OBJECT_CONCURRENCY, eachAtMost } from './concurrency.js';
 import type { CatchUpRun, DataflowExecutionState, DeferReason } from './dataflow/types.js';
 import { taskInputRead } from './dataset-open.js';
-import { keypathToRefPath, refPathToKeypath } from './dataset-refs.js';
+import { keypathToRefPath, refPathToKeypath, versionRoots } from './dataset-refs.js';
 import {
   executionGetOutput,
   inputsHash,
@@ -914,7 +914,7 @@ export async function dataflowResolveInputs(
         const result = state.tasks.get(of.name)?.outputHash;
         // The task holds no result in the run: its reader is not ready
         if (made === undefined || result === undefined || result.type !== 'some') return { kind: 'unassigned' };
-        const reads = [...made].filter(([root]) => !root.startsWith('$'));
+        const reads = versionRoots(made);
         if (reads.every(([root, version]) => {
           const wanted = versions.get(root);
           return wanted !== undefined && sameVersion(wanted, version);
