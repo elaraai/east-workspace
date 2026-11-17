@@ -387,9 +387,11 @@ interface RunningExecution {
   /** Wakes whose look for changed inputs is still under way: the loop does
    *  not end the run while one is */
   wakes: number;
-  /** How many wakes' looks have ended: a pass of the loop during which one
-   *  ended takes the ready tasks again before it waits, or ends the run */
-  woke: number;
+  /** How many times the run moved on outside a pass of the loop: a wake's
+   *  look ended, or something in flight settled. A pass during which it did
+   *  takes the ready tasks again before it waits, or ends the run: what
+   *  settled is no longer in flight to wake it */
+  moved: number;
   /** Settles as a wake's look ends: what the pass of the loop that made it
    *  waits on beside what it has in flight */
   woken: { promise: Promise<void>; resolve: () => void };
@@ -764,7 +766,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       caughtUp: new Map(),
       deferredFor: new Map(),
       wakes: 0,
-      woke: 0,
+      moved: 0,
       woken: deferred(),
       closing: false,
       probing: false,
@@ -902,7 +904,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       return false;
     } finally {
       execution.wakes--;
-      execution.woke++;
+      execution.moved++;
       execution.woken.resolve();
     }
   }
@@ -1020,12 +1022,13 @@ export class LocalOrchestrator implements DataflowOrchestrator {
           break;
         }
 
-        // What a wake that ends during this pass settles, and how many had
-        // ended as the pass began: the tasks such a wake made due are not
-        // among those the pass takes next
+        // What a wake that ends during this pass settles, and how far the
+        // run had moved on as the pass began: the tasks a wake made due, or a
+        // result that landed made ready, while the pass is under way are not
+        // among those it takes next
         const woken = deferred();
         execution.woken = woken;
-        const woke = execution.woke;
+        const moved = execution.moved;
 
         // Get ready tasks
         const readyTasks = stepGetReady(state);
@@ -1109,6 +1112,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
           }
 
           // Prepare task (resolve inputs at its versions, check cache)
+          const settled = execution.moved;
           const prepared = await stepPrepareTask(storage, state, taskName, versions, {
             landed: (task, inHash) => execution.caughtUp.get(`${task}@${inHash}`),
           });
@@ -1139,6 +1143,13 @@ export class LocalOrchestrator implements DataflowOrchestrator {
           // the catch-up runs that make it, each taking a place in the width.
           // One there is no room for yet is launched at a later pass.
           if (prepared.kind === 'behind') {
+            // Something settled while its inputs were resolved: a run it
+            // would wait for may have landed since, so it is resolved again
+            // rather than a run launched for what is now at hand
+            if (execution.moved !== settled) {
+              hadSyncCompletion = true;
+              continue;
+            }
             const waits = catchingUp?.waits ?? new Map<string, CatchUpRun>();
             for (const run of prepared.runs) {
               const key = catchUpKey(run);
@@ -1215,8 +1226,9 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         // A task the cache answered, or one left waiting, may have made
         // others ready: they are taken before the loop waits on what is in
         // flight, so a task starts in the pass that made it ready.
-        // So are the tasks a wake made due while the pass was under way.
-        if (hadSyncCompletion || execution.woke !== woke) continue;
+        // So are the tasks a wake made due, and those a result that landed
+        // made ready, while the pass was under way.
+        if (hadSyncCompletion || execution.moved !== moved) continue;
 
         // Wait for a task to complete, or for a wake, if we can't launch more
         if (execution.runningTasks.size > 0 || execution.wakes > 0) {
@@ -1733,6 +1745,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     })()
       .catch(fail)
       .finally(() => {
+        execution.moved++;
         if (execution.runningTasks.get(key) === launched) {
           execution.runningTasks.delete(key);
           execution.waiting.delete(key);
@@ -1907,6 +1920,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       .then((result) => this.completeTask(storage, repo, execution, taskName, prepared, versions, result))
       .catch((err) => this.failTask(execution, taskName, err))
       .finally(() => {
+        execution.moved++;
         // Identity-checked delete: only clear the slot if it still holds
         // THIS promise. If a re-launch replaced it, a blind delete-by-name
         // would drop the newer promise's tracking and orphan the task.
@@ -1978,6 +1992,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         await target.fail(err);
       })
       .finally(() => {
+        execution.moved++;
         if (execution.runningTasks.get(key) === planned) {
           execution.runningTasks.delete(key);
         }
@@ -2034,6 +2049,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         await run.target.fail(err);
       })
       .finally(() => {
+        execution.moved++;
         execution.waiting.delete(unitKey);
         if (execution.runningTasks.get(unitKey) === launched) {
           execution.runningTasks.delete(unitKey);

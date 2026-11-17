@@ -11,11 +11,12 @@
  * a second.
  *
  * Every result lands; a task whose inputs moved while it ran runs once more;
- * a change travels a step at a time; a task that reads several results reads
- * them all as of one commit of each record, a catch-up run making what the
- * execution cache does not hold there; a start that finds a run in flight
- * wakes it; a deploy that announces itself stops it; and a run resumed by
- * another orchestrator decides each task again.
+ * a change travels a step at a time, each task starting in the pass that
+ * made it ready; a task that reads several results reads them all as of one
+ * commit of each record, a catch-up run making what the execution cache does
+ * not hold there, once for every task that reads it; a start that finds a
+ * run in flight wakes it; a deploy that announces itself stops it; and a run
+ * resumed by another orchestrator decides each task again.
  */
 
 import { it, type TestContext } from 'node:test';
@@ -161,22 +162,46 @@ async function deployChain(t: TestContext, { storage, repo }: BackendContext): P
   return deployedTasks(storage, repo);
 }
 
+/**
+ * Deploys a task of its own input beside a chain of two over another, to
+ * workspace `ws`: `slow` over `a`, `quick` over `b`, and `after` over what
+ * `quick` writes.
+ */
+async function deployBeside(t: TestContext, { storage, repo }: BackendContext): Promise<Map<string, string>> {
+  const a = e3.input('a', IntegerType, variant('value', 1n));
+  const b = e3.input('b', IntegerType, variant('value', 2n));
+  const add = East.function([IntegerType], IntegerType, ($, x) => x.add(1n));
+  const slow = e3.task('slow', [a], add);
+  const quick = e3.task('quick', [b], add);
+  const after = e3.task('after', [quick.output], add);
+  const zip = join(scratch(t), 'beside.zip');
+  await e3.export(e3.package('beside', '1.0.0', a, b, slow, quick, after), zip);
+  await packageImport(storage, repo, zip);
+  await workspaceCreate(storage, repo, 'ws');
+  await workspaceDeploy(storage, repo, 'ws', 'beside', '1.0.0');
+  return deployedTasks(storage, repo);
+}
+
 const OrdersType = DictType(StringType, IntegerType);
 
 /**
  * Deploys two tasks over a record and a plain input, and one over both their
  * results, to workspace `ws`: `forecast` and `capacity` each read the record
  * `orders` and the input `rates`, and `plan` reads what both write.
+ *
+ * @param readers - `2` for a second task over both results, `budget`
  */
-async function deployCombined(t: TestContext, { storage, repo }: BackendContext): Promise<Map<string, string>> {
+async function deployCombined(t: TestContext, { storage, repo }: BackendContext, readers: 1 | 2 = 1): Promise<Map<string, string>> {
   const orders = e3.record('orders', OrdersType, { initial: new Map() });
   const rates = e3.input('rates', IntegerType, variant('value', 1n));
   const size = East.function([OrdersType, IntegerType], IntegerType, ($, rows, rate) => rows.size().multiply(rate));
+  const sum = East.function([IntegerType, IntegerType], IntegerType, ($, a, b) => a.add(b));
   const forecast = e3.task('forecast', [orders, rates], size);
   const capacity = e3.task('capacity', [orders, rates], size);
-  const plan = e3.task('plan', [forecast.output, capacity.output], East.function([IntegerType, IntegerType], IntegerType, ($, a, b) => a.add(b)));
+  const plan = e3.task('plan', [forecast.output, capacity.output], sum);
+  const both = readers === 2 ? [plan, e3.task('budget', [forecast.output, capacity.output], sum)] : [plan];
   const zip = join(scratch(t), 'combined.zip');
-  await e3.export(e3.package('combined', '1.0.0', orders, rates, forecast, capacity, plan), zip);
+  await e3.export(e3.package('combined', '1.0.0', orders, rates, forecast, capacity, ...both), zip);
   await packageImport(storage, repo, zip);
   await workspaceCreate(storage, repo, 'ws');
   await workspaceDeploy(storage, repo, 'ws', 'combined', '1.0.0');
@@ -392,6 +417,93 @@ export function dataflowFollowCases(setup: BackendSetup): void {
     const run = await storage.refs.dataflowRunGet(repo, 'ws', result.runId);
     assert.deepEqual([...run!.taskExecutions.get('plan')!.outputVersions].sort(), [['.inputs.rates', rates], ['.records.orders', c3.commit]],
       'the run records the versions plan\'s result was made from');
+  });
+
+  it('makes a result two tasks read at one commit with one catch-up run: the second waits for the run in flight, and nothing runs twice', async (t) => {
+    const context = await setup(t);
+    const { storage, repo } = context;
+    const tasks = await deployCombined(t, context, 2);
+    const runner = gatedRunner(storage, repo, tasks);
+    const lines = new RunLines();
+    const orchestrator = new LocalOrchestrator(stateStoreOf(context));
+    const rates = (await held(storage, repo, 'inputs/rates'))!;
+    const handle = await orchestrator.start(storage, repo, 'ws', { runner, ...lines.callbacks });
+    const edit = async (rows: ReadonlyArray<[string, bigint]>): Promise<{ commit: string; state: string }> => {
+      const commit = await commitOrders(storage, repo, rows);
+      assert.equal(await orchestrator.wake(storage, repo, 'ws'), true);
+      return commit;
+    };
+    // The readers, in the order the run takes its ready tasks
+    const readers = ['budget', 'plan'];
+    const landBoth = async (times: number): Promise<void> => {
+      for (const reader of readers) {
+        runner.release(reader);
+        await lines.said(`[DONE] ${reader}`, times);
+      }
+    };
+
+    // forecast's result moves to c1 while capacity's goes from c0 to c2, and
+    // both readers have run on c0
+    await runner.launched('forecast');
+    await runner.launched('capacity');
+    const c1 = await edit([['a', 1n]]);
+    runner.release('forecast');
+    await runner.launched('forecast');
+    await edit([['a', 1n], ['b', 2n]]);
+    runner.release('capacity');
+    await runner.launched('capacity');
+    for (const reader of readers) await runner.launched(reader);
+    await landBoth(1);
+    runner.release('forecast');
+    await runner.launched('forecast');
+    runner.release('capacity');
+
+    // Each reader reads both as of c1, where capacity never ran: one
+    // catch-up run makes it, for the first to ask, and the other waits for it
+    assert.deepEqual((await runner.launched('capacity')).inputHashes, [c1.state, rates]);
+    await lines.said('[CATCH-UP] capacity for budget');
+    assert.deepEqual([runner.holding('capacity'), runner.holding('plan'), runner.holding('budget')], [1, 0, 0]);
+    runner.release('capacity');
+    const read = [made('forecast', c1.state, rates), made('capacity', c1.state, rates)];
+    for (const reader of readers) assert.deepEqual((await runner.launched(reader)).inputHashes, read, reader);
+    assert.equal(runner.holding('capacity'), 0, 'no second catch-up run was launched');
+    assert.equal((await storage.refs.executionListIds(repo, tasks.get('capacity')!, inputsHash([c1.state, rates]))).length, 1,
+      'capacity ran once at c1');
+    assert.deepEqual(lines.printed.filter((line) => line.startsWith('[CATCH-UP]')), ['[CATCH-UP] capacity for budget']);
+
+    // The rest of the run: forecast lands on c2, where capacity stands
+    await landBoth(2);
+    runner.release('forecast');
+    for (const reader of readers) await runner.launched(reader);
+    await landBoth(3);
+    assert.equal((await orchestrator.wait(handle)).success, true);
+  });
+
+  it('starts a task in the pass that made it ready: what reads a result the cache answered starts while another task runs', async (t) => {
+    const context = await setup(t);
+    const { storage, repo } = context;
+    const tasks = await deployBeside(t, context);
+    const runner = gatedRunner(storage, repo, tasks);
+    const orchestrator = new LocalOrchestrator(stateStoreOf(context));
+    // A run of quick alone records its execution: the cache answers it next
+    const filtered = await orchestrator.start(storage, repo, 'ws', { runner, filter: 'quick' });
+    await runner.launched('quick');
+    runner.release('quick');
+    assert.equal((await orchestrator.wait(filtered)).executed, 1);
+
+    const lines = new RunLines();
+    const handle = await orchestrator.start(storage, repo, 'ws', { runner, ...lines.callbacks });
+    await runner.launched('slow');
+    // quick is answered by the cache, and after starts on it at once: it does
+    // not wait for slow, the one task in flight, to land
+    await runner.launched('after');
+    assert.deepEqual([runner.holding('slow'), runner.holding('quick')], [1, 0]);
+    assert.deepEqual(lines.printed, ['[CACHED] quick', '[START] slow', '[START] after']);
+    runner.release('after');
+    await lines.said('[DONE] after');
+    runner.release('slow');
+    const result = await orchestrator.wait(handle);
+    assert.deepEqual([result.success, result.executed, result.cached], [true, 2, 1]);
   });
 
   it('fails a task whose catch-up run failed, naming the run\'s task and the commit', async (t) => {
