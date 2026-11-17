@@ -9,14 +9,11 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
   canonicalDistributionName, installedFilesDigest, leftToTier, pythonMinor, pythonSatisfies, readTierManifest, recordedSiteFiles, tierHolds, tierManifestDigest,
   type TierManifest,
 } from './tier-manifest.js';
-
-/** The script a runtime image writes its manifest with: the spec runs from `dist/src`. */
-const SCRIPT = fileURLToPath(new URL('../../../../../../docker/images/tier-manifest.py', import.meta.url));
+import { tierManifestOf, uvOnPath } from './test-helpers.js';
 
 const RECORD = [
   '../../../bin/idna,sha256=SYIN4TtFm5oeBgQEc2JCs68aY26k012xrN4Kmu6WEsw,354',
@@ -129,23 +126,15 @@ describe('a tier manifest', () => {
     assert.throws(() => pythonMinor('3'), /names no Python minor release/);
   });
 
-  const hasUv = ((): boolean => {
-    try { execFileSync('uv', ['--version'], { stdio: 'ignore' }); return true; } catch { return false; }
-  })();
-
   it('is written by the image\'s script as this module reads and digests it: the same install, the same bytes',
-    { skip: process.platform === 'win32' ? 'a runtime image is Linux' : hasUv ? false : 'uv not on PATH' }, () => {
+    { skip: process.platform === 'win32' ? 'a runtime image is Linux' : uvOnPath() ? false : 'uv not on PATH' }, () => {
       const dir = mkdtempSync(join(tmpdir(), 'e3-tier-'));
       try {
         execFileSync('uv', ['venv', join(dir, 'venv')], { stdio: 'ignore' });
         const python = join(dir, 'venv', 'bin', 'python');
         execFileSync('uv', ['pip', 'install', '--python', python, 'idna==3.10', 'six==1.17.0'], { stdio: 'ignore' });
-        const write = (name: string): Buffer => {
-          execFileSync(python, [SCRIPT, join(dir, name)], { stdio: 'ignore' });
-          return readFileSync(join(dir, name));
-        };
-        const bytes = write('tier-manifest.json');
-        assert.deepEqual(write('again.json'), bytes, 'the same image writes the same bytes, so its digest names it');
+        const bytes = Buffer.from(tierManifestOf(python));
+        assert.deepEqual(Buffer.from(tierManifestOf(python)), bytes, 'the same image writes the same bytes, so its digest names it');
         const manifest = readTierManifest(bytes);
         assert.equal(manifest.python.executable, python);
         // The interpreter the virtualenv was made from, which one made over the tier runs

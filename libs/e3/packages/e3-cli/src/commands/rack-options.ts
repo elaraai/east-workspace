@@ -229,7 +229,11 @@ export function unattachedLine(rack: Pick<RackRunnerHandle, 'unattached'>, name:
  * The line a run prints when an environment's layers are built for a rack:
  * - `[ENV] 3f9a2b1c0d4e for x86_64-manylinux_2_28: building`, when the
  *   repository keeps none for the platform yet;
- * - `[ENV] 3f9a2b1c0d4e built in 48 s: 4 layers, 2.1 GB (1 new)`, once it does.
+ * - `[ENV] 3f9a2b1c0d4e built in 48 s: 4 layers, 2.1 GB (1 new)`, once it does;
+ * - `[ENV] 3f9a2b1c0d4e for x86_64-manylinux_2_28 over py-datascience: building`
+ *   and `[ENV] 3f9a2b1c0d4e built in 41 s: 2 layers, 6.2 MB (2 new), 31
+ *   distributions from the tier`, for one built over the tier image its rack
+ *   boots it over, without what that image holds.
  *
  * A run whose repository keeps the layers already prints neither.
  *
@@ -238,8 +242,9 @@ export function unattachedLine(rack: Pick<RackRunnerHandle, 'unattached'>, name:
  */
 export function rackEnvironmentLine(event: RackEnvironmentEvent): string {
   const name = event.envHash.slice(0, 12);
-  if (event.kind === 'building') return `  [ENV] ${name} for ${event.platform}: building`;
-  return `  [ENV] ${name} built in ${Math.round(event.ms / 1000)} s: ${event.layers} ${event.layers === 1 ? 'layer' : 'layers'}, ${formatSize(event.bytes)} (${event.fresh} new)`;
+  if (event.kind === 'building') return `  [ENV] ${name} for ${event.platform}${event.over === undefined ? '' : ` over ${event.over}`}: building`;
+  const fromTier = event.fromTier === undefined ? '' : `, ${event.fromTier} ${event.fromTier === 1 ? 'distribution' : 'distributions'} from the tier`;
+  return `  [ENV] ${name} built in ${Math.round(event.ms / 1000)} s: ${event.layers} ${event.layers === 1 ? 'layer' : 'layers'}, ${formatSize(event.bytes)} (${event.fresh} new)${fromTier}`;
 }
 
 /** Prints an environment event's line. */

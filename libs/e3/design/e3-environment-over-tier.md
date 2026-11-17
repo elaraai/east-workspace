@@ -1,8 +1,8 @@
 # Environments built over their base tier (#1655)
 
-Status: **approved 16 Nov 2026, being built** in the same change as #1654.
-Built so far: the tier manifest and the build over a tier (3.1 to 3.3); the
-rack's side (3.4, 3.5) follows. Section 6 lists what building it changed. It follows
+Status: **approved 16 Nov 2026, and built** in the same change as #1654: all
+of it but the rack agent's own half (3.7), which is the agent's. Section 6
+lists what building it changed. It follows
 [`e3-environment-granularity.md`](e3-environment-granularity.md) and
 [`e3-rack-delegation.md`](e3-rack-delegation.md), and pairs with the
 member-only install (#1654), which it assumes.
@@ -148,29 +148,38 @@ over a tier whose manifest is that one.
 
 A rack that can boot an environment over its tier says so with its
 heartbeats, in the report it already sends (JSON, read for what a reader
-knows, so no protocol number moves):
+knows, so no rack protocol number moves). It names each tier image by its
+manifest's digest, and sends the manifest's text to a source whose hello
+names `tier-manifests`:
 
 ```json
 { "features": ["resources", "environments", "environments-over-tier"],
   "target": "x86_64-manylinux_2_28",
-  "tiers": { "py": "sha256:77ab…", "py-datascience": "sha256:c41d…" } }
+  "tiers": { "py": { "digest": "sha256:77ab…", "manifest": "{…}\n" },
+             "py-datascience": { "digest": "sha256:c41d…", "manifest": "{…}\n" } } }
 ```
 
-The launching machine asks the hub for a manifest it does not hold, by its
-digest, and keeps it under `<repo>/rack/tiers/`. It builds an environment over
-a tier only for racks that name that tier's manifest; for any other rack it
+The hub keeps a manifest whose text is the bytes its digest names, for as
+long as a rack reports it: no route is added for it, and a hub that restarts
+has it again with the next heartbeat. It tells a session which image each rack
+names, and answers a manifest by its digest. The launching machine builds an
+environment over an image only for racks that name it; for any other rack it
 builds whole. Two racks with different images of one tier are two builds.
 
 The feature word gates the rack's side: a rack that does not say it is never
-asked. The hub's control protocol gains the manifest request, so its number
-moves (4 → 5), as it does whenever a launching machine asks its hub something
-an older hub would not know.
+built for. The hub's control protocol says more of each rack and gains the
+manifest request, so its number moves (4 → 5), as it does whenever a
+launching machine asks its hub something an older hub would not know.
+
+A rack that names an image is served the layers built over it when its
+session keeps them, and the whole environment's otherwise: so an environment
+that does not fit the image runs there too.
 
 | The rack | The environment |
 |---|---|
 | Says `environments-over-tier`, names the lease's tier's manifest | Built over that tier; composed over it |
 | Says `environments` alone | Built whole, as today |
-| Names a manifest the hub cannot give | Built whole |
+| Names a manifest whose text the hub does not hold | Built whole |
 | Project's Python is not the tier's minor | Built whole |
 | Its tier image changes | A new digest: built again over it |
 
@@ -183,21 +192,26 @@ version. The last part cannot be done as written: the images are built
 (`docker-publish.yml`), so a package cannot contain the manifest of an image
 built from it.
 
-Proposed instead: the image carries its manifest (3.1) and the release
-attaches each tier's as an asset, for inspection; a launching machine gets
-the manifest of the tier a rack actually boots **from that rack, through the
-hub, by the digest its heartbeat names**. It is then always the manifest of
-the image that will run the work, a rack's own tier image included.
+Proposed instead: the image carries its manifest (3.1); a launching machine
+gets the manifest of the tier a rack actually boots **from that rack, through
+the hub, by the digest its heartbeat names**. It is then always the manifest
+of the image that will run the work, a rack's own tier image included.
+
+An image's manifest is read from the image (`docker run --rm
+ghcr.io/elaraai/east-py cat /opt/e3/tier-manifest.json`). Attaching each to
+its release as an asset, for inspection, is not built: the publish workflow
+would have to write to a release, which is a change to the release of its
+own.
 
 ### 3.7 What is e3's, and what is the rack agent's
 
 - **In this repository**: the manifest script and the two Dockerfiles; the
   manifest's type and digest; the build over a tier (e3-core); the layers'
   key and `over` (e3-rack); the report's `tiers` and the hub's manifest
-  request; the test agent, which declares a manifest of this machine's own
-  Python, so the whole path runs in the suites.
+  request; the test agent, which is given a manifest of a Python of this
+  machine's, so the whole path runs in the suites.
 - **The rack agent's**: reading the manifest from its tier images, saying the
-  feature and the digests, answering the manifest request, and booting an
+  feature, the digests and the manifests' text in its report, and booting an
   environment over its tier: unpacking its layers, then linking its
   interpreter with `composeEnvironmentOverTier`. Until an agent says the
   feature, every environment is built whole.
@@ -252,3 +266,8 @@ the image that will run the work, a rack's own tier image included.
   (`environmentFitsTier`: a python environment whose lock's `requires-python`
   takes the tier's Python), so one that does not is built whole once, under
   the whole build's key, and shared with every rack.
+- **The manifest travels in the report.** A rack only ever calls its source,
+  so nothing can ask it for a manifest. Its report carries the text, which
+  the hub checks against the digest and keeps in memory; the launching
+  machine asks the hub and keeps nothing on disk, since a manifest is only
+  of use while a rack reports it.

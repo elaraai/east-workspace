@@ -41,12 +41,28 @@ export interface RackLayerBuild {
   readonly reason?: string;
   /** The build's own words for it */
   readonly said?: string;
+  /** Whether the layers kept were built over the tier image asked for: not
+   *  for an environment that does not fit it, which is kept whole */
+  readonly over?: boolean;
+}
+
+/** The image of a tier a rack boots environments over: its manifest's
+ *  digest, as the rack's snapshot names it. */
+export interface RackTierImage {
+  /** The manifest's digest, `sha256:<hex>` */
+  readonly digest: string;
+}
+
+/** The name a build of an environment's layers is known by among a
+ *  session's: the platform, and the tier image it is built over. */
+function layersFor(platform: string, image?: RackTierImage): string {
+  return image === undefined ? platform : `${platform} ${image.digest}`;
 }
 
 /**
  * The builds of environments' layers a session's runs asked for, each once
- * for an environment and a platform: a second ask is answered what the first
- * came to.
+ * for an environment, a platform and the tier image it is built over: a
+ * second ask is answered what the first came to.
  *
  * @remarks
  * A build that failed is tried again by the next run, once its session is
@@ -71,7 +87,8 @@ export class RackLayerBuilds {
    * The build of an environment's layers for a platform: the one asked for
    * already, or this one, started now.
    * @param envHash - The environment's hash
-   * @param platform - The platform
+   * @param platform - The platform, and the tier image the layers are built
+   *   over when they are, as one name
    * @param build - Builds them, answering what it came to
    * @returns What the build came to
    */
@@ -96,16 +113,18 @@ export class RackLayerBuilds {
    *   spec and files
    * @param repo - Repository path
    * @param envHash - The environment's hash
-   * @param target - The platform, the tier and the e3 release
+   * @param target - The platform, the tier, the e3 release, and the tier's
+   *   image when the layers are built over it
    * @param onEvent - Told a build starts, and what it came to
    * @param signal - Ends a wait for another build of the same layers
    * @returns What the build came to: why the layers are not kept, when they
-   *   are not, and the build's own words
+   *   are not, and the build's own words; and whether they were built over
+   *   the tier's image
    */
   publish(storage: StorageBackend, repo: string, envHash: string, target: EnvLayerTarget,
     onEvent?: (event: RackEnvironmentEvent) => void, signal?: AbortSignal): Promise<RackLayerBuild> {
-    return this.get(envHash, target.platform, () => publishEnvLayers(storage, repo, envHash, target, onEvent, signal).then(
-      () => ({}),
+    return this.get(envHash, layersFor(target.platform, target.over), () => publishEnvLayers(storage, repo, envHash, target, onEvent, signal).then(
+      (manifest) => ({ over: manifest.over !== undefined }),
       (error: unknown) => error instanceof EnvironmentTargetRefused ? { reason: error.reason, said: error.message }
         : { reason: 'build-failed', said: error instanceof Error ? error.message : String(error) }));
   }
@@ -474,8 +493,10 @@ export interface RackPlaceOptions {
   /** What the work asks of a rack, given the most cores a rack that takes it
    *  has; or why it cannot be a rack's */
   readonly asks: (mostCores: number) => RackLeaseResources | RackReason;
-  /** Builds the environment's layers for a platform, once for each */
-  readonly layers: (envHash: string, platform: string) => Promise<RackLayerBuild>;
+  /** Builds the environment's layers for a platform, once for each, and for
+   *  each image of the work's tier a rack of the platform boots environments
+   *  over */
+  readonly layers: (envHash: string, platform: string, image?: RackTierImage) => Promise<RackLayerBuild>;
 }
 
 /** How {@link RackFleet.submit} queues a lease. */
@@ -510,18 +531,22 @@ export interface RackSubmitted {
  * ({@link rackCapsUnits}), and work that declares an environment one's that
  * composes environments, for a platform its layers are kept for, once that is
  * known. A rack says both with its heartbeats: of one this hub has not heard
- * yet, neither is known.
+ * yet, neither is known. For a rack that names the image of the work's tier
+ * it boots environments over, the layers are built over that image, and
+ * whole for any other: the rack is served whichever its build came to.
  *
  * @example
  * ```ts
  * const fleet = new RackFleet(session, verdict, false);
  * const placed = await fleet.place({ rackOnly: false, unreachableWaitMs: RACK_ONLY_WAIT_MS, asks: (cores) => wholeResources(verdict, cores),
- *   layers: (envHash, platform) => builds.publish(storage, repo, envHash, { platform, tier: verdict.tier, e3Version }) });
+ *   layers: (envHash, platform, image) => builds.publish(storage, repo, envHash, { platform, tier: verdict.tier, e3Version }) });
  * ```
  */
 export class RackFleet {
-  /** The platforms the work's environment's layers are kept for, once built */
-  private platforms: ReadonlySet<string> | undefined;
+  /** What the work's environment's layers are kept for, once built: each
+   *  platform they are kept whole for, and each platform and tier image they
+   *  are kept built over ({@link layersFor}) */
+  private kept: ReadonlySet<string> | undefined;
 
   /**
    * @param session - The session the work is leased through
@@ -530,11 +555,24 @@ export class RackFleet {
    */
   constructor(private readonly session: RackSession, private readonly verdict: RackVerdict, private readonly unit: boolean) {}
 
+  /** The image of the work's tier a rack boots environments over, when it
+   *  names one. */
+  private image(rack: SnapshotRack): RackTierImage | undefined {
+    const digest = rack.tierManifests.find(({ tier }) => tier === this.verdict.tier)?.manifest;
+    return digest === undefined ? undefined : { digest };
+  }
+
+  /** Whether the layers a rack would be served are kept: those built over
+   *  its tier's image, or the whole environment's. */
+  private serves(rack: SnapshotRack & { target: { value: string } }): boolean {
+    return this.kept === undefined || this.kept.has(layersFor(rack.target.value, this.image(rack))) || this.kept.has(layersFor(rack.target.value));
+  }
+
   private standing(rack: SnapshotRack): RackStanding {
     if (!this.unit && this.verdict.environment === null) return 'takes';
     if (!rack.reported) return 'unsaid';
     if (this.unit && !rackCapsUnits(rack)) return 'caps-no-unit';
-    if (this.verdict.environment !== null && !(composes(rack) && (this.platforms === undefined || this.platforms.has(rack.target.value)))) return 'no-environment';
+    if (this.verdict.environment !== null && !(composes(rack) && this.serves(rack))) return 'no-environment';
     return 'takes';
   }
 
@@ -602,9 +640,10 @@ export class RackFleet {
    * hold runs locally, by name ({@link unheld}). Work that declares an
    * environment is a rack's once the environment's layers are kept for the
    * platform of a rack that could hold it: they are built first, for each
-   * such platform, and work whose environment no install makes for any of
-   * them, or whose builds fail, runs locally with the build's reason and
-   * words.
+   * such platform, over the tier image each such rack names and whole for a
+   * rack that names none, and work whose environment no install makes for
+   * any of them, or whose builds fail, runs locally with the build's reason
+   * and words.
    *
    * @param options - Whether it waits for a rack, what it asks, and how its
    *   environment's layers are built
@@ -636,11 +675,19 @@ export class RackFleet {
       // on: built now if the repository keeps none, and for no rack that
       // could never hold the work. The work is then a rack's whose platform
       // they were built for.
-      const built = [...new Set(this.racks().filter((rack) => rackCouldHold(rack, asked)).filter(composes).map((rack) => rack.target.value))].sort();
-      const made = await Promise.all(built.map((platform) => options.layers(environment, platform)));
+      const wanted = new Map<string, { platform: string; image?: RackTierImage }>();
+      for (const rack of this.racks().filter((candidate) => rackCouldHold(candidate, asked)).filter(composes)) {
+        const image = this.image(rack);
+        wanted.set(layersFor(rack.target.value, image), { platform: rack.target.value, ...(image !== undefined && { image }) });
+      }
+      const built = [...wanted.keys()].sort().map((name) => wanted.get(name)!);
+      const made = await Promise.all(built.map(({ platform, image }) => options.layers(environment, platform, image)));
       if (options.signal?.aborted) return { kind: 'aborted' };
-      this.platforms = new Set(built.filter((_, i) => made[i]!.reason === undefined));
-      if (this.platforms.size === 0) {
+      // Kept over the image asked for, or whole: an environment that does
+      // not fit an image is kept whole, which a rack of that image runs too
+      this.kept = new Set(built.flatMap(({ platform, image }, i) => made[i]!.reason !== undefined ? []
+        : [layersFor(platform, made[i]!.over === true ? image : undefined)]));
+      if (this.kept.size === 0) {
         const refused = made.find((result) => result.reason !== undefined)!;
         return { kind: 'local', why: { reason: `environment:${refused.reason!}`, ...(refused.said !== undefined && { said: refused.said }) } };
       }
@@ -756,8 +803,13 @@ export async function admitWork(options: RackAdmitOptions): Promise<RackAdmissio
   const fleet = new RackFleet(session, verdict, options.unit);
   const placed = await fleet.place({ rackOnly: delegation.rackOnly, unreachableWaitMs: delegation.unreachableWaitMs, signal,
     asks: (mostCores) => options.asks(verdict, mostCores),
-    layers: (envHash, platform) => delegation.builds.publish(storage, repo, envHash, { platform, tier: verdict.tier, e3Version: session.e3Version },
-      options.onEnvironment, signal) });
+    layers: async (envHash, platform, image) => {
+      // The image's manifest, as the rack reported it: one the hub cannot
+      // give is no image to build over, and the environment is built whole
+      const manifest = image === undefined ? null : await session.tierManifest(image.digest);
+      return delegation.builds.publish(storage, repo, envHash, { platform, tier: verdict.tier, e3Version: session.e3Version,
+        ...(image !== undefined && manifest !== null && { over: { digest: image.digest, manifest } }) }, options.onEnvironment, signal);
+    } });
   return placed.kind === 'rack' ? { kind: 'rack', verdict, fleet, resources: placed.resources, storage } : placed;
 }
 

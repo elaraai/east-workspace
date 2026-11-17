@@ -83,7 +83,8 @@ it('tells a run where work is placed lease by lease: its wait, its claims, what 
   const report = new RackPlacementReport((event) => { events.push(event); }, work);
   const resources = (memoryBytes: number) => ({ cores: 8n, memoryBytes: BigInt(memoryBytes), gpus: 0n });
   const rack: SnapshotRack = { rackId: 'r1', label: 'rack-a', tiers: ['node'], capacity: 4n, busy: 0n, healthy: true, bundledE3: some(E3_RACK_VERSION),
-    pendingApproval: false, reported: true, features: ['resources'], target: none, problem: none, resources: some(resources(16 * GiB)), free: some(resources(GiB)) };
+    pendingApproval: false, reported: true, features: ['resources'], target: none, problem: none, resources: some(resources(16 * GiB)), free: some(resources(GiB)),
+    tierManifests: [] };
 
   assert.equal(report.rackLabel, 'rack', 'until a rack claims it');
   report.waiting(needs)(rack, { cores: 0, memoryBytes: GiB, gpus: 0 }, 'L1');

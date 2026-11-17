@@ -7,7 +7,8 @@ import { none, readBeast2Type, type ValueTypeOf } from '@elaraai/east';
 import { hubSocketPath, rackHome } from '../paths.js';
 import { ApproveRackType, AttachLeaseResultType, CancelLeaseResultType, CreateLeaseResultType, CreateLeaseType, EmptyType,
   HubConfigType, HubEnrollResultType, HubEnrollType, HubHelloType, HubStatusType, OpenSessionResultType, OpenSessionType,
-  RemoveRackResultType, SessionPollResultType, SessionPollType, type CreateLease, type HubConfig, type OpenSession } from '../protocol/control.js';
+  RemoveRackResultType, SessionPollResultType, SessionPollType, TierManifestRequestType, TierManifestResultType,
+  type CreateLease, type HubConfig, type OpenSession } from '../protocol/control.js';
 import { RackRegistrationType, RackSecurityPolicyType, type RackSecurityPolicy } from '../protocol/registration.js';
 import { BEAST2_CONTENT_TYPE } from '@elaraai/e3-types';
 import { socketRequest, socketStream } from './local-http.js';
@@ -58,6 +59,15 @@ export class HubClient {
   }
   /** Reads listener readiness, attached sessions and fleet capacity. */
   status(): Promise<ValueTypeOf<typeof HubStatusType>> { return socketRequest(this.socketPath, 'GET', '/v1/status', { responseType: HubStatusType }); }
+  /**
+   * Reads a tier image's manifest, as a rack that boots the tier reported it.
+   * @param digest - The manifest's digest, `sha256:<hex>`
+   * @returns The manifest's text, or null when no rack the hub hears reports it
+   */
+  async tierManifest(digest: string): Promise<string | null> {
+    const text = await socketRequest(this.socketPath, 'POST', '/v1/tier-manifests', { requestType: TierManifestRequestType, body: { digest }, responseType: TierManifestResultType });
+    return text.type === 'some' ? text.value : null;
+  }
   /** Mints a one-time enrollment token for the configured private-network listener. */
   enroll(request: ValueTypeOf<typeof HubEnrollType> = { label: none, ttlMinutes: none }): Promise<ValueTypeOf<typeof HubEnrollResultType>> {
     return socketRequest(this.socketPath, 'POST', '/v1/enroll', { requestType: HubEnrollType, body: request, responseType: HubEnrollResultType });

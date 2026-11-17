@@ -63,15 +63,23 @@ export const RackResourcesType = StructType({ cores: IntegerType, memoryBytes: I
  * (`free`): the less of what the rack last reported free and what this hub's
  * own leases leave of it. A rack that has reported, and reports no resources,
  * admits by its slots, `capacity` and `busy`; of one that has not reported,
- * nothing says yet how it admits.
+ * nothing says yet how it admits. Of a rack that composes environments built
+ * over a tier, `tierManifests` names, for each tier it boots them over, the
+ * digest of the tier image's manifest, which the hub holds the text of
+ * ({@link TierManifestRequestType}).
  */
 export const CapacitySnapshotType = StructType({
   racks: ArrayType(StructType({ rackId: StringType, label: StringType, tiers: ArrayType(StringType), capacity: IntegerType,
     busy: IntegerType, healthy: BooleanType, bundledE3: OptionType(StringType), pendingApproval: BooleanType,
     reported: BooleanType, features: ArrayType(StringType), target: OptionType(StringType), problem: OptionType(StringType),
-    resources: OptionType(RackResourcesType), free: OptionType(RackResourcesType) })),
+    resources: OptionType(RackResourcesType), free: OptionType(RackResourcesType),
+    tierManifests: ArrayType(StructType({ tier: StringType, manifest: StringType })) })),
   queued: IntegerType, mine: StructType({ pending: IntegerType, claimed: IntegerType }),
 });
+/** Asks for a tier image's manifest, by its digest (`sha256:<hex>`). */
+export const TierManifestRequestType = StructType({ digest: StringType });
+/** The manifest's text, as a rack that boots the tier reported it; none when no rack the hub hears reports it. */
+export const TierManifestResultType = OptionType(StringType);
 /** Requests events after a cursor, waiting at most 20 seconds. */
 export const SessionPollType = StructType({ after: IntegerType, waitMs: IntegerType });
 /** Returns ordered events and a fresh capacity snapshot. */

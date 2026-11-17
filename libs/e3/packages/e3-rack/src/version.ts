@@ -13,6 +13,7 @@ export const E3_RACK_VERSION: string = E3_RELEASE;
  * envelope: the envelope held e3's API error type, which changes between
  * releases, so an e3 of one release could not read the hello of a hub
  * another started. 4 leases function calls: a claim's attempt is optional,
- * since a call's lease runs none.
+ * since a call's lease runs none. 5 says, of each rack, the manifest of each
+ * tier it boots environments over, and answers a manifest by its digest.
  */
-export const HUB_PROTOCOL = 4;
+export const HUB_PROTOCOL = 5;

@@ -68,6 +68,7 @@ import {
   RackStorageResponseType,
   RackLogsRequestType,
   RACK_CALL_VALUE_OBJECTS,
+  RACK_TIER_MANIFESTS,
   RACK_PASS_OVER_MS,
   RACK_PROTOCOL,
   RACK_PROTOCOL_HEADER,
@@ -197,6 +198,13 @@ export interface RackRouteOptions {
    * agent sends one, and a value too large to carry inline runs elsewhere.
    */
   callValueObjects?: boolean;
+  /**
+   * Whether the source reads the manifests of the tiers a rack boots
+   * environments over, from the rack's report: its hello names
+   * {@link RACK_TIER_MANIFESTS}, and a rack sends it each manifest's text.
+   * Set it where {@link onReport} keeps them. Absent, no rack sends one.
+   */
+  tierManifests?: boolean;
   /**
    * Wakes a dataflow's parked run once a rack attempt's outcome is recorded
    * (#208): `wakeRun` over the run's pointer, which asks the deployment's
@@ -400,7 +408,7 @@ export function createRackRoutes(
     protocol: RACK_PROTOCOL,
     e3: e3Version ?? E3_RACK_VERSION,
     limits: { transfersAtOnce: options?.transfersAtOnce ?? RACK_TRANSFERS_AT_ONCE },
-    features: callValueObjects ? [RACK_CALL_VALUE_OBJECTS] : [],
+    features: [...(callValueObjects ? [RACK_CALL_VALUE_OBJECTS] : []), ...(options?.tierManifests === true ? [RACK_TIER_MANIFESTS] : [])],
   };
   app.get('/api/rack/hello', () => new Response(JSON.stringify(hello), { headers: { 'Content-Type': 'application/json' } }));
 

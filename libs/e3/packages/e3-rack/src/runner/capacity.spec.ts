@@ -16,7 +16,7 @@ function rack(all: number, free: number, overrides: Partial<SnapshotRack> = {}):
   const resources = (memoryBytes: number) => ({ cores: 8n, memoryBytes: BigInt(memoryBytes), gpus: 0n });
   return { rackId: 'r1', label: 'rack-a', tiers: ['node'], capacity: 4n, busy: 0n, healthy: true, bundledE3: some(E3_RACK_VERSION),
     pendingApproval: false, reported: true, features: ['resources'], target: none, problem: none,
-    resources: some(resources(all)), free: some(resources(free)), ...overrides };
+    resources: some(resources(all)), free: some(resources(free)), tierManifests: [], ...overrides };
 }
 
 it('counts the leases a rack holds now by what each reserves, not its cap, as the local budget does', () => {

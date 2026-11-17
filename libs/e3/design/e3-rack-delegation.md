@@ -320,6 +320,12 @@ to it (`prebuiltEnvironment`, `linkPrebuiltEnvironment`) and installs nothing.
 One it cannot compose ends its lease `environment-failed`, and the work runs
 locally.
 
+**Over a tier.** A rack that composes environments built over its tier says
+`environments-over-tier`, and reports the manifest of each tier image it
+boots them over. The launching machine then builds a python environment over
+that image, and the rack is served those layers: see
+[`e3-environment-over-tier.md`](e3-environment-over-tier.md).
+
 | The task | Reason on its `[LOCAL]` line |
 | --- | --- |
 | Declares a `tools` or an `image` environment | `environment:tools`, `environment:image` |

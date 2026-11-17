@@ -14,7 +14,7 @@ import type { RackLeaseRecord, RackLeaseStore } from '../lease/lease-store.js';
 import { refuse } from '../server/beast2.js';
 import type { RackAttemptStore } from '../server/rack-routes.js';
 import type { RackPutTarget, RackStorageBridge } from '../server/storage-bridge.js';
-import { envLayerDigest, envManifestKey, envManifestName } from '../server/env-publication.js';
+import { envLayerDigest, envManifestName } from '../server/env-publication.js';
 import { RackHubError, socketRequest, socketStream } from '../client/local-http.js';
 import { LeaseDataType, LeaseOutcomeType, LeaseRunningType, LeaseStoppedType, SessionLogsType,
   SessionUploadType, TouchObjectsType, VerifyOutputType, type SessionUpload } from '../protocol/session-data.js';
@@ -95,9 +95,14 @@ export interface SessionBridgeOptions {
    * origin the rack's own request named.
    */
   advertiseOrigin: () => string | undefined;
-  /** The platform a rack runs environments on, as it last reported: the one
-   *  the layers it is served were built for. Absent, no layer is served. */
-  target?: (rackId: string) => string | undefined;
+  /**
+   * The keys a rack's manifest of a lease's environment may be kept under, by
+   * what the rack last reported, the first the one it is served when its
+   * session keeps it: the layers built over the tier it boots the lease's
+   * work over, then the whole environment's, each for its platform. None for
+   * a rack that reports no platform. Absent, no layer is served.
+   */
+  envManifestKeys?: (rackId: string, lease: RackLeaseRecord) => readonly string[];
   /** Controls capability expiration in tests. */
   now?: () => number;
   /**
@@ -126,7 +131,8 @@ const MANIFESTS_KEPT_BYTES = 16 * 1024 * 1024;
  *
  * The layers of a lease's environment are served the same way, from where
  * its session keeps them: a lease reads the manifest of its own environment,
- * built for the platform of the rack that asks, and the layers it names.
+ * built for the platform of the rack that asks, over the tier that rack
+ * boots it over when its session keeps that build, and the layers it names.
  * @example
  * const bridge = new SessionProxyStorageBridge(options);
  * app.route('/', bridge.dataRoutes());
@@ -143,6 +149,9 @@ export class SessionProxyStorageBridge implements RackStorageBridge {
   /** The manifests sessions keep, read once: by the session and the name. */
   private readonly manifests = new Map<string, string>();
   private manifestBytes = 0;
+  /** The key a rack is served a lease's environment by, for as long as it
+   *  holds the lease: by the lease and the rack. */
+  private readonly envKeys = new Map<string, string>();
   private readonly transfersAtOnce: number;
   private readonly now: () => number;
 
@@ -370,9 +379,39 @@ export class SessionProxyStorageBridge implements RackStorageBridge {
   }
 
   /**
+   * The key of the manifest a rack is served of a lease's environment: the
+   * first of the rack's keys ({@link SessionBridgeOptions.envManifestKeys})
+   * its session keeps a manifest by.
+   *
+   * @remarks
+   * A rack that holds the lease is served the one manifest for as long as it
+   * holds it, though its session builds another meanwhile: the layers it asks
+   * for are that manifest's. A key no manifest is kept by is asked again each
+   * time, since it may be built.
+   *
+   * @param repo - The lease's repository
+   * @param leaseId - The lease
+   * @param rackId - The rack that asks, or would claim it
+   * @returns The key, or null when its session keeps none of them
+   */
+  async envManifestKeyOf(repo: string, leaseId: string, rackId: string): Promise<string | null> {
+    const held = `${repo} ${leaseId} ${rackId}`;
+    const known = this.envKeys.get(held);
+    if (known !== undefined) return known;
+    const lease = await this.options.leases.get(repo, leaseId);
+    if (lease === null) return null;
+    for (const key of this.options.envManifestKeys?.(rackId, lease) ?? []) {
+      if (await this.readEnvManifestOf(repo, leaseId, key) === null) continue;
+      if (lease.status === 'claimed' && lease.claimedBy === rackId) this.envKeys.set(held, key);
+      return key;
+    }
+    return null;
+  }
+
+  /**
    * A data URL for one layer of the calling lease's environment, bound to the
    * lease and its attempt as an object's is. The session serves the layer
-   * only if the manifest built for the claiming rack's platform names it.
+   * only if the manifest the claiming rack is served names it.
    */
   async presignEnvLayer(blobKey: string): Promise<string> {
     const context = this.options.coordinator.lease();
@@ -381,9 +420,9 @@ export class SessionProxyStorageBridge implements RackStorageBridge {
     const environment = lease?.event.environment;
     if (lease?.status !== 'claimed' || lease.claimedBy === undefined) throw new RackHubError('lease_ended', 'Rack lease is no longer claimed');
     if (digest === null || environment === undefined) throw new Error('The lease names no environment whose layer this is');
-    const target = this.options.target?.(lease.claimedBy);
-    const name = target === undefined ? null : envManifestName(envManifestKey(environment, lease.event.e3Version ?? '', target));
-    if (name === null) throw new Error('The rack reports no platform it runs environments on');
+    const key = await this.envManifestKeyOf(context.repo, context.leaseId, lease.claimedBy);
+    const name = key === null ? null : envManifestName(key);
+    if (name === null) throw new Error('The rack is served no manifest of the lease\'s environment');
     return this.url(await this.mint(context, digest, undefined, { manifest: name }));
   }
 
@@ -402,6 +441,8 @@ export class SessionProxyStorageBridge implements RackStorageBridge {
 
   async discardWrites(repo: string, leaseId: string, _hashes: readonly string[]): Promise<number> {
     this.revoke(repo, leaseId);
+    // Its next claim, by this rack or another, is served its manifest anew
+    for (const held of this.envKeys.keys()) if (held.startsWith(`${repo} ${leaseId} `)) this.envKeys.delete(held);
     const caps = [...this.capabilities.values()].filter((cap) => cap.repo === repo && cap.leaseId === leaseId);
     for (const cap of caps) this.capabilities.delete(cap.id);
     const results = await Promise.allSettled(caps.map(async (cap) => {
@@ -515,5 +556,6 @@ export class SessionProxyStorageBridge implements RackStorageBridge {
     this.transfers.clear();
     this.manifests.clear();
     this.manifestBytes = 0;
+    this.envKeys.clear();
   }
 }

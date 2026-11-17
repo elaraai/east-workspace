@@ -15,7 +15,8 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { East, IntegerType, OptionType, StringType, decodeBeast2For, encodeBeast2For, equalFor, none, some, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { decodeTaskObject } from '@elaraai/e3-types';
-import { LocalStorage, environmentLayerPath, environmentLayersDir, hostEnvironmentPlatform, inputsHash, packageImport, packageRead, processOwner, repoInit, uuidv7 } from '@elaraai/e3-core';
+import { LocalStorage, environmentLayerPath, environmentLayersDir, hostEnvironmentPlatform, inputsHash, packageImport, packageRead, processOwner, repoInit,
+  tierManifestDigest, uuidv7 } from '@elaraai/e3-core';
 import { RackHub, type RackHubOptions } from './hub.js';
 import { defaultHubConfig, loadHubCertificate, saveHubConfig, type HubConfig } from './config.js';
 import { readHubLock } from './lock.js';
@@ -24,11 +25,13 @@ import { startSessionDataServer } from '../client/session-data-server.js';
 import { HUB_CONFIG_FILE, hubSocketPath } from '../paths.js';
 import { E3_RACK_VERSION, HUB_PROTOCOL } from '../version.js';
 import { ApproveRackType, AttachLeaseResultType, CancelLeaseResultType, CreateLeaseType, CreateLeaseResultType, EmptyType, HubAttemptType, HubConfigType,
-  HubEnrollResultType, HubEnrollType, HubStatusType, OpenSessionType, OpenSessionResultType, RemoveRackResultType, SessionPollType, SessionPollResultType } from '../protocol/control.js';
+  HubEnrollResultType, HubEnrollType, HubStatusType, OpenSessionType, OpenSessionResultType, RemoveRackResultType, SessionPollType, SessionPollResultType,
+  TierManifestRequestType, TierManifestResultType } from '../protocol/control.js';
 import { RackRegistrationType, RackSecurityPolicyType } from '../protocol/registration.js';
 import { RackHeartbeatRequestType, RackHeartbeatResponseType } from '../protocol/rack-wire.js';
 import { sameLeaseRefs } from '../testing/lease-refs.js';
-import { RACK_CALL_VALUE_OBJECTS, RACK_LISTENER_IDLE_MS, RACK_PROTOCOL, RACK_TRANSFERS_AT_ONCE, readRackHello, readRackRefusal } from '../protocol/rack-json.js';
+import { RACK_CALL_VALUE_OBJECTS, RACK_ENVIRONMENTS_OVER_TIER, RACK_LISTENER_IDLE_MS, RACK_PROTOCOL, RACK_TIER_MANIFESTS, RACK_TRANSFERS_AT_ONCE, readRackHello,
+  readRackRefusal, readRackReport } from '../protocol/rack-json.js';
 import { TestRackAgent, type TestRackAgentOptions } from '../testing/test-rack-agent.js';
 import { SlowLink, type SlowLinkOptions } from '../testing/slow-link.js';
 import { certificateSha256, createHubCertificate, pinnedFetch } from '../tls/tls.js';
@@ -80,7 +83,7 @@ async function fixture(options: RackHubOptions = {}, port = 0, overrides: Partia
     const cancel = (id: string) => socketRequest(socket, 'POST', `${path}/leases/${encodeURIComponent(id)}/cancel`, { responseType: CancelLeaseResultType });
     return { ...opened, close, create, events, cancel, logs };
   };
-  const agent = async (as: Pick<TestRackAgentOptions, 'report' | 'protocol' | 'capacity' | 'transfersAtOnce' | 'timings' | 'faults' | 'resources'> & { version?: string } = {}, origin?: string) => {
+  const agent = async (as: Pick<TestRackAgentOptions, 'report' | 'protocol' | 'capacity' | 'transfersAtOnce' | 'timings' | 'faults' | 'resources' | 'label'> & { version?: string } = {}, origin?: string) => {
     const mint = await socketRequest(socket, 'POST', '/v1/enroll', { requestType: HubEnrollType,
       body: { label: none, ttlMinutes: none }, responseType: HubEnrollResultType });
     assert.equal(mint.certificateSha256.type === 'some' ? mint.certificateSha256.value : undefined, pin);
@@ -103,6 +106,13 @@ async function fixture(options: RackHubOptions = {}, port = 0, overrides: Partia
     return written;
   };
   return { home, hub, socket, repo, storage, status, session, agent, link, objects, config, pin, fetch };
+}
+/** A tier image's manifest, as its script writes it, of the Python and the
+ *  distributions given: its text, and its digest. */
+function tierImage(python = '3.11.2', distributions: Array<{ name: string; version: string; files: string }> = []): { text: string; digest: string } {
+  const text = `${JSON.stringify({ distributions, python: { base: '/usr/bin/python3', executable: '/opt/venv/bin/python',
+    site: '/opt/venv/lib/python3.11/site-packages', version: python }, version: 1 })}\n`;
+  return { text, digest: tierManifestDigest(new TextEncoder().encode(text)) };
 }
 function event(input: string[] = [], resources?: RackLeaseResources): RackLeaseEvent {
   return { version: 2, taskName: 'task', workspace: 'dev', closure: { hashes: input }, ...(resources !== undefined && { resources }),
@@ -392,7 +402,8 @@ it('says what it speaks to anyone who reaches its listener, what each rack repor
   const status = await f.status(); assert(status.rackListener.type === 'up');
   const hello = await f.fetch(`${status.rackListener.value.origin}/api/rack/hello`);
   assert.deepEqual(readRackHello(await hello.text()), { protocol: RACK_PROTOCOL, e3: E3_RACK_VERSION, limits: { transfersAtOnce: RACK_TRANSFERS_AT_ONCE },
-    features: [RACK_CALL_VALUE_OBJECTS] }, 'a session reads a call\'s value from the object its completion commits');
+    features: [RACK_CALL_VALUE_OBJECTS, RACK_TIER_MANIFESTS] },
+  'a session reads a call\'s value from the object its completion commits, and builds an environment over the tier image a rack reports');
 
   const agent = await f.agent({ report: { features: ['resources', 'environments'], target: 'x86_64-manylinux_2_28' } });
   const rack = async () => (await f.status()).capacity.racks[0]!;
@@ -422,6 +433,51 @@ it('says what it speaks to anyone who reaches its listener, what each rack repor
   // A rack that is removed takes what was known of it along.
   await socketRequest(f.socket, 'DELETE', `/v1/racks/${agent.rackId}`, { responseType: RemoveRackResultType });
   assert.equal((await f.status()).capacity.racks.length, 0);
+});
+
+it('keeps the manifest of each tier image a rack reports, by its digest, says which each rack names, and answers one for as long as a rack reports it', async () => {
+  const lines: string[] = [];
+  const f = await fixture({ log: (line) => { lines.push(line); } });
+  const manifest = (digest: string) => socketRequest(f.socket, 'POST', '/v1/tier-manifests', { requestType: TierManifestRequestType, body: { digest }, responseType: TierManifestResultType });
+  const [py, science, forged] = [tierImage('3.11.2'), tierImage('3.11.2', [{ name: 'torch', version: '2.9.0+cu130', files: 'sha256:aa' }]), tierImage('3.12.1')];
+  const composing = { features: ['environments', RACK_ENVIRONMENTS_OVER_TIER], target: 'x86_64-manylinux_2_28' };
+  const racks = async () => new Map((await f.status()).capacity.racks.map((rack) => [rack.label, rack.tierManifests]));
+
+  // Each tier's image by its manifest's digest, with the text a source that reads it is sent
+  const agent = await f.agent({ label: 'both', report: { ...composing, tiers: { py: { digest: py.digest, manifest: py.text }, 'py-datascience': { digest: science.digest, manifest: science.text } } } });
+  assert.deepEqual((await racks()).get('both'), [{ tier: 'py', manifest: py.digest }, { tier: 'py-datascience', manifest: science.digest }]);
+  assert.deepEqual(await manifest(py.digest), some(py.text));
+  assert.deepEqual(await manifest(science.digest), some(science.text));
+  assert.deepEqual(await manifest(forged.digest), none, 'one no rack reports');
+
+  // A rack that names a digest and sends no text, one whose text is not the
+  // bytes its digest names, and one that names an image without saying it
+  // composes over one: none is a tier a session could build over
+  await f.agent({ label: 'no text', report: { ...composing, tiers: { py: { digest: forged.digest } } } });
+  await f.agent({ label: 'forged', report: { ...composing, tiers: { py: { digest: forged.digest, manifest: py.text } } } });
+  await f.agent({ label: 'unsaid', report: { features: ['environments'], target: 'x86_64-manylinux_2_28', tiers: { py: { digest: py.digest, manifest: py.text } } } });
+  const named = await racks();
+  assert.deepEqual([named.get('no text'), named.get('forged'), named.get('unsaid')], [[], [], []]);
+  assert.deepEqual(await manifest(forged.digest), none);
+  assert.equal(lines.filter((line) => /the manifest it reports of its tier 'py' was not kept: its text is not the bytes its digest names/.test(line)).length, 1);
+
+  // A report this build cannot read of a tier refuses the heartbeat, as any other field does
+  assert.throws(() => readRackReport(JSON.stringify({ features: [], tiers: { py: { digest: 'latest' } } })), /the report's tier 'py' names no manifest digest/);
+  assert.throws(() => readRackReport(JSON.stringify({ features: [], tiers: ['py'] })), /the report's tiers are not a JSON object/);
+  assert.deepEqual(readRackReport(JSON.stringify({ features: [], tiers: { py: { digest: py.digest, more: 1 } } })).tiers, { py: { digest: py.digest } });
+
+  // The rack's image changes: its next heartbeat names another, and the one
+  // no rack reports any more is let go, once the rack that still names it is removed
+  const next = tierImage('3.11.9');
+  const heartbeat = { healthy: true, freeCapacity: 1n, runningLeases: [], agentVersion: `0.5.0+e3.${E3_RACK_VERSION}`, bootId: agent.bootId, cacheBytes: 0n,
+    report: JSON.stringify({ ...composing, tiers: { py: { digest: next.digest, manifest: next.text } } }) };
+  assert.equal((await agent.raw('heartbeat', RackHeartbeatRequestType, heartbeat)).status, 200);
+  assert.deepEqual((await racks()).get('both'), [{ tier: 'py', manifest: next.digest }]);
+  assert.deepEqual(await manifest(science.digest), none);
+  assert.deepEqual(await manifest(py.digest), some(py.text), 'the rack that names it without the feature still reports it');
+  const unsaid = (await f.status()).capacity.racks.find((rack) => rack.label === 'unsaid')!;
+  await socketRequest(f.socket, 'DELETE', `/v1/racks/${unsaid.rackId}`, { responseType: RemoveRackResultType });
+  assert.deepEqual(await manifest(py.digest), none);
 });
 
 it('never enrols an agent of another rack protocol, and keeps its token for the agent that replaces it', async () => {
@@ -774,4 +830,58 @@ it('leases work that names an environment only to a rack that composes environme
   await composing.complete(grant!, { taskName: 'task', status: 'failed' });
   assert.equal(await composing.claim(), null);
   assert.equal((await session.cancel(other.leaseId)).status, 'cancelled');
+});
+
+it('serves a rack the layers built over the image of the lease\'s tier it names, when its session keeps them, and the whole environment\'s otherwise', async () => {
+  const f = await fixture({ leaseWindowMs: 40 });
+  const [release, platform] = [E3_RACK_VERSION, 'x86_64-manylinux_2_28'];
+  const [mine, theirs] = [tierImage('3.11.2'), tierImage('3.11.9')];
+  const layer = Buffer.from('a layer');
+  const digest = `sha256:${createHash('sha256').update(layer).digest('hex')}`;
+  await mkdir(dirname(environmentLayerPath(f.repo, digest)), { recursive: true });
+  await writeFile(environmentLayerPath(f.repo, digest), layer);
+  await mkdir(join(environmentLayersDir(f.repo), 'manifests'), { recursive: true });
+  /** Keeps an environment's manifest in the session's repository: whole, or built over an image of the `node` tier. */
+  const keep = async (envHash: string, image?: { digest: string }): Promise<EnvLayerManifest> => {
+    const over = image === undefined ? undefined : { tier: 'node', manifest: image.digest };
+    const manifest: EnvLayerManifest = { envHash, e3Version: release, baseImage: 'rack-tier:node', baseTier: 'node',
+      layers: [{ digest, sizeBytes: layer.length, mediaType: 'application/vnd.oci.image.layer.v1.tar+gzip' }], ...(over !== undefined && { over }) };
+    await writeFile(join(environmentLayersDir(f.repo), 'manifests', envManifestName(envManifestKey(envHash, release, platform, over))!), JSON.stringify(manifest));
+    return manifest;
+  };
+  assert.equal(envManifestKey('e'.repeat(64), release, platform, { tier: 'node', manifest: mine.digest }),
+    `env-layers/manifests/${'e'.repeat(64)}-${release}-${platform}-node-${mine.digest.slice('sha256:'.length, 'sha256:'.length + 12)}.json`);
+
+  const session = await f.session();
+  const over = { features: ['environments', RACK_ENVIRONMENTS_OVER_TIER], target: platform, tiers: { node: { digest: mine.digest, manifest: mine.text } } };
+  const rack = await f.agent({ report: over });
+  /** The manifest the rack is served of a lease's environment, once it has claimed it. */
+  const served = async (envHash: string): Promise<EnvLayerManifest> => {
+    const lease = await session.create({ ...event([envHash]), environment: envHash });
+    const grant = await rack.claim(); assert.equal(grant?.leaseId, lease.leaseId);
+    const { env } = await rack.storageRequest(grant, { envManifest: some(envHash) });
+    assert(env.type === 'some');
+    const read = await f.fetch(env.value.layers[0]!.url);
+    assert.equal(read.status, 200, 'a layer the manifest it was served names'); await read.arrayBuffer();
+    await rack.complete(grant, { taskName: 'task', status: 'failed' });
+    return JSON.parse(env.value.manifestJson) as EnvLayerManifest;
+  };
+
+  // Both kept: the layers built over its image. Built over another image, or whole alone: the whole environment's.
+  const both = 'a'.repeat(64);
+  await keep(both); const small = await keep(both, mine);
+  assert.deepEqual(await served(both), small);
+  const other = 'b'.repeat(64);
+  const whole = await keep(other); await keep(other, theirs);
+  assert.deepEqual(await served(other), whole);
+
+  // Layers built over its image alone are a rack's that names the image, and no other's
+  const only = 'c'.repeat(64);
+  const alone = await keep(only, mine);
+  const lease = await session.create({ ...event([only]), environment: only });
+  const plain = await f.agent({ report: { features: ['environments'], target: platform } });
+  assert.equal(await plain.claim(), null, 'a rack that composes whole environments alone is not granted it');
+  const grant = await rack.claim(); assert.equal(grant?.leaseId, lease.leaseId);
+  const { env } = await rack.storageRequest(grant, { envManifest: some(only) });
+  assert(env.type === 'some'); assert.deepEqual(JSON.parse(env.value.manifestJson), alone);
 });
