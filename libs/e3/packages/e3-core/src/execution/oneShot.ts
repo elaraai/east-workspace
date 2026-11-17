@@ -28,13 +28,13 @@ import {
 } from '@elaraai/east';
 import { loadUnitProgram } from '@elaraai/east/internal';
 import {
-  pathToString, type CallArg, type ExecuteLimits, type ExecuteResult, type FunctionInput, type InputRead, type OneShotRequest, type RunnerValue,
-  type TreePath,
+  pathToString, treePathToRefPath, type CallArg, type ExecuteLimits, type ExecuteResult, type FunctionInput, type InputRead, type OneShotRequest,
+  type RunnerValue, type TreePath,
 } from '@elaraai/e3-types';
 import { indexNotHeld, inputObject } from '../dataset-open.js';
-import { PermissionDeniedError } from '../errors.js';
+import { PermissionDeniedError, checkName } from '../errors.js';
+import { pendingSources } from '../record-slots.js';
 import type { StorageBackend } from '../storage/interfaces.js';
-import { workspaceGetDatasetHash } from '../trees.js';
 import { workspaceGetPackage } from '../workspaces.js';
 import type { DetachedArg, DetachedResult, TaskRunner } from './interfaces.js';
 
@@ -359,6 +359,13 @@ export function oneShotPlatformUse(request: OneShotRequest): string | null {
  * after, and the result names the hash of each. An input with no value is
  * refused in words that say why, by what it is (`unassignedInput`).
  *
+ * An input that is a composite record waiting for an external source's first
+ * delivery, or an index of one, is refused too, naming the record and the
+ * sources: the record holds a state — the solution's own entries — and a
+ * function over it would compute on part of the record, where a task reading
+ * it waits. A dataset a caller names as an argument is read as it stands, as
+ * the record's own route serves it.
+ *
  * Each dataset is read once, however many of the function's inputs and the
  * call's dataset arguments read it: so the inputs and arguments of one record
  * — the record, any of its indexes, and an argument naming it — are of one
@@ -374,7 +381,10 @@ export function oneShotPlatformUse(request: OneShotRequest): string | null {
  * @param options - `inputs`, what the function reads before its arguments
  *   (none by default)
  * @returns The arguments and what they read, or the `invalid` result an
- *   unassigned dataset answers, naming its path
+ *   unassigned dataset answers, naming its path, or an input that waits for a
+ *   first delivery, naming the record and the sources
+ * @throws {InvalidNameError} When a dataset is read and `workspace` is no
+ *   workspace's name, before any store is asked
  */
 export async function pinCallArguments(
   storage: StorageBackend,
@@ -390,9 +400,15 @@ export async function pinCallArguments(
   // The query builder reads a dataset argument's refusal by its words
   // (`Dataset argument <i> is not assigned`), so those stay as they are; an
   // input, which no caller named, is refused naming its path.
-  const read = async (path: TreePath, refusal: (refType: string) => string): Promise<{ hash: string } | { refused: ExecuteResult }> => {
-    const { refType, hash } = await workspaceGetDatasetHash(storage, repo, workspace, path);
-    return refType !== 'value' || hash === null ? { refused: invalidExecuteResult(refusal(refType)) } : { hash };
+  // Its ref is read once, with its version vector: the hash it is pinned at
+  // and what its record waits for are of the one read.
+  const read = async (
+    path: TreePath, refusal: (refType: string) => string,
+  ): Promise<{ hash: string; versions: ReadonlyMap<string, string> } | { refused: ExecuteResult }> => {
+    checkName('workspace', workspace);
+    if (path.length === 0) throw new Error('Cannot get dataset at root path - root is always a tree');
+    const ref = await storage.datasets.read(repo, workspace, treePathToRefPath(path));
+    return ref === null || ref.type !== 'value' ? { refused: invalidExecuteResult(refusal(ref?.type ?? 'unassigned')) } : ref.value;
   };
   // Each dataset is read once, for the inputs and the arguments alike: those of
   // one record are of one state of it
@@ -403,6 +419,10 @@ export async function pinCallArguments(
     if (hash === undefined) {
       const found = await read(path, (refType) => unassignedInput(path, refType));
       if ('refused' in found) return found.refused;
+      // A record that waits for a first delivery holds its own entries alone:
+      // a task reading it waits, and so does a function that declares it
+      const waits = pendingSources(found.versions);
+      if (waits.length > 0) return invalidExecuteResult(pendingInput(path, waits));
       held.set(at, hash = found.hash);
     }
     const object = await inputObject(storage, repo, hash, index.type === 'some' ? index.value : null);
@@ -461,6 +481,20 @@ export async function stagedInputs(storage: StorageBackend, repo: string, inputs
     if (object === null) throw new Error(indexNotHeld(pathToString(input.path), input.index.value));
     return { dataset: object };
   }));
+}
+
+/**
+ * Why a function's input that is a composite record, or an index of one, is
+ * not read while the record waits for an external source's first delivery, as
+ * its refusal says it.
+ *
+ * @param path - The record's path
+ * @param sources - The sources yet to deliver, by name
+ * @returns The refusal's words
+ */
+function pendingInput(path: TreePath, sources: readonly string[]): string {
+  return `The function's input ${pathToString(path)} waits for the first delivery of ${sources.join(', ')}: `
+    + 'a task reading it would wait too, and nothing ran';
 }
 
 /**

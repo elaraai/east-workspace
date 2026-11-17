@@ -114,7 +114,9 @@ function notesPackage(version: '1.0.0' | '2.0.0'): ReturnType<typeof e3.package>
       mutations: (mutation) => ({ patch: mutation.patch() }),
     });
   const count = e3.function('count', { inputs: [notes], drafts: [notes], args: [], output: IntegerType }, ($, notes) => notes.size());
-  return e3.package('notes', version, notes, count);
+  // Declares no input: its caller names the orders it is given
+  const sized = e3.function('sized', { inputs: [], args: [Orders], output: IntegerType }, ($, given) => given.size());
+  return e3.package('notes', version, notes, count, sized);
 }
 
 /**
@@ -144,7 +146,10 @@ function ordersPackage(): ReturnType<typeof e3.package> {
       patch: mutation.patch(),
     }),
   });
-  return e3.package('orders', '1.0.0', orders);
+  // Reads the record through its index alone
+  const customers = e3.function('customers', { inputs: [e3.index(orders.indexes.by_customer)], args: [], output: IntegerType },
+    ($, byCustomer) => byCustomer.size());
+  return e3.package('orders', '1.0.0', orders, customers);
 }
 
 /** The key of `book` once it is a composite: the source each order is of. */
@@ -288,6 +293,44 @@ describe('a composite record: an external entry is never written (no program run
     assert.deepEqual((await recordHistory(storage, REPO, WS, 'notes')).map(({ commit }) => commit.mutation), ['$compact']);
   });
 
+  describe('while a record waits for a source\'s first delivery', () => {
+    const LIMITS = { timeoutMs: 600_000, maxResultBytes: 1024, maxLogBytes: 64 };
+    /** A workspace that deploys the loaded ERP source from the first: nothing has been delivered. */
+    const FRESH = 'fresh';
+    const waits = 'The function\'s input .records.notes waits for the first delivery of erp: a task reading it would wait too, and nothing ran';
+
+    beforeEach(async () => {
+      await workspaceDeploy(storage, REPO, FRESH, 'notes', '2.0.0');
+      assert.equal((await heldRef(storage, REPO, FRESH, 'notes')).versions.get(PENDING_SLOT), 'erp');
+    });
+
+    it('R81 — a function that declares the record among its inputs ends its call invalid, naming the record and the sources yet to deliver, and nothing runs', async () => {
+      const filed = await functionCallStart(storage, REPO, FRESH, 'count', { args: [], runner: none, limits: none, drafts: [] }, { caller: 'ada@example.com' });
+      if (filed.call.state.type !== 'invalid') assert.fail(`the call was filed ${filed.call.state.type}`);
+      assert.deepEqual(filed.call.state.value.diagnostics.map(({ message }) => message), [waits]);
+      const unkept = await functionCallUnkept(storage, runner, REPO, FRESH, 'count', { args: [], drafts: [] }, { limits: LIMITS });
+      if (unkept.outcome.type !== 'invalid') assert.fail(`the call ended ${unkept.outcome.type}`);
+      assert.deepEqual(unkept.outcome.value.diagnostics.map(({ message }) => message), [waits], 'a call no store keeps is refused in the same words');
+      assert.equal(runner.getDetachedCalls().length + runner.getCalls().length, 0, 'nothing ran');
+
+      // The record holds its own entries all the while, and a Save of one commits
+      const saved = await recordMutate(storage, runner, REPO, FRESH, 'notes', 'patch', [ordersPatch([[variant('own', 'P-2'), variant('insert', acme)]])], { actor: 'ada@example.com' });
+      assert.equal(saved.kind, 'committed', JSON.stringify(saved));
+      // In the workspace whose ERP source holds a row, the same call runs
+      const ran = await functionCallUnkept(storage, runner, REPO, WS, 'count', { args: [], drafts: [] }, { limits: LIMITS });
+      assert.equal(ran.outcome.type, 'success');
+    });
+
+    it('R82 — a caller that names the record as a dataset argument reads it as it stands', async () => {
+      const stood = await heldRef(storage, REPO, FRESH, 'notes');
+      const notesPath = [variant('field', 'records'), variant('field', 'notes')];
+      const result = await functionCallUnkept(storage, runner, REPO, FRESH, 'sized', { args: [variant('dataset', notesPath)], drafts: [] }, { limits: LIMITS });
+      assert.equal(result.outcome.type, 'success', 'a person looking at the record sees their own entries before the first delivery');
+      assert.deepEqual(runner.getDetachedCalls().map(({ args }) => args), [[{ dataset: stood.hash }]], 'the function is handed the record at the state it holds');
+      assert.deepEqual(result.inputs.map(({ hash }) => hash), [stood.hash], 'which its result names');
+    });
+  });
+
   describe('a call\'s draft', () => {
     const LIMITS = { timeoutMs: 600_000, maxResultBytes: 1024, maxLogBytes: 64 };
     const draft = (...ops: Array<[OrderKey, OrderOp]>): FunctionDraft => ({ record: 'notes', mutation: 'patch', args: [ordersPatch(ops)] });
@@ -396,6 +439,15 @@ describe('a composite record: an external entry is never written (the mutation\'
     const rows = decodeOrders(await readDatasetWhole(storage, repo, state.primary));
     assert.ok(sameOrders(rows, new SortedMap<OrderKey, OrderRow>([[variant('own', 'P-2'), acme], [variant('own', 'P-3'), acme], [variant('own', 'P-4'), birch]], compareFor(OrdersKey))));
     assert.ok(state.indexes.has('by_customer'), 'its index maintained by each write');
+  });
+
+  it('R81 — a function that reads an index of a record waiting for a first delivery ends its call invalid, as one that reads the record does', async () => {
+    assert.equal((await heldRef(storage, repo, WS, 'orders')).versions.get(PENDING_SLOT), 'erp', 'loaded from its first deploy, erp has delivered nothing');
+    const result = await functionCallUnkept(storage, runner, repo, WS, 'customers', { args: [], drafts: [] },
+      { limits: { timeoutMs: 120_000, maxResultBytes: 1024 * 1024, maxLogBytes: 64 * 1024 } });
+    if (result.outcome.type !== 'invalid') assert.fail(`the call ended ${result.outcome.type}`);
+    assert.deepEqual(result.outcome.value.diagnostics.map(({ message }) => message),
+      ['The function\'s input .records.orders waits for the first delivery of erp: a task reading it would wait too, and nothing ran']);
   });
 
   it('R70 — a collection keeps what a composite\'s load runs: its load object, the task object it names, the load\'s program and its merge', async () => {
