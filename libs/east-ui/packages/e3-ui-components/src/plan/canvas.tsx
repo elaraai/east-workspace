@@ -148,7 +148,7 @@ import {
     PlanEventsReader, eventReadRange, initialEventLead, usePlanEventRoot, type PlanEventLead, type PlanEventRows,
 } from "./root/events.js";
 import { cellKinds, createCellSpanStore, seriesKinds, shownCellSpan } from "./root/cells.js";
-import { landingTargetOf, resourceKeyOf, type PlanLandingValue } from "./root/landings.js";
+import { landingTargetOf, readPathOf, readResourceOf, resourceKeyOf, type PlanLandingValue } from "./root/landings.js";
 import { scheduleCellId } from "../shared/schedule/cells.js";
 import { sessionEntryRefusals } from "../shared/schedule/refusals.js";
 import { NO_BREACHES, PlanBoundsReader, type PlanBreaches } from "./root/bounds.js";
@@ -720,7 +720,9 @@ export function usePlanCanvas({
     const pagedEvents = events?.paged === true;
     const cellsUnread = useMemo(() => (drawnResources === undefined || !pagedEvents ? undefined : (row: PlanRowValue): boolean => {
         const target = landingTargetOf(row.id, landings, kinds);
-        return target?.kind === "resource" && !drawnResources.has(scheduleCellId(target.landing.key, target.key));
+        // A row beneath a resource waits on the resource's cells, which its events are read by (#1541, U1).
+        const read = target?.kind === "resource" ? readResourceOf(target.landing, target.path) : undefined;
+        return read !== undefined && !drawnResources.has(scheduleCellId(read.slot, read.key));
     }), [drawnResources, pagedEvents, landings, kinds]);
     // A row whose nested series' cells are read (#1438) — a pan, a zoom or a scroll to tiles not held, or a commit —
     // is unread the same way until they land: washed under what it holds, never an empty plot.
@@ -1194,7 +1196,8 @@ export function usePlanCanvas({
         for (let i = shown?.startIndex ?? 0; shown !== undefined && i <= shown.endIndex; i++) {
             const item = body.items[i];
             if (item?.kind === "row") rows.push(item.row.row);
-            if (item?.kind === "row" && item.row.row.id.type === "entry") inView.push({ key: item.row.row.key, path: item.row.row.id.value.path });
+            // Each row by the resource its events are read by: a row beneath a resource, by the one it stands beneath.
+            if (item?.kind === "row" && item.row.row.id.type === "entry") inView.push({ key: item.row.row.key, path: readPathOf(item.row.row.id, landings) });
             else if (item?.kind === "band" || item?.kind === "failed") notRead = true;
             // A run whose windows are on their way: the view waits for them.
             if (item?.kind === "band" && item.band.loading !== undefined) run = true;
@@ -1209,7 +1212,7 @@ export function usePlanCanvas({
         awaitInView(unread !== undefined && run, unread !== undefined && rows.some(unread));
         // What the view shows takes a focus a landing owes it.
         takeOwed.current(shown === undefined ? [] : body.items.slice(shown.startIndex, shown.endIndex + 1));
-    }, [reportRange, body.items, pagingOrigin, pagingNarrowing, cellSpans, nestedViews, unread, awaitInView]);
+    }, [reportRange, body.items, pagingOrigin, pagingNarrowing, cellSpans, nestedViews, unread, awaitInView, landings]);
     // Scroll anchoring (#878): the row at the top of the view keeps its place
     // when rows above it change height or count — a window landing above at a
     // height its estimate missed. An unloaded band never anchors: rows landing

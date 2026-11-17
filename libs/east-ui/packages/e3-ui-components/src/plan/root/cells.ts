@@ -64,7 +64,7 @@ import { timeInstant } from "../instant.js";
 import type { PlanRootValue, PlanWireBlock } from "../model.js";
 import type { PlanScale } from "../scale.js";
 import type { PlanEventPart } from "./sources.js";
-import { resourceKeyOf } from "./landings.js";
+import { readResourceOf } from "./landings.js";
 
 type PlanPayloadValue = ValueTypeOf<typeof PlanPayloadType>;
 /** One event kind, as the payload carries it. */
@@ -135,20 +135,27 @@ export interface PlanCellsArgs {
 }
 
 /**
- * The resources some rows draw (#1541): each landing row — a resources series' or a kinds case's — by its series' key
- * and the last step of its path, in the order the rows draw them.
+ * The resources some rows' events are read by (#1541): each landing row's — a resources series' or a kinds case's — by
+ * its series' key and the last step of its path, in the order the rows draw them; and, of a row beneath a resource
+ * that a kind's `child` lands on, the resource it stands beneath (`readResourceOf`). A resource's own row and the
+ * rows beneath it name it once — and the rows beneath it alone do, where the page draws no row of its own.
  *
  * @param blocks - The rows
- * @param landings - The series the event kinds land on, by key
+ * @param landings - The series the event kinds land on
  * @returns The resources
  */
-export function landingKeysOf(blocks: readonly PlanWireBlock[], landings: ReadonlySet<string>): ScheduleCellKey[] {
+export function landingKeysOf(blocks: readonly PlanWireBlock[], landings: readonly Landing[]): ScheduleCellKey[] {
     const out: ScheduleCellKey[] = [];
     for (const block of blocks) {
         for (const row of block.rows) {
-            if (row.id.type !== "entry" || !landings.has(row.id.value.series)) continue;
-            const key = resourceKeyOf(row.id);
-            if (key !== undefined) out.push({ slot: row.id.value.series, key });
+            if (row.id.type !== "entry") continue;
+            const series = row.id.value.series;
+            const landing = landings.find((l) => stringEqual(l.key, series));
+            const read = landing === undefined ? undefined : readResourceOf(landing, row.id.value.path);
+            if (read === undefined) continue;
+            const last = out[out.length - 1];
+            if (last !== undefined && stringEqual(last.slot, read.slot) && stringEqual(last.key, read.key)) continue;
+            out.push(read);
         }
     }
     return out;
@@ -209,13 +216,12 @@ export function usePlanCells(args: PlanCellsArgs): ScheduleCellsRead {
         stored: kind.entries.type === "some" ? kind.stored : undefined,
         revision: kind.entries.type === "some" ? kind.entries.value.revision : undefined,
     })), [kinds, parts, hidden, links, held, carrying]);
-    const slots = useMemo(() => new Set(landings.map((landing) => landing.key)), [landings]);
     // Over rows read whole: every landing row of the canvas, by its series.
     const whole = useMemo((): ScheduleCellResources[] => {
         if (rows.type !== "inline") return [];
-        const keys = landingKeysOf(rows.value, slots);
+        const keys = landingKeysOf(rows.value, landings);
         return landings.map((landing) => ({ key: landing.key, keys: keys.filter((k) => stringEqual(k.slot, landing.key)).map((k) => k.key) }));
-    }, [rows, slots, landings]);
+    }, [rows, landings]);
     // Over rows read a page at a time: each window's landing rows, read through the root's own source, once a window.
     const pagedRows = useMemo((): ScheduleCellPaged | undefined => {
         const source = windowedSourceOf(rows);
@@ -230,7 +236,7 @@ export function usePlanCells(args: PlanCellsArgs): ScheduleCellsRead {
                 if (read.type !== "some") return none;
                 let keys = kept.get(read.value.rows);
                 if (keys === undefined) {
-                    keys = landingKeysOf(read.value.rows, slots);
+                    keys = landingKeysOf(read.value.rows, landings);
                     kept.set(read.value.rows, keys);
                 }
                 return some(keys);
@@ -238,7 +244,7 @@ export function usePlanCells(args: PlanCellsArgs): ScheduleCellsRead {
             total: () => source.total(),
             narrowing: () => source.query?.(),
         };
-    }, [rows, landings, slots]);
+    }, [rows, landings]);
     const from = range?.from.getTime();
     const to = range?.to.getTime();
     const over = useMemo(() => (from === undefined || to === undefined ? undefined : { from: new Date(from), to: new Date(to) }), [from, to]);

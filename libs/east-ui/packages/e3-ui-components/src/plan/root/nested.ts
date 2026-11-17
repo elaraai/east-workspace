@@ -68,7 +68,7 @@ import { indexedBindingOf, type IndexedBindingRead } from "../../platform/indexe
 import { useRecordDrafts, type PreviewedRow, type RecordDraftsSession } from "../../shared/records/drafts.js";
 import type { EditSession } from "@elaraai/east-ui-components";
 import { SCHEDULE_CELL_BLOCK, dividingTiles, wantedBlocks, type ScheduleCellBucket } from "../../shared/schedule/cells.js";
-import type { PlanParentSubtotal, PlanParentSubtotals, PlanRootValue, PlanRowIndex, PlanRowValue } from "../model.js";
+import { pinnedRows, type PlanParentSubtotal, type PlanParentSubtotals, type PlanRootValue, type PlanRowIndex, type PlanRowValue } from "../model.js";
 import type { PlanResolution, PlanScale } from "../scale.js";
 import { windowedArm, type PlanPagedSourceValue } from "../use-plan-paging.js";
 import { bucketsOver } from "./cells.js";
@@ -387,53 +387,57 @@ function wantedCells(args: PlanNestedArgs, lit: Literals, capped: ReadonlySet<st
         const prefix = leading.join("\u0001");
         if (!out.has(prefix)) out.set(prefix, { prefix, leading, from, to, kind, place: places[use]!, row, use });
     };
+    // What one row wants: its own items, and what it derives from the rows beneath it.
+    const want = (row: PlanRowValue): void => {
+        if (row.id.type !== "entry") return;
+        const [id, ...keys] = row.id.value.path;
+        const leaves = id === undefined ? undefined : lit.row(id);
+        if (leaves === undefined) return;
+        const series = row.id.value.series;
+        // Its own items, a level at a time — past the cap its totals.
+        seam.uses.forEach((use, u) => {
+            if (!stringEqual(use.series, series)) return;
+            if (capped.has(places[u]!)) {
+                if (totalsRun !== undefined) add("totals", u, row, leaves, keys, variant("totals", null), summary!, totalsRun.from, totalsRun.to);
+                return;
+            }
+            for (const at of use.levels) {
+                const run = runs.get(at.type as RecordTile);
+                if (run !== undefined) add("items", u, row, leaves, keys, variant("items", null), run.level, run.from, run.to);
+            }
+        });
+        // As a parent whose row derives its numbers from its children's: its subtotals, or its subtree's items — past the
+        // cap its subtree's totals.
+        const children = index.children.get(row.key) ?? [];
+        const beneath = new Set(children.flatMap((child) => (child.id.type === "entry" ? [child.id.value.series] : [])));
+        seam.uses.forEach((use, u) => {
+            if (use.parents.type !== "some" || ![...beneath].some((s) => stringEqual(s, use.series))) return;
+            const parents = use.parents.value;
+            const how = derives(row);
+            if (!(parents.type === "subtotals" ? how.subtotals : how.rollsUp)) return;
+            if (parents.type === "subtotals") {
+                if (level !== undefined && subtotalRun !== undefined) {
+                    add("subtotals", u, row, leaves, keys, variant("subtotals", parents.value), level, subtotalRun.from, subtotalRun.to);
+                }
+                return;
+            }
+            if (capped.has(places[u]!)) {
+                if (totalsRun !== undefined) add("totals", u, row, leaves, keys, variant("subtreeTotals", null), summary!, totalsRun.from, totalsRun.to);
+                return;
+            }
+            for (const at of use.levels) {
+                const run = runs.get(at.type as RecordTile);
+                if (run !== undefined) add("subtree", u, row, leaves, keys, variant("subtree", null), run.level, run.from, run.to);
+            }
+        });
+    };
     const view = viewOf(args.view, visible);
     for (const block of wantedBlocks(view, visible.length)) {
-        for (let i = block * SCHEDULE_CELL_BLOCK; i < Math.min((block + 1) * SCHEDULE_CELL_BLOCK, visible.length); i++) {
-            const row = visible[i]!;
-            if (row.id.type !== "entry") continue;
-            const [id, ...keys] = row.id.value.path;
-            const leaves = id === undefined ? undefined : lit.row(id);
-            if (leaves === undefined) continue;
-            const series = row.id.value.series;
-            // Its own items, a level at a time — past the cap its totals.
-            seam.uses.forEach((use, u) => {
-                if (!stringEqual(use.series, series)) return;
-                if (capped.has(places[u]!)) {
-                    if (totalsRun !== undefined) add("totals", u, row, leaves, keys, variant("totals", null), summary!, totalsRun.from, totalsRun.to);
-                    return;
-                }
-                for (const at of use.levels) {
-                    const run = runs.get(at.type as RecordTile);
-                    if (run !== undefined) add("items", u, row, leaves, keys, variant("items", null), run.level, run.from, run.to);
-                }
-            });
-            // As a parent whose row derives its numbers from its children's: its subtotals, or its subtree's items — past the
-            // cap its subtree's totals.
-            const children = index.children.get(row.key) ?? [];
-            const beneath = new Set(children.flatMap((child) => (child.id.type === "entry" ? [child.id.value.series] : [])));
-            seam.uses.forEach((use, u) => {
-                if (use.parents.type !== "some" || ![...beneath].some((s) => stringEqual(s, use.series))) return;
-                const parents = use.parents.value;
-                const how = derives(row);
-                if (!(parents.type === "subtotals" ? how.subtotals : how.rollsUp)) return;
-                if (parents.type === "subtotals") {
-                    if (level !== undefined && subtotalRun !== undefined) {
-                        add("subtotals", u, row, leaves, keys, variant("subtotals", parents.value), level, subtotalRun.from, subtotalRun.to);
-                    }
-                    return;
-                }
-                if (capped.has(places[u]!)) {
-                    if (totalsRun !== undefined) add("totals", u, row, leaves, keys, variant("subtreeTotals", null), summary!, totalsRun.from, totalsRun.to);
-                    return;
-                }
-                for (const at of use.levels) {
-                    const run = runs.get(at.type as RecordTile);
-                    if (run !== undefined) add("subtree", u, row, leaves, keys, variant("subtree", null), run.level, run.from, run.to);
-                }
-            });
-        }
+        for (let i = block * SCHEDULE_CELL_BLOCK; i < Math.min((block + 1) * SCHEDULE_CELL_BLOCK, visible.length); i++) want(visible[i]!);
     }
+    // A pinned row stands under the ruler wherever the view rests, and is none of the rows laid out: its cells are
+    // always wanted.
+    for (const row of pinnedRows(index)) want(row);
     return [...out.values()];
 }
 
@@ -877,7 +881,8 @@ class NestedCellsReader {
             const use = series.get(key)!;
             shading.set(key, new SortedMap([...rows].map(([path, tiles]) => [path, shadesOf(tiles, buckets, use.shade)] as const), compareString));
         }
-        // A place past the cap no summary shades: its rows hatched, and the notice.
+        // A place past the cap no summary shades: its rows hatched, and the notice — the rows laid out, and the pinned.
+        const shown = [...pinnedRows(args.index), ...args.visible];
         const notices: PlanNestedNotice[] = [];
         if (summary === undefined && capped.size > 0) {
             for (const use of args.seam.uses) {
@@ -885,7 +890,7 @@ class NestedCellsReader {
                 if (!capped.has(place) || notices.some((n) => samePlace(n.place, use.place))) continue;
                 notices.push({ place: use.place, items: items.get(place) ?? 0 });
                 const rows = shading.get(use.series) ?? new SortedMap<string, Shade[]>([], compareString);
-                for (const row of args.visible) {
+                for (const row of shown) {
                     if (row.id.type === "entry" && stringEqual(row.id.value.series, use.series)) rows.set(printPathText(row.id.value.path), hatchOf(buckets));
                 }
                 shading.set(use.series, rows);
@@ -894,7 +899,7 @@ class NestedCellsReader {
         // The rows shaded now: their totals read, or hatched.
         const shadedRows = new Set(cells.flatMap((cell) => (cell.kind === "totals" ? [cell.row.key] : [])));
         for (const notice of notices) {
-            for (const row of args.visible) {
+            for (const row of shown) {
                 if (row.id.type === "entry" && args.seam.uses.some((use) => samePlace(use.place, notice.place) && stringEqual(use.series, row.id.value.series))) shadedRows.add(row.key);
             }
         }
