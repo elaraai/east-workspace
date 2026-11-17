@@ -133,6 +133,11 @@ export {
   packageStagingPath,
   atomicWriteFile,
   renameWithRetry,
+  // A file atomicWriteFile replaces, read in its turn; an unlink Windows
+  // refuses a moment, tried again; and the errors it refuses with
+  readReplacedFile,
+  unlinkWithRetry,
+  isTransientFsError,
 } from './storage/local/localHelpers.js';
 
 // An environment's layers composed where they run, by any rack agent
