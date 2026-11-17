@@ -80,11 +80,18 @@ export const calendarScoped = example({
         const templateIndex = $.let(Data.bindPaged(pressRunTemplates, { indexes: ["press_run_templates_by_group"] }));
         const runEntries = $.let(Data.bindPaged(pressRuns));
         // The runs and the crew scoped to the press, a list of exact values each of its field's type: the runs' read
-        // together with the dates the navigation writes and a choice of crew member. The templates, which every press
-        // offers, are not. Each press's page keeps its own choices.
+        // together with the dates the navigation writes and a choice of crew member, offered by name. The templates,
+        // which every press offers, are not. Each press's page keeps its own choices. (A hint is written as the page is
+        // built, so the field offers every crew member it can hold; the press's own count each.)
         const slice = $.let(Slice.bindRecords(East.str`ex.calendarScoped.${press}`, {
             run: { source: runIndex, icon: { prefix: "fas", name: "print" }, scope: { press: [press] }, range: "start",
-                fields: { crew: { label: "Crew", hints: ["c1", "c2", "c3", "c4", null] }, start: { label: "Dates" } } },
+                fields: {
+                    crew: { label: "Crew", hints: [
+                        { value: "c1", label: "A. Alder" }, { value: "c2", label: "B. Birch" },
+                        { value: "c3", label: "C. Cedar" }, { value: "c4", label: "D. Dunn" }, null,
+                    ] },
+                    start: { label: "Dates" },
+                } },
             crew: { source: crewIndex, icon: { prefix: "fas", name: "users" }, scope: { press: [press] } },
             runTemplates: { source: templateIndex, icon: { prefix: "fas", name: "layer-group" },
                 fields: { group: { label: "Template", hints: ["Short runs", "Long runs"] } } },

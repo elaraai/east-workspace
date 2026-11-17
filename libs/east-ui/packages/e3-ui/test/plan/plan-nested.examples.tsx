@@ -242,52 +242,54 @@ export const planNestedAll = example({
             }));
             return <Box width="100%" height="760px"><Plan id="planNestedAll" slice={{ slice }}
                 axis={Plan.axis({ window: { min: new Date("2026-09-28T00:00:00Z"), max: new Date("2026-12-28T00:00:00Z") }, resolution: "week", resolutions: ["week", "month", "quarter", "year"] })}
-                // The series, picked since the library lists the Series tab: it lists each, with its eye.
+                // The series, picked since the library lists the Series tab: it lists each, with its eye. Every series
+                // draws the same hundred works, one after another, so each stands in a section of its own, its header
+                // naming it — Jobs, Load, Crew hours, Parts — and its member saying how it draws them.
                 series={[
-                    Plan.series.span(Works, {
-                        key: "works", title: "Jobs", label: (w) => w.name, edit: true,
+                    Plan.series.section(Works, { key: "jobs", title: "Jobs" }, [Plan.series.span(Works, {
+                        key: "works", title: "Runs and alarms", label: (w) => w.name, edit: true,
                         runs: Plan.items("jobs", { from: "start", to: "end" }, (job) => ({ label: job.product, state: job.state })),
                         decisions: Plan.items("alarms", { at: "at" }, () => ({ applied: false })),
-                    }),
-                    Plan.series.heat(Works, {
-                        key: "load", title: "Load", label: (w) => w.name,
+                    })]),
+                    Plan.series.section(Works, { key: "loads", title: "Load" }, [Plan.series.heat(Works, {
+                        key: "load", title: "Heat strip", label: (w) => w.name,
                         cells: Plan.heatCells(Plan.values("load", (v) => ({ value: some(v) })), { min: 0, max: 1 }),
-                    }),
-                    Plan.series.table(Works, {
-                        key: "crews", title: "Crew hours", label: (w) => w.name, aggregate: "sum", collapsed: true,
+                    })]),
+                    Plan.series.section(Works, { key: "crew-hours", title: "Crew hours" }, [Plan.series.table(Works, {
+                        key: "crews", title: "Table", label: (w) => w.name, aggregate: "sum", collapsed: true,
                         // A crew's hours are typed into, a week at a time: the works' sum above moves at once.
                         children: Plan.children("crews", [Plan.series.table(WorksCrew, {
                             key: "crew", title: "Crew", label: (c) => c.name,
                             cells: Plan.tableCells(Plan.values("hours", (h) => ({ value: some(h) }))), edit: true,
                         })]),
-                    }),
-                    Plan.series.group(Works, {
-                        key: "assembly", title: "Parts", label: (w) => w.name, collapsed: true,
+                    })]),
+                    Plan.series.section(Works, { key: "parts-tree", title: "Parts" }, [Plan.series.group(Works, {
+                        key: "assembly", title: "Tree", label: (w) => w.name, collapsed: true,
                         children: Plan.children("parts", [Plan.series.span(WorksPart, {
                             key: "parts", title: "Part", label: (p) => p.name, children: "parts", rollup: "union", collapsed: true,
                             runs: Plan.items("jobs", { from: "start", to: "end" }, (job) => ({ label: job.product, state: job.state })),
                         })]),
-                    }),
+                    })]),
                     // The other kinds over the same collections, switched off to start: the load as a line, the alarms as
                     // exception marks and as tiles, the jobs as chips.
-                    Plan.series.chart(Works, {
-                        key: "load-line", title: "Load line", label: (w) => w.name,
+                    Plan.series.section(Works, { key: "load-chart", title: "Load line" }, [Plan.series.chart(Works, {
+                        key: "load-line", title: "Line", label: (w) => w.name,
                         layers: [Plan.line(Plan.values("load", (v) => ({ y: v })))],
-                    }),
-                    Plan.series.events(Works, {
-                        key: "alarm-marks", title: "Alarms", label: (w) => w.name,
+                    })]),
+                    Plan.series.section(Works, { key: "alarms", title: "Alarms" }, [Plan.series.events(Works, {
+                        key: "alarm-marks", title: "Marks", label: (w) => w.name,
                         marks: Plan.items("alarms", { at: "at" }, (alarm) => ({ kind: variant("exception", null), label: some(alarm.code) })),
-                    }),
-                    Plan.series.cards(Works, {
-                        key: "job-chips", title: "Job chips", label: (w) => w.name,
+                    })]),
+                    Plan.series.section(Works, { key: "job-cards", title: "Job chips" }, [Plan.series.cards(Works, {
+                        key: "job-chips", title: "Chips", label: (w) => w.name,
                         chips: Plan.items("jobs", { from: "start", to: "end" }, (job) => ({ label: job.product, state: job.state })),
-                    }),
-                    Plan.series.buckets(Works, {
-                        key: "alarm-tiles", title: "Alarm tiles", label: (w) => w.name,
+                    })]),
+                    Plan.series.section(Works, { key: "alarm-buckets", title: "Alarm tiles" }, [Plan.series.buckets(Works, {
+                        key: "alarm-tiles", title: "Tiles", label: (w) => w.name,
                         events: Plan.items("alarms", { at: "at" }, (alarm) => ({ state: variant("confirmed", null), label: some(alarm.code) })),
-                    }),
+                    })]),
                 ]}
-                hidden={["load-line", "alarm-marks", "job-chips", "alarm-tiles"]}
+                hidden={["load-chart", "alarms", "job-cards", "alarm-buckets"]}
                 library={[Plan.library.series()]}
                 // The works' save door: a moved job and a typed hour are drafts, saved to the record by key.
                 record={works}
