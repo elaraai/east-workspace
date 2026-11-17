@@ -42,7 +42,8 @@ export function PlanTimeNavigator({ scale, windowParts, lead, moveWindow, compac
     const rangeEditor = lead !== undefined && field !== undefined
         ? <RecordSliceFieldEditor slice={lead.part} field={field} source={lead.source} />
         : undefined;
-    return <TimeNavigator scope="plan" label={controls === undefined ? "Choose plan dates" : "View"} date={from.getTime()} period={scale.resolution ?? "day"}
+    // Its window spans several periods: the short label names them, first to last, as the range label names the range.
+    return <TimeNavigator scope="plan" label={controls === undefined ? "Choose plan dates" : "View"} date={from.getTime()} end={to.getTime()} period={scale.resolution ?? "day"}
         sunday={false} compact={compact} onChange={navigate}
         rangeLabel={scale.resolution === "hour" ? `${words.dateTime(from)} – ${words.dateTime(to)}` : words.range(from, to)}
         rangeEditor={rangeEditor} controls={controls} />;

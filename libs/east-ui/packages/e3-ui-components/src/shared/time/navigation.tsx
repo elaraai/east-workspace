@@ -35,6 +35,12 @@ export interface TimeNavigatorProps {
     compact?: boolean;
     /** A truthful visible/custom range may replace the anchor's label. */
     rangeLabel?: string | undefined;
+    /**
+     * The window's last instant, where it spans several periods — the Plan's window of buckets (#1680's review): the
+     * short label names the periods from `date`'s to this one's, as `rangeLabel` names the range. Left out, the window
+     * is the one period `date` is in.
+     */
+    end?: number | undefined;
     label?: string;
     scope: string;
     /** Weekly records open on their weeks, even while the main shows one day. */
@@ -68,7 +74,7 @@ export function setNavigatorStylesProbe(fn: ((styles: object) => void) | undefin
 }
 
 /** One date/range trigger between arrows, with the same Today action in every popup. */
-export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, compact = false, rangeLabel, label = "Choose date", scope, initialPanel, onWeeks, weekMarker, dayMarker, legend, controls, rangeEditor, onToday }: TimeNavigatorProps) {
+export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, compact = false, rangeLabel, end, label = "Choose date", scope, initialPanel, onWeeks, weekMarker, dayMarker, legend, controls, rangeEditor, onToday }: TimeNavigatorProps) {
     const format = useFormatters();
     const now = useNow(givenNow);
     // Its styles made once for the theme (#1398, CL9): the navigator draws again with every step of its builder's dates.
@@ -108,9 +114,15 @@ export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, c
         <Button size="xs" variant="ghost" aria-label={`Previous ${period}`} onClick={() => move(-1)}><FontAwesomeIcon icon={faChevronLeft} /></Button>
         <Button size="xs" variant="ghost" aria-label={`Next ${period}`} onClick={() => move(1)}><FontAwesomeIcon icon={faChevronRight} /></Button>
     </>;
-    const weekLabel = (d: Date) => `W${format.number(isoWeekUTC(new Date(d.getTime() + 3 * DAY)))} · ${format.range(d, new Date(d.getTime() + 6 * DAY))}`;
+    const weekNumber = (d: Date) => `W${format.number(isoWeekUTC(new Date(d.getTime() + 3 * DAY)))}`;
+    const weekLabel = (d: Date) => `${weekNumber(d)} · ${format.range(d, new Date(d.getTime() + 6 * DAY))}`;
     const fullLabel = rangeLabel ?? (period === "hour" ? format.dateTime(new Date(date)) : period === "day" ? format.weekdayDate(current) : period === "week" ? weekLabel(start) : period === "year" ? format.year(current) : format.monthYear(current));
-    const shortLabel = period === "hour" || period === "day" ? format.monthDay(current) : period === "week" ? `W${format.number(isoWeekUTC(new Date(start.getTime() + 3 * DAY)))}` : period === "year" ? format.year(current) : `${format.month(current)} ${format.year(current)}`;
+    // The short label names the window's periods, its first to its last — one period, where the window is (#1680's review).
+    const last = dayStart(end ?? date);
+    const lastWeek = weekStart(last, sunday);
+    const shortLabel = period === "week"
+        ? (sameDate(lastWeek, start) ? weekNumber(start) : `${weekNumber(start)} – ${weekNumber(lastWeek)}`)
+        : format.periodRange(current, last, period === "hour" || period === "day" ? "day" : period === "year" ? "year" : "month");
     const browse = (step: number) => setMonth(shiftCalendar(new Date(month), panel === "year" || panel === "month" ? "year" : "month", step * (panel === "year" ? 12 : 1)).getTime());
     const heading = panel === "year" ? `${format.year(new Date(Date.UTC(yearBase, 0, 1)))}–${format.year(new Date(Date.UTC(yearBase + 11, 0, 1)))}` : panel === "month" ? format.year(new Date(month)) : format.monthYear(new Date(month));
     // In the toolbar's row, the trigger and the arrows beside it stand as tall as every control there (`sm`, 28px, ruled

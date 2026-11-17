@@ -283,5 +283,21 @@ describe("the edges", () => {
     test("a reversed range prints its two dates as given", () => {
         const en = formatters("en-US");
         expect(en.range(NEXT_WEEK, LATE)).toBe("Jul 6, 2026 – Jun 29, 2026");
+        expect(en.periodRange(NEXT_WEEK, LATE, "day")).toBe("Jul 6 – Jun 29");
+    });
+
+    test("a range of periods names the days, months or years two dates fall in, sharing what they share; the one period where both fall in it (#1680's review)", () => {
+        const en = formatters("en-US");
+        const at = (y: number, m: number, d: number) => new Date(Date.UTC(y, m, d));
+        expect(en.periodRange(at(2028, 0, 31), at(2028, 1, 27), "day")).toBe("Jan 31 – Feb 27");
+        expect(en.periodRange(at(2028, 0, 31), at(2029, 0, 30), "month")).toBe("Jan 2028 – Jan 2029");
+        expect(en.periodRange(at(2028, 0, 31), at(2028, 5, 29), "month")).toBe("Jan – Jun 2028");
+        expect(en.periodRange(at(2028, 0, 31), at(2037, 11, 31), "year")).toBe("2028 – 2037");
+        // Both in one period: that period, as the short labels have always named it.
+        expect(en.periodRange(EARLY, LATE, "day")).toBe(en.monthDay(LATE));
+        expect(en.periodRange(at(2028, 0, 1), at(2028, 0, 31), "month")).toBe("Jan 2028");
+        expect(en.periodRange(at(2028, 0, 1), at(2028, 11, 31), "year")).toBe("2028");
+        // In the app's locale, and in UTC.
+        expect(formatters("de-DE").periodRange(at(2028, 0, 31), at(2029, 0, 30), "month")).toBe("Jan. 2028 – Jan. 2029");
     });
 });

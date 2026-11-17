@@ -120,8 +120,18 @@ test.describe("the horizon brush (#1438)", { tag: "@desktop" }, () => {
         const window = horizon.locator("[data-brush-window]");
         await expect(window).toBeVisible({ timeout: 45_000 });
         await settled(page);
+        // The navigator, compact here: its label names the window's first day to its last, its title the range
+        // (#1680's review) — never its first day alone.
+        const navigator = entry.locator("[data-frame-slot='toolbar'] [data-time-navigation='plan']").first();
+        /** A range as the browser's own Intl spaces it: its ends apart by a space, plain or thin, either side of the dash. */
+        const ranged = (from: string, to: string) => new RegExp(`^${from}\\s–\\s${to}$`);
+        const names = (label: RegExp, title: RegExp) => Promise.all([
+            expect(navigator.locator("[data-time-label]")).toHaveText(label),
+            expect(navigator.locator("[data-time-trigger]")).toHaveAttribute("title", title),
+        ]);
         // The stated four weeks, the days the navigator names: the tasks fall on 6 to 9 October.
         await expect(window).toHaveAttribute("aria-valuetext", "Oct 5, 2026 – Nov 1, 2026");
+        await names(ranged("Oct 5", "Nov 1"), ranged("Oct 5", "Nov 1, 2026"));
         await expect(horizon.locator("[data-brush-handle='lo']")).toHaveAttribute("aria-valuenow", "0");
         await expect(horizon.locator("[data-brush-handle='hi']")).toHaveAttribute("aria-valuenow", "100");
         // Ten days off its end from the end handle, committed.
@@ -129,11 +139,13 @@ test.describe("the horizon brush (#1438)", { tag: "@desktop" }, () => {
         await page.keyboard.press("Shift+ArrowLeft");
         await expect(window).toHaveAttribute("aria-valuetext", "Oct 5, 2026 – Oct 22, 2026");
         await settled(page);
+        await names(ranged("Oct 5", "22"), ranged("Oct 5", "22, 2026"));
         // Moved by the navigator to start on 11 October, past every task — its calendar, as the toolbar draws it compact
         // here: the window is the canvas's still, its days kept, and on the strip.
         await entry.locator("[data-frame-slot='toolbar'] [data-time-trigger]").first().click();
         await page.locator(`[data-time-picker='plan'] [data-time-day='${Date.UTC(2026, 9, 11)}']`).click();
         await settled(page);
         await expect(window).toHaveAttribute("aria-valuetext", "Oct 11, 2026 – Oct 28, 2026");
+        await names(ranged("Oct 11", "28"), ranged("Oct 11", "28, 2026"));
     });
 });

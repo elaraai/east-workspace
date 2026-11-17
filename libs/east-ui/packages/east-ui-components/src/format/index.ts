@@ -113,6 +113,12 @@ export interface Formatters {
     year(d: Date): string;
     /** Two dates as a range, sharing what they share — `Jun 29 – Jul 6, 2026`. */
     range(from: Date, to: Date): string;
+    /**
+     * Two dates as a range of the days, months or years they fall in, sharing what they share — `Jun 29 – Jul 6`,
+     * `Jan – Jun 2028`, `Jan 2028 – Jan 2029`, `2028 – 2037`; the one period alone where both fall in it — `Jun 29`,
+     * `Jan 2028`, `2028`. What a date navigator's short label names a window of several periods by (#1680's review).
+     */
+    periodRange(from: Date, to: Date, period: "day" | "month" | "year"): string;
 }
 
 // ============================================================================
@@ -334,6 +340,12 @@ function build(locale: string): Formatters {
     const hm = { hour: "2-digit", minute: "2-digit", hourCycle: "h23" } as const;
     const rangeFormat = utcFormat(locale, dmy);
     const date = dateArm(rangeFormat);
+    // The days, months or years two dates fall in, each period at its own fields.
+    const periodFormats = {
+        day: utcFormat(locale, { month: "short", day: "numeric" }),
+        month: utcFormat(locale, { month: "short", year: "numeric" }),
+        year: utcFormat(locale, { year: "numeric" }),
+    } as const;
     return {
         locale,
         separators: { group, decimal },
@@ -364,6 +376,14 @@ function build(locale: string): Formatters {
             if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return `${date(from)} – ${date(to)}`;
             // A range runs forward; a reversed pair prints as the two dates.
             return from.getTime() <= to.getTime() ? rangeFormat.formatRange(from, to) : `${date(from)} – ${date(to)}`;
+        },
+        periodRange(from, to, period) {
+            const format = periodFormats[period];
+            // As a range of dates: one that runs forward, and anything else as its two ends.
+            if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from.getTime() > to.getTime()) {
+                return `${dateArm(format)(from)} – ${dateArm(format)(to)}`;
+            }
+            return format.formatRange(from, to);
         },
     };
 }

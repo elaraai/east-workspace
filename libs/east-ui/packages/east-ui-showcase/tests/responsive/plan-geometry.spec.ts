@@ -2041,8 +2041,10 @@ test.describe("planNestedAll's rows (#1438)", { tag: "@desktop" }, () => {
     });
 
     test("zooming, panning and moving the window add no style rules once each has been drawn: a place is written inline, never into a class", async ({ page }) => {
-        // Wide enough that the toolbar shows every zoom, rather than folding them into a menu.
-        await page.setViewportSize({ width: 1440, height: 900 });
+        // Wide enough that the toolbar shows every zoom, rather than folding them into a menu, at every zoom: the date
+        // navigator names the window's first month to its last at a month or a quarter, which takes more of the row than
+        // its first alone (#1680's review).
+        await page.setViewportSize({ width: 1680, height: 900 });
         const entry = await openExample(page, "planNestedAll", NESTED_EXAMPLES);
         /** Every style rule the page's emotion sheet holds, those nested in its layers counted. */
         const rules = () => page.evaluate(() => {
