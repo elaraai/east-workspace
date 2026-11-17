@@ -143,6 +143,16 @@ char *east_key_bound_refusal(EastKeyBoundName name, EastType *key_type, EastType
     return w.data;
 }
 
+size_t east_key_leaves(const EastType *type)
+{
+    if (!type) return 0;
+    if (type->kind != EAST_TYPE_STRUCT) return 1;
+    size_t n = 0;
+    for (size_t i = 0; i < type->data.struct_.num_fields; i++)
+        n += east_key_leaves(type->data.struct_.fields[i].type);
+    return n;
+}
+
 int east_key_bound_compare(EastValue *key, EastValue *bound, const EastType *bound_type)
 {
     if (!bound_type || bound_type->kind != EAST_TYPE_STRUCT || !key || !bound ||

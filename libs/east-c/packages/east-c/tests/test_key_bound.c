@@ -18,7 +18,11 @@
  *      gives; a bound that is the whole key stands as the key's own order
  *      does;
  *   4. the comparison never reads past a value's fields: handed a bound type
- *      longer than a value, it stops at the fewest fields any of them holds.
+ *      longer than a value, it stops at the fewest fields any of them holds;
+ *   5. how many leaves a key has, as TypeScript's `keyLeaves` counts them: one
+ *      for a key that is not a struct, whatever it holds; a struct's fields'
+ *      through nested structs; none for an empty struct — so a bound that
+ *      leaves out only an empty struct gives every leaf, and is a whole key.
  *
  * Run under ASan/LSan too (scripts/run_leak_check.sh): a read past a value's
  * fields is a heap overflow there.
@@ -456,6 +460,28 @@ static void test_compare(void)
         east_value_release(keys[i]);
 }
 
+/* ---- 5: a key's leaves --------------------------------------------------- */
+
+static void test_leaves(void)
+{
+    check(east_key_leaves(&east_string_type) == 1, "a key that is not a struct is one leaf");
+    check(east_key_leaves(level_type()) == 1 && east_key_leaves(option_of(sheets_type())) == 1,
+          "a variant key is one leaf, whatever its cases hold");
+    check(east_key_leaves(sheets_type()) == 3, "a struct key's leaves are its fields'");
+    check(east_key_leaves(indexed_type()) == 6,
+          "through nested structs: ik.on.hall, ik.on.press, ik.key, ik.level, ik.tile, k");
+    EastType *empty = struct_of(NULL, NULL, 0);
+    check(east_key_leaves(empty) == 0, "an empty struct holds no leaf");
+    const char *names[] = {"a", "b"};
+    EastType *types[] = {&east_integer_type, empty};
+    EastType *keyed = struct_of(names, types, 2);
+    EastType *a_only = one_field("a", &east_integer_type);
+    check(east_key_leaves(keyed) == 1 && east_key_bound_type_ok(keyed, a_only) &&
+              east_key_leaves(a_only) == east_key_leaves(keyed),
+          "a bound that leaves out only an empty struct gives every leaf of the key: a whole key");
+    check(east_key_leaves(NULL) == 0, "no type has no leaf");
+}
+
 int main(void)
 {
     east_type_of_type_init();
@@ -464,6 +490,7 @@ int main(void)
     test_bound_types();
     test_refusals();
     test_compare();
+    test_leaves();
 
     if (failures == 0) {
         printf("GATE PASS: a bound is a leading part of the key, refused in TypeScript's words "

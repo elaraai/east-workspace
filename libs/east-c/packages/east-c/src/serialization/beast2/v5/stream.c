@@ -2849,9 +2849,13 @@ static size_t pages_segment_of_row(const Beast2Pages *p, size_t row)
  * one that can still hold passing keys, at its end, so it is read, through
  * the cache, and its rows in the window searched — unless there is none
  * before it in the window, or the bound is a whole key that is that fence,
- * which every earlier key is before. With no fence passing, that is the
- * window's last segment. A window that starts inside a segment has no fence
- * at its first row, so that segment is never skipped on a fence's word.
+ * which every earlier key is before. A whole key gives every leaf of the
+ * key — as many as the key has (east_key_leaves), as TypeScript counts them —
+ * so a bound that leaves out only fields holding no leaf, an empty struct's,
+ * is one too, and every runtime reads the same segments for it. With no
+ * fence passing, that is the window's last segment. A window that starts
+ * inside a segment has no fence at its first row, so that segment is never
+ * skipped on a fence's word.
  *
  * `*key` is the key at `*row` where placing the end read it — a fence, or a
  * key of the segment searched — retained; NULL where the row is the window's
@@ -2887,10 +2891,12 @@ static bool pages_place_end(Beast2Pages *p, const B2V5ViewEnd *end, size_t w_lo,
         *row = w_lo; /* the window's first row passes */
         return true;
     }
-    if (first <= last_seg && !end->past && east_type_equal(end->type, key_type)) {
+    if (first <= last_seg && !end->past &&
+        east_key_leaves(end->type) == east_key_leaves(key_type)) {
         EastValue *fence = east_beast2_pages_fence(p, first);
         if (!fence) return false;
-        if (east_value_compare(fence, end->value) == 0) {
+        /* Compared as a bound is, leaf by leaf: a whole key's type need not be the key's. */
+        if (east_key_bound_compare(fence, end->value, end->type) == 0) {
             *row = pages_rows_before(p, first);
             *key = fence;
             return true;

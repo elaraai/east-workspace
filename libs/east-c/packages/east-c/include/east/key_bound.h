@@ -58,6 +58,13 @@ bool east_key_bound_accepts(EastKeyBoundName name, EastType *key_type, EastType 
  * a caller that must refuse asks east_key_bound_accepts. */
 char *east_key_bound_refusal(EastKeyBoundName name, EastType *key_type, EastType *bound_type);
 
+/* How many leaves a key of this type has: one for a key that is not a struct;
+ * for a struct, its fields' leaves through nested structs — none for an empty
+ * one. A bound with as many leaves as its key gives every leaf: it is a whole
+ * key, and names one key. TypeScript's `keyLeaves` counts them alike. 0 for a
+ * NULL type. */
+size_t east_key_leaves(const EastType *type);
+
 /* How a key stands to a bound: negative before it, zero at it — equal on every
  * leaf the bound gives — positive past it.
  *

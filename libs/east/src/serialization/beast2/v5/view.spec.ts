@@ -151,6 +151,25 @@ describe("Beast2 v5 — a range of a lazily opened collection: what a read costs
     assert.equal(sizes.both(few, 4n, 13n), 3n);
     assert.equal(decoded(few), 1);
   });
+
+  test("a bound that leaves out only an empty struct is a whole key: placed at a segment's first key without reading the segment before it, as east-c places it", () => {
+    // Keyed { a, b: {} }: the empty struct holds no leaf, so `{ a }` gives every leaf of the key.
+    const Key = StructType({ a: IntegerType, b: StructType({}) });
+    const Keyed = DictType(Key, IntegerType);
+    type KeyValue = { a: bigint; b: Record<string, never> };
+    const keyed = new SortedMap<KeyValue, bigint>(
+      Array.from({ length: ROWS }, (_, i) => [{ a: BigInt(3 * i), b: {} }, BigInt(10 * i)] as [KeyValue, bigint]), compareFor(Key));
+    const K = toEastTypeValue(Key);
+    const A = toEastTypeValue(StructType({ a: IntegerType }));
+    const from = boundReader(0n, null, "from", K, A).atOrPast({ a: 24n }) as KeyTest<KeyValue>;
+    const to = boundReader(0n, null, "to", K, A).atOrPast({ a: 48n }) as KeyTest<KeyValue>;
+    const lazy = openBeast2LazyFor(Keyed, { frozen: true })(paged(Keyed, keyed)) as SortedMap<KeyValue, bigint>;
+    const view = lazy.range(from, to);
+    assert.equal(view.size, PER_SEGMENT);
+    assert.equal(decoded(lazy), 0, "each end a whole key that is a segment's first key: its size reads no segment");
+    assert.deepEqual([...view.keys()].map((key) => key.a), Array.from({ length: PER_SEGMENT }, (_, i) => BigInt(24 + 3 * i)));
+    assert.equal(decoded(lazy), 1, "a walk of it reads segment 1, once");
+  });
 });
 
 describe("Beast2 v5 — a range of a lazily opened collection: the view's rule", () => {

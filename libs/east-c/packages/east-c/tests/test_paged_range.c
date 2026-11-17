@@ -8,7 +8,8 @@
  *   1. making a view reads nothing, and its size places its two ends: the
  *      fences bisected, then the one segment that can hold each end, through
  *      the cache — none where the end is before the first key, or is a whole
- *      key that is a segment's first;
+ *      key that is a segment's first: one that gives every leaf of the key, an
+ *      empty struct's none among them, as TypeScript counts them;
  *   2. a walk of a view reads its first and last segments through the cache,
  *      where placing left them, and the segments between them fresh, each
  *      once, the cache left holding the ends alone;
@@ -335,6 +336,83 @@ static void test_costs(void)
     if (few_blob) byte_buffer_free(few_blob);
     east_value_release(few);
     east_type_release(type);
+}
+
+/* Dict<{ a: Integer, b: {} }, Integer>: { a: 3·i, b: {} } -> 10·i. Its last
+ * field is an empty struct, which holds no leaf, so a bound of `{ a }` gives
+ * every leaf of the key: a whole key, which names one key, as TypeScript counts
+ * leaves (view.spec.ts) — so the two runtimes read the same segments for it. */
+static void test_whole_key_by_leaves(void)
+{
+    const char *names[] = {"a", "b"};
+    EastType *empty = east_struct_type(NULL, NULL, 0);
+    EastType *key_fields[] = {&east_integer_type, empty};
+    EastType *key_type = east_struct_type(names, key_fields, 2);
+    EastType *a_fields[] = {&east_integer_type};
+    EastType *a_type = east_struct_type(names, a_fields, 1);
+    EastType *type = east_dict_type(key_type, &east_integer_type);
+    EastValue *nothing = east_struct_new(NULL, NULL, 0, empty);
+    EastValue *whole = east_dict_new(key_type, &east_integer_type);
+    for (size_t i = 0; i < ROWS; i++) {
+        EastValue *a = east_integer((int64_t)(3 * i));
+        EastValue *fields[] = {a, nothing};
+        EastValue *k = east_struct_new(names, fields, 2, key_type);
+        EastValue *v = east_integer((int64_t)(10 * i));
+        east_dict_set(whole, k, v);
+        east_value_release(v);
+        east_value_release(k);
+        east_value_release(a);
+    }
+    ByteBuffer *blob = encode_in_segments(whole, type, PER_SEGMENT, true);
+    EastValue *source = blob ? open_lazy(blob, type, true) : NULL;
+    check(source != NULL, "the fixture keyed { a, b: {} } opens");
+    if (source) {
+        EastValue *a24 = east_integer(24), *a48 = east_integer(48);
+        EastValue *from = east_struct_new(names, &a24, 1, a_type);
+        EastValue *to = east_struct_new(names, &a48, 1, a_type);
+        EastValue *view =
+            east_beast2_open_paged_range(source, from, a_type, false, to, a_type, false);
+        check_count(view ? east_dict_len(view) : 0, PER_SEGMENT,
+                    "from { a: 24 } to { a: 48 }: segment 1's rows");
+        check_count(decoded(source), 0,
+                    "each end a whole key that is a segment's first key: its size reads no "
+                    "segment");
+        size_t lo = 0, hi = 0;
+        check(east_beast2_pages_range(source->data.paged.pages, from, a_type, false, to, a_type,
+                                      false, &lo, &hi) &&
+                  lo == PER_SEGMENT && hi == 2 * PER_SEGMENT,
+              "the host's row range of it is rows 8 to 16");
+        size_t rows = 0;
+        bool exact = view && east_beast2_pages_prepare(view->data.paged.pages);
+        size_t n = exact ? east_beast2_pages_segment_count(view->data.paged.pages) : 0;
+        for (size_t k = 0; exact && k < n; k++) {
+            EastValue *seg = east_beast2_pages_segment_disjoint(view->data.paged.pages, k);
+            if (!seg) {
+                exact = false;
+                break;
+            }
+            for (size_t i = 0; i < east_dict_len(seg) && rows < PER_SEGMENT; i++, rows++)
+                if (!east_value_equal(east_dict_key_at(seg, i),
+                                      east_dict_key_at(whole, PER_SEGMENT + rows)))
+                    exact = false;
+            east_value_release(seg);
+        }
+        check(exact && rows == PER_SEGMENT, "a walk of it reads those rows, in order");
+        check_count(decoded(source), 1, "segments decoded once walked: segment 1, once");
+        if (view) east_value_release(view);
+        east_value_release(to);
+        east_value_release(from);
+        east_value_release(a48);
+        east_value_release(a24);
+        east_value_release(source);
+    }
+    if (blob) byte_buffer_free(blob);
+    east_value_release(whole);
+    east_value_release(nothing);
+    east_type_release(type);
+    east_type_release(a_type);
+    east_type_release(key_type);
+    east_type_release(empty);
 }
 
 /* ---- 3, 4 and 5: keyed reads, a range of a range, a view's own rows ------- */
@@ -1350,6 +1428,7 @@ int main(void)
     printf("paged range gate (issue #1616)\n");
     report_timings();
     test_costs();
+    test_whole_key_by_leaves();
     test_view_rule();
     test_exactness();
     test_refusals();
