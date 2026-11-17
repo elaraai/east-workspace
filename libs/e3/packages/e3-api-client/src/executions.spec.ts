@@ -14,20 +14,13 @@
 
 import { describe, it, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { encodeBeast2For, equalFor, none, printFor, some, variant, type EastType, type ValueTypeOf } from '@elaraai/east';
-import {
-  ApiDataflowExecutionStateType, BEAST2_CONTENT_TYPE, DATAFLOW_POLL_EVENTS_MAX, DataflowStartResultType, ResponseType, type DataflowStartResult,
-} from '@elaraai/e3-types';
+import { equalFor, none, printFor, some, variant } from '@elaraai/east';
+import { ApiDataflowExecutionStateType, DATAFLOW_POLL_EVENTS_MAX, DataflowStartResultType, type DataflowStartResult } from '@elaraai/e3-types';
 import { dataflowEventsRemain, dataflowExecute, dataflowExecuteLaunch } from './executions.js';
+import { success } from './test-helpers.js';
 
 const BASE = 'https://e3.test';
 const AT = new Date('2026-10-04T00:00:00.000Z');
-
-/** A BEAST2 success envelope, as the server sends one. */
-function success<T extends EastType>(type: T, value: ValueTypeOf<T>, status = 200): globalThis.Response {
-  const body = encodeBeast2For(ResponseType(type))(variant('success', value) as never);
-  return new Response(body, { status, headers: { 'Content-Type': BEAST2_CONTENT_TYPE } });
-}
 
 /**
  * A server whose run has ended with `held` task completions, each its own

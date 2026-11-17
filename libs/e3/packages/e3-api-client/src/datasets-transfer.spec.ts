@@ -20,11 +20,9 @@
 
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { encodeBeast2For, none, some, variant, type EastType, type ValueTypeOf } from '@elaraai/east';
+import { none, some, variant } from '@elaraai/east';
 import {
-  BEAST2_CONTENT_TYPE,
   E3_RELEASE,
-  ResponseType,
   TransferDoneResponseType,
   TransferPartResponseType,
   TransferUploadResponseType,
@@ -32,6 +30,7 @@ import {
 } from '@elaraai/e3-types';
 import { datasetSetStream, type DatasetTransferSource } from './datasets.js';
 import { ApiError, type RetryOptions } from './http.js';
+import { refusal, success } from './test-helpers.js';
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -70,12 +69,6 @@ function fakeServer(answer: (call: Call) => globalThis.Response | Promise<global
   const server = fakeFetch(answer);
   globalThis.fetch = server.fetch;
   return server.calls;
-}
-
-/** A BEAST2 success envelope, as the server sends one. */
-function success<T extends EastType>(type: T, value: ValueTypeOf<T>): globalThis.Response {
-  const body = encodeBeast2For(ResponseType(type))(variant('success', value) as never);
-  return new Response(body, { status: 200, headers: { 'Content-Type': BEAST2_CONTENT_TYPE } });
 }
 
 /** A source over `bytes` that serves each range as a stream and counts the reads. */
@@ -233,12 +226,11 @@ describe('datasetSetStream: the transfer protocol', () => {
       /Transfer failed: hash mismatch: expected a, got b/,
     );
 
-    const refusal = encodeBeast2For(ResponseType(TransferDoneResponseType))(variant('error', variant('dataset_type_mismatch', {
+    answerWith(refusal(TransferDoneResponseType, variant('dataset_type_mismatch', {
       workspace: 'ws',
       path: '.inputs.table',
       message: "dataset '.inputs.table' declares .String but the value carries .Blob",
-    })) as never);
-    answerWith(new Response(refusal, { status: 200, headers: { 'Content-Type': BEAST2_CONTENT_TYPE } }));
+    })));
     await assert.rejects(
       datasetSetStream(BASE, 'r', 'ws', PATH, streamedSource(payload), { token: null, retry: NO_WAIT }),
       (err: unknown) => err instanceof ApiError && err.code === 'dataset_type_mismatch',

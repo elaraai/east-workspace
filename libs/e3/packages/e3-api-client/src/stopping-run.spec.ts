@@ -14,29 +14,15 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { NullType, encodeBeast2For, none, some, variant, type EastType, type ValueTypeOf } from '@elaraai/east';
-import {
-  ApiDataflowExecutionStateType, BEAST2_CONTENT_TYPE, DataflowStartResultType, PackageJobResponseType, ResponseType, WorkspaceDeployStatusType,
-  type Error as ApiErrorValue,
-} from '@elaraai/e3-types';
+import { NullType, none, some, variant, type EastType, type ValueTypeOf } from '@elaraai/east';
+import { ApiDataflowExecutionStateType, DataflowStartResultType, PackageJobResponseType, WorkspaceDeployStatusType } from '@elaraai/e3-types';
 import { dataflowCancel, dataflowExecuteLaunch } from './executions.js';
 import { ApiError } from './http.js';
+import { refusal, success } from './test-helpers.js';
 import { workspaceDeploy, workspaceRemove } from './workspaces.js';
 
 const BASE = 'https://e3.test';
 const AT = new Date('2026-10-13T00:00:00.000Z');
-
-/** A BEAST2 success, as the server sends one. */
-function success<T extends EastType>(type: T, value: ValueTypeOf<T>, status = 200): globalThis.Response {
-  const body = encodeBeast2For(ResponseType(type))(variant('success', value) as never);
-  return new Response(body, { status, headers: { 'Content-Type': BEAST2_CONTENT_TYPE } });
-}
-
-/** A BEAST2 refusal, as the server sends one, with its headers. */
-function refusal<T extends EastType>(type: T, error: ApiErrorValue, headers: Record<string, string> = {}): globalThis.Response {
-  const body = encodeBeast2For(ResponseType(type))(variant('error', error) as never);
-  return new Response(body, { status: 200, headers: { 'Content-Type': BEAST2_CONTENT_TYPE, ...headers } });
-}
 
 /** The refusal of a workspace something holds. */
 const locked = variant('workspace_locked', { workspace: 'ws', holder: variant('unknown', null) });

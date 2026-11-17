@@ -18,12 +18,11 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { IntegerType, encodeBeast2For, equalFor, none, some, variant, type EastType, type ValueTypeOf } from '@elaraai/east';
-import {
-  BEAST2_CONTENT_TYPE, ExecuteResultType, FunctionCallAnswerType, FunctionCallStatusType, ResponseType, type ExecuteResult, type FunctionCallStatus,
-} from '@elaraai/e3-types';
+import { IntegerType, encodeBeast2For, equalFor, none, some, variant } from '@elaraai/east';
+import { ExecuteResultType, FunctionCallAnswerType, FunctionCallStatusType, type ExecuteResult, type FunctionCallStatus } from '@elaraai/e3-types';
 import { CALL_POLL_WAIT_MS, workspaceFunctionCall } from './functions.js';
 import { ApiError } from './http.js';
+import { success } from './test-helpers.js';
 
 const BASE = 'https://e3.test';
 const START = 'POST /api/repos/r/workspaces/ws/functions/add/calls';
@@ -38,12 +37,6 @@ const FIVE: ExecuteResult = {
   outcome: variant('success', { value: encodeBeast2For(IntegerType)(5n) }),
   stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false, inputs: [], drafts: [], draftEnd: none,
 };
-
-/** A BEAST2 success, as the server sends one. */
-function success<T extends EastType>(type: T, value: ValueTypeOf<T>): globalThis.Response {
-  const body = encodeBeast2For(ResponseType(type))(variant('success', value) as never);
-  return new Response(body, { status: 200, headers: { 'Content-Type': BEAST2_CONTENT_TYPE } });
-}
 
 /** An answer to a request, by its URL. */
 type Answer = (url: URL) => globalThis.Response | Promise<globalThis.Response>;
