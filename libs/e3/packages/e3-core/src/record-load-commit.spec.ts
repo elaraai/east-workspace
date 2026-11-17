@@ -19,12 +19,10 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { dirname, join } from 'node:path';
-import {
-  StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, printFor, some, type ValueTypeOf,
-} from '@elaraai/east';
+import { StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, some, type ValueTypeOf } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { RecordLoadArgsType, decodeRecordCommit, decodeRecordLoadObject, type RecordLoadArgs } from '@elaraai/e3-types';
-import { DatasetSegments, readDatasetWhole } from './dataset-open.js';
+import { DatasetSegments } from './dataset-open.js';
 import { inputsHash } from './executions.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
 import { packageImport } from './package-files.js';
@@ -32,37 +30,27 @@ import { recordLoadCommit, recordSourceRun, type RecordLoadCommitOptions, type R
 import { PENDING_SLOT, sourceLoadSlots } from './record-slots.js';
 import { applyDelta } from './record-apply.js';
 import {
-  decodeMutationArgs, readRecordState, recordHistory, recordMutate, recordReindex, recordSystemCommit, resolveRecord, withSharedWorkspaceLock,
-  type RecordStateRefs, type ResolvedRecord,
+  decodeMutationArgs, readRecordState, recordHistory, recordMutate, recordReindex, recordSystemCommit, resolveRecord, stateTargets, stateWritten,
+  withSharedWorkspaceLock, type RecordStateRefs, type ResolvedRecord,
 } from './records.js';
 import { storeCollection } from './store-collection.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { StorageBackend } from './storage/interfaces.js';
 import {
-  ErpDeliveryType, LedgerKeyType, LedgerOrdersType, SourcedOrderType, createTempDir, createTestRepo, ledgerOrders, ledgerRows, removeTempDir,
-  removeTestRepo, seededStream, type LedgerErpLoad,
+  ErpDeliveryType, LEDGER_DEPLOYED, LEDGER_ORDERS, SourcedOrderType, createTempDir, createTestRepo, ledgerOrders, ledgerWorkspaces, overriding,
+  removeTempDir, removeTestRepo, seededStream, withStores, type LedgerErpLoad, type LedgerWorkspaces,
 } from './test-helpers.js';
-import { workspaceCreate, workspaceDeploy } from './workspaces.js';
 
-const Order = SourcedOrderType;
-/** What a source is delivered, and what its load patches: its entries by its own key. */
-const Entries = ErpDeliveryType;
-const Orders = LedgerOrdersType;
-type OrderRow = ValueTypeOf<typeof Order>;
-type OrderKey = ValueTypeOf<typeof LedgerKeyType>;
+type OrderRow = ValueTypeOf<typeof SourcedOrderType>;
 
-const decodeOrders = decodeBeast2For(Orders);
 const decodeLoadArgs = decodeBeast2For(RecordLoadArgsType);
 const encodeString = encodeBeast2For(StringType);
-const encodeOrder = encodeBeast2For(Order);
+const encodeOrder = encodeBeast2For(SourcedOrderType);
 const byId = compareFor(StringType);
-const sameOrders = equalFor(Orders);
 const sameArgs = equalFor(RecordLoadArgsType);
-const printOrders = printFor(Orders);
 
-const acme: OrderRow = { customer: 'Acme', qty: 5n };
-const birch: OrderRow = { customer: 'Birch', qty: 2n };
-const cedar: OrderRow = { customer: 'Cedar', qty: 7n };
+const { acme, birch, cedar } = LEDGER_ORDERS;
+const DEPLOYED = LEDGER_DEPLOYED;
 
 /**
  * A version of the package the cases deploy: the ledger's `orders`
@@ -87,13 +75,14 @@ describe('a load\'s commit', () => {
   let storage: StorageBackend;
   let runner: LocalTaskRunner;
   let record: ResolvedRecord;
-  let workspaces = 0;
+  let ledger: LedgerWorkspaces;
 
   before(async () => {
     repoDir = createTestRepo();
     dir = createTempDir();
     storage = new LocalStorage(dirname(repoDir));
     runner = new LocalTaskRunner(repoDir);
+    ledger = ledgerWorkspaces(storage, repoDir, runner);
     const zips: Array<[string, ReturnType<typeof e3.package>]> = [
       ['ledger.zip', ledgerPackage('1.0.0', 'book', new Map([['P-1', birch]]))],
       // A load whose patch strays outside its delivery and its entries
@@ -113,27 +102,20 @@ describe('a load\'s commit', () => {
     removeTempDir(dir);
   });
 
-  /** A workspace of its own for a case, a version of the ledger deployed to it. */
+  /** A workspace of its own for a case, a version of the ledger deployed to it, and the record as it resolves there. */
   const fresh = async (version = '1.0.0'): Promise<string> => {
-    const ws = `ws${++workspaces}`;
-    await workspaceCreate(storage, repoDir, ws);
-    await workspaceDeploy(storage, repoDir, ws, 'ledger', version, { runner });
+    const ws = await ledger.fresh(version);
     record = (await resolveRecord(storage, repoDir, ws, 'orders'))!;
     return ws;
   };
-  /** The record's ref in a workspace. */
-  const ref = async (ws: string) => {
-    const held = await storage.datasets.read(repoDir, ws, 'records/orders');
-    if (held === null || held.type !== 'value') assert.fail('the record holds no state');
-    return held.value;
-  };
+  const ref = (ws: string) => ledger.ref(ws);
+  const chain = (ws: string) => ledger.chain(ws);
+  const holds = (ws: string, rows: Parameters<LedgerWorkspaces['holds']>[1]) => ledger.holds(ws, rows);
   /** The record's head commit. */
   const head = async (ws: string): Promise<string> => (await ref(ws)).versions.get('.records.orders')!;
-  /** What the record holds, read whole. */
-  const held = async (ws: string) => decodeOrders(await readDatasetWhole(storage, repoDir, (await readRecordState(storage, repoDir, (await ref(ws)).hash)).primary));
   /** A delivery of some orders, stored as a collection. */
   const delivery = (rows: Array<[string, OrderRow]>): Promise<string> =>
-    storeCollection(storage, repoDir, Entries, [{ elements: [...rows].sort(([a], [b]) => byId(a, b)) }]);
+    storeCollection(storage, repoDir, ErpDeliveryType, [{ elements: [...rows].sort(([a], [b]) => byId(a, b)) }]);
   /** What a load of a delivery into a source computes, over the record as it stands. */
   const prepared = async (ws: string, source: string, delivered: string): Promise<Prepared> => {
     const resolved = (await resolveRecord(storage, repoDir, ws, 'orders'))!;
@@ -173,68 +155,36 @@ describe('a load\'s commit', () => {
     assert.equal(rest.length, 0, 'a load\'s arguments are a tuple of one value');
     return decodeLoadArgs(only!);
   };
-  /** The record's commits, newest first, by name. */
-  const chain = async (ws: string): Promise<string[]> => (await recordHistory(storage, repoDir, ws, 'orders')).map(({ commit }) => commit.mutation);
-  /** The commits a deploy of the ledger writes: its `$init`, and the `$reindex` that builds its index. */
-  const DEPLOYED = ['$reindex', '$init'];
-  /** Asserts the record holds these orders, and no other. */
-  const holds = async (ws: string, rows: Array<[OrderKey['type'], string, OrderRow]>): Promise<void> => {
-    const got = await held(ws);
-    assert.ok(sameOrders(got, ledgerRows(rows)), `the record holds ${printOrders(got)}`);
-  };
-
   /**
-   * The storage a commit runs over, its first write of the record's ref
+   * The datasets a commit writes through, their first write of a ref
    * preceded by `first`: a write that lands while the commit brings its
    * result to the head, so its write is refused and it tries again.
    */
-  const raced = (first: () => Promise<unknown>): StorageBackend => {
+  const racing = (first: () => Promise<unknown>): StorageBackend['datasets'] => {
     let pending = true;
-    const datasets = new Proxy(storage.datasets, {
-      get(target, property) {
-        const value: unknown = Reflect.get(target, property, target);
-        if (typeof value !== 'function') return value;
-        if (property !== 'writeIf') return (value as (...args: unknown[]) => unknown).bind(target);
-        return async (...args: unknown[]): Promise<unknown> => {
-          if (pending) {
-            pending = false;
-            await first();
-          }
-          return (value as (...each: unknown[]) => unknown).apply(target, args);
-        };
-      },
-    });
-    return new Proxy(storage, {
-      get(target, property) {
-        if (property === 'datasets') return datasets;
-        const value: unknown = Reflect.get(target, property, target);
-        return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+    return overriding(storage.datasets, {
+      writeIf: async (...args: Parameters<StorageBackend['datasets']['writeIf']>) => {
+        if (pending) {
+          pending = false;
+          await first();
+        }
+        return storage.datasets.writeIf(...args);
       },
     });
   };
+  /** The storage a commit runs over, its first write of the record's ref preceded by `first`. */
+  const raced = (first: () => Promise<unknown>): StorageBackend => withStores(storage, { datasets: racing(first) });
 
-  /** The storage a commit runs over, counting its reads of the objects named. */
-  const counting = (objects: ReadonlySet<string>): { over: StorageBackend; reads: () => number } => {
+  /** The objects a commit reads, counting its reads of the objects named. */
+  const counting = (named: ReadonlySet<string>): { objects: StorageBackend['objects']; reads: () => number } => {
     let reads = 0;
-    const store = new Proxy(storage.objects, {
-      get(target, property) {
-        const value: unknown = Reflect.get(target, property, target);
-        if (typeof value !== 'function') return value;
-        if (property !== 'read') return (value as (...args: unknown[]) => unknown).bind(target);
-        return (repo: string, hash: string): Promise<Uint8Array> => {
-          if (objects.has(hash)) reads++;
-          return (value as (repo: string, hash: string) => Promise<Uint8Array>).call(target, repo, hash);
-        };
+    const objects = overriding(storage.objects, {
+      read: (repo: string, hash: string) => {
+        if (named.has(hash)) reads++;
+        return storage.objects.read(repo, hash);
       },
     });
-    const over = new Proxy(storage, {
-      get(target, property) {
-        if (property === 'objects') return store;
-        const value: unknown = Reflect.get(target, property, target);
-        return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value;
-      },
-    });
-    return { over, reads: () => reads };
+    return { objects, reads: () => reads };
   };
 
   /** The segment objects a collection is stored as. */
@@ -310,14 +260,7 @@ describe('a load\'s commit', () => {
     // And m3 lands as attempt 1 writes, so attempt 2 folds m3 in
     let m3 = '';
     const counted = counting(await segmentsOf(ready.delta));
-    const over = raced(async () => { m3 = await save(ws, 'P-4', birch); });
-    const both = new Proxy(over, {
-      get(target, property) {
-        if (property === 'objects') return counted.over.objects;
-        const value: unknown = Reflect.get(target, property, target);
-        return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value;
-      },
-    });
+    const both = withStores(storage, { datasets: racing(async () => { m3 = await save(ws, 'P-4', birch); }), objects: counted.objects });
     const outcome = await commit(ws, 'erp', ready, {}, both);
     assert.equal(outcome.kind, 'committed', said(outcome));
     if (outcome.kind !== 'committed') return;
@@ -426,7 +369,7 @@ describe('a load\'s commit', () => {
 
     const ready = await prepared(ws, 'erp', await delivery([['SO-1001', acme], ['SO-1002', birch]]));
     const counted = counting(segments);
-    const outcome = await commit(ws, 'erp', ready, {}, counted.over);
+    const outcome = await commit(ws, 'erp', ready, {}, withStores(storage, { objects: counted.objects }));
     assert.equal(outcome.kind, 'committed', said(outcome));
     assert.ok(counted.reads() <= 2, `the apply read ${counted.reads()} of the record's ${segments.size} segments`);
   });
@@ -456,12 +399,7 @@ describe('a load\'s commit', () => {
       // A straight apply: every commit that landed, in order, then the load
       let straight: RecordStateRefs = await readRecordState(storage, repoDir, base.hash);
       const apply = async (delta: string, cases?: ReadonlySet<string>) => {
-        const targets = new Map<string, string>([['primary', straight.primary]]);
-        for (const [name, entry] of straight.indexes) targets.set(name, entry.manifest);
-        const written = await applyDelta(storage, repoDir, targets, delta, cases === undefined ? {} : { cases });
-        const indexes = new Map(straight.indexes);
-        for (const [name, manifest] of written) if (name !== 'primary') indexes.set(name, { manifest, index: straight.indexes.get(name)!.index });
-        straight = { primary: written.get('primary') ?? straight.primary, indexes };
+        straight = stateWritten(straight, await applyDelta(storage, repoDir, stateTargets(straight), delta, cases === undefined ? {} : { cases }));
       };
       for (const hash of landed) {
         const stored = decodeRecordCommit(await storage.objects.read(repoDir, hash));

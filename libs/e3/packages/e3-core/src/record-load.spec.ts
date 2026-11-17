@@ -19,16 +19,13 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { dirname, join } from 'node:path';
-import {
-  StringType, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, toEastTypeValue, variant, type ValueTypeOf,
-} from '@elaraai/east';
+import { StringType, encodeBeast2For, equalFor, none, printFor, some, toEastTypeValue, variant, type ValueTypeOf } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import {
   RecordLoadObjectType, RecordLoadResultType, decodeRecordCommit, decodeRecordLoadObject, type LockOperation, type RecordLoadProgress,
   type RecordLoadResult,
 } from '@elaraai/e3-types';
 import { deliveryAdoptStored } from './dataset-adopt.js';
-import { readDatasetWhole } from './dataset-open.js';
 import { acquireWorkspaceExclusive, workspaceIntentLock } from './deploy-lock.js';
 import { RecordLoadRefusedError, RecordLoadStoppedError, RepositoryBusyError } from './errors.js';
 import { Budget, type BudgetRequest, type Grant } from './execution/budget.js';
@@ -38,29 +35,26 @@ import { repoGc } from './gc.js';
 import { packageImport } from './package-files.js';
 import { loadQueueLock, recordLoad, type RecordLoadOptions } from './record-load.js';
 import { PENDING_SLOT, sourceLoadSlots } from './record-slots.js';
-import { readRecordState, recordHistory, recordMutate, recordSystemCommit, resolveRecord } from './records.js';
+import { recordHistory, recordMutate, recordSystemCommit, resolveRecord } from './records.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { LockHandle, StorageBackend } from './storage/interfaces.js';
 import {
-  ErpDeliveryType, GatedTaskRunner, LedgerOrdersType, SourcedOrderType, createTempDir, createTestRepo, encodeInSegmentsOf, inProjectWithoutEastC,
-  ledgerOrders, ledgerRows, overriding, removeTempDir, removeTestRepo, withEnv, withStores, type LedgerErpLoad,
+  ErpDeliveryType, GatedTaskRunner, LEDGER_DEPLOYED, LEDGER_ORDERS, SourcedOrderType, createTempDir, createTestRepo, encodeInSegmentsOf,
+  inProjectWithoutEastC, ledgerOrders, ledgerWorkspaces, overriding, removeTempDir, removeTestRepo, withEnv, withStores, type LedgerErpLoad,
+  type LedgerWorkspaces,
 } from './test-helpers.js';
-import { workspaceCreate, workspaceDeploy } from './workspaces.js';
+import { workspaceDeploy } from './workspaces.js';
 
 type OrderRow = ValueTypeOf<typeof SourcedOrderType>;
 
-const decodeOrders = decodeBeast2For(LedgerOrdersType);
 const encodeString = encodeBeast2For(StringType);
 const encodeOrder = encodeBeast2For(SourcedOrderType);
 const encodeLoadObject = encodeBeast2For(RecordLoadObjectType);
-const sameOrders = equalFor(LedgerOrdersType);
 const sameResult = equalFor(RecordLoadResultType);
-const printOrders = printFor(LedgerOrdersType);
 const printResult = printFor(RecordLoadResultType);
 
-const acme: OrderRow = { customer: 'Acme', qty: 5n };
-const birch: OrderRow = { customer: 'Birch', qty: 2n };
-const cedar: OrderRow = { customer: 'Cedar', qty: 7n };
+const { acme, birch, cedar } = LEDGER_ORDERS;
+const DEPLOYED = LEDGER_DEPLOYED;
 
 const ERP_RESTARTED = 'the entries of source \'erp\' changed under its load';
 
@@ -89,13 +83,14 @@ describe('a load of a delivery', () => {
   let dir: string;
   let storage: StorageBackend;
   let runner: LocalTaskRunner;
-  let workspaces = 0;
+  let ledger: LedgerWorkspaces;
 
   before(async () => {
     repoDir = createTestRepo();
     dir = createTempDir();
     storage = new LocalStorage(dirname(repoDir));
     runner = new LocalTaskRunner(repoDir);
+    ledger = ledgerWorkspaces(storage, repoDir, runner);
     const packages: Array<[string, ReturnType<typeof e3.package>]> = [
       ['ledger.zip', ledgerPackage('1.0.0', 'book')],
       // The ERP's load function changed: each order's quantity doubled
@@ -116,28 +111,10 @@ describe('a load of a delivery', () => {
     removeTempDir(dir);
   });
 
-  /** A workspace of its own for a case, the ledger deployed to it. */
-  const fresh = async (): Promise<string> => {
-    const ws = `ws${++workspaces}`;
-    await workspaceCreate(storage, repoDir, ws);
-    await workspaceDeploy(storage, repoDir, ws, 'ledger', '1.0.0', { runner });
-    return ws;
-  };
-  /** The record's ref in a workspace. */
-  const ref = async (ws: string) => {
-    const held = await storage.datasets.read(repoDir, ws, 'records/orders');
-    if (held === null || held.type !== 'value') assert.fail('the record holds no state');
-    return held.value;
-  };
-  /** The record's commits, newest first, by name. */
-  const chain = async (ws: string): Promise<string[]> => (await recordHistory(storage, repoDir, ws, 'orders')).map(({ commit }) => commit.mutation);
-  /** The commits a deploy of the ledger writes: its `$init`, and the `$reindex` that builds its index. */
-  const DEPLOYED = ['$reindex', '$init'];
-  /** Asserts the record holds these orders, and no other. */
-  const holds = async (ws: string, rows: Parameters<typeof ledgerRows>[0]): Promise<void> => {
-    const got = decodeOrders(await readDatasetWhole(storage, repoDir, (await readRecordState(storage, repoDir, (await ref(ws)).hash)).primary));
-    assert.ok(sameOrders(got, ledgerRows(rows)), `the record holds ${printOrders(got)}`);
-  };
+  const fresh = (): Promise<string> => ledger.fresh();
+  const ref = (ws: string) => ledger.ref(ws);
+  const chain = (ws: string) => ledger.chain(ws);
+  const holds = (ws: string, rows: Parameters<LedgerWorkspaces['holds']>[1]) => ledger.holds(ws, rows);
   /** A delivery of some orders, written as the object a file or an upload stores, its segments `per` orders each. */
   const deliver = (rows: Array<[string, OrderRow]>, per = 2): Promise<string> =>
     storage.objects.write(repoDir, encodeInSegmentsOf(ErpDeliveryType, per)(new Map(rows)));

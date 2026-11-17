@@ -563,6 +563,38 @@ export interface RecordStateRefs {
 }
 
 /**
+ * A record state's collections, by the names a delta's entries target them
+ * by: `primary`, and each index's.
+ *
+ * @param state - The state
+ * @returns Each collection's manifest, by its target's name
+ * @internal
+ */
+export function stateTargets(state: RecordStateRefs): Map<string, string> {
+  const targets = new Map<string, string>([['primary', state.primary]]);
+  for (const [name, entry] of state.indexes) targets.set(name, entry.manifest);
+  return targets;
+}
+
+/**
+ * A record state once an apply wrote some of its collections
+ * ({@link stateTargets}): each written replaced, every other as it was.
+ *
+ * @param state - The state the apply wrote over
+ * @param written - The manifests it wrote, by their targets' names
+ * @returns The state it left
+ * @internal
+ */
+export function stateWritten(state: RecordStateRefs, written: ReadonlyMap<string, string>): RecordStateRefs {
+  const indexes = new Map(state.indexes);
+  for (const [name, manifest] of written) {
+    if (name === 'primary') continue;
+    indexes.set(name, { manifest, index: state.indexes.get(name)!.index });
+  }
+  return { primary: written.get('primary') ?? state.primary, indexes };
+}
+
+/**
  * Resolve a record's state object.
  *
  * @remarks
@@ -1287,8 +1319,7 @@ async function writeDelta(
   run: RunContext,
   program: Promise<string[]> | undefined,
 ): Promise<MutationWrite> {
-  const targets = new Map<string, string>([['primary', state.primary]]);
-  for (const [name, entry] of state.indexes) targets.set(name, entry.manifest);
+  const targets = stateTargets(state);
 
   const patch = mutObj.form.type === 'patch' && state.indexes.size === 0 && args[0] !== undefined
     ? await patchDelta(storage, repo, state.primary, args[0])
@@ -1326,12 +1357,7 @@ async function writeDelta(
     throw err;
   }
 
-  const indexes = new Map(state.indexes);
-  for (const [name, manifest] of written) {
-    if (name === 'primary') continue;
-    indexes.set(name, { manifest, index: state.indexes.get(name)!.index });
-  }
-  return { primary: written.get('primary') ?? state.primary, indexes, delta: deltaHash };
+  return { ...stateWritten(state, written), delta: deltaHash };
 }
 
 /** A delta held in memory: its type and its entries, keyed as the delta

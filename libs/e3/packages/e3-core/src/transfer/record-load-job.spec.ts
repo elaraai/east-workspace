@@ -27,18 +27,16 @@ import { LocalStorage } from '../storage/local/index.js';
 import { transferStagingDir, transferStagingPath } from '../storage/local/localHelpers.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 import {
-  ErpDeliveryType, GatedTaskRunner, SourcedOrderType, createTempDir, createTestRepo, encodeInSegmentsOf, ledgerOrders, objectUploadStoreTests,
-  overriding, recordLoadStoreTests, removeTempDir, removeTestRepo, withStores,
+  ErpDeliveryType, GatedTaskRunner, LEDGER_ORDERS, SourcedOrderType, createTempDir, createTestRepo, encodeInSegmentsOf, ledgerOrders,
+  ledgerWorkspaces, objectUploadStoreTests, overriding, recordLoadStoreTests, removeTempDir, removeTestRepo, withStores, type LedgerWorkspaces,
 } from '../test-helpers.js';
 import { uuidv7 } from '../uuid.js';
-import { workspaceCreate, workspaceDeploy } from '../workspaces.js';
 import { InMemoryTransferBackend } from './InMemoryTransferBackend.js';
 import type { ObjectUploadJob, RecordLoadJob } from './types.js';
 
 type OrderRow = ValueTypeOf<typeof SourcedOrderType>;
 
-const acme: OrderRow = { customer: 'Acme', qty: 5n };
-const birch: OrderRow = { customer: 'Birch', qty: 2n };
+const { acme, birch } = LEDGER_ORDERS;
 
 /** The part size the cases' uploads are planned with: small, so an upload is several parts. */
 const PART_BYTES = 256;
@@ -76,13 +74,14 @@ describe('a load run as a job on the in-memory transfer backend', () => {
   let dir: string;
   let storage: StorageBackend;
   let runner: LocalTaskRunner;
-  let workspaces = 0;
+  let ledger: LedgerWorkspaces;
 
   before(async () => {
     repoDir = createTestRepo();
     dir = createTempDir();
     storage = new LocalStorage(dirname(repoDir));
     runner = new LocalTaskRunner(repoDir);
+    ledger = ledgerWorkspaces(storage, repoDir, runner);
     await e3.export(e3.package('ledger', '1.0.0', ledgerOrders()), join(dir, 'ledger.zip'));
     await packageImport(storage, repoDir, join(dir, 'ledger.zip'));
   });
@@ -92,13 +91,7 @@ describe('a load run as a job on the in-memory transfer backend', () => {
     removeTempDir(dir);
   });
 
-  /** A workspace of its own for a case, the ledger deployed to it. */
-  const fresh = async (): Promise<string> => {
-    const ws = `ws${++workspaces}`;
-    await workspaceCreate(storage, repoDir, ws);
-    await workspaceDeploy(storage, repoDir, ws, 'ledger', '1.0.0', { runner });
-    return ws;
-  };
+  const fresh = (): Promise<string> => ledger.fresh();
   /** A backend over the repository, whose jobs run on `by`. */
   const backendOn = (by: TaskRunner, over: StorageBackend = storage): InMemoryTransferBackend =>
     new InMemoryTransferBackend({ storage: over, getRepoPath: (name) => name, getRunner: () => by, partBytes: PART_BYTES });

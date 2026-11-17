@@ -31,8 +31,8 @@ import {
 import { applyDelta, summarizeDelta } from './record-apply.js';
 import { PENDING_SLOT, pendingSources, sourceEntriesIn, sourceLoadSlots, sourceSegments, sourcesSlot } from './record-slots.js';
 import {
-  casBackoffMs, encodeMutationArgs, named, nextVersions, readRecordState, resolveRecord, storeCommit, type RecordStateRefs,
-  type ResolvedRecord,
+  casBackoffMs, encodeMutationArgs, named, nextVersions, readRecordState, resolveRecord, stateTargets, stateWritten, storeCommit,
+  type RecordStateRefs, type ResolvedRecord,
 } from './records.js';
 import { DatasetSegments } from './dataset-open.js';
 import { adoptProgressToIntakeFile, deliveryAdoptStored } from './dataset-adopt.js';
@@ -308,14 +308,7 @@ function replays(commit: RecordCommit, source: string): boolean {
  *   for a replay of a commit checked when it committed
  */
 async function applied(storage: StorageBackend, repo: string, state: RecordStateRefs, delta: string, cases?: ReadonlySet<string>): Promise<RecordStateRefs> {
-  const targets = new Map<string, string>([['primary', state.primary]]);
-  for (const [name, entry] of state.indexes) targets.set(name, entry.manifest);
-  const written = await applyDelta(storage, repo, targets, delta, cases === undefined ? {} : { cases });
-  const indexes = new Map(state.indexes);
-  for (const [name, manifest] of written) {
-    if (name !== 'primary') indexes.set(name, { manifest, index: state.indexes.get(name)!.index });
-  }
-  return { primary: written.get('primary') ?? state.primary, indexes };
+  return stateWritten(state, await applyDelta(storage, repo, stateTargets(state), delta, cases === undefined ? {} : { cases }));
 }
 
 /**

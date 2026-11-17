@@ -8,15 +8,16 @@
  * Provides utilities for setting up and tearing down test repositories
  */
 
+import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  DateTimeType, DictType, East, IntegerType, NullType, PatchType, SortedMap, StringType, StructType, VariantType, carveBeast2, compareFor, encodeBeast2For,
-  encodeBeast2FenceFor, encodeBeast2SegmentsFor, isVariant, openBeast2PagesFor, parseFor, printType, readBeast2Extents, readBeast2Type,
-  segmentKeyTypeOf, toEastTypeValue, variant, type EastType, type EastTypeValue, type ValueTypeOf,
+  DateTimeType, DictType, East, IntegerType, NullType, PatchType, SortedMap, StringType, StructType, VariantType, carveBeast2, compareFor,
+  decodeBeast2For, encodeBeast2For, encodeBeast2FenceFor, encodeBeast2SegmentsFor, equalFor, isVariant, openBeast2PagesFor, parseFor, printFor,
+  printType, readBeast2Extents, readBeast2Type, segmentKeyTypeOf, toEastTypeValue, variant, type EastType, type EastTypeValue, type ValueTypeOf,
 } from '@elaraai/east';
 import e3, { type PartRunner } from '@elaraai/e3';
 import {
@@ -24,9 +25,12 @@ import {
 } from '@elaraai/e3-types';
 import type { BackendDamage } from './contract/index.js';
 import { checkHash, checkId } from './errors.js';
-import type { DetachedResult } from './execution/interfaces.js';
+import { readDatasetWhole } from './dataset-open.js';
+import type { DetachedResult, TaskRunner } from './execution/interfaces.js';
 import { openZip } from './package-files.js';
 import { PENDING_SLOT, pendingSources, sourceLoadSlots, sourcesSlot } from './record-slots.js';
+import { readRecordState, recordHistory } from './records.js';
+import { workspaceCreate, workspaceDeploy } from './workspaces.js';
 import type { InMemoryStorage } from './storage/in-memory/InMemoryStorage.js';
 import { executionPath } from './storage/local/localHelpers.js';
 import { repoInit } from './storage/local/repository.js';
@@ -420,6 +424,64 @@ export function ledgerRows(
 ): ValueTypeOf<typeof LedgerOrdersType> {
   return new SortedMap<ValueTypeOf<typeof LedgerKeyType>, ValueTypeOf<typeof SourcedOrderType>>(
     rows.map(([source, id, row]) => [variant(source, id), row]), compareFor(LedgerKeyType));
+}
+
+/** The orders the ledger's specs deliver and save. */
+export const LEDGER_ORDERS = {
+  acme: { customer: 'Acme', qty: 5n },
+  birch: { customer: 'Birch', qty: 2n },
+  cedar: { customer: 'Cedar', qty: 7n },
+} as const satisfies Record<string, ValueTypeOf<typeof SourcedOrderType>>;
+
+/** The commits a deploy of the ledger writes on `orders`, newest first: its
+ *  `$init`, and the `$reindex` that builds its index. */
+export const LEDGER_DEPLOYED: readonly string[] = ['$reindex', '$init'];
+
+/** What a spec of the ledger's loads does to a repository, and reads of it. */
+export interface LedgerWorkspaces {
+  /** A workspace of its own for a case, a version of the `ledger` package (`1.0.0` when omitted) deployed to it. */
+  fresh(version?: string): Promise<string>;
+  /** The ref of `orders` in a workspace: its state's hash, and its version vector. */
+  ref(ws: string): Promise<{ readonly hash: string; readonly versions: Map<string, string> }>;
+  /** The commits of `orders` in a workspace, newest first, by name. */
+  chain(ws: string): Promise<string[]>;
+  /** Asserts `orders` holds these rows in a workspace, and no other. */
+  holds(ws: string, rows: Parameters<typeof ledgerRows>[0]): Promise<void>;
+}
+
+/**
+ * The workspaces a spec of the ledger's loads makes in a repository that holds
+ * the `ledger` package ({@link ledgerOrders}), each deployed on `runner`.
+ *
+ * @param storage - The repository's storage
+ * @param repo - The repository
+ * @param runner - What the deploys build the index on
+ * @returns What the spec does and reads
+ */
+export function ledgerWorkspaces(storage: StorageBackend, repo: string, runner: TaskRunner): LedgerWorkspaces {
+  let made = 0;
+  const decodeOrders = decodeBeast2For(LedgerOrdersType);
+  const sameOrders = equalFor(LedgerOrdersType);
+  const printOrders = printFor(LedgerOrdersType);
+  const ref = async (ws: string) => {
+    const held = await storage.datasets.read(repo, ws, 'records/orders');
+    if (held === null || held.type !== 'value') assert.fail('the record holds no state');
+    return held.value;
+  };
+  return {
+    fresh: async (version = '1.0.0') => {
+      const ws = `ws${++made}`;
+      await workspaceCreate(storage, repo, ws);
+      await workspaceDeploy(storage, repo, ws, 'ledger', version, { runner });
+      return ws;
+    },
+    ref,
+    chain: async (ws) => (await recordHistory(storage, repo, ws, 'orders')).map(({ commit }) => commit.mutation),
+    holds: async (ws, rows) => {
+      const got = decodeOrders(await readDatasetWhole(storage, repo, (await readRecordState(storage, repo, (await ref(ws)).hash)).primary));
+      assert.ok(sameOrders(got, ledgerRows(rows)), `the record holds ${printOrders(got)}`);
+    },
+  };
 }
 
 /** What {@link ledgerOrders}' `erp` is delivered when it is loaded `noted`: its order book, a note on each order. */

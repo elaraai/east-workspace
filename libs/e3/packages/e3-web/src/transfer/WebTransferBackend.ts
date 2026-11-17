@@ -132,8 +132,8 @@ const UploadRecordType = stagedUploadRecordType(DatasetUploadType, DatasetCommit
 type UploadRecord = ValueTypeOf<typeof UploadRecordType>;
 
 /** An upload that writes no ref. */
-const ObjectRecordType = stagedUploadRecordType(ObjectUploadJobType, ObjectCommitStatusType);
-type ObjectRecord = ValueTypeOf<typeof ObjectRecordType>;
+const ObjectUploadRecordType = stagedUploadRecordType(ObjectUploadJobType, ObjectCommitStatusType);
+type ObjectUploadRecord = ValueTypeOf<typeof ObjectUploadRecordType>;
 
 /** A download URL's object. */
 const DownloadRecordType = StructType({ repo: StringType, hash: StringType, createdAt: DateTimeType });
@@ -178,7 +178,7 @@ const deployForm: RecordForm<DeployRecord> = { encode: encodeBeast2For(DeployRec
 const gcForm: RecordForm<GcRecord> = { encode: encodeBeast2For(GcRecordType), decode: decodeBeast2For(GcRecordType) };
 const splitForm: RecordForm<SplitRecord> = { encode: encodeBeast2For(SplitRecordType), decode: decodeBeast2For(SplitRecordType) };
 const loadForm: RecordForm<LoadRecord> = { encode: encodeBeast2For(LoadRecordType), decode: decodeBeast2For(LoadRecordType) };
-const objectForm: RecordForm<ObjectRecord> = { encode: encodeBeast2For(ObjectRecordType), decode: decodeBeast2For(ObjectRecordType) };
+const objectForm: RecordForm<ObjectUploadRecord> = { encode: encodeBeast2For(ObjectUploadRecordType), decode: decodeBeast2For(ObjectUploadRecordType) };
 
 /** Whether two owners are the same session, or both none. */
 const sameOwner = equalFor(OptionType(StringType));
@@ -703,12 +703,12 @@ class WebDatasetUploadStore extends WebStagedUploads<DatasetUpload, DatasetCommi
  * stores them, as the object a load's delivery or a split call's `object`
  * argument then names by its hash.
  */
-class WebObjectUploadStore extends WebStagedUploads<ObjectUploadJob, ObjectCommitStatus, ObjectRecord> implements ObjectUploadStore {
+class WebObjectUploadStore extends WebStagedUploads<ObjectUploadJob, ObjectCommitStatus, ObjectUploadRecord> implements ObjectUploadStore {
   constructor(host: TransferHost, partBytes: bigint) {
     super(host, partBytes, 'object', objectForm);
   }
 
-  protected fresh(upload: ObjectUploadJob): ObjectRecord {
+  protected fresh(upload: ObjectUploadJob): ObjectUploadRecord {
     return { upload, partBytes: none, commit: none, owner: none, createdAt: new Date(), finishedAt: none };
   }
 
