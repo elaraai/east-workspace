@@ -15,10 +15,10 @@
  * @packageDocumentation
  */
 
-import { useCallback, useMemo, useSyncExternalStore } from "react";
-import { OptionType, StringType, StructType, VariantType, decodeBeast2For, encodeBeast2For, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { useCallback } from "react";
+import { OptionType, StringType, StructType, VariantType, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { SavedQueryType } from "@elaraai/e3-ui/internal";
-import { StateRuntime } from "@elaraai/east-ui-components";
+import { storedCodec, useStoredValue } from "../shared/stored-value.js";
 
 /**
  * The query open in a builder.
@@ -48,10 +48,8 @@ export const QueryArrivalType = StructType({ sourceId: StringType, text: StringT
 /** The notice a query arrived with. */
 export type QueryArrival = ValueTypeOf<typeof QueryArrivalType>;
 
-const encodeOpen = encodeBeast2For(QueryOpenType);
-const decodeOpen = decodeBeast2For(QueryOpenType);
-const encodeArrival = encodeBeast2For(QueryArrivalType);
-const decodeArrival = decodeBeast2For(QueryArrivalType);
+const openCodec = storedCodec(QueryOpenType);
+const arrivalCodec = storedCodec(QueryArrivalType);
 const printString = printFor(StringType);
 
 /**
@@ -98,20 +96,12 @@ export type OpenQueryWrite = (next: QueryOpen, notice?: string) => void;
  * @returns The open query; the write that opens another, with the notice it arrives with; and the last notice written
  */
 export function useOpenQuery(key: string, first: QueryOpen): [QueryOpen, OpenQueryWrite, QueryArrival | undefined] {
-    const store = StateRuntime.getStore();
-    const arrivalKey = `${key}.arrival`;
-    const subscribe = useCallback((notify: () => void) => store.subscribe(key, notify), [store, key]);
-    const snapshot = useCallback(() => store.read(key), [store, key]);
-    const bytes = useSyncExternalStore(subscribe, snapshot);
-    const subscribeArrival = useCallback((notify: () => void) => store.subscribe(arrivalKey, notify), [store, arrivalKey]);
-    const snapshotArrival = useCallback(() => store.read(arrivalKey), [store, arrivalKey]);
-    const arrivalBytes = useSyncExternalStore(subscribeArrival, snapshotArrival);
-    const open = useMemo(() => (bytes === undefined ? first : decodeOpen(bytes)), [bytes, first]);
-    const arrival = useMemo(() => (arrivalBytes === undefined ? undefined : decodeArrival(arrivalBytes)), [arrivalBytes]);
+    const [open, writeOpen] = useStoredValue(openCodec, key);
+    const [arrival, writeArrival] = useStoredValue(arrivalCodec, `${key}.arrival`);
     // The notice first, so the builder finds it when the query it arrives with opens.
     const write = useCallback<OpenQueryWrite>((next, notice) => {
-        if (notice !== undefined) store.write(arrivalKey, encodeArrival({ sourceId: querySourceId(next), text: notice }));
-        store.write(key, encodeOpen(next));
-    }, [store, key, arrivalKey]);
-    return [open, write, arrival];
+        if (notice !== undefined) writeArrival({ sourceId: querySourceId(next), text: notice });
+        writeOpen(next);
+    }, [writeOpen, writeArrival]);
+    return [open ?? first, write, arrival];
 }

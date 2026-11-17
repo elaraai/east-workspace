@@ -26,9 +26,9 @@
  * @packageDocumentation
  */
 
-import { useCallback, useMemo, useSyncExternalStore } from "react";
-import { NullType, OptionType, StringType, StructType, VariantType, decodeBeast2For, encodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
-import { StateRuntime } from "@elaraai/east-ui-components";
+import { useCallback, useMemo } from "react";
+import { NullType, OptionType, StringType, StructType, VariantType, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { storedCodec, useStoredValue } from "../shared/stored-value.js";
 
 /** A tool, as the UI store holds it. */
 export const SchematicToolType = VariantType({ select: NullType, zoom: NullType, marquee: NullType, connect: NullType, move: NullType });
@@ -42,8 +42,7 @@ export type SchematicTool = ValueTypeOf<typeof SchematicToolType>["type"];
 /** Every tool, in the toolbar's order. */
 export const SCHEMATIC_TOOLS: readonly SchematicTool[] = ["select", "zoom", "marquee", "connect", "move"];
 
-const encodeTools = encodeBeast2For(SchematicToolsType);
-const decodeTools = decodeBeast2For(SchematicToolsType);
+const toolsCodec = storedCodec(SchematicToolsType);
 
 /** What the viewer holds: the tool, and the link kind Connect draws. */
 export interface SchematicToolsState {
@@ -94,17 +93,13 @@ export function toolsInForce(held: SchematicToolsState, offered: SchematicToolsO
  * @returns What the store holds — Select and no link kind until the viewer picks — and the write that picks
  */
 export function useSchematicTools(key: string): [SchematicToolsState, (next: SchematicToolsState) => void] {
-    const store = StateRuntime.getStore();
-    const subscribe = useCallback((notify: () => void) => store.subscribe(key, notify), [store, key]);
-    const snapshot = useCallback(() => store.read(key), [store, key]);
-    const bytes = useSyncExternalStore(subscribe, snapshot);
+    const [stored, write] = useStoredValue(toolsCodec, key);
     const held = useMemo((): SchematicToolsState => {
-        if (bytes === undefined) return { tool: "select", link: undefined };
-        const decoded = decodeTools(bytes);
-        return { tool: decoded.tool.type, link: decoded.link.type === "some" ? decoded.link.value : undefined };
-    }, [bytes]);
+        if (stored === undefined) return { tool: "select", link: undefined };
+        return { tool: stored.tool.type, link: stored.link.type === "some" ? stored.link.value : undefined };
+    }, [stored]);
     const pick = useCallback((next: SchematicToolsState) => {
-        store.write(key, encodeTools({ tool: variant(next.tool, null), link: next.link === undefined ? none : some(next.link) }));
-    }, [store, key]);
+        write({ tool: variant(next.tool, null), link: next.link === undefined ? none : some(next.link) });
+    }, [write]);
     return [held, pick];
 }
