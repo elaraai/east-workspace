@@ -25,6 +25,7 @@ import type { FieldSpecValue } from "@elaraai/east-ui/internal";
 import { optionOf, type ScheduleFieldWriteType, type ScheduleKindType, type SchedulePeriodsKindType } from "@elaraai/e3-ui/internal";
 import type { EditHistory, EntryVersion } from "@elaraai/east-ui-components";
 import type { ScheduleChange, ScheduleEditingRecord, ScheduleEntryRef, ScheduleRowRead } from "./editing.js";
+import { keyReaderOf } from "../../platform/key-text.js";
 import { meetsWindow } from "./window.js";
 
 /** A builder's periods, as the payload carries them. */
@@ -146,15 +147,13 @@ function fieldCodec(rowType: EastTypeValue, field: string): FieldCodec | undefin
     let codec: FieldCodec | undefined;
     if (type !== undefined) {
         const inner = optionOf(type);
-        const keyType = inner ?? type;
-        const parse = keyType.type === "String" ? undefined : parseFor(keyType);
+        const keyOf = keyReaderOf(inner ?? type);
         codec = {
             type,
             encode: encodeBeast2For(type) as (value: unknown) => Uint8Array,
             key: (text) => {
-                const read = parse === undefined ? { success: true as const, value: text as unknown } : parse(text);
-                if (!read.success) return undefined;
-                return { value: inner === undefined ? read.value : some(read.value) };
+                const value = keyOf(text);
+                return value === undefined ? undefined : { value: inner === undefined ? value : some(value) };
             },
         };
     }

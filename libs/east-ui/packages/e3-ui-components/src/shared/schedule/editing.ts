@@ -30,6 +30,7 @@ import {
 import { boundedReadiness, wholeEntryReadiness, prepareRecordSliceSave } from "@elaraai/east-ui-components/internal";
 import type { FieldSpecValue, RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { breachIssue, isBounded } from "../bounds.js";
+import { keyReaderOf } from "../../platform/key-text.js";
 import { entriesByKeyOf, readSinceAnswerOf } from "../../platform/paged-runtime.js";
 
 /** The common event projection decoded from Schedule. */
@@ -615,17 +616,13 @@ export function useScheduleEditing<I extends Item = Item>({
         const keyType = kind.editing.keyType.type === "some" ? fromEastTypeValue(kind.editing.keyType.value) as EastType : undefined;
         const draftEqual = equalFor(OptionType(draftType));
         const optionOf = (version: EntryVersion<ScheduleEntryRef> | undefined) => (version?.draft === undefined ? none : some(version.draft));
-        const parseKey = keyType === undefined || keyType.type === "String" ? undefined : parseFor(keyType);
         return {
             encodeRow: encodeBeast2For(entryType) as (row: unknown) => Uint8Array,
             decodeRow: decodeBeast2For(entryType) as (bytes: Uint8Array) => unknown,
             encodeDraft: encodeBeast2For(draftType) as (draft: unknown) => Uint8Array,
             sameDraft: (a, b) => draftEqual(optionOf(a) as never, optionOf(b) as never),
             keys: keyType?.type === "String" ? "string" : keyType?.type === "Integer" ? "integer" : undefined,
-            keyOf: parseKey === undefined ? (id) => id : (id) => {
-                const read = parseKey(id);
-                return read.success ? read.value : undefined;
-            },
+            keyOf: keyType === undefined ? (id) => id : keyReaderOf(keyType),
         };
     }), [parts]);
     // Each kind's source and each record's: its closed editing; a kind's author's check over drafted events; and, for

@@ -55,7 +55,7 @@
 
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
-    ArrayType, BlobType, SortedMap, StringType, applyFor, compareFor, encodeBeast2For, equalFor, equivalentFor, none, parseFor, printFor, some, variant,
+    ArrayType, BlobType, SortedMap, StringType, applyFor, compareFor, encodeBeast2For, equalFor, equivalentFor, none, printFor, some, variant,
     type EastType, type StructType, type ValueTypeOf, type option,
 } from "@elaraai/east";
 import type { SeekQueryType } from "@elaraai/east-ui";
@@ -65,6 +65,7 @@ import { Plan, PlanNestedShadingType, SCHEDULE_EVENT_CAP, type PlanNestedType } 
 import { useSliceReactivity, useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { snapshotOf, windowedSourceOf } from "@elaraai/east-ui-components/internal";
 import { indexedBindingOf, type IndexedBindingRead } from "../../platform/indexed-paged.js";
+import { keyReaderOf } from "../../platform/key-text.js";
 import { useRecordDrafts, type PreviewedRow, type RecordDraftsSession } from "../../shared/records/drafts.js";
 import type { EditSession } from "@elaraai/east-ui-components";
 import { SCHEDULE_CELL_BLOCK, dividingTiles, wantedBlocks, type ScheduleCellBucket } from "../../shared/schedule/cells.js";
@@ -190,25 +191,6 @@ interface Literals {
 }
 
 
-/** Each id type's reader of a key's text, made the first time a path holds one: a pass over the rows asks it again and again. */
-const idReaders = new WeakMap<EastType, ReturnType<typeof parseFor>>();
-
-/**
- * A key's text read at an id's type, by its reader made once.
- *
- * @param type - The id's type
- * @param text - The key's text
- * @returns What its type reads of it
- */
-function readId(type: EastType, text: string): ReturnType<ReturnType<typeof parseFor>> {
-    let read = idReaders.get(type);
-    if (read === undefined) {
-        read = parseFor(type);
-        idReaders.set(type, read);
-    }
-    return read(text);
-}
-
 /**
  * The child rows' keys from a row down to a node, each as the index's id (#1540): read from its text at the type its
  * rows are keyed by — a String as it is, any other as East prints it — and held under its rows' case of the index's
@@ -227,10 +209,9 @@ function nodeIds(ids: Readonly<Record<string, EastType>>, place: readonly string
         const idCase = cases[Math.min(i, cases.length - 1)];
         const type = idCase === undefined ? undefined : ids[idCase];
         if (idCase === undefined || type === undefined) return undefined;
-        if (type.type === "String") { out.push(variant(idCase, text)); continue; }
-        const read = readId(type, text);
-        if (!read.success) return undefined;
-        out.push(variant(idCase, read.value));
+        const id = keyReaderOf(type)(text);
+        if (id === undefined) return undefined;
+        out.push(variant(idCase, id));
     }
     return out;
 }
@@ -262,7 +243,7 @@ function literals(binding: IndexedBindingRead): Literals {
     const printLevel = printFor(fields["level"]!);
     const printTile = printFor(fields["tile"]!);
     const keyLeaves = leavesOf(binding.key);
-    const parseKey = binding.key.type === "String" ? undefined : parseFor(binding.key);
+    const readKey = keyReaderOf(binding.key);
     const encode = encodeBeast2For(ArrayType(nested.entry)) as (entries: readonly Entry[]) => Uint8Array;
     const printKey = printFor(nested.entry.fields.ik);
     const apply = applyFor(nested.entry.fields.value) as (value: unknown, patch: unknown) => unknown;
@@ -273,9 +254,8 @@ function literals(binding: IndexedBindingRead): Literals {
             return steps === undefined ? undefined : printPath(nestedPathValue(steps) as never);
         },
         row: (id) => {
-            if (parseKey === undefined) return keyLeaves(id);
-            const read = parseKey(id);
-            return read.success ? keyLeaves(read.value) : undefined;
+            const key = readKey(id);
+            return key === undefined ? undefined : keyLeaves(key);
         },
         run: (run) => printRun(run as never),
         level: (level) => printLevel(variant(level, null) as never),
@@ -1211,7 +1191,6 @@ export interface PlanWholeRows {
 }
 
 const encodersOf = new WeakMap<object, (row: unknown) => Uint8Array>();
-const keyParsers = new WeakMap<object, (id: string) => { success: boolean; value?: unknown }>();
 
 /** The rows a binding reads whole by key, kept at the record's revision. */
 class WholeRows implements PlanWholeRows {
@@ -1253,12 +1232,9 @@ class WholeRows implements PlanWholeRows {
 
 /** A row's key from its id: a String key as it is, any other read back from its `.east` text. */
 function keyOf(binding: IndexedBindingRead, id: string): unknown {
-    if (binding.key.type === "String") return id;
-    let parse = keyParsers.get(binding.key);
-    if (parse === undefined) { parse = parseFor(binding.key) as (id: string) => { success: boolean; value?: unknown }; keyParsers.set(binding.key, parse); }
-    const read = parse(id);
-    if (!read.success) throw new Error(`The row id '${id}' is no key of the record's`);
-    return read.value;
+    const key = keyReaderOf(binding.key)(id);
+    if (key === undefined) throw new Error(`The row id '${id}' is no key of the record's`);
+    return key;
 }
 
 /**
