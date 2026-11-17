@@ -14,7 +14,10 @@ Run with the interpreter the image's tasks run with:
 
     /opt/venv/bin/python tier-manifest.py /opt/e3/tier-manifest.json
 
-The standard library alone, so it runs in any image.
+The standard library alone, so it runs in any image. It is a file of the
+`@elaraai/e3-core` package (`tier/tier-manifest.py`), beside the reader of
+what it writes: an image built elsewhere for a tier takes it from the
+release's package, and so writes a manifest by this release's rules.
 """
 
 import csv

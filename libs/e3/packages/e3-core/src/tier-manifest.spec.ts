@@ -8,7 +8,9 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   canonicalDistributionName, installedFilesDigest, leftToTier, pythonMinor, pythonSatisfies, readTierManifest, recordedSiteFiles, tierHolds, tierManifestDigest,
   type TierManifest,
@@ -183,6 +185,16 @@ describe('a tier manifest', () => {
     assert.equal(pythonMinor('3.11.2'), '3.11');
     assert.equal(pythonMinor('3.13.0rc1'), '3.13');
     assert.throws(() => pythonMinor('3'), /names no Python minor release/);
+  });
+
+  it('ships its script as a file of this package, found by the package\'s own name', () => {
+    // An image built elsewhere for a tier takes the script from the release's package
+    const manifest = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as { files: string[]; exports: Record<string, unknown> };
+    assert.ok(manifest.files.includes('tier'), manifest.files.join(', '));
+    assert.equal(manifest.exports['./tier/*'], './tier/*');
+    const script = createRequire(import.meta.url).resolve('@elaraai/e3-core/tier/tier-manifest.py');
+    assert.equal(realpathSync(script), realpathSync(fileURLToPath(new URL('../../tier/tier-manifest.py', import.meta.url))));
+    assert.match(readFileSync(script, 'utf8'), /^#!\/usr\/bin\/env python3\n/);
   });
 
   it('is written by the image\'s script as this module reads and digests it: the same install, the same bytes',

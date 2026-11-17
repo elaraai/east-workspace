@@ -58,7 +58,7 @@ Each python runtime image (`docker/images/Dockerfile.east-py`,
 }
 ```
 
-- Written to `/opt/e3/tier-manifest.json` by `docker/images/tier-manifest.py`
+- Written to `/opt/e3/tier-manifest.json` by `tier-manifest.py`, a file of `@elaraai/e3-core`
   (standard library alone), sorted by name. An image's later layer that
   installs more writes it again: the datascience image's is its own.
 - `base` is the interpreter a virtualenv made over the tier runs: the one the
@@ -102,7 +102,8 @@ Two things follow from matching by exact build:
 - **Every image of a tier writes its manifest with the same script.** An
   image built elsewhere for a tier, a rack's own GPU guest image say, has no
   manifest unless it runs `tier-manifest.py`, which is what gives it these
-  digest rules. The script is attached to each release for that (3.6).
+  digest rules. The script ships in each release's `@elaraai/e3-core` for
+  that (3.6).
 
 ### 3.3 The build leaves out what the tier has
 
@@ -218,8 +219,10 @@ of the image that will run the work, a rack's own tier image included.
 An image's manifest is read from the image (`docker run --rm
 ghcr.io/elaraai/east-py cat /opt/e3/tier-manifest.json`). The images are
 built after their release is made, so their manifests are not attached to
-it. The script that writes one is: `tier-manifest.py` is an asset of every
-release, so an image built elsewhere for a tier runs the release's own script
+it. The script that writes one ships with it: `tier-manifest.py` is a file of
+the release's `@elaraai/e3-core` package (`tier/tier-manifest.py`), beside the
+reader of what it writes. An image built elsewhere for a tier takes it from
+the package, which its lockfile pins, and so runs the release's own script
 and not a copy of it.
 
 ### 3.7 What is e3's, and what is the rack agent's

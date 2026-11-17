@@ -8,7 +8,7 @@
  * environment the rack runs over that image is built without.
  *
  * A runtime image writes its manifest when it is built
- * (`docker/images/tier-manifest.py`): its interpreter, the base interpreter a
+ * (this package's `tier/tier-manifest.py`): its interpreter, the base interpreter a
  * virtualenv over it runs, its site directory, the namespace packages of
  * that directory, and each distribution installed for it, by name, version
  * and the digest of the files it installed. A manifest is named by the
@@ -102,7 +102,7 @@ function recordRow(line: string): string[] {
  * `INSTALLER`, `REQUESTED`, `direct_url.json`), compiled files, and what is
  * installed outside the site directory — a script, whose first line names the
  * interpreter it was installed for. The image's script computes the same
- * digest (`docker/images/tier-manifest.py`).
+ * digest (`tier/tier-manifest.py`).
  *
  * @param record - The `RECORD` file's text
  * @returns `sha256:<hex>`

@@ -647,14 +647,15 @@ export function uvOnPath(): boolean {
   return spawnSync('uv', ['--version'], { stdio: 'ignore' }).status === 0;
 }
 
-/** The script a runtime image writes its tier manifest with, in this
- *  repository: these helpers run from `dist/src`. */
-const TIER_MANIFEST_SCRIPT = fileURLToPath(new URL('../../../../../../docker/images/tier-manifest.py', import.meta.url));
+/** The script a runtime image writes its tier manifest with: a file of this
+ *  package (`tier/tier-manifest.py`), which these helpers, run from
+ *  `dist/src`, find in the repository and in an installed package alike. */
+const TIER_MANIFEST_SCRIPT = fileURLToPath(new URL('../../tier/tier-manifest.py', import.meta.url));
 
 /**
  * The manifest of a tier whose interpreter is `python`, as a runtime image's
  * build writes its own: what the image's script
- * (`docker/images/tier-manifest.py`) writes when that interpreter runs it.
+ * (`tier/tier-manifest.py`) writes when that interpreter runs it.
  *
  * @param python - The interpreter, a virtualenv's as an image's is
  * @returns The manifest's text

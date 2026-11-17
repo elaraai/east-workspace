@@ -306,6 +306,30 @@ for (const suffix of ['', '/protocol', '/server', '/testing']) {
 }
 SMOKE
 ( cd "$PROJ" && node rack-package-smoke.mjs "$VERSION" )
+# e3-core as an image built elsewhere for a tier takes it: the script a tier
+# image writes its manifest with is a file of the installed package, found by
+# the package's own name, and what it writes is what the package reads. It is
+# run where a runtime image could be built: not on Windows.
+cat > "$PROJ/tier-files-smoke.mjs" <<'SMOKE'
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { readTierManifest } from '@elaraai/e3-core';
+
+const script = createRequire(import.meta.url).resolve('@elaraai/e3-core/tier/tier-manifest.py');
+assert.ok(existsSync(script), script);
+if (process.platform !== 'win32') {
+  const out = join(mkdtempSync(join(tmpdir(), 'e3-tier-smoke-')), 'tier-manifest.json');
+  execFileSync('python3', [script, out]);
+  const manifest = readTierManifest(readFileSync(out));
+  assert.ok(Array.isArray(manifest.namespaces) && manifest.python.site !== '');
+}
+console.log('ok');
+SMOKE
+echo -n "  @elaraai/e3-core ships the tier manifest script, and reads what it writes: "; ( cd "$PROJ" && node tier-files-smoke.mjs )
 if [ -n "$JOB_LAUNCHER" ]; then
   # e3-core as a user installs it: its optionalDependency brought the job
   # launcher, and a runner it spawns is the launcher's child — inside its job.
