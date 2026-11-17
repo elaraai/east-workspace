@@ -1,4 +1,0 @@
-# The excludes the east-py packages of release 1.0.108 were tested with: their
-# workspace's exclude-dependencies. Not edited by hand. Used beside east-py-constraints.txt:
-#   uv pip install --constraint east-py-constraints.txt --override east-py-overrides.txt --excludes east-py-excludes.txt ...
-nvidia-nccl-cu12

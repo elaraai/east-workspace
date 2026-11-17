@@ -3,7 +3,7 @@ name = "elaraai-east-py-std"
 version = "1.0.109"
 description = "Standard platform functions for East programming language (Python)"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = { text = "BSL-1.1" }
 authors = [
     {name = "Elara AI", email = "info@elara.ai"}
@@ -13,7 +13,6 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "License :: Other/Proprietary License",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Interpreters",
@@ -65,7 +64,7 @@ asyncio_mode = "auto"
 addopts = "--verbose"
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 warn_return_any = false
 warn_unused_configs = true
 disallow_untyped_defs = false
@@ -77,7 +76,7 @@ ignore_missing_imports = true
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = [
@@ -93,4 +92,9 @@ select = [
 ]
 ignore = [
     "E501",   # Line too long (handled by formatter)
+    # PEP 695's syntax (`type X = …`, `class C[T]`, `def f[T]`) makes other
+    # runtime objects than the aliases and generics the code builds and reads
+    "UP040",
+    "UP046",
+    "UP047",
 ]

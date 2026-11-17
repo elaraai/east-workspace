@@ -1,67 +1,58 @@
 #!/usr/bin/env python3
 # Copyright (c) 2025 Elara AI Pty Ltd
-# Licensed under BSL 1.1. See LICENSE for details.
-"""Checks that an image holds what its release's pins say.
+# Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+"""Checks that an image holds what its release's pins say, for its own Python.
 
-Every distribution the image's tier manifest names, that the release's
-constraints pin, is at a version they pin it at. A constraints file pins a
-distribution once for each platform it differs on, so any of its versions
-passes.
+Asks uv to install every distribution the image's tier manifest names, at the
+version the image holds it at, into the image's interpreter, under the
+release's constraints and overrides, changing nothing (`--dry-run`). A pin
+holds on the platforms and Pythons its marker names, and uv reads each marker
+for this interpreter: a distribution held at a version its pin here does not
+allow cannot be installed under the pins, and uv says which. One the pins hold
+for other platforms alone is not held to them.
 
-    check-tier-pins.py <tier-manifest.json> <east-py-constraints.txt>
+    check-tier-pins.py <tier-manifest.json> <pins directory>
 
-It also holds no two distributions of one NCCL library: torch's and
-xgboost's install the same file, and with xgboost's on top torch does not
-import, so the release's excludes keep xgboost's out.
+The pins directory holds east-py-constraints.txt and east-py-overrides.txt, as
+the release's @elaraai/e3-core ships them. Run in the image, with its uv and
+its virtualenv. The image also holds no two distributions of one NCCL library:
+they install the same file, and the one installed last wins.
 
-Exits 1 and names each distribution that is at another version. The standard
-library alone, so it runs in any image.
+Exits 1, with uv's words, when an install under the pins would not leave the
+image as it is.
 """
 
 import json
 import re
+import subprocess
 import sys
-
-
-def canonical_name(name):
-    """A distribution's name as PEP 503 writes it."""
-    return re.sub(r"[-_.]+", "-", name).lower()
-
-
-def pinned(constraints):
-    """Each distribution a constraints file pins, and the versions it pins it at."""
-    pins = {}
-    for line in constraints.splitlines():
-        pin = re.match(r"([A-Za-z0-9._-]+)==([^\s;\\]+)", line)
-        if pin is not None:
-            pins.setdefault(canonical_name(pin.group(1)), set()).add(pin.group(2))
-    return pins
+from pathlib import Path
 
 
 def main(argv):
     if len(argv) != 3:
-        sys.stderr.write("usage: check-tier-pins.py <tier-manifest.json> <east-py-constraints.txt>\n")
+        sys.stderr.write("usage: check-tier-pins.py <tier-manifest.json> <pins directory>\n")
         return 2
-    with open(argv[1], encoding="utf-8") as file:
-        held = json.load(file)["distributions"]
-    with open(argv[2], encoding="utf-8") as file:
-        pins = pinned(file.read())
-    checked = [dist for dist in held if dist["name"] in pins]
-    other = [dist for dist in checked if dist["version"] not in pins[dist["name"]]]
-    for dist in other:
-        sys.stderr.write(
-            f"{dist['name']} is {dist['version']}, and the release pins it at {' or '.join(sorted(pins[dist['name']]))}\n"
-        )
-    if other:
-        return 1
+    manifest = json.loads(Path(argv[1]).read_text(encoding="utf-8"))
+    pins = Path(argv[2])
+    held = manifest["distributions"]
     nccl = sorted(dist["name"] for dist in held if dist["name"].startswith("nvidia-nccl-"))
     if len(nccl) > 1:
-        sys.stderr.write(f"the image holds {' and '.join(nccl)}, which install the same library: the release excludes all but one\n")
+        sys.stderr.write(f"the image holds {' and '.join(nccl)}, which install the same library\n")
         return 1
-    if not checked:
-        sys.stderr.write("the image holds none of what the release pins\n")
+    checked = subprocess.run(
+        ["uv", "pip", "install", "--dry-run", "--python", manifest["python"]["executable"],
+         "--constraint", str(pins / "east-py-constraints.txt"), "--override", str(pins / "east-py-overrides.txt"),
+         *(f"{dist['name']}=={dist['version']}" for dist in held)],
+        capture_output=True, text=True, check=False,
+    )
+    # uv says what it would change a line a distribution: ` - name==v`, ` + name==v`
+    changes = [line for line in checked.stderr.splitlines() if re.match(r"^ [-+~] \S", line)]
+    if checked.returncode != 0 or changes:
+        sys.stderr.write(checked.stderr)
+        sys.stderr.write("the image does not hold what its release's pins say for its Python\n")
         return 1
-    print(f"{len(checked)} of the image's {len(held)} distributions are pinned by the release, each at its pin")
+    print(f"the image's {len(held)} distributions are each at a version its release's pins allow for its Python")
     return 0
 
 

@@ -21,7 +21,7 @@ export function semverToPep440(semver) {
 export const EAST_PY_PINS_DIR = 'libs/e3/packages/e3-core/tier';
 
 /** The pin files, each of which names the release it is of in its first line. */
-export const EAST_PY_PINS = ['east-py-constraints.txt', 'east-py-overrides.txt', 'east-py-excludes.txt'];
+export const EAST_PY_PINS = ['east-py-constraints.txt', 'east-py-overrides.txt'];
 
 export const PYPROJECTS = [
   'libs/east-py/packages/east-py/pyproject.toml',
@@ -60,9 +60,9 @@ function main() {
 
   // The pins the release's python packages are installed under are that
   // lock, exported, and name their release: written again of the lock just
-  // made, for the version it is of. @elaraai/e3-core ships them, and the
-  // python images install under them; check-version-drift.mjs holds them to
-  // the release.
+  // made, for the version it is of. @elaraai/e3-core ships them, and a
+  // release's python images install under the copy its published package
+  // holds; check-version-drift.mjs holds them to the release.
   console.log(`${EAST_PY_PINS_DIR}: writing the release's pins …`);
   execFileSync('python3', [path.join(repoRoot, 'scripts/east-py-constraints.py'), eastPyDir, path.join(repoRoot, EAST_PY_PINS_DIR), '--release', pep440],
     { stdio: 'inherit' });

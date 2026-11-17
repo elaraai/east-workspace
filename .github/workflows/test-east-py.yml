@@ -97,7 +97,7 @@ jobs:
         # Git Bash on Windows so the build/test steps share one shell on all OSes.
         shell: bash
     env:
-      UV_PYTHON: "3.11"
+      UV_PYTHON: "3.12"
       # Ninja avoids scikit-build's default multi-config VS generator on Windows
       # (deep TryCompile paths overflow MAX_PATH); ninja comes from build-deps.
       CMAKE_GENERATOR: Ninja
@@ -225,7 +225,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      UV_PYTHON: "3.11"
+      UV_PYTHON: "3.12"
 
     steps:
       - uses: actions/checkout@v4
@@ -299,7 +299,7 @@ jobs:
       run:
         shell: bash
     env:
-      UV_PYTHON: "3.11"
+      UV_PYTHON: "3.12"
       CMAKE_GENERATOR: Ninja
 
     steps:
@@ -398,8 +398,8 @@ jobs:
         with:
           enable-cache: false
 
-      - name: Set up Python 3.11
-        run: uv python install 3.11
+      - name: Set up Python 3.12
+        run: uv python install 3.12
 
       - name: Install Node.js dependencies
         run: pnpm install
@@ -452,7 +452,7 @@ jobs:
       run:
         shell: bash
     env:
-      UV_PYTHON: "3.11"
+      UV_PYTHON: "3.12"
       CMAKE_GENERATOR: Ninja
       # Force PyTorch Lightning onto CPU. The macOS runner is Apple Silicon, so "auto"
       # would pick the MPS GPU backend, but MPS is unusable on the headless

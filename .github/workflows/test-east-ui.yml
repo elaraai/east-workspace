@@ -656,7 +656,7 @@ jobs:
       - name: Build east-py
         working-directory: libs/east-py
         env:
-          UV_PYTHON: "3.11"
+          UV_PYTHON: "3.12"
           CMAKE_GENERATOR: Ninja
         run: |
           uv venv

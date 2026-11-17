@@ -123,8 +123,8 @@ jobs:
         with:
           enable-cache: false
 
-      - name: Set up Python 3.11
-        run: uv python install 3.11
+      - name: Set up Python 3.12
+        run: uv python install 3.12
 
       - name: Install Node.js dependencies
         run: pnpm install

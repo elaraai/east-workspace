@@ -455,8 +455,8 @@ jobs:
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: false
-      - name: Set up Python 3.11
-        run: uv python install 3.11
+      - name: Set up Python 3.12
+        run: uv python install 3.12
       - name: Build sdist + wheel
         working-directory: libs/east-py/packages/${{ matrix.pkg }}
         # --out-dir dist: uv otherwise writes to the uv workspace root
@@ -500,7 +500,7 @@ jobs:
         with:
           package-dir: ${{ matrix.pkg.dir }}
         env:
-          CIBW_BUILD: "cp311-* cp312-* cp313-*"
+          CIBW_BUILD: "cp312-* cp313-*"
           CIBW_SKIP: "*-musllinux_*"
           # The macOS runner is Apple Silicon (arm64); also cross-compile Intel wheels.
           CIBW_ARCHS_MACOS: "arm64 x86_64"
@@ -554,8 +554,8 @@ jobs:
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: false
-      - name: Set up Python 3.11
-        run: uv python install 3.11
+      - name: Set up Python 3.12
+        run: uv python install 3.12
       # Stage east-c (+ east-py .pxd) into _vendor/ so the sdist is
       # self-contained and installable without the monorepo.
       - name: Vendor native deps

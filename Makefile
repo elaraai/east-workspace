@@ -48,7 +48,7 @@ check-deps:
 	check node    "https://nodejs.org/  (>=22)"; \
 	check cmake   "apt install cmake  /  brew install cmake"; \
 	if uname -s 2>/dev/null | grep -qiE 'mingw|msys|cygwin'; then \
-		check python "https://www.python.org/downloads/  (>=3.11; ensure python is on PATH)"; \
+		check python "https://www.python.org/downloads/  (>=3.12; ensure python is on PATH)"; \
 		check ninja  "winget install Ninja-build.Ninja  (or the VS 'C++ CMake tools')"; \
 		echo "  o C compiler: MSVC (VS Build Tools, 'Desktop development with C++') -- run make from a"; \
 		echo "                Developer PowerShell/Command Prompt so cl.exe + the Windows SDK are on PATH"; \

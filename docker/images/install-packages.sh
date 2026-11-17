@@ -7,13 +7,14 @@
 #   EAST_NODE_CLI_VERSION, EAST_UI_VERSION, E3_VERSION, etc.
 #   TYPESCRIPT_VERSION defaults to the TypeScript the workspace builds with.
 #
-# EAST_PY_PINS_DIR (optional): the directory that holds the pins a release's
-#   python packages are installed under: east-py-constraints.txt,
-#   east-py-overrides.txt and east-py-excludes.txt, as @elaraai/e3-core ships
+# EAST_PY_PINS_DIR (optional): where the pins a named release's python
+#   packages are installed under are kept: east-py-constraints.txt and
+#   east-py-overrides.txt, as that release's published @elaraai/e3-core ships
 #   them (its `tier/`, written from the east-py workspace's lock by
-#   scripts/east-py-constraints.py). A named release is installed under them,
-#   and its image then holds what the release was tested with; they must be
-#   that release's. `latest` is installed under none, and keeps none.
+#   scripts/east-py-constraints.py at the release's version bump). They are
+#   fetched from npm, never taken from a checkout, whose pins are its lock's
+#   as it stands; an image then holds what its release was tested with.
+#   `latest` is installed under none, and keeps none.
 #
 # Flags (each selects one image's package set; default = the e3 everything image):
 #   --node-only    East's Node.js packages only (east-node image: no e3, no
@@ -130,7 +131,7 @@ if [ "$INSTALL_EAST_C" = true ]; then
     ln -sf "$EAST_C_BIN" /usr/local/bin/east-c
 fi
 
-# Deduplicate @elaraai packages to a SINGLE instance each.
+# Deduplicate the @elaraai packages this run installed to a SINGLE instance each.
 #
 # `npm install -g` nests a private copy of every shared @elaraai dependency
 # (e.g. @elaraai/east, @elaraai/e3-types) under each package that depends on it,
@@ -141,8 +142,13 @@ fi
 # "value is not iterable". pnpm hoists to one instance (dev works); npm -g does
 # not. All @elaraai packages are the same lockstep version, so collapse every
 # nested copy to a symlink to its top-level copy → exactly one instance of each.
-NM="$(npm root -g)"
-if [ -d "$NM/@elaraai" ]; then
+# Only when this run installed npm packages: a python layer leaves the global
+# npm root as it found it.
+NM=""
+if [ "$INSTALL_NODE" = true ] || [ "$INSTALL_E3" = true ] || [ "$INSTALL_EAST_C" = true ]; then
+    NM="$(npm root -g)"
+fi
+if [ -n "$NM" ] && [ -d "$NM/@elaraai" ]; then
 echo "Deduplicating @elaraai packages under ${NM}..."
 for top in "$NM"/@elaraai/*; do
     [ -d "$top" ] || continue
@@ -159,57 +165,62 @@ fi
 PYTHON_INSTALLED=false
 DATASCIENCE_INSTALLED=false
 if [ "$INSTALL_PYTHON" = true ] || [ "$INSTALL_DATASCIENCE" = true ]; then
-    if command -v uv &> /dev/null; then
-        echo "Installing Python packages..."
-        # Pin east-py to the lockstep release (==${EAST_PY_VERSION}) —
-        # unpinned installs pulled whatever was newest on PyPI, drifting the
-        # runtime out of lockstep with the IR. "latest" means no constraint
-        # (dev/local convenience).
-        if [ "$EAST_PY_VERSION" = "latest" ]; then EAST_PY_PIN=""; else EAST_PY_PIN="==${EAST_PY_VERSION}"; fi
-        # A named release is installed under its pins, when they are given:
-        # every third-party package is then the build the release's lock
-        # holds. Its overrides are what makes those pins resolve, and its
-        # excludes keep out what the lock leaves out. They are that release's,
-        # or the install is refused: under another release's, an image would
-        # not be what its release was tested with. `latest` is installed under
-        # none, and keeps none, so no image says it holds pins it does not.
-        EAST_PY_PINS=()
-        if [ -n "${EAST_PY_PINS_DIR:-}" ]; then
-            if [ "$EAST_PY_VERSION" = "latest" ]; then
-                rm -f "${EAST_PY_PINS_DIR}"/east-py-constraints.txt "${EAST_PY_PINS_DIR}"/east-py-overrides.txt "${EAST_PY_PINS_DIR}"/east-py-excludes.txt
-            else
-                # A release's version as PEP 440 writes it, which is how the pins name it
-                EAST_PY_RELEASE="$(printf '%s' "$EAST_PY_VERSION" | sed -E 's/-alpha\./a/; s/-beta\./b/; s/-rc\./rc/')"
-                for pins in east-py-constraints.txt east-py-overrides.txt east-py-excludes.txt; do
-                    if ! head -n 1 "${EAST_PY_PINS_DIR}/${pins}" | grep -qF " of release ${EAST_PY_RELEASE} "; then
-                        echo "${EAST_PY_PINS_DIR}/${pins} is not release ${EAST_PY_VERSION}'s: a release's images are built from its own tag" >&2
-                        exit 1
-                    fi
-                done
-                EAST_PY_PINS=(--constraint "${EAST_PY_PINS_DIR}/east-py-constraints.txt" --override "${EAST_PY_PINS_DIR}/east-py-overrides.txt"
-                    --excludes "${EAST_PY_PINS_DIR}/east-py-excludes.txt")
+    # Python packages that were asked for are installed, or the build fails:
+    # an image must not ship without what it says it holds
+    if ! command -v uv &> /dev/null; then
+        echo "uv is not on PATH: the python packages cannot be installed" >&2
+        exit 1
+    fi
+    echo "Installing Python packages..."
+    # Pin east-py to the lockstep release (==${EAST_PY_VERSION}) — unpinned
+    # installs pulled whatever was newest on PyPI, drifting the runtime out of
+    # lockstep with the IR. "latest" means no constraint (dev/local
+    # convenience).
+    if [ "$EAST_PY_VERSION" = "latest" ]; then EAST_PY_PIN=""; else EAST_PY_PIN="==${EAST_PY_VERSION}"; fi
+    # A named release is installed under its pins, when a directory is given
+    # for them: every third-party package is then the build the release's
+    # lock holds, and its overrides are what make those pins resolve. They are
+    # the release's own, as its published @elaraai/e3-core ships them, and
+    # name the release in their first line. `latest` is installed under none,
+    # and keeps none, a base image's included, so no image says it holds pins
+    # it does not.
+    EAST_PY_PINS=()
+    if [ -n "${EAST_PY_PINS_DIR:-}" ] && [ "$EAST_PY_VERSION" = "latest" ]; then
+        rm -f "${EAST_PY_PINS_DIR}/east-py-constraints.txt" "${EAST_PY_PINS_DIR}/east-py-overrides.txt"
+    elif [ -n "${EAST_PY_PINS_DIR:-}" ]; then
+        FETCHED="$(mktemp -d)"
+        ( cd "$FETCHED" && npm pack --silent --cache "$FETCHED/.npm" "@elaraai/e3-core@${EAST_PY_VERSION}" > /dev/null )
+        tar -xzf "$FETCHED"/*.tgz -C "$FETCHED" package/tier/east-py-constraints.txt package/tier/east-py-overrides.txt
+        mkdir -p "$EAST_PY_PINS_DIR"
+        cp "$FETCHED"/package/tier/east-py-constraints.txt "$FETCHED"/package/tier/east-py-overrides.txt "$EAST_PY_PINS_DIR"/
+        rm -rf "$FETCHED"
+        # A release's version as PEP 440 writes it, which is how the pins name it
+        EAST_PY_RELEASE="$(printf '%s' "$EAST_PY_VERSION" | sed -E 's/-alpha\./a/; s/-beta\./b/; s/-rc\./rc/')"
+        for pins in east-py-constraints.txt east-py-overrides.txt; do
+            if ! head -n 1 "${EAST_PY_PINS_DIR}/${pins}" | grep -qF " of release ${EAST_PY_RELEASE} "; then
+                echo "@elaraai/e3-core@${EAST_PY_VERSION}'s ${pins} is not release ${EAST_PY_VERSION}'s" >&2
+                exit 1
             fi
-        fi
-        if [ "$INSTALL_PYTHON" = true ]; then
-            PYTHON_INSTALLED=true
-            # numba/llvmlite at versions that go together
-            uv pip install "${EAST_PY_PINS[@]}" \
-                "numba>=0.58.0" \
-                "llvmlite>=0.41.0" \
-                "elaraai-east-py${EAST_PY_PIN}" \
-                "elaraai-east-py-std${EAST_PY_PIN}" \
-                "elaraai-east-py-io[all]${EAST_PY_PIN}" \
-                "elaraai-east-py-cli${EAST_PY_PIN}"
-        fi
-        # The datascience stack (torch, sklearn, pymc, …) is what makes an
-        # image multi-GB — the slim east-py image skips it; the
-        # east-py-datascience image adds it as its own FROM-layer.
-        if [ "$INSTALL_DATASCIENCE" = true ]; then
-            DATASCIENCE_INSTALLED=true
-            uv pip install "${EAST_PY_PINS[@]}" "elaraai-east-py-datascience[all]${EAST_PY_PIN}"
-        fi
-    else
-        echo "Warning: uv not found, skipping Python packages"
+        done
+        EAST_PY_PINS=(--constraint "${EAST_PY_PINS_DIR}/east-py-constraints.txt" --override "${EAST_PY_PINS_DIR}/east-py-overrides.txt")
+    fi
+    if [ "$INSTALL_PYTHON" = true ]; then
+        PYTHON_INSTALLED=true
+        # numba/llvmlite at versions that go together
+        uv pip install "${EAST_PY_PINS[@]}" \
+            "numba>=0.58.0" \
+            "llvmlite>=0.41.0" \
+            "elaraai-east-py${EAST_PY_PIN}" \
+            "elaraai-east-py-std${EAST_PY_PIN}" \
+            "elaraai-east-py-io[all]${EAST_PY_PIN}" \
+            "elaraai-east-py-cli${EAST_PY_PIN}"
+    fi
+    # The datascience stack (torch, sklearn, pymc, …) is what makes an image
+    # multi-GB — the slim east-py image skips it; the east-py-datascience
+    # image adds it as its own FROM-layer.
+    if [ "$INSTALL_DATASCIENCE" = true ]; then
+        DATASCIENCE_INSTALLED=true
+        uv pip install "${EAST_PY_PINS[@]}" "elaraai-east-py-datascience[all]${EAST_PY_PIN}"
     fi
 fi
 
@@ -235,10 +246,10 @@ if [ "$VERIFY" = true ]; then
     fi
     if [ "$DATASCIENCE_INSTALLED" = true ]; then
         python3 -c "import east_py_datascience"
-        # torch and xgboost load in one process: each brings an NCCL library
-        # of its own, which install the same file, and with xgboost's on top
-        # torch does not import (see the east-py workspace's
-        # exclude-dependencies).
+        # torch and xgboost load in one process. Both need NCCL, and share one
+        # library, nvidia-nccl-cu13: an xgboost before 3.4 asks for
+        # nvidia-nccl-cu12, which installs the same file, and with it on top
+        # torch does not import (`undefined symbol: ncclCommResume`).
         python3 -c "import torch, xgboost"
     fi
 fi

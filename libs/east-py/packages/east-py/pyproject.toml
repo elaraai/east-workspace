@@ -3,7 +3,7 @@ name = "elaraai-east-py"
 version = "1.0.109"
 description = "Python runtime for the East programming language"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = { text = "BSL-1.1" }
 authors = [
     {name = "East Contributors", email = "east@example.com"}
@@ -12,7 +12,6 @@ keywords = ["east", "embedded", "language", "runtime", "interpreter"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Interpreters",
@@ -84,7 +83,7 @@ python_functions = "test_*"
 addopts = "--verbose --cov=east --cov-report=term-missing"
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 warn_return_any = false  # East is dynamically typed
 warn_unused_configs = true
 disallow_untyped_defs = false  # Gradual typing
@@ -130,7 +129,7 @@ ignore_missing_imports = true
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = [
@@ -157,6 +156,11 @@ ignore = [
     "SIM108", # Ternary operator (readability preference)
     "SIM110", # Use all() instead of for loop (readability preference)
     "RET504", # Unnecessary assignment before return (readability preference)
+    # PEP 695's syntax (`type X = …`, `class C[T]`, `def f[T]`) makes other
+    # runtime objects than the aliases and generics the code builds and reads
+    "UP040",
+    "UP046",
+    "UP047",
 ]
 
 [tool.ruff.lint.per-file-ignores]

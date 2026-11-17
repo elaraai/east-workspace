@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Copyright (c) 2025 Elara AI Pty Ltd
-# Licensed under BSL 1.1. See LICENSE for details.
+# Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
 """Writes the pins a release's east-py packages are installed under.
 
 They are the east-py workspace's lock, exported, with the two settings the
@@ -10,21 +10,20 @@ everything that was tested, and a project that asks for the datascience
 package's extras locks the torch its tier image holds (e3: environments built
 over their base tier).
 
-Three files, for uv, kept in `@elaraai/e3-core` (`tier/`), which ships them:
+Two files, for uv, kept in `@elaraai/e3-core` (`tier/`), which ships them:
 
     east-py-constraints.txt   every third-party pin of the lock, with hashes
     east-py-overrides.txt     the workspace's override-dependencies
-    east-py-excludes.txt      the workspace's exclude-dependencies
 
     uv pip install --constraint east-py-constraints.txt \\
                    --override east-py-overrides.txt \\
-                   --excludes east-py-excludes.txt \\
                    "elaraai-east-py-datascience[all]==<release>"
 
-The overrides and the excludes are part of what was tested: a pin the lock
-holds by an override does not resolve without it, and a distribution the lock
-leaves out is installed again without the exclude. pip takes neither, so it
-cannot install under these.
+The overrides are part of what was tested: a pin the lock holds by an
+override does not resolve without it. pip takes no overrides, so it cannot
+install under these. A workspace that leaves a distribution out of its lock
+(`exclude-dependencies`) is refused: no file here would keep it out of an
+install.
 
 Run on the workspace root's `pyproject.toml` and `uv.lock`, which are all it
 reads: a frozen export reads no member's manifest.
@@ -44,7 +43,6 @@ from pathlib import Path
 
 CONSTRAINTS = "east-py-constraints.txt"
 OVERRIDES = "east-py-overrides.txt"
-EXCLUDES = "east-py-excludes.txt"
 
 # Every third-party pin of the lock, of every member and extra, and none of
 # the workspace's own packages or its development groups. With no header:
@@ -57,7 +55,7 @@ EXPORT = [
 # The workspace member whose version is the release's: all of them share it.
 MEMBER = "elaraai-east-py"
 
-INSTALL = f"uv pip install --constraint {CONSTRAINTS} --override {OVERRIDES} --excludes {EXCLUDES} ..."
+INSTALL = f"uv pip install --constraint {CONSTRAINTS} --override {OVERRIDES} ..."
 
 
 def pep440(version):
@@ -87,7 +85,7 @@ def constraints(workspace, release):
     header = (
         f"# The pins the east-py packages of release {release} were tested with: their\n"
         "# workspace's lock, exported by scripts/east-py-constraints.py. Not edited by hand.\n"
-        f"# Install under them with uv, beside {OVERRIDES} and {EXCLUDES}:\n"
+        f"# Install under them with uv, beside {OVERRIDES}:\n"
         f"#   {INSTALL}\n"
     )
     return header + exported.stdout
@@ -121,6 +119,12 @@ def main(argv):
     workspace, out = Path(args[0]), Path(args[1])
     with open(workspace / "pyproject.toml", "rb") as file:
         manifest = tomllib.load(file)
+    if manifest.get("tool", {}).get("uv", {}).get("exclude-dependencies"):
+        sys.stderr.write(
+            f"east-py-constraints: the workspace at {workspace} leaves distributions out of its lock "
+            "(exclude-dependencies), which no pin file keeps out of an install\n"
+        )
+        return 1
     with open(workspace / "uv.lock", "rb") as file:
         release = release_of(tomllib.load(file))
     if asked is not None and pep440(asked) != release:
@@ -133,7 +137,6 @@ def main(argv):
     written = {
         CONSTRAINTS: constraints(workspace, release),
         OVERRIDES: setting(manifest, "override-dependencies", "overrides", release),
-        EXCLUDES: setting(manifest, "exclude-dependencies", "excludes", release),
     }
     out.mkdir(parents=True, exist_ok=True)
     for name, text in written.items():

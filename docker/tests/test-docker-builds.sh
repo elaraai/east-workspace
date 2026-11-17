@@ -45,10 +45,11 @@ runs() {
 # v1.0.71's and v1.0.83's were not.
 
 # holds_pins <image>: for a named release, the image holds the build of
-# everything its release pins (e3: a project and its tier resolve the same
-# torch). Its own tier manifest says what it holds, and the pins it was
-# installed under are in it. Unpinned, an image installs `latest` under no
-# pins, and there is nothing to hold it to.
+# everything its release pins for its Python (e3: a project and its tier
+# resolve the same torch). Its own tier manifest says what it holds, and the
+# pins it was installed under, its release's @elaraai/e3-core's, are in it.
+# Unpinned, an image installs `latest` under no pins, and there is nothing to
+# hold it to.
 holds_pins() {
     local image="$1"
     if [ -z "${EAST_RELEASE_VERSION:-}" ]; then
@@ -56,7 +57,7 @@ holds_pins() {
     fi
     echo "  holds its release's pins"
     docker run --rm -v "$SCRIPT_DIR/check-tier-pins.py:/tmp/check-tier-pins.py:ro" "$image" \
-        python3 /tmp/check-tier-pins.py /opt/e3/tier-manifest.json /opt/e3/east-py-constraints.txt
+        python3 /tmp/check-tier-pins.py /opt/e3/tier-manifest.json /opt/e3
 }
 
 echo "=== Testing Docker builds ==="
@@ -92,10 +93,12 @@ docker build -f docker/images/Dockerfile.east-py $(pin EAST_PY_VERSION) -t test-
 runs test-east-py-$$ east-py version
 runs test-east-py-$$ python3 -c "import east, east_py_std, east_py_io"
 # Its tier manifest names what it holds, for an environment built over it
-runs test-east-py-$$ python3 -c "import json; m = json.load(open('/opt/e3/tier-manifest.json')); names = [d['name'] for d in m['distributions']]; assert m['version'] == 1 and m['python']['executable'] == '/opt/venv/bin/python' and m['python']['base'].startswith('/usr/') and isinstance(m['namespaces'], list) and 'east' not in m['namespaces'] and 'elaraai-east-py-std' in names and 'elaraai-east-py-datascience' not in names, names"
+runs test-east-py-$$ python3 -c "import json; m = json.load(open('/opt/e3/tier-manifest.json')); names = [d['name'] for d in m['distributions']]; assert m['version'] == 1 and m['python']['executable'] == '/opt/venv/bin/python' and m['python']['version'].startswith('3.12.') and m['python']['base'].startswith('/opt/python/') and isinstance(m['namespaces'], list) and 'east' not in m['namespaces'] and 'elaraai-east-py-std' in names and 'elaraai-east-py-datascience' not in names, names"
 # Its virtualenv was made without pip: it holds what was installed into it,
-# and no pip or setuptools of the system's at versions the release does not pin
+# and no pip or setuptools a Python seeds a virtualenv with. An image built
+# from it adds a package with uv, which installs into that virtualenv
 runs test-east-py-$$ python3 -c "import json; names = [d['name'] for d in json.load(open('/opt/e3/tier-manifest.json'))['distributions']]; assert 'pip' not in names, names"
+runs test-east-py-$$ uv pip install --dry-run six
 holds_pins test-east-py-$$
 echo "[OK] Dockerfile.east-py (builds + east-py runs + tier manifest)"
 
@@ -109,8 +112,7 @@ docker build -f docker/images/Dockerfile.east-py-datascience \
     -t test-east-py-ds-$$ . --progress=plain
 runs test-east-py-ds-$$ east-py version
 runs test-east-py-ds-$$ python3 -c "import east, east_py_datascience"
-# torch and xgboost load in one process: each brings an NCCL library of its
-# own, which install the same file
+# torch and xgboost load in one process, over the one NCCL library they share
 runs test-east-py-ds-$$ python3 -c "import torch, xgboost"
 # Its manifest is its own, written again once the datascience packages are in
 runs test-east-py-ds-$$ python3 -c "import json; m = json.load(open('/opt/e3/tier-manifest.json')); names = [d['name'] for d in m['distributions']]; assert 'elaraai-east-py-datascience' in names and 'elaraai-east-py-std' in names, names"

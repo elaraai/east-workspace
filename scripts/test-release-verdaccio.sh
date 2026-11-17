@@ -324,7 +324,7 @@ import { readTierManifest } from '@elaraai/e3-core';
 const require = createRequire(import.meta.url);
 const script = require.resolve('@elaraai/e3-core/tier/tier-manifest.py');
 assert.ok(existsSync(script), script);
-for (const pins of ['east-py-constraints.txt', 'east-py-overrides.txt', 'east-py-excludes.txt']) {
+for (const pins of ['east-py-constraints.txt', 'east-py-overrides.txt']) {
   const first = readFileSync(require.resolve(`@elaraai/e3-core/tier/${pins}`), 'utf8').split('\n', 1)[0];
   assert.match(first, / of release \S+ /, `${pins}: ${first}`);
 }

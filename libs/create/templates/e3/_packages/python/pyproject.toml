@@ -2,7 +2,7 @@
 name = "__PACKAGE_NAME__"
 version = "0.1.0"
 description = "The __PACKAGE_NAME__ platform package for __DISPLAY_NAME__"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
   "elaraai-east-py",
 ]

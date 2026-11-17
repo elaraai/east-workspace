@@ -4,7 +4,7 @@ version = "1.0.109"
 description = "East Data Science - ML/optimization platform functions for East Python runtime"
 readme = "README.md"
 license = { text = "BSL-1.1" }
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "elaraai-east-py",
     "numpy>=2.0.0",
@@ -20,6 +20,11 @@ elaraai-east-py = { workspace = true }
 # environment a rack runs over that image leaves torch to it (#1662). Move a
 # pin with `uv lock --upgrade-package <name>`; scripts/check-version-drift.mjs
 # holds the pins to the lock.
+#
+# xgboost is 3.4.0 or later: its NCCL library is `nvidia-nccl-cu13`, the one
+# torch pins. An earlier xgboost asks for `nvidia-nccl-cu12`, which installs
+# the same file, `nvidia/nccl/lib/libnccl.so.2`; with it on top `import torch`
+# fails (`undefined symbol: ncclCommResume`).
 [project.optional-dependencies]
 mads = ["PyNomadBBO>=4.4.0"]
 optuna = ["optuna>=4.0.0"]
@@ -35,7 +40,7 @@ scipy = [
     "cloudpickle>=3.0.0",
 ]
 xgboost = [
-    "xgboost>=2.1.0",
+    "xgboost>=3.4.0",
     "cloudpickle>=3.0.0",
 ]
 lightgbm = [
@@ -96,7 +101,7 @@ all = [
     "skl2onnx>=1.17.0",
     "onnxruntime>=1.18.0",
     "scipy>=1.12.0",
-    "xgboost>=2.1.0",
+    "xgboost>=3.4.0",
     "lightgbm>=4.3.0",
     "ngboost>=0.5.0",
     "shap>=0.45.0",
@@ -154,7 +159,7 @@ filterwarnings = [
 ]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 disallow_untyped_defs = false
 
 # External optional dependencies - no stubs or incomplete stubs
