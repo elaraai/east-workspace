@@ -1154,8 +1154,9 @@ export const planPrintWorks = example({
                             ready: d => d.pallets.lessEqual(0.0).ifElse(
                                 () => variant("invalid", [{ field: "pallets", message: "Pallets must be positive" }]),
                                 () => variant("ready", null)),
-                            // A pallet at least, as its readiness asks: the field's hint says what the rule holds (#1680's review).
-                            fields: { pallets: Schedule.field.number({ label: "Pallets", min: 1.0, step: 1.0 }) },
+                            // The rule says what a delivery takes: a bound beside it hinted 0 was allowed, and one of 1 said
+                            // it twice (#1680's review).
+                            fields: { pallets: Schedule.field.number({ label: "Pallets", step: 1.0 }) },
                             templates: Schedule.templates(deliveryTemplates.read(), {
                                 name: t => t.name, group: t => some(t.group), at: t => some({ hour: t.hour, minute: 0n }), values: t => t.values, source: "deliveryTemplates",
                             }),
@@ -2674,8 +2675,9 @@ export const planPrintWorksRecords = example({
                             ready: (d) => d.pallets.lessEqual(0.0).ifElse(
                                 () => variant("invalid", [{ field: "pallets", message: "Pallets must be positive" }]),
                                 () => variant("ready", null)),
-                            // A pallet at least, as its readiness asks: the field's hint says what the rule holds (#1680's review).
-                            fields: { pallets: Schedule.field.number({ label: "Pallets", min: 1.0, step: 1.0 }) },
+                            // The rule says what a delivery takes: a bound beside it hinted 0 was allowed, and one of 1 said
+                            // it twice (#1680's review).
+                            fields: { pallets: Schedule.field.number({ label: "Pallets", step: 1.0 }) },
                             entries: deliveryEntries,
                             templates: Schedule.templates(presets.read(), { case: ["values", "delivery"], name: (preset) => preset.name, values: (_preset, _key, delivery) => delivery, source: "templates" }),
                         }),
