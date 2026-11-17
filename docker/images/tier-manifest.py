@@ -5,8 +5,9 @@
 
 An environment a rack runs over this image is built without what the manifest
 says the image already holds (e3: environments built over their base tier).
-The manifest names the interpreter, its site directory, and each installed
-distribution by name, version and the digest of the files it installed.
+The manifest names the interpreter, the base interpreter a virtualenv over it
+is made from, its site directory, and each installed distribution by name,
+version and the digest of the files it installed.
 
 Run with the interpreter the image's tasks run with:
 
@@ -78,6 +79,9 @@ def tier_manifest():
         "python": {
             "version": platform.python_version(),
             "executable": sys.executable,
+            # What a virtualenv made by this interpreter runs: itself, or,
+            # when it is a virtualenv's, the interpreter that one was made from
+            "base": getattr(sys, "_base_executable", None) or sys.executable,
             "site": sysconfig.get_path("purelib"),
         },
         "distributions": [distributions[name] for name in sorted(distributions)],

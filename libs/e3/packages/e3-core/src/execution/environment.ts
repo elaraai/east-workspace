@@ -28,7 +28,9 @@
  * packages, and nothing is compiled for it: a package with no wheel for it,
  * or a project package with native code, refuses the environment by name
  * ({@link EnvironmentTargetRefused}). A python environment then carries an
- * interpreter of its own, so it runs wherever its tree is put.
+ * interpreter of its own, so it runs wherever its tree is put; or it is built
+ * over the tier its rack boots it over, without the interpreter and without
+ * each distribution the tier's image holds the same (#1655).
  *
  * And an environment built ahead of the call that declares it is placed where
  * this module looks for one. A directory already at `<repo>/envs/<hash>` is
@@ -54,6 +56,9 @@ import { EnvironmentSpecType, type EnvironmentSpec } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/index.js';
 import { withKeyedLock } from '../keyed-mutex.js';
 import { isObjectHash } from '../objects.js';
+import {
+  canonicalDistributionName, leftToTier, pythonMinor, pythonSatisfies, recordedSiteFiles, type InstalledDistribution, type TierManifest,
+} from '../tier-manifest.js';
 import { getPidStartTime, processExited } from './processHelpers.js';
 import { checkProcessSettings, giveDirectory, type ProcessSettings } from './processExec.js';
 
@@ -237,15 +242,20 @@ async function writeSdists(
  *   its dependencies are then the platform's wheels alone, copied, the
  *   project's packages are built to wheels here and must be pure, and it
  *   carries the platform's build of its Python
+ * @param tier - The tier it is built over, with a platform: its virtualenv is
+ *   then of the tier's Python, what the tier holds the same is left to it
+ *   once all is installed and checked, and it carries no interpreter
+ *   ({@link leaveToTier})
  * @returns The interpreter it carries and the project's own files, when a
- *   platform is given; else neither
+ *   platform is given, and how many distributions were left to a tier; else
+ *   none of them
  * @throws {EnvironmentTargetRefused} When a platform is given and a
  *   dependency has no wheel for it, or a project package builds native code
  */
 async function buildPython(
   storage: StorageBackend, repo: string,
   spec: PythonSpec, buildDir: string, settings: ProcessSettings,
-  platform?: TargetPlatform,
+  platform?: TargetPlatform, tier?: TierManifest,
 ): Promise<TargetParts> {
   // Wire data, read before anything is installed by it
   const synced = syncedPackages(spec);
@@ -253,8 +263,10 @@ async function buildPython(
   await writePythonProject(storage, repo, spec, buildDir);
   const venv = path.join(buildDir, '.venv');
   // Relocatable: the venv is built in a temp sibling and atomically renamed
-  // into the cache path — absolute shebangs would break on rename.
-  await run('uv', ['venv', '--relocatable', '.venv'], buildDir, 'virtualenv creation', settings);
+  // into the cache path — absolute shebangs would break on rename. Over a
+  // tier, of the tier's Python: what is installed for it is the tier's to run.
+  await run('uv', ['venv', '--relocatable', ...(tier === undefined ? [] : ['--python', pythonMinor(tier.python.version)]), '.venv'], buildDir,
+    'virtualenv creation', settings);
   // For another platform, its wheels alone: nothing is built. Copied, since
   // the tree is packed and sent, never linked into this machine's cache.
   const forPlatform = platform === undefined ? [] : ['--python-platform', platform.name, '--no-build', '--link-mode=copy'];
@@ -312,10 +324,17 @@ async function buildPython(
   }
   const project = before === undefined ? [] : changedSince(before, await treeEntries(buildDir));
   // For another platform, checked while the virtualenv's interpreter is still
-  // this machine's, which uv asks what it is.
+  // this machine's, which uv asks what it is; and, over a tier, while it
+  // still holds everything it runs with.
   await run('uv', ['pip', 'check', '--python', venv, ...(platform === undefined ? [] : ['--python-platform', platform.name])], buildDir,
     'environment consistency check', settings);
-  return { interpreter: platform === undefined ? null : await carryInterpreter(buildDir, platform, settings), project };
+  if (platform === undefined) return { interpreter: null, project, fromTier: null };
+  if (tier === undefined) return { interpreter: await carryInterpreter(buildDir, platform, settings), project, fromTier: null };
+  const fromTier = await leaveToTier(buildDir, tier);
+  // What was left to the tier is no longer the project's to pack
+  const kept: string[] = [];
+  for (const file of project) if (await pathExists(path.join(buildDir, ...file.split('/')))) kept.push(file);
+  return { interpreter: null, project: kept, fromTier };
 }
 
 /**
@@ -382,7 +401,7 @@ async function buildNode(
     // A tree for another platform is packed and sent: the tarballs are not of it.
     if (platform !== undefined) await fs.rm(packDir, { recursive: true, force: true });
   }
-  return { interpreter: null, project: before === undefined ? [] : changedSince(before, await treeEntries(buildDir)) };
+  return { interpreter: null, project: before === undefined ? [] : changedSince(before, await treeEntries(buildDir)), fromTier: null };
 }
 
 /**
@@ -644,6 +663,13 @@ export interface EnvironmentTarget {
    * (`aarch64-apple-darwin`, `x86_64-apple-darwin`).
    */
   readonly platform: string;
+  /**
+   * The tier the environment is built over, by what its image holds: the
+   * rack then composes it over that tier. For an environment that fits it
+   * alone ({@link environmentFitsTier}). Absent, it is built whole, with an
+   * interpreter of its own.
+   */
+  readonly over?: TierManifest;
 }
 
 /**
@@ -688,6 +714,9 @@ export interface TargetEnvironment {
    *  {@link dir} with `/` between segments, sorted: what changes when the
    *  project's code does. Everything else is what its lock names. */
   readonly project: readonly string[];
+  /** How many distributions were left to the tier it was built over, which
+   *  holds them the same; `null` for an environment built whole. */
+  readonly fromTier: number | null;
 }
 
 /** A platform environments are installed for. */
@@ -917,8 +946,104 @@ async function carryInterpreter(buildDir: string, platform: TargetPlatform, sett
   return CARRIED_INTERPRETER_DIR;
 }
 
+/** The file in an environment's site directory that adds its tier's, after
+ *  every path the environment's own files add. */
+const TIER_PATH_FILE = 'zzz_e3_tier.pth';
+
+/** Removes every directory under `dir` that holds nothing, and so each that
+ *  held only such directories; `dir` itself stays. */
+async function removeEmptyDirectories(dir: string): Promise<boolean> {
+  let empty = true;
+  for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
+    const at = path.join(dir, entry.name);
+    if (entry.isDirectory() && await removeEmptyDirectories(at)) await fs.rmdir(at);
+    else empty = false;
+  }
+  return empty;
+}
+
+/**
+ * Leaves to its tier what the tier holds of a python environment built for
+ * it, and points the environment's virtualenv at the tier.
+ *
+ * @remarks
+ * Once the environment is installed whole and checked:
+ * - each distribution the tier holds the same, by its name, its version and
+ *   the files it installed, is removed from the site directory, with its
+ *   metadata ({@link leftToTier} says which). Its scripts stay: they run on
+ *   the environment's interpreter, which finds the distribution in the tier;
+ * - the virtualenv's `pyvenv.cfg` names the tier's base interpreter's
+ *   directory as its `home`, and the tier's Python as its version;
+ * - one path file in the site directory adds the tier's site directory after
+ *   the environment's own, read as a site directory is, so its own path
+ *   files are too. What the environment ships is found first: a version of
+ *   its own of something the tier holds wins;
+ * - the link to this machine's interpreter is removed. No layer holds a link
+ *   that leads out of the environment, so the agent that composes it over
+ *   its tier makes the link to the tier's interpreter
+ *   (`composeEnvironmentOverTier`).
+ *
+ * @returns How many distributions were left to the tier
+ * @throws {Error} When the virtualenv is not of the tier's Python
+ */
+async function leaveToTier(buildDir: string, tier: TierManifest): Promise<number> {
+  const venv = path.join(buildDir, '.venv');
+  const minor = pythonMinor(tier.python.version);
+  const config = await fs.readFile(path.join(venv, 'pyvenv.cfg'), 'utf-8');
+  const made = /^version_info\s*=\s*(\d+)\.(\d+)/m.exec(config);
+  if (made === null || `${made[1]!}.${made[2]!}` !== minor) {
+    throw new Error(`environment materialization: the virtualenv is of Python ${made === null ? 'no version' : `${made[1]!}.${made[2]!}`}, ` +
+      `not the tier's ${minor}: an environment whose lock does not take the tier's Python is built whole`);
+  }
+  const site = path.join(venv, 'lib', `python${minor}`, 'site-packages');
+  const installed: Array<InstalledDistribution & { info: string }> = [];
+  for (const info of (await fs.readdir(site)).filter((name) => name.endsWith('.dist-info')).sort()) {
+    let metadata: string;
+    let record: string;
+    try {
+      metadata = await fs.readFile(path.join(site, info, 'METADATA'), 'utf-8');
+      record = await fs.readFile(path.join(site, info, 'RECORD'), 'utf-8');
+    } catch (err) {
+      // One that does not say what it installed cannot be told from the
+      // tier's: it stays
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') continue;
+      throw err;
+    }
+    const name = /^Name:[ \t]*(\S.*?)[ \t]*$/m.exec(metadata)?.[1];
+    const version = /^Version:[ \t]*(\S.*?)[ \t]*$/m.exec(metadata)?.[1];
+    if (name !== undefined && version !== undefined) installed.push({ name, version, record, info });
+  }
+  const left = leftToTier(installed, tier);
+  const root = `${site}${path.sep}`;
+  for (const distribution of installed) {
+    if (!left.has(canonicalDistributionName(distribution.name))) continue;
+    for (const { file } of recordedSiteFiles(distribution.record)) {
+      // A record is a wheel's own account of itself: only what it names in
+      // the site directory is removed
+      const at = path.resolve(site, ...file.split('/'));
+      if (at.startsWith(root)) await fs.rm(at, { force: true });
+    }
+    await fs.rm(path.join(site, distribution.info), { recursive: true, force: true });
+  }
+  await removeEmptyDirectories(site);
+
+  // The interpreter is the tier's. This machine's is linked by its path here
+  const bin = path.join(venv, 'bin');
+  for (const name of await fs.readdir(bin)) {
+    const at = path.join(bin, name);
+    if ((await fs.lstat(at)).isSymbolicLink() && path.isAbsolute(await fs.readlink(at))) await fs.rm(at);
+  }
+  await fs.writeFile(path.join(venv, 'pyvenv.cfg'), config
+    .replace(/^home\s*=.*$/m, `home = ${path.posix.dirname(tier.python.base)}`)
+    .replace(/^version_info\s*=.*$/m, `version_info = ${tier.python.version}`));
+  // A line that begins `import` is run as the site directory is read: the
+  // tier's is added after it, as a site directory
+  await fs.writeFile(path.join(site, TIER_PATH_FILE), `import site; site.addsitedir(${JSON.stringify(tier.python.site)})\n`);
+  return left.size;
+}
+
 /** What a build for another platform made, beside its tree. */
-type TargetParts = Pick<TargetEnvironment, 'interpreter'> & { project: string[] };
+type TargetParts = Pick<TargetEnvironment, 'interpreter' | 'fromTier'> & { project: string[] };
 
 /** The mode bits a built environment's files lose when it is taken back: set
  *  user and group id, which a chown by root keeps on BSD, and writing by the
@@ -1113,6 +1238,13 @@ export async function materializeEnvironment(
  * - a node or workspace environment's dependencies are the platform's, and
  *   the project's own packages must hold no native addon.
  *
+ * With `target.over`, a python environment is built over that tier instead:
+ * its virtualenv is of the tier's Python, what the tier's image holds the
+ * same is left to it, and it carries no interpreter. It runs once the agent
+ * that composes it over the tier has linked the tier's interpreter
+ * (`composeEnvironmentOverTier`). Every distribution is still installed here
+ * first, which is how one is told to be the tier's.
+ *
  * The tree is not this machine's to run, and is not cached: its caller packs
  * it. It may be put anywhere, as the links in it are relative. Every install
  * runs as `settings` say, as a build for this machine does, and the tree is
@@ -1129,13 +1261,16 @@ export async function materializeEnvironment(
  * @throws {EnvironmentTargetRefused} For an environment no install makes for
  *   another platform, with its reason; the directory is removed
  * @throws {Error} For a platform that is not one environments are installed
- *   for, a directory that is not empty, and a failed install, whose directory
- *   is removed
+ *   for, a directory that is not empty, an environment that does not fit the
+ *   tier it is asked to be built over ({@link environmentFitsTier}), and a
+ *   failed install, whose directory is removed
  *
  * @example
  * ```ts
  * const built = await materializeEnvironmentFor(storage, repo, envHash, { platform: 'x86_64-manylinux_2_28' }, scratch);
  * // built.interpreter === '.python'; built.project lists the project's own files
+ * const small = await materializeEnvironmentFor(storage, repo, envHash, { platform: 'x86_64-manylinux_2_28', over: tier }, scratch);
+ * // small.interpreter === null; small.fromTier counts what the tier's image holds for it
  * ```
  */
 export async function materializeEnvironmentFor(
@@ -1160,6 +1295,10 @@ export async function materializeEnvironmentFor(
       `${named} is not installed for ${target.platform} on Windows, where a built environment has another layout`);
   }
   const platform = targetPlatformOf(target.platform);
+  if (target.over !== undefined && !await fitsTier(storage, repo, spec, target.over)) {
+    throw new Error(`environment materialization: ${named} is not built over a tier of Python ${target.over.python.version}: ` +
+      'a python environment whose lock takes that Python is');
+  }
 
   const buildDir = path.resolve(dir);
   await fs.mkdir(buildDir, { recursive: true });
@@ -1173,21 +1312,51 @@ export async function materializeEnvironmentFor(
     switch (spec.type) {
       case 'python':
       case 'workspace_python':
-        parts = await buildPython(storage, repo, spec, buildDir, settings, platform);
+        parts = await buildPython(storage, repo, spec, buildDir, settings, platform, target.over);
         break;
       case 'node':
         parts = await buildNode(storage, repo, spec, buildDir, settings, platform);
         break;
       case 'workspace_node':
-        parts = { interpreter: null, project: await buildWorkspaceNode(storage, repo, spec, buildDir, buildDir, settings, platform) };
+        parts = { interpreter: null, project: await buildWorkspaceNode(storage, repo, spec, buildDir, buildDir, settings, platform), fromTier: null };
         break;
     }
     if (settings.uid !== undefined || settings.gid !== undefined) await takeBack(buildDir);
-    return { dir: buildDir, interpreter: parts.interpreter, project: [...parts.project].sort() };
+    return { dir: buildDir, interpreter: parts.interpreter, project: [...parts.project].sort(), fromTier: parts.fromTier };
   } catch (err) {
     await fs.rm(buildDir, { recursive: true, force: true });
     throw err;
   }
+}
+
+/** Whether a decoded environment fits a tier ({@link environmentFitsTier}). */
+async function fitsTier(storage: StorageBackend, repo: string, spec: EnvironmentSpec, tier: TierManifest): Promise<boolean> {
+  if (spec.type !== 'python' && spec.type !== 'workspace_python') return false;
+  // The lock's own account of the Pythons it was resolved for
+  const lock = (await readFile(storage, repo, spec.value.lock)).toString('utf-8');
+  const requires = /^requires-python\s*=\s*"([^"]*)"/m.exec(lock)?.[1];
+  return requires !== undefined && pythonSatisfies(tier.python.version, requires);
+}
+
+/**
+ * Whether an environment can be built over a tier ({@link EnvironmentTarget.over}):
+ * a python environment whose lock takes the tier's Python. Any other is
+ * built whole, with an interpreter of its own.
+ *
+ * @param storage - Storage backend holding the spec and its files
+ * @param repo - Repository path
+ * @param envHash - Object hash of the beast2-encoded {@link EnvironmentSpec}
+ * @param tier - The tier's manifest
+ * @returns Whether it fits
+ *
+ * @example
+ * ```ts
+ * const over = await environmentFitsTier(storage, repo, envHash, tier) ? tier : undefined;
+ * const built = await materializeEnvironmentFor(storage, repo, envHash, { platform, ...(over !== undefined && { over }) }, scratch);
+ * ```
+ */
+export async function environmentFitsTier(storage: StorageBackend, repo: string, envHash: string, tier: TierManifest): Promise<boolean> {
+  return fitsTier(storage, repo, decodeEnvironmentSpec(Buffer.from(await storage.objects.read(repo, envHash))), tier);
 }
 
 // =============================================================================

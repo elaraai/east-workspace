@@ -1,6 +1,8 @@
 # Environments built over their base tier (#1655)
 
-Status: **proposal, awaiting approval**. Nothing here is built. It follows
+Status: **approved 16 Nov 2026, being built** in the same change as #1654.
+Built so far: the tier manifest and the build over a tier (3.1 to 3.3); the
+rack's side (3.4, 3.5) follows. Section 6 lists what building it changed. It follows
 [`e3-environment-granularity.md`](e3-environment-granularity.md) and
 [`e3-rack-delegation.md`](e3-rack-delegation.md), and pairs with the
 member-only install (#1654), which it assumes.
@@ -46,7 +48,8 @@ Each python runtime image (`docker/images/Dockerfile.east-py`,
 ```json
 {
   "version": 1,
-  "python": { "version": "3.11.2", "executable": "/opt/venv/bin/python", "site": "/opt/venv/lib/python3.11/site-packages" },
+  "python": { "version": "3.11.2", "executable": "/opt/venv/bin/python", "base": "/usr/bin/python3",
+              "site": "/opt/venv/lib/python3.11/site-packages" },
   "distributions": [
     { "name": "elaraai-east-py", "version": "1.0.109", "files": "sha256:9c1f…" },
     { "name": "torch", "version": "2.9.0+cu130", "files": "sha256:41be…" }
@@ -57,6 +60,8 @@ Each python runtime image (`docker/images/Dockerfile.east-py`,
 - Written to `/opt/e3/tier-manifest.json` by `docker/images/tier-manifest.py`
   (standard library alone), sorted by name. An image's later layer that
   installs more writes it again: the datascience image's is its own.
+- `base` is the interpreter a virtualenv made over the tier runs: the one the
+  image's own virtualenv was made from.
 - A manifest's **digest** is the SHA-256 of its bytes.
 - The node and C tiers write none: this change is python environments.
 
@@ -64,9 +69,11 @@ Each python runtime image (`docker/images/Dockerfile.east-py`,
 
 Name (PEP 503), version (local label included: `+cu130` is not `+cpu`), and
 **the digest of the files it installed**: the rows of its `RECORD` — each
-installed file's path, hash and size — sorted, leaving out the bookkeeping an
-installer writes beside them (`RECORD` itself, `INSTALLER`, `REQUESTED`,
-`direct_url.json`, an installer's cache marker).
+file's path, hash and size in the site directory — sorted, leaving out the
+bookkeeping an installer writes beside them (`RECORD` itself, `INSTALLER`,
+`REQUESTED`, `direct_url.json`), compiled files, and what is installed
+outside the site directory: a script, whose first line names the interpreter
+it was installed for, so it differs on every machine.
 
 - Never name and version alone.
 - It can say "different" of two installs of one wheel (an installer that
@@ -90,12 +97,21 @@ With one:
    member-only sync of #1654, the required distributions, the project's
    wheels).
 2. Each installed distribution the manifest holds as the same (3.2) is
-   removed from the tree: its `RECORD` rows and its `.dist-info`.
-3. The virtualenv is pointed at the tier: `pyvenv.cfg`'s `home` and the
-   `bin/python` link name the tier's interpreter, and one `.pth` file in the
+   removed from the site directory, with its `.dist-info`. Its scripts stay:
+   they run on the environment's interpreter, which finds the distribution
+   in the tier. Distributions that install into one top-level package (a
+   family that shares `nvidia/`, say) are left to the tier together or not at
+   all: Python finds a package in the first directory that holds it, so a
+   part that ships would hide the part left behind.
+3. The virtualenv is pointed at the tier: `pyvenv.cfg`'s `home` names the
+   directory of the tier's base interpreter, and one `.pth` file in the
    environment's site directory adds the tier's with `site.addsitedir`, so the
    tier's own `.pth` files are read as a site directory's are.
-4. No interpreter is carried.
+4. No interpreter is carried, and the link to the launching machine's is
+   removed. The link to the tier's interpreter is made where the environment
+   is composed, by the agent, with e3-core's `composeEnvironmentOverTier`: a
+   layer holds no link that leads out of the environment, and that rule
+   stays. The helper refuses an environment built over another interpreter.
 
 So `sys.path` holds the environment's site directory first, then the tier's: a
 project that pins another version of something the tier has ships its own,
@@ -182,8 +198,9 @@ the image that will run the work, a rack's own tier image included.
   Python, so the whole path runs in the suites.
 - **The rack agent's**: reading the manifest from its tier images, saying the
   feature and the digests, answering the manifest request, and booting an
-  environment over its tier. Until an agent says the feature, every
-  environment is built whole.
+  environment over its tier: unpacking its layers, then linking its
+  interpreter with `composeEnvironmentOverTier`. Until an agent says the
+  feature, every environment is built whole.
 
 ## 4. Tests
 
@@ -202,7 +219,7 @@ the image that will run the work, a rack's own tier image included.
 - End to end on the test agent: a task whose environment is built over the
   test tier runs and returns the local run's output.
 
-## 5. Decisions this needs
+## 5. Decisions (approved 16 Nov 2026)
 
 1. The manifest reaches the launching machine from the rack through the hub,
    not inside `@elaraai/e3-rack` (3.6).
@@ -214,3 +231,24 @@ the image that will run the work, a rack's own tier image included.
 5. The launching machine still downloads what the tier has, and does not
    ship it (3.2).
 6. Python environments first; node environments later.
+
+## 6. What building it changed
+
+- **Scripts are outside the identity, and stay.** A script's first line names
+  the interpreter it was installed for, so a digest that held it would make
+  every distribution with a console script differ from the tier's. Scripts
+  are left out of the digest and are never removed (3.2, 3.3).
+- **The interpreter link is the agent's to make.** The layer format refuses a
+  link that leads out of the environment, as its unpacker must. So the build
+  ships no link to the tier's interpreter, and the agent makes it after
+  unpacking, through one shared helper (3.3 step 4).
+- **The manifest names the base interpreter** (`python.base`): a virtualenv's
+  `home` must be the interpreter the tier's own virtualenv was made from, not
+  that virtualenv.
+- **Families move together** (3.3 step 2).
+- **No image label.** A label cannot be computed inside the image's build;
+  the manifest file's own bytes are what is digested.
+- **Whether an environment fits a tier is asked before it is built**
+  (`environmentFitsTier`: a python environment whose lock's `requires-python`
+  takes the tier's Python), so one that does not is built whole once, under
+  the whole build's key, and shared with every rack.

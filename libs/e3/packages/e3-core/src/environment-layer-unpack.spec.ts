@@ -11,7 +11,7 @@ import * as path from 'node:path';
 import { Readable } from 'node:stream';
 import { gzipSync } from 'node:zlib';
 import { pack as tarPack, type Headers } from 'tar-stream';
-import { ENVIRONMENT_LAYER_ROOT, environmentLinkInside, unpackEnvironmentLayer } from './environment-layer-unpack.js';
+import { ENVIRONMENT_LAYER_ROOT, composeEnvironmentOverTier, environmentLinkInside, unpackEnvironmentLayer } from './environment-layer-unpack.js';
 
 /** A gzip tar of the given entries, as a layer another machine sent. */
 async function layerOf(entries: Array<Headers & { data?: string }>): Promise<Readable> {
@@ -121,5 +121,50 @@ describe('a layer unpacked where it runs', {
     // A file where a directory is, is refused.
     await assert.rejects(unpackEnvironmentLayer(await layerOf([{ name: under('d2/f'), data: 'x' }, { name: under('d2'), data: 'x' }]), root),
       /is a file where a directory is/);
+  });
+});
+
+describe('an environment built over a tier, composed over it', { skip: process.platform === 'win32' ? 'a rack\'s guest is Linux' : false }, () => {
+  let tmp: string;
+  before(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-compose-')); });
+  after(() => fs.rmSync(tmp, { recursive: true, force: true }));
+
+  /** An environment's tree as its layers leave it: built over an interpreter in `home`. */
+  const environment = (name: string, home: string): string => {
+    const dir = path.join(tmp, name);
+    fs.mkdirSync(path.join(dir, '.venv', 'bin'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.venv', 'pyvenv.cfg'), `home = ${home}\nimplementation = CPython\nversion_info = 3.11.2\n`);
+    fs.symlinkSync('python', path.join(dir, '.venv', 'bin', 'python3'));
+    return dir;
+  };
+
+  it('links the virtualenv\'s python to the tier\'s base interpreter, in place of what is there', async () => {
+    const dir = environment('linked', '/usr/bin');
+    await composeEnvironmentOverTier(dir, '/usr/bin/python3');
+    assert.strictEqual(fs.readlinkSync(path.join(dir, '.venv', 'bin', 'python')), '/usr/bin/python3');
+    // Composed again, over what the first left
+    await composeEnvironmentOverTier(dir, '/usr/bin/python3');
+    assert.strictEqual(fs.readlinkSync(path.join(dir, '.venv', 'bin', 'python')), '/usr/bin/python3');
+    assert.deepStrictEqual(everything(dir).sort(), ['.venv', '.venv/bin', '.venv/bin/python', '.venv/bin/python3', '.venv/pyvenv.cfg']);
+  });
+
+  it('refuses an environment built over another interpreter, an interpreter that is no absolute path, and a virtualenv whose directories are not real, linking nothing', async () => {
+    const other = environment('other', '/usr/local/bin');
+    await assert.rejects(() => composeEnvironmentOverTier(other, '/usr/bin/python3'),
+      /the environment was built over an interpreter in '\/usr\/local\/bin', not the tier's '\/usr\/bin\/python3'/);
+    const whole = environment('whole', '../.python/cpython/bin');
+    await assert.rejects(() => composeEnvironmentOverTier(whole, '/usr/bin/python3'), /was built over an interpreter in/);
+    await assert.rejects(() => composeEnvironmentOverTier(environment('relative', 'bin'), 'bin/python3'), /is not an absolute path/);
+    // A link standing in for the virtualenv's bin directory is not written through
+    const outside = path.join(tmp, 'outside');
+    fs.mkdirSync(outside);
+    const linked = path.join(tmp, 'through');
+    fs.mkdirSync(path.join(linked, '.venv'), { recursive: true });
+    fs.writeFileSync(path.join(linked, '.venv', 'pyvenv.cfg'), 'home = /usr/bin\n');
+    fs.symlinkSync(outside, path.join(linked, '.venv', 'bin'));
+    await assert.rejects(() => composeEnvironmentOverTier(linked, '/usr/bin/python3'), /is not a directory of an environment built over a tier/);
+    await assert.rejects(() => composeEnvironmentOverTier(path.join(tmp, 'absent'), '/usr/bin/python3'), /is not a directory of an environment built over a tier/);
+    for (const dir of [other, whole]) assert.ok(!fs.existsSync(path.join(dir, '.venv', 'bin', 'python')));
+    assert.deepStrictEqual(fs.readdirSync(outside), []);
   });
 });

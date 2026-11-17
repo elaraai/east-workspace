@@ -82,7 +82,7 @@ describe('a repository\'s kept environment layers', {
     write('.venv/lib/python3.12/site-packages/own/__init__.py', 'OWN = 1\n');
     fs.mkdirSync(path.join(dir, '.venv', 'lib', 'python3.12', 'site-packages', 'empty'));
     for (const [rel, data] of Object.entries(files)) write(rel, data);
-    return { dir, interpreter: '.python', project: ['.venv/lib/python3.12/site-packages/own/__init__.py', ...Object.keys(files)].sort() };
+    return { dir, interpreter: '.python', project: ['.venv/lib/python3.12/site-packages/own/__init__.py', ...Object.keys(files)].sort(), fromTier: null };
   }
 
   it('packs a tree as its interpreter, its packages and its project, each under the environment\'s place, sorted, with no time or owner of this machine', async () => {

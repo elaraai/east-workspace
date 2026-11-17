@@ -9,6 +9,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { encodeBeast2For, variant, some, none } from '@elaraai/east';
 import {
   TASK_OBJECT_KIND, TaskObjectType, decodeTaskObject,
@@ -20,9 +21,17 @@ import { StructType, StringType, ArrayType, BlobType, OptionType, EastTypeType, 
 import { TreePathType, RunnerType } from '@elaraai/e3-types';
 import { LocalStorage } from '../storage/local/index.js';
 import { repoInit } from '../storage/local/repository.js';
+import { composeEnvironmentOverTier } from '../environment-layer-unpack.js';
+import { packEnvironmentLayers } from '../storage/local/environment-layers.js';
+import { readTierManifest, recordedSiteFiles } from '../tier-manifest.js';
 import {
-  decodeEnvironmentFile, EnvironmentTargetRefused, hostEnvironmentPlatform, materializeEnvironment, materializeEnvironmentFor, nodeLockFilename,
+  decodeEnvironmentFile, environmentFitsTier, EnvironmentTargetRefused, hostEnvironmentPlatform, materializeEnvironment, materializeEnvironmentFor,
+  nodeLockFilename,
 } from './environment.js';
+
+/** The script a runtime image writes its tier manifest with: the spec runs
+ *  from `dist/src/execution`. */
+const TIER_MANIFEST_SCRIPT = new URL('../../../../../../../docker/images/tier-manifest.py', import.meta.url);
 
 /** An environment's file, as export stores it: a beast2 Blob of its bytes. */
 const encodeFile = encodeBeast2For(BlobType);
@@ -1015,6 +1024,93 @@ describe('materializeEnvironmentFor: an environment installed for a platform tha
       assert.ok(built.project.length > 0 && built.project.every((file) => /\/site-packages\/features(-0\.1\.0\.dist-info)?\//.test(file)),
         `the project's own files are the member's alone, not what it requires: ${built.project.join(', ')}`);
       assert.strictEqual(built.interpreter, '.python');
+    });
+
+    it('builds a workspace member over a tier: what the tier holds the same is left to it, another version of its own ships and wins, and it runs on the tier\'s interpreter (#1655)', async () => {
+      const { pyproject, lock, features, trainer } = await memberWorkspace(fs.mkdtempSync(path.join(work, 'tier-members-')), write);
+      const envHash = await storage.objects.write(repo, encodeBeast2For(EnvironmentSpecType)(
+        variant('workspace_python', { pyproject, lock, subjects: ['trainer'], sdists: [features, trainer], requires: [] })));
+      // The versions the lock pins, by its own words
+      const lockText = Buffer.from(decodeEnvironmentFile(await storage.objects.read(repo, lock), lock)).toString('utf8');
+      const locked = (name: string): string => new RegExp(`name = "${name}"\\nversion = "([^"]+)"`).exec(lockText)![1]!;
+
+      // A tier: a virtualenv of this machine's, as a runtime image's is one
+      // of its system's, holding the idna the lock pins and another six; and
+      // a path file of its own, which adds a directory of one module
+      const tier = path.join(work, 'tier');
+      uv(['venv', tier], work);
+      const tierPython = path.join(tier, 'bin', 'python');
+      uv(['pip', 'install', '--python', tierPython, `idna==${locked('idna')}`, 'six==1.16.0'], work);
+      const manifestFile = path.join(work, 'tier-manifest.json');
+      execFileSync(tierPython, [fileURLToPath(TIER_MANIFEST_SCRIPT), manifestFile], { stdio: 'ignore' });
+      const manifest = readTierManifest(fs.readFileSync(manifestFile));
+      const extra = path.join(work, 'tier-extra');
+      fs.mkdirSync(extra);
+      fs.writeFileSync(path.join(extra, 'tier_only.py'), 'MARKER = "the tier\'s own path file is read"\n');
+      fs.writeFileSync(path.join(manifest.python.site, 'tier-extra.pth'), `${extra}\n`);
+      const tierIdna = fs.readFileSync(path.join(manifest.python.site, `idna-${locked('idna')}.dist-info`, 'RECORD'), 'utf8');
+
+      assert.strictEqual(await environmentFitsTier(storage, repo, envHash, manifest), true);
+      const dir = scratch();
+      const built = await materializeEnvironmentFor(storage, repo, envHash, { platform: host!, over: manifest }, dir);
+      assert.deepStrictEqual({ interpreter: built.interpreter, fromTier: built.fromTier }, { interpreter: null, fromTier: 1 });
+      assert.ok(!fs.existsSync(path.join(dir, '.python')), 'it carries no interpreter');
+
+      const minor = manifest.python.version.split('.').slice(0, 2).join('.');
+      const site = path.join(dir, '.venv', 'lib', `python${minor}`, 'site-packages');
+      const installed = fs.readdirSync(site);
+      for (const shipped of ['six.py', `six-${locked('six')}.dist-info`, 'features', 'trainer', 'zzz_e3_tier.pth']) {
+        assert.ok(installed.includes(shipped), `${shipped} ships: ${installed.join(', ')}`);
+      }
+      assert.ok(!installed.some((name) => name === 'idna' || name.startsWith('idna-')), `idna is left to the tier: ${installed.join(', ')}`);
+      assert.ok(built.project.length > 0 && built.project.every((file) => /\/site-packages\/(features|trainer)(-0\.1\.0\.dist-info)?\//.test(file)),
+        `the project's own files are its members': ${built.project.join(', ')}`);
+
+      // The virtualenv names the tier's base interpreter, and holds no link
+      // out of the tree: it packs, with no interpreter layer
+      const config = fs.readFileSync(path.join(dir, '.venv', 'pyvenv.cfg'), 'utf8');
+      assert.match(config, new RegExp(`^home = ${path.dirname(manifest.python.base).replaceAll('.', '\\.')}$`, 'm'));
+      assert.match(config, new RegExp(`^version_info = ${manifest.python.version.replaceAll('.', '\\.')}$`, 'm'));
+      const bin = path.join(dir, '.venv', 'bin');
+      assert.ok(!fs.readdirSync(bin).includes('python'), 'the link to this machine\'s interpreter is gone');
+      // A script of what was left to the tier stays, to run on the environment's interpreter
+      for (const { file } of recordedSiteFiles(tierIdna.replaceAll('../../../bin/', 'bin/')).filter((row) => row.file.startsWith('bin/'))) {
+        assert.ok(fs.existsSync(path.join(dir, '.venv', file)), `${file} stays`);
+      }
+      const packed = await packEnvironmentLayers(repo, built);
+      assert.ok(packed.layers.length >= 2, 'its packages and its project');
+
+      // Composed over the tier, it runs: its own first, then the tier's
+      await composeEnvironmentOverTier(dir, manifest.python.base);
+      const out = execFileSync(path.join(bin, 'python'), ['-c', [
+        'import sys, six, idna, trainer, features, tier_only',
+        'from importlib.metadata import version',
+        'print(six.__version__, six.__file__)',
+        'print(version("idna"), idna.__file__)',
+        'print(trainer.MARKER, features.MARKER, sys.prefix)',
+        'print(tier_only.MARKER)',
+      ].join('\n')], { encoding: 'utf-8', cwd: os.tmpdir() }).trim().split('\n');
+      assert.deepStrictEqual(out[0], `${locked('six')} ${path.join(site, 'six.py')}`, 'its own six, not the tier\'s 1.16.0');
+      assert.deepStrictEqual(out[1], `${locked('idna')} ${path.join(fs.realpathSync(manifest.python.site), 'idna', '__init__.py')}`, 'the tier\'s idna');
+      assert.deepStrictEqual(out[2], `trainer features ${path.join(dir, '.venv')}`);
+      assert.deepStrictEqual(out[3], 'the tier\'s own path file is read');
+    });
+
+    it('builds over a tier only an environment that fits it: a python environment whose lock takes the tier\'s Python', async () => {
+      const { pyproject, lock, features } = await memberWorkspace(fs.mkdtempSync(path.join(work, 'fit-members-')), write);
+      const envHash = await storage.objects.write(repo, encodeBeast2For(EnvironmentSpecType)(
+        variant('workspace_python', { pyproject, lock, subjects: ['features'], sdists: [features], requires: [] })));
+      const python = { executable: '/opt/venv/bin/python', base: '/usr/bin/python3', site: '/opt/venv/lib/python3.9/site-packages' };
+      // The workspace's lock takes Python 3.11 and later
+      const old = { version: 1 as const, python: { ...python, version: '3.9.2' }, distributions: [] };
+      assert.strictEqual(await environmentFitsTier(storage, repo, envHash, old), false);
+      assert.strictEqual(await environmentFitsTier(storage, repo, envHash, { ...old, python: { ...python, version: '3.11.2' } }), true);
+      const dir = scratch();
+      await assert.rejects(() => materializeEnvironmentFor(storage, repo, envHash, { platform: host!, over: old }, dir),
+        /is not built over a tier of Python 3\.9\.2: a python environment whose lock takes that Python is/);
+      assert.ok(!fs.existsSync(dir), 'nothing was installed');
+      const node = await storage.objects.write(repo, encodeBeast2For(EnvironmentSpecType)(variant('node', { packageJson: pyproject, lock, tarballs: [] })));
+      assert.strictEqual(await environmentFitsTier(storage, repo, node, { ...old, python: { ...python, version: '3.11.2' } }), false);
     });
 
     for (const [what, platform] of [['this machine\'s own platform, and runs once moved', host], ['another platform', foreign]] as const) {

@@ -8,9 +8,10 @@
  * environment the rack runs over that image is built without.
  *
  * A runtime image writes its manifest when it is built
- * (`docker/images/tier-manifest.py`): its interpreter, its site directory,
- * and each distribution installed for it, by name, version and the digest of
- * the files it installed. A manifest is named by the SHA-256 of its bytes.
+ * (`docker/images/tier-manifest.py`): its interpreter, the base interpreter a
+ * virtualenv over it runs, its site directory, and each distribution
+ * installed for it, by name, version and the digest of the files it
+ * installed. A manifest is named by the SHA-256 of its bytes.
  *
  * @packageDocumentation
  */
@@ -37,6 +38,9 @@ export interface TierManifest {
     readonly version: string;
     /** Its path in the image, absolute */
     readonly executable: string;
+    /** The interpreter a virtualenv over the tier runs, absolute: itself,
+     *  or, when it is a virtualenv's, the one that virtualenv was made from */
+    readonly base: string;
     /** The directory its distributions are installed in, absolute */
     readonly site: string;
   };
@@ -98,21 +102,41 @@ function recordRow(line: string): string[] {
  * const files = installedFilesDigest(await readFile(join(site, 'idna-3.20.dist-info', 'RECORD'), 'utf8'));
  */
 export function installedFilesDigest(record: string): string {
-  const rows: [string, string, string][] = [];
+  const rows = recordedSiteFiles(record).filter(({ file }) => {
+    const parts = file.split('/');
+    if (parts.length === 2 && parts[0]!.endsWith('.dist-info') && BOOKKEEPING.includes(parts[1]!)) return false;
+    return !parts.includes('__pycache__') && !file.endsWith('.pyc');
+  });
+  // By code point, as the image's script sorts them
+  rows.sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : 0));
+  const lines = rows.map(({ file, digest, size }) => `${file}\t${digest}\t${size}\n`).join('');
+  return `sha256:${computeHash(new TextEncoder().encode(lines))}`;
+}
+
+/** One file a `RECORD` lists: its path from the site directory, and the hash
+ *  and size the installer recorded for it, each as written. */
+export interface RecordedFile {
+  readonly file: string;
+  readonly digest: string;
+  readonly size: string;
+}
+
+/**
+ * The files a `RECORD` lists in the site directory, as it writes them: every
+ * row but those of what is installed outside it — a script, a header — whose
+ * path leads up out of it.
+ *
+ * @param record - The `RECORD` file's text
+ * @returns The files, in the record's order
+ */
+export function recordedSiteFiles(record: string): RecordedFile[] {
+  const files: RecordedFile[] = [];
   for (const line of record.split(/\r?\n/)) {
     const fields = recordRow(line);
-    if (fields.length < 3) continue;
-    const [file, digest, size] = fields as [string, string, string];
-    const parts = file.split('/');
-    if (parts[0] === '..') continue;
-    if (parts.length === 2 && parts[0]!.endsWith('.dist-info') && BOOKKEEPING.includes(parts[1]!)) continue;
-    if (parts.includes('__pycache__') || file.endsWith('.pyc')) continue;
-    rows.push([file, digest, size]);
+    if (fields.length < 3 || fields[0] === '' || fields[0]!.split('/')[0] === '..') continue;
+    files.push({ file: fields[0]!, digest: fields[1]!, size: fields[2]! });
   }
-  // By code point, as the image's script sorts them
-  rows.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
-  const lines = rows.map(([file, digest, size]) => `${file}\t${digest}\t${size}\n`).join('');
-  return `sha256:${computeHash(new TextEncoder().encode(lines))}`;
+  return files;
 }
 
 /**
@@ -157,6 +181,7 @@ export function readTierManifest(bytes: Uint8Array): TierManifest {
     python: {
       version: text(python.version, 'interpreter version'),
       executable: text(python.executable, 'interpreter'),
+      base: text(python.base, 'base interpreter'),
       site: text(python.site, 'site directory'),
     },
     distributions: fields.distributions.map((entry: unknown): TierDistribution => {
@@ -179,4 +204,133 @@ export function readTierManifest(bytes: Uint8Array): TierManifest {
 export function tierHolds(manifest: TierManifest, distribution: TierDistribution): boolean {
   const name = canonicalDistributionName(distribution.name);
   return manifest.distributions.some((held) => held.name === name && held.version === distribution.version && held.files === distribution.files);
+}
+
+/** A distribution as an environment installed it. */
+export interface InstalledDistribution {
+  /** Its name, as its metadata spells it */
+  readonly name: string;
+  /** Its version */
+  readonly version: string;
+  /** Its `RECORD` file's text */
+  readonly record: string;
+}
+
+/**
+ * Which of an environment's installed distributions are left to the tier it
+ * is built over: each the tier holds the same ({@link tierHolds}), unless it
+ * shares a package with one the tier does not.
+ *
+ * @remarks
+ * Python finds a package in the first directory on its path that holds it,
+ * and looks no further for the package's modules. So distributions that
+ * install into one top-level package — a family that shares `nvidia/`, say —
+ * are left to the tier together or not at all: were one left and another
+ * kept, the environment's part of the package would hide the tier's. They
+ * are grouped by the top-level names their files have in the site directory,
+ * and a group is left only when the tier holds every distribution of it.
+ *
+ * @param installed - The environment's distributions
+ * @param manifest - The tier's manifest
+ * @returns The canonical names of those left to the tier
+ * @example
+ * const left = leftToTier(installed, manifest);
+ * const shipped = installed.filter(({ name }) => !left.has(canonicalDistributionName(name)));
+ */
+export function leftToTier(installed: readonly InstalledDistribution[], manifest: TierManifest): Set<string> {
+  // Each distribution's group, by the top-level names it shares with others
+  const group = installed.map((_, i) => i);
+  const find = (i: number): number => {
+    while (group[i] !== i) i = group[i] = group[group[i]!]!;
+    return i;
+  };
+  const owner = new Map<string, number>();
+  for (const [i, distribution] of installed.entries()) {
+    for (const { file } of recordedSiteFiles(distribution.record)) {
+      const top = file.split('/')[0]!;
+      // Its own metadata, and compiled files, which every module's share a directory for
+      if (top.endsWith('.dist-info') || top === '__pycache__') continue;
+      const first = owner.get(top);
+      if (first === undefined) owner.set(top, i);
+      else group[find(i)] = find(first);
+    }
+  }
+  const held = installed.map((distribution) =>
+    tierHolds(manifest, { name: distribution.name, version: distribution.version, files: installedFilesDigest(distribution.record) }));
+  const whole = new Map<number, boolean>();
+  for (const i of installed.keys()) whole.set(find(i), (whole.get(find(i)) ?? true) && held[i]!);
+  return new Set(installed.filter((_, i) => whole.get(find(i)) === true).map(({ name }) => canonicalDistributionName(name)));
+}
+
+/** A version's release numbers: `3.11.2` as `[3, 11, 2]`, what follows them
+ *  (`rc1`, `+local`) left out; `null` for what begins with none. */
+function releaseOf(version: string): number[] | null {
+  const release = /^\s*v?(\d+(?:\.\d+)*)/.exec(version)?.[1];
+  return release === undefined ? null : release.split('.').map(Number);
+}
+
+/** Orders two Python releases, the shorter read as ending in zeros (PEP 440). */
+function comparePythonReleases(a: readonly number[], b: readonly number[]): number {
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const order = (a[i] ?? 0) - (b[i] ?? 0);
+    if (order !== 0) return order;
+  }
+  return 0;
+}
+
+/**
+ * Whether a Python's version meets a `requires-python` specifier, as PEP 440
+ * writes one: clauses joined by commas, each an operator (`>=`, `<=`, `>`,
+ * `<`, `==`, `!=`, `~=`) and a version, which `==` and `!=` may end in `.*`.
+ *
+ * @remarks
+ * A final release's numbers are compared, which is what an image's Python
+ * is. A clause this does not read — another operator, a version with no
+ * number — is not met: an environment is then built whole, which is always
+ * right.
+ *
+ * @param version - The Python's version, as `3.11.2`
+ * @param specifier - The specifier, as `>=3.11,<3.14`
+ * @returns Whether the version meets every clause
+ * @example
+ * pythonSatisfies('3.11.2', '>=3.11'); // true
+ * pythonSatisfies('3.11.2', '>=3.12'); // false
+ */
+export function pythonSatisfies(version: string, specifier: string): boolean {
+  const python = releaseOf(version);
+  if (python === null) return false;
+  return specifier.split(',').map((clause) => clause.trim()).filter((clause) => clause !== '').every((clause) => {
+    const match = /^(>=|<=|==|!=|~=|>|<)\s*(\d+(?:\.\d+)*)(\.\*)?$/.exec(clause);
+    if (match === null) return false;
+    const [, operator, text, wildcard] = match as unknown as [string, string, string, string | undefined];
+    const wanted = text.split('.').map(Number);
+    const order = comparePythonReleases(python, wanted);
+    // The release begins with the numbers given
+    const begins = (numbers: readonly number[]): boolean => numbers.every((number, i) => (python[i] ?? 0) === number);
+    switch (operator) {
+      case '>=': return wildcard === undefined && order >= 0;
+      case '<=': return wildcard === undefined && order <= 0;
+      case '>': return wildcard === undefined && order > 0;
+      case '<': return wildcard === undefined && order < 0;
+      case '==': return wildcard === undefined ? order === 0 : begins(wanted);
+      case '!=': return wildcard === undefined ? order !== 0 : !begins(wanted);
+      // Compatible: at least the version, within the release above its last number
+      case '~=': return wildcard === undefined && wanted.length >= 2 && order >= 0 && begins(wanted.slice(0, -1));
+      default: return false;
+    }
+  });
+}
+
+/**
+ * A Python's minor release, as its virtualenvs and its site directory name
+ * it: `3.11` of `3.11.2`.
+ *
+ * @param version - The Python's version
+ * @returns The minor release
+ * @throws {Error} When the version names none
+ */
+export function pythonMinor(version: string): string {
+  const release = releaseOf(version);
+  if (release === null || release.length < 2) throw new Error(`'${version}' names no Python minor release`);
+  return `${release[0]!}.${release[1]!}`;
 }
