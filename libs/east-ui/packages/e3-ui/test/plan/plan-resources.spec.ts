@@ -226,6 +226,80 @@ describe("a kinds block", () => {
     });
 });
 
+// ── Child rows of another type beneath a resource (#1541, U2) ───────────────
+
+const TaskKindRow = StructType({ name: StringType });
+const Machine = StructType({
+    name: StringType,
+    what: VariantType({ folder: NullType, press: NullType }),
+    readings: DictType(DateTimeType, FloatType),
+    kinds: DictType(StringType, TaskKindRow),
+});
+const Machines = DictType(StringType, Machine);
+const MACHINES: ValueTypeOf<typeof Machines> = new Map([
+    ["F1", { name: "Folder 1", what: variant("folder", null), readings: readings(), kinds: new Map() }],
+    ["P03", { name: "Heidelberg 3", what: variant("press", null), readings: readings([W27, 10]), kinds: new Map([["ink", { name: "Ink fill" }], ["wash", { name: "Blanket wash" }]]) }],
+    ["P04", { name: "Heidelberg 4", what: variant("press", null), readings: readings(), kinds: new Map() }],
+]);
+/** The rows an event kind's `child` lands on: a row per kind of task a press takes. */
+const kindRows = () => Plan.series.resources(TaskKindRow, { key: "kinds", title: "Tasks", label: (kind) => kind.name });
+const utilisation = () => Plan.series.heat(Machine, { key: "utilisation", title: "Utilisation", label: () => "Utilisation", cells: () => Plan.heatCells([]) });
+
+const machinesRoot = East.function([], Plan.Types.Root, ($) => {
+    const data = $.const(MACHINES, Machines);
+    return Plan.Root({
+        axis, data,
+        series: [Plan.series.kinds(Machine, "what", {
+            press: { title: "Presses", label: (press) => press.name, series: [utilisation()], children: Plan.children("kinds", [kindRows()]) },
+            folder: { title: "Folders", label: (folder) => folder.name },
+        })],
+    });
+}).toIR().compile([])();
+
+describe("a resource's child rows of another type (#1541, U2)", () => {
+    test("a case's children follow its series, each child row at its resource's path and its own key, nested under the landing row", () => {
+        assert.ok(sameIds(ids(machinesRoot), [
+            entry("folder", "F1"),
+            entry("press", "P03"), entry("utilisation", "P03"), entry("kinds", "P03", "ink"), entry("kinds", "P03", "wash"),
+            entry("press", "P04"), entry("utilisation", "P04"),
+        ]));
+        assert.ok(sameParents(parents(machinesRoot), [
+            none,
+            none, some(entry("press", "P03")), some(entry("press", "P03")), some(entry("press", "P03")),
+            none, some(entry("press", "P04")),
+        ]));
+        assert.ok(sameLabels(labels(machinesRoot), ["Folder 1", "Heidelberg 3", "Utilisation", "Ink fill", "Blanket wash", "Heidelberg 4", "Utilisation"]));
+    });
+
+    test("a resources series takes them too, one step-down or several in order", () => {
+        const root = East.function([], Plan.Types.Root, ($) => {
+            const data = $.const(MACHINES, Machines);
+            return Plan.Root({
+                axis, data,
+                series: [Plan.series.resources(Machine, {
+                    key: "machines", title: "Machines", label: (machine) => machine.name,
+                    children: [
+                        Plan.children("kinds", [kindRows()]),
+                        Plan.children("kinds", [Plan.series.span(TaskKindRow, { key: "runs", title: "Runs", label: (kind) => kind.name, runs: () => [] })]),
+                    ],
+                })],
+            });
+        }).toIR().compile([])();
+        assert.ok(sameIds(ids(root), [
+            entry("machines", "F1"),
+            entry("machines", "P03"), entry("kinds", "P03", "ink"), entry("kinds", "P03", "wash"), entry("runs", "P03", "ink"), entry("runs", "P03", "wash"),
+            entry("machines", "P04"),
+        ]));
+    });
+
+    test("children that are neither a tree's field nor step-downs are refused, naming the series", () => {
+        assert.throws(() => Plan.series.resources(Machine, { key: "machines", title: "Machines", label: (m) => m.name, children: 3 as never }),
+            /Plan\.series\.resources "machines": `children` is a field of the row holding more of its rows, or Plan\.children\(field, \[series…\]\) step-downs/);
+        assert.throws(() => Plan.series.resources(Machine, { key: "machines", title: "Machines", label: (m) => m.name, children: Plan.children("name" as never, [kindRows()]) }),
+            /Plan\.children: "name" is a String — child rows are a Dict, keyed by an id/);
+    });
+});
+
 // ── #1541 §3.5's series, over a plain record of the works' groups ───────────
 // A crew's roles are keyed by their name here: child rows keyed by a variant
 // (§3.5's `keyType: RoleType`) are #1540's, which a later pull request lands.

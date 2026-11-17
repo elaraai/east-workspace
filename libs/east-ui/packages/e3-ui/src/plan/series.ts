@@ -1102,10 +1102,14 @@ export interface PlanViewsSeriesConfig<
  * @typeParam CT - A tree's field, as `children` names it
  * @typeParam VF - The variant field of the rows its `case` names
  * @typeParam VT - The case of that field it draws
+ * @typeParam CU - One step-down's reads, as `children` gives it
+ * @typeParam CF - The folds of its cells, by collection
+ * @typeParam CS - Several step-downs' reads, in order
  */
 export interface PlanResourcesSeriesConfig<
     R extends EastType, KT extends EastType = StringType, CT extends PlanTreeField<R> = never,
     VF extends PlanVariantField<R> = never, VT extends PlanCaseTag<R, VF> = never,
+    CU = unknown, CF = unknown, CS extends readonly unknown[] = never,
 > extends PlanSeriesIdentity {
     /** The East type of the entries' keys, as the accessors receive them (default `StringType`): what an event's `resource` field holds. */
     keyType?: KT;
@@ -1135,8 +1139,12 @@ export interface PlanResourcesSeriesConfig<
     lanes?: PlanAccessor<R, ArrayType<PlanLaneType>, KT, PlanCaseValue<R, VF, VT>>;
     /** The rows beneath each resource, over its own row: `Plan.series.heat`, `table`, `chart`, `span`, `buckets`, `cards` or `events`. */
     series?: readonly PlanSeriesValue<PlanAxisKindLiteral>[];
-    /** More of its own rows beneath each (a tree, to any depth): a Dict field of the row holding them, each a resource its kinds land on too. */
-    children?: CT;
+    /**
+     * The rows beneath each resource, after its `series`: more of its own rows (a tree, to any depth), by the Dict
+     * field of the row holding them, each a resource its kinds land on too; or child rows of another type (#1541, U2),
+     * `Plan.children(field, [series…])` — a resources series among them is where an event kind's `child` lands.
+     */
+    children?: PlanChildrenOf<R, CT, CU, CF, CS>;
     /** How a resource with resources under it rolls their events into its bands (`"union"`, the default). */
     rollup?: SubtypeExprOrValue<PlanRollupType> | PlanRollupLiteral;
     /** Whether a resource with rows beneath it starts folded — a constant, or per entry. */
@@ -1231,6 +1239,11 @@ export interface PlanKindsCase<R extends EastType, KT extends EastType, V extend
     lanes?: PlanCaseAccessor<R, ArrayType<PlanLaneType>, KT, V>;
     /** The rows beneath each of its resources, over the resource's own row. */
     series?: readonly PlanSeriesValue<PlanAxisKindLiteral>[];
+    /**
+     * The child rows beneath each of its resources, after its `series` (#1541, U2): `Plan.children(field, [series…])`,
+     * one or several — a resources series among them is where an event kind's `child` lands.
+     */
+    children?: PlanChildren<R, string, unknown, unknown> | readonly PlanChildren<R, string, unknown, unknown>[];
     /** How a resource with resources under it rolls their events into its bands. */
     rollup?: SubtypeExprOrValue<PlanRollupType> | PlanRollupLiteral;
     /** Whether a resource with rows beneath it starts folded — a constant, or per entry. */
@@ -3488,8 +3501,14 @@ type AnyLandingConfig = Omit<PlanResourcesSeriesConfig<EastType, EastType>, "chi
  * the events of those beneath it. A gesture on one of its series' rows is
  * written by that series, at any depth of the tree.
  *
+ * Step-downs (#1541, U2) follow its `series` instead of a tree: each one's
+ * child rows, laid out by its own series under the landing row, as a `views`'
+ * are — a resources series among them the rows an event kind's `child` lands
+ * on. A gesture on one of their rows is written by the series that draws it,
+ * into the entry.
+ *
  * @param rowType - The entry type
- * @param cfg - Its accessors, lanes and tree
+ * @param cfg - Its accessors, lanes, and its tree or step-downs
  * @param members - Its series, each a row over the resource's own row
  * @returns The spec
  */
@@ -3506,12 +3525,16 @@ function landingSpec(rowType: EastType, cfg: AnyLandingConfig, members: readonly
     });
     const recursive = (rowType as { type: string }).type === "Recursive";
     const nodeOf = entryNodeOf(rowType);
-    const tree = cfg.children;
-    if (tree !== undefined && typeof tree !== "string") {
-        throw new Error(`${where}: children names the Dict field of its rows holding more of them, each a resource its kinds land on — ` +
-            "a tree: children: \"field\"");
-    }
+    // A tree: more of its own rows, by the field holding them. Anything else `children` holds is a step-down to child
+    // rows of another type (#1541, U2): a data series' envelope with no row of its own lays them out and writes them
+    // back, as a `views`' is — built by the same machinery.
+    const tree = typeof cfg.children === "string" ? cfg.children : undefined;
     if (tree !== undefined) checkTree(rowType, tree, where);
+    const host = cfg.children === undefined || tree !== undefined ? undefined : dataSpec(rowType, {
+        key: cfg.key, title: cfg.title, label: () => "",
+        ...(cfg.keyType !== undefined ? { keyType: cfg.keyType } : {}),
+        children: cfg.children,
+    }, { arm: "resources", kind: () => groupKind(East.value(variant("none", null), PlanGroupSummaryType)) });
     const rollup = resolveTag(cfg.rollup ?? "union", PlanRollupType);
     const RollupOpt = OptionType(PlanRollupType);
 
@@ -3637,7 +3660,7 @@ function landingSpec(rowType: EastType, cfg: AnyLandingConfig, members: readonly
     // How many chart rows each entry makes (#1398): its series', the same for every entry, of those the canvas leaves in —
     // where it has no tree, whose depth is the data's.
     const memberCharts = chartsOf(memberSpecs);
-    const charts = entryCharts(memberCharts, tree === undefined ? 0 : memberCharts, cfg.match !== undefined);
+    const charts = entryCharts(memberCharts, host !== undefined ? chartsOf(host.nested) : tree === undefined ? 0 : memberCharts, cfg.match !== undefined);
     const chartsShown = charts === undefined || charts === 0 ? charts
         : (hidden: ExprType<PlanHiddenType>): ExprType<OptionType<IntegerType>> => Expr.block(($) => {
             const count = $.let(0n, IntegerType);
@@ -3654,17 +3677,17 @@ function landingSpec(rowType: EastType, cfg: AnyLandingConfig, members: readonly
         subtitle: cfg.subtitle,
         icon: cfg.icon,
         arm: "resources",
-        nested: memberSpecs,
-        nests: tree !== undefined,
+        nested: host === undefined ? memberSpecs : [...memberSpecs, ...host.nested],
+        nests: cfg.children !== undefined,
         charts,
         reads: [],
-        // Its series read its own entries; its tree's field is more of them (#1435).
+        // Its series read its own entries; its tree's field is more of them, and its step-downs' are the envelope's (#1435).
         nest: {
             rowType,
             keyType: cfg.keyType ?? StringType,
             accessors: accessorsOf(cfg),
             tree,
-            steps: [],
+            steps: host?.nest!.steps ?? [],
             members: memberSpecs,
             aggregate: undefined,
             subtotalsOwn: false,
@@ -3684,6 +3707,7 @@ function landingSpec(rowType: EastType, cfg: AnyLandingConfig, members: readonly
                 const { single, emits } = membersFor(kt);
                 const of = tree === undefined ? undefined : childOf(kt);
                 const walk = of === undefined ? undefined : walkFor((Expr.type(of) as unknown as { output: EastType }).output);
+                const steps = host?.childrenFor!(kt);
                 const seg = segmentOf(kt);
                 return East.function([collection, PathType, IdOptType, PlanHiddenType], PlanRowsCollectionType, ($, coll, prefix, parent, hidden) => {
                     // Every function the loop calls, bound ONCE (see the data walk).
@@ -3693,6 +3717,7 @@ function landingSpec(rowType: EastType, cfg: AnyLandingConfig, members: readonly
                     const memberRows = emits.map((e) => $.const(e));
                     const childrenOf = of === undefined ? undefined : $.const(of);
                     const walkBelow = walk === undefined ? undefined : $.const(walk);
+                    const stepRows = steps === undefined ? undefined : $.const(steps);
                     const out = $.let([], PlanRowsCollectionType);
                     // A series the canvas leaves out makes no row, and so none beneath one (#1541, U3).
                     $.if(hidden.has(cfg.key).not(), ($1) => {
@@ -3706,6 +3731,8 @@ function landingSpec(rowType: EastType, cfg: AnyLandingConfig, members: readonly
                                 $3(one.insert(key as ExprType<EastType>, value as ExprType<EastType>));
                                 const sub = $3.let([], PlanRowsCollectionType);
                                 for (const rowsOf of memberRows) $3(sub.append(rowsOf(one, prefix, under, hidden)));
+                                // Its step-downs' child rows, after its series (#1541, U2).
+                                if (stepRows !== undefined) $3(sub.append(stepRows(value, key, id, path, hidden)));
                                 const rolls = $3.let(false, BooleanType);
                                 if (walkBelow !== undefined && childrenOf !== undefined) {
                                     const kids = $3.let(walkBelow(childrenOf(value, key), path, id, hidden), PlanRowsCollectionType);
@@ -3729,12 +3756,15 @@ function landingSpec(rowType: EastType, cfg: AnyLandingConfig, members: readonly
             return blockLists.get(collection, () => oneBlock(collection, cfg.key, spec.emitter(collection, at), false, chartsShown));
         },
         // A landing row takes no gesture of its own: its kinds' events are their records'. A gesture on one of its series'
-        // rows is that series' to write — on the entry itself, or down its tree on the resource the row is under.
+        // rows is that series' to write — on the entry itself, or down its tree on the resource the row is under; one on a
+        // step-down's row, that step's series', through the envelope.
         writer(collection, at) {
             return writerLists.get(collection, () => {
                 const { entry, key: kt } = shapeOf(collection, at);
                 assertEntry(entry, rowType, where);
-                const top = memberSpecs.map((m) => m.writer(DictType(kt, rowType), `${where} › ${nameOf(m)}`)).filter((w): w is WriteFn => w !== undefined);
+                const members = memberSpecs.map((m) => m.writer(DictType(kt, rowType), `${where} › ${nameOf(m)}`)).filter((w): w is WriteFn => w !== undefined);
+                const stepped = host?.writer(collection, at);
+                const top = stepped === undefined ? members : [...members, stepped];
                 const of = tree === undefined ? undefined : childOf(kt);
                 const cc = of === undefined ? undefined : (Expr.type(of) as unknown as { output: EastType }).output;
                 const kc = cc === undefined ? undefined : shapeOf(cc, where).key;
@@ -5172,24 +5202,28 @@ const LANDING_LABEL = "`label` is the resource's name in the gutter, a function 
  * @typeParam CT - A tree's field, as `children` names it
  * @typeParam VF - The variant field of the rows its `case` names
  * @typeParam VT - The case of that field it draws
+ * @typeParam CU - One step-down's reads, as `children` gives it
+ * @typeParam CF - The folds of its cells, by collection
+ * @typeParam CS - Several step-downs' reads, in order
  * @param rowType - The entry type
- * @param config - Its name, gutter, lanes, series and tree ({@link PlanResourcesSeriesConfig})
- * @returns A series value, branded with its series' kinds and what they read
- * @throws {Error} Naming the option: a series that is no row over the resource's own row, or a `children` that is no
- *   Dict field of its rows holding more of them
+ * @param config - Its name, gutter, lanes, series, and its tree or step-downs ({@link PlanResourcesSeriesConfig})
+ * @returns A series value, branded with its series' kinds and what they and its children read
+ * @throws {Error} Naming the option: a series that is no row over the resource's own row, or a `children` that is
+ *   neither a Dict field of its rows holding more of them nor `Plan.children(field, [series…])` step-downs
  */
 export function createSeriesResources<
     R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType,
     const S extends readonly unknown[] = never, CT extends PlanTreeField<R> = never,
     VF extends PlanVariantField<R> = never, VT extends PlanCaseTag<R, VF> = never,
+    CU = unknown, CF = unknown, CS extends readonly unknown[] = never,
 >(
     rowType: R,
-    config: PlanResourcesSeriesConfig<R, KT, CT, VF, VT> & { readonly series?: S & readonly PlanSeriesValue<K>[] },
-): PlanSeriesValue<K, PlanReadsNormal<([S] extends [never] ? unknown : PlanIntersect<PlanReadsOfSeries<S[number]>>) & PlanChildrenReads<CT, unknown, unknown, never>>> {
+    config: PlanResourcesSeriesConfig<R, KT, CT, VF, VT, CU, CF, CS> & { readonly series?: S & readonly PlanSeriesValue<K>[] },
+): PlanSeriesValue<K, PlanReadsNormal<([S] extends [never] ? unknown : PlanIntersect<PlanReadsOfSeries<S[number]>>) & PlanChildrenReads<CT, CU, CF, CS>>> {
     const given = config as unknown as AnyLandingConfig & { readonly series?: readonly PlanSeriesValue<PlanAxisKindLiteral>[] };
     const cfg = casedConfig(rowType, given, `Plan.series.resources "${given.key}"`);
     const spec = landingSpec(rowType, cfg, cfg.series ?? []);
-    return seriesValue(rowType, cfg.keyType, spec, cfg) as PlanSeriesValue<K, PlanReadsNormal<([S] extends [never] ? unknown : PlanIntersect<PlanReadsOfSeries<S[number]>>) & PlanChildrenReads<CT, unknown, unknown, never>>>;
+    return seriesValue(rowType, cfg.keyType, spec, cfg) as PlanSeriesValue<K, PlanReadsNormal<([S] extends [never] ? unknown : PlanIntersect<PlanReadsOfSeries<S[number]>>) & PlanChildrenReads<CT, CU, CF, CS>>>;
 }
 
 /**
@@ -5267,6 +5301,7 @@ export function createSeriesKinds<
             ...(c.status !== undefined ? { status: over(c.status)! } : {}),
             ...(c.expand !== undefined ? { expand: over(c.expand)! } : {}),
             ...(c.lanes !== undefined ? { lanes: over(c.lanes)! } : {}),
+            ...(c.children !== undefined ? { children: c.children } : {}),
             ...(c.rollup !== undefined ? { rollup: c.rollup } : {}),
             ...(c.collapsed !== undefined ? { collapsed: typeof c.collapsed === "boolean" ? c.collapsed : over(c.collapsed)! } : {}),
         } as AnyLandingConfig;
