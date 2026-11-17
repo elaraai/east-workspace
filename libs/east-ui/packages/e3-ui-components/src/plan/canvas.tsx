@@ -1112,7 +1112,7 @@ export function usePlanCanvas({
         const request: PlanMoveRequest = {
             key: grab.movable.key, from: grab.movable.rowKey, to: proposal.rowKey, span: proposal.span,
             origin: event.type === "resize" ? "resize" : originOf(grab.movable, proposal).kind,
-            label: grab.movable.label, element: grab.movable, units: proposal.units, fine: proposal.fine,
+            label: grab.movable.label, element: grab.movable, units: proposal.units, fine: proposal.fine, lane: proposal.lane,
         };
         return eventDrag !== undefined && eventDrag.isEvent(grab.movable) ? eventDrag.moveElement(request) : draftMove(request);
     }, [draftDrop, draftMove, editStore, eventDrag, locked]);

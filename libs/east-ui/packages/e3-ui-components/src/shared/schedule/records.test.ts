@@ -9,9 +9,9 @@
  * HTTP, which has none, one drawn from the page's random bytes (#1536).
  */
 import { afterEach, expect, test, vi } from "vitest";
-import { BlobType, FloatType, IntegerType, StringType, StructType, decodeBeast2For, equalFor, toEastTypeValue } from "@elaraai/east";
+import { BlobType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, VariantType, decodeBeast2For, equalFor, none, some, toEastTypeValue, variant } from "@elaraai/east";
 import { Fields } from "@elaraai/east-ui/internal";
-import { fieldChange, fieldWrite, mintKey } from "./records.js";
+import { fieldChange, fieldWrite, keyFieldWrite, laneFieldWrite, mintKey } from "./records.js";
 
 /** A version 4 UUID, as `crypto.randomUUID` prints one. */
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -73,4 +73,41 @@ test("fieldChange is the kind's `field` gesture over the same write", () => {
         expect(equalFor(BlobType)(change.gesture.value.value, write.value)).toBe(true);
     }
     expect(fieldChange(kind, "J-1", ["missing"], "x")).toBeUndefined();
+});
+
+// ── A key and a lane written into the fields that hold them (#1541, U1) ──────
+
+const Kind = VariantType({ ink_fill: NullType, wash: NullType });
+const Half = VariantType({ am: NullType, pm: NullType });
+const Placed = StructType({ press: StringType, kind: Kind, spare: OptionType(Kind), count: OptionType(IntegerType), half: Half, bay: StringType });
+const PLACED = toEastTypeValue(Placed);
+
+test("a key's text is written into its field as the field holds it: a String as it is, any other read back as East prints it, `some` of it in an Option", () => {
+    const press = keyFieldWrite(PLACED, "press", "P03")!;
+    expect(press.path).toEqual(["press"]);
+    expect(decodeBeast2For(StringType)(press.value)).toBe("P03");
+    const kind = keyFieldWrite(PLACED, "kind", ".ink_fill")!;
+    expect(equalFor(Kind)(decodeBeast2For(Kind)(kind.value), variant("ink_fill", null))).toBe(true);
+    const spare = keyFieldWrite(PLACED, "spare", ".wash")!;
+    expect(equalFor(OptionType(Kind))(decodeBeast2For(OptionType(Kind))(spare.value), some(variant("wash", null)))).toBe(true);
+    const count = keyFieldWrite(PLACED, "count", "7")!;
+    expect(equalFor(OptionType(IntegerType))(decodeBeast2For(OptionType(IntegerType))(count.value), some(7n))).toBe(true);
+    expect(equalFor(OptionType(IntegerType))(decodeBeast2For(OptionType(IntegerType))(count.value), none)).toBe(false);
+});
+
+test("a key's text no key of the field's type prints as, and a field the row lacks, write nothing", () => {
+    expect(keyFieldWrite(PLACED, "kind", "ink_fill")).toBeUndefined();
+    expect(keyFieldWrite(PLACED, "count", "seven")).toBeUndefined();
+    expect(keyFieldWrite(PLACED, "nope", "P03")).toBeUndefined();
+});
+
+test("a lane is written into its field: a String field's text, a variant field's case of that name", () => {
+    const bay = laneFieldWrite(PLACED, "bay", "North")!;
+    expect(bay.path).toEqual(["bay"]);
+    expect(decodeBeast2For(StringType)(bay.value)).toBe("North");
+    const half = laneFieldWrite(PLACED, "half", "pm")!;
+    expect(equalFor(Half)(decodeBeast2For(Half)(half.value), variant("pm", null))).toBe(true);
+    // A lane that is no case of the variant, and a field the row lacks, write nothing.
+    expect(laneFieldWrite(PLACED, "half", "noon")).toBeUndefined();
+    expect(laneFieldWrite(PLACED, "nope", "am")).toBeUndefined();
 });

@@ -57,6 +57,7 @@ import { PlanDraftedContext, usePlanElementBounded, usePlanElementConflicted, us
 import { usePlanElementOp } from "./element-optimise.js";
 import { BucketCell, type BucketCellTile } from "./BucketCell.js";
 import { usePlanMovable } from "../edit/movable.js";
+import { laneBand } from "./lanes.js";
 import type { PlanMovable } from "../edit/store.js";
 import type { PlanBucket } from "../scale.js";
 import type { PlanInstantValue } from "../instant.js";
@@ -128,7 +129,7 @@ function EventChip({ ev, styles, rowKey, rowId, ctx, bucket, lane, move, folded 
     // A tile has one instant — its extent is that instant twice.
     // A locked tile takes no move (#1541, U9).
     const movable = useMemo<PlanMovable | undefined>(() => (move !== undefined && !ev.locked
-        ? { rowKey, key: ev.key, label: label ?? ev.key, kind: "tile", span: { start: ev.at, end: ev.at }, items: move.items, resize: false }
+        ? { rowKey, key: ev.key, label: label ?? ev.key, kind: "tile", span: { start: ev.at, end: ev.at }, items: move.items, resize: false, lane: getSomeorUndefined(ev.lane) }
         : undefined), [move, rowKey, ev, label]);
     const { handle, carried } = usePlanMovable(movable);
     const icon = ev.icon.type === "some" ? ev.icon.value : undefined;
@@ -276,10 +277,10 @@ export function BucketsRow({ rowKey, rowId, kind, styles, ctx, move }: BucketsRo
     const cellX = (b: PlanBucket) => (
         { left: `calc(${b.x0 * 100}% + ${PLAN_CELL_INSET}px)`, width: `calc(${(b.x1 - b.x0) * 100}% - ${2 * PLAN_CELL_INSET}px)` }
     );
-    const laneY = (li: number, span: number = 1) => ({
-        top: `calc(${(li / laneCount) * 100}% + ${PLAN_CELL_INSET}px)`,
-        height: `calc(${(span / laneCount) * 100}% - ${2 * PLAN_CELL_INSET}px)`,
-    });
+    const laneY = (li: number, span: number = 1) => {
+        const band = laneBand(li, laneCount, span);
+        return { top: `calc(${band.top * 100}% + ${PLAN_CELL_INSET}px)`, height: `calc(${band.height * 100}% - ${2 * PLAN_CELL_INSET}px)` };
+    };
 
     const renderCell = (b: PlanBucket, li: number | undefined, events: BucketEventValue[], span: number = 1) => {
         const bi = b.index;

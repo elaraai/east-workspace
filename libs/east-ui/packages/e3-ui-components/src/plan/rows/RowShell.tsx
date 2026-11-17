@@ -42,12 +42,16 @@ import type { PlanFocusTagWord } from "../messages.js";
 import type { PlanGridRow } from "../root/grid.js";
 import type { PlanDraftMark } from "../use-plan-editing.js";
 import { PLAN_EVENT_ELEMENT_SELECTOR } from "./element-select.js";
+import { laneBand, laneIndexAt } from "./lanes.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
 /** Indent per nesting level (px) — a caret (14px) and its gap (6px), so a
  *  member's name starts exactly where its group's label text does (#949). */
 export const INDENT_PX = 20;
+
+/** A row with no lanes. */
+const NO_LANES: readonly { readonly key: string }[] = [];
 
 /**
  * The plot's bucket-column separators, O(1) DOM per row (#616).
@@ -253,13 +257,21 @@ export function RowShell({
         const rect = plotElRef.current?.getBoundingClientRect();
         return rect !== undefined && rect.width > 0 ? Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)) : 0;
     }, []);
-    /** Where a moved element lands on this row, with the pointer at `clientX` — told to the store, with the units it moved by. */
-    const landing = useCallback((clientX: number) => {
+    // The lanes an event kind's tiles sit in on this row (#1541, U1): a drop lands in the one the pointer is over.
+    const lanes = eventTarget !== undefined && row.kind.type === "buckets" ? row.kind.value.lanes : NO_LANES;
+    /** The lane of this row a pointer is in, and its place among the row's; none on a row with no lanes, and for a drag the keyboard carries. */
+    const laneAt = useCallback((clientY: number, keyboard: boolean): { readonly key: string; readonly index: number } | undefined => {
+        const rect = plotElRef.current?.getBoundingClientRect();
+        const index = keyboard || rect === undefined || rect.height <= 0 ? undefined : laneIndexAt((clientY - rect.top) / rect.height, lanes.length);
+        return index === undefined ? undefined : { key: lanes[index]!.key, index };
+    }, [lanes]);
+    /** Where a moved element lands on this row, with the pointer at `clientX`, in `lane` — told to the store, with the units it moved by. */
+    const landing = useCallback((clientX: number, lane: string | undefined) => {
         const grab = store?.grab;
         if (store === undefined || grab === null || grab === undefined) return undefined;
         const frac = fracAt(clientX);
         const span = proposeAt(scale, grab.movable.span, grab.mode, grab.grabFrac, frac, store.shift);
-        store.propose({ rowKey: row.key, span, units: unitsBetween(scale, grab.grabFrac, frac, store.shift), fine: store.shift });
+        store.propose({ rowKey: row.key, span, units: unitsBetween(scale, grab.grabFrac, frac, store.shift), fine: store.shift, lane });
         return { grab, span };
     }, [store, scale, fracAt, row.key]);
     /** The event element under a point in this row's plot — where an author's card lands (#1196, PB63), and Connect's line ends (#1541, U10). */
@@ -273,7 +285,7 @@ export function RowShell({
         if (hit === undefined) return undefined;
         return hit.getAttribute("data-run") ?? hit.getAttribute("data-event") ?? hit.getAttribute("data-chip") ?? hit.getAttribute("data-mark") ?? undefined;
     }, [eventNodeAt]);
-    const resolveCoord = useCallback((clientX: number, clientY: number, payload: DragPayload): CellCoord => {
+    const resolveCoord = useCallback((clientX: number, clientY: number, payload: DragPayload, keyboard: boolean): CellCoord => {
         const surface = drop?.surface ?? "";
         // The bucket under the pointer, by the shared frac→bucket resolver (#617): the exact right edge closes into the
         // last bucket; a truncated axis's uncovered remainder is NO bucket (#618) — the slot stays empty and `dropVeto`
@@ -296,16 +308,18 @@ export function RowShell({
             return event !== undefined ? { surface, row: row.key, slot, event } : { surface, row: row.key, slot };
         }
         if (payload.kind !== "item") {
-            const at = landing(clientX);
+            const at = landing(clientX, laneAt(clientY, keyboard)?.key);
             if (at === undefined) return { surface, row: row.key, slot: "" };
             const slot = at.grab.mode === "end" ? slotOfEnd(scale, at.span.end) : slotOfInstant(scale, at.span.start);
             return { surface, row: row.key, slot };
         }
+        // A card rests in the lane the pointer is over (#1541, U1): what the event kinds judge it by, and land it in.
+        if (store !== undefined && eventTarget !== undefined) store.cardLane = laneAt(clientY, keyboard)?.key;
         const slot = slotHere();
         // An author's card lands on the event under the pointer (#1196): the coordinate names it.
         const event = eventTarget !== undefined && events?.landsOnEvent(payload.from.library) === true ? eventAt(clientX, clientY) : undefined;
         return event !== undefined ? { surface, row: row.key, slot, event } : { surface, row: row.key, slot };
-    }, [scale, drop?.surface, row.key, landing, fracAt, eventTarget, events, eventAt, eventNodeAt, store]);
+    }, [scale, drop?.surface, row.key, landing, laneAt, fracAt, eventTarget, events, eventAt, eventNodeAt, store]);
     /** The landing the store holds for this row, when the drag rests on it — what the event kinds judge an element by. */
     const landingHere = useCallback((): PlanProposal | undefined => {
         const proposal = store?.proposal;
@@ -447,9 +461,19 @@ export function RowShell({
     const dragActive = useDragLayerOptional()?.active === true;
     const previewRef = useRef<HTMLDivElement | null>(null);
     const previewTextRef = useRef<HTMLSpanElement | null>(null);
-    const positionPreview = useCallback((clientX: number, clientY: number, payload: DragPayload) => {
+    /** The band's height on a row with lanes (#1541, U1): the lane a drop lands in, or — none named — the whole row. */
+    const bandIn = useCallback((el: HTMLElement, lane: number | undefined) => {
+        if (lanes.length === 0) return;
+        const band = lane === undefined ? laneBand(0, lanes.length, lanes.length) : laneBand(lane, lanes.length);
+        el.style.top = `${band.top * 100}%`;
+        el.style.height = `${band.height * 100}%`;
+    }, [lanes]);
+    const positionPreview = useCallback((clientX: number, clientY: number, payload: DragPayload, keyboard: boolean) => {
         const el = previewRef.current;
         if (el === null) return;
+        // An author's card lands on an event, and Connect on one: neither in a lane.
+        const lane = payload.kind === "item" && events?.landsOnEvent(payload.from.library) === true ? undefined : laneAt(clientY, keyboard);
+        bandIn(el, events?.connecting === true ? undefined : lane?.index);
         if (payload.kind !== "item" && eventTarget !== undefined && events?.connecting === true) {
             // Connect held (#1541, U10): the band spans the event the link would end at — none under the pointer, it
             // stays where it was, on a cell the verdict leaves inactive.
@@ -464,7 +488,7 @@ export function RowShell({
         }
         if (payload.kind !== "item") {
             // A moved element: the extent it would take, labelled with it.
-            const at = landing(clientX);
+            const at = landing(clientX, lane?.key);
             if (at === undefined || edit === null) return;
             const { left, right } = spanFracs(scale, at.span);
             el.style.left = `${left * 100}%`;
@@ -492,7 +516,7 @@ export function RowShell({
         }
         el.style.left = `${bucket.x0 * 100}%`;
         el.style.width = `${(bucket.x1 - bucket.x0) * 100}%`;
-    }, [scale, landing, fracAt, edit, words, eventTarget, events, eventAt, row, store]);
+    }, [scale, landing, laneAt, bandIn, fracAt, edit, words, eventTarget, events, eventAt, row, store]);
 
     // A keyboard drag rests at bucket centres, the announcements name the row
     // and its bucket — or, for a moved element, the span it would take — in
@@ -533,8 +557,10 @@ export function RowShell({
         const { left, right } = spanFracs(scale, carry.to.span);
         el.style.left = `${left * 100}%`;
         el.style.width = `${(right - left) * 100}%`;
+        // A keyboard carry names no lane: the band is the row's.
+        bandIn(el, undefined);
         if (previewTextRef.current !== null) previewTextRef.current.textContent = spanWords(scale, carry.movable, carry.to.span, words);
-    }, [carry, scale, words]);
+    }, [carry, scale, words, bandIn]);
     const dropRef = useDropCell(dropCoord, false, dropVeto, resolveCoord, dropOptions);
     // One ref doing two jobs: the layer's registration, and the rect
     // `resolveCoord` measures the pointer against.

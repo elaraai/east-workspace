@@ -57,6 +57,8 @@ export interface PlanMovable {
     readonly items: string;
     /** Whether it has two ends to resize. */
     readonly resize: boolean;
+    /** The lane its tile sits in (#1541, U1), where its row has lanes and it is in one. */
+    readonly lane?: string | undefined;
 }
 
 /** A pointer drag of an element, from its press. */
@@ -95,6 +97,11 @@ export interface PlanProposal {
     readonly fine?: boolean | undefined;
     /** A keyboard carry's steps since it was picked up — the whole element's and each end's — its extent counted from them. */
     readonly steps?: CarrySteps | undefined;
+    /**
+     * The lane of the row it would sit in (#1541, U1): the one a pointer is over, where the row has lanes. A keyboard
+     * carry names none, and the element keeps its own.
+     */
+    readonly lane?: string | undefined;
 }
 
 /** A keyboard carry — the element, and where it would land now. */
@@ -114,7 +121,7 @@ export interface PlanSaid {
 /** Two proposals alike — the same row, extents East calls equal, and the same units. */
 function sameProposal(a: PlanProposal | null, b: PlanProposal): boolean {
     return a !== null && a.rowKey === b.rowKey && equalInstants(a.span.start, b.span.start) && equalInstants(a.span.end, b.span.end)
-        && a.units === b.units && a.fine === b.fine;
+        && a.units === b.units && a.fine === b.fine && a.lane === b.lane;
 }
 
 /**
@@ -133,6 +140,12 @@ export class PlanEditStore {
     said: PlanSaid | null = null;
     /** Connect's draft, while its drag rests on a row (#1541, U10). */
     connectDraft: PlanConnectDraft | null = null;
+    /**
+     * The lane a card dragged from a library rests in (#1541, U1): the one the pointer is over, on a row with lanes;
+     * `undefined` on a row with none, and for a drag the keyboard carries. Read as the drop is judged and made, and
+     * never drawn from: nothing listens for it.
+     */
+    cardLane: string | undefined = undefined;
     /** Each element's movable, by its node — how a key finds what Space picks up. */
     private readonly nodes = new WeakMap<Element, PlanMovable>();
     /** The element to focus once the canvas has drawn a keyboard drop. */

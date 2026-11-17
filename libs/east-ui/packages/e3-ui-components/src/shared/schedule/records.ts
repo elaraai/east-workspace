@@ -22,7 +22,7 @@ import {
     type EastTypeValue, type StructType, type ValueTypeOf, type option,
 } from "@elaraai/east";
 import type { FieldSpecValue } from "@elaraai/east-ui/internal";
-import type { ScheduleFieldWriteType, ScheduleKindType, SchedulePeriodsKindType } from "@elaraai/e3-ui/internal";
+import { optionOf, type ScheduleFieldWriteType, type ScheduleKindType, type SchedulePeriodsKindType } from "@elaraai/e3-ui/internal";
 import type { EditHistory, EntryVersion } from "@elaraai/east-ui-components";
 import type { ScheduleChange, ScheduleEditingRecord, ScheduleEntryRef, ScheduleRowRead } from "./editing.js";
 import { meetsWindow } from "./window.js";
@@ -75,6 +75,43 @@ export function fieldWrite(specs: readonly FieldSpecValue[], rowType: EastTypeVa
     const type = spec !== undefined ? fromEastTypeValue(spec.type) as EastType : path.length === 1 ? row.fields[path[0]!] : undefined;
     if (type === undefined) return undefined;
     return { path: [...path], value: encodeBeast2For(type)(next as never) };
+}
+
+/**
+ * A key's text written into the field of a row that holds it (#1541, U1), as a kind's `write` takes a field: the
+ * field's own value for it — the key read back from its text at the field's type, a String as it is and any other as
+ * East prints it, and `some` of it where the field is an Option of one.
+ *
+ * @param rowType - The record's row type
+ * @param field - The field
+ * @param text - The key's text
+ * @returns The write; `undefined` for a field the row lacks, and for a text no key of the field's type prints as
+ */
+export function keyFieldWrite(rowType: EastTypeValue, field: string, text: string): ScheduleFieldWrite | undefined {
+    const type = (fromEastTypeValue(rowType) as StructType).fields[field] as EastType | undefined;
+    if (type === undefined) return undefined;
+    const inner = optionOf(type);
+    const keyType = inner ?? type;
+    const parsed = keyType.type === "String" ? { success: true as const, value: text as unknown } : parseFor(keyType)(text);
+    if (!parsed.success) return undefined;
+    return { path: [field], value: encodeBeast2For(type)((inner === undefined ? parsed.value : some(parsed.value)) as never) };
+}
+
+/**
+ * A lane written into the field a kind's `lane` names (#1541, U1), as its `write` takes a field: a String field's
+ * text, or a variant field's case of that name, which holds no value.
+ *
+ * @param rowType - The record's row type
+ * @param field - The lane's field
+ * @param lane - The lane's key
+ * @returns The write; `undefined` for a field the row lacks, and for a variant with no such case
+ */
+export function laneFieldWrite(rowType: EastTypeValue, field: string, lane: string): ScheduleFieldWrite | undefined {
+    const type = (fromEastTypeValue(rowType) as StructType).fields[field] as EastType | undefined;
+    if (type === undefined) return undefined;
+    if (type.type === "String") return { path: [field], value: encodeBeast2For(type)(lane as never) };
+    if (type.type !== "Variant" || !Object.hasOwn(type.cases as Record<string, EastType>, lane)) return undefined;
+    return { path: [field], value: encodeBeast2For(type)(variant(lane, null) as never) };
 }
 
 /**
