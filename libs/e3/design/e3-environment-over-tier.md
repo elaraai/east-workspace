@@ -285,3 +285,97 @@ and not a copy of it.
   the hub checks against the digest and keeps in memory; the launching
   machine asks the hub and keeps nothing on disk, since a manifest is only
   of use while a rack reports it.
+
+## 7. Proposed: the parts of a namespace package are left singly
+
+Status: **proposed 17 Nov 2026. Not approved, and not built.** It changes
+step 2 of 3.3 and the manifest of 3.1, and is asked now because no image has
+shipped a manifest yet: the manifest's form is still free to change.
+
+### 7.1 The fault, measured
+
+Distributions that install into one top-level package are left to the tier
+together or not at all (3.3 step 2). The rule is right for a package with an
+`__init__.py`, which Python reads from the first directory that holds it. It
+costs most where it is not needed.
+
+torch's NVIDIA libraries all install into `nvidia/`: 15 distributions, 3.20 GB
+installed, in the lock of 17 Nov 2026 for Linux x86_64. xgboost brings one
+more, `nvidia-nccl-cu12` (0.43 GB), and asks for it at no version. So a
+project with torch and xgboost locks a newer one than its tier holds (2.32.6
+against 2.27.5 that day), the tier does not hold that build, and **all 16
+ship, about 3.6 GB**, though the tier holds the other 15 exactly.
+`cuda-pathfinder`, a small package that nothing pins, keeps `cuda-bindings`
+(31 MB) the same way.
+
+`nvidia/` and `cuda/` hold no `__init__.py`, in any of those distributions.
+Python reads such a package, a namespace package, from **every** directory on
+its path that holds a part of it. Its parts can be in two places.
+
+### 7.2 Why the environment cannot decide alone
+
+An environment sees its own distributions' files. It does not see the tier's
+others. Were the tier to hold one distribution that installs
+`nvidia/__init__.py`, `nvidia` would be an ordinary package there, Python
+would stop at the first directory with that file, and a part the environment
+ships could be passed over for the tier's older one, silently. So the tier
+has to say which of its top-level packages are namespace packages.
+
+### 7.3 The change
+
+**The manifest names the tier's namespace packages.**
+
+```json
+{
+  "version": 1,
+  "python": { "version": "3.11.2", "executable": "/opt/venv/bin/python", "base": "/usr/bin/python3",
+              "site": "/opt/venv/lib/python3.11/site-packages" },
+  "namespaces": ["cuda", "nvidia"],
+  "distributions": [ … ]
+}
+```
+
+`namespaces` is each directory at the top of the site directory that holds no
+`__init__` module, sorted: read from the directory itself, which is what
+Python reads. The form stays version 1, since no image has shipped one; a
+manifest without the field is refused.
+
+**A top-level package binds its distributions unless it is a namespace
+package on both sides**: no distribution of the environment installs an
+`__init__` module in it, and the tier's manifest names it. Inside such a
+package, distributions are bound one level down: by the directory or file
+directly under it.
+
+| Two distributions of the environment | Left to the tier |
+|---|---|
+| Share a top-level package that has an `__init__` module | Together or not at all, as today |
+| Share a top-level directory the tier does not name a namespace | Together or not at all, as today |
+| Share `nvidia/` only: `nvidia/cudnn` and `nvidia/nccl` | Each on its own |
+| Share `nvidia/nccl`: xgboost's and torch's | Together or not at all |
+| Share a namespace package inside a namespace package | Together or not at all: one level is read |
+
+### 7.4 What it changes for a project
+
+| The project, with no constraint of its own | Today | With this |
+|---|---|---|
+| torch and xgboost | All 16 NVIDIA distributions ship: about 3.6 GB installed | The two that share `nvidia/nccl` ship: about 0.7 GB. The other 14 stay in the tier |
+| torch | `cuda-bindings` ships with `cuda-pathfinder`: 31 MB | `cuda-pathfinder` ships alone |
+| Either, with the release's pins as its constraints | Its own code | Its own code |
+
+### 7.5 Tests
+
+- The manifest script: a directory with no `__init__` module is named, one
+  with one is not, nor a `.dist-info` or `__pycache__`; sorted; the same
+  bytes twice.
+- `readTierManifest`: a manifest without `namespaces` is refused.
+- `leftToTier`: each row of 7.3's table, and a top-level package that one
+  distribution of the environment gives an `__init__` module.
+- The build over a tier: two distributions that share a namespace package,
+  one the tier's build and one not. The first is left, the second ships, and
+  both import, each from its own directory.
+
+### 7.6 Decisions asked
+
+1. The manifest gains `namespaces`, required, in version 1.
+2. Inside a namespace package, distributions are bound one level down; a
+   namespace inside a namespace stays bound at that level.
