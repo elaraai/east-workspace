@@ -67,19 +67,15 @@ export const sameVersion = equalFor(StringType);
  *
  * @remarks
  * Each is read through {@link versionRoots}, so their reserved slots, whose
- * keys begin `$`, are left out.
+ * keys begin `$`, are left out: each names as many roots as the other, and
+ * every root of one stands at its version in the other ({@link madeAt}).
  *
  * @param a - A version vector
  * @param b - Another
  * @returns Whether they name the same roots, each at the same version
  */
 export function sameVersions(a: VersionVector, b: VersionVector): boolean {
-  const roots = versionRoots(a);
-  if (roots.length !== versionRoots(b).length) return false;
-  return roots.every(([root, version]) => {
-    const other = b.get(root);
-    return other !== undefined && sameVersion(other, version);
-  });
+  return versionRoots(a).length === versionRoots(b).length && madeAt(a, b);
 }
 
 /**
