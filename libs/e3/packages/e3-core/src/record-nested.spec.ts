@@ -16,7 +16,8 @@
  * under every ancestor), ledgers (measure trees three levels deep, their
  * readings rolled up by sum, mean and count, their stock by its last,
  * summed), crews (each crew's hours by role, a variant, and a role's shifts by
- * their number: child rows and items keyed by other types than String, #1540)
+ * their number: child rows and items keyed by other types than String, #1540;
+ * and its kit, child rows that nest nothing and declare no collection)
  * and gauges (a value a day and nothing keyed by an id, so an index whose ids
  * have no case) — each with its patch door, its nested index and an index of
  * its rows. It writes the same rows through the doors, then the issue's writes one
@@ -85,7 +86,9 @@ const Ledgers = DictType(StringType, Ledger);
 const Role = VariantType({ assistant: NullType, operator: NullType });
 const Shift = StructType({ at: DateTimeType, who: StringType });
 const RoleHours = StructType({ hours: DictType(DateTimeType, FloatType), shifts: DictType(IntegerType, Shift) });
-const Crew = StructType({ name: StringType, site: StringType, hours: DictType(Role, RoleHours) });
+/** What a crew carries: rows of its own that nest nothing in time. */
+const Kit = StructType({ label: StringType });
+const Crew = StructType({ name: StringType, site: StringType, hours: DictType(Role, RoleHours), kit: DictType(StringType, Kit) });
 const Crews = DictType(StringType, Crew);
 /** A gauge: a level a day, and nothing keyed by an id. */
 const Gauge = StructType({ name: StringType, site: StringType, level: DictType(DateTimeType, FloatType) });
@@ -165,7 +168,10 @@ function declared(runner?: RunnerConfig) {
     initial: new Map(),
     indexes: (index) => ({
       crews_in_time: index.nested({
-        collections: { hours: index.nested.rows({ hours: index.nested.values({ rollup: 'sum' }), shifts: index.nested.items({ at: 'at' }) }) },
+        collections: {
+          hours: index.nested.rows({ hours: index.nested.values({ rollup: 'sum' }), shifts: index.nested.items({ at: 'at' }) }),
+          kit: index.nested.rows({}),
+        },
         tile: 'week',
         summary: 'month',
       }, runner),
@@ -263,13 +269,14 @@ function measures(l: number, draw: () => number): string {
 }
 
 /**
- * A crew as East prints one: each role's hours a week, and the operator's shifts on the days given, each by its
- * day's number — so 2 files before 10, as numbers sort and their texts do not.
+ * A crew as East prints one: each role's hours a week, the operator's shifts on the days given, each by its day's
+ * number — so 2 files before 10, as numbers sort and their texts do not — and its kit.
  */
-function crew(c: number, draw: () => number, shiftDays: readonly number[] = [2, 10, 11]): string {
+function crew(c: number, draw: () => number, shiftDays: readonly number[] = [2, 10, 11], kit: readonly string[] = ['radio']): string {
   const hours = (weeks: number) => dictText(Array.from({ length: weeks }, (_, w) => `${day(w * 7)}:${(Math.floor(draw() * 400) / 10).toFixed(1)}`));
   const shifts = dictText(shiftDays.map((n) => `${n}:(at=${day(n, 6)}, who="p-${c}-${n}")`));
-  return `(name="Crew ${c}", site="Site ${c % 2}", hours=${dictText([`.assistant:(hours=${hours(3)}, shifts={:})`, `.operator:(hours=${hours(4)}, shifts=${shifts})`])})`;
+  return `(name="Crew ${c}", site="Site ${c % 2}", hours=${dictText([`.assistant:(hours=${hours(3)}, shifts={:})`, `.operator:(hours=${hours(4)}, shifts=${shifts})`])}, ` +
+    `kit=${dictText(kit.map((label, k) => `"k-${k}":(label="${label}")`))})`;
 }
 
 /** A gauge as East prints one: a level each of `days` days. */
@@ -378,11 +385,11 @@ function writes(): Array<{ what: string; record: keyof Rows; next: (rows: Rows) 
       },
     },
     {
-      what: 'a role\'s hours changed, a shift moved, one added and one removed, and a crew left with one role', record: 'crews',
+      what: 'a role\'s hours changed, a shift moved, one added and one removed, a kit changed, and a crew left with one role and no kit', record: 'crews',
       next: (rows) => {
         const next = copied(rows.crews);
-        next.set('C-0', parsedValue(Crew, crew(0, draw, [3, 10, 12])));
-        next.set('C-1', parsedValue(Crew, `(name="Crew 1", site="Site 1", hours={.operator:(hours={${day(7)}:12.5}, shifts={:})})`));
+        next.set('C-0', parsedValue(Crew, crew(0, draw, [3, 10, 12], ['radio', 'torch'])));
+        next.set('C-1', parsedValue(Crew, `(name="Crew 1", site="Site 1", hours={.operator:(hours={${day(7)}:12.5}, shifts={:})}, kit={:})`));
         return next;
       },
     },
