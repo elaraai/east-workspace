@@ -1876,6 +1876,37 @@ export const RecordMigrationAppliedType = StructType({
 });
 
 /**
+ * One source of a composite record, as the record's description answers it.
+ *
+ * @property name - The source's name: its case of the record's key
+ * @property key - The source's key type, the type of that case
+ * @property external - Whether its load alone writes its entries; false for a
+ *   source of the solution's own, which the record's mutations write
+ * @property delivery - The type of what an external source is delivered;
+ *   `none` for a source of the solution's own
+ * @property feed - The dataset of the package that feeds it, which the
+ *   dataflow loads each time it changes; `none` for a source delivered by
+ *   `e3 load`, and for a source of the solution's own
+ * @property last - Its last delivery: the delivery's stored hash, the commit
+ *   that applied it — `none` once a compaction has cut that commit from the
+ *   chain — and the latest time any of its deliveries said its data was as
+ *   of; `none` for a source that holds no delivery: one yet to be delivered,
+ *   one whose delivery a rollback, a restore or a migration made it forget,
+ *   and a source of the solution's own
+ * @property pending - Whether the record waits for the source's first
+ *   delivery: its readers wait with it, as on an input nothing has set
+ */
+export const RecordSourceInfoType = StructType({
+  name:     StringType,
+  key:      EastTypeType,
+  external: BooleanType,
+  delivery: OptionType(EastTypeType),
+  feed:     OptionType(TreePathType),
+  last:     OptionType(StructType({ delivery: StringType, commit: OptionType(StringType), asOf: OptionType(DateTimeType) })),
+  pending:  BooleanType,
+});
+
+/**
  * A record's callable surface, returned by `describe` so dynamic callers can
  * encode mutation arguments and read through its indexes, and a console can
  * show the record whole without reading its history. The mutation `argTypes`
@@ -1931,6 +1962,87 @@ export const RecordSignatureType = StructType({
      *  when it has not applied it. */
     applied: OptionType(RecordMigrationAppliedType),
   })),
+});
+
+/**
+ * A request to load a delivery into an external source of a composite record.
+ *
+ * @property delivery - The stored hash of the delivery: an object the
+ *   repository holds. A delivery never travels by value
+ * @property actor - Who asks; the server may take it from its auth instead
+ * @property asOf - The time the delivery says its data is as of. A delivery
+ *   older than the source's last is answered `superseded`, and nothing runs
+ */
+export const RecordLoadRequestType = StructType({
+  delivery: StringType,
+  actor:    OptionType(StringType),
+  asOf:     OptionType(DateTimeType),
+});
+
+/**
+ * What a load did.
+ *
+ * @property commit - The commit that applied the delivery; `none` for a
+ *   delivery `superseded`, and for one loaded `again` whose commit a
+ *   compaction has cut from the chain
+ * @property state - The state that commit left; `none` where `commit` is
+ * @property delivery - The stored hash of the delivery
+ * @property set - How many entries it set; 0 unless `loaded`
+ * @property deleted - How many it deleted; 0 unless `loaded`
+ * @property unchanged - How many the delivery named that the source already
+ *   held as delivered; 0 unless `loaded`
+ * @property outcome - `loaded`: the delivery was applied, in one commit;
+ *   `again`: the source's last delivery was this one, under the same load, so
+ *   nothing ran; `superseded`: the source holds a delivery as of a later time,
+ *   which the case carries, so nothing ran
+ */
+export const RecordLoadResultType = StructType({
+  commit:    OptionType(StringType),
+  state:     OptionType(StringType),
+  delivery:  StringType,
+  set:       IntegerType,
+  deleted:   IntegerType,
+  unchanged: IntegerType,
+  outcome:   VariantType({ again: NullType, loaded: NullType, superseded: DateTimeType }),
+});
+
+/**
+ * How far a load's job has got.
+ *
+ * - `queued`: it waits for an earlier load of its source to finish
+ * - `intake`: its delivery is being taken into the store
+ * - `pieces`: its pieces run: how many are done of the total, and how many of
+ *   those the execution cache answered
+ * - `commit`: its pieces are done, and it commits
+ * - `restarted`: its commit found the source's entries changed under it, and
+ *   sent it back to its pieces; the case carries why
+ * - `stopped`: a deploy holds the workspace, and the load goes on once the
+ *   deploy is done
+ */
+export const RecordLoadProgressType = VariantType({
+  commit:    NullType,
+  intake:    IntakeFileType,
+  pieces:    StructType({ done: IntegerType, total: IntegerType, cached: IntegerType }),
+  queued:    NullType,
+  restarted: StringType,
+  stopped:   NullType,
+});
+
+/**
+ * A load job's status, as its poll answers it. Every case but `processing` is
+ * an end, which the job never leaves.
+ *
+ * - `processing`: the job runs, and how far it has got once it has said
+ * - `completed`: what the load did
+ * - `failed`: why it did not
+ * - `cancelled`: it was cancelled before its commit: nothing was committed,
+ *   and the pieces that finished are cached
+ */
+export const RecordLoadStatusType = VariantType({
+  cancelled:  NullType,
+  completed:  RecordLoadResultType,
+  failed:     StructType({ message: StringType }),
+  processing: OptionType(RecordLoadProgressType),
 });
 
 /** One commit in a record's history (its hash plus the commit fields). */
@@ -2106,7 +2218,12 @@ export type SplitCallReport = ValueTypeOf<typeof SplitCallReportType>;
 export type MutationCallRequest = ValueTypeOf<typeof MutationCallRequestType>;
 export type MutationResult = ValueTypeOf<typeof MutationResultType>;
 export type RecordMigrationApplied = ValueTypeOf<typeof RecordMigrationAppliedType>;
+export type RecordSourceInfo = ValueTypeOf<typeof RecordSourceInfoType>;
 export type RecordSignature = ValueTypeOf<typeof RecordSignatureType>;
+export type RecordLoadRequest = ValueTypeOf<typeof RecordLoadRequestType>;
+export type RecordLoadResult = ValueTypeOf<typeof RecordLoadResultType>;
+export type RecordLoadProgress = ValueTypeOf<typeof RecordLoadProgressType>;
+export type RecordLoadStatus = ValueTypeOf<typeof RecordLoadStatusType>;
 export type RecordCommitInfo = ValueTypeOf<typeof RecordCommitInfoType>;
 export type RecordArgPreview = ValueTypeOf<typeof RecordArgPreviewType>;
 export type RecordCommitArgs = ValueTypeOf<typeof RecordCommitArgsType>;
