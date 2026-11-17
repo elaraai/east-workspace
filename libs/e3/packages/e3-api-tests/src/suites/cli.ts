@@ -509,9 +509,16 @@ export function cliTests(
         assert.ok(commit !== undefined, `the load's line: ${loaded.stdout}`);
 
         // The upload stored the file as the object it is: its hash names the same delivery
-        const again = await runE3Command(['load', remoteUrl, 'orders.erp', `#${computeHash(delivery)}`, '-w', wsName], workDir, { env });
+        const hash = computeHash(delivery);
+        const again = await runE3Command(['load', remoteUrl, 'orders.erp', `#${hash}`, '-w', wsName], workDir, { env });
         assert.strictEqual(again.exitCode, 0, `load by hash failed: ${again.stderr}`);
         assert.match(again.stdout, new RegExp(`^orders\\.erp already holds this delivery, loaded at ${commit}$`, 'm'));
+
+        // The history says what the load's commit loaded, read from its arguments over the API (R33)
+        const history = await runE3Command(['history', remoteUrl, 'orders', '-w', wsName], workDir, { env });
+        assert.strictEqual(history.exitCode, 0, `history failed: ${history.stderr}`);
+        assert.match(history.stdout, new RegExp(
+          `^${commit}  \\$load:erp .*  delivery ${hash.slice(0, 12)} as of 2026-11-02T03:00:00\\.000: 2 set, 0 deleted, 0 unchanged$`, 'm'));
       });
     });
   });

@@ -9,16 +9,21 @@
  * Usage:
  *   e3 history <repo> -w <ws> <record> [--limit N] [--delta]
  *
- * Each line is one commit: short hash, mutation name, actor, and timestamp.
- * With `--delta`, each commit that wrote one is followed by what it changed —
- * per target, counted by op — which is the audit question history is usually
- * asked and which no pair of state hashes answers. Records are
- * workspace-scoped, so --workspace is required.
+ * Each line is one commit: short hash, mutation name, actor, and timestamp. A
+ * load's commit (`$load:<source>`) says beside it what it loaded: its
+ * delivery, the time it says its data is as of, and what it did to the
+ * source's entries, read from the commit's arguments. With `--delta`, each
+ * commit that wrote one is followed by what it changed — per target, counted
+ * by op — which is the audit question history is usually asked and which no
+ * pair of state hashes answers. Records are workspace-scoped, so --workspace
+ * is required.
  */
 
-import { LocalStorage, recordHistory, summarizeDelta } from '@elaraai/e3-core';
-import { workspaceRecordHistory, type RecordHistoryResult } from '@elaraai/e3-api-client';
+import { LocalStorage, loadCommitArgs, recordHistory, summarizeDelta } from '@elaraai/e3-core';
+import { objectGet, workspaceRecordHistory, type RecordHistoryResult } from '@elaraai/e3-api-client';
+import { loadCommitSource } from '@elaraai/e3-types';
 import { parseRepoLocation, formatError, exitError } from '../utils.js';
+import { loadWords } from './load.js';
 
 /** One request for a record's history: the commits from `from`, or from the
  *  head when it is undefined, up to `limit`, or as many as the server answers
@@ -67,6 +72,8 @@ interface CommitLine {
   mutation: string;
   actor: string;
   at: Date;
+  /** What a load's commit loaded, in words. */
+  loaded?: string;
   /** One line per target the commit's delta touched, already rendered. */
   delta?: string[];
 }
@@ -77,9 +84,25 @@ function printCommits(commits: CommitLine[]): void {
     return;
   }
   for (const c of commits) {
-    console.log(`${c.hash.slice(0, 12)}  ${c.mutation.padEnd(18)}  ${c.actor.padEnd(16)}  ${c.at.toISOString()}`);
+    const loaded = c.loaded === undefined ? '' : `  ${c.loaded}`;
+    console.log(`${c.hash.slice(0, 12)}  ${c.mutation.padEnd(18)}  ${c.actor.padEnd(16)}  ${c.at.toISOString()}${loaded}`);
     for (const line of c.delta ?? []) console.log(`                ${line}`);
   }
+}
+
+/**
+ * What a load's commit loaded, in words, read from its arguments' object;
+ * nothing for any other commit.
+ *
+ * @param mutation - The commit's name
+ * @param args - The hash of its arguments' object, when it has arguments
+ * @param read - Reads an object by its hash
+ * @returns The words, or `undefined`
+ */
+async function loadedWords(mutation: string, args: string | undefined, read: (hash: string) => Promise<Uint8Array>): Promise<string | undefined> {
+  if (loadCommitSource(mutation) === null || args === undefined) return undefined;
+  const loaded = loadCommitArgs(await read(args));
+  return loaded === null ? undefined : loadWords(loaded);
 }
 
 async function historyLocal(
@@ -91,6 +114,9 @@ async function historyLocal(
   const lines: CommitLine[] = [];
   for (const e of entries) {
     const line: CommitLine = { hash: e.hash, mutation: e.commit.mutation, actor: e.commit.actor, at: e.commit.at };
+    const loaded = await loadedWords(e.commit.mutation, e.commit.args.type === 'some' ? e.commit.args.value : undefined,
+      (hash) => storage.objects.read(repoPath, hash));
+    if (loaded !== undefined) line.loaded = loaded;
     if (delta && e.commit.delta.type === 'some') {
       // A summary's arm adds to its totals (#1039): counted as changes, `±`.
       line.delta = (await summarizeDelta(storage, repoPath, e.commit.delta.value)).map((arm) =>
@@ -107,14 +133,20 @@ async function historyRemote(
 ): Promise<void> {
   const commits = await remoteHistory(
     (pageLimit, pageFrom) => workspaceRecordHistory(baseUrl, repo, ws, record, pageLimit, { token }, pageFrom), limit, from);
-  printCommits(commits.map((c) => ({
-    hash: c.hash,
-    mutation: c.mutation,
-    actor: c.actor,
-    at: c.at,
-    // Counting a delta's ops means reading its segments, which is a local
-    // store's job; over the API the commit names it and no more.
-    ...(delta && c.delta.type === 'some' && { delta: [`delta ${c.delta.value.slice(0, 12)}`] }),
+  printCommits(await Promise.all(commits.map(async (c): Promise<CommitLine> => {
+    // A load's arguments are read whole by their hash: their preview is cut short
+    const loaded = await loadedWords(c.mutation, c.args.type === 'some' ? c.args.value.hash : undefined,
+      (hash) => objectGet(baseUrl, repo, hash, { token }));
+    return {
+      hash: c.hash,
+      mutation: c.mutation,
+      actor: c.actor,
+      at: c.at,
+      ...(loaded !== undefined && { loaded }),
+      // Counting a delta's ops means reading its segments, which is a local
+      // store's job; over the API the commit names it and no more.
+      ...(delta && c.delta.type === 'some' && { delta: [`delta ${c.delta.value.slice(0, 12)}`] }),
+    };
   })));
 }
 

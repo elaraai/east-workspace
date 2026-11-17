@@ -34,7 +34,7 @@ import {
 } from '@elaraai/east';
 import { readDatasetFileHeader } from '@elaraai/e3';
 import {
-  RecordLoadProgressType, pathToString, type IntakeFile, type RecordLoadProgress, type RecordLoadResult,
+  RecordLoadProgressType, pathToString, type IntakeFile, type RecordLoadArgs, type RecordLoadProgress, type RecordLoadResult,
 } from '@elaraai/e3-types';
 import { LocalStorage, LocalTaskRunner, RecordLoadStoppedError, recordDescribe, recordLoad, withRunningWork, type Budget } from '@elaraai/e3-core';
 import { objectUpload, workspaceRecordDescribe, workspaceRecordLoad, type RecordSignature, type RequestOptions } from '@elaraai/e3-api-client';
@@ -128,7 +128,7 @@ export function resultLine(name: string, result: RecordLoadResult, asOf: Date | 
     case 'loaded': {
       const commit = result.commit.type === 'some' ? ` at ${at(result.commit.value)}` : '';
       const when = asOf === undefined ? '' : `, as of ${printTime(asOf)}`;
-      return `Loaded ${name}${commit}${when}: ${counted(result.set)} set, ${counted(result.deleted)} deleted, ${counted(result.unchanged)} unchanged`;
+      return `Loaded ${name}${commit}${when}: ${countsWords(result)}`;
     }
     case 'again':
       return `${name} already holds this delivery${result.commit.type === 'some' ? `, loaded at ${at(result.commit.value)}` : ''}`;
@@ -137,6 +137,24 @@ export function resultLine(name: string, result: RecordLoadResult, asOf: Date | 
       return `${name} holds a delivery as of ${printTime(result.outcome.value)}${mine}: nothing loaded (superseded)`;
     }
   }
+}
+
+/** What a load did to its source's entries, in words: `1,204 set, 31 deleted, 98,112 unchanged`. */
+function countsWords(counts: { readonly set: bigint; readonly deleted: bigint; readonly unchanged: bigint }): string {
+  return `${counted(counts.set)} set, ${counted(counts.deleted)} deleted, ${counted(counts.unchanged)} unchanged`;
+}
+
+/**
+ * What a load's commit says it loaded, as `e3 history` prints it beside the
+ * commit: its delivery, the time it says its data is as of, and what it did
+ * to the source's entries.
+ *
+ * @param args - What the commit records
+ * @returns The words
+ */
+export function loadWords(args: RecordLoadArgs): string {
+  const asOf = args.asOf.type === 'some' ? ` as of ${printTime(args.asOf.value)}` : '';
+  return `delivery ${args.delivery.slice(0, COMMIT_WIDTH)}${asOf}: ${countsWords(args)}`;
 }
 
 /** Where a load's lines go. */

@@ -52,6 +52,7 @@ import {
   type RecordCommitArgs,
   type RecordIndexObject,
   type RecordIndexPlan,
+  type RecordLoadArgs,
   type RecordSignature,
   type RecordSource,
   type Structure,
@@ -2827,6 +2828,29 @@ async function systemCommitState(
 const decodeLoadArgs = decodeBeast2For(RecordLoadArgsType);
 
 /**
+ * What a load's commit records of its delivery: the one value of its
+ * arguments, read from the arguments' object.
+ *
+ * @param tuple - The commit's arguments, as their object holds them
+ * @returns What the load recorded — its delivery, its load, its as-of, whether
+ *   it was its source's first, its execution and its counts — or `null` for
+ *   arguments that hold no value
+ *
+ * @example
+ * ```ts
+ * const [{ commit }] = await recordHistory(storage, repo, 'main', 'orders', { limit: 1 });
+ * if (loadCommitSource(commit.mutation) !== null && commit.args.type === 'some') {
+ *   const loaded = loadCommitArgs(await storage.objects.read(repo, commit.args.value));
+ *   console.log(`${loaded?.set} set, ${loaded?.deleted} deleted`);
+ * }
+ * ```
+ */
+export function loadCommitArgs(tuple: Uint8Array): RecordLoadArgs | null {
+  const [args] = decodeMutationArgs(tuple);
+  return args === undefined ? null : decodeLoadArgs(args);
+}
+
+/**
  * Whether a load's commit took its source out of the sources its record
  * waited on: what a rollback that undoes it reads, so the source waits again.
  *
@@ -2850,8 +2874,7 @@ async function loadWasFirst(storage: StorageBackend, repo: string, commit: Recor
     if (err instanceof ObjectNotFoundError) return true;
     throw err;
   }
-  const [args] = decodeMutationArgs(tuple);
-  return args === undefined || decodeLoadArgs(args).first;
+  return loadCommitArgs(tuple)?.first ?? true;
 }
 
 /**

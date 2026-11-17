@@ -273,6 +273,7 @@ export {
   externalWriteRefusal,
   encodeMutationArgs,
   decodeMutationArgs,
+  loadCommitArgs,
   withSharedWorkspaceLock,
   RECORD_KEYS_REMEMBERED,
   type RecordRef,

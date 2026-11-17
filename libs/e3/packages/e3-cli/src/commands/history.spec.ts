@@ -7,14 +7,25 @@
  * `e3 history` over the API: asked for the whole chain, it walks a host's
  * pages to the chain's end, each from the last commit's parent; asked for a
  * limit, it makes the one request; and it stops where the chain does — at a
- * page answered empty, or before a commit it has already returned.
+ * page answered empty, or before a commit it has already returned. And a
+ * load's commit, which says in words what it loaded, with `--delta` what it
+ * changed.
  */
 
-import { describe, it } from 'node:test';
+import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { none, some } from '@elaraai/east';
+import { dirname, join } from 'node:path';
+import { none, some, type ValueTypeOf } from '@elaraai/east';
+import e3 from '@elaraai/e3';
+import { LocalStorage, LocalTaskRunner, packageImport, recordLoad } from '@elaraai/e3-core';
+import {
+  ErpDeliveryType, LEDGER_ORDERS, SourcedOrderType, createTempDir, createTestRepo, encodeInSegmentsOf, ledgerOrders, ledgerWorkspaces,
+  removeTempDir, removeTestRepo,
+} from '@elaraai/e3-core/test';
 import type { RecordHistoryResult } from '@elaraai/e3-api-client';
-import { remoteHistory, type HistoryPage } from './history.js';
+import { captured } from '../cli-test-helpers.js';
+import { historyCommand, remoteHistory, type HistoryPage } from './history.js';
+import { loadWords } from './load.js';
 
 type Commit = RecordHistoryResult['commits'][number];
 type Request = [limit: number | undefined, from: string | undefined];
@@ -98,5 +109,57 @@ describe('remoteHistory', () => {
     const commits = await remoteHistory(host([commit('c0', 'c1'), commit('c1', 'c2'), commit('c2', 'c0')], 2, requests), undefined, undefined);
     assert.deepEqual(commits.map((c) => c.hash), ['c0', 'c1', 'c2'], 'each commit once');
     assert.deepEqual(requests, [[undefined, undefined], [undefined, 'c2']]);
+  });
+});
+
+describe('a load\'s commit in e3 history (R33)', () => {
+  const DELIVERY = '5e7a3b0c9d1f'.padEnd(64, '0');
+  const loaded = {
+    delivery: DELIVERY, load: 'a'.repeat(64), first: true, execution: { inputsHash: 'b'.repeat(64), executionId: 'run-1' },
+    set: 1_204n, deleted: 31n, unchanged: 98_112n,
+  };
+
+  it('says in words what a load\'s commit loaded: its delivery, its as-of, and what it did to the source\'s entries', () => {
+    assert.equal(loadWords({ ...loaded, asOf: some(new Date('2026-11-02T03:00:00.000Z')) }),
+      'delivery 5e7a3b0c9d1f as of 2026-11-02T03:00:00.000: 1,204 set, 31 deleted, 98,112 unchanged');
+    assert.equal(loadWords({ ...loaded, asOf: none }), 'delivery 5e7a3b0c9d1f: 1,204 set, 31 deleted, 98,112 unchanged');
+  });
+
+  describe('of a local repository', () => {
+    let repoDir: string;
+    let dir: string;
+    let storage: LocalStorage;
+
+    before(async () => {
+      repoDir = createTestRepo();
+      dir = createTempDir();
+      storage = new LocalStorage(dirname(repoDir));
+      await e3.export(e3.package('ledger', '1.0.0', ledgerOrders()), join(dir, 'ledger.zip'));
+      await packageImport(storage, repoDir, join(dir, 'ledger.zip'));
+    });
+
+    after(() => {
+      removeTestRepo(repoDir);
+      removeTempDir(dir);
+    });
+
+    it('prints a load\'s commit with what it loaded, and with --delta what it changed, as a mutation\'s', async () => {
+      const runner = new LocalTaskRunner(repoDir);
+      const ws = await ledgerWorkspaces(storage, repoDir, runner).fresh();
+      const delivery = await storage.objects.write(repoDir, encodeInSegmentsOf(ErpDeliveryType, 2)(
+        new Map<string, ValueTypeOf<typeof SourcedOrderType>>([['SO-3301', LEDGER_ORDERS.acme], ['SO-3302', LEDGER_ORDERS.birch]])));
+      const result = await recordLoad(storage, runner, repoDir, ws, 'orders', 'erp', delivery, {
+        actor: 'cli:ada', asOf: new Date('2026-11-02T03:00:00.000Z'),
+      });
+      assert.ok(result.commit.type === 'some' && result.outcome.type === 'loaded');
+
+      const printed = (await captured(() => historyCommand(repoDir, 'orders', { workspace: ws, delta: true }))).split('\n');
+      const at = printed.findIndex((line) => line.startsWith(result.commit.type === 'some' ? result.commit.value.slice(0, 12) : '-'));
+      assert.match(printed[at] ?? '', new RegExp(
+        `^[0-9a-f]{12}  \\$load:erp\\s+cli:ada\\s+\\S+  delivery ${delivery.slice(0, 12)} as of 2026-11-02T03:00:00\\.000: 2 set, 0 deleted, 0 unchanged$`));
+      // Its delta, as a mutation's: the source's two orders inserted into the record, and into its index
+      const changed = printed.slice(at + 1, at + 3).map((line) => line.trim().replace(/\s+/g, ' '));
+      assert.deepEqual(changed.sort(), ['by_customer +2 ~0 -0', 'primary +2 ~0 -0']);
+    });
   });
 });
