@@ -24,13 +24,19 @@ export const CalendarJobs = DictType(StringType, CalendarJob);
 export const CalendarOptimiseResult = Calendar.Types.OptimiseResult({ job: CalendarJobs });
 
 /**
+ * The shop's now: where its Calendar draws the now line, and before which its optimiser schedules nothing (#1680's
+ * review). A live app's optimiser reads its clock instead.
+ */
+export const SHOP_NOW = new Date("2026-10-01T10:15:00Z");
+
+/**
  * The shop's optimiser, on e3: each job of the backlog — one with no start — is scheduled into free machine time, in key
  * order: on its machine where it names one, else on the machine free soonest, from when that machine is free — the
- * window's start, or the end of its last job in the window — for as long as its hours take; one that would end past the
- * window it is asked of stays waiting, so no job is put outside the period in view — a day, a week or a month. It reads
- * the window's jobs and the backlog through the jobs' interval index and each job's row by its key, never the record
- * whole, with the Calendar's unsaved edits laid over them; every scheduled job stays as it was, and the answer is the
- * backlog's change alone.
+ * window's start or the shop's now, whichever is later, or the end of its last job in the window — for as long as its
+ * hours take; one that would end past the window it is asked of stays waiting, so no job is put outside the period in
+ * view — a day, a week or a month — and none in the past. It reads the window's jobs and the backlog through the jobs'
+ * interval index and each job's row by its key, never the record whole, with the Calendar's unsaved edits laid over
+ * them; every scheduled job stays as it was, and the answer is the backlog's change alone.
  */
 export const scheduleBacklog = e3.function("calendar_schedule_backlog", {
     inputs: [e3.index(calendarJobs.indexes.calendar_jobs_by_time), calendarJobs, calendarMachines],
@@ -39,9 +45,12 @@ export const scheduleBacklog = e3.function("calendar_schedule_backlog", {
     args: [Calendar.Types.OptimiseRequest],
     output: CalendarOptimiseResult,
 }, ($, jobsByTime, jobs, machines, request) => {
-    // When each machine is next free: the window's start, or past its last job in the window.
+    // Nothing is scheduled before now: from the window's start, or now where the window starts before it.
+    const now = $.const(SHOP_NOW);
+    const from = $.const(East.less(request.from, now).ifElse(() => now, () => request.from));
+    // When each machine is next free: from then, or past its last job in the window.
     const free = $.let(new Map(), DictType(StringType, DateTimeType));
-    $.for(machines, ($2, _machine, key) => { $2(free.insert(key, request.from)); });
+    $.for(machines, ($2, _machine, key) => { $2(free.insert(key, from)); });
     jobsByTime.overlapping({ from: request.from, to: request.to }).each($, ($2, _carried, key) => {
         const job = $2.const(jobs.get(key));
         $2.match(job.machine, { some: ($3, machine) => {
@@ -79,14 +88,14 @@ export const scheduleBacklog = e3.function("calendar_schedule_backlog", {
 
 export const calendarOptimise = example({
     inputs: [],
-    description: "The jobs calendar with the Elara eye (#1409, #1622): `optimise` is Func.bind of the shop's optimiser on e3 — Calendar.Types.OptimiseRequest in, the window in view, the run number and the rail's narrowing and no row; Calendar.Types.OptimiseResult({ job: CalendarJobs }) out, a patch of the jobs' record. The function reads the window's jobs and the backlog through the jobs' interval index and each job by its key, the Calendar's unsaved edits laid over them (drafts: [calendarJobs]), and schedules each backlog job into its machine's free time, one that would end past the window left waiting. A click on the eye runs it once over the window; its patch lands in the session as one edit, which one Undo reverts and Save commits with everything else.",
+    description: "The jobs calendar with the Elara eye (#1409, #1622): `optimise` is Func.bind of the shop's optimiser on e3 — Calendar.Types.OptimiseRequest in, the window in view, the run number and the rail's narrowing and no row; Calendar.Types.OptimiseResult({ job: CalendarJobs }) out, a patch of the jobs' record. The function reads the window's jobs and the backlog through the jobs' interval index and each job by its key, the Calendar's unsaved edits laid over them (drafts: [calendarJobs]), and schedules each backlog job into its machine's free time from the shop's now, the now line's, one that would end past the window left waiting. A click on the eye runs it once over the window; its patch lands in the session as one edit, which one Undo reverts and Save commits with everything else.",
     keywords: ["Calendar", "optimise", "Optimise", "Elara", "OptimiseRequest", "OptimiseResult", "Func.bind", "e3.function", "e3.index", "drafts", "overlapping", "unset", "East.diff", "patch", "backlog", "one edit", "Undo", "Record.bind", "Schedule.events", "Schedule.resources"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const machines = $.let(Record.bind(calendarMachines, []));
         const jobs = $.let(Record.bind(calendarJobs));
         // The app's optimiser: the eye calls it once per run over the window in view, with the jobs' unsaved edits as drafts.
         const optimise = $.let(Func.bind(scheduleBacklog));
-        return <Box height="680px"><Calendar id="calendarOptimise" inspector view={{ period: "week", date: new Date("2026-10-01T00:00:00Z") }} now={new Date("2026-10-01T10:15:00Z")}
+        return <Box height="680px"><Calendar id="calendarOptimise" inspector view={{ period: "week", date: new Date("2026-10-01T00:00:00Z") }} now={SHOP_NOW}
             optimise={optimise}
             resources={{ machines: Calendar.resources(machines.read(), { name: "Machines", icon: "gears", label: row => row.name }) }}
             events={{ job: Calendar.events(jobs, { name: "Production", icon: "industry", title: "title", start: "start", end: "end", resource: { field: "machine", of: "machines" },

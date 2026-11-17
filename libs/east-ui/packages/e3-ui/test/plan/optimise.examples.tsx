@@ -23,12 +23,19 @@ export const PrintJobs = DictType(StringType, PrintJob);
 export const PlanOptimiseResult = Plan.Types.OptimiseResult({ job: PrintJobs });
 
 /**
+ * The works' now: where its Plan draws the now line, and before which its optimiser places nothing (#1680's review). A
+ * live app's optimiser reads its clock instead.
+ */
+export const PRINT_WORKS_NOW = new Date("2026-10-14T09:00:00Z");
+
+/**
  * The print works' optimiser, on e3: each job of the backlog — one with no start — is placed on a press, in key order: on
- * its press where it names one, else on the press free soonest, from when that press is free — the window's start, or the
- * end of its last job in the window — for as long as its sheets take at 8,000 an hour; one that would end past the window
- * it is asked of stays waiting, so no job is put outside it. It reads the window's jobs and the backlog through the jobs'
- * interval index and each job's row by its key, never the record whole, with the Plan's unsaved edits laid over them;
- * every placed job stays as it was, and the answer is the backlog's change alone.
+ * its press where it names one, else on the press free soonest, from when that press is free — the window's start or the
+ * works' now, whichever is later, or the end of its last job in the window — for as long as its sheets take at 8,000 an
+ * hour; one that would end past the window it is asked of stays waiting, so no job is put outside it, and none in the
+ * past. It reads the window's jobs and the backlog through the jobs' interval index and each job's row by its key, never
+ * the record whole, with the Plan's unsaved edits laid over them; every placed job stays as it was, and the answer is the
+ * backlog's change alone.
  */
 export const placeJobs = e3.function("plan_place_jobs", {
     inputs: [e3.index(planEventJobs.indexes.plan_event_jobs_by_time), planEventJobs, planPrintPresses],
@@ -37,9 +44,12 @@ export const placeJobs = e3.function("plan_place_jobs", {
     args: [Plan.Types.OptimiseRequest],
     output: PlanOptimiseResult,
 }, ($, jobsByTime, jobs, presses, request) => {
-    // When each press is next free: the window's start, or past its last job in the window.
+    // Nothing is placed before now: from the window's start, or now where the window starts before it.
+    const now = $.const(PRINT_WORKS_NOW);
+    const from = $.const(East.less(request.from, now).ifElse(() => now, () => request.from));
+    // When each press is next free: from then, or past its last job in the window.
     const free = $.let(new Map(), DictType(StringType, DateTimeType));
-    $.for(presses, ($2, _press, key) => { $2(free.insert(key, request.from)); });
+    $.for(presses, ($2, _press, key) => { $2(free.insert(key, from)); });
     jobsByTime.overlapping({ from: request.from, to: request.to }).each($, ($2, _carried, key) => {
         const job = $2.const(jobs.get(key));
         $2.match(job.press, { some: ($3, press) => {
@@ -77,7 +87,7 @@ export const placeJobs = e3.function("plan_place_jobs", {
 
 export const planOptimise = example({
     inputs: [],
-    description: "The smallest builder with the Elara eye (#1409, #1622): `optimise` is Func.bind of the print works' optimiser on e3 — Plan.Types.OptimiseRequest in, the plan window in view, the run number and the rail's narrowing and no row; Plan.Types.OptimiseResult({ job: PrintJobs }) out, a patch of the jobs' record. The function reads the window's jobs and the backlog through the jobs' interval index and each job by its key, the Plan's unsaved edits laid over them (drafts: [planEventJobs]), and places each backlog job on a press's free time, one that would end past the window left waiting. A click on the eye runs it once over the window; its patch lands in the session as one edit, which one Undo reverts and Save commits with everything else.",
+    description: "The smallest builder with the Elara eye (#1409, #1622): `optimise` is Func.bind of the print works' optimiser on e3 — Plan.Types.OptimiseRequest in, the plan window in view, the run number and the rail's narrowing and no row; Plan.Types.OptimiseResult({ job: PrintJobs }) out, a patch of the jobs' record. The function reads the window's jobs and the backlog through the jobs' interval index and each job by its key, the Plan's unsaved edits laid over them (drafts: [planEventJobs]), and places each backlog job on a press's free time from the works' now, the now line's, one that would end past the window left waiting. A click on the eye runs it once over the window; its patch lands in the session as one edit, which one Undo reverts and Save commits with everything else.",
     keywords: ["Plan", "optimise", "Optimise", "Elara", "OptimiseRequest", "OptimiseResult", "Func.bind", "e3.function", "e3.index", "drafts", "overlapping", "unset", "East.diff", "patch", "backlog", "one edit", "Undo", "Record.bind", "Schedule.events", "Plan.series.resources", "Plan.library.backlog"],
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
@@ -86,7 +96,7 @@ export const planOptimise = example({
             const customers = $.let(Record.bind(planPrintCustomers, []));
             const axis = $.let(Plan.axis({
                 window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") },
-                resolution: "day", now: new Date("2026-10-14T09:00:00Z"),
+                resolution: "day", now: PRINT_WORKS_NOW,
             }));
             // The app's optimiser: the eye calls it once per run over the plan window in view, with the jobs' unsaved edits as drafts.
             const optimise = $.let(Func.bind(placeJobs));

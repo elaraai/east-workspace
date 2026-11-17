@@ -152,9 +152,10 @@ describe("the print works' optimiser over a small window, read through the jobs'
         title, start: start === null ? none : some(start), end: start === null ? none : some(new Date(start.getTime() + sheets / 8000 * 3_600_000)),
         press: press === null ? none : some(press), state: variant("estimated", null), sheets, customer: "A customer", stock: variant("coated", null), due: none,
     });
+    // The works' now is Wednesday 14 Oct, 09:00 (`PRINT_WORKS_NOW`): A1's job that morning runs past it, to 10:00.
     const jobs = new SortedMap<string, Job>([
         ["J-0", job("Last month on B1", new Date("2026-09-28T06:00:00Z"), 32000, "b1")],
-        ["J-1", job("Placed on A1", new Date("2026-10-05T06:00:00Z"), 32000, "a1")],
+        ["J-1", job("Placed on A1", new Date("2026-10-14T06:00:00Z"), 32000, "a1")],
         ["J-2", job("Waiting for A1", null, 16000, "a1")],
         ["J-3", job("Waiting for any press", null, 24000, null)],
     ], byString);
@@ -167,28 +168,33 @@ describe("the print works' optimiser over a small window, read through the jobs'
     const samePatch = equalFor(PatchType(ex.PrintJobs));
     const printPatch = printFor(PatchType(ex.PrintJobs));
 
-    test("each backlog job is placed in key order — on its press after its last job in the window, or on the press free soonest from the window's start, for its sheets' hours — and the answer is their change alone", () => {
-        const answer = run(jobs).events.job;
-        const j2 = { ...jobs.get("J-2")!, start: some(new Date("2026-10-05T10:00:00Z")), end: some(new Date("2026-10-05T12:00:00Z")) };
-        // B1's job of last month is outside the window: B1 is free from the window's start
-        const j3 = { ...jobs.get("J-3")!, start: some(from), end: some(new Date("2026-10-05T03:00:00Z")), press: some("b1") };
-        const expected = patchOf(
+    // What each placement is, whatever the window: J-2 on A1 once its morning job ends; J-3 on B1, free from now.
+    const placed = () => {
+        const j2 = { ...jobs.get("J-2")!, start: some(new Date("2026-10-14T10:00:00Z")), end: some(new Date("2026-10-14T12:00:00Z")) };
+        // B1's job of last month is outside the window, and the window starts before now: B1 is free from now
+        const j3 = { ...jobs.get("J-3")!, start: some(ex.PRINT_WORKS_NOW), end: some(new Date("2026-10-14T12:00:00Z")), press: some("b1") };
+        return patchOf(
             new SortedMap([["J-2", jobs.get("J-2")!], ["J-3", jobs.get("J-3")!]], byString),
             new SortedMap([["J-2", j2], ["J-3", j3]], byString));
-        assert.ok(samePatch(answer, expected), printPatch(answer));
+    };
+
+    test("each backlog job is placed in key order — on its press after its last job in the window, or on the press free soonest from the window's start or now, whichever is later, for its sheets' hours — and the answer is their change alone (#1680's review)", () => {
+        const answer = run(jobs).events.job;
+        assert.ok(samePatch(answer, placed()), printPatch(answer));
     });
 
     test("a job that would end past the window it is asked of stays waiting: no job is put outside it", () => {
-        // A window of one day: A1 is free from 10:00, B1 all day. Two hours and three hours fit; twenty hours' sheets on A1 do not.
-        const day: Request = { ...request, to: new Date("2026-10-06T00:00:00Z"), period: variant("day", null) };
-        const held = new SortedMap<string, Job>([...jobs, ["J-4", job("Too long for what is left of Monday", null, 160000, "a1")]], byString);
+        // A window of one day, now's: A1 is free from 10:00, B1 from now. Two hours and three hours fit; twenty hours' sheets on A1 do not.
+        const day: Request = { ...request, from: new Date("2026-10-14T00:00:00Z"), to: new Date("2026-10-15T00:00:00Z"), period: variant("day", null) };
+        const held = new SortedMap<string, Job>([...jobs, ["J-4", job("Too long for what is left of Wednesday", null, 160000, "a1")]], byString);
         const answer = run(held, day).events.job;
-        const j2 = { ...jobs.get("J-2")!, start: some(new Date("2026-10-05T10:00:00Z")), end: some(new Date("2026-10-05T12:00:00Z")) };
-        const j3 = { ...jobs.get("J-3")!, start: some(from), end: some(new Date("2026-10-05T03:00:00Z")), press: some("b1") };
-        const expected = patchOf(
-            new SortedMap([["J-2", jobs.get("J-2")!], ["J-3", jobs.get("J-3")!]], byString),
-            new SortedMap([["J-2", j2], ["J-3", j3]], byString));
-        assert.ok(samePatch(answer, expected), printPatch(answer));
+        assert.ok(samePatch(answer, placed()), printPatch(answer));
+    });
+
+    test("a window wholly before now places nothing: no job is put in the past (#1680's review)", () => {
+        const past: Request = { ...request, to: new Date("2026-10-12T00:00:00Z") };
+        const answer = run(jobs, past).events.job;
+        assert.ok(samePatch(answer, patchOf(new SortedMap([], byString), new SortedMap([], byString))), printPatch(answer));
     });
 
     test("a window with no backlog is answered with a patch that changes nothing", () => {

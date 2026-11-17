@@ -213,4 +213,22 @@ describe("the shop's optimiser over a small window, read through the jobs' inter
         const answer = run(scheduled).events.job;
         assert.ok(samePatch(answer, patchOf(new SortedMap([], byString), new SortedMap([], byString))), printPatch(answer));
     });
+
+    test("a window that starts before now is scheduled from now: no job is put in the past (#1680's review)", () => {
+        // The week of Thursday 1 Oct, from its Monday; the shop's now is Thursday 10:15 (`SHOP_NOW`). Press 1's job that morning
+        // runs to 12:00, past now: its waiting job follows it. Press 2's job that Monday ended days before now: the job for any
+        // press starts at now, on Press 2.
+        const week: Request = { ...request, from: new Date("2026-09-28T00:00:00Z"), to: new Date("2026-10-05T00:00:00Z") };
+        const held = new SortedMap<string, Job>([
+            ["j0", jobs.get("j0")!], ["j1", job("Scheduled on Press 1", new Date("2026-10-01T08:00:00Z"), 4, "m1")],
+            ["j2", jobs.get("j2")!], ["j3", jobs.get("j3")!],
+        ], byString);
+        const answer = run(held, week).events.job;
+        const j2 = { ...jobs.get("j2")!, start: some(new Date("2026-10-01T12:00:00Z")), end: some(new Date("2026-10-01T14:00:00Z")) };
+        const j3 = { ...jobs.get("j3")!, start: some(ex.SHOP_NOW), end: some(new Date("2026-10-01T13:15:00Z")), machine: some("m2") };
+        const expected = patchOf(
+            new SortedMap([["j2", jobs.get("j2")!], ["j3", jobs.get("j3")!]], byString),
+            new SortedMap([["j2", j2], ["j3", j3]], byString));
+        assert.ok(samePatch(answer, expected), printPatch(answer));
+    });
 });
