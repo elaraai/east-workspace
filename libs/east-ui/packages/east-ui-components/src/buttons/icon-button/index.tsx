@@ -124,7 +124,8 @@ export const EastChakraIconButton = memo(function EastChakraIconButton({ value, 
             {button}
             {badge !== undefined && (
                 <Float placement="top-end">
-                    <Box css={chrome.badge} colorPalette={badgeColorPalette}>
+                    {/* Named, as a component's part is: what the page's checks read it by (#1638). */}
+                    <Box css={chrome.badge} colorPalette={badgeColorPalette} data-icon-button-badge="">
                         {badge === "" ? null : badge}
                     </Box>
                 </Float>
