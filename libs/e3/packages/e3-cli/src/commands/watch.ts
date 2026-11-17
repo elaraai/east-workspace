@@ -26,6 +26,7 @@ import {
   LocalStorage,
   LocalOrchestrator,
   InMemoryStateStore,
+  type InputPlan,
   type TaskCompletedCallback,
   LocalTaskRunner,
   RecordDeployRefusedError,
@@ -49,6 +50,19 @@ interface WatchOptions extends BudgetFlags, RackFlags {
   inputs?: string;
   /** Function manifests resolving `East.importFunction` references (#628). */
   functions?: string[];
+}
+
+/**
+ * Whether a watch's save says what its deploy decided for an input: one it
+ * resets or drops loses what someone set, and one it keeps because it feeds a
+ * load is kept where the watch's policy would reset another.
+ *
+ * @param plan - What the save's deploy decided for the input
+ * @returns Whether its line is printed
+ */
+export function watchSaysInput(plan: InputPlan): boolean {
+  const action = plan.action.type;
+  return action === 'reset' || action === 'drop' || action === 'retained';
 }
 
 /**
@@ -186,10 +200,10 @@ export async function watchCommand(
           if (plan.action.type !== 'keep') console.log(`[${timestamp()}] ${plan.action.type} index ${plan.record}.${plan.index}`);
         },
         // An input someone set that this save resets or drops loses what
-        // they set, so it is said too.
+        // they set, so it is said too, as is one it keeps for a load.
         onInputPlan: (plan) => {
           if (plan.action.type === 'reset' && plan.action.value.policy) resetByPolicy++;
-          if (plan.action.type === 'reset' || plan.action.type === 'drop') console.log(`[${timestamp()}] ${inputPlanLine(plan)}`);
+          if (watchSaysInput(plan)) console.log(`[${timestamp()}] ${inputPlanLine(plan)}`);
         },
       });
       console.log(`[${timestamp()}] Deployed to workspace: ${workspace}`);

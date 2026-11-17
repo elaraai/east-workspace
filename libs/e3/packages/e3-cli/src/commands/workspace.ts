@@ -558,6 +558,20 @@ export function inputPlanLine(plan: InputPlan): string {
 }
 
 /**
+ * Whether a deploy says what it decided for an input: every decision under
+ * `--plan`; otherwise one that keeps what someone set — `keep`, and
+ * `retained` for an input that feeds a load — or loses it, `reset` and `drop`.
+ *
+ * @param plan - What the deploy decided for the input
+ * @param all - Whether the deploy is a plan, which says every decision
+ * @returns Whether its line is printed
+ */
+export function deploySaysInput(plan: InputPlan, all: boolean): boolean {
+  const action = plan.action.type;
+  return all || action === 'keep' || action === 'retained' || action === 'reset' || action === 'drop';
+}
+
+/**
  * What a deploy says about each record, index and input it decides for: every
  * decision under `--plan`, and otherwise the ones that change something or
  * keep what someone set.
@@ -601,9 +615,8 @@ function deployReporter(target: DeployTarget): {
       if (target.plan || plan.action.type !== 'keep') console.log(`  ${plan.action.type} index ${plan.record}.${plan.index}`);
     },
     onInputPlan: (plan) => {
-      const action = plan.action.type;
       if (plan.action.type === 'reset' && plan.action.value.policy) resetByPolicy++;
-      if (target.plan || action === 'keep' || action === 'reset' || action === 'drop') console.log(`  ${inputPlanLine(plan)}`);
+      if (deploySaysInput(plan, target.plan)) console.log(`  ${inputPlanLine(plan)}`);
     },
     endDeploy,
     endPlan: () => {

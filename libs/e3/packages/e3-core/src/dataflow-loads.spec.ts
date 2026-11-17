@@ -20,7 +20,7 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { StringType, encodeBeast2For, equalFor, parseFor, printFor, variant, type ValueTypeOf } from '@elaraai/east';
 import e3 from '@elaraai/e3';
-import { VersionVectorType, type TreePath } from '@elaraai/e3-types';
+import { DatasetRefType, VersionVectorType, type TreePath } from '@elaraai/e3-types';
 import { dataflowGetGraph } from './dataflow.js';
 import type { OrchestratorStartOptions } from './dataflow/orchestrator/interfaces.js';
 import type { DeferReason, FinalizeResult, InputWait } from './dataflow/types.js';
@@ -341,6 +341,24 @@ describe('a source the dataflow loads', () => {
     const again = await run();
     assert.ok(again.lines.includes('wait orders.erp: package .inputs.erp_extract'), again.told);
     assert.ok(again.lines.includes('wait forecast: upstream .records.orders (orders.erp)'), again.told);
+  });
+
+  it('R68 — a redeploy keeps the value someone set in an input that feeds a load, under the default policy, saying so, and the load is answered by its slots', async () => {
+    await deployed({ feed: 'packaged' });
+    await deliverWms({ 'W-1': ['Cedar', 7n] });
+    await workspaceSetDataset(storage, repo, WS, ERP_EXTRACT, book({ 'SO-1': ['Acme', 5n] }), ErpDeliveryType);
+    await run();
+    const set = await storage.datasets.read(repo, WS, 'inputs/erp_extract');
+
+    const plans: string[] = [];
+    await workspaceDeploy(storage, repo, WS, 'fed', '1.0.0', {
+      runner, onInputPlan: (plan) => plans.push(`${plan.input} ${plan.action.type === 'retained' ? `retained ${plan.action.value.load}` : plan.action.type}`),
+    });
+    assert.deepEqual(plans.filter((plan) => plan.startsWith('inputs/erp_extract')), ['inputs/erp_extract retained orders.erp']);
+    const kept = await storage.datasets.read(repo, WS, 'inputs/erp_extract');
+    assert.ok(set !== null && kept !== null && equalFor(DatasetRefType)(kept, set), 'the value someone set is kept');
+    const { lines, told } = await run();
+    assert.ok(lines.includes('cached orders.erp'), told);
   });
 
   it('R54 — a load that fails says so, the record keeps its last commit, and a run whose load stands failed at its end ends failed, naming it, with nothing skipped', async () => {

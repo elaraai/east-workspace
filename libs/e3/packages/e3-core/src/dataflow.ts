@@ -337,6 +337,27 @@ export async function packageLoadTasks(storage: StorageBackend, repo: string, pk
 }
 
 /**
+ * What feeds a package's loads: each fed source's feed, by its ref path, to
+ * the loads it feeds, `<record>.<source>`, joined with commas where it feeds
+ * several. A deploy reads its inputs' entries ({@link planInputDeployments}).
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param pkg - The package
+ * @returns The loads each feed feeds, by the feed's ref path (`inputs/erp_extract`)
+ * @internal
+ */
+export async function packageLoadFeeds(storage: StorageBackend, repo: string, pkg: PackageObject): Promise<Map<string, string>> {
+  const feeds = new Map<string, string>();
+  for (const node of await loadNodesOf(storage, repo, pkg)) {
+    const feed = keypathToRefPath(pathToString(node.inputPaths[0]!));
+    const fed = feeds.get(feed);
+    feeds.set(feed, fed === undefined ? node.name : `${fed}, ${node.name}`);
+  }
+  return feeds;
+}
+
+/**
  * The load nodes of a package: one for each fed source of each of its
  * composite records, in the order of the records' names and then the
  * sources'. A source `e3 load` delivers has none.

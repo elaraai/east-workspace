@@ -50,6 +50,7 @@ import type { TaskRunner } from './execution/interfaces.js';
 import { buildDeployIndexes, commitDeployIndexes, commitDeployRecords, recordLeafType } from './records.js';
 import { planRecordDeployments, recordDeployCommits, runRecordMigrations, type PriorDeployment } from './record-deploy.js';
 import { planInputDeployments, refsKeepingInputs } from './input-deploy.js';
+import { packageLoadFeeds } from './dataflow.js';
 import { withRunningWork } from './running-work.js';
 import { acquireWorkspaceExclusive, acquireWorkspaceShared, workspaceLockRefusal } from './deploy-lock.js';
 
@@ -591,7 +592,8 @@ export interface WorkspaceDeployOptions {
   onRecordIndex?: (plan: RecordIndexPlan) => void;
   /**
    * Called once per input the deploy touches, with what it decided:
-   * `package`, `keep`, `reset`, `file` or `drop`.
+   * `package`, `keep`, `retained` for one someone set that feeds a load,
+   * `reset`, `file` or `drop`.
    *
    * @remarks
    * Called before the deploy writes anything, as {@link onRecordPlan} is: an
@@ -1081,9 +1083,10 @@ async function decideDeploy(
   const told = !ahead || refused;
   if (told) for (const deployment of deployments) options.onRecordPlan?.(deployment.plan);
   // Each input someone set is read now, before the wipe takes the workspace's
-  // refs with it.
+  // refs with it. One that feeds a load is kept.
   const inputs = await planInputDeployments(
     storage, repo, name, pkg, prior?.package ?? null, options.inputs ?? 'reset', options.resolveFileSources ?? true,
+    await packageLoadFeeds(storage, repo, pkg),
   );
   if (told) for (const input of inputs) options.onInputPlan?.(input.plan);
   if (refused) throw new RecordDeployRefusedError(refusals);
