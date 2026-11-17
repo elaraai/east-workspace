@@ -131,6 +131,17 @@ export {
   type RepositoryHoldOptions,
 } from './running-work.js';
 
+// A deploy's intent: how a deploy takes a workspace, and what every other
+// taker of the workspace reads of it
+export {
+  DEPLOY_WAIT_MS,
+  deployIntentLock,
+  deployAnnounced,
+  acquireForDeploy,
+  acquireWorkspaceShared,
+  workspaceLockRefusal,
+} from './deploy-lock.js';
+
 // Moving many objects at once
 export {
   OBJECT_CONCURRENCY,

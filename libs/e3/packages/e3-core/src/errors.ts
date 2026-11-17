@@ -232,9 +232,11 @@ export function lockStateToHolderInfo(state: LockState): LockHolderInfo {
 /**
  * Thrown when a workspace is locked by another process.
  *
- * This error is thrown when attempting to acquire an exclusive lock on a
- * workspace that is already locked by another process (e.g., another
- * `e3 start` command or API server).
+ * This error is thrown when attempting to acquire a lock on a workspace that
+ * another holder excludes (e.g., another `e3 start` command or API server).
+ * A holder that is a deploy is named as one — one that holds the workspace,
+ * or one that has announced itself and waits for it — since a deploy is what
+ * a refused write or run start waits out.
  */
 export class WorkspaceLockError extends E3Error {
   constructor(
@@ -244,10 +246,14 @@ export class WorkspaceLockError extends E3Error {
     let msg: string;
     if (!holder) {
       msg = `Workspace '${workspace}' is locked by another process`;
-    } else if (holder.pid !== undefined) {
-      msg = `Workspace '${workspace}' is locked by process ${holder.pid} (since ${printDateTime(holder.acquiredAt)})`;
     } else {
-      msg = `Workspace '${workspace}' is locked (since ${printDateTime(holder.acquiredAt)})`;
+      const deploy = holder.operation === 'deployment';
+      const since = `(since ${printDateTime(holder.acquiredAt)})`;
+      if (holder.pid !== undefined) {
+        msg = `Workspace '${workspace}' is locked by ${deploy ? 'a deploy in process' : 'process'} ${holder.pid} ${since}`;
+      } else {
+        msg = `Workspace '${workspace}' is locked ${deploy ? 'by a deploy ' : ''}${since}`;
+      }
     }
     super(msg);
   }

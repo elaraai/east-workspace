@@ -344,6 +344,12 @@ export interface ProcessDeployDeps {
    * its own and leaves this one held, so a caller that runs one job over
    * several calls holds the workspace from the first to the last: no dataflow
    * or other deploy takes it in between.
+   *
+   * @remarks
+   * The caller takes it through `acquireForDeploy`, as a deploy takes its
+   * own: that announces the deploy, which stops a dataflow running in the
+   * workspace and holds every new write and run start off. A lock taken any
+   * other way waits behind a dataflow for as long as it runs.
    */
   lock?: LockHandle;
   /**

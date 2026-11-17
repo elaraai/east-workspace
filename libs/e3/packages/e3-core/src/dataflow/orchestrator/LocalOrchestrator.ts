@@ -32,6 +32,7 @@ import type { SplitUnit, TaskExecuteOptions } from '../../execution/interfaces.j
 import type { ExecutionResult } from '../../execution/cache.js';
 import { SplitTask, isSplitTask, type ThrownUnit } from '../../execution/engine.js';
 import { WorkspaceLockError, DataflowAbortedError, DataflowError, DataflowSupersededError, checkName } from '../../errors.js';
+import { acquireWorkspaceShared, workspaceLockRefusal } from '../../deploy-lock.js';
 import type { TaskExecutionResult } from '../../dataflow.js';
 import { inputsHash } from '../../executions.js';
 import { uuidv7 } from '../../uuid.js';
@@ -481,11 +482,10 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         throw new WorkspaceLockError(workspace);
       }
     } else {
-      // Acquire shared workspace lock first (coexists with e3 set)
-      sharedLock = await storage.locks.acquire(repo, workspace, variant('dataflow', null), { mode: 'shared' });
-      if (!sharedLock) {
-        throw new WorkspaceLockError(workspace);
-      }
+      // Acquire shared workspace lock first (coexists with e3 set); a deploy
+      // that has announced itself refuses it, as one holding the workspace does
+      sharedLock = await acquireWorkspaceShared(storage, repo, workspace, variant('dataflow', null));
+      if (!sharedLock) throw await workspaceLockRefusal(storage, repo, workspace);
 
       // Acquire exclusive dataflow lock (prevents concurrent starts)
       dataflowLock = await storage.locks.acquire(repo, `${workspace}#dataflow`, variant('dataflow', null));
@@ -564,10 +564,8 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         throw new WorkspaceLockError(workspace);
       }
     } else {
-      sharedLock = await storage.locks.acquire(repo, workspace, variant('dataflow', null), { mode: 'shared' });
-      if (!sharedLock) {
-        throw new WorkspaceLockError(workspace);
-      }
+      sharedLock = await acquireWorkspaceShared(storage, repo, workspace, variant('dataflow', null));
+      if (!sharedLock) throw await workspaceLockRefusal(storage, repo, workspace);
       dataflowLock = await storage.locks.acquire(repo, `${workspace}#dataflow`, variant('dataflow', null));
       if (!dataflowLock) {
         await sharedLock.release();

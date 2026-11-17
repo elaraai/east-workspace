@@ -53,6 +53,7 @@ import { buildDeployIndexes, commitDeployIndexes, commitDeployRecords, recordLea
 import { planRecordDeployments, recordDeployCommits, runRecordMigrations, type PriorDeployment } from './record-deploy.js';
 import { planInputDeployments, refsKeepingInputs } from './input-deploy.js';
 import { withRunningWork } from './running-work.js';
+import { acquireForDeploy, acquireWorkspaceShared, workspaceLockRefusal } from './deploy-lock.js';
 
 /**
  * List workspace names.
@@ -355,11 +356,8 @@ export async function workspaceCopy(
     throw new WorkspaceLockError(to, state ? lockStateToHolderInfo(state) : undefined);
   }
   try {
-    const source = await storage.locks.acquire(repo, from, variant('workspace_copy', null), { mode: 'shared' });
-    if (source === null) {
-      const state = await storage.locks.getState(repo, from);
-      throw new WorkspaceLockError(from, state ? lockStateToHolderInfo(state) : undefined);
-    }
+    const source = await acquireWorkspaceShared(storage, repo, from, variant('workspace_copy', null));
+    if (source === null) throw await workspaceLockRefusal(storage, repo, from);
     try {
       await withRunningWork(storage, repo, async () => {
         const record = await storage.refs.workspaceRead(repo, from);
@@ -580,8 +578,23 @@ export interface WorkspaceDeployOptions {
    * External workspace lock to use. If provided, the caller is responsible
    * for releasing the lock after the operation. If not provided, workspaceDeploy
    * will acquire and release a lock internally.
+   *
+   * @remarks
+   * A caller that holds the workspace for a deploy takes it through
+   * `acquireForDeploy`, as the deploy does when it takes its own: a lock
+   * taken any other way announces nothing, so a dataflow running in the
+   * workspace holds the deploy off for as long as it runs.
    */
   lock?: LockHandle;
+  /**
+   * How long the deploy waits for the workspace, in milliseconds: for its
+   * intent, and then for the workspace's lock, which a dataflow the deploy
+   * stops, or a write in progress, lets go. A deploy given its `lock` waits
+   * for nothing, and a plan takes the workspace shared without waiting.
+   *
+   * @defaultValue 30000
+   */
+  lockWaitMs?: number;
   /**
    * Whether this deploy reads the package's `file` sources and adopts them.
    *
@@ -734,9 +747,12 @@ const NO_FILES: DeployFiles = {
  * `inputs: 'keep-edited'` keeps the one someone set while its type is the
  * package's.
  *
- * Acquires a workspace lock to prevent conflicts with running dataflows
- * or concurrent deploys. Throws WorkspaceLockError if the workspace is
- * currently locked by another process.
+ * Takes the workspace for the deploy ({@link acquireForDeploy}): it
+ * announces itself, so a dataflow running in the workspace stops and no write
+ * or run starts, then holds the workspace exclusively. It waits up to
+ * {@link DEPLOY_WAIT_MS} for what held the workspace to let go, and throws
+ * WorkspaceLockError when something still holds it, or another deploy does.
+ * A plan (`options.plan`) shares the workspace instead, and stops nothing.
  *
  * A package's `file` source names a file on the machine that exported it,
  * which the root entry's `workspaceDeploy` reads. This entry reads no files:
@@ -752,7 +768,8 @@ const NO_FILES: DeployFiles = {
  * @param options - Optional settings including external lock
  * @throws {InvalidNameError} If `name` is no workspace's name, before the lock
  *   is taken
- * @throws {WorkspaceLockError} If workspace is locked by another process
+ * @throws {WorkspaceLockError} If the workspace is still held once the
+ *   deploy's wait is over, or another deploy holds it
  * @throws {RecordDeployRefusedError} When a record cannot be carried into the
  *   package: it changed type with no migration, its applied migrations are not
  *   the package's, the policy runs none, or the package drops it
@@ -793,14 +810,17 @@ export async function workspaceDeployWith(
   // refuse a malformed one, if at all, as a lock's.
   checkName('workspace', name);
 
-  // Acquire lock if not provided externally
+  // Acquire lock if not provided externally. A deploy announces itself and
+  // takes the workspace exclusively; a plan writes nothing, so it shares the
+  // workspace with what runs in it, and announces and stops nothing.
   const externalLock = options.lock;
   let lock: LockHandle | null = externalLock ?? null;
   if (!lock) {
-    lock = await storage.locks.acquire(repo, name, variant('deployment', null));
-    if (!lock) {
-      const state = await storage.locks.getState(repo, name);
-      throw new WorkspaceLockError(name, state ? lockStateToHolderInfo(state) : undefined);
+    if (options.plan === true) {
+      lock = await acquireWorkspaceShared(storage, repo, name, variant('deployment', null));
+      if (!lock) throw await workspaceLockRefusal(storage, repo, name);
+    } else {
+      lock = await acquireForDeploy(storage, repo, name, { waitMs: options.lockWaitMs });
     }
   }
   try {

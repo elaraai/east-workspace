@@ -36,14 +36,13 @@ import { openDatasetObject, readDatasetWhole } from './dataset-open.js';
 import { storeCollection } from './store-collection.js';
 import { packageObjectRead, packageRead } from './packages.js';
 import { withRunningWork } from './running-work.js';
+import { acquireWorkspaceShared, workspaceLockRefusal } from './deploy-lock.js';
 import {
   WorkspaceNotFoundError,
   WorkspaceNotDeployedError,
-  WorkspaceLockError,
   DatasetRefConflictError,
   DatasetTypeMismatchError,
   checkName,
-  lockStateToHolderInfo,
 } from './errors.js';
 
 // Bounded retries when a concurrent writer wins the per-path CAS. e3 set is a
@@ -371,7 +370,8 @@ export async function workspaceSetDatasetBytes(
  *
  * @remarks
  * Every door write goes through here. The workspace lock fences it out of a
- * deploy or a removal, and the tasks lock out of a sweep: a collection's
+ * deploy or a removal — and of a deploy that has announced itself and waits
+ * for the workspace — and the tasks lock out of a sweep: a collection's
  * segments are stored before the ref that names them, which for a large
  * delivery is minutes, and a sweep in between would delete them.
  *
@@ -407,11 +407,8 @@ export async function withDatasetWriteLock<T>(
   }
   let lock: LockHandle | null = externalLock ?? null;
   if (!lock) {
-    lock = await storage.locks.acquire(repo, ws, variant('dataset_write', null), { mode: 'shared' });
-    if (!lock) {
-      const state = await storage.locks.getState(repo, ws);
-      throw new WorkspaceLockError(ws, state ? lockStateToHolderInfo(state) : undefined);
-    }
+    lock = await acquireWorkspaceShared(storage, repo, ws, variant('dataset_write', null));
+    if (!lock) throw await workspaceLockRefusal(storage, repo, ws);
   }
   try {
     const leaf = await workspaceResolveDataset(storage, repo, ws, treePath);

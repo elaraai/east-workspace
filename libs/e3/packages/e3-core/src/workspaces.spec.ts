@@ -79,7 +79,9 @@ describe('workspaces', () => {
       await assert.rejects(refused(), (err: unknown) => {
         assert.ok(err instanceof WorkspaceLockError, `a WorkspaceLockError, not ${String(err)}`);
         assert.deepStrictEqual(err.holder, holder, 'the refusal names the holder lockStateToHolderInfo gives');
-        assert.strictEqual(err.message, `Workspace '${ws}' is locked by process ${process.pid} (since ${printFor(DateTimeType)(holder.acquiredAt)})`);
+        // A holder that is a deploy is named as one
+        const by = operation.type === 'deployment' ? 'a deploy in process' : 'process';
+        assert.strictEqual(err.message, `Workspace '${ws}' is locked by ${by} ${process.pid} (since ${printFor(DateTimeType)(holder.acquiredAt)})`);
         return true;
       });
     } finally {
@@ -357,7 +359,9 @@ describe('workspaces', () => {
       await packageImport(storage, testRepo, zipPath);
       await workspaceCreate(storage, testRepo, 'held');
 
-      await assertRefusalNamesHolder('held', variant('export', null), () => workspaceDeploy(storage, testRepo, 'held', 'deploy-held', '1.0.0'));
+      // The deploy waits for the workspace before it is refused: here, not long
+      await assertRefusalNamesHolder('held', variant('export', null), () =>
+        workspaceDeploy(storage, testRepo, 'held', 'deploy-held', '1.0.0', { lockWaitMs: 200 }));
       assert.strictEqual(await workspaceGetState(storage, testRepo, 'held'), null, 'nothing was deployed');
     });
 

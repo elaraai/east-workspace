@@ -13,7 +13,8 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { variant } from '@elaraai/east';
 import type { LockProgress } from '@elaraai/e3-types';
-import { InvalidNameError } from '../errors.js';
+import { InvalidNameError, WorkspaceLockError } from '../errors.js';
+import { acquireForDeploy, acquireWorkspaceShared, deployAnnounced, deployIntentLock, workspaceLockRefusal } from '../deploy-lock.js';
 import { workspaceLockStatus } from '../workspaces.js';
 import { MALFORMED_NAMES, nameRefusal } from './malformed.js';
 import type { BackendSetup } from './setup.js';
@@ -142,6 +143,59 @@ export function lockServiceTests(setup: BackendSetup): void {
       } finally {
         await held.release();
       }
+    });
+
+    it("holds a workspace's deploy intent as a lock of its own: a deploy that has announced itself reads as one, and holds off every shared taker", async (t) => {
+      const { storage, repo } = await setup(t);
+      assert.equal(await deployAnnounced(storage, repo, 'main'), false, 'no deploy has announced itself');
+
+      const deploy = await acquireForDeploy(storage, repo, 'main', { waitMs: 0 });
+      assert.equal(deploy.resource, 'main', "the handle is the workspace lock's");
+      assert.equal(await deployAnnounced(storage, repo, 'main'), true);
+      assert.deepEqual((await storage.locks.getState(repo, deployIntentLock('main')))?.operation, variant('deployment', null));
+      assert.deepEqual((await storage.locks.getState(repo, 'main'))?.operation, variant('deployment', null), 'it holds the workspace too');
+      assert.equal(await deployAnnounced(storage, repo, 'other'), false, "another workspace's intent is its own");
+
+      // Its progress reads as the workspace's, as a deploy's does
+      await deploy.report(deploying(1));
+      assert.deepEqual(await storage.locks.getProgress(repo, 'main'), deploying(1));
+
+      assert.equal(await acquireWorkspaceShared(storage, repo, 'main', variant('dataset_write', null)), null);
+      const refusal = await workspaceLockRefusal(storage, repo, 'main');
+      assert.ok(refusal instanceof WorkspaceLockError);
+      assert.equal(refusal.holder?.operation, 'deployment', 'the refusal names the deploy');
+      await assert.rejects(acquireForDeploy(storage, repo, 'main', { waitMs: 0 }), WorkspaceLockError, 'a second deploy is refused');
+
+      await deploy.release();
+      await deploy.release();
+      assert.equal(await deployAnnounced(storage, repo, 'main'), false, 'the intent goes with the deploy');
+      assert.equal(await storage.locks.getState(repo, 'main'), null);
+      const shared = await acquireWorkspaceShared(storage, repo, 'main', variant('dataset_write', null));
+      assert.ok(shared !== null, 'the workspace is shared again');
+      await shared.release();
+    });
+
+    it('announces a deploy while a shared holder still holds the workspace, holds new shared takers off, and takes the workspace once it is let go', async (t) => {
+      const { storage, repo } = await setup(t);
+      const running = await acquireWorkspaceShared(storage, repo, 'main', variant('dataflow', null));
+      assert.ok(running !== null);
+
+      // A deploy with no time to wait is refused, and leaves no intent behind
+      await assert.rejects(acquireForDeploy(storage, repo, 'main', { waitMs: 0 }), WorkspaceLockError);
+      assert.equal(await deployAnnounced(storage, repo, 'main'), false);
+
+      const deploying = acquireForDeploy(storage, repo, 'main', { waitMs: 10_000 });
+      // The intent is what a holder of the workspace reads, and stops for
+      const announced = Date.now() + 5_000;
+      while (!(await deployAnnounced(storage, repo, 'main'))) {
+        assert.ok(Date.now() < announced, 'the deploy announces itself while it waits');
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      assert.equal(await acquireWorkspaceShared(storage, repo, 'main', variant('dataset_write', null)), null, 'no new shared taker starts');
+      await running.release();
+      const deploy = await deploying;
+      assert.deepEqual((await storage.locks.getState(repo, 'main'))?.operation, variant('deployment', null));
+      await deploy.release();
     });
 
     it('refuses a resource whose name cannot be one path segment, naming it, before it takes or reads anything', async (t) => {
