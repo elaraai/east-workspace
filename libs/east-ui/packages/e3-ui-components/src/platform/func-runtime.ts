@@ -53,6 +53,7 @@ import {
     type ValueTypeOf,
     encodeBeast2For,
     decodeBeast2For,
+    equalFor,
     isTypeValueEqual,
     none,
     printFor,
@@ -200,6 +201,9 @@ const DRAFTS_TYPE_VALUE = toEastTypeValue(DraftsType);
 
 /** An Integer a message names, as East prints it. */
 const printInteger = printFor(IntegerType);
+
+/** Two records' names, compared as East compares Strings. */
+const stringEqual = equalFor(StringType);
 
 /** The fields of an instantiated handle struct type. */
 function handleFields(handleType: EastTypeValue): { name: string; type: EastTypeValue }[] {
@@ -615,7 +619,7 @@ export class FuncRuntime extends TrackedChannelStore<FuncEntry> {
             // is refused, never shown as that answer. A refused call, `invalid`, laid none and names none.
             const unsent = result.outcome.type === "invalid"
                 ? undefined
-                : drafts.find(draft => !result.drafts.some(drafted => drafted.record === draft.record));
+                : drafts.find(draft => !result.drafts.some(drafted => stringEqual(drafted.record, draft.record)));
             if (unsent !== undefined) {
                 const message = `the call passed ${drafts.length} draft(s), and its result names no draft of record '${unsent.record}': ` +
                     "the host's function API did not send them, and the function read the workspace as saved";
