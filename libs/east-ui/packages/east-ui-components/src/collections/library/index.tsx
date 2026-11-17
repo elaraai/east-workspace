@@ -86,6 +86,11 @@ export interface EastChakraLibraryProps {
     noMatchView?: ((query: string, clear: () => void) => ReactNode) | undefined;
     /** What a host draws on a compact card beside its shared face (#1330): its tooltip, a figure, a note line, a look and an ×. */
     extras?: ((item: LibraryItemValue) => LibraryCardExtras | undefined) | undefined;
+    /**
+     * Which cards take its `onCardClick`, a host's: those it answers `true` for — a Plan's link templates, held by a
+     * click, beside its event templates, which take none and so are no buttons. Every card where it is not given.
+     */
+    clicks?: ((item: LibraryItemValue) => boolean) | undefined;
     /** A group head's mark, by the group's label: a group that warns. */
     groupMark?: ((label: string) => LibraryGroupMark | undefined) | undefined;
     /**
@@ -991,7 +996,7 @@ interface LibraryCoreProps extends EastChakraLibraryProps {
     rail?: { slice: SliceBindValue; kinds: readonly string[] } | undefined;
 }
 
-function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter, facetFilter, search, searchCount, noMatch, noMatchView, extras, groupMark, narrowing, pending = false }: LibraryCoreProps) {
+function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter, facetFilter, search, searchCount, noMatch, noMatchView, extras, clicks, groupMark, narrowing, pending = false }: LibraryCoreProps) {
     const styles = useSlotRecipe({ key: "library" })() as SlotStyles;
     // Counts, in the app's locale (#850).
     const words = useFormatters();
@@ -1014,6 +1019,9 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
     const handleCardClick = useCallback((key: string) => {
         if (onCardClickFn) queueMicrotask(() => onCardClickFn(key));
     }, [onCardClickFn]);
+    // A card's click: the Library's, where its host lets the card take it.
+    const clickOf = useCallback((item: LibraryItemValue) => (onCardClickFn !== undefined && (clicks === undefined || clicks(item)) ? handleCardClick : undefined),
+        [onCardClickFn, clicks, handleCardClick]);
 
     const frameSink = useDropSink("library", value.id);
 
@@ -1306,7 +1314,7 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
                             activeDims={toolbar.activeDims}
                             filtered={item.filtered}
                             styles={styles}
-                            onCardClick={onCardClickFn ? handleCardClick : undefined}
+                            onCardClick={clickOf(item)}
                             onCardEnter={onCardEnter}
                             storageKey={storageKey}
                             renderMedia={renderMedia}
@@ -1343,7 +1351,7 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
                                         activeDims={toolbar.activeDims}
                                         filtered={item.filtered}
                                         styles={styles}
-                                        onCardClick={onCardClickFn ? handleCardClick : undefined}
+                                        onCardClick={clickOf(item)}
                                         onCardEnter={onCardEnter}
                                         extras={extras?.(item)}
                                     />
@@ -1370,7 +1378,7 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
                             activeDims={toolbar.activeDims}
                             filtered={item.filtered}
                             styles={styles}
-                            onCardClick={onCardClickFn ? handleCardClick : undefined}
+                            onCardClick={clickOf(item)}
                             onCardEnter={onCardEnter}
                             extras={extras?.(item)}
                         />
@@ -1478,7 +1486,7 @@ export const EastChakraLibrary = memo(function EastChakraLibrary(props: EastChak
 }, (prev, next) => libraryEqual(prev.value, next.value) && prev.storageKey === next.storageKey && prev.renderMedia === next.renderMedia
     && prev.empty?.title === next.empty?.title && prev.empty?.description === next.empty?.description && prev.onCardEnter === next.onCardEnter && prev.facetFilter === next.facetFilter
     && prev.search === next.search && prev.noMatchView === next.noMatchView && prev.noMatch?.title === next.noMatch?.title && prev.noMatch?.description === next.noMatch?.description
-    && prev.extras === next.extras && prev.groupMark === next.groupMark
+    && prev.extras === next.extras && prev.clicks === next.clicks && prev.groupMark === next.groupMark
     && prev.narrowing?.empty.title === next.narrowing?.empty.title && prev.narrowing?.empty.description === next.narrowing?.empty.description
     && prev.narrowing?.onClear === next.narrowing?.onClear && prev.narrowing?.emptied === next.narrowing?.emptied
     && prev.pending === next.pending);

@@ -564,6 +564,28 @@ describe("Library — a host's ⏎ (#1187)", () => {
         expect(entered).toEqual(["edge"]);
     });
 
+    test("a host's `clicks` gives the Library's click to the cards it answers for alone: the others are no buttons of it, and a click on one reports nothing", async () => {
+        const clicked: string[] = [];
+        const { container } = render(
+            <ChakraProvider value={system}>
+                <DragLayerProvider>
+                    <EastChakraLibrary value={palette(clicked)} storageKey="library-test" clicks={(item) => item.key !== "pinned"} />
+                </DragLayerProvider>
+            </ChakraProvider>,
+        );
+        const pinned = cardOf(container, "pinned");
+        // The card it leaves out: no click, so not clickable, and no button where it cannot be dragged either.
+        expect([pinned.hasAttribute("data-clickable"), pinned.getAttribute("role")]).toEqual([false, null]);
+        await act(async () => { fireEvent.click(pinned); });
+        await tick();
+        expect(clicked).toEqual([]);
+        // A card it answers for clicks as ever.
+        expect(cardOf(container, "edge").hasAttribute("data-clickable")).toBe(true);
+        await act(async () => { fireEvent.click(cardOf(container, "edge")); });
+        await tick();
+        expect(clicked).toEqual(["edge"]);
+    });
+
     test("in retained content (#1398, CL8) a card stays focusable and its click still selects, but ⏎ places nothing, no key picks it up, its × takes nothing back and the add adds nothing", async () => {
         const entered: string[] = [], clicked: string[] = [], removed: string[] = [];
         let added = 0;

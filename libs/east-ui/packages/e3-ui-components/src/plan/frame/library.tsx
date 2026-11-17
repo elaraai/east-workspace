@@ -78,7 +78,7 @@ import { parseEventRef, printEventRef } from "../../shared/schedule/event-ref.js
 import type { PlanToolsChrome } from "../links/connect.js";
 import {
     EastChakraLibrary, EastChakraPickPanel, EmptyStateView, getSomeorUndefined,
-    type BuilderFrameDock, type LibraryEmpty, type LibraryNarrowing, type LibraryValue,
+    type BuilderFrameDock, type LibraryEmpty, type LibraryItemValue, type LibraryNarrowing, type LibraryValue,
 } from "@elaraai/east-ui-components";
 import { PlaceholderCard, SliceDensityContext, narrowedCount, useSlotStyles } from "@elaraai/east-ui-components/internal";
 import { scheduleLibraryCard as card, scheduleLibrary as libraryOf } from "../../shared/schedule/library.js";
@@ -376,6 +376,11 @@ export function usePlanLibrary({
         if (ref.success && linkSlots.has(ref.value.kind)) holdTemplate?.(ref.value.kind, ref.value.key);
         return null;
     }, [linkSlots, holdTemplate]);
+    // Only a link kind's template takes the click: an event kind's is no button, dragged or not.
+    const linkTemplateCard = useCallback((item: LibraryItemValue) => {
+        const ref = parseEventRef(item.key);
+        return ref.success && linkSlots.has(ref.value.kind);
+    }, [linkSlots]);
     const templates = useMemo(() => libraryOf({
         id: eventsLibrary(keys),
         items: [...templatesFollow.cards.map(({ kind, template }) => {
@@ -549,7 +554,7 @@ export function usePlanLibrary({
                         // The link kinds' templates follow no source: counted beside what the rail shows of the event kinds'.
                         count: typeof templatesFollow.count === "number" ? templatesFollow.count + linkTemplates.length : templatesFollow.count,
                         body: tabBody(styles, "events", templatesFollow.pane, (
-                            <EastChakraLibrary value={templates} storageKey={`${keys.library}.events`}
+                            <EastChakraLibrary value={templates} storageKey={`${keys.library}.events`} clicks={linkTemplateCard}
                                 empty={templatesFollow.empty === undefined ? undefined : empty("events", "")}
                                 narrowing={narrowingOf(templatesFollow.narrowing, "events", "", words)} />
                         )) };
@@ -605,5 +610,5 @@ export function usePlanLibrary({
             persist: "local",
             tabs: tabs.map(({ shown: _shown, ...pane }) => pane),
         };
-    }, [library, m, words, templates, templatesFollow, linkTemplates.length, backlog, backlogFollow, backlogRead, backlogRetained, seriesPick, authorLibraries, authorFollows, keys, empty, listsBacklog, styles, backlogFlash]);
+    }, [library, m, words, templates, templatesFollow, linkTemplates.length, linkTemplateCard, backlog, backlogFollow, backlogRead, backlogRetained, seriesPick, authorLibraries, authorFollows, keys, empty, listsBacklog, styles, backlogFlash]);
 }
