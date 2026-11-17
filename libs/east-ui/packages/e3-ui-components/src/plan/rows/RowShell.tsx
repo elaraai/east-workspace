@@ -270,12 +270,18 @@ export function RowShell({
     }, []);
     const resolveCoord = useCallback((clientX: number, clientY: number, payload: DragPayload): CellCoord => {
         const surface = drop?.surface ?? "";
+        // The bucket under the pointer, by the shared frac→bucket resolver (#617): the exact right edge closes into the
+        // last bucket; a truncated axis's uncovered remainder is NO bucket (#618) — the slot stays empty and `dropVeto`
+        // refuses it, so a drop past the truncation point can never land at a wrong instant.
+        const slotHere = (): string => {
+            const bi = scale.bucketAtFrac(fracAt(clientX));
+            const bucket = bi >= 0 ? scale.buckets[bi] : undefined;
+            return bucket !== undefined ? toPlanSlot(bucket.start) : "";
+        };
         // Connect held (#1541, U10): an element's drag ends at the event under the pointer, and moves nothing — the
         // coordinate names that event, at the bucket the pointer is in.
         if (payload.kind !== "item" && eventTarget !== undefined && events?.connecting === true) {
-            const bi = scale.bucketAtFrac(fracAt(clientX));
-            const bucket = bi >= 0 ? scale.buckets[bi] : undefined;
-            const slot = bucket !== undefined ? toPlanSlot(bucket.start) : "";
+            const slot = slotHere();
             const event = eventAt(clientX, clientY);
             return event !== undefined ? { surface, row: row.key, slot, event } : { surface, row: row.key, slot };
         }
@@ -285,13 +291,7 @@ export function RowShell({
             const slot = at.grab.mode === "end" ? slotOfEnd(scale, at.span.end) : slotOfInstant(scale, at.span.start);
             return { surface, row: row.key, slot };
         }
-        // The shared frac→bucket resolver (#617): the exact right edge closes
-        // into the last bucket; a truncated axis's uncovered remainder is NO
-        // bucket (#618) — the slot stays empty and `dropVeto` refuses it, so a
-        // drop past the truncation point can never land at a wrong instant.
-        const bi = scale.bucketAtFrac(fracAt(clientX));
-        const bucket = bi >= 0 ? scale.buckets[bi] : undefined;
-        const slot = bucket !== undefined ? toPlanSlot(bucket.start) : "";
+        const slot = slotHere();
         // An author's card lands on the event under the pointer (#1196): the coordinate names it.
         const event = eventTarget !== undefined && events?.landsOnEvent(payload.from.library) === true ? eventAt(clientX, clientY) : undefined;
         return event !== undefined ? { surface, row: row.key, slot, event } : { surface, row: row.key, slot };
