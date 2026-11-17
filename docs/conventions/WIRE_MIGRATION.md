@@ -1427,7 +1427,8 @@ Each wire changed under this rule, with the kind it is.
   event kind (`PlanEventKindType`) gains `child`: the field holding that key
   and the resources series its rows are of, none for a kind landing on its
   resource's own rows. A landing series (`PlanLandingType`) gains `under`,
-  last: the landing series its rows stand beneath, none for one beneath none;
+  last: for a series a kind's `child` lands on, the landing series its rows
+  stand beneath; none for every other, however deep it is nested;
   its `kinds` and `draws` count a kind with a `child` on the series its child
   names, never on its resource's. An event's `lane` is a variant field's
   case, by name, where the kind's `lane` names a variant. The events a window

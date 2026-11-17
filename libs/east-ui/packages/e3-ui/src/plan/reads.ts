@@ -79,12 +79,15 @@ export type PlanCollectionField<R extends EastType> = {
 
 /**
  * A `Dict` field of an entry keyed by an id: the things people drag (jobs,
- * stops, shifts, drops, alarms, decisions), each a struct.
+ * stops, shifts, drops, alarms, decisions), each a struct. The id is of any
+ * type a Dict is keyed by but a DateTime (#1540, E1); a Dict keyed by a
+ * DateTime is values over time, read with `Plan.values`.
  *
  * @typeParam R - The entry type
  */
 export type PlanItemsField<R extends EastType> = {
-    [F in PlanCollectionField<R>]: PlanEntryFields<R>[F] extends DictType<StringType, StructType> ? F : never
+    [F in PlanCollectionField<R>]: PlanEntryFields<R>[F] extends DictType<DateTimeType, EastType> ? never
+        : PlanEntryFields<R>[F] extends DictType<any, StructType> ? F : never
 }[PlanCollectionField<R>];
 
 /**
@@ -114,12 +117,14 @@ export type PlanChildField<R extends EastType> = {
 
 /**
  * A `Dict` field of a recursive entry holding more entries of its own type,
- * keyed by an id: what a series' `children: field` names for a tree.
+ * keyed by an id of any type but a DateTime (#1540, E1): what a series'
+ * `children: field` names for a tree.
  *
  * @typeParam R - The entry type
  */
 export type PlanTreeField<R extends EastType> = {
-    [F in PlanCollectionField<R>]: PlanEntryFields<R>[F] extends DictType<StringType, R> ? F : never
+    [F in PlanCollectionField<R>]: PlanEntryFields<R>[F] extends DictType<DateTimeType, EastType> ? never
+        : PlanEntryFields<R>[F] extends DictType<any, R> ? F : never
 }[PlanCollectionField<R>];
 
 /**

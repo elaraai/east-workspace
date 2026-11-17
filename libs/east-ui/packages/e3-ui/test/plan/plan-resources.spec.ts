@@ -625,6 +625,61 @@ describe("an event kind's `child`: its events on the rows beneath its resource (
             /^Plan: events\.task's child field "day" holds \.DateTime, the key of a row of "kinds" — and those rows are keyed by \.String$/);
     });
 
+    test("past the cap, a row beneath a press draws its press's shading: the shading is filed by resource (#1660's review)", () => {
+        if (payload.seam.type !== "some") assert.fail("expected the event kinds' seam");
+        const rows = payload.plan.rows;
+        if (rows.type !== "inline") assert.fail("expected the rows read whole");
+        const placed = payload.seam.value.placed(W27, W28, new Map(), [], new Map());
+        if (placed.type !== "some") assert.fail("expected the tasks read");
+        // The tasks' shading, by the press its summary files them under: a bucket's share of P03.
+        const shading = new Map([["press.buckets", new Map([["P03", [{ at: W27, value: some(3.0) }]]])]]);
+        const drawn = payload.seam.value.place(rows.value, placed.value, shading, [], true).flatMap((block) => block.rows);
+        const kindOf = (id: ValueTypeOf<typeof Plan.Types.RowId>) => drawn.find((one) => sameIds([one.id], [id]))!.kind.type;
+        assert.deepEqual([kindOf(entry("kinds", "P03", "ink")), kindOf(entry("kinds", "P03", "wash"))], ["heat", "heat"]);
+    });
+
+    test("a series nested beneath a press's that no kind's `child` names is a resources series in its own right: the wire says it stands beneath none", () => {
+        const Bay = StructType({ name: StringType });
+        const Hall = StructType({ name: StringType, bays: DictType(StringType, Bay) });
+        const Halls = DictType(StringType, Hall);
+        const Load = StructType({ title: StringType, day: DateTimeType, bay: StringType });
+        const loads = recordHandle(DictType(StringType, Load), new Map([["L-1", { title: "Load", day: DAY, bay: "B1" }]]), "loads");
+        const built = East.compile(East.function([], PlanPayloadType, ($) => Plan.Payload({
+            axis, data: $.const(new Map([["H1", { name: "Hall 1", bays: new Map([["B1", { name: "Bay 1" }]]) }]]), Halls),
+            series: [Plan.series.resources(Hall, {
+                key: "halls", title: "Halls", label: (hall) => hall.name,
+                children: Plan.children("bays", [Plan.series.resources(Bay, { key: "bays", title: "Bays", label: (bay) => bay.name })]),
+            })],
+            events: { load: Schedule.events($.let(loads()) as never, { name: "Load", icon: "truck", title: "title", at: "day", draw: "buckets", resource: { field: "bay", of: "bays" } } as never) },
+        } as never)), [])();
+        assert.equal(built.landings.find((one) => one.key === "bays")!.under.type, "none");
+    });
+
+    test("a `child` naming rows more than one step beneath its resource's is refused at build: its events are filed by the resource's key and the row's own", () => {
+        const Part = StructType({ name: StringType });
+        const Unit = StructType({ name: StringType, parts: DictType(StringType, Part) });
+        const Rig = StructType({ name: StringType, units: DictType(StringType, Unit) });
+        const Job = StructType({ title: StringType, day: DateTimeType, rig: StringType, part: StringType });
+        const jobs = recordHandle(DictType(StringType, Job), new Map(), "jobs");
+        assert.throws(() => East.function([], NullType, ($) => {
+            Plan.Payload({
+                axis, data: $.const(new Map(), DictType(StringType, Rig)),
+                series: [Plan.series.resources(Rig, {
+                    key: "rigs", title: "Rigs", label: (rig) => rig.name,
+                    children: Plan.children("units", [Plan.series.span(Unit, {
+                        key: "units", title: "Units", label: (unit) => unit.name, runs: () => [],
+                        children: Plan.children("parts", [Plan.series.resources(Part, { key: "parts", title: "Parts", label: (part) => part.name })]),
+                    })]),
+                })],
+                events: {
+                    job: Schedule.events($.let(jobs()) as never, {
+                        name: "Job", icon: "wrench", title: "title", at: "day", draw: "buckets", resource: { field: "rig", of: "rigs" }, child: { field: "part", of: "parts" },
+                    } as never),
+                },
+            } as never);
+        }), /^Error: Plan: events\.job's child names "parts", whose rows stand 2 steps beneath "rigs"'s — `child\.of` names a resources series among the `children` of the series its resource names, its rows the step beneath each resource's$/);
+    });
+
     test("a kind landing on a series that draws no row of its own is refused, unless its `child` names the rows beneath (#1541, U2)", () => {
         const undrawn = pressCase({ row: false, label: undefined });
         assert.equal(tasksRefusal({}, undrawn), "");

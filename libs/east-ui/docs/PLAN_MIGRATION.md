@@ -767,12 +767,17 @@ rows may still map a collection in one; `edit` needs the named read.
   collection holds any for the row, its children's subtotal otherwise. A row
   with values in one position and none in another draws both.
 - **Refusals at build**, each in words naming the field: `Plan.items` over a
-  collection keyed by an instant; `Plan.values` over one keyed by `String` off
-  an ordinal axis; a read of a field that is no `Dict`; a read outside a
-  series; `edit` beside elements given as a function, or over a read of
-  values; a tree's `children` naming a field of another type than the row's;
-  a table's `edit` beside cells given as a function, or over a draw giving
-  another number than each value.
+  collection keyed by a DateTime, which is values over time; `Plan.values`
+  over one keyed by `String` off an ordinal axis; a read of a field that is
+  no `Dict`; a read outside a series; `edit` beside elements given as a
+  function, over a read of values, or over items keyed by another id than a
+  String, since a drop mints its id as text; a tree's `children` naming a
+  field of another type than the row's, or keyed by a DateTime; a table's
+  `edit` beside cells given as a function, or over a draw giving another
+  number than each value.
+- **Any id keys them (#1540).** Items and a tree's children are keyed by an
+  id of any type but a DateTime, as child rows are: a String's element key is
+  the id, any other's the id as East prints it.
 
 ## A cell at a time (#1438)
 
@@ -1349,9 +1354,12 @@ on the child row its event names.
   whichever of the resource's rows the view shows: a page that draws no row
   of the resource's own reads them by the rows beneath it. A pinned row's
   nested series are read wherever the view rests.
-- **Not yet child-aware.** Past the event cap, a paged kind's shading stands
-  in on its resource's rows as before; a child row draws no shading of its
-  own.
+- **Past the event cap,** a paged kind's shading is filed by its resource, as
+  its summary index files its events: each row beneath a resource draws its
+  resource's shading, which no index splits by the row beneath.
+- **One step beneath.** `child.of` names a series whose rows are the step
+  beneath each resource's: one nested further down, beneath another series'
+  rows, is refused at build, naming how many steps down it stands.
 
 The Plan's payload gains an event kind's `child` and a landing's `under`
 (`WIRE_MIGRATION.md`). A stored `UIComponentType` value re-emits.

@@ -162,6 +162,7 @@ import {
     type PlanChartAxisInput,
     type PlanChartParts,
 } from "./factories.js";
+import { keyText } from "../schedule/window.js";
 
 // ============================================================================
 // The series type — a constructor, instantiated per row type
@@ -1529,10 +1530,13 @@ export interface PlanLanding {
  * @property top - Whether its resources are the canvas's own entries — it is at the top of the series list, a case of a
  *   kinds block there, which deals the entries out, or a member of a section there, which draws them — so one is found
  *   by its key among them; beneath another series' rows, each is no entry of theirs
+ * @property depth - How many steps its rows' paths hold: one at the top, and one more beneath each series that nests its
+ *   own beneath each of its rows — a kinds block and a section deal out or draw their own entries, and add none
  */
 export interface PlanTreeLanding extends PlanLanding {
     readonly within: readonly string[];
     readonly top: boolean;
+    readonly depth: number;
 }
 
 /** Every series value a builder made, with its build spec. */
@@ -1624,12 +1628,6 @@ function assertEntry(entry: EastType, rowType: EastType, where: string): void {
     }
 }
 
-/** A path segment from a key — a String key as is, any other key as its `.east` text. */
-function segmentOf(keyType: EastType): (key: ExprType<EastType>) => ExprType<StringType> {
-    return (keyType as { type: string }).type === "String"
-        ? (key) => key as unknown as ExprType<StringType>
-        : (key) => East.print(key);
-}
 
 /**
  * A series' rows as ONE block (#823) — a data series' entries (`fixed: false`),
@@ -1770,7 +1768,7 @@ const segmentKeys = new ByType<ExprType<FunctionType<[StringType], EastType>>>()
 
 /**
  * A path segment read back as its collection's key (#880) — the inverse of
- * {@link segmentOf}: a String key as it is, any other key its `.east` text
+ * {@link keyText}: a String key as it is, any other key its `.east` text
  * parsed (an `Array` child's segment is its Integer index).
  *
  * @param keyType - The collection's key type
@@ -2033,10 +2031,12 @@ function collectionOfRead(rowType: EastType, read: PlanReadSpec, where: string):
         }
         return { dict: t as EastType, key, item };
     }
-    if (!isTypeEqual(key, StringType)) {
+    // Things people drag are keyed by an id of any type but a DateTime (#1540, E1), as child rows are: a Dict keyed by
+    // one is values over time.
+    if (keyName === "DateTime") {
         throw new Error(
-            `Plan.items: "${read.field}" is keyed by ${keyName} — things people drag are keyed by an id, a String: read values ` +
-            `with Plan.values("${read.field}", draw)`);
+            `Plan.items: "${read.field}" is keyed by a DateTime — things people drag are keyed by an id, and a Dict keyed by a ` +
+            `DateTime is values over time: read them with Plan.values("${read.field}", draw)`);
     }
     const struct = item as { type: string; fields?: Record<string, EastType> };
     if (struct.type !== "Struct" || struct.fields === undefined) {
@@ -2160,14 +2160,16 @@ function buildRead(rowType: EastType, read: PlanReadSpec, kind: PlanLookKind, wh
         const optional = (name: string) => isTypeEqual(item.fields[name] as EastType, OptionType(DateTimeType));
         const instantOf = (v: ExprType<EastType>) => resolveInstant(v as never, `${what} times`);
         const keyField = spec.key!;
+        // An element's key: its item's id as text — a String as it is, any other as East prints it.
+        const idText = keyText(shape.key);
         return East.function([shape.dict, rowType], out, ($, coll, row) => {
             const draw = $.const(look);
             const result = $.let([], out);
             $.for(coll as unknown as ExprType<ArrayType<EastType>>, ($2, value, key) => {
                 const fields = value as unknown as Record<string, ExprType<EastType>>;
-                const id = key as unknown as ExprType<StringType>;
+                const id = $2.let(idText(key as ExprType<EastType>));
                 const emit = ($3: typeof $2, instants: ExprType<PlanInstantType>[]) => {
-                    const l = $3.let(draw(value, id, row));
+                    const l = $3.let(draw(value, key as ExprType<EastType>, row));
                     $3(result.pushLast(East.value({
                         [keyField]: id,
                         ...Object.fromEntries(spec.instants.map((name, i) => [name, instants[i]!])),
@@ -2509,8 +2511,10 @@ function checkTree(rowType: EastType, field: string, where: string): void {
     if (!isTypeEqual(t.value!, rowType)) {
         throw new Error(`${where}: children "${field}" holds ${shapeName(t.value!)}, not ${shapeName(rowType)} — step down to it with Plan.children("${field}", [series…])`);
     }
-    if (!isTypeEqual(t.key!, StringType)) {
-        throw new Error(`${where}: children "${field}" is keyed by ${(t.key as { type: string }).type} — child rows are keyed by an id, a String`);
+    // Its rows are keyed by an id of any type but a DateTime (#1540, E1), as a step-down's are: a Dict keyed by one is
+    // values over time.
+    if ((t.key as { type: string }).type === "DateTime") {
+        throw new Error(`${where}: children "${field}" is keyed by a DateTime — child rows are keyed by an id, and a Dict keyed by a DateTime is values over time: read it with Plan.values`);
     }
 }
 
@@ -2634,6 +2638,12 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
     const edit = recipe.edit;
     const editRead = edit !== undefined ? planReadOf(edit.input) as PlanItemsReadSpec : undefined;
     const editShape = editRead !== undefined ? collectionOfRead(rowType, editRead, where) : undefined;
+    // A gesture finds its item by its id as the element names it, and mints a new one's as text: what it moves are keyed
+    // by a String. Any other id draws, read only.
+    if (editShape !== undefined && !isTypeEqual(editShape.key, StringType)) {
+        throw new Error(`${where}: edit moves "${editRead!.field}"'s items, which are keyed by ${(editShape.key as { type: string }).type} — a series moves items ` +
+            "keyed by an id a String, which a drop mints: key them by a String, or draw them read only with no `edit`");
+    }
     const itemType = editShape?.item;
     const move: MoveFields | undefined = editRead !== undefined ? moveFieldsOf(editRead, editShape!.item as StructType) : undefined;
     const create = edit !== undefined && edit.edit !== true ? edit.edit.create : undefined;
@@ -2720,7 +2730,7 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
             const row = rowFor(kc);
             const match = matchFor(kc);
             const collapsed = collapsedFor(kc);
-            const seg = segmentOf(kc);
+            const seg = keyText(kc);
             const Frame = StructType({ value: rowType, key: kc, path: PathType, parent: PlanRowIdType });
             const Frames = ArrayType(Frame);
             // A level's matched entries as frames, REVERSED — so the stack
@@ -3141,7 +3151,7 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
                 const match = matchFor(kt);
                 const collapsed = collapsedFor(kt);
                 const below = childrenFor(kt);
-                const seg = segmentOf(kt);
+                const seg = keyText(kt);
                 return East.function([collection, PathType, IdOptType, PlanHiddenType], PlanRowsCollectionType, ($, coll, prefix, parent, hidden) => {
                     // Every function the loop calls, bound ONCE (see the walk).
                     const entryRow = $.const(row);
@@ -3264,7 +3274,7 @@ function viewsSpec(rowType: EastType, cfg: PlanViewsSeriesConfig<EastType, EastT
             const parts = memberSpecs.map((m) => m.entryParts!(entry, kc, `${where} › ${nameOf(m)}`));
             const match = host.entryParts!(entry, kc, where).match;
             const collapsed = host.collapsedFor!(kc);
-            const seg = segmentOf(kc);
+            const seg = keyText(kc);
             const Frame = StructType({ value: rowType, key: kc, path: PathType, parent: PlanRowIdType });
             const Frames = ArrayType(Frame);
             // A level's matched entries as frames, REVERSED — so the stack
@@ -3444,7 +3454,7 @@ function viewsSpec(rowType: EastType, cfg: PlanViewsSeriesConfig<EastType, EastT
                 const hostParts = host.entryParts!(entry, kt, where);
                 const hostKids = childrenFor(kt);
                 const hostCollapse = host.collapsedFor!(kt);
-                const seg = segmentOf(kt);
+                const seg = keyText(kt);
                 return East.function([collection, PathType, IdOptType, PlanHiddenType], PlanRowsCollectionType, ($, coll, prefix, parent, hidden) => {
                     // Every function the loop calls, bound ONCE (see the data walk).
                     const rowsOf = parts.map((p) => $.const(p.row));
@@ -3686,7 +3696,7 @@ function landingSpec(rowType: EastType, cfg: AnyLandingConfig, members: readonly
         const match = matchFor(kc);
         const collapsed = collapsedFor(kc);
         const { single, emits } = membersFor(kc);
-        const seg = segmentOf(kc);
+        const seg = keyText(kc);
         const Frame = StructType({ value: rowType, key: kc, prefix: PathType, path: PathType, parent: PlanRowIdType });
         const Frames = ArrayType(Frame);
         // A level's matched entries as frames, REVERSED, so the stack pops the first of them first.
@@ -3783,7 +3793,7 @@ function landingSpec(rowType: EastType, cfg: AnyLandingConfig, members: readonly
                 const of = tree === undefined ? undefined : childOf(kt);
                 const walk = of === undefined ? undefined : walkFor((Expr.type(of) as unknown as { output: EastType }).output);
                 const steps = host?.stepsFor!(kt);
-                const seg = segmentOf(kt);
+                const seg = keyText(kt);
                 return East.function([collection, PathType, IdOptType, PlanHiddenType], PlanRowsCollectionType, ($, coll, prefix, parent, hidden) => {
                     // Every function the loop calls, bound ONCE (see the data walk).
                     const entryRow = $.const(row);
@@ -4180,7 +4190,7 @@ function topWrite(spec: PlanSeriesSpec, collection: EastType, where: string): To
     return cache.get(collection, () => {
         const { entry: rowType, key: kt } = shapeOf(collection, where);
         const writer = spec.writer(collection, where);
-        const seg = segmentOf(kt);
+        const seg = keyText(kt);
         return East.function([rowType, kt, PlanRowIdType, PlanGestureType, PlanCarriedType], OptionType(rowType), ($, entry, key, row, gesture, carried) => {
             const result = $.let(none, OptionType(rowType));
             if (writer === undefined) return result;
@@ -4441,17 +4451,18 @@ export function planSeriesKeys(series: unknown): readonly string[] | undefined {
 export function planLandings(series: unknown): readonly PlanTreeLanding[] | undefined {
     if (!Array.isArray(series)) return undefined;
     const out: PlanTreeLanding[] = [];
-    const walk = (spec: PlanSeriesSpec, within: readonly string[], top: boolean): void => {
-        if (spec.landing !== undefined) out.push({ ...spec.landing, within, top });
+    const walk = (spec: PlanSeriesSpec, within: readonly string[], top: boolean, depth: number): void => {
+        if (spec.landing !== undefined) out.push({ ...spec.landing, within, top, depth });
         const below = [...within, spec.key];
         // A kinds block deals its entries out among its cases, and a section draws its entries by its members, each row
-        // the entry itself: every other series nests its own beneath the entry's row.
-        for (const nested of spec.nested) walk(nested, below, top && (spec.arm === "kinds" || spec.arm === "section"));
+        // the entry itself: every other series nests its own beneath the entry's row, a step further down its path.
+        const deals = spec.arm === "kinds" || spec.arm === "section";
+        for (const nested of spec.nested) walk(nested, below, top && deals, deals ? depth : depth + 1);
     };
     for (const one of series) {
         const spec = specOf(one);
         if (spec === undefined) return undefined;
-        walk(spec, [], true);
+        walk(spec, [], true, 1);
     }
     return out;
 }

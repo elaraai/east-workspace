@@ -111,7 +111,7 @@ import { SCHEDULE_TEMPLATES, checkedTemplates, templateValues, type ScheduleTemp
 import { SCHEDULE_DEF } from "./resources.js";
 import { SCHEDULE_EVENT_CAP, scheduleRecordCount, scheduleRecordWindow, type ScheduleKindPart } from "./record-window.js";
 import { scheduleRecordSession } from "./session.js";
-import { checkEntries, checkIndexWindow, optionOf, scheduleBacklogWindow, scheduleDayCount, scheduleDayWindow, typeText } from "./window.js";
+import { checkEntries, checkIndexWindow, keyText, optionOf, scheduleBacklogWindow, scheduleDayCount, scheduleDayWindow, typeText } from "./window.js";
 import { scheduleNewValues, type ScheduleNewValues } from "./values.js";
 import {
     PlanEventItemType, PlanEventKindType, PlanEventReadType, ScheduleAllocationEntryType, ScheduleAllocationKindType, ScheduleAllocationNewBinType,
@@ -2213,9 +2213,8 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 const parts = kindParts(once, slot, part, formSpecs, SCHEDULE_EVENT_CAP, false, made);
                 const quantity = config.quantity;
                 const format = quantity?.format === undefined ? undefined : East.value(quantity.format as SubtypeExprOrValue<TickFormatType>, TickFormatType);
-                // A child row's key as its row's path ends in it: a String key as it is, any other as East prints it.
-                const childSegment = (key: ExprType<EastType>): ExprType<StringType> =>
-                    (child !== undefined && child.type.type === "String" ? key as unknown as ExprType<StringType> : East.print(key));
+                // A child row's key as its row's path ends in it: the key's text, as a Plan's rows' paths spell it.
+                const childSegment = child === undefined ? undefined : keyText(child.type);
                 // One event as Plan draws it: what every view draws, with its roles read from their fields.
                 const planItemOf = once(East.function([EntryRowType], PlanEventItemType, ($, entry) => {
                     const make = $.const(parts.itemOf);
@@ -2239,9 +2238,9 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                         locked: held === undefined ? false : held(row, entry.key),
                         // The row beneath its resource it is on (#1541, U1): that row's key, as its row's path ends in it.
                         child: child === undefined ? none
-                            : !child.optional ? some(childSegment(fieldOf(row, child.field)))
+                            : !child.optional ? some(childSegment!(fieldOf(row, child.field)))
                                 : (fieldOf(row, child.field) as unknown as ExprType<OptionType<EastType>>).match({
-                                    some: (_$2, key) => East.value(some(childSegment(key)), OptionType(StringType)),
+                                    some: (_$2, key) => East.value(some(childSegment!(key)), OptionType(StringType)),
                                     none: (_$2) => East.value(none, OptionType(StringType)),
                                 }),
                     } as never, PlanEventItemType);

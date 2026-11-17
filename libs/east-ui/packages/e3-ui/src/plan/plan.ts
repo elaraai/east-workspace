@@ -1040,6 +1040,12 @@ function eventLandings(series: unknown, events: readonly (readonly [string, Sche
             throw new Error(`Plan: events.${slot}'s child names "${child.of}", whose rows stand beneath ${under === undefined ? "no resources series" : `"${under}"`} — ` +
                 `\`child.of\` names a resources series among the \`children\` of the series its resource names (${kind.takes.join(", ") || "none"})`);
         }
+        // One step beneath: a child row's path is its resource's and its own key, what its events are filed by.
+        const resource = landings.find((l) => l.key === under)!;
+        if (landing.depth !== resource.depth + 1) {
+            throw new Error(`Plan: events.${slot}'s child names "${child.of}", whose rows stand ${landing.depth - resource.depth} steps beneath "${under}"'s — ` +
+                `\`child.of\` names a resources series among the \`children\` of the series its resource names, its rows the step beneath each resource's`);
+        }
         if (!isTypeEqual(landing.keyType, child.type)) {
             throw new Error(`Plan: events.${slot}'s child field "${child.field}" holds ${printType(child.type)}, the key of a row of "${child.of}" — ` +
                 `and those rows are keyed by ${printType(landing.keyType)}`);

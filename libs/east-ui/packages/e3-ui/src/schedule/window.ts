@@ -369,16 +369,26 @@ export function checkEntries(entries: unknown, keyType: EastType, rowType: EastT
 }
 
 /**
- * A key's text, as a builder's wire carries it: a String key as it is, any
- * other key as East prints it.
+ * A key's text, written in place: a String key as it is, any other key as
+ * East prints it — the one rule a builder's wire, a Plan's rows' paths and an
+ * event's child row are spelled by ({@link keyTextOf} reifies it).
+ *
+ * @param keyType - The key's type
+ * @returns `(key)` → its text, as an expression
+ */
+export function keyText(keyType: EastType): (key: ExprType<EastType>) => ExprType<StringType> {
+    return keyType.type === "String" ? (key) => key as unknown as ExprType<StringType> : (key) => East.print(key);
+}
+
+/**
+ * A key's text, as a builder's wire carries it ({@link keyText}), reified once.
  *
  * @param keyType - The record's key type
  * @returns `(key)` → its text
  */
 export function keyTextOf(keyType: EastType): ExprType<FunctionType<[EastType], StringType>> {
-    return (keyType.type === "String"
-        ? East.function([StringType], StringType, (_$, key) => key)
-        : East.function([keyType], StringType, (_$, key) => East.print(key))) as unknown as ExprType<FunctionType<[EastType], StringType>>;
+    const text = keyText(keyType);
+    return East.function([keyType], StringType, (_$, key) => text(key as ExprType<EastType>)) as unknown as ExprType<FunctionType<[EastType], StringType>>;
 }
 
 /**

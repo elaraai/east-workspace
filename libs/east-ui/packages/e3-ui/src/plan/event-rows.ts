@@ -150,8 +150,9 @@ export type PlanEventSeamType = typeof PlanEventSeamType;
  * @property series - The keys of its own series: the rows beneath each of its resources, at its path
  * @property top - Whether its resources are the canvas's own entries (at the top of the series list, or a case of a kinds
  *   block there): over rows read a page at a time, one the canvas does not hold is read by its key among them
- * @property under - The landing series its rows stand beneath, a step down from each of its rows (#1541, U1): what a kind's
- *   `child` lands on names its resource by — the step of its row's path before the last; `none` for a series beneath none
+ * @property under - The landing series its rows stand beneath, a step down from each of its rows (#1541, U1), for a series
+ *   a kind's `child` lands on: what names its resource — the step of its row's path before the last. `none` for every
+ *   other series, a resources series in its own right however deep it is nested
  */
 export const PlanLandingType = StructType({
     key: StringType,
@@ -193,6 +194,28 @@ export function eventLandsOn(kind: AnyEventKind): readonly string[] {
  */
 export function landingUnder(landing: PlanTreeLanding, landings: readonly PlanTreeLanding[]): string | undefined {
     return [...landing.within].reverse().find((key) => landings.some((one) => one.key === key));
+}
+
+/**
+ * The landing series a step beneath a resource's rows (#1541, U1), each by the series it stands beneath: those a kind's
+ * `child` lands on, whose rows are filed by their resource's key and their own. Worked out once, it decides how their
+ * events are filed, how their rows are found, and what the wire says each stands beneath (`under`): a landing nested
+ * beneath another that no `child` names is a resources series in its own right.
+ *
+ * @param landings - Every landing series
+ * @param events - The event kinds, by slot
+ * @returns The stepped landings' keys, each with its resource's series
+ */
+export function steppedLandings(landings: readonly PlanTreeLanding[], events: readonly (readonly [string, AnyEventKind])[]): ReadonlyMap<string, string> {
+    const out = new Map<string, string>();
+    for (const [, kind] of events) {
+        const child = kind.child;
+        if (child === undefined || out.has(child.of)) continue;
+        const landing = landings.find((one) => one.key === child.of);
+        const parent = landing === undefined ? undefined : landingUnder(landing, landings);
+        if (parent !== undefined) out.set(child.of, parent);
+    }
+    return out;
 }
 
 /**
@@ -465,10 +488,12 @@ export function createEventSeam(
     seriesHidden?: ExprType<PlanHiddenType>,
 ): ExprType<PlanEventSeamType> {
     const ByDraw = DictType(StringType, DictType(StringType, PlacedListType));
+    // The landings a step beneath a resource's rows, by the series each stands beneath: one rule for the filing, the
+    // rows' keys and the shading below.
+    const steps = steppedLandings(landings, events);
     // Each kind with a `child`: the landing series its child's rows stand beneath, by the kind's slot.
     const childParents = new Map(events.flatMap(([slot, kind]) => {
-        const landing = kind.child === undefined ? undefined : landings.find((one) => one.key === kind.child!.of);
-        const parent = landing === undefined ? undefined : landingUnder(landing, landings);
+        const parent = kind.child === undefined ? undefined : steps.get(kind.child.of);
         return parent === undefined ? [] : [[slot, parent] as const];
     }));
     const placed = East.function(
@@ -547,8 +572,8 @@ export function createEventSeam(
         const draws = eventDrawsOf(landing.key, events);
         return draws.length === 0 ? [] : [{
             key: landing.key,
-            // Rows a step beneath a resource's are filed by the resource's key and their own (#1541, U1).
-            stepped: landingUnder(landing, landings) !== undefined && events.some(([, k]) => k.child?.of === landing.key),
+            // Rows a step beneath a resource's are filed by the resource's key and their own (#1541, U1), under that series.
+            under: steps.get(landing.key),
             draws: draws.map((draw) => {
                 const kinds = kindsOf(landing.key, draw, events);
                 return { draw, names: kinds.map(([, k]) => k.name).join(", "), slots: kinds.map(([s]) => s), always: alwaysLanes(kinds) };
@@ -595,16 +620,20 @@ export function createEventSeam(
                                     // A landing row's path ends in its resource's key — a row a step beneath a resource's,
                                     // in the resource's key and then its own.
                                     const last = $5.let(at.path.get(at.path.size().subtract(1n)));
-                                    const key = $5.let(p.stepped ? rowKeyOf(at.path.get(at.path.size().subtract(2n)), last) : last);
+                                    const resourceKey = p.under === undefined ? last : $5.let(at.path.get(at.path.size().subtract(2n)));
+                                    const key = p.under === undefined ? last : $5.let(rowKeyOf(resourceKey, last));
                                     $5(held.get(p.key).tryInsert(key));
                                     const byDraw = $5.let(given.on.get(p.key, () => East.value(new Map(), ByDraw)));
                                     p.draws.forEach((d, i) => {
                                         const series = `${p.key}.${d.draw}`;
                                         const list = $5.let(byDraw.get(d.draw, () => East.value(new Map(), ByDraw.value)).get(key, () => noEvents));
-                                        // The shading's heat in place of its events, where it names the row (#1039).
-                                        const kind = $5.let(shading.tryGet(series).match({
+                                        // The shading's heat in place of its events, where it names the row (#1039). It is filed by
+                                        // resource, its kinds' indexes reading none by the rows beneath one: a row a step beneath a
+                                        // resource's draws its resource's.
+                                        const shaded = `${p.under ?? p.key}.${d.draw}`;
+                                        const kind = $5.let(shading.tryGet(shaded).match({
                                             none: (_$6) => drawnKind(d.draw, list, row, elements, d.always),
-                                            some: (_$6, byKey) => shade(byKey.get(key, () => noShades), tops.get(series), East.value(d.draw === "span" || d.draw === "cards", BooleanType)),
+                                            some: (_$6, byKey) => shade(byKey.get(resourceKey, () => noShades), tops.get(shaded), East.value(d.draw === "span" || d.draw === "cards", BooleanType)),
                                         }));
                                         if (i === 0) {
                                             $5(rows.pushLast(remake(row, kind)));
@@ -693,6 +722,7 @@ export function landingsOnWire(
     landings: readonly PlanTreeLanding[],
     events: readonly (readonly [string, AnyEventKind])[],
 ): ExprType<ArrayType<PlanLandingType>> {
+    const steps = steppedLandings(landings, events);
     return East.value(landings.map((landing) => ({
         key: landing.key,
         name: landing.title,
@@ -700,6 +730,6 @@ export function landingsOnWire(
         kinds: events.filter(([, k]) => eventLandsOn(k).includes(landing.key)).map(([slot]) => slot),
         series: [...landing.series],
         top: landing.top,
-        under: ((under) => (under === undefined ? none : some(under)))(landingUnder(landing, landings)),
+        under: ((under) => (under === undefined ? none : some(under)))(steps.get(landing.key)),
     })), ArrayType(PlanLandingType));
 }
