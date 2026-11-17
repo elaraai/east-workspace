@@ -38,6 +38,14 @@ export interface HeldTools<T extends string> {
     readonly link: string | undefined;
 }
 
+/** One link kind a builder's Connect may draw. */
+export interface LinkChoice {
+    /** Its slot. */
+    readonly key: string;
+    /** Its name (`Fibre run`). */
+    readonly name: string;
+}
+
 /**
  * The tools the viewer holds under a key, and how to pick another tool or link
  * kind: a write every builder under that key follows.

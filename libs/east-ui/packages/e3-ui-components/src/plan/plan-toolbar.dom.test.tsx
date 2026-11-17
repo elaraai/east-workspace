@@ -46,6 +46,7 @@ import type { PlanEventItemValue, PlanOverlaps } from "./frame/counts.js";
 import { scheduleEventKey, scheduleOverlaps } from "../shared/schedule/overlaps.js";
 import type { PlanEntryRef } from "./use-plan-editing.js";
 import { planScale, type PlanScale } from "./scale.js";
+import type { PlanToolsState } from "./links/connect.js";
 import { PLAN_WORDS } from "./words.js";
 import { createPlanController } from "./controller/index.js";
 import { PlanControllerContext } from "./controller/react.js";
@@ -88,6 +89,8 @@ const FORM_PX: Record<string, readonly number[]> = {
     "time-navigation": [260, 180, 220],
     resolution: [150, 80],
     overlaps: [110, 50],
+    tools: [180, 70],
+    "tools-link": [90],
     history: [220, 140],
 };
 
@@ -212,7 +215,7 @@ function Items({ parts, overlaps }: { parts: ChromeParts; overlaps?: PlanOverlap
         // How the frame shows the source being read (#1398): the toolbar never reads it.
         cold: undefined, busy: false, pitch: 42,
         diagnostics: { skipped: 0 },
-        history: undefined, sessions: [], events: undefined, cells: undefined, linksOver: [], where: (issue) => issue.entry, footer: [], id: undefined, narrow: false,
+        history: undefined, sessions: [], events: undefined, cells: undefined, linksOver: [], tools: undefined, where: (issue) => issue.entry, footer: [], id: undefined, narrow: false,
         // Whether a command writes now: the toolbar's items write nothing of their own.
         writable: true,
         // The inspector's reads: the toolbar takes none.
@@ -468,6 +471,50 @@ describe("the Plan's toolbar items (#952, #1193, #1344)", () => {
         expect(chip().getAttribute("aria-label")).toBe("1 overlap — select the first pair");
         fireEvent.click(chip());
         expect(selected).toEqual([[scheduleEventKey(pair.pairs[0]!.first), scheduleEventKey(pair.pairs[0]!.second)]]);
+    });
+
+    test("the tools are one strip, Select and Connect, while a link kind is editable: a pick holds the tool; short of room they keep their icons, named by their names (#1541, U10)", () => {
+        const picked: PlanToolsState[] = [];
+        const parts: ChromeParts = { tools: { held: { tool: "select", link: "feed" }, links: [{ key: "feed", name: "Feed" }], pick: (next) => { picked.push(next); } } };
+        row.px = 180;
+        const ui = render(<ChakraProvider value={system}><Harness parts={parts} /></ChakraProvider>);
+        const strip = () => within(ui.container).getByRole("radiogroup", { name: "Tools" });
+        const tool = (name: string) => within(strip()).getByRole("radio", { name });
+        expect(stateOf(ui.container).get("tools")).toBe(0);
+        expect(within(strip()).getAllByRole("radio").map((radio) => radio.textContent)).toEqual(["Select", "Connect"]);
+        expect(tool("Select").getAttribute("aria-checked")).toBe("true");
+        expect(tool("Connect").getAttribute("title")).toBe("Connect — drag from one event to another to draw a feed");
+        // One link kind: Connect draws it, and no menu asks which.
+        expect(ui.container.querySelector('[data-toolbar-item="tools-link"]')).toBeNull();
+        fireEvent.click(tool("Connect"));
+        expect(picked).toEqual([{ tool: "connect", link: "feed" }]);
+        resize(179);
+        expect(stateOf(ui.container).get("tools")).toBe(1);
+        expect(tool("Connect").textContent).toBe("");
+    });
+
+    test("while several link kinds are editable, a menu beside the tools picks the kind Connect draws, and holds Connect (#1541, U10)", async () => {
+        const picked: PlanToolsState[] = [];
+        const parts: ChromeParts = {
+            tools: {
+                held: { tool: "select", link: "feed" },
+                links: [{ key: "feed", name: "Feed" }, { key: "runoff", name: "Runoff" }],
+                pick: (next) => { picked.push(next); },
+            },
+        };
+        row.px = 4000;
+        render(<ChakraProvider value={system}><Harness parts={parts} /></ChakraProvider>);
+        const menu = screen.getByRole("button", { name: /Connect draws/ });
+        expect(menu.textContent).toContain("Feed");
+        await userEvent.setup().click(menu);
+        await userEvent.setup().click(await screen.findByRole("menuitem", { name: "Runoff" }));
+        expect(picked).toEqual([{ tool: "connect", link: "runoff" }]);
+    });
+
+    test("with no editable link kind the toolbar has no tools: the canvas's gestures are Select's", () => {
+        row.px = 4000;
+        const { container } = render(<ChakraProvider value={system}><Harness parts={{ tools: undefined }} /></ChakraProvider>);
+        expect(container.querySelector('[data-toolbar-item="tools"]')).toBeNull();
     });
 
     test("a canvas with no slice, no group to fold, no overlaps and no editing has no items", () => {

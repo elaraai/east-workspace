@@ -31,6 +31,7 @@ import { withArticle } from "../shared/article.js";
 import { pagedLoadingMessages, type PagedLoadingMessages } from "../shared/loading.js";
 import { eventsNotCounted, hiddenByText, joinedWords as joined, kindPlural as pluralName, lowerWord, type HiddenWords } from "../shared/schedule/words.js";
 import { timeMessages, type TimeMessages } from "../shared/time/scale.js";
+import type { PlanTool } from "./links/connect.js";
 
 /** A lifecycle state as the words name it — `EventStateType`, with the
  *  proposal arms spelled out. */
@@ -224,6 +225,14 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     tooManyLinks: (p: { kind: string; n: number; count: string }) => string;
     /** The line under it. */
     tooManyLinksHint: () => string;
+    /** The tools' strip's accessible name (#1541, U10). */
+    toolsLabel: () => string;
+    /** A tool's name — `Select`, `Connect`. */
+    toolName: (p: { tool: PlanTool }) => string;
+    /** A tool's hint: what a gesture does while it is held — `kind`, the link kind Connect draws, by its name. */
+    toolHint: (p: { tool: PlanTool; kind: string }) => string;
+    /** Connect's menu's accessible name: the link kind it draws. */
+    connectDraws: () => string;
 
     // ── The library pane (#1195) ───────────────────────────────────────────
     /** The library pane's name. */
@@ -670,6 +679,12 @@ export const planMessages: PlanMessages = {
         : `Too many to draw at this resolution: switch to ${resolution} to see where they fall.`),
     tooManyLinks: ({ kind, n, count }) => `${count} ${kind} ${plural(n, "link", "links")}`,
     tooManyLinksHint: () => "Too many to draw: none of them is shown.",
+    toolsLabel: () => "Tools",
+    toolName: ({ tool }) => (tool === "connect" ? "Connect" : "Select"),
+    toolHint: ({ tool, kind }) => (tool === "connect"
+        ? `Connect — drag from one event to another to draw ${withArticle(lowerWord(kind))}`
+        : "Select — a tap selects, a drag moves an event"),
+    connectDraws: () => "Connect draws",
 
     libraryPane: () => "Library",
     libraryTab: ({ tab }) => (tab === "events" ? "Events" : tab === "backlog" ? "Backlog" : "Series"),

@@ -49,6 +49,7 @@ import type { ValueTypeOf } from "@elaraai/east";
 import type { RecordSlicesChromeType } from "@elaraai/east-ui/internal";
 import { HOST_RANK, useRecordSlicesToolbarItems } from "@elaraai/east-ui-components/internal";
 import { useKeySearchToolbarItem, type KeySearchSource, type ToolbarItem } from "@elaraai/east-ui-components";
+import type { LinkChoice } from "../shared/held-tools.js";
 import { Seg, SegMenu } from "../shared/schedule/segments.js";
 import { ZoomStrip, type ZoomRange } from "../shared/schedule/zoom.js";
 import type { SchematicWords } from "./messages.js";
@@ -78,12 +79,7 @@ const TOOL_ICONS: { readonly [T in SchematicTool]: IconDefinition } = {
 };
 
 /** One link kind Connect may draw. */
-export interface SchematicLinkChoice {
-    /** Its slot. */
-    readonly key: string;
-    /** Its name (`Fibre run`). */
-    readonly name: string;
-}
+export type SchematicLinkChoice = LinkChoice;
 
 /** What the Schematic's toolbar items show and drive. */
 export interface SchematicToolbarProps {
