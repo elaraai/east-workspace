@@ -1273,6 +1273,18 @@ and its key's text, and `some(message)` refuses it.
   drafts.
 - **A kind holding more links than are read draws none**, and a notice says
   how many it holds.
+- **Connect draws a link by hand.** While a link kind is bound with its patch
+  door, the toolbar has the Schematic's tools for the same job: Select, and
+  Connect. With Connect held, a drag from one event to another draws a link
+  of the kind in place of moving the event. A line runs from the event to
+  the pointer and into the start of an event the link may end at; the ghost
+  names the link (`Flow · Catalogue covers → Menu cards`), or says why not:
+  the kind's end holds no event of that kind (`Flow can't end at Catalogue
+  plates`), or `canConnect`'s message. The drop makes the link a draft,
+  selected, with its form in the inspector. With several link kinds
+  editable, a menu beside the tools picks the kind Connect draws. The tool
+  held is the viewer's, kept under the Plan's `id`. With Select held, the
+  canvas's gestures are as they were.
 - **An event kind a link kind's end names keeps the key made for a new
   event** where another Save took the same key: the two are a conflict to
   choose, as on a Schematic, where every other kind's new event goes on
