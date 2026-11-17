@@ -701,11 +701,11 @@ describe("a link kind's link in the inspector (#1541, U10)", () => {
     });
 
     test("Connect to… is held to the Plan's `canConnect` as a Connect drag is: refused, the field says why, and no link is drawn", async () => {
-        const vetoed = flowsPlan(() => East.function([Plan.Types.ConnectCandidate], OptionType(StringType), ($, candidate) => {
+        const vetoed = flowsPlan({ canConnect: () => East.function([Plan.Types.ConnectCandidate], OptionType(StringType), ($, candidate) => {
             const said = $.let(none, OptionType(StringType));
             $.if(candidate.to.key.equal("J-2004"), ($2) => { $2.assign(said, some("Price lists are already at the bindery")); });
             return said;
-        }));
+        }) });
         const { container } = await h.mount(vetoed);
         await settle();
         await selectCovers(container);

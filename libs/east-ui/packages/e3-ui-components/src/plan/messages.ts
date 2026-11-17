@@ -268,6 +268,8 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     templateGroup: (p: { kind: string; group: string | undefined }) => string;
     /** A template card's line — `Print job · 6 h · presses`: its kind's name, how long it runs (an instant kind's runs none), and the series it lands on. */
     templateLine: (p: { kind: string; duration: string | undefined; resources: readonly string[] }) => string;
+    /** A link kind's template's second line (#1541, U10): its kind, and how it is used — `Flow · click to hold for Connect`. */
+    linkTemplateLine: (p: { kind: string }) => string;
     /** A backlog card's line — `6 h · Press A · due Fri 16`: how long it takes, the resource it is on (`undefined`, on none), and when it is due. */
     backlogLine: (p: { duration: string; resource: string | undefined; due: string | undefined }) => string;
     /** When a backlog event is due — `due Fri 16`: `weekday` and `day` are its day's, formatted. */
@@ -726,6 +728,7 @@ export const planMessages: PlanMessages = {
     templateLine: ({ kind, duration, resources }) =>
         [kind, duration, resources.length > 0 ? resources.join("/") : undefined]
             .filter((p): p is string => p !== undefined && p !== "").join(" · "),
+    linkTemplateLine: ({ kind }) => `${kind} · click to hold for Connect`,
     backlogLine: ({ duration, resource, due }) => [duration, resource ?? "Unassigned", due]
         .filter((p): p is string => p !== undefined && p !== "").join(" · "),
     backlogDue: ({ weekday, day }) => `due ${weekday} ${day}`,

@@ -221,6 +221,8 @@ const NO_JOINED: readonly EditHistoryJoined<PlanEntryRef>[] = [];
 const NO_LANDINGS: readonly PlanLandingValue[] = [];
 /** The event kinds' events before their first read: none placed. */
 const NO_LEAD = initialEventLead();
+/** No template held: every link drawn takes its fields' defaults. */
+const NO_HELD_TEMPLATES: ReadonlyMap<string, string> = new Map();
 /** No library tabs. */
 const NO_TABS: readonly PlanLibraryTabValue[] = [];
 /** No event kind has an event on the canvas. */
@@ -1030,6 +1032,22 @@ export function usePlanCanvas({
     const connectable = useMemo((): readonly LinkChoice[] => (connectableKinds.length === 0 ? NO_LINK_CHOICES
         : connectableKinds.map((kind) => ({ key: kind.key, name: kind.name }))), [connectableKinds]);
     const tools = useMemo(() => planToolsInForce(heldTools, connectable.map((link) => link.key)), [heldTools, connectable]);
+    // The template the library holds for each link kind (#1541, U10), the viewer's while the Plan is mounted: a link drawn
+    // takes its values for every field but its ends, and their types' defaults with none held. A click on the one held
+    // lets it go.
+    const [heldTemplates, setHeldTemplates] = useState<ReadonlyMap<string, string>>(NO_HELD_TEMPLATES);
+    const holdTemplate = useCallback((slot: string, key: string) => setHeldTemplates((was) => {
+        const next = new Map(was);
+        const held = was.get(slot);
+        if (held !== undefined && stringEqual(held, key)) next.delete(slot);
+        else next.set(slot, key);
+        return next;
+    }), []);
+    const linkValues = useCallback((slot: string): Uint8Array | undefined => {
+        const held = heldTemplates.get(slot);
+        if (held === undefined) return undefined;
+        return linkKinds.find((kind) => stringEqual(kind.key, slot))?.templates.find((template) => stringEqual(template.key, held))?.values;
+    }, [heldTemplates, linkKinds]);
     // The inspector's Connect to… draws a link through the event kinds' drag, by the rules Connect's own drag is held to.
     const eventDragRef = useRef<ReturnType<typeof usePlanEventDrag>>(undefined);
     const toolsChrome = useMemo((): PlanToolsChrome | undefined => (connectable.length === 0 ? undefined : {
@@ -1039,7 +1057,8 @@ export function usePlanCanvas({
             return verdict === undefined || verdict.allowed ? undefined : verdict.caption ?? "";
         },
         draw: (kind, from, to) => eventDragRef.current?.linkEvents(kind, from, to) === true,
-    }), [connectable, connectableKinds, tools, pickTools]);
+        templates: heldTemplates, holdTemplate,
+    }), [connectable, connectableKinds, tools, pickTools, heldTemplates, holdTemplate]);
     // What Connect draws while it is held (#1541, U10): the kind its menu chose, and the Plan's `canConnect`, which
     // hears the kind and the two events — its answers kept while it is the same function.
     const connectVeto = useMemo(() => connectVetoOf(canConnect, (key: string) => {
@@ -1051,7 +1070,7 @@ export function usePlanCanvas({
         return kind === undefined ? undefined : { kind, veto: connectVeto };
     }, [tools, linkKinds, connectVeto]);
     const eventDrag = usePlanEventDrag({
-        kinds, landings, tabs, keys, editing: eventEditing, veto, connect: connecting, connectVeto, scale, words, store: editStore,
+        kinds, landings, tabs, keys, editing: eventEditing, veto, connect: connecting, connectVeto, linkValues, scale, words, store: editStore,
         rowOf: (key) => indexRef.current?.byKey.get(key),
         resource: (ref) => resourceRowsRef.current?.byRef.get(scheduleCellId(ref.kind, ref.key)),
         selected: () => controller.getSnapshot().store.ui.elements,

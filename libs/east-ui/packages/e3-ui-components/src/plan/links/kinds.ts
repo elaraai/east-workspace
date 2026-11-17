@@ -31,7 +31,7 @@
  * @packageDocumentation
  */
 
-import { variant, type ValueTypeOf } from "@elaraai/east";
+import { none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import type { PlanLinkKindType } from "@elaraai/e3-ui/internal";
 import { parseEventRef, printEventRef } from "../../shared/schedule/event-ref.js";
 import { draftedOf, draftsInPlace, type DraftedRowsByKind, type DraftedStanding } from "../../shared/schedule/drafted-rows.js";
@@ -120,15 +120,17 @@ export interface PlanConnectMade {
  * @param ends - The event it runs from, and the one it runs to
  * @param mint - Makes a new key's text for the kind's record; `undefined` where it can make none
  * @param holds - Whether the kind's record, its drafts in place, holds a row under a key's text
+ * @param values - The values of the template the library holds for the kind, as its bytes; `undefined` for none held,
+ *   each field but the ends then its type's default
  * @returns The link, or why the kind makes none
  */
 export function connectLink(
     kind: PlanLinkKindValue, ends: { readonly from: PlanLinkEnd; readonly to: PlanLinkEnd },
-    mint: (slot: string) => string | undefined, holds: (slot: string, id: string) => boolean,
+    mint: (slot: string) => string | undefined, holds: (slot: string, id: string) => boolean, values?: Uint8Array | undefined,
 ): PlanConnectMade | { readonly refused: PlanConnectRefusal } {
     if (!kind.ends.from.includes(ends.from.kind)) return { refused: "start" };
     if (!kind.ends.to.includes(ends.to.kind)) return { refused: "end" };
-    const made = kind.create(ends);
+    const made = kind.create(ends, values === undefined ? none : some(values));
     if (made.type !== "some") return { refused: "end" };
     const id = kind.rowKey.type === "some" ? kind.rowKey.value(made.value) : mint(kind.key);
     if (id === undefined) return { refused: "key" };

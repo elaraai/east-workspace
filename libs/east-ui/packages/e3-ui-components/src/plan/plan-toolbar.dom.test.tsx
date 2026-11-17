@@ -308,7 +308,7 @@ function needs(forms: ReadonlyMap<string, number>): number {
 }
 
 /** What the tools' chrome holds for the inspector's Connect to…, which the toolbar never reads. */
-const NO_LINKING = { kinds: [], refusal: () => undefined, draw: () => false } as const;
+const NO_LINKING = { kinds: [], refusal: () => undefined, draw: () => false, templates: new Map<string, string>(), holdTemplate: () => {} } as const;
 
 describe("the Plan's toolbar items (#952, #1193, #1344)", () => {
     test("they are one row in §7.1's order: the rail's chips, the fold toggle, the date navigator, the resolution; at the end the rail's summary and the history (PB20)", async () => {

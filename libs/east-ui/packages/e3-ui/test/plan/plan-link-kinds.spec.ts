@@ -135,12 +135,47 @@ describe("a link kind over the app's record: its links, each a row", () => {
     });
 
     test("a new link between two events: its ends written, each to its case, and every other field its type's default", () => {
-        const made = kind.create({ from: ref("job", "J-1003"), to: ref("binding", "B-102") });
+        const made = kind.create({ from: ref("job", "J-1003"), to: ref("binding", "B-102") }, none);
         if (made.type !== "some") assert.fail("a Connect between a job and a bindery job makes a feed");
         assert.ok(feedEqual(feedOf(made.value), { from: variant("job", "J-1003"), to: variant("binding", "B-102"), sheets: 0.0 }));
         // An end of a kind its field holds no keys of makes nothing: a feed runs from no delivery, and into no print job.
-        assert.equal(kind.create({ from: ref("delivery", "D-101"), to: ref("binding", "B-102") }).type, "none");
-        assert.equal(kind.create({ from: ref("job", "J-1003"), to: ref("job", "J-1004") }).type, "none");
+        assert.equal(kind.create({ from: ref("delivery", "D-101"), to: ref("binding", "B-102") }, none).type, "none");
+        assert.equal(kind.create({ from: ref("job", "J-1003"), to: ref("job", "J-1004") }, none).type, "none");
+    });
+
+    test("its templates are a record's, on the wire as the library lists them; a link made from one takes its values, its ends still the two events", () => {
+        const Preset = StructType({ name: StringType, values: StructType({ sheets: FloatType }) });
+        const PRESETS = new Map<string, ValueTypeOf<typeof Preset>>([
+            ["short", { name: "Short run", values: { sheets: 5000.0 } }], ["long", { name: "Long run", values: { sheets: 40000.0 } }],
+        ]);
+        const presets = dataHandle(DictType(StringType, Preset), PRESETS, "presets");
+        const withTemplates = kindOf(($) => Plan.links($.let(feedsRecord()), {
+            name: "Feed", icon: "arrow-right-long", from: FROM, to: TO,
+            templates: Schedule.templates($.let(presets()).read(), { name: (preset) => preset.name, values: (preset) => preset.values }),
+        }).build("feed"));
+        assert.ok(equalFor(ArrayType(StringType))(withTemplates.templates.map((template) => template.name), ["Long run", "Short run"]));
+        const long = withTemplates.templates.find((template) => template.key === "long")!;
+        const made = withTemplates.create({ from: ref("job", "J-1003"), to: ref("binding", "B-102") }, some(long.values));
+        if (made.type !== "some") assert.fail("a Connect between a job and a bindery job makes a feed");
+        assert.ok(feedEqual(feedOf(made.value), { from: variant("job", "J-1003"), to: variant("binding", "B-102"), sheets: 40000.0 }));
+        // A kind given no templates lists none.
+        assert.equal(kind.templates.length, 0);
+    });
+
+    test("its templates are refused, naming the kind: a list written in the code, a template with a time, and values that are not the row's fields but its ends", () => {
+        const Preset = StructType({ name: StringType, values: StructType({ sheets: FloatType }), other: StructType({ pallets: FloatType }) });
+        const presets = dataHandle(DictType(StringType, Preset), new Map(), "presets");
+        const declare = ($: BlockBuilder<EastType>, templates: unknown) => Plan.links($.let(feedsRecord()), {
+            name: "Feed", icon: "arrow-right-long", from: FROM, to: TO, templates: templates as never,
+        });
+        assert.match(refusal(($) => declare($ as never, [{ key: "short", name: "Short run", values: { sheets: 5000.0 } }])),
+            /^Plan\.links: "Feed": templates are a record's — Schedule\.templates\(templates\.read\(\), \{ name, values \}\) over a record of the app's, never a list written in the code$/);
+        assert.match(refusal(($) => declare($ as never, Schedule.templates($.let(presets()).read(), {
+            name: (preset) => preset.name, duration: () => variant("hours", 1.0), values: (preset) => preset.values,
+        }))), /^Plan\.links: "Feed": a link has no time — its templates give no `duration`, and no `at`$/);
+        assert.match(refusal(($) => declare($ as never, Schedule.templates($.let(presets()).read(), {
+            name: (preset) => preset.name, values: (preset) => preset.other,
+        }))), /^Plan\.links: "Feed": its templates' `values` give every field of the row but `from` and `to` — .* — and these give .*$/);
     });
 
     test("its record's side: bound with its patch door it is editable, its session there; its form is over every field but its ends", () => {
@@ -185,10 +220,10 @@ describe("a link's quantity, and its key", () => {
         const kind = kindOf(($) => declare($, (step) => ({ from: step.from, to: step.to })).build("step"));
         if (kind.rowKey.type !== "some") assert.fail("its `key` is on the wire");
         // Its ends hold the jobs' keys at their own type, an Integer, read back from their text.
-        const made = kind.create({ from: ref("job", "7"), to: ref("job", "9") });
+        const made = kind.create({ from: ref("job", "7"), to: ref("job", "9") }, none);
         if (made.type !== "some") assert.fail("a Connect between two jobs makes a step");
         assert.equal(kind.rowKey.value(made.value), "(from=7, to=9)");
-        assert.equal(kind.create({ from: ref("job", "seven"), to: ref("job", "9") }).type, "none", "a text no key of the jobs prints as makes nothing");
+        assert.equal(kind.create({ from: ref("job", "seven"), to: ref("job", "9") }, none).type, "none", "a text no key of the jobs prints as makes nothing");
     });
 });
 
