@@ -28,7 +28,7 @@ import { checkHash, checkId } from './errors.js';
 import { readDatasetWhole } from './dataset-open.js';
 import type { DetachedResult, TaskRunner } from './execution/interfaces.js';
 import { openZip } from './package-files.js';
-import { PENDING_SLOT, pendingSources, sourceLoadSlots, sourcesSlot } from './record-slots.js';
+import { recordLoad } from './record-load.js';
 import { readRecordState, recordHistory } from './records.js';
 import { workspaceCreate, workspaceDeploy } from './workspaces.js';
 import type { InMemoryStorage } from './storage/in-memory/InMemoryStorage.js';
@@ -577,45 +577,32 @@ export async function inProjectWithoutEastC(dir: string, body: () => Promise<voi
 }
 
 /**
- * Writes a composite record's ref as a load's commit leaves it for one of its
- * external sources: the source's last delivery named — by the record's state
- * and its head commit, which stand in for the delivery's objects — as of
- * `asOf`, and the source no longer waited for.
- *
- * @remarks
- * For a spec of what a deploy or a compaction does to the slots of a
- * delivery, which needs no load to have run: the record's rows and its
- * history are left as they are.
+ * Loads a delivery into an external source of a composite record, as
+ * `e3 load` loads a file: the delivery stored as the object its bytes are,
+ * then loaded ({@link recordLoad}) on `runner`, as of `asOf`.
  *
  * @param storage - Storage backend
+ * @param runner - The runner the delivery is taken in on and the load's pieces run on
  * @param repo - Repository identifier
  * @param ws - The workspace
- * @param refPath - The record's ref path, such as `records/orders`
+ * @param record - The composite record
  * @param source - The external source
+ * @param delivery - The source's delivery type, and what it is delivered
  * @param asOf - The time the delivery says its data is as of, as East prints
  *   a DateTime
- * @returns The commit the slots name as the one that applied the delivery
- * @throws {Error} When the record holds no state
+ * @returns The commit the load wrote, and the delivery's hash, which the
+ *   source's slot names
+ * @throws {AssertionError} When the load wrote no commit: the delivery was the
+ *   source's last, or older than it
  */
-export async function sourceDelivered(
-  storage: StorageBackend, repo: string, ws: string, refPath: string, source: string, asOf: string,
-): Promise<string> {
-  const held = await storage.datasets.read(repo, ws, refPath);
-  if (held === null || held.type !== 'value') throw new Error(`record '${refPath}' holds no state`);
-  const head = held.value.versions.get(`.${refPath.split('/').join('.')}`);
-  if (head === undefined) throw new Error(`record '${refPath}' names no head commit`);
-  const slots = sourceLoadSlots(source);
-  const versions = new Map(held.value.versions);
-  versions.set(slots.delivery, held.value.hash);
-  versions.set(slots.load, held.value.hash);
-  versions.set(slots.commit, head);
-  versions.set(slots.execution, `${held.value.hash}/${head}`);
-  versions.set(slots.asOf, asOf);
-  const waiting = sourcesSlot(pendingSources(versions).filter((name) => name !== source));
-  if (waiting === undefined) versions.delete(PENDING_SLOT);
-  else versions.set(PENDING_SLOT, waiting);
-  await storage.datasets.write(repo, ws, refPath, variant('value', { hash: held.value.hash, versions }));
-  return head;
+export async function sourceLoaded<T extends EastType>(
+  storage: StorageBackend, runner: TaskRunner, repo: string, ws: string, record: string, source: string,
+  delivery: { readonly type: T; readonly value: ValueTypeOf<T> }, asOf: string,
+): Promise<{ readonly commit: string; readonly delivery: string }> {
+  const hash = await storage.objects.write(repo, encodeBeast2For(delivery.type)(delivery.value));
+  const loaded = await recordLoad(storage, runner, repo, ws, record, source, hash, { actor: 'cli:test', asOf: at(asOf) });
+  if (loaded.commit.type !== 'some') assert.fail(`the load of ${record}.${source} wrote no commit: it was answered ${loaded.outcome.type}`);
+  return { commit: loaded.commit.value, delivery: hash };
 }
 
 /**

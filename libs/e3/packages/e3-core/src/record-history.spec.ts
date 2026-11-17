@@ -32,7 +32,7 @@ import { packageImport } from './package-files.js';
 import { workspaceCreate } from './workspaces.js';
 import { workspaceDeploy } from './workspace-files.js';
 import {
-  ErpDeliveryType, at, createTestRepo, removeTestRepo, createTempDir, removeTempDir, ordersOverSources, sourceDelivered,
+  ErpDeliveryType, at, createTestRepo, removeTestRepo, createTempDir, removeTempDir, ordersOverSources, sourceLoaded,
 } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
@@ -247,14 +247,15 @@ describe('a composite record, described', () => {
     // As deployed: erp has delivered nothing, and the record waits for it
     assert.ok(sameSources(await sources(), [{ ...erp, last: none, pending: true }, own]), 'each source, in the order of their names');
 
-    // Once erp has delivered: the delivery, the commit that applied it, and when it was as of
-    const applied = await sourceDelivered(storage, repo, 'main', 'records/orders', 'erp', '2026-11-02T03:00:00.000');
+    // Once a load has delivered erp: the delivery, the commit that applied it, and when it was as of
+    const loaded = await sourceLoaded(storage, new LocalTaskRunner(repo), repo, 'main', 'orders', 'erp',
+      { type: ErpDeliveryType, value: new Map([['SO-1001', { customer: 'Acme', qty: 5n }]]) }, '2026-11-02T03:00:00.000');
     const [delivered] = await sources();
     assert.equal(delivered!.pending, false);
     if (delivered!.last.type !== 'some') assert.fail('erp holds a delivery');
     assert.ok(sameSources([delivered!], [{
       ...erp, pending: false,
-      last: some({ delivery: delivered!.last.value.delivery, commit: some(applied), asOf: some(at('2026-11-02T03:00:00.000')) }),
+      last: some({ delivery: loaded.delivery, commit: some(loaded.commit), asOf: some(at('2026-11-02T03:00:00.000')) }),
     }]));
 
     // A compaction cuts the commit from the chain: the source still holds its delivery, and names no commit

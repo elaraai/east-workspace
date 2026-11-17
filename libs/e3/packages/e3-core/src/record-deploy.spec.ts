@@ -44,7 +44,7 @@ import { workspaceDeploy } from './workspace-files.js';
 import { workspaceStatus } from './workspaceStatus.js';
 import { dataflowExecute } from './execution/local-orchestrator.js';
 import { EXTERNAL_SLOT, PENDING_SLOT, sourceLoadSlots } from './record-slots.js';
-import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, sourceDelivered, withEnv } from './test-helpers.js';
+import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, sourceLoaded, withEnv } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
 import type { InputWait, StorageBackend, TaskRunner } from './index.js';
@@ -1136,8 +1136,10 @@ describe('a deploy\'s record migrations', () => {
         const held = versions.get(slot);
         return held === undefined ? [] : [[part, held]];
       }));
-    /** `erp`'s first delivery, as its load's commit leaves the ref. */
-    const erpDelivered = (workspace = ws): Promise<string> => sourceDelivered(storage, repo, workspace, 'records/orders', 'erp', AS_OF);
+    const cedar: OrderV1 = { customer: 'Cedar', qty: 7n };
+    /** A delivery of `orders` to `erp`, by their ERP ids, loaded as of {@link AS_OF}: the commit that applied it. */
+    const erpLoaded = async (orders: ReadonlyArray<readonly [string, OrderV1]>, workspace = ws): Promise<string> =>
+      (await sourceLoaded(storage, runner, repo, workspace, 'orders', 'erp', { type: DeliveredV1Type, value: new Map(orders) }, AS_OF)).commit;
 
     it('R24 — mints a composite at its solution sources\' initial entries, every external source waiting for its first delivery', async () => {
       const plans: RecordPlan[] = [];
@@ -1175,7 +1177,8 @@ describe('a deploy\'s record migrations', () => {
 
     it('R25 — a deploy that keeps a composite reconciles what waits: a source handed to its load joins the external set, and one handed back to the mutations leaves it, its delivery forgotten', async () => {
       await deploy(sales('1.0.0'));
-      const applied = await erpDelivered();
+      // The ERP delivers an empty order book: erp has delivered, and holds no order
+      const applied = await erpLoaded([]);
       const delivered = (await ordersRef()).versions;
       assert.equal(delivered.has(PENDING_SLOT), false, 'erp has delivered');
       assert.equal(deliveryOf(delivered, 'erp').commit, applied);
@@ -1203,7 +1206,7 @@ describe('a deploy\'s record migrations', () => {
 
     it('R25 — a deploy that migrates a composite forgets each external source\'s delivery but its as-of, and a source that waited still waits', async () => {
       await deploy(sales('1.0.0'));
-      await erpDelivered();
+      await erpLoaded([['SO-1', cedar]]);
       await deploy(sales('2.0.0'));
       assert.deepEqual((await commits())[0], '$migrate:add_note');
       const { versions } = await ordersRef();
@@ -1212,7 +1215,8 @@ describe('a deploy\'s record migrations', () => {
       assert.deepEqual([versions.has(PENDING_SLOT), versions.get(EXTERNAL_SLOT)], [false, 'erp'], 'and erp, which had delivered, does not wait again');
       const rows = await workspaceGetDataset(storage, repo, ws, ordersPath) as ValueTypeOf<typeof OrdersV2Type>;
       assert.ok(equalFor(OrdersV2Type)(rows, new SortedMap<OrderKey, ValueTypeOf<typeof OrderV2Type>>(
-        [[variant('crm', 'C-1'), { ...acme, note: '' }], [variant('own', 'P-1'), { ...birch, note: '' }]], compareFor(OrderKeyType))));
+        [[variant('crm', 'C-1'), { ...acme, note: '' }], [variant('erp', 'SO-1'), { ...cedar, note: '' }], [variant('own', 'P-1'), { ...birch, note: '' }]],
+        compareFor(OrderKeyType))), 'the order erp delivered is carried with the rest');
 
       // A source still waited for when the record is migrated waits after it
       const other = 'other';
@@ -1225,7 +1229,7 @@ describe('a deploy\'s record migrations', () => {
 
     it('R26 — a reset takes a composite back to its solution sources\' initial entries: every delivery forgotten, every external source waiting again, and the record never unassigned', async () => {
       await deploy(sales('1.0.0'));
-      await erpDelivered();
+      await erpLoaded([['SO-1', cedar]]);
       const planned = await recordMutate(storage, runner, repo, ws, 'orders', 'patch', [encodeBeast2For(PatchType(OrdersV1Type))(
         variant('patch', new SortedMap<OrderKey, OrderOp>([[variant('own', 'P-2'), variant('insert', acme)]], compareFor(OrderKeyType))))], { actor: 'cli:test' });
       assert.equal(planned.kind, 'committed', JSON.stringify(planned));
@@ -1242,7 +1246,7 @@ describe('a deploy\'s record migrations', () => {
       const rows = await workspaceGetDataset(storage, repo, ws, ordersPath) as ValueTypeOf<typeof OrdersV2Type>;
       assert.ok(equalFor(OrdersV2Type)(rows, new SortedMap<OrderKey, ValueTypeOf<typeof OrderV2Type>>(
         [[variant('own', 'P-9'), { customer: 'Cedar', qty: 1n, note: 'after the reset' }]], compareFor(OrderKeyType))),
-      'it holds the entries the package\'s solution sources declare');
+      'it holds the entries the package\'s solution sources declare, and none the ERP delivered');
     });
   });
 });
