@@ -1824,7 +1824,16 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     const key = catchUpKey(run);
     const startTime = Date.now();
     execution.options.onCatchUp?.(run.task, forTask, { state: 'started' });
-    const complete = (outcome: TaskOutcome): Promise<void> => this.completeCatchUp(execution, run, forTask, outcome);
+    // The run has landed, or failed, once its completion is applied: counted
+    // then, before it leaves flight, as one run or as a split task's units,
+    // so a task resolved meanwhile is resolved again rather than launch it anew
+    const complete = async (outcome: TaskOutcome): Promise<void> => {
+      try {
+        await this.completeCatchUp(execution, run, forTask, outcome);
+      } finally {
+        execution.landed++;
+      }
+    };
     const fail = (err: unknown): Promise<void> => complete({
       state: 'error', cached: false, executionId: '', error: err instanceof Error ? err.message : String(err), duration: Date.now() - startTime,
     });
@@ -1841,7 +1850,6 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       .catch(fail)
       .finally(() => {
         execution.moved++;
-        execution.landed++;
         if (execution.runningTasks.get(key) === launched) {
           execution.runningTasks.delete(key);
           execution.waiting.delete(key);

@@ -70,6 +70,18 @@ function gatedRunner(storage: StorageBackend, repo: string, tasks: ReadonlyMap<s
       }));
       return { state: 'success', cached: false, outputHash, executionId };
     });
+    // A unit of a split task makes its part from what it reads, and is
+    // recorded as a runner records it: under the task's own identity when it
+    // is the task's own execution, and as a unit otherwise
+    mock.setUnitResult(taskHash, async (unit) => {
+      const executionId = uuidv7();
+      const outputHash = made(name, ...unit.inputs);
+      await storage.refs.executionWrite(repo, taskHash, inputsHash(unit.inputs), executionId, variant('success', {
+        executionId, inputHashes: unit.inputs, outputHash, startedAt: new Date(), completedAt: new Date(),
+        peakBytes: none, plan: none, unit: !unit.own,
+      }));
+      return { state: 'success', cached: false, outputHash, executionId };
+    });
   }
   return new GatedTaskRunner(mock, tasks.keys());
 }
@@ -171,16 +183,38 @@ const OrdersType = DictType(StringType, IntegerType);
  * `orders` and the input `rates`, and `plan` reads what both write.
  *
  * @param readers - `2` for a second task over both results, `budget`
+ * @param options - `split`: `capacity` counts the record's rows a piece at a
+ *   time, a task whose work is split over the record, run as the units of its
+ *   stages. `late`: `budget` reads an input `late` too, which nothing sets
+ *   until the case does: it waits until then
  */
-async function deployCombined(t: TestContext, { storage, repo }: BackendContext, readers: 1 | 2 = 1): Promise<Map<string, string>> {
+async function deployCombined(
+  t: TestContext,
+  { storage, repo }: BackendContext,
+  readers: 1 | 2 = 1,
+  options: { split?: boolean; late?: boolean } = {},
+): Promise<Map<string, string>> {
   const orders = e3.record('orders', OrdersType, { initial: new Map() });
   const rates = e3.input('rates', IntegerType, variant('value', 1n));
   const size = East.function([OrdersType, IntegerType], IntegerType, ($, rows, rate) => rows.size().multiply(rate));
   const sum = East.function([IntegerType, IntegerType], IntegerType, ($, a, b) => a.add(b));
   const forecast = e3.task('forecast', [orders, rates], size);
-  const capacity = e3.task('capacity', [orders, rates], size);
+  const capacity = options.split === true
+    ? e3.streamTask('capacity', {
+      inputs: [e3.partition(orders), rates],
+      output: e3.output.fold(IntegerType, { zero: 0n, combine: (_$, a, b) => a.add(b) }),
+    }, ($, rows, rate, emit) => {
+      $.for(rows, ($) => {
+        $(emit(rate));
+      });
+    })
+    : e3.task('capacity', [orders, rates], size);
   const plan = e3.task('plan', [forecast.output, capacity.output], sum);
-  const both = readers === 2 ? [plan, e3.task('budget', [forecast.output, capacity.output], sum)] : [plan];
+  const late = e3.input('late', IntegerType);
+  const budget = options.late === true
+    ? e3.task('budget', [forecast.output, capacity.output, late], East.function([IntegerType, IntegerType, IntegerType], IntegerType, ($, a, b, c) => a.add(b).add(c)))
+    : e3.task('budget', [forecast.output, capacity.output], sum);
+  const both = readers === 2 ? [plan, budget] : [plan];
   const zip = join(scratch(t), 'combined.zip');
   await e3.export(e3.package('combined', '1.0.0', orders, rates, forecast, capacity, ...both), zip);
   await packageImport(storage, repo, zip);
@@ -1088,6 +1122,71 @@ export function dataflowFollowCases(setup: BackendSetup): void {
 
     for (const name of tasks.keys()) runner.pass(name);
     for (const name of tasks.keys()) while (runner.holding(name) > 0) runner.release(name);
+    assert.equal((await orchestrator.wait(handle)).success, true);
+  });
+
+  it('launches a split catch-up run once though it lands while another task that reads it is resolved: that task is resolved again', async (t) => {
+    const context = await setup(t);
+    const { repo } = context;
+    const paced = pacedStorage(context.storage);
+    const storage = paced.storage;
+    const tasks = await deployCombined(t, context, 2, { split: true, late: true });
+    const runner = gatedRunner(context.storage, repo, tasks);
+    const lines = new RunLines();
+    const orchestrator = new LocalOrchestrator(stateStoreOf(context));
+    const rates = (await held(storage, repo, 'inputs/rates'))!;
+    const handle = await orchestrator.start(storage, repo, 'ws', { runner, ...lines.callbacks });
+    const edit = async (rows: ReadonlyArray<[string, bigint]>): Promise<{ commit: string; state: string }> => {
+      const commit = await commitOrders(storage, repo, rows);
+      assert.equal(await orchestrator.wake(storage, repo, 'ws'), true);
+      return commit;
+    };
+
+    // forecast's result moves to c1 while capacity's, whose work is split, goes from c0 to c2; plan runs on c0, and
+    // budget waits for its input late
+    await runner.launched('forecast');
+    await runner.launched('capacity');
+    const c1 = await edit([['a', 1n]]);
+    runner.release('forecast');
+    assert.deepEqual((await runner.launched('forecast')).inputHashes, [c1.state, rates]);
+    await edit([['a', 1n], ['b', 2n]]);
+    runner.release('capacity');
+    await runner.launched('capacity');
+    await runner.launched('plan');
+    runner.release('plan');
+    await lines.said('[DONE] plan');
+    runner.release('forecast');
+    await runner.launched('forecast');
+    runner.release('capacity');
+
+    // plan reads both as of c1, where capacity never ran: a split catch-up run of it starts, its one unit the run's own
+    await lines.said('[CATCH-UP] capacity for plan');
+    const unit = await runner.launched('capacity');
+
+    // late is set, and budget is resolved as of c1 too: its look in the execution cache is held while the catch-up run
+    // lands
+    const asked = paced.hold('refs', 'executionListIds', (args) => args[1] === tasks.get('capacity') && args[2] === inputsHash([c1.state, rates]));
+    try {
+      await workspaceSetDataset(storage, repo, 'ws', inputPath('late'), 1n, IntegerType);
+      assert.equal(await orchestrator.wake(storage, repo, 'ws'), true);
+      await asked.reached;
+      runner.release('capacity');
+      await lines.said('[DONE] capacity for plan');
+    } finally {
+      asked.open();
+    }
+
+    // budget is resolved again, and reads what the catch-up run made: the run was launched once
+    const budget = runner.launched('budget');
+    try {
+      await Promise.race([budget, lines.said('[CATCH-UP] capacity for budget')]);
+      assert.deepEqual(lines.printed.filter((line) => line.startsWith('[CATCH-UP]')), ['[CATCH-UP] capacity for plan'], 'one catch-up run');
+      const late = (await held(storage, repo, 'inputs/late'))!;
+      assert.deepEqual((await budget).inputHashes, [made('forecast', c1.state, rates), made('capacity', ...unit.inputHashes), late]);
+    } finally {
+      for (const name of tasks.keys()) runner.pass(name);
+      for (const name of tasks.keys()) while (runner.holding(name) > 0) runner.release(name);
+    }
     assert.equal((await orchestrator.wait(handle)).success, true);
   });
 
