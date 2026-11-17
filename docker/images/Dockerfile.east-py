@@ -44,8 +44,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:$PATH"
 
-# Create Python virtual environment
-RUN python3 -m venv /opt/venv
+# The virtualenv the image's tasks run in, made without pip: it then holds
+# what install-packages.sh installs into it with uv, under a release's pins,
+# and its tier manifest names nothing else. Made with pip, it would also hold
+# the pip and setuptools the system's Python seeds a virtualenv with, which no
+# package here needs, at versions the release's pins do not (setuptools 66.1.1,
+# where the release pins 82.0.1).
+RUN python3 -m venv --without-pip /opt/venv
 ENV VIRTUAL_ENV="/opt/venv"
 ENV PATH="/opt/venv/bin:$PATH"
 

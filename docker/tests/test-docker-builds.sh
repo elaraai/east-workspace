@@ -93,6 +93,9 @@ runs test-east-py-$$ east-py version
 runs test-east-py-$$ python3 -c "import east, east_py_std, east_py_io"
 # Its tier manifest names what it holds, for an environment built over it
 runs test-east-py-$$ python3 -c "import json; m = json.load(open('/opt/e3/tier-manifest.json')); names = [d['name'] for d in m['distributions']]; assert m['version'] == 1 and m['python']['executable'] == '/opt/venv/bin/python' and m['python']['base'].startswith('/usr/') and isinstance(m['namespaces'], list) and 'east' not in m['namespaces'] and 'elaraai-east-py-std' in names and 'elaraai-east-py-datascience' not in names, names"
+# Its virtualenv was made without pip: it holds what was installed into it,
+# and no pip or setuptools of the system's at versions the release does not pin
+runs test-east-py-$$ python3 -c "import json; names = [d['name'] for d in json.load(open('/opt/e3/tier-manifest.json'))['distributions']]; assert 'pip' not in names, names"
 holds_pins test-east-py-$$
 echo "[OK] Dockerfile.east-py (builds + east-py runs + tier manifest)"
 

@@ -238,7 +238,11 @@ RUN EAST_PY_PINS_DIR=/opt/e3 /tmp/install-packages.sh --py-only
 So an image holds the lock's build of everything, shap 0.51.0 and one NCCL
 library included, and its tier manifest says so. The install script ends by
 importing torch and xgboost in one process, so an image in which they do not
-load together is not built.
+load together is not built. The python tier's virtualenv is made without pip
+(`python3 -m venv --without-pip /opt/venv`): made with it, it also holds the
+pip and setuptools the system's Python seeds a virtualenv with, at versions
+the pins do not hold (setuptools 66.1.1, where the lock pins 82.0.1), which no
+package in it needs.
 
 | The build | Installs |
 |---|---|
@@ -356,7 +360,9 @@ reads current xgboost models: without it, it resolves shap 0.48.0.
 - The image test (`docker/tests/check-tier-pins.py`), for a named version:
   every distribution the image's manifest holds that the release pins is at
   a version it pins, it holds one NCCL library, and the datascience image's
-  torch is the one its package's extras pin. For every image with the
+  torch is the one its package's extras pin. For every version, the east-py
+  image's manifest names no pip: its virtualenv holds no seed of the
+  system's (3.4). For every image with the
   datascience package: torch and xgboost import in one process. It runs
   where the image test runs: on a release's tag, or a dispatch of the image
   workflow.
@@ -377,6 +383,11 @@ reads current xgboost models: without it, it resolves shap 0.48.0.
   that could not is stopped before anything is published.
 - **They ship in a package, not as release assets**: a consumer's lockfile
   pins a package, and nothing pins an asset.
+- **The python tier's virtualenv is made without pip.** The first image run of
+  a named version found setuptools 66.1.1 in the east-py image, the version
+  Debian's Python seeds a virtualenv with, where the release pins 82.0.1:
+  nothing installed asked for setuptools, so the install under the pins never
+  touched it. Without the seeds, the image holds what its pins installed.
 - **The files name their release**, in their first line, and uv's own header
   is left out: it names the directory the export ran in, which would make
   the same lock write different bytes.
