@@ -239,6 +239,10 @@ Rules:
   config)`.
 - Optional dependencies gate at call time: a function raises
   `NotImplementedError` naming the missing extra (`east-py-datascience[causal]`).
+- **Ask for torch through the extras**
+  (`elaraai-east-py-datascience[torch,lightning]`), and list no `torch` of the
+  project's own: the extras pin the torch the release was tested with, which
+  its rack tier image holds, so a task on a rack is not sent torch.
 
 For the East-value API (eager methods, `coerce_to`, `to_numpy` / `to_torch`,
 `@East.platform_function`), load the **east-py** skill.

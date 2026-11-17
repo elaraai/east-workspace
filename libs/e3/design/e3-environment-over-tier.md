@@ -106,9 +106,9 @@ Two things follow from matching by exact build:
   with another build of torch (a `+cu128` where the lock has `+cu130`, or the
   PyPI build where the lock has the PyTorch index's) holds another
   distribution: the project's ships whole, which is right, and saves nothing.
-  Nothing yet makes a project's lock and a tier image resolve the same
-  versions; [`e3-tier-constraints.md`](e3-tier-constraints.md) proposes how a
-  release pins them (#1662).
+  A release pins them: the datascience package's extras pin torch exactly,
+  and the release's images install under its lock's pins
+  ([`e3-tier-constraints.md`](e3-tier-constraints.md), #1662).
 - **Every image of a tier writes its manifest with the same script.** An
   image built elsewhere for a tier, a rack's own GPU guest image say, has no
   manifest unless it runs `tier-manifest.py`, which is what gives it these

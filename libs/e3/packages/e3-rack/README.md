@@ -324,6 +324,17 @@ name, its version and the files it installed. It says so as it builds:
 Every distribution is still downloaded here once, into uv's cache: that is
 how one is told to be the image's. It is neither packed nor sent.
 
+**For torch to stay in the tier, ask for it through the datascience package's
+extras.** A member that lists `elaraai-east-py-datascience[torch,lightning]`,
+and no torch of its own, locks the torch its release was tested with, which
+that release's `py-datascience` image holds. A member that lists `torch`
+itself locks the newest, and is sent it. What nothing pins is still sent when
+it has moved since the release: numpy and other small packages, and, with
+xgboost, its `nvidia-nccl-cu12`, with the one library of torch's that shares
+its directory. A project holds those to the tier with the lines of the
+release's `east-py-constraints.txt`, under `[tool.uv]
+constraint-dependencies` in its workspace root.
+
 A task whose environment cannot go to a rack runs here, and says why on its
 `[LOCAL]` line; a build's own message is in the task's log (`e3 task logs`).
 

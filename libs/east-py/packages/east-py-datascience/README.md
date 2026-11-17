@@ -29,6 +29,27 @@ pip install "east-py-datascience[scipy,sklearn,xgboost]"
 pip install "east-py-datascience[all]"
 ```
 
+**torch is pinned.** The `torch`, `lightning` and `all` extras pin torch and
+pytorch-lightning exactly, at the versions the release was tested with. Ask
+for torch through them, and name no torch of your own:
+
+```toml
+dependencies = ["elaraai-east-py-datascience[torch,lightning]"]   # not "torch", "pytorch-lightning"
+```
+
+Your lock then holds the torch that the release's `py-datascience` image
+holds, so an e3 task that runs on a rack over that image is not sent torch
+and its NVIDIA libraries. A project that needs another torch leaves the
+extras out and lists torch itself.
+
+Each release also attaches the pins its packages were tested with, as
+`east-py-constraints.txt` and `east-py-overrides.txt`: every third-party
+version of this workspace's lock. Put the lines you want held under
+`[tool.uv] constraint-dependencies` in your workspace root, and the overrides
+under `override-dependencies`. With the `causal` and `shap` extras together,
+the override (`shap>=0.51.0`) is what gives you a shap that reads current
+xgboost models.
+
 When using a git dependency in `pyproject.toml`:
 ```toml
 "east-py-datascience[scipy] @ git+https://github.com/elaraai/east-workspace@main#subdirectory=libs/east-py/packages/east-py-datascience"
