@@ -1132,21 +1132,23 @@ test.describe("Plan element text (#1258, #1264, #1266, #1269)", { tag: "@desktop
     }
 
     /** Each planTargetState tile set either side of a room its parts turn at (#1266): the room its cell leaves it set,
-     *  which the tile shrinks to. A tile sets its parts at 9.5px inside its 5px padding either side — a proposal's
-     *  dashed ring a 1px border more — 4px apart, each icon 8px tall at its own width: a proposal's grip 5px, the
-     *  truck 10px; a letter and the ellipsis take 2ch, 11.4px. So the MIXED tile, which fills its cell, draws its
-     *  label from 21.4px of room and whole from 38.5px; a proposal's grip from 17px, and its "plan" beside it from
-     *  32.4px — 28.4px were its parts not 4px apart; the regional van's truck from 22px. What a tile draws sits on its
-     *  line, centred along it and on its height, and the tile is never wider than its room. */
+     *  which the tile shrinks to. A tile sets its parts at 9.5px inside its 5px padding either side, 4px apart, each
+     *  icon 8px tall at its own width: a proposal's grip 5px, the truck 10px; a letter and the ellipsis take 2ch,
+     *  11.4px. A proposal's dashed ring stands in that padding (#1680's review): its 1.5px ring draws 1px at the
+     *  suite's 1x, so its parts have 4.5px either side. So the MIXED tile, which fills its cell, draws its label from
+     *  21.4px of room and whole from 38.5px; a proposal's grip from 14px, and its "plan" beside it from 30px as drawn —
+     *  4px less were its parts not 4px apart; the regional van's truck from 18px. Each room here stands 2px clear of
+     *  a turn. What a tile draws sits on its line, centred along it and on its height, and the tile is never wider
+     *  than its room. */
     const TILE_TURNS: readonly { key: string; room: number; label: boolean | null; icon: boolean | null }[] = [
         { key: "m4", room: 20, label: false, icon: null },
         { key: "m4", room: 24, label: true, icon: null },
         { key: "m4", room: 46, label: true, icon: null },
-        { key: "a5", room: 16, label: false, icon: false },
+        { key: "a5", room: 12, label: false, icon: false },
         { key: "a5", room: 20, label: false, icon: true },
-        { key: "a5", room: 30, label: false, icon: true },
+        { key: "a5", room: 28, label: false, icon: true },
         { key: "a5", room: 36, label: true, icon: true },
-        { key: "m5", room: 20, label: null, icon: false },
+        { key: "m5", room: 16, label: null, icon: false },
         { key: "m5", room: 24, label: null, icon: true },
     ];
 

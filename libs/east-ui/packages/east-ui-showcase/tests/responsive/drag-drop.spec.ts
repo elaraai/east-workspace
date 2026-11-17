@@ -267,10 +267,11 @@ test.describe("Plan drag and drop (#608, #1259)", () => {
     }
 
     /** What a dropped proposal's tile draws at each width, beside the 240px gutter (#1680's review): its week's cell
-     *  leaves it 21.8px at 1920px — room for its grip, which takes 17px (5 wide, inside its 5px padding and its 1px dashed
-     *  ring either side), and not its word, which takes 32.4px — and 16.5px and 14.5px at 1280px and 1024px, room for
-     *  neither: each wraps off its line (#1266). */
-    const DROPS = [{ width: 1920, grip: true }, { width: 1280, grip: false }, { width: 1024, grip: false }] as const;
+     *  leaves it 21.8px at 1920px, 16.5px at 1280px and 14.5px at 1024px — each room for its grip, which takes 14px (5
+     *  wide inside its 5px padding, its dashed ring standing in that padding: 1px drawn at the suite's 1x, the padding
+     *  giving 1.5px), and none for its word, which takes 30px and wraps off its line (#1266). Where its grip has no room
+     *  it wraps off its line too: planTargetState's tile turns (plan-geometry.spec.ts). */
+    const DROPS = [{ width: 1920, grip: true }, { width: 1280, grip: true }, { width: 1024, grip: true }] as const;
 
     for (const { width, grip } of DROPS) {
         for (const theme of ["light", "dark"] as const) {

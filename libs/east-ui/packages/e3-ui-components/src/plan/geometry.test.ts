@@ -115,9 +115,12 @@ describe("the Plan geometry table (#817)", () => {
     test("a bar's label is laid out from the table as the recipe draws it: its padding, a locked bar's, the gap after its lock, the lock, and two glyphs before it shows (#1680's review)", () => {
         const g = PLAN_GEOMETRY.default;
         const bar = slot("bar");
-        expect(bar.padding).toBe(`0 ${g.barPadWidth}px`);
+        // The padding gives up a state's border (`--state-edge`), so the border and the padding are the table's width in
+        // every state, and a label the layout fits at rest fits a proposal's dashed bar too.
+        const lessEdge = (px: number) => `calc(${px}px - var(--state-edge, 0px))`;
+        expect(bar.padding).toBe(`0 ${lessEdge(g.barPadWidth)}`);
         expect(bar.columnGap).toBe(`${g.barGapWidth}px`);
-        expect((bar["&[data-locked]"] as Record<string, unknown>).paddingInline).toBe(`${g.barPadLockedWidth}px`);
+        expect((bar["&[data-locked]"] as Record<string, unknown>).paddingInline).toBe(lessEdge(g.barPadLockedWidth));
         expect(slot("lock").fontSize).toBe(`${g.lockWidth}px`);
         expect(Object.keys(slot("barLabel")["[data-locked] > &"] as Record<string, unknown>))
             .toEqual([`@container (width < calc(${g.lockWidth}px + ${g.barGapWidth}px + 2ch))`]);

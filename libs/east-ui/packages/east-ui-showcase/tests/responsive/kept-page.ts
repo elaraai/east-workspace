@@ -19,7 +19,10 @@
  * the page's storage goes, as a new browser context has none — and as each
  * ends, so a page made after it starts with none either — its viewport is its
  * project's again, and the mouse is off the page, as on a page no input has
- * reached yet.
+ * reached yet. Before the storage goes as a test ends, the page comes to rest
+ * (`__showcaseRest`): its parts unmounted, so none writes storage once it is
+ * cleared — a scroll's settle, say, which keeps where a canvas rests, and
+ * would have the next test's canvas open there (#1680's review).
  *
  * A test gets a page of its own when its spec file is not the last test's,
  * when the last test failed, or when the last test installed a script before
@@ -103,6 +106,11 @@ async function clearStorage(page: Page, base: string): Promise<void> {
     if (!page.isClosed() && page.url().startsWith(base)) await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); });
 }
 
+/** Brings a page on the showcase to rest: its parts unmounted, so nothing they scheduled writes storage after it. */
+async function rest(page: Page, base: string): Promise<void> {
+    if (!page.isClosed() && page.url().startsWith(base)) await page.evaluate(() => (window as { __showcaseRest?: () => boolean }).__showcaseRest?.());
+}
+
 export const test = base.extend<object, { kept: Kept }>({
     // Each fixture hands its value on through `serve`: Playwright's `use`, named apart from React's hook.
     kept: [async ({ browser }, serve, workerInfo) => {
@@ -130,7 +138,9 @@ export const test = base.extend<object, { kept: Kept }>({
         if (viewport && (page.viewportSize()?.width !== viewport.width || page.viewportSize()?.height !== viewport.height)) await page.setViewportSize(viewport);
         await page.mouse.move(-1, -1);
         await serve(page);
-        // The origin's storage, which a page the context makes next shares.
+        // The origin's storage, which a page the context makes next shares — once the page is at rest, none of its parts
+        // left to write it.
+        await rest(page, kept.base);
         await clearStorage(page, kept.base);
         // A test that failed, installed a script before the page loads or added a tag to its document, leaves the next
         // test a page of its own.
