@@ -288,19 +288,40 @@ const PYTHON_RUNTIME_DISTRIBUTIONS = ['elaraai-east-py', 'elaraai-east-py-cli'];
  * One the lock does not hold, or holds as a local package, is not named: the
  * first comes from wherever the task runs, the second rides as an sdist.
  *
+ * Each is named with the extras the workspace declares it with, on its root
+ * or on any member (`elaraai-east-py-datascience[lightning]`): a member
+ * whose task names the platform, and does not list the distribution itself,
+ * runs with what the workspace asked of it, torch among it.
+ *
  * @internal
  * @param root - The workspace root
  * @param lock - Its lock
  * @param platforms - The platform packages the runner names
- * @returns The distributions, by PEP 503 name, sorted
+ * @returns The distributions, by PEP 503 name and with their extras, sorted
  */
 export function pythonRequires(root: string, lock: UvLock, platforms: readonly string[]): string[] {
   const stock: readonly string[] = STOCK_PLATFORMS_BY_RUNNER.east_py;
   const wanted = new Set([...PYTHON_RUNTIME_DISTRIBUTIONS, ...platforms.filter((name) => stock.includes(name)).map((name) => `elaraai-${name}`)]
     .map(canonicalPythonName));
+  // The extras the workspace's own packages declare each with
+  const extras = new Map<string, Set<string>>();
+  for (const pkg of lock.package ?? []) {
+    if (localSource(root, pkg.source) === null) continue;
+    for (const dependency of pkg.dependencies ?? []) {
+      const name = canonicalPythonName(dependency.name);
+      if (!wanted.has(name)) continue;
+      const declared = extras.get(name) ?? new Set<string>();
+      for (const extra of dependency.extra ?? []) declared.add(extra);
+      extras.set(name, declared);
+    }
+  }
   return (lock.package ?? [])
     .filter((pkg) => wanted.has(canonicalPythonName(pkg.name)) && localSource(root, pkg.source) === null)
-    .map((pkg) => canonicalPythonName(pkg.name))
+    .map((pkg) => {
+      const name = canonicalPythonName(pkg.name);
+      const declared = [...(extras.get(name) ?? [])].sort();
+      return declared.length === 0 ? name : `${name}[${declared.join(',')}]`;
+    })
     .sort();
 }
 

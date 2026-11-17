@@ -40,9 +40,11 @@ interface CapturedSdist { filename: string; hash: string }
  * each member's sdist stored as an environment's files (#1654).
  *
  * @remarks
- * Its root lists `six`, which `trainer` alone uses, and `tomli`, which stands
- * for a stock platform package a workspace lists on its root alone;
- * `features` depends on `idna`, and `trainer` on `six` and on `features`.
+ * Its root lists `six`, which `trainer` alone uses, and `tomli` and
+ * `markdown-it-py[linkify]`, which stand for stock platform packages a
+ * workspace lists on its root alone, one of them with an extra; `features`
+ * depends on `idna`, and `trainer` on `six` and on `features`. `features`
+ * has a development group, `iniconfig`, as a member's tests have.
  *
  * @param dir - Where the workspace is made: an empty directory
  * @param write - Stores a file's bytes, answering its object's hash
@@ -52,7 +54,7 @@ async function memberWorkspace(dir: string, write: (bytes: Uint8Array) => Promis
 Promise<{ pyproject: string; lock: string; features: CapturedSdist; trainer: CapturedSdist }> {
   fs.writeFileSync(path.join(dir, 'pyproject.toml'),
     '[project]\nname = "ws-root"\nversion = "0.1.0"\nrequires-python = ">=3.11"\n' +
-    'dependencies = ["six", "tomli", "features", "trainer"]\n\n' +
+    'dependencies = ["six", "tomli", "markdown-it-py[linkify]", "features", "trainer"]\n\n' +
     '[tool.uv.workspace]\nmembers = ["packages/*"]\n\n' +
     '[tool.uv.sources]\nfeatures = { workspace = true }\ntrainer = { workspace = true }\n');
   const member = (name: string, dependencies: string[]): void => {
@@ -61,7 +63,7 @@ Promise<{ pyproject: string; lock: string; features: CapturedSdist; trainer: Cap
     fs.writeFileSync(path.join(at, 'pyproject.toml'),
       `[project]\nname = "${name}"\nversion = "0.1.0"\nrequires-python = ">=3.11"\n` +
       `dependencies = [${dependencies.map((d) => `"${d}"`).join(', ')}]\n` +
-      (dependencies.includes('features') ? '\n[tool.uv.sources]\nfeatures = { workspace = true }\n' : '') +
+      (dependencies.includes('features') ? '\n[tool.uv.sources]\nfeatures = { workspace = true }\n' : '\n[dependency-groups]\ndev = ["iniconfig"]\n') +
       '\n[build-system]\nrequires = ["hatchling"]\nbuild-backend = "hatchling.build"\n');
     fs.writeFileSync(path.join(at, 'src', name, '__init__.py'), `MARKER = "${name}"\n`);
   };
@@ -436,32 +438,40 @@ describe('materializeEnvironment', () => {
       }
     });
 
-  it('materializes a workspace member\'s python env with the member\'s dependencies alone: nothing its workspace\'s root or another member depends on, and the distributions it requires as the lock pins them (#1654)',
+  it('materializes a workspace member\'s python env with the member\'s dependencies alone: nothing its workspace\'s root or another member depends on, none of its development group, and the distributions it requires as the lock pins them, with their extras (#1654)',
     { skip: hasUv ? false : 'uv not on PATH' }, async () => {
       const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-py-ws-'));
       try {
         const { pyproject, lock, features, trainer } = await memberWorkspace(ws, (bytes) => storage.objects.write(repo, encodeFile(bytes)));
-        /** The modules of the five that an environment built from the spec imports. */
+        /** The modules of the eight that an environment built from the spec imports. */
         const imports = async (spec: EnvironmentSpec): Promise<string[]> => {
           const envHash = await storage.objects.write(repo, encodeBeast2For(EnvironmentSpecType)(spec));
           const [bin] = await materializeEnvironment(storage, repo, envHash);
           const found = execFileSync(path.join(bin!, process.platform === 'win32' ? 'python.exe' : 'python'), ['-c',
-            'import importlib.util as u; print(" ".join(n for n in ["features", "idna", "six", "tomli", "trainer"] if u.find_spec(n)))'], { encoding: 'utf-8' });
+            'import importlib.util as u; print(" ".join(n for n in ["features", "idna", "iniconfig", "linkify_it", "markdown_it", "six", "tomli", "trainer"] if u.find_spec(n)))'],
+          { encoding: 'utf-8' });
           return found.trim().split(' ');
         };
 
         assert.deepStrictEqual(await imports(variant('workspace_python', { pyproject, lock, subjects: ['features'], sdists: [features], requires: ['tomli'] })),
-          ['features', 'idna', 'tomli'], 'its own dependency, what it requires, and itself: not the root\'s six, nor trainer');
+          ['features', 'idna', 'tomli'], 'its own dependency, what it requires, and itself: not the root\'s six, nor trainer, nor its own development group\'s iniconfig');
+        // A distribution it requires, with the extra the workspace declares it with, and without
+        assert.deepStrictEqual(await imports(variant('workspace_python', { pyproject, lock, subjects: ['features'], sdists: [features], requires: ['markdown-it-py[linkify]'] })),
+          ['features', 'idna', 'linkify_it', 'markdown_it'], 'what the extra brings, as the lock pins it');
+        assert.deepStrictEqual(await imports(variant('workspace_python', { pyproject, lock, subjects: ['features'], sdists: [features], requires: ['markdown-it-py'] })),
+          ['features', 'idna', 'markdown_it'], 'named bare, it comes without');
         assert.deepStrictEqual(await imports(variant('workspace_python', { pyproject, lock, subjects: ['trainer'], sdists: [features, trainer], requires: [] })),
           ['features', 'idna', 'six', 'trainer'], 'a member that depends on another carries it and its dependencies, and not what the root alone lists');
         // The whole lock, as a project that is its own root installs it
         assert.deepStrictEqual(await imports(variant('python', { pyproject, lock, sdists: [features, trainer] })),
-          ['features', 'idna', 'six', 'tomli', 'trainer']);
+          ['features', 'idna', 'iniconfig', 'linkify_it', 'markdown_it', 'six', 'tomli', 'trainer']);
 
         // Names a spec carries are wire data, given to an install as arguments: refused before anything is installed
         for (const [named, refusal] of [
           [{ subjects: ['--all-packages'], requires: [] }, /the member '--all-packages' is not a package's name/],
           [{ subjects: ['features'], requires: ['tomli --index-url=http://example.invalid'] }, /the required distribution 'tomli --index-url=http:\/\/example\.invalid' is not a package's name/],
+          [{ subjects: ['features'], requires: ['tomli[a b]'] }, /the extra of the required distribution 'tomli' 'a b' is not a package's name/],
+          [{ subjects: ['features'], requires: ['tomli[a][b]'] }, /the required distribution 'tomli\[a\]\[b\]' is not a package's name/],
           [{ subjects: [], requires: [] }, /a workspace environment names no member/],
         ] as const) {
           const envHash = await storage.objects.write(repo, encodeBeast2For(EnvironmentSpecType)(

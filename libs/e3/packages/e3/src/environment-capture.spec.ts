@@ -25,7 +25,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { decodeBeast2For } from '@elaraai/east';
 import { EnvironmentSpecType } from '@elaraai/e3-types';
-import { captureEnvironment, captureAutoEnvironment, pythonRequires } from './environment-capture.js';
+import { captureEnvironment, captureAutoEnvironment, pythonRequires, type UvLock } from './environment-capture.js';
 
 function toolAvailable(cmd: string): boolean {
   try { execFileSync(cmd, ['--version'], { stdio: 'ignore', shell: process.platform === 'win32' }); return true; } catch { return false; }
@@ -123,6 +123,22 @@ describe('python closure capture (#278)', () => {
     assert.deepStrictEqual(pythonRequires('/ws', lock, []), ['elaraai-east-py', 'elaraai-east-py-cli'], 'the runtime, whatever the runner names');
     assert.deepStrictEqual(pythonRequires('/ws', { version: 1, package: [{ name: 'six', source: registry }] }, ['east-py-std']), [],
       'a lock that holds none of them requires none: they come from where the task runs');
+
+    // With the extras the workspace declares each with, on its root or a
+    // member: a member that names the platform runs with what the workspace
+    // asked of it
+    const declared: UvLock = { version: 1, package: [
+      ...lock.package,
+      { name: 'ws-root', source: { virtual: '.' }, dependencies: [
+        { name: 'elaraai-east-py-datascience', extra: ['lightning'] }, { name: 'Elaraai_East_Py.Std' }, { name: 'six', extra: ['unused'] }] },
+      { name: 'trainer', source: { editable: 'packages/trainer' }, dependencies: [{ name: 'elaraai-east-py-datascience', extra: ['torch', 'lightning'] }] },
+      // A registry package's own extras are its own: no declaration of the workspace's
+      { name: 'some-plugin', source: registry, dependencies: [{ name: 'elaraai-east-py-std', extra: ['theirs'] }] },
+    ] };
+    assert.deepStrictEqual(pythonRequires('/ws', declared, ['east-py-datascience', 'east-py-std']),
+      ['elaraai-east-py', 'elaraai-east-py-cli', 'elaraai-east-py-datascience[lightning,torch]', 'elaraai-east-py-std']);
+    assert.deepStrictEqual(pythonRequires('/ws', declared, ['east-py-std']), ['elaraai-east-py', 'elaraai-east-py-cli', 'elaraai-east-py-std'],
+      'only of what the runner names');
   });
 
   it('does NOT cross-invalidate: editing an unrelated sibling leaves the spec byte-identical',

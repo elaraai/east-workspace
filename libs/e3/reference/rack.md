@@ -182,7 +182,7 @@ reach. A data URL lasts 15 minutes, which a transfer may use whole; an object is
 at most 5 GiB. The hub serves one rack eight transfers at once (one more is told
 to ask again), and reads an object from a byte on (`Range`), so a transfer a slow
 link cut short resumes; it keeps a rack's idle connection for 75 seconds.
-A hub and the e3 that calls it speak control protocol 4 exactly:
+A hub and the e3 that calls it speak control protocol 5 exactly:
 a hub an older e3 started is asked to exit once idle, and `e3 rack stop` with
 that e3 replaces it now. A rack's agent and its source speak rack protocol 3:
 an agent of another protocol is refused by name each time it asks, and

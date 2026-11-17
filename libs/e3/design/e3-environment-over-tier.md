@@ -87,6 +87,19 @@ This departs from the issue's "wheel hash": uv keeps no wheel hash for a
 distribution it has installed, so an image could not say one without
 installing from a hashed lock.
 
+Two things follow from matching by exact build:
+
+- **The saving depends on the tier holding the build the lock pins.** A tier
+  with another build of torch (a `+cu128` where the lock has `+cu130`, or the
+  PyPI build where the lock has the PyTorch index's) holds another
+  distribution: the project's ships whole, which is right, and saves nothing.
+  Nothing yet makes a project's lock and a tier image resolve the same
+  versions; #1662 proposes how a release pins them.
+- **Every image of a tier writes its manifest with the same script.** An
+  image built elsewhere for a tier, a rack's own GPU guest image say, has no
+  manifest unless it runs `tier-manifest.py`, which is what gives it these
+  digest rules. The script is attached to each release for that (3.6).
+
 ### 3.3 The build leaves out what the tier has
 
 `materializeEnvironmentFor` takes the tier's manifest beside the platform.
@@ -198,10 +211,11 @@ the hub, by the digest its heartbeat names**. It is then always the manifest
 of the image that will run the work, a rack's own tier image included.
 
 An image's manifest is read from the image (`docker run --rm
-ghcr.io/elaraai/east-py cat /opt/e3/tier-manifest.json`). Attaching each to
-its release as an asset, for inspection, is not built: the publish workflow
-would have to write to a release, which is a change to the release of its
-own.
+ghcr.io/elaraai/east-py cat /opt/e3/tier-manifest.json`). The images are
+built after their release is made, so their manifests are not attached to
+it. The script that writes one is: `tier-manifest.py` is an asset of every
+release, so an image built elsewhere for a tier runs the release's own script
+and not a copy of it.
 
 ### 3.7 What is e3's, and what is the rack agent's
 

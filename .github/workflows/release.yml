@@ -896,6 +896,14 @@ jobs:
           pattern: "c-native-*"
           merge-multiple: true
 
+      # The script a python runtime image writes its tier manifest with: an
+      # image built elsewhere for a tier (a rack's own guest image) runs the
+      # release's own, so its manifest follows the same rules (#1655).
+      - name: Add the tier manifest script to the release assets
+        run: |
+          mkdir -p release-assets
+          cp docker/images/tier-manifest.py release-assets/tier-manifest.py
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}

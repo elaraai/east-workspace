@@ -581,7 +581,7 @@ e3 rack stop                           # stop the shared hub
 
 Hub state lives under `~/.e3/rack` (override with `E3_RACK_HOME`). The rack
 listener is off until configured. A running hub and the e3 that calls it speak
-the same control protocol (4) exactly. A hub that an older e3 started is asked
+the same control protocol (5) exactly. A hub that an older e3 started is asked
 to exit once idle, and the run that found it runs locally this time; `e3 rack
 stop` with that e3, or ending its process, replaces it now. So every project
 that uses a rack from one machine runs the e3 release that machine's hub was
@@ -700,7 +700,7 @@ with a release:
 
 - **Hello.** `GET /api/rack/hello` answers anyone who reaches the listener,
   before any credential, in JSON: `{ "protocol": 3, "e3": "<release>",
-  "limits": { "transfersAtOnce": 8 }, "features": ["call-value-objects"] }`. An
+  "limits": { "transfersAtOnce": 8 }, "features": ["call-value-objects", "tier-manifests"] }`. An
   agent asks it before it spends an enrollment token. `features` names what the
   source takes beyond the protocol: a source from before it names none, and an
   entry a reader does not know, a word or of another form, is passed over.

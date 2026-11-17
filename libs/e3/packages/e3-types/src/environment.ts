@@ -166,9 +166,10 @@ export type WorkspaceNodeEnvironment = ValueTypeOf<typeof WorkspaceNodeEnvironme
  * and the code of exactly the members the environment is of and the local
  * packages they depend on. Materialized by installing, from the root lock,
  * the third-party dependencies of those members alone — what `uv export
- * --frozen --package <member>` lists — then the distributions `requires`
- * names, then the members' own sdists. Nothing else the workspace root or
- * another member depends on is installed.
+ * --frozen --no-default-groups --package <member>` lists — then the
+ * distributions `requires` names, then the members' own sdists. Nothing else
+ * the workspace root or another member depends on is installed, and none of
+ * a member's development groups.
  *
  * @remarks
  * - `pyproject`: object hash of the workspace **root** `pyproject.toml` blob.
@@ -182,8 +183,10 @@ export type WorkspaceNodeEnvironment = ValueTypeOf<typeof WorkspaceNodeEnvironme
  *   subjects' own dependencies, sorted: the runtime's (`elaraai-east-py`,
  *   `elaraai-east-py-cli`) and those of the stock platform packages the
  *   task's runner names (`elaraai-east-py-std`), which a workspace commonly
- *   lists on its root alone. Each is installed at the version the lock pins,
- *   with what it depends on.
+ *   lists on its root alone. Each is named with the extras the workspace
+ *   declares it with (`elaraai-east-py-datascience[lightning]`), and
+ *   installed at the version the lock pins, with what it and those extras
+ *   depend on.
  */
 export const WorkspacePythonEnvironmentType = StructType({
   /** Object hash of the workspace root pyproject.toml blob */

@@ -187,11 +187,28 @@ function distributionName(name: string, what: string): string {
 }
 
 /**
+ * A distribution an environment's spec requires, which is wire data given to
+ * an install as an argument: a package's name, or one with the extras it is
+ * installed with (`elaraai-east-py-datascience[lightning]`).
+ *
+ * @throws {Error} When it is neither
+ */
+function requiredDistribution(required: string): string {
+  const parts = /^([^[\]]+)(?:\[([^[\]]+)\])?$/.exec(required);
+  if (parts === null) throw new Error(`environment materialization: the required distribution '${required}' is not a package's name`);
+  distributionName(parts[1]!, 'the required distribution');
+  for (const extra of parts[2]?.split(',') ?? []) distributionName(extra, `the extra of the required distribution '${parts[1]!}'`);
+  return required;
+}
+
+/**
  * Whose locked dependencies a python environment's sync installs: the whole
  * lock, for a project that is its own root, whose lock is all its own; and
  * for members of a workspace, theirs alone — what `uv export --frozen
- * --package <member>` lists — so nothing the workspace's root or another
- * member depends on is installed (#1654).
+ * --no-default-groups --package <member>` lists — so nothing the workspace's
+ * root or another member depends on is installed (#1654), and none of a
+ * member's development groups, which are its tests' and its tools' and no
+ * task's.
  *
  * @throws {Error} When a workspace environment names no member, or one that
  *   is not a package's name
@@ -199,7 +216,7 @@ function distributionName(name: string, what: string): string {
 function syncedPackages(spec: PythonSpec): string[] {
   if (spec.type === 'python') return ['--all-packages'];
   if (spec.value.subjects.length === 0) throw new Error('environment materialization: a workspace environment names no member');
-  return spec.value.subjects.flatMap((subject) => ['--package', distributionName(subject, 'the member')]);
+  return ['--no-default-groups', ...spec.value.subjects.flatMap((subject) => ['--package', distributionName(subject, 'the member')])];
 }
 
 /** Writes a python environment's manifest and lock into the build directory. */
@@ -234,9 +251,10 @@ async function writeSdists(
  * @remarks
  * The locked third-party dependencies first ({@link syncedPackages}); then,
  * for members of a workspace, the distributions the environment requires
- * beside its members' own, each at the version the lock pins and checked
- * against the lock's hashes, with what it depends on; then the project's own
- * packages, from their sdists; and a check that what is installed is whole.
+ * beside its members' own, each with the extras its spec names, at the
+ * version the lock pins and checked against the lock's hashes, with what it
+ * depends on; then the project's own packages, from their sdists; and a
+ * check that what is installed is whole.
  *
  * @param platform - The platform it is installed for, when not this machine's:
  *   its dependencies are then the platform's wheels alone, copied, the
@@ -259,7 +277,7 @@ async function buildPython(
 ): Promise<TargetParts> {
   // Wire data, read before anything is installed by it
   const synced = syncedPackages(spec);
-  const required = spec.type === 'python' ? [] : spec.value.requires.map((name) => distributionName(name, 'the required distribution'));
+  const required = spec.type === 'python' ? [] : spec.value.requires.map(requiredDistribution);
   await writePythonProject(storage, repo, spec, buildDir);
   const venv = path.join(buildDir, '.venv');
   // Relocatable: the venv is built in a temp sibling and atomically renamed
@@ -273,9 +291,10 @@ async function buildPython(
   try {
     await run('uv', [...SYNC, ...synced, ...forPlatform], buildDir, 'locked dependency sync', settings);
     if (required.length > 0) {
-      // The lock's pins and hashes of everything it holds, as constraints: a
-      // required distribution, and what it depends on, is installed as the
-      // lock names it, and refused when its hash is not the lock's
+      // The lock's pins and hashes of everything it holds, a development
+      // group's among them, as constraints: a required distribution, and
+      // what it and its extras depend on, is installed as the lock names it,
+      // and refused when its hash is not the lock's
       const constraints = path.join(buildDir, '.constraints.txt');
       await run('uv', ['export', '--frozen', '--all-packages', '--no-emit-workspace', '--no-emit-local', '--quiet', '--output-file', constraints],
         buildDir, 'locked versions export', settings);
