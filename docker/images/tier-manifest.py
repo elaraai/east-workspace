@@ -6,8 +6,9 @@
 An environment a rack runs over this image is built without what the manifest
 says the image already holds (e3: environments built over their base tier).
 The manifest names the interpreter, the base interpreter a virtualenv over it
-is made from, its site directory, and each installed distribution by name,
-version and the digest of the files it installed.
+is made from, its site directory, the namespace packages of that directory,
+and each installed distribution by name, version and the digest of the files
+it installed.
 
 Run with the interpreter the image's tasks run with:
 
@@ -19,6 +20,7 @@ The standard library alone, so it runs in any image.
 import csv
 import hashlib
 import json
+import os
 import platform
 import re
 import sys
@@ -60,8 +62,29 @@ def files_digest(record):
     return "sha256:" + hashlib.sha256(lines.encode("utf-8")).hexdigest()
 
 
+def namespace_packages(site):
+    """The namespace packages of a site directory: each directory at its top
+    that holds no `__init__` module.
+
+    Python reads such a package from every directory on its path that holds a
+    part of it, so an environment may ship one part of it and leave another
+    here. A package with an `__init__` module is read from the first
+    directory that holds it, and is left here whole or not at all.
+    """
+    names = []
+    for name in os.listdir(site):
+        path = os.path.join(site, name)
+        if name == "__pycache__" or name.endswith((".dist-info", ".egg-info")) or not os.path.isdir(path):
+            continue
+        if any(entry.startswith("__init__.") for entry in os.listdir(path)):
+            continue
+        names.append(name)
+    return sorted(names)
+
+
 def tier_manifest():
     """This interpreter's manifest: itself, and what is installed for it."""
+    site = sysconfig.get_path("purelib")
     distributions = {}
     for dist in metadata.distributions():
         name = dist.metadata["Name"]
@@ -82,8 +105,9 @@ def tier_manifest():
             # What a virtualenv made by this interpreter runs: itself, or,
             # when it is a virtualenv's, the interpreter that one was made from
             "base": getattr(sys, "_base_executable", None) or sys.executable,
-            "site": sysconfig.get_path("purelib"),
+            "site": site,
         },
+        "namespaces": namespace_packages(site),
         "distributions": [distributions[name] for name in sorted(distributions)],
     }
 

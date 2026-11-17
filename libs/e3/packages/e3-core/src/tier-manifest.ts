@@ -9,9 +9,10 @@
  *
  * A runtime image writes its manifest when it is built
  * (`docker/images/tier-manifest.py`): its interpreter, the base interpreter a
- * virtualenv over it runs, its site directory, and each distribution
- * installed for it, by name, version and the digest of the files it
- * installed. A manifest is named by the SHA-256 of its bytes.
+ * virtualenv over it runs, its site directory, the namespace packages of
+ * that directory, and each distribution installed for it, by name, version
+ * and the digest of the files it installed. A manifest is named by the
+ * SHA-256 of its bytes.
  *
  * @packageDocumentation
  */
@@ -44,6 +45,13 @@ export interface TierManifest {
     /** The directory its distributions are installed in, absolute */
     readonly site: string;
   };
+  /**
+   * The namespace packages of its site directory: each directory at its top
+   * that holds no `__init__` module, sorted. Python reads such a package
+   * from every directory on its path that holds a part of it, so its parts
+   * may be left to the tier singly ({@link leftToTier}).
+   */
+  readonly namespaces: readonly string[];
   /** The distributions installed for it, sorted by name */
   readonly distributions: readonly TierDistribution[];
 }
@@ -165,7 +173,7 @@ export function readTierManifest(bytes: Uint8Array): TierManifest {
   } catch {
     throw new Error('the tier manifest is not JSON');
   }
-  const fields = value as { version?: unknown; python?: Record<string, unknown>; distributions?: unknown } | null;
+  const fields = value as { version?: unknown; python?: Record<string, unknown>; namespaces?: unknown; distributions?: unknown } | null;
   if (typeof fields !== 'object' || fields === null || fields.version !== 1) {
     throw new Error('the tier manifest is not of the form this e3 reads (version 1)');
   }
@@ -175,6 +183,11 @@ export function readTierManifest(bytes: Uint8Array): TierManifest {
     return field;
   };
   if (typeof python !== 'object' || python === null) throw new Error('the tier manifest names no interpreter');
+  // Each a directory's name: what a tier does not say of its packages is not guessed
+  const namespaces: unknown = fields.namespaces;
+  if (!Array.isArray(namespaces) || !namespaces.every((name: unknown): name is string => typeof name === 'string' && name !== '' && !/[/\\]/.test(name))) {
+    throw new Error('the tier manifest names no namespace packages');
+  }
   if (!Array.isArray(fields.distributions)) throw new Error('the tier manifest lists no distributions');
   return {
     version: 1,
@@ -184,6 +197,7 @@ export function readTierManifest(bytes: Uint8Array): TierManifest {
       base: text(python.base, 'base interpreter'),
       site: text(python.site, 'site directory'),
     },
+    namespaces,
     distributions: fields.distributions.map((entry: unknown): TierDistribution => {
       const { name, version, files } = (entry ?? {}) as Record<string, unknown>;
       return { name: canonicalDistributionName(text(name, 'distribution\'s name')), version: text(version, 'distribution\'s version'),
@@ -222,13 +236,24 @@ export interface InstalledDistribution {
  * shares a package with one the tier does not.
  *
  * @remarks
- * Python finds a package in the first directory on its path that holds it,
- * and looks no further for the package's modules. So distributions that
- * install into one top-level package — a family that shares `nvidia/`, say —
- * are left to the tier together or not at all: were one left and another
- * kept, the environment's part of the package would hide the tier's. They
- * are grouped by the top-level names their files have in the site directory,
- * and a group is left only when the tier holds every distribution of it.
+ * Python finds a package that has an `__init__` module in the first
+ * directory on its path that holds it, and looks no further for the
+ * package's modules. So distributions that install into one such package are
+ * left to the tier together or not at all: were one left and another kept,
+ * the environment's part of the package would hide the tier's.
+ *
+ * A namespace package, which has no `__init__` module, is read from every
+ * directory that holds a part of it, so its parts may be in two places.
+ * Distributions that share one are bound a level down: by the directory, or
+ * the module, directly in it. A top-level package is taken for a namespace
+ * package only when it is one on both sides: the tier's manifest names it
+ * ({@link TierManifest.namespaces}), and no distribution here installs an
+ * `__init__` module in it. The tier's word is needed because it may hold a
+ * distribution this environment does not, whose `__init__` module would make
+ * the package an ordinary one there, and hide the part shipped here.
+ *
+ * Distributions are grouped by what they share, and a group is left only
+ * when the tier holds every distribution of it.
  *
  * @param installed - The environment's distributions
  * @param manifest - The tier's manifest
@@ -238,20 +263,29 @@ export interface InstalledDistribution {
  * const shipped = installed.filter(({ name }) => !left.has(canonicalDistributionName(name)));
  */
 export function leftToTier(installed: readonly InstalledDistribution[], manifest: TierManifest): Set<string> {
-  // Each distribution's group, by the top-level names it shares with others
+  // Each distribution's files in the site directory, as path segments.
+  // Left out: its own metadata, and compiled files, whose directory every
+  // module beside it shares
+  const files = installed.map((distribution) => recordedSiteFiles(distribution.record).map(({ file }) => file.split('/'))
+    .filter((parts) => !parts[0]!.endsWith('.dist-info') && !parts.includes('__pycache__')));
+  // A package some distribution here gives an `__init__` module is an ordinary one
+  const ordinary = new Set<string>();
+  for (const parts of files.flat()) if (parts.length === 2 && parts[1]!.startsWith('__init__.')) ordinary.add(parts[0]!);
+  const namespaces = new Set(manifest.namespaces.filter((name) => !ordinary.has(name)));
+
+  // Each distribution's group, by what it shares with others: a top-level
+  // name, or, in a namespace package, what is directly in it
   const group = installed.map((_, i) => i);
   const find = (i: number): number => {
     while (group[i] !== i) i = group[i] = group[group[i]!]!;
     return i;
   };
   const owner = new Map<string, number>();
-  for (const [i, distribution] of installed.entries()) {
-    for (const { file } of recordedSiteFiles(distribution.record)) {
-      const top = file.split('/')[0]!;
-      // Its own metadata, and compiled files, which every module's share a directory for
-      if (top.endsWith('.dist-info') || top === '__pycache__') continue;
-      const first = owner.get(top);
-      if (first === undefined) owner.set(top, i);
+  for (const [i, paths] of files.entries()) {
+    for (const parts of paths) {
+      const shared = parts.length > 1 && namespaces.has(parts[0]!) ? `${parts[0]!}/${parts[1]!}` : parts[0]!;
+      const first = owner.get(shared);
+      if (first === undefined) owner.set(shared, i);
       else group[find(i)] = find(first);
     }
   }

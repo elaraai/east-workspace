@@ -50,6 +50,7 @@ Each python runtime image (`docker/images/Dockerfile.east-py`,
   "version": 1,
   "python": { "version": "3.11.2", "executable": "/opt/venv/bin/python", "base": "/usr/bin/python3",
               "site": "/opt/venv/lib/python3.11/site-packages" },
+  "namespaces": ["cuda", "nvidia"],
   "distributions": [
     { "name": "elaraai-east-py", "version": "1.0.109", "files": "sha256:9c1f…" },
     { "name": "torch", "version": "2.9.0+cu130", "files": "sha256:41be…" }
@@ -62,6 +63,9 @@ Each python runtime image (`docker/images/Dockerfile.east-py`,
   installs more writes it again: the datascience image's is its own.
 - `base` is the interpreter a virtualenv made over the tier runs: the one the
   image's own virtualenv was made from.
+- `namespaces` is each directory at the top of the site directory that holds
+  no `__init__` module: its namespace packages, whose parts an environment
+  may leave to the tier singly (section 7).
 - A manifest's **digest** is the SHA-256 of its bytes.
 - The node and C tiers write none: this change is python environments.
 
@@ -112,10 +116,11 @@ With one:
 2. Each installed distribution the manifest holds as the same (3.2) is
    removed from the site directory, with its `.dist-info`. Its scripts stay:
    they run on the environment's interpreter, which finds the distribution
-   in the tier. Distributions that install into one top-level package (a
-   family that shares `nvidia/`, say) are left to the tier together or not at
-   all: Python finds a package in the first directory that holds it, so a
-   part that ships would hide the part left behind.
+   in the tier. Distributions that install into one package with an
+   `__init__` module are left to the tier together or not at all: Python
+   finds such a package in the first directory that holds it, so a part that
+   ships would hide the part left behind. A namespace package's parts are
+   left singly (section 7).
 3. The virtualenv is pointed at the tier: `pyvenv.cfg`'s `home` names the
    directory of the tier's base interpreter, and one `.pth` file in the
    environment's site directory adds the tier's with `site.addsitedir`, so the
@@ -286,18 +291,18 @@ and not a copy of it.
   machine asks the hub and keeps nothing on disk, since a manifest is only
   of use while a rack reports it.
 
-## 7. Proposed: the parts of a namespace package are left singly
+## 7. The parts of a namespace package are left singly
 
-Status: **proposed 17 Nov 2026. Not approved, and not built.** It changes
-step 2 of 3.3 and the manifest of 3.1, and is asked now because no image has
-shipped a manifest yet: the manifest's form is still free to change.
+Status: **approved 17 Nov 2026, and built.** It changed step 2 of 3.3 and the
+manifest of 3.1, while no image had shipped a manifest and its form was
+still free to change.
 
 ### 7.1 The fault, measured
 
-Distributions that install into one top-level package are left to the tier
-together or not at all (3.3 step 2). The rule is right for a package with an
-`__init__.py`, which Python reads from the first directory that holds it. It
-costs most where it is not needed.
+As first built, distributions that installed into one top-level package were
+left to the tier together or not at all. The rule is right for a package with
+an `__init__.py`, which Python reads from the first directory that holds it.
+It cost most where it was not needed.
 
 torch's NVIDIA libraries all install into `nvidia/`: 15 distributions, 3.20 GB
 installed, in the lock of 17 Nov 2026 for Linux x86_64. xgboost brings one
@@ -348,15 +353,15 @@ directly under it.
 
 | Two distributions of the environment | Left to the tier |
 |---|---|
-| Share a top-level package that has an `__init__` module | Together or not at all, as today |
-| Share a top-level directory the tier does not name a namespace | Together or not at all, as today |
+| Share a top-level package that has an `__init__` module | Together or not at all |
+| Share a top-level directory the tier does not name a namespace | Together or not at all |
 | Share `nvidia/` only: `nvidia/cudnn` and `nvidia/nccl` | Each on its own |
 | Share `nvidia/nccl`: xgboost's and torch's | Together or not at all |
 | Share a namespace package inside a namespace package | Together or not at all: one level is read |
 
 ### 7.4 What it changes for a project
 
-| The project, with no constraint of its own | Today | With this |
+| The project, with no constraint of its own | As first built | With this |
 |---|---|---|
 | torch and xgboost | All 16 NVIDIA distributions ship: about 3.6 GB installed | The two that share `nvidia/nccl` ship: about 0.7 GB. The other 14 stay in the tier |
 | torch | `cuda-bindings` ships with `cuda-pathfinder`: 31 MB | `cuda-pathfinder` ships alone |
@@ -374,8 +379,19 @@ directly under it.
   one the tier's build and one not. The first is left, the second ships, and
   both import, each from its own directory.
 
-### 7.6 Decisions asked
+### 7.6 Decisions (approved 17 Nov 2026)
 
 1. The manifest gains `namespaces`, required, in version 1.
 2. Inside a namespace package, distributions are bound one level down; a
    namespace inside a namespace stays bound at that level.
+
+### 7.7 What building it changed
+
+- **An `__init__` module is any file named `__init__.`**, an extension
+  module's included (`__init__.cpython-311-….so`), on both sides.
+- **Compiled files bind nothing**, at any depth: a `__pycache__` directly in
+  a namespace package would otherwise bind every module beside it.
+- **The end-to-end test uses two real distributions** that share a namespace
+  package, `jaraco.classes` and `jaraco.functools`: the tier's build of one is
+  left, another version of the other ships, and both import, each from its
+  own directory.

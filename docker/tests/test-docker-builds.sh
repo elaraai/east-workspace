@@ -77,7 +77,7 @@ docker build -f docker/images/Dockerfile.east-py $(pin EAST_PY_VERSION) -t test-
 runs test-east-py-$$ east-py version
 runs test-east-py-$$ python3 -c "import east, east_py_std, east_py_io"
 # Its tier manifest names what it holds, for an environment built over it
-runs test-east-py-$$ python3 -c "import json; m = json.load(open('/opt/e3/tier-manifest.json')); names = [d['name'] for d in m['distributions']]; assert m['version'] == 1 and m['python']['executable'] == '/opt/venv/bin/python' and m['python']['base'].startswith('/usr/') and 'elaraai-east-py-std' in names and 'elaraai-east-py-datascience' not in names, names"
+runs test-east-py-$$ python3 -c "import json; m = json.load(open('/opt/e3/tier-manifest.json')); names = [d['name'] for d in m['distributions']]; assert m['version'] == 1 and m['python']['executable'] == '/opt/venv/bin/python' and m['python']['base'].startswith('/usr/') and isinstance(m['namespaces'], list) and 'east' not in m['namespaces'] and 'elaraai-east-py-std' in names and 'elaraai-east-py-datascience' not in names, names"
 echo "[OK] Dockerfile.east-py (builds + east-py runs + tier manifest)"
 
 # Test 4: east-py-datascience FROM the image test 3 just built (BASE_IMAGE

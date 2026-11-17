@@ -110,7 +110,7 @@ async function fixture(options: RackHubOptions = {}, port = 0, overrides: Partia
 /** A tier image's manifest, as its script writes it, of the Python and the
  *  distributions given: its text, and its digest. */
 function tierImage(python = '3.11.2', distributions: Array<{ name: string; version: string; files: string }> = []): { text: string; digest: string } {
-  const text = `${JSON.stringify({ distributions, python: { base: '/usr/bin/python3', executable: '/opt/venv/bin/python',
+  const text = `${JSON.stringify({ distributions, namespaces: [], python: { base: '/usr/bin/python3', executable: '/opt/venv/bin/python',
     site: '/opt/venv/lib/python3.11/site-packages', version: python }, version: 1 })}\n`;
   return { text, digest: tierManifestDigest(new TextEncoder().encode(text)) };
 }
