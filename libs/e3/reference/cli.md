@@ -25,7 +25,7 @@ a task is `<ws>.<task>` and a mutation `<record>.<mutation>`.
 | `… [--schema <policy>] [--inputs <policy>] [--allow-drop-records] [--plan] [--skip-file-sources] [-j <n>] [--memory <size>] [--quiet]` | A record's policy, an input's, and `file` sources; says how far it has got (below), `--quiet` aside. `-j`: the `file` sources taken in at once, and the runner processes their intake units, the migrations and the index builds run on, and with `--from-source` the workspace packages exporting their functions at once; `--memory`: what those may reserve (local). |
 | `e3 workspace export [repo] <ws> <zip> [--name <n>] [--version <v>]` | The workspace's state as a package. |
 | **Datasets** | |
-| `e3 dataset get [repo] <ws.name> [-f east\|json\|beast2]` | Print a value. |
+| `e3 dataset get [repo] <ws.name> [-f east\|json\|beast2]` | Print a value. `-f beast2` writes it to stdout as it is stored — a collection's segments spliced as they are read — decoding nothing and never holding it whole, for `dataset set --from-file` to take back. |
 | `e3 dataset set [repo] <ws.name> <file> [--type <spec> \| --type-file <path>]` | Write from `.east`, `.beast2`, `.json` or `.csv` (JSON and CSV need the type). |
 | `e3 dataset set [repo] <ws.name> --from-file <path.beast2> [-j <n>] [--memory <size>]` | Take a beast2 file in as the value, as a deploy takes a `file` source in, saying how far it has got; `-j`, `--memory`: the budget its intake units run under (local). |
 | `e3 dataset list [repo] <ws> [-l]` · `status [repo] <ws.name>` · `find [repo] <ws> <pattern>` | Paths (`-l`: kind, type, status, size) · one dataset · by substring or glob. |
@@ -40,7 +40,8 @@ a task is `<ws>.<task>` and a mutation `<record>.<mutation>`.
 | **Records** (`-w <ws>` required) | |
 | `e3 mutate <repo> <record.mutation> [args…] -w <ws> [-j <n>] [--memory <size>] [-v]` | Apply a mutation. |
 | `e3 seed <repo> <record> <file.beast2> -w <ws> [-j <n>] [--memory <size>]` | Commit a record's first state from a beast2 file, as its `$init`: for a record declared with no initial value, unassigned until then (local). The file is taken in as a `file` source is, never read whole; a record that holds a state is refused. |
-| `e3 history <repo> <record> -w <ws> [--limit <n>] [--from <hash>] [--delta]` | Commits, newest first (`--delta`: what each changed, per target — a summary's totals added to as `±n`; local). |
+| `e3 load <repo> <record>.<source> <delivery> -w <ws> [--as-of <time>] [-j <n>] [--memory <size>]` | Load a delivery into an external source of a composite record: a `.beast2` file of the source's delivery type, checked against it and never read whole or modified, or `#<hash>`, a value the repository holds. Committed once, as `$load:<source>`, saying how far it has got; `--as-of` (`2026-11-02T03:00:00`, UTC): a delivery older than the source's is not loaded. Against a server the file is uploaded as an object and the load runs as a job the command follows, which Ctrl-C asks to cancel (exit 130) (reference/record-composite.md). |
+| `e3 history <repo> <record> -w <ws> [--limit <n>] [--from <hash>] [--delta]` | Commits, newest first; a load's says what it loaded, its delivery, as-of and counts (`--delta`: what each changed, per target — a summary's totals added to as `±n`; local). |
 | `e3 reindex <repo> <record> -w <ws> [--index <name>] [-j <n>] [--memory <size>]` · `e3 compact <repo> <record> -w <ws>` | Rebuild indexes (local) · collapse the history to a `$compact` root, the state kept. |
 | **Development** | |
 | `e3 watch <src.ts> <repo> <ws> [--start] [--schema <p>] [--inputs <p>] [--abort-on-change] [--functions <manifest…>] [-j <n>] [--memory <size>]` | Redeploy on each change (and run, with `--start`). |
@@ -66,7 +67,7 @@ packages its imported functions come from `-j` at a time, a process each, on
 this machine; against a server, as many at once as this machine has CPUs. The
 commands that run East — `workspace deploy`,
 `dataset set --from-file`, `dataflow run`, `run`, `call`, `mutate`, `seed`,
-`reindex` and `watch` — take the flags for a local repository; against a server the CLI
+`load`, `reindex` and `watch` — take the flags for a local repository; against a server the CLI
 refuses them, since the server runs the work under its own budget
 (`e3-api-server -j`, `--memory`).
 

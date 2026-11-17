@@ -83,3 +83,89 @@ keeps it right:
 A record's description names each source — whether its load alone writes it,
 what it is delivered, its last delivery, and whether the record still waits
 for its first (`recordDescribe` in e3-core, the describe route's `sources`).
+
+## Loading a delivery
+
+```
+$ e3 load . orders.erp ./erp-orders.beast2 -w main --as-of 2026-11-02T03:00:00
+Taking the delivery in… done
+Pieces 37/37
+Loaded orders.erp at 3f2a9c1e5d7b, as of 2026-11-02T03:00:00.000: 1,204 set, 31 deleted, 98,112 unchanged
+
+$ e3 load . orders.erp '#<sha256 of erp-orders.beast2>' -w main      # the same delivery, by its hash
+orders.erp already holds this delivery, loaded at 3f2a9c1e5d7b
+
+$ e3 load . orders.erp ./erp-orders-1-nov.beast2 -w main --as-of 2026-11-01T03:00:00
+orders.erp holds a delivery as of 2026-11-02T03:00:00.000, later than this one's 2026-11-01T03:00:00.000: nothing loaded (superseded)
+```
+
+- **The delivery** is a `.beast2` file of the source's delivery type, or
+  `#<hash>`: a value the repository holds, by its SHA-256 in 64 lowercase hex
+  digits. A file is checked against the type, then stored as the object its
+  bytes are, never read whole or modified — against a server, uploaded so — so
+  a file and its hash name the same delivery.
+- **One commit.** The load takes the delivery in, runs the source's load over
+  it and the source's entries in pieces, each cached, and commits once, as
+  `$load:<source>`. Saves of the solution's own entries that land meanwhile
+  do not hold it up: its commit applies over them. One that finds the source's
+  entries changed under it — a rollback, a restore, a migration — goes back to
+  its pieces, those that did not change from the cache: `Loading again: the
+  entries of source 'erp' changed under its load`.
+- **In turn.** One source's loads apply one at a time, in the order asked; a
+  load asked while another runs says `Waiting for an earlier load of orders.erp
+  to finish…`.
+- **`--as-of <time>`**, as East writes a time, in UTC: a delivery older than
+  the source's last is answered `superseded`, and nothing runs. The source
+  keeps the latest as-of any of its deliveries carried.
+- **A deploy or an export** of the workspace stops a load while it runs, and
+  the load goes on once it is done: `Stopped: a deploy of main started. The
+  load goes on once the deploy is done…`. A removal of the workspace, or a
+  copy onto it, fails the load: `a copy onto main replaced the workspace:
+  nothing loaded`.
+- **Ctrl-C** asks the load to cancel, and follows it to its end: `Cancelling
+  the load…`, then `Cancelled: nothing loaded.` (exit 130), or what the load
+  did, when its commit had written. A second Ctrl-C stops following a
+  server's load, which goes on.
+- **Refused** before anything is stored or sent: a record or source the
+  workspace does not hold, a source of the solution's own, and a file of
+  another type, each named.
+
+`e3 history` says what a load's commit loaded, and `--delta` what it changed,
+per target, as a mutation's:
+
+```
+3f2a9c1e5d7b  $load:erp           cli:ada           2026-11-02T03:00:12.000Z  delivery 5e7a3b0c9d1f as of 2026-11-02T03:00:00.000: 1,204 set, 31 deleted, 98,112 unchanged
+```
+
+## Rollbacks, restores and compactions
+
+- A **rollback** forgets each delivery it undoes: its source names no last
+  delivery, though the record may hold an earlier delivery's entries again.
+  One that undoes a source's first delivery leaves the record waiting for it
+  again; a later rollback to a state holding the source's entries ends the
+  wait, the delivery still forgotten. A delivered source is loaded again when
+  it is sent again.
+- A **restore** forgets every source's delivery, and the record waits for
+  each external source the restored state holds no entry of.
+- A **compaction** keeps each source's last delivery, and its as-of: the
+  commit that applied it is cut from the chain, so the source names none.
+
+## From code
+
+```ts
+import { none, some } from '@elaraai/east';
+import { objectUpload, workspaceRecordLoad } from '@elaraai/e3-api-client';
+
+// A file is sent as the object it is (its bytes, size and SHA-256: a DatasetTransferSource), writing no ref
+const delivery = await objectUpload(url, 'repo', 'main', file, { token });
+const loaded = await workspaceRecordLoad(url, 'repo', 'main', 'orders', 'erp',
+  { delivery, actor: none, asOf: some(new Date('2026-11-02T03:00:00Z')) }, { token },
+  { onProgress: (progress) => console.log(progress.type), signal });
+// loaded.outcome: loaded, again or superseded; loaded.set, .deleted, .unchanged
+```
+
+The load runs on the server as a job, which `workspaceRecordLoad` follows to
+its end; an abort of `signal` asks the job to cancel, and follows it to the
+end it writes. In a process of its own, e3-core's `recordLoad(storage, runner,
+repo, ws, record, source, delivery, { actor, asOf, onProgress, signal })` runs
+the same load over a delivery the store holds.

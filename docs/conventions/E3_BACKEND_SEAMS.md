@@ -40,8 +40,8 @@ rest: the logic, the routes and the tests.
 | `TaskRunner` | e3-core `execution/interfaces.ts` | runs a task, a unit of a split task, or a detached call; takes a delivered collection in, or a run of its segments, through an intake unit, and says the largest delivery it takes in whole; says whether an execution recorded `running` can still finish | `LocalTaskRunner`, and `MockTaskRunner` for tests | `WebTaskRunner`: every unit on a pool of Web Workers (`UnitPool`), each running east's `executeUnit` |
 | `ExecutionStateStore` | e3-core `dataflow/state-store/interfaces.ts` | a dataflow run's state, and its events kept apart from it — a write of the state appends the run's new ones, a segment at most rewritten, and a poll reads those past its cursor, never the state — and every run of a repository as stored, which an upgrade step rewrites (`readStored`, `writeEvents`) | `FileStateStore`, `InMemoryStateStore`, over the shared segments (`dataflow/state-store/events.ts`) | `WebStateStore`, in IndexedDB, a record per segment |
 | `DataflowOrchestrator` | e3-core `dataflow/orchestrator/interfaces.ts` | starts, polls, cancels and resumes a run, and wakes one in flight (`wake`) | `LocalOrchestrator`, over the storage, state store and runner it is given | `LocalOrchestrator`, as it is: its host's owner is the tab's session |
-| `TransferBackend` | e3-core `transfer/interfaces.ts` | uploads and downloads, an upload's commit, and the jobs that outlast a request: import, export, deploy, gc, split calls; and where a call of a named function runs, and what is heard of its end (`functionCalls`, a `FunctionCallDispatch`) | `InMemoryTransferBackend`, the local server's; its calls run in its process (`InProcessFunctionCallDispatch`) | `WebTransferBackend`: staging in OPFS, each job's status a record in IndexedDB; its calls run in the e3 worker (`InProcessFunctionCallDispatch`) |
-| The route factories | e3-api-server `routes/`, `middleware/repository.ts` | every route, and the gate a request to a repository passes; who may run what through one-shot, and load through a function call's runner override (`OneShotAccess`) | `createServer` mounts them over the local seams | `serveE3` mounts them in the e3 worker (`createWebApp`), with the host's `OneShotAccess` |
+| `TransferBackend` | e3-core `transfer/interfaces.ts` | uploads and downloads, an upload's commit, an upload that writes no ref (`objectUpload`), and the jobs that outlast a request: import, export, deploy, gc, split calls, loads into a composite record's source (`recordLoad`); and where a call of a named function runs, and what is heard of its end (`functionCalls`, a `FunctionCallDispatch`) | `InMemoryTransferBackend`, the local server's; its calls run in its process (`InProcessFunctionCallDispatch`) | `WebTransferBackend`: staging in OPFS, each job's status a record in IndexedDB; its calls run in the e3 worker (`InProcessFunctionCallDispatch`) |
+| The route factories | e3-api-server `routes/`, `middleware/repository.ts` | every route, and the gate a request to a repository passes; who may run what through one-shot, and load through a function call's runner override (`OneShotAccess`); who may load a delivery into a record's source, cancel a load, or upload an object for one (`LoadAccess`) | `createServer` mounts them over the local seams | `serveE3` mounts them in the e3 worker (`createWebApp`), with the host's `OneShotAccess` |
 
 **What only a backend knows is a method it implements**, never a check in
 shared code. Whether an execution can still finish is
@@ -329,6 +329,42 @@ state) and the refusal of a function's call over such a record
 host that runs its own loop in place of the shared class takes the steps as
 they are: `stepPrepareTask` answers each input a task cannot read with why
 (`InputWait`), and `stepTasksWaiting` takes them.
+
+**A load is a job every backend shares, and only the job writes its end.** A
+load of a delivery into an external source of a composite record (e3-core's
+`recordLoad`) waits its turn among the source's loads and runs as long as its
+delivery is large, so it runs as a job: the records routes
+(`createRecordLoadRoutes`) file it in the transfer backend's store
+(`TransferBackend.recordLoad`, a `RecordLoadStore`), which runs it where it
+chooses, by the job every backend shares (`handleProcessRecordLoad`). Its
+record holds names and hashes, never the delivery, which is an object the
+repository holds — sent, when it is a file, by an upload that writes no ref
+(`TransferBackend.objectUpload`, an `ObjectUploadStore`, through
+`createObjectUploadRoutes`): the dataset upload's protocol, whose commit
+stores the bytes as the object they hash to and points nothing at it. One
+source's loads apply one at a time, in the order asked: a store runs each
+source's jobs in the order they were made, and the load takes its turn by a
+lock of its own, `<ws>#load~<record>~<source>` (`loadQueueLock`), which the
+lock service takes as it takes `<ws>#dataflow`, so loads in two processes
+take turns too. A load holds the repository's running work from when it is
+dispatched, so no sweep takes its delivery while it waits, and the workspace
+shared from its intake to its commit, as a Save holds it; it lets the
+workspace go when a deploy or an export announces itself on the workspace's
+intent, and goes on once that is done. A cancel records a request on the job
+(`RecordLoadStore.cancel`), which the job reads once a second
+(`LOAD_CANCEL_POLL_MS`): it ends `cancelled` when it stops before its commit
+writes the record's ref, and `completed` once the commit has written. Only the
+job writes an end, and `updateStatus` records a status only while the job has
+not ended, checking and writing in one atomic step, as a split call's store
+does. Who may load, cancel a load, or upload an object for one is the host's
+rule, which the routes ask before they act (`LoadAccess`, with `load`,
+`cancel` or `upload`), as the function routes ask `draftAccess`: none allows a
+caller what its mutate route would not. The local server and e3-web pass
+`allowEveryLoad`. e3-web keeps each job and upload as a record of its own kind
+in IndexedDB, and its sweep records one a closed tab left unfinished failed,
+as it does every job. A store's behaviour is `recordLoadStoreTests` and
+`objectUploadStoreTests`; a route's, the `records-load` and `object-upload`
+suites of e3-api-tests, and `e3 load` against a server, `cliTests`.
 
 **A route factory takes its seams as arguments.** Each is exported from
 e3-api-server and given the storage, a repository's identifier from its name,

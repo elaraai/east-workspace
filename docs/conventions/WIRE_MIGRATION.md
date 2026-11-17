@@ -1523,3 +1523,56 @@ Each wire changed under this rule, with the kind it is.
   other's: a client refuses a server's answer of the other release, naming
   both types, and `e3`, e3-ui and the server they call are of one release, as
   they were. No store keeps a signature.
+- **A load's commit records what it loaded** — stored state; new. A load into
+  an external source of a composite record commits as `$load:<source>`, its
+  `args` a tuple of one `RecordLoadArgsType` value, as a mutation's arguments
+  are a tuple: the delivery's hash, the hash of the load object it ran under,
+  the time the delivery says its data is as of, whether it was the source's
+  first delivery (which a rollback or a restore that undoes the commit reads),
+  the execution that made its delta, and how many entries it set, deleted and
+  left as they were. The commit's own form (`RecordCommitType`) does not
+  change, and nothing an earlier release wrote is a load's commit. The
+  record's ref names the source's last delivery under reserved keys of its
+  version vector (`$load.<source>`, and its `.load`, `.commit`, `.execution`
+  and `.asOf`), as it names `$pending`: the vector's type does not change, and
+  a commit that owns none of them carries each as it is. So no repository
+  upgrade step ships. `e3 history` reads a load commit's arguments whole, by
+  their hash, for its words, since a history's preview cuts a value's text.
+- **A load is asked for, followed and cancelled through the API** — the
+  records routes' requests and answers; new. `POST
+  /repos/:repo/workspaces/:ws/records/:record/loads/:source` takes a
+  `RecordLoadRequestType` — the stored hash of the delivery, which never
+  travels by value, who asks, and the time the delivery is as of — and answers
+  the job's id (`PackageJobResponseType`, as a package job's start does). A
+  poll of `…/loads/:source/:id`, and a cancel (`…/:id/cancel`), which records
+  a request the job acts on, answer the job's `RecordLoadStatusType`:
+  `processing`, with how far the load has got once it has said
+  (`RecordLoadProgressType`: `queued`, `intake`, `pieces`, `commit`,
+  `restarted`, and `stopped`, which carries in words what stopped it), or one
+  of its ends, which the job never leaves — `completed` with what the load did
+  (`RecordLoadResultType`), `failed` with why, or `cancelled`. The routes and
+  their types are new, so no answer an earlier release gave changes, and
+  `e3 load` and the server it calls are of one release.
+- **An upload that writes no ref** — the objects routes; new routes over the
+  dataset upload's forms. `POST /repos/:repo/workspaces/:ws/objects` takes the
+  dataset upload's request (`TransferUploadRequestType`: the bytes' SHA-256
+  and size) and answers as it does (`TransferUploadResponseType`): `completed`
+  when the repository holds the object already, or the parts to send. Its
+  parts and its commit (`…/objects/upload/:id`) are the dataset upload's
+  protocol, the commit and its poll answering a `TransferDoneResponseType`.
+  The commit stores the bytes as the object they hash to, for a load's
+  delivery to name, and points nothing at it. No form changes.
+- **A load's job and an upload that writes no ref are kept by the transfer
+  backend** — a job store's records; new kinds. e3-core's `RecordLoadJobType`
+  keeps a load's job: its repository, workspace, record and source, the
+  delivery's hash, who asked, the delivery's as-of, a request to cancel it once
+  one is made (`FunctionCallCancelType`, who asked and when), the status a poll
+  reads (`RecordLoadStatusType`) and when it was made. `ObjectUploadJobType`
+  keeps an upload that writes no ref, and `ObjectCommitStatusType` how its
+  commit stands. The in-memory transfer backend, the local server's, keeps
+  them in its process; e3-web keeps each in its records adapter, IndexedDB in a
+  browser, under a kind of its own (`load`, `object`) beside the kinds it had;
+  another backend keeps them in its own store (`RecordLoadStore`,
+  `ObjectUploadStore`). Nothing an earlier release wrote is one, so no upgrade
+  step ships. A job's status is the poll's answer, so a change to either form
+  is a change to the other.

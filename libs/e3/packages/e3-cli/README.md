@@ -109,7 +109,7 @@ then what the server's commit is doing with it.
 Dataset paths use the flat form `<ws>.<name>`. The CLI resolves `<name>` against inputs and task outputs automatically.
 
 ```bash
-e3 dataset get <repo> <ws.name> [-f east|json|beast2]
+e3 dataset get <repo> <ws.name> [-f east|json|beast2]   # -f beast2: the value as stored, streamed to stdout, never held whole
 e3 dataset set <repo> <ws.name> <file> [--type <spec>] [--type-file <path>]
 e3 dataset set <repo> <ws.name> --from-file <path.beast2> [-j <n>] [--memory <size>]   # Take a beast2 file in as the value, as a deploy does
 e3 dataset list <repo> <ws> [-l]                # List dataset paths (with -l for table view)
@@ -126,10 +126,19 @@ refused — and `-w` names the workspace that holds it. Read its state with
 ```bash
 e3 mutate <repo> <record.mutation> [args...] -w <ws> [-v]    # Apply a mutation; args are .east literals or .beast2/.json/.east files
 e3 seed <repo> <record> <file.beast2> -w <ws> [-j <n>] [--memory <size>]   # Commit a record's first state from a beast2 file, as its $init (a record declared with no initial value; local repositories)
+e3 load <repo> <record.source> <file.beast2|#hash> -w <ws> [--as-of <time>] [-j <n>] [--memory <size>]   # Load a delivery into an external source of a composite record, committed once as $load:<source>
 e3 history <repo> <record> -w <ws> [--limit <n>] [--from <hash>] [--delta]   # The commit chain, newest first (--delta: local repositories)
 e3 reindex <repo> <record> -w <ws> [--index <name>]          # Rebuild an index from the record (every one by default)
 e3 compact <repo> <record> -w <ws>                           # Collapse the history to a $compact root; the state is kept
 ```
+
+`e3 load` takes a `.beast2` file of the source's delivery type, stored as the
+object its bytes are and never read whole, or `#<hash>`, a value the repository
+holds; it says how far it has got, and what it did:
+`Loaded orders.erp at 3f2a9c1e5d7b, as of 2026-11-02T03:00:00.000: 1,204 set,
+31 deleted, 98,112 unchanged`. Against a server the file is uploaded as an
+object and the load runs as a job the command follows, which Ctrl-C asks to
+cancel (exit 130). `e3 history` says what a load's commit loaded.
 
 ### Tasks
 
@@ -175,7 +184,8 @@ Windows each stage runs its first unit alone and then fans out. Anything else re
 `e3 watch`, `e3 run`, `e3 call`, `e3 mutate`, `e3 reindex` and
 `e3 workspace deploy` take the same two flags for a local repository, a deploy
 taking its `file` sources in `-j` at a time; `e3 dataset set --from-file` and
-`e3 seed` take both for their intake units. Against a server the CLI refuses them, since the
+`e3 seed` take both for their intake units, and `e3 load` for its intake and
+its pieces. Against a server the CLI refuses them, since the
 server runs the work under its own budget (`e3-api-server -j` / `--memory`).
 
 A local run's per-execution scratch directories are created inside the
