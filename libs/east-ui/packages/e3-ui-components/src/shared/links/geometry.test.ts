@@ -221,6 +221,69 @@ describe("routeRibbon — Plan links.html's case table (#818, #1258)", () => {
     });
 });
 
+describe("routeRibbon — ports, a lane on a rule, and planned places (#1680's review)", () => {
+    /** Three 32px rows, their bars 20px, centred at 16, 48 and 80. */
+    const ROWS = [{ top: 0, bottom: 32 }, { top: 32, bottom: 64 }, { top: 64, bottom: 96 }] as const;
+    const onRow = (x0: number, x1: number, row: 0 | 1 | 2): RibbonEnd => ({ ...bar(x0, x1, 16 + 32 * row), row: ROWS[row] });
+
+    test("l5 · a loopback between rows that are not adjacent runs its lane on the rule above its destination, never across the middle row's bar", () => {
+        expectFigure(routeRibbon(onRow(60, 250, 0), onRow(90, 200, 2), W), {
+            route: "loop",
+            stroke: "M250 16L261 16A8 8 0 0 1 269 24L269 56A8 8 0 0 1 261 64L71 64A8 8 0 0 0 63 72A8 8 0 0 0 71 80L82 80",
+            head: "M82 76L90 80L82 84Z",
+            caption: [166, 67],
+        });
+        // Not knowing the row, the lane is halfway between the bars: 48, the middle row's bar's centre.
+        expect(parse(routeRibbon(bar(60, 250, 16), bar(90, 200, 80), W).stroke).filter((c) => c.c === "L").map((c) => c.n[1])).toContain(48);
+    });
+
+    test("a loopback up into a row runs its lane on the rule below it", () => {
+        const up = routeRibbon(onRow(60, 250, 2), onRow(90, 200, 0), W);
+        expect(up.route).toBe("loop");
+        expect(parse(up.stroke).filter((c) => c.c === "L").map((c) => c.n[1])).toContain(32);
+        expect(up.ly).toBe(35);
+    });
+
+    test("a planned lane, a track in a band, is taken over the rule", () => {
+        const planned = routeRibbon(onRow(60, 250, 0), onRow(90, 200, 2), W, undefined, { lane: 70 });
+        expect(parse(planned.stroke).filter((c) => c.c === "L").map((c) => c.n[1])).toContain(70);
+        expect(planned.ly).toBe(73);
+    });
+
+    test("ports: each end meets its element at its port, the head on the destination's, and a link between two ports on one row is still that row's feed", () => {
+        const s = routeRibbon({ ...bar(16, 110, 16), port: 12 }, { ...bar(224, 300, 80), port: 84 }, W);
+        expect(s.route).toBe("s");
+        expect(parse(s.stroke)[0]!.n).toEqual([110, 12]);
+        expect(samePath(s.head, "M216 80L224 84L216 88Z")).toBe(true);
+        const feed = routeRibbon({ ...bar(16, 110, 48), port: 45 }, { ...bar(180, 290, 48), port: 51 }, W);
+        // Never a diagonal: level out of its port, a step across before the approach (161 = the neck 172 less the run-out), level into the head.
+        expectFigure(feed, {
+            route: "feed",
+            stroke: "M110 45L158 45A3 3 0 0 1 161 48L161 48A3 3 0 0 0 164 51L172 51",
+            head: "M172 47L180 51L172 55Z",
+            caption: [141, 32],
+        });
+    });
+
+    test("a one-row link's caption, and an S's, sit where the plan centres them: 3 below the centre, as on a lane", () => {
+        expect(routeRibbon(bar(16, 110, 48), bar(180, 290, 48), W, undefined, { caption: 26 }).ly).toBe(29);
+        expect(routeRibbon(bar(16, 190, 48), bar(150, 290, 48), W, undefined, { caption: 26 }).ly).toBe(29);
+        expect(routeRibbon(bar(16, 110, 16), bar(224, 300, 80), W, undefined, { caption: 60 }).ly).toBe(63);
+        // Unplanned, as before: 6 above the source bar, and on the riser at mid-height.
+        expect(routeRibbon(bar(16, 110, 48), bar(180, 290, 48), W).ly).toBe(32);
+        expect(routeRibbon(bar(16, 110, 16), bar(224, 300, 80), W).ly).toBe(51);
+    });
+
+    test("at the plot's edge a planned lane between the facing edges is taken; one past the head's base is not", () => {
+        const PLOT: RibbonBounds = { left: 0, right: 315 };
+        const taken = routeRibbon(bar(0, 120, 16), bar(0, 160, 80), 2, PLOT, { lane: 50 });
+        expect(parse(taken.stroke).filter((c) => c.c === "L").map((c) => c.n[1])).toContain(50);
+        // The head's base, dropping onto the destination's top at 70, is at 62: a lane at 66 would turn the head upside down.
+        const refused = routeRibbon(bar(0, 120, 16), bar(0, 160, 80), 2, PLOT, { lane: 66 });
+        expect(parse(refused.stroke).filter((c) => c.c === "L").map((c) => c.n[1])).not.toContain(66);
+    });
+});
+
 describe("routeRibbon — weight (#1258)", () => {
     test("the stroke is the weight, and the head 8 long and max(8, 2 × weight) wide", () => {
         for (const [weight, half] of [[1.5, 4], [2, 4], [4, 4], [8, 8]] as const) {

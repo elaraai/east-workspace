@@ -45,8 +45,9 @@ import { PLAN_CELL_INSET, type PlanGeometry } from "../geometry.js";
 import type { RowKey } from "../plan-state.js";
 import { quantityText } from "../quantity.js";
 import type { PlanWords } from "../words.js";
-import { routeRibbon, type RibbonEdgeSlot, type RibbonEnd, type RibbonOff, type RibbonPath } from "../../shared/links/geometry.js";
-import { placeCaptions, ribbonWeight } from "../../shared/links/captions.js";
+import type { RibbonEdgeSlot, RibbonEnd, RibbonOff, RibbonPath, RibbonRouteOptions } from "../../shared/links/geometry.js";
+import { ribbonWeight } from "../../shared/links/captions.js";
+import { routeLinks } from "../../shared/links/route.js";
 
 // The weight, the caption measures and the off-window slot are the shared
 // link parts' (#1321).
@@ -254,6 +255,8 @@ export interface RibbonLayoutInput {
     viewport: RibbonViewport | undefined;
     /** The canvas's words — a caption prints the link's quantity in them (#824). */
     words: PlanWords;
+    /** Each link's planned lane and caption, by its index in `links`, where the body lays bands out for them (`lanes.ts`); left out, none. */
+    plan?: ((link: number) => RibbonRouteOptions | undefined) | undefined;
 }
 
 /** One endpoint, and the slot its off-window run lands in. */
@@ -349,9 +352,12 @@ function endpointOf(input: RibbonLayoutInput, rowKey: RowKey, runKey: string): E
     let top: number;
     let bottom: number;
     let off: RibbonOff | undefined;
+    // The row the element is on, its rule included: where a loopback into it runs its lane.
+    let row: RibbonEnd["row"];
     const slot = body.slots.get(rowKey);
     if (slot !== undefined) {
         [top, bottom] = drawnY(el?.draw, slot, g);
+        row = { top: slot.top, bottom: slot.top + slot.height };
     } else {
         const place = input.beyond(rowKey);
         if (place === undefined) return undefined;
@@ -380,7 +386,8 @@ function endpointOf(input: RibbonLayoutInput, rowKey: RowKey, runKey: string): E
             top = bottom - bar;
         }
     }
-    const end: RibbonEnd = off !== undefined ? { leftX, rightX, top, bottom, off } : { leftX, rightX, top, bottom };
+    const end: RibbonEnd = off !== undefined ? { leftX, rightX, top, bottom, off }
+        : row !== undefined ? { leftX, rightX, top, bottom, row } : { leftX, rightX, top, bottom };
     // The slot draws only while its row is in view.
     const edgeSlot = offWindow !== undefined && off === undefined
         ? { x: leftX, y: top, h: bottom - top, side: offWindow }
@@ -388,8 +395,14 @@ function endpointOf(input: RibbonLayoutInput, rowKey: RowKey, runKey: string): E
     return { end, edgeSlot };
 }
 
+/** The element an end meets, as the shared layout names it: its row and its key, apart. */
+const elementAt = (rowKey: RowKey, key: string): string => `${rowKey}\u0000${key}`;
+
 /**
- * Lay out every drawable edge of the family.
+ * Lay out every drawable edge of the family: each end resolved from the
+ * model, and the family laid out by the shared links layer (`routeLinks`) —
+ * links sharing an element's end spread there, each routed, its caption
+ * placed.
  *
  * @param input - The model the ribbons follow
  * @returns The routed ribbons (in `links` order) and the off-window slots
@@ -409,7 +422,7 @@ export function layoutRibbons(input: RibbonLayoutInput): { ribbons: LaidRibbon[]
     // away. A link's size is its quantity's value (#824).
     const size = (l: PlanLinkValue): number | undefined => (l.quantity.type === "some" ? Math.abs(l.quantity.value.value) : undefined);
     const largest = edges.reduce((m, { l }) => Math.max(m, size(l) ?? 0), 0);
-    const ribbons: LaidRibbon[] = [];
+    const kept: { link: number; from: RibbonEnd; to: RibbonEnd; fromAt: string; toAt: string; weight: number; label: string | undefined }[] = [];
     const edgeSlots: RibbonEdgeSlot[] = [];
     for (const { link, l, fromKey, toKey } of edges) {
         const from = endpointOf(input, fromKey, l.from.run);
@@ -419,16 +432,18 @@ export function layoutRibbons(input: RibbonLayoutInput): { ribbons: LaidRibbon[]
         if (from.end.off !== undefined && from.end.off === to.end.off) continue;
         if (from.edgeSlot !== undefined) edgeSlots.push(from.edgeSlot);
         if (to.edgeSlot !== undefined) edgeSlots.push(to.edgeSlot);
-        const weight = ribbonWeight(size(l), largest);
-        const label = l.quantity.type === "some" ? quantityText(l.quantity.value, words) : undefined;
-        // Semantic routing (`routeRibbon`): the link exits the source run's
-        // END and enters the destination's BEGINNING in every arrangement,
-        // nothing of it leaving the plot.
-        const bounds = { left: input.plot.left, right: input.plot.left + input.plot.width };
-        ribbons.push({ ...routeRibbon(from.end, to.end, weight, bounds), link, from: from.end, to: to.end, weight, label });
+        kept.push({
+            link, from: from.end, to: to.end, fromAt: elementAt(fromKey, l.from.run), toAt: elementAt(toKey, l.to.run),
+            weight: ribbonWeight(size(l), largest),
+            label: l.quantity.type === "some" ? quantityText(l.quantity.value, words) : undefined,
+        });
     }
-    // Each caption kept inside the plot with its knockout, then stepped clear
-    // of any earlier one within 60 × 12 (the shared link parts' rule).
-    placeCaptions(ribbons, input.plot.left, input.plot.left + input.plot.width);
+    // Semantic routing (`routeRibbon`, through the shared layout): the link
+    // exits the source's END and enters the destination's BEGINNING in every
+    // arrangement, nothing of it leaving the plot, each caption kept inside
+    // it and stepped clear of any earlier one within 60 × 12.
+    const routed = routeLinks(kept.map((k) => ({ ...k, plan: input.plan?.(k.link) })),
+        { left: input.plot.left, right: input.plot.left + input.plot.width });
+    const ribbons = routed.map((r, i): LaidRibbon => ({ ...r, link: kept[i]!.link, weight: kept[i]!.weight }));
     return { ribbons, edgeSlots };
 }

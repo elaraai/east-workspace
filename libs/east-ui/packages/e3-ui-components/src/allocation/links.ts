@@ -20,9 +20,10 @@
  * @packageDocumentation
  */
 
-import { placeCaptions, ribbonWeight } from "../shared/links/captions.js";
+import { ribbonWeight } from "../shared/links/captions.js";
 import { RIBBON_CORNER, RIBBON_RISER, rounded, routeRibbon, type RibbonEnd } from "../shared/links/geometry.js";
 import type { LinkLine, LinkRibbon } from "../shared/links/layer.js";
+import { routeLinks } from "../shared/links/route.js";
 import { CARD_H, CARD_INSET, CARD_W, HOUR_W, LANE_W, ROW_H, type LaneCard } from "./timeline-layout.js";
 import { compareDate, compareFloat, compareString, partsOf, type Day } from "./model.js";
 
@@ -199,7 +200,10 @@ function rowEnd(row: number, view: LinkView): RibbonEnd {
  * share of its family's largest quantity, its caption its quantity; in a
  * drag's families (A65) the link it moves carries no tone of its own, a draft
  * keeps the brand's, and a link into the target takes the verdict's; a run's
- * link takes the Elara tone over its draft's (#1409).
+ * link takes the Elara tone over its draft's (#1409). The family is laid out
+ * by the shared links layer (`routeLinks`): a split bin's links leave its card
+ * from ports stacked about its middle, and links into one row arrive at
+ * ports stacked about its, each drawn apart (#1680's review).
  *
  * @param family - The links
  * @param cards - Each bin's card, by bin
@@ -217,7 +221,7 @@ export function layoutLinks(
     const largest = new Map<string, number>();
     for (const l of family) largest.set(l.family, Math.max(largest.get(l.family) ?? 0, l.quantity ?? 0));
     const bounds = { left: view.gridLeft + HOUR_W, right: view.channelRight };
-    const out: (LinkRibbon & { link: FamilyLink })[] = [];
+    const kept: { link: FamilyLink; from: RibbonEnd; to: RibbonEnd; width: number }[] = [];
     for (const link of family) {
         const card = cards.get(link.bin), row = rows.get(link.resource);
         if (card === undefined || row === undefined) continue;
@@ -225,12 +229,15 @@ export function layoutLinks(
         const to = inView(rowEnd(row, view), view.height);
         // Both ends past the same edge: nothing in view to draw.
         if (from.off !== undefined && from.off === to.off) continue;
-        const width = ribbonWeight(link.quantity, largest.get(link.family) ?? 0) + (link.id === selected ? 1 : 0);
-        out.push({ ...routeRibbon(from, to, width, bounds), id: link.id, from, to, label: link.quantity === undefined ? undefined : label(link), link,
-            tone: link.look === "was" ? undefined : link.look === "elara" ? "elara" : link.draft ? "draft" : link.look });
+        kept.push({ link, from, to, width: ribbonWeight(link.quantity, largest.get(link.family) ?? 0) + (link.id === selected ? 1 : 0) });
     }
-    placeCaptions(out, bounds.left, bounds.right);
-    return out;
+    // A link leaves its bin's card and enters its resource's row: links sharing either spread there.
+    return routeLinks(kept.map(({ link, from, to, width }) => ({
+        from, to, fromAt: link.bin, toAt: link.resource, weight: width, label: link.quantity === undefined ? undefined : label(link),
+    })), bounds).map((r, i) => {
+        const { link } = kept[i]!;
+        return { ...r, id: link.id, link, tone: link.look === "was" ? undefined : link.look === "elara" ? "elara" : link.draft ? "draft" : link.look };
+    });
 }
 
 /** How far past its card the pointer must be before a link drag's new line shows (px). */

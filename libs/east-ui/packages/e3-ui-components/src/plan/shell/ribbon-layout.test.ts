@@ -137,14 +137,15 @@ describe("ribbon endpoints come from the model (#818)", () => {
         const { ribbons } = layoutRibbons(input({ links: [link("a", "ra", "b", "rb")], body, element }));
         expect(ribbons).toHaveLength(1);
         const r = ribbons[0]!;
+        // Each end carries its row, its rule included: where a loopback into it runs its lane (#1680's review).
         expect(r.from).toEqual({
             leftX: xOf(at("2026-06-29")), rightX: xOf(at("2026-07-13")),
-            top: centre(0, 32) - G.bar / 2, bottom: centre(0, 32) + G.bar / 2,
+            top: centre(0, 32) - G.bar / 2, bottom: centre(0, 32) + G.bar / 2, row: { top: 0, bottom: 32 },
         });
         // b sits below a (32) and the gap band (22).
         expect(r.to).toEqual({
             leftX: xOf(at("2026-07-20")), rightX: xOf(at("2026-08-03")),
-            top: centre(54, 32) - G.bar / 2, bottom: centre(54, 32) + G.bar / 2,
+            top: centre(54, 32) - G.bar / 2, bottom: centre(54, 32) + G.bar / 2, row: { top: 54, bottom: 86 },
         });
         expect(r.link).toBe(0);
         expect(r.label).toBe("10 k sheets");
@@ -394,12 +395,13 @@ describe("where a link's end meets its row (#1192)", () => {
         test("a run shorter than its padding draws the narrowest bar from its start — a link leaves the end it shows", () => {
             const from = layoutRibbons(input({ links: [link("bars", "tiny", "chips", "c")], body, element })).ribbons[0]!.from;
             const x = xOf(hour("2026-07-08T06:00"));
-            expect(from).toEqual({ leftX: x, rightX: x + G.barMinWidth, ...around(0, 32, G.bar) });
+            expect(from).toEqual({ leftX: x, rightX: x + G.barMinWidth, ...around(0, 32, G.bar), row: { top: 0, bottom: 32 } });
         });
 
         test("a chip in from its ends by the cell inset, at least the narrowest chip, at the chip's height", () => {
             expect(endAt("chips", "c")).toEqual({
                 leftX: xOf(at("2026-07-13")) + PLAN_CELL_INSET, rightX: xOf(at("2026-07-27")) - PLAN_CELL_INSET, ...around(32, 32, G.chip),
+                row: { top: 32, bottom: 64 },
             });
             const short = endAt("chips", "short");
             expect(short.rightX - short.leftX).toBe(G.chipMinWidth);
@@ -409,7 +411,9 @@ describe("where a link's end meets its row (#1192)", () => {
         test("a tile's cell in from its bucket and its lane by the cell inset — its own lane's, or the whole cell its bucket shares", () => {
             const x0 = xOf(at("2026-07-06")) + PLAN_CELL_INSET;
             const x1 = xOf(at("2026-07-13")) - PLAN_CELL_INSET;
-            expect(endAt("tiles", "e")).toEqual({ leftX: x0, rightX: x1, top: 64 + PLAN_CELL_INSET, bottom: 64 + 31 - PLAN_CELL_INSET });
+            expect(endAt("tiles", "e")).toEqual({
+                leftX: x0, rightX: x1, top: 64 + PLAN_CELL_INSET, bottom: 64 + 31 - PLAN_CELL_INSET, row: { top: 64, bottom: 96 },
+            });
             // The laned row's plot cell is 51 tall: the second lane's cell is its lower half, in by the inset.
             const half = 51 / 2;
             expect(endAt("laned", "in2")).toMatchObject({ top: 96 + half + PLAN_CELL_INSET, bottom: 96 + 2 * half - PLAN_CELL_INSET });
@@ -418,7 +422,7 @@ describe("where a link's end meets its row (#1192)", () => {
 
         test("a mark across its glyph, centred on its instant: the dot, the turned diamond, the triangle, the icon's box", () => {
             const glyph = (key: string, on: Date, w: number, h: number) =>
-                expect(endAt("marks", key), key).toEqual({ leftX: xOf(on) - w / 2, rightX: xOf(on) + w / 2, ...around(148, 32, h) });
+                expect(endAt("marks", key), key).toEqual({ leftX: xOf(on) - w / 2, rightX: xOf(on) + w / 2, ...around(148, 32, h), row: { top: 148, bottom: 180 } });
             glyph("m", at("2026-08-05"), G.markDotWidth, G.markDotWidth);
             glyph("d", at("2026-08-12"), G.markDiamondWidth * Math.SQRT2, G.markDiamondWidth * Math.SQRT2);
             glyph("x", at("2026-08-19"), G.markTriangleWidth, G.markTriangle);
@@ -451,16 +455,16 @@ describe("link weights and captions (`Plan links.html` §15, #1258)", () => {
         "d|x": [at("2026-07-27"), at("2026-08-03")],
     });
 
-    test("a weight is its quantity's third of the family's largest: above two thirds 8, above one third 4, else 2", () => {
-        // The spec's family: 96 t, 60 t and 24 t of a 96 t largest.
+    test("a weight is its quantity's third of the family's largest: above two thirds 6, above one third 4, else 2", () => {
+        // The spec's family: 96 t, 60 t and 24 t of a 96 t largest. The heaviest is 6, ruled over §15's 8 (#1680's review).
         const { ribbons } = layoutRibbons(input({
             links: [link("a", "x", "b", "x", 96), link("a", "x", "c", "x", 60), link("a", "x", "d", "x", 24)], body, element,
         }));
-        expect(ribbons.map((r) => r.weight)).toEqual([8, 4, 2]);
+        expect(ribbons.map((r) => r.weight)).toEqual([6, 4, 2]);
         // The stroke is the weight.
-        expect(ribbons.map((r) => r.width)).toEqual([8, 4, 2]);
+        expect(ribbons.map((r) => r.width)).toEqual([6, 4, 2]);
         // A third or two thirds exactly is not above it.
-        expect([ribbonWeight(64, 96), ribbonWeight(32, 96), ribbonWeight(65, 96), ribbonWeight(33, 96)]).toEqual([4, 2, 8, 4]);
+        expect([ribbonWeight(64, 96), ribbonWeight(32, 96), ribbonWeight(65, 96), ribbonWeight(33, 96)]).toEqual([4, 2, 6, 4]);
         expect(ribbonWeight(0, 0)).toBe(2);
     });
 
@@ -468,7 +472,7 @@ describe("link weights and captions (`Plan links.html` §15, #1258)", () => {
         const { ribbons } = layoutRibbons(input({
             links: [link("a", "x", "b", "x", 40), link("a", "x", "c", "x", null)], body, element,
         }));
-        expect(ribbons[0]!.weight).toBe(8);
+        expect(ribbons[0]!.weight).toBe(6);
         expect(ribbons[1]!.weight).toBe(1.5);
         expect(ribbons[1]!.label).toBeUndefined();
     });
@@ -497,21 +501,40 @@ describe("link weights and captions (`Plan links.html` §15, #1258)", () => {
         expect(told!.label).toBe("−24 k sheets");
         expect(formatted!.label).toBe("1,234.3 k sheets");
         // Weighed by value, whatever the caption says.
-        expect([told!.weight, formatted!.weight]).toEqual([2, 8]);
+        expect([told!.weight, formatted!.weight]).toEqual([2, 6]);
     });
 
     test("a caption within 60 × 12 of an earlier one steps down 12 until clear", () => {
-        // Two ribbons from one source into two rows: their S-captions share a spot.
+        // Two ribbons from one run into one run, each of weight 6: they leave their shared end at ports 8 apart (11.5,
+        // 19.5 about a's bar at 15.5) and enter their shared start at ports 14 apart (40.5, 54.5 about b's at 47.5),
+        // #1680's review. Their S-captions land 3 below their risers' middles, 29 and 40, on one riser: 11 apart, so
+        // the second steps down 12, clear of the first.
         const { ribbons } = layoutRibbons(input({
             links: [link("a", "x", "b", "x"), link("a", "x", "b", "x")], body, element,
         }));
-        expect(ribbons[1]!.ly - ribbons[0]!.ly).toBe(12);
+        expect(ribbons.map((r) => [r.from.port, r.to.port])).toEqual([[11.5, 40.5], [19.5, 54.5]]);
+        expect(ribbons.map((r) => r.ly)).toEqual([29, 40 + 12]);
         expect(ribbons[1]!.lx).toBe(ribbons[0]!.lx);
+    });
+
+    test("a loopback into a row two below runs its lane on the rule above that row, never across the bar of the row between (#1680's review)", () => {
+        // b's run ends after d's starts: a loopback from row b (32–64) into row d (96–128). Halfway between their
+        // bars' centres is 79.5, inside c's bar (69.5–89.5); the rule above d is at 96.
+        const { ribbons } = layoutRibbons(input({ links: [link("b", "x", "d", "x")], body, element }));
+        const r = ribbons[0]!;
+        expect(r.route).toBe("loop");
+        const lane = [...r.stroke.matchAll(/L\s*([\d.-]+)\s+([\d.-]+)/g)].map((m) => Number(m[2]));
+        expect(lane).toContain(96);
+        expect(lane).not.toContain(79.5);
+        expect(r.ly).toBe(99);
     });
 
     test("a caption 50 across from an earlier one steps down; one 60 or more across stays on its riser", () => {
         // Three S's out of one run end into one row: each caption sits on its
         // riser, 27 short of its destination's start — at 473, 523 and 593.
+        // They leave their shared end at ports 8 apart — 7.5, 15.5 and 23.5 —
+        // each entering its own run on its centre line, 47.5, so each caption
+        // is 3 below its riser's middle: 30.5, 34.5 and 38.5 (#1680's review).
         const atPx = (px: number) => new Date(W27.getTime() + ((px - PLOT.left) / PLOT.width) * 84 * 86_400_000);
         const dates = barsOf({
             "a|x": [at("2026-06-29"), atPx(300)],
@@ -521,7 +544,7 @@ describe("link weights and captions (`Plan links.html` §15, #1258)", () => {
             links: [link("a", "x", "b", "p"), link("a", "x", "b", "q"), link("a", "x", "b", "r")], body, element: dates,
         }));
         expect(ribbons.map((r) => Math.round(r.lx))).toEqual([473, 523, 593]);
-        const ly = ribbons[0]!.ly;
-        expect(ribbons.map((r) => r.ly)).toEqual([ly, ly + 12, ly]);
+        // The second, 50 across from the first and 4 below it, steps down 12; the third, 70 across from the second, stays.
+        expect(ribbons.map((r) => r.ly)).toEqual([30.5, 34.5 + 12, 38.5]);
     });
 });

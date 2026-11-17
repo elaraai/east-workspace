@@ -294,8 +294,8 @@ describe("Plan link ribbons (#818)", () => {
             // cell, the 32px row less the rule under it...
             const band = container.querySelector('[data-plan-link="0"] [data-plan-ribbon-band]')!;
             expect(band.getAttribute("d")!.startsWith(`M ${xAt(JUL13).toFixed(1)} 15.5`)).toBe(true);
-            // Stroked at its weight: the family's largest quantity, so 8 (#1258).
-            expect(band.getAttribute("stroke-width")).toBe("8");
+            // Stroked at its weight: the family's largest quantity, so the heaviest, 6 (#1258; ruled 17 Nov 2026 over §15's 8).
+            expect(band.getAttribute("stroke-width")).toBe("6");
             // ...and arrives at b's run START, at b's bar centre (32 + 15.5).
             const head = container.querySelector('[data-plan-link="0"] [data-plan-ribbon-head]')!;
             expect(tipOf(head.getAttribute("d")!)).toEqual([Number(xAt(JUL13).toFixed(1)), 47.5]);
@@ -361,15 +361,15 @@ describe("Plan link ribbons (#818)", () => {
             // children: its bar centre is 32 + 32 + 22 + 15.5.
             expect(container.querySelector('[data-plan-gap="3"]')).toBeTruthy();
             expect(endOf(toC().getAttribute("d")!)[1]).toBe(101.5);
-            expect(toC().getAttribute("stroke-width")).toBe("8");
+            expect(toC().getAttribute("stroke-width")).toBe("6");
             // Collapse p: its children go, and the band with them.
             fireEvent.click(container.querySelector(`${rowSel("p")} > :first-child`)!);
             expect(container.querySelector("[data-plan-gap]")).toBeNull();
             // The same render: c's end rose by the band's 22px. p's runs now
             // draw at its rollup height, but a link's weight is its quantity's,
-            // never its bar's (#1258): the link out of them keeps its 8.
+            // never its bar's (#1258): the link out of them keeps its 6.
             expect(endOf(toC().getAttribute("d")!)[1]).toBe(79.5);
-            expect(toC().getAttribute("stroke-width")).toBe("8");
+            expect(toC().getAttribute("stroke-width")).toBe("6");
         } finally {
             restore();
         }
@@ -493,9 +493,9 @@ describe("Plan link ribbons (#818)", () => {
                 planRow("b", spanKind([run("rb", new Date("2026-10-05Z"), new Date("2026-10-19Z"), confirmed)])),
             ], { links: [link("a", "ra", "b", "rb")] }), "plan-1258-ink");
             focusLinks(container, "a");
-            // The casing: the paper 1 either side of the 8 weight, under the ink.
+            // The casing: the paper 1 either side of the 6 weight, under the ink.
             const casing = container.querySelector('[data-plan-ribbon-casing="0"] [data-plan-casing="band"]')!;
-            expect(casing.getAttribute("stroke-width")).toBe("10");
+            expect(casing.getAttribute("stroke-width")).toBe("8");
             expect(casing.getAttribute("d")).toBe(container.querySelector('[data-plan-link="0"] [data-plan-ribbon-band]')!.getAttribute("d"));
             // The caption's knockout: 12 tall, starting 9.5 above its text's
             // baseline, 4 either side of it (jsdom measures no text).

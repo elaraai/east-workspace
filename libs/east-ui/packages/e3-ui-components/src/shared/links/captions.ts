@@ -23,10 +23,14 @@ export const RIBBON_CAPTION_PAD = LINK_KNOCKOUT_PAD;
  *  is measured. */
 export const RIBBON_CAPTION_CHAR = 6.5;
 
+/** The heaviest a link draws (px): ruled 17 Nov 2026 (#1680's review), down from 8, so two links out of one 20px bar's end each keep a line of their own. */
+export const RIBBON_WEIGHT_MAX = 6;
+
 /**
  * A link's weight — its stroke's width (`Plan links.html` §15): its
- * quantity's third of the family's largest — above two thirds 8, above one
- * third 4, else 2 — and 1.5 for a link with no quantity.
+ * quantity's third of the family's largest — above two thirds 6
+ * ({@link RIBBON_WEIGHT_MAX}), above one third 4, else 2 — and 1.5 for a link
+ * with no quantity.
  *
  * @param quantity - The link's quantity's size, or `undefined` when it has none
  * @param largest - The largest quantity among the family's links
@@ -35,7 +39,7 @@ export const RIBBON_CAPTION_CHAR = 6.5;
 export function ribbonWeight(quantity: number | undefined, largest: number): number {
     if (quantity === undefined) return 1.5;
     const share = largest > 0 ? quantity / largest : 0;
-    return share > 2 / 3 ? 8 : share > 1 / 3 ? 4 : 2;
+    return share > 2 / 3 ? RIBBON_WEIGHT_MAX : share > 1 / 3 ? 4 : 2;
 }
 
 /** A routed link's caption: its text, and where the route centred it. */

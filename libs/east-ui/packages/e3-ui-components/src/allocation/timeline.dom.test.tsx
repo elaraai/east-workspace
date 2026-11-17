@@ -336,12 +336,31 @@ describe("the focus's links (#1327)", () => {
         expect(c.querySelector("[data-allocation-links]")).toBeNull();
     });
 
-    test("A66 — each link is weighted by its share of the family's largest: K-304's 1 m³ bins at 4, its 2 m³ bins at 8", async () => {
+    test("A66 — each link is weighted by its share of the family's largest: K-304's 1 m³ bins at 4, its 2 m³ bins at 6 (the heaviest, ruled 17 Nov 2026 over §15's 8)", async () => {
         stubLinkGeometry();
         const c = await open(ex.allocationMinimal);
         await press(row(c, "K-304")!);
         const weights = Object.fromEntries(links(c).map(g => [g.querySelector("[data-link]")!.getAttribute("data-allocation-link"), g.querySelector("[data-plan-ribbon-band]")!.getAttribute("stroke-width")]));
-        expect(weights).toEqual({ "3106|K-304": "4", "3110|K-304": "4", "3112|K-304": "8", "3114|K-304": "8", "3121|K-304": "4" });
+        expect(weights).toEqual({ "3106|K-304": "4", "3110|K-304": "4", "3112|K-304": "6", "3114|K-304": "6", "3121|K-304": "4" });
+    });
+
+    test("five links into one resource row arrive at five ports stacked about its middle, 2 apart, each drawn apart (#1680's review)", async () => {
+        stubLinkGeometry();
+        const c = await open(ex.allocationMinimal);
+        await press(row(c, "K-304")!);
+        // Each head's tip, down the layer: the five arrive at five heights, none on another.
+        const tips = links(c).map(g => {
+            const nums = g.querySelector("[data-plan-ribbon-head]")!.getAttribute("d")!.trim().split(/[\sMLZ]+/).filter(s => s !== "").map(Number);
+            return nums[3]!;
+        });
+        expect(tips).toHaveLength(5);
+        // Heads 8 wide for the 4s and 12 for the 6s, stacked 2 apart edge to edge: each next tip 10 to 14 below the last.
+        const sorted = [...tips].sort((a, b) => a - b);
+        const gaps = sorted.slice(1).map((y, i) => y - sorted[i]!);
+        for (const gap of gaps) {
+            expect(gap).toBeGreaterThanOrEqual(10 - 1e-6);
+            expect(gap).toBeLessThanOrEqual(14 + 1e-6);
+        }
     });
 
     test("A67 — a link under the pointer lights, its bin card and its resource's load haloed; its line's label and tooltip name it", async () => {
