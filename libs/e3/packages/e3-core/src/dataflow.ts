@@ -16,13 +16,17 @@
  * by `dataflow/orchestrator/LocalOrchestrator.ts`.
  */
 
-import { StringType, compareFor, decodeBeast2For, none, variant } from '@elaraai/east';
+import { StringType, compareFor, decodeBeast2For, none, some, variant } from '@elaraai/east';
 import {
   WorkspaceRecordType,
   decodeRecordCommit,
+  decodeRecordLoadObject,
   decodeRecordObject,
+  loadNodeName,
+  loadStepProblem,
   pathToString,
   type DataflowGraph,
+  type PackageObject,
   type TaskObject,
   type TreePath,
   type VersionVector,
@@ -110,21 +114,20 @@ export function parsePathString(pathStr: string): TreePath {
 // =============================================================================
 
 /**
- * Information about a task in the dependency graph.
+ * A node of the dependency graph: a task of the package, or the load of a
+ * composite record's fed source.
  */
-interface TaskNode {
-  /** Task name */
-  name: string;
-  /** Hash of the TaskObject in object store */
-  hash: string;
-  /** The decoded TaskObject */
-  task: TaskObject;
-  /** Input dataset paths */
-  inputPaths: TreePath[];
-  /** Output dataset path */
-  outputPath: TreePath;
-  /** Number of unresolved dependencies (inputs that are unassigned) */
-  unresolvedCount: number;
+interface GraphNode {
+  /** The task's name, or the load's `<record>.<source>` */
+  readonly name: string;
+  /** Hash of its task object: the load's own, for a load */
+  readonly hash: string;
+  /** Input dataset paths: a load's feed alone */
+  readonly inputPaths: readonly TreePath[];
+  /** Output dataset path: a load's record */
+  readonly outputPath: TreePath;
+  /** The record and source a load loads; undefined for a task */
+  readonly load?: { readonly record: string; readonly source: string };
 }
 
 /**
@@ -259,16 +262,27 @@ async function readWorkspaceState(storage: StorageBackend, repo: string, ws: str
 // =============================================================================
 
 /**
- * Build the dependency graph for a workspace.
+ * Build the dependency graph for a workspace: a node for each task of its
+ * package, and after them one for each fed source of its composite records,
+ * the source's load.
+ *
+ * @remarks
+ * A load node reads its feed and writes its record, and the record stays a
+ * root of the run: no node depends on a load node, and `outputToTask` names
+ * none. A load named as a task is, and a cycle through a load — what feeds it
+ * reading its record — are refused as the SDK refuses them
+ * ({@link loadStepProblem}), for a package built otherwise.
+ *
+ * @throws {DataflowError} Naming the task that has a load's name, or the
+ *   cycle's steps
  */
 async function buildDependencyGraph(
   storage: StorageBackend,
   repo: string,
   ws: string
 ): Promise<{
-  taskNodes: Map<string, TaskNode>;
+  nodes: Map<string, GraphNode>;
   outputToTask: Map<string, string>;
-  taskDependents: Map<string, Set<string>>;
 }> {
   const state = await readWorkspaceState(storage, repo, ws);
 
@@ -281,48 +295,59 @@ async function buildDependencyGraph(
     tasks[i] = await taskObjectRead(storage, repo, packaged[i]![1]);
   });
 
-  const taskNodes = new Map<string, TaskNode>();
+  const nodes = new Map<string, GraphNode>();
   const outputToTask = new Map<string, string>();
 
   packaged.forEach(([taskName, taskHash], i) => {
     const task = tasks[i]!;
-
-    const outputPathStr = pathToString(task.output.path);
-    outputToTask.set(outputPathStr, taskName);
-
-    taskNodes.set(taskName, {
+    outputToTask.set(pathToString(task.output.path), taskName);
+    nodes.set(taskName, {
       name: taskName,
       hash: taskHash,
-      task,
       inputPaths: task.inputs.map((input) => input.path),
       outputPath: task.output.path,
-      unresolvedCount: 0,
     });
   });
 
-  const taskDependents = new Map<string, Set<string>>();
-  for (const taskName of taskNodes.keys()) {
-    taskDependents.set(taskName, new Set());
-  }
+  const loads = await loadNodesOf(storage, repo, pkgObject);
+  const problem = loadStepProblem([...nodes.values(), ...loads].map((node) => ({
+    inputs: node.inputPaths.map(pathToString),
+    output: pathToString(node.outputPath),
+    ...(node.load === undefined ? { task: node.name } : { load: node.load }),
+  })));
+  if (problem !== null) throw new DataflowError(problem);
+  for (const node of loads) nodes.set(node.name, node);
 
-  for (const [taskName, node] of taskNodes) {
-    for (const inputPath of node.inputPaths) {
-      const inputPathStr = pathToString(inputPath);
-      const producerTask = outputToTask.get(inputPathStr);
+  return { nodes, outputToTask };
+}
 
-      if (producerTask) {
-        taskDependents.get(producerTask)!.add(taskName);
-        node.unresolvedCount++;
-      } else {
-        const { refType } = await workspaceGetDatasetHash(storage, repo, ws, inputPath);
-        if (refType === 'unassigned') {
-          node.unresolvedCount++;
-        }
-      }
+/**
+ * The load nodes of a package: one for each fed source of each of its
+ * composite records, in the order of the records' names and then the
+ * sources'. A source `e3 load` delivers has none.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param pkg - The deployed package
+ * @returns The nodes, each reading its feed and writing its record
+ */
+async function loadNodesOf(storage: StorageBackend, repo: string, pkg: PackageObject): Promise<GraphNode[]> {
+  const records = [...pkg.records];
+  const fed: GraphNode[][] = new Array<GraphNode[]>(records.length);
+  await eachAtMost(records.map((_, i) => i), OBJECT_CONCURRENCY, async (i) => {
+    const [record, hash] = records[i]!;
+    const object = decodeRecordObject(await storage.objects.read(repo, hash));
+    const outputPath = parsePathString(refPathToKeypath(object.path));
+    const nodes: GraphNode[] = [];
+    for (const [source, writer] of object.sources) {
+      if (writer.type !== 'load') continue;
+      const load = decodeRecordLoadObject(await storage.objects.read(repo, writer.value));
+      if (load.feed.type === 'none') continue;
+      nodes.push({ name: loadNodeName(record, source), hash: load.task, inputPaths: [load.feed.value], outputPath, load: { record, source } });
     }
-  }
-
-  return { taskNodes, outputToTask, taskDependents };
+    fed[i] = nodes;
+  });
+  return fed.flat();
 }
 
 // =============================================================================
@@ -346,12 +371,12 @@ export async function dataflowGetGraph(
   repo: string,
   ws: string
 ): Promise<DataflowGraph> {
-  let taskNodes: Map<string, TaskNode>;
+  let nodes: Map<string, GraphNode>;
   let outputToTask: Map<string, string>;
 
   try {
     const graph = await buildDependencyGraph(storage, repo, ws);
-    taskNodes = graph.taskNodes;
+    nodes = graph.nodes;
     outputToTask = graph.outputToTask;
   } catch (err) {
     if (err instanceof E3Error) throw err;
@@ -360,24 +385,22 @@ export async function dataflowGetGraph(
 
   const tasks: DataflowGraph['tasks'] = [];
 
-  for (const [taskName, node] of taskNodes) {
+  for (const [name, node] of nodes) {
+    // The tasks that write what it reads: a load node's feed's, when a task writes it. No load writes what a node
+    // depends on, so the record a load writes stays a root.
     const dependsOn: string[] = [];
-
     for (const inputPath of node.inputPaths) {
-      const inputPathStr = pathToString(inputPath);
-      const producerTask = outputToTask.get(inputPathStr);
-      if (producerTask) {
-        dependsOn.push(producerTask);
-      }
+      const producerTask = outputToTask.get(pathToString(inputPath));
+      if (producerTask) dependsOn.push(producerTask);
     }
 
     tasks.push({
-      name: taskName,
+      name,
       hash: node.hash,
       inputs: node.inputPaths.map(pathToString),
       output: pathToString(node.outputPath),
       dependsOn,
-      load: none,
+      load: node.load === undefined ? none : some(node.load),
     });
   }
 
@@ -472,7 +495,8 @@ const producersOf = new WeakMap<DataflowGraph, ReadonlyMap<string, DataflowGraph
  * @remarks
  * Built once for a graph and kept with it, so a run that asks for it at every
  * decision — a task's commits, its inputs, the tasks left waiting with it —
- * builds it once, however many tasks land.
+ * builds it once, however many tasks land. A load node is not among them: the
+ * record it writes stays a root.
  *
  * @param graph - The run's graph
  * @returns Each task, by its output's keypath
@@ -480,10 +504,37 @@ const producersOf = new WeakMap<DataflowGraph, ReadonlyMap<string, DataflowGraph
 export function taskProducers(graph: DataflowGraph): ReadonlyMap<string, DataflowGraph['tasks'][number]> {
   let producers = producersOf.get(graph);
   if (producers === undefined) {
-    producers = new Map(graph.tasks.map((task) => [task.output, task] as const));
+    producers = new Map(graph.tasks.filter((task) => task.load.type === 'none').map((task) => [task.output, task] as const));
     producersOf.set(graph, producers);
   }
   return producers;
+}
+
+/** Each graph's load nodes by the record each writes, built once for the graph. */
+const loadNodesByRecord = new WeakMap<DataflowGraph, ReadonlyMap<string, readonly DataflowGraph['tasks'][number][]>>();
+
+/**
+ * The load nodes of a run's graph by the record each loads: what a task that
+ * reads a record waits on while one of them waits. No node depends on a load
+ * node, so this is read for waiting alone.
+ *
+ * @remarks
+ * Built once for a graph and kept with it, as {@link taskProducers} is.
+ *
+ * @param graph - The run's graph
+ * @returns Each record's load nodes, by the record's keypath (`.records.orders`); a record no load writes is not in it
+ */
+export function loadsOf(graph: DataflowGraph): ReadonlyMap<string, readonly DataflowGraph['tasks'][number][]> {
+  let loads = loadNodesByRecord.get(graph);
+  if (loads === undefined) {
+    const byRecord = new Map<string, DataflowGraph['tasks'][number][]>();
+    for (const task of graph.tasks) {
+      if (task.load.type === 'some') byRecord.set(task.output, [...(byRecord.get(task.output) ?? []), task]);
+    }
+    loads = byRecord;
+    loadNodesByRecord.set(graph, loads);
+  }
+  return loads;
 }
 
 /**

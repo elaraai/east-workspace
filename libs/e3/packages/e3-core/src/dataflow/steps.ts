@@ -130,10 +130,11 @@ export async function stepInitialize(
   const graph = await dataflowGetGraph(storage, repo, workspace);
   checkDataflowStart(graph, options);
 
-  // Compute task output paths (datasets produced by tasks)
+  // Compute task output paths (datasets produced by tasks). A load node's
+  // record stays a root: the run snapshots it as it snapshots any input.
   const taskOutputPathsSet = new Set<string>();
   for (const task of graph.tasks) {
-    taskOutputPathsSet.add(task.output);
+    if (task.load.type === 'none') taskOutputPathsSet.add(task.output);
   }
   const taskOutputPaths = Array.from(taskOutputPathsSet);
 

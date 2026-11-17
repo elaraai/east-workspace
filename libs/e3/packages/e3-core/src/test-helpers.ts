@@ -550,6 +550,32 @@ export function ledgerOrders(options: { readonly erp?: LedgerErpLoad; readonly o
 }
 
 /**
+ * A package for a fed load's spec, after the design's §4.4: the ERP's rows
+ * (`erp_rows`, an input); `combine_erp`, a task that makes the ERP's order book
+ * from them; `orders`, a composite record whose `erp` source the dataflow
+ * loads from `combine_erp`'s output, whose `wms` source `e3 load` delivers, and
+ * whose own source (`own`) holds order `P-1` (Birch, 2); and `forecast`, a
+ * task over `orders` that counts its entries.
+ *
+ * @returns Each part, and the package of them (`fed`, at the version given,
+ *   `1.0.0` when omitted)
+ */
+export function fedOrders() {
+  const erpRows = e3.input('erp_rows', ErpDeliveryType);
+  const combineErp = e3.task('combine_erp', [erpRows], East.function([ErpDeliveryType], ErpDeliveryType, (_$, rows) => rows));
+  const orders = e3.recordComposite('orders', SourcedOrderType, {
+    sources: (source) => ({
+      erp: source.load(StringType, combineErp, loadBook),
+      own: source.mutations(StringType),
+      wms: source.load(StringType, ErpDeliveryType, loadBook),
+    }),
+    initial: { own: new Map([['P-1', { customer: 'Birch', qty: 2n }]]) },
+  });
+  const forecast = e3.task('forecast', [orders], East.function([orders.type], IntegerType, (_$, held) => held.size()));
+  return { erpRows, combineErp, orders, forecast, pkg: (version = '1.0.0') => e3.package('fed', version, forecast) };
+}
+
+/**
  * Runs `body` in a project whose runners e3 finds before any other — its
  * runners are searched for from its directory, where it puts them first:
  * east-node, and an east-c launcher that finds no native binary to start, as

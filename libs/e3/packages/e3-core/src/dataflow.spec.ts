@@ -9,11 +9,18 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
-import { variant, none, StringType, ArrayType, encodeBeast2For, East, IRType } from '@elaraai/east';
+import { join } from 'node:path';
+import { variant, none, some, SortedMap, StringType, ArrayType, compareFor, encodeBeast2For, equalFor, printFor, East, IRType } from '@elaraai/east';
+import e3 from '@elaraai/e3';
 import {
   TASK_OBJECT_KIND,
   TaskObjectType,
   PackageObjectType,
+  WorkspaceRecordType,
+  DataflowGraphTaskType,
+  decodeRecordLoadObject,
+  decodeRecordObject,
+  decodeTaskObject,
   type TreePath,
   type Structure,
   type DataRef,
@@ -23,14 +30,19 @@ import {
   dataflowGetReadyTasks,
   dataflowGetDependentsToSkip,
   dataflowGetDependencyClosure,
+  loadsOf,
+  taskProducers,
   type DataflowGraph,
 } from './dataflow.js';
+import { stepInitialize } from './dataflow/steps.js';
+import { packageImport } from './package-files.js';
+import { packageObjectRead } from './packages.js';
 import { dataflowExecute } from './execution/local-orchestrator.js';
 import { objectWrite } from './storage/local/LocalObjectStore.js';
 import { workspaceDeploy } from './workspace-files.js';
 import { workspaceGetDataset, workspaceSetDataset } from './trees.js';
-import { DataflowAbortedError } from './errors.js';
-import { createTestRepo, removeTestRepo, writableStrings } from './test-helpers.js';
+import { DataflowAbortedError, DataflowError } from './errors.js';
+import { createTempDir, createTestRepo, fedOrders, removeTempDir, removeTestRepo, writableStrings } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { StorageBackend } from './storage/interfaces.js';
 
@@ -659,6 +671,78 @@ describe('dataflow', () => {
         assert.strictEqual(fastResult!.state, 'success');
         assert.ok(!abortErr.partialResults!.some(r => r.name === 'slow-task'), 'the slow task was stopped, not completed');
       }
+    });
+  });
+
+  describe('a fed source\'s load node', () => {
+    /** Deploys the fed orders' package to `ws`, and answers its package object. */
+    async function deployedFed(ws: string) {
+      const dir = createTempDir();
+      try {
+        const zip = join(dir, 'fed.zip');
+        await e3.export(fedOrders().pkg(), zip);
+        const { packageHash } = await packageImport(storage, testRepo, zip);
+        await workspaceDeploy(storage, testRepo, ws, 'fed', '1.0.0');
+        return { packageHash, pkg: await packageObjectRead(storage, testRepo, packageHash) };
+      } finally {
+        removeTempDir(dir);
+      }
+    }
+
+    it('R58 — is a node of the graph for each fed source, after the tasks, depending on its feed\'s task; no node depends on it, and its record stays a root', async () => {
+      const { pkg } = await deployedFed('fed-ws');
+      const graph = await dataflowGetGraph(storage, testRepo, 'fed-ws');
+      assert.deepStrictEqual(graph.tasks.map((task) => task.name), ['combine_erp', 'forecast', 'orders.erp'], 'no node for wms, which e3 load delivers');
+
+      // Its hash is the load's task object, named by the record object's load object
+      const erp = decodeRecordObject(await storage.objects.read(testRepo, pkg.records.get('orders')!)).sources.get('erp');
+      assert.ok(erp?.type === 'load');
+      const load = decodeRecordLoadObject(await storage.objects.read(testRepo, erp.value));
+      const node = graph.tasks.find((task) => task.name === 'orders.erp')!;
+      const expected = {
+        name: 'orders.erp', hash: load.task, inputs: ['.tasks.combine_erp.output'], output: '.records.orders', dependsOn: ['combine_erp'],
+        load: some({ record: 'orders', source: 'erp' }),
+      };
+      assert.ok(equalFor(DataflowGraphTaskType)(node, expected), printFor(DataflowGraphTaskType)(node));
+
+      // forecast reads the record, which no node it depends on writes
+      assert.deepStrictEqual(graph.tasks.find((task) => task.name === 'forecast')!.dependsOn, []);
+      assert.deepStrictEqual(graph.tasks.find((task) => task.name === 'forecast')!.load, none);
+      assert.strictEqual(taskProducers(graph).has('.records.orders'), false, 'no task writes the record');
+      assert.deepStrictEqual([...loadsOf(graph)].map(([record, nodes]) => [record, nodes.map((each) => each.name)]), [['.records.orders', ['orders.erp']]]);
+
+      // A run snapshots the record as a root
+      const { state } = await stepInitialize(storage, testRepo, 'fed-ws', 'run-1');
+      assert.ok(!state.taskOutputPaths.includes('.records.orders') && state.inputSnapshot.has('.records.orders'));
+      assert.deepStrictEqual([...state.taskOutputPaths].sort(), ['.tasks.combine_erp.output', '.tasks.forecast.output']);
+    });
+
+    it('R58 — refuses a load named as a task is, and a cycle through a load, in a package built otherwise, naming them', async () => {
+      const { pkg } = await deployedFed('fed-ws');
+      /** Points the workspace at the package with its tasks replaced. */
+      const deployedAs = async (tasks: ReadonlyArray<readonly [string, string]>): Promise<void> => {
+        const hash = await objectWrite(testRepo, encodeBeast2For(PackageObjectType)({
+          ...pkg, tasks: new SortedMap(tasks.map(([name, task]): [string, string] => [name, task]), compareFor(StringType)),
+        }));
+        await storage.refs.workspaceWrite(testRepo, 'fed-ws', encodeBeast2For(WorkspaceRecordType)(some({
+          packageName: 'fed', packageVersion: '1.0.0', packageHash: hash, deployedAt: new Date(), currentRunId: none,
+        })));
+      };
+
+      // forecast's task object, under the load's name as well
+      await deployedAs([...pkg.tasks, ['orders.erp', pkg.tasks.get('forecast')!]]);
+      await assert.rejects(dataflowGetGraph(storage, testRepo, 'fed-ws'), (err: unknown) => err instanceof DataflowError &&
+        err.message === 'task \'orders.erp\' has the name of the load of source \'erp\' of record \'orders\', its step in a run — name the task otherwise');
+
+      // combine_erp reading the record it feeds
+      const combine = decodeTaskObject(await storage.objects.read(testRepo, pkg.tasks.get('combine_erp')!));
+      const reading = await objectWrite(testRepo, encodeBeast2For(TaskObjectType)({
+        ...combine, inputs: [{ path: [variant('field', 'records'), variant('field', 'orders')], index: none, partition: none }],
+      }));
+      await deployedAs([...pkg.tasks].map(([name, hash]) => [name, name === 'combine_erp' ? reading : hash] as const));
+      await assert.rejects(dataflowGetGraph(storage, testRepo, 'fed-ws'), (err: unknown) => err instanceof DataflowError &&
+        err.message === 'a cycle through the load orders.erp — record \'orders\' → task \'combine_erp\' → load orders.erp → record \'orders\': ' +
+          'what feeds a load cannot read the record it loads');
     });
   });
 });
