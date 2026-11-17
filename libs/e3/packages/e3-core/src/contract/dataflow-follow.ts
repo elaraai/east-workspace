@@ -434,6 +434,29 @@ export function dataflowFollowCases(setup: BackendSetup): void {
     assert.equal(await held(storage, repo, 'tasks/report/output'), made('report', made('forecast', made('clean', v2))));
   });
 
+  it('serves a task due again from the cache where it ran before, though the workspace holds a result it made since: an input set back is no new work', async (t) => {
+    const context = await setup(t);
+    const { storage, repo } = context;
+    const tasks = await deployChain(t, context);
+    // Nothing is held: each task runs as it is launched, and its execution is recorded
+    const runner = gatedRunner(storage, repo, tasks);
+    for (const name of tasks.keys()) runner.pass(name);
+    const orchestrator = new LocalOrchestrator(stateStoreOf(context));
+    const run = async () => orchestrator.wait(await orchestrator.start(storage, repo, 'ws', { runner }));
+    const v1 = (await held(storage, repo, 'inputs/sales'))!;
+    assert.equal((await run()).executed, 3);
+    await workspaceSetDataset(storage, repo, 'ws', inputPath('sales'), 5n, IntegerType);
+    assert.equal((await run()).executed, 3);
+
+    // sales set back: each task's result there is in the cache, though the workspace holds the one made at 5
+    await workspaceSetDataset(storage, repo, 'ws', inputPath('sales'), 1n, IntegerType);
+    assert.equal(await held(storage, repo, 'inputs/sales'), v1);
+    const back = await run();
+    assert.deepEqual([back.success, back.executed, back.cached], [true, 0, 3], 'no task ran again');
+    assert.equal(await held(storage, repo, 'tasks/report/output'), made('report', made('forecast', made('clean', v1))),
+      'each result is the one made at the first value');
+  });
+
   it('runs a task that reads two results as of the commit its older input came from: the other read there from the cache, or made there by a catch-up run', async (t) => {
     const context = await setup(t);
     const { storage, repo } = context;

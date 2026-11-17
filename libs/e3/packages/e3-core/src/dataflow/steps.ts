@@ -40,10 +40,7 @@ import {
   taskProducers,
   type ResolveInputsOptions,
 } from '../dataflow.js';
-import {
-  workspaceGetDatasetHash,
-  workspaceSetDatasetByHash,
-} from '../trees.js';
+import { workspaceSetDatasetByHash } from '../trees.js';
 import {
   inputVersionVector,
   snapshotInputVersions,
@@ -772,28 +769,15 @@ export async function stepPrepareTask(
   // target, or the ones it names (stepTaskForced).
   let cached: PrepareTaskResult['cached'] = null;
   if (!stepTaskForced(state, taskName)) {
+    // A hit lands as any result does, its output written whatever the
+    // workspace holds: a task due again holds the result it made last, which
+    // is no reason to make the one the cache holds again
     cached = await dataflowCheckCache(
       storage,
       state.repo,
       task.hash,
       validInputHashes
     );
-
-    // Also verify the workspace output matches the cached output
-    if (cached !== null) {
-      const { parsePathString } = await import('../dataflow.js');
-      const outputPath = parsePathString(task.output);
-      const { refType, hash: wsOutputHash } = await workspaceGetDatasetHash(
-        storage,
-        state.repo,
-        state.workspace,
-        outputPath
-      );
-      if (refType !== 'value' || wsOutputHash !== cached.outputHash) {
-        // Workspace output doesn't match cached output, need to re-execute
-        cached = null;
-      }
-    }
   }
 
   return {
