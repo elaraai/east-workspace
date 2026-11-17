@@ -151,6 +151,23 @@ test("date presets wait for index bounds and include the last historical millise
     expect(document.querySelectorAll("[data-brush-bar]")).toHaveLength(0);
 });
 
+test("the brush holds a window past the records' dates whole: its track reaches the window, which draws where it stands (#1680's review)", () => {
+    const f = fixture([field({ fieldId: "due", label: "Due", kind: "datetime", values: [] })]);
+    const print = printFor(DateTimeType);
+    // The records' dates: 30 September to 3 October.
+    f.domain.mockImplementation(() => { trackKey("network"); return some({
+        from: print(new Date("2020-09-30T00:00:00.000Z")), to: print(new Date("2020-10-03T00:00:00.000Z")),
+    }); });
+    // A window of ten days a week past them: clamped to the records' dates, it had no place on the track and drew none.
+    act(() => { f.slice.range("due", print(new Date("2020-10-10T00:00:00.000Z")), print(new Date("2020-10-20T00:00:00.000Z"))); });
+    render(<ChakraProvider value={system}><RecordSliceBrush slice={f.slice} /></ChakraProvider>);
+    const brush = document.querySelector("[data-record-slice-brush]")!;
+    expect(brush.querySelector("[data-brush-window]")).not.toBeNull();
+    // The track runs from the records' first date to the window's end, twenty days: the window its second half.
+    expect([brush.querySelector("[data-brush-handle='lo']")!.getAttribute("aria-valuenow"), brush.querySelector("[data-brush-handle='hi']")!.getAttribute("aria-valuenow")])
+        .toEqual(["50", "100"]);
+});
+
 test("record search debounces, hides stale suggestions, chooses exact values by keyboard and follows external clearing", async () => {
     const f = fixture([field({ fieldId: "name", label: "Name", values: [] })]);
     let failed = true;

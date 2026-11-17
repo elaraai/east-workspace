@@ -203,6 +203,27 @@ export function brushCursor(mode: BrushMode): string {
     return "ew-resize";
 }
 
+// ── The horizon (#1680's review) ─────────────────────────────────────────────
+
+/**
+ * The span a brush's track covers: its data's, and every window the brush holds with it — a source's range, the
+ * window a canvas shows, the window an axis states — each half-open on the same numbers. A window wider than the
+ * data, or past it, is still the brush's: clamped to the data's ends it drew as the whole track, or as nothing, and
+ * no gesture could widen it back out.
+ *
+ * @param data - The data's span, `[min, end)`
+ * @param windows - The windows the track holds whole, each `[from, to)`
+ * @returns The track's span, `[min, end)`
+ */
+export function brushHorizon(data: { min: number; end: number }, windows: readonly (readonly [number, number])[]): { min: number; end: number } {
+    let { min, end } = data;
+    for (const [from, to] of windows) {
+        min = Math.min(min, from);
+        end = Math.max(end, to);
+    }
+    return { min, end };
+}
+
 // ── Keys (#1438) ─────────────────────────────────────────────────────────────
 
 /** What takes a key: the start handle, the end handle, or the window between them. */

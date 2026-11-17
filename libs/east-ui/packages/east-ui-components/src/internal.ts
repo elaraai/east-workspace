@@ -91,6 +91,8 @@ export { readBeforeSave, readBeforeSaves, standingBeforeSave } from "./editing/l
 // The Slice: its bound range, the brush, the rail's toolbar items, and density.
 export { boundRangeDomain, boundRangeHistogram } from "./platform/slice/index.js";
 export { BrushStrip, type BrushBucket, type BrushStripProps, type BrushWords } from "./slice/brush-strip.js";
+// The span a brush's track covers: its data, and every window it holds with it — the Plan's horizon's (#1680's review).
+export { brushHorizon } from "./slice/brush-math.js";
 export { SliceDensityContext } from "./slice/density.js";
 export { railAffordanceKinds } from "./slice/rail-kinds.js";
 export { HOST_RANK, useSliceToolbarItems } from "./slice/rail/index.js";

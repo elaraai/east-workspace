@@ -11,7 +11,7 @@
 
 import { describe, test, expect } from "vitest";
 import {
-    BRUSH_HANDLE_COARSE_PX, brushBars, brushBucketAt, brushCursor, brushDragWindow, brushHitTest, brushKey, brushRelease, brushZones, type BrushDrag,
+    BRUSH_HANDLE_COARSE_PX, brushBars, brushBucketAt, brushCursor, brushDragWindow, brushHitTest, brushHorizon, brushKey, brushRelease, brushZones, type BrushDrag,
 } from "./brush-math.js";
 
 const WIDTH = 400;
@@ -191,6 +191,18 @@ describe("brushRelease — click vs drag, clear vs commit vs noop (#192)", () =>
     test("a resize collapsing the window below the threshold clears", () => {
         expect(brushRelease(drag({ mode: "resize-lo", win: WIN, start: 100, current: 198 })))
             .toEqual({ kind: "clear" });
+    });
+});
+
+describe("brushHorizon — the track holds the data and every window the brush holds (#1680's review)", () => {
+    test("a window wider than the data, past it, or within it: the track spans the data and each window whole", () => {
+        // Four days of tasks, days 1 to 5, in a 28-day window from day 0 — and that window stated.
+        expect(brushHorizon({ min: 1, end: 5 }, [[0, 28], [0, 28]])).toEqual({ min: 0, end: 28 });
+        // A window past the data: the track reaches it, so it draws.
+        expect(brushHorizon({ min: 1, end: 5 }, [[33, 61]])).toEqual({ min: 1, end: 61 });
+        // A window inside the data moves nothing; no window, the data alone.
+        expect(brushHorizon({ min: 1, end: 5 }, [[2, 3]])).toEqual({ min: 1, end: 5 });
+        expect(brushHorizon({ min: 1, end: 5 }, [])).toEqual({ min: 1, end: 5 });
     });
 });
 

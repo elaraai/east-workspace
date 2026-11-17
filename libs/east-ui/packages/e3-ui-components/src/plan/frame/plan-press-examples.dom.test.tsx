@@ -21,7 +21,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
-import { fireEvent, waitFor } from "@testing-library/react";
+import { fireEvent, waitFor, within } from "@testing-library/react";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import { boundFrame, frameScrolls } from "../../sheet/frame.test-utils.js";
 import { planMessages } from "../messages.js";
@@ -145,6 +145,35 @@ describe("the works' page (planPressTasks)", () => {
         await selectRow(c, entry("press", "P03"));
         expect(eyebrow(c)).toBe("Presses");
         await waitFor(() => expect(fact(c, "events")).toBe("5"));
+    });
+
+    test("the horizon holds the window the canvas shows, though the tasks fill four days of it: the stated four weeks on the strip, narrowed and widened back, and a day past the tasks keeps a window (#1680's review)", async () => {
+        const { container: c } = await h.mount(ex.planPressTasks);
+        await settle();
+        const band = () => c.querySelector<HTMLElement>("[data-slot='horizon']");
+        await waitFor(() => expect(band()?.querySelector("[data-brush-window]")).not.toBeNull());
+        const handle = (edge: "lo" | "hi") => band()!.querySelector<HTMLElement>(`[data-brush-handle="${edge}"]`)!;
+        const at = () => [handle("lo").getAttribute("aria-valuenow"), handle("hi").getAttribute("aria-valuenow")];
+        const said = () => band()!.querySelector("[data-brush-window]")?.getAttribute("aria-valuetext") ?? null;
+        // The tasks fall on 6 to 9 October; the canvas shows the stated four weeks, 5 October to 1 November: the window
+        // is the whole strip, and it names the days the navigator does.
+        expect(at()).toEqual(["0", "100"]);
+        expect(said()).toBe("Oct 5, 2026 – Nov 1, 2026");
+        // A day off its end, and back: the strip still holds the stated window, so the window widens back out.
+        fireEvent.keyDown(handle("hi"), { key: "ArrowLeft" });
+        await settle();
+        await waitFor(() => expect(said()).toBe("Oct 5, 2026 – Oct 31, 2026"));
+        fireEvent.keyDown(handle("hi"), { key: "ArrowRight" });
+        await settle();
+        await waitFor(() => expect(said()).toBe("Oct 5, 2026 – Nov 1, 2026"));
+        expect(at()).toEqual(["0", "100"]);
+        // Six days on, the window starts past every task: it is the canvas's still, and on the strip.
+        const next = within(slot(c, "toolbar")!).getAllByRole("button", { name: /^Next / })[0]!;
+        for (let i = 0; i < 6; i++) {
+            fireEvent.click(next);
+            await settle();
+        }
+        await waitFor(() => expect(said()).toBe("Oct 11, 2026 – Nov 7, 2026"));
     });
 
     test("the machines are read a page at a time through their indexes, and the tasks a cell at a time by their press", async () => {

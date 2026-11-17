@@ -12,7 +12,10 @@
  * has a 9px tab 2 in from the track's top and bottom, centred on it; a bar's
  * hover stands its Tooltip 8 above the track, inside it; and the keys move
  * the window and clear it. jsdom lays nothing out, so what the strip's DOM
- * tests cannot see is measured here.
+ * tests cannot see is measured here. And the Plan's horizon over a source
+ * whose data fills a few days of the window (`planPressTasks`): it holds the
+ * window the canvas shows, saying the navigator's days, and keeps a window
+ * once one steps past the data (#1680's review).
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test horizon-brush`.
@@ -105,5 +108,32 @@ test.describe("the horizon brush (#1438)", { tag: "@desktop" }, () => {
         await expect.poll(left).toBeLessThan(was);
         await page.keyboard.press("Escape");
         await expect(band).toHaveCount(0);
+    });
+
+    test("planPressTasks: the Plan's horizon holds the window the canvas shows, though the tasks fill four days of it — saying the navigator's days — and a narrower window stepped past the tasks stays on it (#1680's review)", async ({ page }) => {
+        const route = "e3/plan/plan-events/planPressTasks";
+        await page.goto(`/?theme=light#${route}`);
+        await page.waitForSelector("header");
+        const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${route}"]`) });
+        await entry.scrollIntoViewIfNeeded();
+        const horizon = entry.locator("[data-slot='horizon']");
+        const window = horizon.locator("[data-brush-window]");
+        await expect(window).toBeVisible({ timeout: 45_000 });
+        await settled(page);
+        // The stated four weeks, the days the navigator names: the tasks fall on 6 to 9 October.
+        await expect(window).toHaveAttribute("aria-valuetext", "Oct 5, 2026 – Nov 1, 2026");
+        await expect(horizon.locator("[data-brush-handle='lo']")).toHaveAttribute("aria-valuenow", "0");
+        await expect(horizon.locator("[data-brush-handle='hi']")).toHaveAttribute("aria-valuenow", "100");
+        // Ten days off its end from the end handle, committed.
+        await horizon.locator("[data-brush-handle='hi']").focus();
+        await page.keyboard.press("Shift+ArrowLeft");
+        await expect(window).toHaveAttribute("aria-valuetext", "Oct 5, 2026 – Oct 22, 2026");
+        await settled(page);
+        // Moved by the navigator to start on 11 October, past every task — its calendar, as the toolbar draws it compact
+        // here: the window is the canvas's still, its days kept, and on the strip.
+        await entry.locator("[data-frame-slot='toolbar'] [data-time-trigger]").first().click();
+        await page.locator(`[data-time-picker='plan'] [data-time-day='${Date.UTC(2026, 9, 11)}']`).click();
+        await settled(page);
+        await expect(window).toHaveAttribute("aria-valuetext", "Oct 11, 2026 – Oct 28, 2026");
     });
 });
