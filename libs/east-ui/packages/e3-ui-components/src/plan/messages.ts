@@ -246,6 +246,10 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     linkHeld: (p: { kind: string }) => string;
     /** Why Connect's draft doesn't land: no key can be made for a new link of the kind. */
     linkUnkeyed: (p: { kind: string }) => string;
+    /** The inspector's Connect to…, by the link kind it draws: its group's name — `Connect a flow`. */
+    inspectorConnect: (p: { kind: string }) => string;
+    /** A field of Connect to…: the link `kind` it draws, and the event it runs `to`. */
+    inspectorConnectField: (p: { field: "kind" | "to" }) => string;
 
     // ── The library pane (#1195) ───────────────────────────────────────────
     /** The library pane's name. */
@@ -703,6 +707,8 @@ export const planMessages: PlanMessages = {
     linkEndRefused: ({ kind, end, item }) => `${kind} can't ${end} at ${item}`,
     linkHeld: ({ kind }) => `That ${lowerWord(kind)} is drawn already`,
     linkUnkeyed: ({ kind }) => `No key can be made for a new ${lowerWord(kind)}`,
+    inspectorConnect: ({ kind }) => `Connect ${withArticle(lowerWord(kind))}`,
+    inspectorConnectField: ({ field }) => (field === "kind" ? "Link" : "Connect to"),
 
     libraryPane: () => "Library",
     libraryTab: ({ tab }) => (tab === "events" ? "Events" : tab === "backlog" ? "Backlog" : "Series"),

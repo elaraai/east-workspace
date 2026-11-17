@@ -24,7 +24,7 @@
 import { describe, test, expect } from "vitest";
 import { fireEvent, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { East, StringType, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { East, OptionType, StringType, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Editing, Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import { editingMessages } from "@elaraai/east-ui-components";
 import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
@@ -660,6 +660,60 @@ describe("a link kind's link in the inspector (#1541, U10)", () => {
     const hit = (c: HTMLElement, key: string) => [...c.querySelectorAll("[data-link]")].find((path) => path.getAttribute("data-link-key") === elementKey("flow", key));
     const fact = (c: HTMLElement, name: string) => pane(c).querySelector(`[data-fact="${name}"]`)?.textContent ?? null;
     const toolbar = (c: HTMLElement) => within(slot(c, "toolbar")!);
+
+    /** Picks a choice of Connect to…'s chooser, by its field and its words. Returns every choice it offered. */
+    async function connectTo(c: HTMLElement, key: string, option: string): Promise<(string | null)[]> {
+        const trigger = pane(c).querySelector<HTMLElement>(`[data-inspector-fields="connect"] [data-field="${key}"] [data-scope=select][data-part=trigger]`)!;
+        fireEvent.click(trigger);
+        await settle();
+        const listbox = document.getElementById(trigger.getAttribute("aria-controls")!)!;
+        const offered = within(listbox).getAllByRole("option").map((choice) => choice.textContent);
+        fireEvent.click(within(listbox).getByRole("option", { name: option }));
+        await settle();
+        return offered;
+    }
+    /** Selects Catalogue covers (J-2001), a job on Press A1. */
+    async function selectCovers(c: HTMLElement) {
+        fireEvent.click(c.querySelector(`${rowAt(entry("presses", "a1"))} ${el("data-run", "job", "J-2001")}`)!);
+        await settle();
+    }
+
+    test("an event's Connect to… draws a link without a drag: a choice among the events its kind's end takes draws it, a draft, selected; Undo takes it back", async () => {
+        const { container } = await h.mount(flows);
+        await settle();
+        await selectCovers(container);
+        expect(showing(container)).toBe("event");
+        const group = pane(container).querySelector('[data-inspector-fields="connect"]')!;
+        expect(group.getAttribute("aria-label")).toBe("Connect a flow");
+        // One link kind runs from a job: no choice of it is asked.
+        expect(group.querySelector('[data-field="kind"]')).toBeNull();
+        const offered = await connectTo(container, "to", "Price lists");
+        // The events the canvas draws that a flow may end at — jobs, bindery jobs, deliveries — but the job itself, and no plates.
+        expect(offered).toContain("Catalogue");
+        expect(offered).not.toContain("Catalogue covers");
+        expect(offered).not.toContain("Catalogue plates");
+        // The flow is drawn: a draft of the flows' record, selected, so the pane shows it.
+        expect(showing(container)).toBe("link");
+        expect(pane(container).querySelector("[data-inspector-title]")!.textContent).toBe("Catalogue covers → Price lists");
+        fireEvent.click(toolbar(container).getByRole("button", { name: editingMessages.undo() }));
+        await settle();
+        expect((toolbar(container).getByRole("button", { name: editingMessages.undo() }) as HTMLButtonElement).disabled).toBe(true);
+    });
+
+    test("Connect to… is held to the Plan's `canConnect` as a Connect drag is: refused, the field says why, and no link is drawn", async () => {
+        const vetoed = flowsPlan(() => East.function([Plan.Types.ConnectCandidate], OptionType(StringType), ($, candidate) => {
+            const said = $.let(none, OptionType(StringType));
+            $.if(candidate.to.key.equal("J-2004"), ($2) => { $2.assign(said, some("Price lists are already at the bindery")); });
+            return said;
+        }));
+        const { container } = await h.mount(vetoed);
+        await settle();
+        await selectCovers(container);
+        await connectTo(container, "to", "Price lists");
+        expect(showing(container)).toBe("event");
+        expect(pane(container).querySelector('[data-inspector-fields="connect"]')!.textContent).toContain("Price lists are already at the bindery");
+        expect((toolbar(container).getByRole("button", { name: editingMessages.undo() }) as HTMLButtonElement).disabled).toBe(true);
+    });
 
     test("one link shows its kind, the events it joins, what it moves and its form; an edit is a draft Undo takes back; Delete removes it", async () => {
         const restore = ribbonWidth({ tall: true });

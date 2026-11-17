@@ -73,6 +73,14 @@ export interface PlanCanvasInspect {
      */
     resources(landing: string): readonly PlanRowValue[] | undefined;
     /**
+     * The events the canvas draws of the kinds given (#1541, U10), each once, in its rows' order: what Connect to…
+     * offers a link's far end among.
+     *
+     * @param kinds - The event kinds, by their slots
+     * @returns Their events' keys on the canvas
+     */
+    events(kinds: readonly string[]): readonly string[];
+    /**
      * The refusals holding Save of the entry a row came from (#1541, U5): what the session the rows save through refuses
      * of it while the Plan's `ready` refuses its drafts — the entry the first step of the row's path names, for one of
      * `data`'s own rows the canvas holds. Read as the pane draws, so it says the session's readiness now.

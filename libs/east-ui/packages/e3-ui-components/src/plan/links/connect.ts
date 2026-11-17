@@ -25,6 +25,8 @@
 import { NullType, OptionType, StringType, StructType, VariantType, type ValueTypeOf } from "@elaraai/east";
 import { useHeldTools, type HeldTools, type LinkChoice } from "../../shared/held-tools.js";
 import { storedCodec } from "../../shared/stored-value.js";
+import type { PlanLinkSource } from "../edit/event-drag.js";
+import type { PlanLinkKindValue } from "./kinds.js";
 
 /** A tool, as the UI store holds it. */
 export const PlanToolType = VariantType({ select: NullType, connect: NullType });
@@ -46,14 +48,23 @@ export type PlanToolsState = HeldTools<PlanTool>;
 /** No link kind Connect may draw. */
 export const NO_LINK_CHOICES: readonly LinkChoice[] = [];
 
-/** What the toolbar's tools show and drive (#1541, U10): there while a link kind is editable. */
+/** What the toolbar's tools and the inspector's Connect to… show and drive (#1541, U10): there while a link kind is editable. */
 export interface PlanToolsChrome {
     /** The tools in force: the tool held, and the link kind Connect draws. */
     readonly held: PlanToolsState;
     /** The link kinds Connect may draw: the editable ones, in the order the Plan lists them. */
     readonly links: readonly LinkChoice[];
+    /** Those link kinds themselves: what Connect to… reads each one's ends from. */
+    readonly kinds: readonly PlanLinkKindValue[];
     /** Picks a tool, or the link kind Connect draws. */
     readonly pick: (next: PlanToolsState) => void;
+    /**
+     * Why a link of a kind from one event to another isn't drawn, by the rules Connect's drag is held to: its kind's
+     * end, or the Plan's `canConnect`. `undefined` where it may be.
+     */
+    readonly refusal: (kind: PlanLinkKindValue, from: PlanLinkSource, to: string) => string | undefined;
+    /** Draws it: a draft of its kind's session, one step of the history, selected. Whether it was recorded. */
+    readonly draw: (kind: PlanLinkKindValue, from: PlanLinkSource, to: string) => boolean;
 }
 
 /**
