@@ -1157,6 +1157,86 @@ export const planPrintWorks = example({
 });
 
 /**
+ * A lock on each way an event draws (#1541, U9): the print works' first hall
+ * — its presses and its crews — with the bay and the vans, and what is done
+ * or booked on them held where it is by the works' own rules — a confirmed shift, a chip; a press's service, a
+ * mark; a delivery that has gone, a tile. Each draws with a lock, is not
+ * moved, changed or removed, and shows its form read only; what the rules let
+ * go — a proposed shift, a plate change, a delivery still queued — moves as
+ * ever.
+ */
+export const planLocks = example({
+    keywords: [
+        "Plan", "locked", "lock", "Schedule.events", "cards", "chip", "marks", "mark", "buckets", "tile", "read only", "state", "status",
+        "Plan.series.kinds", "Plan.series.group", "inspector", "#1541",
+    ],
+    description: "A lock on each way an event draws — the print works' crews, presses, bay and vans, with what is done or booked held where it is by the works' own rules (Schedule.events' `locked`): a confirmed shift, a chip; a press's service, a mark; a delivery that has gone, a tile. Each draws with a lock, is not moved, changed or removed, and shows its form read only",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const works = $.let(Data.bind(planPrintWorksRows));
+            const shifts = $.let(Record.bind(planPrintShifts));
+            const stops = $.let(Record.bind(planPrintStops));
+            const deliveries = $.let(Record.bind(planPrintDeliveries));
+            // A week a column: a delivery's tile is drawn whole in its week, never folded into a count.
+            const axis = $.let(Plan.axis({
+                window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") },
+                resolution: "week", now: new Date("2026-10-14T09:00:00Z"),
+            }));
+            return (
+                <Plan
+                    id="locks"
+                    axis={axis}
+                    // The works' rows that hold what the rules lock — the first hall's presses and crews, the bay and
+                    // the vans: each group a strip, its resources beneath it, each drawn by its kind.
+                    data={works.read().filter((_$, _group, key) => key.equal("1-presses-a").or(() => key.equal("3-crews-a"))
+                        .or(() => key.equal("7-dispatch")).or(() => key.equal("8-vans")))}
+                    series={[Plan.series.group(PrintWorksGroup, {
+                        key: "groups", title: "Works", label: g => g.name,
+                        children: Plan.children("resources", [Plan.series.kinds(PrintResource, "what", {
+                            press: { key: "presses", title: "Presses", icon: "print", label: r => r.name },
+                            crew: { key: "crews", title: "Crews", icon: "user-group", label: r => r.name },
+                            setter: false,
+                            line: false,
+                            bay: { key: "bays", title: "Dispatch", icon: "warehouse", label: r => r.name },
+                            van: { key: "vans", title: "Vans", icon: "truck", label: r => r.name },
+                        })]),
+                    })]}
+                    events={{
+                        shift: Schedule.events(shifts, {
+                            name: "Crew shift", icon: "user-clock", draw: "cards",
+                            title: "title", start: "start", end: "end",
+                            resource: { field: "crew", of: "crews" }, state: "state",
+                            // A confirmed shift is the crew's: held where it is.
+                            locked: (shift) => shift.state.hasTag("confirmed"),
+                        }),
+                        stop: Schedule.events(stops, {
+                            name: "Stop", icon: "screwdriver-wrench", draw: "marks",
+                            title: "title", at: "at",
+                            resource: { field: "press", of: "presses" },
+                            // A service is booked with the press's maker.
+                            locked: (stop) => stop.kind.hasTag("service"),
+                        }),
+                        delivery: Schedule.events(deliveries, {
+                            name: "Delivery", icon: "truck", draw: "buckets", title: "title", at: "at",
+                            resource: { field: "location", of: { bay: "bays", van: "vans" } }, lane: "lane",
+                            status: { field: "status", cases: {
+                                queued: { label: "Queued", tone: variant("warning", null), ring: true },
+                                ready: { label: "Ready", tone: variant("info", null), ring: false },
+                                dispatched: { label: "Dispatched", tone: variant("success", null), ring: false },
+                            } },
+                            // A delivery that has gone is done.
+                            locked: (delivery) => delivery.status.hasTag("dispatched"),
+                        }),
+                    }}
+                    inspector
+                />
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/**
  * Every way a link draws (`Plan links.html`, `Plan Builder Spec.md` §4.3,
  * PB10, #1258): a print works' jobs from the plates that start them, across its
  * presses, through the bindery to the dispatch bay — each link's ends named by

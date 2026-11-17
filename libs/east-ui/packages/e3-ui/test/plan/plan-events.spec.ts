@@ -39,6 +39,7 @@ describeEast("Plan of event kinds — the examples (#1191)", (test) => {
         planEvents: ex.planEvents,
         planWording: ex.planWording,
         planPrintWorks: ex.planPrintWorks,
+        planLocks: ex.planLocks,
         planEventLinks: ex.planEventLinks,
         planConflicts: ex.planConflicts,
     });

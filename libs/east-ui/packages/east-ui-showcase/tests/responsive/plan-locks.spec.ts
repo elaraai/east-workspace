@@ -16,6 +16,11 @@
  * - A locked bar is not picked up: it wears no grab cursor and has no end
  *   handles, where a job beside it has both; dragged a day on it stays where
  *   it is, and nothing is drafted.
+ * - Each other way an event draws wears the lock too (`planLocks`): a chip's,
+ *   an 8px square whole inside it at the least width the canvas draws a chip,
+ *   22px; a tile's, 8px tall at the glyph's own width, whole inside its tile;
+ *   and a mark's, an 8px square beside its glyph, its label starting clear of
+ *   it.
  * - The smallest builder (`planEvents`): an order's card, dropped on a press,
  *   makes a job there on the day under the pointer, as a template does, the
  *   ghost saying what lands where.
@@ -81,7 +86,106 @@ async function barsOf(entry: Locator): Promise<Bar[]> {
     });
 }
 
+/** The least width the canvas draws a chip at (the theme's `--plan-chip-min-w`). */
+const CHIP_MIN = 22;
+
+/** One chip, tile or mark, as the browser lays it out, with its lock and its label where they are drawn. */
+interface Locked {
+    /** The attribute its draw carries: `data-chip`, `data-event` or `data-mark`. */
+    draw: string;
+    name: string;
+    locked: boolean;
+    box: Edges;
+    /** Its box inside its padding. */
+    inside: Edges;
+    lock: Edges | null;
+    label: Edges | null;
+}
+
+/** The chips, tiles and marks the canvas draws, each with its lock and its label. */
+async function lockedOf(entry: Locator): Promise<Locked[]> {
+    return entry.locator("[data-plan-body]").first().evaluate((body) => {
+        const edges = (el: Element) => {
+            const box = el.getBoundingClientRect();
+            return { top: box.top, bottom: box.bottom, left: box.left, right: box.right };
+        };
+        const drawn = (el: Element | null): el is Element => el !== null && el.getBoundingClientRect().width > 0;
+        const read = (draw: string, el: HTMLElement, lock: Element | null, label: Element | null) => {
+            const style = getComputedStyle(el);
+            const box = edges(el);
+            return {
+                draw, name: el.getAttribute("aria-label") ?? "", locked: el.hasAttribute("data-locked"), box,
+                inside: { top: box.top, bottom: box.bottom, left: box.left + Number.parseFloat(style.paddingLeft), right: box.right - Number.parseFloat(style.paddingRight) },
+                lock: drawn(lock) ? edges(lock) : null, label: drawn(label) ? edges(label) : null,
+            };
+        };
+        const cells = '[role="gridcell"]';
+        return [
+            ...[...body.querySelectorAll<HTMLElement>(`${cells} [data-chip]`)].map((chip) =>
+                read("data-chip", chip, chip.querySelector("[data-plan-lock] svg"), chip.querySelector("[data-plan-label]"))),
+            // A tile its cell folds into a count is not drawn.
+            ...[...body.querySelectorAll<HTMLElement>(`${cells} [data-event]:not([data-folded])`)].map((tile) =>
+                read("data-event", tile, tile.querySelector("svg[data-plan-lock]"), tile.querySelector("[data-plan-label]"))),
+            // A mark's lock and its label stand beside its glyph, each its sibling.
+            ...[...body.querySelectorAll<HTMLElement>(`${cells} [role="button"][data-mark]`)].map((mark) =>
+                read("data-mark", mark, mark.parentElement!.querySelector("[data-plan-lock] svg"), mark.parentElement!.querySelector('[data-mark][aria-hidden="true"]'))),
+        ];
+    });
+}
+
 test.describe("A locked event on the Plan, and a card that makes one (#1541)", () => {
+    test("planLocks: a chip, a tile and a mark each draw their lock whole — a chip's inside it at the least width a chip is drawn, a tile's inside its tile, a mark's between its glyph and its label; what is not locked draws none @desktop", async ({ page }) => {
+        const entry = await openExample(page, "planLocks", PLAN_EVENT_EXAMPLES);
+        // Each kind's events land as its record is read, the deliveries' last: each way of drawing holds one locked and
+        // one not before anything is measured — a check of none is no check.
+        const sorts = async () => {
+            const all = await lockedOf(entry);
+            return ["data-chip", "data-event", "data-mark"].map((draw) => {
+                const of = all.filter((one) => one.draw === draw);
+                return [draw, of.some((one) => one.locked), of.some((one) => !one.locked)];
+            });
+        };
+        await expect.poll(sorts, { timeout: 20_000 }).toEqual([["data-chip", true, true], ["data-event", true, true], ["data-mark", true, true]]);
+        await settled(page);
+        const all = await lockedOf(entry);
+        const bad: string[] = [];
+        for (const one of all) {
+            const what = `${one.draw} ${one.name}`;
+            if (!one.locked) {
+                if (one.lock !== null) bad.push(`${what}: draws a lock, and is not locked`);
+                continue;
+            }
+            if (!/, locked$/.test(one.name)) bad.push(`${what}: its name does not say it is locked`);
+            if (one.lock === null) {
+                bad.push(`${what}: draws no lock, ${one.box.right - one.box.left}px wide`);
+                continue;
+            }
+            const [width, height] = [one.lock.right - one.lock.left, one.lock.bottom - one.lock.top];
+            // A tile draws each icon at the glyph's own width (#1263), a lock's under its height; a chip's and a mark's
+            // are the square.
+            const sized = one.draw === "data-event" ? same(height, LOCK) && width > 0 && width <= LOCK + 0.5 : same(width, LOCK) && same(height, LOCK);
+            if (!sized) bad.push(`${what}: its lock is ${width}×${height}px, not ${LOCK}px tall${one.draw === "data-event" ? " at its glyph's width" : ` and ${LOCK}px wide`}`);
+            if (one.draw === "data-mark") {
+                // Beside its glyph, never over it; its label, where it has one, after the lock.
+                if (one.lock.left < one.box.right - 0.5) bad.push(`${what}: its lock starts at ${one.lock.left}px, its glyph ends at ${one.box.right}px`);
+                if (one.label !== null && one.label.left < one.lock.right - 0.5) {
+                    bad.push(`${what}: its label starts at ${one.label.left}px, its lock ends at ${one.lock.right}px`);
+                }
+                continue;
+            }
+            // Whole inside the chip's or the tile's padding and its height.
+            if (one.lock.left < one.inside.left - 0.5 || one.lock.right > one.inside.right + 0.5 || one.lock.top < one.box.top - 0.5 || one.lock.bottom > one.box.bottom + 0.5) {
+                bad.push(`${what}: its lock spans ${one.lock.left}–${one.lock.right}px across, its box inside its padding ${one.inside.left}–${one.inside.right}px`);
+            }
+            if (one.draw === "data-chip" && one.box.right - one.box.left < CHIP_MIN - 0.5) bad.push(`${what}: ${one.box.right - one.box.left}px wide, under the least a chip is drawn at`);
+        }
+        expect(bad).toEqual([]);
+        // An eight-hour shift on a day's axis is narrower than a chip is drawn: a locked chip stands at the least width.
+        const least = all.filter((one) => one.draw === "data-chip" && one.locked && same(one.box.right - one.box.left, CHIP_MIN));
+        expect(least.length, "a locked chip at the least width a chip is drawn at").toBeGreaterThan(0);
+    });
+
+
     test("planPrintWorks: a job under way leads with a lock — whole in its bar whatever its width, centred on its line, its label clear of it — and is not picked up; a job that is not locked draws none @desktop", async ({ page }) => {
         const entry = await openExample(page, "planPrintWorks", PLAN_EVENT_EXAMPLES);
         const bars = await barsOf(entry);

@@ -1079,6 +1079,26 @@ describe("an event its kind's `locked` holds where it is (#1541, U9)", () => {
         expect(end.querySelector("[data-inspector-locked]")?.textContent).toBe("LockedIt can't be moved, changed or deleted.");
     });
 
+    test("planLocks: each way an event draws wears the lock — a chip, a mark and a tile — and says so in its name; what the works' rules let go wears none", async () => {
+        const { container: c } = await h.mount(ex.planLocks, DRAG);
+        await settle();
+        /** An event's element, whichever row it is on: whether it is locked, draws a lock, and is picked up. */
+        const drawn = (attr: "data-chip" | "data-mark" | "data-event", kind: string, key: string) => {
+            const node = c.querySelector<HTMLElement>(`[role="gridcell"] ${el(attr, kind, key)}`)!;
+            // A mark's lock stands beside its glyph, where its label would start; a chip's and a tile's inside it.
+            const lock = attr === "data-mark" ? node.parentElement!.querySelector("[data-plan-lock]") : node.querySelector("[data-plan-lock]");
+            return [node.hasAttribute("data-locked"), lock !== null, node.hasAttribute("data-draggable"), /, locked$/.test(named(node) ?? "")];
+        };
+        // A confirmed shift, a service and a delivery that has gone: locked, a lock drawn, not picked up, named locked.
+        expect(drawn("data-chip", "shift", "SH-01")).toEqual([true, true, false, true]);
+        expect(drawn("data-mark", "stop", "S-05")).toEqual([true, true, false, true]);
+        expect(drawn("data-event", "delivery", "D-103")).toEqual([true, true, false, true]);
+        // A proposed shift, a plate change and a delivery still queued: none of it.
+        expect(drawn("data-chip", "shift", "SH-05")).toEqual([false, false, true, false]);
+        expect(drawn("data-mark", "stop", "S-01")).toEqual([false, false, true, false]);
+        expect(drawn("data-event", "delivery", "D-101")).toEqual([false, false, true, false]);
+    });
+
     test("the Delete key over a selection it is part of takes the others and leaves it selected, where it is", async () => {
         const { container: c } = await h.mount(ex.planPrintWorks, DRAG);
         await settle();
