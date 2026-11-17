@@ -26,9 +26,13 @@
 
 import { describe, test, expect } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
-import { ArrayType, DateTimeType, DictType, East, OptionType, StringType, StructType, equalFor, none, printFor, some, variant } from "@elaraai/east";
-import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui/internal";
+import {
+    ArrayType, DateTimeType, DictType, East, OptionType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none,
+    printFor, some, variant,
+} from "@elaraai/east";
+import { Reactive, RecordSliceStateType, Slice, UIComponentType } from "@elaraai/east-ui/internal";
 import { editingMessages } from "@elaraai/east-ui-components";
+import { getStore } from "@elaraai/east-ui-components/internal";
 import { announced, layOut } from "@elaraai/east-ui-components/testing";
 import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
@@ -1492,6 +1496,25 @@ describe("the print works over plain records (planPrintWorksRecords, #1541 §3)"
             ].map((span) => span.map((text) => new Date(text).getTime())));
             // No job of the works moved.
             expect(sameInstant(jobs.get("J-9005")!.start, new Date("2026-10-07T06:00:00Z"))).toBe(true);
+        } finally {
+            restore();
+        }
+    });
+
+    test("the rail finds a press by its code: narrowed to it, the works are the group holding that resource, read through the index of each group under its resources' codes", async () => {
+        const { c, restore } = await mounted();
+        try {
+            // The rail's choice of a resource, as its field writes it: Press B2's code.
+            const KEY = "ex.planPrintWorksRecords.rows";
+            const decode = decodeBeast2For(RecordSliceStateType);
+            const where = new SortedMap([["code", variant("values", [printFor(StringType)("b2")])]], compareFor(StringType));
+            await act(async () => { getStore().write(KEY, encodeBeast2For(RecordSliceStateType)({ ...decode(getStore().read(KEY)!), preset: none, where } as never)); });
+            await settle();
+            // Hall B alone, with its three presses: no other group holds the press.
+            await waitFor(() => expect(c.querySelector(rowAt(A1_ROW))).toBeNull());
+            expect([...c.querySelectorAll("[data-plan-group]")].map((group) => group.getAttribute("data-plan-group"))).toEqual([rowKeyOf(entry("groups", "2-presses-b"))]);
+            expect(c.querySelector(rowAt(B2_ROW))).not.toBeNull();
+            expect(readsOf("records.plan_works_rows", "plan_works_rows_by_resource").length).toBeGreaterThan(0);
         } finally {
             restore();
         }
