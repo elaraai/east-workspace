@@ -1517,7 +1517,7 @@ describe("an event kind whose record is keyed by a variant: drawn, dragged, save
         expect([sameKey(made[0]![1].from, PRICE_LIST_PROOF), sameKey(made[0]![1].to, PRICE_LIST)]).toEqual([true, true]);
     });
 
-    test("the optimiser's answer names each job by its typed key: a run moves the proofs to six on Monday, one edit that Save writes", async () => {
+    test("the optimiser's answer names each job by its typed key: a run moves the proofs to the first hour not past — the window's six on Monday has gone, so now, nine on Tuesday — one edit that Save writes (#1680's review)", async () => {
         const { container: c } = await h.mount(ex.planTypedKeys, DRAG);
         await settle();
         await press(c.querySelector("[data-optimise-button]")!);
@@ -1526,8 +1526,8 @@ describe("an event kind whose record is keyed by a variant: drawn, dragged, save
         await press(historyButton(c, SAVE));
         await waitFor(() => expect(pending(c)).toBe("0 pending"));
         const held = await jobsHeld();
-        const six = some(new Date("2026-10-05T06:00:00Z"));
-        expect([sameStart(held.get(CATALOGUE_PROOF)!.start, six), sameStart(held.get(PRICE_LIST_PROOF)!.start, six)]).toEqual([true, true]);
+        const now = some(ex.TYPED_KEYS_NOW);
+        expect([sameStart(held.get(CATALOGUE_PROOF)!.start, now), sameStart(held.get(PRICE_LIST_PROOF)!.start, now)]).toEqual([true, true]);
         // The orders stand where they were.
         expect(sameStart(held.get(CATALOGUE)!.start, some(new Date("2026-10-06T06:00:00Z")))).toBe(true);
     });

@@ -202,3 +202,49 @@ describe("the print works' optimiser over a small window, read through the jobs'
         assert.ok(samePatch(answer, patchOf(new SortedMap([], byString), new SortedMap([], byString))), printPatch(answer));
     });
 });
+
+describe("the works' optimiser over plain records, read through the jobs' series index: no order is placed before now (#1680's review)", () => {
+    type WorksJob = ValueTypeOf<typeof base.WorksJob>;
+    type Resource = ValueTypeOf<typeof base.WorksResource>;
+    /** A day of the works' four weeks, from Monday 5 October, at an hour. */
+    const day = (n: number, hour = 0) => new Date(Date.UTC(2026, 9, 5 + n, hour));
+    const press = (name: string): Resource => ({
+        name, what: variant("press", null), utilisation: new SortedMap<Date, number>([], compareFor(DateTimeType)),
+        hours: new SortedMap<ValueTypeOf<typeof base.WorksRole>, ValueTypeOf<typeof base.WorksRoleHours>>([], compareFor(base.WorksRole)),
+    });
+    const works = new SortedMap<string, ValueTypeOf<typeof base.WorksGroup>>([
+        ["1-presses-a", { name: "Hall A", resources: new SortedMap<string, Resource>([["a2", press("Press A2")], ["a3", press("Press A3")]], byString) }],
+    ], byString);
+    // The works' now is Tuesday 6 October at nine (`WORKS_NOW`). Press A2's job is on Thursday the 8th, Press A3's on Wednesday to two.
+    const job = (title: string, on: string, d: number, hour: number, hours: number): WorksJob =>
+        ({ title, customer: "A customer", press: on, start: day(d, hour), end: day(d, hour + hours), sheets: hours * 8000, state: variant("confirmed", null) });
+    const jobs = new SortedMap<string, WorksJob>([["J-1", job("On A2, Thursday", "a2", 3, 6, 6)], ["J-2", job("On A3, Wednesday", "a3", 2, 6, 8)]], byString);
+    const orders = new SortedMap<string, ValueTypeOf<typeof base.WorksOrder>>([
+        ["O-1", { title: "Six hours", customer: "A customer", sheets: 48000.0, due: day(10) }],
+        ["O-2", { title: "Two hours", customer: "A customer", sheets: 16000.0, due: day(10) }],
+    ], byString);
+    const optimise = (base.placeWorksOrders.body as EastIR<EastType[], EastType>).compile([]) as unknown as
+        (byPress: unknown, jobs: unknown, orders: unknown, works: unknown, request: Request) => ValueTypeOf<typeof base.WorksOptimiseResult>;
+    const run = (from: Date, to: Date) => optimise(indexEntries(base.planWorksJobs, base.planWorksJobs.indexes.plan_works_jobs_by_press_week, jobs).entries,
+        jobs, orders, works, { from, to, period: variant("day", null), run: 1n, slice: new Map() }).events.job;
+    const patchOf = diffFor(base.WorksJobs);
+    const samePatch = equalFor(PatchType(base.WorksJobs));
+    const printPatch = printFor(PatchType(base.WorksJobs));
+    /** An order as the job it is placed as, on Press A2, from a start, for its hours. */
+    const placed = (key: string, start: Date, hours: number): WorksJob => ({
+        title: orders.get(key)!.title, customer: "A customer", press: "a2", start, end: new Date(start.getTime() + hours * 3_600_000),
+        sheets: orders.get(key)!.sheets, state: variant("proposed", variant("added", null)),
+    });
+
+    test("a window that starts before now places each order from now: Press A2, its job past the window, is free from nine on Tuesday, never from the window's Monday", () => {
+        const answer = run(day(0), day(3));
+        const expected = patchOf(new SortedMap([], byString),
+            new SortedMap([["O-1", placed("O-1", base.WORKS_NOW, 6)], ["O-2", placed("O-2", day(1, 15), 2)]], byString));
+        assert.ok(samePatch(answer, expected), printPatch(answer));
+    });
+
+    test("a window wholly before now places nothing: no order is put in the past", () => {
+        const answer = run(day(0), day(1));
+        assert.ok(samePatch(answer, patchOf(new SortedMap([], byString), new SortedMap([], byString))), printPatch(answer));
+    });
+});

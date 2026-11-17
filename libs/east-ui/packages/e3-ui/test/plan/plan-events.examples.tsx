@@ -1154,7 +1154,8 @@ export const planPrintWorks = example({
                             ready: d => d.pallets.lessEqual(0.0).ifElse(
                                 () => variant("invalid", [{ field: "pallets", message: "Pallets must be positive" }]),
                                 () => variant("ready", null)),
-                            fields: { pallets: Schedule.field.number({ label: "Pallets", min: 0.0, step: 1.0 }) },
+                            // A pallet at least, as its readiness asks: the field's hint says what the rule holds (#1680's review).
+                            fields: { pallets: Schedule.field.number({ label: "Pallets", min: 1.0, step: 1.0 }) },
                             templates: Schedule.templates(deliveryTemplates.read(), {
                                 name: t => t.name, group: t => some(t.group), at: t => some({ hour: t.hour, minute: 0n }), values: t => t.values, source: "deliveryTemplates",
                             }),
@@ -2005,9 +2006,15 @@ export const planKeyedSignOffs = e3.record("plan_keyed_sign_offs", DictType(Stri
 });
 
 /**
+ * The typed keys' now: where its Plan draws the now line, and before which its optimiser places nothing (#1680's
+ * review). A live app's optimiser reads its clock instead.
+ */
+export const TYPED_KEYS_NOW = new Date("2026-10-06T09:00:00Z");
+
+/**
  * The typed keys' optimiser, on e3: every sample in the window runs first, at six in the morning of the window's first
- * day, for its two hours. It reads the jobs with the Plan's unsaved edits laid over them, and answers a patch of them,
- * each job named by its typed key.
+ * day — or from now, where that has passed: none in the past — for its two hours. It reads the jobs with the Plan's
+ * unsaved edits laid over them, and answers a patch of them, each job named by its typed key.
  */
 export const proofsFirst = e3.function("plan_proofs_first", {
     inputs: [planKeyedJobs],
@@ -2017,8 +2024,10 @@ export const proofsFirst = e3.function("plan_proofs_first", {
 }, ($, jobs, request) => {
     const before = $.let(new Map(), PrintKeyedJobs);
     const after = $.let(new Map(), PrintKeyedJobs);
-    // Six in the morning of the window's first day: where a proof runs, for its two hours.
-    const first = $.const(request.from.addHours(6n));
+    // Six in the morning of the window's first day, or now where that has passed: where a proof runs, for its two hours.
+    const six = $.const(request.from.addHours(6n));
+    const now = $.const(TYPED_KEYS_NOW);
+    const first = $.const(East.less(six, now).ifElse(() => now, () => six));
     $.for(jobs, ($2, job, key) => {
         const inWindow = $2.const(job.start.match({
             some: (_$3, start) => East.greaterEqual(start, request.from).and(() => East.less(start, request.to)),
@@ -2062,7 +2071,7 @@ export const planTypedKeys = example({
                         id="planTypedKeys"
                         axis={Plan.axis({
                             window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-10-12T00:00:00Z") },
-                            resolution: "day", now: new Date("2026-10-06T09:00:00Z"),
+                            resolution: "day", now: TYPED_KEYS_NOW,
                         })}
                         data={presses.read()}
                         series={[Plan.series.resources(PrintPress, { key: "presses", title: "Presses", icon: "print", label: p => p.name })]}
@@ -2376,12 +2385,20 @@ export const WorksOptimiseResult = Plan.Types.OptimiseResult({
 });
 
 /**
+ * The works' now, over plain records: Tuesday 6 October at nine, while the spring catalogue is under way — where its
+ * Plan draws the now line, and before which its optimiser places nothing (#1680's review). A live app's optimiser reads
+ * its clock instead.
+ */
+export const WORKS_NOW = new Date("2026-10-06T09:00:00Z");
+
+/**
  * The works' optimiser, on e3, by the builders' one contract (#1622): its
  * request is the dates in view, the run's number and the rail's narrowing,
  * and no row. Each order no job stands under yet is placed on the press free
- * soonest, from when that press is free — the window's start, or the end of
- * its last job in the window — for as long as its sheets take at 8,000 an
- * hour. It reads each press's jobs through their series index, the Plan's
+ * soonest, from when that press is free — the window's start or the works'
+ * now, whichever is later, or the end of its last job in the window — for as
+ * long as its sheets take at 8,000 an hour, so none in the past. It reads each
+ * press's jobs through their series index, the Plan's
  * unsaved jobs laid over them, the presses from the works' rows and the
  * orders from their record. Its answer is a patch of each record the Plan
  * edits: of the jobs an insert for each order placed, under the order's key,
@@ -2394,12 +2411,15 @@ export const placeWorksOrders = e3.function("plan_works_place_orders", {
     args: [Plan.Types.OptimiseRequest],
     output: WorksOptimiseResult,
 }, ($, jobsByPress, jobs, orders, works, request) => {
-    // When each press is next free: the window's start, or past its last job in the window.
+    // Nothing is placed before now: from the window's start, or now where the window starts before it.
+    const now = $.const(WORKS_NOW);
+    const from = $.const(East.less(request.from, now).ifElse(() => now, () => request.from));
+    // When each press is next free: from then, or past its last job in the window.
     const free = $.let(new Map(), DictType(StringType, DateTimeType));
     $.for(works, ($2, group) => {
         $2.for(group.resources, ($3, resource, code) => {
             $3.if(resource.what.hasTag("press"), ($4) => {
-                const last = $4.let(request.from);
+                const last = $4.let(from);
                 jobsByPress.events({ key: code, from: request.from, to: request.to }).each($4, ($5, job) => {
                     $5.if(East.less(last, job.end), ($6) => { $6.assign(last, job.end); });
                 });
@@ -2556,7 +2576,7 @@ export const planPrintWorksRecords = example({
                     record={record}
                     axis={Plan.axis({
                         window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") },
-                        resolution: "day", resolutions: ["day", "week", "month", "quarter"],
+                        resolution: "day", resolutions: ["day", "week", "month", "quarter"], now: WORKS_NOW,
                     })}
                     // The rows: the groups, each resource drawn by its kind with what belongs to it.
                     series={[
@@ -2654,7 +2674,8 @@ export const planPrintWorksRecords = example({
                             ready: (d) => d.pallets.lessEqual(0.0).ifElse(
                                 () => variant("invalid", [{ field: "pallets", message: "Pallets must be positive" }]),
                                 () => variant("ready", null)),
-                            fields: { pallets: Schedule.field.number({ label: "Pallets", min: 0.0, step: 1.0 }) },
+                            // A pallet at least, as its readiness asks: the field's hint says what the rule holds (#1680's review).
+                            fields: { pallets: Schedule.field.number({ label: "Pallets", min: 1.0, step: 1.0 }) },
                             entries: deliveryEntries,
                             templates: Schedule.templates(presets.read(), { case: ["values", "delivery"], name: (preset) => preset.name, values: (_preset, _key, delivery) => delivery, source: "templates" }),
                         }),
