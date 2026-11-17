@@ -224,8 +224,11 @@ export interface DropCellOptions {
     stopAxis?: "x" | "y";
     /** The cell's name, for the announcements — at the coordinate the drag rests on, for what is dragged. */
     name?: (coord: CellCoord, payload: DragPayload) => string;
-    /** Told each time a drag rests over the cell and it takes it, with the client point and what is dragged. */
-    onHover?: (clientX: number, clientY: number, payload: DragPayload) => void;
+    /**
+     * Told each time a drag rests over the cell and it takes it, with the client point, what is dragged, and whether
+     * the keyboard carries it: a keyboard drag rests at a stop, never where a pointer is.
+     */
+    onHover?: (clientX: number, clientY: number, payload: DragPayload, keyboard: boolean) => void;
     /**
      * Told when a drag that rested over the cell — taken or refused — rests
      * elsewhere: over another destination, over nothing, or nowhere at all, the
@@ -260,8 +263,10 @@ interface CellRegistration extends DropCellOptions {
     /** Continuous surfaces (#268): resolve the drop coordinate from the point
      * the drag rests at, for what is dragged — the component maps x → its
      * snapped slot key (a Plan row maps x → its bucket's instant, or a moved
-     * run's new start, #825). Absent ⇒ the registered `coord`. */
-    resolveCoord?: ((clientX: number, clientY: number, payload: DragPayload) => CellCoord) | undefined;
+     * run's new start, #825). It is told whether the keyboard carries the drag,
+     * whose point is a stop of the cell's and no pointer's. Absent ⇒ the
+     * registered `coord`. */
+    resolveCoord?: ((clientX: number, clientY: number, payload: DragPayload, keyboard: boolean) => CellCoord) | undefined;
 }
 
 /**
@@ -492,8 +497,8 @@ function OverSentinel() {
 }
 
 /** The coordinate a cell names at a point, for a payload — its own, when it has no resolver or there is no point. */
-function coordAt(reg: CellRegistration, point: Point | undefined, payload: DragPayload): CellCoord {
-    return point !== undefined && reg.resolveCoord !== undefined ? reg.resolveCoord(point.x, point.y, payload) : reg.coord;
+function coordAt(reg: CellRegistration, point: Point | undefined, payload: DragPayload, keyboard: boolean): CellCoord {
+    return point !== undefined && reg.resolveCoord !== undefined ? reg.resolveCoord(point.x, point.y, payload, keyboard) : reg.coord;
 }
 
 /** Drop every stage attribute a registration may have left on an element. */
@@ -624,10 +629,10 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
         return (target.kinds.move ?? false) && payload.from.surface === reg.coord.surface;
     }, []);
 
-    /** Whether a connected cell takes the payload at a point — its veto, asked of the real candidate. */
-    const allows = useCallback((reg: CellRegistration, payload: DragPayload, point: Point | undefined): boolean => {
+    /** Whether a connected cell takes the payload at a point — its veto, asked of the real candidate; `keyboard`, whether the keyboard carries the drag. */
+    const allows = useCallback((reg: CellRegistration, payload: DragPayload, point: Point | undefined, keyboard: boolean): boolean => {
         if (reg.canDrop === undefined) return true;
-        return reg.canDrop(dropEvent(payload, coordAt(reg, point, payload), track.altKey));
+        return reg.canDrop(dropEvent(payload, coordAt(reg, point, payload, keyboard), track.altKey));
     }, [track]);
 
     const sinkValid = useCallback((reg: SinkRegistration, payload: DragPayload): boolean => {
@@ -655,11 +660,11 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
         return returns?.canDrop?.(returnEvent(reg, payload.from), reg.library) ?? true;
     }, [returnEvent]);
 
-    /** A destination's name, for the announcements. */
-    const targetName = useCallback((el: HTMLElement, point: Point | undefined, payload: DragPayload): string => {
+    /** A destination's name, for the announcements; `keyboard`, whether the keyboard carries the drag. */
+    const targetName = useCallback((el: HTMLElement, point: Point | undefined, payload: DragPayload, keyboard: boolean): string => {
         const cell = cells.current.get(el)?.current;
         if (cell !== undefined) {
-            const coord = coordAt(cell, point, payload);
+            const coord = coordAt(cell, point, payload, keyboard);
             return cell.name?.(coord, payload) ?? words.cell({ row: coord.row, slot: coord.slot });
         }
         const sink = sinks.current.get(el);
@@ -692,7 +697,7 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
         // A cell can register DURING a drag — a virtualizer scrolls its row
         // into view. The drag-start sweep has already run, so mark it here.
         const d = drag.current;
-        if (d !== null && connected(cell.current, d.payload) && !inRetained(el) && allows(cell.current, d.payload, undefined)) {
+        if (d !== null && connected(cell.current, d.payload) && !inRetained(el) && allows(cell.current, d.payload, undefined, d.keyboard)) {
             el.setAttribute("data-drop-valid", "");
         }
         return () => {
@@ -755,13 +760,13 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
             // `data-drop-valid`, the drag-start sweep's snapshot: a veto that
             // discriminates on the slot answers per bucket. It is asked of the
             // event the drop would deliver here, which the caption speaks of.
-            const coord = coordAt(cell, point, d.payload);
+            const coord = coordAt(cell, point, d.payload, d.keyboard);
             const allowed = cell.canDrop === undefined || cell.canDrop(dropEvent(d.payload, coord, track.altKey));
             if (allowed) {
                 el.removeAttribute("data-drop-invalid");
                 el.setAttribute("data-drop-valid", "");
                 el.setAttribute("data-drop-active", "");
-                cell.onHover?.(point.x, point.y, d.payload);
+                cell.onHover?.(point.x, point.y, d.payload, d.keyboard);
             } else {
                 el.removeAttribute("data-drop-active");
                 el.setAttribute("data-drop-invalid", "");
@@ -936,7 +941,7 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
         caption.set(undefined);
         // Candidates precede the drop — mark every valid destination now, none in retained content.
         for (const [el, cell] of cells.current) {
-            if (connected(cell.current, payload) && !inRetained(el) && allows(cell.current, payload, undefined)) el.setAttribute("data-drop-valid", "");
+            if (connected(cell.current, payload) && !inRetained(el) && allows(cell.current, payload, undefined, keyboard)) el.setAttribute("data-drop-valid", "");
         }
         for (const [el, reg] of sinks.current) {
             if (sinkValid(reg, payload) && !inRetained(el)) el.setAttribute("data-drop-valid", "");
@@ -998,9 +1003,9 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
             // (component-owned snapping, #268); discrete cells use their own.
             // The name is read first: it describes where the drop lands, and
             // the delivery may change what the cell draws.
-            const coord = coordAt(cell, point, payload);
+            const coord = coordAt(cell, point, payload, d.keyboard);
             const event = dropEvent(payload, coord, track.altKey);
-            const name = targetName(el, point, payload);
+            const name = targetName(el, point, payload, d.keyboard);
             // The veto is asked once more, of the event about to be
             // delivered — its duplicate flag the one the drop carries. A drop
             // it refuses is never delivered; the surface hears why it was not.
@@ -1027,7 +1032,7 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
             const target = targets.current.get(payload.from.surface);
             const meta = sink.kind === "library" && sink.library !== undefined ? { library: sink.library } : undefined;
             const taken = target?.onDrag?.(returnEvent(sink, payload.from), meta);
-            outcome.current = taken === false ? { kind: "notDropped", item } : { kind: "dropped", item, target: targetName(el, point, payload) };
+            outcome.current = taken === false ? { kind: "notDropped", item } : { kind: "dropped", item, target: targetName(el, point, payload, d.keyboard) };
             return;
         }
         outcome.current = { kind: "notDropped", item };
@@ -1070,10 +1075,10 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
                 return words.notOver({ item });
             }
             const point = restPoint.current;
-            const target = targetName(el, point, payload);
+            const target = targetName(el, point, payload, d.keyboard);
             const cell = cells.current.get(el)?.current;
             const sink = cell === undefined ? sinks.current.get(el) : undefined;
-            const taken = cell !== undefined ? allows(cell, payload, point) : sink === undefined || returnAllowed(sink, payload);
+            const taken = cell !== undefined ? allows(cell, payload, point, d.keyboard) : sink === undefined || returnAllowed(sink, payload);
             const message = taken ? words.over({ item, target }) : words.refused({ item, target });
             if (message === spoken.current) return undefined;
             spoken.current = message;
@@ -1193,7 +1198,7 @@ export function useDragTarget(config: DragTargetConfig | null): void {
  * @param coord - The cell's coordinate (a continuous cell's: where it answers the drag-start sweep)
  * @param disabled - Take no drop
  * @param canDrop - The cell's veto over the event a drop would deliver ({@link DropVeto})
- * @param resolveCoord - A continuous cell's coordinate at a point, for what is dragged
+ * @param resolveCoord - A continuous cell's coordinate at a point, for what is dragged, told whether the keyboard carries it
  * @param options - Keyboard stops, a name for the announcements, a hover callback, a structural `accepts`
  * @returns The ref to attach to the cell's element
  */
@@ -1201,7 +1206,7 @@ export function useDropCell(
     coord: CellCoord | null,
     disabled = false,
     canDrop?: DropVeto,
-    resolveCoord?: (clientX: number, clientY: number, payload: DragPayload) => CellCoord,
+    resolveCoord?: (clientX: number, clientY: number, payload: DragPayload, keyboard: boolean) => CellCoord,
     options?: DropCellOptions,
 ): (el: HTMLElement | null) => void {
     const layer = useContext(DragLayerContext);
