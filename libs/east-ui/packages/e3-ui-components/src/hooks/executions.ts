@@ -9,7 +9,9 @@ import type { QueryOverrides } from './types.js';
 import {
     dataflowExecute, dataflowExecuteLaunch, dataflowGraph, dataflowExecutePoll, dataflowCancel, taskLogs, pollRequestOptions,
 } from '@elaraai/e3-api-client';
-import type { RequestOptions, DataflowOptions, DataflowPollOptions, ExecutionStateOptions, LogOptions, DataflowResult, DataflowExecutionState } from '@elaraai/e3-api-client';
+import type {
+    RequestOptions, DataflowOptions, DataflowPollOptions, ExecutionStateOptions, LogOptions, DataflowResult, DataflowExecutionState, DataflowStartResult,
+} from '@elaraai/e3-api-client';
 
 /** Prints a poll's cursor for its query key, which react-query hashes as
  *  JSON, where a bigint does not go. */
@@ -22,8 +24,19 @@ export function useDataflowExecute(url: string, repo: string, workspace: string 
     });
 }
 
-export function useDataflowStart(url: string, repo: string, workspace: string | null, requestOptions?: RequestOptions) {
-    return useMutation<void, Error, DataflowOptions | undefined>({
+/**
+ * Starts a workspace's dataflow, without waiting for the run.
+ *
+ * @param url - The API's base URL
+ * @param repo - Repository name
+ * @param workspace - Workspace name
+ * @param requestOptions - The request's token
+ * @returns The mutation, whose result is the start's answer: `started` when
+ *   it began a run, or `handed` when a run in flight took it in, with the
+ *   cursor a poll follows that run from
+ */
+export function useDataflowStart(url: string, repo: string, workspace: string | null, requestOptions?: RequestOptions): UseMutationResult<DataflowStartResult, Error, DataflowOptions | undefined> {
+    return useMutation<DataflowStartResult, Error, DataflowOptions | undefined>({
         mutationFn: (dataflowOptions) =>
             dataflowExecuteLaunch(url, repo, workspace!, dataflowOptions, requestOptions ?? { token: null }),
     });
