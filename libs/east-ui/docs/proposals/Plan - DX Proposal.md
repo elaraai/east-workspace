@@ -47,7 +47,7 @@ Where the code written in the proposal met the build, the build's answer stands,
 | The works' index of resources (§3.1) | `index.keys` of a set of Strings | of `{ code }` structs | the rail offers a field only where the index names one |
 | The optimiser (§3.1) | `Plan.Types.OptimiseResult({ job })`, changing nothing | a patch of every record the Plan edits, and a working placement | the builders' one contract answers each record a builder edits |
 | The rail (§3.3) | seven sources | eight: one more for every kind's templates | beside a rail a kind's templates name a source |
-| The Orders tab (§3.4) | `key: "orders"` | no `key` | a library tab's `key` is not built: an open question |
+| A library tab (§3.4, §4) | `key: "orders"`, `.tab(rows, { key?, … })` | a tab takes no `key` | nothing reads one: dropped from the proposal on 17 November 2026 |
 | The press tasks' record (§3.7) | four indexes | seven: one on the press alone, and two interval indexes | the scope's search reads through the first; the footer's count of the tasks through an interval index |
 | A kind with `child` (U1) | unsaid | it lands only on the rows `child.of` names; a carry by keyboard keeps the event's lane | its resource's own row draws none of its events |
 | Templates' `case` (§9, 1) | "the kind's case of `values`" | `case: [field, tag]`, as a series' `case` is written | one spelling for a case of a variant field, wherever it is named |
@@ -1163,7 +1163,7 @@ export const FeedType = StructType({
 | `events`, `applyMode` | the event kinds, on `resources`; `applyMode` is gone on the record branch (#1536), where every edit waits for Save and `autosave` is the Plan's one switch | `events` unchanged; the kinds land on a resources series or a `kinds` case by `of`, and on a child row beneath their resource by `child` (U1) |
 | `resources` | a dataset per resource kind | goes: the rows are the resources (U1) |
 | `links` | a list of `Plan.link` values, each end at a run (`Plan.ref` + `fromRun`/`toRun`), or at an event (`Plan.eventRef`, its key as text) | link kinds by slot, each over a record (`Plan.links(record, { from, to, … })`), its ends typed; today's list stays, as it is or as one slot's value (U10) |
-| `library` | `Plan.library.series()`, `.events()`, `.backlog()`, `.tab(rows, { … })` | `.series()`, `.events()`, `.backlog()` and `.tab(rows, { key?, drop? \| create?, … })`: a tab's cards may `create` events, as templates do, so a solution's own list of work not yet planned is a tab (U1) |
+| `library` | `Plan.library.series()`, `.events()`, `.backlog()`, `.tab(rows, { … })` | `.series()`, `.events()`, `.backlog()` and `.tab(rows, { drop? \| create?, … })`: a tab's cards may `create` events, as templates do, so a solution's own list of work not yet planned is a tab (U1) |
 | `inspector` | event kinds only: their events, and the resources' rows | the event kinds' events, and the record's rows, with or without event kinds (U5); a link kind's links (U10) |
 | `canDrop` | `Fn(DragEvent) → Boolean` over data rows, or `Fn(Schedule.Types.Candidate) → Option<String>` over an event kind | `Fn(Plan.Types.Candidate) → Option<String>`, its message on the ghost: one check, told what either is told today (U7) |
 | `canConnect` | none: no gesture draws a link | `Fn(Plan.Types.ConnectCandidate) → Option<String>`, its message on the ghost, as the Schematic's: told the link kind and the two events (U10) |
@@ -1323,7 +1323,8 @@ data bindings), which draw no Plan.
   - **The library.** A tab's cards may make events of a kind as templates
     do, with `create: { kind, duration | at, values }` (§3.4), `values` the
     new event's own fields, as #1526 names them for the other builders. A
-    tab with `drop` patches the event a card lands on, as today. The
+    tab with `drop` patches the event a card lands on, as today. A tab
+    takes no `key`: nothing reads one (ruled 17 November 2026). The
     built-in backlog stays, with the words `vocabulary` gives it (#1516).
 - **U2. Map a variant's cases to series.** This is
   `Plan.series.kinds(Row, field, cases)` and a series' `case: [field, tag]`,
