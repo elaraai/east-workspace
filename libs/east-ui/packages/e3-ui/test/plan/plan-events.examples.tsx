@@ -25,7 +25,7 @@ import {
     some,
     variant,
 } from "@elaraai/east";
-import { Box, Button, Chart, EventStateType, Format, HStack, Reactive, SegmentGroup, Slice, Text, UIComponentType, VStack } from "@elaraai/east-ui";
+import { Box, Button, Chart, EventStateType, Format, HStack, Reactive, SegmentGroup, Select, Slice, State, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 
@@ -1463,7 +1463,28 @@ export const planPressMachines = e3.record("plan_press_machines", DictType(Strin
             kinds: pressKinds(["blanket_wash", "Blanket wash"], ["roller_wash", "Roller wash"]),
         }],
     ]),
+    indexes: (index) => ({
+        // The key itself, for a page's scope: `index.key(fn)` files a key the row computes.
+        plan_press_machines_by_code: index.key(East.function([StringType, PressMachine], StructType({ code: StringType }), (_$, code) => ({ code }))),
+        // The machines by name: the rail's order and its search.
+        plan_press_machines_by_name: index.on(["name"]),
+        // Each machine's readings a day at a time, and a press's kinds of task: child rows keyed by the kind, a variant.
+        plan_press_machines_in_time: index.nested({
+            collections: {
+                temperature: index.nested.values(),
+                utilisation: index.nested.values(),
+                kinds: index.nested.rows({}),
+            },
+            tile: "day",
+            summary: "month",
+        }),
+    }),
 });
+
+/** The kinds of task every press of the works takes, a list of the works' own, by the kind. */
+export const planPressKindList = e3.input("plan_press_kind_list", DictType(PressTaskKind, PressTaskKindRow), variant("value", pressKinds(
+    ["blanket_wash", "Blanket wash"], ["ink_fill", "Ink fill"], ["plate_check", "Plate check"], ["roller_wash", "Roller wash"],
+)));
 
 /** A task on a press: its kind, the day and the half it is done in, and its lifecycle. */
 export const PressTask = StructType({
@@ -1491,10 +1512,241 @@ export const planPressTaskRows = e3.record("plan_press_tasks", DictType(StringTy
         ["T-07", pressTask("Wash rollers", "P04", "roller_wash", 2, "am")],
         ["T-08", pressTask("Wash rollers", "P04", "roller_wash", 4, "am")],
     ]),
+    indexes: (index) => ({
+        // The works' rail: the tasks by their day.
+        plan_press_tasks_by_day: index.on(["day"]),
+        // A press's page: its scope's press alone, which its search reads through; then its rail's days.
+        plan_press_tasks_by_press: index.on(["press"]),
+        plan_press_tasks_by_press_day: index.on(["press", "day"]),
+        // The tasks a press at a time, a cell at a time, and their totals: each task an instant, its end its start.
+        plan_press_tasks_by_press_week: index.series({ key: "press", from: "day", to: "day", tile: "week" }),
+        plan_press_tasks_by_press_month: index.summary({ key: "press", from: "day", to: "day", tile: "month" }),
+    }),
     mutations: (mutation) => ({
         // The tasks' patch door — every Save commits through it.
         patch: mutation.patch(),
     }),
+});
+
+/**
+ * Every machine of the works with its rows beneath it (#1541, U1, U2): a press
+ * its ink's temperature and a row for each kind of task it takes, a folder its
+ * utilisation. The kinds are the press's own child rows, keyed by the kind — a
+ * variant — and read with the page through the machines' nested series index.
+ *
+ * Each task is on its press's row (`resource`), then on its kind's row beneath
+ * it (`child`), in the lane of the half of the day it is done in (`lane`, a
+ * variant: both lanes are drawn, task or none, in the order the rows' `lanes`
+ * list them). A drop on another kind's row writes the task's kind, on another
+ * press's its press, on the other lane its half; each is a draft Save writes.
+ */
+export const planPressTasks = example({
+    keywords: [
+        "Plan", "Schedule.events", "child", "child rows", "rows beneath a resource", "lane", "lanes", "variant lane", "AM", "PM",
+        "Plan.series.kinds", "Plan.series.resources", "Plan.children", "keyType", "variant key", "Plan.lane", "buckets",
+        "Slice.bindRecords", "Data.bindPaged", "index.nested", "index.nested.rows", "index.series", "index.summary", "Record.bind", "#1541",
+    ],
+    description: "Every machine of a works with its rows beneath it — a press its ink temperature and a row for each kind of task it takes (its own child rows, keyed by a variant: Plan.children under a Plan.series.kinds case), a folder its utilisation — and one event kind landing a step beneath its resource: each task on its press's row, then its kind's row (child: { field, of }), in its half's lane (a variant lane, both lanes always drawn); a drop on another kind's row, press or lane writes the field that places it",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const tasks = $.let(Record.bind(planPressTaskRows, ["patch"]));
+            const taskEntries = $.let(Data.bindPaged(planPressTaskRows));
+            // One rail: the machines paged by name beside their nested index, and the tasks by their day.
+            const slice = $.let(Slice.bindRecords("ex.planPressTasks", {
+                rows: {
+                    source: Data.bindPaged(planPressMachines, { indexes: ["plan_press_machines_by_name", "plan_press_machines_in_time"] }),
+                    label: "Machines", icon: { prefix: "fas", name: "print" }, search: ["name"],
+                },
+                task: {
+                    source: Data.bindPaged(planPressTaskRows, {
+                        indexes: ["plan_press_tasks_by_day", "plan_press_tasks_by_press_week", "plan_press_tasks_by_press_month"],
+                    }),
+                    label: "Press tasks", icon: { prefix: "fas", name: "list-check" }, fields: { day: { label: "Days" } }, range: "day",
+                },
+            }));
+            return <Box width="100%" height="620px"><Plan id="planPressTasks" slice={{ slice }}
+                axis={Plan.axis({
+                    window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") },
+                    resolution: "day", resolutions: ["day", "week", "month"],
+                })}
+                series={[
+                    Plan.series.kinds(PressMachine, "what", {
+                        press: {
+                            title: "Presses", icon: "print", label: (press) => press.name,
+                            // The press's ink temperature, a chart of its own readings.
+                            series: [Plan.series.chart(PressMachine, {
+                                key: "temperature", title: "Ink temperature", label: () => "Ink °C",
+                                layers: [Plan.line(Plan.values("temperature", (t) => ({ y: t })))],
+                            })],
+                            // Beneath the press, after its series: a row per kind of task it takes, each day in AM and PM
+                            // lanes, in this order — the rows the tasks land on.
+                            children: Plan.children("kinds", [Plan.series.resources(PressTaskKindRow, {
+                                key: "kinds", title: "Tasks", icon: "list-check", keyType: PressTaskKind, label: (kind) => kind.name,
+                                lanes: () => [Plan.lane({ key: "am", label: "AM" }), Plan.lane({ key: "pm", label: "PM" })],
+                            })]),
+                        },
+                        folder: {
+                            title: "Folders", icon: "layer-group", label: (folder) => folder.name,
+                            series: [Plan.series.heat(PressMachine, {
+                                key: "utilisation", title: "Utilisation",
+                                cells: Plan.heatCells(Plan.values("utilisation", (pct) => ({ value: some(pct) })), { min: 0, max: 100, warnAt: 95 }),
+                            })],
+                        },
+                    }),
+                ]}
+                // The one event kind: on its press's row, then its kind's row beneath it, in its half's lane.
+                events={{
+                    task: Schedule.events(tasks, {
+                        name: "Press task", icon: "list-check", draw: "buckets", title: "title", at: "day", state: "state",
+                        resource: { field: "press", of: "press" },
+                        child: { field: "kind", of: "kinds" },
+                        lane: "half",
+                        entries: taskEntries,
+                    }),
+                }}
+                library={[Plan.library.series()]}
+                inspector
+                style={{ height: "fill" }} />
+            </Box>;
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/**
+ * One press's own page (#1541, U2, U11): the works' page scoped on the rail to
+ * the press the page is for, its own row not drawn (`row: false`), so its ink
+ * temperature and its kinds' rows stand at the root.
+ *
+ * The scope is a narrowing the page holds: the machines' reads carry the
+ * press's code and the tasks' its press, the rail shows no control for either,
+ * and nothing the viewer does clears them. A task made here takes its press
+ * from the scope and its kind from the row it lands on.
+ */
+export const planOnePress = example({
+    keywords: [
+        "Plan", "row: false", "a press's page", "scope", "page parameter", "Slice.bindRecords", "Plan.series.kinds", "Plan.children",
+        "Plan.series.resources", "child", "lane", "variant lane", "pinned", "Schedule.events", "index.key", "index.on", "index.nested",
+        "Data.bindPaged", "Record.bind", "State", "Select", "#1541", "#1621",
+    ],
+    description: "One press's own page — the works' page scoped on the rail to the press the page is for (scope: { code: [press] } over an index.key of the row's key, and the tasks' scope: { press: [press] }), the press's own row not drawn (row: false on its Plan.series.kinds case, the folders' case switched off) so its pinned ink temperature and a row for each kind of task it takes stand at the root; each task on its kind's row in its half's lane",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            // The page's parameter: the press it is for, which an app's page takes from its route — chosen here.
+            const chosen = $.let(State.bind([StringType], "ex.planOnePress.press", "P03"));
+            const press = $.let(chosen.read());
+            const onPress = $.const(East.function([StringType], NullType, ($2, next) => { $2(chosen.write(next)); }));
+            const tasks = $.let(Record.bind(planPressTaskRows, ["patch"]));
+            const taskEntries = $.let(Data.bindPaged(planPressTaskRows));
+            // The machines scoped to the press by its code, and the tasks to it by their press, with the rail's days.
+            // Each press's page keeps its own choices.
+            const slice = $.let(Slice.bindRecords(East.str`ex.planOnePress.${press}`, {
+                rows: {
+                    source: Data.bindPaged(planPressMachines, { indexes: ["plan_press_machines_by_code", "plan_press_machines_in_time"] }),
+                    scope: { code: [press] },
+                },
+                task: {
+                    source: Data.bindPaged(planPressTaskRows, {
+                        indexes: ["plan_press_tasks_by_press", "plan_press_tasks_by_press_day", "plan_press_tasks_by_press_week", "plan_press_tasks_by_press_month"],
+                    }),
+                    scope: { press: [press] },
+                    label: "Tasks", icon: { prefix: "fas", name: "list-check" }, fields: { day: { label: "Days" } }, range: "day",
+                },
+            }));
+            return <VStack gap="3" align="stretch" width="100%">
+                <HStack gap="2" align="center"><Text>Press</Text><Select value={press} onChange={onPress}
+                    items={[Select.Item("P03", "Heidelberg 3"), Select.Item("P04", "Heidelberg 4")]} /></HStack>
+                <Box width="100%" height="520px"><Plan id="planOnePress" slice={{ slice }}
+                    axis={Plan.axis({
+                        window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") },
+                        resolution: "day", resolutions: ["day", "week", "month"],
+                    })}
+                    series={[
+                        Plan.series.kinds(PressMachine, "what", {
+                            // The press's own row is not drawn: its series and its kinds' rows stand at the root.
+                            press: {
+                                title: "Press", row: false,
+                                // The press's ink temperature, pinned under the ruler.
+                                series: [Plan.series.chart(PressMachine, {
+                                    key: "temperature", title: "Ink temperature", label: () => "Ink °C", pinned: () => true,
+                                    layers: [Plan.line(Plan.values("temperature", (t) => ({ y: t })))],
+                                })],
+                                children: Plan.children("kinds", [Plan.series.resources(PressTaskKindRow, {
+                                    key: "kinds", title: "Tasks", icon: "list-check", keyType: PressTaskKind, label: (kind) => kind.name,
+                                    lanes: () => [Plan.lane({ key: "am", label: "AM" }), Plan.lane({ key: "pm", label: "PM" })],
+                                })]),
+                            },
+                            // Not drawn: the scope holds a press alone.
+                            folder: false,
+                        }),
+                    ]}
+                    events={{
+                        task: Schedule.events(tasks, {
+                            name: "Press task", icon: "list-check", draw: "buckets", title: "title", at: "day", state: "state",
+                            resource: { field: "press", of: "press" },
+                            child: { field: "kind", of: "kinds" },
+                            lane: "half",
+                            entries: taskEntries,
+                        }),
+                    }}
+                    library={[Plan.library.series()]}
+                    inspector
+                    style={{ height: "fill" }} />
+                </Box>
+            </VStack>;
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/**
+ * The same kinds of task under every press, from a list of the works' own
+ * (#1541, U12): `Plan.children.of` steps down to child rows a function
+ * returns, where `Plan.children` names a field of the row. The rows are read
+ * with their parent and are read only; an event kind's `child` lands on them
+ * as on a press's own.
+ */
+export const planPressKinds = example({
+    keywords: [
+        "Plan", "Plan.children.of", "child rows from a list", "shared rows", "read only", "Plan.series.kinds", "Plan.series.resources",
+        "child", "lane", "variant lane", "keyType", "variant key", "Schedule.events", "Data.bind", "Record.bind", "#1541",
+    ],
+    description: "The same rows under every resource, from a list of the app's own — Plan.children.of(() => kinds.read(), [series]) steps down to child rows a function returns (Plan.children names a field of the row instead): every press draws a row for each kind of task the works lists, read only, and the tasks' event kind lands on them by its child field, in its half's lane",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const machines = $.let(Record.bind(planPressMachines, []));
+            const kinds = $.let(Data.bind(planPressKindList));
+            const tasks = $.let(Record.bind(planPressTaskRows, ["patch"]));
+            return <Box width="100%" height="560px"><Plan id="planPressKinds"
+                axis={Plan.axis({ window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-10-19T00:00:00Z") }, resolution: "day" })}
+                data={machines.read()}
+                series={[
+                    Plan.series.kinds(PressMachine, "what", {
+                        press: {
+                            title: "Presses", icon: "print", label: (press) => press.name,
+                            // Beneath every press, the works' kinds of task: the list's rows, not the press's own.
+                            children: Plan.children.of(() => kinds.read(), [Plan.series.resources(PressTaskKindRow, {
+                                key: "kinds", title: "Tasks", icon: "list-check", keyType: PressTaskKind, label: (kind) => kind.name,
+                                lanes: () => [Plan.lane({ key: "am", label: "AM" }), Plan.lane({ key: "pm", label: "PM" })],
+                            })]),
+                        },
+                        folder: { title: "Folders", icon: "layer-group", label: (folder) => folder.name },
+                    }),
+                ]}
+                events={{
+                    task: Schedule.events(tasks, {
+                        name: "Press task", icon: "list-check", draw: "buckets", title: "title", at: "day", state: "state",
+                        resource: { field: "press", of: "press" },
+                        child: { field: "kind", of: "kinds" },
+                        lane: "half",
+                    }),
+                }}
+                inspector
+                style={{ height: "fill" }} />
+            </Box>;
+        }}</Reactive>
+    )),
+    inputs: [],
 });
 
 // ============================================================================
