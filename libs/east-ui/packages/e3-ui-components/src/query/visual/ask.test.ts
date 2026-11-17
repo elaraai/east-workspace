@@ -73,6 +73,27 @@ describe("AnswerCache", () => {
         expect(runs).toBe(2);
     });
 
+    it("keeps an answer that read nothing by the hashes its asker saw, and the run's hash over the asker's", async () => {
+        // A problem: the run ended before it read the dataset, and names no hash for it.
+        let runs = 0;
+        const problems = new AnswerCache<{ prefix: string; reads: string[] }, string>(async () => {
+            runs += 1;
+            return { value: "problem", hashes: new Map() };
+        });
+        const request = { prefix: ".orders | .nope", reads: ["orders"] };
+        const seen = new Map([["orders", "h1"]]);
+        await problems.ensure(request, seen);
+        expect(problems.get(request, seen)).toBe("problem");
+        expect(problems.get(request, new Map([["orders", "h2"]]))).toBeUndefined();
+        expect(runs).toBe(1);
+
+        // The run read a newer hash than its asker saw: the answer is that hash's.
+        const newer = new AnswerCache<{ prefix: string; reads: string[] }, string>(async () => ({ value: "rows", hashes: new Map([["orders", "h2"]]) }));
+        await newer.ensure(request, seen);
+        expect(newer.get(request, new Map([["orders", "h2"]]))).toBe("rows");
+        expect(newer.get(request, seen)).toBeUndefined();
+    });
+
     it("gives a run up once every asker has stopped waiting, and keeps no failure", async () => {
         let given: AbortSignal | undefined;
         const cache = new AnswerCache<{ prefix: string; reads: string[] }, number>((_request, signal) => {
