@@ -169,9 +169,10 @@ async function violations(entry: Locator): Promise<string[]> {
             if (want.tnum === true && !s.fontVariantNumeric.includes("tabular-nums")) bad.push(`${what} "${name(el)}": not tabular`);
         };
 
-        // ── 1–3 · One gutter voice ──
-        for (const el of body.querySelectorAll("[data-plan-row] [data-plan-gutter='name']:not([data-collapsible])")) {
-            type(el, "row name", { size: 11.5, weight: "600", mono: true, upper: false, color: T.ink, tnum: true });
+        // ── 1–3 · One gutter voice: every row's name, a collapsible row's and each of a laned row's lines too — mono
+        // 11 / 500, on the East scale (#1680's review) ──
+        for (const el of body.querySelectorAll("[data-plan-row] :is([data-plan-gutter='name'], [data-plan-gutter='lane'])")) {
+            type(el, "row name", { size: 11, weight: "500", mono: true, upper: false, color: T.ink, tnum: true });
         }
         for (const el of body.querySelectorAll("[data-plan-gutter='value']")) {
             type(el, "gutter value", { size: 11.5, weight: "600", mono: true, tnum: true });
@@ -193,8 +194,8 @@ async function violations(entry: Locator): Promise<string[]> {
             widths.forEach((w, i) => { if (w < 0.85 * widest) bad.push(`period ${i}: ${w.toFixed(1)}px beside ${widest.toFixed(1)}px`); });
         }
         // ── 5 · Label order and the 9.5px floor ──
-        // Sections, nested parents and expandable charts share the header caption.
-        for (const el of body.querySelectorAll("[data-plan-group] [role='rowheader'], [data-plan-gutter='name'][data-collapsible]")) {
+        // Group bands — sections among them — take the header caption; a collapsible row keeps the row's voice (#1680's review).
+        for (const el of body.querySelectorAll("[data-plan-group] [role='rowheader']")) {
             const s = cs(el);
             type(el, "group label", { size: 10, weight: "600", mono: true, upper: true, color: T.ink4 });
             if (Math.abs(px(s.letterSpacing) - 1.2) > 0.05) bad.push(`group label "${name(el)}": tracking ${s.letterSpacing}, want 0.12em`);
@@ -274,18 +275,12 @@ async function violations(entry: Locator): Promise<string[]> {
             let j = gi + 1;
             for (; j < rows.length && Number(rows[j]!.getAttribute("aria-level")) > level; j++) last = rows[j];
             if (last === undefined) return;
-            // A member's first mark — its caret when it is a parent itself, else
-            // its name — starts where the group's label text does: one level
-            // of indent is the caret and its gap, so a tree steps in by it. A
-            // caret turned to say its row is folded is read by its slot: its
-            // centre, which the turn keeps, less half its laid-out width.
+            // A member's name starts one level in from its group's caption: 16px (#1680's review). Every line keeps
+            // its caret's cell, a leaf's empty, so a name stands at its level's x whatever the row holds.
             const first = rows[gi + 1]!;
             const gl = g.querySelector("[data-plan-gutter='label']")?.getBoundingClientRect().left;
-            const mark = first.querySelector("[data-plan-gutter='name'] > :first-child");
-            const mr = mark?.getBoundingClientRect();
-            const ml = !(mark instanceof HTMLElement) || mr === undefined ? undefined
-                : cs(mark).transform === "none" ? mr.left : (mr.left + mr.right) / 2 - mark.offsetWidth / 2;
-            if (gl !== undefined && ml !== undefined && Math.abs(gl - ml) > 0.5) bad.push(`group "${name(g)}": member starts at ${ml.toFixed(1)}, label at ${gl.toFixed(1)}`);
+            const ml = first.querySelector("[data-plan-gutter='title']")?.getBoundingClientRect().left;
+            if (gl !== undefined && ml !== undefined && Math.abs(ml - gl - 16) > 0.5) bad.push(`group "${name(g)}": its member's name ${(ml - gl).toFixed(1)}px in from its caption, want 16`);
             // The group's end is marked — when its last member and what follows are both mounted.
             if (j < rows.length && cs(last).borderBottomColor !== T.strong) bad.push(`group "${name(g)}": its last member has no closing rule`);
         });
@@ -482,7 +477,7 @@ const NESTED_TABLES = ["tablePnl", "tableNumberFormats", "tableTree", "dataBindP
  *  the paged tree is bound, so it is e3-ui's (#849). */
 const TABLE_FILES: Readonly<Record<string, string>> = { dataBindPagedTable: "e3/bind/data/data" };
 
-/** One nesting level's indent (#954): the Plan's gutter step (#949) — a 14px caret and its 6px gap. */
+/** One nesting level's indent in a Table or a Matrix (#954): a 14px caret and its 6px gap. */
 const TREE_STEP = 20;
 
 /** A Table example's entry, at rest with its first header cell in view. */

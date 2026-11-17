@@ -452,13 +452,15 @@ describe("one tab stop, and the keyboard map (#819)", () => {
         expect(grid.getAttribute("tabindex")).toBe("-1");
         expect(item(container, "r:pin").getAttribute("tabindex")).toBe("0");
         // One stop in the grid — every row control and element is out of the
-        // order. The frame's toolbar is not the grid: its controls keep stops
-        // of their own. Expand/collapse is one native button.
+        // order. The gutter's rule is a separator of its own, after the grid
+        // (#1680's review). The frame's toolbar is not the grid: its controls
+        // keep stops of their own. Expand/collapse is one native button.
         const stops = (root: Element) => [...root.querySelectorAll("*")].filter((el) => (el as HTMLElement).tabIndex >= 0
             && el.matches("button, [tabindex]"));
         const toolbar = container.querySelector("[data-frame-slot='toolbar']")!;
         expect(toolbar.contains(container.querySelector("[data-plan-body]"))).toBe(false);
-        expect(stops(container.querySelector("[data-plan-body]")!)).toEqual([item(container, "r:pin")]);
+        const rule = screen.getByRole("separator", { name: "Width of the row names" });
+        expect(stops(container.querySelector("[data-plan-body]")!)).toEqual([item(container, "r:pin"), rule]);
         expect(stops(toolbar)).toEqual([container.querySelector("[data-plan-fold-all]")]);
     });
 

@@ -230,8 +230,8 @@ describe("Plan link ribbons (#818)", () => {
     const confirmed = variant("confirmed", null);
     const JUL13 = new Date("2026-07-13Z");
     const JUL27 = new Date("2026-07-27Z");
-    // The 12-week window across a 1000px plot, right of the 168px gutter.
-    const xAt = (d: Date) => 168 + ((d.getTime() - W27.getTime()) / (84 * 86_400_000)) * 1000;
+    // The 12-week window across a 1000px plot, right of the 240px gutter.
+    const xAt = (d: Date) => 240 + ((d.getTime() - W27.getTime()) / (84 * 86_400_000)) * 1000;
 
     /** A path's last point. */
     const endOf = (d: string): [number, number] => {
@@ -245,7 +245,7 @@ describe("Plan link ribbons (#818)", () => {
     };
 
     /**
-     * jsdom lays nothing out. Give the ribbon layer its width — the 168px
+     * jsdom lays nothing out. Give the ribbon layer its width — the 240px
      * gutter and a 1000px plot — and a bounded frame its viewport and the
      * sticky header above its rows their heights (TanStack sizes the frame by
      * `offsetHeight`, the view reads `clientHeight`); every other element keeps
@@ -255,7 +255,7 @@ describe("Plan link ribbons (#818)", () => {
         const heightOf = (el: HTMLElement) => (el.getAttribute("data-virtual-rows") === "bounded" ? viewportPx
             : el.hasAttribute("data-plan-header") ? headerPx : 0);
         const stubs: Record<string, (el: HTMLElement) => number> = {
-            clientWidth: (el) => (el.hasAttribute("data-plan-ribbons") ? 1168 : 0),
+            clientWidth: (el) => (el.hasAttribute("data-plan-ribbons") ? 1240 : 0),
             clientHeight: heightOf,
             offsetHeight: heightOf,
         };
@@ -405,7 +405,7 @@ describe("Plan link ribbons (#818)", () => {
                 const el = g.querySelector(`[data-plan-linkend="${side}"]`)!;
                 return ["x", "y", "width", "height", "rx"].map((k) => Number(el.getAttribute(k)));
             };
-            expect(halo("from")).toEqual([168 - 4.5, 5.5 - 4.5, xAt(JUL13) - 168 + 9, 20 + 9, 7.5]);
+            expect(halo("from")).toEqual([240 - 4.5, 5.5 - 4.5, xAt(JUL13) - 240 + 9, 20 + 9, 7.5]);
             expect(halo("to")).toEqual([xAt(JUL13) - 4.5, 37.5 - 4.5, xAt(JUL27) - xAt(JUL13) + 9, 20 + 9, 7.5]);
             fireEvent.pointerLeave(hit);
             expect(g.hasAttribute("data-lit")).toBe(false);
@@ -505,11 +505,11 @@ describe("Plan link ribbons (#818)", () => {
             expect(Number(knockout.getAttribute("height"))).toBe(12);
             expect(Number(knockout.getAttribute("y"))).toBe(Number(caption.getAttribute("y")) - 9.5);
             expect(Number(knockout.getAttribute("width"))).toBe(8);
-            // b's end lands on the plot's right edge (168 + 1000) in a slot
+            // b's end lands on the plot's right edge (240 + 1000) in a slot
             // 40 wide and as tall as its bar, open toward the edge.
             const slot = container.querySelector('[data-plan-linkslot="right"]')!;
-            expect(slot.getAttribute("d")).toBe("M 1168 37.5 H 1128 V 57.5 H 1168");
-            expect(tipOf(container.querySelector('[data-plan-link="0"] [data-plan-ribbon-head]')!.getAttribute("d")!)).toEqual([1168, 47.5]);
+            expect(slot.getAttribute("d")).toBe("M 1240 37.5 H 1200 V 57.5 H 1240");
+            expect(tipOf(container.querySelector('[data-plan-link="0"] [data-plan-ribbon-head]')!.getAttribute("d")!)).toEqual([1240, 47.5]);
         } finally {
             restore();
         }
@@ -649,6 +649,45 @@ describe("Plan expand-in-place (R2)", () => {
         const dot = container.querySelector(`${rowSel("e")} [data-mark="m1"]`) as HTMLElement;
         expect(dot).toBeTruthy();
         expect(dot.hasAttribute("data-ctx")).toBe(true);
+    });
+
+    test("an expandable chart has no caret: its expand control is its toggle — spark ↔ chart where it declares no render, and where it does, the render opens with its chart drawn expanded in its band (#1680's review)", () => {
+        // A line over 100 at its last point: a chart drawn expanded outlines the breach, a spark does not.
+        const chart = () => variant("chart", {
+            layers: [variant("line", {
+                points: [{ t: t(W27), y: 94 }, { t: t(new Date("2026-08-31Z")), y: 101 }],
+                axis: variant("left", null), breach: some(variant("above", 100)), fold: variant("mean", null),
+            })],
+            left: none, right: none, height: variant("spark", null), expandedHeight: none, expandable: true,
+        });
+        const { container } = renderPlan(planRoot([
+            planRow("ontime", chart(), { expand: { height: some("120px"), axis: variant("keep", null) } }),
+            planRow("spark", chart()),
+        ], {
+            expandRender: (id: PlanRowId) => variant("Text", { value: `R · ${id.value.path.join("/")}`, style: none }),
+        }), "plan-1680-chart-expand");
+        const row = (key: string) => container.querySelector(rowSel(key)) as HTMLElement;
+        const viewBox = (key: string) => row(key).querySelector('[data-plan-mark="line"]')!.closest("svg")!.getAttribute("viewBox");
+        const control = (key: string) => row(key).querySelector<HTMLElement>('[data-plan-control="expand"]')!;
+        const outlined = (key: string) => row(key).querySelectorAll('[data-plan-mark="breach-rect"]').length > 0;
+        // Carets only fold: neither chart draws one, and a click on its gutter selects it, never toggles it.
+        expect([...container.querySelectorAll("[role='rowheader'] [data-icon='caret-down']")]).toEqual([]);
+        fireEvent.click(row("spark").querySelector("[role='rowheader']")!);
+        expect([viewBox("spark"), row("spark").hasAttribute("data-selected")]).toEqual(["0 0 1000 32", true]);
+        // With no render, its expand control toggles spark ↔ chart, and says so.
+        expect([control("spark").getAttribute("aria-pressed"), row("spark").getAttribute("aria-expanded")]).toEqual(["false", "false"]);
+        fireEvent.click(control("spark"));
+        expect([viewBox("spark"), control("spark").getAttribute("aria-pressed"), row("spark").getAttribute("aria-expanded"), outlined("spark")])
+            .toEqual(["0 0 1000 88", "true", "true", true]);
+        fireEvent.click(control("spark"));
+        expect([viewBox("spark"), outlined("spark")]).toEqual(["0 0 1000 32", false]);
+        // With a render, the control opens it — and the chart draws expanded in its band, the row its band and the render.
+        expect(outlined("ontime")).toBe(false);
+        fireEvent.click(control("ontime"));
+        expect(container.querySelector('[data-plan-focusbar="expand"]')).toBeTruthy();
+        expect([viewBox("ontime"), row("ontime").getAttribute("data-plan-h"), outlined("ontime")]).toEqual(["0 0 1000 88", String(88 + 120), true]);
+        fireEvent.keyDown(keySurface(container), { key: "Escape" });
+        expect([viewBox("ontime"), row("ontime").getAttribute("data-plan-h"), outlined("ontime")]).toEqual(["0 0 1000 32", "32", false]);
     });
 
     test("a focus-expanded CHART row scales its plot to the BAND, not the grown row (#591)", () => {

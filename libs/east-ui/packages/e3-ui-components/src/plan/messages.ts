@@ -127,6 +127,8 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     /** A row repeating the id of an earlier row on the canvas (#822) — `id` is
      *  the id's canonical text. */
     duplicateRow: (p: { id: string }) => string;
+    /** The gutter's right rule, a separator a drag or a key moves (#1680's review): what a reader hears it as. */
+    gutterHandle: () => string;
 
     // ── The toolbar ────────────────────────────────────────────────────────
     /** The grain segment's accessible name. */
@@ -655,6 +657,7 @@ export const planMessages: PlanMessages = {
     partFailed: ({ part, message }) => `${part} could not render — ${message}`,
     axisMismatch: ({ found, expected }) => `AXIS MISMATCH — this row carries ${found} instants; the axis is ${expected}`,
     duplicateRow: ({ id }) => `DUPLICATE ID — an earlier row already has ${id}`,
+    gutterHandle: () => "Width of the row names",
 
     grainLabel: () => "Grain",
     grainName: ({ grain }) => grain.toUpperCase(),

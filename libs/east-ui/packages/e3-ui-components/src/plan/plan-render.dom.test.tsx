@@ -154,10 +154,11 @@ describe("Plan row-layer memoization (#616)", () => {
             rendered.length = 0;
             fireEvent.click(container.querySelector(rowSel("m3"))!);
             expect([...rendered].sort()).toEqual(["m2", "m3"]);
-            // A chart spark↔expanded toggle re-renders exactly the toggled
-            // row (its `chartExpanded` + height moved; nothing else did).
+            // A chart spark↔expanded toggle — its expand control's (#1680's
+            // review) — re-renders exactly the toggled row (its
+            // `chartExpanded` + height moved; nothing else did).
             rendered.length = 0;
-            fireEvent.click(container.querySelector(rowSel("ontime"))!.children[0]!);
+            fireEvent.click(container.querySelector(`${rowSel("ontime")} [data-plan-control="expand"]`)!);
             expect(rendered).toEqual(["ontime"]);
         } finally {
             setBodyRowRenderProbe(undefined);
@@ -199,8 +200,7 @@ describe("Plan DOM scale (#616)", () => {
         expect(container.querySelectorAll("[data-plan-cellwash]")).toHaveLength(1);
         // The marker cell still rings and pins its icon.
         expect(container.querySelector('[data-over="danger"]')).toBeTruthy();
-        // A CAPTIONED lane keeps its full grid (the caption prints per cell —
-        // the Planner `.bl`) — covered by the lanes test above.
+        // A captioned lane mounts no more: its caption is its gutter line's (#1680's review) — the lanes test.
     });
 });
 

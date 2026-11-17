@@ -47,7 +47,8 @@
  *   of view enters down (or up) the destination's riser. Both out of view, on
  *   opposite sides, is one vertical band across the view with a stub at each
  *   end. Both out of view on the SAME side draws nothing — the caller never
- *   routes it.
+ *   routes it. A stub is a whole head whatever the room: an end nearer the
+ *   view's edge than a head has its stub stand back over the run's end.
  *
  * Direction changes turn at a small FIXED corner radius (8, clamped to half
  * the drop); straight segments carry the remaining distance —
@@ -509,29 +510,36 @@ function routeOutOfView(from: RibbonEnd, to: RibbonEnd, m: RouteMeasures): Ribbo
         const xV = forward ? approachX - rad : exitTurnX(x1, runOut, approachX) + rad;
         if (xV + halfH + EDGE_CLEAR > bounds.right) {
             // No room to turn before the plot's end: lift straight off the
-            // source's edge at its end, out of view.
+            // source's edge at its end, out of view. The head is a whole head
+            // whatever the room (#1680's review): nearer the view's edge than
+            // one, it stands back over the source's edge.
             const lifted = Math.min(liftX, bounds.right - halfH - EDGE_CLEAR);
             const facing = sgn > 0 ? from.bottom : from.top;
-            const neck = sgn * (edge - sgn * headLen - facing) > 0 ? edge - sgn * headLen : facing;
+            const base = edge - sgn * headLen;
+            const neck = sgn * (base - facing) > 0 ? base : facing;
             return {
                 route: "stub",
                 stroke: `M ${f(lifted)} ${f(facing)} L ${f(lifted)} ${f(neck)}`,
-                head: arrow(lifted, neck, lifted, edge, halfH),
+                head: arrow(lifted, base, lifted, edge, halfH),
                 tail: "",
                 width,
                 lx: lifted, ly: (facing + neck) / 2 + CAPTION_DROP, anchor: "middle",
             };
         }
         // The vertical run stops where the stub's base begins — never past
-        // the source's own centerline, however close the row is to the edge.
-        const yNeck = sgn * (edge - sgn * headLen - ySrc) > rad ? edge - sgn * headLen : ySrc + sgn * rad;
+        // the source's own port, however close the row is to the edge. The
+        // head is a whole head whatever the room (#1680's review): a port
+        // nearer the view's edge than one — the lower of two that spread at
+        // one end — has its head stand back over its run's end.
+        const base = edge - sgn * headLen;
+        const yNeck = sgn * (base - ySrc) > rad ? base : ySrc + sgn * rad;
         return {
             route: "stub",
             stroke: `M ${f(x1)} ${f(ySrc)}`
                 + ` L ${f(xV - rad)} ${f(ySrc)}`
                 + ` A ${f(rad)} ${f(rad)} 0 0 ${sgn === 1 ? 1 : 0} ${f(xV)} ${f(ySrc + sgn * rad)}`
                 + ` L ${f(xV)} ${f(yNeck)}`,
-            head: arrow(xV, yNeck, xV, edge, halfH),
+            head: arrow(xV, base, xV, edge, halfH),
             tail: "",
             width,
             // The caption on the stub's riser, at mid-height.
@@ -552,17 +560,21 @@ function routeOutOfView(from: RibbonEnd, to: RibbonEnd, m: RouteMeasures): Ribbo
         const dropped = Math.max(dropX, bounds.left + halfH + EDGE_CLEAR);
         const facing = sgnIn > 0 ? to.top : to.bottom;
         const base = facing - sgnIn * headLen;
-        const start = sgnIn * (base - (edge + sgnIn * headLen)) >= 0 ? edge + sgnIn * headLen : base;
+        // Each stub a whole head whatever the room (#1680's review): the run between them, where there is one.
+        const tailBase = edge + sgnIn * headLen;
+        const start = sgnIn * (base - tailBase) >= 0 ? tailBase : base;
         return {
             route: "stub",
             stroke: `M ${f(dropped)} ${f(start)} L ${f(dropped)} ${f(base)}`,
             head: arrow(dropped, base, dropped, facing, halfH),
-            tail: arrow(dropped, start, dropped, edge, halfH),
+            tail: arrow(dropped, tailBase, dropped, edge, halfH),
             width,
             lx: dropped, ly: (start + base) / 2 + CAPTION_DROP, anchor: "middle",
         };
     }
-    const yStart = sgnIn * (y2 - sgnIn * rad - (edge + sgnIn * headLen)) >= 0 ? edge + sgnIn * headLen : y2 - sgnIn * rad;
+    // The stub a whole head whatever the room (#1680's review): nearer the port than one, it stands over the riser.
+    const tailBase = edge + sgnIn * headLen;
+    const yStart = sgnIn * (y2 - sgnIn * rad - tailBase) >= 0 ? tailBase : y2 - sgnIn * rad;
     return {
         route: "stub",
         stroke: `M ${f(xV)} ${f(yStart)}`
@@ -570,7 +582,7 @@ function routeOutOfView(from: RibbonEnd, to: RibbonEnd, m: RouteMeasures): Ribbo
             + ` A ${f(rad)} ${f(rad)} 0 0 ${sgnIn === 1 ? 0 : 1} ${f(xV + rad)} ${f(y2)}`
             + ` L ${f(neckX)} ${f(y2)}`,
         head: arrival,
-        tail: arrow(xV, yStart, xV, edge, halfH),
+        tail: arrow(xV, tailBase, xV, edge, halfH),
         width,
         // The caption on the riser it enters down, at mid-height.
         lx: xV, ly: (yStart + y2 - sgnIn * rad) / 2 + CAPTION_DROP, anchor: "middle",

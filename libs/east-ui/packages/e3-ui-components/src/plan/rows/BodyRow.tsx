@@ -29,9 +29,10 @@
 
 import { memo, useEffect, type ReactNode } from "react";
 import { Box, VisuallyHidden } from "@chakra-ui/react";
-import { RowShell, type PlanRowDrop } from "./RowShell.js";
+import { RowShell, type PlanGutterLane, type PlanRowDrop } from "./RowShell.js";
 import { GroupRow } from "./GroupRow.js";
 import { ChartLeftTicks } from "./ChartRow.js";
+import { laneBand } from "./lanes.js";
 import { KindPlot } from "./KindPlot.js";
 import { PlanPartBoundary } from "./PartBoundary.js";
 import { RowDiagnostic } from "./RowDiagnostic.js";
@@ -229,7 +230,13 @@ export const PlanBodyRow = memo(function PlanBodyRow({
 
     const isCtx = focusRole === "ctx";
     const isFocal = focusRole === "focal" && expandBody !== undefined;
-    // The row-scoped focus controls + family tags.
+    // What the caret toggles is the one answer the keyboard reads too (`rowToggle`, #819). Carets only fold (#1680's
+    // review): an expandable chart's spark ↔ chart is its expand control's.
+    const toggle = rowToggle(v, hasChildren, chartExpanded);
+    const fold = toggle !== undefined && toggle.event.t !== "chart.toggle" ? toggle : undefined;
+    const chartToggle = toggle !== undefined && toggle.event.t === "chart.toggle" ? toggle : undefined;
+    // The row-scoped focus controls + family tags. The expand control opens the row's render (R2) where it declares
+    // one, its chart drawn expanded in its band; else it toggles an expandable chart.
     const rowControls: ReadonlyArray<{ kind: "links" | "expand"; active: boolean; onClick: () => void }> = [
         ...(showLinksControl ? [{
             kind: "links" as const,
@@ -240,6 +247,10 @@ export const PlanBodyRow = memo(function PlanBodyRow({
             kind: "expand" as const,
             active: activeControl === "expand",
             onClick: () => dispatch({ t: "focus.expand", key: v.row.key }),
+        }] : chartToggle !== undefined ? [{
+            kind: "expand" as const,
+            active: chartToggle.open,
+            onClick: () => dispatch(chartToggle.event),
         }] : []),
     ];
     const shellBase = {
@@ -268,59 +279,68 @@ export const PlanBodyRow = memo(function PlanBodyRow({
         groupEnd,
         unread,
     } as const;
-    // The per-kind SHELL differences — caret, toggle, emphasis, the chart's
-    // gutter ticks. The plot content itself is one switch shared with the
-    // narrow layout's cards (`KindPlot`). What the caret toggles is the one
-    // answer the keyboard reads too (`rowToggle`, #819).
-    const toggle = rowToggle(v, hasChildren, chartExpanded);
-    const caret = toggle !== undefined ? { collapsed: !toggle.open } : undefined;
-    const onCaretClick = toggle !== undefined ? () => dispatch(toggle.event) : undefined;
-    // `aria-expanded`: its section or chart — or, for a row with neither, its
-    // expand render. A strip opens nothing: its one action is the way back.
+    // The per-kind SHELL differences — caret, emphasis, a laned row's lanes,
+    // the chart's ticks. The plot content itself is one switch shared with
+    // the narrow layout's cards (`KindPlot`).
+    const caret = fold !== undefined ? { collapsed: !fold.open } : undefined;
+    const onCaretClick = fold !== undefined ? () => dispatch(fold.event) : undefined;
+    // `aria-expanded`: its section, or its chart — or, for a row with
+    // neither, its expand render. A strip opens nothing: its one action is
+    // the way back.
     const expandedState = isCtx ? undefined
-        : toggle !== undefined ? toggle.open
-            : showExpandControl ? isFocal : undefined;
+        : fold !== undefined ? fold.open
+            : showExpandControl ? isFocal
+                : chartToggle !== undefined ? chartToggle.open : undefined;
     let shellExtras: {
         caret?: { collapsed: boolean } | undefined;
         onCaretClick?: (() => void) | undefined;
         emphasis?: "header" | "footer" | undefined;
         noGrid?: boolean;
-        gutterOverlay?: ReactNode;
+        lanes?: readonly PlanGutterLane[] | undefined;
     } = {};
     // The plot height a chart row scales against (see the chart case).
     let plotH = h;
     let chartExpanded_ = false;
+    // A chart's left-axis ticks, inside its plot's left edge (#1680's review).
+    let ticks: ReactNode = null;
     switch (kind.type) {
         case "span":
         case "heat":
-        case "buckets":
             shellExtras = { caret, onCaretClick };
             break;
+        case "buckets": {
+            // A laned row's lanes: a gutter line each, its caption in the value cell (#1680's review).
+            const lanes = kind.value.lanes;
+            shellExtras = {
+                caret, onCaretClick,
+                lanes: lanes.length > 1
+                    ? lanes.map((lane, i) => ({ caption: lane.label.type === "some" ? lane.label.value : undefined, band: laneBand(i, lanes.length) }))
+                    : undefined,
+            };
+            break;
+        }
         case "chart": {
             const declaredExpanded = kind.value.height.type === "expanded";
-            chartExpanded_ = declaredExpanded || chartExpanded;
+            // Its render open, an expandable chart draws expanded in its band: the expand control is its toggle too.
+            chartExpanded_ = declaredExpanded || chartExpanded || (isFocal && kind.value.expandable);
             // The FOCAL row is tall (natural + render), but its marks live in
             // the band at the top — `RowShell` mounts `children` inside
             // `expandRowBand` at `bandHeight` — so the plot's y-scale, its
-            // ref-label gate and the gutter ticks take the BAND height, never
+            // ref-label gate and the ticks take the BAND height, never
             // the grown row's. Passing the grown `h` built a ~272px y-scale
             // that squashed into a ~32px band, opened the ≥48px ref-label
             // gate on a spark row, and pushed labels + ticks past the band
             // into the render (#591).
             plotH = isFocal ? (bandHeight ?? h) : h;
-            shellExtras = {
-                noGrid: false,
-                caret,
-                onCaretClick,
-                // A STRIP carries no value axis — its plot re-encodes as a
-                // tone strip (`ToneStrip`), so the gutter ticks would label a
-                // scale that is not there, stacked in 16px. A diagnostic row
-                // draws no marks, so it has no value axis either.
-                gutterOverlay: isCtx || diagnostic !== undefined
-                    ? undefined
-                    // The chart the plot DRAWS (#824) — the ticks label its scale.
-                    : <ChartLeftTicks kind={derived.charts.get(v.row.key) ?? kind.value} styles={styles} height={plotH} />,
-            };
+            shellExtras = { noGrid: false, caret, onCaretClick };
+            // A STRIP carries no value axis — its plot re-encodes as a tone
+            // strip (`ToneStrip`), so the ticks would label a scale that is not
+            // there, stacked in 16px. A diagnostic row draws no marks, so it has
+            // no value axis either. The chart the plot DRAWS (#824) — the ticks
+            // label its scale.
+            ticks = isCtx || diagnostic !== undefined
+                ? null
+                : <ChartLeftTicks kind={derived.charts.get(v.row.key) ?? kind.value} styles={styles} height={plotH} />;
             break;
         }
         case "table":
@@ -343,6 +363,7 @@ export const PlanBodyRow = memo(function PlanBodyRow({
                     <KindPlot v={v} styles={styles} derived={derived}
                         hasChildren={hasChildren} ctx={isCtx}
                         plotHeight={plotH} chartExpanded={chartExpanded_} />
+                    {ticks}
                 </PlanPartBoundary>
             )}
         </RowShell>

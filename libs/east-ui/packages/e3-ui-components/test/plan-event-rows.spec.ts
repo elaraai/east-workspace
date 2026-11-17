@@ -256,7 +256,7 @@ describe("a resource is a landing row (PB12, PB13, PB15, #1541)", () => {
         assert.deepEqual([lost.fixed, lost.parent.type, lost.rows.length], [true, "none", 0]);
     });
 
-    test("a landing row keeps its own gutter; a row beside it names the kinds that draw that way, nested where the landing row is; its own series nest under it", async () => {
+    test("a landing row keeps its own gutter; a row beside it names the kinds that draw that way; both it and its own series nest under the landing row, and fold with it", async () => {
         const { week1 } = await printWorksWeek1();
         const parentOf = (row: Row) => (row.parent.type === "some" ? printId(row.parent.value) : "-");
         const bars = rowAt(week1, entry("presses", "1-presses-a", "a1"));
@@ -266,7 +266,8 @@ describe("a resource is a landing row (PB12, PB13, PB15, #1541)", () => {
         const util = rowAt(week1, entry("util", "1-presses-a", "a1"));
         assert.equal(util.gutter.label, "Utilisation");
         const strip = printId(entry("groups", "1-presses-a"));
-        assert.deepEqual([parentOf(bars), parentOf(marks), parentOf(util)], [strip, strip, printId(entry("presses", "1-presses-a", "a1"))]);
+        const press = printId(entry("presses", "1-presses-a", "a1"));
+        assert.deepEqual([parentOf(bars), parentOf(marks), parentOf(util)], [strip, press, press]);
         const hall = rowAt(week1, entry("groups", "1-presses-a"));
         assert.deepEqual([hall.gutter.label, hall.kind.type, hall.parent.type], ["Hall A", "group", "none"]);
         assert.equal(rowAt(week1, entry("crews", "4-crews-b", "c3")).gutter.label, "Crew 3");

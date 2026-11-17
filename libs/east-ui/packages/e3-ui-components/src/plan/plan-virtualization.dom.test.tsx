@@ -114,7 +114,7 @@ function planRow(key: string, kind: unknown, opts?: { parent?: string; expand?: 
 }
 const span = () => variant("span", { runs: [], decisions: [], ports: [], rollup: none });
 const group = (): PlanWireRow["kind"] => variant("group", { summary: variant("none", null) });
-/** A spark chart the gutter toggles to expanded (32px ↔ 88px). */
+/** A spark chart its expand control toggles to expanded (32px ↔ 88px, #1680's review). */
 const chart = () => variant("chart", {
     layers: [], left: none, right: none,
     height: variant("spark", null), expandedHeight: none, expandable: true,
@@ -186,7 +186,7 @@ describe("Plan heights at a constant row count (#812, #743 item 1)", () => {
         expect(extentOf(container)).toBe(startOf(rest, 61));
 
         // Spark → expanded: +56px at a constant count.
-        fireEvent.click(container.querySelector(rowSel("chart"))!.children[0]!);
+        fireEvent.click(container.querySelector(`${rowSel("chart")} [data-plan-control="expand"]`)!);
         const open = rest.map((h, i) => (i === 1 ? 88 : h));
         expect(extentOf(container)).toBe(startOf(open, 61));
         // Deep in the canvas, the first mounted row sits where the NEW heights
@@ -198,7 +198,7 @@ describe("Plan heights at a constant row count (#812, #743 item 1)", () => {
 
         // Expanded → spark: back by the same delta.
         scrollFrame(container, 0);
-        fireEvent.click(container.querySelector(rowSel("chart"))!.children[0]!);
+        fireEvent.click(container.querySelector(`${rowSel("chart")} [data-plan-control="expand"]`)!);
         expect(extentOf(container)).toBe(startOf(rest, 61));
         scrollFrame(container, 1200);
         const back = columnOf(container);
@@ -279,7 +279,7 @@ describe("Plan re-measures on heights, never on selection (#812)", () => {
         expect(counted.measure).toBe(0);
 
         // The control: a height that moves IS re-measured — exactly once.
-        fireEvent.click(container.querySelector(rowSel("chart"))!.children[0]!);
+        fireEvent.click(container.querySelector(`${rowSel("chart")} [data-plan-control="expand"]`)!);
         expect(counted.measure).toBe(1);
     });
 });
@@ -621,13 +621,13 @@ describe("a link into an evicted window (#823, #818)", () => {
         const nums = d.trim().split(/[\sMLZ]+/).filter((x) => x !== "").map(Number);
         return [nums[2]!, nums[3]!];
     };
-    // The ribbons need the plot's width: the layer is the 168px gutter and a 1000px plot.
+    // The ribbons need the plot's width: the layer is the 240px gutter and a 1000px plot.
     const realClientWidth = Object.getOwnPropertyDescriptor(Element.prototype, "clientWidth")!;
     beforeEach(() => {
         asked.length = 0;
         Object.defineProperty(Element.prototype, "clientWidth", {
             configurable: true,
-            get(this: Element) { return this.hasAttribute("data-plan-ribbons") ? 1168 : 0; },
+            get(this: Element) { return this.hasAttribute("data-plan-ribbons") ? 1240 : 0; },
         });
     });
     afterEach(() => { Object.defineProperty(Element.prototype, "clientWidth", realClientWidth); });

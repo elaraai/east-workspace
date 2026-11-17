@@ -151,9 +151,7 @@ export const NarrowRowCard = memo(function NarrowRowCard({
                             hasChildren={hasChildren}
                             ctx={false} plotHeight={h} chartExpanded={chartExpanded} />
                         {row.kind.type === "chart" && (
-                            <Box css={styles.narrowTicks}>
-                                <ChartLeftTicks kind={derived.charts.get(row.key) ?? row.kind.value} styles={styles} height={h} />
-                            </Box>
+                            <ChartLeftTicks kind={derived.charts.get(row.key) ?? row.kind.value} styles={styles} height={h} />
                         )}
                     </PlanPartBoundary>
                 )}

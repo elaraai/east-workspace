@@ -347,7 +347,7 @@ describe("a bucket cell keeps a selected event's tile on its run (#1267)", () =>
         const { container } = render(
             <ChakraProvider value={system}>
                 <PlanControllerContext.Provider value={selecting(["b"])}>
-                    <BucketCell styles={{}} rowKey="van" cellKey="1:0" place={{}} over={undefined} caption={null}
+                    <BucketCell styles={{}} rowKey="van" cellKey="1:0" place={{}} over={undefined}
                         tiles={["a", "b", "c"].map(standIn)} marker={null} folds frac={0} bucket="Week of Jul 6, 2026"
                         lane={undefined} words={PLAN_WORDS} onClick={() => undefined} signature="a|b|c" />
                 </PlanControllerContext.Provider>

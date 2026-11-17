@@ -78,7 +78,7 @@
  * `PlanMessagesProvider` overrides the words for a subtree.
  */
 
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FocusEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Box, VisuallyHidden, useSlotRecipe } from "@chakra-ui/react";
 import { StringType, equalFor, none, type PatchPath, type ValueTypeOf } from "@elaraai/east";
 import { Plan, planKeys, type PlanPayloadType } from "@elaraai/e3-ui/internal";
@@ -95,7 +95,7 @@ import {
     PlanScaleContext, PlanDispatchContext, PlanCursorContext, PlanResolversContext, PlanGeometryContext,
     type PlanResolvers,
 } from "./context.js";
-import { planGeometry, planGeometryStyle } from "./geometry.js";
+import { PLAN_GUTTER_VAR, planGeometry, planGeometryStyle } from "./geometry.js";
 import { PlanRunRow } from "./rows/RunRow.js";
 import { PlanPartBoundary } from "./rows/PartBoundary.js";
 import { axisNow, axisResolutions, ordinalIndexOf } from "./axis.js";
@@ -119,6 +119,8 @@ import {
 } from "./links/kinds.js";
 import { NO_LINK_CHOICES, planToolsInForce, usePlanTools, type PlanToolsChrome } from "./links/connect.js";
 import { connectVetoOf, type ConnectVetoFn } from "../shared/links/veto.js";
+import { GutterHandle } from "../shared/gutter-handle.js";
+import { clampGutter, gutterBounds } from "../shared/gutter-width.js";
 import type { LinkChoice } from "../shared/held-tools.js";
 import type { PlanLinkUnlink } from "./shell/LinksOverlay.js";
 import { DraftedStanding } from "../shared/schedule/drafted-rows.js";
@@ -243,8 +245,26 @@ const NO_LINK_ROWS: ReadonlyMap<string, Uint8Array> = new Map();
 /** No run of the optimiser has left anything on the canvas. */
 const NO_OPTIMISED_MARKS: PlanOptimisedMarks = { ops: new Map(), ghosts: new Map(), lit: false };
 
-/** Default gutter width (px, desktop — the §8 sheet). */
-const GUTTER_W = 168;
+/** Default gutter width (px, desktop — #1680's review, over the §8 sheet's 168). */
+const GUTTER_W = 240;
+/** The narrowest a drag takes the gutter (px), and the widest. */
+const GUTTER_MIN = 168;
+const GUTTER_MAX = 360;
+/** Below this width (px) a row's controls fold to its hover, so its name keeps its room (#1680's review). */
+const GUTTER_NARROW_BELOW = 220;
+/** The rows' columns: the gutter at the width its rule's drag writes (`--plan-gutter-w`), then the plot. */
+const GUTTER_TEMPLATE = `var(${PLAN_GUTTER_VAR}) 1fr`;
+
+/**
+ * The gutter's width the viewer dragged its rule to, as storage holds it: a finite number of pixels, else none.
+ *
+ * @param stored - What storage holds under the canvas's gutter key
+ * @returns The width; `null` for none
+ */
+const keptGutter = (stored: unknown): number | null => (typeof stored === "number" && Number.isFinite(stored) ? stored : null);
+
+/** The gutter's width as the CSS variable the rows' template and its rule read. */
+const GUTTER_STYLE = (width: number): CSSProperties => ({ [PLAN_GUTTER_VAR]: `${width}px` } as CSSProperties);
 
 /**
  * Whether the canvas draws an item now: its element mounted in the body.
@@ -987,11 +1007,28 @@ export function usePlanCanvas({
     const geometry = planGeometry(dense, coarse);
     const geometryStyle = useMemo(() => planGeometryStyle(geometry), [geometry]);
     const style = useMemo(() => getSomeorUndefined(data.style), [data.style]);
-    // gutterWidth is a CSS px size string. `pxOf`, not `parseFloat`: a
+    // The gutter's width (#1680's review): where the viewer last dragged its
+    // rule, kept under the canvas's `storageKey`; else the author's
+    // `gutterWidth`, a CSS px size string — `pxOf`, not `parseFloat`: a
     // percentage must fall back to the default, never silently become that
-    // many pixels (#615).
-    const gutterW = (style !== undefined && style.gutterWidth.type === "some" ? pxOf(style.gutterWidth.value) : undefined) ?? GUTTER_W;
-    const gridTemplate = `${gutterW}px 1fr`;
+    // many pixels (#615); else 240. Held between 168 and 360, widened to take
+    // the author's. The rows' template reads it as a CSS variable the drag
+    // writes as it runs, so a drag draws no row again; its release keeps it.
+    const declaredGutter = (style !== undefined && style.gutterWidth.type === "some" ? pxOf(style.gutterWidth.value) : undefined) ?? GUTTER_W;
+    const gutterRange = useMemo(() => gutterBounds(declaredGutter, GUTTER_MIN, GUTTER_MAX), [declaredGutter]);
+    const { state: draggedGutter, setState: keepGutter } = usePersistedState<number | null>(`${storageKey}.gutter`, null, keptGutter);
+    const gutterW = clampGutter(draggedGutter ?? declaredGutter, gutterRange);
+    const gridTemplate = GUTTER_TEMPLATE;
+    // A drag's width, written where the rows read it — and whether their controls fold — with no render.
+    const applyGutter = useCallback((width: number) => {
+        const el = focusBodyRef.current;
+        if (el === null) return;
+        el.style.setProperty(PLAN_GUTTER_VAR, `${width}px`);
+        el.toggleAttribute("data-plan-gutter-narrow", width < GUTTER_NARROW_BELOW);
+    }, []);
+    // While the rule moves the links stand where it was: they go until it is let go (the `ribbons` slot).
+    const dragGutter = useCallback((on: boolean) => { focusBodyRef.current?.toggleAttribute("data-plan-gutter-dragging", on); }, []);
+    const commitGutter = useCallback((width: number) => keepGutter(width), [keepGutter]);
     const height = parseCssSize(style !== undefined ? getSomeorUndefined(style.height) : undefined);
     const maxHeight = parseCssSize(style !== undefined ? getSomeorUndefined(style.maxHeight) : undefined);
     // A declared bound is the whole Plan's: it goes on the WRAPPER around its
@@ -2323,6 +2360,10 @@ export function usePlanCanvas({
             data-plan-bounded={frameFills ? "" : undefined}
             // The narrow layout is in charge (its recipe rules key on it).
             data-plan-narrow={narrow ? "" : undefined}
+            // The gutter's width, where the rows' template and its rule read it — and, below 220px, a row's
+            // controls fold to its hover (#1680's review).
+            style={GUTTER_STYLE(gutterW)}
+            data-plan-gutter-narrow={!narrow && gutterW < GUTTER_NARROW_BELOW ? "" : undefined}
             // The source is not exhausted: the counts across this body
             // cover the loaded windows (`PlanTransport.partial`).
             data-plan-partial={partial === true ? "" : undefined}
@@ -2360,7 +2401,7 @@ export function usePlanCanvas({
                     // rows' nested series to be read for them (#1438).
                     unread={unreadOrInFlight} onShown={onNarrowShown}
                 />
-            ) : (
+            ) : (<>
                 <VirtualRows
                     height={frameFills ? undefined : height}
                     maxHeight={frameFills ? undefined : maxHeight}
@@ -2449,7 +2490,10 @@ export function usePlanCanvas({
                     headerZIndex={5}
                     rootCss={styles.root}
                 />
-            )}
+                {/* The gutter's right rule, a separator a drag or a key moves (#1680's review). */}
+                <GutterHandle styles={styles} width={gutterW} bounds={gutterRange} label={words.m.gutterHandle()}
+                    apply={applyGutter} commit={commitGutter} dragging={dragGutter} />
+            </>)}
             <PlanOverlays anchors={anchors} styles={styles} storageKey={storageKey} />
             <PlanAnnouncer />
             {/* The keyboard's move (#825): what a carry does, said as it

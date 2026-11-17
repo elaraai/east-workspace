@@ -28,7 +28,7 @@ import { PLAN_DRAFT_HALO, PLAN_OVERLAP_RING, planElementConflict, planElementDra
 
 /** The slots this part styles. */
 export const elementsSlots = [
-    "bar", "barLabel", "barQty", "rollBand", "rollBandLabel", "port", "diamond", "chartMarks", "chartRefBand", "chartTickLeft", "chartTickRight", "refLabel",
+    "bar", "barLabel", "barQty", "rollBand", "rollBandLabel", "port", "diamond", "chartMarks", "chartRefBand", "plotTicks", "chartTickLeft", "chartTickRight", "refLabel",
     "chartReadout", "chartReadoutValue", "milestoneDot", "exceptionTri", "markIcon", "markLabel", "lock", "markLock",
     "moveEdge", "moveGhost", "moveGhostLabel", "moveGhostSpan",
 ] as const;
@@ -67,6 +67,18 @@ const DIAMOND_EDGE = "inset 0 0 0 1.5px var(--diamond-edge)";
  * figure a row higher or lower by where it stood the row.
  */
 const TICK_LINE = "14px";
+
+/** A chart row's axis tick, either side: mono 9.5 in the label ink, one line, its middle on its value's pixel. */
+const chartTick = {
+    position: "absolute",
+    fontFamily: "mono",
+    fontSize: "9.5px",
+    lineHeight: TICK_LINE,
+    color: "fg.subtle",
+    whiteSpace: "nowrap",
+    transform: "translateY(-50%)",
+    pointerEvents: "none",
+} satisfies SystemStyleObject;
 
 /** Their base styles. */
 export const elementsBase = {
@@ -334,40 +346,21 @@ export const elementsBase = {
         pointerEvents: "none",
         background: "color-mix(in srgb, {colors.fg} 4%, transparent)",
     },
-    chartTickLeft: {
+    // A chart's left-axis ticks stand inside the plot's left edge, as its
+    // right-axis ticks stand inside its right edge (#1680's review) — never in
+    // the gutter, where the values are. This box is the plot's, on a canvas row
+    // and on a narrow card alike, and each tick starts 3px in from its left
+    // edge (`chartTickLeft`), mirroring a right tick's 3px from its right: a
+    // tick of any width lies inside the plot, where one set against a narrow
+    // box's end ran out of it into the gutter.
+    plotTicks: {
         position: "absolute",
-        right: "4px",
-        fontFamily: "mono",
-        fontSize: "9.5px",
-        lineHeight: TICK_LINE,
-        color: "fg.subtle",
-        transform: "translateY(-50%)",
+        inset: 0,
         pointerEvents: "none",
-        // A row's controls are always shown, at its gutter line's end
-        // (`rowControls`, #1258) — where the ticks sit. The ticks step left
-        // of them, so the axis stays legible (#591): the cell's 12px padding,
-        // the 24px buttons and a 4px gap.
-        "[data-plan-controls='1'] &": { right: "40px" },
-        "[data-plan-controls='2'] &": { right: "64px" },
-        // An automatic maximum stays on the heading line at every chart height,
-        // with real flex space so it cannot collide with the title or controls;
-        // its line is the heading's own.
-        "&[data-compact]": {
-            position: "static", transform: "none", marginInlineStart: "auto", paddingInlineStart: "8px",
-            textStyle: "mono.xs", lineHeight: "inherit", fontWeight: "normal", letterSpacing: "normal", textTransform: "none", flexShrink: 0,
-        },
+        zIndex: 5,
     },
-    chartTickRight: {
-        position: "absolute",
-        right: "3px",
-        fontFamily: "mono",
-        fontSize: "9.5px",
-        lineHeight: TICK_LINE,
-        color: "fg.subtle",
-        transform: "translateY(-50%)",
-        pointerEvents: "none",
-        zIndex: 4,
-    },
+    chartTickLeft: { ...chartTick, left: "3px" },
+    chartTickRight: { ...chartTick, right: "3px", zIndex: 4 },
     refLabel: {
         position: "absolute",
         fontFamily: "mono",

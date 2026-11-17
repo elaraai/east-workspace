@@ -44,37 +44,33 @@ for (const theme of LAYOUT_THEMES) {
             expect(await entry.evaluate(rulerFaults)).toEqual([]);
             expect(await entry.evaluate(cutText)).toEqual([]);
         }
-        const chart = entry.locator('[data-plan-kind="chart"][data-collapsible]').first();
-        if (await chart.count() > 0) {
-            const read = await entry.evaluate(root => {
-                const chart = root.querySelector('[data-plan-kind="chart"][data-collapsible]')!;
-                const group = root.querySelector('[data-plan-group]')!;
-                const label = chart.querySelector('[data-plan-gutter="label"]')!;
-                const value = chart.querySelector('[data-plan-tickpx][data-compact]')!;
-                const style = (el: Element) => {
-                    const s = getComputedStyle(el.querySelector('[data-plan-gutter="label"]')!);
-                    return [s.fontFamily, s.fontSize, s.fontWeight, s.lineHeight, s.letterSpacing, s.color, getComputedStyle(el).backgroundColor];
+        // The pinned output chart, where the canvas draws rows (a phone draws its cards): an expandable spark with no
+        // caret — a caret only folds — its name in the row's voice, its value axis inside its plot, clear of the
+        // gutter's value, and its expand control its toggle (#1680's review).
+        if (await entry.locator("[data-plan-body][data-plan-narrow]").count() === 0) {
+            const chart = entry.locator('[data-plan-row][data-plan-kind="chart"]').first();
+            await expect(chart).toHaveCount(1);
+            const read = () => chart.evaluate((row) => {
+                const voice = (line: Element) => {
+                    const s = getComputedStyle(line);
+                    return [s.fontFamily, s.fontSize, s.fontWeight, s.letterSpacing, s.textTransform, s.color].join(" ");
                 };
-                const l = label.getBoundingClientRect(), v = value.getBoundingClientRect(), h = chart.querySelector('[role="rowheader"]')!.getBoundingClientRect();
-                return { chart: style(chart), group: style(group), centred: Math.abs((l.top + l.bottom - v.top - v.bottom) / 2) < 1,
-                    fits: v.top >= h.top && v.bottom <= h.bottom && v.left >= l.right && v.right <= h.right };
+                const other = row.closest("[data-plan-body]")!.querySelector('[data-plan-row]:not([data-plan-kind="chart"]) [data-plan-gutter="name"]')!;
+                const plot = row.querySelector('[role="gridcell"]')!.getBoundingClientRect();
+                const ticks = [...row.querySelectorAll("[data-plan-tickpx]")].map((t) => t.getBoundingClientRect());
+                return {
+                    voice: voice(row.querySelector('[data-plan-gutter="name"]')!) === voice(other),
+                    caret: row.querySelector('[role="rowheader"] svg[data-icon="caret-down"]') !== null,
+                    ticks: ticks.length > 0 && ticks.every((t) => t.left >= plot.left - 0.5 && t.right <= plot.right + 0.5 && t.top >= plot.top - 0.5 && t.bottom <= plot.bottom + 0.5),
+                };
             });
-            expect(read.chart).toEqual(read.group);
-            expect(read.centred && read.fits).toBe(true);
-            await chart.getByRole("rowheader").click();
+            await expect.poll(read).toEqual({ voice: true, caret: false, ticks: true });
+            const toggle = chart.locator('[data-plan-control="expand"]');
+            await toggle.click();
             await expect(chart).toHaveAttribute("aria-expanded", "true");
-            await expect(chart.locator('[data-plan-tickpx][data-compact]')).toHaveCount(1);
-            expect(await chart.evaluate(root => {
-                const label = root.querySelector('[data-plan-gutter="label"]')!.getBoundingClientRect();
-                const maximum = root.querySelector('[data-plan-tickpx]')!.getBoundingClientRect();
-                const gutter = root.querySelector('[role="rowheader"]')!.getBoundingClientRect();
-                return Math.abs((label.top + label.bottom - maximum.top - maximum.bottom) / 2) < 1
-                    && maximum.left >= label.right && maximum.right <= gutter.right
-                    && maximum.top >= gutter.top && maximum.bottom <= gutter.bottom;
-            })).toBe(true);
-            await chart.getByRole("rowheader").click();
+            await expect.poll(read).toEqual({ voice: true, caret: false, ticks: true });
+            await toggle.click();
             await expect(chart).toHaveAttribute("aria-expanded", "false");
-            await expect(chart.locator('[data-plan-tickpx][data-compact]')).toHaveCount(1);
         }
         let fold = entry.locator('[data-plan-fold-all]');
         const compact = !await fold.isVisible();

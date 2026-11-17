@@ -51,8 +51,9 @@ describe("the focus's links", () => {
         // K-1's row two rows down, K-2's five: each link an S through the channel.
         const rows = new Map([["K-1", 2], ["K-2", 5]]);
         const links = layoutLinks(familyOf(PLAN, PLAN, "K-1"), cards, rows, VIEW, l => `${l.quantity} m³`);
+        // The largest at the cap, 6 (#1680's review: two out of one end each keep a line of their own).
         expect(links.map(r => [r.link.bin, r.link.resource, r.width, r.label, r.route])).toEqual([
-            ["a", "K-1", 8, "30 m³", "s"], ["b", "K-1", 2, "8 m³", "s"], ["b", "K-2", 2, "4 m³", "s"], ["r", "K-1", 1.5, undefined, "s"],
+            ["a", "K-1", 6, "30 m³", "s"], ["b", "K-1", 2, "8 m³", "s"], ["b", "K-2", 2, "4 m³", "s"], ["r", "K-1", 1.5, undefined, "s"],
         ]);
         // LD a's card: B-1 at 52 + its inset past the lane grid's edge; its row's leading edge, the channel's right edge.
         expect([links[0]!.from.rightX, links[0]!.to.leftX]).toEqual([10 + 48 + 4 + 88, 395]);
@@ -114,7 +115,7 @@ describe("a drag's links (#1328)", () => {
             ["b", "K-1", undefined], ["r", "K-1", undefined], ["b", "K-2", "fits"], ["c", "K-2", "fits"], ["a", "K-1", undefined],
         ]);
         // Each family's weights are its own: c's 20 m³ is K-2's largest, b's 4 m³ into K-2 a fifth of it; a's 30 m³ is K-1's.
-        expect(routed.map(r => [r.link.bin, r.link.resource, r.width])).toEqual([["b", "K-1", 2], ["r", "K-1", 1.5], ["b", "K-2", 2], ["c", "K-2", 8], ["a", "K-1", 8]]);
+        expect(routed.map(r => [r.link.bin, r.link.resource, r.width])).toEqual([["b", "K-1", 2], ["r", "K-1", 1.5], ["b", "K-2", 2], ["c", "K-2", 6], ["a", "K-1", 6]]);
         // Refused there: warn; a draft link keeps its brand.
         const held = day([["a", bin("B-1", at(1, 15), "E1", 30, [["K-1", 30]])], ["c", bin("B-3", at(3, 55), "E3", 20, [["K-2", 18]])]]);
         const refused = layoutLinks(dragFamilies(PLAN, held, ids, "K-1", { bin: "a", resource: "K-1" }, { resource: "K-2", verdict: "refused" }), cards, rows, VIEW, () => "q");

@@ -35,7 +35,7 @@ export const BOOKED_FILL = "{colors.brand.solid}";
 /** The slots this part styles. */
 export const cellsSlots = [
     "heatCell", "heatLabel", "weightBar", "segmentTrack", "segmentPart", "cellWash", "cell", "cellTiles",
-    "tile", "tileLabel", "tileMore", "laneLabel", "markerIcon", "cardChip", "cardChipIcon", "cardChipLabel", "tableCellText", "tableCellGroup", "tableCellPart", "tableCellDot", "tableCellMeasure",
+    "tile", "tileLabel", "tileMore", "markerIcon", "cardChip", "cardChipIcon", "cardChipLabel", "tableCellText", "tableCellGroup", "tableCellPart", "tableCellDot", "tableCellMeasure",
     "tableCellInput", "tableCellField", "tableCellFieldInput", "tableCellRefusal", "tableCellPopover",
 ] as const;
 
@@ -186,16 +186,16 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         },
         "&[data-fill='free']": { background: "color-mix(in srgb, {colors.fg} 5%, transparent)", color: "fg.muted" },
     },
-    // ── Bucket rows (K2) — the Planner `.pcell` grid, verbatim ──
-    // One washed sub-cell per bucket × lane; content (lane caption +
-    // chips) flows inline, left-aligned. A marker rings the CELL
-    // (`data-over`) and pins the corner status icon.
+    // ── Bucket rows (K2) — the Planner `.pcell` grid ──
+    // One washed sub-cell per bucket × lane; its chips flow inline,
+    // left-aligned. A lane's caption is its gutter line's, never a cell's
+    // (#1680's review). A marker rings the CELL (`data-over`) and pins the
+    // corner status icon.
     //
-    // EMPTY cells of an equal-bucket captionless lane do not mount (#616):
-    // their wash paints as ONE gradient band per lane (`cellWash` — the
-    // renderer sets the lane's top/height and the tile size), and real
-    // cells mount only where content, a caption or a marker exists,
-    // covering their gradient tile exactly.
+    // EMPTY cells of equal buckets do not mount (#616): their wash paints as
+    // ONE gradient band per lane (`cellWash` — the renderer sets the lane's
+    // top/height and the tile size), and real cells mount only where content
+    // or a marker exists, covering their gradient tile exactly.
     cellWash: {
         position: "absolute",
         left: 0,
@@ -203,9 +203,8 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         pointerEvents: "none",
     },
     //
-    // A size container (#1638), as a bar is: its lane caption's line is the
-    // cell's own height (`100cqh`), whatever share of the row its lane gives
-    // it, so the caption starts a whole number of pixels under the cell's edge.
+    // A size container (#1638), as a bar is: what it draws reads the cell's
+    // own height (`100cqh`), whatever share of the row its lane gives it.
     cell: {
         position: "absolute",
         containerType: "size",
@@ -226,10 +225,10 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         "&[data-over='success']": { boxShadow: "inset 0 0 0 1.5px {colors.status.pos}" },
         "&[data-over='neutral']": { boxShadow: "inset 0 0 0 1.5px {colors.fg.subtle}" },
     },
-    // A cell's tiles, in the room its lane caption leaves them (#1266): a
-    // tile's 20px floor, and how far it shrinks, are this box's, so a tile in
-    // a captioned lane never runs past its cell. As tall as the cell, so a
-    // tile stretched on the block axis fills its lane.
+    // A cell's tiles, in the room the cell gives them (#1266): a tile's 20px
+    // floor, and how far it shrinks, are this box's, so a tile never runs past
+    // its cell. As tall as the cell, so a tile stretched on the block axis
+    // fills its lane.
     cellTiles: {
         display: "flex",
         alignItems: "center",
@@ -364,15 +363,14 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
     // the chip (`data-cramped`) it shrinks to the room and draws no count, its
     // name still saying what it holds. The stand-in a cell measures beside its
     // tiles is never seen. A cell with no room for one tile (`data-no-room`,
-    // #1276) draws the chip alone across the whole cell — its padding and its
-    // caption too — so what the cell holds is never unseen; its menu lists
-    // every tile.
+    // #1276) draws the chip alone across the whole cell — its padding too —
+    // so what the cell holds is never unseen; its menu lists every tile.
     //
     // On a coarse pointer its tap target is its cell, less the tiles in it
     // (#346's halo, held to the cell): the halo lies beneath the tiles in their
     // box's layer, so a tile beside the chip keeps its own taps, and the cell
     // clips it, so it never reaches another cell's tiles. It takes the box's
-    // empty room, the cell's padding and its caption.
+    // empty room and the cell's padding.
     tileMore: {
         position: "relative",
         display: "inline-flex",
@@ -412,17 +410,6 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         // The halo (its `::before`, drawn on a coarse pointer alone) beneath the tiles.
         "&::before": { zIndex: -1 },
         ...planElementFocus,
-    },
-    // The per-cell lane caption (`.bl`) — printed at each cell's left, on a line
-    // the cell's own height (#1638).
-    laneLabel: {
-        fontFamily: "mono",
-        fontSize: "9.5px",
-        lineHeight: "100cqh",
-        fontWeight: "semibold",
-        letterSpacing: "0.06em",
-        color: "fg.subtle",
-        flex: "none",
     },
     // Corner status icon of a marked cell (the Planner marker, verbatim).
     markerIcon: {

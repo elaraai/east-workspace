@@ -28,7 +28,7 @@ import { statusText } from "../a11y.js";
 import { usePlanWords, type PlanWords } from "../words.js";
 import { usePlanGridRow } from "./grid.js";
 import {
-    bodyItemKey, rowHeight,
+    bodyItemKey, chartsOpenFor, rowHeight,
     type FocusGap, type LinkFamily, type PlanDerived, type PlanFocusCtx, type PlanRowIndex, type PlanRowValue, type VisibleRow,
 } from "../model.js";
 import type { PlanEvent, RowKey } from "../plan-state.js";
@@ -128,7 +128,9 @@ export function renderPlanRow(v: VisibleRow, ctx: PlanRowContext): ReactNode {
                         <EastChakraComponent value={expandBody} storageKey={`${storageKey}.${v.row.key}.expand`} />
                     </PlanPartBoundary>
                 ),
-                bandHeight: rowHeight(v, ctx.dense, ctx.chartsExpanded, undefined, ctx.derived),
+                // Its natural height: an expandable chart's expanded one, its render open (#1680's review).
+                bandHeight: rowHeight(v, ctx.dense, v.row.kind.type === "chart"
+                    ? chartsOpenFor(v.row.key, v.row.kind.value.expandable, ctx.chartsExpanded) : ctx.chartsExpanded, undefined, ctx.derived),
                 ...(expandGutterBody !== null ? {
                     expandGutter: (
                         <PlanPartBoundary part={{ kind: "expandGutter" }} resetKey={expandGutterBody} styles={styles}>
@@ -175,11 +177,11 @@ export function PlanStickyParent({ parent, path, styles, gridTemplate, onGo }: {
     return (
         <Box css={styles.stickyParent} style={{ gridTemplateColumns: gridTemplate }}
             data-plan-sticky={parent.key} aria-hidden="true" onClick={onGo}>
-            <Box css={styles.groupName}>
+            {/* An open band's heading, across the whole row (#1680's review): its path, then its name. */}
+            <Box css={styles.groupName} data-open="">
                 {path.map((a) => <Box as="span" key={a.key} css={styles.stickyPath}>{a.gutter.label}</Box>)}
                 <Box as="span">{parent.gutter.label}</Box>
             </Box>
-            <Box />
         </Box>
     );
 }

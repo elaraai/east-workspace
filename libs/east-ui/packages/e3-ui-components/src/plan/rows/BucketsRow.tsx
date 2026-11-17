@@ -286,6 +286,7 @@ export function BucketsRow({ rowKey, rowId, kind, styles, ctx, move }: BucketsRo
         const bi = b.index;
         const cellKey = `${bi}:${li ?? "full"}`;
         const marker = worstMarker(li !== undefined ? cellMarkers.get(`${bi}:${li}`) ?? [] : bucketMarkers(bi));
+        // The lane's caption is said by the cell's chip and its tiles' names; its gutter line draws it (#1680's review).
         const lane = li !== undefined ? lanes[li] : undefined;
         const caption = lane !== undefined && lane.label.type === "some" ? lane.label.value : undefined;
         // Each tile drawn folded or not, and named for the chip's menu as a reader hears it (#819).
@@ -310,7 +311,6 @@ export function BucketsRow({ rowKey, rowId, kind, styles, ctx, move }: BucketsRo
                 <BucketCell styles={styles} rowKey={rowKey} cellKey={cellKey}
                     place={{ ...cellX(b), ...laneY(li ?? 0, li === undefined ? laneCount : span) }}
                     over={marker !== undefined ? marker.status.type : undefined}
-                    caption={caption !== undefined && ctx !== true ? <Box css={styles.laneLabel}>{caption}</Box> : null}
                     tiles={tiles}
                     marker={marker !== undefined ? (
                         <Box css={styles.markerIcon} data-status={marker.status.type}
@@ -331,21 +331,16 @@ export function BucketsRow({ rowKey, rowId, kind, styles, ctx, move }: BucketsRo
     // ── Occupied-only mounting (#616) ─────────────────────────────────────
     // A cell per bucket × lane is O(buckets × lanes) DOM whether or not
     // anything is in it — 500 hour buckets used to mount 500+ divs per row.
-    // For an EQUAL-bucKET lane with no caption, the empty-cell wash paints as
-    // ONE gradient band (`cellWash`) and real cells mount only where content,
-    // a caption or a marker exists. A captioned lane prints its caption in
-    // every cell (the Planner `.bl`), and unequal buckets (month / quarter,
-    // low counts) keep the full grid — both fall back to mounting all.
+    // For EQUAL buckets the empty-cell wash paints as ONE gradient band per
+    // lane (`cellWash`) and real cells mount only where content or a marker
+    // exists — a lane's caption is its gutter line's (#1680's review), never a
+    // cell's. Unequal buckets (month / quarter, low counts) keep the full grid.
     const n = scale.buckets.length;
     const w0 = n > 0 ? scale.buckets[0]!.x1 - scale.buckets[0]!.x0 : 0;
     const uniform = n > 1 && scale.buckets.every((b) => Math.abs((b.x1 - b.x0) - w0) < 1e-9);
-    const laneCaptioned = (li: number): boolean => {
-        const lane = lanes[li];
-        return lane !== undefined && lane.label.type === "some";
-    };
     const cells: ReactNode[] = [];
     for (let li = 0; li < laneCount; li++) {
-        if (uniform && !laneCaptioned(li)) {
+        if (uniform) {
             cells.push(
                 <Box key={`wash-${li}`} css={styles.cellWash} data-plan-cellwash={li}
                     style={{
@@ -373,7 +368,7 @@ export function BucketsRow({ rowKey, rowId, kind, styles, ctx, move }: BucketsRo
         for (let li = 0; li < laneCount; li++) {
             const events = cellEvents.get(`${bi}:${li}`) ?? [];
             const occupied = events.length > 0 || (cellMarkers.get(`${bi}:${li}`)?.length ?? 0) > 0;
-            if (!occupied && (occupiedOnly || (uniform && !laneCaptioned(li)))) continue;
+            if (!occupied && (occupiedOnly || uniform)) continue;
             cells.push(renderCell(b, li, events));
         }
     };

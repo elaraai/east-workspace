@@ -59,20 +59,26 @@ const KINDS = ["buckets", "cards", "chart", "events", "heat", "span", "table"];
 /**
  * Each link that does not leave its source's END or enter its destination's
  * START as the element draws (#1258) — a bar, a chip, a mark's glyph or the
- * cell a tile sits in. Its band starts on the source's right edge at its
- * middle, or — no room before the plot's end — lifts off its top or bottom edge
- * within its last 7px; its head's tip meets the destination's left edge at its
- * middle, or — no room after the plot's start — drops onto its top or bottom
- * edge within its first 10px; each on the plot's edge where the element lies
- * past the window. An end out of view meets the view's edge in a stub instead,
- * which this leaves to the view's checks. A link names its ends on its hit
- * path, each a row's id and an element's key.
+ * cell a tile sits in — at its port (#1680's review, ruled 17 Nov 2026). Its
+ * band leaves the source's right edge level, or — no room before the plot's
+ * end — lifts off its top or bottom edge within its last 7px; its head's tip
+ * meets the destination's left edge level, or — no room after the plot's start
+ * — drops onto its top or bottom edge within its first 10px; each on the plot's
+ * edge where the element lies past the window. A level end meets its element at
+ * its port: a lone link on its centre line, and links sharing an end each at
+ * their own, stacked about the centre line 2px clear of one another — a link
+ * taking its weight where it leaves, its head's width where it enters — ordered
+ * by where their other ends lie, topmost first; a lifted or dropped link keeps
+ * its place in the stack. An end out of view meets the view's edge in a stub
+ * instead, which takes no port and is left to the view's checks. A link names
+ * its ends on its hit path, each a row's id and an element's key.
  */
 const ribbonEnds = (root: Element): string[] => {
     const svg = root.querySelector("[data-plan-ribbons] svg")!.getBoundingClientRect();
     const nums = (d: string) => d.split(/[\sMLAZ]+/).filter((t) => t !== "").map(Number);
     const near = (a: number, b: number) => Math.abs(a - b) <= 0.6;
     const within = (v: number, lo: number, hi: number) => v >= lo - 0.6 && v <= hi + 0.6;
+    const middle = (r: DOMRect) => (r.top + r.bottom) / 2;
     const out: string[] = [];
     /** The element an end names, as it draws. */
     const elementOf = (rowKey: string | null, key: string | null): Element | null => {
@@ -82,34 +88,76 @@ const ribbonEnds = (root: Element): string[] => {
         return keyed("[data-run]", "data-run") ?? keyed("[data-chip]", "data-chip")
             ?? keyed("[data-mark][role='button']", "data-mark") ?? keyed("[data-event]", "data-event")?.closest("[data-plan-cell]") ?? null;
     };
+    const plot = root.querySelector("[data-plan-row] [data-plan-plot]")!.getBoundingClientRect();
+    const onPlot = (x: number) => Math.min(plot.right, Math.max(plot.left, x));
+    /** A link's end at an element: where it meets it down the page when level, what it takes of the end, and where its
+     *  other end lies — none out of view. */
+    interface Port { name: string; order: number; level: boolean; y: number; size: number; other: number | undefined }
+    /** The ends in view at each element's end and start. */
+    const ends = { exit: new Map<Element, Port[]>(), entry: new Map<Element, Port[]>() };
+    const add = (side: keyof typeof ends, el: Element, port: Port) => ends[side].set(el, [...(ends[side].get(el) ?? []), port]);
     for (const g of root.querySelectorAll("[data-plan-link]")) {
         const hit = g.querySelector("[data-link]")!;
         const name = `link ${hit.getAttribute("data-link-key")}`;
+        const order = Number(g.getAttribute("data-plan-link"));
+        const weight = Number(g.querySelector("[data-plan-ribbon-band]")!.getAttribute("stroke-width"));
         const heads = g.querySelectorAll("[data-plan-ribbon-head]");
         const toOff = heads[0]!.hasAttribute("data-plan-stub");
         const fromOff = heads[1]?.hasAttribute("data-plan-stub") ?? false;
         const srcEl = elementOf(hit.getAttribute("data-link-from"), hit.getAttribute("data-link-from-run"));
         const dstEl = elementOf(hit.getAttribute("data-link-to"), hit.getAttribute("data-link-to-run"));
         if ((!fromOff && srcEl === null) || (!toOff && dstEl === null)) { out.push(`${name}: an element it joins is not drawn`); continue; }
-        const plot = root.querySelector("[data-plan-row] [data-plan-plot]")!.getBoundingClientRect();
-        const onPlot = (x: number) => Math.min(plot.right, Math.max(plot.left, x));
         if (!fromOff) {
             const src = srcEl!.getBoundingClientRect();
-            const p0 = g.querySelector<SVGPathElement>("[data-plan-ribbon-band]")!.getPointAtLength(0);
+            const band = g.querySelector<SVGPathElement>("[data-plan-ribbon-band]")!;
+            const p0 = band.getPointAtLength(0);
             const [x0, y0] = [svg.left + p0.x, svg.top + p0.y];
             const end = onPlot(src.right);
-            const level = near(x0, end) && near(y0, (src.top + src.bottom) / 2);
-            const lifted = within(x0, Math.max(onPlot(src.left), end - 7), end) && (near(y0, src.top) || near(y0, src.bottom));
-            if (!level && !lifted) out.push(`${name} leaves at (${x0.toFixed(1)}, ${y0.toFixed(1)}), not its source's end (${end.toFixed(1)}, ${((src.top + src.bottom) / 2).toFixed(1)})`);
+            // Its first run: across, leaving the end level; up or down, lifting off an edge.
+            const first = nums(band.getAttribute("d")!);
+            const lifts = Math.abs(first[2]! - first[0]!) < 0.05;
+            const lifted = lifts && within(x0, Math.max(onPlot(src.left), end - 7), end) && (near(y0, src.top) || near(y0, src.bottom));
+            if (lifts ? !lifted : !near(x0, end)) out.push(`${name} leaves at (${x0.toFixed(1)}, ${y0.toFixed(1)}), not its source's end (${end.toFixed(1)}, ${middle(src).toFixed(1)})`);
+            else add("exit", srcEl!, { name, order, level: !lifts, y: y0, size: weight, other: toOff ? undefined : middle(dstEl!.getBoundingClientRect()) });
         }
         if (!toOff) {
             const dst = dstEl!.getBoundingClientRect();
-            const tip = nums(heads[0]!.getAttribute("d")!).slice(2, 4);
-            const [tx, ty] = [svg.left + tip[0]!, svg.top + tip[1]!];
+            const head = nums(heads[0]!.getAttribute("d")!);
+            const [tx, ty] = [svg.left + head[2]!, svg.top + head[3]!];
             const start = onPlot(dst.left);
-            const level = near(tx, start) && near(ty, (dst.top + dst.bottom) / 2);
-            const dropped = within(tx, start, Math.min(start + 10, onPlot(dst.right))) && (near(ty, dst.top) || near(ty, dst.bottom));
-            if (!level && !dropped) out.push(`${name} enters at (${tx.toFixed(1)}, ${ty.toFixed(1)}), not its destination's start (${start.toFixed(1)}, ${((dst.top + dst.bottom) / 2).toFixed(1)})`);
+            // Its head: pointing across, entering level; pointing up or down, dropping onto an edge.
+            const drops = Math.abs(head[1]! - head[5]!) < 0.05;
+            const dropped = drops && within(tx, start, Math.min(start + 10, onPlot(dst.right))) && (near(ty, dst.top) || near(ty, dst.bottom));
+            if (drops ? !dropped : !near(tx, start)) out.push(`${name} enters at (${tx.toFixed(1)}, ${ty.toFixed(1)}), not its destination's start (${start.toFixed(1)}, ${middle(dst).toFixed(1)})`);
+            else add("entry", dstEl!, { name, order, level: !drops, y: ty, size: Math.max(8, 2 * weight), other: fromOff ? undefined : middle(srcEl!.getBoundingClientRect()) });
+        }
+    }
+    // Each level end at its port: the stack its end's links make, about the element's centre line.
+    for (const [side, at] of Object.entries(ends)) {
+        for (const [el, ports] of at) {
+            const centre = middle(el.getBoundingClientRect());
+            const tall = ports.reduce((sum, p) => sum + p.size, 0) + 2 * (ports.length - 1);
+            // Their order where every other end is in view: topmost first, the drawing order where two lie level.
+            const known = ports.every((p) => p.other !== undefined);
+            const ordered = known ? [...ports].sort((a, b) => Math.round((a.other! - b.other!) * 10) || a.order - b.order) : ports;
+            let y = centre - tall / 2;
+            for (const p of ordered) {
+                const want = y + p.size / 2;
+                y += p.size + 2;
+                if (!p.level) continue;
+                if (known ? !near(p.y, want) : Math.abs(p.y - centre) > (tall - p.size) / 2 + 0.6) {
+                    out.push(`${p.name} meets its ${side === "exit" ? "source's end" : "destination's start"} at ${p.y.toFixed(1)}, `
+                        + `not its port${known ? ` ${want.toFixed(1)}` : ""} of ${ports.length} about ${centre.toFixed(1)}`);
+                }
+            }
+            // Where an end's other ends are not all in view, its ports at least lie apart.
+            if (!known) {
+                const level = ports.filter((p) => p.level).sort((a, b) => a.y - b.y);
+                for (let i = 1; i < level.length; i++) {
+                    const [a, b] = [level[i - 1]!, level[i]!];
+                    if (b.y - a.y < (a.size + b.size) / 2 + 2 - 0.6) out.push(`${a.name} and ${b.name} share their port at ${a.y.toFixed(1)}`);
+                }
+            }
         }
     }
     return out;
@@ -249,10 +297,13 @@ const rowControlsLaidOut = (root: Element): string[] => {
         if (Math.abs(end - b.right) > 0.5) out.push(`${row}: its controls end ${(end - b.right).toFixed(1)}px short of its gutter line's end`);
         const l = line.getBoundingClientRect();
         if (Math.abs((b.top + b.bottom) / 2 - (l.top + l.bottom) / 2) > 0.5) out.push(`${row}: its controls are off its line`);
-        for (const part of ["label", "right"]) {
+        // Its name — its label and meta — its value and its status, each in its own cell before them (#1680's review).
+        for (const part of ["title", "label", "value"]) {
             const before = line.querySelector(`[data-plan-gutter='${part}']`);
             if (before !== null && before.getBoundingClientRect().right > b.left + 0.5) out.push(`${row}: its ${part} runs under its controls`);
         }
+        const dot = line.querySelector(":scope > [data-tone]");
+        if (dot !== null && dot.getBoundingClientRect().right > b.left + 0.5) out.push(`${row}: its status runs under its controls`);
         for (const btn of box.querySelectorAll("[data-plan-control]")) {
             const r = btn.getBoundingClientRect();
             if (Math.abs(r.width - 24) > 0.5 || Math.abs(r.height - 24) > 0.5) out.push(`${row}: a control ${r.width}×${r.height}, want 24×24`);
@@ -306,11 +357,12 @@ test.describe("Plan geometry (#817)", { tag: "@desktop" }, () => {
         const entry = await openExample(page, "planMeasures");
         const spark = entry.locator(rowSel("spark", "spark"));
         const rest = Number(await spark.getAttribute("data-plan-h"));
-        // The expandable spark's gutter is its toggle.
-        await spark.locator("> :first-child").click();
+        // The expandable spark's expand control is its toggle: a caret only folds (#1680's review).
+        const toggle = spark.locator('[data-plan-control="expand"]');
+        await toggle.click();
         await expect(spark).not.toHaveAttribute("data-plan-h", String(rest));
         await expect.poll(() => mismatches(entry), "expanded").toEqual([]);
-        await spark.locator("> :first-child").click();
+        await toggle.click();
         await expect(spark).toHaveAttribute("data-plan-h", String(rest));
         await expect.poll(() => mismatches(entry), "at rest").toEqual([]);
     });
@@ -327,9 +379,10 @@ test.describe("Plan geometry (#817)", { tag: "@desktop" }, () => {
         const chart = entry.locator('[data-plan-kind="chart"]');
         // The widened canvas overflows the pane on both sides, so the gutter
         // lies outside the pane's clip and a pointer there lands on the
-        // controls beside it — the toggle is dispatched to the gutter itself.
-        // (Layout boxes, which is all this measures, are not clipped.)
-        const toggleChart = () => chart.locator("> :first-child").dispatchEvent("click");
+        // controls beside it — the click is dispatched to the chart's expand
+        // control itself, its toggle (#1680's review). (Layout boxes, which is
+        // all this measures, are not clipped.)
+        const toggleChart = () => chart.locator('[data-plan-control="expand"]').dispatchEvent("click");
         // A one-line span row — the shared row, which density sets.
         const spanRow = entry.locator(rowSel("press", "p04"));
         const rowAt: Record<string, number> = {};
@@ -339,7 +392,7 @@ test.describe("Plan geometry (#817)", { tag: "@desktop" }, () => {
             await expect.poll(() => kindsMeasured(entry), density).toEqual(KINDS);
             await expect.poll(() => mismatches(entry), density).toEqual([]);
             rowAt[density] = Number(await spanRow.getAttribute("data-plan-h"));
-            // The spark's gutter is its toggle: the chart expanded, then back.
+            // The spark's expand control is its toggle: the chart expanded, then back.
             const rest = await chart.getAttribute("data-plan-h") ?? "";
             await toggleChart();
             await expect(chart).not.toHaveAttribute("data-plan-h", rest);
@@ -355,6 +408,9 @@ test.describe("Plan geometry (#817)", { tag: "@desktop" }, () => {
     });
 
     test("row focus holds — rails and gap bands (R1), context strips and the grown focal row (R2)", async ({ page }) => {
+        // Wide enough that a strip's tile has the room for its two parts beside the 240px gutter (#1680's review): at
+        // 1440px a week's cell leaves its tiles 10.8px, short of a grip and its word.
+        await page.setViewportSize({ width: 1920, height: 900 });
         const entry = await openExample(page, "planTargetState");
         await entry.locator('[data-plan-control="links"]').first().click();
         // Rails and gap bands are measured items too — they carry the model's height.
@@ -405,13 +461,14 @@ test.describe("Plan links focus (#818, #1258)", { tag: "@desktop" }, () => {
      *  below), on a bounded canvas: at rest the two links between rows below its
      *  view draw nothing. */
     const FOCUSES = [
-        { label: "planTargetState (H1-P09's family)", name: "planTargetState", file: PLAN_EXAMPLES, row: rowSel("detail", "H1-P09"), weights: [2, 4, 8, 4, 2, 8], slots: 1 },
-        { label: "planTargetState (H1-P03's transfer)", name: "planTargetState", file: PLAN_EXAMPLES, row: rowSel("presses", "Hall 1", "H1-P03"), weights: [8], slots: 0 },
+        // The heaviest weighs 6 (ruled 17 Nov 2026, over §15's 8).
+        { label: "planTargetState (H1-P09's family)", name: "planTargetState", file: PLAN_EXAMPLES, row: rowSel("detail", "H1-P09"), weights: [2, 4, 6, 4, 2, 6], slots: 1 },
+        { label: "planTargetState (H1-P03's transfer)", name: "planTargetState", file: PLAN_EXAMPLES, row: rowSel("presses", "Hall 1", "H1-P03"), weights: [6], slots: 0 },
         {
             label: "planEventLinks", name: "planEventLinks", file: PLAN_EVENT_EXAMPLES, row: rowSel("presses", "a1"),
             // Its flows draw in their record's order, by key (#1541, U10): the book blocks first, the plates' — which
             // carry no quantity — sixth.
-            weights: [4, 2, 2, 8, 4, 1.5, 2, 2, 2, 4, 4, 4, 8, 2, 4], slots: 2,
+            weights: [4, 2, 2, 6, 4, 1.5, 2, 2, 2, 4, 4, 4, 6, 2, 4], slots: 2,
         },
     ] as const;
     /** The desktop project's width, and a laptop's. */
@@ -467,11 +524,12 @@ test.describe("Plan links focus (#818, #1258)", { tag: "@desktop" }, () => {
         sections: "stub", "sections-more": "stub", posters: "stub", "book-blocks": "stub",
     };
     /** …and scrolled to the end, the paper stock's rows under the events (#1259): the plates and the tags draw
-     *  nothing, and five leave a row above the view in a stub. */
+     *  nothing, and five leave a row above the view in a stub. The folded sheets' bindery starts too soon after their
+     *  print beside the 240px gutter for an S (#1680's review): a loop. */
     const EVENT_ROUTES_AT_THE_END = {
         covers: "stub", card: "stub", inserts: "stub", "report-covers": "loop", "seed-prints": "loop",
         pads: "runoff", proofs: "loop", "proof-sheets": "stub", tickets: "s", sections: "s", "sections-more": "s",
-        folded: "s", books: "s", posters: "stub", "book-blocks": "loop",
+        folded: "loop", books: "s", posters: "stub", "book-blocks": "loop",
     };
 
     test("planEventLinks: every case its own link — each draws its figure at rest and scrolled to the end, meeting its elements as they draw; scrolled between, the posters' link crosses the view as a band; the night run is entered from above; the layer lies in the rows' own stacking context", async ({ page }) => {
@@ -927,7 +985,7 @@ test.describe("Plan element text (#1258, #1264, #1266, #1269)", { tag: "@desktop
             for (const turn of TILE_TURNS.filter(turn => turn.key === key)) await test.step(`${turn.room}px`, async () => {
             const tile = entry.locator(`[data-plan-row] [data-event=${JSON.stringify(turn.key)}]:not([data-ctx])`);
             await expect(tile).toHaveCount(1);
-            // The cell as wide as its padding and caption, and the room asked for.
+            // The cell as wide as its padding, and the room asked for.
             await tile.evaluate((el, room) => {
                 const cell = el.closest<HTMLElement>("[data-plan-cell]")!;
                 const extra = cell.getBoundingClientRect().width - el.closest("[data-plan-cell-tiles]")!.getBoundingClientRect().width;
@@ -1156,7 +1214,7 @@ const VAN1 = rowId("vans", "van1");
 /** Van 1's Aug 24 cell, which holds two tiles: a ✓ (a7) and a resting proposal (a8). */
 const VAN1_CELL = `:is([data-plan-row=${JSON.stringify(VAN1)}], [data-plan-card=${JSON.stringify(VAN1)}]) [data-plan-cell]:has([data-event='a7'])`;
 
-/** Sets a cell's tiles' room: the cell as wide as its padding and caption, and the room asked for. */
+/** Sets a cell's tiles' room: the cell as wide as its padding, and the room asked for. */
 async function setCellRoom(cell: Locator, room: number): Promise<void> {
     await cell.evaluate((el: HTMLElement, r) => {
         const extra = el.getBoundingClientRect().width - el.querySelector("[data-plan-cell-tiles]")!.getBoundingClientRect().width;
@@ -1376,12 +1434,16 @@ test.describe("Plan bucket cells' +n (#1267)", { tag: "@desktop" }, () => {
         await expect(entry.locator(rowSel("vans", "van1"))).toHaveAttribute("data-selected", "");
         await expect(chip).toBeFocused();
         await settled(page);
-        expect([...new Set((await stopCellPaint(cell)).map((p) => p.sig))]).toEqual(["|+2"]);
+        // One fold painted throughout — the chip alone, as wide as the room lets it be beside the 240px gutter (cramped
+        // where the room is narrower than it) — and never the tile alone.
+        const painted = [...new Set((await stopCellPaint(cell)).map((p) => p.sig))];
+        expect(painted).toHaveLength(1);
+        expect(painted[0]).toMatch(/^\|\+2!?$/);
     });
 });
 
 /** A cell at its floor — 12px, its padding — in planTargetState: Van 1's first week (its ✓, a0), or Van 2's PM lane in
- *  its fourth (the truck, m5, captioned "PM", which opens a popover). */
+ *  its fourth (the truck, m5, which opens a popover; the lane's caption is the row's gutter's, #1680's review). */
 const floorCell = (key: string) => `[data-plan-row] [data-plan-cell]:has([data-event=${JSON.stringify(key)}])`;
 
 /** Narrows a cell to its 12px floor. */
@@ -1409,10 +1471,10 @@ const floorDrawn = (cell: Element) => {
 /**
  * A cell with no room for one whole tile (#1276, the user's ruling "Fold into
  * +n"): at its 12px floor its padding leaves the tiles nothing, so it draws no
- * tile and shows its `+n` alone, across the whole cell — its padding and its
- * caption too — its menu listing every tile, a pick doing what the tile's
- * click does. A popover the pick opens hangs from the chip, the tile having no
- * box.
+ * tile and shows its `+n` alone, across the whole cell — its padding too — its
+ * menu listing every tile, a pick doing what the tile's click does, and its
+ * name saying its lane where it has one. A popover the pick opens hangs from
+ * the chip, the tile having no box.
  */
 test.describe("Plan bucket cells with no room for a tile (#1276)", { tag: "@desktop" }, () => {
 
@@ -1434,7 +1496,7 @@ test.describe("Plan bucket cells with no room for a tile (#1276)", { tag: "@desk
         await expect.poll(() => cell.evaluate(floorDrawn)).toMatchObject({ shown: [] });
     });
 
-    test("planTargetState: a captioned cell at its floor draws its +1 across the cell, over its caption; a pick opens the tile's popover, hung from the chip, and it stays open", async ({ page }) => {
+    test("planTargetState: a lane's cell at its floor draws its +1 across the cell, its name saying the lane; a pick opens the tile's popover, hung from the chip, and it stays open", async ({ page }) => {
         const entry = await openExample(page, "planTargetState");
         await toFloor(page, "m5");
         const cell = entry.locator(floorCell("m5"));
@@ -1555,7 +1617,7 @@ test.describe("Plan row controls (#1258)", { tag: "@desktop" }, () => {
         await expect.poll(() => entry.evaluate(rowControlsLaidOut)).toEqual([]);
     });
 
-    test("planTargetState: an expanded chart row's control stays on its gutter's first line, and the chart's ticks step left of it", async ({ page }) => {
+    test("planTargetState: an expanded chart row's control stays on its gutter's first line, and the chart's ticks lie inside its plot, clear of the gutter", async ({ page }) => {
         const entry = await openExample(page, "planTargetState");
         const chart = entry.locator(rowSel("ontime", "ontime"));
         const control = chart.locator('[data-plan-control="expand"]');
@@ -1567,16 +1629,17 @@ test.describe("Plan row controls (#1258)", { tag: "@desktop" }, () => {
             const box = row.querySelector("[data-plan-control]")!.parentElement!;
             const p = box.getBoundingClientRect();
             const line = box.closest("[data-plan-gutter='name']")!.getBoundingClientRect();
+            const plot = row.querySelector("[data-plan-plot]")!.getBoundingClientRect();
             const ticks = [...row.querySelectorAll("[data-plan-tickpx]")].map((t) => t.getBoundingClientRect());
             return {
                 opacity: getComputedStyle(box).opacity,
                 onLine: Math.abs((p.top + p.bottom) / 2 - (line.top + line.bottom) / 2) <= 0.5,
                 ticks: ticks.length,
-                // Each tick ends 4 or more left of the controls.
-                clear: ticks.every((t) => t.right <= p.left - 3.5),
+                // Each tick inside the plot's left edge, where the gutter's value never sits (#1680's review).
+                inPlot: ticks.every((t) => t.left >= plot.left - 0.5 && t.right <= plot.right + 0.5 && t.top >= plot.top - 0.5 && t.bottom <= plot.bottom + 0.5),
             };
         });
-        await expect.poll(read).toEqual({ opacity: "1", onLine: true, ticks: 2, clear: true });
+        await expect.poll(read).toEqual({ opacity: "1", onLine: true, ticks: 2, inPlot: true });
         await expect.poll(() => entry.evaluate(rowControlsLaidOut)).toEqual([]);
     });
 });

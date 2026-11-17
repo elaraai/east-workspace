@@ -10,9 +10,9 @@
  * kinds on them, each read a cell at a time.
  *
  * - A group is its strip, then its resources a level under it: a press is its
- *   landing row, where its jobs draw as bars, and the row beside it at its
- *   level, where its stops draw as marks; a bindery line draws its jobs as
- *   chips, the bay its deliveries as tiles.
+ *   landing row, where its jobs draw as bars, and the row beside it a level
+ *   under it, where its stops draw as marks, folding with it (#1541); a
+ *   bindery line draws its jobs as chips, the bay its deliveries as tiles.
  * - What a kind draws is on its resource's row: the works' jobs on their
  *   presses, the handbook's two foldings on the folder, the bay's delivery on
  *   the bay.
@@ -33,7 +33,7 @@ import { PLAN_EVENT_EXAMPLES, openExample, rowId, rowSel, same } from "./plan-pa
 import { PLAN_INDENT, planBandFaults, planDrawn, planRowsOf } from "./plan-rows";
 
 test.describe("The print works over plain records (#1541)", () => {
-    test("planPrintWorksRecords: a group is its strip, then its resources by their kind a level under it, a press's stops on the row beside its jobs' @desktop", async ({ page }) => {
+    test("planPrintWorksRecords: a group is its strip, then its resources by their kind a level under it, a press's stops on the row beneath its jobs' @desktop", async ({ page }) => {
         const entry = await openExample(page, "planPrintWorksRecords", PLAN_EVENT_EXAMPLES);
         await planDrawn(entry, rowSel("press", "1-presses-a", "a1"), "data-run", "J-9001");
         const rows = await planRowsOf(entry);
@@ -48,10 +48,10 @@ test.describe("The print works over plain records (#1541)", () => {
         if (beside?.id !== rowId("press.marks", "1-presses-a", "a1")) bad.push(`after Press A1's row comes ${beside?.id}`);
         const reads = [strip!, landing, beside!].map((row) => `${row.kind} ${row.label?.text}`).join(" | ");
         if (reads !== "group Hall A | span Press A1 | events Stop") bad.push(`Hall A's strip and Press A1's rows read ${reads}`);
-        // The press and the row beside it a level under their group's strip, each line an indent in.
+        // The press a level under its group's strip, the row beside it a level under the press, each line an indent in.
         const levels = [strip!.level, landing.level, beside!.level];
-        if (levels.join() !== [strip!.level, strip!.level + 1, strip!.level + 1].join()) bad.push(`the strip, the press and the row beside it at levels ${levels.join(", ")}`);
-        if (!same(landing.start, strip!.start + PLAN_INDENT) || !same(beside!.start, strip!.start + PLAN_INDENT)) {
+        if (levels.join() !== [strip!.level, strip!.level + 1, strip!.level + 2].join()) bad.push(`the strip, the press and the row beside it at levels ${levels.join(", ")}`);
+        if (!same(landing.start, strip!.start + PLAN_INDENT) || !same(beside!.start, strip!.start + 2 * PLAN_INDENT)) {
             bad.push(`their lines start at ${strip!.start}, ${landing.start} and ${beside!.start}px: a level is ${PLAN_INDENT}px`);
         }
         // The press's jobs are bars on its own row, and none is on the row beside it.

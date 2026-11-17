@@ -399,7 +399,7 @@ export function pxOf(size: string): number | undefined {
  */
 export type RowKindHeight =
     | { t: "group"; strip: boolean }
-    | { t: "chart"; fixed: number | undefined; expanded: boolean; expandedPx: number | undefined }
+    | { t: "chart"; fixed: number | undefined; expanded: boolean; expandedPx: number | undefined; expandable: boolean }
     | { t: "heat" }
     | { t: "table"; lines: number }
     | { t: "buckets"; lanes: number }
@@ -449,6 +449,7 @@ export function heightFactsOf(row: PlanRowValue, derived?: PlanDerived): RowHeig
                 fixed: h.type === "fixed" ? pxOf(h.value) : undefined,
                 expanded: h.type === "expanded",
                 expandedPx: k.value.expandedHeight.type === "some" ? pxOf(k.value.expandedHeight.value) : undefined,
+                expandable: k.value.expandable,
             };
             break;
         }
@@ -503,12 +504,15 @@ export function factsHeight(
             if (!inFamily) return g.rail;
         } else if (key !== focus.key) {
             return g.strip;
-        } else if (focus.renderPx !== undefined && focus.renderPx > 0) {
+        } else if (focus.renderPx !== undefined) {
             // The FOCUSED row grows by its render — the row's own marks keep
             // their band at the top, the render fills the rest, and the gutter
             // spans both. Recursing with the focus dropped gets the row's
-            // natural kind height without duplicating the switch below.
-            return factsHeight(f, key, collapsed, dense, chartsExpanded, undefined) + focus.renderPx;
+            // natural kind height without duplicating the switch below — an
+            // expandable chart's expanded one, its expand control its toggle
+            // too (#1680's review).
+            const open = f.kind.t === "chart" ? chartsOpenFor(key, f.kind.expandable, chartsExpanded) : chartsExpanded;
+            return factsHeight(f, key, collapsed, dense, open, undefined) + focus.renderPx;
         }
     }
     if (f.explicit !== undefined) return f.explicit;
@@ -545,6 +549,21 @@ export function factsHeight(
         }
         case "row": return floor(g.row);
     }
+}
+
+/**
+ * The chart rows the focused row of an expand focus draws expanded (#1680's
+ * review): an expandable chart's spark ↔ chart is its expand control's, so its
+ * render open, it draws expanded in its band — the user's own expanded rows
+ * beside it.
+ *
+ * @param key - The focused row
+ * @param expandable - Whether its chart is expandable
+ * @param chartsExpanded - The chart rows the user expanded
+ * @returns The chart rows drawn expanded
+ */
+export function chartsOpenFor(key: RowKey, expandable: boolean, chartsExpanded: ReadonlySet<RowKey>): ReadonlySet<RowKey> {
+    return expandable && !chartsExpanded.has(key) ? new Set([...chartsExpanded, key]) : chartsExpanded;
 }
 
 /**

@@ -29,6 +29,13 @@
  */
 export const PLAN_CELL_INSET = 2;
 
+/**
+ * The one CSS variable the canvas writes on its body beside the table: the
+ * gutter's width (#1680's review), which the rows' template and the gutter's
+ * rule read. It is the viewer's to drag, so no density's table holds it.
+ */
+export const PLAN_GUTTER_VAR = "--plan-gutter-w";
+
 /** Every row and slot height the canvas lays out from, and the widths its elements draw at, in px. */
 export interface PlanGeometry {
     /** Span / buckets / cards / table rows — the shared default row. */

@@ -12,11 +12,12 @@
  * - A press is three rows that stand together, in this order and touching: its
  *   landing row, where its jobs draw as bars; the row beside it, where its
  *   stops draw as marks; and its own series' row, its utilisation.
- * - The row beside a landing row sits where the landing row does: at its
- *   level, its line starting where the landing row's does. A resource's own
- *   series is nested a level under it, its line a level's indent further in,
- *   and both stand a level under their group's strip. A row with no caret
- *   starts its name exactly where the row it is under starts its own (#949).
+ * - The row beside a landing row and its own series both stand beneath it, a
+ *   level under it, so they fold with it (#1541), and the landing row stands a
+ *   level under its group's strip. Each line starts a level's indent past the
+ *   line of the row it is under, and every line has its caret's cell, so each
+ *   name starts that indent past the name of the row it is under (#1680's
+ *   review).
  * - Every row is one band: its gutter and its plot start at its top and end
  *   together on its rule, the 1px line under it; and the rows of the canvas
  *   tile it, none over another and no gap between two.
@@ -39,7 +40,7 @@ import { printWorksPressId, type PrintWorksPress } from "./plan-builder-page";
 import { PLAN_INDENT, planBandFaults, planRowsOf } from "./plan-rows";
 
 test.describe("A resource's rows on the Plan (#1541)", () => {
-    test("planPrintWorks: a press is its landing row, the row beside it at its level and its own series nested under it, together and in order @desktop", async ({ page }) => {
+    test("planPrintWorks: a press is its landing row, then the row beside it and its own series nested under it, together and in order @desktop", async ({ page }) => {
         const entry = await openExample(page, "planPrintWorks", PLAN_EVENT_EXAMPLES);
         const rows = await planRowsOf(entry);
         const at = (id: string) => rows.findIndex((row) => row.id === id);
@@ -65,23 +66,22 @@ test.describe("A resource's rows on the Plan (#1541)", () => {
                 bad.push(`${press}: its hall's strip is ${strip === undefined ? "not drawn" : `a ${strip.kind} row at ${strip.top}px`}`);
                 continue;
             }
-            // The row beside it sits where it does; its own series a level under it; the strip a level over both.
+            // The row beside it and its own series a level under it; the strip a level over it.
             const levels = [strip.level, landing.level, beside.level, own.level];
-            if (levels.join() !== [strip.level, strip.level + 1, strip.level + 1, strip.level + 2].join()) {
+            if (levels.join() !== [strip.level, strip.level + 1, strip.level + 2, strip.level + 2].join()) {
                 bad.push(`${press}: the strip, the landing row, the row beside it and its own series at levels ${levels.join(", ")}`);
             }
             const starts = [strip.start, landing.start, beside.start, own.start];
-            const stepped = [strip.start, strip.start + PLAN_INDENT, strip.start + PLAN_INDENT, strip.start + 2 * PLAN_INDENT];
+            const stepped = [strip.start, strip.start + PLAN_INDENT, strip.start + 2 * PLAN_INDENT, strip.start + 2 * PLAN_INDENT];
             if (!starts.every((start, n) => same(start, stepped[n]!))) {
                 bad.push(`${press}: their lines start at ${starts.join(", ")}px — a level is ${PLAN_INDENT}px, so ${stepped.join(", ")}px`);
             }
-            // A row with no caret starts its name where the row it is under starts its own.
+            // Each name a level's indent past the name of the row it is under, a caret's cell or none.
             if (strip.label === null || landing.label === null || beside.label === null || own.label === null) { bad.push(`${press}: a row with no name`); continue; }
-            if (!same(beside.label.left, strip.label.left)) {
-                bad.push(`${press}: the row beside it starts its name at ${beside.label.left}px, its hall's strip at ${strip.label.left}px`);
-            }
-            if (!same(own.label.left, landing.label.left)) {
-                bad.push(`${press}: its own series starts its name at ${own.label.left}px, the landing row at ${landing.label.left}px`);
+            const names = [strip.label.left, landing.label.left, beside.label.left, own.label.left];
+            const indented = [strip.label.left, strip.label.left + PLAN_INDENT, strip.label.left + 2 * PLAN_INDENT, strip.label.left + 2 * PLAN_INDENT];
+            if (!names.every((left, n) => same(left, indented[n]!))) {
+                bad.push(`${press}: their names start at ${names.join(", ")}px — a level is ${PLAN_INDENT}px, so ${indented.join(", ")}px`);
             }
         }
         expect(bad).toEqual([]);

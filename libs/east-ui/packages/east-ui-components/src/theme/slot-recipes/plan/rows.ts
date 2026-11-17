@@ -22,12 +22,31 @@ import { linkRibbons, linkSelectedInk } from "../links/ribbons.js";
 
 /** The slots this part styles. */
 export const rowsSlots = [
-    "row", "gutterCell", "plot", "gridCol", "gridSep", "dropPreview", "dropPreviewText", "gutterName", "gutterLabel", "gutterNamed", "gutterSub",
-    "gutterValue", "gutterRight", "gutterMeta", "gutterSwatch", "caret", "statusDot",
+    "row", "gutterCell", "plot", "gridCol", "gridSep", "dropPreview", "dropPreviewText", "gutterName", "gutterNameCell", "gutterLabel", "gutterNamed",
+    "gutterSub", "gutterValue", "gutterMeta", "gutterSwatch", "gutterLane", "gutterLaneCaption", "gutterHandle", "caret", "statusDot",
     "rowControls", "rowControl", "focusTag", "rail", "focusGap", "focusGapInner", "ribbons", "expandRowBand",
     "expandRenderBody", "expandGutterBody", "toneCell", "groupBand", "groupName", "groupMeta",
     "stickyParent", "stickyPath",
 ] as const;
+
+/**
+ * The gutter's line, one grid with fixed slots (#1680's review): caret · name · value · dot · controls. A leaf keeps
+ * its empty caret cell, and a row its value, dot and two control slots whether it has them or not, so every name starts
+ * at one x and every value, dot and control stands at one x, down the canvas. Only the name gives way.
+ */
+const GUTTER_COLUMNS = "14px minmax(0, 1fr) 48px 8px 48px";
+
+/** The gutter's line below 220px (#1680's review): the controls' column goes, and they show on the row's hover alone. */
+const GUTTER_COLUMNS_NARROW = "14px minmax(0, 1fr) 48px 8px 0px";
+
+/** The gutter's line as one grid: its columns, the gap between them, and its cells centred on the line. */
+const gutterGrid = {
+    display: "grid",
+    gridTemplateColumns: GUTTER_COLUMNS,
+    columnGap: "6px",
+    alignItems: "center",
+    "[data-plan-gutter-narrow] &": { gridTemplateColumns: GUTTER_COLUMNS_NARROW },
+} satisfies SystemStyleObject;
 
 /** A links-focus family tag's height (#1258), and the line it shares with its row's label (#1277). */
 const FOCUS_TAG_H = "20px";
@@ -36,13 +55,39 @@ const FOCUS_TAG_H = "20px";
  * The line of a row's name, and of what stands on it — its value, its unit — a whole number of pixels (#1638). The
  * gutter cell centres the name in the row's height less its 1px rule and its 4px of padding above and below: an odd
  * room, 23px in a 32px row, since every row is an even number of pixels tall. So the line is an odd 17px, three above
- * the words and three below. The theme's line of 1.5 is 17.25px at the name's 11.5px face, which started the words at
- * a fraction of a pixel under the row's edge, and the page painted them a row higher or lower by where it stood the row.
+ * the words and three below. The theme's line of 1.5 is a fraction of a pixel at the name's face, which started the
+ * words a fraction of a pixel under the row's edge, and the page painted them a row higher or lower by where it stood
+ * the row.
  */
 const GUTTER_LINE = centredLine(23, 17);
 
-/** The line of a group band's caption and of a collapsible row's heading, which is that caption: a whole 15px (#1638). */
+/** The line of a group band's caption: a whole 15px (#1638). */
 const HEADING_LINE = centredLine(23, 15);
+
+/**
+ * A row's name voice, one for every row whatever its kind (#949, the production Planner's `.planner-rh` name): mono
+ * 11 / 500 in the ink, tabular, on the East scale (#1680's review) — its line's, and each of a laned row's lines'.
+ * The line clips nothing itself: its name and value cells do, and its controls stand over its 17px.
+ */
+const gutterVoice = {
+    fontFamily: "mono",
+    fontSize: "11px",
+    fontWeight: "medium",
+    color: "fg.default",
+    fontVariantNumeric: "tabular-nums",
+    whiteSpace: "nowrap",
+} satisfies SystemStyleObject;
+
+/** What a row control stands over its line either side: its 24px less the line's 17px, halved (#1680's review). */
+const CONTROL_OVER_LINE = "-3.5px";
+
+/**
+ * The gutter's handle across (#1680's review): the gutter's right rule and the padding before it — 8px under a fine
+ * pointer, and under a coarse one the padding whole, 12px, which every line of the gutter leaves empty. Inside the
+ * gutter, so it never lies over the plot: a cell keeps its taps to its first pixel.
+ */
+const GUTTER_HANDLE_W = "8px";
+const GUTTER_HANDLE_COARSE_W = "12px";
 
 /** Their base styles. */
 export const rowsBase = {
@@ -201,26 +246,16 @@ export const rowsBase = {
         "&:empty": { display: "none" },
     },
     // ── Gutter vocabulary ──
-    // ONE voice for every row's name, whatever its kind (#949, the production
-    // Planner's `.planner-rh` name): mono 11.5 / 600 in the ink, tabular.
-    // The gap is the group band's, so a member's name starts where its
-    // group's label text does.
+    // ONE voice for every row's name (`gutterVoice`). A collapsible row keeps
+    // the row's voice: only a group band's name is its caption. The line is
+    // one grid (`gutterGrid`), so a member's name starts one level in from its
+    // group's caption.
     gutterName: {
-        fontFamily: "mono",
-        fontSize: "11.5px",
-        fontWeight: "semibold",
-        color: "fg.default",
-        fontVariantNumeric: "tabular-nums",
-        whiteSpace: "nowrap",
-        overflow: "hidden",
-        textOverflow: "ellipsis",
-        display: "flex",
-        alignItems: "center",
-        gap: "6px",
+        ...gutterVoice,
+        ...gutterGrid,
         lineHeight: GUTTER_LINE,
-        // A collapsible row's heading is the group band's caption, on the band's own 15px line: whole, and odd as the
-        // row's room is, for whatever stands on it — a value at the names' 11.5px face took the line's ratio, 17.25px.
-        "&[data-collapsible]": { ...timeHeaderText, lineHeight: HEADING_LINE },
+        // What its controls are placed against below a 220px gutter.
+        position: "relative",
         // In a strip every name reads as an id — one 10px mono line is
         // all 16px can carry, and uniformity is what makes the stack
         // scannable.
@@ -234,9 +269,19 @@ export const rowsBase = {
             color: "fg.muted",
         },
     },
+    // The name's cell (#1680's review): the label, then its meta inline — the
+    // meta gives way first, then the label.
+    gutterNameCell: {
+        display: "flex",
+        alignItems: "center",
+        gap: "6px",
+        minWidth: 0,
+        overflow: "hidden",
+    },
     // The row's label — the one item of its line that gives way: it
     // truncates before the value, the status and the row's controls (#1258).
     gutterLabel: {
+        flex: "0 1 auto",
         minWidth: 0,
         overflow: "hidden",
         textOverflow: "ellipsis",
@@ -259,19 +304,23 @@ export const rowsBase = {
         // The strut: the line's height, and no width.
         "&::before": { content: '""', height: "100%" },
     },
-    // The unit / sub-line slot (#949) — mono 10 / 400 in the label ink.
+    // The unit / sub-line slot (#949) — mono 10 / 400 in the label ink. It
+    // starts under the name, past the caret's cell and the gap (#1680's
+    // review): line 2 holds the sub and nothing else.
     gutterSub: {
         fontFamily: "mono",
         fontSize: "10px",
         fontWeight: "normal",
         color: "fg.subtle",
         marginTop: "1px",
+        paddingLeft: "20px",
         whiteSpace: "nowrap",
         overflow: "hidden",
         textOverflow: "ellipsis",
         "&[data-ctx]": { display: "none" },
     },
-    // The value slot (#949) — mono 11.5 / 600, right-aligned, tabular.
+    // The value slot (#949) — mono 11.5 / 600, tabular, at its cell's end: one
+    // x on every row (#1680's review).
     gutterValue: {
         fontFamily: "mono",
         fontSize: "11.5px",
@@ -279,22 +328,16 @@ export const rowsBase = {
         color: "fg.default",
         fontVariantNumeric: "tabular-nums",
         textAlign: "right",
+        justifySelf: "end",
+        maxWidth: "100%",
+        whiteSpace: "nowrap",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
         "&[data-ctx]": { display: "none" },
     },
-    // The right-anchored gutter cluster — meta / value / status dot (§3).
-    // An inline flex item pushed right by `margin-left: auto` (the mock's
-    // `.grow` spacer) — never absolute, so a long row label ellipsizes
-    // against it instead of running underneath at deep indents.
-    gutterRight: {
-        marginLeft: "auto",
-        display: "flex",
-        alignItems: "center",
-        gap: "6px",
-        flexShrink: 0,
-        paddingLeft: "8px",
-    },
-    // The unit slot in the right cluster — mono 10 / 400 in the label ink
-    // (#949), box-centred (never baseline-aligned against the name).
+    // The unit slot, inline after the label in the name's cell — mono 10 /
+    // 400 in the label ink (#949), box-centred (never baseline-aligned against
+    // the name). It gives way before the label does.
     gutterMeta: {
         textStyle: "mono.xs",
         textTransform: "none",
@@ -302,6 +345,10 @@ export const rowsBase = {
         fontWeight: "normal",
         color: "fg.subtle",
         whiteSpace: "nowrap",
+        flex: "0 100 auto",
+        minWidth: 0,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
         "&[data-ctx]": { display: "none" },
     },
     gutterSwatch: {
@@ -314,6 +361,62 @@ export const rowsBase = {
         "& > i": { width: "7px", height: "7px", borderRadius: "1.5px", display: "inline-block" },
         "&[data-ctx]": { display: "none" },
     },
+    // A laned row's gutter (#1680's review): one gutter line per lane, the
+    // lane's height, laid over the cell where the lane's cells are — its
+    // caption in the line's value cell — in the row's voice.
+    gutterLane: {
+        ...gutterVoice,
+        ...gutterGrid,
+        lineHeight: GUTTER_LINE,
+        // Its one 17px line in the middle of the lane's height.
+        alignContent: "center",
+        position: "absolute",
+        left: "12px",
+        right: "12px",
+        minWidth: 0,
+    },
+    // A lane's caption: mono 9.5 / 600 in the label ink, at its value cell's end.
+    gutterLaneCaption: {
+        gridColumn: 3,
+        justifySelf: "end",
+        maxWidth: "100%",
+        fontFamily: "mono",
+        fontSize: "9.5px",
+        fontWeight: "semibold",
+        color: "fg.subtle",
+        whiteSpace: "nowrap",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+    },
+    // The gutter's right rule, as a handle (#1680's review): a drag moves it,
+    // and the gutter with it — the arrow keys too. Over the rows and their
+    // header, the whole canvas tall, inside the gutter's right edge
+    // (`--plan-gutter-w`, which the grid's template reads too), never over the
+    // plot. Hovered, dragged or focused, the rule itself is drawn in the brand.
+    gutterHandle: {
+        position: "absolute",
+        top: 0,
+        bottom: 0,
+        left: `calc(var(--plan-gutter-w) - ${GUTTER_HANDLE_W})`,
+        width: GUTTER_HANDLE_W,
+        zIndex: 7,
+        cursor: "col-resize",
+        touchAction: "none",
+        outline: "none",
+        _coarse: { left: `calc(var(--plan-gutter-w) - ${GUTTER_HANDLE_COARSE_W})`, width: GUTTER_HANDLE_COARSE_W },
+        "&::after": {
+            content: '""',
+            position: "absolute",
+            top: 0,
+            bottom: 0,
+            right: 0,
+            width: "1px",
+            background: "transparent",
+            transition: "background 120ms",
+        },
+        "&:hover::after, &[data-dragging]::after": { background: "{colors.brand.solid}" },
+        "&:focus-visible::after": { background: "{colors.brand.solid}", width: "2px" },
+    },
     caret: {
         display: "inline-flex",
         alignItems: "center",
@@ -325,11 +428,13 @@ export const rowsBase = {
         transition: "transform 0.15s",
         "&[data-collapsed]": { transform: "rotate(-90deg)" },
     },
+    // A row's status: an 8px dot in its own cell (#1680's review), after the value.
     statusDot: {
-        width: "6px",
-        height: "6px",
+        width: "8px",
+        height: "8px",
         borderRadius: "full",
         flexShrink: 0,
+        justifySelf: "center",
         "&[data-tone='warning']": { background: "{colors.status.warn}" },
         "&[data-tone='danger']":  { background: "{colors.status.neg}" },
         "&[data-tone='success']": { background: "{colors.status.pos}" },
@@ -338,32 +443,46 @@ export const rowsBase = {
         "&[data-ctx]": { width: "5px", height: "5px" },
     },
     // ── Row focus (R1 links / R2 expand) — the row-scoped controls
-    //    (`Plan links.html`, #1258): sm ghost buttons at the end of the row's
-    //    gutter line, after its value and status. They are always shown —
-    //    ruled by the user over the spec's hover reveal, so a row says it has
-    //    links before it is hovered — and a pressed one wears the brand tint.
-    //    Never in a strip. ──
+    //    (`Plan links.html`, #1258): sm ghost buttons in the gutter line's last
+    //    cell, two slots in a fixed order — links, then expand — whether a row
+    //    has them or not, so they read down the canvas as two icon columns
+    //    (#1680's review). They are always shown — ruled by the user over the
+    //    spec's hover reveal, so a row says it has links before it is
+    //    hovered — and a pressed one wears the brand tint. Below a 220px
+    //    gutter they fold to the row's hover, the one thing that gives way
+    //    before the name. Never in a strip. ──
     rowControls: {
-        display: "flex",
+        display: "grid",
+        gridTemplateColumns: "24px 24px",
         alignItems: "center",
-        gap: 0,
-        flexShrink: 0,
-        // At the line's end: pushed there by its own margin, or the line's
-        // gap after the right cluster that already is.
-        marginLeft: "auto",
-        "[data-plan-gutter='right'] + &": { marginLeft: 0 },
+        width: "48px",
         // Over the links (z 5): a loopback turning in the gutter passes under them.
         position: "relative",
         zIndex: 6,
+        // Below a 220px gutter: over the line's end, centred on it, its buttons' own height.
+        "[data-plan-gutter-narrow] &": {
+            position: "absolute",
+            right: 0,
+            top: "50%",
+            transform: "translateY(-50%)",
+            paddingBlock: "3.5px",
+            opacity: 0,
+            background: "bg.surface",
+            borderRadius: "md",
+        },
+        "[data-plan-gutter-narrow] [data-plan-row]:is(:hover, :focus-within) &": { opacity: 1 },
         // A strip is one click target — returning. Row controls inside it
         // would compete with that, and there is no room for them anyway.
         "&[data-ctx]": { display: "none" },
     },
     // An sm ghost icon button: 24px, the muted ink; hovered the subtle paper
-    // and the ink; pressed the brand tint and the brand's pressed ink.
+    // and the ink; pressed the brand tint and the brand's pressed ink. It
+    // stands 3.5px over its line either side, so the line keeps its whole
+    // 17px (#1638) and the button is centred on it (#1680's review).
     rowControl: {
         width: "24px",
         height: "24px",
+        marginBlock: CONTROL_OVER_LINE,
         display: "inline-flex",
         alignItems: "center",
         justifyContent: "center",
@@ -465,6 +584,8 @@ export const rowsBase = {
         pointerEvents: "none",
         animation: "plan-settle-in {durations.normal} {easings.out} {durations.slow} backwards",
         "@media (prefers-reduced-motion: reduce)": { animation: "none" },
+        // While the gutter's rule is dragged the links stand where it was: they go until it is let go (#1680's review).
+        "[data-plan-gutter-dragging] &": { visibility: "hidden" },
         // The links themselves: the shared links layer's look (#1321).
         ...linkRibbons,
         // A link kind's link selected (#1541, U10): in the ink, whether or not it has a caption to outline.
@@ -553,6 +674,8 @@ export const rowsBase = {
     // No `alignItems: center` here — grid items must STRETCH so the plot
     // cell keeps the band's height and the collapsed summary strip's
     // absolute cells stay visible; the name cell centers its own content.
+    // An OPEN band's name spans the whole row, over its empty plot, which
+    // stays in the row's first line under it for the now line (#1680's review).
     groupBand: {
         display: "grid",
         minHeight: "var(--plan-group-h)",
@@ -562,21 +685,43 @@ export const rowsBase = {
         cursor: "pointer",
         // A nested group's band can be the last member of the one around it.
         "&[data-group-end]": { borderBottomColor: "border.strong" },
+        "&:not([data-collapsed]) > [data-plan-band-plot]": { gridColumn: 2, gridRow: 1 },
         ...planRowFocus,
     },
-    // Every collapsible heading uses the same band caption, including charts and nested rows. Its line is 15px for
-    // whatever stands on it (#1638) — a value at the row names' 11.5px face took the line's ratio, 17.25px — centred
-    // in the band's 25px over its rule.
+    // A group band's name — the band caption, the one heading voice (only a
+    // group's: a collapsible row keeps the row's, #1680's review). Its line is
+    // 15px for whatever stands on it (#1638), centred in the band's 25px over
+    // its rule. Collapsed, it is the rows' gutter grid — its caption and meta
+    // over the name and value cells, its dot in the dot cell — beside the
+    // strip; open, it spans the whole row: caret · caption · meta · value ·
+    // dot, left to right, so nothing truncates.
     groupName: {
         ...timeHeaderText,
         lineHeight: HEADING_LINE,
         position: "relative",
-        display: "flex",
-        alignItems: "center",
-        gap: "6px",
+        ...gutterGrid,
         padding: "0 12px",
         whiteSpace: "nowrap",
         overflow: "hidden",
+        // The caption and its meta and value: the name and value cells, one line.
+        "& > [data-plan-gutter='title']": {
+            gridColumn: "2 / span 2",
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+            minWidth: 0,
+            overflow: "hidden",
+        },
+        "& > [data-plan-gutter='title'] > [data-plan-gutter='value']": { marginLeft: "auto" },
+        "&[data-open]": {
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+            gridColumn: "1 / -1",
+            gridRow: 1,
+            zIndex: 1,
+            "& > [data-plan-gutter='title'] > [data-plan-gutter='value']": { marginLeft: 0 },
+        },
     },
     // The unit slot on a group band — the row metas' 10 / 400 label ink;
     // the group name's uppercase/tracking must NOT leak into it.

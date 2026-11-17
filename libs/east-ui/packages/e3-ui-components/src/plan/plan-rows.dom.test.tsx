@@ -264,6 +264,48 @@ describe("Plan group strips (§5)", () => {
     });
 });
 
+describe("the gutter line (#1680's review)", () => {
+    test("every row's line holds the same cells in one order — caret, name, value, dot, then the links and expand slots — each whether the row has it or not; a level is 16px; an open band's name spans its row", () => {
+        const band: PlanWireRow["kind"] = variant("group", { summary: variant("none", null) });
+        const confirmed = variant("confirmed", null);
+        const { container } = renderPlan(planRoot([
+            planRow("hall1", band, { gutter: gutter("HALL 1", { meta: "2 rows", value: "9" }) }),
+            planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), confirmed)]), { parent: "hall1", gutter: gutter("m1", { value: "12k/h", meta: "sheets" }) }),
+            planRow("m2", spanKind([run("r2", new Date("2026-07-13Z"), new Date("2026-07-27Z"), confirmed)]), {
+                parent: "hall1", expand: { height: none, axis: variant("keep", null) },
+            }),
+            planRow("net", tableKindOf([], { aggregate: true })),
+            planRow("wk", tableKindOf([tableCell(new Date("2026-06-29Z"), 96)]), { parent: "net" }),
+        ], {
+            links: [{ key: "r1>r2", from: { row: rowId("m1"), run: "r1" }, to: { row: rowId("m1"), run: "r1" }, quantity: none }],
+            expandRender: () => variant("Text", { value: "R", style: none }),
+        }), "plan-1680-gutter");
+        const line = (key: string) => container.querySelector(`${rowSel(key)} [role='rowheader'] > [data-plan-gutter='name']`)!;
+        /** A line's cells: what each holds — a caret, a part of the gutter by its name, or the two control slots. */
+        const cells = (key: string) => [...line(key).children].map((cell, i) => (i === 0 ? (cell.querySelector("svg") !== null ? "caret" : "")
+            : i === 4 ? [...cell.children].map((slot) => slot.getAttribute("data-plan-control") ?? "").join("|")
+                : cell.getAttribute("data-plan-gutter") ?? (cell.getAttribute("role") === "img" ? "dot" : "")));
+        expect(cells("m1")).toEqual(["", "title", "value", "", "links|"]);
+        expect(cells("m2")).toEqual(["", "title", "value", "", "|expand"]);
+        expect(cells("net")).toEqual(["caret", "title", "value", "", "|"]);
+        // The value at its own cell — empty where the row has none — and the meta inline after the label, in the name's cell.
+        expect([line("m1").children[2]!.textContent, line("m2").children[2]!.textContent]).toEqual(["12k/h", ""]);
+        expect(line("m1").querySelector("[data-plan-gutter='title'] > [data-plan-gutter='meta']")!.textContent).toBe("sheets");
+        // A level's indent is 16px: the caret's cell is on every line, so a member's name starts 16px past its parent's.
+        const indent = (key: string, attr = "data-plan-row") =>
+            (container.querySelector(`${rowSel(key, attr)} [role='rowheader']`) as HTMLElement).style.paddingLeft;
+        expect([indent("hall1", "data-plan-group"), indent("m1"), indent("net"), indent("wk")]).toEqual(["12px", "28px", "12px", "28px"]);
+        // An open band's name spans its row; folded, it stands in the rows' gutter grid.
+        const name = () => container.querySelector(`${rowSel("hall1", "data-plan-group")} [role='rowheader']`)!;
+        expect(name().hasAttribute("data-open")).toBe(true);
+        fireEvent.click(container.querySelector(rowSel("hall1", "data-plan-group"))!);
+        expect(name().hasAttribute("data-open")).toBe(false);
+        // Its caption, its meta and its value, in that order, in its name's cell.
+        expect([...name().querySelectorAll("[data-plan-gutter]")].map((part) => part.getAttribute("data-plan-gutter")))
+            .toEqual(["title", "label", "meta", "value"]);
+    });
+});
+
 describe("Plan heat rows (§4·K4)", () => {
     test("heat cells: depth labels, ≥ warnAt ring, no-data hatch, an ink per level (#949)", () => {
         const { container } = renderPlan(planRoot([
@@ -322,7 +364,9 @@ describe("Plan chart rows (§4·K3)", () => {
         expect(spark.container.querySelector(`${rowSel("ontime")} svg [data-plan-mark="line"]`)).toBeTruthy();
         expect(screen.queryByText("TARGET 100")).toBeNull();   // too shallow for the label
         expect(screen.getByText("94.2%")).toBeTruthy();
-        expect(screen.getByText("80")).toBeTruthy();           // left tick in the gutter edge
+        // The left tick inside the plot's left edge, never in the gutter where the value is (#1680's review).
+        expect(screen.getByText("80").closest("[role='gridcell']")).toBeTruthy();
+        expect(screen.getByText("80").closest("[role='rowheader']")).toBeNull();
         cleanup();
         renderPlan(planRoot([
             planRow("ontime", chart(variant("expanded", null)), { gutter: gutter("ON-TIME", { id: true }) }),
@@ -369,7 +413,7 @@ describe("Plan bucket rows (§4·K2)", () => {
         expect(container.querySelector('[data-status="danger"]')).toBeTruthy();       // marker ring + icon
     });
 
-    test("lanes split the cell with per-cell captions; lane: none is the full-cell mixed grammar", () => {
+    test("lanes split the cell, each named once on its own line of the gutter, never in every cell (#1680's review); lane: none is the full-cell mixed grammar", () => {
         const { container } = renderPlan(planRoot([
             planRow("crew", variant("buckets", {
                 lanes: [{ key: "am", label: some("AM") }, { key: "pm", label: some("PM") }],
@@ -380,9 +424,17 @@ describe("Plan bucket rows (§4·K2)", () => {
                 markers: [],
             })),
         ]));
-        // The caption prints in EVERY cell of its lane (the Planner `.bl`).
-        expect(screen.getAllByText("AM").length).toBeGreaterThan(1);
-        expect(screen.getAllByText("PM").length).toBeGreaterThan(1);
+        // A gutter line per lane: the name's line holds the first lane's caption in its value cell, the next line the next.
+        expect(screen.getAllByText("AM")).toHaveLength(1);
+        expect(screen.getAllByText("PM")).toHaveLength(1);
+        const row = container.querySelector(rowSel("crew"))!;
+        const lines = [...row.querySelectorAll("[data-plan-gutter='name'], [data-plan-gutter='lane']")].map((line) => [
+            line.getAttribute("data-plan-gutter"),
+            line.querySelector("[data-plan-gutter='label']")?.textContent ?? null,
+            line.querySelector("[data-plan-lane]")?.textContent ?? null,
+        ]);
+        expect(lines).toEqual([["name", "crew", "AM"], ["lane", null, "PM"]]);
+        expect(row.querySelector("[data-plan-cell] [data-plan-lane]")).toBeNull();
         expect(container.querySelector('[data-event="am1"]')).toBeTruthy();
         // The lane-less event takes the whole cell across lanes.
         const full = container.querySelector('[data-plan-cell="1:full"]')!;
@@ -517,8 +569,8 @@ describe("Plan table rows (§4·K5)", () => {
         ]));
         const netRow = () => container.querySelector(rowSel("net"))!;
         expect(container.querySelector(rowSel("wk"))).toBeTruthy();
-        // The `.of` aggregate-tag meta prints in the gutter's right cluster.
-        expect(screen.getByText("sum")).toBeTruthy();
+        // The `.of` aggregate-tag meta prints in the name's cell, after the label.
+        expect(screen.getByText("sum").closest("[data-plan-gutter='title']")).toBeTruthy();
 
         // Clicking the LABEL (anywhere in the gutter, not just the caret)
         // collapses the subtree — and does NOT select the row.

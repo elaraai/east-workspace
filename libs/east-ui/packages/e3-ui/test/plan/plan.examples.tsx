@@ -332,9 +332,10 @@ export const planTargetOps = e3.input("plan_target_ops", DictType(StringType, Ta
           ["rem", { phase: "CUT", ticket: none, start: new Date("2026-08-10T00:00:00Z"), end: new Date("2026-08-24T00:00:00Z"), sheets: none, state: variant("proposed", variant("removed", null)), alert: none }],
           ["rej", { phase: "DECLINED", ticket: none, start: new Date("2026-08-31T00:00:00Z"), end: new Date("2026-09-14T00:00:00Z"), sheets: none, state: variant("rejected", null), alert: none }],
       ]) }],
-    // …sheets, an applied decision and a port on a two-line gutter, its
+    // …sheets, an applied decision and a port on a two-line gutter — its
+    // rate the value, as every press's is, and its hall the sub line — its
     // expand declaration dimming the axis behind the render…
-    ["H1-P09", { ...TARGET_EMPTY, hall: none, kind: variant("press", { series: "detail", rate: none, sub: some("12k sheets/h"), status: none,
+    ["H1-P09", { ...TARGET_EMPTY, hall: none, kind: variant("press", { series: "detail", rate: some(12.0), sub: some("Hall 1"), status: none,
       detail: some({ height: some("152px"), axis: variant("dim", null) }) }),
       jobs: new Map([
           ["a", { phase: "RUN", ticket: some("J-4624"), start: new Date("2026-06-29T00:00:00Z"), end: new Date("2026-07-27T00:00:00Z"), sheets: some(112.0), state: variant("actual", null), alert: none }],
@@ -678,6 +679,7 @@ export const planTargetState = example({
                     case: ["kind", "press"],
                     match: (_r, _k, press) => press.series.equal("detail"),
                     label: (_r, k) => k, id: true, stacked: true,
+                    value: (_r, _k, press) => rateText(press.rate),
                     sub: (_r, _k, press) => press.sub,
                     expand: (_r, _k, press) => press.detail,
                     runs: Plan.items("jobs", { from: "start", to: "end" }, jobLook),
@@ -863,7 +865,7 @@ export const planTargetState = example({
                     ["van2", { a: "8 TILES · 2 LANES", b: "BREACH W29", fill: 0.6 }],
                     ["H1-P04", { a: "12k/h · FILL", b: "J-4624 · 112 k sheets · 74%", fill: 0.74 }],
                     ["h1-load", { a: "MEAN 73 · PEAK 96", b: "BREACH W33 · 1 wk", fill: 0.96 }],
-                    ["H1-P09", { a: "12k sheets/h · FILL", b: "J-4693 · 104 k sheets · 81%", fill: 0.81 }],
+                    ["H1-P09", { a: "12k/h · FILL", b: "J-4693 · 104 k sheets · 81%", fill: 0.81 }],
                     ["crewA", { a: "152h → 168h", b: "1 CUT · 2 PROPOSED", fill: 0.9 }],
                     ["milestones", { a: "5 MARKS", b: "1 EXCEPTION · W34", fill: 0.2 }],
                     ["delivered", { a: "NET 754 k sheets", b: "2 SHORT WEEKS", fill: 0.55 }],
@@ -1121,7 +1123,7 @@ const fortnightsFromW27 = (readings: number[]): SortedMap<Date, number> => atIns
  */
 export const planVariantsOps = e3.input("plan_variants_ops", DictType(StringType, VariantsOpsRow), variant("value", new Map([
     ["util", { ...VARIANTS_EMPTY, series: "util", label: "Util %", sub: none, util: fortnightsFromW27([46.0, 58.0, 66.0, 72.0, 84.0, 96.0]) }],
-    ["p03", { ...VARIANTS_EMPTY, series: "press", label: "H1-P03", sub: some("12k sheets/h"),
+    ["p03", { ...VARIANTS_EMPTY, series: "press", label: "H1-P03", sub: some("Hall 1"),
       jobs: new Map([
           ["j4642", { label: "RUN · J-4642", start: new Date("2026-07-06T00:00:00Z"), end: new Date("2026-07-27T00:00:00Z"), state: variant("in-progress", null) }],
           ["j4663", { label: "RUN · J-4663", start: new Date("2026-08-03T00:00:00Z"), end: new Date("2026-08-24T00:00:00Z"), state: variant("proposed", variant("recommended", null)) }],

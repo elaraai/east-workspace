@@ -106,8 +106,9 @@ const ON_TIME = Array.from({ length: 12 }, (_u, i) => ({ week: new Date(W27.getT
 /** Where the host keeps the canvas's state. */
 const KEY = "plan.824.ui";
 
-/** An on-time chart the gutter opens, then one strip per hall with its
- *  presses — the state bound at {@link KEY}, seeded with Hall 3 folded. */
+/** An on-time chart its expand control opens (#1680's review), then one strip
+ *  per hall with its presses — the state bound at {@link KEY}, seeded with
+ *  Hall 3 folded. */
 const program = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.const(PRESSES, DictType(StringType, Press));
     const halls = $.let(presses.groupToDicts((_$2, p) => p.hall, (_$2, _p, k) => k).map((_$2, g) => ({ presses: g })));
@@ -239,7 +240,7 @@ describe("a bound ui state (#824)", () => {
         fireEvent.click(container.querySelector(sel(HALL(2), "data-plan-group"))!);
         expect(container.querySelector(sel(PRESS(2, 1)))).toBeNull();
         await waitFor(() => expect(keys(held().collapsed)).toEqual([rowKeyOf(HALL(3)), rowKeyOf(HALL(2))]));
-        fireEvent.click(container.querySelector(sel(KPI))!.children[0]!);
+        fireEvent.click(container.querySelector(`${sel(KPI)} [data-plan-control="expand"]`)!);
         await waitFor(() => expect(keys(held().charts)).toEqual([rowKeyOf(KPI)]));
         expect(selectedKey()).toBe(rowKeyOf(PRESS(1, 2)));
         expect(held().focus.type).toBe("none");

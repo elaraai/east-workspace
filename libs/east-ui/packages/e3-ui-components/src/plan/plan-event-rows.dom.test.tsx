@@ -409,10 +409,10 @@ describe("a link's event ends", () => {
             await settle();
             expect(container.querySelector('[data-link="0"]')!.getAttribute("data-link-to")).toBe(rowKeyOf(entry("presses.marks", "a1")));
             // S-01 is at noon on 7 October: two and a half of the window's 28
-            // days across the 1000px plot, past the 168px gutter. Its mark wears
+            // days across the 1000px plot, past the 240px gutter. Its mark wears
             // its kind's icon, so the link meets the left edge of the icon's box.
             const head = container.querySelector('[data-plan-link="0"] [data-plan-ribbon-head]')!;
-            expect(tipOf(head.getAttribute("d")!)[0]).toBe(Number((168 + (2.5 / 28) * 1000 - PLAN_GEOMETRY.default.markIconWidth / 2).toFixed(1)));
+            expect(tipOf(head.getAttribute("d")!)[0]).toBe(Number((240 + (2.5 / 28) * 1000 - PLAN_GEOMETRY.default.markIconWidth / 2).toFixed(1)));
             // A link built in code is no link kind's row (#1541, U10): a click on it selects nothing.
             fireEvent.click(container.querySelector('[data-link="0"]')!);
             await settle();

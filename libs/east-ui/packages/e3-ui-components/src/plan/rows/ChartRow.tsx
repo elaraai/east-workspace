@@ -18,9 +18,9 @@
  *   expanded density;
  * - refLines are dotted gridlines with a mono label; refBands paper washes;
  *   refDots ringed markers;
- * - left-axis ticks print inside the gutter cell's right edge (the shell's
- *   `gutterOverlay`), right-axis ticks at the plot's right edge — on the very
- *   scales the marks use;
+ * - left-axis ticks print inside the plot's left edge, as right-axis ticks
+ *   print inside its right edge (#1680's review) — on the very scales the marks
+ *   use, never in the gutter, where the values are;
  * - hovering a bucket reads out each data layer's value there.
  *
  * The marks are `@visx/shape` paths over `@visx/scale` value scales (#743),
@@ -376,20 +376,22 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
     );
 }
 
-/** The gutter-edge left-axis ticks (mounted via the shell's `gutterOverlay`).
+/** Half a tick's line (px): a tick's middle stands at least this far inside its plot, so the plot never clips it. */
+const TICK_HALF = 7;
+
+/** The left-axis ticks, inside the plot's left edge (#1680's review) — on a
+ *  canvas row and on a narrow card alike, in the plot's own box (`plotTicks`),
+ *  each starting just in from that edge, so a tick of any width lies inside it.
  *
  *  `height` is the PLOT's height — the band the marks scale against — and the
- *  ticks position in px against it. Not a percentage: they mount in the gutter
- *  CELL, which is the row's height, and a focus-expanded row's cell is taller
- *  than its band (#591) — a percentage of the cell landed the ticks in the
- *  render. At rest cell and band coincide, so nothing moves. The scale is the
- *  plot's own (#743): columns, stacks and baselines included.
+ *  ticks position in px against it. Not a percentage: a focus-expanded row is
+ *  taller than its band (#591), and a percentage of it landed the ticks in the
+ *  render. The scale is the plot's own (#743): columns, stacks and baselines
+ *  included; each tick's middle is kept half its line inside the plot.
  *
  *  An axis that declares no ticks still labels its top when the row draws
  *  columns on it (#949): a bar's height reads against its scale's max, and
- *  without one it cannot be read at all. This single automatic maximum stays
- *  beside the title at every row height. Only explicitly declared ticks
- *  position against the plot. */
+ *  without one it cannot be read at all. */
 export function ChartLeftTicks({ kind, styles, height }: { kind: ChartKindValue; styles: Styles; height: number }) {
     const { left: s } = useChartScales(kind, height);
     const words = usePlanWords();
@@ -399,17 +401,17 @@ export function ChartLeftTicks({ kind, styles, height }: { kind: ChartKindValue;
     const columns = kind.layers.some((l) => l.type === "column" && l.value.axis.type === "left");
     const ticks = declared.length > 0 ? declared : columns ? [(s.domain() as [number, number])[1]] : [];
     if (ticks.length === 0) return null;
-    const compact = declared.length === 0;
+    const automatic = declared.length === 0;
     // The axis labels the plot's scale for the eye; the plot's own name says
-    // its values (#819), so a reader skips these — they sit in the rowheader.
+    // its values (#819), so a reader skips these.
     return (
-        <>
+        <Box css={styles.plotTicks} aria-hidden="true">
             {ticks.map((v, i) => (
-                <Box key={i} css={styles.chartTickLeft} style={compact ? undefined : { top: `${s(v)}px` }}
-                    data-plan-tickpx={s(v)} data-compact={compact ? "" : undefined} aria-hidden="true">
-                    {compact && left?.format.type !== "some" ? words.number(v) : fmt(v)}
+                <Box key={i} css={styles.chartTickLeft} style={{ top: `${Math.max(TICK_HALF, Math.min(height - TICK_HALF, s(v)))}px` }}
+                    data-plan-tickpx={s(v)}>
+                    {automatic && left?.format.type !== "some" ? words.number(v) : fmt(v)}
                 </Box>
             ))}
-        </>
+        </Box>
     );
 }

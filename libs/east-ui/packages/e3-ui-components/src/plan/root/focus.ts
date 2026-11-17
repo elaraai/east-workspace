@@ -158,8 +158,9 @@ export function usePlanExpand(
         const want = declared ?? EXPAND_DEFAULT_PX;
         if (viewportPx === undefined) return want;
         // Everything the render must NOT push out: the strips, the focal row's
-        // own band, and the chrome pinned above them.
-        const bare = { kind: "expand" as const, key: expandKey };
+        // own band — an expandable chart's expanded one, a render of none —
+        // and the chrome pinned above them.
+        const bare = { kind: "expand" as const, key: expandKey, renderPx: 0 };
         const rowsPx = visible.reduce((sum, v) => sum + rowHeight(v, dense, chartsExpanded, bare, derived), 0);
         return Math.max(EXPAND_FLOOR_PX, Math.min(want, viewportPx - rowsPx - (headerPx ?? 0)));
     }, [expandDecl, expandKey, viewportPx, headerPx, visible, dense, chartsExpanded, derived]);

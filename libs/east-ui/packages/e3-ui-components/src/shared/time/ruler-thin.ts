@@ -42,6 +42,58 @@ export interface RulerLabel {
     readonly prefer: boolean;
 }
 
+/**
+ * One column as a ruler measured it, its label drawn whole and centred on it: the label's box — its paper, whose
+ * padding every label wears — and the column's inside edges, in px.
+ */
+export interface RulerColumn {
+    /** The label's box. */
+    readonly box: { readonly left: number; readonly right: number };
+    /** The column's inside edges: where a label set against its start or its end lies, by its box. */
+    readonly column: { readonly left: number; readonly right: number };
+    /** Whether the column starts a period. */
+    readonly anchor: boolean;
+    /** Whether its label draws wherever it clears every period's first column drawn. */
+    readonly prefer: boolean;
+}
+
+/**
+ * What a ruler thins its labels by, from its columns as measured: each label is its text — its box less its paper's
+ * padding — centred where its box is. A label set against its column's edge lies there by its box, so its text stands
+ * its padding in from that edge (#1680's review; taken as its text against the edge, a label crowded the one before it
+ * by its padding), and the track's ends are the first column's start and the last's end on the same terms. Two texts
+ * keep the gap apart, and at least the two papers' padding: the later's paper would cover the end of the words before
+ * it.
+ *
+ * @param columns - Each column, in order
+ * @param pad - The paper's padding either side of a label's text, in px
+ * @param gap - The least room between two labels' texts, in px
+ * @returns The labels, the track and the gap {@link thinTicks} takes; `undefined` with no column, or no room on the track
+ */
+export function rulerLabels(
+    columns: readonly RulerColumn[],
+    pad: { readonly left: number; readonly right: number },
+    gap: number,
+): { labels: RulerLabel[]; track: { left: number; right: number }; gap: number } | undefined {
+    const first = columns[0];
+    const last = columns[columns.length - 1];
+    if (first === undefined || last === undefined) return undefined;
+    const track = { left: first.column.left + pad.left, right: last.column.right - pad.right };
+    if (track.right - track.left <= 0) return undefined;
+    return {
+        labels: columns.map((c) => ({
+            centre: (c.box.left + c.box.right) / 2,
+            start: c.column.left + pad.left,
+            end: c.column.right - pad.right,
+            width: Math.max(0, c.box.right - c.box.left - pad.left - pad.right),
+            anchor: c.anchor,
+            prefer: c.prefer,
+        })),
+        track,
+        gap: Math.max(gap, pad.left + pad.right),
+    };
+}
+
 /** Where a label sits against its column: centred on it, or against its start or its end edge. */
 export type RulerAlign = "centre" | "start" | "end";
 

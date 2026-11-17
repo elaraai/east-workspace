@@ -308,6 +308,28 @@ describe("routeRibbon — weight (#1258)", () => {
         expect(samePath(r.stroke, "M120 16L131 16A8 8 0 0 1 139 24A8 8 0 0 1 131 32.5L-19 32.5A8 8 0 0 0 -27 40.5A8 8 0 0 0 -19 49L-8 49")).toBe(true);
     });
 
+    test("a stub is a whole head whatever the room: an end nearer the view's edge than a head — the lower of two ports spread at one end — has its stub stand back over its run, its tip on the edge (#1680's review)", () => {
+        // A port 5.5 above the bottom edge its destination lies past: no room to turn, so its run ends level at the
+        // riser, and its stub stands 8 tall over the run's end.
+        const near = routeRibbon({ ...bar(100, 200, 86), port: 90.5 }, below(400, 500), W);
+        expectFigure(near, {
+            route: "stub",
+            stroke: "M200 90.5L381 90.5A0 0 0 0 1 381 90.5L381 90.5",
+            head: "M377 88L381 96L385 88Z",
+            caption: [381, 93.5],
+        });
+        // A source at the plot's end, its bottom 5 above the edge: it lifts off nothing, and its stub stands over it.
+        const lifted = routeRibbon(bar(250, 315, R2), below(200, 300), W, { left: 0, right: 315 });
+        expect(lifted.route).toBe("stub");
+        expect(samePath(lifted.stroke, "M309.5 91L309.5 91")).toBe(true);
+        expect(samePath(lifted.head, "M305.5 88L309.5 96L313.5 88Z")).toBe(true);
+        // A destination 5 under the top edge its source lies past: the stub at the edge points back up, 8 tall.
+        const entered = routeRibbon(above(16, 110), { leftX: 224, rightX: 300, top: -5, bottom: 15 }, W);
+        expect(entered.route).toBe("stub");
+        expect(samePath(entered.tail, "M201 8L205 0L209 8Z")).toBe(true);
+        expect(samePath(entered.head, "M216 1L224 5L216 9Z")).toBe(true);
+    });
+
     test("a row at the very edge still routes: every number is finite", () => {
         // The source's centre sits 3px above the bottom edge its destination
         // lies past — less than a head's length.

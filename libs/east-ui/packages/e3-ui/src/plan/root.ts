@@ -361,7 +361,8 @@ export interface PlanConfig<K extends PlanAxisKindLiteral = PlanAxisKindLiteral>
         maxHeight?: SubtypeExprOrValue<StringType>;
         /** Row rhythm. */
         density?: DensityLiteral | SubtypeExprOrValue<DensityType>;
-        /** Gutter width — a CSS px size (`"168px"`; default 168). */
+        /** Gutter width — a CSS px size (`"240px"`; default 240) where the canvas opens. A viewer drags its right rule
+         *  between 168 and 360 (widened to take this), and the canvas keeps where they left it. */
         gutterWidth?: SubtypeExprOrValue<StringType>;
     };
 }

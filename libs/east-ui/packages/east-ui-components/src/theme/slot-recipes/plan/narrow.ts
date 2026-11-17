@@ -24,7 +24,7 @@ export const narrowSlots = [
     "narrowRulerTick", "narrowSection", "narrowSectionTitle", "narrowSectionGo", "narrowScope",
     "narrowScopeTitle", "narrowScopeMeta", "narrowBack", "narrowList", "narrowCard",
     "narrowCardHead", "narrowCardTitle", "narrowCardSub", "narrowCardBody",
-    "narrowRender", "narrowTicks", "narrowMore", "narrowPending", "narrowEmpty",
+    "narrowRender", "narrowMore", "narrowPending", "narrowEmpty",
 ] as const;
 
 /** Their base styles. */
@@ -285,18 +285,6 @@ export const narrowBase = {
         overflow: "hidden",
         animation: "plan-settle-in 0.22s ease-out 0.3s backwards",
         "@media (prefers-reduced-motion: reduce)": { animation: "none" },
-    },
-    // A chart card has no gutter to print its value ticks in — they
-    // overlay the plot's left edge instead (`chartTickLeft` positions
-    // against this box).
-    narrowTicks: {
-        position: "absolute",
-        left: 0,
-        top: 0,
-        bottom: 0,
-        width: "34px",
-        pointerEvents: "none",
-        zIndex: 5,
     },
     // `9 MORE GROUPS · 378 ROWS` — the load-more card.
     narrowMore: {

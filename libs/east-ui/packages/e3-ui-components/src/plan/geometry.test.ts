@@ -18,7 +18,7 @@
 import { describe, test, expect } from "vitest";
 import { none, variant } from "@elaraai/east";
 import { planSlotRecipe } from "@elaraai/east-ui-components/internal";
-import { PLAN_GEOMETRY, planGeometry, planGeometryStyle, planGeometryVar, type PlanGeometry } from "./geometry.js";
+import { PLAN_GEOMETRY, PLAN_GUTTER_VAR, planGeometry, planGeometryStyle, planGeometryVar, type PlanGeometry } from "./geometry.js";
 import { rowHeight, type PlanRowValue } from "./model.js";
 
 /** Every `var(--plan-…)` a style object reads, however deep. */
@@ -50,10 +50,17 @@ describe("the Plan geometry table (#817)", () => {
     });
 
     test("every geometry variable the recipe reads is one the canvas writes", () => {
-        const written = new Set(Object.keys(planGeometryStyle(PLAN_GEOMETRY.default)));
+        // The table's, and the gutter's width beside it (#1680's review), which its rule and the rows' template read.
+        const written = new Set([...Object.keys(planGeometryStyle(PLAN_GEOMETRY.default)), PLAN_GUTTER_VAR]);
         const read = varsIn(planSlotRecipe.base);
         expect(read.size).toBeGreaterThan(15);
         expect([...read].filter((name) => !written.has(name))).toEqual([]);
+        // The gutter's handle lies inside the gutter, its right edge the gutter's, under either pointer: never over the
+        // plot, whose cells keep their taps to their first pixel (#1680's review).
+        const handle = slot("gutterHandle");
+        const coarse = handle._coarse as Record<string, unknown>;
+        expect(handle.left).toBe(`calc(var(${PLAN_GUTTER_VAR}) - ${String(handle.width)})`);
+        expect(coarse.left).toBe(`calc(var(${PLAN_GUTTER_VAR}) - ${String(coarse.width)})`);
     });
 
     test("each height the model also computes is drawn from its variable, never a pixel literal", () => {

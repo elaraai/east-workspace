@@ -190,7 +190,7 @@ describe("Plan UI state survives a remount (#813)", () => {
         // A was declared collapsed: open it. Collapse B. Expand the chart.
         fireEvent.click(first.container.querySelector(rowSel("A", "data-plan-group"))!);
         fireEvent.click(first.container.querySelector(rowSel("B", "data-plan-group"))!);
-        fireEvent.click(first.container.querySelector(rowSel("chart"))!.children[0]!);
+        fireEvent.click(first.container.querySelector(`${rowSel("chart")} [data-plan-control="expand"]`)!);
         fireEvent.click(screen.getByText("DAY"));
         // Rest the scroll 10px into r30: A 26 + a1–a3 96 + B 26 + chart 88
         // + thirty rows of 32 = 1,196px.
@@ -258,6 +258,31 @@ describe("Plan UI state survives a remount (#813)", () => {
 
         const again = renderPlan(planRoot(rows()), "plan-813-one");
         expect(again.container.querySelector(rowSel("b1"))).toBeNull();
+    });
+
+    test("the gutter's width, where the viewer moved its rule, comes back with the same storageKey; below 220px a row's controls fold (#1680's review)", () => {
+        const handle = () => screen.getByRole("separator", { name: "Width of the row names" });
+        const widthOf = (c: HTMLElement) => c.querySelector<HTMLElement>("[data-plan-body]")!.style.getPropertyValue("--plan-gutter-w");
+        const first = renderPlan(planRoot(rows()), "plan-gutter");
+        expect([handle().getAttribute("aria-valuenow"), widthOf(first.container)]).toEqual(["240", "240px"]);
+        fireEvent.keyDown(handle(), { key: "End" });
+        expect([handle().getAttribute("aria-valuenow"), widthOf(first.container)]).toEqual(["360", "360px"]);
+        first.unmount();
+        const second = renderPlan(planRoot(rows()), "plan-gutter");
+        expect([handle().getAttribute("aria-valuenow"), widthOf(second.container)]).toEqual(["360", "360px"]);
+        expect(second.container.querySelector("[data-plan-body]")!.hasAttribute("data-plan-gutter-narrow")).toBe(false);
+        fireEvent.keyDown(handle(), { key: "Home" });
+        expect([handle().getAttribute("aria-valuenow"), widthOf(second.container)]).toEqual(["168", "168px"]);
+        expect(second.container.querySelector("[data-plan-body]")!.hasAttribute("data-plan-gutter-narrow")).toBe(true);
+        second.unmount();
+        // Drawn narrow from its first frame: the controls fold where nothing has moved the rule yet.
+        const third = renderPlan(planRoot(rows()), "plan-gutter");
+        expect([handle().getAttribute("aria-valuenow"), widthOf(third.container)]).toEqual(["168", "168px"]);
+        expect(third.container.querySelector("[data-plan-body]")!.hasAttribute("data-plan-gutter-narrow")).toBe(true);
+        third.unmount();
+        // Another canvas's gutter is its own.
+        renderPlan(planRoot(rows()), "plan-gutter-other");
+        expect(handle().getAttribute("aria-valuenow")).toBe("240");
     });
 
     test("a paged canvas looks for the anchor's row in its window — a jump, not a walk", async () => {

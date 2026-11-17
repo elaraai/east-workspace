@@ -8,11 +8,12 @@
  * k-th where the columns are too narrow, each period's first column among
  * them unless it crowds the one drawn before it, a preferred label wherever it
  * clears them, and a label that would run past the track's start or end
- * against its own column's edge there.
+ * against its own column's edge there — each label its text, from its box as
+ * the ruler measured it.
  */
 
 import { describe, expect, test } from "vitest";
-import { thinTicks, type RulerLabel } from "./ruler-thin.js";
+import { rulerLabels, thinTicks, type RulerColumn, type RulerLabel } from "./ruler-thin.js";
 
 /** `n` columns `col` px wide from 0, each label `width` px; `anchor` says which start a period, `prefer` which draw
  *  wherever they clear them. */
@@ -105,5 +106,37 @@ describe("a ruler's labels (#1269)", () => {
         expect(drawn(thinTicks(columns(1, 12, 30), { left: 0, right: 12 }, 4).shown)).toEqual([]);
         // 4px columns, 30px labels: in a 40px track one label and the gap leave no room for another.
         expect(drawn(thinTicks(columns(10, 4, 30), { left: 0, right: 40 }, 4).shown)).toEqual([0]);
+    });
+});
+
+describe("a ruler's labels as it measured them (#1269, #1680's review)", () => {
+    /** Two columns, 25px and 19px: each label's box 20px, centred on its column; the second's runs past the track's end. */
+    const measured: RulerColumn[] = [
+        { box: { left: 2.5, right: 22.5 }, column: { left: 0, right: 25 }, anchor: false, prefer: false },
+        { box: { left: 24.5, right: 44.5 }, column: { left: 25, right: 44 }, anchor: false, prefer: false },
+    ];
+
+    test("each label is its text — its box less its paper's padding — set against an edge by its box, and the track's ends alike", () => {
+        expect(rulerLabels(measured, { left: 1, right: 1 }, 4)).toEqual({
+            labels: [
+                { centre: 12.5, start: 1, end: 24, width: 18, anchor: false, prefer: false },
+                { centre: 34.5, start: 26, end: 43, width: 18, anchor: false, prefer: false },
+            ],
+            track: { left: 1, right: 43 },
+            gap: 4,
+        });
+        // Two papers wider than the gap keep their texts that far apart; no column, or no room, is nothing to thin.
+        expect(rulerLabels(measured, { left: 3, right: 3 }, 4)?.gap).toBe(6);
+        expect(rulerLabels([], { left: 1, right: 1 }, 4)).toBeUndefined();
+        expect(rulerLabels([{ ...measured[0]!, column: { left: 0, right: 2 } }], { left: 1, right: 1 }, 4)).toBeUndefined();
+    });
+
+    test("a label set against the track's end by its box crowds the label before it by its text, and gives way (\"FRI\" and \"SUN\" drew 3.5px apart)", () => {
+        // The second label's box against the track's end: its text 25–43, 3.5px past the first's end at 21.5 — short of
+        // the 4px gap. Taken as its text against the edge, it lay at 26–44, clear of it, and both drew.
+        const input = rulerLabels(measured, { left: 1, right: 1 }, 4)!;
+        const fit = thinTicks(input.labels, input.track, input.gap);
+        expect(drawn(fit.shown)).toEqual([0]);
+        expect(fit.align).toEqual(["centre", "end"]);
     });
 });

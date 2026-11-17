@@ -557,7 +557,7 @@ export type PlanChartPointType = typeof PlanChartPointType;
 
 /**
  * Which y-axis a chart layer scales against. Left ticks print inside the
- * gutter cell's right edge; right ticks at the plot's right edge.
+ * plot's left edge; right ticks inside its right edge.
  *
  * @property left - The left (primary) y-axis
  * @property right - The right (secondary) y-axis
@@ -1237,7 +1237,7 @@ export type PlanFooterItemType = typeof PlanFooterItemType;
  * @property height - Definite height (`"fill"` fills the parent); header chrome pinned, body scrolls within
  * @property maxHeight - Max-height cap; content-sized up to it, then scrolls
  * @property density - Row rhythm (`compact` ⇒ dense 24px span rows)
- * @property gutterWidth - Explicit gutter width, a CSS px size (`"168px"`; default 168)
+ * @property gutterWidth - The gutter's width where the canvas opens, a CSS px size (`"240px"`; default 240) — a viewer drags its right rule between 168 and 360 (widened to take this), and the canvas keeps where they left it
  */
 export const PlanStyleType = StructType({
     height:      OptionType(StringType),
@@ -1262,7 +1262,7 @@ export type PlanStyleType = typeof PlanStyleType;
  *
  * @remarks
  * The quantity is a number with its unit and format (#824): its value's third
- * of the family's largest sets the link's weight (2, 4 or 8), and its caption —
+ * of the family's largest sets the link's weight (2, 4 or 6), and its caption —
  * `text`, else the value formatted with its unit — prints on the link, on a
  * paper knockout. A link without one draws at the thinnest weight (1.5) and
  * prints nothing. A click on a link reports the `link` arm of the element ref,
@@ -1445,8 +1445,9 @@ export const PlanEventMarkType = StructType({
 export type PlanEventMarkType = typeof PlanEventMarkType;
 
 /**
- * One bucket-row lane — a sub-slot within each column cell (`AM`/`PM`).
- * `label: none` renders an unlabelled lane strip.
+ * One bucket-row lane — a sub-slot within each column cell (`AM`/`PM`). Its
+ * label prints once, in the row's gutter, on the lane's own line; `label:
+ * none` renders an unlabelled lane strip.
  */
 export const PlanLaneType = StructType({
     key: StringType,

@@ -23,7 +23,7 @@ import type { Scale, ScaleBucket } from "./scale.js";
 
 /** The geometry and vocabulary a ruler needs, independent of its host. */
 export type RulerScale<I> = Pick<Scale<I, string>, "kind" | "resolution" | "buckets" | "toNumber">;
-import { thinTicks, type RulerFit } from "./ruler-thin.js";
+import { rulerLabels, thinTicks, type RulerFit } from "./ruler-thin.js";
 
 /** The room between two drawn labels, in px: with a bucket line between them, two labels read apart (#1269). */
 export const RULER_GAP = 4;
@@ -105,23 +105,16 @@ export function useRulerFit<I>(trackRef: RefObject<HTMLElement | null>, scale: R
         setMeasuring(false);
         const spans = [...track.querySelectorAll<HTMLElement>("[data-tick-label]")];
         if (spans.length === 0 || spans.length !== scale.buckets.length) { setFit(undefined); return; }
-        // Each column's inside edges, where a label that would run past the track's start or end sits; the first's
-        // start and the last's end are the track's.
-        const columns = spans.map((span) => insideOf(span.parentElement!));
-        const ends = { left: columns[0]!.left, right: columns[columns.length - 1]!.right };
-        if (ends.right - ends.left <= 0) { setFit(undefined); return; }
-        // A label's text, as the page draws it: its box less its knockout's padding, the recipe's on every label.
+        // Each label's box as drawn, and its column's inside edges, where a label that would run past the track's start
+        // or end sits; the knockout's padding, the recipe's on every label, is what its text stands in from its box by.
         const knockout = getComputedStyle(spans[0]!);
-        const pad = (Number.parseFloat(knockout.paddingLeft) || 0) + (Number.parseFloat(knockout.paddingRight) || 0);
-        setFit(thinTicks(spans.map((span, i) => {
+        const pad = { left: Number.parseFloat(knockout.paddingLeft) || 0, right: Number.parseFloat(knockout.paddingRight) || 0 };
+        const input = rulerLabels(spans.map((span, i) => {
             const r = span.getBoundingClientRect();
             const b = scale.buckets[i]!;
-            return {
-                centre: (r.left + r.right) / 2, start: columns[i]!.left, end: columns[i]!.right,
-                width: Math.max(0, r.width - pad), anchor: startsPeriod(scale, b), prefer: b.index === prefer,
-            };
-        // Two labels' papers apart too: the later's would cover the end of the words before it.
-        }), ends, Math.max(RULER_GAP, pad)));
+            return { box: { left: r.left, right: r.right }, column: insideOf(span.parentElement!), anchor: startsPeriod(scale, b), prefer: b.index === prefer };
+        }), pad, RULER_GAP);
+        setFit(input === undefined ? undefined : thinTicks(input.labels, input.track, input.gap));
     }, [measuring, signature, scale, prefer, trackRef, enabled]);
     // While it measures, every label draws whole: never painted, as the measure lands first.
     return enabled && !measuring && fit !== undefined && fit.shown.length === scale.buckets.length ? fit : undefined;

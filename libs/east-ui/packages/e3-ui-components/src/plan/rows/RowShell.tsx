@@ -8,8 +8,9 @@
  * one two-column grid — the fixed gutter cell and a plot of `n` buckets — so
  * every kind aligns by construction. The shell renders the gutter identity
  * vocabulary (name / id / sub / value / meta / swatches / status dot / caret,
- * 30px-per-level indent), the plot's bucket grid lines, and the shared
- * now / cursor hairlines; the kind renderer supplies the plot content.
+ * one grid of fixed cells, a 16px indent per level), the plot's bucket grid
+ * lines, and the shared now / cursor hairlines; the kind renderer supplies the
+ * plot content.
  *
  * It is also a treegrid ROW (#819): `role="row"` at its level, selected and
  * expanded as it is, its gutter the `rowheader` and its plot a `gridcell`,
@@ -42,13 +43,21 @@ import type { PlanFocusTagWord } from "../messages.js";
 import type { PlanGridRow } from "../root/grid.js";
 import type { PlanDraftMark } from "../use-plan-editing.js";
 import { PLAN_EVENT_ELEMENT_SELECTOR } from "./element-select.js";
-import { laneBand, laneIndexAt } from "./lanes.js";
+import { laneBand, laneIndexAt, type LaneBand } from "./lanes.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
-/** Indent per nesting level (px) — a caret (14px) and its gap (6px), so a
- *  member's name starts exactly where its group's label text does (#949). */
-export const INDENT_PX = 20;
+/** Indent per nesting level (px, #1680's review): every line has its caret's
+ *  cell, so a member's name starts 16 past its group's, whatever it holds. */
+export const INDENT_PX = 16;
+
+/** A laned row's lane, as its gutter line draws it (#1680's review): its caption, and where it sits down the row. */
+export interface PlanGutterLane {
+    /** Its caption; `undefined` for a lane that has none. */
+    readonly caption: string | undefined;
+    /** Its band, as fractions of the row's height. */
+    readonly band: LaneBand;
+}
 
 /** A row with no lanes. */
 const NO_LANES: readonly { readonly key: string }[] = [];
@@ -118,7 +127,7 @@ export interface PlanRowDrop {
 export interface RowShellProps {
     row: PlanRowValue;
     styles: Styles;
-    /** Grid template (`"168px 1fr"`) — one source for every band. */
+    /** Grid template (`"var(--plan-gutter-w) 1fr"`, the canvas's) — one source for every band. */
     gridTemplate: string;
     /** Row height (px) — fixed per kind (`model.rowHeight`). */
     height: number;
@@ -127,20 +136,21 @@ export interface RowShellProps {
     selected: boolean;
     /** The caret state for nesting parents (undefined ⇒ no caret). */
     caret?: { collapsed: boolean } | undefined;
-    /** Caret click (subtree collapse / chart spark↔expanded toggle). The
-     *  WHOLE gutter cell is the click target (the group-strip convention —
+    /** Caret click: the subtree's fold — a caret only folds (#1680's review).
+     *  The WHOLE gutter cell is the click target (the group-strip convention —
      *  a 14px caret is not a tree affordance); the plot keeps selection. */
     onCaretClick?: (() => void) | undefined;
     /** Table-row emphasis (K5: header wash / footer 2px top rule). */
     emphasis?: "header" | "footer" | undefined;
-    /** Extra content overlaid on the gutter cell (chart left-axis ticks). */
-    gutterOverlay?: ReactNode;
     /** Suppress the bucket grid lines (rows drawing their own canvas). */
     noGrid?: boolean;
     /** Row-scoped focus controls (R1 links / R2 expand) — 24px ghost buttons
-     *  at the end of the gutter line, after its value and status, always
-     *  shown, a pressed one in the brand tint (`Plan links.html`, #1258). */
+     *  in the gutter line's two control slots, links then expand, always
+     *  shown, a pressed one in the brand tint (`Plan links.html`, #1258). An
+     *  expandable chart's spark ↔ chart is its expand control's (#1680's review). */
     controls?: ReadonlyArray<{ kind: "links" | "expand"; active: boolean; onClick: () => void }> | undefined;
+    /** A laned row's lanes (#1680's review): a gutter line each, the lane's height, its caption in the value cell. */
+    lanes?: readonly PlanGutterLane[] | undefined;
     /** The links-focus family tag (R1) — shown in the canvas's words. */
     focusTag?: PlanFocusTagWord | undefined;
     /** The expand render's axis treatment inside this row (R2; default keep). */
@@ -184,8 +194,8 @@ export interface RowShellProps {
 /** One canvas body row — gutter + plot on the shared template. */
 export function RowShell({
     row, styles, gridTemplate, height, depth, selected,
-    caret, onCaretClick, emphasis, gutterOverlay, noGrid,
-    controls, focusTag, axisMode, ctx, drop, draft, children,
+    caret, onCaretClick, emphasis, noGrid,
+    controls, lanes: gutterLanes, focusTag, axisMode, ctx, drop, draft, children,
     expandBody, expandGutter, bandHeight, grid, expandedState, groupEnd, unread,
 }: RowShellProps) {
     const scale = usePlanScale();
@@ -569,6 +579,62 @@ export function RowShell({
         dropRef(el);
     }, [dropRef]);
 
+    // ── The gutter line (§3; #1680's review) ──────────────────────────────
+    // One grid with fixed slots, every one of them on every row: the caret's
+    // cell (empty on a leaf), the name — the label, then the meta inline —
+    // the value, the status dot, and the two control slots, links then
+    // expand. So every name starts at one x, and every value, dot and control
+    // stands at one x, down the canvas; only the name gives way.
+    const control = (kind: "links" | "expand"): ReactNode => {
+        const c = controls?.find((one) => one.kind === kind);
+        if (c === undefined) return <Box as="span" />;
+        return (
+            <Box
+                as="button"
+                css={styles.rowControl}
+                tabIndex={-1}
+                data-plan-control={c.kind}
+                data-active={c.active ? "" : undefined}
+                aria-label={c.kind === "links" ? words.m.linksControl() : words.m.expandControl()}
+                aria-pressed={c.active}
+                onClick={(e: React.MouseEvent) => { e.stopPropagation(); c.onClick(); }}
+            >
+                <FontAwesomeIcon icon={c.kind === "links" ? faLink : faUpRightAndDownLeftFromCenter} />
+            </Box>
+        );
+    };
+    // The line's cells after the name's — each always there: the value, the status dot, and the controls.
+    const valueCell = <Box as="span" css={styles.gutterValue} data-ctx={ctxAttr} data-plan-gutter="value">{value}</Box>;
+    // The dot's colour IS the status — its name says it (#819).
+    const dotCell = statusTone !== undefined
+        ? <Box as="span" css={styles.statusDot} data-tone={statusTone} data-ctx={ctxAttr} role="img" aria-label={statusText(statusTone, words)} />
+        : <Box as="span" />;
+    // Row controls (R1/R2) — always shown (#1258), each named by the canvas's tooltip (`root/overlays.tsx`); a control
+    // click never selects or toggles the row. Out of the tab order: the row's Tab walk reaches them (#819).
+    const controlsCell = <Box css={styles.rowControls} data-ctx={ctxAttr}>{control("links")}{control("expand")}</Box>;
+    const caretCell = (
+        <Box as="span" css={styles.caret} data-collapsed={caret?.collapsed === true ? "" : undefined}>
+            {caret !== undefined && <FontAwesomeIcon icon={faCaretDown} />}
+        </Box>
+    );
+    const nameCell = (
+        <Box as="span" css={styles.gutterNameCell} data-plan-gutter="title">
+            {/* The links-focus family tag (R1) — settles in after the gather choreography — on its own line with the label,
+                where it gives its room up first (#1277). */}
+            {focusTag !== undefined ? (
+                <Box css={styles.gutterNamed} data-plan-gutter="named">
+                    <Box as="span" css={styles.gutterLabel} data-plan-gutter="label">{gutter.label}</Box>
+                    <Box as="span" css={styles.focusTag} data-plan-focustag={focusTag}>{words.m.focusTag({ tag: focusTag })}</Box>
+                </Box>
+            ) : <Box as="span" css={styles.gutterLabel} data-plan-gutter="label">{gutter.label}</Box>}
+            {meta !== undefined && <Box as="span" css={styles.gutterMeta} data-ctx={ctxAttr} data-plan-gutter="meta">{meta}</Box>}
+        </Box>
+    );
+    // A laned row (#1680's review): a gutter line per lane, the lane's height, its caption in the value cell — the
+    // name's on the first, the sub on the second — in place of a caption in every cell.
+    const laned = gutterLanes !== undefined && gutterLanes.length > 1 && ctx !== true && !expanded
+        && gutterLanes.some((lane) => lane.caption !== undefined) ? gutterLanes : undefined;
+
     return (
         <Box
             ref={grid.ref}
@@ -607,70 +673,39 @@ export function RowShell({
                 css={styles.gutterCell}
                 role="rowheader"
                 data-expanded={expandedAttr}
-                // How many controls its line ends in — a chart's ticks step
-                // left of them (#1258).
-                data-plan-controls={controls !== undefined && controls.length > 0 ? String(controls.length) : undefined}
                 style={{ paddingLeft: `${12 + depth * INDENT_PX}px` }}
                 onClick={onCaretClick !== undefined && ctx !== true
                     ? (e: React.MouseEvent) => { e.stopPropagation(); onCaretClick(); }
                     : undefined}
             >
-                <Box css={styles.gutterName} data-id={isId ? "" : undefined} data-ctx={ctxAttr} data-plan-gutter="name"
-                    data-collapsible={caret !== undefined && ctx !== true ? "" : undefined}>
-                    {caret !== undefined && (
-                        <Box as="span" css={styles.caret} data-collapsed={caret.collapsed ? "" : undefined}>
-                            <FontAwesomeIcon icon={faCaretDown} />
+                {laned !== undefined ? laned.map((lane, i) => (
+                    // A lane's line, laid over the cell where its cells sit: the name's line first, the sub on the
+                    // second, and each lane's caption in its value cell — the first's, where it has none, the row's value.
+                    <Box key={i} css={styles.gutterLane} data-ctx={ctxAttr} data-plan-gutter={i === 0 ? "name" : "lane"}
+                        style={{ left: `${12 + depth * INDENT_PX}px`, top: `${lane.band.top * 100}%`, height: `${lane.band.height * 100}%` }}>
+                        {i === 0 ? caretCell : <Box as="span" />}
+                        {i === 0 ? nameCell : (
+                            <Box as="span" css={styles.gutterNameCell}>
+                                {i === 1 && sub !== undefined && <Box as="span" css={styles.gutterMeta} data-plan-gutter="sub">{sub}</Box>}
+                            </Box>
+                        )}
+                        {i === 0 && lane.caption === undefined ? valueCell
+                            : <Box as="span" css={styles.gutterLaneCaption} data-plan-lane={i}>{lane.caption}</Box>}
+                        {i === 0 ? dotCell : <Box as="span" />}
+                        {i === 0 ? controlsCell : <Box as="span" />}
+                    </Box>
+                )) : (
+                    <>
+                        <Box css={styles.gutterName} data-id={isId ? "" : undefined} data-ctx={ctxAttr} data-plan-gutter="name">
+                            {caretCell}
+                            {nameCell}
+                            {valueCell}
+                            {dotCell}
+                            {controlsCell}
                         </Box>
-                    )}
-                    {/* The links-focus family tag (R1) — settles in after the
-                        gather choreography — on its own line with the label,
-                        where it gives its room up first (#1277). */}
-                    {focusTag !== undefined ? (
-                        <Box css={styles.gutterNamed} data-plan-gutter="named">
-                            <Box as="span" css={styles.gutterLabel} data-plan-gutter="label">{gutter.label}</Box>
-                            <Box as="span" css={styles.focusTag} data-plan-focustag={focusTag}>{words.m.focusTag({ tag: focusTag })}</Box>
-                        </Box>
-                    ) : <Box as="span" css={styles.gutterLabel} data-plan-gutter="label">{gutter.label}</Box>}
-                    {/* §3 gutter anatomy: meta (an `.of` parent's aggregate
-                        tag), then value right-aligned, status dot rightmost —
-                        inline after the flex spacer so the label truncates. */}
-                    {(meta !== undefined || value !== undefined || statusTone !== undefined) && (
-                        <Box css={styles.gutterRight} data-plan-gutter="right">
-                            {meta !== undefined && <Box as="span" css={styles.gutterMeta} data-ctx={ctxAttr} data-plan-gutter="meta">{meta}</Box>}
-                            {value !== undefined && <Box as="span" css={styles.gutterValue} data-ctx={ctxAttr} data-plan-gutter="value">{value}</Box>}
-                            {/* The dot's colour IS the status — its name says it (#819). */}
-                            {statusTone !== undefined && <Box as="span" css={styles.statusDot} data-tone={statusTone}
-                                data-ctx={ctxAttr} role="img" aria-label={statusText(statusTone, words)} />}
-                        </Box>
-                    )}
-                    {/* A compact chart's maximum is a normal trailing value; taller charts keep positioned axis ticks. */}
-                    {gutterOverlay}
-                    {/* Row controls (R1/R2) — at the line's end, always shown
-                        (#1258), each named by the canvas's tooltip
-                        (`root/overlays.tsx`); a control click never selects or
-                        toggles the row. Out of the tab order: the row's Tab
-                        walk reaches them (#819). */}
-                    {controls !== undefined && controls.length > 0 && (
-                        <Box css={styles.rowControls} data-ctx={ctxAttr}>
-                            {controls.map((c) => (
-                                <Box
-                                    key={c.kind}
-                                    as="button"
-                                    css={styles.rowControl}
-                                    tabIndex={-1}
-                                    data-plan-control={c.kind}
-                                    data-active={c.active ? "" : undefined}
-                                    aria-label={c.kind === "links" ? words.m.linksControl() : words.m.expandControl()}
-                                    aria-pressed={c.active}
-                                    onClick={(e: React.MouseEvent) => { e.stopPropagation(); c.onClick(); }}
-                                >
-                                    <FontAwesomeIcon icon={c.kind === "links" ? faLink : faUpRightAndDownLeftFromCenter} />
-                                </Box>
-                            ))}
-                        </Box>
-                    )}
-                </Box>
-                {sub !== undefined && <Box css={styles.gutterSub} data-ctx={ctxAttr} data-plan-gutter="sub">{sub}</Box>}
+                        {sub !== undefined && <Box css={styles.gutterSub} data-ctx={ctxAttr} data-plan-gutter="sub">{sub}</Box>}
+                    </>
+                )}
                 {gutter.swatches.length > 0 && (
                     <Box display="flex" gap="7px" marginTop="1px">
                         {gutter.swatches.map((s, i) => (

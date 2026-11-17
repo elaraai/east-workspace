@@ -322,8 +322,9 @@ describe("the small boxes whose words are centred in them (#1638)", () => {
         ["a Roster month's mark", at(roster, "mark"), "14px"],
         ["a Roster lane's figures", at(roster, "laneLine"), "11px"],
         ["a Plan row's name", at(plan, "gutterName"), "17px"],
+        // A laned row's every line, its lane's caption on it, in the row's voice (#1680's review).
+        ["a Plan laned row's line", at(plan, "gutterLane"), "17px"],
         ["a Plan group's name", at(plan, "groupName"), "15px"],
-        ["a Plan collapsible row's heading", at(plan, "gutterName", "&[data-collapsible]"), "15px"],
         ["a Plan heat value", at(plan, "heatLabel"), "100cqh"],
         ["a Plan table numeral", at(plan, "tableCellText"), "15px"],
         ["a Plan mark's label", at(plan, "markLabel"), "15px"],
@@ -332,7 +333,6 @@ describe("the small boxes whose words are centred in them (#1638)", () => {
         ["a Plan tile", at(plan, "tile"), "calc(var(--plan-tile-h) - 4px)"],
         ["a Plan `+n`", at(plan, "tileMore"), "var(--plan-tile-h)"],
         ["a Plan chip", at(plan, "cardChip"), "calc(var(--plan-chip-h) - 4px)"],
-        ["a Plan lane's caption", at(plan, "laneLabel"), "100cqh"],
         ["the Plan's `← All rows`", at(plan, "focusBack"), "19px"],
         ["an Allocation chip", at(allocation, "tableChip"), "16px"],
         ["an Allocation placeholder", at(allocation, "tablePlaceholder"), "16px"],
