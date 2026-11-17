@@ -86,9 +86,6 @@ async function selectRow(c: HTMLElement, row: PlanRowId) {
     await settle();
     expect(pane(c).querySelector('[data-plan-inspector="row"]')).not.toBeNull();
 }
-/** The kinds of request a record was read with through one of its indexes. */
-const readsOf = (dataset: string, index: string) => h.requests()
-    .filter((request) => request.dataset === dataset && (request.query.get("index") ?? undefined) === index).map((request) => request.kind);
 
 /** What a chart of a press's ink temperature says: its least, greatest and last reading in the window. */
 const temperatureSaid = (min: number, max: number, last: number) => {
@@ -154,9 +151,9 @@ describe("the works' page (planPressTasks)", () => {
         const { container: c } = await h.mount(ex.planPressTasks);
         await settle();
         await waitFor(() => expect(task(c, "T-07", ROLLERS_4)).not.toBeNull());
-        expect(readsOf("records.plan_press_machines", "plan_press_machines_by_name")).toContain("page");
-        expect(readsOf("records.plan_press_machines", "plan_press_machines_in_time")).toEqual(expect.arrayContaining(["find", "runs"]));
-        expect(readsOf("records.plan_press_tasks", "plan_press_tasks_by_press_week")).toEqual(expect.arrayContaining(["find", "runs"]));
+        expect(h.readKinds("records.plan_press_machines", "plan_press_machines_by_name")).toContain("page");
+        expect(h.readKinds("records.plan_press_machines", "plan_press_machines_in_time")).toEqual(expect.arrayContaining(["find", "runs"]));
+        expect(h.readKinds("records.plan_press_tasks", "plan_press_tasks_by_press_week")).toEqual(expect.arrayContaining(["find", "runs"]));
         // The footer counts the tasks of the window, eight of them, through their days' index.
         await waitFor(() => expect(c.querySelector('[data-plan-count="events"]')?.textContent).toMatch(/^8 /));
         expect(unread()).toEqual([]);
@@ -182,7 +179,7 @@ describe("one press's own page (planOnePress)", () => {
         expect(tasksOn(c, INK_3)).toEqual(["T-02 1:1", "T-03 2:0"]);
         expect(tasksOn(c, PLATES_3)).toEqual(["T-04 3:0"]);
         // Read a cell at a time by the press, under the page's scope: never another press's.
-        expect(readsOf("records.plan_press_tasks", "plan_press_tasks_by_press_week")).toEqual(expect.arrayContaining(["find", "runs"]));
+        expect(h.readKinds("records.plan_press_tasks", "plan_press_tasks_by_press_week")).toEqual(expect.arrayContaining(["find", "runs"]));
         expect(c.querySelectorAll(`${el("data-event", "task", "T-06")}, ${el("data-event", "task", "T-07")}`).length).toBe(0);
     });
 
@@ -191,9 +188,9 @@ describe("one press's own page (planOnePress)", () => {
         await settle();
         await waitFor(() => expect(c.querySelector(`${rowAt(entry("temperature", "P03"))} [data-plan-chart]`)?.getAttribute("aria-label"))
             .toBe(temperatureSaid(28, 30, 29.5)));
-        expect(readsOf("records.plan_press_machines", "plan_press_machines_in_time")).toEqual(expect.arrayContaining(["find", "runs"]));
+        expect(h.readKinds("records.plan_press_machines", "plan_press_machines_in_time")).toEqual(expect.arrayContaining(["find", "runs"]));
         // The machines' rows are read under the page's scope, through the index of their codes.
-        expect(readsOf("records.plan_press_machines", "plan_press_machines_by_code")).toContain("page");
+        expect(h.readKinds("records.plan_press_machines", "plan_press_machines_by_code")).toContain("page");
     });
 });
 

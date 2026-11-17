@@ -34,7 +34,7 @@
 import { expect, type Locator } from "playwright/test";
 import { test } from "./kept-page";
 import { PLAN_EVENT_EXAMPLES, openExample, rowId, rowSel, same } from "./plan-page";
-import { PLAN_INDENT, planBandFaults, planRowsOf } from "./plan-rows";
+import { PLAN_INDENT, planBandFaults, planDrawn, planEventOn, planRowsOf } from "./plan-rows";
 
 /** A press's own row, its ink temperature's, and its row of a kind of task: the kind's key as East prints it. */
 const pressRow = (press: string) => rowId("press", press);
@@ -43,12 +43,10 @@ const kindRow = (press: string, kind: string) => rowId("kinds", press, `.${kind}
 const kindSel = (press: string, kind: string) => rowSel("kinds", press, `.${kind}`);
 
 /** A task's tile on a row, folded into its cell's count or not. */
-const taskOn = (entry: Locator, row: string, key: string): Locator => entry.locator(`${row} [data-event*=${JSON.stringify(key)}]`).first();
+const taskOn = (entry: Locator, row: string, key: string): Locator => planEventOn(entry, row, "data-event", key);
 
 /** Waits until a task is on a row: the tasks are read a cell at a time once the rows are. */
-async function drawn(entry: Locator, row: string, key: string): Promise<void> {
-    await expect.poll(() => taskOn(entry, row, key).count(), { timeout: 20_000 }).toBe(1);
-}
+const drawn = (entry: Locator, row: string, key: string): Promise<void> => planDrawn(entry, row, "data-event", key);
 
 /**
  * Where a task's tile sits: the cell holding it — its day's place among the buckets and its lane's among the row's —

@@ -97,10 +97,6 @@ const inWindow = (at: Date) => order(at, FROM) >= 0 && order(at, TO) < 0;
 const keysOf = (c: HTMLElement, row: string, attribute: string) =>
     [...c.querySelectorAll<HTMLElement>(`${row} [${attribute}]`)].map((el) => el.getAttribute(attribute)!);
 
-/** The kinds of request a record was read with, through its nested series index or not. */
-const kindsOf = (dataset: string, index?: string) => h.requests().filter((request) => request.dataset === dataset
-    && (index === undefined || (request.query.get("index") ?? undefined) === index)).map((request) => request.kind);
-
 /**
  * planNestedAll mounted with Jobs and Load switched off and every works unfolded, and the first crew's first week of
  * hours in the window typed 500 — written with Enter, or left in the field: its cells, and how to read them.
@@ -149,8 +145,8 @@ describe("the nested series example on e3 (#1439)", () => {
         expect(refused).toEqual([]);
         expect(rows).toBeGreaterThan(0);
         const dataset = pathText(ex.planWorks.path as TreePath);
-        expect(kindsOf(dataset)).toContain("page");
-        expect(kindsOf(dataset, ex.planWorks.indexes.plan_works_in_time.name)).toContain("runs");
+        expect(h.readKinds(dataset)).toContain("page");
+        expect(h.readKinds(dataset, ex.planWorks.indexes.plan_works_in_time.name)).toContain("runs");
         // Nothing read whole, nor a row by its key: no gesture asked for one.
         expect(h.requests("rows", dataset)).toEqual([]);
         expect(h.requests("read", dataset)).toEqual([]);

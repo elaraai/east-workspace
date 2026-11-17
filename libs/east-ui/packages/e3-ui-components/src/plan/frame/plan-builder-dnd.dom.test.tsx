@@ -1538,9 +1538,6 @@ describe("the print works over plain records (planPrintWorksRecords, #1541 §3)"
     /** What a row draws of a kind, by its events' keys. */
     const drawnOn = (c: HTMLElement, row: PlanRowId, attr: "data-run" | "data-mark" | "data-chip" | "data-event", kind: string, keys: readonly string[]) =>
         keys.filter((key) => c.querySelector(`${rowAt(row)} ${el(attr, kind, key)}`) !== null);
-    /** The kinds of request a record was read with through one of its indexes. */
-    const readsOf = (dataset: string, index: string) => h.requests()
-        .filter((request) => request.dataset === dataset && (request.query.get("index") ?? undefined) === index).map((request) => request.kind);
     const sameInstant = equalFor(DateTimeType);
     const sameFrom = equalFor(ex.WorksFeed.fields.from);
     const sameTo = equalFor(ex.WorksFeed.fields.to);
@@ -1566,12 +1563,12 @@ describe("the print works over plain records (planPrintWorksRecords, #1541 §3)"
             expect(drawnOn(c, entry("van", "7-vans", "van2"), "data-event", "delivery", ["D-9003"])).toEqual(["D-9003"]);
             // The rows a page at a time, what belongs to them through their nested series index; each kind by its series
             // index, a bay's and a van's deliveries through one filed by a variant field.
-            expect(readsOf("records.plan_works_rows", "plan_works_rows_by_name")).toContain("page");
-            expect(readsOf("records.plan_works_rows", "plan_works_rows_in_time")).toEqual(expect.arrayContaining(["find", "runs"]));
+            expect(h.readKinds("records.plan_works_rows", "plan_works_rows_by_name")).toContain("page");
+            expect(h.readKinds("records.plan_works_rows", "plan_works_rows_in_time")).toEqual(expect.arrayContaining(["find", "runs"]));
             for (const [record, index] of [
                 ["jobs", "by_press_week"], ["stops", "by_press_week"], ["bindings", "by_line_week"], ["shifts", "by_crew_week"], ["deliveries", "by_location_week"],
             ] as const) {
-                expect(readsOf(`records.plan_works_${record}`, `plan_works_${record}_${index}`), record).toEqual(expect.arrayContaining(["find", "runs"]));
+                expect(h.readKinds(`records.plan_works_${record}`, `plan_works_${record}_${index}`), record).toEqual(expect.arrayContaining(["find", "runs"]));
             }
             // The library: every kind's templates from the one presets record, the series, the orders and the customers.
             expect(tabs(slot(c, "start")!)).toEqual(["Events 7", "Series 14", "Orders 3", "Customers 16"]);
@@ -1663,7 +1660,7 @@ describe("the print works over plain records (planPrintWorksRecords, #1541 §3)"
             await waitFor(() => expect(c.querySelector(rowAt(A1_ROW))).toBeNull());
             expect([...c.querySelectorAll("[data-plan-group]")].map((group) => group.getAttribute("data-plan-group"))).toEqual([rowKeyOf(entry("groups", "2-presses-b"))]);
             expect(c.querySelector(rowAt(B2_ROW))).not.toBeNull();
-            expect(readsOf("records.plan_works_rows", "plan_works_rows_by_resource").length).toBeGreaterThan(0);
+            expect(h.readKinds("records.plan_works_rows", "plan_works_rows_by_resource").length).toBeGreaterThan(0);
         } finally {
             restore();
         }

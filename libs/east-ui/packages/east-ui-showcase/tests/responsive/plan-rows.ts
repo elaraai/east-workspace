@@ -7,11 +7,12 @@
  * The rows of a Plan's canvas as a real browser lays them out, for every spec
  * that measures them: each row's band — its gutter and its plot — its level
  * and where its line and its name start, and each bar, mark, chip and tile it
- * draws; and what is wrong with them as bands, which every Plan's rows hold
- * to whatever they draw.
+ * draws; what is wrong with them as bands, which every Plan's rows hold to
+ * whatever they draw; and the wait for an event to be drawn on its row, which
+ * a Plan whose kinds are read a cell at a time needs before it is measured.
  */
 
-import type { Locator } from "playwright/test";
+import { expect, type Locator } from "playwright/test";
 import { same, type Edges } from "./plan-page";
 
 /** One element a row draws: the attribute its draw carries, what it holds — the element's key — and its box. */
@@ -82,6 +83,30 @@ export async function planRowsOf(entry: Locator): Promise<PlanRowBox[]> {
             };
         });
     }, PLAN_DRAWS);
+}
+
+/**
+ * An event's element on a row, by the attribute its draw carries: folded into its cell's count or not.
+ *
+ * @param entry - The example's entry
+ * @param row - The row's selector
+ * @param draw - The attribute its draw carries
+ * @param key - The event's key in its record
+ * @returns The element
+ */
+export const planEventOn = (entry: Locator, row: string, draw: (typeof PLAN_DRAWS)[number], key: string): Locator =>
+    entry.locator(`${row} [${draw}*=${JSON.stringify(key)}]`).first();
+
+/**
+ * Waits until an event is drawn on a row: a kind read a cell at a time is read once its rows are.
+ *
+ * @param entry - The example's entry
+ * @param row - The row's selector
+ * @param draw - The attribute its draw carries
+ * @param key - The event's key in its record
+ */
+export async function planDrawn(entry: Locator, row: string, draw: (typeof PLAN_DRAWS)[number], key: string): Promise<void> {
+    await expect.poll(() => planEventOn(entry, row, draw, key).count(), { timeout: 20_000 }).toBe(1);
 }
 
 /** The rule under a row: its 1px line, inside its box. */
