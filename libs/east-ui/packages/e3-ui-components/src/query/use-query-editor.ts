@@ -37,9 +37,9 @@ import {
     activeItem, applyAction, applyInput, applyRemove, applySlot, quickAddOptions, slotEmpty, slotHint, slotItems, slotLabel, slotPlaceholder,
     type SavedOffer, type SlotItem, type StepOption,
 } from "./model/slots.js";
-import { summaryAt, summaryNeeded, type SummaryCache } from "./model/summaries.js";
+import { summaryAt, summaryNeeded, withMinute, type SummaryCache } from "./model/summaries.js";
 import { fieldLabels, parseErrorWords, shapeWords, type QueryWords } from "./model/words.js";
-import type { QueryRoot } from "./one-shot.js";
+import { NOW_FIELD, type QueryRoot } from "./one-shot.js";
 import { slotKey } from "./parts.js";
 import { entriesQuery, queryEntries, queryProgram, type QueryEntry, type QueryHeader } from "./session.js";
 import type { CardActions } from "./step-card.js";
@@ -455,15 +455,18 @@ export function useQueryEditor(options: QueryEditorOptions): QueryEditor {
     useEffect(() => { if (gone) setOpen(undefined); }, [gone]);
     const request = useMemo(() => (openRef === undefined || openStep < 0 || !summaryNeeded(openRef.kind) || isJq ? undefined
         : summaryAt(query, openStep, root.type)), [openRef, openStep, query, root, isJq]);
-    const { cache, hashes } = summaries;
+    // Rows narrowed by "is in the last" are the minute's (#1670): a slot opened in a later minute fetches them again.
+    const asked = useMemo(() => (request?.reads.includes(NOW_FIELD) === true ? withMinute(summaries.hashes, new Date()) : summaries.hashes),
+        [request, summaries.hashes]);
+    const { cache } = summaries;
     const [arrived, setArrived] = useState(0);
     useEffect(() => {
-        if (request === undefined || cache.get(request, hashes) !== undefined) return;
+        if (request === undefined || cache.get(request, asked) !== undefined) return;
         let live = true;
-        void cache.ensure(request, hashes).then((summary) => { if (live && summary !== undefined) setArrived((n) => n + 1); });
+        void cache.ensure(request, asked).then((summary) => { if (live && summary !== undefined) setArrived((n) => n + 1); });
         return () => { live = false; };
-    }, [request, cache, hashes]);
-    const summary = request === undefined ? undefined : cache.get(request, hashes);
+    }, [request, cache, asked]);
+    const summary = request === undefined ? undefined : cache.get(request, asked);
     const items = useMemo(() => (openRef === undefined || gone ? []
         : slotItems(query, root.type, openRef, text, { words, ...(summary === undefined ? {} : { summary }), saved })),
     // `arrived` moves when a summary lands in the cache.

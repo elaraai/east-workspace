@@ -63,7 +63,7 @@ import {
 import { PIECE_SIZES, pieceSizesFor, type ExecuteResult, type SplitCallRequest } from "@elaraai/e3-types";
 import { messageOf } from "../shared/message.js";
 import {
-    entryNamed, prepareCheckedQuery, prepareQuery, programChecks, queryLimits,
+    NOW_FIELD, argsOf, clockArg, datasetEntries, entryNamed, prepareCheckedQuery, prepareQuery, programChecks, queryLimits, rootHasClock,
     type PreparedQuery, type QueryOptions, type QueryReading, type QueryResult, type QueryRoot,
 } from "./one-shot.js";
 
@@ -309,8 +309,10 @@ export interface RekeyCalls {
  * first half of a plan, which says which data source's weight decides it.
  */
 export interface PlanDraft {
-    /** The data sources the query reads, in the order it first reads them: what a run says it reads. */
+    /** The data sources the query reads, in the order it first reads them: what a run says it reads. `.now` is no data source, and is not among them. */
     readonly reads: readonly string[];
+    /** Whether the query reads `.now`, the minute it is asked (#1670): its answer is that minute's. */
+    readonly readsNow: boolean;
     /** The data source a split call would cut, whose weight decides the path; `undefined` when the query runs as one unit. */
     readonly over: string | undefined;
     /**
@@ -552,9 +554,11 @@ export function draftPlan(programs: PlanPrograms | string, root: QueryRoot, opti
     } catch (err) {
         split = { kind: "failed", message: messageOf(err) };
     }
+    const clock = rootHasClock(root);
     return {
         draft: {
-            reads: [...checked.reads],
+            reads: checked.reads.filter(name => !(clock && name === NOW_FIELD)),
+            readsNow: clock && checked.reads.includes(NOW_FIELD),
             over: split.kind === "split" ? split.over : undefined,
             weighs: split.kind === "split" ? [...new Set([split.over, ...split.copartitioned, ...(split.rekey === null ? [] : [split.rekey.name])])] : [],
             programs: all, root, options, checked, split,
@@ -728,11 +732,14 @@ function splitCallOf(draft: PlanDraft, split: JqSplitCall, rekey: boolean): { re
         call = wrapped;
     }
     if (!programChecks(checked)) throw new Error("the query does not check");
-    const entry = (name: string) => entryNamed(root, name, "splitCallRequest");
-    if (!rekey) return { request: splitCallRequest(call, root, options), reading: { checked, entries: call.inputs.map(input => entry(input.name)), maxOutputs } };
+    if (!rekey) {
+        // `.now`, when the query reads it, is a value argument: the call names the datasets it read alone (#1670).
+        const args = argsOf(call.inputs, root);
+        return { request: splitCallRequest(call, root, options), reading: { checked, entries: datasetEntries(args, root, "splitCallRequest"), args, maxOutputs } };
+    }
     // The re-key call reads the dataset, and the join call the rest: what the run read, in that order.
-    const joined = call.inputs.filter(input => input.name !== call.over).map(input => entry(input.name));
-    return { ...rekeyCallRequests(call, root, options), reading: { checked, entries: [entry(call.over), ...joined], maxOutputs } };
+    const args = argsOf([{ name: call.over }, ...call.inputs.filter(input => input.name !== call.over)], root);
+    return { ...rekeyCallRequests(call, root, options), reading: { checked, entries: datasetEntries(args, root, "splitCallRequest"), args, maxOutputs } };
 }
 
 // ─── The request ─────────────────────────────────────────────────────────────
@@ -760,7 +767,8 @@ function splitCallOf(draft: PlanDraft, split: JqSplitCall, rekey: boolean): { re
  *   data source's path; the one the pieces are cut from, `over`, is
  *   partitioned with no `by`, so any key may start a piece, and so is each of
  *   `copartitioned`, which e3 cuts at the same keys (#942); every other
- *   argument reaches each piece whole.
+ *   argument reaches each piece whole. `.now` is a `value` argument: the
+ *   minute the options name, else the current one (#1670).
  * - `output` is the split's output kind: a dict's merge and a fold's combine
  *   encoded as the programs are, and a fold's zero as beast2 at its type; a
  *   stream's first rows a `first` output of their count (#1113).
@@ -782,10 +790,11 @@ function splitCallOf(draft: PlanDraft, split: JqSplitCall, rekey: boolean): { re
 export function splitCallRequest(split: JqSplitCall, root: QueryRoot, options: QueryOptions = {}): SplitCallRequest {
     const { limits, runner } = queryLimits(options);
     const then = split.then();
+    const args = argsOf(split.inputs, root);
     return {
         bodyIr: encodeEastIR(split.piece().toIR()),
-        args: split.inputs.map(input => ({
-            arg: variant("dataset", entryNamed(root, input.name, "splitCallRequest").path),
+        args: split.inputs.map((input, i) => ({
+            arg: args[i] === null ? clockArg(options) : variant("dataset", entryNamed(root, input.name, "splitCallRequest").path),
             partition: input.name === split.over || split.copartitioned.includes(input.name) ? some({ by: [] }) : none,
         })),
         output: outputOf(split.output),
@@ -841,13 +850,17 @@ export function rekeyCallRequests(split: JqSplitCall, root: QueryRoot, options: 
     const piece = encodeEastIR(rekey.joinPiece().toIR());
     const then = rekey.joinThen();
     const thenIr = then === null ? none : some(encodeEastIR(then.toIR()));
+    // `.now`, when the join reads it, is a value argument (#1670).
+    const joinArgs = argsOf(rekey.inputs, root);
     return {
         first,
         join: (output) => ({
             bodyIr: piece,
-            args: rekey.inputs.map(input => input.name === split.over
+            args: rekey.inputs.map((input, i) => input.name === split.over
                 ? { arg: variant("object", output), partition: some({ by: [] }) }
-                : { arg: variant("dataset", path(input.name)), partition: input.name === rekey.name ? some({ by: [] }) : none }),
+                : joinArgs[i] === null
+                    ? { arg: clockArg(options), partition: none }
+                    : { arg: variant("dataset", path(input.name)), partition: input.name === rekey.name ? some({ by: [] }) : none }),
             output: outputOf(split.output),
             then: thenIr,
             runner,

@@ -17,8 +17,8 @@
  */
 
 import { ArrayType, IntegerType, StructType, decodeBeast2, fromEastTypeValue, isValueOf, printType, type EastType, type option, type ValueTypeOf } from "@elaraai/east";
-import { AnswerCache, readHashes, type KeptRequest, type KeptResult } from "../model/summaries.js";
-import { queryResultOf, type QueryResult, type QueryRoot } from "../one-shot.js";
+import { AnswerCache, readHashes, withMinute, type KeptRequest, type KeptResult } from "../model/summaries.js";
+import { minuteOf, queryResultOf, type QueryResult, type QueryRoot } from "../one-shot.js";
 import { draftPlan, type PlanOptions } from "../plan.js";
 import { runDraft, type DraftRunSeams } from "../run-draft.js";
 import { messageOf } from "../../shared/message.js";
@@ -89,9 +89,11 @@ export function visualReadRows(answers: readonly VisualAnswer[]): boolean {
  * @param program - The program, as the printer gave it
  * @param root - The root its data sources make
  * @param seams - How its calls are made
- * @param options - How it plans
+ * @param options - How it plans; its `now`, the minute it is asked — the current one when omitted
  * @param signal - Gives it up
- * @returns Its answer and the hashes of the datasets it read; `undefined` when it was given up
+ * @returns Its answer and the hashes of the datasets it read — and, for a
+ *   program that read `.now`, the minute it was asked, under `now`
+ *   ({@link withMinute}, #1670); `undefined` when it was given up
  * @throws {VisualAskError} When a call never answered: e3 could not be reached,
  *   or refused it; and when its answer is not a visual program's
  *   ({@link visualAnswerType})
@@ -99,9 +101,11 @@ export function visualReadRows(answers: readonly VisualAnswer[]): boolean {
 export async function askProgram(
     program: string, root: QueryRoot, seams: DraftRunSeams, options: PlanOptions, signal: AbortSignal,
 ): Promise<KeptResult<VisualAnswer> | undefined> {
+    // One minute for the call and for what its answer is kept by.
+    const now = minuteOf(options.now ?? new Date());
     let drafted: ReturnType<typeof draftPlan>;
     try {
-        drafted = draftPlan(program, root, options);
+        drafted = draftPlan(program, root, { ...options, now });
     } catch (err) {
         throw new VisualAskError("refused", messageOf(err));
     }
@@ -121,7 +125,8 @@ export async function askProgram(
             } catch (err) {
                 throw new VisualAskError("refused", messageOf(err));
             }
-            const hashes = readHashes(result);
+            // An answer that read `.now` is the minute's (#1670).
+            const hashes = drafted.draft.readsNow ? withMinute(readHashes(result), now) : readHashes(result);
             if (result.outcome.type !== "ok") return { value: { kind: "problem", result }, hashes };
             const decoded = decodeBeast2(result.outcome.value.result);
             const read = fromEastTypeValue(decoded.type);
@@ -137,24 +142,27 @@ export async function askProgram(
     }
 }
 
-/** A program a page asks: its text, which its answer is kept by, and the source it reads. */
+/** A program a page asks: its text, which its answer is kept by, the source it reads, and the minute it asks for. */
 export interface VisualRequest extends KeptRequest {
     /** The program's text. */
     readonly prefix: string;
-    /** The source it reads, by its name in the root. */
+    /** The source it reads, by its name in the root — and `now` for a program that reads `.now`, whose hash is the minute. */
     readonly reads: readonly string[];
+    /** The minute it is asked for, when it reads `.now` (#1670): the page's, so its answer is kept by the minute it read. */
+    readonly now?: Date;
 }
 
 /**
- * A page's answers: each program asked once per the hashes of what it read,
- * however many tiles ask it, and given up once none waits for it.
+ * A page's answers: each program asked once per the hashes of what it read —
+ * the minute, for one that reads `.now` — however many tiles ask it, and
+ * given up once none waits for it.
  */
 export class VisualAnswers extends AnswerCache<VisualRequest, VisualAnswer> {
     /**
-     * @param ask - Asks a program ({@link askProgram} over the page's root, calls and options)
+     * @param ask - Asks a program ({@link askProgram} over the page's root, calls and options), for the minute the request names
      */
-    constructor(ask: (program: string, signal: AbortSignal) => Promise<KeptResult<VisualAnswer> | undefined>) {
-        super((request, signal) => ask(request.prefix, signal));
+    constructor(ask: (program: string, signal: AbortSignal, now?: Date) => Promise<KeptResult<VisualAnswer> | undefined>) {
+        super((request, signal) => ask(request.prefix, signal, request.now));
     }
 }
 

@@ -20,7 +20,7 @@ import { comparisonsFor, defaultComparison, fieldByRef, fieldsOf, fieldsOfRecord
 import { layOutSteps, itemShape } from "./print.js";
 import { baseType, optionPayload, singular, unwrapRecursive, type Shape } from "./shape.js";
 import {
-    comparison, freshId, type Aggregate, type Condition, type Match, type Step, type StepKind, type StepOf, type StepQuery, type StepValue,
+    comparison, freshId, withGroupField, type Aggregate, type Condition, type Match, type Step, type StepKind, type StepOf, type StepQuery, type StepValue,
 } from "./values.js";
 
 /** A query with one step replaced. */
@@ -262,9 +262,15 @@ function setSlotField(query: StepQuery, fix: Extract<StepFix, { kind: "setField"
     if (fix.condId !== undefined) return setConditionField(query, fix.stepId, fix.condId, fix.field, root);
     return mapStep(query, fix.stepId, s => {
         switch (s.type) {
-            case "group":
-                if (fix.slot === "by") return variant("group", { ...s.value, by: some(variant("field", fix.field)) });
+            case "group": {
+                // One of several fields is replaced in its place (#1670).
+                if (fix.slot === "by") return variant("group", { ...s.value, by: withGroupField(s.value.by, fix.id, fix.field) });
+                // A ratio's field it is per.
+                if (fix.slot === "agg-per") {
+                    return variant("group", { ...s.value, aggs: s.value.aggs.map(a => (a.id === fix.id && a.fn.type === "ratio" ? { ...a, fn: variant("ratio", some(fix.field)) } : a)) });
+                }
                 return variant("group", { ...s.value, aggs: s.value.aggs.map(a => a.id === fix.id ? { ...a, field: some(fix.field) } : a) });
+            }
             case "pick":
                 return variant("pick", { ...s.value, fields: s.value.fields.map(p => p.id === fix.id ? { ...p, field: some(fix.field) } : p) });
             case "lookup":

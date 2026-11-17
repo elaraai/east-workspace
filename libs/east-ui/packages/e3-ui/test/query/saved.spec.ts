@@ -67,6 +67,19 @@ describe("Query.value (#1138)", () => {
         assert.ok(equalFor(ArrayType(Query.Types.RootEntry))(saved.get("Sales")!.root, [{ name: "sales", path: orders.path }]));
     });
 
+    test("a query may read .now, the minute it is asked (#1670), which is no data source of its root; a data source named now is what .now reads", () => {
+        const entries = equalFor(ArrayType(Query.Types.RootEntry));
+        const saved = Query.value({ orders }, [{ name: "Asked", jq: ".now as $now | {asked: $now, week_ago: ($now | datetime_add(-7; \"day\")), orders: (.orders | length)}", savedAt: AT }]);
+        assert.ok(entries(saved.get("Asked")!.root, [{ name: "orders", path: orders.path }]), "the minute is no data source");
+        const named = Query.value({ now: orders }, [{ name: "Named", jq: ".now | length", savedAt: AT }]);
+        assert.ok(entries(named.get("Named")!.root, [{ name: "now", path: orders.path }]));
+        assert.throws(
+            () => Query.value({ now: orders }, [{ name: "Clock", jq: ".now | datetime_add(1; \"day\")", savedAt: AT }]),
+            /Query\.value: "Clock" does not check/,
+            "a data source named now is no DateTime",
+        );
+    });
+
     test("a lint is no bar: a query whose only problems are warnings saves, as the builder saves it", () => {
         const saved = Query.value({ orders }, [{ name: "Totals", jq: ".orders | map(.total //= 0.0)", savedAt: AT }]);
         assert.ok(equalFor(Query.Types.SavedQuery.fields.program)(saved.get("Totals")!.program, programOf(".orders | map(.total //= 0.0)")));

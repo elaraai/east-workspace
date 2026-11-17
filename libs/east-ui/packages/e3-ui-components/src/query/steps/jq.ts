@@ -24,6 +24,7 @@ import {
     type EastType,
     type JqNode,
 } from "@elaraai/east";
+import { jqChildren } from "@elaraai/east/internal";
 import type { StepValue } from "./values.js";
 
 /**
@@ -367,6 +368,24 @@ export function readObject(node: JqNode): { key: string; value: JqNode | undefin
         entries.push({ key: entry.key.value, value: entry.value.type === "some" ? entry.value.value : undefined });
     }
     return entries;
+}
+
+/**
+ * Whether a node reads a variable anywhere in it — `$now` in
+ * `.at >= ($now | datetime_add(-7; "day"))` — walked as East's checker walks a
+ * program (`jqChildren`), and an object's `{$now}` key with it.
+ *
+ * @param node - the node
+ * @param name - the variable's name, without its `$`
+ * @returns whether it reads it; a read of a `$name` the node binds itself
+ *   counts too, so a reader that binds it before the node binds one it need
+ *   not, and never misses one it needs
+ */
+export function readsVariable(node: JqNode, name: string): boolean {
+    if (node.type === "variable") return node.value === name;
+    // `{$now}` reads `$now` for the entry's key and value: a key, which `jqChildren` gives no node for.
+    if (node.type === "object" && node.value.some(entry => entry.key.type === "variable" && entry.key.value === name)) return true;
+    return jqChildren(node).some(child => child.node !== undefined && readsVariable(child.node, name));
 }
 
 /**

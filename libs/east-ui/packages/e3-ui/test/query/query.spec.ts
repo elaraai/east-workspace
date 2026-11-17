@@ -28,6 +28,7 @@ describeEast("Query examples (#940)", (test) => {
         queryBuilderModel: ex.queryBuilderModel,
         queryBuilderEmpty: ex.queryBuilderEmpty,
         queryBuilderHistory: ex.queryBuilderHistory,
+        queryBuilderSteps: ex.queryBuilderSteps,
         queryLibrary: ex.queryLibrary,
         queryConflicts: ex.queryConflicts,
     });
@@ -122,5 +123,14 @@ describe("the order history's data and saved queries (#1132)", () => {
         assert.ok(roots(record.get("History revenue by month")!.root, [orderHistory]));
         assert.ok(roots(record.get("History revenue by region")!.root, [orderHistory, accountsEntry]));
         assert.ok(roots(record.get("Credit by region")!.root, [accountsEntry, creditEntry]));
+    });
+});
+
+describe("the sales and their saved query (#1670)", () => {
+    test("its one query reads the sales at their path; .now, the minute it runs, is no data source of its root", () => {
+        const record = ex.salesQueries.default!;
+        assert.deepEqual([...record.keys()], ["Revenue per unit, last 52 weeks"]);
+        const roots = equalFor(ArrayType(Query.Types.RootEntry));
+        assert.ok(roots(record.get("Revenue per unit, last 52 weeks")!.root, [{ name: "sales", path: ex.sales.path }]));
     });
 });

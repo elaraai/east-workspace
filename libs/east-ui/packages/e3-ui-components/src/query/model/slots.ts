@@ -27,8 +27,8 @@ import { defaultTotalName } from "../steps/parse.js";
 import { itemShape, layOutSteps, narrowingOf } from "../steps/print.js";
 import { baseType, singular, unwrapRecursive, type Shape } from "../steps/shape.js";
 import {
-    comparison, freshId, needsValue,
-    type Aggregate, type ComparisonKind, type Condition, type Step, type StepInput, type StepKind, type StepOf, type StepQuery,
+    comparison, freshId, groupFields, groupedBy, lastUnit, needsValue, withGroupField,
+    type Aggregate, type ComparisonKind, type Condition, type LastUnit, type Step, type StepInput, type StepKind, type StepOf, type StepQuery,
     type StepValue, type TestCondition,
 } from "../steps/values.js";
 import { cardsFor, firstEmptySlot } from "./cards.js";
@@ -104,6 +104,9 @@ const ORDERED: readonly FieldKind[] = ["text", "int", "num", "date", "case", "bo
 
 /** How many text values a value slot offers. */
 const TOP_VALUES = 12;
+
+/** The counts an "is in the last" value offers, by its unit (#1670). */
+const LAST_COUNTS: Readonly<Record<LastUnit, readonly number[]>> = { hour: [1, 6, 12, 24], day: [1, 7, 30, 90], week: [1, 2, 4, 12] };
 
 /** Whether an offer matches the text typed. */
 function matches(text: string, ...labels: readonly string[]): boolean {
@@ -236,9 +239,13 @@ function valueItems(place: SlotPlace, test: TestCondition, ctx: SlotContext, tex
     if (field === undefined || cmp === undefined) return withTyped([], text, false, ctx);
     const leaf = leafOf(ctx.summary, field, place.list);
     const rows = (n: bigint): string => m.countRows({ count: f.number(n), rows: rowsWords(place.shape, ctx.words, Number(n)) });
-    const numeric = cmp === "inYear" || cmp === "lengthAtLeast" || ((field.kind === "int" || field.kind === "num") && cmp !== "missing" && cmp !== "present");
+    const unit = lastUnit(cmp);
+    const numeric = cmp === "inYear" || cmp === "lengthAtLeast" || unit !== undefined || ((field.kind === "int" || field.kind === "num") && cmp !== "missing" && cmp !== "present");
     let items: SlotItem[] = [];
-    if (field.kind === "case") {
+    if (unit !== undefined) {
+        // In the last 7 days: a count of the unit, whatever the data (#1670).
+        items = LAST_COUNTS[unit].map(n => ({ value: { kind: "value", value: variant("number", n) }, label: f.bare(n), meta: m.lastUnit({ cmp, n }), group: m.lastGroup(), mono: true }));
+    } else if (field.kind === "case") {
         const counts = leaf?.cases.type === "some" ? leaf.cases.value : [];
         items = (field.cases ?? []).map(c => {
             const n = counts.find(x => x.value === c)?.n;
@@ -268,21 +275,21 @@ function valueItems(place: SlotPlace, test: TestCondition, ctx: SlotContext, tex
     return withTyped(items.filter(i => matches(text, i.label)), text, numeric, ctx);
 }
 
-/** The totals a total's function offers: adding up and averaging only for numbers. */
+/** The totals a total's function offers: adding up, averaging and a ratio only for numbers. */
 function totalItems(field: StepField | undefined, ctx: SlotContext, text: string): SlotItem[] {
     const m = ctx.words.messages;
     const number = field === undefined || field.kind === "int" || field.kind === "num";
-    const fns: TotalName[] = ["sum", "count", "mean", "min", "max", "distinct"];
+    const fns: TotalName[] = ["sum", "count", "mean", "min", "max", "distinct", "ratio"];
     return fns
-        .filter(fn => number || (fn !== "sum" && fn !== "mean"))
+        .filter(fn => number || (fn !== "sum" && fn !== "mean" && fn !== "ratio"))
         .map(fn => ({ value: { kind: "total", fn } as const, label: m.total({ fn }), group: m.totalGroup() }))
         .filter(i => matches(text, i.label));
 }
 
-/** The kinds a total's field takes. */
+/** The kinds a total's field takes: a ratio's, and the field it is per, numbers (#1670). */
 function totalKinds(fn: TotalName): readonly FieldKind[] | undefined {
     switch (fn) {
-        case "sum": case "mean": return ["int", "num"];
+        case "sum": case "mean": case "ratio": return ["int", "num"];
         case "min": case "max": return ["int", "num", "date", "text"];
         default: return undefined;
     }
@@ -460,7 +467,14 @@ export function slotItems(query: StepQuery, root: EastType, slot: SlotRef, text:
             const all: SlotItem[] = matches(text, m.allRowsTogether())
                 ? [{ value: { kind: "all-rows" }, label: m.allRowsTogether(), detail: m.oneRowOfTotals(), group: m.groupGroup() }]
                 : [];
-            return [...all, ...fieldItems(place.before, ctx, text, { kinds: ORDERED, pick: f => f.payload === undefined || f.payload.narrowed })];
+            // One of several fields offers the fields the others are not (#1670).
+            const others = step?.type === "group" && slot.id !== undefined ? groupFields(step.value.by).filter(ref => ref !== slot.id) : [];
+            return [...all, ...fieldItems(place.before, ctx, text, { kinds: ORDERED, exclude: others, pick: f => f.payload === undefined || f.payload.narrowed })];
+        }
+        case "by-add": {
+            // Another field to group by: one the step does not group by yet (#1670).
+            const chosen = step?.type === "group" ? groupFields(step.value.by) : [];
+            return fieldItems(place.before, ctx, text, { kinds: ORDERED, exclude: chosen, pick: f => f.payload === undefined || f.payload.narrowed });
         }
         case "agg-fn": {
             if (step?.type !== "group") return [];
@@ -474,6 +488,9 @@ export function slotItems(query: StepQuery, root: EastType, slot: SlotRef, text:
             const kinds = agg === undefined ? undefined : totalKinds(agg.fn.type);
             return fieldItems(place.before, ctx, text, kinds === undefined ? {} : { kinds });
         }
+        case "agg-per":
+            // The field a ratio is per: a number (#1670).
+            return step?.type === "group" ? fieldItems(place.before, ctx, text, { kinds: totalKinds("ratio") ?? [] }) : [];
         case "sort-field":
             return fieldItems(place.before, ctx, text, { kinds: ORDERED });
         case "dir": {
@@ -587,9 +604,13 @@ function currentValue(query: StepQuery, root: EastType, slot: SlotRef): SlotValu
         case "value": return test?.value.value.type === "some" ? { kind: "value", value: test.value.value.value } : undefined;
         case "key": return step?.type === "lookup" && step.value.key.type === "some" ? { kind: "field", ref: step.value.key.value } : undefined;
         case "dataset": return step?.type === "lookup" && step.value.dataset.type === "some" ? { kind: "dataset", name: step.value.dataset.value } : undefined;
-        case "by":
+        case "by": {
             if (step?.type !== "group" || step.value.by.type === "none") return undefined;
-            return step.value.by.value.type === "all" ? { kind: "all-rows" } : { kind: "field", ref: step.value.by.value.value };
+            const by = step.value.by.value;
+            // One of several fields: the one the slot is (#1670).
+            if (by.type === "fields") return slot.id === undefined ? undefined : { kind: "field", ref: slot.id };
+            return by.type === "all" ? { kind: "all-rows" } : { kind: "field", ref: by.value };
+        }
         case "agg-fn": {
             const agg = step?.type === "group" ? step.value.aggs.find(a => a.id === slot.id) : undefined;
             return agg === undefined ? undefined : { kind: "total", fn: agg.fn.type };
@@ -597,6 +618,10 @@ function currentValue(query: StepQuery, root: EastType, slot: SlotRef): SlotValu
         case "agg-field": {
             const agg = step?.type === "group" ? step.value.aggs.find(a => a.id === slot.id) : undefined;
             return agg?.field.type === "some" ? { kind: "field", ref: agg.field.value } : undefined;
+        }
+        case "agg-per": {
+            const agg = step?.type === "group" ? step.value.aggs.find(a => a.id === slot.id) : undefined;
+            return agg?.fn.type === "ratio" && agg.fn.value.type === "some" ? { kind: "field", ref: agg.fn.value.value } : undefined;
         }
         case "sort-field": case "fill-field": case "drill-field": case "date-field":
             return (step?.type === "sort" || step?.type === "fill" || step?.type === "drill" || step?.type === "datepart") && step.value.field.type === "some"
@@ -690,8 +715,18 @@ function findTest(query: StepQuery, stepId: string, condId: string): TestConditi
     return visit(step.value.conds);
 }
 
-/** Whether a comparison takes a value of its own kind — a year, a month, a count — which another comparison would misread. */
-const OWN_VALUE: ReadonlySet<ComparisonKind> = new Set(["inYear", "inMonth", "lengthAtLeast"]);
+/**
+ * Whether a comparison takes a value of its own kind — a year, a month, a
+ * count of items, a count of hours, days or weeks — which another comparison
+ * would misread; the "is in the last" comparisons read each other's count.
+ */
+const OWN_VALUE: ReadonlySet<ComparisonKind> = new Set(["inYear", "inMonth", "lengthAtLeast", "inLastHours", "inLastDays", "inLastWeeks"]);
+
+/** Whether a value kept from one comparison reads right under another: neither takes its own kind, or both count back from now. */
+function keepsValue(from: ComparisonKind | undefined, to: ComparisonKind): boolean {
+    if (from !== undefined && lastUnit(from) !== undefined && lastUnit(to) !== undefined) return true;
+    return !OWN_VALUE.has(to) && (from === undefined || !OWN_VALUE.has(from));
+}
 
 /** The slot a test opens next: its inner condition's field, or its value, while empty. */
 function nextOfTest(query: StepQuery, stepId: string, condId: string): SlotRef | undefined {
@@ -706,10 +741,21 @@ function nextOfTest(query: StepQuery, stepId: string, condId: string): SlotRef |
     return needsValue(cmp) && test.value.value.type === "none" ? { kind: "value", stepId, condId } : undefined;
 }
 
-/** A total renamed when its name is still the one its function and field give it. */
-function renamed(before: Shape, agg: Aggregate, fn: TotalName, field: string | undefined): string {
-    const was = defaultTotalName(before, agg.fn.type, agg.field.type === "some" ? agg.field.value : undefined);
-    return agg.as === was ? defaultTotalName(before, fn, field) : agg.as;
+/** The field a ratio is per; `undefined` for any other total, and until it is chosen. */
+function perOf(agg: Aggregate): string | undefined {
+    return agg.fn.type === "ratio" && agg.fn.value.type === "some" ? agg.fn.value.value : undefined;
+}
+
+/** A total renamed when its name is still the one its function and fields give it. */
+function renamed(before: Shape, agg: Aggregate, fn: TotalName, field: string | undefined, per?: string): string {
+    const was = defaultTotalName(before, agg.fn.type, agg.field.type === "some" ? agg.field.value : undefined, perOf(agg));
+    return agg.as === was ? defaultTotalName(before, fn, field, per) : agg.as;
+}
+
+/** What a total totals with, as a total's function offer sets it: a ratio keeps the field it is per, when it was one. */
+function totalFn(fn: TotalName, was: Aggregate["fn"]): Aggregate["fn"] {
+    if (fn === "ratio") return variant("ratio", was.type === "ratio" ? was.value : none);
+    return variant(fn, null) as Aggregate["fn"];
 }
 
 /** The name a field shown takes: its own. */
@@ -732,8 +778,12 @@ function shownName(before: Shape, ref: string): string {
  * - A field keeps its comparison and value when its kind matches, and opens
  *   the value, or the inner condition's field for has any where.
  * - A comparison keeps the value unless either side is a year, a month or a
+ *   count — but "is in the last" hours, days and weeks keep each other's
  *   count; has any where gives the condition an inner one, and opens its field.
- * - A total renames itself while its name is its own (`defaultTotalName`).
+ * - A total renames itself while its name is its own (`defaultTotalName`); a
+ *   ratio opens its field, then the field it is per.
+ * - Group by one field of several replaces it in its place; Add field groups
+ *   by one field more (#1670).
  * - A field shown is named by its own name; a date part rewrites a trailing
  *   year, month or weekday in its name.
  * - An added step takes its defaults (`newStep`) and opens its first empty slot.
@@ -775,7 +825,7 @@ export function applySlot(query: StepQuery, slot: SlotRef, item: SlotItem, root:
             if (v.kind !== "cmp" || slot.condId === undefined) return { query };
             const out = updateTest(query, id, slot.condId, t => {
                 const old = t.cmp.type === "some" ? t.cmp.value.type : undefined;
-                const keep = needsValue(v.cmp) && t.value.type === "some" && !OWN_VALUE.has(v.cmp) && (old === undefined || !OWN_VALUE.has(old));
+                const keep = needsValue(v.cmp) && t.value.type === "some" && keepsValue(old, v.cmp);
                 return {
                     ...t,
                     cmp: some(comparison(v.cmp)) as typeof t.cmp,
@@ -796,9 +846,19 @@ export function applySlot(query: StepQuery, slot: SlotRef, item: SlotItem, root:
             return v.kind === "lookup-field" ? { query: mapStep(query, id, "lookup", s => variant("lookup", { ...s.value, fields: [...s.value.fields, v.name] })) } : { query };
         case "by": {
             if (v.kind !== "field" && v.kind !== "all-rows") return { query };
-            const by = v.kind === "all-rows" ? variant("all", null) : variant("field", v.ref);
-            return { query: mapStep(query, id, "group", s => variant("group", { ...s.value, by: some(by) as typeof s.value.by })) };
+            // One of several fields replaced, in its place; all rows together leaves none (#1670).
+            return {
+                query: mapStep(query, id, "group", s => variant("group", {
+                    ...s.value,
+                    by: v.kind === "all-rows" ? some(variant("all", null)) as typeof s.value.by : withGroupField(s.value.by, slot.id, v.ref),
+                })),
+            };
         }
+        case "by-add":
+            // A field more to group by: a step by one field groups by both, in order (#1670).
+            return v.kind === "field"
+                ? { query: mapStep(query, id, "group", s => variant("group", { ...s.value, by: groupedBy([...groupFields(s.value.by), v.ref]) })) }
+                : { query };
         case "agg-fn": {
             if (v.kind !== "total") return { query };
             let open: SlotRef | undefined;
@@ -807,18 +867,39 @@ export function applySlot(query: StepQuery, slot: SlotRef, item: SlotItem, root:
                 aggs: s.value.aggs.map(a => {
                     if (a.id !== slot.id) return a;
                     const field = v.fn === "count" ? none : a.field;
+                    const fn = totalFn(v.fn, a.fn);
+                    // An empty field opens next; then a ratio's field it is per.
                     if (v.fn !== "count" && field.type === "none") open = { kind: "agg-field", stepId: id, id: a.id };
-                    return { ...a, fn: variant(v.fn, null) as Aggregate["fn"], field, as: renamed(before, a, v.fn, field.type === "some" ? field.value : undefined) };
+                    else if (fn.type === "ratio" && fn.value.type === "none") open = { kind: "agg-per", stepId: id, id: a.id };
+                    const per = fn.type === "ratio" && fn.value.type === "some" ? fn.value.value : undefined;
+                    return { ...a, fn, field, as: renamed(before, a, v.fn, field.type === "some" ? field.value : undefined, per) };
                 }),
             }));
             return open === undefined ? { query: out } : { query: out, open };
         }
         case "agg-field": {
             if (v.kind !== "field") return { query };
+            let open: SlotRef | undefined;
+            const out = mapStep(query, id, "group", s => variant("group", {
+                ...s.value,
+                aggs: s.value.aggs.map(a => {
+                    if (a.id !== slot.id) return a;
+                    // A ratio's field it is per opens next, while it is empty.
+                    if (a.fn.type === "ratio" && a.fn.value.type === "none") open = { kind: "agg-per", stepId: id, id: a.id };
+                    return { ...a, field: some(v.ref), as: renamed(before, a, a.fn.type, v.ref, perOf(a)) };
+                }),
+            }));
+            return open === undefined ? { query: out } : { query: out, open };
+        }
+        case "agg-per": {
+            if (v.kind !== "field") return { query };
+            // The field a ratio is per (#1670).
             return {
                 query: mapStep(query, id, "group", s => variant("group", {
                     ...s.value,
-                    aggs: s.value.aggs.map(a => (a.id === slot.id ? { ...a, field: some(v.ref), as: renamed(before, a, a.fn.type, v.ref) } : a)),
+                    aggs: s.value.aggs.map(a => (a.id === slot.id && a.fn.type === "ratio"
+                        ? { ...a, fn: variant("ratio", some(v.ref)), as: renamed(before, a, "ratio", a.field.type === "some" ? a.field.value : undefined, v.ref) }
+                        : a)),
                 })),
             };
         }
@@ -924,8 +1005,8 @@ export function applyInput(query: StepQuery, input: InputRef, raw: string, root:
 }
 
 /**
- * What a × does: a condition or a group, a total, a field shown, or a field
- * a Look up brings in, taken out.
+ * What a × does: a condition or a group, a total, a field shown, a field a
+ * Look up brings in, or a field a group is by, taken out.
  *
  * @param query - the query
  * @param ref - what to take out
@@ -941,6 +1022,9 @@ export function applyRemove(query: StepQuery, ref: RemoveRef): StepQuery {
             return mapStep(query, ref.stepId, "pick", s => variant("pick", { ...s.value, fields: s.value.fields.filter(p => p.id !== ref.id) }));
         case "lookup-field":
             return mapStep(query, ref.stepId, "lookup", s => variant("lookup", { ...s.value, fields: s.value.fields.filter(f => f !== ref.id) }));
+        case "by-field":
+            // A field a group is by taken out: one left groups by it alone (#1670).
+            return mapStep(query, ref.stepId, "group", s => variant("group", { ...s.value, by: groupedBy(groupFields(s.value.by).filter(f => f !== ref.id)) }));
     }
 }
 

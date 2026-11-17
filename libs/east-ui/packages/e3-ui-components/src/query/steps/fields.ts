@@ -176,7 +176,7 @@ const BY_KIND: Readonly<Record<FieldKind, readonly ComparisonKind[]>> = {
     text: ["eq", "ne", "contains", "startsWith"],
     int: ["eq", "ne", "ge", "le", "gt", "lt"],
     num: ["eq", "ne", "ge", "le", "gt", "lt"],
-    date: ["inYear", "inMonth", "onOrAfter", "before"],
+    date: ["inYear", "inMonth", "onOrAfter", "before", "inLastHours", "inLastDays", "inLastWeeks"],
     case: ["eq", "ne"],
     bool: ["yes", "no"],
     list: ["lengthAtLeast", "anyWhere"],

@@ -12,7 +12,9 @@
  * filter, then the page's filters on its source, then the period's window on
  * the source's range field — and answers one struct: `rows`, `groups` (how
  * many there were before the cut) and `n` (how many source rows it read).
- * Zero rows is "no data", never a zero.
+ * Zero rows is "no data", never a zero. A filter that reads `$now` — "in the
+ * last 7 days" — has the program bind `.now as $now` first, the minute it is
+ * asked.
  *
  * A value is answered as the parts that combine — a sum and a count for a
  * mean, the two sums of a ratio — so each program is a grouping or a total
@@ -27,8 +29,9 @@
 
 import { DateTimeType, none, printJq, some, toJSONFor, variant, type EastType, type JqNode, type StructType, type ValueTypeOf } from "@elaraai/east";
 import type { StudioVisualType } from "@elaraai/e3-ui/internal";
-import { pathNode, stringLiteral } from "../steps/jq.js";
-import { SEP } from "../steps/print.js";
+import { NOW_FIELD } from "../one-shot.js";
+import { pathNode, readsVariable, stringLiteral } from "../steps/jq.js";
+import { SEP, bindSegment } from "../steps/print.js";
 import { optionPayload } from "../steps/shape.js";
 
 /** A visual, decoded. */
@@ -109,6 +112,8 @@ export interface VisualAsk {
     readonly values: readonly number[];
     /** The program, in the pipeline layout. */
     readonly program: string;
+    /** Whether it reads `.now`, the minute it is asked (#1670): a filter's "in the last 7 days". Its answer is that minute's. */
+    readonly readsNow: boolean;
 }
 
 /**
@@ -250,9 +255,12 @@ function sortOf(group: Group, first: readonly [number, VisualValue] | undefined)
 
 // ─── Programs ────────────────────────────────────────────────────────────────
 
-/** The stages that read a source's rows and narrow them: its own filter, the page's, and the window. */
-function rowsOf(source: PrintSource, where: readonly JqNode[], window: PrintWindow | undefined): string[] {
-    const stages = [`.${source.key}`];
+/**
+ * The stages that read a source's rows and narrow them: its own filter, the
+ * page's, and the window — after `.now as $now` when a filter reads it.
+ */
+function rowsOf(source: PrintSource, where: readonly JqNode[], window: PrintWindow | undefined, now: boolean): string[] {
+    const stages = [...(now ? [bindSegment(NOW_FIELD)] : []), `.${source.key}`];
     if (source.keyed) stages.push("[.[]]");
     for (const condition of where) stages.push(`map(select(${printJq(condition).text}))`);
     if (window !== undefined && source.range !== undefined) {
@@ -428,6 +436,8 @@ function shapeOf(view: Exclude<View, { type: "slicer" }>): ViewShape | { readonl
  *   window: a day up to a month, a week up to half a year, else a month.
  * - **Records** are a page of {@link VISUAL_RECORDS_PAGE}, from `offset`.
  * - A visual's own filter, then the page's filters, narrow every program.
+ * - **`.now`**: a filter that reads `$now` has every program bind
+ *   `.now as $now` first, and each ask says it reads it (`readsNow`).
  *
  * @example
  * ```ts
@@ -439,6 +449,8 @@ export function printVisual(visual: Visual, source: PrintSource, state: PrintSta
     const view = visual.view;
     if (view.type === "slicer") return { kind: "none" };
     const where = [...(visual.where.type === "some" ? [visual.where.value] : []), ...state.filters];
+    // A filter that reads `$now` has every program read `.now`.
+    const now = where.some(node => readsVariable(node, NOW_FIELD));
     const shape = shapeOf(view);
     if ("records" in shape) {
         const records = shape.records;
@@ -446,9 +458,9 @@ export function printVisual(visual: Visual, source: PrintSource, state: PrintSta
         const fields = [...records.columns, ...(records.sort.type === "some" ? [records.sort.value] : [])];
         const missing = [...new Set(fields.filter(f => fieldType(source.row, f) === undefined))];
         if (missing.length > 0) return { kind: "missing", fields: missing };
-        const program = recordsProgram(rowsOf(source, where, state.window), records.columns,
+        const program = recordsProgram(rowsOf(source, where, state.window, now), records.columns,
             records.sort.type === "some" ? records.sort.value : undefined, records.descending, offset);
-        return { kind: "asks", asks: [{ role: "records", period: "current", values: [], program }] };
+        return { kind: "asks", asks: [{ role: "records", period: "current", values: [], program, readsNow: now }] };
     }
     if (shape.empty.length > 0) return { kind: "empty", wells: shape.empty };
     const missing = [...new Set(shape.fields.filter(f => fieldType(source.row, f) === undefined))];
@@ -471,12 +483,12 @@ export function printVisual(visual: Visual, source: PrintSource, state: PrintSta
     const window = source.range === undefined ? undefined : state.window;
     const asks: VisualAsk[] = [];
     for (const [period, values] of periods) {
-        const rows = rowsOf(source, where, window === undefined ? undefined : periodWindow(window, period));
+        const rows = rowsOf(source, where, window === undefined ? undefined : periodWindow(window, period), now);
         const indexes = values.map(([i]) => i);
         if (shape.groups.length > 0) {
-            asks.push({ role: "groups", period, values: indexes, program: groupedProgram(rows, source, shape.groups, shape.extras, values, VISUAL_GROUP_LIMIT) });
+            asks.push({ role: "groups", period, values: indexes, program: groupedProgram(rows, source, shape.groups, shape.extras, values, VISUAL_GROUP_LIMIT), readsNow: now });
         }
-        if (shape.total) asks.push({ role: "total", period, values: indexes, program: totalProgram(rows, source, values) });
+        if (shape.total) asks.push({ role: "total", period, values: indexes, program: totalProgram(rows, source, values), readsNow: now });
     }
     // A KPI's trend: its value along the trend field, in the current window.
     if (view.type === "kpi" && view.value.trend.type === "some") {
@@ -486,7 +498,8 @@ export function printVisual(visual: Visual, source: PrintSource, state: PrintSta
         };
         asks.push({
             role: "trend", period: "current", values: [0],
-            program: groupedProgram(rowsOf(source, where, window), source, [trend], [], [[0, view.value.value]], VISUAL_GROUP_LIMIT),
+            program: groupedProgram(rowsOf(source, where, window, now), source, [trend], [], [[0, view.value.value]], VISUAL_GROUP_LIMIT),
+            readsNow: now,
         });
     }
     return { kind: "asks", asks };
