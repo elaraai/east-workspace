@@ -824,8 +824,8 @@ async function wouldReadOther(storage: StorageBackend, state: DataflowExecutionS
   const made = state.versionVectors.get(output);
   if (made === undefined) return true;
   const at = await stepTaskCommits(storage, state, taskName, { hold: false });
-  // Deferred: its inputs read a plain input at two values, which the launch
-  // says, once they are decided again
+  // Deferred: nothing says which version of an input it reads, which the
+  // launch says, once it is decided again
   return at.kind === 'deferred' || !sameVersions(at.versions, made);
 }
 

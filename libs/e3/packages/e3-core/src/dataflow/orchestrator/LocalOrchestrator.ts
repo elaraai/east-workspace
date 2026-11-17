@@ -15,7 +15,10 @@
  * the newest. A task that reads several results reads them all as of one
  * commit of each record — the oldest its inputs came from, a newer result
  * read there from the execution cache or made there by a catch-up run — and
- * is deferred only where its inputs read a plain input at two values.
+ * is deferred only where nothing says which version of a root to read: a
+ * plain input read at two values, or a fed record's delivery that was
+ * forgotten or made from other versions than the task's other inputs read
+ * ({@link stepTaskCommits}).
  * Whatever takes its workspace whole — a deploy, a removal, a copy onto it or
  * an export of it — announces itself, and stops it.
  *
@@ -1038,9 +1041,9 @@ export class LocalOrchestrator implements DataflowOrchestrator {
    *
    * After each task completes, and at each wake, it looks for input changes
    * and asks the tasks that read them whether they are due. Each task
-   * launches at the commits its inputs came from, deferred only where they
-   * read a plain input at two values. Execution continues until no task is
-   * due, ready, in flight or catching up.
+   * launches at the commits its inputs came from, deferred only where nothing
+   * says which version of a root it reads ({@link stepTaskCommits}). Execution
+   * continues until no task is due, ready, in flight or catching up.
    */
   private async runExecutionLoop(
     storage: StorageBackend,
@@ -1864,9 +1867,10 @@ export class LocalOrchestrator implements DataflowOrchestrator {
   }
 
   /**
-   * Defers a task whose inputs read a plain input at two values, telling its
-   * caller why once: a task deferred again for the same reason, with no launch
-   * between, is not told again and records no second event.
+   * Defers a task for which nothing says which version of a root to read
+   * ({@link stepTaskCommits}), telling its caller why once: a task deferred
+   * again for the same reason, with no launch between, is not told again and
+   * records no second event.
    */
   private deferTask(execution: RunningExecution, taskName: string, at: Extract<TaskCommits, { kind: 'deferred' }>): void {
     const { state, options } = execution;
