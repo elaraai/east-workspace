@@ -730,7 +730,16 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
 
         const first = await dataflowExecuteLaunch(url, ctx.repoName, 'brief-ws', {}, opts);
         assert.strictEqual(first.type, 'started', 'a start that finds no run in flight begins one');
-        await waitForRunning(url, ctx.repoName, 'brief-ws', opts);
+        // The task has started, on the input as the run found it: the edit
+        // lands while it runs, and its start is behind the cursor the second
+        // start is given
+        await waitFor(async () => {
+          try {
+            return (await dataflowExecutePoll(url, ctx.repoName, 'brief-ws', {}, opts)).events.some((event) => event.type === 'start');
+          } catch {
+            return false; // execution record not created yet
+          }
+        }, 60000);
         const run = (await dataflowExecutePoll(url, ctx.repoName, 'brief-ws', { limit: 0 }, opts)).runId;
 
         // An edit, then the start a view follows it with
