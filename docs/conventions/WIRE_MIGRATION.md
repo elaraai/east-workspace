@@ -1350,10 +1350,14 @@ Each wire changed under this rule, with the kind it is.
   a chip and an event mark (`PlanRunType`, `PlanBucketEventType`,
   `PlanChipType`, `PlanEventMarkType`) each gain `locked`, last: an event
   kind's from its event, a data series' from its item's map, `false` where the
-  map leaves it out. A locked one is drawn with a lock and is not moved,
-  resized, changed or removed, and an optimiser's answer that changes it is
-  refused. Nothing is stored of it: the rule is the application's, over its
-  own rows. A UI value encoded under either type does not decode under the
+  map leaves it out. An event kind as every builder takes it
+  (`ScheduleKindType`, so the Calendar's, the Roster's and the Allocation's
+  kinds too) gains `locked` after `ready`: none, or the kind's rule over
+  entries, one answer each, which the builders' shared recorder asks of the
+  row a gesture finds. A locked event is not moved, resized, changed or
+  removed in any builder, and an optimiser's answer that changes it is
+  refused; a Plan also draws it with a lock. Nothing is stored of it: the rule
+  is the application's, over its own rows. A UI value encoded under either type does not decode under the
   other: packages are re-exported, and the dataflow computes each UI task's
   output again under the new type. A UI task's output is not stored state, so
   no repository upgrade step ships with it.

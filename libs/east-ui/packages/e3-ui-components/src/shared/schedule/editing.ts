@@ -1019,6 +1019,23 @@ export function useScheduleEditing<I extends Item = Item>({
         record(changes: readonly ScheduleChange[], origin: Origin, label: string): boolean {
             // Each kind's events and each record's rows the gesture changes: as it found them, and as it leaves them.
             const touched = new Map<string, Map<string, { before: EntryVersion<ScheduleEntryRef>; after: EntryVersion<ScheduleEntryRef> }>>();
+            /**
+             * Whether an event's kind holds it where it is (#1541, U9): the kind's own `locked`, over the row the
+             * gesture finds of it — in hand already, so no event is read for it. Never for a kind with no rule, a
+             * record a builder writes whole, or an event the gesture finds no row of.
+             */
+            const lockedAt = (part: EditedPart<I>, codec: KindCodecs, id: string, found: EntryVersion<ScheduleEntryRef>): boolean => {
+                const lock = part.kind?.locked;
+                if (lock === undefined || lock.type !== "some") return false;
+                const row = rowOf(found);
+                if (row === undefined) return false;
+                try {
+                    return lock.value([{ id, entry: codec.encodeRow(row) }])[0] === true;
+                } catch (err) {
+                    console.error(`[Schedule] ${part.name}'s lock of ${id} failed; it is taken as not locked:`, err);
+                    return false;
+                }
+            };
             for (const change of changes) {
                 const i = indexOf(change.kind);
                 if (i < 0) return false;
@@ -1040,6 +1057,10 @@ export function useScheduleEditing<I extends Item = Item>({
                 // gesture is recorded. Its session makes no such key (`EditSession.mint`); this holds whoever made it.
                 const creates = ("gesture" in change && change.gesture.type === "create") || ("row" in change && change.created === true);
                 if (creates && at === undefined && before.draft !== undefined) return false;
+                // An event its kind's own rule holds where it is takes no change and is not removed (#1541, U9), whoever
+                // asks — a drag, the keyboard, an inspector, a bulk edit, an optimiser's answer — in every builder:
+                // nothing of the gesture is recorded. Asked once of each event, as the gesture finds it.
+                if (!creates && at === undefined && lockedAt(part, codec, change.id, before)) return false;
                 const now = at?.after ?? before;
                 let row: unknown;
                 if ("remove" in change) {

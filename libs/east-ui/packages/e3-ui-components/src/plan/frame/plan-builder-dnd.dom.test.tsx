@@ -1071,9 +1071,27 @@ describe("an event its kind's `locked` holds where it is (#1541, U9)", () => {
         expect(pending(c)).toBe("1 pending");
         expect(named(bar(c, "J-1003"))).toMatch(/^Event posters, Oct 14, 2026, 07:00/);
         expect(named(bar(c, "J-1004"))).toMatch(/^Course handbook, Oct 19, 2026, 07:00/);
-        // Delete takes the handbook, and leaves the posters where they are.
+        // Delete takes the handbook, and leaves the posters where they are — and selected still: what stayed is what
+        // the pane goes on showing, never a selection let go without a word.
         await press(end.querySelector<HTMLElement>('[data-inspector-action="delete"]')!);
         expect([bar(c, "J-1003") !== null, bar(c, "J-1004")]).toEqual([true, null]);
+        expect(bar(c, "J-1003")!.getAttribute("aria-pressed")).toBe("true");
+        expect(end.querySelector("[data-inspector-locked]")?.textContent).toBe("LockedIt can't be moved, changed or deleted.");
+    });
+
+    test("the Delete key over a selection it is part of takes the others and leaves it selected, where it is", async () => {
+        const { container: c } = await h.mount(ex.planPrintWorks, DRAG);
+        await settle();
+        await select(bar(c, "J-1003")!);
+        await select(bar(c, "J-1004")!, true);
+        await act(async () => { fireEvent.keyDown(bar(c, "J-1004")!, { key: "Delete" }); });
+        await settle();
+        expect([bar(c, "J-1003") !== null, bar(c, "J-1004")]).toEqual([true, null]);
+        expect(bar(c, "J-1003")!.getAttribute("aria-pressed")).toBe("true");
+        // Alone, it takes no Delete: nothing is removed, and it stays selected.
+        await act(async () => { fireEvent.keyDown(bar(c, "J-1003")!, { key: "Delete" }); });
+        await settle();
+        expect([bar(c, "J-1003") !== null, bar(c, "J-1003")!.getAttribute("aria-pressed"), pending(c)]).toEqual([true, "true", "1 pending"]);
     });
 });
 

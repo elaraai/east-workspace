@@ -195,6 +195,21 @@ describe("Schedule.events — Plan's options (PB5)", () => {
         assert.deepEqual(onTheFifth(plain).map((i) => i.locked), [false]);
     });
 
+    test("the kind carries its lock as a check over entries, which a recorder asks of the row it holds: one answer an entry, and none for a kind with no rule (#1541, U9)", async () => {
+        const lockedKind = await built(lockedJobProgram);
+        if (lockedKind.locked.type !== "some") assert.fail("expected the kind's lock");
+        const jobs = await h.read(sx.schedulePrintJobs);
+        const encode = encodeBeast2For(sx.SchedulePrintJob);
+        const j1 = jobs.get("j1")!;
+        // Proposed, it is held by its row; confirmed, it is not; and the catalogue run is held by its key, whatever its row.
+        assert.deepEqual(lockedKind.locked.value([
+            { id: "j1", entry: encode(j1) },
+            { id: "j1", entry: encode({ ...j1, state: variant("confirmed", null) }) },
+            { id: "j2", entry: encode({ ...jobs.get("j2")!, state: variant("confirmed", null) }) },
+        ]), [true, false, true]);
+        assert.equal((await built(jobProgram)).locked.type, "none");
+    });
+
     test("draws its backlog the same way, each row sized by its duration", async () => {
         const read = (await built(jobProgram)).planUnscheduled(...RANGE, NO_DRAFTS, none);
         if (read.type !== "some") assert.fail("expected the backlog");

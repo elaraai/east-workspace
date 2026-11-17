@@ -409,10 +409,13 @@ function PlanFrame({ canvas, root, kinds, landings, library, inspector, hidden, 
         if (action !== undefined && onAction !== undefined) {
             takeKey(event);
             onAction(action);
-        } else if (!event.ctrlKey && !event.metaKey && !event.altKey && (event.key === "Delete" || event.key === "Backspace")
-            && writable && removePlanEvents(selectedEvents, eventEditing)) {
-            takeKey(event);
-            selectEvents?.([]);
+        } else if (!event.ctrlKey && !event.metaKey && !event.altKey && (event.key === "Delete" || event.key === "Backspace") && writable) {
+            // What stays selected is what stayed: an event its kind's lock holds where it is (#1541, U9).
+            const stayed = removePlanEvents(selectedEvents, eventEditing);
+            if (stayed !== undefined) {
+                takeKey(event);
+                selectEvents?.(stayed);
+            }
         }
     }, [onAction, selectedEvents, eventEditing, selectEvents, writable]);
     // A Plan with no control to show — no slice, no search, no group to fold, no overlaps, no editing — draws no toolbar.

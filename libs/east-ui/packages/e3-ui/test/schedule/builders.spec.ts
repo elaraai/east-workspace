@@ -91,6 +91,11 @@ describe("Schedule.events — the builders' roles refused at build (B2)", () => 
             /`hours` returns a Float, the hours a duty counts — and this one returns \.String/);
     });
 
+    test("a `locked` answering another type than a Boolean", () => {
+        assert.throws(() => duties({ shift: "shift", group: "team", locked: (d: { note: unknown }) => d.note }, "none"),
+            /`locked` answers whether the event is held where it is, a Boolean — and this one returns \.String/);
+    });
+
     test("roles of both the Roster and the Allocation on one kind", () => {
         assert.throws(() => duties({ shift: "shift", group: "team", arrival: "task" }, "none"),
             /holds roles of both the Roster \(shift, group\) and the Allocation \(arrival\)/);

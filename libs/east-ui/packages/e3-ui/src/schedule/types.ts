@@ -269,10 +269,10 @@ export const ScheduleDraftsType = DictType(StringType, BlobType);
 export type ScheduleDraftsType = typeof ScheduleDraftsType;
 
 /**
- * One drafted entry, as a kind's `ready` reads it.
+ * One entry as it stands, drafted or not, as a kind's `ready` and its `locked` read it.
  *
  * @property id - The entry's id: its key's text
- * @property entry - The drafted entry, as bytes at the record's entry type
+ * @property entry - The entry, as bytes at the record's entry type
  */
 export const ScheduleReadyEntryType = StructType({ id: StringType, entry: BlobType });
 
@@ -370,6 +370,9 @@ export const ScheduleRolesType = StructType({
  *   (#1039), it reads its backlog alone, never the window, those entries held beside it
  * @property write - Each gesture into its entry's new bytes; `none` for a gesture the kind refuses
  * @property ready - The author's check over drafted entries, one result each
+ * @property locked - The author's lock over entries (#1541, U9), one answer each: whether the kind's rule holds the
+ *   event where it is, over the row a gesture finds — which every builder's recorder asks before it changes or removes
+ *   one. None for a kind with no rule
  * @property editing - The shared session over the record: its entry and key types, and its patch door — its base the record's snapshot, or for a kind read a window at a time (#1199) its revision
  * @property entries - The record read by key, for a kind read a window at a time (#1199); `none` for a kind read whole
  * @property history - The record's commits, newest first
@@ -401,6 +404,7 @@ export const ScheduleKindType = StructType({
     unscheduled: FunctionType([DateTimeType, DateTimeType, ScheduleDraftsType, OptionType(BlobType)], OptionType(ArrayType(ScheduleItemType))),
     write: FunctionType([ArrayType(ScheduleWriteType)], ArrayType(OptionType(BlobType))),
     ready: OptionType(FunctionType([ArrayType(ScheduleReadyEntryType)], ArrayType(EditingReadinessType))),
+    locked: OptionType(FunctionType([ArrayType(ScheduleReadyEntryType)], ArrayType(BooleanType))),
     editing: EditingType,
     entries: OptionType(ScheduleEntriesType),
     history: FunctionType([], OptionType(ArrayType(RecordCommitInfoType))),

@@ -343,9 +343,9 @@ export interface ScheduleEventsBase<K extends EastType, R extends StructType, F 
     /** The app's check on a drafted event: a refusal holds Save, naming the event and the field. */
     ready?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<typeof EditingReadinessType>;
     /**
-     * The app's own lock on one event (#1541, U9): `true` holds it where it is. On a Plan a locked event draws with a
-     * lock, is not moved, resized or removed, shows its form read only, and an optimiser's answer that changes it is
-     * refused, naming it.
+     * The app's own lock on one event (#1541, U9): `true` holds it where it is. In every builder no gesture moves,
+     * resizes, changes or removes a locked event, and an optimiser's answer that changes it is refused, naming it. A
+     * Plan also draws it with a lock, shows its form read only, and says why a gesture on it is refused.
      */
     locked?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<BooleanType>;
     /**
@@ -938,6 +938,10 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
     // The hours a duty counts, reified once and called per row.
     const hoursOf = config.hours === undefined ? undefined : scheduleAccessor(rowType, keyType, FloatType, config.hours,
         (returns) => `${where}: \`hours\` returns a Float, the hours a duty counts — and this one returns ${returns}`);
+    // The app's own lock on an event (#1541, U9), reified once and called per row: by the Plan's item, and by the
+    // check every builder's recorder asks.
+    const lockedOf = config.locked === undefined ? undefined : scheduleAccessor(rowType, keyType, BooleanType, config.locked as never,
+        (returns) => `${where}: \`locked\` answers whether the event is held where it is, a Boolean — and this one returns ${returns}`);
     // The removed verdict, named (#1260) — a plain JS caller would otherwise lose it silently.
     if ("review" in (config as object)) {
         throw new Error(`${where}: \`review\` is removed (#1260) — a Plan approves and rejects nothing: its changes are drafts of its session, saved together`);
@@ -1802,6 +1806,19 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 });
             });
         })();
+        // The author's lock (#1541, U9), one answer per entry, in order, over the row a gesture finds: every builder's
+        // recorder asks it. A rule that throws holds nothing: its event is taken as not locked.
+        const locked = lockedOf === undefined ? undefined : East.function([ArrayType(ScheduleReadyEntryType)], ArrayType(BooleanType), ($, batch) => {
+            const held = $.const(lockedOf);
+            const parse = $.const(keyOf);
+            return batch.map(($2, item) => {
+                const result = $2.let(false, BooleanType);
+                $2.try(($3) => {
+                    $3.assign(result, held(item.entry.decodeBeast(rowType, "v2"), parse(item.id)));
+                }).catch(() => {});
+                return result;
+            });
+        });
         // The shared session over the record (`session.ts`): whole-entry drafts, keyed batches, Save through the
         // patch door; its base the record's snapshot, or for a kind read a window at a time (#1199) its revision.
         const { editing, entries: entriesSeam } = session.build();
@@ -1819,6 +1836,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             unscheduled: seams.unscheduled,
             write,
             ready: ready === undefined ? none : some(ready),
+            locked: locked === undefined ? none : some(locked),
             editing,
             entries: entriesSeam,
             history: session.history,
@@ -2152,6 +2170,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 const planItemOf = once(East.function([EntryRowType], PlanEventItemType, ($, entry) => {
                     const make = $.const(parts.itemOf);
                     const item = $.const(make(entry));
+                    const held = lockedOf === undefined ? undefined : $.const(lockedOf);
                     const row = entry.row;
                     const read = item as unknown as Record<string, ExprType<EastType>>;
                     return East.value({
@@ -2165,8 +2184,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                         }),
                         lane: laneField === undefined ? none : some(fieldOf(row, laneField)),
                         // The app's own lock on it (#1541, U9), read with the event: none where the kind gives no rule.
-                        locked: config.locked === undefined ? false
-                            : East.value(config.locked(row as never, entry.key as never) as SubtypeExprOrValue<BooleanType>, BooleanType),
+                        locked: held === undefined ? false : held(row, entry.key),
                     } as never, PlanEventItemType);
                 })) as unknown as ExprType<FunctionType<[EastType], EastType>>;
                 // One event by its id, the drafts in place, as Plan draws it, and its events and its backlog as Plan draws

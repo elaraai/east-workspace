@@ -631,14 +631,18 @@ function duplicateEvents(events: readonly InspectedEvent[], editing: PlanEventEd
 }
 
 /**
- * Delete: each event, as one transaction.
+ * Delete: each event, as one transaction. What stays selected is what stayed: an event its kind's lock holds where it
+ * is (#1541, U9).
  *
- * @param events - The events
+ * @param events - The events to remove
  * @param editing - The event kinds' editing
  * @param chrome - The canvas's selection commands
+ * @param kept - The selected events left where they are: the locked ones, which the pane goes on showing
  */
-function deleteEvents(events: readonly InspectedEvent[], editing: PlanEventEditing | undefined, chrome: PlanChrome | undefined): void {
-    if (removePlanEvents(events.map(event => event.key), editing, labelOf("Delete", events))) chrome?.selectEvents([]);
+function deleteEvents(events: readonly InspectedEvent[], editing: PlanEventEditing | undefined, chrome: PlanChrome | undefined,
+    kept: readonly InspectedEvent[] = []): void {
+    const stayed = removePlanEvents(events.map(event => event.key), editing, labelOf("Delete", events));
+    if (stayed !== undefined) chrome?.selectEvents([...kept.map((event) => event.key), ...stayed]);
 }
 
 // ============================================================================
@@ -1063,7 +1067,7 @@ function SeveralEvents({ events: selected, kinds, landings, words, styles, chrom
                         {m.inspectorAction({ action: "duplicate" })}
                     </chakra.button>
                     <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} data-inspector-action="delete"
-                        onClick={() => { if (writable) deleteEvents(events, editing, chrome); }}>
+                        onClick={() => { if (writable) deleteEvents(events, editing, chrome, selected.filter((event) => event.item.locked)); }}>
                         {m.inspectorAction({ action: "delete" })}
                     </chakra.button>
                 </Box>

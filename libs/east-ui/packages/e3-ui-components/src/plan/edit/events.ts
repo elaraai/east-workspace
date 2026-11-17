@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { useCallback, useMemo, useRef } from "react";
+import { useMemo } from "react";
 import { parseFor, type ValueTypeOf } from "@elaraai/east";
 import { ScheduleEventRefType, type PlanPayloadType } from "@elaraai/e3-ui/internal";
 import { useScheduleEditing, type ScheduleChange, type ScheduleEditing, type ScheduleEditingArgs, type ScheduleRead } from "../../shared/schedule/editing.js";
@@ -43,31 +43,16 @@ export function planEventLocked(editing: PlanEventEditing | undefined, kind: str
     }
 }
 
-/** Whether a change is to an event that stands already: a new event's first row is none, whatever its kind's `locked` reads of it. */
-function changesStanding(change: ScheduleChange): boolean {
-    if ("created" in change && change.created === true) return false;
-    return !("gesture" in change && change.gesture.type === "create");
-}
-
 /**
  * Adapts the Plan's event projection to the shared record editing history:
  * each kind's events as Plan draws them. A gesture that changes or removes an
- * event its kind's `locked` holds where it is records nothing (#1541, U9) —
- * the one rule every gesture meets, whatever asks: a drag, the keyboard, the
- * inspector, a bulk edit, an optimiser's answer. What draws a locked event
- * says why before it gets here.
+ * event its kind's `locked` holds where it is records nothing (#1541, U9):
+ * the shared recorder's rule, which every builder's gestures meet, asked of
+ * the row it holds. What draws a locked event says why before it gets there.
  */
 export function usePlanEventEditing(args: PlanEventEditingArgs): PlanEventEditing {
     const kinds = useMemo(() => args.kinds.map(kind => ({ ...kind, event: kind.planEvent })), [args.kinds]);
-    const editing = useScheduleEditing({ ...args, kinds });
-    const latest = useRef(editing);
-    latest.current = editing;
-    const record = useCallback<PlanEventEditing["record"]>((changes, origin, label) => {
-        const now = latest.current;
-        if (changes.some((change) => changesStanding(change) && planEventLocked(now, change.kind, change.id))) return false;
-        return now.record(changes, origin, label);
-    }, []);
-    return useMemo(() => ({ ...editing, record }), [editing, record]);
+    return useScheduleEditing({ ...args, kinds });
 }
 
 const parseEventRef = parseFor(ScheduleEventRefType);
@@ -75,22 +60,25 @@ const parseEventRef = parseFor(ScheduleEventRefType);
 /**
  * Removes selected events through their record sessions as one undoable gesture.
  * Both the inspector and keyboard use the event's original record key. An
- * event its kind's `locked` holds where it is stays (#1541, U9): the others go.
+ * event its kind's `locked` holds where it is stays (#1541, U9): the others go,
+ * and those that stayed are what stands selected after.
  *
  * @param keys - The selected elements' printed event references
  * @param editing - The shared event sessions, when the canvas is ready
  * @param label - A specific history label, when the caller has the event titles
- * @returns Whether a removal was recorded; never where every event is locked
+ * @returns The selection that stands once the removal is recorded: the locked events, which stayed, by their keys;
+ *   `undefined` where nothing was removed — every event locked among them — and the selection stands as it was
  */
-export function removePlanEvents(keys: readonly string[], editing: PlanEventEditing | undefined, label?: string): boolean {
-    if (editing === undefined || keys.length === 0) return false;
+export function removePlanEvents(keys: readonly string[], editing: PlanEventEditing | undefined, label?: string): readonly string[] | undefined {
+    if (editing === undefined || keys.length === 0) return undefined;
     const changes: ScheduleChange[] = [];
+    const stayed: string[] = [];
     for (const key of keys) {
         const ref = parseEventRef(key);
-        if (!ref.success) return false;
-        if (planEventLocked(editing, ref.value.kind, ref.value.key)) continue;
+        if (!ref.success) return undefined;
+        if (planEventLocked(editing, ref.value.kind, ref.value.key)) { stayed.push(key); continue; }
         changes.push({ kind: ref.value.kind, id: ref.value.key, remove: true });
     }
-    if (changes.length === 0) return false;
-    return editing.record(changes, "remove", label ?? `Delete ${changes.length} ${changes.length === 1 ? "event" : "events"}`);
+    if (changes.length === 0) return undefined;
+    return editing.record(changes, "remove", label ?? `Delete ${changes.length} ${changes.length === 1 ? "event" : "events"}`) ? stayed : undefined;
 }
