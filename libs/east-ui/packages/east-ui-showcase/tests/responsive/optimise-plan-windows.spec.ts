@@ -86,6 +86,18 @@ test("planOptimiseWindows: a job dragged onto the press that is down, and not sa
     await expect(backlog).toHaveText(/Backlog\s*5/);
     // The call saved nothing: the page has written no record.
     expect(await writes(page)).toBe(0);
+    // During the highlight the legend says `Elara change`: its swatch, then its words 8px on, as the design's legend item
+    // lays them out — never the words hard against the swatch.
+    const legend = frame.locator("[data-frame-slot='footer'] [data-optimise-legend]");
+    await expect(legend).toHaveText(/Elara change/i);
+    const gap = await legend.evaluate((el) => {
+        const swatch = el.querySelector("[data-optimise-swatch]")!.getBoundingClientRect();
+        const words = [...el.childNodes].find((node) => node.nodeType === Node.TEXT_NODE && (node.textContent ?? "").trim() !== "")!;
+        const range = document.createRange();
+        range.selectNodeContents(words);
+        return range.getBoundingClientRect().left - swatch.right;
+    });
+    expect(gap, "the room between the Elara change swatch and its words").toBeCloseTo(8, 0);
 
     // One Undo reverts the answer, the drag standing; Redo brings it back.
     await toolbar.getByRole("button", { name: "Undo", exact: true }).click();
