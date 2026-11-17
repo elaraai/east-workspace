@@ -108,7 +108,7 @@ import {
 } from "@elaraai/east-ui-components";
 import { FrameDrawer } from "@elaraai/east-ui-components/internal";
 import { breachTone } from "../shared/bounds.js";
-import { FOCUS_HOME_PROPS, useFocusHome } from "../shared/focus-home.js";
+import { FOCUS_HOME_PROPS, useFocusHome, viewSubject } from "../shared/focus-home.js";
 import { useFieldAsk } from "../shared/schedule/field-ask.js";
 import { askHiding, hiddenLine, hiddenOf, type RowHidden, type RowHiding, type SourceHiding } from "../shared/schedule/hidden.js";
 import type { HiddenPicks } from "../shared/schedule/hidden-pick.js";
@@ -697,10 +697,12 @@ function stateGroups(props: FlowchartInspectorProps, key: string): { n: number; 
  */
 const FlowchartInspectorDetails = memo(function FlowchartInspectorDetails(props: FlowchartInspectorProps) {
     const styles = useSlotRecipe({ key: "flowchartInspector" })() as Styles;
-    const home = useFocusHome();
+    const view = detailsView({ ...props, styles });
+    // A new subject is shown from the pane's start, its heading in view (#1680's review): its view's key names it.
+    const home = useFocusHome(viewSubject(view));
     return (
         <Box ref={home.ref} css={styles.home} onFocus={home.onFocus} onBlur={home.onBlur} data-inspector-home="">
-            {detailsView({ ...props, styles })}
+            {view}
         </Box>
     );
 });

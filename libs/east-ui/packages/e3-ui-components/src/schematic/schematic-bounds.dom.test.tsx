@@ -14,7 +14,9 @@
  * its hint's own words, and the ring stays. The toolbar's issue pressed puts
  * the keyboard in A04's load — the Inspector, collapsed at Issues, opened at
  * Details first; another rack selected, once A04's rows are read — and so does
- * its line pressed in Issues, the warning's and the refusal's alike.
+ * its line pressed in Issues, the warning's and the refusal's alike. A rack
+ * selected after another's Details were scrolled down shows from the pane's
+ * start (#1680's review).
  */
 
 import { expect, test } from "vitest";
@@ -81,12 +83,8 @@ async function openTab(c: HTMLElement, name: "Details" | "Issues"): Promise<void
     await settle();
 }
 
-/** Types a number field's new value, a key at a time — the shared input writes back on a frame — and commits it with ⏎. */
-async function retypeNumber(c: HTMLElement, key: string, text: string): Promise<void> {
-    await typeNumber(within(field(c, key)).getByRole("spinbutton"), text);
-}
-
-test("a stored load over its most: A04's card wears the warn ring, Issues warns of it and Details says it under the field, holding no Save — another rack's change saves; A04's capacity changed, Save waits, Issues says it among what blocks and the ring stays (#1585)", async () => {
+/** The racks mounted, their cards drawn, each where a press on the canvas hits it. */
+async function mountRacks(): Promise<HTMLElement> {
     const { container: c } = await h.mount(bounded);
     await settle();
     await waitFor(() => expect(card(c, "racks", "A01")).not.toBeNull());
@@ -96,6 +94,16 @@ test("a stored load over its most: A04's card wears the warn ring, Issues warns 
     });
     canvasLayout.hits((px, py) => found.find(([, x, y]) => near(CAM, px, py, x, y))?.[0] ?? (px >= 0 && px < 1080 && py >= 0 && py < 540 ? canvasOf(c) : null));
     fireEvent.pointerEnter(canvasOf(c));
+    return c;
+}
+
+/** Types a number field's new value, a key at a time — the shared input writes back on a frame — and commits it with ⏎. */
+async function retypeNumber(c: HTMLElement, key: string, text: string): Promise<void> {
+    await typeNumber(within(field(c, key)).getByRole("spinbutton"), text);
+}
+
+test("a stored load over its most: A04's card wears the warn ring, Issues warns of it and Details says it under the field, holding no Save — another rack's change saves; A04's capacity changed, Save waits, Issues says it among what blocks and the ring stays (#1585)", async () => {
+    const c = await mountRacks();
     // Stored: A04's card wears the warn ring, and Issues warns of it — nothing blocks.
     await waitFor(() => expect([ringed(c, "A04"), ringed(c, "A03")]).toEqual([true, false]));
     await openTab(c, "Issues");
@@ -121,15 +129,7 @@ test("a stored load over its most: A04's card wears the warn ring, Issues warns 
 });
 
 test("the Inspector collapsed at Issues, the toolbar's issue pressed opens it at Details, as its rail and its tab do, and A04's load takes the keyboard (#1585)", async () => {
-    const { container: c } = await h.mount(bounded);
-    await settle();
-    await waitFor(() => expect(card(c, "racks", "A01")).not.toBeNull());
-    const found = CENTRES.flatMap(([key, x, y]) => {
-        const el = card(c, "racks", key);
-        return el === null ? [] : [[el, x, y] as const];
-    });
-    canvasLayout.hits((px, py) => found.find(([, x, y]) => near(CAM, px, py, x, y))?.[0] ?? (px >= 0 && px < 1080 && py >= 0 && py < 540 ? canvasOf(c) : null));
-    fireEvent.pointerEnter(canvasOf(c));
+    const c = await mountRacks();
     await tap(canvasOf(c), CAM, 13.2, 2.9);
     await settle();
     await retypeNumber(c, "capacity", "14");
@@ -147,15 +147,7 @@ test("the Inspector collapsed at Issues, the toolbar's issue pressed opens it at
 });
 
 test("the issue's line pressed in Issues opens Details with A04's load taking the keyboard, as the toolbar's issue does: the stored load's warning, then — its capacity changed — its refusal", async () => {
-    const { container: c } = await h.mount(bounded);
-    await settle();
-    await waitFor(() => expect(card(c, "racks", "A01")).not.toBeNull());
-    const found = CENTRES.flatMap(([key, x, y]) => {
-        const el = card(c, "racks", key);
-        return el === null ? [] : [[el, x, y] as const];
-    });
-    canvasLayout.hits((px, py) => found.find(([, x, y]) => near(CAM, px, py, x, y))?.[0] ?? (px >= 0 && px < 1080 && py >= 0 && py < 540 ? canvasOf(c) : null));
-    fireEvent.pointerEnter(canvasOf(c));
+    const c = await mountRacks();
     await waitFor(() => expect(ringed(c, "A04")).toBe(true));
     // The line pressed: how it is said, the tab left open, and whether A04's load holds the keyboard.
     const goTo = async () => {
@@ -176,15 +168,7 @@ test("the issue's line pressed in Issues opens Details with A04's load taking th
 });
 
 test("the toolbar's issue pressed while another rack is selected: A04's Details is drawn anew, and its load takes the keyboard once A04's rows are read", async () => {
-    const { container: c } = await h.mount(bounded);
-    await settle();
-    await waitFor(() => expect(card(c, "racks", "A01")).not.toBeNull());
-    const found = CENTRES.flatMap(([key, x, y]) => {
-        const el = card(c, "racks", key);
-        return el === null ? [] : [[el, x, y] as const];
-    });
-    canvasLayout.hits((px, py) => found.find(([, x, y]) => near(CAM, px, py, x, y))?.[0] ?? (px >= 0 && px < 1080 && py >= 0 && py < 540 ? canvasOf(c) : null));
-    fireEvent.pointerEnter(canvasOf(c));
+    const c = await mountRacks();
     await tap(canvasOf(c), CAM, 13.2, 2.9);
     await settle();
     await retypeNumber(c, "capacity", "14");
@@ -196,4 +180,15 @@ test("the toolbar's issue pressed while another rack is selected: A04's Details 
     const load = panel(c).querySelector("[data-inspector-fields='details'] [data-field='kw']");
     expect([panel(c).querySelector("[data-schematic-inspector]")?.getAttribute("data-schematic-inspector"), load?.contains(document.activeElement) === true])
         .toEqual(["item", true]);
+});
+
+test("a rack selected after another rack's Details were scrolled down shows from the pane's start, its heading in view (#1680's review)", async () => {
+    const c = await mountRacks();
+    await tap(canvasOf(c), CAM, 9.6, 2.9);
+    await settle();
+    const body = (): HTMLElement => slot(c, "end").querySelector<HTMLElement>("[data-dock-body]")!;
+    body().scrollTop = 48;
+    await tap(canvasOf(c), CAM, 13.2, 2.9);
+    await settle();
+    expect([panel(c).querySelector("[data-inspector-title]")?.textContent, body().scrollTop]).toEqual(["A04", 0]);
 });

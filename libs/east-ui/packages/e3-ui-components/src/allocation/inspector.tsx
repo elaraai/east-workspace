@@ -65,7 +65,7 @@ import {
     type EditIssue, type FieldFormWords,
 } from "@elaraai/east-ui-components";
 import { Chooser, PlaceholderShape, formatDatePattern } from "@elaraai/east-ui-components/internal";
-import { FOCUS_HOME_PROPS, useFocusHome } from "../shared/focus-home.js";
+import { FOCUS_HOME_PROPS, useFocusHome, viewSubject } from "../shared/focus-home.js";
 import type { PeriodRead } from "../shared/loading.js";
 import { useFieldAsk } from "../shared/schedule/field-ask.js";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
@@ -258,7 +258,9 @@ export function useAllocationInspector(args: InspectorArgs): BuilderFrameDock | 
 
 /** The Details tab, in a region that keeps the keyboard as a control goes with its view, on the heading of the view drawn in its place. */
 function DetailsTab(part: Part) {
-    const home = useFocusHome();
+    // The subject Details show, shown from the pane's start (#1680's review): the drop list while a drag or a pick is on,
+    // which leads them; else the key the selection's view is drawn under, none for the Summary.
+    const home = useFocusHome(part.args.drag.subject !== undefined ? "drop" : viewSubject(selected(part)));
     return <Box ref={home.ref} css={part.styles.root} onFocus={home.onFocus} onBlur={home.onBlur} data-allocation-inspector="details"><Details {...part} /></Box>;
 }
 

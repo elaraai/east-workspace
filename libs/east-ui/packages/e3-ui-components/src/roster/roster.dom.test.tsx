@@ -198,4 +198,12 @@ describe("the inspector keeps the keyboard as a control goes with its view (#139
         expect(focused).not.toBe(document.body);
         expect(heading(focused)).toEqual([true, "N. Ochre", "Added · unsaved"]);
     });
+    test("a new selection's Details open at their head: a proposal selected after a duty's Details were scrolled shows from the pane's start (#1680's review)", async () => {
+        const { container } = await h.mount(ex.rosterWarehouse);
+        await press(assignment(container, "s37"));
+        const body = () => slot(container, "end").querySelector<HTMLElement>("[data-dock-body]")!;
+        body().scrollTop = 48;
+        await press(within(slot(container, "main")).getByRole("button", { name: "N. Ochre" }));
+        expect([within(slot(container, "end")).queryByRole("button", { name: "Accept proposal" }) !== null, body().scrollTop]).toEqual([true, 0]);
+    });
 });

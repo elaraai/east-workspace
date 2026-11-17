@@ -46,3 +46,15 @@ test("Delete on a state in Details keeps the keyboard in the inspector: the focu
     const focused = document.activeElement!;
     expect([focused.hasAttribute("data-focus-home"), focused.closest("[data-flowchart-inspector]")?.getAttribute("data-flowchart-inspector")]).toEqual([true, "flowchart"]);
 });
+
+test("a transition's line in a state's Details opens the transition at its head, never where the state's Details were left scrolled (#1680's review)", async () => {
+    const { container } = await h.mountExample(ex.flowchartDepotEditing);
+    await waitFor(() => expect(container.querySelector('[data-flowchart-node="CH*"]')).not.toBeNull());
+    await act(async () => { fireEvent.click(container.querySelector('[data-flowchart-node="CH*"]')!); });
+    await settle();
+    const body = (): HTMLElement => pane(container).querySelector<HTMLElement>("[data-dock-body]")!;
+    body().scrollTop = 48;
+    await act(async () => { fireEvent.click(panel(container).querySelector<HTMLElement>("[data-inspector-link]")!); });
+    await settle();
+    expect([showing(container), body().scrollTop]).toEqual(["transition", 0]);
+});

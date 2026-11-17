@@ -143,7 +143,10 @@ export function useCalendarInspector(args: InspectorShown): BuilderFrameDock | u
 /** The pane's body: a region that keeps the keyboard as a control goes with its view, and what is selected drawn a moment after what selected it — see the module docs. */
 function InspectorBody({ args, styles }: { args: InspectorShown; styles: CalendarStyles }) {
     const shown = useDeferredValue(args);
-    const home = useFocusHome();
+    // The subject its views show, shown from the pane's start (#1680's review): one event by the key its view is drawn
+    // under, several, or none.
+    const events = shown.selection.ok ? shown.selection.value : [];
+    const home = useFocusHome(events.length === 1 ? eventKey(events[0]!.item) : events.length > 1 ? "several" : null);
     return <Box ref={home.ref} css={styles.root} onFocus={home.onFocus} onBlur={home.onBlur} data-calendar-inspector="">
         <InspectorViews args={shown} styles={styles} />
     </Box>;

@@ -332,8 +332,25 @@ function Details({ props }: { props: Args }) {
  * view drawn in its place (`../shared/focus-home.ts`), never on the page's body.
  */
 function DetailsTab({ props }: { props: Args }) {
-    const home = useFocusHome();
+    // The subject the Details show, shown from the pane's start (#1680's review).
+    const home = useFocusHome(subjectOf(props.selection));
     return <Box ref={home.ref} css={props.styles.root} onFocus={home.onFocus} onBlur={home.onBlur} data-roster-inspector="details"><Details props={props} /></Box>;
+}
+/**
+ * What the Details show, by the view {@link Details} draws for the selection: a slot's — its requirement's too, one view —
+ * a shift's day, a person's week, or the duty, the proposal, the person, the group or the shift by its key.
+ *
+ * @param selection - What is selected
+ * @returns Its subject; `null` for the Summary
+ */
+function subjectOf(selection: Args["selection"]): string | null {
+    if (selection === undefined) return null;
+    switch (selection.type) {
+        case "slot": case "requirement": return `slot:${Number(selection.slot.day)}:${selection.slot.group}:${selection.slot.shift}`;
+        case "shiftDay": return `shiftDay:${selection.shift}:${selection.day}`;
+        case "personWeek": return `personWeek:${selection.key}:${selection.start}`;
+        default: return `${selection.type}:${selection.key}`;
+    }
 }
 /** Inspector structure and headings reuse Plan's slots; no implementation paths appear in the UI. */
 export function useRosterInspector(args: Args): BuilderFrameDock | undefined {
