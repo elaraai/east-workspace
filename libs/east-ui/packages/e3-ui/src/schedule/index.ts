@@ -57,7 +57,7 @@ import {
 } from "./types.js";
 
 export * from "./types.js";
-export { scheduleTemplates, type ScheduleTemplates, type ScheduleTemplatesConfig } from "./templates.js";
+export { scheduleTemplates, type ScheduleCaseTemplatesConfig, type ScheduleTemplateCases, type ScheduleTemplates, type ScheduleTemplatesConfig } from "./templates.js";
 export {
     scheduleEvents,
     type ScheduleAtField, type ScheduleBacklog, type ScheduleCaseOf, type ScheduleDictFloatField, type ScheduleEventKind, type ScheduleEventsBase,

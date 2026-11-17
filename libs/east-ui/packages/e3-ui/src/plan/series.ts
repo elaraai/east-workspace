@@ -148,6 +148,7 @@ import {
     type PlanCollectionItem,
 } from "./reads.js";
 import { planRow, planGutter, normalizeRows, REBASE_ROWS, type PlanRowsInput, type PlanGutterFields } from "./assemble.js";
+import { caseValueOf, holdsCase, variantCasesIn } from "../utils/cases.js";
 import {
     spanKind,
     bucketsKind,
@@ -4678,34 +4679,7 @@ export type PlanTableReads<UC, S, FO, A, CT, CU, CF, CS extends readonly unknown
  * @returns Its cases, or `undefined` where the rows have no such field or it holds no variant
  */
 function variantCasesOf(rowType: EastType, field: string): Record<string, EastType> | undefined {
-    const type = entryFieldsOf(rowType)?.[field] as { type: string; cases?: Record<string, EastType> } | undefined;
-    return type !== undefined && type.type === "Variant" ? type.cases : undefined;
-}
-
-/**
- * Whether an entry holds a case of its variant field.
- *
- * @param node - The entry as an accessor receives it: its node, when the rows nest more of themselves
- * @param field - The variant field
- * @param tag - The case
- * @returns Whether the field holds the case
- */
-function holdsCase(node: ExprType<EastType>, field: string, tag: string): ExprType<BooleanType> {
-    return ((node as unknown as Record<string, ExprType<EastType>>)[field] as unknown as { hasTag: (t: string) => ExprType<BooleanType> }).hasTag(tag);
-}
-
-/**
- * The value of a case an entry's variant field holds: what a kinds case's
- * accessors, and those of a series that names a `case`, are handed after the
- * row and its key.
- *
- * @param node - The entry as an accessor receives it: its node, when the rows nest more of themselves
- * @param field - The variant field
- * @param tag - The case, which the field holds
- * @returns The case's value
- */
-function caseValueOf(node: ExprType<EastType>, field: string, tag: string): ExprType<EastType> {
-    return ((node as unknown as Record<string, ExprType<EastType>>)[field] as unknown as { unwrap: (t: string) => ExprType<EastType> }).unwrap(tag);
+    return variantCasesIn(entryFieldsOf(rowType), field);
 }
 
 /** A function of the row as a series that names a case is given it: the row, its key, and the case's value. */

@@ -20,11 +20,11 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
-    BlobType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, SetType, SortedMap, SortedSet, StringType, StructType, VariantType,
-    compareFor, encodeBeast2For, equalFor, none, some, variant,
+    ArrayType, BlobType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, SetType, SortedMap, SortedSet, StringType, StructType,
+    VariantType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, isTypeEqual, none, printType, some, variant,
 } from "@elaraai/east";
 import { TimeStepType } from "@elaraai/east-ui";
-import { CalendarPayloadType, Plan, PlanPayloadType, Record, Schedule, createCalendarPayload, templateValues } from "@elaraai/e3-ui/internal";
+import { CalendarPayloadType, Plan, PlanPayloadType, Record, Schedule, ScheduleTemplateType, createCalendarPayload, templateValues } from "@elaraai/e3-ui/internal";
 import e3 from "@elaraai/e3";
 import * as sx from "./schedule.examples.js";
 
@@ -295,3 +295,66 @@ describe("a new row's values, where a template may give them: what every kind's 
         assert.ok(valuesEqual(valuesOf(none), own));
     });
 });
+
+describe("Schedule.templates over one record of every kind's presets: `case` names the kind's case of a variant field (#1544)", () => {
+    const JobValues = StructType({ title: StringType, sheets: FloatType });
+    const StopValues = StructType({ title: StringType, kind: VariantType({ plate_change: NullType, service: NullType }) });
+    /** A preset: its name, how long its event runs where it runs any time, and what it gives — a case for each kind. */
+    const Preset = StructType({ name: StringType, hours: FloatType, values: VariantType({ job: JobValues, stop: StopValues }) });
+    const Presets = DictType(StringType, Preset);
+    const presets = new SortedMap([
+        ["brochure", { name: "Brochure run", hours: 6.0, values: variant("job", { title: "Brochure", sheets: 48000.0 }) }],
+        ["plates", { name: "Plate change", hours: 0.0, values: variant("stop", { title: "Plates", kind: variant("plate_change", null) }) }],
+        ["poster", { name: "Poster run", hours: 2.0, values: variant("job", { title: "Poster", sheets: 9000.0 }) }],
+    ], byString);
+    /** A kind's templates as they are listed: each one's key, name and duration, and its values decoded at their type. */
+    const listed = <V extends StructType>(templates: ReturnType<typeof Schedule.templates<StringType, typeof Preset, V>>) => {
+        const items = East.compile(East.function([], ArrayType(ScheduleTemplateType), () => templates.items), [])();
+        const decode = decodeBeast2For(templates.valuesType);
+        return items.map((item) => ({ key: item.key, name: item.name, duration: item.duration, values: decode(item.values) }));
+    };
+
+    test("a kind's templates are the rows holding its case, each accessor handed the case's value after the row and its key", () => {
+        const jobs = Schedule.templates(East.value(presets, Presets), {
+            case: ["values", "job"],
+            name: (preset, _key, job) => East.str`${preset.name}: ${job.title}`,
+            duration: (preset) => variant("hours", preset.hours),
+            values: (_preset, _key, job) => job,
+        });
+        assert.ok(isTypeEqual(jobs.valuesType, JobValues), `its values are the case's: ${printType(jobs.valuesType)}`);
+        assert.equal(jobs.timed, true);
+        const made = listed(jobs);
+        assert.deepEqual(made.map((t) => [t.key, t.name]), [["brochure", "Brochure run: Brochure"], ["poster", "Poster run: Poster"]]);
+        assert.ok(equalFor(JobValues)(made[0]!.values, { title: "Brochure", sheets: 48000.0 }));
+        assert.ok(equalFor(JobValues)(made[1]!.values, { title: "Poster", sheets: 9000.0 }));
+    });
+
+    test("another kind reads its own case of the same record, and none of the first's rows", () => {
+        const stops = Schedule.templates(East.value(presets, Presets), {
+            case: ["values", "stop"], name: (preset) => preset.name, values: (_preset, _key, stop) => stop,
+        });
+        assert.ok(isTypeEqual(stops.valuesType, StopValues));
+        assert.equal(stops.timed, false);
+        const made = listed(stops);
+        assert.deepEqual(made.map((t) => [t.key, t.name]), [["plates", "Plate change"]]);
+        assert.ok(equalFor(StopValues)(made[0]!.values, { title: "Plates", kind: variant("plate_change", null) }));
+    });
+
+    test("refuses a field that holds no variant, and a tag that is no case of it, naming the field and its cases", () => {
+        const rows = East.value(presets, Presets);
+        assert.throws(() => Schedule.templates(rows, { case: ["name", "job"] as never, name: (preset) => preset.name, values: () => East.value({ title: "", sheets: 0.0 }, JobValues) }),
+            /^Error: Schedule\.templates: `case` names "name", which is no variant field of the rows — one record holds every kind's templates in a variant field, a case for each kind: case: \["values", "job"\]$/);
+        assert.throws(() => Schedule.templates(rows, { case: ["values", "shift"] as never, name: (preset) => preset.name, values: () => East.value({ title: "", sheets: 0.0 }, JobValues) }),
+            /^Error: Schedule\.templates: "shift" is no case of "values" \(job, stop\)$/);
+    });
+});
+
+/** Compile-only: what `case` types. */
+export function templateCaseTypes(): void {
+    const Preset = StructType({ name: StringType, values: VariantType({ job: StructType({ title: StringType }), stop: StructType({ code: StringType }) }) });
+    const rows = East.value(new Map(), DictType(StringType, Preset));
+    // The case's value is typed by the case named.
+    Schedule.templates(rows, { case: ["values", "job"], name: (_preset, _key, job) => job.title, values: (_preset, _key, job) => job });
+    // @ts-expect-error — `code` is a field of the stop's case, and the job's has none
+    Schedule.templates(rows, { case: ["values", "job"], name: (_preset, _key, job) => job.code, values: (_preset, _key, job) => job });
+}
