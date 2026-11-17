@@ -182,7 +182,10 @@ export {
 } from './dataset-file.js';
 export { DatasetSourceType, type DatasetSource } from './input.js';
 export { addObject } from './export.js';
-export { indexBuildProgram, buildMutationProgram, migrationProgram, summaryMergeProgram, deltaTargets, indexEntryKeyType, builtIndex, indexMaintenance } from './record-programs.js';
+export {
+  indexBuildProgram, buildMutationProgram, buildLoadProgram, buildLoadMergeProgram, migrationProgram, summaryMergeProgram, deltaTargets, indexEntryKeyType,
+  builtIndex, indexMaintenance,
+} from './record-programs.js';
 export type { IndexMaintenance } from './record-programs.js';
 export type {
   IntervalIndexSpec, AreaIndexSpec, AreaIndexOf, SeriesIndexSpec, SummaryIndexSpec, NestedSeriesIndexSpec, TimeTileOf,
