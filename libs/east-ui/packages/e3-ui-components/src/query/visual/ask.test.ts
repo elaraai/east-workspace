@@ -15,7 +15,7 @@ import { ArrayType, DateTimeType, FloatType, IntegerType, StringType, StructType
 import { Studio } from "@elaraai/e3-ui";
 import type { QueryCall, QuerySplitCall } from "../hooks.js";
 import { createInMemoryQueryCall, createInMemorySourceStatus, createInMemorySplitCall } from "../in-memory-call.js";
-import { AnswerCache } from "../model/summaries.js";
+import { AnswerCache, type KeptResult } from "../model/summaries.js";
 import { queryRoot } from "../one-shot.js";
 import { askProgram, VisualAnswers, VisualAskError, visualValue, type VisualAnswer } from "./ask.js";
 import { printVisual } from "./print.js";
@@ -105,8 +105,10 @@ describe("AnswerCache", () => {
         const two = new AbortController();
         const answers = [cache.ensure(request, NO_HASHES, one.signal), cache.ensure(request, NO_HASHES, two.signal)];
         one.abort();
+        await Promise.resolve();
         expect(given?.aborted).toBe(false);
         two.abort();
+        await Promise.resolve();
         expect(given?.aborted).toBe(true);
         expect(await Promise.all(answers)).toEqual([undefined, undefined]);
 
@@ -118,6 +120,27 @@ describe("AnswerCache", () => {
         await expect(failing.ensure(request, NO_HASHES)).rejects.toThrow("no server");
         await expect(failing.ensure(request, NO_HASHES)).rejects.toThrow("no server");
         expect(tries).toBe(2);
+    });
+
+    it("keeps a run whose last asker stops and asks again in the same turn, as a page drawn again does", async () => {
+        let runs = 0;
+        let given: AbortSignal | undefined;
+        let finish: (result: KeptResult<number>) => void = () => undefined;
+        const cache = new AnswerCache<{ prefix: string; reads: string[] }, number>((_request, signal) => {
+            runs += 1;
+            given = signal;
+            return new Promise((resolve) => { finish = resolve; });
+        });
+        const request = { prefix: ".x", reads: [] };
+        const drawn = new AbortController();
+        void cache.ensure(request, NO_HASHES, drawn.signal);
+        // Drawn again: its effect stops, and starts again at once.
+        drawn.abort();
+        const again = cache.ensure(request, NO_HASHES, new AbortController().signal);
+        await Promise.resolve();
+        expect(given?.aborted).toBe(false);
+        finish({ value: 7, hashes: NO_HASHES });
+        expect([await again, runs]).toEqual([7, 1]);
     });
 });
 
