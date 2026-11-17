@@ -646,8 +646,32 @@ function listed(names: readonly string[]): string {
 }
 
 /**
+ * A root as it was declared: an input's or a record's name, its path's last
+ * field under `.inputs` or `.records`; any other by its keypath.
+ */
+function declaredName(keypath: string): string {
+  const path = parseKeypath(keypath);
+  return path.length === 2 && (sameName(path[0]!.value, 'inputs') || sameName(path[0]!.value, 'records')) ? path[1]!.value : keypath;
+}
+
+/**
  * Why a run deferred a task, as its `[DEFER]` line and the watch's say it:
  * what its inputs disagree on, and what the task runs after.
+ *
+ * @remarks
+ * - `plain`: an input its inputs read at two values, and through what: the
+ *   input itself, said `directly` and first, and the tasks whose results were
+ *   made from it.
+ * - `forgotten`: a fed record's delivery that a rollback, a restore or a
+ *   migration made it forget, and the roots its feed reads that the task
+ *   reads too.
+ * - `carried`: two fed records holding deliveries made from different
+ *   versions of one root.
+ * - `feed`: a fed record read beside the input that feeds it, which has moved
+ *   on since the record's delivery was made from it.
+ *
+ * Inputs and records are named as they were declared; a load as its step in
+ * the run is, `<record>.<source>`.
  *
  * @param reason - The deferral's reason, as the run tells it
  * @returns The words after the task's name
@@ -656,17 +680,29 @@ function listed(names: readonly string[]): string {
  * ```ts
  * describeDeferral({ kind: 'plain', input: '.inputs.rates', through: ['forecast', 'capacity'] });
  * // "input 'rates' is read at two values (through forecast and capacity): it runs once they agree"
+ * describeDeferral({ kind: 'feed', record: '.records.orders', source: 'erp', input: '.inputs.erp_extract' });
+ * // "orders holds a delivery made from an earlier value of input 'erp_extract': it runs once orders.erp loads the new one"
  * ```
  */
 export function describeDeferral(reason: DeferReason): string {
-  // An input is named as it was declared: its path's last field, under `.inputs`
-  const path = parseKeypath(reason.input);
-  const input = path.length === 2 && sameName(path[0]!.value, 'inputs') ? path[1]!.value : reason.input;
-  // The task's inputs that read it: the input itself, said first, and the
-  // tasks whose results were made from it
-  const tasks = reason.through.filter((each) => !sameName(each, reason.input));
-  const how = [...(tasks.length < reason.through.length ? ['directly'] : []), ...(tasks.length > 0 ? [`through ${listed(tasks)}`] : [])];
-  return `input '${input}' is read at two values (${how.join(' and ')}): it runs once they agree`;
+  switch (reason.kind) {
+    case 'plain': {
+      const tasks = reason.through.filter((each) => !sameName(each, reason.input));
+      const how = [...(tasks.length < reason.through.length ? ['directly'] : []), ...(tasks.length > 0 ? [`through ${listed(tasks)}`] : [])];
+      return `input '${declaredName(reason.input)}' is read at two values (${how.join(' and ')}): it runs once they agree`;
+    }
+    case 'forgotten': {
+      const record = declaredName(reason.record);
+      const load = `${record}.${reason.source}`;
+      return `${load}'s delivery was forgotten, so nothing says which ${listed(reason.roots.map(declaredName))} ${record} holds: it runs once ${load} loads again`;
+    }
+    case 'carried':
+      return `${listed(reason.records.map(declaredName))} hold deliveries made from different versions of ${declaredName(reason.root)}: it runs once their loads catch up`;
+    case 'feed': {
+      const record = declaredName(reason.record);
+      return `${record} holds a delivery made from an earlier value of input '${declaredName(reason.input)}': it runs once ${record}.${reason.source} loads the new one`;
+    }
+  }
 }
 
 /**

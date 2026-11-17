@@ -12,7 +12,6 @@
 
 import { StringType, equalFor, variant, printIdentifier } from '@elaraai/east';
 import { type DataRef, type Structure, type VersionVector, type DatasetRef } from '@elaraai/e3-types';
-import { pendingSources } from './record-slots.js';
 import { treeWrite } from './trees.js';
 import type { StorageBackend } from './storage/interfaces.js';
 
@@ -145,6 +144,15 @@ export function refPathToKeypath(refPath: string): string {
   return segments.map(s => '.' + printIdentifier(s)).join('');
 }
 
+/** What a root's ref held when a run read it: its value's hash, and its
+ *  version vector, the slots of a composite record among its entries. */
+export interface RootRead {
+  /** The value's hash: a record's state */
+  readonly hash: string;
+  /** Its version vector */
+  readonly versions: VersionVector;
+}
+
 /**
  * Snapshot all root input version vectors from refs.
  *
@@ -156,10 +164,11 @@ export function refPathToKeypath(refPath: string): string {
  * @param ws - Workspace name
  * @param structure - The workspace's data structure
  * @param taskOutputPaths - Set of keypath strings that are task outputs
- * @param waited - Filled, when given, with the external sources each
- *   composite record waits for at the version read, by its keypath: what the
- *   same read of its ref says, so a run judges a record's wait at the version
- *   it took, not at whatever the record has moved on to since
+ * @param looked - Filled, when given, with what each root's ref held at the
+ *   version read, by its keypath: its hash and its version vector, whose slots
+ *   say what a composite record waits for and what its loads read, so a run
+ *   judges a record at the version it took, not at whatever the record has
+ *   moved on to since
  * @returns Map of keypath -> content hash for all assigned root input datasets
  */
 export async function snapshotInputVersions(
@@ -168,7 +177,7 @@ export async function snapshotInputVersions(
   ws: string,
   structure: Structure,
   taskOutputPaths: Set<string>,
-  waited?: Map<string, readonly string[]>,
+  looked?: Map<string, RootRead>,
 ): Promise<Map<string, string>> {
   const snapshot = new Map<string, string>();
 
@@ -189,8 +198,7 @@ export async function snapshotInputVersions(
       // For plain values the self-entry equals the state hash, so this is a
       // no-op for them.
       snapshot.set(keypath, ref.value.versions.get(keypath) ?? ref.value.hash);
-      const pending = pendingSources(ref.value.versions);
-      if (waited !== undefined && pending.length > 0) waited.set(keypath, pending);
+      looked?.set(keypath, { hash: ref.value.hash, versions: ref.value.versions });
     }
   }
 
@@ -206,7 +214,7 @@ export async function snapshotInputVersions(
  * @param previousSnapshot - Previous snapshot from snapshotInputVersions
  * @param structure - The workspace's data structure
  * @param taskOutputPaths - Set of keypath strings that are task outputs
- * @param waited - Filled, when given, as {@link snapshotInputVersions} fills
+ * @param looked - Filled, when given, as {@link snapshotInputVersions} fills
  *   it, for every root read, changed or not
  * @returns Array of changed inputs with previous and new hashes
  */
@@ -217,10 +225,10 @@ export async function detectInputChanges(
   previousSnapshot: Map<string, string>,
   structure: Structure,
   taskOutputPaths: Set<string>,
-  waited?: Map<string, readonly string[]>,
+  looked?: Map<string, RootRead>,
 ): Promise<Array<{ path: string; previousHash: string | null; newHash: string }>> {
   const changes: Array<{ path: string; previousHash: string | null; newHash: string }> = [];
-  const currentSnapshot = await snapshotInputVersions(storage, repo, ws, structure, taskOutputPaths, waited);
+  const currentSnapshot = await snapshotInputVersions(storage, repo, ws, structure, taskOutputPaths, looked);
 
   // Check for changes in current snapshot vs previous
   for (const [path, newHash] of currentSnapshot) {

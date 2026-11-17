@@ -2395,6 +2395,8 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         delivery: load.delivery,
         load: load.loadHash,
         execution: made,
+        // The feed's versions the delivery was made from: those the node read
+        feed: versions,
         actor: 'system:dataflow',
         signal,
       });

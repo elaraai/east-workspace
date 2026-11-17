@@ -24,12 +24,12 @@ import {
   DateTimeType, StringType, compareFor, encodeBeast2For, equalFor, isTypeValueEqual, none, parseFor, printFor, some, variant,
 } from '@elaraai/east';
 import {
-  RecordLoadArgsType, decodeRecordCommit, decodeRecordLoadObject, loadCommitName, loadCommitSource, pathToString,
+  RecordLoadArgsType, VersionVectorType, decodeRecordCommit, decodeRecordLoadObject, loadCommitName, loadCommitSource, pathToString,
   type LockOperation, type PartitionProgress, type RecordCommit, type RecordLoadArgs, type RecordLoadObject, type RecordLoadProgress,
-  type RecordLoadResult, type RecordSignature,
+  type RecordLoadResult, type RecordSignature, type VersionVector,
 } from '@elaraai/e3-types';
 import { DeltaStoppedError, applyDeltaWhere, summarizeDelta, type DeltaApply, type DeltaArmSummary } from './record-apply.js';
-import { PENDING_SLOT, pendingSources, sourceEntriesIn, sourceLoadSlots, sourceSegments, sourcesSlot } from './record-slots.js';
+import { PENDING_SLOT, executionSlot, pendingSources, sourceEntriesIn, sourceLoadSlots, sourceSegments, sourcesSlot } from './record-slots.js';
 import {
   casBackoffMs, encodeMutationArgs, named, nextVersions, readRecordState, resolveRecord, stateTargets, stateWritten, storeCommit,
   type RecordStateRefs, type ResolvedRecord,
@@ -50,6 +50,8 @@ import type { LockHandle, StorageBackend } from './storage/interfaces.js';
 
 const encodeLoadArgs = encodeBeast2For(RecordLoadArgsType);
 const printTime = printFor(DateTimeType);
+/** A `.feed` slot's text: the feed's version vector, as East prints it. */
+const printVersionVector = printFor(VersionVectorType);
 const parseTime = parseFor(DateTimeType);
 const byTime = compareFor(DateTimeType);
 
@@ -141,6 +143,11 @@ export interface RecordLoadCommitOptions {
   readonly asOf?: Date;
   /** The execution that made the delta, by its inputs' hash and its id. */
   readonly execution: { readonly inputsHash: string; readonly executionId: string };
+  /** For a source the dataflow loads, the version of each root its feed reads
+   *  that the delivery was made from: written to `$load.<source>.feed`, as
+   *  East prints it. None for a delivery `e3 load` sends, which drops the
+   *  slot. */
+  readonly feed?: VersionVector;
   /** Who the commit names. */
   readonly actor: string;
   /** Stops the commit before its next attempt, between two segments of the
@@ -174,8 +181,9 @@ export interface RecordLoadCommitOptions {
  *
  * The commit is named `$load:<source>`, with its delta and its arguments, a
  * {@link RecordLoadArgs}; the ref's slots name the delivery, the load, the
- * commit and the execution, keep the later as-of, and take the source out of
- * the sources the record waits on. Only a ref conflict is retried, with no
+ * commit and the execution, and the versions a fed source's feed was made
+ * from, keep the later as-of, and take the source out of the sources the
+ * record waits on. Only a ref conflict is retried, with no
  * cap: each attempt applies only what landed since the one before. A delta
  * whose program found a key outside its source, or its piece, opens with a
  * conflict entry, and the apply refuses it before anything is written.
@@ -267,7 +275,8 @@ export async function recordLoadCommit(
       [slots.delivery]: options.delivery,
       [slots.load]: options.load,
       [slots.commit]: commitHash,
-      [slots.execution]: `${options.execution.inputsHash}/${options.execution.executionId}`,
+      [slots.execution]: executionSlot(options.execution),
+      [slots.feed]: options.feed === undefined ? undefined : printVersionVector(options.feed),
       ...(asOf !== undefined && { [slots.asOf]: asOf }),
       [PENDING_SLOT]: sourcesSlot(pending.filter((name) => !sameName(name, source))),
     });

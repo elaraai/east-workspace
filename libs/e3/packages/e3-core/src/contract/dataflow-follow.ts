@@ -88,6 +88,17 @@ function gatedRunner(storage: StorageBackend, repo: string, tasks: ReadonlyMap<s
   return new GatedTaskRunner(mock, tasks.keys());
 }
 
+/** Why a task was deferred, as the cases' lines say it: what its inputs
+ *  disagree on, and through what. */
+function deferredFor(reason: DeferReason): string {
+  switch (reason.kind) {
+    case 'plain': return `${reason.input} through ${reason.through.join(', ')}`;
+    case 'forgotten': return `${reason.record} forgot ${reason.source}'s delivery of ${reason.roots.join(', ')}`;
+    case 'carried': return `${reason.records.join(' and ')} carry two versions of ${reason.root}`;
+    case 'feed': return `${reason.record} carries an earlier ${reason.input} through ${reason.source}`;
+  }
+}
+
 /**
  * What a run tells its caller, as lines a command prints them, and a wait for
  * one of them.
@@ -109,7 +120,7 @@ class RunLines {
       : `[${result.state.toUpperCase()}] ${result.name}`),
     onCatchUp: (task: string, forTask: string, phase: CatchUpPhase) =>
       this.say(phase.state === 'started' ? `[CATCH-UP] ${task} for ${forTask}` : `[DONE] ${task} for ${forTask}`),
-    onTaskDeferred: (name: string, reason: DeferReason) => this.say(`[DEFER] ${name}: ${reason.input} through ${reason.through.join(', ')}`),
+    onTaskDeferred: (name: string, reason: DeferReason) => this.say(`[DEFER] ${name}: ${deferredFor(reason)}`),
     onTaskInvalidated: (name, reason) => this.say(`[DUE] ${name}: ${reason}`),
   };
 

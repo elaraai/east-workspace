@@ -28,6 +28,8 @@ import type { StorageBackend } from '../storage/interfaces.js';
 import type { UnitRequeue } from '../execution/interfaces.js';
 import { DataflowError, TaskNotFoundError } from '../errors.js';
 import {
+  UNKNOWN_VERSION,
+  dataflowCarried,
   dataflowGetGraph,
   dataflowGetReadyTasks,
   dataflowGetDependentsToSkip,
@@ -39,19 +41,21 @@ import {
   dataflowSnapshotLooked,
   dataflowSnapshotTaken,
   dataflowCheckCache,
+  feedRoots,
   loadsOf,
   recordCommitOrder,
   taskProducers,
   type ResolveInputsOptions,
 } from '../dataflow.js';
 import { recordSourceRun } from '../record-load.js';
-import { sourceLoadSlots } from '../record-slots.js';
+import { executionSlot, sourceExecution, sourceLoadSlots } from '../record-slots.js';
 import { resolveRecord } from '../records.js';
 import { workspaceSetDatasetByHash } from '../trees.js';
 import {
   inputVersionVector,
   keypathToRefPath,
   snapshotInputVersions,
+  type RootRead,
   detectInputChanges,
   sameVersion,
   sameVersions,
@@ -148,10 +152,10 @@ export async function stepInitialize(
   // Read package structure for input snapshot
   const structure = await getWorkspaceStructure(storage, repo, workspace);
 
-  // Snapshot root input hashes, and what each record waits for at its version
-  const waited = new Map<string, readonly string[]>();
+  // Snapshot root input hashes, and what each root's ref held at its version
+  const looked = new Map<string, RootRead>();
   const inputSnapshotMap = await snapshotInputVersions(
-    storage, repo, workspace, structure, taskOutputPathsSet, waited
+    storage, repo, workspace, structure, taskOutputPathsSet, looked
   );
 
   // Initialize version vectors for root inputs
@@ -204,7 +208,7 @@ export async function stepInitialize(
     events: [] as ExecutionEvent[],
     eventSeq: 0n,
   } as DataflowExecutionState;
-  dataflowSnapshotLooked(state, waited);
+  dataflowSnapshotLooked(state, looked);
 
   // Find initially ready tasks
   const readyTasks = stepGetReady(state);
@@ -518,8 +522,8 @@ export function stepIsComplete(state: DataflowExecutionState): boolean {
  * Reads current root input dataset hashes from storage and compares
  * against the snapshot stored in state. For each change, updates the
  * input snapshot and version vectors, and emits input_changed events. What
- * the look read of each composite record's wait goes with the version it took
- * ({@link dataflowSnapshotLooked}).
+ * the look read of each root's ref — a composite record's wait, and what its
+ * loads read — goes with the version it took ({@link dataflowSnapshotLooked}).
  *
  * @param storage - Storage backend
  * @param state - Execution state to mutate (inputSnapshot, versionVectors)
@@ -536,10 +540,10 @@ export async function stepDetectInputChanges(
   const structure = cachedStructure ?? await getWorkspaceStructure(storage, state.repo, state.workspace);
   const taskOutputPathsSet = new Set(state.taskOutputPaths);
 
-  const waited = new Map<string, readonly string[]>();
+  const looked = new Map<string, RootRead>();
   const changes = await detectInputChanges(
     storage, state.repo, state.workspace,
-    state.inputSnapshot, structure, taskOutputPathsSet, waited
+    state.inputSnapshot, structure, taskOutputPathsSet, looked
   );
 
   const events: ExecutionEvent[] = [];
@@ -568,7 +572,7 @@ export async function stepDetectInputChanges(
     (mutableState.events as ExecutionEvent[]).push(event);
     events.push(event);
   }
-  dataflowSnapshotLooked(state, waited);
+  dataflowSnapshotLooked(state, looked);
 
   return { changes, events };
 }
@@ -593,6 +597,19 @@ export async function stepDetectInputChanges(
  * - **A plain input**: the value its inputs agree on. A plain input keeps no
  *   earlier value to read, so a task whose inputs read one at different
  *   values is deferred until they agree.
+ * - **A root a fed record carries** — one its loads' feeds read, at the
+ *   version each delivery was made from ({@link dataflowCarried}), for a fed
+ *   record the task reads directly: that version, where the task reads the
+ *   record at the commit that carries it. So a task that reads a fed record
+ *   and its feed's upstream reads the upstream as the record's delivery was
+ *   made from it, from the upstream's history.
+ *
+ * Nothing says which version to read, and the task is deferred until a load
+ * commits, saying why: when a record forgot its delivery and another input
+ * names a root its feed reads (`forgotten`); when two fed records carry
+ * different versions of one root (`carried`); and when a fed record carries an
+ * earlier value of a plain input another input reads (`feed`). A task that
+ * reads a fed record alone is never deferred.
  *
  * A reserved slot of a vector, whose key begins `$`, is no root, and is left
  * out.
@@ -621,44 +638,112 @@ export async function stepTaskCommits(
   }
 
   // Each root the task's inputs name, at the version each names it at, with
-  // the input that does: a task by its name, or the root itself
+  // the input that does: a task by its name, or the root itself; and, for a
+  // fed record the task reads directly, each root its loads' feeds read, at
+  // the version the record carries, with the record and the commit carrying it
   const producerOf = taskProducers(graph);
-  const named = new Map<string, Array<{ version: string; through: string }>>();
+  const loads = loadsOf(graph);
+  const named = new Map<string, NamedVersion[]>();
+  const name = (root: string, each: NamedVersion): void => {
+    let names = named.get(root);
+    if (names === undefined) {
+      names = [];
+      named.set(root, names);
+    }
+    names.push(each);
+  };
   for (const inputPath of new Set(task.inputs)) {
-    const through = producerOf.get(inputPath)?.name ?? inputPath;
-    for (const [root, version] of versionRoots(state.versionVectors.get(inputPath) ?? new Map())) {
-      let names = named.get(root);
-      if (names === undefined) {
-        names = [];
-        named.set(root, names);
-      }
-      names.push({ version, through });
+    const producer = producerOf.get(inputPath);
+    const vector = state.versionVectors.get(inputPath) ?? new Map<string, string>();
+    for (const [root, version] of versionRoots(vector)) name(root, { version, through: producer?.name ?? inputPath });
+    const commit = producer === undefined && loads.has(inputPath) ? vector.get(inputPath) : undefined;
+    if (commit === undefined) continue;
+    for (const { source, versions } of dataflowCarried(state, inputPath, commit)) {
+      for (const [root, version] of versionRoots(versions)) name(root, { version, through: inputPath, carrier: { record: inputPath, source, commit } });
     }
   }
 
-  // A plain input read at two values defers the task, whatever its records
-  // are read at. It is found before any commit is asked of the store: the
-  // ask re-references a commit for the task's launch, and a deferred task
-  // launches nothing, however often it is decided again
+  // Why the task is deferred, where it is, is decided for every root before
+  // any commit is asked of the store: the ask re-references a commit for the
+  // task's launch, and a deferred task launches nothing, however often it is
+  // decided again
   const agreed = (names: ReadonlyArray<{ version: string }>): boolean => names.every((each) => sameVersion(each.version, names[0]!.version));
-  const disagreed = [...named].filter(([, names]) => !agreed(names));
-  const records = disagreed.length === 0 ? null : await dataflowRecords(storage, state);
-  for (const [root, names] of disagreed) {
-    if (records!.has(root)) continue;
-    const through = [...new Set(names.map((each) => each.through))];
-    return {
-      kind: 'deferred',
-      reason: { kind: 'plain', input: root, through: [...through.filter((each) => sameInput(each, root)), ...through.filter((each) => !sameInput(each, root))] },
-    };
+  const carriedAt = new Map<string, NamedVersion>();
+  for (const [root, names] of named) {
+    // A delivery its record forgot: nothing says which version of the root it
+    // holds, which matters only where another input names the root
+    if (names.some((each) => sameVersion(each.version, UNKNOWN_VERSION))) {
+      if (names.every((each) => sameVersion(each.version, UNKNOWN_VERSION))) continue;
+      return forgottenDeferral(graph, task, named);
+    }
+    // Two fed records whose deliveries were made from different versions of it
+    const carried = names.filter((each) => each.carrier !== undefined);
+    const distinct = carried.filter((each, at) => carried.findIndex((other) => sameVersion(other.version, each.version)) === at);
+    if (distinct.length > 1) {
+      return { kind: 'deferred', conflictPath: root, reason: { kind: 'carried', records: [distinct[0]!.carrier!.record, distinct[1]!.carrier!.record], root } };
+    }
+    // The workspace's records are read only where two inputs disagree
+    if (!agreed(names) && !(await dataflowRecords(storage, state)).has(root)) {
+      // A fed record carries a value of the input another input has moved on from
+      const fed = carried.find((each) => names.some((other) => other.carrier === undefined && !sameVersion(other.version, each.version)));
+      if (fed !== undefined) {
+        return { kind: 'deferred', conflictPath: root, reason: { kind: 'feed', record: fed.carrier!.record, source: fed.carrier!.source, input: root } };
+      }
+      const through = [...new Set(names.map((each) => each.through))];
+      return {
+        kind: 'deferred',
+        reason: { kind: 'plain', input: root, through: [...through.filter((each) => sameInput(each, root)), ...through.filter((each) => !sameInput(each, root))] },
+      };
+    }
+    if (distinct.length === 1) carriedAt.set(root, distinct[0]!);
   }
 
+  // The task launches: a record its inputs name at several commits is read at
+  // the oldest the store holds. A root a forgotten delivery alone names stays
+  // unknown, its names agreeing
   const versions = new Map<string, string>();
   for (const [root, names] of named) {
     versions.set(root, agreed(names)
       ? names[0]!.version
       : await oldestHeld(storage, state, root, names.map((each) => each.version), options.hold !== false));
   }
+  // A root a fed record carries is read at the version the record's commit
+  // carries, where the task reads the record at that commit
+  for (const [root, carried] of carriedAt) {
+    const { record, commit } = carried.carrier!;
+    const read = versions.get(record);
+    if (read !== undefined && sameVersion(read, commit)) versions.set(root, carried.version);
+  }
   return { kind: 'commits', versions };
+}
+
+/** A root's version, as one input of a task names it: the input, a task by
+ *  its name or the root itself; and, for a version a fed record carries, the
+ *  record, its source and the commit that carries it. */
+interface NamedVersion {
+  readonly version: string;
+  readonly through: string;
+  readonly carrier?: { readonly record: string; readonly source: string; readonly commit: string };
+}
+
+/**
+ * A task deferred for a delivery its record forgot: the record and the source
+ * whose delivery it was, and each root its feed reads that another input of
+ * the task names. The source is one a version names `$unknown` for directly;
+ * or else, for a version the task reads through a result made from such a
+ * record, the first source of the graph whose feed reads the root.
+ */
+function forgottenDeferral(graph: DataflowGraph, task: DataflowGraph['tasks'][number], named: ReadonlyMap<string, readonly NamedVersion[]>): TaskCommits {
+  const roots = [...named]
+    .filter(([, names]) => names.some((each) => sameVersion(each.version, UNKNOWN_VERSION)) && names.some((each) => !sameVersion(each.version, UNKNOWN_VERSION)))
+    .map(([root]) => root);
+  const unknown = [...named.values()].flat().find((each) => each.carrier !== undefined && sameVersion(each.version, UNKNOWN_VERSION))?.carrier;
+  const node = unknown === undefined
+    ? graph.tasks.find((each) => each.load.type === 'some' && each.name !== task.name && feedRoots(graph, each.inputs[0]!).includes(roots[0]!))
+    : undefined;
+  const record = unknown?.record ?? node?.output ?? roots[0]!;
+  const source = unknown?.source ?? (node?.load.type === 'some' ? node.load.value.source : '');
+  return { kind: 'deferred', conflictPath: roots[0]!, reason: { kind: 'forgotten', record, source, roots } };
 }
 
 /**
@@ -799,7 +884,10 @@ function taskDue(state: DataflowExecutionState, taskState: Mutable<TaskState>, r
  * A load node reads its feed, and is due as a task is when its feed moves. It
  * is due too when its record changed and the record's `.execution` slot no
  * longer names the execution the node completed with: a rollback or a restore
- * forgot its delivery, which it loads again. A mutation leaves the slot, and
+ * forgot its delivery, which it loads again. A moved feed asks its record's
+ * readers too, as a change of the record would: while the feed's output is
+ * the record's delivery, the record carries the versions the feed was made
+ * from in the run ({@link stepTaskCommits}). A mutation leaves the slot, and
  * the node, as they are. A failed load node goes back to pending, out of the
  * failed count, once its feed has moved since the launch that failed: a
  * load's failure does not end its run, which loads the feed's next output.
@@ -819,6 +907,12 @@ export async function stepTasksDue(
 }> {
   const graph = getGraph(state);
   const paths = new Set(changed.map((change) => change.path));
+  // A record a moved feed loads is asked too: what it carries of the roots
+  // the feed reads follows the feed's output in the run while that output is
+  // its delivery, so its readers may read them otherwise now
+  for (const node of graph.tasks) {
+    if (node.load.type === 'some' && paths.has(node.inputs[0]!)) paths.add(node.output);
+  }
   const due: string[] = [];
   const events: ExecutionEvent[] = [];
 
@@ -956,8 +1050,7 @@ async function loadForgotten(
   const ref = await storage.datasets.read(state.repo, state.workspace, keypathToRefPath(node.output));
   if (ref === null || ref.type !== 'value') return true;
   const held = ref.value.versions.get(sourceLoadSlots(node.load.value.source).execution);
-  const { inputsHash, executionId } = taskState.execution.value;
-  return held === undefined || !sameObject(held, `${inputsHash}/${executionId}`);
+  return held === undefined || !sameObject(held, executionSlot(taskState.execution.value));
 }
 
 /**
@@ -1154,7 +1247,7 @@ export async function stepPrepareLoad(
   const heldDelivery = held.value.versions.get(slots.delivery);
   const heldLoad = held.value.versions.get(slots.load);
   const loadedBy = heldDelivery !== undefined && heldLoad !== undefined && sameObject(heldDelivery, delivery) && sameObject(heldLoad, loadHash)
-    ? executionNamed(held.value.versions.get(slots.execution))
+    ? sourceExecution(held.value.versions, source)
     : null;
   const base = held.value.versions.get(record.selfKeypath);
 
@@ -1176,13 +1269,6 @@ export async function stepPrepareLoad(
     cached,
     load: { record: { refPath: record.refPath, selfKeypath: record.selfKeypath }, source, loadHash, base, delivery, run, loadedBy },
   };
-}
-
-/** The execution a record's `.execution` slot names, `<inputsHash>/<executionId>`; null for none. */
-function executionNamed(slot: string | undefined): { inputsHash: string; executionId: string } | null {
-  const at = slot === undefined ? -1 : slot.indexOf('/');
-  if (slot === undefined || at <= 0 || at === slot.length - 1) return null;
-  return { inputsHash: slot.slice(0, at), executionId: slot.slice(at + 1) };
 }
 
 /**

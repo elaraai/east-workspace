@@ -143,6 +143,26 @@ describe('a local run\'s lines', () => {
     );
   });
 
+  it('R44, R45 — says why a task that reads a fed record is deferred: a forgotten delivery, two records carrying different versions, an input that moved on', () => {
+    assert.equal(
+      describeDeferral({ kind: 'forgotten', record: '.records.orders', source: 'erp', roots: ['.records.erpOrders'] }),
+      'orders.erp\'s delivery was forgotten, so nothing says which erpOrders orders holds: it runs once orders.erp loads again',
+    );
+    assert.equal(
+      describeDeferral({ kind: 'forgotten', record: '.records.orders', source: 'erp', roots: ['.records.erpOrders', '.inputs.erp_lines'] }),
+      'orders.erp\'s delivery was forgotten, so nothing says which erpOrders and erp_lines orders holds: it runs once orders.erp loads again',
+      'two roots are joined as tasks are',
+    );
+    assert.equal(
+      describeDeferral({ kind: 'carried', records: ['.records.orders', '.records.invoices'], root: '.records.erpOrders' }),
+      'orders and invoices hold deliveries made from different versions of erpOrders: it runs once their loads catch up',
+    );
+    assert.equal(
+      describeDeferral({ kind: 'feed', record: '.records.orders', source: 'erp', input: '.inputs.erp_extract' }),
+      'orders holds a delivery made from an earlier value of input \'erp_extract\': it runs once orders.erp loads the new one',
+    );
+  });
+
   it('R27 — says what a task waits on: a record yet to hear from its sources, once, and the inputs not set, together', (t) => {
     const lines = printedLines(t);
     const run = runCallbacks();

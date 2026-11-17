@@ -19,7 +19,7 @@ import {
   decodeBeast2For, encodeBeast2For, encodeBeast2FenceFor, encodeBeast2SegmentsFor, equalFor, isVariant, openBeast2PagesFor, parseFor, printFor,
   printType, readBeast2Extents, readBeast2Type, segmentKeyTypeOf, toEastTypeValue, variant, type EastType, type EastTypeValue, type ValueTypeOf,
 } from '@elaraai/east';
-import e3, { type PartRunner } from '@elaraai/e3';
+import e3, { type DatasetDef, type PartRunner, type TaskDef } from '@elaraai/e3';
 import {
   COLLECTION_MANIFEST_KIND, encodeCollectionManifest, type CollectionManifestEntry, type ExecutionStatus, type Structure,
 } from '@elaraai/e3-types';
@@ -602,6 +602,65 @@ export function fedOrders(options: { readonly feed?: 'task' | 'packaged'; readon
     erpRows, combineErp, erpExtract, wmsRows, combineWms, orders, forecast,
     pkg: (version = '1.0.0') => e3.package('fed', version, forecast),
   };
+}
+
+/**
+ * A package for the specs of what a fed record carries (the design's §4.6,
+ * §4.9 and §4.10): the ERP's order book kept as a record, `erp_book`, holding
+ * order `SO-1` (Acme, 5) from its deploy, which the mutation `put` writes by
+ * id; `orders`, a composite record whose `erp` source the dataflow loads,
+ * beside its own (`own`, order `P-1`), which the mutation `plan` writes; and
+ * its readers, each saying how many entries it read: the first input's count
+ * times 100, plus the second's.
+ *
+ * As asked, `orders.erp` is fed by:
+ * - `book` (the default): `combine_erp`, a task over `erp_book` that keeps its
+ *   orders of a quantity above 0. `invoices`, a second composite record, is
+ *   fed `erp_book` whole by `combine_inv`. `reconcile` reads `erp_book` and
+ *   `orders`; `audit` reads `orders` and `invoices`.
+ * - `extract`: the input `erp_extract`, which nothing sets until a spec does;
+ *   `check` reads `erp_extract` and `orders`.
+ *
+ * `forecast` reads `orders` alone, and counts its entries.
+ *
+ * @param options - What feeds `orders.erp`
+ * @returns The package (`book`, at `1.0.0`)
+ */
+export function bookFed(options: { readonly feed?: 'book' | 'extract' } = {}) {
+  const erpBook = e3.record('erp_book', ErpDeliveryType, {
+    initial: new Map([['SO-1', { customer: 'Acme', qty: 5n }]]),
+    mutations: (mutation, { state, edit }) => ({
+      put: mutation.edit(East.function([state, StringType, SourcedOrderType, edit], NullType, ($, _book, id, order, edit) => {
+        $(edit.set(id, order));
+      })),
+    }),
+  });
+  const combineErp = e3.task('combine_erp', [erpBook], East.function([ErpDeliveryType], ErpDeliveryType,
+    ($, rows) => rows.filter(($, order) => order.qty.greater(0n))));
+  const combineInv = e3.task('combine_inv', [erpBook], East.function([ErpDeliveryType], ErpDeliveryType, (_$, rows) => rows));
+  const erpExtract = e3.input('erp_extract', ErpDeliveryType);
+  const composite = (name: string, feed: TaskDef<typeof ErpDeliveryType> | DatasetDef<typeof ErpDeliveryType>) => e3.recordComposite(name, SourcedOrderType, {
+    sources: (source) => ({
+      erp: source.load(StringType, feed, loadBook),
+      own: source.mutations(StringType),
+    }),
+    initial: { own: new Map(name === 'orders' ? [['P-1', { customer: 'Birch', qty: 2n }]] : []) },
+    mutations: (mutation, { state, edit }) => ({
+      plan: mutation.edit(East.function([state, StringType, SourcedOrderType, edit], NullType, ($, _orders, id, order, edit) => {
+        $(edit.set(variant('own', id), order));
+      })),
+    }),
+  });
+  const counted = (name: string, first: typeof erpBook | typeof orders, second: typeof orders) => e3.task(name, [first, second],
+    East.function([first.type, second.type], IntegerType, (_$, a, b) => a.size().multiply(100n).add(b.size())));
+  const orders = options.feed === 'extract' ? composite('orders', erpExtract) : composite('orders', combineErp);
+  const forecast = e3.task('forecast', [orders], East.function([orders.type], IntegerType, (_$, held) => held.size()));
+  if (options.feed === 'extract') {
+    return e3.package('book', '1.0.0', forecast, e3.task('check', [erpExtract, orders],
+      East.function([ErpDeliveryType, orders.type], IntegerType, (_$, extract, held) => extract.size().multiply(100n).add(held.size()))));
+  }
+  const invoices = composite('invoices', combineInv);
+  return e3.package('book', '1.0.0', forecast, counted('reconcile', erpBook, orders), counted('audit', orders, invoices));
 }
 
 /**

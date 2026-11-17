@@ -18,23 +18,26 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
-import { StringType, encodeBeast2For, variant, type ValueTypeOf } from '@elaraai/east';
+import { StringType, encodeBeast2For, equalFor, parseFor, printFor, variant, type ValueTypeOf } from '@elaraai/east';
 import e3 from '@elaraai/e3';
-import type { TreePath } from '@elaraai/e3-types';
+import { VersionVectorType, type TreePath } from '@elaraai/e3-types';
+import { dataflowGetGraph } from './dataflow.js';
 import type { OrchestratorStartOptions } from './dataflow/orchestrator/interfaces.js';
-import type { FinalizeResult, InputWait } from './dataflow/types.js';
+import type { DeferReason, FinalizeResult, InputWait } from './dataflow/types.js';
 import { DataflowAbortedError } from './errors.js';
 import type { TaskRunner } from './execution/interfaces.js';
 import { LocalOrchestrator } from './execution/local-orchestrator.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
 import { packageImport } from './package-files.js';
 import { recordHistory, recordMutate, recordSystemCommit } from './records.js';
+import { sourceExecution, sourceLoadSlots } from './record-slots.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { StorageBackend } from './storage/interfaces.js';
 import { workspaceGetDataset, workspaceSetDataset } from './trees.js';
+import { workspaceBundleExport, workspaceBundleImport } from './workspace-bundle.js';
 import { workspaceCreate, workspaceDeploy } from './workspaces.js';
 import {
-  ErpDeliveryType, GatedTaskRunner, SourcedOrderType, createTempDir, createTestRepo, fedOrders, gated, overriding, removeTempDir,
+  ErpDeliveryType, GatedTaskRunner, SourcedOrderType, bookFed, createTempDir, createTestRepo, fedOrders, gated, overriding, removeTempDir,
   removeTestRepo, sourceLoaded, withStores,
 } from './test-helpers.js';
 
@@ -46,7 +49,11 @@ const inputPath = (name: string): TreePath => [variant('field', 'inputs'), varia
 const ERP_ROWS = inputPath('erp_rows');
 const WMS_ROWS = inputPath('wms_rows');
 const ERP_EXTRACT = inputPath('erp_extract');
-const FORECAST: TreePath = [variant('field', 'tasks'), variant('field', 'forecast'), variant('field', 'output')];
+/** A task's output, by the task's name. */
+const outputOf = (task: string): TreePath => [variant('field', 'tasks'), variant('field', task), variant('field', 'output')];
+const FORECAST = outputOf('forecast');
+const parseVersions = parseFor(VersionVectorType);
+const sameVersions = equalFor(VersionVectorType);
 
 type Book = ValueTypeOf<typeof ErpDeliveryType>;
 type Orders = Record<string, readonly [string, bigint]>;
@@ -59,6 +66,16 @@ function waitWords(wait: InputWait): string {
     case 'package': return `package ${wait.input}`;
     case 'pending': return `pending ${wait.input} (${wait.sources.join(', ')})`;
     case 'upstream': return `upstream ${wait.input} (${wait.task})`;
+  }
+}
+
+/** Why a run deferred a task, as the spec's lines say it: the reason's kind, and what it names. */
+function deferWords(reason: DeferReason): string {
+  switch (reason.kind) {
+    case 'plain': return `plain ${reason.input} through ${reason.through.join(', ')}`;
+    case 'forgotten': return `forgotten ${reason.record}.${reason.source} (${reason.roots.join(', ')})`;
+    case 'carried': return `carried ${reason.root} (${reason.records.join(', ')})`;
+    case 'feed': return `feed ${reason.input} (${reason.record}.${reason.source})`;
   }
 }
 
@@ -86,6 +103,8 @@ type StartOptions = Pick<OrchestratorStartOptions, 'force' | 'filter' | 'signal'
   readonly runner?: TaskRunner;
   /** The storage it goes through: the spec's own when omitted */
   readonly storage?: StorageBackend;
+  /** The repository and the workspace it runs: the spec's own when omitted */
+  readonly at?: { readonly repo: string; readonly ws: string };
 };
 
 describe('a source the dataflow loads', () => {
@@ -140,9 +159,9 @@ describe('a source the dataflow loads', () => {
         each.told();
       }
     };
-    const { runner: on = runner, storage: over = storage, ...rest } = options;
+    const { runner: on = runner, storage: over = storage, at = { repo, ws: WS }, ...rest } = options;
     const orchestrator = new LocalOrchestrator();
-    const done = orchestrator.start(over, repo, WS, {
+    const done = orchestrator.start(over, at.repo, at.ws, {
       ...rest,
       runner: on,
       onTaskStart: (name) => tell(`start ${name}`),
@@ -152,6 +171,7 @@ describe('a source the dataflow loads', () => {
       },
       onTaskWaiting: (name, waits) => tell(`wait ${name}: ${waits.map(waitWords).join(', ')}`),
       onTaskInvalidated: (name, reason) => tell(`due ${name}: ${reason}`),
+      onTaskDeferred: (name, reason) => tell(`defer ${name}: ${deferWords(reason)}`),
     }).then((handle) => orchestrator.wait(handle));
     return {
       lines,
@@ -211,6 +231,36 @@ describe('a source the dataflow loads', () => {
       reached: reached.opened,
       allow: (): void => allowed.open(),
     };
+  }
+
+  /** Deploys the book-fed orders, as asked, to the workspace. */
+  async function deployedBook(options: Parameters<typeof bookFed>[0] = {}): Promise<void> {
+    const zip = join(dir, 'book.zip');
+    await e3.export(bookFed(options), zip);
+    await packageImport(storage, repo, zip);
+    await workspaceCreate(storage, repo, WS);
+    await workspaceDeploy(storage, repo, WS, 'book', '1.0.0', { runner });
+  }
+
+  /** A workspace of the book-fed orders, its first run done: each fed source has delivered once, from the book's `SO-1`. */
+  async function loadedBook(): Promise<void> {
+    await deployedBook();
+    const { result, told } = await run();
+    assert.equal(result.success, true, told);
+  }
+
+  /** Writes an order into the ERP's book, as the ERP's own feed would. */
+  async function putBook(id: string, customer: string, qty: bigint): Promise<void> {
+    const put = await recordMutate(storage, runner, repo, WS, 'erp_book', 'put',
+      [encodeBeast2For(StringType)(id), encodeBeast2For(SourcedOrderType)({ customer, qty })], { actor: 'erp:feed' });
+    assert.equal(put.kind, 'committed');
+  }
+
+  /** A record's ref: its hash and its version vector. */
+  async function refOf(record: string, over: StorageBackend = storage, at = { repo, ws: WS }): Promise<{ hash: string; versions: Map<string, string> }> {
+    const ref = await over.datasets.read(at.repo, at.ws, `records/${record}`);
+    if (ref === null || ref.type !== 'value') assert.fail(`record ${record} holds no state`);
+    return ref.value;
   }
 
   /** A workspace whose ERP has delivered once, `SO-1`, by a run, beside the warehouse's `W-1`. */
@@ -507,5 +557,140 @@ describe('a source the dataflow loads', () => {
       `run once, past the slots; the warehouse's commit since leaves the ERP's delivery held\n${told}`);
     assert.deepEqual(await loads(), ['$load:wms cli:test', '$load:erp system:dataflow', '$load:wms cli:test'], 'the ERP\'s delta changed nothing: no commit');
     assert.equal(await workspaceGetDataset(storage, repo, WS, FORECAST), 4n, 'forecast ran on the warehouse\'s delivery');
+  });
+
+  it('R29 — a fed load\'s commit names the versions its feed was made from, as East prints them; a delivery `e3 load` sent names none', async () => {
+    await loadedOnce();
+    const { versions } = await refOf('orders');
+    const rows = await storage.datasets.read(repo, WS, 'inputs/erp_rows');
+    if (rows === null || rows.type !== 'value') assert.fail('erp_rows holds no value');
+    const feed = new Map([['.inputs.erp_rows', rows.value.hash]]);
+    const slot = versions.get(sourceLoadSlots('erp').feed);
+    assert.equal(slot, printFor(VersionVectorType)(feed), 'printed through East');
+    const read = parseVersions(slot ?? '');
+    assert.ok(read.success && sameVersions(read.value, feed), 'and read back through East');
+    assert.equal(versions.get(sourceLoadSlots('wms').feed), undefined, 'the warehouse\'s delivery came from no feed');
+  });
+
+  it('R42 — a task that reads a fed record and its feed\'s upstream reads the upstream as the record\'s delivery was made from it, while the load runs, and again once it commits', async () => {
+    await loadedBook();
+    await save('P-2', 'Dane', 1n);
+    await putBook('SO-2', 'Birch', 4n);
+
+    const gate = new GatedTaskRunner(runner, ['orders.erp']);
+    const running = start({ runner: gate });
+    await gate.launched('orders.erp');
+    await running.until('done reconcile');
+    // The book is read where orders' ERP entries came from: one order, beside orders' three
+    assert.equal(await workspaceGetDataset(storage, repo, WS, outputOf('reconcile')), 103n, running.lines.join('\n'));
+    releaseAll(gate, 'orders.erp');
+    const result = await running.done;
+    const told = running.lines.join('\n');
+
+    assert.equal(result.success, true, told);
+    assert.equal(count(running.lines, 'done reconcile'), 2, told);
+    assert.equal(await workspaceGetDataset(storage, repo, WS, outputOf('reconcile')), 204n, 'the book\'s two orders, beside orders\' four, once the load committed');
+  });
+
+  it('carries the versions the feed was made from in the run while its output is the record\'s delivery: a reader of the record and the feed\'s upstream reads the upstream as it is now', async () => {
+    await loadedBook();
+    // An order the ERP's feed leaves out: the book moves, and the delivery stays as it was
+    await putBook('SO-0', 'Nobody', 0n);
+    const { result, lines, told } = await run();
+
+    assert.equal(result.success, true, told);
+    assert.ok(lines.includes('cached orders.erp') && !lines.includes('start orders.erp'), told);
+    assert.deepEqual((await loads()).filter((each) => each.startsWith('$load:erp')), ['$load:erp system:dataflow'], 'no second load');
+    assert.equal(await workspaceGetDataset(storage, repo, WS, outputOf('reconcile')), 202n, `the book as it is now, beside orders\n${told}`);
+  });
+
+  it('R44 — a rollback that forgets a fed delivery defers a reader of the record and its feed\'s upstream until the load commits again, saying so; a reader of the record alone runs on it', async () => {
+    await loadedBook();
+    await putBook('SO-2', 'Birch', 4n);
+    await run();
+    const history = (await recordHistory(storage, repo, WS, 'orders')).filter(({ commit }) => commit.mutation === '$load:erp');
+    const first = history.at(-1)!.hash;
+    const rolled = await recordSystemCommit(storage, runner, repo, WS, 'orders', { name: '$rollback', target: { commit: first }, actor: 'ops@example.com' });
+    assert.equal(rolled.kind, 'committed');
+
+    // The load runs again, its work from the cache, and its commit's write is held
+    const held = holdingOrders('writeIf');
+    held.arm();
+    const running = start({ storage: held.storage });
+    await held.reached;
+    await running.until('defer reconcile: forgotten .records.orders.erp (.records.erp_book)');
+    // forecast reads orders alone, as the rollback left it: as it stood after the first load
+    await running.until('cached forecast');
+    held.allow();
+    const result = await running.done;
+    const { lines } = running;
+    const told = lines.join('\n');
+
+    assert.equal(result.success, true, told);
+    assert.equal(count(lines, 'defer reconcile: forgotten .records.orders.erp (.records.erp_book)'), 1, `told once\n${told}`);
+    assert.ok(lines.includes('start orders.erp') && lines.includes('cached orders.erp'), `the load ran again, from the cache\n${told}`);
+    assert.ok(lines.indexOf('cached forecast') < lines.indexOf('cached orders.erp'), 'forecast ran on orders as the rollback left it');
+    const reconciled = Math.max(lines.lastIndexOf('done reconcile'), lines.lastIndexOf('cached reconcile'));
+    assert.ok(lines.indexOf('cached orders.erp') < reconciled, `reconcile ran once the load committed\n${told}`);
+    assert.equal(await workspaceGetDataset(storage, repo, WS, outputOf('reconcile')), 203n);
+  });
+
+  it('R45 — two fed records carrying different versions of one upstream defer their reader until the loads catch up, saying so', async () => {
+    await loadedBook();
+    await putBook('SO-2', 'Birch', 4n);
+
+    const gate = new GatedTaskRunner(runner, ['orders.erp']);
+    const running = start({ runner: gate });
+    await gate.launched('orders.erp');
+    await running.until('defer audit: carried .records.erp_book (.records.orders, .records.invoices)');
+    releaseAll(gate, 'orders.erp');
+    const result = await running.done;
+    const told = running.lines.join('\n');
+
+    assert.equal(result.success, true, told);
+    assert.ok(running.lines.indexOf('done orders.erp') < running.lines.lastIndexOf('done audit'), told);
+    assert.equal(await workspaceGetDataset(storage, repo, WS, outputOf('audit')), 302n, 'orders\' three, beside invoices\' two');
+  });
+
+  it('R45 — a fed record read beside the input that feeds it defers its reader once the input moved, until the load commits the new value, saying so', async () => {
+    await deployedBook({ feed: 'extract' });
+    await setRows(ERP_EXTRACT, { 'SO-1': ['Acme', 5n] });
+    const first = await run();
+    assert.equal(first.result.success, true, first.told);
+    await setRows(ERP_EXTRACT, { 'SO-1': ['Acme', 5n], 'SO-2': ['Birch', 4n] });
+
+    const gate = new GatedTaskRunner(runner, ['orders.erp']);
+    const running = start({ runner: gate });
+    await gate.launched('orders.erp');
+    await running.until('defer check: feed .inputs.erp_extract (.records.orders.erp)');
+    releaseAll(gate, 'orders.erp');
+    const result = await running.done;
+    const told = running.lines.join('\n');
+
+    assert.equal(result.success, true, told);
+    assert.equal(await workspaceGetDataset(storage, repo, WS, outputOf('check')), 203n, 'the input\'s two orders, beside orders\' three');
+  });
+
+  it('F45 — a workspace made from a bundle holds each fed load\'s execution its record names, and answers its loads [CACHED]', async () => {
+    await loadedOnce();
+    const into = createTestRepo();
+    try {
+      const made = new LocalStorage();
+      const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+      await Promise.all([workspaceBundleExport(storage, repo, WS, writable), workspaceBundleImport(made, into, 'copy', readable)]);
+      const at = { repo: into, ws: 'copy' };
+
+      const node = (await dataflowGetGraph(made, into, 'copy')).tasks.find((task) => task.name === 'orders.erp')!;
+      const execution = sourceExecution((await refOf('orders', made, at)).versions, 'erp');
+      assert.ok(execution !== null, 'the record names its load\'s execution');
+      const status = await made.refs.executionGet(into, node.hash, execution.inputsHash, execution.executionId);
+      assert.equal(status?.type, 'success', 'and the bundle carried it');
+
+      const { result, lines, told } = await run({ storage: made, runner: new LocalTaskRunner(into), at });
+      assert.equal(result.success, true, told);
+      assert.ok(lines.includes('cached orders.erp') && !lines.includes('start orders.erp'), told);
+    } finally {
+      removeTestRepo(into);
+    }
   });
 });

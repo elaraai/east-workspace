@@ -162,7 +162,18 @@ export type DeferReason =
   /** A plain input the task's inputs read at different values: `through`
    *  names those inputs, each a task by its name, or the input's own keypath
    *  where the task reads it directly, which comes first */
-  { kind: 'plain'; input: string; through: string[] };
+  | { kind: 'plain'; input: string; through: string[] }
+  /** A fed record, by its keypath, whose delivery from `source` a rollback, a
+   *  restore or a migration made it forget, so nothing says which versions of
+   *  the roots its feed reads it holds: `roots` names those another input of
+   *  the task names */
+  | { kind: 'forgotten'; record: string; source: string; roots: string[] }
+  /** Two fed records, by their keypaths, holding deliveries made from
+   *  different versions of one root */
+  | { kind: 'carried'; records: [string, string]; root: string }
+  /** A fed record, by its keypath, read beside the plain input that feeds its
+   *  source, which has moved on from the value its delivery was made from */
+  | { kind: 'feed'; record: string; source: string; input: string };
 
 /**
  * What stepTaskCommits answers: the version of each root the task reads —
