@@ -554,6 +554,58 @@ test.describe("Plan links focus (#818, #1258)", { tag: "@desktop" }, () => {
         await expect(hit("covers")).toHaveCount(1);
     });
 
+    test("planEventLinks: with Connect held, a drag from a job to another draws its line out of the job's end and into the other's start, inside the plot; the drop draws the flow, which Undo takes back (#1541, U10)", async ({ page }) => {
+        await page.setViewportSize({ width: 1280, height: 800 });
+        const entry = await openExample(page, "planEventLinks", PLAN_EVENT_EXAMPLES);
+        const frame = entry.locator("[data-builder-frame]").first();
+        // The tools show while the flows are bound with their patch door: Select until the viewer picks.
+        const tools = frame.getByRole("radiogroup", { name: "Tools" });
+        await expect(tools.getByRole("radio", { name: "Select" })).toHaveAttribute("aria-checked", "true");
+        await tools.getByRole("radio", { name: "Connect" }).click();
+        await expect(tools.getByRole("radio", { name: "Connect" })).toHaveAttribute("aria-checked", "true");
+        const keys = { from: linkKey("job", "J-2001"), onto: linkKey("job", "J-2005") };
+        const bar = (row: string, key: string) => entry.locator(`${row} [data-run=${JSON.stringify(key)}]`);
+        const from = (await bar(rowSel("presses", "a1"), keys.from).boundingBox())!;
+        const onto = (await bar(rowSel("presses", "a2"), keys.onto).boundingBox())!;
+        // A press on Catalogue covers, carried past the drag's threshold and onto Menu cards, a row below and later.
+        await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(from.x + from.width / 2 + 8, from.y + from.height / 2, { steps: 2 });
+        await page.mouse.move(onto.x + onto.width / 2, onto.y + onto.height / 2, { steps: 6 });
+        const line = () => entry.evaluate((root, { from, onto }) => {
+            const layer = root.querySelector("[data-plan-connect]");
+            const band = layer?.querySelector<SVGPathElement>("[data-plan-link-preview] [data-plan-ribbon-band]");
+            const head = layer?.querySelector<SVGGraphicsElement>("[data-plan-link-preview] [data-plan-ribbon-head]");
+            if (layer === null || layer === undefined || band === null || band === undefined || head === null || head === undefined) return "no line";
+            const boxOf = (key: string) => root.querySelector(`[data-run=${JSON.stringify(key)}]`)!.getBoundingClientRect();
+            const source = boxOf(from), target = boxOf(onto);
+            const plot = root.querySelector("[data-plan-row] [data-plan-plot]")!.getBoundingClientRect();
+            const start = band.getPointAtLength(0).matrixTransform(band.getScreenCTM()!);
+            const tip = head.getBoundingClientRect();
+            const box = band.getBoundingClientRect();
+            const near = (a: number, b: number) => Math.abs(a - b) <= 1.5;
+            return {
+                snapped: layer.getAttribute("data-plan-connect"),
+                // Out of the job's end, within its height; into the other's start, within its height.
+                leaves: near(start.x, source.right) && start.y >= source.top && start.y <= source.bottom,
+                arrives: near(tip.right, target.left) && tip.top >= target.top - 0.5 && tip.bottom <= target.bottom + 0.5,
+                inside: box.left >= plot.left - 0.5 && box.right <= plot.right + 0.5,
+                inked: getComputedStyle(band).stroke !== "none" && Number.parseFloat(getComputedStyle(band).strokeWidth) === 3,
+            };
+        }, keys);
+        await expect.poll(line).toEqual({ snapped: "snapped", leaves: true, arrives: true, inside: true, inked: true });
+        // The ghost names the link it would draw.
+        await expect(page.locator("[data-drag-caption]")).toHaveText("Flow · Catalogue covers → Menu cards");
+        await page.mouse.up();
+        await expect(entry.locator("[data-plan-connect] [data-plan-link-preview]")).toHaveCount(0);
+        // The flow is a draft, and the job is where it was: Undo takes the flow back, and nothing else stands to undo.
+        await expect(bar(rowSel("presses", "a1"), keys.from)).toHaveCount(1);
+        const undo = frame.getByRole("button", { name: "Undo", exact: true });
+        await expect(undo).toBeEnabled();
+        await undo.click();
+        await expect(undo).toBeDisabled();
+    });
+
     test("planTargetState: the focus band is 32 tall, its link and caption 20 in from its ends; each family row's Tag is 20 tall and the focused row has none; a lone unrelated row is an 11 rail and each run of hidden rows one 22 gap band", async ({ page }) => {
         const entry = await focusLinks(page, FOCUSES[0], 1280);
         const read = await entry.evaluate((root) => {
