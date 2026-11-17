@@ -254,7 +254,7 @@ export function indexRows(rows: ReadonlyArray<PlanRowValue>): PlanRowIndex {
 /** One visible line of the canvas body. */
 export interface VisibleRow {
     row: PlanRowValue;
-    /** Nesting depth (drives the 16px/level gutter indent). */
+    /** Nesting depth (drives the 8px/level gutter indent). */
     depth: number;
     /** For group strips / nesting parents: whether the subtree is collapsed. */
     collapsed: boolean;

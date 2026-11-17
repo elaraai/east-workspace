@@ -8,7 +8,7 @@
  * one two-column grid — the fixed gutter cell and a plot of `n` buckets — so
  * every kind aligns by construction. The shell renders the gutter identity
  * vocabulary (name / id / sub / value / meta / swatches / status dot / caret,
- * one grid of fixed cells, a 16px indent per level), the plot's bucket grid
+ * one grid of fixed cells, an 8px indent per level), the plot's bucket grid
  * lines, and the shared now / cursor hairlines; the kind renderer supplies the
  * plot content.
  *
@@ -46,9 +46,9 @@ import { laneBand, laneIndexAt, type LaneBand } from "./lanes.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
-/** Indent per nesting level (px, #1680's review): every line has its caret's
- *  cell, so a member's name starts 16 past its group's, whatever it holds. */
-export const INDENT_PX = 16;
+/** Indent per nesting level (px, #1680's review): a row that folds has its
+ *  caret's cell, a leaf none, so a leaf's name starts at its level's indent. */
+export const INDENT_PX = 8;
 
 /** A laned row's lane, as its gutter line draws it (#1680's review): its caption, and where it sits down the row. */
 export interface PlanGutterLane {
@@ -586,11 +586,11 @@ export function RowShell({
     }, [dropRef]);
 
     // ── The gutter line (§3; #1680's review) ──────────────────────────────
-    // One grid with fixed slots, every one of them on every row: the caret's
-    // cell (empty on a leaf), the name — the label, then the meta inline —
-    // the value, the status dot, and the two control slots, links then
-    // expand. So every name starts at one x, and every value, dot and control
-    // stands at one x, down the canvas; only the name gives way.
+    // One grid with fixed slots: the caret's cell on a row that folds — a leaf
+    // has none, its name at its level's indent (`data-leaf`) — the name — the
+    // label, then the meta inline — the value, the status dot, and the two
+    // control slots, links then expand, on every row. So every value, dot and
+    // control stands at one x, down the canvas; only the name gives way.
     const control = (kind: "links" | "expand"): ReactNode => {
         const c = controls?.find((one) => one.kind === kind);
         if (c === undefined) return <Box as="span" />;
@@ -619,9 +619,11 @@ export function RowShell({
     // Row controls (R1/R2) — always shown (#1258), each named by the canvas's tooltip (`root/overlays.tsx`); a control
     // click never selects or toggles the row. Out of the tab order: the row's Tab walk reaches them (#819).
     const controlsCell = <Box css={styles.rowControls} data-ctx={ctxAttr}>{control("links")}{control("expand")}</Box>;
-    const caretCell = (
-        <Box as="span" css={styles.caret} data-collapsed={caret?.collapsed === true ? "" : undefined}>
-            {caret !== undefined && <FontAwesomeIcon icon={faCaretDown} />}
+    // A leaf folds nothing: no caret's cell, and its lines say so, for the grid without one.
+    const leafAttr = caret === undefined ? "" : undefined;
+    const caretCell = caret === undefined ? null : (
+        <Box as="span" css={styles.caret} data-collapsed={caret.collapsed ? "" : undefined}>
+            <FontAwesomeIcon icon={faCaretDown} />
         </Box>
     );
     const nameCell = (
@@ -681,9 +683,9 @@ export function RowShell({
                 {laned !== undefined ? laned.map((lane, i) => (
                     // A lane's line, laid over the cell where its cells sit: the name's line first, the sub on the
                     // second, and each lane's caption in its value cell — the first's, where it has none, the row's value.
-                    <Box key={i} css={styles.gutterLane} data-ctx={ctxAttr} data-plan-gutter={i === 0 ? "name" : "lane"}
+                    <Box key={i} css={styles.gutterLane} data-ctx={ctxAttr} data-leaf={leafAttr} data-plan-gutter={i === 0 ? "name" : "lane"}
                         style={{ left: `${12 + depth * INDENT_PX}px`, top: `${lane.band.top * 100}%`, height: `${lane.band.height * 100}%` }}>
-                        {i === 0 ? caretCell : <Box as="span" />}
+                        {i === 0 ? caretCell : caret !== undefined && <Box as="span" />}
                         {i === 0 ? nameCell : (
                             <Box as="span" css={styles.gutterNameCell}>
                                 {i === 1 && sub !== undefined && <Box as="span" css={styles.gutterMeta} data-plan-gutter="sub">{sub}</Box>}
@@ -696,14 +698,14 @@ export function RowShell({
                     </Box>
                 )) : (
                     <>
-                        <Box css={styles.gutterName} data-id={isId ? "" : undefined} data-ctx={ctxAttr} data-plan-gutter="name">
+                        <Box css={styles.gutterName} data-id={isId ? "" : undefined} data-ctx={ctxAttr} data-leaf={leafAttr} data-plan-gutter="name">
                             {caretCell}
                             {nameCell}
                             {valueCell}
                             {dotCell}
                             {controlsCell}
                         </Box>
-                        {sub !== undefined && <Box css={styles.gutterSub} data-ctx={ctxAttr} data-plan-gutter="sub">{sub}</Box>}
+                        {sub !== undefined && <Box css={styles.gutterSub} data-ctx={ctxAttr} data-leaf={leafAttr} data-plan-gutter="sub">{sub}</Box>}
                     </>
                 )}
                 {gutter.swatches.length > 0 && (

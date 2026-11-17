@@ -265,7 +265,7 @@ describe("Plan group strips (§5)", () => {
 });
 
 describe("the gutter line (#1680's review)", () => {
-    test("every row's line holds the same cells in one order — caret, name, value, dot, then the links and expand slots — each whether the row has it or not; a level is 16px; an open band's name spans its row", () => {
+    test("a row's line holds its cells in one order — a caret's cell where the row folds, a leaf none; then the name, value, dot, and the links and expand slots, each whether the row has it or not; a level is 8px; an open band's name spans its row", () => {
         const band: PlanWireRow["kind"] = variant("group", { summary: variant("none", null) });
         const confirmed = variant("confirmed", null);
         const { container } = renderPlan(planRoot([
@@ -281,20 +281,23 @@ describe("the gutter line (#1680's review)", () => {
             expandRender: () => variant("Text", { value: "R", style: none }),
         }), "plan-1680-gutter");
         const line = (key: string) => container.querySelector(`${rowSel(key)} [role='rowheader'] > [data-plan-gutter='name']`)!;
-        /** A line's cells: what each holds — a caret, a part of the gutter by its name, or the two control slots. */
-        const cells = (key: string) => [...line(key).children].map((cell, i) => (i === 0 ? (cell.querySelector("svg") !== null ? "caret" : "")
-            : i === 4 ? [...cell.children].map((slot) => slot.getAttribute("data-plan-control") ?? "").join("|")
-                : cell.getAttribute("data-plan-gutter") ?? (cell.getAttribute("role") === "img" ? "dot" : "")));
-        expect(cells("m1")).toEqual(["", "title", "value", "", "links|"]);
-        expect(cells("m2")).toEqual(["", "title", "value", "", "|expand"]);
+        /** A line's cells: what each holds — a caret, a part of the gutter by its name, the dot's place, or (last) the two control slots. */
+        const cells = (key: string) => [...line(key).children].map((cell, i, all) => (i === all.length - 1
+            ? [...cell.children].map((slot) => slot.getAttribute("data-plan-control") ?? "").join("|")
+            : cell.getAttribute("data-plan-gutter") ?? (cell.querySelector("svg") !== null ? "caret" : cell.getAttribute("role") === "img" ? "dot" : "")));
+        // A leaf folds nothing: no caret's cell, and its line says so, for the grid without one.
+        expect(cells("m1")).toEqual(["title", "value", "", "links|"]);
+        expect(cells("m2")).toEqual(["title", "value", "", "|expand"]);
         expect(cells("net")).toEqual(["caret", "title", "value", "", "|"]);
+        expect([line("m1").hasAttribute("data-leaf"), line("m2").hasAttribute("data-leaf"), line("net").hasAttribute("data-leaf")]).toEqual([true, true, false]);
         // The value at its own cell — empty where the row has none — and the meta inline after the label, in the name's cell.
-        expect([line("m1").children[2]!.textContent, line("m2").children[2]!.textContent]).toEqual(["12k/h", ""]);
+        const value = (key: string) => line(key).querySelector(":scope > [data-plan-gutter='value']")!.textContent;
+        expect([value("m1"), value("m2")]).toEqual(["12k/h", ""]);
         expect(line("m1").querySelector("[data-plan-gutter='title'] > [data-plan-gutter='meta']")!.textContent).toBe("sheets");
-        // A level's indent is 16px: the caret's cell is on every line, so a member's name starts 16px past its parent's.
+        // A level's indent is 8px: a member's line starts 8px past its parent's, its name at the indent where it is a leaf.
         const indent = (key: string, attr = "data-plan-row") =>
             (container.querySelector(`${rowSel(key, attr)} [role='rowheader']`) as HTMLElement).style.paddingLeft;
-        expect([indent("hall1", "data-plan-group"), indent("m1"), indent("net"), indent("wk")]).toEqual(["12px", "28px", "12px", "28px"]);
+        expect([indent("hall1", "data-plan-group"), indent("m1"), indent("net"), indent("wk")]).toEqual(["12px", "20px", "12px", "20px"]);
         // An open band's name spans its row; folded, it stands in the rows' gutter grid.
         const name = () => container.querySelector(`${rowSel("hall1", "data-plan-group")} [role='rowheader']`)!;
         expect(name().hasAttribute("data-open")).toBe(true);

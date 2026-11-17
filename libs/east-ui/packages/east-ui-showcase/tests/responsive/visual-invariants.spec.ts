@@ -275,12 +275,19 @@ async function violations(entry: Locator): Promise<string[]> {
             let j = gi + 1;
             for (; j < rows.length && Number(rows[j]!.getAttribute("aria-level")) > level; j++) last = rows[j];
             if (last === undefined) return;
-            // A member's name starts one level in from its group's caption: 16px (#1680's review). Every line keeps
-            // its caret's cell, a leaf's empty, so a name stands at its level's x whatever the row holds.
+            // A member's line starts one level in from its group's: 8px (#1680's review). A row that folds has its
+            // caret's 14px cell and the line's 6px gap before its name; a leaf none, its name where its line starts.
             const first = rows[gi + 1]!;
-            const gl = g.querySelector("[data-plan-gutter='label']")?.getBoundingClientRect().left;
+            const lineOf = (row: Element) => {
+                const head = row.querySelector("[role='rowheader']");
+                return head === null ? undefined : head.getBoundingClientRect().left + px(cs(head).paddingLeft);
+            };
+            const gs = lineOf(g);
+            const ms = lineOf(first);
+            if (gs !== undefined && ms !== undefined && Math.abs(ms - gs - 8) > 0.5) bad.push(`group "${name(g)}": its member's line ${(ms - gs).toFixed(1)}px in from its own, want 8`);
             const ml = first.querySelector("[data-plan-gutter='title']")?.getBoundingClientRect().left;
-            if (gl !== undefined && ml !== undefined && Math.abs(ml - gl - 16) > 0.5) bad.push(`group "${name(g)}": its member's name ${(ml - gl).toFixed(1)}px in from its caption, want 16`);
+            const caret = first.querySelector("[role='rowheader'] [data-leaf]") === null ? 20 : 0;
+            if (ms !== undefined && ml !== undefined && Math.abs(ml - ms - caret) > 0.5) bad.push(`group "${name(g)}": its member's name ${(ml - ms).toFixed(1)}px past its line, want ${caret}`);
             // The group's end is marked — when its last member and what follows are both mounted.
             if (j < rows.length && cs(last).borderBottomColor !== T.strong) bad.push(`group "${name(g)}": its last member has no closing rule`);
         });

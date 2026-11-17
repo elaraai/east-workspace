@@ -31,14 +31,21 @@ export const rowsSlots = [
 ] as const;
 
 /**
- * The gutter's line, one grid with fixed slots (#1680's review): caret · name · value · dot · controls. A leaf keeps
- * its empty caret cell, and a row its value, dot and two control slots whether it has them or not, so every name starts
- * at one x and every value, dot and control stands at one x, down the canvas. Only the name gives way.
+ * The gutter's line, one grid with fixed slots (#1680's review): caret · name · value · dot · controls. A row that
+ * folds has its caret's cell; a leaf has none (`data-leaf`), its name at its level's indent. A row keeps its value, dot
+ * and two control slots whether it has them or not, so every value, dot and control stands at one x, down the canvas.
+ * Only the name gives way.
  */
 const GUTTER_COLUMNS = "14px minmax(0, 1fr) 48px 8px 48px";
 
+/** A leaf's line: no caret's cell. */
+const GUTTER_COLUMNS_LEAF = "minmax(0, 1fr) 48px 8px 48px";
+
 /** The gutter's line below 220px (#1680's review): the controls' column goes, and they show on the row's hover alone. */
 const GUTTER_COLUMNS_NARROW = "14px minmax(0, 1fr) 48px 8px 0px";
+
+/** A leaf's line below 220px. */
+const GUTTER_COLUMNS_LEAF_NARROW = "minmax(0, 1fr) 48px 8px 0px";
 
 /** The gutter's line as one grid: its columns, the gap between them, and its cells centred on the line. */
 const gutterGrid = {
@@ -47,6 +54,10 @@ const gutterGrid = {
     columnGap: "6px",
     alignItems: "center",
     "[data-plan-gutter-narrow] &": { gridTemplateColumns: GUTTER_COLUMNS_NARROW },
+    "&[data-leaf]": {
+        gridTemplateColumns: GUTTER_COLUMNS_LEAF,
+        "[data-plan-gutter-narrow] &": { gridTemplateColumns: GUTTER_COLUMNS_LEAF_NARROW },
+    },
 } satisfies SystemStyleObject;
 
 /**
@@ -249,8 +260,8 @@ export const rowsBase = {
     // ── Gutter vocabulary ──
     // ONE voice for every row's name (`gutterVoice`). A collapsible row keeps
     // the row's voice: only a group band's name is its caption. The line is
-    // one grid (`gutterGrid`), so a member's name starts one level in from its
-    // group's caption.
+    // one grid (`gutterGrid`); a leaf's has no caret's cell, so its name starts
+    // at its level's indent.
     gutterName: {
         ...gutterVoice,
         ...gutterGrid,
@@ -288,8 +299,8 @@ export const rowsBase = {
         textOverflow: "ellipsis",
     },
     // The unit / sub-line slot (#949) — mono 10 / 400 in the label ink. It
-    // starts under the name, past the caret's cell and the gap (#1680's
-    // review): line 2 holds the sub and nothing else.
+    // starts under the name, past the caret's cell and the gap where the row
+    // has one (#1680's review): line 2 holds the sub and nothing else.
     gutterSub: {
         fontFamily: "mono",
         fontSize: "10px",
@@ -297,6 +308,7 @@ export const rowsBase = {
         color: "fg.subtle",
         marginTop: "1px",
         paddingLeft: "20px",
+        "&[data-leaf]": { paddingLeft: 0 },
         whiteSpace: "nowrap",
         overflow: "hidden",
         textOverflow: "ellipsis",
@@ -359,9 +371,10 @@ export const rowsBase = {
         right: "12px",
         minWidth: 0,
     },
-    // A lane's caption: mono 9.5 / 600 in the label ink, at its value cell's end.
+    // A lane's caption: mono 9.5 / 600 in the label ink, at its value cell's end — the fourth column from the line's
+    // end, whether the line has a caret's cell or not.
     gutterLaneCaption: {
-        gridColumn: 3,
+        gridColumn: "-4 / -3",
         justifySelf: "end",
         maxWidth: "100%",
         fontFamily: "mono",

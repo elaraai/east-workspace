@@ -15,8 +15,8 @@
  * - The row beside a landing row and its own series both stand beneath it, a
  *   level under it, so they fold with it (#1541), and the landing row stands a
  *   level under its group's strip. Each line starts a level's indent past the
- *   line of the row it is under, and every line has its caret's cell, so each
- *   name starts that indent past the name of the row it is under (#1680's
+ *   line of the row it is under; a row that folds has its caret's cell before
+ *   its name, and a leaf none, its name where its line starts (#1680's
  *   review).
  * - Every row is one band: its gutter and its plot start at its top and end
  *   together on its rule, the 1px line under it; and the rows of the canvas
@@ -37,7 +37,7 @@ import { expect } from "playwright/test";
 import { test } from "./kept-page";
 import { PLAN_EVENT_EXAMPLES, openExample, rowId, same } from "./plan-page";
 import { printWorksPressId, type PrintWorksPress } from "./plan-builder-page";
-import { PLAN_INDENT, planBandFaults, planRowsOf } from "./plan-rows";
+import { PLAN_CARET_CELL, PLAN_INDENT, planBandFaults, planRowsOf } from "./plan-rows";
 
 test.describe("A resource's rows on the Plan (#1541)", () => {
     test("planPrintWorks: a press is its landing row, then the row beside it and its own series nested under it, together and in order @desktop", async ({ page }) => {
@@ -76,12 +76,15 @@ test.describe("A resource's rows on the Plan (#1541)", () => {
             if (!starts.every((start, n) => same(start, stepped[n]!))) {
                 bad.push(`${press}: their lines start at ${starts.join(", ")}px — a level is ${PLAN_INDENT}px, so ${stepped.join(", ")}px`);
             }
-            // Each name a level's indent past the name of the row it is under, a caret's cell or none.
+            // The strip and the landing row fold, the row beside it and its own series do not: each name where its line
+            // starts, past the caret's cell on a row that folds.
             if (strip.label === null || landing.label === null || beside.label === null || own.label === null) { bad.push(`${press}: a row with no name`); continue; }
+            const folds = [strip, landing, beside, own].map((row) => !row.leaf);
+            if (folds.join() !== [true, true, false, false].join()) bad.push(`${press}: the rows that fold are ${folds.join(", ")}`);
             const names = [strip.label.left, landing.label.left, beside.label.left, own.label.left];
-            const indented = [strip.label.left, strip.label.left + PLAN_INDENT, strip.label.left + 2 * PLAN_INDENT, strip.label.left + 2 * PLAN_INDENT];
-            if (!names.every((left, n) => same(left, indented[n]!))) {
-                bad.push(`${press}: their names start at ${names.join(", ")}px — a level is ${PLAN_INDENT}px, so ${indented.join(", ")}px`);
+            const placed = [strip, landing, beside, own].map((row) => row.start + (row.leaf ? 0 : PLAN_CARET_CELL));
+            if (!names.every((left, n) => same(left, placed[n]!))) {
+                bad.push(`${press}: their names start at ${names.join(", ")}px — at their lines, past a ${PLAN_CARET_CELL}px caret's cell where they fold, so ${placed.join(", ")}px`);
             }
         }
         expect(bad).toEqual([]);

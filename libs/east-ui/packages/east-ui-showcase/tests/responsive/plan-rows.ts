@@ -27,6 +27,8 @@ export interface PlanRowBox extends Edges {
     plot: Edges;
     /** Where its line starts: its gutter's edge, in by its level's indent. */
     start: number;
+    /** Whether it folds nothing: its line has no caret's cell, so its name starts where its line does. */
+    leaf: boolean;
     /** The rows it is laid out among: those of one parent tile it. */
     among: number;
     /** Whether it is an open group band, whose name spans its whole row, over its plot (#1680's review). */
@@ -44,10 +46,16 @@ export const PLAN_DRAWS = ["data-run", "data-mark", "data-chip", "data-event"] a
 export const PLAN_KIND_OF = { "data-run": "span", "data-mark": "events", "data-chip": "cards", "data-event": "buckets" } as const;
 
 /**
- * A level's indent of a row's line (`RowShell`'s `INDENT_PX`): every line has its caret's cell, so a member's name starts
- * this far past the name of the row it is under (#1680's review).
+ * A level's indent of a row's line (`RowShell`'s `INDENT_PX`): a member's line starts this far past the line of the row it
+ * is under (#1680's review).
  */
-export const PLAN_INDENT = 16;
+export const PLAN_INDENT = 8;
+
+/**
+ * What stands before the name on a row that folds — its caret's 14px cell and the line's 6px gap — and on no leaf, whose
+ * name starts where its line does (#1680's review).
+ */
+export const PLAN_CARET_CELL = 20;
 
 /**
  * The rows the canvas's body draws, in the order it draws them, each with what it draws.
@@ -77,6 +85,7 @@ export async function planRowsOf(entry: Locator): Promise<PlanRowBox[]> {
                 gutter: edges(gutter),
                 plot: edges(row.querySelector('[role="gridcell"]')!),
                 start: gutter.getBoundingClientRect().left + Number.parseFloat(getComputedStyle(gutter).paddingLeft),
+                leaf: gutter.querySelector("[data-leaf]") !== null,
                 among: parents.indexOf(parent),
                 open: gutter.hasAttribute("data-open"),
                 label: label === null ? null : { left: label.getBoundingClientRect().left, text: label.textContent ?? "" },
