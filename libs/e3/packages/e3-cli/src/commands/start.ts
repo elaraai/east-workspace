@@ -24,6 +24,9 @@ import {
   sweepScratchDirs,
   workspaceGetTree,
   type Budget,
+  type CatchUpPhase,
+  type DeferReason,
+  type OrchestratorStartOptions,
   type TaskCompletedCallback,
   type TreeNode,
 } from '@elaraai/e3-core';
@@ -35,7 +38,9 @@ import {
   datasetListRecursive as datasetListRecursiveRemote,
   type DataflowEvent,
   type DataflowExecutionState,
+  type DataflowStartResult,
 } from '@elaraai/e3-api-client';
+import { parseKeypath } from '@elaraai/e3-types';
 import { IntegerType, lessFor, type EastTypeValue } from '@elaraai/east';
 import { parseRepoLocation, formatError, exitError, type RepoLocation } from '../utils.js';
 import { getValidToken } from '../credentials.js';
@@ -142,16 +147,67 @@ export async function startCommand(
     }
   } catch (err) {
     if (err instanceof DataflowAbortedError) {
-      console.log('');
-      console.log('Aborted.');
-      if (err.partialResults && err.partialResults.length > 0) {
-        const completed = err.partialResults.filter(r => r.state === 'success').length;
-        console.log(`  Completed before abort: ${completed}`);
-      }
+      for (const line of stoppedLines(err)) console.log(line);
       process.exit(130); // Standard exit code for SIGINT (128 + 2)
     }
     exitError(formatError(err));
   }
+}
+
+/**
+ * What a local run that was stopped says as it exits: why, when the run
+ * stopped itself, as it does for a deploy of its workspace; `Aborted.` when
+ * a signal stopped it. Each counts the tasks that hold a result in the run.
+ *
+ * @param err - The run's end
+ * @returns The lines, in order
+ */
+export function stoppedLines(err: DataflowAbortedError): string[] {
+  const completed = (err.partialResults ?? []).filter(r => r.state === 'success').length;
+  if (err.reason !== undefined) return ['', `Stopped: ${err.reason}.`, `  Completed before it stopped: ${completed}`];
+  return ['', 'Aborted.', ...(err.partialResults && err.partialResults.length > 0 ? [`  Completed before abort: ${completed}`] : [])];
+}
+
+/**
+ * What a local run prints as it goes: the callbacks its start is given.
+ *
+ * @returns The callbacks
+ */
+export function runCallbacks(): Pick<
+  OrchestratorStartOptions,
+  'onTaskStart' | 'onTaskComplete' | 'onTaskWaiting' | 'onTaskDeferred' | 'onCatchUp' | 'onPartitionProgress' | 'onUnitRequeued'
+> {
+  return {
+    onTaskStart: (name) => {
+      console.log(`  [START] ${name}`);
+    },
+    onTaskComplete: (taskResult: TaskCompletedCallback) => {
+      printTaskResult(taskResult);
+    },
+    onTaskWaiting: (name, inputs) => {
+      console.log(`  [WAIT] ${name}: ${describeUnset(inputs)}`);
+    },
+    onTaskDeferred: (name, reason) => {
+      console.log(`  [DEFER] ${name}: ${describeDeferral(reason)}`);
+    },
+    onCatchUp: (task, forTask, phase) => {
+      console.log(`  ${catchUpLine(task, forTask, phase)}`);
+    },
+    onPartitionProgress: (task, progress) => {
+      if (progress.state !== 'completed') return;
+      const cached = progress.cached ? ' (cached)' : '';
+      const duration = `[${Math.round(progress.duration ?? 0)}ms]`;
+      if (progress.phase === 'partition') {
+        console.log(`  [PART] ${task} ${progress.completed}/${progress.total} #${progress.index + 1}${cached} ${duration}`);
+      } else {
+        const label = progress.phase === 'merge' ? 'MERGE' : 'COMBINE';
+        console.log(`  [${label}] ${task} ${progress.completed}/${progress.total}${cached} ${duration}`);
+      }
+    },
+    onUnitRequeued: (task, unit, requeue) => {
+      console.log(`  [REQUEUE] ${task} ${formatRequeue(unit, requeue.reason, requeue.peak, requeue.reserves)}`);
+    },
+  };
 }
 
 // =============================================================================
@@ -200,29 +256,7 @@ async function executeLocal(
       verbose: options.verbose,
       filter: options.filter,
       signal: options.signal,
-      onTaskStart: (name) => {
-        console.log(`  [START] ${name}`);
-      },
-      onTaskComplete: (taskResult: TaskCompletedCallback) => {
-        printTaskResult(taskResult);
-      },
-      onTaskWaiting: (name, inputs) => {
-        console.log(`  [WAIT] ${name}: ${describeUnset(inputs)}`);
-      },
-      onPartitionProgress: (task, progress) => {
-        if (progress.state !== 'completed') return;
-        const cached = progress.cached ? ' (cached)' : '';
-        const duration = `[${Math.round(progress.duration ?? 0)}ms]`;
-        if (progress.phase === 'partition') {
-          console.log(`  [PART] ${task} ${progress.completed}/${progress.total} #${progress.index + 1}${cached} ${duration}`);
-        } else {
-          const label = progress.phase === 'merge' ? 'MERGE' : 'COMBINE';
-          console.log(`  [${label}] ${task} ${progress.completed}/${progress.total}${cached} ${duration}`);
-        }
-      },
-      onUnitRequeued: (task, unit, requeue) => {
-        console.log(`  [REQUEUE] ${task} ${formatRequeue(unit, requeue.reason, requeue.peak, requeue.reserves)}`);
-      },
+      ...runCallbacks(),
     });
 
     const result = await orchestrator.wait(handle);
@@ -300,17 +334,64 @@ async function executeRemote(
   // whole run: getValidToken refreshes it as it nears expiry, so a long dataflow
   // run never sends an expired token and dies mid-flight with "Token expired".
 
-  // Start the dataflow execution, which the server runs under its own budget
-  await dataflowExecuteLaunchRemote(baseUrl, repo, ws, {
-    force: options.force,
-    filter: options.filter,
-  }, { token: await getValidToken(baseUrl), verbose: options.verbose });
+  // The server runs the run under its own budget; each request goes with the
+  // token as it stands then
+  const exitCode = await runRemote({
+    launch: async () => dataflowExecuteLaunchRemote(baseUrl, repo, ws, {
+      force: options.force,
+      filter: options.filter,
+    }, { token: await getValidToken(baseUrl), verbose: options.verbose }),
+    poll: async (since) => dataflowExecutePollRemote(baseUrl, repo, ws, { since }, { token: await getValidToken(baseUrl) }),
+    cancel: async (onStopping) => dataflowCancelRemote(baseUrl, repo, ws, { token: await getValidToken(baseUrl) }, { onStopping }),
+    outputs: async () => printOutputs({ type: 'remote', baseUrl, repo, token: await getValidToken(baseUrl) }, ws),
+  }, ws, isAborted);
+  if (exitCode !== 0) process.exit(exitCode);
+}
 
-  // Follow the run, each poll with the token as it stands then
-  const ended = await followRemoteRun(
-    async (since) => dataflowExecutePollRemote(baseUrl, repo, ws, { since }, { token: await getValidToken(baseUrl) }),
-    isAborted,
-  );
+/**
+ * What a remote run asks of its server.
+ */
+export interface RemoteRunApi {
+  /** Starts the workspace's dataflow, or hands the start to the run in flight */
+  launch(): Promise<DataflowStartResult>;
+  /** Polls the workspace's latest run from a cursor */
+  poll(since: bigint): Promise<DataflowExecutionState>;
+  /** Cancels the run, and answers once it has stopped; `onStopping` hears
+   *  that the run is still stopping after the cancel answered */
+  cancel(onStopping: () => void): Promise<void>;
+  /** Prints the outputs of a run that completed */
+  outputs(): Promise<void>;
+}
+
+/**
+ * Starts a workspace's dataflow on a server and follows the run to its end,
+ * printing as it goes.
+ *
+ * @remarks
+ * A start handed to a run in flight follows that run from the cursor the
+ * start was given, so it prints what the run does from then on, and the
+ * run's own summary when it ends. This command did not begin that run:
+ * stopping it leaves the run going, where stopping a run it began cancels
+ * that run on the server.
+ *
+ * @param api - The server's start, poll and cancel, and the outputs' listing
+ * @param ws - The workspace, as the lines name it
+ * @param isAborted - Whether the caller has asked to stop
+ * @param wait - Waits between polls that left no event to read
+ * @returns The command's exit code: 0 for a run that completed, 1 for one
+ *   that failed, and 130 when the caller stopped it, or stopped following it
+ */
+export async function runRemote(
+  api: RemoteRunApi,
+  ws: string,
+  isAborted: () => boolean,
+  wait?: () => Promise<void>,
+): Promise<number> {
+  const started = await api.launch();
+  const handed = started.type === 'handed';
+  if (handed) console.log(`A run is in flight on ${ws}: it takes your changes in now.`);
+
+  const ended = await followRemoteRun(api.poll, handed ? started.value.since : 0n, isAborted, wait);
   const lastStatus: DataflowExecutionState['status']['type'] | null = ended?.status.type ?? null;
   if (ended !== null) {
     // Print summary if available
@@ -327,32 +408,32 @@ async function executeRemote(
     }
 
     if (lastStatus === 'completed') {
-      await printOutputs({ type: 'remote', baseUrl, repo, token: await getValidToken(baseUrl) }, ws);
+      await api.outputs();
     }
   }
 
   // Handle abort
   if (isAborted()) {
+    // A run another start began goes on: this command only followed it.
+    if (handed) {
+      console.log(`Stopped following the run on ${ws}, which goes on.`);
+      return 130;
+    }
     console.log('');
     // Tell the server to stop the run and release the workspace lock. Ctrl-C
     // only aborts the client's poll loop — without this the server keeps
     // executing and the workspace stays locked, blocking the next deploy/run.
     // The cancel answers once the run has stopped.
     try {
-      await dataflowCancelRemote(baseUrl, repo, ws, { token: await getValidToken(baseUrl) }, {
-        onStopping: () => console.log('Waiting for the run to stop on the server...'),
-      });
+      await api.cancel(() => console.log('Waiting for the run to stop on the server...'));
     } catch {
       console.log('Warning: could not reach the server to cancel — the run may still be executing.');
     }
     console.log('Aborted.');
-    process.exit(130);
+    return 130;
   }
 
-  // Exit with error if execution failed
-  if (lastStatus === 'failed') {
-    process.exit(1);
-  }
+  return lastStatus === 'failed' ? 1 : 0;
 }
 
 /**
@@ -368,16 +449,19 @@ async function executeRemote(
  * holding its workspace — has not ended until it has let the workspace go.
  *
  * @param poll - Polls the run from a cursor
+ * @param from - The cursor of the first poll: 0 for a run from its first
+ *   event, or the cursor a start handed to a run in flight was given
  * @param isAborted - Whether the caller has stopped following
  * @param wait - Waits between polls that left no event to read
  * @returns The state the run ended with, or `null` when aborted first
  */
 export async function followRemoteRun(
   poll: (since: bigint) => Promise<DataflowExecutionState>,
+  from: bigint,
   isAborted: () => boolean,
   wait: () => Promise<void> = () => sleep(POLL_INTERVAL),
 ): Promise<DataflowExecutionState | null> {
-  let since = 0n;
+  let since = from;
   while (!isAborted()) {
     const state = await poll(since);
     for (const event of state.events) {
@@ -464,6 +548,48 @@ interface Summary {
  *  waits itself. */
 export function describeUnset(inputs: readonly string[]): string {
   return `${inputs.length === 1 ? 'input' : 'inputs'} ${inputs.map((input) => `'${input}'`).join(', ')} not set`;
+}
+
+/** Names as a sentence lists them: `a`, `a and b`, `a, b and c`. */
+function listed(names: readonly string[]): string {
+  return names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)!}`;
+}
+
+/**
+ * Why a run deferred a task, as its `[DEFER]` line and the watch's say it:
+ * what its inputs disagree on, and what the task runs after.
+ *
+ * @param reason - The deferral's reason, as the run tells it
+ * @returns The words after the task's name
+ *
+ * @example
+ * ```ts
+ * describeDeferral({ kind: 'plain', input: '.inputs.rates', through: ['forecast', 'capacity'] });
+ * // "input 'rates' is read at two values (through forecast and capacity): it runs once they agree"
+ * ```
+ */
+export function describeDeferral(reason: DeferReason): string {
+  // An input is named as it was declared: its path's last field, under `.inputs`
+  const path = parseKeypath(reason.input);
+  const input = path.length === 2 && path[0]!.value === 'inputs' ? path[1]!.value : reason.input;
+  // The task's inputs that read it: the input itself, said first, and the
+  // tasks whose results were made from it
+  const tasks = reason.through.filter((each) => each !== reason.input);
+  const how = [...(tasks.length < reason.through.length ? ['directly'] : []), ...(tasks.length > 0 ? [`through ${listed(tasks)}`] : [])];
+  return `input '${input}' is read at two values (${how.join(' and ')}): it runs once they agree`;
+}
+
+/**
+ * A catch-up run's line, as it starts and as it lands: a task run once more
+ * at earlier versions of its inputs, for a task that reads its result there.
+ *
+ * @param task - The task the catch-up run runs
+ * @param forTask - The task that reads its result
+ * @param phase - Whether it started, or landed, and how long it took
+ * @returns The line, without its indent
+ */
+export function catchUpLine(task: string, forTask: string, phase: CatchUpPhase): string {
+  return phase.state === 'started' ? `[CATCH-UP] ${task} for ${forTask}` : `[DONE] ${task} for ${forTask} [${Math.round(phase.duration)}ms]`;
 }
 
 function printSummary(summary: Summary): void {

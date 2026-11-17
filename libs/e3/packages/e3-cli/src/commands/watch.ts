@@ -35,7 +35,7 @@ import { loadPackageFile } from './load-package.js';
 import { readFunctionManifests } from './function-manifests.js';
 import { commandBudget, type BudgetFlags } from './budget.js';
 import { inputPlanLine, inputPolicy, recordPlanLine, schemaPolicy } from './workspace.js';
-import { describeUnset } from './start.js';
+import { catchUpLine, describeDeferral, describeUnset } from './start.js';
 import { formatSize } from '../format.js';
 import type { RackRunnerHandle } from '@elaraai/e3-rack';
 import { openRack, rackAsked, rackEnabled, refuseRemoteRack, printRackEnvironment, printRackPlacement, printRackSummary, type RackFlags } from './rack-options.js';
@@ -248,6 +248,12 @@ export async function watchCommand(
         onTaskWaiting: (name, inputs) => {
           console.log(`  [WAIT] ${name}: ${describeUnset(inputs)}`);
         },
+        onTaskDeferred: (name, reason) => {
+          console.log(`  [DEFER] ${name}: ${describeDeferral(reason)}`);
+        },
+        onCatchUp: (task, forTask, phase) => {
+          console.log(`  ${catchUpLine(task, forTask, phase)}`);
+        },
       });
 
       const result = await orchestrator.wait(handle);
@@ -260,7 +266,9 @@ export async function watchCommand(
       }
     } catch (err) {
       if (err instanceof DataflowAbortedError) {
-        console.log(`[${timestamp()}] Dataflow aborted`);
+        // A run that stopped itself says why: a deploy of the workspace from
+        // another process, which the watch's own saves never are
+        console.log(err.reason !== undefined ? `[${timestamp()}] Dataflow stopped: ${err.reason}` : `[${timestamp()}] Dataflow aborted`);
       } else {
         console.log(`[${timestamp()}] Dataflow error:`);
         console.log(`  ${formatError(err)}`);
