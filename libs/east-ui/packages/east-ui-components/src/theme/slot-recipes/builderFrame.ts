@@ -19,7 +19,9 @@
  *     7px over its rule, where the 43px over the rule alone stood it, and
  *     every control in it, at half a pixel. On a coarse pointer the row keeps
  *     the middle of the 43px: a control's 44px tap target is as tall as the
- *     band, and reaches the band's top and the rule's edge only from there.
+ *     band, and reaches the band's top and the rule's edge only from there. A
+ *     phone's frame pads nothing over its row, whatever the pointer: its 44px
+ *     items fill the band, an open view's underline at their foot.
  *   - Banners and footer: in-flow bands, the frame's full width. What they
  *     hold draws its own rules, as a result strip and a status line do.
  *   - Pane: a slot at its side, sized by the frame — the pane's width, or its
@@ -138,9 +140,11 @@ export const builderFrameSlotRecipe = defineSlotRecipe({
             borderBottomStyle: "solid",
             borderBottomColor: "border.subtle",
             overflow: "clip",
-            /* A phone's: its items carry their own padding, the views' 16 at its start (FR2). */
+            /* A phone's: its items carry their own padding, the views' 16 at its start (FR2) — and nothing over them, with a
+             * mouse as under a finger: its 44px items fill the band, and a pixel over them would push an open view's
+             * underline past the band's clip (#1646's review). */
             "[data-phone] > &": {
-                paddingX: "0", alignItems: "stretch",
+                paddingX: "0", paddingTop: "0", alignItems: "stretch",
                 /* With nothing in it, no row at all: its history is the second row's. */
                 "&:not(:has([data-toolbar-item]))": { display: "none" },
                 /* A chip that ends the row stands 4 clear of its end, as Filters and Search Records do: the Calendar's overlaps. */

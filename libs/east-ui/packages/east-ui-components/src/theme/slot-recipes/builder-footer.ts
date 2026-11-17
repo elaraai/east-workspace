@@ -111,6 +111,13 @@ const RAIL_ROOM = 27;
 const VOICE_LINE = 15;
 
 /**
+ * The line a 28px rail's words stand on (#1638): the footer's voice's 15px, centred in the 27px under the rail's rule —
+ * the shared rail's items, and a builder's own rail beside them (the Sheet's footer), so their words start where the
+ * loading line's do.
+ */
+export const RAIL_LINE = centredLine(RAIL_ROOM, VOICE_LINE);
+
+/**
  * How far the rail's foot is below Retry's (#1398): Retry stands on the 28px
  * rail's centre line, its 15px line (28 − 1 − 15) / 2 = 6px above the foot,
  * the 1px its top rule takes aside. The rail sits at its frame's foot, and the
@@ -139,7 +146,7 @@ const FOOTER_VOICE = {
     fontVariantNumeric: "tabular-nums",
     letterSpacing: "normal",
     textTransform: "none",
-    lineHeight: centredLine(RAIL_ROOM, VOICE_LINE),
+    lineHeight: RAIL_LINE,
     color: "fg.muted",
 } satisfies SystemStyleObject;
 

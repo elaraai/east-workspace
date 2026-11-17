@@ -248,6 +248,11 @@ describe("a line of words centred in a room taller than it (#1638)", () => {
         expect(() => centredLine(21.5, 14)).toThrow(RangeError);
         expect(() => centredLine(28, 15)).toThrow(RangeError);
     });
+
+    test("in a part that stands in rooms of several sizes, holds in every one, and is refused in the one of the other parity (#1646's review)", () => {
+        expect(centredLine([36, 32, 28], 14)).toBe("14px");
+        expect(() => centredLine([26, 30, 41], 16)).toThrow(/centred in 41px of room/);
+    });
 });
 
 describe("the small boxes whose words are centred in them (#1638)", () => {
@@ -276,7 +281,9 @@ describe("the small boxes whose words are centred in them (#1638)", () => {
         ["a metric chip, comfortable", at(metricChipSlotRecipe.variants, "density", "comfortable", "root"), "14px"],
         ["a tag, comfortable", at(tagSlotRecipe.variants, "density", "comfortable", "root"), "13px"],
         ["an editable chip, comfortable", at(editableChipSlotRecipe.variants, "density", "comfortable", "root"), "13px"],
-        ["a Table's column label", at(tableSlotRecipe.base, "columnHeaderLabel"), "19px"],
+        ["a Table's column label, sm: the smallest density's 27px header", at(tableSlotRecipe.variants, "size", "sm", "columnHeaderLabel"), "20px"],
+        ["a Table's column label, md", at(tableSlotRecipe.variants, "size", "md", "columnHeaderLabel"), "19px"],
+        ["a Table's column label, lg", at(tableSlotRecipe.variants, "size", "lg", "columnHeaderLabel"), "19px"],
         ["a phone Table's column label", at(tableSlotRecipe.base, "phoneHeaderSort"), "19px"],
         ["a phone Table's column group", at(tableSlotRecipe.base, "phoneGroup"), "12px"],
         ["a phone Table's decision column", at(reviewChromeSlotRecipe.base, "decisionHeader", "[data-table-phone] &"), "19px"],
@@ -287,6 +294,9 @@ describe("the small boxes whose words are centred in them (#1638)", () => {
         ["a Calendar event's title", at(calendarSlotRecipe.base, "eventTitle"), "16px"],
         ["a Calendar event's detail", at(calendarSlotRecipe.base, "eventDetail"), "12px"],
         ["a Calendar event's resource", at(calendarSlotRecipe.base, "eventResource"), "14px"],
+        ["a compact Calendar event's title", at(calendarSlotRecipe.base, "eventTitle", "[data-compact]:not([data-chip]) &"), "100cqh"],
+        ["a compact Calendar event's detail", at(calendarSlotRecipe.base, "eventDetail", "[data-compact]:not([data-chip]) &"), "100cqh"],
+        ["a compact Calendar event's resource", at(calendarSlotRecipe.base, "eventResource", "[data-compact]:not([data-chip]) &"), "100cqh"],
         ["a Calendar month chip's title", at(calendarSlotRecipe.base, "eventTitle", "[data-chip] &"), "19px"],
         ["a Calendar month chip's detail", at(calendarSlotRecipe.base, "eventDetail", "[data-chip] &"), "19px"],
         ["a Calendar month chip's resource", at(calendarSlotRecipe.base, "eventResource", "[data-chip] &"), "19px"],
@@ -387,6 +397,31 @@ describe("the small boxes whose words are centred in them (#1638)", () => {
         expect(at(plan, "cell").containerType).toBe("size");
         expect(at(plan, "heatCell").containerType).toBe("size");
         expect(at(avatarSlotRecipe.base, "root").containerType).toBe("size");
+        // A compact Calendar event, as tall as its duration (#1646's review); a month's chip keeps its own line.
+        expect(at(calendarSlotRecipe.base, "event", "&[data-compact]:not([data-chip])").containerType).toBe("size");
+    });
+
+    test("the Sheet's action cell takes the line of its room's parity, which the Sheet's cell says beside its own (#1646's review)", () => {
+        const action = sheetActionSlotRecipe.base;
+        for (const part of ["root", "state", "summary", "start", "absent"]) expect(at(action, part).lineHeight, part).toBe("var(--sheet-action-line, 17px)");
+        // Odd in the odd rooms — 36px and 42px rows, a phone's 32px and 44px — even in the smallest density's 27px row and a
+        // touch screen's 45px, and in the inspector's field.
+        expect(at(sheet, "cell")["--sheet-action-line"]).toBe("17px");
+        expect(at(sheet, "cell", "[data-sheet-card][data-phone] &")["--sheet-action-line"]).toBe("17px");
+        expect(at(sheet, "cell", "_coarse")["--sheet-action-line"]).toBe("16px");
+        expect(at(sheetSlotRecipe.variants, "size", "sm", "cell")["--sheet-action-line"]).toBe("16px");
+        expect(at(action, "panelState")["--sheet-action-line"]).toBe("16px");
+    });
+
+    test("a Sheet cell in a phone's frame keeps its line with its padding: one key, the phone's of the cells' lines (#1646's review)", () => {
+        const phone = at(sheet, "cell", "[data-sheet-card][data-phone] &");
+        expect([phone.lineHeight, phone.paddingX, phone.paddingY]).toEqual(["19px", "8px", "0"]);
+    });
+
+    test("a Plan ruler of one band, on the canvas and on a phone, is the ruler's height less its rule (#1646's review)", () => {
+        for (const slot of ["ruler", "narrowRuler"]) {
+            expect(at(plan, slot, "&:not([data-time])")["--time-ruler-row-h"], slot).toBe("calc(var(--plan-ruler-h) - 1px)");
+        }
     });
 
     test("a band that centres its row over the rule at its foot has an even room: a pixel of padding over the row balances the rule", () => {
@@ -395,6 +430,8 @@ describe("the small boxes whose words are centred in them (#1638)", () => {
         // coarse pointer it keeps the middle of the 43px over its rule: a control's 44px tap target reaches both edges from there.
         expect([at(frame, "toolbar").height, at(frame, "toolbar").borderBottomWidth, at(frame, "toolbar").paddingTop]).toEqual(["44px", "1px", "1px"]);
         expect(at(frame, "toolbar", "_coarse").paddingTop).toBe("0");
+        // A phone's pads nothing over its 44px items, with a mouse as under a finger (#1646's review).
+        expect(at(frame, "toolbar", "[data-phone] > &").paddingTop).toBe("0");
         // A phone's second row: 56, its 44px controls 6px under its top edge.
         expect([at(frame, "sessionRow").height, at(frame, "sessionRow").borderBottomWidth, at(frame, "sessionRow").paddingTop]).toEqual(["56px", "1px", "1px"]);
         // A phone Table's column group stands the header's 32 over its rule: one line of 12px 10px under its edge, two 4px.
@@ -427,6 +464,9 @@ describe("the small boxes whose words are centred in them (#1638)", () => {
         expect(at(editableChipSlotRecipe.variants, "density", "comfortable", "root").paddingY).toBe("9px");
         expect(at(metricChipSlotRecipe.variants, "density", "comfortable", "root").paddingY).toBe("9px");
         expect(chipRecipe.base?.lineHeight).toBe("var(--cr-lh, 1)");
-        expect(at(tagSlotRecipe.base, "root").lineHeight).toBe("var(--cr-lh, 1)");
+        // A Tag takes the rail's line at size md alone, beside the rail's face and padding; sm and lg keep a line of 1 (#1646's review).
+        expect(at(tagSlotRecipe.base, "root").lineHeight).toBe("1");
+        expect(at(tagSlotRecipe.variants, "size", "md", "root").lineHeight).toBe("var(--cr-lh, 1)");
+        expect([at(tagSlotRecipe.variants, "size", "sm", "root").lineHeight, at(tagSlotRecipe.variants, "size", "lg", "root").lineHeight]).toEqual([undefined, undefined]);
     });
 });

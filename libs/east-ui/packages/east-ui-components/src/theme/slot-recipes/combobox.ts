@@ -57,7 +57,7 @@ export const comboboxSlotRecipe = defineSlotRecipe({
          * at a fraction. */
         searchStatus: {
             textStyle: "body.sm",
-            lineHeight: centredLine(26, 16),
+            lineHeight: centredLine([26, 30, 42], 16),
             color: "fg.muted",
             whiteSpace: "nowrap",
             paddingInline: "{spacing.1}",

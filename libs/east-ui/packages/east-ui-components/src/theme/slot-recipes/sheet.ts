@@ -173,7 +173,8 @@ import { wholeOrNone } from "../../style/whole-or-none.js";
 import { fieldInRingedControl } from "../field-chrome.js";
 import { centredLine, oneLineBox } from "../one-line-box.js";
 import { toolbarControlBox } from "../toolbar-row.js";
-import { FOOTER_FIT } from "./builder-footer.js";
+import { FOOTER_FIT, RAIL_LINE } from "./builder-footer.js";
+import { ACTION_LINE, ACTION_LINE_EVEN } from "./sheetAction.js";
 import { schedulePaneBase } from "./schedule-pane.js";
 
 /**
@@ -187,11 +188,15 @@ import { schedulePaneBase } from "./schedule-pane.js";
  */
 const CELL_LINE = "19px";
 const CELL_LINE_EVEN = "20px";
-/** A row's words by its room: odd, but on a coarse pointer's 45px row — and odd again in a phone's frame, whatever the pointer. */
+/**
+ * A row's words by its room: odd, but on a coarse pointer's 45px row — and odd again in a phone's frame, whatever the
+ * pointer. An action column's cell, which fills the cell, takes the line of the same parity (`--sheet-action-line`).
+ */
 const CELL_LINES = {
     lineHeight: CELL_LINE,
-    _coarse: { lineHeight: CELL_LINE_EVEN },
-    "[data-sheet-card][data-phone] &": { lineHeight: CELL_LINE },
+    "--sheet-action-line": ACTION_LINE,
+    _coarse: { lineHeight: CELL_LINE_EVEN, "--sheet-action-line": ACTION_LINE_EVEN },
+    "[data-sheet-card][data-phone] &": { lineHeight: CELL_LINE, "--sheet-action-line": ACTION_LINE },
 } as const;
 
 /**
@@ -904,8 +909,9 @@ export const sheetSlotRecipe = defineSlotRecipe({
             borderRightWidth: "1px",
             borderRightColor: "border.subtle",
             minWidth: "0",
-            // A phone's (SH5): padded 0 8, as tall as its row (44 coarse, 32 fine), whatever the density — an odd room over its rule.
-            "[data-sheet-card][data-phone] &": { paddingX: "8px", paddingY: "0", minHeight: "0", lineHeight: CELL_LINE },
+            // A phone's (SH5): padded 0 8, as tall as its row (44 coarse, 32 fine), whatever the density — an odd room over its
+            // rule, its line the phone's of `CELL_LINES`, which this key would otherwise replace whole.
+            "[data-sheet-card][data-phone] &": { ...CELL_LINES["[data-sheet-card][data-phone] &"], paddingX: "8px", paddingY: "0", minHeight: "0" },
             // A phone's first column: 16 in from the frame's edge.
             "[data-sheet-card][data-phone] [data-slot=gutter] + &": { paddingLeft: "16px" },
             // A phone's pinned column (SH4): at the left on its row's own surface — whatever wash the row wears — above a
@@ -1767,7 +1773,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             alignItems: "center",
             gap: "18px",
             minHeight: "28px",
-            lineHeight: centredLine(27, 15),
+            lineHeight: RAIL_LINE,
             paddingX: "12px",
             paddingY: "0",
             background: "bg.surface",
@@ -2060,7 +2066,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
     },
     variants: {
         size: {
-            sm: { cell: { minHeight: "calc({sizes.density.row.sm} - 1px)", paddingY: "3px", paddingX: "8px", lineHeight: CELL_LINE_EVEN }, gutterNumber: { lineHeight: CELL_LINE_EVEN }, runRow: { "& :is([data-loading-failed-message], [data-loading-empty-message])": { lineHeight: CELL_LINE_EVEN } }, runCell: { paddingX: "8px" }, headerCell: { paddingY: "4px", paddingX: "8px" }, strip: { minHeight: "{sizes.density.row.sm}" } },
+            sm: { cell: { minHeight: "calc({sizes.density.row.sm} - 1px)", paddingY: "3px", paddingX: "8px", lineHeight: CELL_LINE_EVEN, "--sheet-action-line": ACTION_LINE_EVEN }, gutterNumber: { lineHeight: CELL_LINE_EVEN }, runRow: { "& :is([data-loading-failed-message], [data-loading-empty-message])": { lineHeight: CELL_LINE_EVEN } }, runCell: { paddingX: "8px" }, headerCell: { paddingY: "4px", paddingX: "8px" }, strip: { minHeight: "{sizes.density.row.sm}" } },
             md: {},
             lg: { cell: { minHeight: "calc({sizes.density.row.lg} - 1px)", paddingY: "9px", paddingX: "12px" }, runCell: { paddingX: "12px" }, headerCell: { paddingY: "9px", paddingX: "12px" }, strip: { minHeight: "{sizes.density.row.lg}" } },
         },

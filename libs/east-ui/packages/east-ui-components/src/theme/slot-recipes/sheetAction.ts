@@ -23,7 +23,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
-import { oneLineBox } from "../one-line-box.js";
+import { centredLine, oneLineBox } from "../one-line-box.js";
 
 /** The state's tones (S6): the dot's base and the word's text step, by `data-tone`. */
 const TONES = {
@@ -60,12 +60,18 @@ const CONTROL = {
 } as const;
 
 /**
- * The line of the cell's words — its state, its summary, what stands in for them (#1638): a whole, odd 17px. The cell
- * centres them in its row's height less the row's 1px rule, an odd room — 31px in a 32px row, 43px under a finger — so
- * an odd line leaves a whole number of pixels over the words; on a 16px line they started half a pixel under the row's
- * edge. On a phone the state stands over its summary, 3px apart: 37px in all, odd as the room is.
+ * The line of the cell's words — its state, its summary, what stands in for them (#1638): whole, and of its room's
+ * parity. The cell centres them in its row's height less the row's 1px rule: an odd room in the Sheet's 36px and 42px
+ * rows and a phone's 32px and 44px — 35px, 41px, 31px and 43px — where an odd 17px leaves a whole number of pixels over
+ * the words; an even one in the smallest density's 27px row and the 45px row a touch screen wider than a phone has —
+ * 26px and 44px — and inside the inspector's 32px field and its edge, 30px, or a phone's 18px, where the line is an
+ * even 16px. On a phone the state stands over its summary, 3px apart: 37px in all, odd as the room is.
  */
-const ACTION_LINE = "17px";
+export const ACTION_LINE = centredLine([35, 41, 31, 43], 17);
+export const ACTION_LINE_EVEN = centredLine([26, 44, 30, 18], 16);
+
+/** The line the cell takes: the one its room's parity asks, which the Sheet's cell says beside its own (`--sheet-action-line`). */
+const LINE = `var(--sheet-action-line, ${ACTION_LINE})`;
 
 export const sheetActionSlotRecipe = defineSlotRecipe({
     className: "elara-sheet-action",
@@ -84,7 +90,7 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
             inset: 0,
             display: "flex",
             alignItems: "stretch",
-            lineHeight: ACTION_LINE,
+            lineHeight: LINE,
             minWidth: 0,
             /* A selected or dirty cell keeps its fill: the control's ink carries the hover (ST2). */
             "&[data-on] [data-slot=actionNext]:not([data-held]), &[data-on] [data-slot=actionMore]:not([data-held])": { _hover: { background: "transparent", color: "fg" } },
@@ -112,7 +118,7 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
             fontFamily: "mono",
             fontSize: "label.md",
             fontWeight: 600,
-            lineHeight: ACTION_LINE,
+            lineHeight: LINE,
             letterSpacing: "0.1em",
             textTransform: "uppercase",
             whiteSpace: "nowrap",
@@ -139,7 +145,7 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
             fontSize: "body.sm",
-            lineHeight: ACTION_LINE,
+            lineHeight: LINE,
             color: "fg.muted",
             "&[data-dirty]": { color: "brandPressed" },
             "& [data-num]": { fontFamily: "mono", fontWeight: 500 },
@@ -155,7 +161,7 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
             flex: "none",
             fontSize: "body.sm",
             fontWeight: 500,
-            lineHeight: ACTION_LINE,
+            lineHeight: LINE,
             color: "brand.solid",
             whiteSpace: "nowrap",
             "& svg": { fontSize: "12px" },
@@ -167,7 +173,7 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
             fontSize: "body",
             fontStyle: "italic",
             fontWeight: 400,
-            lineHeight: ACTION_LINE,
+            lineHeight: LINE,
             color: "fg.subtle",
             whiteSpace: "nowrap",
             overflow: "hidden",
@@ -311,6 +317,8 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
         panelState: {
             position: "relative",
             height: "32px",
+            /* Its room, 30px inside its edge — a phone's, 18px with none — is even: the cell's even line (#1638). */
+            "--sheet-action-line": ACTION_LINE_EVEN,
             borderWidth: "1px",
             borderStyle: "solid",
             borderColor: "border.subtle",

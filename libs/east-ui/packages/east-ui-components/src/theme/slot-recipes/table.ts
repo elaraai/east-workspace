@@ -37,6 +37,22 @@ import { defineSlotRecipe } from "@chakra-ui/react";
 import { coarseHitArea } from "../../style/hit-area.js";
 import { fontAwesomeSize } from "../icon-size.js";
 import { centredLine } from "../one-line-box.js";
+import { tokens } from "../tokens.js";
+
+/** A header's padding over and under its content at each size, in px: what the size variants pad it by. */
+const HEADER_PAD = { sm: 6, md: 10, lg: 12 } as const;
+
+/**
+ * The room a header centres its label in at a size (#1638): its height — the density row token, which the Table
+ * stands each row and its header at — less its 1px rule and its padding over and under its content. The pin and sort
+ * controls stand the content 24px tall, centred in the room as the label is in them, so the label stands where the
+ * room alone would centre it.
+ *
+ * @param size - The Table's size
+ * @returns The room, in px
+ */
+const headerRoom = (size: keyof typeof HEADER_PAD): number =>
+    Number.parseFloat(tokens.sizes.density.row[size].value) - 1 - 2 * HEADER_PAD[size];
 
 export const tableSlotRecipe = defineSlotRecipe({
     className: "elara-table",
@@ -91,15 +107,13 @@ export const tableSlotRecipe = defineSlotRecipe({
             // A number column: the controls lead, the label ends on the right.
             "&[data-align=end]": { flexDirection: "row-reverse" },
         },
-        // Its line is a whole, odd 19px (#1638). The header centres the label in
-        // its row's height less its 1px rule and its padding above and below — an
-        // odd room, a row being an even number of pixels tall — so an odd line
-        // leaves a whole number of pixels over the label. Chakra's 20px line left
-        // half a pixel, and the page painted the label a row higher or lower in
-        // the header by where it stood the table.
+        // Its line is whole, and of its header's room's parity (#1638): each size
+        // sets it (`headerRoom`). Chakra's 20px line left half a pixel in the
+        // odd rooms of the 36px and 42px headers, and a 19px one in the even room
+        // of the smallest density's 27px, and the page painted the label a row
+        // higher or lower in the header by where it stood the table.
         columnHeaderLabel: {
             flex: "1",
-            lineHeight: "19px",
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
@@ -355,9 +369,20 @@ export const tableSlotRecipe = defineSlotRecipe({
         // `value.density` (compact / cozy / comfortable) onto sm / md / lg and
         // pairs each with a row height from `TABLE_ROW_HEIGHT`.
         size: {
-            sm: { cell: { paddingX: "{spacing.2}", paddingY: "{spacing.1.5}", fontSize: "12px" }, columnHeader: { paddingX: "{spacing.2}", paddingY: "{spacing.1.5}" } },
-            md: { cell: { paddingX: "{spacing.3.5}", paddingY: "{spacing.2.5}", fontSize: "{fontSizes.body}" }, columnHeader: { paddingX: "{spacing.3.5}", paddingY: "{spacing.2.5}" } },
-            lg: { cell: { paddingX: "{spacing.4}", paddingY: "{spacing.3}", fontSize: "{fontSizes.body.lg}" }, columnHeader: { paddingX: "{spacing.4}", paddingY: "{spacing.3}" } },
+            // A header's label on a whole line of its room's parity (#1638): an even 20px in the smallest density's 14px,
+            // an odd 19px in the 15px and 17px of the larger two.
+            sm: {
+                cell: { paddingX: "{spacing.2}", paddingY: "{spacing.1.5}", fontSize: "12px" },
+                columnHeader: { paddingX: "{spacing.2}", paddingY: `${HEADER_PAD.sm}px` }, columnHeaderLabel: { lineHeight: centredLine(headerRoom("sm"), 20) },
+            },
+            md: {
+                cell: { paddingX: "{spacing.3.5}", paddingY: "{spacing.2.5}", fontSize: "{fontSizes.body}" },
+                columnHeader: { paddingX: "{spacing.3.5}", paddingY: `${HEADER_PAD.md}px` }, columnHeaderLabel: { lineHeight: centredLine(headerRoom("md"), 19) },
+            },
+            lg: {
+                cell: { paddingX: "{spacing.4}", paddingY: "{spacing.3}", fontSize: "{fontSizes.body.lg}" },
+                columnHeader: { paddingX: "{spacing.4}", paddingY: `${HEADER_PAD.lg}px` }, columnHeaderLabel: { lineHeight: centredLine(headerRoom("lg"), 19) },
+            },
         },
         striped: { true: { row: { "&:nth-of-type(odd)": { background: "bg.subtle" } } } },
         interactive: {

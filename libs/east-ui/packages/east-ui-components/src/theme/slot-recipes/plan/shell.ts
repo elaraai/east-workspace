@@ -26,6 +26,19 @@ import type { SystemStyleObject } from "@chakra-ui/react";
 import { centredLine } from "../../one-line-box.js";
 import { planElementFocus, planRowFocus } from "./focus.js";
 
+/**
+ * A ruler's height and its bands' (#1638): for a time scale two bands, the ruler twice as tall and a pixel; for a
+ * number's or an ordinal's one band, the ruler's own height less its rule — a band the ruler's whole height ran a
+ * pixel under the rule, and centred the caption and the ticks half a pixel low. The canvas's ruler and a phone's
+ * (`narrowRuler`) both stand at it.
+ */
+export const RULER_BANDS = {
+    height: "var(--plan-ruler-h)",
+    "&[data-time]": { height: "calc(2 * var(--plan-ruler-h) + 1px)" },
+    "--time-ruler-row-h": "var(--plan-ruler-h)",
+    "&:not([data-time])": { "--time-ruler-row-h": "calc(var(--plan-ruler-h) - 1px)" },
+} satisfies SystemStyleObject;
+
 /** The slots this part styles. */
 export const shellSlots = [
     "root", "frame", "body", "header", "brushTrack", "brushRow",
@@ -122,13 +135,7 @@ export const shellBase = {
     ruler: {
         display: "grid",
         alignItems: "stretch",
-        height: "var(--plan-ruler-h)",
-        "&[data-time]": { height: "calc(2 * var(--plan-ruler-h) + 1px)" },
-        "--time-ruler-row-h": "var(--plan-ruler-h)",
-        // A ruler of one band — a number's, an ordinal's — has its own height less its rule of room, and its band is
-        // that tall (#1638): a band the ruler's whole height ran a pixel under the rule, and centred the caption and
-        // the ticks half a pixel low.
-        "&:not([data-time])": { "--time-ruler-row-h": "calc(var(--plan-ruler-h) - 1px)" },
+        ...RULER_BANDS,
         background: "bg.panel",
         borderBottomWidth: "1px",
         borderBottomColor: "border.strong",

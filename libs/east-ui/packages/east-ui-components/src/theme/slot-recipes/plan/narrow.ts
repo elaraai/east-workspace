@@ -16,6 +16,7 @@
 
 import type { SystemStyleObject } from "@chakra-ui/react";
 import { timeRulerBase } from "../time/axis.js";
+import { RULER_BANDS } from "./shell.js";
 
 /** The slots this part styles. */
 export const narrowSlots = [
@@ -69,9 +70,8 @@ export const narrowBase = {
     narrowRuler: {
         position: "relative",
         zIndex: 3,
-        height: "var(--plan-ruler-h)",
-        "&[data-time]": { height: "calc(2 * var(--plan-ruler-h) + 1px)" },
-        "--time-ruler-row-h": "var(--plan-ruler-h)",
+        // The canvas ruler's bands: one of a number's or an ordinal's the ruler's height less its rule (#1638).
+        ...RULER_BANDS,
         flexShrink: 0,
         marginX: "-12px",
         background: "bg.panel",

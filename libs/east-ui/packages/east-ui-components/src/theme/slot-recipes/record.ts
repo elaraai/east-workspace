@@ -239,7 +239,7 @@ export const recordSlotRecipe = defineSlotRecipe({
            coarse pointer's 45. */
         headerLabel: {
             minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "mono", fontSize: "label.sm",
-            fontWeight: 600, letterSpacing: "caps", textTransform: "uppercase", lineHeight: centredLine(36, 14), _coarse: { lineHeight: centredLine(45, 15) },
+            fontWeight: 600, letterSpacing: "caps", textTransform: "uppercase", lineHeight: centredLine([36, 32, 28], 14), _coarse: { lineHeight: centredLine(45, 15) },
         },
 
         /* A row: the DS Row card, its rule included in its height. */

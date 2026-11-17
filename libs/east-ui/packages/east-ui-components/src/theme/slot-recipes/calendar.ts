@@ -17,7 +17,7 @@
  */
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { fontAwesomeSize } from "../icon-size.js";
-import { centredLine, oneLineBox } from "../one-line-box.js";
+import { oneLineBox } from "../one-line-box.js";
 import { INSPECTOR_STATUS } from "./inspector.js";
 import { BOOKED_FILL, NO_DATA_HATCH } from "./plan/cells.js";
 import { PLAN_OVERLAP_RING, planElementConflict, planElementDrafted, planElementFocus, planElementSelected } from "./plan/focus.js";
@@ -48,14 +48,19 @@ const PAGED_COLUMN = {
 } as const;
 
 /**
- * An event's lines, each a whole number of pixels (#1638): its title's, its detail's and its resource's. A compact
- * event — one row on the timeline, 28px or 24px in its edge — centres them in an even room, 26px or 22px, and a taller
- * one stacks them 2px apart under 4px of padding, so each starts a whole number of pixels under the event's edge. The
- * theme's tight line of 1.25 is 15.625px, 12.5px and 13.75px at the three faces, which put them at a fraction.
+ * An event's lines, each a whole number of pixels (#1638): its title's, its detail's and its resource's. A tall event
+ * stacks them 2px apart under 4px of padding, so each starts a whole number of pixels under the event's edge. A compact
+ * one — one row: on the timeline 28px or 24px in its edge, in a day's column as tall as its duration, 27px for 45
+ * minutes at the compact density — is a size container, and sets each on its room's own height (`IN_ROW`), which has
+ * nothing to centre whatever height the duration gives; centred in its room, a line of either parity started half a
+ * pixel off in a room of the other. The theme's tight line of 1.25 is 15.625px, 12.5px and 13.75px at the three faces,
+ * which put them at a fraction.
  */
-const EVENT_TITLE_LINE = centredLine(26, 16);
-const EVENT_DETAIL_LINE = centredLine(26, 12);
-const EVENT_RESOURCE_LINE = centredLine(26, 14);
+const EVENT_TITLE_LINE = "16px";
+const EVENT_DETAIL_LINE = "12px";
+const EVENT_RESOURCE_LINE = "14px";
+/** A part of a compact event's one row — but a month's chip's, which stands on the chip's line (`IN_CHIP`) — on the room's own height. */
+const IN_ROW = { "[data-compact]:not([data-chip]) &": { lineHeight: "100cqh" } } as const;
 
 /**
  * A chip's one row (#1638) — an event in a month's day, 21px in its edge: each of its parts on a line the 19px inside
@@ -130,6 +135,8 @@ export const calendarSlotRecipe = defineSlotRecipe({
             textAlign: "left", cursor: "pointer", minHeight: "16px", minWidth: "4px", overflow: "hidden",
             "&[data-draggable]": { cursor: "grab" },
             "&[data-compact]": { flexDirection: "row", alignItems: "center", paddingY: 0, gap: "5px" },
+            // Its parts' lines its room's height (`IN_ROW`): as tall as its duration, or its timeline lane's bar.
+            "&[data-compact]:not([data-chip])": { containerType: "size" },
             "&[data-chip]": { height: EVENT_CHIP.height, flexShrink: 0 },
             "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING },
             // An event in an overlap holding a conflict, or a number outside its bounds: the conflict's ring in the overlap's place.
@@ -153,10 +160,11 @@ export const calendarSlotRecipe = defineSlotRecipe({
             overflow: "hidden", textOverflow: "ellipsis", flexShrink: 0, order: 2,
             "[data-compact] &": { flex: "1 1 auto" }, "&[data-wrap]": { whiteSpace: "normal", lineClamp: 2 },
             "&[data-measure]": { position: "absolute", visibility: "hidden", pointerEvents: "none" },
+            ...IN_ROW,
             ...IN_CHIP,
         },
-        eventDetail: { textStyle: "mono.xs", color: "fg.muted", lineHeight: EVENT_DETAIL_LINE, whiteSpace: "nowrap", width: "max-content", flexShrink: 0, order: 1, "&[data-measure]": { position: "absolute", visibility: "hidden", pointerEvents: "none" }, ...IN_CHIP },
-        eventResource: { textStyle: "mono.sm", color: "fg.muted", lineHeight: EVENT_RESOURCE_LINE, whiteSpace: "nowrap", width: "max-content", flexShrink: 0, order: 3, "&[data-measure]": { position: "absolute", visibility: "hidden", pointerEvents: "none" }, ...IN_CHIP },
+        eventDetail: { textStyle: "mono.xs", color: "fg.muted", lineHeight: EVENT_DETAIL_LINE, whiteSpace: "nowrap", width: "max-content", flexShrink: 0, order: 1, "&[data-measure]": { position: "absolute", visibility: "hidden", pointerEvents: "none" }, ...IN_ROW, ...IN_CHIP },
+        eventResource: { textStyle: "mono.sm", color: "fg.muted", lineHeight: EVENT_RESOURCE_LINE, whiteSpace: "nowrap", width: "max-content", flexShrink: 0, order: 3, "&[data-measure]": { position: "absolute", visibility: "hidden", pointerEvents: "none" }, ...IN_ROW, ...IN_CHIP },
 
         ruler: { flex: 1, minWidth: 0 },
         rulerRow: timeRulerBase.rulerRow,
