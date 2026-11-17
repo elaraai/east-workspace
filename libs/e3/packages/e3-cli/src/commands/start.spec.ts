@@ -174,14 +174,29 @@ describe('a local run\'s lines', () => {
       '  [WAIT] reconcile: input \'.tasks.forecast.output\' not set',
     ]);
 
-    assert.equal(describeWaits([{ input: '.inputs.a', kind: 'unset' }, { input: '.inputs.b', kind: 'unset' }]), 'inputs \'.inputs.a\', \'.inputs.b\' not set',
+    assert.equal(describeWaits([{ input: '.inputs.a', kind: 'unset' }, { input: '.inputs.b', kind: 'unset' }], 'sum'), 'inputs \'.inputs.a\', \'.inputs.b\' not set',
       'inputs not set are named together, as before');
     // A task that reads the record and an index of it, beside an input nothing has set
     assert.equal(describeWaits([
       { input: '.records.orders', kind: 'pending', sources: ['erp', 'wms'] },
       { input: '.inputs.rates', kind: 'unset' },
       { input: '.records.orders', kind: 'pending', sources: ['erp', 'wms'] },
-    ]), 'input \'.inputs.rates\' not set; record \'orders\' waits for the first delivery of erp, wms', 'a record is said once, its sources joined with commas');
+    ], 'forecast'), 'input \'.inputs.rates\' not set; record \'orders\' waits for the first delivery of erp, wms', 'a record is said once, its sources joined with commas');
+  });
+
+  it('R52 — says what a load waits on, and the readers it holds, as the design\'s §4.4 lists them', (t) => {
+    const lines = printedLines(t);
+    const run = runCallbacks();
+    run.onTaskWaiting!('orders.erp', [{ input: '.inputs.erp_extract', kind: 'package' }]);
+    run.onTaskWaiting!('forecast', [{ input: '.records.orders', kind: 'upstream', task: 'orders.erp' }]);
+    run.onTaskWaiting!('reconcile', [{ input: '.records.orders', kind: 'upstream', task: 'orders.erp' }]);
+    assert.deepEqual(lines(), [
+      '  [WAIT] orders.erp: input \'erp_extract\' holds its package\'s value: set it, and orders.erp loads it',
+      '  [WAIT] forecast: record \'orders\' waits on its load orders.erp',
+      '  [WAIT] reconcile: record \'orders\' waits on its load orders.erp',
+    ]);
+    assert.equal(waitingLine(3),
+      '3 tasks wait on an input that is not set, or on a record\'s load: set the input, or load the record\'s sources, and run again.');
   });
 
   it('says why a run stopped itself, and what it completed first; a run a signal stopped says Aborted, as before', (t) => {

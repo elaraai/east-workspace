@@ -588,24 +588,38 @@ interface Summary {
  * - A record that has yet to hear from external sources is said once, however
  *   many of the task's inputs read it or an index of it: `record 'orders'
  *   waits for the first delivery of erp`.
+ * - A load's feed input that holds its package's value: `input 'erp_extract'
+ *   holds its package's value: set it, and orders.erp loads it`.
+ * - A record whose load waits, for its readers: `record 'orders' waits on its
+ *   load orders.erp`.
+ *
+ * Inputs and records named by their own words are named as they were
+ * declared.
  *
  * @param waits - The task's inputs it cannot read, each with why
+ * @param task - The task, or the load, that waits: what loads a feed input
  * @returns The words after the task's name
  *
  * @example
  * ```ts
- * describeWaits([{ input: '.records.orders', kind: 'pending', sources: ['erp'] }]);
+ * describeWaits([{ input: '.records.orders', kind: 'pending', sources: ['erp'] }], 'forecast');
  * // "record 'orders' waits for the first delivery of erp"
  * ```
  */
-export function describeWaits(waits: readonly InputWait[]): string {
+export function describeWaits(waits: readonly InputWait[], task: string): string {
   const said: string[] = [];
+  const say = (words: string): void => {
+    if (!said.includes(words)) said.push(words);
+  };
   const unset = waits.filter((wait) => wait.kind === 'unset').map((wait) => wait.input);
   if (unset.length > 0) said.push(`${unset.length === 1 ? 'input' : 'inputs'} ${unset.map((input) => `'${input}'`).join(', ')} not set`);
   for (const wait of waits) {
-    if (wait.kind !== 'pending') continue;
-    const words = pendingWaitWords(wait.input, wait.sources);
-    if (!said.includes(words)) said.push(words);
+    switch (wait.kind) {
+      case 'unset': break;
+      case 'pending': say(pendingWaitWords(wait.input, wait.sources)); break;
+      case 'package': say(`input '${declaredName(wait.input)}' holds its package's value: set it, and ${task} loads it`); break;
+      case 'upstream': say(`record '${declaredName(wait.input)}' waits on its load ${wait.task}`); break;
+    }
   }
   return said.join('; ');
 }
@@ -618,7 +632,7 @@ export function describeWaits(waits: readonly InputWait[]): string {
  * @returns The line, without its indent
  */
 export function waitLine(task: string, waits: readonly InputWait[]): string {
-  return `[WAIT] ${task}: ${describeWaits(waits)}`;
+  return `[WAIT] ${task}: ${describeWaits(waits, task)}`;
 }
 
 /**
