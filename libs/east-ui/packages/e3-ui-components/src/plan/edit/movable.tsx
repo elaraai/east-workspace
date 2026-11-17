@@ -122,7 +122,7 @@ export function usePlanMovable(movable: PlanMovable | undefined): PlanMovablePro
         const plot = (e.currentTarget as HTMLElement).closest("[data-plan-plot]");
         const rect = plot?.getBoundingClientRect();
         const grabFrac = rect !== undefined && rect.width > 0 ? (e.clientX - rect.left) / rect.width : 0;
-        edit.store.arm({ movable, mode, grabFrac }, (e.currentTarget as HTMLElement).ownerDocument);
+        edit.store.arm({ movable, mode, grabFrac, node: e.currentTarget }, (e.currentTarget as HTMLElement).ownerDocument);
     }, [edit, movable]);
 
     const handle = useMemo<PlanElementHandle | undefined>(() => {

@@ -1146,6 +1146,12 @@ const tool = (c: HTMLElement, name: string) =>
     within(within(slot(c, "toolbar")!).getByRole("radiogroup", { name: "Tools" })).getByRole("radio", { name });
 /** A job's bar on one of example 16's presses. */
 const linkJob = (c: HTMLElement, row: PlanRowId, key: string) => c.querySelector<HTMLElement>(`${rowAt(row)} ${el("data-run", "job", key)}`)!;
+/** Connect's draft line: `snapped` to the event it may end at, `loose` at the pointer; `null` while none is drawn. */
+const draftLine = (c: HTMLElement): "snapped" | "loose" | null => {
+    const layer = c.querySelector("[data-plan-connect]");
+    if (layer === null || layer.querySelector("[data-plan-link-preview] [data-plan-ribbon-band]") === null) return null;
+    return layer.getAttribute("data-plan-connect") === "snapped" ? "snapped" : "loose";
+};
 /** Where Catalogue covers (J-2001) is pressed: Thursday 8 October, 07:00. */
 const COVERS_AT = { day: 3, hour: 7 };
 /** Price lists' bar (J-2004) on Press A2, the second row laid out: Wednesday noon to Thursday 18:00. */
@@ -1163,7 +1169,10 @@ describe("Connect draws a link kind's link from one event to another (#1541, U10
         const y = layOutPlots(c, [LINK_A1, LINK_A2], [[linkJob(c, LINK_A2, "J-2004"), PRICE_LISTS]]);
         const release = await carry(covers, { x: xAt(COVERS_AT.day, COVERS_AT.hour), y: y(LINK_A1) }, { x: xAt(3, 0), y: y(LINK_A2) });
         expect(caption()).toBe("Flow · Catalogue covers → Price lists");
+        // The draft line is drawn, snapped to the event the flow may end at.
+        expect(draftLine(c)).toBe("snapped");
         await release();
+        expect(draftLine(c)).toBeNull();
         // One more flow, a draft of the flows' record, selected: the inspector shows it. The job is where it was.
         expect(pending(c)).toBe("1 pending");
         expect(inspected(c)).toBe("Catalogue covers → Price lists");
@@ -1185,6 +1194,8 @@ describe("Connect draws a link kind's link from one event to another (#1541, U10
         const release = await carry(linkJob(c, LINK_A1, "J-2001"), { x: xAt(COVERS_AT.day, COVERS_AT.hour), y: y(LINK_A1) }, { x: xAt(0, 12), y: y(LINK_PS) });
         // A flow ends at a job, a bindery job or a delivery: never at plates.
         expect(caption()).toBe("refused: Flow can't end at Catalogue plates");
+        // Refused, the line follows the pointer and snaps to nothing.
+        expect(draftLine(c)).toBe("loose");
         await release();
         expect(pending(c)).toBe("0 pending");
     });
@@ -1196,7 +1207,9 @@ describe("Connect draws a link kind's link from one event to another (#1541, U10
         const y = layOutPlots(c, [LINK_A1, LINK_A2]);
         const release = await carry(linkJob(c, LINK_A1, "J-2001"), { x: xAt(COVERS_AT.day, COVERS_AT.hour), y: y(LINK_A1) }, { x: xAt(20, 0), y: y(LINK_A2) });
         expect(caption()).toBeNull();
+        expect(draftLine(c)).toBe("loose");
         await release();
+        expect(draftLine(c)).toBeNull();
         expect(pending(c)).toBe("0 pending");
         expect(linkJob(c, LINK_A1, "J-2001")).not.toBeNull();
     });
