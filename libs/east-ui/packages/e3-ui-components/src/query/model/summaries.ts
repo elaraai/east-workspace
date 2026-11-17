@@ -166,7 +166,9 @@ interface InFlight<V> {
  * Answers kept by their program and the hashes of the data sources they read
  * (#934, #1670): the query builder's summaries, and a Studio page's tiles.
  * One run per program and hashes, however many ask for it while it is in
- * flight; given up once every one that asked has stopped waiting.
+ * flight; given up once every one that asked has stopped waiting, and none
+ * has asked again in the same turn — a page drawn again re-asks at once, and
+ * keeps its runs.
  *
  * @example
  * ```ts
@@ -209,7 +211,7 @@ export class AnswerCache<R extends KeptRequest, V> {
      *
      * @param request - the request
      * @param hashes - each data source's current hash, by name
-     * @param signal - this asker stops waiting; once every asker has, the run is given up
+     * @param signal - this asker stops waiting; once every asker has, and none asks again in the same turn, the run is given up
      * @returns the answer, or `undefined` when the run was given up, or gave none; it rejects as a run that failed rejects
      */
     ensure(request: R, hashes: ReadonlyMap<string, string>, signal?: AbortSignal): Promise<V | undefined> {
@@ -237,11 +239,16 @@ export class AnswerCache<R extends KeptRequest, V> {
         run.waiting += 1;
         signal?.addEventListener("abort", () => {
             run.waiting -= 1;
-            // The last asker gone: the run is given up, and the next ask starts another.
-            if (run.waiting === 0 && this.pending.get(key) === run) {
-                this.pending.delete(key);
-                run.controller.abort();
-            }
+            if (run.waiting > 0) return;
+            // The last asker gone: the run is given up, and the next ask starts another — unless an asker
+            // asks for it again in the same turn, as a page drawn again stops its effects and starts them
+            // at once, which keeps it running.
+            queueMicrotask(() => {
+                if (run.waiting === 0 && this.pending.get(key) === run) {
+                    this.pending.delete(key);
+                    run.controller.abort();
+                }
+            });
         }, { once: true });
         return run.answer;
     }
