@@ -21,16 +21,12 @@
 
 import { it, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DictType, East, IntegerType, StringType, decodeBeast2For, encodeBeast2For, none, some, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { PackageObjectType, RecordCommitType } from '@elaraai/e3-types';
 import type { CatchUpPhase } from '../dataflow.js';
 import type { OrchestratorStartOptions } from '../dataflow/orchestrator/interfaces.js';
-import { InMemoryStateStore } from '../dataflow/state-store/InMemoryStateStore.js';
-import type { ExecutionStateStore } from '../dataflow/state-store/interfaces.js';
 import type { DeferReason } from '../dataflow/types.js';
 import { acquireForDeploy, deployIntentLock } from '../deploy-lock.js';
 import { DataflowAbortedError, WorkspaceLockError } from '../errors.js';
@@ -45,19 +41,7 @@ import { uuidv7 } from '../uuid.js';
 import { workspaceCreate, workspaceGetPackage } from '../workspaces.js';
 import { workspaceDeploy } from '../workspace-files.js';
 import type { BackendContext, BackendSetup } from './setup.js';
-
-/** A directory for a test's own files, removed when the test ends. */
-function scratch(t: TestContext): string {
-  const dir = mkdtempSync(join(tmpdir(), 'e3-contract-'));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
-  return dir;
-}
-
-/** The store a case's runs keep their state in: the one the backend's setup
- *  gives, or one in memory. */
-function stateStoreOf(context: BackendContext): ExecutionStateStore {
-  return context.stateStore ?? new InMemoryStateStore();
-}
+import { inputPath, scratch, stateStoreOf } from './support.js';
 
 /** A task's output over its inputs, as the cases' runner names it: the
  *  workspace's value then says which run made it. */
@@ -127,9 +111,6 @@ class RunLines {
     return this.lines.filter((line) => !line.startsWith('[DUE]'));
   }
 }
-
-/** The tree path of input `name`. */
-const inputPath = (name: string) => [variant('field', 'inputs'), variant('field', name)];
 
 /** The hash a workspace's dataset holds. */
 async function held(storage: StorageBackend, repo: string, path: string): Promise<string | null> {

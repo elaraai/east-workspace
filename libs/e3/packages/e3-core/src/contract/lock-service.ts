@@ -185,10 +185,13 @@ export function lockServiceTests(setup: BackendSetup): void {
       assert.equal(await deployAnnounced(storage, repo, 'main'), false);
 
       const deploying = acquireForDeploy(storage, repo, 'main', { waitMs: 10_000 });
+      // Whether the deploy's wait is over: it waits for the holder, which
+      // holds the workspace until this case lets it go
+      let settled = false;
+      void deploying.then(() => { settled = true; }, () => { settled = true; });
       // The intent is what a holder of the workspace reads, and stops for
-      const announced = Date.now() + 5_000;
       while (!(await deployAnnounced(storage, repo, 'main'))) {
-        assert.ok(Date.now() < announced, 'the deploy announces itself while it waits');
+        assert.equal(settled, false, 'the deploy announces itself while it waits');
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
       assert.equal(await acquireWorkspaceShared(storage, repo, 'main', variant('dataset_write', null)), null, 'no new shared taker starts');
