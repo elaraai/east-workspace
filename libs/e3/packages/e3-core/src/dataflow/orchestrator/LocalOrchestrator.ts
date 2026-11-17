@@ -9,10 +9,14 @@
  * Executes dataflow using an async loop with step functions.
  * This is the default orchestrator for CLI and local API server usage.
  *
- * Supports reactive execution: after each task completes, checks for
- * root input changes. If inputs changed, affected tasks are invalidated
- * and re-executed. Version vector consistency checks defer tasks whose
- * inputs have conflicting provenance (diamond dependency protection).
+ * A run follows its inputs: after each task completes, and whenever a start
+ * that finds it in flight wakes it, it looks for root input changes. Every
+ * result lands, and a task whose inputs moved while it ran runs once more on
+ * the newest. A task that reads several results reads them all as of one
+ * commit of each record — the oldest its inputs came from, a newer result
+ * read there from the execution cache or made there by a catch-up run — and
+ * is deferred only where its inputs read a plain input at two values. A
+ * deploy of its workspace that announces itself stops it.
  *
  * It runs wherever its host does: a run's tasks go to the runner its start
  * names, or else to its host's ({@link LocalOrchestratorHost}), and a split
@@ -32,7 +36,7 @@ import type { SplitUnit, TaskExecuteOptions } from '../../execution/interfaces.j
 import type { ExecutionResult } from '../../execution/cache.js';
 import { SplitTask, isSplitTask, type ThrownUnit } from '../../execution/engine.js';
 import { WorkspaceLockError, DataflowAbortedError, DataflowError, DataflowSupersededError, checkName } from '../../errors.js';
-import { acquireWorkspaceShared, workspaceLockRefusal } from '../../deploy-lock.js';
+import { DEPLOY_PROBE_MS, acquireWorkspaceShared, deployAnnounced, workspaceLockRefusal } from '../../deploy-lock.js';
 import type { TaskExecutionResult } from '../../dataflow.js';
 import { inputsHash } from '../../executions.js';
 import { uuidv7 } from '../../uuid.js';
@@ -48,10 +52,12 @@ import { stateToStatus } from './interfaces.js';
 import type { ExecutionStateStore, ExecutionStatusDetails, StateWriteOutcome } from '../state-store/interfaces.js';
 import { cloneExecutionState } from '../state-store/clone.js';
 import type {
+  CatchUpRun,
   DataflowExecutionState,
   ExecutionEvent,
   FinalizeResult,
   PrepareTaskResult,
+  TaskCommits,
   TaskState,
 } from '../types.js';
 import {
@@ -73,9 +79,9 @@ import {
   stepYield,
   stepApplyTreeUpdate,
   stepDetectInputChanges,
-  stepInvalidateTasks,
-  stepCheckVersionConsistency,
-  stepTaskResultStale,
+  stepTasksDue,
+  stepTaskDueAgain,
+  stepTaskCommits,
   stepGetRunSet,
   stepTaskForced,
   waitingTasks,
@@ -277,16 +283,35 @@ function outcomeOf(result: ExecutionResult, startTime: number): TaskOutcome {
 }
 
 /**
+ * What a split task's units are run for: the task's own run, whose result
+ * lands in the workspace, or a catch-up run of it.
+ */
+interface SplitTarget {
+  /** The task whose units run, by name. */
+  readonly task: string;
+  /** Its task object's hash. */
+  readonly taskHash: string;
+  /** The inputs it runs over. */
+  readonly inputHashes: string[];
+  /** Whether the run is the task's own: the run's state records its stages,
+   *  a resumed run takes them up, and its units' progress and requeues are
+   *  told. A catch-up run's is none of these. */
+  readonly own: boolean;
+  /** Completes the run once its last stage has ended, or it was cancelled. */
+  complete(outcome: TaskOutcome): Promise<void>;
+  /** Fails the run when planning it, or advancing its stages, threw. */
+  fail(err: unknown): Promise<void>;
+}
+
+/**
  * A task split into pieces while the loop runs its units beside every other
  * task's: the stage in progress, and where its units are.
  */
 interface SplitRun {
   /** The task's stages. */
   readonly split: SplitTask;
-  /** The task as it was prepared: its hash, inputs and output. */
-  readonly prepared: PrepareTaskResult;
-  /** The merged version vector the task was launched with. */
-  readonly launchVV: VersionVector;
+  /** What the units are run for. */
+  readonly target: SplitTarget;
   /** When the task was launched. */
   readonly startTime: number;
   /** The stage's next unit to launch. */
@@ -336,11 +361,43 @@ interface RunningExecution {
    */
   yieldResult?: FinalizeResult;
   /** What is in flight, each counting against the loop's width: a task by
-   *  its name, a split task's planning by its name, and each of its units by
-   *  a key of its own */
+   *  its name, a split task's planning by its name, each of its units by a
+   *  key of its own, and a catch-up run by its key ({@link catchUpKey}) */
   runningTasks: Map<string, Promise<void>>;
-  /** Split tasks in progress, by name, in the order they started */
+  /** Split tasks in progress, in the order they started: a task's own run by
+   *  its name, and a catch-up run by its key */
   splits: Map<string, SplitRun>;
+  /** The hash of the inputs each task in flight was launched over, by name:
+   *  a task another waits to read at exactly those inputs is waited for, and
+   *  nothing runs twice */
+  launches: Map<string, string>;
+  /** The tasks that wait for catch-up runs: the versions each reads, which it
+   *  is prepared at again once its runs have settled, and every run it has
+   *  waited for, by key */
+  catchingUp: Map<string, { versions: VersionVector; waits: Map<string, CatchUpRun> }>;
+  /** The outputs of the runs a task that waits reads, by key: catch-up runs
+   *  that landed, and a task's own run over exactly those inputs */
+  caughtUp: Map<string, string>;
+  /** What each deferred task was last told deferred for, until it launches:
+   *  a deferral is told once */
+  deferredFor: Map<string, string>;
+  /** Why the run stopped itself — a deploy of its workspace announced
+   *  itself — or `undefined` */
+  stopReason?: string;
+  /** Wakes whose look for changed inputs is still under way: the loop does
+   *  not end the run while one is */
+  wakes: number;
+  /** How many wakes' looks have ended: a pass of the loop during which one
+   *  ended takes the ready tasks again before it waits, or ends the run */
+  woke: number;
+  /** Settles as a wake's look ends: what the pass of the loop that made it
+   *  waits on beside what it has in flight */
+  woken: { promise: Promise<void>; resolve: () => void };
+  /** Set as the loop leaves off launching, to end the run: a wake after it
+   *  is not taken */
+  closing: boolean;
+  /** Set while the run asks whether a deploy has announced itself */
+  probing: boolean;
   /** The tasks and units waiting for room in the runner's budget, by the key
    *  each is tracked under in runningTasks. A wait matters only while it
    *  lasts, so nothing stores it. */
@@ -360,6 +417,19 @@ interface RunningExecution {
   completionPromise: Promise<FinalizeResult>;
   resolveCompletion: (result: FinalizeResult) => void;
   rejectCompletion: (error: Error) => void;
+}
+
+/** A promise, and what settles it. */
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((settle) => { resolve = settle; });
+  return { promise, resolve };
+}
+
+/** A catch-up run's key: what it is tracked in flight under, and what its
+ *  output is kept under once it has landed. */
+function catchUpKey(run: CatchUpRun): string {
+  return `${run.task}@${run.inputsHash}`;
 }
 
 /**
@@ -425,8 +495,13 @@ export interface LocalOrchestratorHost {
  *   moved it on, leaves what it launched to that process — its runners hear
  *   why they are stopped, a split task is left mid-stage and no completion is
  *   applied. Either launches and writes nothing more, and fails no task.
- * - Reactive: detects input changes after each task, invalidates and
- *   re-executes affected tasks until fixpoint
+ * - Follows its inputs: every result lands, a task whose inputs moved runs
+ *   once more on the newest, and the run ends once no task is due, ready, in
+ *   flight or catching up. What a task waits for catch-up runs at, and what
+ *   those runs made, is kept in memory: a run resumed in another process
+ *   decides each task again, and the execution cache answers what finished
+ * - Takes a wake from a start that finds it in flight ({@link wake}), and
+ *   stops itself once a deploy of its workspace has announced itself
  * - Runs a run's tasks on the runner its start names, or else on its host's
  *   ({@link LocalOrchestratorHost})
  * - Checks the workspace's name before a start or a resume takes a lock: a
@@ -606,7 +681,8 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       if (graph) {
         for (const task of graph.tasks) {
           const ts = state.tasks.get(task.name);
-          if (ts && ts.status === 'completed' && ts.execution.type === 'some') {
+          // A task with a result in the run, completed or due again
+          if (ts && ts.outputHash.type === 'some' && ts.execution.type === 'some') {
             taskExecutions.set(task.name, {
               executionId: ts.execution.value.executionId,
               taskHash: task.hash,
@@ -683,6 +759,15 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       stoppedBy: null,
       runningTasks: new Map(),
       splits: new Map(),
+      launches: new Map(),
+      catchingUp: new Map(),
+      caughtUp: new Map(),
+      deferredFor: new Map(),
+      wakes: 0,
+      woke: 0,
+      woken: deferred(),
+      closing: false,
+      probing: false,
       waiting: new Map(),
       unitSeq: 0,
       hasFailure: false,
@@ -765,10 +850,11 @@ export class LocalOrchestrator implements DataflowOrchestrator {
   private progressOf(execution: RunningExecution): ExecutionProgress {
     return {
       waiting: [...execution.waiting.values()],
-      splits: [...execution.splits].map(([task, run]) => {
+      // A task's own run: a catch-up run is no progress of the task's
+      splits: [...execution.splits.values()].filter((run) => run.target.own).map((run) => {
         const { merge, units } = run.split.stage;
         return {
-          task,
+          task: run.target.task,
           merge: merge === null ? none : some({ level: BigInt(merge.level), levels: BigInt(merge.levels) }),
           done: BigInt(run.results.filter((result) => result?.state === 'success').length),
           units: BigInt(units.length),
@@ -791,6 +877,60 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     await this.endCancelled(execution, 'Execution was cancelled');
   }
 
+  /**
+   * Hands a look for changed inputs to the run in flight on a workspace. See
+   * DataflowOrchestrator.wake: the run is one of this orchestrator's, in this
+   * process.
+   */
+  async wake(storage: StorageBackend, repo: string, workspace: string): Promise<boolean> {
+    const execution = [...this.executions.values()].find((each) => each.state.repo === repo && each.state.workspace === workspace);
+    const stopping = (run: RunningExecution): boolean =>
+      run.closing || run.aborted || run.ended || run.yielded || run.abortController.signal.aborted;
+    // A run started with a filter leaves the edit's other readers out
+    if (execution === undefined || stopping(execution) || execution.state.filter.type === 'some') return false;
+    // Counted before the look starts, so the loop does not end the run under it
+    execution.wakes++;
+    try {
+      await execution.mutex.runExclusive(async () => {
+        if (stopping(execution)) return;
+        await this.handleInputChanges(storage, execution.state, execution.options, execution.structure);
+        await this.persistState(execution, execution.state);
+      });
+      return !stopping(execution);
+    } catch {
+      // The look failed: the run finds the edit as its next task lands
+      return false;
+    } finally {
+      execution.wakes--;
+      execution.woke++;
+      execution.woken.resolve();
+    }
+  }
+
+  /**
+   * Stops the run once a deploy of its workspace has announced itself, as a
+   * stop request does, recording why. A run that people keep editing under
+   * does not end by itself, so every run in flight asks, at each
+   * `DEPLOY_PROBE_MS`.
+   */
+  private async probeDeploy(storage: StorageBackend, repo: string, execution: RunningExecution): Promise<void> {
+    if (execution.probing || execution.aborted || execution.ended || execution.yielded) return;
+    execution.probing = true;
+    try {
+      if (!(await deployAnnounced(storage, repo, execution.state.workspace))) return;
+      if (execution.aborted || execution.ended || execution.yielded) return;
+      execution.stopReason = `a deploy of ${execution.state.workspace} started`;
+      execution.aborted = true;
+      // Stops the running tasks too.
+      execution.abortController.abort();
+      await this.endCancelled(execution, execution.stopReason);
+    } catch {
+      // A probe that failed is made again at the next
+    } finally {
+      execution.probing = false;
+    }
+  }
+
   async getEvents(handle: ExecutionHandle, sinceSeq: number): Promise<ExecutionEvent[]> {
     if (!this.stateStore) {
       return [];
@@ -799,12 +939,13 @@ export class LocalOrchestrator implements DataflowOrchestrator {
   }
 
   /**
-   * Main execution loop with reactive fixpoint.
+   * Main execution loop.
    *
-   * After each task completes, checks for input changes and invalidates
-   * affected tasks. Uses version vector consistency checks to defer tasks
-   * whose inputs have conflicting provenance. Execution continues until
-   * fixpoint (no more ready, running, or deferred tasks).
+   * After each task completes, and at each wake, it looks for input changes
+   * and asks the tasks that read them whether they are due. Each task
+   * launches at the commits its inputs came from, deferred only where they
+   * read a plain input at two values. Execution continues until no task is
+   * due, ready, in flight or catching up.
    */
   private async runExecutionLoop(
     storage: StorageBackend,
@@ -825,6 +966,10 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     // The workspace's deployed state, which the run's record names: read
     // first, and kept for however the run ends.
     let wsState: WorkspaceState | null = null;
+
+    // A deploy that announces itself stops the run
+    const probe = setInterval(() => { void this.probeDeploy(storage, repo, execution); }, DEPLOY_PROBE_MS);
+    (probe as unknown as { unref?: () => void }).unref?.();
 
     try {
       // Read workspace state for DataflowRun recording
@@ -869,10 +1014,18 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       };
 
       while (true) {
-        // Check if we're done
-        if (execution.runningTasks.size === 0 && stepIsComplete(state)) {
+        // Check if we're done: no task is due, ready, in flight or catching
+        // up, and no wake is looking for changed inputs
+        if (execution.runningTasks.size === 0 && execution.wakes === 0 && stepIsComplete(state)) {
           break;
         }
+
+        // What a wake that ends during this pass settles, and how many had
+        // ended as the pass began: the tasks such a wake made due are not
+        // among those the pass takes next
+        const woken = deferred();
+        execution.woken = woken;
+        const woke = execution.woke;
 
         // Get ready tasks
         const readyTasks = stepGetReady(state);
@@ -893,7 +1046,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         // estimate (`firstWave`), when all may launch. A split task in progress finishes, as
         // a running task does, even once another task has failed; nothing
         // starts once the run is aborted.
-        for (const [taskName, run] of execution.splits) {
+        for (const [key, run] of execution.splits) {
           while (
             !checkAborted() &&
             execution.runningTasks.size < width &&
@@ -901,7 +1054,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
             run.next < run.split.stage.units.length &&
             (run.inFlight === 0 || !run.split.measuring)
           ) {
-            this.launchUnit(storage, repo, execution, taskName, run);
+            this.launchUnit(storage, repo, execution, key, run);
           }
         }
 
@@ -938,36 +1091,42 @@ export class LocalOrchestrator implements DataflowOrchestrator {
             continue;
           }
 
-          // Version vector consistency check before launching
-          const vvCheck = stepCheckVersionConsistency(state, taskName);
-          if (!vvCheck.consistent) {
-            // Defer: inputs have inconsistent versions of the same root input
-            const ts = state.tasks.get(taskName) as Mutable<TaskState> | undefined;
-            if (ts) ts.status = 'deferred';
-
-            // Emit task_deferred event
-            const mutableState = state as Mutable<DataflowExecutionState>;
-            mutableState.eventSeq = state.eventSeq + 1n;
-            const deferEvent: ExecutionEvent = variant('task_deferred', {
-              seq: mutableState.eventSeq,
-              timestamp: new Date(),
-              task: taskName,
-              conflictPath: vvCheck.conflictPath,
-            });
-            (mutableState.events as ExecutionEvent[]).push(deferEvent);
-
-            options.onTaskDeferred?.(taskName, vvCheck.conflictPath);
-            continue;
+          // The versions the task reads: those it waits for catch-up runs
+          // at, which it is prepared at again once they have settled, so it
+          // never chases newer ones; or else its commits, as its inputs stand
+          let versions: VersionVector;
+          const catchingUp = execution.catchingUp.get(taskName);
+          if (catchingUp !== undefined) {
+            if ([...catchingUp.waits.values()].some((run) => this.catchUpInFlight(execution, run))) continue;
+            versions = catchingUp.versions;
+          } else {
+            const at = await stepTaskCommits(storage, state, taskName);
+            if (at.kind === 'deferred') {
+              this.deferTask(execution, taskName, at);
+              continue;
+            }
+            versions = at.versions;
           }
 
-          // Prepare task (resolve inputs, check cache)
-          const prepared = await stepPrepareTask(storage, state, taskName);
+          // Prepare task (resolve inputs at its versions, check cache)
+          const prepared = await stepPrepareTask(storage, state, taskName, versions, {
+            landed: (task, inHash) => execution.caughtUp.get(`${task}@${inHash}`),
+          });
+
+          // Its status may have moved while it was prepared: a failure
+          // skipped it, or a task it reads was left waiting
+          const status = state.tasks.get(taskName)?.status;
+          if (status !== 'pending' && status !== 'ready') {
+            this.releaseCatchUps(execution, taskName);
+            continue;
+          }
 
           // An input of it is unassigned: the task waits for it, and its
           // dependents with it, and the run goes on without them. Their
           // statuses may have ended the run: the top of the loop checks.
           if (prepared.kind === 'waiting') {
             hadSyncCompletion = true;
+            this.releaseCatchUps(execution, taskName);
             await execution.mutex.runExclusive(async () => {
               const { waiting } = stepTasksWaiting(state, taskName, prepared.unassigned);
               await this.persistState(execution, state);
@@ -976,56 +1135,38 @@ export class LocalOrchestrator implements DataflowOrchestrator {
             continue;
           }
 
+          // A result it reads is not at hand at its versions: it waits for
+          // the catch-up runs that make it, each taking a place in the width.
+          // One there is no room for yet is launched at a later pass.
+          if (prepared.kind === 'behind') {
+            const waits = catchingUp?.waits ?? new Map<string, CatchUpRun>();
+            for (const run of prepared.runs) {
+              const key = catchUpKey(run);
+              if (!this.catchUpInFlight(execution, run)) {
+                if (execution.runningTasks.size >= width) continue;
+                this.launchCatchUp(storage, repo, execution, taskName, run);
+              }
+              waits.set(key, run);
+            }
+            execution.catchingUp.set(taskName, { versions, waits });
+            continue;
+          }
+          this.releaseCatchUps(execution, taskName);
+          execution.deferredFor.delete(taskName);
+
           // Check cache
           const cached = prepared.cached;
           if (cached !== null) {
             hadSyncCompletion = true;
-            // The execution the cache serves the task from.
-            const served = { inputsHash: inputsHash(prepared.inputHashes), executionId: cached.executionId };
             // Cache hit — wrap in mutex to serialize with concurrent .then() callbacks
             await execution.mutex.runExclusive(async () => {
-              // An input may have moved while the cache was read: the cached
-              // result is then stale, and the task waits for its inputs again
-              if (stepTaskResultStale(state, taskName, vvCheck.mergedVV)) {
-                (state.tasks.get(taskName) as Mutable<TaskState>).status = 'pending';
-                return;
-              }
-
-              // Write ref with merged VV and update state
-              await stepApplyTreeUpdate(
-                storage, repo, state.workspace,
-                prepared.outputPath, cached.outputHash, vvCheck.mergedVV
-              );
-
-              stepTaskCompleted(
-                state,
-                taskName,
-                cached.outputHash,
-                true,
-                0,
-                served
-              );
-
-              // Track task execution for DataflowRun
-              const existingCached = execution.taskExecutions.get(taskName);
-              execution.taskExecutions.set(taskName, {
-                ...served,
-                taskHash: prepared.taskHash,
+              await this.landResult(storage, repo, execution, taskName, prepared, versions, {
+                outputHash: cached.outputHash,
                 cached: true,
-                outputVersions: new Map(vvCheck.mergedVV),
-                executionCount: (existingCached?.executionCount ?? 0n) + 1n,
-              });
-
-              // Notify callback
-              options.onTaskComplete?.({
-                name: taskName,
-                cached: true,
-                state: 'success',
                 duration: 0,
+                // The execution the cache serves the task from.
+                executionId: cached.executionId,
               });
-
-              // Detect input changes after cached result
-              await this.handleInputChanges(storage, state, options, structure);
 
               // Update state store
               await this.persistState(execution, state);
@@ -1040,14 +1181,22 @@ export class LocalOrchestrator implements DataflowOrchestrator {
             await this.persistState(execution, state);
           });
           options.onTaskStart?.(taskName);
+          execution.launches.set(taskName, inputsHash(prepared.inputHashes));
 
           // A task whose work is split over its inputs runs as the units of
           // its stages, which join the loop's; any other task runs as one.
           const task = await this.readSplitTask(storage, repo, prepared.taskHash);
           if (task !== null) {
-            this.launchSplit(storage, repo, execution, taskName, prepared, vvCheck.mergedVV, task);
+            this.launchSplit(storage, repo, execution, taskName, {
+              task: taskName,
+              taskHash: prepared.taskHash,
+              inputHashes: prepared.inputHashes,
+              own: true,
+              complete: (outcome) => this.completeTask(storage, repo, execution, taskName, prepared, versions, outcome),
+              fail: (err) => this.failTask(execution, taskName, err),
+            }, task);
           } else {
-            this.launchTask(storage, repo, execution, taskName, prepared, vvCheck.mergedVV);
+            this.launchTask(storage, repo, execution, taskName, prepared, versions);
           }
         }
 
@@ -1063,24 +1212,28 @@ export class LocalOrchestrator implements DataflowOrchestrator {
           return;
         }
 
-        // Wait for at least one task to complete if we can't launch more
-        if (execution.runningTasks.size > 0) {
-          await Promise.race(execution.runningTasks.values());
-        } else if (hadSyncCompletion) {
-          // A cached task completed synchronously, which may have made new
-          // downstream tasks ready. Continue to re-check at the top of the loop.
-          continue;
+        // A task the cache answered, or one left waiting, may have made
+        // others ready: they are taken before the loop waits on what is in
+        // flight, so a task starts in the pass that made it ready.
+        // So are the tasks a wake made due while the pass was under way.
+        if (hadSyncCompletion || execution.woke !== woke) continue;
+
+        // Wait for a task to complete, or for a wake, if we can't launch more
+        if (execution.runningTasks.size > 0 || execution.wakes > 0) {
+          await Promise.race([...execution.runningTasks.values(), woken.promise]);
         } else if (readyTasks.length === 0 || checkAborted() || execution.hasFailure) {
           break;
         }
       }
+      // The loop launches no more: a wake from here on is not taken
+      execution.closing = true;
 
       // A split task the run was aborted before its units could start — its
       // pieces just planned, or its next stage — ends cancelled, as its
       // units in flight would have; unless another process took the run up,
       // which takes the task up too.
       if (checkAborted() && execution.stoppedBy !== 'refused') {
-        await this.cancelSplits(storage, repo, execution);
+        await this.cancelSplits(execution);
       }
 
       // Wait for any remaining tasks
@@ -1124,9 +1277,10 @@ export class LocalOrchestrator implements DataflowOrchestrator {
           await storage.refs.dataflowRunWrite(repo, state.workspace, this.endedRun(state, wsState, execution, variant('cancelled', {})));
         }
 
-        // Build partial results for abort error
+        // Build partial results for abort error, which says why a run that
+        // stopped itself did
         const partialResults = this.buildPartialResults(state);
-        throw new DataflowAbortedError(partialResults);
+        throw new DataflowAbortedError(partialResults, execution.stopReason);
       }
 
       // Finalize (event added by step function)
@@ -1191,7 +1345,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       // stops it, while the run still holds its locks: a completion landing
       // after the terminal record would write the run's state back to
       // 'running', and its task's output ref with the locks let go.
-      await this.stopLaunched(storage, repo, execution);
+      await this.stopLaunched(execution);
       execution.ended = true;
       const failMsg = err instanceof Error ? err.message : String(err);
       await execution.writer
@@ -1208,6 +1362,8 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       }
       throw err;
     } finally {
+      execution.closing = true;
+      clearInterval(probe);
       // Remove abort listener to avoid leaking execution object
       execution.abortCleanup?.();
 
@@ -1245,11 +1401,11 @@ export class LocalOrchestrator implements DataflowOrchestrator {
    * would have: one the run stopped before its units could start — its pieces
    * just planned, or its next stage.
    */
-  private async cancelSplits(storage: StorageBackend, repo: string, execution: RunningExecution): Promise<void> {
-    for (const [taskName, run] of [...execution.splits]) {
+  private async cancelSplits(execution: RunningExecution): Promise<void> {
+    for (const [key, run] of [...execution.splits]) {
       const cancelled = await run.split.cancel();
-      await this.completeTask(storage, repo, execution, taskName, run.prepared, run.launchVV, outcomeOf(cancelled, run.startTime));
-      execution.splits.delete(taskName);
+      await run.target.complete(outcomeOf(cancelled, run.startTime));
+      execution.splits.delete(key);
     }
   }
 
@@ -1264,10 +1420,10 @@ export class LocalOrchestrator implements DataflowOrchestrator {
    * fails quietly. Each in-flight task and unit already turns its own failure
    * into the task's.
    */
-  private async stopLaunched(storage: StorageBackend, repo: string, execution: RunningExecution): Promise<void> {
+  private async stopLaunched(execution: RunningExecution): Promise<void> {
     execution.abortController.abort();
     await Promise.allSettled(execution.runningTasks.values());
-    await this.cancelSplits(storage, repo, execution).catch(() => { /* the loop's error is the run's */ });
+    await this.cancelSplits(execution).catch(() => { /* the loop's error is the run's */ });
   }
 
   /**
@@ -1333,7 +1489,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       }
       throw new DataflowSupersededError(state.id);
     }
-    await this.stopLaunched(storage, repo, execution);
+    await this.stopLaunched(execution);
     if (wsState !== null) {
       await this.recordCancelledElsewhere(storage, repo, execution, wsState).catch(() => { /* its end is its state's */ });
     }
@@ -1399,9 +1555,10 @@ export class LocalOrchestrator implements DataflowOrchestrator {
   }
 
   /**
-   * Detect input changes and invalidate affected tasks.
+   * Looks for input changes, and asks the tasks that read a changed input
+   * directly whether they are due.
    *
-   * Called after each task completion to implement the reactive loop.
+   * Called after each result lands, and at each wake.
    */
   private async handleInputChanges(
     storage: StorageBackend,
@@ -1418,25 +1575,213 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       }
     }
 
-    if (changes.length > 0) {
-      const mutableState = state as Mutable<DataflowExecutionState>;
-      const { invalidated, events: invEvents } = stepInvalidateTasks(state, changes);
+    if (changes.length > 0) await this.tasksDue(storage, state, options, changes);
+  }
 
-      // Track re-executions (tasks that were completed and are now invalidated)
-      mutableState.reexecuted = state.reexecuted + BigInt(invalidated.length);
-
-      for (const evt of invEvents) {
-        if (evt.type === 'task_invalidated') {
-          options.onTaskInvalidated?.(evt.value.task, evt.value.reason);
-        }
+  /** Asks the tasks that read a changed dataset directly whether they are
+   *  due, and tells the run's caller of each that is. */
+  private async tasksDue(
+    storage: StorageBackend,
+    state: DataflowExecutionState,
+    options: OrchestratorStartOptions,
+    changed: ReadonlyArray<{ path: string }>
+  ): Promise<void> {
+    const { events } = await stepTasksDue(storage, state, changed);
+    for (const evt of events) {
+      if (evt.type === 'task_invalidated') {
+        options.onTaskInvalidated?.(evt.value.task, evt.value.reason);
       }
     }
   }
 
   /**
-   * Completes a task the loop launched, under the mutex: its output applied
-   * and its dependents made ready; or back to pending, when its inputs changed
-   * while it ran or the run was aborted; or failed, its dependents skipped.
+   * Defers a task whose inputs read a plain input at two values, telling its
+   * caller why once: a task deferred again for the same reason, with no launch
+   * between, is not told again and records no second event.
+   */
+  private deferTask(execution: RunningExecution, taskName: string, at: Extract<TaskCommits, { kind: 'deferred' }>): void {
+    const { state, options } = execution;
+    const ts = state.tasks.get(taskName) as Mutable<TaskState> | undefined;
+    if (ts) ts.status = 'deferred';
+
+    const told = `${at.reason.kind}:${at.conflictPath}`;
+    if (execution.deferredFor.get(taskName) === told) return;
+    execution.deferredFor.set(taskName, told);
+
+    // Emit task_deferred event, whose conflict path is the input the reason
+    // names
+    const mutableState = state as Mutable<DataflowExecutionState>;
+    mutableState.eventSeq = state.eventSeq + 1n;
+    const deferEvent: ExecutionEvent = variant('task_deferred', {
+      seq: mutableState.eventSeq,
+      timestamp: new Date(),
+      task: taskName,
+      conflictPath: at.conflictPath,
+    });
+    (mutableState.events as ExecutionEvent[]).push(deferEvent);
+
+    options.onTaskDeferred?.(taskName, at.reason);
+  }
+
+  /**
+   * Lands a task's result, under the mutex: its output written to the
+   * workspace with the versions the task was launched with, the task
+   * completed, and then asked whether it is due again, its inputs having
+   * moved while it ran, and its readers whether they are.
+   */
+  private async landResult(
+    storage: StorageBackend,
+    repo: string,
+    execution: RunningExecution,
+    taskName: string,
+    prepared: PrepareTaskResult,
+    versions: VersionVector,
+    result: { outputHash: string; cached: boolean; duration: number; executionId: string; peakBytes?: number }
+  ): Promise<void> {
+    const { state, options } = execution;
+    if (result.outputHash) {
+      // Write output ref with the versions the result was made from
+      await stepApplyTreeUpdate(storage, repo, state.workspace, prepared.outputPath, result.outputHash, versions);
+    }
+
+    const completed = { inputsHash: inputsHash(prepared.inputHashes), executionId: result.executionId };
+    stepTaskCompleted(state, taskName, result.outputHash, result.cached, result.duration, completed, versions, result.peakBytes);
+
+    // Track task execution for DataflowRun
+    const existing = execution.taskExecutions.get(taskName);
+    execution.taskExecutions.set(taskName, {
+      ...completed,
+      taskHash: prepared.taskHash,
+      cached: result.cached,
+      outputVersions: new Map(versions),
+      executionCount: (existing?.executionCount ?? 0n) + 1n,
+    });
+
+    options.onTaskComplete?.({
+      name: taskName,
+      cached: result.cached,
+      state: 'success',
+      duration: result.duration,
+    });
+
+    // A task that waits to read this one over exactly these inputs reads the
+    // result that landed
+    const key = `${taskName}@${completed.inputsHash}`;
+    if ([...execution.catchingUp.values()].some((waiting) => waiting.waits.has(key))) {
+      execution.caughtUp.set(key, result.outputHash);
+    }
+
+    // Every result lands. Its task is asked whether it is due again, and its
+    // readers whether they are: a change travels a step at a time.
+    const again = await stepTaskDueAgain(storage, state, taskName);
+    if (again?.type === 'task_invalidated') options.onTaskInvalidated?.(taskName, again.value.reason);
+    await this.tasksDue(storage, state, options, [{ path: prepared.outputPath }]);
+
+    // Detect input changes after the result
+    await this.handleInputChanges(storage, state, options, execution.structure);
+  }
+
+  /** Whether a catch-up run is in flight: as itself, or as its task's own
+   *  run over exactly its inputs, which is then waited for. */
+  private catchUpInFlight(execution: RunningExecution, run: CatchUpRun): boolean {
+    const key = catchUpKey(run);
+    if (execution.runningTasks.has(key) || execution.splits.has(key)) return true;
+    return execution.launches.get(run.task) === run.inputsHash &&
+      (execution.runningTasks.has(run.task) || execution.splits.has(run.task));
+  }
+
+  /** Lets go of what a task that waited for catch-up runs held: the versions
+   *  it was prepared at, and each run's output no other task waits to read. */
+  private releaseCatchUps(execution: RunningExecution, taskName: string): void {
+    const held = execution.catchingUp.get(taskName);
+    if (held === undefined) return;
+    execution.catchingUp.delete(taskName);
+    for (const key of held.waits.keys()) {
+      if (![...execution.catchingUp.values()].some((other) => other.waits.has(key))) execution.caughtUp.delete(key);
+    }
+  }
+
+  /**
+   * Launches a catch-up run: a task run once over the inputs it had at
+   * earlier versions, for a task that reads its result there. It is tracked
+   * under a key of its own, and its completion applies to no task and writes
+   * no ref: the execution cache records it, and nothing else.
+   */
+  private launchCatchUp(
+    storage: StorageBackend,
+    repo: string,
+    execution: RunningExecution,
+    forTask: string,
+    run: CatchUpRun
+  ): void {
+    const key = catchUpKey(run);
+    const startTime = Date.now();
+    execution.options.onCatchUp?.(run.task, forTask, { state: 'started' });
+    const complete = (outcome: TaskOutcome): Promise<void> => this.completeCatchUp(execution, run, forTask, outcome);
+    const fail = (err: unknown): Promise<void> => complete({
+      state: 'error', cached: false, executionId: '', error: err instanceof Error ? err.message : String(err), duration: Date.now() - startTime,
+    });
+    const launched = (async () => {
+      const task = await this.readSplitTask(storage, repo, run.taskHash);
+      if (task !== null) {
+        this.launchSplit(storage, repo, execution, key, {
+          task: run.task, taskHash: run.taskHash, inputHashes: run.inputHashes, own: false, complete, fail,
+        }, task);
+        return;
+      }
+      await complete(await this.executeTask(storage, repo, execution, run.task, run, key));
+    })()
+      .catch(fail)
+      .finally(() => {
+        if (execution.runningTasks.get(key) === launched) {
+          execution.runningTasks.delete(key);
+          execution.waiting.delete(key);
+        }
+      });
+    execution.runningTasks.set(key, launched);
+  }
+
+  /**
+   * Completes a catch-up run: its output is kept for the tasks that wait to
+   * read it, which are prepared again; or, when it failed, each of them
+   * fails, naming the run's task and the versions it ran at.
+   */
+  private async completeCatchUp(execution: RunningExecution, run: CatchUpRun, forTask: string, outcome: TaskOutcome): Promise<void> {
+    const { state, options } = execution;
+    // A run another process took up decides its tasks again there
+    if (execution.stoppedBy === 'refused') return;
+    const key = catchUpKey(run);
+    if (outcome.state === 'success' && outcome.outputHash) {
+      execution.caughtUp.set(key, outcome.outputHash);
+      options.onCatchUp?.(run.task, forTask, { state: 'completed', duration: outcome.duration });
+      return;
+    }
+    // e3 stopped it because the run was aborted: no task's failure
+    if (outcome.cancelled) return;
+
+    const at = [...run.versions].map(([root, version]) => `${root} ${version.slice(0, 8)}`).join(', ');
+    const error = `the catch-up run of '${run.task}' at ${at} failed: ${outcome.error ?? `exit code ${outcome.exitCode ?? 'unknown'}`}`;
+    await execution.mutex.runExclusive(async () => {
+      for (const [taskName, waiting] of [...execution.catchingUp]) {
+        if (!waiting.waits.has(key)) continue;
+        this.releaseCatchUps(execution, taskName);
+        execution.hasFailure = true;
+        const { result: failed } = stepTaskFailed(state, taskName, error, outcome.exitCode, 0);
+        options.onTaskComplete?.({ name: taskName, cached: false, state: 'error', error, exitCode: outcome.exitCode, duration: 0 });
+        for (const skipEvent of stepTasksSkipped(state, failed.toSkip, taskName)) {
+          if (skipEvent.type === 'task_skipped') {
+            options.onTaskComplete?.({ name: skipEvent.value.task, cached: false, state: 'skipped', duration: 0 });
+          }
+        }
+      }
+      await this.persistState(execution, state);
+    });
+  }
+
+  /**
+   * Completes a task the loop launched, under the mutex: its result landed
+   * ({@link landResult}), whatever its inputs have moved to since; or back to
+   * pending, when the run was aborted; or failed, its dependents skipped.
    */
   private async completeTask(
     storage: StorageBackend,
@@ -1444,10 +1789,11 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     execution: RunningExecution,
     taskName: string,
     prepared: PrepareTaskResult,
-    launchMergedVV: VersionVector,
+    versions: VersionVector,
     result: TaskOutcome
   ): Promise<void> {
     const { state, options } = execution;
+    execution.launches.delete(taskName);
     await execution.mutex.runExclusive(async () => {
       // A run another process took up completes its tasks there, from the
       // executions this loop's runners recorded: this loop applies none.
@@ -1455,78 +1801,17 @@ export class LocalOrchestrator implements DataflowOrchestrator {
 
       // Handle task completion
       if (result.state === 'success') {
-        // A result computed from inputs the run has since moved past is
-        // stale: handleInputChanges may have changed a root input while this
-        // task was in_progress, or invalidated a task whose output it read
-        if (stepTaskResultStale(state, taskName, launchMergedVV)) {
-          // Task computed with stale inputs — discard result, reset to pending.
-          // The reactive loop will re-execute it with the updated inputs.
-          const ts = state.tasks.get(taskName) as Mutable<TaskState> | undefined;
-          if (ts) {
-            ts.status = 'pending';
-            ts.plan = none;
-          }
-
-          const mutableState = state as Mutable<DataflowExecutionState>;
-          mutableState.eventSeq = state.eventSeq + 1n;
-          const invalidEvent: ExecutionEvent = variant('task_invalidated', {
-            seq: mutableState.eventSeq,
-            timestamp: new Date(),
-            task: taskName,
-            reason: 'inputs changed during execution',
-          });
-          (mutableState.events as ExecutionEvent[]).push(invalidEvent);
-          mutableState.reexecuted = state.reexecuted + 1n;
-
-          options.onTaskInvalidated?.(taskName, 'inputs changed during execution');
-        } else {
-          // Use launch-time VV for the output — it reflects what the task
-          // actually consumed, not what state.versionVectors says now.
-          const mergedVV = launchMergedVV;
-
-          if (result.outputHash) {
-            // Write output ref with merged VV
-            await stepApplyTreeUpdate(
-              storage, repo, state.workspace,
-              prepared.outputPath, result.outputHash, mergedVV
-            );
-          }
-
-          const completed = { inputsHash: inputsHash(prepared.inputHashes), executionId: result.executionId };
-          stepTaskCompleted(
-            state,
-            taskName,
-            result.outputHash ?? '',
-            result.cached,
-            result.duration,
-            completed,
-            result.peakBytes
-          );
-
-          // Track task execution for DataflowRun
-          const existing = execution.taskExecutions.get(taskName);
-          execution.taskExecutions.set(taskName, {
-            ...completed,
-            taskHash: prepared.taskHash,
-            cached: result.cached,
-            outputVersions: new Map(mergedVV),
-            executionCount: (existing?.executionCount ?? 0n) + 1n,
-          });
-
-          options.onTaskComplete?.({
-            name: taskName,
-            cached: result.cached,
-            state: 'success',
-            duration: result.duration,
-          });
-        }
-
-        // Detect input changes after task completion
-        await this.handleInputChanges(storage, state, options, execution.structure);
+        await this.landResult(storage, repo, execution, taskName, prepared, versions, {
+          outputHash: result.outputHash ?? '',
+          cached: result.cached,
+          duration: result.duration,
+          executionId: result.executionId,
+          ...(result.peakBytes !== undefined && { peakBytes: result.peakBytes }),
+        });
       } else if (result.cancelled) {
         // e3 stopped the task because the run was aborted — not the
-        // task's failure. It goes back to pending, as a stale result
-        // does, and the run ends through the abort path as cancelled.
+        // task's failure. It goes back to pending, keeping the result it
+        // held, and the run ends through the abort path as cancelled.
         const ts = state.tasks.get(taskName) as Mutable<TaskState> | undefined;
         if (ts) {
           ts.status = 'pending';
@@ -1590,6 +1875,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
   private async failTask(execution: RunningExecution, taskName: string, err: unknown): Promise<void> {
     const { state, options } = execution;
     const msg = err instanceof Error ? err.message : String(err);
+    execution.launches.delete(taskName);
     await execution.mutex.runExclusive(async () => {
       execution.hasFailure = true;
       try {
@@ -1615,10 +1901,10 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     execution: RunningExecution,
     taskName: string,
     prepared: PrepareTaskResult,
-    launchMergedVV: VersionVector
+    versions: VersionVector
   ): void {
     const taskPromise = this.executeTask(storage, repo, execution, taskName, prepared)
-      .then((result) => this.completeTask(storage, repo, execution, taskName, prepared, launchMergedVV, result))
+      .then((result) => this.completeTask(storage, repo, execution, taskName, prepared, versions, result))
       .catch((err) => this.failTask(execution, taskName, err))
       .finally(() => {
         // Identity-checked delete: only clear the slot if it still holds
@@ -1633,35 +1919,35 @@ export class LocalOrchestrator implements DataflowOrchestrator {
   }
 
   /**
-   * Launches a task whose work is split over its inputs: plans its pieces, or
-   * takes up the stage its state names, and hands the stage's units to the
-   * loop. The planning is tracked under the task's name, so the loop launches
-   * other work meanwhile.
+   * Launches a run of a task whose work is split over its inputs — the task's
+   * own, or a catch-up run of it: plans its pieces, or takes up the stage the
+   * task's state names, and hands the stage's units to the loop. The planning
+   * is tracked under the run's key, so the loop launches other work meanwhile.
    */
   private launchSplit(
     storage: StorageBackend,
     repo: string,
     execution: RunningExecution,
-    taskName: string,
-    prepared: PrepareTaskResult,
-    launchMergedVV: VersionVector,
+    key: string,
+    target: SplitTarget,
     task: TaskObject
   ): void {
     const { state, options } = execution;
     const startTime = Date.now();
     const planned = (async () => {
-      const taskState = state.tasks.get(taskName);
+      // A catch-up run plans its own pieces: the state's plan is the task's own
+      const taskState = target.own ? state.tasks.get(target.task) : undefined;
       const split = await SplitTask.open(
         storage,
         repo,
-        prepared.taskHash,
+        target.taskHash,
         task,
-        prepared.inputHashes,
-        { inHash: inputsHash(prepared.inputHashes), executionId: uuidv7(), startTime },
+        target.inputHashes,
+        { inHash: inputsHash(target.inputHashes), executionId: uuidv7(), startTime },
         {
           signal: execution.abortController.signal,
-          onPartitionProgress: options.onPartitionProgress
-            ? (progress) => options.onPartitionProgress!(taskName, progress)
+          onPartitionProgress: target.own && options.onPartitionProgress
+            ? (progress) => options.onPartitionProgress!(target.task, progress)
             : undefined,
           firstWave: options.firstWave,
         },
@@ -1669,7 +1955,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         options.owner === undefined ? await this.hostOwner() : options.owner
       );
       if (!(split instanceof SplitTask)) {
-        await this.completeTask(storage, repo, execution, taskName, prepared, launchMergedVV, outcomeOf(split, startTime));
+        await target.complete(outcomeOf(split, startTime));
         return;
       }
       if (execution.yielded || execution.stoppedBy === 'refused') {
@@ -1678,27 +1964,25 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         await split.suspend(execution.yielded ? 'yielded' : 'superseded');
         return;
       }
-      execution.splits.set(taskName, {
-        split, prepared, launchVV: launchMergedVV, startTime, next: 0, inFlight: 0, stopped: false, results: [], thrown: [],
-      });
+      execution.splits.set(key, { split, target, startTime, next: 0, inFlight: 0, stopped: false, results: [], thrown: [] });
       const { plan, units } = split.stage;
-      if (plan !== null && !split.resumed) {
+      if (target.own && plan !== null && !split.resumed) {
         await execution.mutex.runExclusive(async () => {
-          stepTaskSplit(state, taskName, plan, units.length);
+          stepTaskSplit(state, target.task, plan, units.length);
           await this.persistState(execution, state);
         });
       }
     })()
       .catch(async (err) => {
-        execution.splits.delete(taskName);
-        await this.failTask(execution, taskName, err);
+        execution.splits.delete(key);
+        await target.fail(err);
       })
       .finally(() => {
-        if (execution.runningTasks.get(taskName) === planned) {
-          execution.runningTasks.delete(taskName);
+        if (execution.runningTasks.get(key) === planned) {
+          execution.runningTasks.delete(key);
         }
       });
-    execution.runningTasks.set(taskName, planned);
+    execution.runningTasks.set(key, planned);
   }
 
   /**
@@ -1710,7 +1994,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     storage: StorageBackend,
     repo: string,
     execution: RunningExecution,
-    taskName: string,
+    key: string,
     run: SplitRun
   ): void {
     const index = run.next++;
@@ -1724,12 +2008,12 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     };
     const expectedPeakBytes = run.split.stagePeak;
     const guessed = run.split.stagePeakGuessed;
-    const key = `${taskName}\u0000${execution.unitSeq++}`;
+    const unitKey = `${key}\u0000${execution.unitSeq++}`;
     run.inFlight++;
     run.split.unitStarted(index);
     const launched = (async () => {
       try {
-        const result = await this.executeUnit(storage, repo, execution, taskName, run.prepared.taskHash, unit, expectedPeakBytes, guessed, key, place);
+        const result = await this.executeUnit(storage, repo, execution, run.target, unit, expectedPeakBytes, guessed, unitKey, place);
         run.results[index] = result;
         run.split.unitSettled(index, result);
         // A unit e3 stopped because the run was aborted is not a failure.
@@ -1743,33 +2027,29 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       // After a yield the task was left mid-stage, for a resumed run; and so
       // it is for a run another process took up.
       if (run.inFlight > 0 || more || execution.yielded || execution.stoppedBy === 'refused') return;
-      await this.advanceSplit(storage, repo, execution, taskName, run);
+      await this.advanceSplit(execution, key, run);
     })()
       .catch(async (err) => {
-        execution.splits.delete(taskName);
-        await this.failTask(execution, taskName, err);
+        execution.splits.delete(key);
+        await run.target.fail(err);
       })
       .finally(() => {
-        execution.waiting.delete(key);
-        if (execution.runningTasks.get(key) === launched) {
-          execution.runningTasks.delete(key);
+        execution.waiting.delete(unitKey);
+        if (execution.runningTasks.get(unitKey) === launched) {
+          execution.runningTasks.delete(unitKey);
         }
       });
-    execution.runningTasks.set(key, launched);
+    execution.runningTasks.set(unitKey, launched);
   }
 
   /**
    * Advances a split task whose stage has ended: the next stage's units join
-   * the loop's, or the task completes as any task does.
+   * the loop's, or the run completes — the task's own as any task does, a
+   * catch-up run as one does.
    */
-  private async advanceSplit(
-    storage: StorageBackend,
-    repo: string,
-    execution: RunningExecution,
-    taskName: string,
-    run: SplitRun
-  ): Promise<void> {
+  private async advanceSplit(execution: RunningExecution, key: string, run: SplitRun): Promise<void> {
     const { state } = execution;
+    const { target } = run;
     const ended = run.split.stage.merge;
     const result = await run.split.advance(run.results, run.thrown);
     if (result === null) {
@@ -1779,20 +2059,22 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       run.stopped = false;
       run.results = [];
       run.thrown = [];
-      await execution.mutex.runExclusive(async () => {
-        if (ended !== null) stepTaskMergeCompleted(state, taskName, ended.level, ended.levels);
-        stepTaskMergeStarted(state, taskName, plan!, merge!.level, merge!.levels, units.length);
-        await this.persistState(execution, state);
-      });
+      if (target.own) {
+        await execution.mutex.runExclusive(async () => {
+          if (ended !== null) stepTaskMergeCompleted(state, target.task, ended.level, ended.levels);
+          stepTaskMergeStarted(state, target.task, plan!, merge!.level, merge!.levels, units.length);
+          await this.persistState(execution, state);
+        });
+      }
       return;
     }
-    if (ended !== null && result.state === 'success') {
+    if (target.own && ended !== null && result.state === 'success') {
       await execution.mutex.runExclusive(() => {
-        stepTaskMergeCompleted(state, taskName, ended.level, ended.levels);
+        stepTaskMergeCompleted(state, target.task, ended.level, ended.levels);
       });
     }
-    await this.completeTask(storage, repo, execution, taskName, run.prepared, run.launchVV, outcomeOf(result, run.startTime));
-    execution.splits.delete(taskName);
+    await target.complete(outcomeOf(result, run.startTime));
+    execution.splits.delete(key);
   }
 
   /**
@@ -1841,14 +2123,14 @@ export class LocalOrchestrator implements DataflowOrchestrator {
   /**
    * Execute one unit of a split task, through the run's runner or the host's:
    * its wait for room is kept, under the key it is tracked by, while it lasts,
-   * and a requeue is recorded as an event of the run, naming its place.
+   * and a requeue of a unit of the task's own run is recorded as an event of
+   * the run, naming its place.
    */
   private async executeUnit(
     storage: StorageBackend,
     repo: string,
     execution: RunningExecution,
-    taskName: string,
-    taskHash: string,
+    target: SplitTarget,
     unit: SplitUnit,
     expectedPeakBytes: number | undefined,
     guessed: boolean,
@@ -1856,6 +2138,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     place: StageUnit
   ): Promise<ExecutionResult> {
     const { options } = execution;
+    const { task: taskName, taskHash } = target;
     const execOptions: TaskExecuteOptions = {
       taskName,
       // Scoped as the task's own cache bypass is: under a filter, only the
@@ -1871,7 +2154,8 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         if (needs === null) execution.waiting.delete(key);
         else execution.waiting.set(key, { task: taskName, unit: some(place), needs: BigInt(needs), since: new Date() });
       },
-      onRequeued: (requeue) => {
+      // A catch-up run's requeue is no event of the run's
+      onRequeued: !target.own ? undefined : (requeue) => {
         options.onUnitRequeued?.(taskName, place, requeue);
         void execution.mutex.runExclusive(async () => {
           stepUnitRequeued(execution.state, taskName, place, requeue);
@@ -1902,14 +2186,16 @@ export class LocalOrchestrator implements DataflowOrchestrator {
   }
 
   /**
-   * Execute a single task.
+   * Execute a single task: its own run, or a catch-up run of it, whose wait
+   * for room is kept under the key the run is tracked by.
    */
   private async executeTask(
     storage: StorageBackend,
     repo: string,
     execution: RunningExecution,
     taskName: string,
-    prepared: { taskHash: string; inputHashes: string[] }
+    prepared: { taskHash: string; inputHashes: string[] },
+    key: string = taskName
   ): Promise<TaskOutcome> {
     const { options } = execution;
     const startTime = Date.now();
@@ -1925,14 +2211,15 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       onStderr: options.onStderr ? (data) => options.onStderr!(taskName, data) : undefined,
       // Unit progress goes to the caller's callback only. The state records
       // a split task's stages, not each unit: a per-unit state rewrite would
-      // make persistence O(units²) under the orchestrator mutex.
-      onPartitionProgress: options.onPartitionProgress
+      // make persistence O(units²) under the orchestrator mutex. A catch-up
+      // run's is no progress of the task's.
+      onPartitionProgress: key === taskName && options.onPartitionProgress
         ? (progress) => options.onPartitionProgress!(taskName, progress)
         : undefined,
-      // A wait for room is kept, under the task's name, while it lasts.
+      // A wait for room is kept, under the run's key, while it lasts.
       onWaiting: (needs) => {
-        if (needs === null) execution.waiting.delete(taskName);
-        else execution.waiting.set(taskName, { task: taskName, unit: none, needs: BigInt(needs), since: new Date() });
+        if (needs === null) execution.waiting.delete(key);
+        else execution.waiting.set(key, { task: taskName, unit: none, needs: BigInt(needs), since: new Date() });
       },
     };
 
@@ -1967,13 +2254,16 @@ export class LocalOrchestrator implements DataflowOrchestrator {
   }
 
   /**
-   * Build partial results for abort error.
+   * Build partial results for abort error: a task with a result in the run
+   * counts as completed, whatever its status — one due again keeps its result
+   * while it runs again, and goes back to pending when the run stops.
    */
   private buildPartialResults(state: DataflowExecutionState): TaskExecutionResult[] {
     const results: TaskExecutionResult[] = [];
 
     for (const [name, taskState] of state.tasks) {
-      if (taskState.status === 'completed' || taskState.status === 'failed' || taskState.status === 'skipped') {
+      const landed = taskState.outputHash.type === 'some' && taskState.status !== 'failed' && taskState.status !== 'skipped';
+      if (landed || taskState.status === 'failed' || taskState.status === 'skipped') {
         // Extract values from Option types
         const cached = taskState.cached.type === 'some' ? taskState.cached.value : false;
         const error = taskState.error.type === 'some' ? taskState.error.value : undefined;
@@ -1983,7 +2273,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         results.push({
           name,
           cached,
-          state: taskState.status === 'completed' ? 'success' : taskState.status,
+          state: landed ? 'success' : taskState.status === 'failed' ? 'failed' : 'skipped',
           error,
           exitCode,
           duration,

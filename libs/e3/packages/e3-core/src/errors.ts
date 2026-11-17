@@ -518,9 +518,17 @@ export class DataflowError extends E3Error {
  * This is not an error condition - it indicates the execution was intentionally
  * cancelled (e.g., by an API server before applying a write). The partial
  * results contain the status of tasks that completed before the abort.
+ *
+ * A run that stopped itself says why: a deploy of its workspace announced
+ * itself (`a deploy of main started`). A run stopped by its caller's signal,
+ * or by a stop request, has no reason.
  */
 export class DataflowAbortedError extends E3Error {
-  constructor(public readonly partialResults?: TaskExecutionResult[]) {
+  constructor(
+    public readonly partialResults?: TaskExecutionResult[],
+    /** Why the run stopped itself; `undefined` for a run its caller stopped */
+    public readonly reason?: string,
+  ) {
     super('Dataflow execution was aborted');
   }
 }

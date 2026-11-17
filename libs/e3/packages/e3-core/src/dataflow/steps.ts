@@ -15,10 +15,11 @@
  * - Deterministic where possible (pure functions marked as such)
  * - Idempotent for retries
  *
- * Reactive step functions (stepDetectInputChanges, stepInvalidateTasks,
- * stepCheckVersionConsistency, stepTaskResultStale) enable the reactive
- * fixpoint loop where input changes during execution trigger re-execution of
- * affected tasks.
+ * Reactive step functions (stepDetectInputChanges, stepTasksDue,
+ * stepTaskDueAgain, stepTaskCommits) make a run follow its inputs: every
+ * result lands, a task whose inputs moved runs once more on the newest, and a
+ * task that reads several results reads them all as of one commit of each
+ * record.
  */
 
 import { variant, some, none, equalFor, StringType } from '@elaraai/east';
@@ -31,17 +32,18 @@ import {
   dataflowGetReadyTasks,
   dataflowGetDependentsToSkip,
   dataflowGetDependencyClosure,
-  dataflowResolveInputHashes,
+  dataflowRecords,
+  dataflowResolveInputs,
+  dataflowSnapshotTaken,
   dataflowCheckCache,
-  findAffectedTasks,
+  recordCommitOrder,
+  type ResolveInputsOptions,
 } from '../dataflow.js';
 import {
   workspaceGetDatasetHash,
   workspaceSetDatasetByHash,
 } from '../trees.js';
 import {
-  checkVersionConsistency,
-  mergeVersionVectors,
   inputVersionVector,
   snapshotInputVersions,
   detectInputChanges,
@@ -51,8 +53,10 @@ import type {
   DataflowExecutionState,
   TaskState,
   InitializeResult,
+  PrepareTaskBehind,
   PrepareTaskResult,
   PrepareTaskWaiting,
+  TaskCommits,
   TaskCompletedResult,
   TaskFailedResult,
   TasksWaitingResult,
@@ -333,7 +337,10 @@ export function stepTaskForced(state: DataflowExecutionState, taskName: string):
  * Get tasks that are ready to execute.
  *
  * A task is ready when:
- * 1. All tasks it depends on have completed (not just started)
+ * 1. Every task it depends on holds a result in the run, whatever that
+ *    task's status, save one that waits, failed or was skipped: a task due
+ *    again keeps its result while it runs again, so a change travels a step at
+ *    a time, and none of its dependents is reset to wait for it
  * 2. It passes the filter (if any)
  * 3. It is not already completed, in-progress, failed, skipped, or deferred
  *
@@ -344,14 +351,21 @@ export function stepTaskForced(state: DataflowExecutionState, taskName: string):
  */
 export function stepGetReady(state: DataflowExecutionState): string[] {
   const completedTasks = new Set<string>();
+  const resultTasks = new Set<string>();
   for (const [name, taskState] of state.tasks) {
     if (taskState.status === 'completed') {
       completedTasks.add(name);
     }
+    if (
+      taskState.outputHash.type === 'some' &&
+      taskState.status !== 'waiting' && taskState.status !== 'failed' && taskState.status !== 'skipped'
+    ) {
+      resultTasks.add(name);
+    }
   }
 
   // Get ready tasks from graph
-  const graphReady = dataflowGetReadyTasks(getGraph(state), completedTasks);
+  const graphReady = dataflowGetReadyTasks(getGraph(state), completedTasks, resultTasks);
 
   // Restrict to the filter's dependency closure (null = no filter)
   const runSet = stepGetRunSet(state);
@@ -463,7 +477,8 @@ export async function stepDetectInputChanges(
   const mutableState = state as Mutable<DataflowExecutionState>;
 
   for (const change of changes) {
-    // Update input snapshot
+    // Update input snapshot, numbered in the order the run takes them
+    dataflowSnapshotTaken(state, change.path, change.newHash);
     state.inputSnapshot.set(change.path, change.newHash);
 
     // Update version vector for this input
@@ -485,84 +500,197 @@ export async function stepDetectInputChanges(
   return { changes, events };
 }
 
+/** Whether two of a version vector's versions are the same. */
+const sameVersion = equalFor(StringType);
+
 /**
- * Invalidate tasks affected by input changes.
- *
- * For each affected task that is not currently in_progress:
- * - completed: reset to pending, decrement executed/cached counter, emit task_invalidated
- * - deferred: reset to pending
- * - waiting: reset to pending — the input it waited on may be the one that
- *   changed, and the loop decides it again — unless a task it depends on still
- *   waits, which decides it again as that task completes (stepTaskCompleted)
- * - pending/ready: leave as-is (will pick up new inputs naturally)
- * - skipped: leave as-is (upstream failure still applies)
- * - failed: leave as-is (task already failed; orchestrator is winding down)
- *
- * @param state - Execution state to mutate
- * @param changes - Input changes from stepDetectInputChanges
- * @returns Invalidated task names and events
+ * Whether two version vectors name the same versions of the same roots. The
+ * reserved slots a ref's vector carries, whose keys begin `$`, are no roots,
+ * and are left out.
  */
-export function stepInvalidateTasks(
+function sameVersions(a: VersionVector, b: VersionVector): boolean {
+  const roots = (vector: VersionVector): Array<[string, string]> => [...vector].filter(([root]) => !root.startsWith('$'));
+  const left = roots(a);
+  if (left.length !== roots(b).length) return false;
+  return left.every(([root, version]) => {
+    const other = b.get(root);
+    return other !== undefined && sameVersion(other, version);
+  });
+}
+
+/**
+ * The version of each root a task reads: for a record, one commit.
+ *
+ * @remarks
+ * A task reads its inputs, some of them other tasks' results, each made from
+ * versions of the run's roots. It reads them all as of one version of each
+ * root, so it never computes on a mix, and it never waits for results made
+ * from different commits to agree:
+ *
+ * - **A record**: the oldest commit of it its inputs name — the run's
+ *   snapshot, for a record the task reads directly, and a result's own for
+ *   one it reads through that result. The record is read there from its
+ *   history, and a result made from a newer commit from the execution cache,
+ *   or by a catch-up run ({@link stepPrepareTask}).
+ * - **A plain input**: the value its inputs agree on. A plain input keeps no
+ *   earlier value to read, so a task whose inputs read one at different
+ *   values is deferred until they agree.
+ *
+ * A reserved slot of a vector, whose key begins `$`, is no root, and is left
+ * out.
+ *
+ * @param storage - Storage backend
+ * @param state - Execution state
+ * @param taskName - The task
+ * @returns The version of each root the task reads, or why it is deferred
+ */
+export async function stepTaskCommits(
+  storage: StorageBackend,
   state: DataflowExecutionState,
-  changes: Array<{ path: string }>
-): {
-  invalidated: string[];
-  events: ExecutionEvent[];
-} {
+  taskName: string
+): Promise<TaskCommits> {
   const graph = getGraph(state);
-  const affectedTaskNames = findAffectedTasks(graph, changes);
+  const task = graph.tasks.find(t => t.name === taskName);
+  if (!task) {
+    throw new Error(`Task '${taskName}' not found in graph`);
+  }
 
-  const invalidated: string[] = [];
-  const events: ExecutionEvent[] = [];
+  // Each root the task's inputs name, at the version each names it at, with
+  // the input that does: a task by its name, or the root itself
+  const producerOf = new Map(graph.tasks.map((each) => [each.output, each.name] as const));
+  const named = new Map<string, Array<{ version: string; through: string }>>();
+  for (const inputPath of new Set(task.inputs)) {
+    const through = producerOf.get(inputPath) ?? inputPath;
+    for (const [root, version] of state.versionVectors.get(inputPath) ?? []) {
+      if (root.startsWith('$')) continue;
+      let names = named.get(root);
+      if (names === undefined) {
+        names = [];
+        named.set(root, names);
+      }
+      names.push({ version, through });
+    }
+  }
+
+  const versions = new Map<string, string>();
+  for (const [root, names] of named) {
+    let version = names[0]!.version;
+    if (names.some((each) => !sameVersion(each.version, version))) {
+      if (!(await dataflowRecords(storage, state)).has(root)) {
+        const through = [...new Set(names.map((each) => each.through))];
+        return {
+          kind: 'deferred',
+          conflictPath: root,
+          reason: { kind: 'plain', input: root, through: [...through.filter((each) => each === root), ...through.filter((each) => each !== root)] },
+        };
+      }
+      for (const each of names.slice(1)) {
+        version = await recordCommitOrder(storage, state, root, version, each.version);
+      }
+    }
+    versions.set(root, version);
+  }
+  return { kind: 'commits', versions };
+}
+
+/**
+ * Whether a task that holds a result would now read other inputs than the
+ * result was made from: another commit of a record, another result of a
+ * task, or another value of a plain input, at the versions it reads now
+ * ({@link stepTaskCommits}). A result is known by the versions it was made
+ * from.
+ */
+async function wouldReadOther(storage: StorageBackend, state: DataflowExecutionState, taskName: string, output: string): Promise<boolean> {
+  const made = state.versionVectors.get(output);
+  if (made === undefined) return true;
+  const at = await stepTaskCommits(storage, state, taskName);
+  // Deferred: its inputs read a plain input at two values, which the launch
+  // says, once they are decided again
+  return at.kind === 'deferred' || !sameVersions(at.versions, made);
+}
+
+/**
+ * Puts a completed task back to pending, to run once more: it keeps its
+ * result — its output, its execution and its output's versions — which stays
+ * in the workspace and which its dependents go on reading.
+ */
+function taskDue(state: DataflowExecutionState, taskState: Mutable<TaskState>, reason: string): ExecutionEvent {
   const mutableState = state as Mutable<DataflowExecutionState>;
+  taskState.status = 'pending';
+  // It counts again as it lands again
+  if (taskState.cached.type === 'some' && taskState.cached.value) {
+    mutableState.cached = state.cached - 1n;
+  } else {
+    mutableState.executed = state.executed - 1n;
+  }
+  mutableState.reexecuted = state.reexecuted + 1n;
 
-  for (const taskName of affectedTaskNames) {
-    const taskState = state.tasks.get(taskName) as Mutable<TaskState> | undefined;
+  mutableState.eventSeq = state.eventSeq + 1n;
+  const event: ExecutionEvent = variant('task_invalidated', {
+    seq: mutableState.eventSeq,
+    timestamp: new Date(),
+    task: taskState.name,
+    reason,
+  });
+  (mutableState.events as ExecutionEvent[]).push(event);
+  return event;
+}
+
+/**
+ * Ask each task that reads a changed dataset directly whether it is due: a
+ * root whose snapshot moved ({@link stepDetectInputChanges}), or a task's
+ * output whose result landed.
+ *
+ * A change travels a step at a time: a task's dependents are asked once its
+ * next result lands, not when the root moves, and none is reset to wait for
+ * it. For each task that reads a changed dataset:
+ * - completed: due when it would now read other inputs than its result was
+ *   made from — back to pending, to run once on the newest commits for every
+ *   change that arrived meanwhile, counted a re-execution, `task_invalidated`
+ *   emitted. It keeps its result, which stays in the workspace and which its
+ *   dependents go on reading
+ * - in_progress: left — it is asked as it lands ({@link stepTaskDueAgain})
+ * - deferred: reset to pending, and decided again as it next launches
+ * - waiting: reset to pending — the input it waited on may be the one that
+ *   changed, and the loop decides it again — unless a task it depends on
+ *   still waits, which decides it again as that task completes
+ *   ({@link stepTaskCompleted})
+ * - pending/ready: left as-is (it reads the newest commits as it launches)
+ * - skipped: left as-is (upstream failure still applies)
+ * - failed: left as-is (task already failed; the run is winding down)
+ *
+ * @param storage - Storage backend
+ * @param state - Execution state to mutate
+ * @param changed - The datasets that changed, by keypath
+ * @returns The tasks now due that held a result, and the events emitted
+ */
+export async function stepTasksDue(
+  storage: StorageBackend,
+  state: DataflowExecutionState,
+  changed: ReadonlyArray<{ path: string }>
+): Promise<{
+  due: string[];
+  events: ExecutionEvent[];
+}> {
+  const graph = getGraph(state);
+  const paths = new Set(changed.map((change) => change.path));
+  const due: string[] = [];
+  const events: ExecutionEvent[] = [];
+
+  for (const task of graph.tasks) {
+    const read = [...new Set(task.inputs.filter((input) => paths.has(input)))];
+    if (read.length === 0) continue;
+    const taskState = state.tasks.get(task.name) as Mutable<TaskState> | undefined;
     if (!taskState) continue;
 
-    // Skip tasks that are currently running — they'll be checked when they finish
-    if (taskState.status === 'in_progress') continue;
-    // Leave failed — orchestrator is winding down
-    if (taskState.status === 'failed') continue;
-    // Skip tasks not affected (already in skipped terminal state from failure)
-    if (taskState.status === 'skipped') continue;
-
     if (taskState.status === 'completed') {
-      // Reset completed task for re-execution
-      const wasCached = taskState.cached.type === 'some' && taskState.cached.value;
-
-      taskState.status = 'pending';
-      taskState.cached = none;
-      taskState.outputHash = none;
-      taskState.completedAt = none;
-      taskState.duration = none;
-      taskState.plan = none;
-      taskState.execution = none;
-
-      // Decrement counters
-      if (wasCached) {
-        mutableState.cached = state.cached - 1n;
-      } else {
-        mutableState.executed = state.executed - 1n;
-      }
-
-      invalidated.push(taskName);
-
-      // Emit event
-      mutableState.eventSeq = state.eventSeq + 1n;
-      const event: ExecutionEvent = variant('task_invalidated', {
-        seq: mutableState.eventSeq,
-        timestamp: new Date(),
-        task: taskName,
-        reason: `input changed: ${changes.map(c => c.path).join(', ')}`,
-      });
-      (mutableState.events as ExecutionEvent[]).push(event);
-      events.push(event);
+      if (!(await wouldReadOther(storage, state, task.name, task.output))) continue;
+      events.push(taskDue(state, taskState, `input changed: ${read.join(', ')}`));
+      due.push(task.name);
     } else if (taskState.status === 'deferred') {
-      // Un-defer — it will be re-evaluated for readiness
-      // Don't add to invalidated — task was never executed
+      // Un-defer — it is decided again as it next launches
       taskState.status = 'pending';
-    } else if (taskState.status === 'waiting' && !waitsOnDependency(state, graph, taskName)) {
+    } else if (taskState.status === 'waiting' && !waitsOnDependency(state, graph, task.name)) {
       // Stop waiting — the input it waited on may be the one that changed,
       // and the loop decides it again — unless a task it reads still waits,
       // which decides it again as that task completes
@@ -570,84 +698,31 @@ export function stepInvalidateTasks(
     }
   }
 
-  return { invalidated, events };
+  return { due, events };
 }
 
 /**
- * Check version vector consistency for a task's inputs.
+ * Ask a task whose result has just landed whether it is still due: its
+ * inputs moved while it ran, so it would now read others than the ones it
+ * was launched with. It then goes back to pending, keeping the result that
+ * landed, and runs once more on the newest commits, for everything that
+ * arrived meanwhile.
  *
- * All input version vectors must agree on shared keys (same root input path
- * must have the same hash in every vector that contains it).
- *
- * @param state - Execution state
- * @param taskName - Task to check
- * @returns Consistency result with merged VV or conflict path
+ * @param storage - Storage backend
+ * @param state - Execution state to mutate
+ * @param taskName - The task whose result landed
+ * @returns The `task_invalidated` event when the task is due again, or `null`
  */
-export function stepCheckVersionConsistency(
+export async function stepTaskDueAgain(
+  storage: StorageBackend,
   state: DataflowExecutionState,
   taskName: string
-): { consistent: true; mergedVV: VersionVector } | { consistent: false; conflictPath: string } {
-  const graph = getGraph(state);
-  const task = graph.tasks.find(t => t.name === taskName);
-  if (!task) {
-    throw new Error(`Task '${taskName}' not found in graph`);
-  }
-
-  const inputVVs: VersionVector[] = [];
-  for (const inputPath of task.inputs) {
-    const vv = state.versionVectors.get(inputPath) ?? new Map();
-    inputVVs.push(vv);
-  }
-
-  const result = checkVersionConsistency(inputVVs);
-  if (result.consistent) {
-    return { consistent: true, mergedVV: result.merged };
-  }
-  return { consistent: false, conflictPath: result.conflictPath };
-}
-
-/** Whether two of a version vector's hashes are the same. */
-const sameHash = equalFor(StringType);
-
-/**
- * Whether a task's result is stale: computed from inputs the run has moved
- * past since the task was given them, so the result is discarded and the task
- * runs again once its inputs are complete.
- *
- * @remarks
- * It is stale when a root input in the version vector the task was given has
- * changed since. That holds even where the task read the output of a task the
- * change invalidated, which has yet to run again: that output's version
- * vector still names the root input as it was, so the task's own inputs say
- * nothing has moved. It is stale too when its inputs' version vectors no
- * longer agree with each other, or with the one it was given.
- *
- * This is a pure function - it only reads state.
- *
- * @param state - Execution state
- * @param taskName - The task
- * @param givenVV - The merged version vector of the inputs the task was given:
- *   those it was launched with, or those its cached result was found for
- * @returns True when the result is stale
- */
-export function stepTaskResultStale(
-  state: DataflowExecutionState,
-  taskName: string,
-  givenVV: VersionVector
-): boolean {
-  // A root input the task was given has changed since
-  for (const [path, hash] of givenVV) {
-    const current = state.inputSnapshot.get(path);
-    if (current !== undefined && !sameHash(current, hash)) return true;
-  }
-  // Its inputs' version vectors have moved, or no longer agree
-  const check = stepCheckVersionConsistency(state, taskName);
-  if (!check.consistent || check.mergedVV.size !== givenVV.size) return true;
-  for (const [path, hash] of givenVV) {
-    const current = check.mergedVV.get(path);
-    if (current === undefined || !sameHash(current, hash)) return true;
-  }
-  return false;
+): Promise<ExecutionEvent | null> {
+  const task = getGraph(state).tasks.find(t => t.name === taskName);
+  const taskState = state.tasks.get(taskName) as Mutable<TaskState> | undefined;
+  if (!task || !taskState || taskState.status !== 'completed') return null;
+  if (!(await wouldReadOther(storage, state, taskName, task.output))) return null;
+  return taskDue(state, taskState, 'its inputs moved while it ran');
 }
 
 // =============================================================================
@@ -658,7 +733,9 @@ export function stepTaskResultStale(
  * Prepare a task for execution by resolving inputs and checking cache.
  *
  * This async operation:
- * 1. Resolves input hashes from current workspace state
+ * 1. Resolves the task's inputs at the versions it reads
+ *    (`dataflowResolveInputs`): each record at its commit, and each result it
+ *    reads as made from those versions
  * 2. Checks if there's a valid cached execution
  *
  * A task an input of which is unassigned — one nothing has set, or a record
@@ -666,39 +743,45 @@ export function stepTaskResultStale(
  * inputs, and the loop leaves the task waiting ({@link stepTasksWaiting})
  * rather than fail the run.
  *
+ * A task that reads a result made from newer versions than its own, which
+ * the execution cache does not hold at its own, is behind: the answer names
+ * the catch-up runs that make what is missing. The loop runs them, tells the
+ * step their outputs (`options.landed`), and prepares the task again at the
+ * same versions, so it never chases newer ones.
+ *
  * @param storage - Storage backend
  * @param state - Current execution state
  * @param taskName - Name of the task to prepare
- * @returns Preparation result with input hashes and cache status, or the
- *   inputs the task waits on
+ * @param versions - The version of each root the task reads
+ *   ({@link stepTaskCommits})
+ * @param options - The catch-up runs the loop holds the outputs of
+ * @returns Preparation result with input hashes and cache status, the inputs
+ *   the task waits on, or the catch-up runs it waits for
  */
 export async function stepPrepareTask(
   storage: StorageBackend,
   state: DataflowExecutionState,
-  taskName: string
-): Promise<PrepareTaskResult | PrepareTaskWaiting> {
+  taskName: string,
+  versions: VersionVector,
+  options: Pick<ResolveInputsOptions, 'landed'> = {}
+): Promise<PrepareTaskResult | PrepareTaskWaiting | PrepareTaskBehind> {
   const graph = getGraph(state);
   const task = graph.tasks.find(t => t.name === taskName);
   if (!task) {
     throw new Error(`Task '${taskName}' not found in graph`);
   }
 
-  // Resolve input hashes
-  const inputHashes = await dataflowResolveInputHashes(
-    storage,
-    state.repo,
-    state.workspace,
-    task
-  );
+  // Resolve the inputs at the task's versions
+  const resolved = await dataflowResolveInputs(storage, state, task, versions, {
+    landed: options.landed,
+    forced: (name) => stepTaskForced(state, name),
+  });
 
   // An unassigned input: the task waits for it
-  const validInputHashes: string[] = [];
-  const unassigned: string[] = [];
-  for (const [i, hash] of inputHashes.entries()) {
-    if (hash === null) unassigned.push(task.inputs[i]!);
-    else validInputHashes.push(hash);
-  }
-  if (unassigned.length > 0) return { kind: 'waiting', task: taskName, unassigned };
+  if (resolved.kind === 'unassigned') return { kind: 'waiting', task: taskName, unassigned: resolved.inputs };
+  // A result it reads is not at hand at its versions: catch-up runs make it
+  if (resolved.kind === 'behind') return { kind: 'behind', task: taskName, runs: resolved.runs };
+  const validInputHashes = resolved.hashes;
 
   // Check cache unless the run forces this task: every task, the filter's
   // target, or the ones it names (stepTaskForced).
@@ -775,7 +858,7 @@ function waitsOnDependency(state: DataflowExecutionState, graph: DataflowGraph, 
  * inputs while this one waits. The run goes on without them and ends
  * completed once the rest has run: a waiting task counts against no outcome,
  * and is no failure. It goes back to pending once the input is assigned
- * while the run is in flight ({@link stepInvalidateTasks}), as a task it
+ * while the run is in flight ({@link stepTasksDue}), as a task it
  * waited on completes ({@link stepTaskCompleted}), or as a run that yielded
  * resumes ({@link stepYield}), and the loop decides it again.
  *
@@ -1011,13 +1094,18 @@ export function stepUnitRequeued(
 /**
  * Mark a task as completed successfully.
  *
- * Mutates the execution state, computes the merged version vector for the
- * task's output, and returns the newly ready tasks. A dependent the loop
- * deferred, its inputs' versions disagreeing, goes back to pending: one of
- * its inputs is produced anew, which may resolve the disagreement, and a
- * deferral is decided again as the task next launches. So does a dependent
- * left waiting with this task ({@link stepTasksWaiting}), unless another task
- * it reads still waits.
+ * Mutates the execution state, records for the task's output the versions
+ * the task was launched with — what the result was made from, whatever the
+ * run's inputs have moved to since — and returns the newly ready tasks. A
+ * dependent the loop deferred, its inputs' versions disagreeing, goes back to
+ * pending: one of its inputs is produced anew, which may resolve the
+ * disagreement, and a deferral is decided again as the task next launches. So
+ * does a dependent left waiting with this task ({@link stepTasksWaiting}),
+ * unless another task it reads still waits.
+ *
+ * Every result lands: whether the task is due again, its inputs having moved
+ * while it ran, is asked after ({@link stepTaskDueAgain}), and its dependents
+ * are asked whether they are ({@link stepTasksDue}).
  *
  * @param state - Execution state to mutate
  * @param taskName - Name of the task
@@ -1026,6 +1114,8 @@ export function stepUnitRequeued(
  * @param duration - Execution duration in milliseconds
  * @param execution - The execution the task completed with, which ran or
  *   which the cache served: its inputs hash and its id
+ * @param versions - The version of each root the task was launched with
+ *   ({@link stepTaskCommits})
  * @param peakBytes - The highest peak resident memory, in bytes, a runner of
  *   the execution reached, when one reported it
  * @returns Result with newly ready tasks and event
@@ -1037,6 +1127,7 @@ export function stepTaskCompleted(
   cached: boolean,
   duration: number,
   execution: { inputsHash: string; executionId: string },
+  versions: VersionVector,
   peakBytes?: number
 ): { result: TaskCompletedResult; event: ExecutionEvent } {
   const taskState = state.tasks.get(taskName) as Mutable<TaskState> | undefined;
@@ -1062,17 +1153,11 @@ export function stepTaskCompleted(
     mutableState.executed = state.executed + 1n;
   }
 
-  // Compute and store merged VV for the task's output
+  // The output's versions are those the task was launched with
   const graph = getGraph(state);
   const task = graph.tasks.find(t => t.name === taskName);
   if (task) {
-    const inputVVs: VersionVector[] = [];
-    for (const inputPath of task.inputs) {
-      const vv = state.versionVectors.get(inputPath) ?? new Map();
-      inputVVs.push(vv);
-    }
-    const mergedVV = mergeVersionVectors(inputVVs);
-    state.versionVectors.set(task.output, mergedVV);
+    state.versionVectors.set(task.output, new Map(versions));
   }
 
   // Its deferred dependents are decided again, and so are its waiting ones

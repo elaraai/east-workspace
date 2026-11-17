@@ -14,7 +14,8 @@
 import type { ExecutionOwner, PartitionProgress, SplitProgress, StageUnit, UnitWait } from '@elaraai/e3-types';
 import type { StorageBackend, LockHandle } from '../../storage/interfaces.js';
 import type { TaskRunner, UnitRequeue } from '../../execution/interfaces.js';
-import type { DataflowExecutionState, ExecutionEvent, FinalizeResult } from '../types.js';
+import type { CatchUpPhase } from '../../dataflow.js';
+import type { DataflowExecutionState, DeferReason, ExecutionEvent, FinalizeResult } from '../types.js';
 
 /**
  * Handle to a running dataflow execution.
@@ -149,8 +150,19 @@ export interface OrchestratorStartOptions {
   onInputChanged?: (path: string, previousHash: string, newHash: string) => void;
   /** Called when a task is invalidated for re-execution */
   onTaskInvalidated?: (taskName: string, reason: string) => void;
-  /** Called when a task is deferred due to inconsistent input versions */
-  onTaskDeferred?: (taskName: string, conflictPath: string) => void;
+  /**
+   * Called when a task is deferred because nothing says which version of an
+   * input it reads, with why. Told once: a task deferred again for the same
+   * reason, with no launch between, is not told again.
+   */
+  onTaskDeferred?: (taskName: string, reason: DeferReason) => void;
+  /**
+   * Called as a catch-up run starts, and as it lands: `task` run once over
+   * the inputs it had at earlier versions of the run's records, for
+   * `forTask`, which reads its result there. A catch-up run writes nothing to
+   * the workspace, and the run's counts leave it out.
+   */
+  onCatchUp?: (task: string, forTask: string, phase: CatchUpPhase) => void;
   /**
    * Called when a task is left waiting on an unassigned input — one nothing
    * has set, or a record whose first state is not yet committed — and once
@@ -261,12 +273,39 @@ export interface DataflowOrchestrator {
   ): Promise<ExecutionHandle>;
 
   /**
+   * Tell the run in flight on a workspace to look for changed inputs now,
+   * rather than as its next task lands: what hands an edit to the run, when
+   * the start that follows the edit finds the run in flight.
+   *
+   * @remarks
+   * It answers whether a run took the wake: one this orchestrator can reach,
+   * that is not stopping, and that runs every task — a run started with a
+   * filter leaves the edit's other readers out, so it takes none. A run that
+   * took it looks for changed inputs at once, and launches what became ready.
+   * Where it answers false nothing is lost: the start is refused, as a start
+   * that finds a run in flight was before, and the run finds the edit as its
+   * next task lands.
+   *
+   * An orchestrator whose runs are held by other processes or instances
+   * reaches them as it reaches them to cancel, or answers false.
+   *
+   * @param storage - Storage backend
+   * @param repo - Repository identifier
+   * @param workspace - Workspace name
+   * @returns Whether a run in flight took the wake
+   */
+  wake(storage: StorageBackend, repo: string, workspace: string): Promise<boolean>;
+
+  /**
    * Wait for a dataflow execution to complete.
    *
    * Blocks until the execution completes (success, failure, or cancellation).
    *
    * @param handle - Execution handle from start()
    * @returns Final result
+   * @throws {DataflowAbortedError} When the run was stopped: by its caller's
+   *   signal or a stop request, or by itself, with its `reason`, when a deploy
+   *   of its workspace announced itself
    */
   wait(handle: ExecutionHandle): Promise<FinalizeResult>;
 

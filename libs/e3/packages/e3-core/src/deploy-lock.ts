@@ -26,6 +26,11 @@ import type { LockHandle, StorageBackend } from './storage/interfaces.js';
  *  intent, and a write in progress finishes. */
 export const DEPLOY_WAIT_MS = 30_000;
 
+/** How often a run in flight asks whether a deploy of its workspace has
+ *  announced itself, in milliseconds: it stops within about this long of the
+ *  deploy's intent. */
+export const DEPLOY_PROBE_MS = 1_000;
+
 /**
  * The lock a deploy of a workspace announces itself by.
  *

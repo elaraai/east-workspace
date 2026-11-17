@@ -8,7 +8,8 @@
  * driven by the orchestrator with a mock runner, through nothing but the
  * backend's stores — its order, its outputs and its run record, the execution
  * cache, a failure, a change that lands mid-run, a task left waiting on an
- * input nothing has set, and a cancel.
+ * input nothing has set, and a cancel; and, a step at a time on a runner that
+ * holds each task (`dataflow-follow.ts`), a run that follows its inputs.
  */
 
 import { describe, it, type TestContext } from 'node:test';
@@ -32,6 +33,7 @@ import { workspaceSetDataset } from '../trees.js';
 import { uuidv7 } from '../uuid.js';
 import { workspaceCreate, workspaceGetPackage } from '../workspaces.js';
 import { workspaceDeploy } from '../workspace-files.js';
+import { dataflowFollowCases } from './dataflow-follow.js';
 import type { BackendContext, BackendSetup } from './setup.js';
 
 /** A directory for a test's own files, removed when the test ends. */
@@ -556,5 +558,8 @@ export function dataflowTests(setup: BackendSetup): void {
       assert.equal(ended?.status, 'failed');
       assert.equal(ended?.tasks.get('total')?.status, 'pending', 'the task can run again');
     });
+
+    // A run that follows its inputs, replayed a step at a time
+    dataflowFollowCases(setup);
   });
 }

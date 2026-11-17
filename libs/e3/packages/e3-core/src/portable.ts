@@ -135,6 +135,7 @@ export {
 // taker of the workspace reads of it
 export {
   DEPLOY_WAIT_MS,
+  DEPLOY_PROBE_MS,
   deployIntentLock,
   deployAnnounced,
   acquireForDeploy,
@@ -409,8 +410,6 @@ export {
 
 // Dataset refs (reactive dataflow)
 export {
-  checkVersionConsistency,
-  mergeVersionVectors,
   inputVersionVector,
   keypathToRefPath,
   refPathToKeypath,
@@ -637,11 +636,16 @@ export {
   dataflowCheckCache,
   dataflowGetDependentsToSkip,
   dataflowResolveInputHashes,
-  findAffectedTasks,
+  dataflowResolveInputs,
+  dataflowRecords,
+  recordCommitOrder,
   parsePathString,
+  type CatchUpPhase,
   type DataflowGraph,
   type DataflowOptions,
   type DataflowResult,
+  type ResolvedInputs,
+  type ResolveInputsOptions,
   type TaskExecutionResult,
 } from './dataflow.js';
 
@@ -659,6 +663,10 @@ export type {
   InitializeResult,
   PrepareTaskResult,
   PrepareTaskWaiting,
+  PrepareTaskBehind,
+  CatchUpRun,
+  DeferReason,
+  TaskCommits,
   TaskExecuteResult,
   TaskCompletedResult,
   TaskFailedResult,
@@ -688,9 +696,9 @@ export {
   stepYield,
   stepApplyTreeUpdate,
   stepDetectInputChanges,
-  stepInvalidateTasks,
-  stepCheckVersionConsistency,
-  stepTaskResultStale,
+  stepTasksDue,
+  stepTaskDueAgain,
+  stepTaskCommits,
   type StepInitializeOptions,
 } from './dataflow/steps.js';
 

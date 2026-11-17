@@ -6,8 +6,8 @@
 /**
  * Dataset ref utilities for reactive dataflow.
  *
- * Provides version vector operations, root hash computation from refs,
- * and input change detection for the reactive execution loop.
+ * Provides a root's version vector, root hash computation from refs, and
+ * input change detection for the reactive execution loop.
  */
 
 import { variant, printIdentifier } from '@elaraai/east';
@@ -18,53 +18,6 @@ import type { StorageBackend } from './storage/interfaces.js';
 // =============================================================================
 // Version Vector Operations
 // =============================================================================
-
-/**
- * Check version vector consistency across a set of input vectors.
- *
- * All vectors must agree on shared keys (same root input path must have
- * the same hash in every vector that contains it). This ensures that
- * a task's inputs are all derived from the same snapshot of each root input.
- *
- * @param inputVectors - Version vectors from each task input
- * @returns Consistency result: either consistent (with merged vector) or inconsistent (with conflict path)
- */
-export function checkVersionConsistency(
-  inputVectors: VersionVector[]
-): { consistent: true; merged: VersionVector } | { consistent: false; conflictPath: string } {
-  const merged = new Map<string, string>();
-
-  for (const vv of inputVectors) {
-    for (const [path, hash] of vv) {
-      const existing = merged.get(path);
-      if (existing !== undefined && existing !== hash) {
-        return { consistent: false, conflictPath: path };
-      }
-      merged.set(path, hash);
-    }
-  }
-
-  return { consistent: true, merged };
-}
-
-/**
- * Merge consistent version vectors (union of all keys).
- *
- * Assumes all vectors are consistent (no conflicting hashes for shared keys).
- * Use checkVersionConsistency first if consistency is not guaranteed.
- *
- * @param vectors - Version vectors to merge
- * @returns Merged version vector
- */
-export function mergeVersionVectors(vectors: VersionVector[]): VersionVector {
-  const merged = new Map<string, string>();
-  for (const vv of vectors) {
-    for (const [path, hash] of vv) {
-      merged.set(path, hash);
-    }
-  }
-  return merged;
-}
 
 /**
  * Build a version vector for a root input dataset.

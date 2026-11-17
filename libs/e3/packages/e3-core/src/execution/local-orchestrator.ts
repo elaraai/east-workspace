@@ -143,6 +143,7 @@ export async function dataflowExecute(
     onInputChanged: options.onInputChanged,
     onTaskInvalidated: options.onTaskInvalidated,
     onTaskDeferred: options.onTaskDeferred,
+    onCatchUp: options.onCatchUp,
     onTaskWaiting: options.onTaskWaiting,
   });
 

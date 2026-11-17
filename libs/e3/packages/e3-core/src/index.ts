@@ -74,6 +74,7 @@ export {
 // taker of the workspace reads of it
 export {
   DEPLOY_WAIT_MS,
+  DEPLOY_PROBE_MS,
   deployIntentLock,
   deployAnnounced,
   acquireForDeploy,
@@ -461,11 +462,16 @@ export {
   dataflowCheckCache,
   dataflowGetDependentsToSkip,
   dataflowResolveInputHashes,
-  findAffectedTasks,
+  dataflowResolveInputs,
+  dataflowRecords,
+  recordCommitOrder,
   parsePathString,
+  type CatchUpPhase,
   type DataflowGraph,
   type DataflowOptions,
   type DataflowResult,
+  type ResolvedInputs,
+  type ResolveInputsOptions,
   type TaskExecutionResult,
 } from './dataflow.js';
 
@@ -484,6 +490,10 @@ export {
   type InitializeResult,
   type PrepareTaskResult,
   type PrepareTaskWaiting,
+  type PrepareTaskBehind,
+  type CatchUpRun,
+  type DeferReason,
+  type TaskCommits,
   type TaskExecuteResult,
   type TaskCompletedResult,
   type TaskFailedResult,
@@ -510,9 +520,9 @@ export {
   stepYield,
   stepApplyTreeUpdate,
   stepDetectInputChanges,
-  stepInvalidateTasks,
-  stepCheckVersionConsistency,
-  stepTaskResultStale,
+  stepTasksDue,
+  stepTaskDueAgain,
+  stepTaskCommits,
   type StepInitializeOptions,
   // State store
   type ExecutionStateStore,
@@ -581,8 +591,6 @@ export {
 
 // Dataset refs (reactive dataflow)
 export {
-  checkVersionConsistency,
-  mergeVersionVectors,
   inputVersionVector,
   keypathToRefPath,
   refPathToKeypath,

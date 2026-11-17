@@ -16,15 +16,20 @@
  * by `dataflow/orchestrator/LocalOrchestrator.ts`.
  */
 
-import { decodeBeast2For, variant } from '@elaraai/east';
+import { StringType, compareFor, decodeBeast2For, equalFor, variant } from '@elaraai/east';
 import {
   WorkspaceRecordType,
+  decodeRecordCommit,
+  decodeRecordObject,
   pathToString,
   type TaskObject,
   type TreePath,
+  type VersionVector,
 } from '@elaraai/e3-types';
 import { OBJECT_CONCURRENCY, eachAtMost } from './concurrency.js';
+import type { CatchUpRun, DataflowExecutionState, DeferReason } from './dataflow/types.js';
 import { taskInputRead } from './dataset-open.js';
+import { keypathToRefPath, refPathToKeypath } from './dataset-refs.js';
 import {
   executionGetOutput,
   inputsHash,
@@ -200,13 +205,25 @@ export interface DataflowOptions {
   onInputChanged?: (path: string, previousHash: string, newHash: string) => void;
   /** Callback when a task is invalidated due to input change */
   onTaskInvalidated?: (taskName: string, reason: string) => void;
-  /** Callback when a task is deferred due to inconsistent input versions */
-  onTaskDeferred?: (taskName: string, conflictPath: string) => void;
+  /** Callback when a task is deferred because nothing says which version of
+   *  an input it reads, with why: told once for each reason until the task
+   *  next starts */
+  onTaskDeferred?: (taskName: string, reason: DeferReason) => void;
+  /** Callback as a catch-up run starts and as it lands: `task` run once at
+   *  earlier versions of its inputs, for `forTask`, which reads its result
+   *  there */
+  onCatchUp?: (task: string, forTask: string, phase: CatchUpPhase) => void;
   /** Callback when a task is left waiting on an input it cannot read — an
    *  unassigned one, or an index its record's state does not hold — and for
    *  each of its dependents, naming the inputs each waits on */
   onTaskWaiting?: (taskName: string, inputs: string[]) => void;
 }
+
+/**
+ * Where a catch-up run is, as the run's caller hears it: started, or landed
+ * after `duration` milliseconds.
+ */
+export type CatchUpPhase = { state: 'started' } | { state: 'completed'; duration: number };
 
 // =============================================================================
 // Workspace State Reader
@@ -390,62 +407,24 @@ export interface DataflowGraph {
 }
 
 /**
- * Find all tasks affected by input changes (transitive dependents).
- * An affected task is one whose output could change due to the input change.
+ * Get tasks that are ready to execute given the tasks that have completed and
+ * those that hold a result.
  *
- * @param graph - The dependency graph
- * @param changes - Array of changed input paths
- * @returns Array of affected task names
- */
-export function findAffectedTasks(
-  graph: DataflowGraph,
-  changes: Array<{ path: string }>,
-): string[] {
-  const changedPaths = new Set(changes.map(c => c.path));
-  const affected = new Set<string>();
-  const queue: string[] = [];
-
-  // Build forward dep map: task name → tasks that depend on its output
-  const taskToDependents = new Map<string, string[]>();
-  for (const task of graph.tasks) {
-    for (const dep of task.dependsOn) {
-      if (!taskToDependents.has(dep)) taskToDependents.set(dep, []);
-      taskToDependents.get(dep)!.push(task.name);
-    }
-  }
-
-  // Seed: tasks that directly read a changed input
-  for (const task of graph.tasks) {
-    if (task.inputs.some(inp => changedPaths.has(inp))) {
-      queue.push(task.name);
-    }
-  }
-
-  // BFS through dependency graph
-  while (queue.length > 0) {
-    const name = queue.shift()!;
-    if (affected.has(name)) continue;
-    affected.add(name);
-    for (const dep of taskToDependents.get(name) ?? []) {
-      queue.push(dep);
-    }
-  }
-
-  return Array.from(affected);
-}
-
-/**
- * Get tasks that are ready to execute given the set of completed tasks.
- *
- * A task is ready when all tasks it depends on have completed.
+ * A task is ready when every task it depends on holds a result. A task due
+ * again keeps its result while it runs again, so its dependents are ready on
+ * the result it holds, and are due themselves once its next one lands.
  *
  * @param graph - The dependency graph from dataflowGetGraph
- * @param completedTasks - Set of task names that have completed
+ * @param completedTasks - The tasks that have completed and are not due
+ *   again: none of them is ready
+ * @param resultTasks - The tasks that hold a result a dependent may read,
+ *   completed or due again; the completed tasks, when omitted
  * @returns Array of task names that are ready to execute
  */
 export function dataflowGetReadyTasks(
   graph: DataflowGraph,
-  completedTasks: Set<string>
+  completedTasks: Set<string>,
+  resultTasks: Set<string> = completedTasks,
 ): string[] {
   const ready: string[] = [];
 
@@ -454,8 +433,7 @@ export function dataflowGetReadyTasks(
       continue;
     }
 
-    const allDepsCompleted = task.dependsOn.every(dep => completedTasks.has(dep));
-    if (allDepsCompleted) {
+    if (task.dependsOn.every(dep => resultTasks.has(dep))) {
       ready.push(task.name);
     }
   }
@@ -630,4 +608,333 @@ export async function dataflowResolveInputHashes(
   }
 
   return hashes;
+}
+
+// =============================================================================
+// What a run reads: its records' commits, and each input at them
+// =============================================================================
+
+/** Whether two of a version vector's versions are the same. */
+const sameVersion = equalFor(StringType);
+
+/** The order of two versions as strings, for an answer that must only be the
+ *  same each time. */
+const compareVersions = compareFor(StringType);
+
+/**
+ * What a run keeps in memory of the roots it reads, by its state: nothing
+ * stores it, and a run resumed in another process starts it again.
+ */
+interface RunRoots {
+  /** The workspace's records, by keypath, read once for the run */
+  records: Promise<ReadonlySet<string>> | null;
+  /** Each root's versions the run took a snapshot of, by the number of the
+   *  snapshot that first held it */
+  taken: Map<string, Map<string, number>>;
+  /** The next snapshot's number */
+  next: number;
+  /** The older of two commits of a record the run never took, by the record
+   *  and the two */
+  older: Map<string, Promise<string>>;
+}
+
+const runRoots = new WeakMap<DataflowExecutionState, RunRoots>();
+
+/** Numbers a root's version, unless the run numbered it before. */
+function numberVersion(roots: RunRoots, path: string, version: string): void {
+  let taken = roots.taken.get(path);
+  if (taken === undefined) {
+    taken = new Map();
+    roots.taken.set(path, taken);
+  }
+  if (!taken.has(version)) taken.set(version, roots.next++);
+}
+
+/** A run's memory of its roots, begun from the snapshot its state holds: the
+ *  first the run took, or the last the run it resumes took. */
+function rootsOf(state: DataflowExecutionState): RunRoots {
+  let roots = runRoots.get(state);
+  if (roots === undefined) {
+    roots = { records: null, taken: new Map(), next: 0, older: new Map() };
+    runRoots.set(state, roots);
+    for (const [path, version] of state.inputSnapshot) numberVersion(roots, path, version);
+  }
+  return roots;
+}
+
+/**
+ * Notes a snapshot the run takes of a root, in the order the run takes them:
+ * what {@link recordCommitOrder} tells two commits of a record apart by.
+ *
+ * @remarks
+ * Called before the run's state takes the snapshot, so the one it replaces
+ * is numbered before it where the run's memory begins here.
+ *
+ * @param state - The run's state
+ * @param path - The root's keypath
+ * @param version - Its version in the snapshot: a record's commit
+ * @internal
+ */
+export function dataflowSnapshotTaken(state: DataflowExecutionState, path: string, version: string): void {
+  numberVersion(rootsOf(state), path, version);
+}
+
+/**
+ * The records among a run's roots, by keypath: the datasets whose versions
+ * are commits, each read at any of them from the record's history.
+ *
+ * @remarks
+ * Read from the workspace's deployed package once for the run, which a deploy
+ * ends.
+ *
+ * @param storage - Storage backend
+ * @param state - The run's state
+ * @returns The records' keypaths (`.records.orders`)
+ */
+export function dataflowRecords(storage: StorageBackend, state: DataflowExecutionState): Promise<ReadonlySet<string>> {
+  const roots = rootsOf(state);
+  roots.records ??= (async () => {
+    const deployed = await readWorkspaceState(storage, state.repo, state.workspace);
+    const pkg = await packageObjectRead(storage, state.repo, deployed.packageHash);
+    const records = new Set<string>();
+    await eachAtMost([...pkg.records.values()], OBJECT_CONCURRENCY, async (hash) => {
+      records.add(refPathToKeypath(decodeRecordObject(await storage.objects.read(state.repo, hash)).path));
+    });
+    return records;
+  })();
+  // A read that failed is made again by the next to ask
+  roots.records.catch(() => { roots.records = null; });
+  return roots.records;
+}
+
+/**
+ * Which of two commits of a record is the older.
+ *
+ * @remarks
+ * The run numbers each snapshot of a record it takes, so two commits it took
+ * compare by number. A commit it never took — one a result named before the
+ * run resumed — is older than its first snapshot. Two such are ordered by
+ * walking back from that snapshot a parent at a time: the first of the two
+ * met is the newer, and one never met, which a compaction cut from the
+ * record's history, is the older. The run keeps each answer.
+ *
+ * @param storage - Storage backend
+ * @param state - The run's state
+ * @param record - The record's keypath
+ * @param a - A commit of the record
+ * @param b - Another
+ * @returns The older of the two
+ */
+export async function recordCommitOrder(
+  storage: StorageBackend,
+  state: DataflowExecutionState,
+  record: string,
+  a: string,
+  b: string,
+): Promise<string> {
+  if (sameVersion(a, b)) return a;
+  const roots = rootsOf(state);
+  const taken = roots.taken.get(record);
+  const takenA = taken?.get(a);
+  const takenB = taken?.get(b);
+  if (takenA !== undefined && takenB !== undefined) return takenA < takenB ? a : b;
+  if (takenA !== undefined) return b;
+  if (takenB !== undefined) return a;
+
+  const [first, second] = compareVersions(a, b) < 0 ? [a, b] : [b, a];
+  const key = `${record}\n${first}\n${second}`;
+  let older = roots.older.get(key);
+  if (older === undefined) {
+    older = (async () => {
+      // The run's first snapshot of the record is the commit it numbered first
+      let at: string | null = taken === undefined ? null : [...taken].reduce((least, each) => (each[1] < least[1] ? each : least))[0];
+      while (at !== null) {
+        if (sameVersion(at, first)) return second;
+        if (sameVersion(at, second)) return first;
+        let parent: string | null;
+        try {
+          const commit = decodeRecordCommit(await storage.objects.read(state.repo, at));
+          parent = commit.parent.type === 'some' ? commit.parent.value : null;
+        } catch {
+          // The history ends here: a compaction cut what came before
+          parent = null;
+        }
+        at = parent;
+      }
+      // Neither is in the record's history: either answer, the same each time
+      return first;
+    })();
+    roots.older.set(key, older);
+  }
+  return older;
+}
+
+/**
+ * A task's inputs at the versions it reads: each input's object, the inputs
+ * it cannot read, or the catch-up runs that make what is missing.
+ */
+export type ResolvedInputs =
+  /** Every input is at hand: each one's object, in the task's input order */
+  | { readonly kind: 'resolved'; readonly hashes: string[] }
+  /** Inputs the task cannot read, as keypaths in its input order: one with
+   *  no value, or an index its record's state does not hold */
+  | { readonly kind: 'unassigned'; readonly inputs: string[] }
+  /** A result the task reads is not at hand at its versions: the catch-up
+   *  runs that make it, those whose own inputs are at hand, the deepest
+   *  first */
+  | { readonly kind: 'behind'; readonly runs: CatchUpRun[] };
+
+/** What {@link dataflowResolveInputs} is told of the run it resolves for. */
+export interface ResolveInputsOptions {
+  /** The output of a catch-up run the run holds, by its task and its inputs'
+   *  hash; `undefined` when it holds none */
+  landed?: (task: string, inputsHash: string) => string | undefined;
+  /** Whether the run forces a task, whose result at earlier versions the
+   *  execution cache is then not asked for */
+  forced?: (task: string) => boolean;
+}
+
+/** One input of a task, or one task's result, as read at a set of versions. */
+type ReadAt = { readonly kind: 'object'; readonly hash: string } | { readonly kind: 'unassigned' } | { readonly kind: 'behind' };
+
+/**
+ * Resolve a task's inputs at the versions it reads: the object each input
+ * reads, which the task's execution is keyed by and its runner is handed.
+ *
+ * @remarks
+ * A task that reads several results reads them all as of one version of each
+ * root (`stepTaskCommits`), so it never computes on a mix:
+ *
+ * - a root at its version: a record's state at that commit, from the record's
+ *   history where its head has moved on, and a plain input's value, whose
+ *   version is its hash;
+ * - a task's output, the first of these that holds: its last result, when
+ *   that was made from these versions; the output of a catch-up run the run
+ *   holds; the execution cache, asked for that task's execution over its own
+ *   inputs resolved at the same versions; and otherwise a catch-up run, that
+ *   task run once over those inputs.
+ *
+ * An input that is an index of a record (a `TaskObject`'s `inputs`) reads the
+ * index's manifest in the state the record's commit holds (`taskInputRead`),
+ * and each root is read once, however many inputs read it: the inputs of one
+ * record — the record, and any of its indexes — are of one state of it. So a
+ * task that reads an index is decided again whenever its record's commit
+ * moves, and the execution cache answers it when the index it reads did not.
+ *
+ * @param storage - Storage backend
+ * @param state - The run's state
+ * @param task - The task, from the run's graph
+ * @param versions - The version of each root the task reads
+ * @param options - The catch-up runs the run holds, and the tasks it forces
+ * @returns Each input's object; or the inputs the task cannot read now; or
+ *   the catch-up runs that make what is missing
+ */
+export async function dataflowResolveInputs(
+  storage: StorageBackend,
+  state: DataflowExecutionState,
+  task: DataflowGraph['tasks'][0],
+  versions: VersionVector,
+  options: ResolveInputsOptions = {},
+): Promise<ResolvedInputs> {
+  const { repo, workspace } = state;
+  const graph = state.graph.type === 'some' ? state.graph.value : null;
+  if (graph === null) throw new DataflowError('Execution state has no graph');
+  const producerOf = new Map(graph.tasks.map((each) => [each.output, each] as const));
+  const roots = new Map<string, Promise<string | null>>();
+  const outputs = new Map<string, Promise<ReadAt>>();
+  const runs = new Map<string, CatchUpRun>();
+
+  // A root's dataset object at its version; null for one with no value
+  const rootAt = (path: string): Promise<string | null> => {
+    let read = roots.get(path);
+    if (read === undefined) {
+      read = (async () => {
+        const wanted = versions.get(path);
+        if (wanted === undefined) return null;
+        const ref = await storage.datasets.read(repo, workspace, keypathToRefPath(path));
+        if (ref !== null && ref.type === 'value' && sameVersion(ref.value.versions.get(path) ?? ref.value.hash, wanted)) {
+          return ref.value.hash;
+        }
+        // It has moved on since the run's snapshot: a record's commit is
+        // read from its history, and a plain input's version is its value
+        if ((await dataflowRecords(storage, state)).has(path)) {
+          return decodeRecordCommit(await storage.objects.read(repo, wanted)).state;
+        }
+        return wanted;
+      })();
+      roots.set(path, read);
+    }
+    return read;
+  };
+
+  // Each input of a task at the versions, in its input order
+  const inputsAt = async (of: DataflowGraph['tasks'][0]): Promise<ReadAt[]> => {
+    // Which index each input reads is the task object's, read once and then
+    // from memory; the graph names each input by its dataset's path alone.
+    const { inputs } = await taskObjectRead(storage, repo, of.hash);
+    const read: ReadAt[] = [];
+    for (const [at, path] of of.inputs.entries()) {
+      const producer = producerOf.get(path);
+      if (producer !== undefined) {
+        read.push(await outputAt(producer));
+        continue;
+      }
+      const hash = await rootAt(path);
+      if (hash === null) {
+        read.push({ kind: 'unassigned' });
+        continue;
+      }
+      const index = inputs[at]?.index.type === 'some' ? inputs[at].index.value : null;
+      // An index its record's state does not hold: the task waits, as its status says
+      const object = await taskInputRead(storage, repo, path, hash, index);
+      read.push('object' in object ? { kind: 'object', hash: object.object } : { kind: 'unassigned' });
+    }
+    return read;
+  };
+
+  // A task's result at the versions
+  const outputAt = (of: DataflowGraph['tasks'][0]): Promise<ReadAt> => {
+    let read = outputs.get(of.name);
+    if (read === undefined) {
+      read = (async (): Promise<ReadAt> => {
+        const made = state.versionVectors.get(of.output);
+        const result = state.tasks.get(of.name)?.outputHash;
+        // The task holds no result in the run: its reader is not ready
+        if (made === undefined || result === undefined || result.type !== 'some') return { kind: 'unassigned' };
+        const reads = [...made].filter(([root]) => !root.startsWith('$'));
+        if (reads.every(([root, version]) => {
+          const wanted = versions.get(root);
+          return wanted !== undefined && sameVersion(wanted, version);
+        })) {
+          return { kind: 'object', hash: result.value };
+        }
+        const inputs = await inputsAt(of);
+        if (inputs.some((input) => input.kind === 'unassigned')) return { kind: 'unassigned' };
+        if (inputs.some((input) => input.kind === 'behind')) return { kind: 'behind' };
+        const inputHashes = inputs.map((input) => (input as { hash: string }).hash);
+        const inHash = inputsHash(inputHashes);
+        const landed = options.landed?.(of.name, inHash);
+        if (landed !== undefined) return { kind: 'object', hash: landed };
+        if (options.forced?.(of.name) !== true) {
+          const cached = await dataflowCheckCache(storage, repo, of.hash, inputHashes);
+          if (cached !== null) return { kind: 'object', hash: cached.outputHash };
+        }
+        const at = new Map<string, string>();
+        for (const [root] of reads) {
+          const wanted = versions.get(root);
+          if (wanted !== undefined) at.set(root, wanted);
+        }
+        runs.set(`${of.name}@${inHash}`, { task: of.name, taskHash: of.hash, inputHashes, inputsHash: inHash, versions: at });
+        return { kind: 'behind' };
+      })();
+      outputs.set(of.name, read);
+    }
+    return read;
+  };
+
+  const inputs = await inputsAt(task);
+  const unassigned = task.inputs.filter((_, at) => inputs[at]!.kind === 'unassigned');
+  if (unassigned.length > 0) return { kind: 'unassigned', inputs: unassigned };
+  if (inputs.some((input) => input.kind === 'behind')) return { kind: 'behind', runs: [...runs.values()] };
+  return { kind: 'resolved', hashes: inputs.map((input) => (input as { hash: string }).hash) };
 }

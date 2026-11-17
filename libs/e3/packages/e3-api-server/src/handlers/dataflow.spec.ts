@@ -127,6 +127,7 @@ describe('dataflow routes', () => {
         await stateStore.updateStatus(handle.repo, handle.workspace, handle.id, 'cancelled');
       },
       getEvents: async () => [],
+      wake: async () => false,
     };
     const app = new Hono();
     app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(new InMemoryStorage(), () => 'test-repo', {
@@ -173,6 +174,7 @@ describe('dataflow routes', () => {
       getProgress: () => Promise.reject(new Error('not polled')),
       cancel: async () => {},
       getEvents: async () => [],
+      wake: async () => false,
     };
     const app = new Hono();
     app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(new InMemoryStorage(), () => 'test-repo', {
@@ -207,6 +209,7 @@ describe('dataflow routes', () => {
       getProgress: () => Promise.reject(new Error('not polled')),
       cancel: async () => {},
       getEvents: async () => [],
+      wake: async () => false,
     };
     const app = new Hono();
     app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(new InMemoryStorage(), () => 'test-repo', {

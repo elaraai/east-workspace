@@ -38,6 +38,9 @@ export { InMemoryStorage } from './storage/in-memory/InMemoryStorage.js';
 // The contract suites every storage backend runs over itself
 export * from './contract/index.js';
 
+// The runner the dataflow loop's suite replays a run's interleavings on
+export { GatedTaskRunner, type GatedLaunch } from './execution/GatedTaskRunner.js';
+
 // The walk a portable entry is held to: e3-core's own, and one built on it
 export { PORTABLE_PACKAGES, portableWalker, type PortableGraph, type PortableWalk } from './portable-graph.js';
 
