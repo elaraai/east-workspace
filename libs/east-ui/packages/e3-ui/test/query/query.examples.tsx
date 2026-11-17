@@ -390,7 +390,7 @@ export const queryBuilder = example({
         "Query", "Query.Builder", "query builder", "jq", "steps", "saved queries", "run", "results", "Table", "Value tree", "Download", "CSV",
         "Record.bind", "patch", "e3.record", "mutation.patch", "Data.bind", "datasets", "one-shot",
     ],
-    description: "The query builder over the shared fixture's datasets and the saved queries record, open on Top shipped orders, 2026: one toolbar — Visual · jq, Table · Tree, Download, the history item, Copy jq, Save… and Run — the pane's Query tab with its five steps and their counted shape lines, and the ten orders it gives as a Table beside it",
+    description: "The query builder over the shared fixture's datasets and the saved queries record, open on Top shipped orders, 2026: one toolbar — Visual · jq, Table · Tree, Download, the history item, Copy jq, Save… and Run — the pane's Query tab with its five steps and their counted shape lines, and the ten orders it gives as a Table beside it; the query it shows is the surface's own state, given as `query` and changed in `onOpen` when its Datasets or Library tab asks for another",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const saved = $.let(Record.bind(queries));
@@ -399,9 +399,12 @@ export const queryBuilder = example({
             const weekly = $.let(Data.bind(forecast));
             const demand = $.let(Data.bind(model));
             const parts = $.let(Data.bind(bom));
+            // The open query is the surface's: the builder shows it, and tells the surface when its own tabs ask for another.
+            const open = $.let(State.bind([Query.Types.Open], "ex.query.open", Query.open.saved("Top shipped orders, 2026")));
+            const go = $.const(East.function([Query.Types.Open], NullType, ($2, next) => { $2(open.write(next)); }));
             return (
                 <Box height="760px">
-                    <Query.Builder queries={saved} query="Top shipped orders, 2026" id="top"
+                    <Query.Builder queries={saved} query={open.read()} onOpen={go} id="top"
                         datasets={{ orders: orderRows, customers: customerRows, forecast: weekly, model: demand, bom: parts }} />
                 </Box>
             );
@@ -429,6 +432,9 @@ export const queryBuilderViews = example({
             const everyResult = $.const([variant("table", null), variant("tree", null)], ArrayType(Query.Types.ResultView));
             const views = $.let(everyView.filter(($, view) => queryTags.toSet().has(view.getTag())));
             const resultViews = $.let(everyResult.filter(($, view) => resultTags.toSet().has(view.getTag())));
+            // The open query is the surface's: the builder shows it, and tells the surface when its own tabs ask for another.
+            const open = $.let(State.bind([Query.Types.Open], "ex.queryBuilderViews.open", Query.open.saved("Top shipped orders, 2026")));
+            const go = $.const(East.function([Query.Types.Open], NullType, ($2, next) => { $2(open.write(next)); }));
             return (
                 <VStack gap="3" align="stretch" width="100%">
                     <HStack gap="3" align="flex-start">
@@ -438,7 +444,7 @@ export const queryBuilderViews = example({
                             items={[Select.Item("table", "Table"), Select.Item("tree", "Tree")]} /></HStack>
                     </HStack>
                     <Box height="680px">
-                        <Query.Builder queries={saved} query="Top shipped orders, 2026" id="views" views={views} resultViews={resultViews}
+                        <Query.Builder queries={saved} query={open.read()} onOpen={go} id="views" views={views} resultViews={resultViews}
                             datasets={{ orders: orderRows, customers: customerRows }} />
                     </Box>
                 </VStack>
@@ -459,9 +465,12 @@ export const queryBuilderMobile = example({
             const weekly = $.let(Data.bind(forecast));
             const demand = $.let(Data.bind(model));
             const parts = $.let(Data.bind(bom));
+            // The open query is the surface's: the builder shows it, and tells the surface when its own tabs ask for another.
+            const open = $.let(State.bind([Query.Types.Open], "ex.queryBuilderMobile.open", Query.open.saved("Top shipped orders, 2026")));
+            const go = $.const(East.function([Query.Types.Open], NullType, ($2, next) => { $2(open.write(next)); }));
             return (
                 <Box width="390px" maxWidth="100%" height="760px">
-                    <Query.Builder queries={saved} query="Top shipped orders, 2026" id="topMobile"
+                    <Query.Builder queries={saved} query={open.read()} onOpen={go} id="topMobile"
                         datasets={{ orders: orderRows, customers: customerRows, forecast: weekly, model: demand, bom: parts }} />
                 </Box>
             );
@@ -481,9 +490,12 @@ export const queryBuilderBom = example({
             const weekly = $.let(Data.bind(forecast));
             const demand = $.let(Data.bind(model));
             const parts = $.let(Data.bind(bom));
+            // The open query is the surface's: the builder shows it, and tells the surface when its own tabs ask for another.
+            const open = $.let(State.bind([Query.Types.Open], "ex.queryBuilderBom.open", Query.open.saved("Pump parts cost")));
+            const go = $.const(East.function([Query.Types.Open], NullType, ($2, next) => { $2(open.write(next)); }));
             return (
                 <Box height="640px">
-                    <Query.Builder queries={saved} query="Pump parts cost" id="bom"
+                    <Query.Builder queries={saved} query={open.read()} onOpen={go} id="bom"
                         datasets={{ orders: orderRows, customers: customerRows, forecast: weekly, model: demand, bom: parts }} />
                 </Box>
             );
@@ -503,9 +515,12 @@ export const queryBuilderModel = example({
             const weekly = $.let(Data.bind(forecast));
             const demand = $.let(Data.bind(model));
             const parts = $.let(Data.bind(bom));
+            // The open query is the surface's: the builder shows it, and tells the surface when its own tabs ask for another.
+            const open = $.let(State.bind([Query.Types.Open], "ex.queryBuilderModel.open", Query.open.saved("Demand at $10–$12, NSW")));
+            const go = $.const(East.function([Query.Types.Open], NullType, ($2, next) => { $2(open.write(next)); }));
             return (
                 <Box height="640px">
-                    <Query.Builder queries={saved} query="Demand at $10–$12, NSW" id="model"
+                    <Query.Builder queries={saved} query={open.read()} onOpen={go} id="model"
                         datasets={{ orders: orderRows, customers: customerRows, forecast: weekly, model: demand, bom: parts }} />
                 </Box>
             );
@@ -515,16 +530,19 @@ export const queryBuilderModel = example({
 });
 
 export const queryBuilderEmpty = example({
-    keywords: ["Query", "Query.Builder", "new query", "empty", "Add a step", "Quick add"],
-    description: "A builder over a record with no saved queries: a new query on orders, its Query tab asking for a first step, and nothing run yet",
+    keywords: ["Query", "Query.Builder", "new query", "empty", "Add a step", "Quick add", "Query.open.on", "Query.Types.Open", "onOpen"],
+    description: "A builder over a record with no saved queries: a new query on orders — `Query.open.on(\"orders\")`, held by the surface — its Query tab asking for a first step, and nothing run yet",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const saved = $.let(Record.bind(queriesEmpty));
             const orderRows = $.let(Data.bind(orders));
             const customerRows = $.let(Data.bind(customers));
+            // The open query is the surface's: a new query on orders to begin with.
+            const open = $.let(State.bind([Query.Types.Open], "ex.queryBuilderEmpty.open", Query.open.on("orders")));
+            const go = $.const(East.function([Query.Types.Open], NullType, ($2, next) => { $2(open.write(next)); }));
             return (
                 <Box height="560px">
-                    <Query.Builder queries={saved} id="empty" datasets={{ orders: orderRows, customers: customerRows }} />
+                    <Query.Builder queries={saved} query={open.read()} onOpen={go} id="empty" datasets={{ orders: orderRows, customers: customerRows }} />
                 </Box>
             );
         }}</Reactive>
@@ -574,6 +592,9 @@ export const queryConflicts = example({
             const weekly = $.let(Data.bind(forecast));
             const demand = $.let(Data.bind(model));
             const parts = $.let(Data.bind(bom));
+            // The open query is the surface's: the builder shows it, and tells the surface when its own tabs ask for another.
+            const open = $.let(State.bind([Query.Types.Open], "ex.queryConflicts.open", Query.open.saved("Top shipped orders, 2026")));
+            const go = $.const(East.function([Query.Types.Open], NullType, ($2, next) => { $2(open.write(next)); }));
             return (
                 <VStack gap="3" align="stretch">
                     <HStack gap="3">
@@ -581,7 +602,7 @@ export const queryConflicts = example({
                         <Text color="fg.muted">Their change: the same query, saved again</Text>
                     </HStack>
                     <Box height="760px">
-                        <Query.Builder queries={saved} query="Top shipped orders, 2026" id="conflicts"
+                        <Query.Builder queries={saved} query={open.read()} onOpen={go} id="conflicts"
                             datasets={{ orders: orderRows, customers: customerRows, forecast: weekly, model: demand, bom: parts }} />
                     </Box>
                 </VStack>
@@ -652,9 +673,12 @@ export const queryBuilderHistory = example({
             const history = $.let(Data.bindPaged(historyTask));
             const accounts = $.let(Data.bindPaged(accountsTask));
             const credit = $.let(Data.bindPaged(creditTask));
+            // The open query is the surface's: the builder shows it, and tells the surface when its own tabs ask for another.
+            const open = $.let(State.bind([Query.Types.Open], "ex.queryBuilderHistory.open", Query.open.saved("History revenue by region")));
+            const go = $.const(East.function([Query.Types.Open], NullType, ($2, next) => { $2(open.write(next)); }));
             return (
                 <Box height="760px">
-                    <Query.Builder queries={saved} query="History revenue by region" id="history"
+                    <Query.Builder queries={saved} query={open.read()} onOpen={go} id="history"
                         datasets={{ order_history: history, accounts, credit }} />
                 </Box>
             );
@@ -670,9 +694,10 @@ export const queryBuilderHistory = example({
 export const queryLibrary = example({
     keywords: [
         "Query", "Query.Library", "query library", "saved queries", "gallery", "wireframe", "Open in builder", "New query",
-        "search", "sort", "grid", "list", "recent", "Record.bind", "Data.bind",
+        "search", "sort", "grid", "list", "recent", "Record.bind", "Data.bind", "onOpen", "query", "Query.Types.Open", "Query.open.saved",
+        "State.bind", "navigate",
     ],
-    description: "The query library over the same record and data sources: one toolbar — the search, Sort, Grid · List and \"+ New query on orders\" — beside the data sources with their counts of saved queries and this viewer's recent runs; the seven saved queries as a gallery, each card a wireframe of its steps with its name, its description and what it gives, and \"Open in builder →\", which opens the query in the builder that shares its id",
+    description: "The query library over the same record and data sources: one toolbar — the search, Sort, Grid · List and \"+ New query on orders\" — beside the data sources with their counts of saved queries and this viewer's recent runs; the seven saved queries as a gallery, each card a wireframe of its steps with its name, its description and what it gives, and \"Open in builder →\", which tells the surface in `onOpen`: the surface writes the open query it holds, which the builder above shows and whose card is marked",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const saved = $.let(Record.bind(queries));
@@ -681,9 +706,12 @@ export const queryLibrary = example({
             const weekly = $.let(Data.bind(forecast));
             const demand = $.let(Data.bind(model));
             const parts = $.let(Data.bind(bom));
+            // The open query is the surface's: the builder above shows it. A host with routes navigates here instead.
+            const open = $.let(State.bind([Query.Types.Open], "ex.query.open", Query.open.saved("Top shipped orders, 2026")));
+            const go = $.const(East.function([Query.Types.Open], NullType, ($2, next) => { $2(open.write(next)); }));
             return (
                 <Box height="720px">
-                    <Query.Library queries={saved} id="top"
+                    <Query.Library queries={saved} query={open.read()} onOpen={go} id="top"
                         datasets={{ orders: orderRows, customers: customerRows, forecast: weekly, model: demand, bom: parts }} />
                 </Box>
             );

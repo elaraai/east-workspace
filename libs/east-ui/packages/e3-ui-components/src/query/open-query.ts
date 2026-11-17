@@ -4,52 +4,33 @@
  */
 
 /**
- * The query open in a builder (#935) — held in the UI store under the
- * builder's key (`queryKeys(id).query`), where `State.bind` keeps its State,
- * so a builder and a query library with the same `id` open one query together,
- * as Studio's builder and page library open one page. Beside it, under the
- * same key, the notice the query arrived with (#939, #1063) — "Opened “Big
- * orders” from the query library." — which the builder shows when the query
- * opens, whichever surface opened it.
+ * The query open in a builder (#935) — a value of `Query.Types.Open`, which
+ * the builder's host holds and gives it, or the builder holds itself
+ * (`shared/open.ts`, #1668): its editing session's source id, a new query of
+ * the page's own, and the notice a query arrives with — "Opened “Big orders”
+ * from the library." — which the builder shows when that query opens.
  *
  * @packageDocumentation
  */
 
-import { useCallback } from "react";
-import { OptionType, StringType, StructType, VariantType, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
-import { SavedQueryType } from "@elaraai/e3-ui/internal";
-import { storedCodec, useStoredValue } from "../shared/stored-value.js";
-
-/**
- * The query open in a builder.
- *
- * @property new - A query not yet saved: `id` tells it from every other new
- *   query, so each keeps its own drafts; `source` is the data source it starts
- *   from; `from`, when it begins as a run of this viewer's that was never
- *   saved, is that run — its name, its description and its checked query
- * @property saved - A saved query, by its name
- */
-export const QueryOpenType = VariantType({
-    new: StructType({ id: StringType, source: StringType, from: OptionType(SavedQueryType) }),
-    saved: StringType,
-});
+import { StringType, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { QueryOpenType, SavedQueryType } from "@elaraai/e3-ui/internal";
+import { openCodec, type OpenCodec } from "../shared/open.js";
 
 /** The query open in a builder. */
 export type QueryOpen = ValueTypeOf<typeof QueryOpenType>;
 
-/**
- * The notice a query arrived with.
- *
- * @property sourceId - The session of the query it arrived with ({@link querySourceId})
- * @property text - What the Query tab says when that query opens
- */
-export const QueryArrivalType = StructType({ sourceId: StringType, text: StringType });
+/** The notice a query arrives with. */
+export interface QueryArrival {
+    /** The session of the query it arrives with ({@link querySourceId}). */
+    readonly sourceId: string;
+    /** What the Query tab says when that query opens. */
+    readonly text: string;
+}
 
-/** The notice a query arrived with. */
-export type QueryArrival = ValueTypeOf<typeof QueryArrivalType>;
+/** How a builder's own open query is kept, and one open query told from another. */
+export const OPEN_QUERY: OpenCodec<QueryOpen> = openCodec(QueryOpenType);
 
-const openCodec = storedCodec(QueryOpenType);
-const arrivalCodec = storedCodec(QueryArrivalType);
 const printString = printFor(StringType);
 
 /**
@@ -80,28 +61,9 @@ export function newQuery(source: string, from?: ValueTypeOf<typeof SavedQueryTyp
 }
 
 /**
- * Opens a query: writes it as the open query, with the notice it arrives with.
+ * Asks for another query to be opened, with the notice it arrives with.
  *
  * @param next - The query to open
  * @param notice - What the Query tab says when it opens — none for a query opened without one
  */
 export type OpenQueryWrite = (next: QueryOpen, notice?: string) => void;
-
-/**
- * The query open in the builder the key names, a way to open another, and the
- * notice the open query arrived with.
- *
- * @param key - The builder's open-query key
- * @param first - The query it opens before any is written — a new query on its first data source
- * @returns The open query; the write that opens another, with the notice it arrives with; and the last notice written
- */
-export function useOpenQuery(key: string, first: QueryOpen): [QueryOpen, OpenQueryWrite, QueryArrival | undefined] {
-    const [open, writeOpen] = useStoredValue(openCodec, key);
-    const [arrival, writeArrival] = useStoredValue(arrivalCodec, `${key}.arrival`);
-    // The notice first, so the builder finds it when the query it arrives with opens.
-    const write = useCallback<OpenQueryWrite>((next, notice) => {
-        if (notice !== undefined) writeArrival({ sourceId: querySourceId(next), text: notice });
-        writeOpen(next);
-    }, [writeOpen, writeArrival]);
-    return [open ?? first, write, arrival];
-}

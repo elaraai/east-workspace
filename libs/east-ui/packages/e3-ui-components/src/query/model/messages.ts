@@ -829,6 +829,8 @@ export interface QueryMessages {
     openedFromLibrary: (p: { name: string }) => string;
     /** The notice after a query library's card is dropped on the builder — `Opened “Big orders” from the query library.` */
     openedFromQueryLibrary: (p: { name: string }) => string;
+    /** The notice after the builder's host opens a query in it — `Opened “Big orders”.` */
+    opened: (p: { name: string }) => string;
 
     // ── Dropping (#939) ──────────────────────────────────────────────────
     /** Over the builder while a query library's card rests on it — `Drop to open “Revenue by region”`. */
@@ -1555,6 +1557,7 @@ export const queryMessages: QueryMessages = {
     startedOn: ({ name }) => `Started a new query on ${name}.`,
     openedFromLibrary: ({ name }) => `Opened “${name}” from the library.`,
     openedFromQueryLibrary: ({ name }) => `Opened “${name}” from the query library.`,
+    opened: ({ name }) => `Opened “${name}”.`,
 
     dropToOpen: ({ name }) => `Drop to open “${name}”`,
     dropSteps: ({ count, n }) => `${count} ${n === 1 ? "step" : "steps"}.`,

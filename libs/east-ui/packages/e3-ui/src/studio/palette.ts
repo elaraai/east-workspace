@@ -28,24 +28,21 @@ import { StudioComponentType, readNames } from "./component.js";
 import { StudioCellType, StudioPagesType, pageStatus } from "./pages.js";
 
 // ============================================================================
-// The builder's shared keys
+// The builder's keys
 // ============================================================================
 
 /**
- * The names a builder shares, by its `id`: the UI store key of the page open
- * in it — which the page library writes when it opens a page — and the
- * drag-source ids of its palette's two libraries.
+ * The names a builder's palette takes from its `id`: the drag-source ids of
+ * its two libraries, which tell two builders on one surface apart.
  *
  * @remarks
- * A builder and a page library with the same `id` open one page together, as
- * `Slice.bind` shares a slice by key.
+ * The page open in a builder is not among them: its host gives it as `page`
+ * and hears of another in `onOpen` (#1668).
  *
  * @param id - The builder's name, when a surface holds more than one; omitted, the one builder
- * @returns The key and ids
+ * @returns The ids
  */
 export function builderKeys(id: string | undefined): {
-    /** The open page's UI store key — a `Studio.Types.Key`. */
-    page: string;
     /** The palette's components library's drag-source id — what the canvas takes cards from. */
     components: string;
     /** The palette's pages library's id. */
@@ -53,7 +50,6 @@ export function builderKeys(id: string | undefined): {
 } {
     const suffix = id === undefined ? "" : `.${id}`;
     return {
-        page: `studio.builder${suffix}.page`,
         components: `studio.components${suffix}`,
         pages: `studio.pages${suffix}`,
     };

@@ -12,8 +12,9 @@
  * new page, one commit, in the popover under the New page button, from the
  * toolbar and from a template's card, and a name taken refused in it, its
  * template picker's chevron and checks Font Awesome's (D5, #1263); the
- * search, Sort and Grid · List (D6). The surface tells the host which page
- * it opened.
+ * search, Sort and Grid · List (D6). Opening is its host's (#1668): a page's
+ * click tells the host, which holds the open page and gives it back to be
+ * marked; the page library opens nothing itself and shares no store entry.
  */
 
 import { describe, test, expect, beforeEach } from "vitest";
@@ -22,7 +23,7 @@ import { East, NullType, SortedMap, StringType, compareFor, decodeBeast2For, non
 import { Reactive, Stack, State, Text, UIComponentType } from "@elaraai/east-ui/internal";
 import { StateRuntime } from "@elaraai/east-ui-components";
 import { foreignIcons, markOf } from "@elaraai/east-ui-components/testing";
-import { Record, Studio, StudioKeyType, builderKeys } from "@elaraai/e3-ui/internal";
+import { Record, Studio, StudioKeyType } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/studio/studio";
 import { act, e3Harness, settle } from "../e3-web-mount.test-utils.js";
 // The page library is an extension: its renderer registers as it loads.
@@ -101,8 +102,30 @@ beforeEach(async () => {
     before = await commits();
 });
 
-/** The page library over the record, as a surface mounts it, with a line saying which page it told the host it opened. */
+/** Where the surface holds the page open in its builder. */
+const OPEN = "library-test.open";
+
+/**
+ * The page library over the record, as a surface mounts it: the surface holds
+ * the open page — the Detail to begin with — gives it to the page library, and
+ * writes it when told of another, with a line saying which page is open.
+ */
 const library = {
+    fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+        const listed = $.let(components);
+        const record = $.let(Record.bind(ex.studioPages, ["patch"]));
+        const open = $.let(State.bind([StudioKeyType], OPEN, { project: "ops", page: "a-detail" }));
+        const onOpen = $.const(East.function([StudioKeyType], NullType, ($2, key) => { $2(open.write(key)); }));
+        const page = $.let(open.read());
+        return Stack.VStack([
+            Text.Root(East.str`open ${page.project}/${page.page}`),
+            Studio.Library({ pages: record, components: listed, project: "ops", page, onOpen }),
+        ]);
+    }))),
+};
+
+/** The page library given no open page: it is told which page was asked for, and says so. */
+const unmarked = {
     fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
         const listed = $.let(components);
         const record = $.let(Record.bind(ex.studioPages, ["patch"]));
@@ -118,11 +141,14 @@ const library = {
 /** Mount the page library under the page's drag layer, once what it reads has loaded. */
 const mountLibrary = () => h.mount(library, { storageKey: "studio-library" });
 
-/** The page the builder has open, as its screens share it. */
-function builderPage(): Key | undefined {
-    const bytes = StateRuntime.getStore().read(builderKeys(undefined).page);
+/** The page the surface holds as open. */
+function hostPage(): Key | undefined {
+    const bytes = StateRuntime.getStore().read(OPEN);
     return bytes === undefined ? undefined : decodeBeast2For(StudioKeyType)(bytes);
 }
+
+/** The entry a page library and a builder once shared by id: nothing writes it (#1668). */
+const sharedEntry = () => StateRuntime.getStore().read("studio.builder.page");
 
 /** The record as e3 holds it now. */
 const readRecord = (): Promise<Pages> => h.read(ex.studioPages);
@@ -183,26 +209,40 @@ describe("<Studio.Library> (#997)", () => {
         expect(within(row("b-overview")).getByRole("img", { name: "Live" })).toBeTruthy();
         expect(within(row("a-detail")).getByRole("img", { name: "Draft" })).toBeTruthy();
         expect(within(row("c-weekly")).getByRole("img", { name: "Draft" })).toBeTruthy();
-        // The builder opens the project's first page to begin with.
+        // The page its host says is open in the builder is marked, and only it.
         expect(row("a-detail").getAttribute("aria-current")).toBe("page");
+        expect(pane(container).querySelectorAll("[aria-current=page]")).toHaveLength(1);
         expect(container.querySelector("[data-page-library-legend]")!.textContent).toBe("LiveDraft");
     });
 
-    test("D2: a project's click shows its pages; a page's click opens it in the builder and tells the host", async () => {
+    test("D2: a project's click shows its pages; a page's click tells the host, which holds the open page — the page library marks the one it is given, and writes no entry of its own", async () => {
         const { container } = await mountLibrary();
         await act(async () => { fireEvent.click(pane(container).querySelector("[data-page-library-page=\"b-overview\"]")!); });
         await settle();
-        expect(builderPage()).toEqual({ project: "ops", page: "b-overview" });
-        expect(screen.getByText("told ops/b-overview")).toBeTruthy();
+        expect(hostPage()).toEqual({ project: "ops", page: "b-overview" });
+        expect(screen.getByText("open ops/b-overview")).toBeTruthy();
         expect(pane(container).querySelector("[data-page-library-page=\"b-overview\"]")!.getAttribute("aria-current")).toBe("page");
+        expect(sharedEntry()).toBeUndefined();
 
         await act(async () => { fireEvent.click(pane(container).querySelector("[data-page-library-project=\"retail\"]")!); });
         await settle();
         expect(paneRows(container)).toEqual(["home"]);
         expect(titles(gallery(container, "pages"))).toEqual(["home"]);
         expect(screen.getByRole("button", { name: "New page in retail" })).toBeTruthy();
-        // The builder's page is another project's: none of these is marked.
+        // The open page is another project's: none of these is marked.
         expect(pane(container).querySelector("[aria-current=page]")).toBeNull();
+    });
+
+    test("#1668: given no open page it marks none, and a page's click still tells its host — once a click", async () => {
+        const { container } = await h.mount(unmarked, { storageKey: "studio-library" });
+        expect(pane(container).querySelector("[aria-current=page]")).toBeNull();
+        expect(screen.getByText("told nothing")).toBeTruthy();
+        await act(async () => { fireEvent.click(pane(container).querySelector("[data-page-library-page=\"c-weekly\"]")!); });
+        await settle();
+        expect(screen.getByText("told ops/c-weekly")).toBeTruthy();
+        // Told, it opened nothing itself: no page is marked, and no entry is written for a builder to read.
+        expect(pane(container).querySelector("[aria-current=page]")).toBeNull();
+        expect(sharedEntry()).toBeUndefined();
     });
 
     test("D3: Templates, clone to start a page — Blank grid first, then the project's templates; each with its wireframe, its title and what it places", async () => {
@@ -235,8 +275,8 @@ describe("<Studio.Library> (#997)", () => {
 
         await act(async () => { fireEvent.click(card("c-weekly")); });
         await settle();
-        expect(builderPage()).toEqual({ project: "ops", page: "c-weekly" });
-        expect(screen.getByText("told ops/c-weekly")).toBeTruthy();
+        expect(hostPage()).toEqual({ project: "ops", page: "c-weekly" });
+        expect(screen.getByText("open ops/c-weekly")).toBeTruthy();
     });
 
     test("D6: the search narrows both rows by title; Sort Z–A reverses them; Grid · List lays the pages out", async () => {

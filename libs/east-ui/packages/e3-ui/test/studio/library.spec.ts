@@ -7,15 +7,16 @@
  * `<Studio.Library>` (#997): what it shows, computed in East over the
  * record — the projects (D2), a layout's summary and the project's templates
  * (D3), the project's pages (D4) — what a refused name write says (D5, D7),
- * the surface's manifest (R4), and the interface the browser draws.
+ * the surface's manifest (R4), and the interface the browser draws: the open
+ * page its host gives it, and who it tells of another (#1668).
  */
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-    ArrayType, East, FloatType, OptionType, PatchType, SortedMap, StringType, compareFor, decodeBeast2For, none, some, variant,
-    type ValueTypeOf,
+    ArrayType, East, FloatType, NullType, OptionType, PatchType, SortedMap, StringType, compareFor, decodeBeast2For, equalFor, none,
+    some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import e3 from "@elaraai/e3";
@@ -160,7 +161,8 @@ describe("<Studio.Library> — the surface (#997)", () => {
         const surface = ui("library_surface", [], East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
             const components = $.let([revenueTrend, kpiRail]);
             const record = $.let(Record.bind(pages));
-            return Studio.Library({ pages: record, components, project: "ops" });
+            const go = $.const(East.function([Studio.Types.Key], NullType, (_$2, _key) => null));
+            return Studio.Library({ pages: record, components, project: "ops", onOpen: go });
         }))));
         const manifest = surface.role.value!;
         assert.deepEqual(manifest.records, ["library_pages"]);
@@ -170,8 +172,9 @@ describe("<Studio.Library> — the surface (#997)", () => {
         ]);
     });
 
-    test("it is an interface the browser draws — the StudioLibrary carrier, holding the bound record, the components, the project and the builder it opens pages in", () => {
-        const value = East.compile(East.function([], UIComponentType, ($) => {
+    test("it is an interface the browser draws — the StudioLibrary carrier, holding the bound record, the components, the project, the open page its host gives it and who it tells of another; no page given marks none", () => {
+        const keyEqual = equalFor(Studio.Types.Key);
+        const build = (given: boolean) => East.compile(East.function([], UIComponentType, ($) => {
             const components = $.let([revenueTrend, kpiRail]);
             const record = $.let({
                 read: East.function([], StudioPagesType, (_$2) => PAGES),
@@ -181,13 +184,25 @@ describe("<Studio.Library> — the surface (#997)", () => {
                         (_$2) => variant("committed", { commitHash: "c", stateHash: "s" })),
                 },
             }, StudioPagesHandleType);
-            return Studio.Library({ pages: record, components, project: "ops", id: "north" });
+            const go = $.const(East.function([Studio.Types.Key], NullType, (_$2, _key) => null));
+            return given
+                ? Studio.Library({ pages: record, components, project: "ops", page: { project: "ops", page: "b-overview" }, onOpen: go })
+                : Studio.Library({ pages: record, components, project: "ops", onOpen: go });
         }), [])();
+        const value = build(true);
         if (value.type !== "Extension") assert.fail(`expected the StudioLibrary carrier, got ${value.type}`);
         assert.equal(value.value.kind, "StudioLibrary");
         const payload = decodeBeast2For(StudioLibraryPayloadType)(value.value.payload);
-        assert.deepEqual([payload.project, payload.id, payload.onOpen], ["ops", some("north"), none]);
+        assert.equal(payload.project, "ops");
+        if (payload.page.type !== "some") assert.fail("expected the open page the host gave");
+        assert.ok(keyEqual(payload.page.value, { project: "ops", page: "b-overview" }));
+        // Its host is told through the function it gave.
+        assert.equal(payload.onOpen({ project: "ops", page: "a-detail" }), null);
         assert.deepEqual(payload.components.map((component) => component.key), ["revenue_trend", "kpi_rail"]);
         assert.equal(payload.pages.read().size, PAGES.size);
+
+        const bare = build(false);
+        if (bare.type !== "Extension") assert.fail(`expected the StudioLibrary carrier, got ${bare.type}`);
+        assert.deepEqual(decodeBeast2For(StudioLibraryPayloadType)(bare.value.payload).page, none);
     });
 });
