@@ -36,6 +36,7 @@ import {
     sourceNames,
     textParagraphs,
     viewIcon,
+    viewWords,
     visualWords,
 } from "@elaraai/e3-ui/internal";
 
@@ -64,6 +65,8 @@ export interface StudioEast {
     contentFramed: Compiled<typeof contentFramed>;
     /** A view's icon. */
     viewIcon: Compiled<typeof viewIcon>;
+    /** A view, in words — "Column chart". */
+    viewWords: Compiled<typeof viewWords>;
     /** A text block's paragraphs. */
     textParagraphs: Compiled<typeof textParagraphs>;
     /** Each listed source's name, by its key. */
@@ -119,6 +122,8 @@ function compileStudio(): StudioEast {
         contentFramed: East.compile(contentFramed, []),
         /** A view's icon. */
         viewIcon: East.compile(viewIcon, []),
+        /** A view, in words — "Column chart". */
+        viewWords: East.compile(viewWords, []),
         /** A text block's paragraphs. */
         textParagraphs: East.compile(textParagraphs, []),
         /** Each listed source's name, by its key. */

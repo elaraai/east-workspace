@@ -4,9 +4,9 @@
  */
 
 import { memo, useId, useMemo, useCallback, createContext, useContext, type CSSProperties, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
-import { Box, Skeleton, useChakraContext, useSlotRecipe } from "@chakra-ui/react";
+import { Box, Skeleton, chakra, useChakraContext, useSlotRecipe } from "@chakra-ui/react";
 import { useTooltip, useTooltipInPortal } from "@visx/tooltip";
-import { DateTimeType, FloatType, match, equivalentFor, none, parseFor, printFor, some, type ValueTypeOf } from "@elaraai/east";
+import { DateTimeType, FloatType, match, equivalentFor, none, parseFor, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Chart, Slice as SliceInternal, SliceChromeType } from "@elaraai/east-ui/internal";
 import { formatters, formatPattern, parsePattern, tickFormatOf, useFormatters } from "../../format/index.js";
 import { SliceRailCluster, rangeOfWindow } from "../../slice/rail";
@@ -17,7 +17,7 @@ import { useSliceReactivity } from "../../slice/use-slice-reactivity";
 import { ParentSize } from "@visx/responsive";
 import { Group } from "@visx/group";
 import { scaleBand, scaleLinear, scaleTime, scaleSqrt } from "@visx/scale";
-import { LinePath, AreaClosed, Area, Bar, Line, Circle } from "@visx/shape";
+import { LinePath, AreaClosed, Area, Bar, Line, Circle, Pie } from "@visx/shape";
 import { curveMonotoneX, curveLinear, curveNatural, curveStep, curveStepBefore, curveStepAfter } from "@visx/curve";
 import { GridRows, GridColumns } from "@visx/grid";
 import { Brush } from "@visx/brush";
@@ -25,6 +25,9 @@ import type { Bounds } from "@visx/brush/lib/types";
 import { AxisBottom, AxisLeft, AxisRight, type AxisScale } from "@visx/axis";
 import { getSomeorUndefined } from "../../utils";
 import { usePlotGutter, gutterPx } from "../../contracts/plot-gutter.js";
+import { pieSlicesOf, type PieSlice, type PieValue } from "./pie.js";
+import { markAt, type PlotGeometry } from "./hit.js";
+import { stackBoundsOf } from "./stack.js";
 
 const T = Chart.Spec.Types;
 type Spec = ValueTypeOf<typeof T.Spec>;
@@ -40,6 +43,28 @@ type Axis = ValueTypeOf<typeof T.Axis>;
 type SeriesMark = ValueTypeOf<typeof T.SeriesMark>;
 type Margin = { top: number; right: number; bottom: number; left: number };
 export type ScaleKind = "band" | "linear" | "time";
+
+/**
+ * A mark of a chart that was clicked (#1671, CHT-8): what the click stands for.
+ *
+ * @remarks
+ * - A bar, a point, an area's band or a line's point: its series and its x.
+ * - Elsewhere in the plot at an x: that x, and no series — every series there.
+ * - A legend row: its series, and no x.
+ * - A pie's slice or its legend row: the slice's key as a category x, and no
+ *   series; Other's says `other`, and has no x.
+ */
+export interface ChartMark {
+    /** The series the mark is of, by its key; `undefined` for an x of every series, and for a pie's slice. */
+    readonly series: string | undefined;
+    /** The x the mark is at, as the chart holds it; `undefined` for a legend row's series and for a pie's Other. */
+    readonly x: XCoord | undefined;
+    /** Whether it is a pie's Other: every slice past the first ones. */
+    readonly other: boolean;
+}
+
+/** What a chart tells its host when a mark is clicked. */
+export type ChartMarkHandler = (mark: ChartMark) => void;
 
 const printNumberKey = printFor(FloatType);
 const printInstantKey = printFor(DateTimeType);
@@ -168,6 +193,12 @@ function axisTextCss(
  *  chrome, which synthesised faux-bold and read faint. Overrides still win. */
 function titleTextCss(style: ChartStyle, s: AxisTextStyleValue | undefined): CSSProperties {
     return axisTextCss(style, s, { weight: 500, family: style.titleFont, color: style.titleColor });
+}
+
+/** Tick defaults: the mono chrome, its numerals tabular, so an axis's values
+ *  stand in columns (the chart rules; #1671, TIL-5). Overrides still win. */
+function tickTextCss(style: ChartStyle, s: AxisTextStyleValue | undefined): CSSProperties {
+    return { ...axisTextCss(style, s), fontVariantNumeric: "tabular-nums" };
 }
 
 /** Resolve an optional curve variant to its visx curve fn (default monotoneX). */
@@ -310,6 +341,17 @@ function collectSeries(node: Spec, out: Series[]): void {
         frame: f => { for (const c of f.children) collectSeries(c, out); },
         group: g => { for (const c of g.children) collectSeries(c, out); },
         series: s => { if (getSomeorUndefined(s.tooltip) === false) return; out.push(...s.data); },
+    }, undefined);
+}
+
+/** Gather every `series` layer under a node, in draw order, for the mark a click
+ *  falls on (`hit.ts`). A layer out of the tooltip is decoration, which a click
+ *  passes through, as the hover does (mirrors {@link collectSeries}). */
+function collectLayers(node: Spec, out: SeriesMark[]): void {
+    match(node, {
+        frame: f => { for (const c of f.children) collectLayers(c, out); },
+        group: g => { for (const c of g.children) collectLayers(c, out); },
+        series: s => { if (getSomeorUndefined(s.tooltip) !== false) out.push(s); },
     }, undefined);
 }
 
@@ -465,18 +507,11 @@ function SeriesMarks({ value }: { value: SeriesMark }): ReactNode {
     const yScale: YScale = sideOf(value) === "right" && y2 ? y2 : y;
 
     const stacked = getSomeorUndefined(value.stackId) !== undefined;
-    const off = getSomeorUndefined(value.stackOffset);
-    const expand = off ? match(off, { none: () => false, expand: () => true }) : false;
-    // Per-series x→value maps + per-x totals drive the cumulative baselines.
-    const valueMaps = stacked ? data.map(s => { const m = new Map<string, number>(); for (const p of s.points) m.set(xKeyOf(p.x), p.value); return m; }) : [];
-    const totals = new Map<string, number>();
-    if (stacked) for (const m of valueMaps) for (const [k, v] of m) totals.set(k, (totals.get(k) ?? 0) + v);
+    // Each mark from zero, or on the series before it at its x when stacked
+    // (`stack.ts`, which a click is read against too).
+    const bounds = stackBoundsOf(value, xKeyOf);
     const boundsFor = (i: number, p: Point): [number, number] => {
-        if (!stacked) return [0, p.value];
-        const k = xKeyOf(p.x);
-        let base = 0; for (let j = 0; j < i; j++) base += valueMaps[j]!.get(k) ?? 0;
-        let lo = base, hi = base + p.value;
-        if (expand) { const t = totals.get(k) ?? 0; if (t > 0) { lo /= t; hi /= t; } }
+        const [lo, hi] = bounds(i, xKeyOf(p.x), p.value);
         return [lo, hi];
     };
 
@@ -674,7 +709,7 @@ function AxisBMark({ value }: { value: Axis }): ReactNode {
         : tickValuesRaw;
     const hideTicks = getSomeorUndefined(value.hideTicks) ?? true;
     const hideLine = getSomeorUndefined(value.hideLine) ?? horizontal;
-    const tickCss = axisTextCss(style, getSomeorUndefined(value.tickStyle));
+    const tickCss = tickTextCss(style, getSomeorUndefined(value.tickStyle));
     const titleCss = titleTextCss(style, getSomeorUndefined(value.titleStyle));
     return (
         <>
@@ -704,7 +739,7 @@ function AxisLMark({ value }: { value: Axis }): ReactNode {
     const explicitTicks = getSomeorUndefined(value.tickValues);
     const tickValues = explicitTicks !== undefined ? [...explicitTicks.value] : undefined;
     const numTicks = getSomeorUndefined(value.numTicks);
-    const tickCss = axisTextCss(style, getSomeorUndefined(value.tickStyle));
+    const tickCss = tickTextCss(style, getSomeorUndefined(value.tickStyle));
     const titleCss = titleTextCss(style, getSomeorUndefined(value.titleStyle));
     return (
         <>
@@ -731,7 +766,7 @@ function AxisRMark({ value }: { value: Axis }): ReactNode {
     const label = getSomeorUndefined(value.label);
     const explicitTicks = getSomeorUndefined(value.tickValues);
     const tickValues = explicitTicks !== undefined ? [...explicitTicks.value] : undefined;
-    const tickCss = axisTextCss(style, getSomeorUndefined(value.tickStyle));
+    const tickCss = tickTextCss(style, getSomeorUndefined(value.tickStyle));
     const titleCss = titleTextCss(style, getSomeorUndefined(value.titleStyle));
     return (
         <>
@@ -769,6 +804,105 @@ function GridColsMark({ value }: { value: ValueTypeOf<typeof T.Grid> }): ReactNo
     return <GridColumns scale={xAxisScale} height={innerH} {...(horizontal ? { numTicks: getSomeorUndefined(value.numTicks) ?? 4 } : {})} stroke={style.gridStroke} {...(dash ? { strokeDasharray: dash } : {})} />;
 }
 
+/**
+ * A chart's body at its measured size (#125): at once with an explicit width;
+ * else once its parent is measured, a Skeleton of its footprint until then;
+ * and for a `fill` height (≤ 0) at its parent's height, never less than the
+ * chart's natural height — measured in a box laid over the space, so its own
+ * height never feeds back into its parent's. `debounceTime={0}` makes the
+ * Skeleton → chart swap immediate (visx ParentSize otherwise waits ~300ms).
+ */
+function measuredFrame(height: number, width: number | undefined, render: (w: number, h?: number) => ReactNode): ReactNode {
+    const skeletonHeight = height > 0 ? `${height}px` : "100%";
+    const renderFrame = (w: number, h?: number) =>
+        w > 0 && (height > 0 || (h ?? 0) > 0)
+            ? render(w, h)
+            : <Skeleton width="100%" style={{ height: skeletonHeight }} />;
+    if (height <= 0) {
+        return (
+            <Box height="100%">
+                <Box position="relative" height="100%" minHeight={`${FILL_NATURAL_HEIGHT}px`}>
+                    <Box position="absolute" inset="0">
+                        <ParentSize debounceTime={0}>{({ width: w, height: h }) => renderFrame(w, h)}</ParentSize>
+                    </Box>
+                </Box>
+            </Box>
+        );
+    }
+    return width !== undefined ? render(width) : <ParentSize debounceTime={0}>{({ width: w }) => renderFrame(w)}</ParentSize>;
+}
+
+/** The narrowest a pie sits beside its legend; narrower, the legend goes under it. */
+const PIE_SIDE_MIN = 320;
+
+/** A legend row's height under a pie, as the recipe sets an entry. */
+const PIE_LEGEND_ROW = 20;
+
+/** A donut's ring, in px (CHT-7). */
+const DONUT_RING = 26;
+
+/** SVG text a recipe styles: the donut's total. */
+const SvgText = chakra("text");
+
+/** What a click on a pie's slice, or its legend row, stands for. */
+function sliceMark(slice: PieSlice): ChartMark {
+    return slice.other
+        ? { series: undefined, x: undefined, other: true }
+        : { series: undefined, x: variant("category", slice.key), other: false };
+}
+
+/**
+ * A pie's frame (#1671, CHT-7): the pie beside its legend — under it where
+ * the chart is narrow — its slices as `pie.ts` gives them, largest first from
+ * twelve o'clock with a 1.5 px gap of the surface between, no labels; a donut
+ * a 26 px ring with the total in its centre. Each legend row carries the
+ * slice's value and share. A slice and its legend row tell the host when
+ * clicked.
+ */
+function PieFrame({ pie, height, width, style, onMark }: { pie: PieValue; height: number; width: number | undefined; style: ChartStyle; onMark: ChartMarkHandler | undefined }): ReactNode {
+    const words = useFormatters();
+    const recipe = useSlotRecipe({ key: "chartPie" });
+    const shown = useMemo(() => pieSlicesOf(pie, "Other"), [pie]);
+    const fmt = tickFormatter(getSomeorUndefined(pie.format), "linear", words.locale);
+    const draw = (w: number, h: number) => {
+        const layout = w >= PIE_SIDE_MIN ? "side" : "below";
+        const styles = recipe({ layout });
+        const legendH = layout === "below" ? shown.slices.length * PIE_LEGEND_ROW : 0;
+        const diameter = Math.max(0, Math.floor(Math.min(layout === "side" ? w * 0.45 : w, h - legendH)));
+        const outer = diameter / 2;
+        const inner = pie.donut ? Math.max(0, outer - DONUT_RING) : 0;
+        return (
+            <Box css={styles.root} data-chart-pie="" data-layout={layout} style={{ height: `${h}px` }}>
+                <Box as="svg" css={styles.plot} style={{ width: `${diameter}px`, height: `${diameter}px` }}>
+                    <Group top={outer} left={outer}>
+                        <Pie<PieSlice> data={[...shown.slices]} pieValue={s => s.value} pieSort={null} pieSortValues={null}
+                            outerRadius={outer} innerRadius={inner} startAngle={0} endAngle={Math.PI * 2}>
+                            {p => p.arcs.map(arc => (
+                                <path key={arc.data.key} d={p.path(arc) ?? ""} fill={style.color(arc.data.color)} stroke={style.pointFill} strokeWidth={1.5}
+                                    data-chart-slice={arc.data.key} {...(arc.data.other ? { "data-other": "" } : {})}
+                                    {...(onMark !== undefined ? { cursor: "pointer", onClick: () => onMark(sliceMark(arc.data)) } : {})} />
+                            ))}
+                        </Pie>
+                        {pie.donut && <SvgText css={styles.total} textAnchor="middle" dominantBaseline="central">{fmt(shown.total)}</SvgText>}
+                    </Group>
+                </Box>
+                <Box css={styles.legend} data-chart-pie-legend="">
+                    {shown.slices.map(s => (
+                        <Box key={s.key} css={styles.entry} data-chart-slice-entry={s.key} {...(s.other ? { "data-other": "" } : {})}
+                            {...(onMark !== undefined ? { as: "button" as const, type: "button" as const, "data-clickable": "", onClick: () => onMark(sliceMark(s)) } : {})}>
+                            <Box as="span" css={styles.swatch} background={style.color(s.color)} />
+                            <Box as="span" css={styles.label}>{s.key}</Box>
+                            <Box as="span" css={styles.value}>{fmt(s.value)}</Box>
+                            <Box as="span" css={styles.share}>{words.percent(s.share)}</Box>
+                        </Box>
+                    ))}
+                </Box>
+            </Box>
+        );
+    };
+    return measuredFrame(height, width, (w, h) => draw(w, h ?? height));
+}
+
 /** Render one ChartSpec node (recursive); marks read scales from context. */
 function renderNode(node: Spec, k: string | number, clipId?: string): ReactNode {
     // #152 — clip the data-series marks (line/area/band/bar/scatter) to the plot
@@ -798,7 +932,7 @@ function renderNode(node: Spec, k: string | number, clipId?: string): ReactNode 
 }
 
 /** The `frame`: derive scales from descendant data, then render children. */
-function Frame({ node, brush, onBrushEnd, brushKey }: { node: Spec; brush?: boolean | undefined; onBrushEnd?: BrushEnd | undefined; brushKey?: string | undefined }): ReactNode {
+function Frame({ node, brush, onBrushEnd, brushKey, onMark }: { node: Spec; brush?: boolean | undefined; onBrushEnd?: BrushEnd | undefined; brushKey?: string | undefined; onMark?: ChartMarkHandler | undefined }): ReactNode {
     const system = useChakraContext();
     // Chrome resolved through Chakra's own token resolver (`"colors.fg.muted"` →
     // its CSS var), so the chart re-themes off the design tokens.
@@ -828,7 +962,7 @@ function Frame({ node, brush, onBrushEnd, brushKey }: { node: Spec; brush?: bool
         // The theme's face for a family, as Box, Text and Heading take it (#315).
         fontFor: (tag: string) => themeFontFamily(system, tag),
     }), [system]);
-    return <Plot node={node} style={style} brush={brush} onBrushEnd={onBrushEnd} brushKey={brushKey} />;
+    return <Plot node={node} style={style} brush={brush} onBrushEnd={onBrushEnd} brushKey={brushKey} onMark={onMark} />;
 }
 
 /**
@@ -837,7 +971,7 @@ function Frame({ node, brush, onBrushEnd, brushKey }: { node: Spec; brush?: bool
  * carries a `tooltip` / `legend` — adds the hover crosshair + tooltip and the
  * colour-matched legend.
  */
-function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style: ChartStyle; brush?: boolean | undefined; onBrushEnd?: BrushEnd | undefined; brushKey?: string | undefined }): ReactNode {
+function Plot({ node, style, brush, onBrushEnd, brushKey, onMark }: { node: Spec; style: ChartStyle; brush?: boolean | undefined; onBrushEnd?: BrushEnd | undefined; brushKey?: string | undefined; onMark?: ChartMarkHandler | undefined }): ReactNode {
     const { tooltipData, tooltipLeft, tooltipTop, showTooltip, hideTooltip } = useTooltip<TooltipDatum>();
     // The tooltip's date and values, in the app's locale (#850).
     const words = useFormatters();
@@ -857,6 +991,11 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
     const gutterRight = gutterPx(ctxGutter?.right);
     return match(node, {
         frame: f => {
+            // A pie is the only node of its frame (#1671): no scales, no axes.
+            const only = f.children.length === 1 ? f.children[0] : undefined;
+            if (only?.type === "pie") {
+                return <PieFrame pie={only.value} height={f.height} width={getSomeorUndefined(f.width)} style={style} onMark={onMark} />;
+            }
             // #249 — a band yScale flips the frame horizontal: the band domain
             // (the points' coordinate keys) runs along y and the numeric measure
             // along a linear x, so the bottom axis formats as `linear`.
@@ -866,6 +1005,11 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
 
             const series: Series[] = [];
             for (const c of f.children) collectSeries(c, series);
+            // The layers a click is read against (`hit.ts`), and each x key's coordinate, which the host is told.
+            const layers: SeriesMark[] = [];
+            for (const c of f.children) collectLayers(c, layers);
+            const coordOf = new Map<string, XCoord>();
+            for (const l of layers) for (const s of l.data) for (const p of s.points) coordOf.set(xKeyOf(p.x), p.x);
             const xKeysRaw: string[] = [];
             for (const c of f.children) collectXKeys(c, xKeysRaw);
             const xDomain = [...new Set(xKeysRaw)];
@@ -1023,6 +1167,18 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
                         tooltipTop: margin.top + (horizontal ? cxKey(focus) : py),
                     });
                 };
+                // A click on the plot: the mark it falls on, which the host is told (CHT-8).
+                const geometry: PlotGeometry = {
+                    keys: xDomain, centre: cxKey, bandWidth, horizontal, keyOf: xKeyOf,
+                    measure: side => (side === "right" && y2 !== undefined ? y2 : y),
+                    baseline: horizontal ? 0 : innerH,
+                };
+                const onPlotClick = (e: React.MouseEvent<SVGRectElement>) => {
+                    if (onMark === undefined) return;
+                    const r = e.currentTarget.getBoundingClientRect();
+                    const hit = markAt(layers, geometry, e.clientX - r.left, e.clientY - r.top);
+                    if (hit !== undefined) onMark({ series: hit.series, x: coordOf.get(hit.key), other: false });
+                };
                 const focusX = tooltipData?.x;
                 // The focused key as the tooltip's heading: a date or a number
                 // in the app's locale (#850), a band category as itself — a
@@ -1054,15 +1210,19 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
                                     ? <Line from={{ x: 0, y: cxKey(focusX) }} to={{ x: innerW, y: cxKey(focusX) }} stroke={style.axisStroke} strokeWidth={1} strokeDasharray="2 3" />
                                     : <Line from={{ x: cxKey(focusX), y: 0 }} to={{ x: cxKey(focusX), y: innerH }} stroke={style.axisStroke} strokeWidth={1} strokeDasharray="2 3" />
                                 )}
-                                {!brush && tooltipOn && series.length > 0 && (
+                                {!brush && (tooltipOn || onMark !== undefined) && series.length > 0 && (
                                     // Pointer events (#354): mouse scrubs on move; touch taps to
                                     // inspect (repeat tap on the same band dismisses); leave hides
                                     // only for fine pointers so a tapped tooltip survives lift-off.
+                                    // A click tells the host the mark it falls on (#1671).
                                     <rect
                                         x={0} y={0} width={innerW} height={innerH} fill="transparent"
-                                        onPointerMove={(e) => { if (e.pointerType !== "touch") onMove(e); }}
-                                        onPointerDown={(e) => { onMove(e, e.pointerType === "touch"); }}
-                                        onPointerLeave={(e) => { if (e.pointerType !== "touch") hideTooltip(); }}
+                                        {...(tooltipOn ? {
+                                            onPointerMove: (e: ReactPointerEvent<SVGRectElement>) => { if (e.pointerType !== "touch") onMove(e); },
+                                            onPointerDown: (e: ReactPointerEvent<SVGRectElement>) => { onMove(e, e.pointerType === "touch"); },
+                                            onPointerLeave: (e: ReactPointerEvent<SVGRectElement>) => { if (e.pointerType !== "touch") hideTooltip(); },
+                                        } : {})}
+                                        {...(onMark !== undefined ? { cursor: "pointer", onClick: onPlotClick } : {})}
                                     />
                                 )}
                                 {brush && (
@@ -1085,7 +1245,9 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
                         {showLegend && (
                             <Box display="flex" flexWrap="wrap" gap="{spacing.3}" justifyContent="center" paddingTop="{spacing.1}" height={`${legendH}px`} fontFamily="mono" fontSize="11px" color="fg.muted">
                                 {legend.map((e, i) => (
-                                    <Box key={i} display="flex" alignItems="center" gap="{spacing.1.5}">
+                                    // A legend row a click reaches tells the host its series (CHT-8).
+                                    <Box key={i} display="flex" alignItems="center" gap="{spacing.1.5}" data-chart-legend-entry={e.key}
+                                        {...(onMark !== undefined ? { as: "button" as const, type: "button" as const, onClick: () => onMark({ series: e.key, x: undefined, other: false }) } : {})}>
                                         <Box as="span" width="9px" height="9px" borderRadius="2px" background={style.color(e.color)} flexShrink="0" />
                                         <Box as="span">{e.key}</Box>
                                     </Box>
@@ -1116,36 +1278,11 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
             };
             // An SVG chart needs a pixel width up front (scales, axes, tick
             // density), so the parent must be measured before the first real
-            // paint. Until then show a Skeleton of the chart's eventual
-            // footprint rather than painting at a wrong fallback width and
-            // visibly growing on screen (#125). The footprint height is the
-            // full chart height — `f.height` (svg + legend) for an explicit
-            // height, or `100%` of the definite-height parent for `height:"fill"`.
-            const skeletonHeight = f.height > 0 ? `${f.height}px` : "100%";
-            const renderFrame = (w: number, h?: number) =>
-                w > 0 && (f.height > 0 || (h ?? 0) > 0)
-                    ? render(w, h)
-                    : <Skeleton width="100%" style={{ height: skeletonHeight }} />;
-            // `debounceTime={0}` makes the skeleton→chart swap immediate (visx
-            // ParentSize otherwise debounces measurement by ~300ms).
-            // height <= 0 is the "fill parent" sentinel (Chart `height: "fill"`):
-            // the chart takes its parent's height, and never less than its
-            // natural height, so a parent with no height of its own shows it at
-            // that height. The plot is measured in a box laid over the space, so
-            // its own height never feeds back into its parent's. The outer box
-            // is the one a flex parent stretches.
-            if (f.height <= 0) {
-                return (
-                    <Box height="100%">
-                        <Box position="relative" height="100%" minHeight={`${FILL_NATURAL_HEIGHT}px`}>
-                            <Box position="absolute" inset="0">
-                                <ParentSize debounceTime={0}>{({ width, height }) => renderFrame(width, height)}</ParentSize>
-                            </Box>
-                        </Box>
-                    </Box>
-                );
-            }
-            return explicitW !== undefined ? render(explicitW) : <ParentSize debounceTime={0}>{({ width }) => renderFrame(width)}</ParentSize>;
+            // paint: until then a Skeleton of its footprint — `f.height` (svg +
+            // legend), or `100%` of a definite-height parent for `height:"fill"`
+            // (height ≤ 0), which takes the parent's height and never less than
+            // its natural height. The outer box is the one a flex parent stretches.
+            return measuredFrame(f.height, explicitW, render);
         },
     }, null);
 }
@@ -1162,6 +1299,14 @@ export interface EastVisxChartProps {
     /** Identity for the brush selection; changing it remounts the brush (resets
      * its stale pixel-space selection after the applied range narrows the data). */
     brushKey?: string;
+    /**
+     * Told the mark a click falls on (#1671, CHT-8): a bar, a point, an area's
+     * band or a line's point — its series and x; elsewhere in the plot, the x
+     * alone; a legend row, its series; a pie's slice or legend row, its key as
+     * the x, or that it is Other. With it, the plot and the legend rows take
+     * clicks; without it, a chart draws as before.
+     */
+    onMark?: ChartMarkHandler;
 }
 
 const chartEqual = equivalentFor(T.Spec);
@@ -1180,7 +1325,7 @@ function brushableKind(kind: string | undefined): kind is "datetime" | "integer"
  * `brush` affordance listed) the drag-to-range brush wired to `setRange`.
  * Chrome only: the layers' data was fed explicitly upstream.
  */
-function SliceChromeFrame({ node, chrome }: { node: Spec; chrome: ValueTypeOf<typeof SliceChromeType> }): ReactNode {
+function SliceChromeFrame({ node, chrome, onMark }: { node: Spec; chrome: ValueTypeOf<typeof SliceChromeType>; onMark?: ChartMarkHandler | undefined }): ReactNode {
     const { slice } = chrome;
     useSliceReactivity(slice.key);
     const frameStyles = useSlotRecipe({ key: "sliceFrame" })();
@@ -1228,6 +1373,7 @@ function SliceChromeFrame({ node, chrome }: { node: Spec; chrome: ValueTypeOf<ty
                     brush={brushEnabled && rangeKind !== undefined}
                     onBrushEnd={onBrushEnd}
                     brushKey={brushKey}
+                    onMark={onMark}
                 />
                 {legendEnabled && breakdownActive && <EastChakraSliceLegend value={{ slice } as never} />}
             </Box>
@@ -1236,8 +1382,8 @@ function SliceChromeFrame({ node, chrome }: { node: Spec; chrome: ValueTypeOf<ty
 }
 
 /** Renders an East `ChartSpec` (visx-primitive tree). The root is a `frame`. */
-export const EastVisxChart = memo(function EastVisxChart({ value, brush, onBrushEnd, brushKey }: EastVisxChartProps) {
+export const EastVisxChart = memo(function EastVisxChart({ value, brush, onBrushEnd, brushKey, onMark }: EastVisxChartProps) {
     const chrome = value.type === "frame" ? getSomeorUndefined(value.value.slice) : undefined;
-    if (chrome !== undefined) return <SliceChromeFrame node={value} chrome={chrome} />;
-    return <Frame node={value} brush={brush} onBrushEnd={onBrushEnd} brushKey={brushKey} />;
-}, (a, b) => chartEqual(a.value, b.value) && a.brush === b.brush && a.onBrushEnd === b.onBrushEnd && a.brushKey === b.brushKey);
+    if (chrome !== undefined) return <SliceChromeFrame node={value} chrome={chrome} onMark={onMark} />;
+    return <Frame node={value} brush={brush} onBrushEnd={onBrushEnd} brushKey={brushKey} onMark={onMark} />;
+}, (a, b) => chartEqual(a.value, b.value) && a.brush === b.brush && a.onBrushEnd === b.onBrushEnd && a.brushKey === b.brushKey && a.onMark === b.onMark);

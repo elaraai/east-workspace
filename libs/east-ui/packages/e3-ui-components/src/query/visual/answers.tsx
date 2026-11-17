@@ -46,9 +46,9 @@ const sameMinute = equalFor(DateTimeType);
 /**
  * A page's answers: the sources it lists, and by key; its kept answers; the
  * hash of each source as the poll last read it; whether the root's `.now` is
- * the clock; and why each source it cannot query cannot, by key. The minute a
- * tile draws by is apart from these, in {@link PageMinuteContext}: as it moves
- * on, these stay as they were.
+ * the clock; why each source it cannot query cannot, by key; and the minute it
+ * is when an ask is made. The minute a tile draws by is apart from these, in
+ * {@link PageMinuteContext}: as it moves on, these stay as they were.
  */
 interface PageAnswers {
     readonly list: Source[];
@@ -57,6 +57,7 @@ interface PageAnswers {
     readonly hashes: ReadonlyMap<string, string>;
     readonly clock: boolean;
     readonly refused: ReadonlyMap<string, string>;
+    readonly minute: () => Date;
 }
 
 const PageAnswersContext = createContext<PageAnswers | null>(null);
@@ -168,6 +169,11 @@ function PageAnswersRoot({ sources, now, children }: VisualAnswersProviderProps)
     const next = minuteOf(instant);
     if (held.current === undefined || !sameMinute(held.current, next)) held.current = next;
     const minute = held.current;
+    // The minute an ask made from an action reads, as it is when the action is taken: the page's answers keep their
+    // identity as the minute moves on, so the tiles that read none draw nothing again.
+    const latest = useRef(minute);
+    useLayoutEffect(() => { latest.current = minute; }, [minute]);
+    const minuteNow = useCallback(() => latest.current, []);
     const hashes = useSourceHashes(root);
     const value = useMemo((): PageAnswers => {
         // A key two sources share keeps the first, as the sources' names do.
@@ -179,8 +185,8 @@ function PageAnswersRoot({ sources, now, children }: VisualAnswersProviderProps)
             const why = refusedByName.get(source.binding.name);
             if (why !== undefined) refused.set(source.key, why);
         }
-        return { list: [...sources], sources: byKey, answers, hashes, clock, refused };
-    }, [sources, refusedByName, answers, hashes, clock]);
+        return { list: [...sources], sources: byKey, answers, hashes, clock, refused, minute: minuteNow };
+    }, [sources, refusedByName, answers, hashes, clock, minuteNow]);
     return createElement(PageAnswersContext.Provider, { value }, createElement(PageMinuteContext.Provider, { value: minute }, children));
 }
 
@@ -192,6 +198,49 @@ function PageAnswersRoot({ sources, now, children }: VisualAnswersProviderProps)
  */
 export function useVisualSource(key: string): Source | undefined {
     return useContext(PageAnswersContext)?.sources.get(key);
+}
+
+/**
+ * A tile's programs as the page's answers keep them: each by its text and the
+ * source it reads — and, one that reads `.now`, by the minute too, which it is
+ * asked for.
+ *
+ * @param asks - Its programs, as the printer gave them
+ * @param source - The source they read, by its key
+ * @param minute - The page's minute; `undefined` where none of them reads `.now`
+ * @returns The requests, in order
+ */
+function requestsOf(asks: readonly VisualAsk[], source: string, minute: Date | undefined): VisualRequest[] {
+    return asks.map((ask): VisualRequest => (ask.readsNow
+        ? { prefix: ask.program, reads: [source, NOW_FIELD], ...(minute === undefined ? {} : { now: minute }) }
+        : { prefix: ask.program, reads: [source] }));
+}
+
+/**
+ * Asks a visual's programs once, when an action needs their answers — an
+ * export of its rows (#1671) — through the page's answers, so what the page
+ * holds is not asked again, and what it asks is kept for its tiles.
+ *
+ * @param source - The source the programs read, by its key
+ * @returns Asks the programs, and gives their answers in order; it rejects
+ *   with why when a call never answered, or the page cannot query the source
+ */
+export function useVisualAsk(source: string): (asks: readonly VisualAsk[]) => Promise<readonly VisualAnswer[]> {
+    const page = useContext(PageAnswersContext);
+    return useCallback(async (asks: readonly VisualAsk[]) => {
+        if (page === null) throw new VisualAskError("refused", "");
+        const refused = page.refused.get(source);
+        if (refused !== undefined) throw new VisualAskError("refused", refused);
+        // The minute as it is when the action is taken.
+        const minute = asks.some((ask) => ask.readsNow) ? page.minute() : undefined;
+        const hashes = hashesOf(page, minute);
+        const answers = await Promise.all(requestsOf(asks, source, minute).map((request) => page.answers.ensure(request, hashes)));
+        return answers.map((answer) => {
+            // Asked with no signal, a program is never given up: none means its run gave none.
+            if (answer === undefined) throw new VisualAskError("refused", "");
+            return answer;
+        });
+    }, [page, source]);
 }
 
 /** Where a tile's answers stand. */
@@ -231,9 +280,7 @@ export function useVisualAnswers(asks: readonly VisualAsk[], source: string): Vi
     // Only a tile whose programs read `.now` reads the minute: `use`, which may be called where a hook may not, leaves
     // the page's other tiles unsubscribed to it.
     const minute = asks.some((ask) => ask.readsNow) ? use(PageMinuteContext) : undefined;
-    const requests = useMemo(() => asks.map((ask): VisualRequest => (ask.readsNow
-        ? { prefix: ask.program, reads: [source, NOW_FIELD], ...(minute === undefined ? {} : { now: minute }) }
-        : { prefix: ask.program, reads: [source] })), [asks, source, minute]);
+    const requests = useMemo(() => requestsOf(asks, source, minute), [asks, source, minute]);
     const hashes = useMemo(() => (page === null ? undefined : hashesOf(page, minute)), [page, minute]);
     const key = requests.map((request) => request.prefix).join("\u0001");
     // What the tile asks for: its programs, under the hashes the page holds of what they read.

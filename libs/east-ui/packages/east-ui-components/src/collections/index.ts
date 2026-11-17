@@ -29,6 +29,11 @@ export {
     type TableRootValue,
     type TableColumnValue,
     type EastChakraTableProps,
+    type ColumnSort,
+    type TableCellValue,
+    type TableCellTone,
+    type TableTotalCell,
+    type TableRowHead,
 } from "./table";
 
 export {

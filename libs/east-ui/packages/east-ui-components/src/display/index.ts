@@ -39,8 +39,11 @@ export {
 
 export {
     EastChakraMetricChip,
+    MetricChipFrame,
     type MetricChipValue,
     type EastChakraMetricChipProps,
+    type MetricChipFrameProps,
+    type MetricChipTone,
 } from "./metric-chip/index.js";
 
 export {

@@ -14,7 +14,7 @@
  */
 
 import { describe, expect, test } from "vitest";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import * as ex from "@elaraai/e3-ui/examples/studio/studio";
 import { act, e3Harness, settle } from "../e3-web-mount.test-utils.js";
 import "./builder.js";
@@ -27,11 +27,16 @@ const launched = () => h.requests("one-shot").filter((request) => request.method
 /** A placement's tile on the canvas. */
 const tile = (container: HTMLElement, key: string) => container.querySelector<HTMLElement>(`[data-studio-canvas] [data-snap-grid-tile="${key}"]`)!;
 
+/** Whether both the content example's visuals have answered in an element: the revenue drawn as its chart, and the regions as its list, a row each. */
+async function bothAnswered(within_: (key: string) => HTMLElement) {
+    await waitFor(() => expect(within_("s-revenue").querySelector('[data-studio-chart="column"]')).not.toBeNull());
+    await waitFor(() => expect(within_("s-top").querySelectorAll("[data-studio-list-row]")).toHaveLength(3));
+}
+
 /** Mounts the content example's builder, and waits for both its visuals to answer: revenue by region and channel, and the regions by revenue. */
 async function mountAnswered(storageKey: string): Promise<HTMLElement> {
     const { container } = await h.mount(ex.studioContent, { storageKey });
-    await waitFor(() => expect(within(tile(container, "s-revenue")).getByText("6 groups from 6 rows")).toBeTruthy());
-    await waitFor(() => expect(within(tile(container, "s-top")).getByText("3 groups from 6 rows")).toBeTruthy());
+    await bothAnswered((key) => tile(container, key));
     await settle();
     return container;
 }
@@ -43,11 +48,28 @@ describe("a page's visuals, asked on e3", () => {
         const { container } = await h.mount(ex.studioContent, { storageKey: "studio-answers" });
         await h.poll();
         await act(async () => { calls.release(); });
-        await waitFor(() => expect(within(tile(container, "s-revenue")).getByText("6 groups from 6 rows")).toBeTruthy());
-        await waitFor(() => expect(within(tile(container, "s-top")).getByText("3 groups from 6 rows")).toBeTruthy());
+        await bothAnswered((key) => tile(container, key));
         await settle();
         // Two visuals, two programs: one call each.
         expect(launched()).toHaveLength(2);
+    });
+
+    test("the showcase's page of visuals draws every form from its answers: the KPIs, the seven charts, the list, the three tables (#1671)", async () => {
+        const { container } = await h.mount(ex.studioVisuals, { storageKey: "studio-visuals" });
+        const cell = (key: string) => container.querySelector<HTMLElement>(`[data-snap-grid-cell="${key}"]`)!;
+        const charts: readonly (readonly [string, string])[] = [
+            ["v-share", "pie"], ["v-months", "column"], ["v-customers", "bar"], ["v-units", "line"], ["v-trend", "area"], ["v-scatter", "scatter"], ["v-combo", "combo"],
+        ];
+        for (const [key, kind] of charts) await waitFor(() => expect(cell(key).querySelector(`[data-studio-chart="${kind}"]`), key).not.toBeNull());
+        // A KPI with its goal, its change and its trend; a count with its trend alone.
+        await waitFor(() => expect(cell("v-revenue").querySelector("[data-studio-kpi-goal]")).not.toBeNull());
+        expect([cell("v-revenue").querySelector("[data-studio-kpi-change]"), cell("v-orders").querySelector("[data-studio-kpi-change]")].map((el) => el !== null)).toEqual([true, false]);
+        // The five customers, each a row with its bar.
+        await waitFor(() => expect(cell("v-list").querySelectorAll("[data-studio-list-row] [data-studio-list-bar]")).toHaveLength(5));
+        // The summary's total row, the query's, after its functions; the pivot's heat legend; the records' page among every order.
+        await waitFor(() => expect([...cell("v-summary").querySelectorAll("tfoot [data-total-label]")].map((el) => el.textContent)).toEqual(["sum", "ratio"]));
+        await waitFor(() => expect(cell("v-pivot").querySelectorAll("[data-studio-heat] [data-step]")).toHaveLength(5));
+        await waitFor(() => expect(cell("v-records").querySelector("[data-studio-visual-note]")?.textContent).toBe("Showing 1–16 of 16"));
     });
 
     test("the publish preview draws what the canvas answered, and asks nothing again", async () => {
@@ -60,8 +82,7 @@ describe("a page's visuals, asked on e3", () => {
         });
         await settle();
         const preview = container.querySelector<HTMLElement>("[data-studio-publish]")!;
-        expect(within(preview).getByText("6 groups from 6 rows")).toBeTruthy();
-        expect(within(preview).getByText("3 groups from 6 rows")).toBeTruthy();
+        await bothAnswered((key) => preview.querySelector<HTMLElement>(`[data-snap-grid-cell="${key}"]`)!);
         expect(launched()).toHaveLength(asked);
     });
 });

@@ -225,6 +225,10 @@ function consumeLayer(input: PlanChartLayerInput | ExprType<ArrayType<PlanChartL
         throw new Error("Plan.chart: unsupported annotation layer");
     }
 
+    if (layer.kind === "pie") {
+        throw new Error("Plan.chart: Chart.Pie is a chart of its own — a chart row draws layers along the shared axis (Chart.Line / Column / Area / Scatter / Band)");
+    }
+
     if (layer.kind === "band") {
         const xScale = layer.xScale;
         const side = axisSide(channels.axis ?? layer.style.axis);

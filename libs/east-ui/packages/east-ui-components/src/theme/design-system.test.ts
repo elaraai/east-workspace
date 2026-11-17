@@ -194,9 +194,9 @@ const TABLE: ReadonlyArray<readonly [ds: string, theme: string, aliases?: readon
     // Ink — text.
     ["--ink", "colors.fg", ["colors.fg.default"]],
     ["--ink-2", "colors.fg.strong"],
-    ["--ink-3", "colors.fg.muted", ["colors.neutral.fg"]],
+    ["--ink-3", "colors.fg.muted", ["colors.neutral.fg", "colors.series.reference", "colors.series.goal"]],
     ["--ink-4", "colors.fg.subtle", ["colors.neutral.solid"]],
-    ["--ink-5", "colors.fg.faint"],
+    ["--ink-5", "colors.fg.faint", ["colors.series.stack.3", "colors.series.other"]],
     // Paper — surfaces.
     ["--paper", "colors.bg.surface", ["colors.bg", "colors.brand.contrast"]],
     ["--paper-2", "colors.bg.canvas", ["colors.bg.panel"]],
@@ -205,8 +205,8 @@ const TABLE: ReadonlyArray<readonly [ds: string, theme: string, aliases?: readon
     ["--rule", "colors.border.subtle", ["colors.border", "colors.border.muted"]],
     ["--rule-strong", "colors.border.strong", ["colors.border.emphasized", "colors.neutral.border"]],
     // Brand.
-    ["--brand", "colors.brandMark", ["colors.border.focus", "colors.brand.focusRing"]],
-    ["--brand-d", "colors.brand.solid", ["colors.link", "colors.border.brand", "colors.brand.border", "colors.series.brand"]],
+    ["--brand", "colors.brandMark", ["colors.border.focus", "colors.brand.focusRing", "colors.series.stack.2"]],
+    ["--brand-d", "colors.brand.solid", ["colors.link", "colors.border.brand", "colors.brand.border", "colors.series.brand", "colors.series.1", "colors.series.stack.1"]],
     ["--brand-dd", "colors.brandPressed", ["colors.brand.fg", "colors.brand.emphasized", "colors.link.hover"]],
     ["--brand-tint", "colors.brandTint", ["colors.bg.brand.subtle", "colors.brand.muted", "colors.brand.subtle"]],
     // Valence — the bases mark; the text steps are words.
@@ -228,10 +228,10 @@ const TABLE: ReadonlyArray<readonly [ds: string, theme: string, aliases?: readon
     ["--bg-inverse", "colors.bg.inverse", ["colors.bg.inverted"]],
     ["--fg-inverse", "colors.fg.inverse", ["colors.fg.inverted"]],
     // Chart accents, in the comparison order after series 1.
-    ["--teal-500", "colors.accent.teal", ["colors.series.brandDeep"]],
-    ["--purple-500", "colors.accent.purple"],
-    ["--blue-500", "colors.accent.blue"],
-    ["--orange-500", "colors.accent.orange"],
+    ["--teal-500", "colors.accent.teal", ["colors.series.brandDeep", "colors.series.2"]],
+    ["--purple-500", "colors.accent.purple", ["colors.series.3"]],
+    ["--blue-500", "colors.accent.blue", ["colors.series.4"]],
+    ["--orange-500", "colors.accent.orange", ["colors.series.5"]],
     // The raw scales the semantic tokens are drawn from.
     ...[50, 100, 200, 300, 400, 500, 600, 700, 800, 900].flatMap((step) => [
         [`--brand-${step}`, `colors.brand.${step}`] as const,

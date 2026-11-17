@@ -13,11 +13,12 @@
  * library's projects, pages and templates. A second record holds a page whose
  * placements hold content (#1669) — a text block and visuals over a source the
  * surface lists — and declares the one step that carries a workspace's pages
- * stored before a placement held content.
+ * stored before a placement held content. A third holds a page of every form
+ * a visual draws (#1671), over the quarter's orders.
  */
 
 import {
-    ArrayType, DateTimeType, East, FloatType, IntegerType, NullType, SortedMap, StringType, StructType, VariantType, compareFor,
+    ArrayType, DateTimeType, East, FloatType, IntegerType, NullType, OptionType, SortedMap, StringType, StructType, VariantType, compareFor,
     example, none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import {
@@ -618,6 +619,110 @@ export const studioContent = example({
                             }),
                         }} />
                 </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+// ============================================================================
+// Visuals — every form a visual draws, from its answer (#1671)
+// ============================================================================
+
+/** The quarter's orders: each one's date, region, category, customer, revenue, units and margin — one with no margin recorded. */
+export const studioOrders = e3.input("studio_orders", ArrayType(StructType({
+    ordered_at: DateTimeType, region: StringType, category: StringType, customer: StringType, revenue: FloatType, units: IntegerType, margin: OptionType(FloatType),
+})), variant("value", [
+    { ordered_at: new Date("2026-07-02T00:00:00Z"), region: "SA", category: "Tools", customer: "Northwind", revenue: 1840.0, units: 156n, margin: some(0.21) },
+    { ordered_at: new Date("2026-07-05T00:00:00Z"), region: "NSW", category: "Electrical", customer: "Harbour", revenue: 987.5, units: 89n, margin: none },
+    { ordered_at: new Date("2026-07-09T00:00:00Z"), region: "VIC", category: "Tools", customer: "Summit", revenue: 1230.0, units: 102n, margin: some(0.24) },
+    { ordered_at: new Date("2026-07-14T00:00:00Z"), region: "SA", category: "Electrical", customer: "Acme", revenue: 614.0, units: 58n, margin: some(0.12) },
+    { ordered_at: new Date("2026-07-21T00:00:00Z"), region: "WA", category: "Garden", customer: "Coastline", revenue: 2196.0, units: 201n, margin: some(0.27) },
+    { ordered_at: new Date("2026-07-28T00:00:00Z"), region: "QLD", category: "Tools", customer: "Northwind", revenue: 438.0, units: 36n, margin: some(0.15) },
+    { ordered_at: new Date("2026-08-03T00:00:00Z"), region: "NSW", category: "Tools", customer: "Harbour", revenue: 1520.0, units: 131n, margin: some(0.22) },
+    { ordered_at: new Date("2026-08-08T00:00:00Z"), region: "SA", category: "Garden", customer: "Summit", revenue: 742.0, units: 70n, margin: some(0.19) },
+    { ordered_at: new Date("2026-08-12T00:00:00Z"), region: "VIC", category: "Electrical", customer: "Acme", revenue: 1105.0, units: 97n, margin: some(0.16) },
+    { ordered_at: new Date("2026-08-19T00:00:00Z"), region: "WA", category: "Tools", customer: "Coastline", revenue: 1688.0, units: 140n, margin: some(0.25) },
+    { ordered_at: new Date("2026-08-26T00:00:00Z"), region: "SA", category: "Tools", customer: "Northwind", revenue: 2010.0, units: 172n, margin: some(0.23) },
+    { ordered_at: new Date("2026-09-01T00:00:00Z"), region: "QLD", category: "Garden", customer: "Harbour", revenue: 529.0, units: 48n, margin: some(0.11) },
+    { ordered_at: new Date("2026-09-07T00:00:00Z"), region: "NSW", category: "Electrical", customer: "Summit", revenue: 1394.0, units: 118n, margin: some(0.2) },
+    { ordered_at: new Date("2026-09-15T00:00:00Z"), region: "VIC", category: "Garden", customer: "Coastline", revenue: 866.0, units: 79n, margin: some(0.17) },
+    { ordered_at: new Date("2026-09-22T00:00:00Z"), region: "SA", category: "Electrical", customer: "Acme", revenue: 1278.0, units: 109n, margin: some(0.18) },
+    { ordered_at: new Date("2026-09-29T00:00:00Z"), region: "WA", category: "Tools", customer: "Northwind", revenue: 1960.0, units: 168n, margin: some(0.26) },
+]));
+
+const vis = Studio.visual;
+
+/** A placement of a visual: in a row, so many columns wide, so tall unless its content sizes it. */
+function visualCell(key: string, row: string, span: bigint, height: bigint | undefined, content: ReturnType<typeof vis.of>) {
+    return { key, row, span, height: height === undefined ? none : some(height), align: variant("stretch", null), title: none, content };
+}
+
+/** The Visuals page's placements: two KPIs and a donut; the series charts, the combo and the scatter; the list; the summary and the pivot; the records. */
+const visualCells = [
+    visualCell("v-revenue", "r1", 4n, undefined, vis.of("orders", vis.kpi({ value: vis.sum("revenue", { goal: 24000 }), compare: vis.mean("revenue"), trend: "ordered_at" }))),
+    visualCell("v-orders", "r1", 4n, undefined, vis.of("orders", vis.kpi({ value: vis.count(), trend: "ordered_at" }))),
+    visualCell("v-share", "r1", 4n, 240n, vis.of("orders", vis.pie({ slice: vis.group("category"), value: vis.sum("revenue"), donut: true }))),
+    visualCell("v-months", "r2", 6n, 240n, vis.of("orders", vis.column({ x: vis.group("ordered_at", { bucket: "month" }), values: [vis.sum("revenue")], split: "region", stack: "stacked" }))),
+    visualCell("v-customers", "r2", 6n, 240n, vis.of("orders", vis.bar({ x: vis.group("customer", { sort: "high", top: 4n }), values: [vis.sum("revenue")] }))),
+    visualCell("v-units", "r3", 4n, 220n, vis.of("orders", vis.line({ x: vis.group("ordered_at", { bucket: "week" }), values: [vis.sum("units")] }))),
+    visualCell("v-trend", "r3", 4n, 220n, vis.of("orders", vis.area({ x: vis.group("ordered_at", { bucket: "month" }), values: [vis.sum("revenue")] }))),
+    visualCell("v-scatter", "r3", 4n, 220n, vis.of("orders", vis.scatter({ point: "customer", x: vis.sum("units"), y: vis.sum("revenue"), split: "region" }))),
+    visualCell("v-combo", "r4", 6n, 240n, vis.of("orders", vis.combo({
+        x: vis.group("region"), columns: [vis.left(vis.sum("revenue"))], lines: [vis.right(vis.mean("margin"))],
+    }))),
+    visualCell("v-list", "r4", 6n, 240n, vis.of("orders", vis.list({ item: vis.group("customer", { sort: "high" }), caption: "region", values: [vis.sum("revenue"), vis.count()], bar: true }))),
+    visualCell("v-summary", "r5", 6n, 300n, vis.of("orders", vis.summary({
+        rows: [vis.group("region", { sort: "high" }), vis.group("category")],
+        values: [vis.sum("revenue"), vis.ratio("revenue", "units", { goal: 11.5 })], total: true,
+    }))),
+    visualCell("v-pivot", "r5", 6n, 300n, vis.of("orders", vis.pivot({
+        rows: vis.group("region"), columns: vis.group("ordered_at", { bucket: "month" }), value: vis.count(), heat: true,
+    }))),
+    visualCell("v-records", "r6", 12n, 320n, vis.of("orders", vis.records({ columns: ["ordered_at", "customer", "region", "revenue", "units", "margin"], sort: "ordered_at", descending: true }))),
+];
+
+/** The pages of the visuals' project: one page, Visuals, live as it was drafted. */
+export const studioVisualPages = e3.record("studio_visual_pages", Studio.Types.Pages, {
+    initial: new SortedMap<Key, Entry>([
+        [{ project: "Sales desk", page: "Visuals" }, variant("page", {
+            draft: { title: "Visuals", cells: visualCells },
+            live: some({ version: 1n, page: { title: "Visuals", cells: visualCells } }),
+        })],
+    ], compareFor(Studio.Types.Key)),
+    mutations: (mutation) => ({
+        // The record's one write.
+        patch: mutation.patch(),
+    }),
+});
+
+export const studioVisuals = example({
+    keywords: [
+        "Studio", "Studio.Page", "Studio.visual", "visual", "KPI", "goal", "trend", "chart", "column", "bar", "line", "area", "combo", "scatter",
+        "pie", "donut", "list", "ranking bar", "table", "records", "summary", "total", "pivot", "heat", "Studio.source", "Data.bind",
+    ],
+    description: "Every form a visual draws, on a published page over the quarter's orders: a KPI with its goal, its change and its trend, and a count; a donut of revenue by category; columns stacked by region, the top customers' bars, a line, an area and a scatter; a combo of revenue against margin on its right axis; the customers as a list with ranking bars; a summary of regions over categories with its total row and a goal its cells are marked against; a pivot of orders by region and month on the heat ramp; and the latest orders, a page at a time",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const pages = $.let(Data.bind(studioVisualPages));
+            const orders = $.let(Data.bind(studioOrders));
+            return (
+                <Studio.Page pages={pages.read()} components={[]} page={{ project: "Sales desk", page: "Visuals" }}
+                    sources={{
+                        orders: Studio.source(orders, {
+                            name: "Orders", icon: "receipt", description: "One row per order",
+                            fields: {
+                                ordered_at: { label: "Ordered" },
+                                region: { label: "Region" },
+                                category: { label: "Category" },
+                                customer: { label: "Customer" },
+                                revenue: { label: "Revenue", format: { currency: { code: "AUD" } } },
+                                units: { label: "Units" },
+                                margin: { label: "Margin", format: "percent" },
+                            },
+                            range: "ordered_at", search: ["customer", "region"], split: ["region", "category"],
+                        }),
+                    }} />
             );
         }}</Reactive>
     )),

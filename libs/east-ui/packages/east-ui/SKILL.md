@@ -1,6 +1,6 @@
 ---
 name: east-ui
-description: "Type-safe UI components for the East language, authored as JSX tags in .tsx files that compile to East IR: layout (Box, Stack, Grid, SnapGrid, Splitter, Dock), forms (Input, Select, Combobox, Slider, Switch, Field, date and time ranges), data display (Table with nested rows, DataList, TreeView, ValueTree, Matrix, Map, Library, Deck, Blend, Slice.Rail), charts (Chart layers Chart.Line/Column/Bar/Area/Scatter/Band with reference lines, Sparkline), overlays (Dialog, Drawer, Popover, Menu, Tooltip, CommandPalette), feedback (Banner, Status, Progress), disclosure (Tabs, Accordion, SegmentGroup), reactive state (Reactive, State.bind, Match), value formats (Format.*, Chart.format.*) and the status colour vocabulary. Use when writing East programs that define user interfaces; binding them to e3 workspace data is e3-ui's."
+description: "Type-safe UI components for the East language, authored as JSX tags in .tsx files that compile to East IR: layout (Box, Stack, Grid, SnapGrid, Splitter, Dock), forms (Input, Select, Combobox, Slider, Switch, Field, date and time ranges), data display (Table with nested rows, DataList, TreeView, ValueTree, Matrix, Map, Library, Deck, Blend, Slice.Rail), charts (Chart layers Chart.Line/Column/Bar/Area/Scatter/Band/Pie with reference lines, Sparkline), overlays (Dialog, Drawer, Popover, Menu, Tooltip, CommandPalette), feedback (Banner, Status, Progress), disclosure (Tabs, Accordion, SegmentGroup), reactive state (Reactive, State.bind, Match), value formats (Format.*, Chart.format.*) and the status colour vocabulary. Use when writing East programs that define user interfaces; binding them to e3 workspace data is e3-ui's."
 ---
 
 # East UI
@@ -153,6 +153,7 @@ Task → Which tag?
 │   │   ├─ Chart.Line / Chart.Column / Chart.Area / Chart.Scatter(rows, encoding, style?) — encoding { x, y } · { x, y, by } (split) · { x, columns: { Name: r => r.field } } (wide)
 │   │   ├─ Chart.Bar(rows, { x: numeric, y: category }, style?) — HORIZONTAL bars (Column is the vertical one); can't mix with vertical marks
 │   │   ├─ Chart.Band(rows, { x, low, high }, style?) — filled range (a confidence band)
+│   │   ├─ Chart.Pie(rows, { label, value }, { top?, total?, other?, donut?, format? }) — shares of one total, largest first from twelve o'clock, the first `top` (4) then Other; the legend carries value and share; a chart of its own — no other layer, no axes
 │   │   ├─ Chart.refLine({ y }|{ x }, label?, dash?) · Chart.refBand({ y: [lo, hi] }|{ x: [lo, hi] }, label?) · Chart.refDot({ x, y, label? })
 │   │   ├─ axis options x / y / y2: { label?, format?, domain?, scale?, numTicks?, tickValues? }
 │   │   └─ Chart.Series(slice, { x, value, mark? }) — a slice-bound layer

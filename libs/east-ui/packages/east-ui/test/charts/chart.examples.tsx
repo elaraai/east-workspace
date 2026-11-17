@@ -305,6 +305,24 @@ export const scatterBubble = example({
     inputs: [],
 });
 
+/** Pie — shares of one total: the first slices, then Other; a donut with its total. */
+export const pieShares = example({
+    keywords: ["Chart", "Pie", "donut", "shares", "share", "total", "Other", "top", "slice", "legend", "percent"],
+    description: "Pie of revenue by region — largest first from twelve o'clock, the first four regions then Other, drawn as a donut with the total in its centre; the legend carries each slice's value and share, and the slices carry no labels",
+    fn: East.function([], UIComponentType, ($) => {
+        const rows = $.const([
+            { region: "NSW", revenue: 420.0 }, { region: "VIC", revenue: 310.0 }, { region: "QLD", revenue: 260.0 },
+            { region: "WA", revenue: 140.0 }, { region: "SA", revenue: 90.0 }, { region: "TAS", revenue: 40.0 },
+        ], ArrayType(StructType({ region: StringType, revenue: FloatType })));
+        return (
+            <Box height="240px" width="100%">
+                <Chart layers={Chart.Pie(rows, { label: r => r.region, value: r => r.revenue }, { donut: true, format: Chart.format.currency({ code: "AUD", compact: true }) })} height={220} />
+            </Box>
+        );
+    }),
+    inputs: [],
+});
+
 // ============================================================================
 // Composed — each preset is one multi-layer chart.
 // ============================================================================

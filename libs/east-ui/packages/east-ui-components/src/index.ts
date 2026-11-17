@@ -127,6 +127,9 @@ export {
     type EastChakraSparklineProps,
     EastVisxChart,
     type EastVisxChartProps,
+    // A click on a chart's mark, as its host is told it (#1671)
+    type ChartMark,
+    type ChartMarkHandler,
 } from "./charts/index.js";
 
 // Disclosure
@@ -173,6 +176,20 @@ export {
     type TableRootValue,
     type TableColumnValue,
     type EastChakraTableProps,
+    // A sort a viewer chose, as the Table's host is told it — a Studio records table sorts every row by it (#1671)
+    type ColumnSort,
+    // What a host that builds a Table in the browser gives it beside its value: a total row's cells, a cell's tone, a group's head (#1671)
+    type TableCellValue,
+    type TableCellTone,
+    type TableTotalCell,
+    type TableRowHead,
+    // The Pagination and the Matrix, for a host that draws them over values it builds — a Studio tile's (#1671)
+    EastChakraPagination,
+    type PaginationValue,
+    type EastChakraPaginationProps,
+    EastChakraMatrix,
+    type MatrixRootValue,
+    type EastChakraMatrixProps,
     EastChakraTreeView,
     toChakraTreeViewRoot,
     type TreeViewRootValue,

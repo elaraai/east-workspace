@@ -1297,8 +1297,9 @@ describe("<Studio.Builder> — what a placement holds (#1669)", () => {
         expect(textIn(tile(container, "n-note"))).toEqual(["About these numbers", "Figures are to last night.\nRefreshed at six.", "Ask the desk for more."]);
         expect(tile(container, "n-note").querySelector("[data-studio-text-heading]")!.tagName).toBe("H3");
         expect([framed(container, "n-note"), framed(container, "n-sales"), framed(container, "n-stock")]).toEqual([false, true, true]);
-        expect(within(tile(container, "n-sales")).getByText("Bar chart · Sales")).toBeTruthy();
-        expect(tile(container, "n-sales").querySelector("svg[data-icon=chart-bar]")).not.toBeNull();
+        // Its eyebrow names it (#1671, TIL-1): with no title of its own, by its wells, its source at the end.
+        const eyebrow = tile(container, "n-sales").querySelector("[data-studio-visual-head]")!;
+        expect([...eyebrow.querySelectorAll("[data-studio-visual-name], [data-studio-visual-meta]")].map((el) => el.textContent)).toEqual(["Revenue by region", "Sales"]);
         expect(within(tile(container, "n-stock")).getByText('No source "stock" is listed')).toBeTruthy();
         expect(within(tile(container, "n-stock")).getByText("This surface lists no source with this key.")).toBeTruthy();
         expect(tile(container, "n-kpi").textContent).toContain("KPIs");
@@ -1310,8 +1311,9 @@ describe("<Studio.Builder> — what a placement holds (#1669)", () => {
         await waitFor(() => expect(container.querySelector('[data-snap-grid-tile="s-note"]')).not.toBeNull());
         expect([...container.querySelectorAll("[data-snap-grid-tile]")].map((t) => t.getAttribute("data-snap-grid-tile"))).toEqual(["s-note", "s-revenue", "s-top", "s-kpi"]);
         expect(textIn(tile(container, "s-note"))).toEqual(["About these numbers", "Figures are to last night's close.", "Revenue is in US dollars, before returns."]);
-        expect(within(tile(container, "s-revenue")).getByText("Column chart · Sales")).toBeTruthy();
-        expect(within(tile(container, "s-top")).getByText("List · Sales")).toBeTruthy();
+        // Each visual's eyebrow names it (#1671, TIL-1): its own title, else a name made from its wells.
+        const named = (key: string) => tile(container, key).querySelector("[data-studio-visual-name]")!.textContent;
+        expect([named("s-revenue"), named("s-top")]).toEqual(["Revenue by region", "Regions"]);
         await select(container, "s-revenue");
         expect(inspector(container).querySelector("[data-inspector-name]")!.textContent).toBe("Revenue by region");
     });
@@ -1364,7 +1366,8 @@ describe("<Studio.Builder> — what a placement holds (#1669)", () => {
         const cell = (key: string) => frame.querySelector<HTMLElement>(`[data-snap-grid-cell="${key}"]`)!;
         expect(textIn(cell("n-note"))).toEqual(["About these numbers", "Figures are to last night.\nRefreshed at six.", "Ask the desk for more."]);
         expect([cell("n-note").hasAttribute("data-frame"), cell("n-sales").hasAttribute("data-frame")]).toEqual([false, true]);
-        expect(within(cell("n-sales")).getByText("Bar chart · Sales")).toBeTruthy();
+        // Named as the canvas names it: by its wells (TIL-1).
+        expect(cell("n-sales").querySelector("[data-studio-visual-name]")!.textContent).toBe("Revenue by region");
         expect([...container.querySelectorAll("[data-studio-publish] [data-publish-change]")].map((row) => [row.getAttribute("data-publish-change"), row.textContent])).toEqual([
             ["configured", "Configured Texttext edited"],
             ["configured", "Configured Bar chart · Salesview Column chart → Bar chart · values 1 → 2"],

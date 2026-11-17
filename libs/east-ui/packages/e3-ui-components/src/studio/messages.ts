@@ -108,6 +108,80 @@ export interface StudioMessages {
     answerGroups: (p: { n: number; groups: string; nr: number; rows: string }) => string;
     /** A visual whose query stopped before it answered: out of time, too large, or needing a platform function. */
     answerStopped: () => string;
+    /**
+     * A visual's value with no label of its own, named by what it measures (#1671): a count by its source's name
+     * (`Orders`), a field's sum by the field's label, `Average margin`, `Lowest units`, `Highest units`, `Different
+     * customers`, `Revenue per unit`. `of` is a count's source's name or its field's label, `ofs` the label in the
+     * plural, `per` a ratio's second field's label in the singular — each in the case it takes mid-sentence.
+     */
+    valueName: (p: { measure: "count" | "sum" | "mean" | "min" | "max" | "distinct" | "ratio"; of: string; ofs: string; per: string }) => string;
+    /**
+     * What a KPI's change is against, with what it was — `vs year ago 10.76`, `vs previous period 49`; a compare over the
+     * same period by its name, mid-sentence — `vs average revenue 70`.
+     */
+    changeAgainst: (p: { period: "current" | "previous" | "year_ago"; name: string; value: string }) => string;
+    /** A KPI's trend's bucket, after what its change is against — `by month`; `unit` is {@link StudioMessages.bucketWord}'s. */
+    trendBy: (p: { unit: string }) => string;
+    /** After what a KPI's change is against, when less is better. */
+    lowerBetter: () => string;
+    /** How far a KPI stands from its goal — `0.66M to go`, `300 over`. */
+    goalGap: (p: { gap: string; over: boolean }) => string;
+    /** How far a KPI is to its goal, beside its progress — `85% of goal 4.50M`. */
+    goalShare: (p: { share: string; goal: string }) => string;
+    /** A chart's goal line's label — `Goal 450k`. */
+    goalOf: (p: { goal: string }) => string;
+    /** A visual's name made from its wells (TIL-1) — `Revenue by month`; `value` is its value's name, `by` what it groups by, mid-sentence. */
+    visualName: (p: { value: string; by: string }) => string;
+    /** A summary's two groups, in its name — `region and category`. */
+    groupsBoth: (p: { first: string; second: string }) => string;
+    /** A pivot's row group and column group, in its name — `region · month`. */
+    groupsCross: (p: { rows: string; columns: string }) => string;
+    /** A combo's first column and first line, in its name — `Units and revenue per unit`; `second` is mid-sentence. */
+    valuesBoth: (p: { first: string; second: string }) => string;
+    /** What a scatter's points or a list's rows stand for, as its name — `Customers`; `items` is the field's label in the plural, mid-sentence. */
+    itemsName: (p: { items: string }) => string;
+    /** A date bucket's unit, mid-sentence — `month`. */
+    bucketWord: (p: { unit: "hour" | "day" | "week" | "month" | "quarter" | "year" }) => string;
+    /** The tile menu's chip — its accessible name (TIL-2). */
+    visualMenu: () => string;
+    /** The tile menu's item that shows the visual's rows in the drawer. */
+    showRows: () => string;
+    /** The tile menu's item, and the drawer's action, that downloads the rows as CSV. */
+    exportCsv: () => string;
+    /** The tile menu's item that places a copy of the visual beside it. */
+    duplicate: () => string;
+    /** The rest of a group past its first N, folded. */
+    other: () => string;
+    /** A quarter, as a chart's axis or a table's row names its bucket — `Q3 2026`. */
+    quarterOf: (p: { quarter: number; year: string }) => string;
+    /** A visual that shows some of its groups — `Showing 500 of 1,240 groups`. */
+    groupsShown: (p: { shown: string; of: string; n: number }) => string;
+    /** A page of a records table — `Showing 1–50 of 1,284`. */
+    rowsShown: (p: { first: string; last: string; of: string }) => string;
+    /** A records column's header with its field's unit — `Revenue AUD`. */
+    columnUnit: (p: { label: string; unit: string }) => string;
+    /** The Show rows drawer's eyebrow, over the visual's name. */
+    rowsEyebrow: () => string;
+    /** An export that could not be made — its banner's title. */
+    exportFailed: () => string;
+    /** The banner's action, which puts it away. */
+    dismiss: () => string;
+    /** A summary's total row's label. */
+    totalRow: () => string;
+    /** A cell, a point or a value with none to show. */
+    noValue: () => string;
+    /** What made a total, before it in a summary's total row (TBL-2) — `sum`, `average`, `ratio`. */
+    measureWord: (p: { measure: "count" | "sum" | "mean" | "min" | "max" | "distinct" | "ratio" }) => string;
+    /** A cell on the wrong side of its value's goal, as its mark names it (TBL-3) — `below goal`; `above goal` where less is better. */
+    goalMissed: (p: { over: boolean }) => string;
+    /** A value's column header with its goal (TBL-3) — `Revenue per unit · goal 11.00`. */
+    goalHeader: (p: { header: string; goal: string }) => string;
+    /** A summary's label column's header, its groups — `Region · category`; `second` is mid-sentence. */
+    labelHeader: (p: { first: string; second?: string | undefined }) => string;
+    /** A pivot's heat legend's top step — `≥ 1,200`. */
+    heatTop: (p: { from: string }) => string;
+    /** A pivot's heat legend's step — `400–800`. */
+    heatStep: (p: { from: string; to: string }) => string;
     /** A page whose live version is asked for before it is published — its heading. */
     notPublished: (p: { page: string }) => string;
     /** Under it. */
@@ -341,6 +415,49 @@ export const studioMessages: StudioMessages = {
     retry: () => "Retry",
     answerGroups: ({ n, groups, nr, rows }) => `${groups} ${n === 1 ? "group" : "groups"} from ${rows} ${nr === 1 ? "row" : "rows"}`,
     answerStopped: () => "Its query stopped before it answered.",
+    valueName: ({ measure, of, ofs, per }) => {
+        switch (measure) {
+            case "count": case "sum": return capitalised(of);
+            case "mean": return `Average ${of}`;
+            case "min": return `Lowest ${of}`;
+            case "max": return `Highest ${of}`;
+            case "distinct": return `Different ${ofs}`;
+            case "ratio": return `${capitalised(of)} per ${per}`;
+        }
+    },
+    changeAgainst: ({ period, name, value }) =>
+        (period === "year_ago" ? `vs year ago ${value}` : period === "previous" ? `vs previous period ${value}` : `vs ${name} ${value}`),
+    trendBy: ({ unit }) => `by ${unit}`,
+    lowerBetter: () => "lower is better",
+    goalGap: ({ gap, over }) => (over ? `${gap} over` : `${gap} to go`),
+    goalShare: ({ share, goal }) => `${share} of goal ${goal}`,
+    goalOf: ({ goal }) => `Goal ${goal}`,
+    visualName: ({ value, by }) => `${value} by ${by}`,
+    groupsBoth: ({ first, second }) => `${first} and ${second}`,
+    groupsCross: ({ rows, columns }) => `${rows} · ${columns}`,
+    valuesBoth: ({ first, second }) => `${first} and ${second}`,
+    itemsName: ({ items }) => capitalised(items),
+    bucketWord: ({ unit }) => unit,
+    visualMenu: () => "Visual menu",
+    showRows: () => "Show rows",
+    exportCsv: () => "Export CSV",
+    duplicate: () => "Duplicate",
+    other: () => "Other",
+    quarterOf: ({ quarter, year }) => `Q${quarter} ${year}`,
+    groupsShown: ({ shown, of, n }) => `Showing ${shown} of ${of} ${n === 1 ? "group" : "groups"}`,
+    rowsShown: ({ first, last, of }) => `Showing ${first}–${last} of ${of}`,
+    columnUnit: ({ label, unit }) => `${label} ${unit}`,
+    rowsEyebrow: () => "Rows",
+    exportFailed: () => "The rows could not be exported",
+    dismiss: () => "Dismiss",
+    totalRow: () => "Total",
+    noValue: () => "no data",
+    measureWord: ({ measure }) => (measure === "mean" ? "average" : measure),
+    goalMissed: ({ over }) => (over ? "above goal" : "below goal"),
+    goalHeader: ({ header, goal }) => `${header} · goal ${goal}`,
+    labelHeader: ({ first, second }) => (second === undefined ? first : `${first} · ${second}`),
+    heatTop: ({ from }) => `≥ ${from}`,
+    heatStep: ({ from, to }) => `${from}–${to}`,
     notPublished: ({ page }) => `${page} is not published yet`,
     notPublishedHint: () => "Publish it to show it here.",
     noPage: ({ page }) => `No page ${page}`,
@@ -448,6 +565,16 @@ export const studioMessages: StudioMessages = {
     phoneChanges: () => "Changes",
     phoneWireCaption: ({ device, px }) => `${device} · ${px} px · the layout, each tile by name`,
 };
+
+/**
+ * A phrase with its first letter made a capital: a field's label at the start of a value's name.
+ *
+ * @param phrase - The phrase
+ * @returns It, its first letter a capital
+ */
+export function capitalised(phrase: string): string {
+    return phrase.length === 0 ? phrase : phrase[0]!.toUpperCase() + phrase.slice(1);
+}
 
 const StudioMessagesContext = createContext<StudioMessages>(studioMessages);
 

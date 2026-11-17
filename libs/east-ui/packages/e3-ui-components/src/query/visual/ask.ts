@@ -42,6 +42,9 @@ export type VisualAnswer =
     }
     | { readonly kind: "problem"; readonly result: QueryResult };
 
+/** A program's answer that answered: its rows, each column's East type, its groups and the source rows it read. */
+export type VisualAnswered = Extract<VisualAnswer, { kind: "answered" }>;
+
 /** A call that never answered: e3 could not be reached, or refused it — what a tile shows as its source's error. */
 export class VisualAskError extends Error {
     /**
@@ -183,6 +186,98 @@ function numberOf(type: EastType | undefined, part: unknown): number | undefined
 }
 
 /**
+ * A value's parts, as numbers (#1671): what the value is made of, and what a
+ * group's rest folds into Other by.
+ *
+ * @remarks
+ * - `added` — a count or a sum: `top` is the value, and two groups' add.
+ * - `divided` — a mean (its sum over its count) or a ratio (its two sums):
+ *   `top` over `bottom`, each added.
+ * - `least`, `most` — a least or a most: `top`, `undefined` for no values;
+ *   two groups' is the lesser or the greater.
+ * - `distinct` — how many different values: two groups' counts make no
+ *   count of both, since a value may be in each.
+ */
+export interface ValueParts {
+    /** How the parts make the value, and fold. */
+    readonly kind: "added" | "divided" | "least" | "most" | "distinct";
+    /** The value; a mean's sum, a ratio's sum of what it is of. `undefined` for a least or a most of no values. */
+    readonly top: number | undefined;
+    /** A mean's count, a ratio's sum of what it is per; 0 for the others. */
+    readonly bottom: number;
+}
+
+/**
+ * A value's parts in an answer's row, read by each column's East type.
+ *
+ * @param answer - The answer: its rows' columns and their types
+ * @param row - The row
+ * @param index - The value's index among the visual's values
+ * @param value - The value
+ * @returns Its parts
+ */
+export function visualParts(answer: VisualAnswered, row: Readonly<Record<string, unknown>>, index: number, value: VisualValue): ValueParts {
+    const part = (name: string) => numberOf(answer.columns.get(name), row[name]);
+    const v = `v${index}`;
+    switch (value.measure.type) {
+        case "count": case "sum": return { kind: "added", top: part(v), bottom: 0 };
+        case "distinct": return { kind: "distinct", top: part(v), bottom: 0 };
+        case "min": return { kind: "least", top: part(v), bottom: 0 };
+        case "max": return { kind: "most", top: part(v), bottom: 0 };
+        case "mean": return { kind: "divided", top: part(`${v}s`), bottom: part(`${v}c`) ?? 0 };
+        case "ratio": return { kind: "divided", top: part(`${v}o`), bottom: part(`${v}p`) ?? 0 };
+    }
+}
+
+/**
+ * The value parts make: a mean's or a ratio's division, the others as they
+ * are.
+ *
+ * @param parts - The parts
+ * @returns The number, or `undefined` for "no data": a mean or a ratio over nothing, a least or a most of no values
+ */
+export function partsValue(parts: ValueParts): number | undefined {
+    if (parts.kind !== "divided") return parts.top;
+    return parts.top === undefined || parts.bottom === 0 ? undefined : parts.top / parts.bottom;
+}
+
+/** Two numbers added, either absent. */
+function addedOf(a: number | undefined, b: number | undefined): number | undefined {
+    return a === undefined ? b : b === undefined ? a : a + b;
+}
+
+/**
+ * Two groups' parts folded into one's: what Other and a group's head hold.
+ *
+ * @param a - One group's parts
+ * @param b - The other's, of the same value
+ * @returns The folded parts; `undefined` for a distinct count, which no fold makes
+ */
+export function foldParts(a: ValueParts, b: ValueParts): ValueParts | undefined {
+    switch (a.kind) {
+        case "added": case "divided": return { kind: a.kind, top: addedOf(a.top, b.top), bottom: a.bottom + b.bottom };
+        case "least": case "most": {
+            if (a.top === undefined || b.top === undefined) return { kind: a.kind, top: a.top ?? b.top, bottom: 0 };
+            return { kind: a.kind, top: a.kind === "least" ? Math.min(a.top, b.top) : Math.max(a.top, b.top), bottom: 0 };
+        }
+        case "distinct": return undefined;
+    }
+}
+
+/**
+ * A total's parts less some groups' folded parts: what the rest of a total's
+ * rows hold — a pie's Other past its first slices.
+ *
+ * @param total - The total's parts
+ * @param shown - The groups' folded parts, of the same value
+ * @returns The rest's parts; `undefined` for a least, a most or a distinct count, which no subtraction makes
+ */
+export function lessParts(total: ValueParts, shown: ValueParts): ValueParts | undefined {
+    if (total.kind !== "added" && total.kind !== "divided") return undefined;
+    return { kind: total.kind, top: total.top === undefined ? undefined : total.top - (shown.top ?? 0), bottom: total.bottom - shown.bottom };
+}
+
+/**
  * A value of an answer's row: its parts made one — a mean of its sum and
  * count, a ratio of its two sums — or `undefined` where there is none to
  * make: a mean or a ratio over nothing, a least or a most of no values.
@@ -193,21 +288,6 @@ function numberOf(type: EastType | undefined, part: unknown): number | undefined
  * @param value - The value
  * @returns The number, or `undefined` for "no data"
  */
-export function visualValue(answer: Extract<VisualAnswer, { kind: "answered" }>, row: Readonly<Record<string, unknown>>, index: number, value: VisualValue): number | undefined {
-    const part = (name: string) => numberOf(answer.columns.get(name), row[name]);
-    const v = `v${index}`;
-    switch (value.measure.type) {
-        case "count": case "sum": case "distinct": case "min": case "max":
-            return part(v);
-        case "mean": {
-            const count = part(`${v}c`);
-            const sum = part(`${v}s`);
-            return count === undefined || sum === undefined || count === 0 ? undefined : sum / count;
-        }
-        case "ratio": {
-            const per = part(`${v}p`);
-            const of = part(`${v}o`);
-            return per === undefined || of === undefined || per === 0 ? undefined : of / per;
-        }
-    }
+export function visualValue(answer: VisualAnswered, row: Readonly<Record<string, unknown>>, index: number, value: VisualValue): number | undefined {
+    return partsValue(visualParts(answer, row, index, value));
 }

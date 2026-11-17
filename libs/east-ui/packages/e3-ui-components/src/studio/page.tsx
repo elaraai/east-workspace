@@ -111,6 +111,8 @@ export interface StudioPlacementProps {
     sources: Map<string, string>;
     /** Where its component's UI keeps its state. */
     storageKey: string;
+    /** What names it: its own title, which a visual's tile carries over its body (TIL-1); `undefined` for none. */
+    title?: string | undefined;
 }
 
 /**
@@ -124,7 +126,7 @@ export interface StudioPlacementProps {
  * @param props - What it holds, the listed components and the listed sources' names
  * @returns The content
  */
-export function StudioPlacement({ content, listed: byKey, sources, storageKey }: StudioPlacementProps) {
+export function StudioPlacement({ content, listed: byKey, sources, storageKey, title }: StudioPlacementProps) {
     const m = useStudioMessages();
     if (content.type === "text") return <StudioText text={content.value} />;
     if (content.type === "visual") {
@@ -135,7 +137,7 @@ export function StudioPlacement({ content, listed: byKey, sources, storageKey }:
                     title={m.noSource({ key: visual.source })} description={m.noSourceHint()} />
             );
         }
-        return <StudioVisualTile content={content} names={sources} />;
+        return <StudioVisualTile content={content} names={sources} storageKey={storageKey} title={title} />;
     }
     const key = content.value;
     const listed = byKey.get(key) ?? [];
@@ -195,7 +197,8 @@ export function StudioLayout({ cells, components, sources, storageKey }: StudioL
             <SnapGridTiles
                 cells={tiles}
                 content={(tile) => (
-                    <StudioPlacement content={tile.cell.content} listed={listed} sources={names} storageKey={`${storageKey}.${tile.key}`} />
+                    <StudioPlacement content={tile.cell.content} listed={listed} sources={names} storageKey={`${storageKey}.${tile.key}`}
+                        title={tile.cell.title.type === "some" ? tile.cell.title.value : undefined} />
                 )}
             />
         </VisualAnswersProvider>

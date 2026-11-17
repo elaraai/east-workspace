@@ -19,6 +19,7 @@ import {
     BooleanType,
     DateTimeType,
     FloatType,
+    IntegerType,
     NullType,
     OptionType,
     StringType,
@@ -522,6 +523,51 @@ export const ChartSeriesMarkType = StructType({
     tooltip:     OptionType(BooleanType),
 });
 export type ChartSeriesMarkType = typeof ChartSeriesMarkType;
+
+/**
+ * One slice of a pie: what it stands for, its value, and its colour.
+ *
+ * @property key   - What the slice stands for: its label in the legend
+ * @property value - Its value; its share is its value over the pie's total
+ * @property color - Its colour (theme token or CSS); `none` takes the chart rules' series order by the slice's rank, largest first
+ */
+export const ChartSliceType = StructType({
+    key:   StringType,
+    value: FloatType,
+    color: OptionType(StringType),
+});
+export type ChartSliceType = typeof ChartSliceType;
+
+/** Array of {@link ChartSliceType}. */
+export const ChartSliceArrayType = ArrayType(ChartSliceType);
+export type ChartSliceArrayType = typeof ChartSliceArrayType;
+
+/**
+ * A pie: shares of one total.
+ *
+ * @remarks
+ * The renderer draws the slices largest first from twelve o'clock, the first
+ * `top` of them and then one Other slice for the rest, with a 1.5 px gap of
+ * the surface between slices. A slice carries no label: the legend beside the
+ * pie carries each slice's value and its share. A donut is a 26 px ring with
+ * the total in its centre. A slice of no positive value is not drawn.
+ *
+ * @property data   - The slices, in any order
+ * @property top    - How many slices are drawn before the rest fold into Other; `none` draws 4
+ * @property total  - The whole the slices are shares of, when they are not all of it: what is past their sum is Other's; `none` is their sum
+ * @property other  - Other's label in the legend; `none` is "Other"
+ * @property donut  - Drawn as a ring, its total in the middle
+ * @property format - How a value prints in the legend and the centre; `none` prints a number
+ */
+export const ChartPieType = StructType({
+    data:   ChartSliceArrayType,
+    top:    OptionType(IntegerType),
+    total:  OptionType(FloatType),
+    other:  OptionType(StringType),
+    donut:  BooleanType,
+    format: OptionType(ChartTickFormatType),
+});
+export type ChartPieType = typeof ChartPieType;
 
 /**
  * A band (area-range) layer — fills the vertical span of each band series.

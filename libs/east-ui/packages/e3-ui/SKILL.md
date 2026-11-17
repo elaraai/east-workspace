@@ -488,8 +488,13 @@ start and end are `Option<DateTime>` when it can wait in the backlog. A
   as `<Query.Builder>` runs a query — one call, or a split call over a large
   dataset's pieces — once a program and dataset hash however many tiles ask;
   it shows waiting, a well to fill, a field its source lacks, its source's
-  error, "no data", or its answer's size, which the next release draws as its
-  chart, table or list. A visual whose filter reads `$now` ("in the last 7
+  error, "no data", or its answer drawn with east-ui's own parts — a KPI's
+  value with its change, trend and goal; a chart (a pie is `Chart.Pie`); the
+  records a page at a time; a summary's heads over its groups, with the
+  query's own totals; a pivot on the heat ramp; a list with its ranking bar.
+  Its eyebrow names it — its placement's title, else its wells (`Revenue by
+  month`) — and its menu shows its rows in a drawer, or exports them as CSV.
+  `e3-ui:studio.examples.tsx:studioVisuals` is a page of every form. A visual whose filter reads `$now` ("in the last 7
   days") is asked for the page's minute, and again as it moves on. The calls run as the reader: a host that admits its
   readers only what their pages bind must admit their platform-free calls over
   those datasets. A text block draws. A pages record written before a placement
