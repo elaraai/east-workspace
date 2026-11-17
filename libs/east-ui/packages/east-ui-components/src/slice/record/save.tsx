@@ -4,8 +4,8 @@
  */
 
 /** Exact post-Save feedback, shared by every indexed record editor. */
-import { useCallback, useLayoutEffect, useMemo, useSyncExternalStore } from "react";
-import { Button } from "@chakra-ui/react";
+import { useCallback, useLayoutEffect, useMemo, useSyncExternalStore, type MouseEvent } from "react";
+import { Box, chakra, type SystemStyleObject } from "@chakra-ui/react";
 import { StringType, decodeBeast2For, encodeBeast2For, equalFor, none, some, type option, type ValueTypeOf } from "@elaraai/east";
 import { RecordSliceWhereType, type RecordSliceBindType } from "@elaraai/east-ui/internal";
 import type { EditSessionBinding, HeldRows } from "../../editing/session.js";
@@ -14,6 +14,8 @@ import { getStore } from "../../platform/state-runtime.js";
 import type { UIStoreInterface } from "../../platform/state-store.js";
 import { useTrackedEvaluation } from "../../reactive/index.js";
 import { awaitTracked } from "../../reactive/tracked.js";
+import { loadingMessages } from "../../collections/loading/messages.js";
+import { useSlotStyles } from "../../theme/slot-styles.js";
 
 type Slice = ValueTypeOf<RecordSliceBindType>;
 type Where = ValueTypeOf<RecordSliceWhereType>;
@@ -154,21 +156,33 @@ export function prepareRecordSliceSave(slice: Slice | undefined, revision: (() =
     };
 }
 
-/** Footer feedback inherits the host's existing footer slot typography. */
+/**
+ * A Save's notice in a builder's footer rail (#1344): the rows it moved out of the view, the view read again, or the
+ * read failing with its Retry — in the footer's voice, the loading line's (`builderFooterLine`'s `notice`), its Retry
+ * the line's. A rail sets no voice of its own, so the notice brings its own.
+ */
 export function RecordSliceSaveNotice({ slice, singular = "row", plural = "rows" }: {
     slice: Slice; singular?: string; plural?: string;
 }) {
+    const styles: Record<string, SystemStyleObject> = useSlotStyles("builderFooterLine");
     const model = useMemo(() => notice(slice), [slice]);
     useSyncExternalStore(model.subscribe, model.snapshot, model.snapshot);
     const read = useCallback(() => slice.read().where, [slice]);
     const { result } = useTrackedEvaluation(read);
     useLayoutEffect(() => { if (result.ok) model.scope(result.value); }, [model, result]);
     if (!result.ok || model.where === undefined || !same(result.value, model.where)) return null;
-    if (model.error !== undefined) return <span role="status" data-record-save-notice="error" data-footer-live="">
-        Saved; view update failed. <Button size="xs" variant="plain" onClick={model.retry}>Retry</Button>
-    </span>;
-    if (model.pending) return <span role="status" data-record-save-notice="pending" data-footer-live="">Updating view…</span>;
-    return model.count === 0 ? null : <span role="status" data-record-save-notice="" data-footer-live="">
+    if (model.error !== undefined) {
+        const retry = model.retry;
+        return <Box as="span" css={styles.notice} role="status" data-record-save-notice="error" data-failed="" data-footer-live="">
+            Saved; view update failed
+            <Box as="span" css={styles.sep} aria-hidden="true">·</Box>
+            <chakra.button type="button" css={styles.retry} onClick={(event: MouseEvent) => { event.stopPropagation(); retry?.(); }}>
+                {loadingMessages.retry()}
+            </chakra.button>
+        </Box>;
+    }
+    if (model.pending) return <Box as="span" css={styles.notice} role="status" data-record-save-notice="pending" data-footer-live="">Updating view…</Box>;
+    return model.count === 0 ? null : <Box as="span" css={styles.notice} role="status" data-record-save-notice="" data-footer-live="">
         {model.count} {model.count === 1 ? singular : plural} left this view
-    </span>;
+    </Box>;
 }

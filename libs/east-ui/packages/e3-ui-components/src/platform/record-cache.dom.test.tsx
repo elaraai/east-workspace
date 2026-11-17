@@ -11,13 +11,14 @@
 
 import { expect, test } from "vitest";
 import { render, renderHook, waitFor } from "@testing-library/react";
+import { ChakraProvider } from "@chakra-ui/react";
 import {
     East, Expr, FunctionType, IntegerType, OptionType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor,
     none, printFor, some, toEastTypeValue, variant,
     type EastType, type option, type StructType, type ValueTypeOf, type VariantType,
 } from "@elaraai/east";
 import { Editing, RecordSliceBindType, RecordSliceReadType, RecordSliceWhereType, bindRecord, recordSliceReadPlatform } from "@elaraai/east-ui/internal";
-import { getRegisteredPlatformImplementations, useEditSession, useTrackedEvaluation, type EditingValue } from "@elaraai/east-ui-components";
+import { getRegisteredPlatformImplementations, system, useEditSession, useTrackedEvaluation, type EditingValue } from "@elaraai/east-ui-components";
 import { RecordSliceImpl } from "@elaraai/east-ui-components/platform";
 import { createTrackedRead, prepareRecordSliceSave, recordSliceReadEntries, RecordSliceSaveNotice, type EditSource } from "@elaraai/east-ui-components/internal";
 import { Data, Record } from "@elaraai/e3-ui/internal";
@@ -235,7 +236,8 @@ test("40 drafts survive paging, filters and remounts; Save confirms all original
     expect(hook.result.current.session).toBe(session);
     expect(session.pending).toBe(40);
     act(() => { f.choose("open"); });
-    const notice = render(<RecordSliceSaveNotice slice={f.slice} />);
+    // The notice draws in its theme's footer voice, as a builder's footer draws it.
+    const notice = render(<ChakraProvider value={system}><RecordSliceSaveNotice slice={f.slice} /></ChakraProvider>);
     const from = h.requests().length;
     await act(async () => { await session.apply(); });
     await waitFor(() => expect(session.status).toBe("idle"), { timeout: 60_000 });

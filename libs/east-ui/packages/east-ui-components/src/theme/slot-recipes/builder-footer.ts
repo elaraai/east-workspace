@@ -178,10 +178,14 @@ const FOOTER_VOICE = {
  *   - form: one form in the measure, laid out as the line lays it.
  *   - more: the "…" that ends a legend the fit cut, in the line's voice;
  *     unseen while none is.
+ *   - notice: a Save's notice (#1344) — the rows it moved out of the view, or
+ *     the view read again — in the line's voice, never the page's own type;
+ *     failed (`data-failed`), its words the danger ink, then `·` and the
+ *     line's Retry.
  */
 export const builderFooterLineSlotRecipe = defineSlotRecipe({
     className: "elara-builder-footer-line",
-    slots: ["root", "dot", "text", "strong", "short", "sep", "aside", "retry", "reason", "measure", "form", "more"],
+    slots: ["root", "dot", "text", "strong", "short", "sep", "aside", "retry", "reason", "measure", "form", "more", "notice"],
     base: {
         root: {
             ...LINE_FORM,
@@ -272,6 +276,12 @@ export const builderFooterLineSlotRecipe = defineSlotRecipe({
             ...FOOTER_VOICE,
             flex: "none",
             "&[data-footer-cut]": FOOTER_CUT,
+        },
+        notice: {
+            ...LINE_FORM,
+            ...FOOTER_VOICE,
+            flex: "none",
+            "&[data-failed]": { color: "fg.danger" },
         },
     },
 });
