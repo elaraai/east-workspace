@@ -934,6 +934,54 @@ export function dataflowFollowCases(setup: BackendSetup): void {
     assert.equal(await held(storage, repo, 'tasks/check/output'), made('check', c1.state, made('clean', c1.state)));
   });
 
+  it('keeps a result that has landed though a read after it fails, run or answered by the cache: what the read was to ask is asked again, and the task is not failed', async (t) => {
+    const context = await setup(t);
+    const { repo } = context;
+    // Armed as clean's result lands, the ref store refuses the input's next read: the look for changed inputs that follows
+    let armed = false;
+    let refused = 0;
+    const storage = standIn(context.storage, {
+      datasets: standIn(context.storage.datasets, {
+        read: (...args: Parameters<StorageBackend['datasets']['read']>) => {
+          if (armed && args[2] === 'inputs/sales') {
+            armed = false;
+            refused++;
+            return Promise.reject(new Error('the ref store is throttling'));
+          }
+          return context.storage.datasets.read(...args);
+        },
+      }),
+    });
+    const tasks = await deployChain(t, context);
+    const runner = gatedRunner(context.storage, repo, tasks);
+    for (const name of tasks.keys()) runner.pass(name);
+    const orchestrator = new LocalOrchestrator(stateStoreOf(context));
+    const run = async (): Promise<{ result: Awaited<ReturnType<LocalOrchestrator['wait']>>; lines: RunLines }> => {
+      const lines = new RunLines();
+      const handle = await orchestrator.start(storage, repo, 'ws', {
+        runner,
+        ...lines.callbacks,
+        onTaskComplete: (completed) => {
+          lines.callbacks.onTaskComplete?.(completed);
+          if (completed.name === 'clean') armed = true;
+        },
+      });
+      return { result: await orchestrator.wait(handle), lines };
+    };
+
+    // clean runs, and its result lands
+    const ran = await run();
+    assert.equal(refused, 1, 'the read after clean landed was refused');
+    assert.deepEqual([ran.result.success, ran.result.executed, ran.result.failed], [true, 3, 0], 'clean is counted once, as it landed, and nothing failed');
+    assert.deepEqual(ran.lines.printed.filter((line) => line.endsWith(' clean')), ['[START] clean', '[DONE] clean']);
+
+    // Run again, the cache answers each task: the read after clean's answer is refused as well
+    const answered = await run();
+    assert.equal(refused, 2, 'the read after the cache answered clean was refused');
+    assert.deepEqual([answered.result.success, answered.result.cached, answered.result.failed], [true, 3, 0]);
+    assert.deepEqual(answered.lines.printed.filter((line) => line.endsWith(' clean')), ['[CACHED] clean']);
+  });
+
   it('takes no wake once a task has failed: the run launches nothing more, so a start is refused rather than handed to it', async (t) => {
     const context = await setup(t);
     const { storage, repo } = context;

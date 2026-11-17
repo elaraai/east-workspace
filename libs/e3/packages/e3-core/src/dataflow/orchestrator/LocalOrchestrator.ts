@@ -1743,13 +1743,23 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     }
 
     // Every result lands. Its task is asked whether it is due again, and its
-    // readers whether they are: a change travels a step at a time.
-    const again = await stepTaskDueAgain(storage, state, taskName);
-    if (again?.type === 'task_invalidated') options.onTaskInvalidated?.(taskName, again.value.reason);
-    await this.tasksDue(storage, state, options, [{ path: prepared.outputPath }]);
+    // readers whether they are: a change travels a step at a time. The asks
+    // read the store. One that fails leaves the result landed, and what it was
+    // to ask unasked — the task's inputs, whose readers it is among, and its
+    // output — for the loop to ask before it goes on: a second failure fails
+    // the run, as a wake's failed look does.
+    try {
+      const again = await stepTaskDueAgain(storage, state, taskName);
+      if (again?.type === 'task_invalidated') options.onTaskInvalidated?.(taskName, again.value.reason);
+      await this.tasksDue(storage, state, options, [{ path: prepared.outputPath }]);
 
-    // Detect input changes after the result
-    await this.handleInputChanges(storage, execution);
+      // Detect input changes after the result
+      await this.handleInputChanges(storage, execution);
+    } catch {
+      const graph = state.graph.type === 'some' ? state.graph.value : null;
+      for (const input of graph?.tasks.find((each) => each.name === taskName)?.inputs ?? []) execution.unasked.add(input);
+      execution.unasked.add(prepared.outputPath);
+    }
   }
 
   /** Whether a catch-up run is in flight: as itself, or as its task's own
