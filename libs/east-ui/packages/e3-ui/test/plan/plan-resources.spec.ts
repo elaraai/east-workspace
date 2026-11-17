@@ -292,6 +292,39 @@ describe("a resource's child rows of another type (#1541, U2)", () => {
         ]));
     });
 
+    test("child rows from a list (U12) draw beneath each row, read with it: the same kinds under every press", () => {
+        const Kinds = DictType(StringType, TaskKindRow);
+        const root = East.function([], Plan.Types.Root, ($) => {
+            const data = $.const(MACHINES, Machines);
+            const kinds = $.const(new Map([["check", { name: "Plate check" }], ["wash", { name: "Blanket wash" }]]), Kinds);
+            return Plan.Root({
+                axis, data,
+                series: [Plan.series.kinds(Machine, "what", {
+                    press: { title: "Presses", label: (press) => press.name, children: Plan.children.of(() => kinds, [kindRows()]) },
+                    folder: false,
+                })],
+            });
+        }).toIR().compile([])();
+        assert.ok(sameIds(ids(root), [
+            entry("press", "P03"), entry("kinds", "P03", "check"), entry("kinds", "P03", "wash"),
+            entry("press", "P04"), entry("kinds", "P04", "check"), entry("kinds", "P04", "wash"),
+        ]));
+        assert.ok(sameLabels(labels(root), ["Heidelberg 3", "Plate check", "Blanket wash", "Heidelberg 4", "Plate check", "Blanket wash"]));
+    });
+
+    test("child rows from a list are read only: a series over them that declares `edit` is refused, naming it, at any depth", () => {
+        const Crew = StructType({ name: StringType, hours: DictType(DateTimeType, FloatType) });
+        const typed = () => Plan.series.table(Crew, {
+            key: "hours", title: "Hours", label: (crew) => crew.name, edit: true,
+            cells: Plan.tableCells(Plan.values("hours", (h) => ({ value: some(h) }))),
+        });
+        assert.throws(() => Plan.children.of(() => new Map(), [typed()]),
+            /^Error: Plan\.children\.of: table "Hours" declares `edit`, and the rows of a list are read only — leave `edit` out, or keep the rows in the record and step down to their field: Plan\.children\(field, \[series…\]\)$/);
+        assert.throws(() => Plan.children.of(() => new Map(), [Plan.series.resources(Crew, { key: "crews", title: "Crews", label: (crew) => crew.name, series: [typed()] })]),
+            /Plan\.children\.of: table "Hours" declares `edit`/);
+        assert.throws(() => Plan.children.of("kinds" as never, [kindRows()]), /Plan\.children\.of: give the function returning the child rows/);
+    });
+
     test("children that are neither a tree's field nor step-downs are refused, naming the series", () => {
         assert.throws(() => Plan.series.resources(Machine, { key: "machines", title: "Machines", label: (m) => m.name, children: 3 as never }),
             /Plan\.series\.resources "machines": `children` is a field of the row holding more of its rows, or Plan\.children\(field, \[series…\]\) step-downs/);
