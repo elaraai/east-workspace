@@ -133,6 +133,39 @@ export function landingRowId(landing: string, path: readonly string[]): PlanRowI
 }
 
 /**
+ * The resource a landing row's events are read by (#1541, U1): its own — the last step of its path, under its
+ * landing's key — or, for a row of a landing standing beneath another, which a kind's `child` lands on, the resource
+ * it stands beneath: the step before the last, under that landing's key. An event kind's cells are its resource's,
+ * whichever of the resource's rows draws them; a page that draws no row of the resource's own (`row: false`) reads
+ * them by the rows beneath it.
+ *
+ * @param landing - The landing series the row is of
+ * @param path - The row's path
+ * @returns The resource, by its slot and its key's text; `undefined` for a path too short to name one
+ */
+export function readResourceOf(landing: PlanLandingValue, path: readonly string[]): { readonly slot: string; readonly key: string } | undefined {
+    const beneath = landing.under.type === "some";
+    const key = path[path.length - (beneath ? 2 : 1)];
+    return key === undefined ? undefined : { slot: beneath ? landing.under.value : landing.key, key };
+}
+
+/**
+ * A row's path to the resource its events are read by ({@link readResourceOf}): its own, which ends in its resource's
+ * key — or, for a row of a landing standing beneath another, its path less its last step. A row of no landing keeps
+ * its path.
+ *
+ * @param id - The row's id
+ * @param landings - The series the event kinds land on
+ * @returns The path, the resource's key last
+ */
+export function readPathOf(id: PlanRowId, landings: readonly PlanLandingValue[]): readonly string[] {
+    if (id.type !== "entry") return [];
+    const { series, path } = id.value;
+    const landing = landings.find((l) => l.draws.some((d) => stringEqual(series, drawSeries(l, d.type)!)));
+    return landing?.under.type === "some" ? path.slice(0, -1) : path;
+}
+
+/**
  * The resource a landing's row names, by the row's id ({@link landingRowId}'s inverse): the last step of its path, as a
  * landing row's path ends in its resource's key — and a row beside it for a further way its kinds draw, or one of its
  * series beneath it, at the same path.
