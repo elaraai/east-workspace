@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { semverToPep440 } from './set-python-version.mjs';
+import { PINNED_EXTRAS, extrasPinErrors } from './lib/extras-pins.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
@@ -169,5 +170,20 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
+// A package's extras that pin a distribution exactly pin it at the version
+// its workspace's lock holds, the same in every extra: the release's images
+// are built under the lock's pins, so a project that asks for the extras
+// then locks the build its tier image holds (#1662).
+const pinErrors = PINNED_EXTRAS.flatMap((pinned) => extrasPinErrors(
+  fs.readFileSync(path.join(repoRoot, pinned.file), 'utf8'), fs.readFileSync(path.join(repoRoot, pinned.lock), 'utf8'), pinned));
+if (pinErrors.length > 0) {
+  console.error(`An extra's pin is not its lock's:`);
+  for (const e of pinErrors) console.error(`  - ${e}`);
+  console.error(`\nA pin is moved in the package's pyproject.toml, in every extra that holds it, and \`uv lock\` then writes`);
+  console.error(`the lock of it (\`uv lock --upgrade-package <name>\` finds the newest first).`);
+  process.exit(1);
+}
+
 console.log(`OK — all manifests aligned to ${canonical}`);
 console.log(`     (PEP 440: ${expectedPep440}; plugin: ${pluginVersion})`);
+console.log(`     (extras pinned at their lock's versions: ${PINNED_EXTRAS.flatMap((pinned) => Object.keys(pinned.pins)).join(', ')})`);

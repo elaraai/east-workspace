@@ -13,6 +13,13 @@ dependencies = [
 [tool.uv.sources]
 elaraai-east-py = { workspace = true }
 
+# torch and pytorch-lightning are pinned exactly, the same in `torch`,
+# `lightning` and `all`, at the versions this workspace's lock holds: a project
+# that asks for these extras then locks the torch this release was tested
+# with, which is the torch of the release's py-datascience image, and an
+# environment a rack runs over that image leaves torch to it (#1662). Move a
+# pin with `uv lock --upgrade-package <name>`; scripts/check-version-drift.mjs
+# holds the pins to the lock.
 [project.optional-dependencies]
 mads = ["PyNomadBBO>=4.4.0"]
 optuna = ["optuna>=4.0.0"]
@@ -44,7 +51,7 @@ shap = [
     "cloudpickle>=3.0.0",
 ]
 torch = [
-    "torch>=2.4.0",
+    "torch==2.15.0",
     "cloudpickle>=3.0.0",
 ]
 gp = [
@@ -52,8 +59,8 @@ gp = [
     "cloudpickle>=3.0.0",
 ]
 lightning = [
-    "torch>=2.4.0",
-    "pytorch-lightning>=2.2.0",
+    "torch==2.15.0",
+    "pytorch-lightning==2.6.6",
     "cloudpickle>=3.0.0",
 ]
 mapie = [
@@ -93,8 +100,8 @@ all = [
     "lightgbm>=4.3.0",
     "ngboost>=0.5.0",
     "shap>=0.45.0",
-    "torch>=2.4.0",
-    "pytorch-lightning>=2.2.0",
+    "torch==2.15.0",
+    "pytorch-lightning==2.6.6",
     "mapie>=1.2.0",
     "alns>=6.0.0",
     "ortools>=9.9",
