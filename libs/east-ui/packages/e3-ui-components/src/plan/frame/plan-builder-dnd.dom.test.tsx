@@ -225,6 +225,51 @@ const vetoed = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(Ea
     });
 }))) };
 
+/** What a card of the stops' tab here is: a title a stop takes. */
+const StopCard = StructType({ title: StringType });
+
+/**
+ * The jobs as bars and the stops as tiles on the presses, a tab whose cards
+ * retitle a stop, and a `canDrop` written as the print works' is: it refuses
+ * Press A1 by its own row — the `presses` series, its path ending in the
+ * press's key — whatever lands there.
+ */
+const stopCards = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const works = $.let(Data.bind(ex.planPrintWorksRows));
+    const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
+    const stops = $.let(Record.bind(ex.planPrintStops, ["patch"]));
+    const cards = $.const(new Map([["inspection", { title: "Inspection" }]]), DictType(StringType, StopCard));
+    const canDrop = $.const(East.function([Plan.Types.Candidate], OptionType(StringType), ($2, candidate) => {
+        const said = $2.let(none, OptionType(StringType));
+        $2.match(candidate.row, { some: ($3, row) => {
+            $3.match(row, { entry: ($4, at) => {
+                const steps = $4.let(at.path.size());
+                $4.if(at.series.equal("presses").and(() => steps.greater(0n)).and(() => at.path.get(steps.subtract(1n)).equal("a1")), ($5) => {
+                    $5.assign(said, some("Press A1 takes no change today"));
+                });
+            } });
+        } });
+        return said;
+    }));
+    return Plan({
+        axis: Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }),
+        data: works.read().filter(($2, _group, key) => key.lessThan("3")),
+        series: [Plan.series.group(ex.PrintWorksGroup, {
+            key: "groups", title: "Works", label: (g) => g.name,
+            children: Plan.children("resources", [Plan.series.kinds(ex.PrintResource, "what", {
+                press: { key: "presses", title: "Presses", icon: "print", label: (r) => r.name },
+                crew: false, setter: false, line: false, bay: false, van: false,
+            })]),
+        })],
+        events: {
+            job: Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" } }),
+            stop: Schedule.events(stops, { name: "Stop", icon: "screwdriver-wrench", draw: "buckets", title: "title", at: "at", resource: { field: "press", of: "presses" } }),
+        },
+        library: [Plan.library.tab(cards, { name: "Stops", label: (card) => card.title, drop: (card) => Schedule.patch(ex.PrintStop, { title: card.title }) })],
+        canDrop,
+    });
+}))) };
+
 /** A run a press is booked for outside the jobs: its name and its times. */
 const PressRun = StructType({ label: StringType, start: DateTimeType, end: DateTimeType });
 /** A press and the runs it is booked for, by id. */
@@ -784,6 +829,27 @@ describe("an author's card dropped on an event of its patch's kind (PB63)", () =
         expect(caption()).toBe("refused: Stops take no customer");
         await onStop();
         expect(pending(c)).toBe("0 pending");
+    });
+
+    test("a card dropped on an event drawn on a row beside its resource's is judged by the resource's own row, as every other drop there is (#1541, U7)", async () => {
+        const { container: c } = await h.mount(stopCards, DRAG);
+        await settle();
+        await openTab(c, "Stops");
+        // Press A1's plate change, a tile on the row beside the press's own, Wednesday 7 October.
+        const tile = c.querySelector<HTMLElement>(`${rowAt(A1_TILES)} ${el("data-event", "stop", "S-01")}`)!;
+        const y = layOutPlots(c, [A1, A1_TILES], [[tile, { left: xAt(2, 12) - 6, top: 44, width: 12, height: 24 }]]);
+        const letGo = await carry(cardOf(c, "inspection")!, OFF, { x: xAt(2, 12), y: y(A1_TILES) });
+        // The check refuses Press A1 by its own row: the card lands on none of the press's events.
+        expect(caption()).toBe("refused: Press A1 takes no change today");
+        await letGo();
+        expect(pending(c)).toBe("0 pending");
+        // A stop of a press the check takes lands: Press A2's plate change, Wednesday 14 October.
+        const other = c.querySelector<HTMLElement>(`${rowAt(A2_TILES)} ${el("data-event", "stop", "S-03")}`)!;
+        const y2 = layOutPlots(c, [A2_TILES], [[other, { left: xAt(9, 12) - 6, top: 4, width: 12, height: 24 }]]);
+        const lands = await carry(cardOf(c, "inspection")!, OFF, { x: xAt(9, 12), y: y2(A2_TILES) });
+        expect(caption()).toBe("Inspection → Plate change");
+        await lands();
+        expect(pending(c)).toBe("1 pending");
     });
 
     test("a patch that sets two fields sets both on the event, as one step — and Save writes both", async () => {

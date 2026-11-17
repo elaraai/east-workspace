@@ -57,7 +57,7 @@ import { backlogLibrary, eventsLibrary, tabLibrary } from "../frame/library.js";
 import { instantKey, timeInstant } from "../instant.js";
 import { rowKeyOf, type PlanRowId, type PlanRowValue } from "../model.js";
 import type { RowKey } from "../plan-state.js";
-import { kindRowId, landingRowId, landingTargetOf, type PlanLandingValue } from "../root/landings.js";
+import { eventRowId, kindRowId, landingRowId, landingTargetOf, type PlanLandingValue } from "../root/landings.js";
 import type { PlanRowMove } from "../rows/SpanRow.js";
 import type { PlanScale } from "../scale.js";
 import { fromPlanSlot } from "../slot.js";
@@ -478,6 +478,15 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
             row: target.kind === "resource" ? landingRowId(target.slot, target.path) : kindRowId(kind, { kind: "unassigned", event: kind, draw: target.draw }),
             start: timeInstant(start), end: timeInstant(end),
         });
+        /**
+         * The row an event stands on where it keeps its resource, as a candidate says it ({@link eventRowId}): its
+         * resource's own landing row, the canvas holding it or not.
+         */
+        const standsOn = (kind: PlanEventKindValue, read: PlanEventReadValue): PlanRowId | undefined => {
+            const a = latest.current;
+            const kept = getSomeorUndefined(read.item.resource);
+            return eventRowId(kind, read.item.resource, kept === undefined ? undefined : a.resource(kept)?.id, a.landings);
+        };
         /** A card landing: nothing of it an alt-drag copy. */
         const ADD = variant("add", { duplicate: false }) as PlanCandidateValue["gesture"];
 
@@ -557,9 +566,10 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
                 // A locked event takes no card (#1541, U9).
                 const held = lockOf(read);
                 if (held !== undefined) return refused(held, span);
-                // What it would do: the card lands on the event, where the event stands.
+                // What it would do: the card lands on the event, where the event stands — its resource's own row,
+                // whichever row beside it the pointer rests on.
                 const said = a.veto?.refusal(eventCandidate(ADD, kind.key, variant("card", { library: from.library, key: from.key }), {
-                    row: row.id, start: span?.start, end: span?.end,
+                    row: standsOn(kind, read), start: span?.start, end: span?.end,
                 }, { kind: kind.key, key: ref.key }));
                 if (said !== undefined) return refused(said, span);
                 return {
@@ -637,12 +647,8 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
                 const resource = follows ? resourceOf(target) : read.item.resource;
                 const gesture = variant("place", { start, end, resource }) as PlanEventGestureValue;
                 const moved = !dateEqual(start, start0) || !dateEqual(end, end0) || !resourceEqual(resource, read.item.resource);
-                // The row it would be on: the row's resource where it follows the drag onto it, else its own resource's
-                // landing row, where the canvas holds it — or, on none, its kind's Unassigned row.
-                const kept = getSomeorUndefined(read.item.resource);
-                const at: PlanRowId | undefined = follows ? landsOn(k, target, start, end).row
-                    : kept !== undefined ? a.resource(kept)?.id
-                        : kindRowId(k, { kind: "unassigned", event: k, draw: k.draw.type });
+                // The row it would be on: the row's resource where it follows the drag onto it, else the row it stands on.
+                const at: PlanRowId | undefined = follows ? landsOn(k, target, start, end).row : standsOn(k, read);
                 return { kind: k, id, read, start, end, resource, gesture, moved, row: at };
             };
             const read = readEvent(kind, ref.key);

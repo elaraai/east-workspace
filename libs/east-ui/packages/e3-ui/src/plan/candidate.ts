@@ -49,7 +49,9 @@ export type PlanItemRefType = typeof PlanItemRefType;
  * @property from - What is dragged: a template, by its key; a library tab's card; a backlog event; an event; or a data
  *   series' item
  * @property onto - What it lands on, where it lands on one: an event, or a data series' item
- * @property row - The row it would land on, by its series and its path; `none` for a `remove`
+ * @property row - The row it would land on, by its series and its path: for an event, its resource's own row, whichever
+ *   row beside it the event draws on. `none` for a `remove`, and for an event that keeps a resource beneath a row the
+ *   canvas has not read, whose place among the rows is not known
  * @property lane - The lane it would sit in, where its row has lanes
  * @property start - When it would start there, on the axis's arm; `none` for a `remove`
  * @property end - When it would end there — a point's instant again; `none` for a `remove`, and for a card whose item

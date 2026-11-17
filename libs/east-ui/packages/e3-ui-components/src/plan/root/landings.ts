@@ -19,7 +19,7 @@
  * @packageDocumentation
  */
 
-import { StringType, equalFor, variant, type ValueTypeOf } from "@elaraai/east";
+import { StringType, equalFor, variant, type option, type ValueTypeOf } from "@elaraai/east";
 import type { PlanLandingType, PlanPayloadType } from "@elaraai/e3-ui/internal";
 import type { PlanRowId } from "../model.js";
 
@@ -115,10 +115,36 @@ export function landingSeriesTargetOf(id: PlanRowId, landings: readonly PlanLand
  * @param target - What the row stands for
  * @returns The row's id; `undefined` for a resource of a landing the kind's way of drawing has no row on
  */
-export function kindRowId(kind: PlanEventKindValue, target: PlanLandingTarget): PlanRowId | undefined {
+export function kindRowId(kind: Pick<PlanEventKindValue, "key" | "draw">, target: PlanLandingTarget): PlanRowId | undefined {
     if (target.kind === "unassigned") return landingRowId(`${kind.key}.unassigned`, [kind.draw.type]);
     const series = drawSeries(target.landing, kind.draw.type);
     return series === undefined ? undefined : landingRowId(series, target.path);
+}
+
+/**
+ * The row an event stands on, as a drop's candidate names it (#1541, U7): its
+ * resource's own landing row, whichever row beside it its kind draws on — the
+ * row the canvas holds, or, where it holds none and the resource is one of
+ * the canvas's own entries, the row its key names, in view or not — and, on
+ * no resource, its kind's Unassigned row.
+ *
+ * A resource beneath a row the canvas has not read has no row to name: its
+ * place among the rows is not known, so the candidate's `row` is none.
+ *
+ * @param kind - The event's kind
+ * @param resource - The resource the event is on: its landing series and its key's text; none for an event on none
+ * @param held - The resource's landing row's id, where the canvas holds the row
+ * @param landings - The series the event kinds land on
+ * @returns The row's id; `undefined` where it cannot be told
+ */
+export function eventRowId(
+    kind: Pick<PlanEventKindValue, "key" | "draw">, resource: option<{ readonly kind: string; readonly key: string }>, held: PlanRowId | undefined,
+    landings: readonly PlanLandingValue[],
+): PlanRowId | undefined {
+    if (resource.type === "none") return landingRowId(`${kind.key}.unassigned`, [kind.draw.type]);
+    if (held !== undefined) return held;
+    const landing = landings.find((one) => stringEqual(one.key, resource.value.kind));
+    return landing?.top === true ? landingRowId(landing.key, [resource.value.key]) : undefined;
 }
 
 /**
