@@ -146,15 +146,18 @@ describe("the jq view (#937) — J1 highlighting", () => {
 // ─── J2 ──────────────────────────────────────────────────────────────────────
 
 describe("the jq view (#937) — J2 completions", () => {
-    test("`.` at the root lists the bound sources in plain words; a variant offers type and value; a string the case names", async () => {
+    test("`.` at the root lists the bound sources in plain words, and now, the minute the query runs; a variant offers type and value; a string the case names", async () => {
         await mount();
         await openJq(BIG.name);
         await type(".");
         expect(offered()).toEqual([
             ["ds", "customers", "Dict<String, Struct{name: String, region: String, tier: Variant{gold, standard}}>"],
+            ["ds", "now", "DateTime"],
             ["ds", "orders", "Array<Struct{customer_id: String, discount: Option<Float>, id: Integer, lines: Array<Struct{price: Float, qty: Integer, sku: String}>, status: Variant{cancelled, pending, shipped}, total: Float}>"],
         ]);
         expect(doc()).toBe("lookup table");
+        await key("ArrowDown");
+        expect(doc()).toBe("date");
         await key("ArrowDown");
         expect(doc()).toBe("list of orders");
         await type(".orders[0].status.");

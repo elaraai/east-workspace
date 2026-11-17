@@ -21,7 +21,7 @@ import { DEFAULT_MAX_ROWS } from "./count.js";
 import { comparisonsFor, fieldByRef, fieldsOf, type FieldKind, type StepField } from "./fields.js";
 import { itemShape, layOutSteps, type ConditionRange, type SlotRange, type StepLayout, type StepSlot } from "./print.js";
 import { unwrapRecursive, type Shape } from "./shape.js";
-import { needsValue, type Condition, type Step, type StepQuery, type StepValue } from "./values.js";
+import { groupFields, lastUnit, needsValue, type Condition, type Step, type StepQuery, type StepValue } from "./values.js";
 
 /** A diagnostic of the checker, as the query wire types hold it. */
 type JqDiagnostic = ValueTypeOf<typeof QueryErrorType>;
@@ -226,6 +226,11 @@ function checkCondition(stepId: string, condition: Condition, shape: Shape, out:
     if (kind === "lengthAtLeast" && !(v.type === "number" && Number.isSafeInteger(v.value) && v.value >= 0)) {
         out.push(own(stepId, "error", "type_mismatch", "type_mismatch: length gives a whole number of items, 0 or more.", { condId: id, slot: "value" }, { ...context, value: valueText(v) }));
     }
+    // In the last N: `datetime_add` moves by a whole number of its unit (#1670).
+    const unit = lastUnit(kind);
+    if (unit !== undefined && !(v.type === "number" && Number.isSafeInteger(v.value) && v.value >= 0)) {
+        out.push(own(stepId, "error", "type_mismatch", `type_mismatch: datetime_add moves by a whole number of ${unit}s, 0 or more.`, { condId: id, slot: "value" }, { ...context, value: valueText(v) }));
+    }
 }
 
 /** Checks what a step needs that the checker cannot see. */
@@ -254,27 +259,46 @@ function checkStep(step: Step, before: Shape, root: EastType, out: StepDiagnosti
         case "group": {
             const { by, aggs } = step.value;
             if (by.type === "none") out.push(incomplete(id, "what to group by", { slot: "by" }));
-            else if (by.value.type === "field") {
-                const field = fieldByRef(before, by.value.value);
-                if (field !== undefined && !GROUP_KINDS.includes(field.kind)) {
-                    out.push(own(id, "error", "type_mismatch", `type_mismatch: group_by groups on a value, not ${field.kind}.`, { slot: "by" }, { ...fieldContext(field, field.ref), what: "field to group by" }));
+            else if (by.value.type === "all") {
+                if (aggs.length === 0) out.push(incomplete(id, "a total", { slot: "agg-field" }));
+            } else {
+                // Each field it groups on; one of several known by its ref (#1670).
+                const several = by.value.type === "fields";
+                if (several && groupFields(by).length === 0) out.push(incomplete(id, "what to group by", { slot: "by" }));
+                for (const ref of groupFields(by)) {
+                    const field = fieldByRef(before, ref);
+                    if (field !== undefined && !GROUP_KINDS.includes(field.kind)) {
+                        out.push(own(id, "error", "type_mismatch", `type_mismatch: group_by groups on a value, not ${field.kind}.`,
+                            { slot: "by", ...(several ? { id: ref } : {}) }, { ...fieldContext(field, field.ref), what: "field to group by" }));
+                    }
                 }
-            } else if (aggs.length === 0) out.push(incomplete(id, "a total", { slot: "agg-field" }));
+            }
+            // Adding up, averaging and a ratio's two sums total numbers: jq's add joins text, which is no total — offer the numbers instead.
+            const numbers = fieldsOf(before).filter(f => f.kind === "int" || f.kind === "num");
+            const notANumber = (a: typeof aggs[number], slot: "agg-field" | "agg-per", ref: string, form: string): void => {
+                const field = fieldByRef(before, ref);
+                if (field === undefined || field.kind === "int" || field.kind === "num") return;
+                out.push(own(id, "error", "type_mismatch", `type_mismatch: ${form} totals numbers; ${field.name} is ${field.kind}.`,
+                    { slot, id: a.id }, { ...fieldContext(field, ref), fn: a.fn.type },
+                    numbers.slice(0, 2).map(n => ({ kind: "setField", label: `Use ${n.name}`, stepId: id, slot, id: a.id, field: n.ref }))));
+            };
             for (const a of aggs) {
                 if (a.fn.type === "count") continue;
+                // A ratio's field it is per (#1670).
+                if (a.fn.type === "ratio") {
+                    const per = valueOf(a.fn.value);
+                    if (per === undefined) out.push(incomplete(id, "a field to divide by", { slot: "agg-per", id: a.id }));
+                    else notANumber(a, "agg-per", per, "add");
+                }
                 const ref = valueOf(a.field);
                 if (ref === undefined) { out.push(incomplete(id, "a field to total", { slot: "agg-field", id: a.id })); continue; }
                 const field = fieldByRef(before, ref);
                 if (field === undefined) continue;
-                const context = { ...fieldContext(field, ref), fn: a.fn.type };
-                if ((a.fn.type === "sum" || a.fn.type === "mean") && field.kind !== "int" && field.kind !== "num") {
-                    // jq's add joins text, which is no total: offer the numbers instead.
-                    const numbers = fieldsOf(before).filter(f => f.kind === "int" || f.kind === "num");
-                    out.push(own(id, "error", "type_mismatch", `type_mismatch: ${a.fn.type === "sum" ? "add" : "add / length"} totals numbers; ${field.name} is ${field.kind}.`,
-                        { slot: "agg-field", id: a.id }, context,
-                        numbers.slice(0, 2).map(n => ({ kind: "setField", label: `Use ${n.name}`, stepId: id, slot: "agg-field", id: a.id, field: n.ref }))));
+                if (a.fn.type === "sum" || a.fn.type === "mean" || a.fn.type === "ratio") {
+                    notANumber(a, "agg-field", ref, a.fn.type === "mean" ? "add / length" : "add");
                 } else if ((a.fn.type === "min" || a.fn.type === "max") && !["int", "num", "date", "text"].includes(field.kind)) {
-                    out.push(own(id, "error", "type_mismatch", `type_mismatch: ${a.fn.type} takes values in order; ${field.name} is ${field.kind}.`, { slot: "agg-field", id: a.id }, context));
+                    out.push(own(id, "error", "type_mismatch", `type_mismatch: ${a.fn.type} takes values in order; ${field.name} is ${field.kind}.`,
+                        { slot: "agg-field", id: a.id }, { ...fieldContext(field, ref), fn: a.fn.type }));
                 }
             }
             return;
@@ -391,9 +415,16 @@ function slotRef(step: Step, where: Where): string | undefined {
     switch (step.type) {
         case "lookup": return where.slot === "key" ? valueOf(step.value.key) : undefined;
         case "group": {
-            if (where.slot === "by") return step.value.by.type === "some" && step.value.by.value.type === "field" ? step.value.by.value.value : undefined;
-            const total = where.slot === "agg-field" ? step.value.aggs.find(a => a.id === where.id) : undefined;
-            return total === undefined ? undefined : valueOf(total.field);
+            if (where.slot === "by") {
+                const by = step.value.by;
+                if (by.type === "none") return undefined;
+                // One of several fields is known by its ref (#1670).
+                return by.value.type === "field" ? by.value.value : by.value.type === "fields" ? where.id : undefined;
+            }
+            const total = where.slot === "agg-field" || where.slot === "agg-per" ? step.value.aggs.find(a => a.id === where.id) : undefined;
+            if (total === undefined) return undefined;
+            if (where.slot === "agg-per") return total.fn.type === "ratio" ? valueOf(total.fn.value) : undefined;
+            return valueOf(total.field);
         }
         case "pick": {
             const shown = step.value.fields.find(p => p.id === where.id);

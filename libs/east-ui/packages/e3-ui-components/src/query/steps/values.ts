@@ -10,7 +10,7 @@
  * @packageDocumentation
  */
 
-import { variant, type ValueTypeOf } from "@elaraai/east";
+import { none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import type {
     QueryAggregateType,
     QueryComparisonType,
@@ -81,6 +81,77 @@ export function comparison(kind: ComparisonKind): Comparison {
     return variant(kind, null) as Comparison;
 }
 
+/** A unit `datetime_add` moves a date by: the unit of an "is in the last" comparison (#1670). */
+export type LastUnit = "hour" | "day" | "week";
+
+const LAST_UNIT: Readonly<Partial<Record<ComparisonKind, LastUnit>>> = { inLastHours: "hour", inLastDays: "day", inLastWeeks: "week" };
+
+/**
+ * The unit an "is in the last" comparison counts in.
+ *
+ * @param kind - the comparison
+ * @returns `hour`, `day` or `week`; `undefined` for any other comparison
+ */
+export function lastUnit(kind: ComparisonKind): LastUnit | undefined {
+    return LAST_UNIT[kind];
+}
+
+/**
+ * The "is in the last" comparison of a unit.
+ *
+ * @param unit - the unit
+ * @returns the comparison
+ */
+export function lastComparison(unit: LastUnit): ComparisonKind {
+    return unit === "hour" ? "inLastHours" : unit === "day" ? "inLastDays" : "inLastWeeks";
+}
+
+/** What a Group and total step groups by: a field, several, all rows together, or nothing chosen yet. */
+export type GroupBy = StepOf<"group">["value"]["by"];
+
+/**
+ * The fields a Group and total step groups on, in order: one, several, or
+ * none for all rows together.
+ *
+ * @param by - what it groups by
+ * @returns the fields' refs
+ */
+export function groupFields(by: GroupBy): readonly string[] {
+    if (by.type === "none") return [];
+    switch (by.value.type) {
+        case "field": return [by.value.value];
+        case "fields": return by.value.value;
+        case "all": return [];
+    }
+}
+
+/**
+ * What a Group and total step groups by, from the fields it groups on
+ * (#1670): nothing chosen for none, the field for one, the fields for several.
+ *
+ * @param fields - the fields' refs, in order
+ * @returns what it groups by
+ */
+export function groupedBy(fields: readonly string[]): GroupBy {
+    if (fields.length === 0) return none;
+    return some(fields.length === 1 ? variant("field", fields[0]!) : variant("fields", [...fields])) as GroupBy;
+}
+
+/**
+ * What a Group and total step groups by with one of its fields set to
+ * another, in its place; a step by one field, or by none, then groups by
+ * that field.
+ *
+ * @param by - what it groups by
+ * @param was - the field set, of the several it groups by
+ * @param field - the field in its place
+ * @returns what it groups by after
+ */
+export function withGroupField(by: GroupBy, was: string | undefined, field: string): GroupBy {
+    const fields = groupFields(by);
+    return groupedBy(was !== undefined && fields.length > 1 ? fields.map(f => (f === was ? field : f)) : [field]);
+}
+
 /**
  * Whether a value is filled in: any value but empty text.
  *
@@ -146,7 +217,9 @@ export function isComplete(step: Step): boolean {
             const { by, aggs } = step.value;
             if (by.type === "none") return false;
             if (by.value.type === "all" && aggs.length === 0) return false;
-            return aggs.every(a => a.fn.type === "count" || a.field.type === "some");
+            if (by.value.type === "fields" && by.value.value.length === 0) return false;
+            // A ratio needs the field it is per as well as its own.
+            return aggs.every(a => a.fn.type === "count" || (a.field.type === "some" && (a.fn.type !== "ratio" || a.fn.value.type === "some")));
         }
         case "sort":
             return step.value.field.type === "some";

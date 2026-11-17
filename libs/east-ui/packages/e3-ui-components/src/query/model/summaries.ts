@@ -15,9 +15,9 @@
  */
 
 import { SummaryType, summaryProgram, type EastType, type ValueTypeOf } from "@elaraai/east";
-import type { QueryResult } from "../one-shot.js";
+import { NOW_FIELD, minuteKey, type QueryResult } from "../one-shot.js";
 import type { StepField } from "../steps/fields.js";
-import { SEP, layOutSteps } from "../steps/print.js";
+import { SEP, layOutSteps, queryReadsNow } from "../steps/print.js";
 import type { Shape } from "../steps/shape.js";
 import { isComplete, type StepQuery } from "../steps/values.js";
 import type { SlotKind } from "./messages.js";
@@ -37,12 +37,14 @@ export interface SummaryRequest {
     readonly program: string;
     /** The shape of the rows it summarises. */
     readonly shape: Shape;
-    /** The data sources it reads, by name: the source, and each Look up's. */
+    /** The data sources it reads, by name: the source, and each Look up's — and `now` when a condition reads the minute (#1670), whose hash is the minute. */
     readonly reads: readonly string[];
 }
 
 /**
- * The summary of the rows a step takes.
+ * The summary of the rows a step takes. Rows narrowed by "is in the last" are
+ * the minute's: the request reads `now`, so a summary is kept for the minute
+ * its asker gives under `now` in its hashes.
  *
  * @param query - the query
  * @param stepIndex - the step; the query's length for the rows it gives
@@ -60,7 +62,7 @@ export function summaryAt(query: StepQuery, stepIndex: number, root: EastType): 
         prefix: text,
         program: `${text}${SEP}${summaryProgram(shape.type)}`,
         shape,
-        reads: [query.source, ...new Set(lookups)],
+        reads: [query.source, ...new Set(lookups), ...(queryReadsNow(prefix) ? [NOW_FIELD] : [])],
     };
 }
 
@@ -133,6 +135,19 @@ export interface KeptResult<V> {
  */
 export function readHashes(result: QueryResult): ReadonlyMap<string, string> {
     return new Map(result.inputs.map(input => [input.name, input.hash]));
+}
+
+/**
+ * An asker's hashes with the minute it asks for under `now` (#1670): what an
+ * answer that read `.now` is kept by beside its data sources, so it stands for
+ * that minute and the next one asks again.
+ *
+ * @param hashes - each data source's hash, by name
+ * @param at - the instant asked for: its minute is kept
+ * @returns the hashes, and the minute's under {@link NOW_FIELD}
+ */
+export function withMinute(hashes: ReadonlyMap<string, string>, at: Date): ReadonlyMap<string, string> {
+    return new Map([...hashes, [NOW_FIELD, minuteKey(at)]]);
 }
 
 /**

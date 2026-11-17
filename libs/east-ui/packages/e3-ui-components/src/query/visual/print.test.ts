@@ -69,13 +69,17 @@ function asksOf(printed: PrintedVisual): readonly VisualAsk[] {
     return printed.asks;
 }
 
-/** A program's answer over the fixture, once it checks against the root: the struct every visual program answers, checked by its type. */
-function answerOf(program: string, orders: unknown = ORDERS, root: EastType = ROOT) {
+/**
+ * A program's answer over the fixture — at a minute, for one that reads
+ * `.now` — once it checks against the root: the struct every visual program
+ * answers, checked by its type.
+ */
+function answerOf(program: string, orders: unknown = ORDERS, root: EastType = ROOT, now?: Date) {
     const checked = checkJq(program, root, { root: true });
     const errors = checked.diagnostics.filter(d => d.severity.type === "error");
     expect(errors.map(e => e.message), program).toEqual([]);
     const type = checked.elementType === null ? undefined : visualAnswerType(checked.elementType);
-    const answer = evaluateJq(checked, { orders });
+    const answer = evaluateJq(checked, now === undefined ? { orders } : { orders, now });
     if (type === undefined || !isValueOf(answer, type)) throw new Error(`not a visual's answer: ${program}`);
     return answer as ValueTypeOf<typeof type>;
 }
@@ -226,6 +230,24 @@ describe("printVisual", () => {
         const asks = asksOf(printVisual(kpi, named, { filters: [] }));
         const rows = [{ ordered_at: at("2026-07-03T10:00:00"), "net revenue": 10, "unit.price": 2.5 }, { ordered_at: at("2026-07-04T10:00:00"), "net revenue": 5, "unit.price": 4 }];
         expect(answerOf(asks[0]!.program, rows, StructType({ orders: ArrayType(Named) })).rows).toEqual([{ v0: 15, v1: some(4), n: 2n }]);
+    });
+
+    it("binds .now first where a filter reads $now, and says each program reads it (#1670)", () => {
+        // The last 14 days, at the minute the page asks: August's order alone.
+        const recent = condition(`.ordered_at >= ($now | datetime_add(-14; "day"))`);
+        const NOW = at("2026-08-10T00:00:00");
+        const CLOCKED = StructType({ orders: ArrayType(Row), now: DateTimeType });
+        const kpi = visualOf(v.of("orders", v.kpi({ value: v.sum("revenue"), trend: "ordered_at" }), { where: recent }));
+        const asks = asksOf(printVisual(kpi, SOURCE, { filters: [] }));
+        expect(asks.map(a => [a.readsNow, a.program.split("\n").slice(0, 2).join("\n")])).toEqual([
+            [true, ".now as $now\n| .orders"], [true, ".now as $now\n| .orders"],
+        ]);
+        expect(answerOf(asks[0]!.program, ORDERS, CLOCKED, NOW).rows).toEqual([{ v0: 70, n: 1n }]);
+        expect(asks.every(a => splits(a.program))).toBe(true);
+        // A page's filter reads it alike; a visual whose filters read no $now binds nothing.
+        const plain = visualOf(v.of("orders", v.kpi({ value: v.sum("revenue") })));
+        expect(asksOf(printVisual(plain, SOURCE, { filters: [recent] })).map(a => a.readsNow)).toEqual([true]);
+        expect(asksOf(printVisual(plain, SOURCE, { filters: [condition(".export")] })).map(a => [a.readsNow, a.program.startsWith(".orders")])).toEqual([[false, true]]);
     });
 
     it("says what it needs: an empty well, a field the source lacks, a window for another period; and a slicer asks nothing", () => {

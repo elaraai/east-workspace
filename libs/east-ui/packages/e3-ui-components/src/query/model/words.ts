@@ -28,7 +28,7 @@ import { nameFor, scalarFieldsOf } from "../steps/print.js";
 import { baseType, optionPayload, singular, unwrapRecursive, type Shape } from "../steps/shape.js";
 import type { StepParseError } from "../steps/parse.js";
 import {
-    isComplete, needsValue, type Condition, type Step, type StepKind, type StepQuery, type StepValue,
+    groupFields, isComplete, lastUnit, needsValue, type Condition, type Step, type StepKind, type StepQuery, type StepValue,
 } from "../steps/values.js";
 import { queryMessages, type KindName, type OneKind, type QueryMessages } from "./messages.js";
 
@@ -405,8 +405,7 @@ function duplicateNameIn(step: Step | undefined, before: Shape | undefined): str
     if (step === undefined || before === undefined) return undefined;
     let names: string[] = [];
     if (step.type === "group") {
-        const by = step.value.by;
-        names = [...(by.type === "some" && by.value.type === "field" ? [nameFor(before, by.value.value)] : []), ...step.value.aggs.map(a => a.as)];
+        names = [...groupFields(step.value.by).map(ref => nameFor(before, ref)), ...step.value.aggs.map(a => a.as)];
     } else if (step.type === "pick") {
         names = step.value.fields.map(p => p.as);
     }
@@ -543,6 +542,8 @@ export function problemWords(d: StepDiagnostic, query: StepQuery, root: EastType
             if (d.slot === "value") {
                 const cmp = test?.cmp.type === "some" ? test.cmp.value.type : undefined;
                 const value = d.context["value"] ?? "";
+                // In the last N: a whole number of hours, days or weeks (#1670).
+                if (cmp !== undefined && lastUnit(cmp) !== undefined) return say(m.enterLast({ unit: m.lastUnit({ cmp, n: 2 }) }));
                 if (cmp === "inMonth") return say(m.enterMonth());
                 if (cmp === "lengthAtLeast") return say(m.enterItems());
                 if (cmp === "inYear") return say(m.enterYear());
@@ -558,9 +559,10 @@ export function problemWords(d: StepDiagnostic, query: StepQuery, root: EastType
         }
         if (step?.type === "group") {
             if (d.slot === "by") return say(m.wrongKind({ label, kind: kindOf(field), what: d.context["what"] ?? "" }));
-            if (d.slot === "agg-field") {
+            if (d.slot === "agg-field" || d.slot === "agg-per") {
                 const fn = d.context["fn"];
-                if (fn === "sum" || fn === "mean") return say(m.cannotAddUp({ label, kind: kindOf(field) }));
+                // A ratio adds up both its fields (#1670).
+                if (fn === "sum" || fn === "mean" || fn === "ratio") return say(m.cannotAddUp({ label, kind: kindOf(field) }));
                 if (fn === "min" || fn === "max") return say(m.noLowestHighest({ label }));
             }
         }
@@ -628,7 +630,8 @@ export function conditionWords(condition: Condition, shape: Shape, words: QueryW
     const v = value.value;
     // A year or a month reads as written; any other number grouped, as a person writes it.
     const text = v.type === "number" && kind !== "inYear" && kind !== "inMonth" ? words.formatters.number(v.value) : valueWords(v, words);
-    return m.describeCondition({ field: label, cmp: kind, value: text });
+    // A count's number, for an "is in the last" unit's plural (#1670).
+    return m.describeCondition({ field: label, cmp: kind, value: text, ...(v.type === "number" ? { n: v.value } : {}) });
 }
 
 /**
@@ -674,8 +677,9 @@ export function stepWords(step: Step, before: Shape, words: QueryWords): string 
             });
         case "group": {
             const totals = m.list({ items: step.value.aggs.map(a => human(a.as)) });
-            const by = step.value.by;
-            return by.type === "some" && by.value.type === "field" ? m.outlineGroup({ totals, group: refLabel(before, by.value.value) }) : m.outlineGroup({ totals });
+            // Per a field, or per several — `per region and category` (#1670).
+            const refs = groupFields(step.value.by);
+            return refs.length > 0 ? m.outlineGroup({ totals, group: m.list({ items: refs.map(ref => refLabel(before, ref)) }) }) : m.outlineGroup({ totals });
         }
         case "sort": {
             const field = step.value.field.type === "some" ? fieldByRef(before, step.value.field.value) : undefined;
@@ -748,8 +752,8 @@ export function describeQuery(query: StepQuery, checked: CheckedSteps, words: Qu
                 lookups.push({ fields: m.list({ items: step.value.fields.map(human) }), dataset: step.value.dataset.type === "some" ? step.value.dataset.value : "" });
                 return;
             case "group": {
-                const by = step.value.by.type === "some" && step.value.by.value.type === "field" ? refLabel(before, step.value.by.value.value) : undefined;
-                group = { key: by, totals: step.value.aggs.map(a => human(a.as)) };
+                const refs = groupFields(step.value.by);
+                group = { key: refs.length === 0 ? undefined : m.list({ items: refs.map(ref => refLabel(before, ref)) }), totals: step.value.aggs.map(a => human(a.as)) };
                 return;
             }
             case "sort":
