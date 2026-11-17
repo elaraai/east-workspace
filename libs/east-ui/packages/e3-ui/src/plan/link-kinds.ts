@@ -51,7 +51,7 @@ import {
 } from "../schedule/fields.js";
 import { SCHEDULE_EVENT_CAP } from "../schedule/record-window.js";
 import { ScheduleEventRefType, ScheduleTemplateType } from "../schedule/types.js";
-import { SCHEDULE_TEMPLATES, type ScheduleTemplates } from "../schedule/templates.js";
+import { SCHEDULE_TEMPLATES, templateValues, type ScheduleTemplates } from "../schedule/templates.js";
 import type { ScheduleValuesOf } from "../schedule/events.js";
 import { optionOf, typeText } from "../schedule/window.js";
 import {
@@ -576,10 +576,7 @@ export function planLinks<R extends StructType, FF extends KeyEndField<R>, TF ex
     const ended = linkEndsWriter(rowType, from, to);
     const create = East.function([PlanLinkEndsType, OptionType(BlobType)], OptionType(BlobType), ($, ends, values) => {
         // Its other fields: the template's values, or, given none, their types' defaults.
-        const others = $.let(values.match({
-            some: (_$2, bytes) => bytes.decodeBeast(ValuesType, "v2") as ExprType<EastType>,
-            none: (_$2) => blank,
-        }), ValuesType);
+        const others = $.let(templateValues(values, ValuesType, (_$2) => blank), ValuesType);
         return ended($ as never, others, ends) as never;
     });
     // Its presets: a templates record's, each a value for every field but its ends — and none of them timed.

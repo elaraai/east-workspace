@@ -20,11 +20,11 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
-    DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, SetType, SortedMap, SortedSet, StringType, StructType, VariantType,
-    compareFor, equalFor, variant,
+    BlobType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, SetType, SortedMap, SortedSet, StringType, StructType, VariantType,
+    compareFor, encodeBeast2For, equalFor, none, some, variant,
 } from "@elaraai/east";
 import { TimeStepType } from "@elaraai/east-ui";
-import { CalendarPayloadType, Plan, PlanPayloadType, Record, Schedule, createCalendarPayload } from "@elaraai/e3-ui/internal";
+import { CalendarPayloadType, Plan, PlanPayloadType, Record, Schedule, createCalendarPayload, templateValues } from "@elaraai/e3-ui/internal";
 import e3 from "@elaraai/e3";
 import * as sx from "./schedule.examples.js";
 
@@ -273,3 +273,20 @@ export function builderTypeChecks(): void {
     // @ts-expect-error — `status.published` names a case of the status field, and "sent" is none of them
     Schedule.periods(Record.bind(weeksRecord, ["patch"]), { every: "week", status: { field: "state", draft: "open", published: "sent" } });
 }
+
+describe("a new row's values, where a template may give them: what every kind's `create` starts its row from", () => {
+    const Values = StructType({ sheets: FloatType, carrier: StringType });
+    const valuesEqual = equalFor(Values);
+    const own = { sheets: 250.0, carrier: "Trolley" };
+    const valuesOf = East.compile(East.function([OptionType(BlobType)], Values, (_$, values) =>
+        templateValues(values, Values, (_$2) => East.value(own, Values) as never) as never), []);
+
+    test("a template's values are decoded at the values' type", () => {
+        const given = { sheets: 5000.0, carrier: "Pallet" };
+        assert.ok(valuesEqual(valuesOf(some(encodeBeast2For(Values)(given))), given));
+    });
+
+    test("a row made from no template takes what its kind gives", () => {
+        assert.ok(valuesEqual(valuesOf(none), own));
+    });
+});

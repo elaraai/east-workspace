@@ -107,7 +107,7 @@ import type { PlanDrawLiteral } from "../plan/types.js";
 import { RowInspectorType, rowInspector } from "../utils/row-inspector.js";
 import { scheduleAccessor } from "./accessor.js";
 import { checkKeyField, fieldOf, fieldSetters, keyFieldRef, keyFieldSlots, keyFieldValue, stringCases, type FieldName, type FieldsOf, type KeyField } from "./fields.js";
-import { SCHEDULE_TEMPLATES, checkedTemplates, type ScheduleTemplates } from "./templates.js";
+import { SCHEDULE_TEMPLATES, checkedTemplates, templateValues, type ScheduleTemplates } from "./templates.js";
 import { SCHEDULE_DEF } from "./resources.js";
 import { SCHEDULE_EVENT_CAP, scheduleRecordCount, scheduleRecordWindow, type ScheduleKindPart } from "./record-window.js";
 import { scheduleRecordSession } from "./session.js";
@@ -2114,13 +2114,10 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 const create = East.function([Roles, OptionType(BlobType)], BlobType, ($, roles, values) => {
                     const ownOf = reservedOf === undefined ? undefined : $.const(reservedOf);
                     const scope = scopeOf === undefined ? undefined : $.const(scopeOf);
-                    const given = $.const(values.match({
-                        some: (_$2, bytes) => bytes.decodeBeast(ValuesType, "v2") as ExprType<EastType>,
-                        none: (_$2) => ownOf === undefined ? blank : roles.arrival.match({
-                            none: (_$3) => ownOf({ at: roles.at, lane: roles.lane, quantity: roles.quantity, parts: roles.parts, hold: roles.hold, kind: roles.kind } as never),
-                            some: (_$3) => blank,
-                        }) as ExprType<EastType>,
-                    }) as ExprType<EastType>);
+                    const given = $.const(templateValues(values, ValuesType, (_$2) => ownOf === undefined ? blank : roles.arrival.match({
+                        none: (_$3) => ownOf({ at: roles.at, lane: roles.lane, quantity: roles.quantity, parts: roles.parts, hold: roles.hold, kind: roles.kind } as never),
+                        some: (_$3) => blank,
+                    }) as ExprType<EastType>));
                     const made = (row: ExprType<EastType>): ExprType<EastType> => scope === undefined ? row : scope(row) as ExprType<EastType>;
                     return East.Blob.encodeBeast(made(binRow(given, roles)), "v2");
                 });
