@@ -14,11 +14,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  DateTimeType, StringType, carveBeast2, compareFor, encodeBeast2For, encodeBeast2FenceFor, encodeBeast2SegmentsFor, isVariant, openBeast2PagesFor,
-  parseFor, printType, readBeast2Extents, readBeast2Type, segmentKeyTypeOf, toEastTypeValue, variant, type EastType, type EastTypeValue,
-  type ValueTypeOf,
+  DateTimeType, DictType, East, IntegerType, PatchType, StringType, StructType, carveBeast2, compareFor, encodeBeast2For, encodeBeast2FenceFor,
+  encodeBeast2SegmentsFor, isVariant, openBeast2PagesFor, parseFor, printType, readBeast2Extents, readBeast2Type, segmentKeyTypeOf,
+  toEastTypeValue, variant, type EastType, type EastTypeValue, type ValueTypeOf,
 } from '@elaraai/east';
-import type { PartRunner } from '@elaraai/e3';
+import e3, { type PartRunner } from '@elaraai/e3';
 import {
   COLLECTION_MANIFEST_KIND, encodeCollectionManifest, type CollectionManifestEntry, type ExecutionStatus, type Structure,
 } from '@elaraai/e3-types';
@@ -345,6 +345,32 @@ export function writableStrings(names: readonly string[]): Structure {
   return variant('struct', new Map(names.map((name): [string, Structure] => [
     name, variant('value', { type: toEastTypeValue(StringType), writable: true }),
   ])));
+}
+
+/** A row of {@link ordersOverSources}: an order's customer, and how many it asks for. */
+export const SourcedOrderType = StructType({ customer: StringType, qty: IntegerType });
+
+/** What {@link ordersOverSources}' `erp` source is delivered: the ERP's whole order book, by its own order id. */
+export const ErpDeliveryType = DictType(StringType, SourcedOrderType);
+
+/**
+ * A composite record for a spec: `orders`, over two sources. `erp` is keyed by
+ * a String and loaded from a delivery of the ERP's whole order book
+ * ({@link ErpDeliveryType}), its load answering what takes its entries to the
+ * delivery. `own` is the solution's, keyed by an Integer, and holds order 1
+ * (Birch, 2). The record declares no mutation and no index.
+ *
+ * @returns The record's definition, for a spec's package
+ */
+export function ordersOverSources() {
+  return e3.recordComposite('orders', SourcedOrderType, {
+    sources: (source) => ({
+      erp: source.load(StringType, ErpDeliveryType, East.function([ErpDeliveryType, ErpDeliveryType], PatchType(ErpDeliveryType),
+        (_$, delivery, current) => East.diff(current, delivery))),
+      own: source.mutations(IntegerType),
+    }),
+    initial: { own: new Map([[1n, { customer: 'Birch', qty: 2n }]]) },
+  });
 }
 
 /**

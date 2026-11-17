@@ -1917,7 +1917,9 @@ export const RecordSourceInfoType = StructType({
  * A record's callable surface, returned by `describe` so dynamic callers can
  * encode mutation arguments and read through its indexes, and a console can
  * show the record whole without reading its history. The mutation `argTypes`
- * are the EXTRA parameters after the implicit current state.
+ * are the EXTRA parameters after the implicit current state. A composite
+ * record's `sources` say which of its entries its mutations write, and which
+ * a load does.
  */
 export const RecordSignatureType = StructType({
   name: StringType,
@@ -1969,6 +1971,10 @@ export const RecordSignatureType = StructType({
      *  when it has not applied it. */
     applied: OptionType(RecordMigrationAppliedType),
   })),
+  /** A composite record's sources, in the order of their names, each a case
+   *  of the record's key ({@link RecordSourceInfoType}); none for a record
+   *  that has no sources. */
+  sources: ArrayType(RecordSourceInfoType),
 });
 
 /**

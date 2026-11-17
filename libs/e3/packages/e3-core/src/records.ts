@@ -35,6 +35,7 @@ import {
   decodePackageObject,
   decodeRecordCommit,
   decodeRecordIndexObject,
+  decodeRecordLoadObject,
   decodeRecordObject,
   encodeDatasetBlob,
   indexCollectionType,
@@ -54,7 +55,9 @@ import {
   type Structure,
 } from '@elaraai/e3-types';
 import { DeltaConflictError, ExternalEntryError, SummaryIntegrityError, applyDelta, applyDeltaEntries, type DeltaEntry } from './record-apply.js';
-import { compactedSourceSlots, deploySourceSlots, genesisSourceSlots, slotNames } from './record-slots.js';
+import {
+  compactedSourceSlots, deploySourceSlots, genesisSourceSlots, pendingSources, slotNames, sourceLastDelivery,
+} from './record-slots.js';
 import { readManifest, readRecordStateObject } from './dataset-open.js';
 import { storedDatasetValue } from './dataset-adopt.js';
 import { manifestCutElsewhere } from './store-collection.js';
@@ -2216,10 +2219,22 @@ export async function recordIndexNames(storage: StorageBackend, repo: string, st
  *  `RecordSignature`, the value the describe route carries. */
 export type { RecordSignature } from '@elaraai/e3-types';
 
+/** The type of a source's own key: its case of a composite record's key. */
+function sourceKeyType(recordName: string, record: EastTypeValue, source: string): EastTypeValue {
+  const type = fromEastTypeValue(record);
+  const key: EastType | undefined = type.type === 'Dict' ? type.key : undefined;
+  const held: EastType | undefined = key?.type === 'Variant' ? key.cases[source] : undefined;
+  if (held === undefined) {
+    throw new Error(`record '${recordName}' names a source '${source}' that is no case of its key: re-export its package`);
+  }
+  return toEastTypeValue(held);
+}
+
 /**
  * Describe a record: its mutations, so a dynamic caller can encode arguments;
- * its indexes, so it can read through them; and its migration chain, so a
- * console can show the record whole without reading its history.
+ * its indexes, so it can read through them; its migration chain, so a console
+ * can show the record whole without reading its history; and, for a composite
+ * record, its sources.
  *
  * @remarks
  * Each mutation gives its name, write form and EXTRA arg types: the form says
@@ -2229,7 +2244,11 @@ export type { RecordSignature } from '@elaraai/e3-types';
  * its window by, whether it is multi, and whether the record's state holds it
  * built under its declaration. Each migration gives its name, form and types,
  * and, for a step the record has applied, when it was applied and by which
- * commit, as the ref's reserved slots name them.
+ * commit, as the ref's reserved slots name them. Each source gives its name
+ * and its key's type; whether it is external, written by its load alone, and
+ * then what it is delivered and the dataset that feeds it; its last delivery,
+ * with the commit that applied it and the latest as-of; and whether the
+ * record waits for its first delivery.
  *
  * The declarations are the deployed package's. What the record holds is read
  * from its ref and its state object, and nothing of its history.
@@ -2288,7 +2307,26 @@ export async function recordDescribe(
         : none,
     });
   }
-  return { name: recordName, mutations, indexes, migrations };
+  const waits = held === undefined ? [] : pendingSources(held.versions);
+  const sources: RecordSignature['sources'] = [];
+  for (const [name, source] of resolved.sources) {
+    const load = source.type === 'load' ? decodeRecordLoadObject(await storage.objects.read(repo, source.value)) : undefined;
+    const last = held === undefined ? null : sourceLastDelivery(held.versions, name);
+    sources.push({
+      name,
+      key: sourceKeyType(recordName, resolved.type, name),
+      external: load !== undefined,
+      delivery: load === undefined ? none : some(load.delivery),
+      feed: load === undefined ? none : load.feed,
+      last: last === null ? none : some({
+        delivery: last.delivery,
+        commit: last.commit === undefined ? none : some(last.commit),
+        asOf: last.asOf === undefined ? none : some(last.asOf),
+      }),
+      pending: waits.includes(name),
+    });
+  }
+  return { name: recordName, mutations, indexes, migrations, sources };
 }
 
 /** What {@link recordCompact} commits as, and how it retries. */

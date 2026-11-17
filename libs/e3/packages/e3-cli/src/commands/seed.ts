@@ -17,6 +17,8 @@
  * on the runners, never read whole or modified — and commits what it stored
  * as the record's `$init`, naming the file. A record that holds a state
  * already is refused, before the file is read: a later state is a mutation's.
+ * A composite record is refused too, whatever it holds: each of its entries is
+ * one of its sources', delivered by `e3 load` or written by its mutations.
  * The file is taken in and its state committed under one hold of the
  * repository's running work, so no sweep takes what the intake stored before
  * the commit names it. Local repositories only: a server's host commits a
@@ -30,6 +32,7 @@ import { StringType, encodeBeast2For } from '@elaraai/east';
 import {
   LocalStorage,
   LocalTaskRunner,
+  externalSources,
   recordSystemCommit,
   resolveRecord,
   withRunningWork,
@@ -62,6 +65,25 @@ function renderOutcome(record: string, file: string, outcome: MutationOutcome): 
   exitError(`Building the indexes of '${record}' timed out after ${outcome.ms}ms`);
 }
 
+/**
+ * Why `e3 seed` refuses a composite record: none of its entries is seeded
+ * from a file. An external source takes a delivery, and the record's
+ * mutations write the rest.
+ *
+ * @param record - The record's name
+ * @param ws - The workspace
+ * @param external - The record's external sources, by name
+ * @returns The refusal's words
+ */
+export function compositeSeedRefusal(record: string, ws: string, external: readonly string[]): string {
+  const load = external.length === 0 ? ''
+    : external.length === 1
+      ? ` Load a delivery into ${external[0]} (e3 load <repo> ${record}.${external[0]} <file> -w ${ws}), and write`
+      : ` Load a delivery into one of ${external.join(', ')} (e3 load <repo> ${record}.<source> <file> -w ${ws}), and write`;
+  return `Record '${record}' is a composite, and takes no state from e3 seed: each entry is one of its sources'.`
+    + `${load === '' ? ' Write' : load} the solution's own entries by the record's mutations (e3 mutate <repo> ${record}.<mutation> -w ${ws}).`;
+}
+
 /** `e3 seed` entry point. */
 export async function seedCommand(
   repoArg: string,
@@ -81,6 +103,8 @@ export async function seedCommand(
     const storage = new LocalStorage();
     const resolved = await resolveRecord(storage, location.path, ws, record);
     if (!resolved) exitError(`Record '${record}' not found in workspace '${ws}'`);
+    // A composite's entries are its sources': delivered, or written by its mutations
+    if (resolved.sources.size > 0) exitError(compositeSeedRefusal(record, ws, externalSources(resolved)));
     // A record that holds a state already is refused before the file is
     // read, not after it has been taken in: the commit would refuse it then
     const held = await storage.datasets.read(location.path, ws, resolved.refPath);

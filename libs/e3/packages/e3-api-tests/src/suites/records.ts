@@ -9,14 +9,18 @@
  * Exercises the record write path end-to-end against a real server + real
  * east-node runner: describe, deploy genesis, committed mutations (with the
  * state readable back), arity/unknown rejection, a reducer that aborts, and
- * the commit history, each commit with its arguments previewed.
+ * the commit history, each commit with its arguments previewed. And a
+ * composite record's description: what each of its sources is, and whether
+ * the record waits for its first delivery.
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { IntegerType, encodeBeast2For, decodeBeast2For, isTypeValueEqual, toEastTypeValue, variant, some, none } from '@elaraai/east';
+import {
+  IntegerType, StringType, encodeBeast2For, decodeBeast2For, equalFor, isTypeValueEqual, printFor, toEastTypeValue, variant, some, none,
+} from '@elaraai/east';
 import {
   packageImport,
   workspaceCreate,
@@ -29,9 +33,11 @@ import {
   ApiError,
 } from '@elaraai/e3-api-client';
 
+import { RecordSignatureType } from '@elaraai/e3-types';
+
 import type { TestContext } from '../context.js';
 import type { TestSetup } from '../setup.js';
-import { createRecordPackageZip } from '../fixtures.js';
+import { createCompositeRecordPackageZip, createRecordPackageZip, ErpOrdersType } from '../fixtures.js';
 import { MALFORMED_WORKSPACE_NAMES, refusedAsWorkspaceName } from '../assertions.js';
 
 const PKG = 'record-test-pkg';
@@ -70,6 +76,36 @@ export function recordTests(setup: TestSetup<TestContext>): void {
       const names = sig.mutations.map((m) => m.name).sort();
       assert.deepEqual(names, ['add_positive', 'increment']);
       assert.equal(sig.mutations.find((m) => m.name === 'increment')!.argTypes.length, 1);
+      assert.deepEqual(sig.sources, [], 'a record with no sources has none to describe');
+    });
+
+    it('R33 — describe answers each source of a composite record: whether its load alone writes it, what it is delivered, and whether the record waits for its first delivery', async (t) => {
+      const ctx = await setup(t);
+      const opts = await ctx.opts();
+      const SourcesType = RecordSignatureType.fields.sources;
+      const pkg = 'record-composite-pkg';
+      const text = toEastTypeValue(StringType);
+      const erp = { name: 'erp', key: text, external: true, delivery: some(toEastTypeValue(ErpOrdersType)), feed: none, last: none };
+      const own = { name: 'own', key: text, external: false, delivery: none, feed: none, last: none, pending: false };
+      const described = async (ws: string) => (await workspaceRecordDescribe(ctx.config.baseUrl, ctx.repoName, ws, 'orders', opts)).sources;
+      for (const version of ['1.0.0', '2.0.0'] as const) await ctx.importPackage(await createCompositeRecordPackageZip(ctx.tempDir, pkg, version));
+
+      // Deployed with its ERP source loaded from the first: nothing has been delivered, and the record waits for it
+      await ctx.createWorkspace(WS);
+      await ctx.deployPackage(WS, `${pkg}@2.0.0`);
+      const waiting = await described(WS);
+      assert.ok(equalFor(SourcesType)(waiting, [{ ...erp, pending: true }, own]), printFor(SourcesType)(waiting));
+
+      // Deployed while the ERP's orders were entered by hand: both sources are the solution's
+      const handed = 'record-handed-ws';
+      await ctx.createWorkspace(handed);
+      await ctx.deployPackage(handed, `${pkg}@1.0.0`);
+      const byHand = await described(handed);
+      assert.ok(equalFor(SourcesType)(byHand, [{ ...own, name: 'erp' }, own]), printFor(SourcesType)(byHand));
+      // And then handed to its load, holding an order: the order counts as delivered, and nothing waits
+      await ctx.deployPackage(handed, `${pkg}@2.0.0`);
+      const delivered = await described(handed);
+      assert.ok(equalFor(SourcesType)(delivered, [{ ...erp, pending: false }, own]), printFor(SourcesType)(delivered));
     });
 
     it('deploy mints a $init genesis and the initial state', async (t) => {

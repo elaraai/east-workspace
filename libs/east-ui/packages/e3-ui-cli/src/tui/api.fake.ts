@@ -835,6 +835,8 @@ export class FakeApi implements Api {
                     built: r.value !== undefined,
                 })),
                 migrations: [],
+                // The fixtures' records have no sources: none is a composite
+                sources: [],
             };
         });
     }

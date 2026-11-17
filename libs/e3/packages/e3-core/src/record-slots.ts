@@ -27,13 +27,16 @@
  * @packageDocumentation
  */
 
-import { StringType, compareFor, decodeBeast2ElementsFor, isVariant } from '@elaraai/east';
+import { DateTimeType, StringType, compareFor, decodeBeast2ElementsFor, isVariant, parseFor } from '@elaraai/east';
 import { DatasetSegments } from './dataset-open.js';
 import type { StorageBackend } from './storage/interfaces.js';
 
 /** How East orders a variant's cases, and so a composite record's sources in
  *  its rows: by their names. */
 const byName = compareFor(StringType);
+
+/** Reads an as-of, as East prints a DateTime. */
+const parseTime = parseFor(DateTimeType);
 
 /** Reserved slot naming the external sources a record's readers wait for the
  *  first delivery of, sorted and separated by commas; absent when none waits. */
@@ -126,6 +129,47 @@ export function sourcesSlot(sources: Iterable<string>): string | undefined {
  */
 export function pendingSources(versions: ReadonlyMap<string, string>): string[] {
   return slotNames(versions, PENDING_SLOT);
+}
+
+/** A source's last delivery, as its record's ref names it. */
+export interface SourceDelivery {
+  /** The delivery's stored hash. */
+  readonly delivery: string;
+  /** The commit that applied it; absent once a compaction has cut it from the
+   *  chain. */
+  readonly commit?: string;
+  /** The latest time any delivery of the source said its data was as of;
+   *  absent when none said. */
+  readonly asOf?: Date;
+}
+
+/**
+ * The last delivery a record's ref names for a source.
+ *
+ * @param versions - The record ref's version vector
+ * @param source - The source's name
+ * @returns The delivery, or `null` for a source the ref names none for: one
+ *   yet to deliver, one whose delivery a migration, a reset or a deploy made
+ *   the record forget, and a source the record's mutations write
+ *
+ * @example
+ * ```ts
+ * const last = sourceLastDelivery(ref.value.versions, 'erp');
+ * if (last !== null) console.log(last.delivery, last.commit ?? '(compacted)');
+ * ```
+ */
+export function sourceLastDelivery(versions: ReadonlyMap<string, string>, source: string): SourceDelivery | null {
+  const slots = sourceLoadSlots(source);
+  const delivery = versions.get(slots.delivery);
+  if (delivery === undefined) return null;
+  const commit = versions.get(slots.commit);
+  const said = versions.get(slots.asOf);
+  const asOf = said === undefined ? undefined : parseTime(said);
+  return {
+    delivery,
+    ...(commit !== undefined && commit !== '' && { commit }),
+    ...(asOf?.success === true && { asOf: asOf.value }),
+  };
 }
 
 /** The case of a composite record's key: the source its entry is of. */
