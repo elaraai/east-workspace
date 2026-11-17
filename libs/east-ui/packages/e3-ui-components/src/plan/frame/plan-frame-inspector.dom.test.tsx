@@ -263,7 +263,7 @@ describe("the inspector (#1197, PB38–PB41, PB60)", () => {
         expect(pane(container).querySelectorAll("li")).toHaveLength(3);
     });
 
-    test("one event: its kind, its title, when it runs, its facts and its kind's form, the fields its roles read left to their lines — every edit control on, in one fieldset (PB38, #1194)", async () => {
+    test("one event: its kind, its title, when it runs, its facts and its kind's form, the fields its state and lane read left to their lines, its quantity in the form — every edit control on, in one fieldset (PB38, #1194, #1680's review)", async () => {
         const { container } = await h.mount(ex.planPrintWorks);
         await settle();
         fireEvent.click(job(container, "J-1001"));
@@ -274,15 +274,17 @@ describe("the inspector (#1197, PB38–PB41, PB60)", () => {
         expect(head.querySelector("[data-inspector-title]")!.textContent).toBe("Spring catalogue");
         expect(head.querySelector("[data-inspector-when]")!.textContent).toBe("Mon, Oct 5, 2026 · 06:00–14:00");
         expect(head.querySelector('svg[data-icon="file-lines"]')).not.toBeNull();
-        expect(factNames(container, "[data-inspector-facts]")).toEqual(["resource", "start", "end", "state", "quantity"]);
-        expect(["resource", "start", "end", "state", "quantity"].map((name) => fact(container, name)))
-            .toEqual(["Press A1", "Oct 5, 2026, 06:00", "Oct 5, 2026, 14:00", "actual", "96,000 sheets"]);
+        expect(factNames(container, "[data-inspector-facts]")).toEqual(["resource", "start", "end", "state"]);
+        expect(["resource", "start", "end", "state"].map((name) => fact(container, name)))
+            .toEqual(["Press A1", "Oct 5, 2026, 06:00", "Oct 5, 2026, 14:00", "actual"]);
         // A Plan approves and rejects nothing (#1260): no verdict, no Approve or Reject.
         expect(pane(container).querySelector("[data-inspector-verdict]")).toBeNull();
-        // The kind's form: the customer, the stock and the due date — its state and sheets have their own lines.
+        // The kind's form: the customer, the stock, the sheets — its quantity, typed like any number — and the due date;
+        // its state has its own line.
         const form = pane(container).querySelector("[data-inspector-fields='form']")!;
-        expect([...form.querySelectorAll("[data-field]")].map((field) => field.getAttribute("data-field"))).toEqual(["customer", "stock", "due"]);
+        expect([...form.querySelectorAll("[data-field]")].map((field) => field.getAttribute("data-field"))).toEqual(["customer", "stock", "sheets", "due"]);
         expect(form.querySelector<HTMLInputElement>("[data-field='customer'] input")!.value).toBe("Alder & Finch");
+        expect(within(form.querySelector<HTMLElement>("[data-field='sheets']")!).getByRole("spinbutton").getAttribute("aria-valuenow")).toBe("96000");
         // Every edit control in the one fieldset, on: the job's kind takes edits (#1194).
         expect(edits(container).disabled).toBe(false);
         expect(edits(container).contains(form)).toBe(true);

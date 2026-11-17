@@ -6,14 +6,15 @@
  *
  * A role's number outside the bounds a hint gives it (#1585), over the print
  * works' jobs on e3 itself, in a test's own Plan whose jobs' sheets are their
- * quantity, a role — drawn on the canvas and among Details' facts, never in the
- * form — which a hint holds to at least 0: another planner's commit leaves the
- * Spring catalogue at −1,000 sheets. Stored, Details says it on a line of its
- * own under the quantity, as a warning, and it holds no Save — another job's
- * change saves; its customer retyped, Save waits, the banner over its form
- * saying it by the hint's label, and the line is an error. The toolbar's
- * warning pressed goes to the job, and the keyboard to its quantity's line in
- * Details, which no control draws — the Inspector collapsed, it opens first.
+ * quantity, a role — drawn on the canvas, and in the form as any number is
+ * (#1680's review) — which a hint holds to at least 0: another planner's
+ * commit leaves the Spring catalogue at −1,000 sheets. Stored, its field says
+ * the bound in its help line, as a warning, and it holds no Save — another
+ * job's change saves; its customer retyped, Save waits, the banner over its
+ * form saying it by the hint's label, and the line is an error; its sheets
+ * typed back inside the bound, the line goes and Save is free. The toolbar's
+ * warning pressed goes to the job, and the keyboard to its sheets' field — the
+ * Inspector collapsed, it opens first.
  */
 
 import { expect, test } from "vitest";
@@ -22,7 +23,6 @@ import userEvent from "@testing-library/user-event";
 import { East, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import { editingMessages } from "@elaraai/east-ui-components";
-import { declaredStyle } from "@elaraai/east-ui-components/testing";
 import { Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import { el, entry, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
@@ -62,71 +62,79 @@ async function mounted() {
     await settle();
     const pane = () => slot(container, "end")!;
     const form = () => pane().querySelector<HTMLElement>("[data-inspector-fields='form']")!;
-    const quantity = () => pane().querySelector<HTMLElement>("[data-inspector-facts] [data-fact='quantity']");
+    /** The selected job's sheets: its quantity, a field of its form. */
+    const sheets = () => form().querySelector<HTMLElement>("[data-field='sheets']");
     const select = async (key: string) => {
         fireEvent.click(container.querySelector<HTMLElement>(`${rowAt(entry("presses", "a1"))} ${el("data-run", "job", key)}`)!);
         await settle();
     };
-    /** Retypes the selected job's customer, committed with Enter. */
-    const retype = async (text: string) => {
+    /** Retypes one of the selected job's fields, by its role, committed with Enter. */
+    const retypeField = async (field: string, role: "textbox" | "spinbutton", text: string) => {
         const user = userEvent.setup();
-        const customer = within(form().querySelector<HTMLElement>("[data-field='customer']")!).getByRole("textbox");
-        await user.clear(customer);
-        await user.type(customer, text);
+        const box = within(form().querySelector<HTMLElement>(`[data-field='${field}']`)!).getByRole(role);
+        await user.clear(box);
+        await user.type(box, text);
         await user.keyboard("{Enter}");
         await settle();
     };
     return {
-        container, pane, form, quantity, select, retype,
+        container, pane, form, sheets, select,
+        retype: (text: string) => retypeField("customer", "textbox", text),
+        retypeSheets: (text: string) => retypeField("sheets", "spinbutton", text),
         save: () => within(slot(container, "toolbar")!).getByRole<HTMLButtonElement>("button", { name: editingMessages.apply() }),
         issues: () => slot(container, "toolbar")!.querySelector<HTMLButtonElement>('[data-slot="historyIssues"] button')!,
         banner: () => pane().querySelector("[data-inspector-refusals]"),
     };
 }
 
-/** The line under a quantity saying its bound: its words, its tone, and whether it sits on a line of its own, never run into the quantity. */
-const lineOf = (quantity: HTMLElement | null) => {
-    const line = quantity?.querySelector<HTMLElement>("[data-fact-breach]") ?? null;
-    return line === null ? null : [line.textContent, line.getAttribute("data-breach"), declaredStyle(line, "display") ?? "block"];
+/** What a field's help line says of its bound — its words and its tone — and whether its box is invalid; `null` for none. */
+const lineOf = (field: HTMLElement | null) => {
+    const toned = field?.querySelector("[data-scope=field][data-part=helper-text] [data-breach]") ?? null;
+    return toned === null ? null : [toned.textContent, toned.getAttribute("data-breach"), within(field!).getByRole("spinbutton").getAttribute("aria-invalid")];
 };
 
-test("a stored job's quantity under its least: Details says it on a line of its own under the quantity, as a warning, and it holds no Save — another job's change saves; its own customer retyped, Save waits, the banner says it and the line is an error (#1585)", async () => {
-    const { form, quantity, select, retype, save, banner } = await mounted();
+test("a stored job's quantity under its least: its field in the form says the bound, as a warning, and it holds no Save — another job's change saves; its own customer retyped, Save waits, the banner says it and the line is an error; its sheets typed back inside the bound, the line goes and Save is free (#1585, #1680's review)", async () => {
+    const { pane, form, sheets, select, retype, retypeSheets, save, banner } = await mounted();
     // Another job's change saves: the stored breach holds nothing.
     await select("J-1002");
-    expect(lineOf(quantity())).toBeNull();
+    expect(lineOf(sheets())).toBeNull();
     await retype("Driftwood Museum Trust");
     expect(save().disabled).toBe(false);
-    // Stored: the quantity a fact, never a field of the form, and the line under it a warning; no banner.
+    // Stored: the quantity a field of the form — no fact of its own beside it — its help line a warning; no banner.
     await select("J-1001");
-    expect(form().querySelector("[data-field='sheets']")).toBeNull();
-    expect(lineOf(quantity())).toEqual(["at least 0", "warn", "block"]);
+    expect(pane().querySelector("[data-inspector-facts] [data-fact='quantity']")).toBeNull();
+    expect(lineOf(sheets())).toEqual(["at least 0", "warn", null]);
     expect(banner()).toBeNull();
-    // Its own customer retyped: Save waits, the banner says why, and the line is an error.
+    // Its own customer retyped: Save waits, the banner says why, and the line is an error, the field invalid.
     await retype("Alder & Finch Ltd");
     expect(save().disabled).toBe(true);
     expect(banner()?.textContent).toBe("Not saved yet" + "Sheets: at least 0");
-    expect(lineOf(quantity())).toEqual(["at least 0", "error", "block"]);
+    expect(lineOf(sheets())).toEqual(["at least 0", "error", "true"]);
+    // Its sheets typed back inside the bound: the line goes, the banner with it, and Save is free.
+    await retypeSheets("1000");
+    expect(lineOf(sheets())).toBeNull();
+    expect(banner()).toBeNull();
+    expect(save().disabled).toBe(false);
+    // A change of the job's: its field tinted against what the record holds.
+    expect(sheets()?.hasAttribute("data-dirty")).toBe(true);
 });
 
-test("the warning pressed goes to its job, and the keyboard to its quantity's line in Details, which no control draws — never the page's body (#1585)", async () => {
-    const { pane, quantity, issues } = await mounted();
+test("the warning pressed goes to its job, and the keyboard to its sheets' field in the form — never the page's body (#1585, #1680's review)", async () => {
+    const { pane, sheets, issues } = await mounted();
     expect(issues().getAttribute("aria-label")).toBe(editingMessages.warnings({ n: 1, count: "1" }));
     fireEvent.click(issues());
     await settle();
     expect(pane().querySelector("[data-inspector-title]")?.textContent).toBe("Spring catalogue");
-    expect([document.activeElement === quantity(), quantity()?.getAttribute("tabindex")]).toEqual([true, "-1"]);
-    const named = (quantity()?.getAttribute("aria-labelledby") ?? "").split(" ").map((id) => document.getElementById(id)?.textContent);
-    expect(named[0]).toBe("Quantity");
+    expect(document.activeElement).toBe(within(sheets()!).getByRole("spinbutton"));
 });
 
-test("the Inspector collapsed, the warning pressed opens it, as its rail does, and its quantity's line takes the keyboard (#1585)", async () => {
-    const { container, quantity, issues } = await mounted();
+test("the Inspector collapsed, the warning pressed opens it, as its rail does, and its sheets' field takes the keyboard (#1585, #1680's review)", async () => {
+    const { container, sheets, issues } = await mounted();
     const end = () => slot(container, "end")!;
     fireEvent.click(within(end()).getByRole("button", { name: "Collapse Inspector" }));
     await settle();
     expect(end().hasAttribute("data-collapsed")).toBe(true);
     fireEvent.click(issues());
     await settle();
-    expect([end().hasAttribute("data-collapsed"), document.activeElement === quantity()]).toEqual([false, true]);
+    expect([end().hasAttribute("data-collapsed"), document.activeElement === within(sheets()!).getByRole("spinbutton")]).toEqual([false, true]);
 });

@@ -15,16 +15,17 @@
  *   banner of its refusals holding Save while the app's `ready` refuses it
  *   (#1525), as the Calendar's inspector has it, each field one names ringed
  *   in its form, the app's words for it under it (ruled 13 Nov 2026) — a field
- *   a role reads saying them under its fact — the one the warning button's
- *   issue or warning names taking the keyboard as the form draws it, or, a
- *   field a role reads, its fact taking it; its resource, its start and end or
- *   its instant, its lane, its
- *   state and its quantity — the bound a hint gives its field that it breaks
- *   said on a line of its own under it, in the form's help line's style and in
- *   the tone the form says one in: a row as stored warns, a changed one's,
- *   holding Save, is an error (#1585); its kind's fields through `FieldForm`, the fields its roles
- *   read left to their own lines — or, when the kind has its own inspector,
- *   what that returns for the event in place of the form (PB60); then
+ *   its state or its lane reads saying them under its fact — the one the
+ *   warning button's issue or warning names taking the keyboard as the form
+ *   draws it, or, a field the form draws no control of, its fact taking it;
+ *   its resource, its start and end or its instant, its lane and its state;
+ *   its kind's fields through `FieldForm`, the fields its state and its lane
+ *   read left to their own lines, its quantity a field like any other, the
+ *   bound a hint gives it that it breaks said under it in the tone the form
+ *   says one in: a row as stored warns, a changed one's, holding Save, is an
+ *   error (#1585, #1680's review) — or, when the kind has its own inspector,
+ *   what that returns for the event in place of the form (PB60), its quantity
+ *   then a fact of its own, its bound on a line under it; then
  *   Duplicate and Delete. An event its kind's `locked` holds where it is
  *   (#1541, U9) says so in a banner under a lock, its form read only and its
  *   gestures off;
@@ -763,9 +764,9 @@ interface OneEventProps extends BodyProps {
 }
 
 /**
- * One fact: its label and its value. A fact a field of the event's row is drawn as — its quantity, its state, its lane,
- * which no control edits here — takes the keyboard where an issue gone to asks for that field (`focusable`): by script,
- * out of the tab order, named by its label and its value.
+ * One fact: its label and its value. A fact a field of the event's row is drawn as — its state, its lane, and its
+ * quantity where no form draws it, none of which a control edits here — takes the keyboard where an issue gone to asks
+ * for that field (`focusable`): by script, out of the tab order, named by its label and its value.
  */
 function Fact({ styles, label, value, fact, focusable = false }: { styles: Styles; label: string; value: ReactNode; fact: string; focusable?: boolean }) {
     const id = useId();
@@ -845,9 +846,10 @@ function OneEvent({ event, keys, words, styles, counts, chrome, selection, links
     const row = useDataStable(event.row, blobEqual);
     const rowType = useMemo(() => fromEastTypeValue(kind.editing.entryType) as StructType, [kind.editing.entryType]);
     const value = useMemo(() => decodeBeast2For(rowType)(row), [rowType, row]);
-    // The kind's form, but the fields its roles read: each has its own line here.
+    // The kind's form, but the fields its state and its lane read: each has its own line here. Its quantity is a number
+    // typed like any other, so the form draws it, its bounds said under it (#1680's review).
     const specs = useMemo(() => {
-        const roleFields = [roles.state, roles.quantity, roles.lane].flatMap((field) => (field.type === "some" ? [field.value] : []));
+        const roleFields = [roles.state, roles.lane].flatMap((field) => (field.type === "some" ? [field.value] : []));
         return kind.fields.filter((spec) => !roleFields.some((field) => stringEqual(field, spec.path[0]!)));
     }, [kind.fields, roles]);
     // The bound its quantity breaks, of those a hint gives its field in the kind's form (#1585): said on a line of its own
@@ -878,18 +880,6 @@ function OneEvent({ event, keys, words, styles, counts, chrome, selection, links
     // changed one's is refused, holding Save — an error.
     const breaches = breachTone(refusals);
     const focus = useFieldAsk(kind.key, item.key);
-    // A field asked of it that a role reads takes the keyboard on its fact, which is its line in Details: the form leaves
-    // the field to the facts, and draws no control of it to take it.
-    const asked = focus === undefined ? undefined : roleFactOf(roles, focus);
-    const facts = useRef<HTMLDivElement | null>(null);
-    const taking = useRef<(() => void) | undefined>(undefined);
-    useEffect(() => {
-        if (asked === undefined) return;
-        taking.current?.();
-        const fact = facts.current?.querySelector<HTMLElement>(`[data-fact="${asked}"]`);
-        taking.current = fact === null || fact === undefined ? undefined : takeFactWhenShown(fact);
-    }, [asked]);
-    useEffect(() => () => taking.current?.(), []);
     // The form's draws: one more each time an edit records nothing, so its fields show what the row holds again.
     const [redraws, setRedraws] = useState(0);
     // A field edited (PB42): one transaction, written through the kind's own `write`, its value as bytes at the field's type.
@@ -920,6 +910,21 @@ function OneEvent({ event, keys, words, styles, counts, chrome, selection, links
             return undefined;
         }
     }, [author, row, kind.name, update]);
+    // Its quantity in the form, which draws its field: its fact is then no line of its own, and the form says its bound.
+    const quantityField = getSomeorUndefined(roles.quantity);
+    const quantityInForm = own === undefined && quantityField !== undefined && specs.some((spec) => samePath(spec.path, [quantityField]));
+    // A field asked of it that the form draws no control of takes the keyboard on its fact, its line in Details.
+    const asked = focus === undefined ? undefined : roleFactOf(roles, focus);
+    const askedFact = asked === "quantity" && quantityInForm ? undefined : asked;
+    const facts = useRef<HTMLDivElement | null>(null);
+    const taking = useRef<(() => void) | undefined>(undefined);
+    useEffect(() => {
+        if (askedFact === undefined) return;
+        taking.current?.();
+        const fact = facts.current?.querySelector<HTMLElement>(`[data-fact="${askedFact}"]`);
+        taking.current = fact === null || fact === undefined ? undefined : takeFactWhenShown(fact);
+    }, [askedFact]);
+    useEffect(() => () => taking.current?.(), []);
 
     return (
         <Box css={styles.root} data-plan-inspector="event">
@@ -956,7 +961,7 @@ function OneEvent({ event, keys, words, styles, counts, chrome, selection, links
                     ))}
                 {lane !== undefined && <Fact styles={styles} fact="lane" label={m.inspectorFact({ fact: "lane" })} value={<>{lane}{factIssue(roles.lane)}</>} focusable />}
                 {roles.state.type === "some" && <Fact styles={styles} fact="state" label={m.inspectorFact({ fact: "state" })} value={<>{stateText(item.state, words)}{factIssue(roles.state)}</>} focusable />}
-                {quantity !== undefined && <Fact styles={styles} fact="quantity" label={m.inspectorFact({ fact: "quantity" })} focusable value={<>
+                {quantity !== undefined && !quantityInForm && <Fact styles={styles} fact="quantity" label={m.inspectorFact({ fact: "quantity" })} focusable value={<>
                     {quantityText(quantity, words)}
                     {/* A line of its own, in the form's help line's style and the tone its Save stands in. */}
                     {quantityBreach !== undefined && (
