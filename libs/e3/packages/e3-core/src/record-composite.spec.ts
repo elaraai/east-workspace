@@ -11,6 +11,10 @@
  * — on the patch door, where no program runs, and where the mutation's
  * program runs alike.
  *
+ * And what its ref keeps of its external sources: which wait for a first
+ * delivery once a source is handed to its load, or a migration makes the
+ * record composite, and what a compaction leaves of a delivery.
+ *
  * Each case is titled by the requirement of the design it checks.
  */
 
@@ -26,11 +30,12 @@ import e3 from '@elaraai/e3';
 import { ExecuteResultType, MutationObjectType, type ExecuteResult, type FunctionDraft, type RecordSource } from '@elaraai/e3-types';
 import { readDatasetWhole } from './dataset-open.js';
 import { packageImport } from './package-files.js';
-import { readRecordState, recordDraftMutation, recordHistory, recordMutate } from './records.js';
+import { EXTERNAL_SLOT, PENDING_SLOT, sourceLoadSlots } from './record-slots.js';
+import { readRecordState, recordCompact, recordDraftMutation, recordHistory, recordMutate } from './records.js';
 import { InMemoryStorage } from './storage/in-memory/InMemoryStorage.js';
 import type { StorageBackend } from './storage/interfaces.js';
 import { LocalStorage } from './storage/local/index.js';
-import { createTempDir, createTestRepo, ran, removeTempDir, removeTestRepo } from './test-helpers.js';
+import { createTempDir, createTestRepo, ran, removeTempDir, removeTestRepo, sourceDelivered } from './test-helpers.js';
 import { workspaceCreate, workspaceDeploy } from './workspaces.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
 import { MockTaskRunner } from './execution/MockTaskRunner.js';
@@ -58,6 +63,13 @@ const encodePatch = encodeBeast2For(PatchType(Orders));
 const decodeOrders = decodeBeast2For(Orders);
 const sameOrders = equalFor(Orders);
 const sameResult = equalFor(ExecuteResultType);
+
+/** A record's ref in a workspace, once it holds a state: the state's hash, and its version vector. */
+async function heldRef(storage: StorageBackend, repo: string, ws: string, record: string): Promise<{ hash: string; versions: Map<string, string> }> {
+  const ref = await storage.datasets.read(repo, ws, `records/${record}`);
+  if (ref === null || ref.type !== 'value') assert.fail(`record ${record} holds no state`);
+  return ref.value;
+}
 
 /** A patch of the orders: each touched key's op. */
 function ordersPatch(ops: Array<[OrderKey, OrderOp]>): Uint8Array {
@@ -132,6 +144,46 @@ function ordersPackage(): ReturnType<typeof e3.package> {
   return e3.package('orders', '1.0.0', orders);
 }
 
+/** The key of `book` once it is a composite: the source each order is of. */
+const BookKey = VariantType({ erp: StringType, own: StringType, wms: StringType });
+const Book = DictType(BookKey, Order);
+
+/**
+ * A version of the package whose record `book` becomes a composite from rows
+ * it already holds.
+ * - `1.0.0`: a record of the ERP's orders by their id, holding two
+ * - `2.0.0`: a composite over `erp`, `wms` and `own`, each row put under `erp`
+ *   by a `rekey` step, and indexed by customer
+ * - `2.1.0`: `own` handed to a load of its own too
+ */
+function bookPackage(version: '1.0.0' | '2.0.0' | '2.1.0'): ReturnType<typeof e3.package> {
+  if (version === '1.0.0') {
+    return e3.package('book', version, e3.record('book', Entries, { initial: new Map([['SO-1001', acme], ['SO-1002', birch]]) }));
+  }
+  const book = version === '2.0.0'
+    ? e3.recordComposite('book', Order, {
+      sources: (source) => ({
+        erp: source.load(StringType, Entries, loadErp), wms: source.load(StringType, Entries, loadErp), own: source.mutations(StringType),
+      }),
+      indexes: (index) => ({ by_customer: index.on(['customer']) }),
+      migrations: (migration, { key }) => [
+        migration.rekey('by_source', East.function([StringType, Order], StructType({ key, value: Order }),
+          ($, id, order) => ({ key: variant('erp', id), value: order }))),
+      ],
+    })
+    : e3.recordComposite('book', Order, {
+      sources: (source) => ({
+        erp: source.load(StringType, Entries, loadErp), wms: source.load(StringType, Entries, loadErp), own: source.load(StringType, Entries, loadErp),
+      }),
+      indexes: (index) => ({ by_customer: index.on(['customer']) }),
+      migrations: (migration, { key }) => [
+        migration.rekey('by_source', East.function([StringType, Order], StructType({ key, value: Order }),
+          ($, id, order) => ({ key: variant('erp', id), value: order }))),
+      ],
+    });
+  return e3.package('book', version, book);
+}
+
 describe('a composite record: an external entry is never written (no program runs for a patch of a record with no index)', () => {
   let dir: string;
   let storage: InMemoryStorage;
@@ -155,11 +207,8 @@ describe('a composite record: an external entry is never written (no program run
   afterEach(() => removeTempDir(dir));
 
   /** What the record holds, read whole. */
-  const held = async (record: string): Promise<ValueTypeOf<typeof Orders>> => {
-    const ref = await storage.datasets.read(REPO, WS, `records/${record}`);
-    if (ref === null || ref.type !== 'value') assert.fail(`record ${record} holds no state`);
-    return decodeOrders(await readDatasetWhole(storage, REPO, (await readRecordState(storage, REPO, ref.value.hash)).primary));
-  };
+  const held = async (record: string): Promise<ValueTypeOf<typeof Orders>> =>
+    decodeOrders(await readDatasetWhole(storage, REPO, (await readRecordState(storage, REPO, (await heldRef(storage, REPO, WS, record)).hash)).primary));
   const patch = (ops: Array<[OrderKey, OrderOp]>) =>
     recordMutate(storage, runner, REPO, WS, 'notes', 'patch', [ordersPatch(ops)], { actor: 'ada@example.com' });
 
@@ -200,6 +249,40 @@ describe('a composite record: an external entry is never written (no program run
       { invalid: 'mutation \'rewrite\' writes record \'notes\' whole, and the record has sources: re-export its package' });
     assert.deepEqual(await recordDraftMutation(storage, REPO, { mutations: new Map([['rewrite', whole]]), indexes: new Map(), sources: new Map() }, 'count', 'rewrite', []),
       { mutation: whole }, 'a record with no sources, and no index, is written whole as before');
+  });
+
+  it('R79 — a source handed to its load while it holds rows counts as delivered, and one handed over holding none waits for its first delivery', async () => {
+    // The ERP's order was entered by hand, and the source then handed to its load
+    const handed = (await heldRef(storage, REPO, WS, 'notes')).versions;
+    assert.deepEqual([handed.has(PENDING_SLOT), handed.get(EXTERNAL_SLOT)], [false, 'erp'], 'its row is the load\'s now: nothing waits');
+    assert.deepEqual((await recordHistory(storage, REPO, WS, 'notes')).map(({ commit }) => commit.mutation), ['$deploy', '$init']);
+
+    // In another workspace the order is deleted first, as a solution source's entry may be
+    const other = 'other';
+    await workspaceDeploy(storage, REPO, other, 'notes', '1.0.0');
+    const deleted = await recordMutate(storage, runner, REPO, other, 'notes', 'patch', [ordersPatch([[ERP_ORDER, variant('delete', acme)]])], { actor: 'ada@example.com' });
+    assert.equal(deleted.kind, 'committed', JSON.stringify(deleted));
+    await workspaceDeploy(storage, REPO, other, 'notes', '2.0.0');
+    const emptied = (await heldRef(storage, REPO, other, 'notes')).versions;
+    assert.deepEqual([emptied.get(PENDING_SLOT), emptied.get(EXTERNAL_SLOT)], ['erp', 'erp']);
+  });
+
+  it('R32 — a compaction empties the commit a source\'s last delivery names, and keeps the delivery', async () => {
+    const applied = await sourceDelivered(storage, REPO, WS, 'records/notes', 'erp', '2026-11-02T03:00:00.000');
+    const saved = await patch([[variant('own', 'P-2'), variant('insert', acme)]]);
+    assert.equal(saved.kind, 'committed', JSON.stringify(saved));
+    const slots = sourceLoadSlots('erp');
+    const before = (await heldRef(storage, REPO, WS, 'notes')).versions;
+    assert.equal(before.get(slots.commit), applied, 'a Save carries the delivery\'s slots as they are');
+
+    const compacted = await recordCompact(storage, REPO, WS, 'notes', { actor: 'ada@example.com' });
+    assert.equal(compacted.kind, 'committed', JSON.stringify(compacted));
+    const after = (await heldRef(storage, REPO, WS, 'notes')).versions;
+    assert.equal(after.get(slots.commit), '', 'the chain no longer holds the commit, and the slot names none');
+    for (const slot of [slots.delivery, slots.load, slots.execution, slots.asOf, EXTERNAL_SLOT]) {
+      assert.equal(after.get(slot), before.get(slot), `${slot} is carried`);
+    }
+    assert.deepEqual((await recordHistory(storage, REPO, WS, 'notes')).map(({ commit }) => commit.mutation), ['$compact']);
   });
 
   describe('a call\'s draft', () => {
@@ -306,11 +389,38 @@ describe('a composite record: an external entry is never written (the mutation\'
       const outcome = await mutate(mutation, [...args]);
       assert.equal(outcome.kind, 'committed', `${mutation}: ${JSON.stringify(outcome)}`);
     }
-    const ref = await storage.datasets.read(repo, WS, 'records/orders');
-    if (ref === null || ref.type !== 'value') assert.fail('the record holds no state');
-    const state = await readRecordState(storage, repo, ref.value.hash);
+    const state = await readRecordState(storage, repo, (await heldRef(storage, repo, WS, 'orders')).hash);
     const rows = decodeOrders(await readDatasetWhole(storage, repo, state.primary));
     assert.ok(sameOrders(rows, new SortedMap<OrderKey, OrderRow>([[variant('own', 'P-2'), acme], [variant('own', 'P-3'), acme], [variant('own', 'P-4'), birch]], compareFor(OrdersKey))));
     assert.ok(state.indexes.has('by_customer'), 'its index maintained by each write');
+  });
+
+  it('R78 — a migration that makes a record composite leaves a source it put rows under not waiting, and one it left none under waiting', async () => {
+    // A workspace of its own: the record the others deploy is not this package's
+    const books = 'books';
+    await workspaceCreate(storage, repo, books);
+    /** Export, import and deploy a version of `book`. */
+    const deployBook = async (version: '1.0.0' | '2.0.0' | '2.1.0'): Promise<void> => {
+      const zip = join(dir, `book-${version}.zip`);
+      await e3.export(bookPackage(version), zip);
+      await packageImport(storage, repo, zip);
+      await workspaceDeploy(storage, repo, books, 'book', version, { runner });
+    };
+    const held = () => heldRef(storage, repo, books, 'book');
+
+    await deployBook('1.0.0');
+    await deployBook('2.0.0');
+    assert.deepEqual((await recordHistory(storage, repo, books, 'book')).map(({ commit }) => commit.mutation), ['$reindex', '$migrate:by_source', '$init']);
+    const migrated = await held();
+    assert.deepEqual([migrated.versions.get(PENDING_SLOT), migrated.versions.get(EXTERNAL_SLOT)], ['wms', 'erp,wms'],
+      'erp holds the rows carried over, and does not wait; wms holds none, and waits');
+    const rows = decodeBeast2For(Book)(await readDatasetWhole(storage, repo, (await readRecordState(storage, repo, migrated.hash)).primary));
+    assert.ok(equalFor(Book)(rows, new SortedMap<ValueTypeOf<typeof BookKey>, OrderRow>(
+      [[variant('erp', 'SO-1001'), acme], [variant('erp', 'SO-1002'), birch]], compareFor(BookKey))), 'each row under the source that owns it');
+
+    // A source handed to a load later, over a state that names its rows and an index: it holds no row, and waits too
+    await deployBook('2.1.0');
+    const handed = await held();
+    assert.deepEqual([handed.versions.get(PENDING_SLOT), handed.versions.get(EXTERNAL_SLOT)], ['own,wms', 'erp,own,wms']);
   });
 });

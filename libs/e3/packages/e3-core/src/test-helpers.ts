@@ -26,6 +26,7 @@ import type { BackendDamage } from './contract/index.js';
 import { checkHash, checkId } from './errors.js';
 import type { DetachedResult } from './execution/interfaces.js';
 import { openZip } from './package-files.js';
+import { PENDING_SLOT, pendingSources, sourceLoadSlots, sourcesSlot } from './record-slots.js';
 import type { InMemoryStorage } from './storage/in-memory/InMemoryStorage.js';
 import { executionPath } from './storage/local/localHelpers.js';
 import { repoInit } from './storage/local/repository.js';
@@ -344,6 +345,48 @@ export function writableStrings(names: readonly string[]): Structure {
   return variant('struct', new Map(names.map((name): [string, Structure] => [
     name, variant('value', { type: toEastTypeValue(StringType), writable: true }),
   ])));
+}
+
+/**
+ * Writes a composite record's ref as a load's commit leaves it for one of its
+ * external sources: the source's last delivery named — by the record's state
+ * and its head commit, which stand in for the delivery's objects — as of
+ * `asOf`, and the source no longer waited for.
+ *
+ * @remarks
+ * For a spec of what a deploy or a compaction does to the slots of a
+ * delivery, which needs no load to have run: the record's rows and its
+ * history are left as they are.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param ws - The workspace
+ * @param refPath - The record's ref path, such as `records/orders`
+ * @param source - The external source
+ * @param asOf - The time the delivery says its data is as of, as East prints
+ *   a DateTime
+ * @returns The commit the slots name as the one that applied the delivery
+ * @throws {Error} When the record holds no state
+ */
+export async function sourceDelivered(
+  storage: StorageBackend, repo: string, ws: string, refPath: string, source: string, asOf: string,
+): Promise<string> {
+  const held = await storage.datasets.read(repo, ws, refPath);
+  if (held === null || held.type !== 'value') throw new Error(`record '${refPath}' holds no state`);
+  const head = held.value.versions.get(`.${refPath.split('/').join('.')}`);
+  if (head === undefined) throw new Error(`record '${refPath}' names no head commit`);
+  const slots = sourceLoadSlots(source);
+  const versions = new Map(held.value.versions);
+  versions.set(slots.delivery, held.value.hash);
+  versions.set(slots.load, held.value.hash);
+  versions.set(slots.commit, head);
+  versions.set(slots.execution, `${held.value.hash}/${head}`);
+  versions.set(slots.asOf, asOf);
+  const waiting = sourcesSlot(pendingSources(versions).filter((name) => name !== source));
+  if (waiting === undefined) versions.delete(PENDING_SLOT);
+  else versions.set(PENDING_SLOT, waiting);
+  await storage.datasets.write(repo, ws, refPath, variant('value', { hash: held.value.hash, versions }));
+  return head;
 }
 
 /**

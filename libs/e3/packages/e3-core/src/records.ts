@@ -54,6 +54,7 @@ import {
   type Structure,
 } from '@elaraai/e3-types';
 import { DeltaConflictError, ExternalEntryError, SummaryIntegrityError, applyDelta, applyDeltaEntries, type DeltaEntry } from './record-apply.js';
+import { compactedSourceSlots, deploySourceSlots, genesisSourceSlots, slotNames } from './record-slots.js';
 import { readManifest, readRecordStateObject } from './dataset-open.js';
 import { storedDatasetValue } from './dataset-adopt.js';
 import { manifestCutElsewhere } from './store-collection.js';
@@ -297,8 +298,7 @@ export interface RecordRef {
  *   deployed before a migration could be declared
  */
 export function appliedMigrations(versions: ReadonlyMap<string, string>): string[] {
-  const slot = versions.get(SCHEMA_SLOT);
-  return slot === undefined || slot === '' ? [] : slot.split(',');
+  return slotNames(versions, SCHEMA_SLOT);
 }
 
 /** A list of migration steps' names as a refusal says it. */
@@ -1966,21 +1966,26 @@ export async function commitDeployIndexes(
 }
 
 /**
- * What a deploy commits to one record once its refs are written.
+ * What a deploy commits to one record once its refs are written. Each but an
+ * `unassign` names the record's external sources, as the package being
+ * deployed declares them: none for a record that has no sources.
  */
 export type DeployRecordCommit =
   /** Minted from the package's initial value: a `$init` root commit, and the
    *  whole chain counted applied, since the value is at the package's type. */
-  | { kind: 'mint'; path: string; state: string; applied: readonly string[] }
+  | { kind: 'mint'; path: string; state: string; applied: readonly string[]; external: readonly string[] }
   /** Kept as the workspace holds it: its ref restored, and a `$deploy` commit
    *  when the package under it changed, so its history says so. */
-  | { kind: 'keep'; path: string; prior: RecordRef; deployed: boolean }
+  | { kind: 'keep'; path: string; prior: RecordRef; deployed: boolean; external: readonly string[] }
   /** Migrated: a `$migrate:<name>` commit per step over that step's state,
    *  chained onto the ref's head, and the whole chain counted applied. */
-  | { kind: 'migrate'; path: string; prior: RecordRef; steps: readonly { name: string; state: string }[]; applied: readonly string[] }
+  | {
+    kind: 'migrate'; path: string; prior: RecordRef; steps: readonly { name: string; state: string }[]; applied: readonly string[];
+    external: readonly string[];
+  }
   /** Reset to the package's initial value: a `$reset` root commit, and the
    *  whole chain counted applied. */
-  | { kind: 'reset'; path: string; prior: RecordRef; state: string; applied: readonly string[] }
+  | { kind: 'reset'; path: string; prior: RecordRef; state: string; applied: readonly string[]; external: readonly string[] }
   /** Sent back to unassigned under the `reset` policy, for a record declared
    *  with no initial value: its ref unassigned and its chain dropped, as a
    *  `$reset` drops it, for its first state to be committed again. */
@@ -2007,6 +2012,17 @@ export type DeployRecordCommit =
  * - an `unassign` writes no commit: the ref goes back to unassigned, and the
  *   chain and every slot go with it, as a `$reset` drops them, for the
  *   record's first state to be committed again.
+ *
+ * And to the slots of a composite record's external sources
+ * (`record-slots.ts`):
+ * - `$init` and `$reset` name every external source in `$pending` and
+ *   `$external`: its readers wait for each one's first delivery. A `$reset`
+ *   drops every delivery the ref remembered;
+ * - `$deploy` and `$migrate` reconcile them ({@link deploySourceSlots}): a
+ *   source new to the external set waits only when the state committed holds
+ *   no entry of it, one no longer external has its delivery forgotten, and a
+ *   migration forgets each external source's delivery but its as-of;
+ * - a record kept under the same package keeps its ref as it is.
  *
  * Deploy holds the workspace lock exclusively, so every ref write here is
  * uncontended, and the tasks lock, since a migration's states are named by
@@ -2045,6 +2061,7 @@ export async function commitDeployRecords(
           versions: nextVersions(undefined, selfKeypath, head, {
             [SCHEMA_SLOT]: schema,
             [MIGRATIONS_SLOT]: migrationsSlot(commit.applied.map((name) => [name, { at, commit: head }] as const)),
+            ...genesisSourceSlots(undefined, commit.external),
           }),
         }));
         break;
@@ -2052,7 +2069,8 @@ export async function commitDeployRecords(
       case 'keep': {
         const versions = commit.deployed
           ? nextVersions(commit.prior.versions, selfKeypath,
-            await system(commit.prior.versions.get(selfKeypath), commit.prior.hash, '$deploy'))
+            await system(commit.prior.versions.get(selfKeypath), commit.prior.hash, '$deploy'),
+            await deploySourceSlots(storage, repo, commit.prior.versions, commit.external, commit.prior.hash, false))
           : new Map(commit.prior.versions);
         await storage.datasets.write(repo, ws, commit.path, variant('value', { hash: commit.prior.hash, versions }));
         break;
@@ -2066,9 +2084,11 @@ export async function commitDeployRecords(
           head = await system(head, step.state, `$migrate:${step.name}`);
           applied.set(step.name, { at, commit: head });
         }
+        const migrated = commit.steps[commit.steps.length - 1]!.state;
         await storage.datasets.write(repo, ws, commit.path, variant('value', {
-          hash: commit.steps[commit.steps.length - 1]!.state,
+          hash: migrated,
           versions: nextVersions(commit.prior.versions, selfKeypath, head!, {
+            ...await deploySourceSlots(storage, repo, commit.prior.versions, commit.external, migrated, true),
             [SCHEMA_SLOT]: schema,
             [MIGRATIONS_SLOT]: migrationsSlot(commit.applied.flatMap((name) => {
               const known = applied.get(name);
@@ -2088,6 +2108,7 @@ export async function commitDeployRecords(
             [IDEM_COMMIT_SLOT]: undefined,
             [SCHEMA_SLOT]: schema,
             [MIGRATIONS_SLOT]: migrationsSlot(commit.applied.map((name) => [name, { at, commit: head }] as const)),
+            ...genesisSourceSlots(commit.prior.versions, commit.external),
           }, []),
         }));
         break;
@@ -2292,7 +2313,9 @@ export interface RecordCompactOptions {
  * (`parent: none`) over the current state and swing the ref to it. The prior
  * commit chain becomes unreachable and is reclaimed by GC; the state itself is
  * unchanged. The ref still says when each migration was applied, and names no
- * commit that applied one, since the chain no longer holds it.
+ * commit that applied one, since the chain no longer holds it; and so with the
+ * commit that applied each external source's last delivery, of a composite
+ * record.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -2347,6 +2370,9 @@ export async function recordCompact(
           owned[MIGRATIONS_SLOT] = migrationsSlot(
             [...migrationsApplied(existing.ref.value.versions)].map(([name, { at }]) => [name, { at }] as const));
         }
+        // And the commit that applied each source's last delivery: the slot
+        // still says the source holds the delivery, and names no commit
+        Object.assign(owned, compactedSourceSlots(existing.ref.value.versions));
         await storage.datasets.writeIf(
           repo, ws, resolved.refPath,
           variant('value', {
