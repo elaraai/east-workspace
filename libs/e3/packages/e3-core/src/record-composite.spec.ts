@@ -27,11 +27,14 @@ import {
   type PatchTypeOf, type ValueTypeOf,
 } from '@elaraai/east';
 import e3 from '@elaraai/e3';
-import { ExecuteResultType, MutationObjectType, type ExecuteResult, type FunctionDraft, type RecordSource } from '@elaraai/e3-types';
+import {
+  ExecuteResultType, MutationObjectType, decodeRecordLoadObject, decodeTaskObject, type ExecuteResult, type FunctionDraft, type RecordSource,
+} from '@elaraai/e3-types';
 import { readDatasetWhole } from './dataset-open.js';
 import { packageImport } from './package-files.js';
 import { EXTERNAL_SLOT, PENDING_SLOT, sourceLoadSlots } from './record-slots.js';
-import { readRecordState, recordCompact, recordDraftMutation, recordHistory, recordMutate } from './records.js';
+import { repoGc } from './gc.js';
+import { readRecordState, recordCompact, recordDraftMutation, recordHistory, recordMutate, resolveRecord } from './records.js';
 import { InMemoryStorage } from './storage/in-memory/InMemoryStorage.js';
 import type { StorageBackend } from './storage/interfaces.js';
 import { LocalStorage } from './storage/local/index.js';
@@ -393,6 +396,22 @@ describe('a composite record: an external entry is never written (the mutation\'
     const rows = decodeOrders(await readDatasetWhole(storage, repo, state.primary));
     assert.ok(sameOrders(rows, new SortedMap<OrderKey, OrderRow>([[variant('own', 'P-2'), acme], [variant('own', 'P-3'), acme], [variant('own', 'P-4'), birch]], compareFor(OrdersKey))));
     assert.ok(state.indexes.has('by_customer'), 'its index maintained by each write');
+  });
+
+  it('R70 — a collection keeps what a composite\'s load runs: its load object, the task object it names, the load\'s program and its merge', async () => {
+    const resolved = await resolveRecord(storage, repo, WS, 'orders');
+    const erp = resolved?.sources.get('erp');
+    if (erp?.type !== 'load') assert.fail('the deployed record names a load for its ERP source');
+    const load = decodeRecordLoadObject(await storage.objects.read(repo, erp.value));
+    const task = decodeTaskObject(await storage.objects.read(repo, load.task));
+    if (task.body.type !== 'east' || task.output.kind.type !== 'dict' || task.output.kind.value.merge.type !== 'some') {
+      assert.fail('a keyed load runs an East program whose pieces fold by its merge');
+    }
+    const named = { load: erp.value, task: load.task, program: task.body.value.program, merge: task.output.kind.value.merge.value };
+
+    // Nothing but the package's record object names them: a sweep of everything unreached leaves each
+    await repoGc(storage, repo, { minAge: 0 });
+    for (const [what, hash] of Object.entries(named)) assert.ok(await storage.objects.exists(repo, hash), `the ${what} is kept`);
   });
 
   it('R78 — a migration that makes a record composite leaves a source it put rows under not waiting, and one it left none under waiting', async () => {
