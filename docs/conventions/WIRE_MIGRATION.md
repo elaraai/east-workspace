@@ -1485,3 +1485,41 @@ Each wire changed under this rule, with the kind it is.
   `Null` as before, so its IR holds no changed type and its package is not
   re-exported for this. No store keeps a start's answer, and a run's stored
   state and events keep their forms, so no repository upgrade step ships.
+- **A record object names its sources, and a mutation object the sources
+  it may write** — package-borne. `RecordObjectType` gains `sources`, a Dict
+  from each source's name to `load`, with the hash of the source's load
+  object, or `mutations`: none for a record `e3.record` declares, and one for
+  each source of a composite record (`e3.recordComposite`), whose key is a
+  Variant with a case for each. `MutationObjectType` gains `cases`, an Option
+  of the Set of the cases of the record's key the mutation may write: `none`
+  for a record with no sources, and the sources the record's own mutations
+  write for a composite, so a Save, the patch door and a call's draft refuse a
+  write of an entry only a load writes through one check. A struct's fields
+  encode by position, so a record or a mutation object an earlier SDK
+  exported does not decode: a read through it is refused, naming the fix
+  (`decodeRecordObject`, `decodeMutationObject`), and gc, which knows an
+  object without a tag by its current shape, walks neither. Re-export
+  packages with the current SDK. What a deploy records of a record's sources
+  rides the record's ref, in its version vector, under reserved keys
+  (`$pending`, the external sources yet to deliver; `$external`, the external
+  sources at the last deploy): the vector's type does not change, a commit
+  that owns no reserved key carries each as it is, and a record with no
+  sources has neither, so no repository upgrade step ships.
+- **A composite record's load is an object of its own** — package-borne; a
+  new kind. `RecordLoadObjectType` is `{ kind, key, delivery, feed, task }`:
+  the tag `$recordLoad`, the source's key type, the type of what it is
+  delivered, the dataset that feeds it when one does, and the hash of the
+  task object its load runs as, an ordinary `TaskObjectType`. It names another
+  object, so it carries a `kind` tag and landed with its GC test: a record
+  object reaches the load object of each external source, and a load object
+  its task object, which gc walks to its program, its merge and its
+  environment. Only a package the current SDK exports holds one.
+- **A record's signature names its sources** — the records' describe route's
+  answer. `RecordSignatureType` gains `sources`, an Array with an entry for
+  each source of a composite record — its name, its key type, whether its
+  load alone writes it, what it is delivered, the dataset that feeds it, its
+  last delivery, and whether the record still waits for its first — and none
+  for any other record. An answer of either release does not decode as the
+  other's: a client refuses a server's answer of the other release, naming
+  both types, and `e3`, e3-ui and the server they call are of one release, as
+  they were. No store keeps a signature.

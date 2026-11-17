@@ -840,7 +840,11 @@ with no initial value whose first state is not yet committed — is left
 waiting, and so are the tasks downstream of it: the run prints `[WAIT]` for
 each, naming the input, completes without them, counts them under `Waiting:`,
 and runs them once the input is set — in the same run, when it is set while
-the run is in flight.
+the run is in flight. So is a task whose input is a composite record, or an
+index of one, that has yet to hear from an external source: the record holds
+the solution's own entries alone until each has delivered once, and the line
+names the sources it waits for (`[WAIT] forecast: record 'orders' waits for
+the first delivery of erp`).
 
 After a successful run, the CLI prints the resolved task output paths so you can read them straight away without having to walk the tree:
 

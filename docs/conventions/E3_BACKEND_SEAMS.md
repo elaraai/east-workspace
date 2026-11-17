@@ -316,6 +316,20 @@ a job over several calls — a deploy's (`ProcessDeployDeps.lock`), an export's
 `acquireWorkspaceExclusive`, or its job would wait behind a run people keep
 editing under.
 
+**A composite record adds no seam.** What a record's sources are is
+package-borne — its record object names them, an external one by its load
+object — and what a deploy records of them rides the record's ref, in its
+version vector, under reserved keys (`$pending`, `$external`; e3-core
+`record-slots.ts`), which every dataset ref store keeps whole as it keeps any
+entry of the vector. So the refusal of a write to an entry only a load writes
+(`record-apply.ts`), the wait of a task whose record has yet to hear from a
+source (`dataflowResolveInputs`, which reads `$pending` before the record's
+state) and the refusal of a function's call over such a record
+(`pinCallArguments`) are shared, and a backend writes nothing for them. A
+host that runs its own loop in place of the shared class takes the steps as
+they are: `stepPrepareTask` answers each input a task cannot read with why
+(`InputWait`), and `stepTasksWaiting` takes them.
+
 **A route factory takes its seams as arguments.** Each is exported from
 e3-api-server and given the storage, a repository's identifier from its name,
 and, as it needs them, the transfer backend, each repository's runner, for
@@ -459,7 +473,9 @@ workspace's intent, which a run asks for once a second. Its cases are a result
 landing though its input moved, a change travelling a task at a time, a
 catch-up run and two tasks sharing one, a deferral, a wake, a deploy, an
 export, a copy and a removal stopping a run, and a run that yielded taken up
-by a second orchestrator.
+by a second orchestrator. Beside them, on the mock runner, are a task left
+waiting on an input nothing has set, and one left waiting on a composite
+record until each external source has delivered once.
 
 - A behaviour every backend must have is a case in the suite, not in one
   implementation's spec. A case only one implementation needs — the file
