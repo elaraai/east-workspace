@@ -32,6 +32,7 @@ import { editingMessages } from "@elaraai/east-ui-components";
 import { announced, layOut } from "@elaraai/east-ui-components/testing";
 import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
+import { boundFrame } from "../../sheet/frame.test-utils.js";
 import { rowKeyOf, type PlanRowId } from "../model.js";
 import { carry, carrySaid, dragTo, keyOn } from "../plan-move.test-utils.js";
 import { act, drawnFrom, el, elementKey, entry, madeFrom, planHarness, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
@@ -1276,6 +1277,7 @@ describe("a kind landing on the rows beneath its resource: a drop writes what pl
     const PRESS_3 = entry("press", "P03");
     const WASH_3 = kindRow("P03", "blanket_wash");
     const INK_3 = kindRow("P03", "ink_fill");
+    const PLATES_3 = kindRow("P03", "plate_check");
     const ROLLERS_4 = kindRow("P04", "roller_wash");
     /** A task's tile on a row. */
     const task = (c: HTMLElement, key: string, row: PlanRowId) => c.querySelector<HTMLElement>(`${rowAt(row)} ${el("data-event", "task", key)}`);
@@ -1326,6 +1328,56 @@ describe("a kind landing on the rows beneath its resource: a drop writes what pl
         await drop(task(c, "T-01", WASH_3)!, { x: xAt(1), y: y(WASH_3) + AM }, { x: xAt(3), y: y(ROLLERS_4) + AM });
         expect(task(c, "T-01", WASH_3)).toBeNull();
         expect(cellOf(task(c, "T-01", ROLLERS_4))).toBe("3:0");
+    });
+
+    /** A task as the record holds it now. */
+    const taskHeld = async (key: string) => (await h.read(ex.planPressTaskRows)).get(key)!;
+    const sameKind = equalFor(ex.PressTaskKind);
+    const sameHalf = equalFor(ex.PressHalf);
+    const sameDay = equalFor(DateTimeType);
+
+    test("on the works' page, its machines read a page at a time and its tasks a cell at a time: a task dragged onto another kind's row, into the afternoon, is a draft, and Save writes its kind and its half", async () => {
+        // Its canvas is bounded: laid out, its paged rows mount.
+        const restore = boundFrame(2000);
+        try {
+            const { container: c } = await h.mount(ex.planPressTasks, DRAG);
+            await settle();
+            await waitFor(() => expect(task(c, "T-01", WASH_3)).not.toBeNull());
+            const y = layOutPlots(c, [WASH_3, INK_3, ROLLERS_4]);
+            await drop(task(c, "T-01", WASH_3)!, { x: xAt(1), y: y(WASH_3) + AM }, { x: xAt(1), y: y(INK_3) + PM });
+            expect(task(c, "T-01", WASH_3)).toBeNull();
+            expect(cellOf(task(c, "T-01", INK_3))).toBe("1:1");
+            expect(pending(c)).toBe("1 pending");
+            await press(historyButton(c, SAVE));
+            await waitFor(() => expect(pending(c)).toBe("0 pending"));
+            const held = await taskHeld("T-01");
+            expect([sameKind(held.kind, variant("ink_fill", null)), sameHalf(held.half, variant("pm", null)), held.press, sameDay(held.day, new Date("2026-10-06T00:00:00Z"))])
+                .toEqual([true, true, "P03", true]);
+            // Saved, it draws where it was let go.
+            await waitFor(() => expect(cellOf(task(c, "T-01", INK_3))).toBe("1:1"));
+        } finally {
+            restore();
+        }
+    });
+
+    test("on one press's own page, which draws no row of the press: a task dragged to its row's other lane is a draft, and Save writes its half alone", async () => {
+        const restore = boundFrame(2000);
+        try {
+            const { container: c } = await h.mount(ex.planOnePress, DRAG);
+            await settle();
+            await waitFor(() => expect(task(c, "T-04", PLATES_3)).not.toBeNull());
+            const y = layOutPlots(c, [WASH_3, INK_3, PLATES_3]);
+            // Thursday 8 October's plate check, from the morning to the afternoon.
+            await drop(task(c, "T-04", PLATES_3)!, { x: xAt(3), y: y(PLATES_3) + AM }, { x: xAt(3), y: y(PLATES_3) + PM });
+            expect(cellOf(task(c, "T-04", PLATES_3))).toBe("3:1");
+            await press(historyButton(c, SAVE));
+            await waitFor(() => expect(pending(c)).toBe("0 pending"));
+            const held = await taskHeld("T-04");
+            expect([sameKind(held.kind, variant("plate_check", null)), sameHalf(held.half, variant("pm", null)), held.press, sameDay(held.day, new Date("2026-10-08T00:00:00Z"))])
+                .toEqual([true, true, "P03", true]);
+        } finally {
+            restore();
+        }
     });
 
     test("a press's own row is no destination for a task: a drag rests on it over nothing, and the drop moves nothing", async () => {

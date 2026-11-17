@@ -1593,11 +1593,13 @@ export const planPressTaskRows = e3.record("plan_press_tasks", DictType(StringTy
         ["T-08", pressTask("Wash rollers", "P04", "roller_wash", 4, "am")],
     ]),
     indexes: (index) => ({
-        // The works' rail: the tasks by their day.
+        // The works' rail: the tasks by their day, and the days a window holds — each task an instant, its end its start.
         plan_press_tasks_by_day: index.on(["day"]),
-        // A press's page: its scope's press alone, which its search reads through; then its rail's days.
+        plan_press_tasks_by_time: index.interval({ from: "day", to: "day" }),
+        // A press's page: its scope's press alone, which its search reads through; then its rail's days, and a window's.
         plan_press_tasks_by_press: index.on(["press"]),
         plan_press_tasks_by_press_day: index.on(["press", "day"]),
+        plan_press_tasks_by_press_time: index.interval({ on: ["press"], from: "day", to: "day" }),
         // The tasks a press at a time, a cell at a time, and their totals: each task an instant, its end its start.
         plan_press_tasks_by_press_week: index.series({ key: "press", from: "day", to: "day", tile: "week" }),
         plan_press_tasks_by_press_month: index.summary({ key: "press", from: "day", to: "day", tile: "month" }),
@@ -1639,7 +1641,7 @@ export const planPressTasks = example({
                 },
                 task: {
                     source: Data.bindPaged(planPressTaskRows, {
-                        indexes: ["plan_press_tasks_by_day", "plan_press_tasks_by_press_week", "plan_press_tasks_by_press_month"],
+                        indexes: ["plan_press_tasks_by_day", "plan_press_tasks_by_time", "plan_press_tasks_by_press_week", "plan_press_tasks_by_press_month"],
                     }),
                     label: "Press tasks", icon: { prefix: "fas", name: "list-check" }, fields: { day: { label: "Days" } }, range: "day",
                 },
@@ -1727,7 +1729,10 @@ export const planOnePress = example({
                 },
                 task: {
                     source: Data.bindPaged(planPressTaskRows, {
-                        indexes: ["plan_press_tasks_by_press", "plan_press_tasks_by_press_day", "plan_press_tasks_by_press_week", "plan_press_tasks_by_press_month"],
+                        indexes: [
+                            "plan_press_tasks_by_press", "plan_press_tasks_by_press_day", "plan_press_tasks_by_press_time",
+                            "plan_press_tasks_by_press_week", "plan_press_tasks_by_press_month",
+                        ],
                     }),
                     scope: { press: [press] },
                     label: "Tasks", icon: { prefix: "fas", name: "list-check" }, fields: { day: { label: "Days" } }, range: "day",
