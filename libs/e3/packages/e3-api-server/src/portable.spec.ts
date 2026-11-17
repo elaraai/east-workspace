@@ -38,7 +38,8 @@ import {
 import * as portable from './portable.js';
 import * as root from './index.js';
 import {
-  DataflowExecutionStateType, DataflowRequestType, ErrorType, ExecuteResultType, OneShotRequestType, ResponseType, type DataflowExecutionState,
+  DataflowExecutionStateType, DataflowRequestType, DataflowStartResultType, ErrorType, ExecuteResultType, OneShotRequestType, ResponseType,
+  type DataflowExecutionState,
 } from './types.js';
 
 /** e3-api-server's sources: the spec runs from `dist/src`. */
@@ -314,7 +315,10 @@ describe('an app mounted from the portable entry alone', () => {
       body: encodeBeast2For(DataflowRequestType)({ force: dataflowForce(false), filter: none }),
     });
     assert.equal(started.status, 202);
-    assert.deepEqual(decodeBeast2For(ResponseType(NullType))(await bytes(started)), variant('success', null));
+    const StartAnswer = ResponseType(DataflowStartResultType);
+    const answered = decodeBeast2For(StartAnswer)(await bytes(started));
+    assert.ok(equalFor(StartAnswer)(answered, variant('success', variant('started', null))),
+      `the start began a run, and is answered ${printFor(StartAnswer)(answered)}`);
 
     // A client polls the run's state, as the state store keeps it, until the
     // run has ended: a run that has recorded its end is answered `stopping`

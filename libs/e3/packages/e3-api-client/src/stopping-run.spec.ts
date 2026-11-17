@@ -16,7 +16,8 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { NullType, encodeBeast2For, none, some, variant, type EastType, type ValueTypeOf } from '@elaraai/east';
 import {
-  ApiDataflowExecutionStateType, BEAST2_CONTENT_TYPE, PackageJobResponseType, ResponseType, WorkspaceDeployStatusType, type Error as ApiErrorValue,
+  ApiDataflowExecutionStateType, BEAST2_CONTENT_TYPE, DataflowStartResultType, PackageJobResponseType, ResponseType, WorkspaceDeployStatusType,
+  type Error as ApiErrorValue,
 } from '@elaraai/e3-types';
 import { dataflowCancel, dataflowExecuteLaunch } from './executions.js';
 import { ApiError } from './http.js';
@@ -144,7 +145,9 @@ describe('a workspace a stopping run still holds (#1286)', () => {
 
   it('starts the dataflow once the run lets the workspace go', async () => {
     const { requests, fetch } = server({
-      'POST /api/repos/r/workspaces/ws/dataflow': [hinted(NullType), hinted(NullType), () => success(NullType, null, 202)],
+      'POST /api/repos/r/workspaces/ws/dataflow': [
+        hinted(DataflowStartResultType), hinted(DataflowStartResultType), () => success(DataflowStartResultType, variant('started', null), 202),
+      ],
     });
     await dataflowExecuteLaunch(BASE, 'r', 'ws', {}, { token: null, fetch });
     assert.equal(requests.length, 3);

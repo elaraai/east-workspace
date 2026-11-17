@@ -78,6 +78,7 @@ export {
   TaskDetailsType,
   // Execution
   DataflowRequestType,
+  DataflowStartResultType,
   LogChunkType,
   TaskLogChunkType,
   TaskExecutionResultType,
@@ -196,6 +197,7 @@ export type {
   TaskListItem,
   TaskDetails,
   DataflowRequest,
+  DataflowStartResult,
   LogChunk,
   TaskLogChunk,
   TaskExecutionResult,
@@ -321,6 +323,7 @@ import {
   TaskListItemType,
   TaskDetailsType,
   DataflowRequestType,
+  DataflowStartResultType,
   DataflowGraphType,
   DataflowGraphTaskType,
   LogChunkType,
@@ -448,6 +451,7 @@ export const ApiTypes = {
 
   // Execution
   DataflowRequestType,
+  DataflowStartResultType,
   DataflowGraphType,
   DataflowGraphTaskType,
   LogChunkType,

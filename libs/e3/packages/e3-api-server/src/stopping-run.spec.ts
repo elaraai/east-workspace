@@ -16,7 +16,7 @@
 import { describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { Hono } from 'hono';
-import { NullType, decodeBeast2For, encodeBeast2For, none, some, variant } from '@elaraai/east';
+import { NullType, decodeBeast2For, encodeBeast2For, none, some, variant, type EastType } from '@elaraai/east';
 import {
   InMemoryStateStore, LocalOrchestrator, MockTaskRunner, WorkspaceLockError, workspaceCreate,
   type DataflowExecutionState, type DataflowOrchestrator, type ExecutionStateStore,
@@ -26,7 +26,7 @@ import { BEAST2_CONTENT_TYPE, E3_RELEASE, dataflowForce } from '@elaraai/e3-type
 import { deleteWorkspace } from './handlers/workspaces.js';
 import { createExecutionRoutes } from './routes/executions.js';
 import { heldByStoppingRun } from './stopping-run.js';
-import { DataflowExecutionStateType, DataflowRequestType, ResponseType } from './types.js';
+import { DataflowExecutionStateType, DataflowRequestType, DataflowStartResultType, ResponseType } from './types.js';
 
 const REPO = 'test-repo';
 const WS = 'main';
@@ -170,7 +170,7 @@ describe('a run that is stopping (#1286)', () => {
         headers: { 'Content-Type': BEAST2_CONTENT_TYPE },
         body: encodeBeast2For(DataflowRequestType)({ force: dataflowForce(false), filter: none }),
       });
-      const answer = decodeBeast2For(ResponseType(NullType))(new Uint8Array(await response.arrayBuffer()));
+      const answer = decodeBeast2For(ResponseType(DataflowStartResultType))(new Uint8Array(await response.arrayBuffer()));
       return { refused: answer.type === 'error' ? answer.value.type : null, retryAfter: response.headers.get('retry-after') };
     };
     assert.deepEqual(await start(cancelling(inner)), { refused: 'workspace_locked', retryAfter: '1' });
@@ -204,8 +204,8 @@ describe('a run that is stopping (#1286)', () => {
   });
 
   it('names a wait for a refusal the run lets go of its locks just after, before the server asks why', async () => {
-    const answered = async (response: Response) => {
-      const answer = decodeBeast2For(ResponseType(NullType))(new Uint8Array(await response.arrayBuffer()));
+    const answered = async (response: Response, type: EastType = NullType) => {
+      const answer = decodeBeast2For(ResponseType(type))(new Uint8Array(await response.arrayBuffer()));
       return { refused: answer.type === 'error' ? answer.value.type : null, retryAfter: response.headers.get('retry-after') };
     };
 
@@ -256,6 +256,6 @@ describe('a run that is stopping (#1286)', () => {
       headers: { 'Content-Type': BEAST2_CONTENT_TYPE },
       body: encodeBeast2For(DataflowRequestType)({ force: dataflowForce(false), filter: none }),
     });
-    assert.deepEqual(await answered(response), { refused: 'workspace_locked', retryAfter: '1' });
+    assert.deepEqual(await answered(response, DataflowStartResultType), { refused: 'workspace_locked', retryAfter: '1' });
   });
 });
