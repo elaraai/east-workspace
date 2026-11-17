@@ -67,6 +67,17 @@ export interface PlanGrab {
     readonly mode: PlanMoveMode;
     /** Where it was pressed, as a window fraction. */
     readonly grabFrac: number;
+    /** The element's node, as it was pressed: where Connect's draft line starts (#1541, U10). */
+    readonly node?: Element | undefined;
+}
+
+/** Connect's draft in flight (#1541, U10): where the line from the pressed element ends now. */
+export interface PlanConnectDraft {
+    /** The pointer, in client px. */
+    readonly x: number;
+    readonly y: number;
+    /** The element of the event the link may end at, under the pointer: the line snaps to it. `undefined` over none, and over one the link is refused at. */
+    readonly onto: Element | undefined;
 }
 
 /** Where a gesture would land now — the row, and the extent there. */
@@ -120,11 +131,15 @@ export class PlanEditStore {
     carry: PlanCarry | null = null;
     /** The live region's last words. */
     said: PlanSaid | null = null;
+    /** Connect's draft, while its drag rests on a row (#1541, U10). */
+    connectDraft: PlanConnectDraft | null = null;
     /** Each element's movable, by its node — how a key finds what Space picks up. */
     private readonly nodes = new WeakMap<Element, PlanMovable>();
     /** The element to focus once the canvas has drawn a keyboard drop. */
     private focusAfter: { rowKey: RowKey; key: string } | null = null;
     private readonly listeners = new Set<() => void>();
+    /** Who draws Connect's draft: told on every step of the pointer, which no other listener hears. */
+    private readonly draftListeners = new Set<() => void>();
     private release: (() => void) | undefined;
 
     /** Listen to every change. */
@@ -135,6 +150,25 @@ export class PlanEditStore {
 
     private emit(): void {
         for (const l of [...this.listeners]) l();
+    }
+    /** Listen to Connect's draft alone: it moves with every step of the pointer. */
+    readonly subscribeDraft = (listener: () => void): (() => void) => {
+        this.draftListeners.add(listener);
+        return () => { this.draftListeners.delete(listener); };
+    };
+    /**
+     * Where Connect's draft line ends now (#1541, U10), or `null` once its drag is over. Heard only while a press
+     * is down.
+     *
+     * @param draft - The pointer, and the element the line snaps to
+     */
+    drawTo(draft: PlanConnectDraft | null): void {
+        if (draft === null && this.connectDraft === null) return;
+        // A line is drawn only while the press that started it is down: the drop's own last look at where it lands
+        // comes after the press has ended, and draws none.
+        if (draft !== null && this.release === undefined) return;
+        this.connectDraft = draft;
+        for (const l of [...this.draftListeners]) l();
     }
 
     /**
@@ -150,7 +184,8 @@ export class PlanEditStore {
         this.proposal = null;
         this.shift = false;
         const follow = (e: KeyboardEvent | PointerEvent) => { this.shift = e.shiftKey; };
-        const end = () => { this.release?.(); };
+        // The press over, Connect's draft line goes with it, landed or not.
+        const end = () => { this.release?.(); this.drawTo(null); };
         doc.addEventListener("keydown", follow, true);
         doc.addEventListener("keyup", follow, true);
         doc.addEventListener("pointermove", follow, true);
@@ -169,6 +204,7 @@ export class PlanEditStore {
     /** The drag ended — its grab and proposal go. */
     disarm(): void {
         this.release?.();
+        this.drawTo(null);
         if (this.grab === null && this.proposal === null) return;
         this.grab = null;
         this.proposal = null;

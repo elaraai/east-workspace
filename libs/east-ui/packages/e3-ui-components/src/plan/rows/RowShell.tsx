@@ -262,12 +262,17 @@ export function RowShell({
         store.propose({ rowKey: row.key, span, units: unitsBetween(scale, grab.grabFrac, frac, store.shift), fine: store.shift });
         return { grab, span };
     }, [store, scale, fracAt, row.key]);
-    /** The event element under a point in this row's plot, by its key — where an author's card lands (#1196, PB63). */
-    const eventAt = useCallback((clientX: number, clientY: number): string | undefined => {
+    /** The event element under a point in this row's plot — where an author's card lands (#1196, PB63), and Connect's line ends (#1541, U10). */
+    const eventNodeAt = useCallback((clientX: number, clientY: number): Element | undefined => {
         const hit = document.elementFromPoint(clientX, clientY)?.closest(PLAN_EVENT_ELEMENT_SELECTOR);
-        if (hit === null || hit === undefined || plotElRef.current?.contains(hit) !== true) return undefined;
-        return hit.getAttribute("data-run") ?? hit.getAttribute("data-event") ?? hit.getAttribute("data-chip") ?? hit.getAttribute("data-mark") ?? undefined;
+        return hit === null || hit === undefined || plotElRef.current?.contains(hit) !== true ? undefined : hit;
     }, []);
+    /** The event element under a point in this row's plot, by its key. */
+    const eventAt = useCallback((clientX: number, clientY: number): string | undefined => {
+        const hit = eventNodeAt(clientX, clientY);
+        if (hit === undefined) return undefined;
+        return hit.getAttribute("data-run") ?? hit.getAttribute("data-event") ?? hit.getAttribute("data-chip") ?? hit.getAttribute("data-mark") ?? undefined;
+    }, [eventNodeAt]);
     const resolveCoord = useCallback((clientX: number, clientY: number, payload: DragPayload): CellCoord => {
         const surface = drop?.surface ?? "";
         // The bucket under the pointer, by the shared frac→bucket resolver (#617): the exact right edge closes into the
@@ -283,6 +288,11 @@ export function RowShell({
         if (payload.kind !== "item" && eventTarget !== undefined && events?.connecting === true) {
             const slot = slotHere();
             const event = eventAt(clientX, clientY);
+            // The draft line follows the pointer wherever the drag rests on the row, and snaps to the event the link may
+            // end at: told here, where every step of the pointer is resolved, landing or not.
+            const grab = store?.grab;
+            const lands = grab !== null && grab !== undefined && events.connect(grab.movable, event).allowed;
+            store?.drawTo({ x: clientX, y: clientY, onto: lands ? eventNodeAt(clientX, clientY) : undefined });
             return event !== undefined ? { surface, row: row.key, slot, event } : { surface, row: row.key, slot };
         }
         if (payload.kind !== "item") {
@@ -295,7 +305,7 @@ export function RowShell({
         // An author's card lands on the event under the pointer (#1196): the coordinate names it.
         const event = eventTarget !== undefined && events?.landsOnEvent(payload.from.library) === true ? eventAt(clientX, clientY) : undefined;
         return event !== undefined ? { surface, row: row.key, slot, event } : { surface, row: row.key, slot };
-    }, [scale, drop?.surface, row.key, landing, fracAt, eventTarget, events, eventAt]);
+    }, [scale, drop?.surface, row.key, landing, fracAt, eventTarget, events, eventAt, eventNodeAt, store]);
     /** The landing the store holds for this row, when the drag rests on it — what the event kinds judge an element by. */
     const landingHere = useCallback((): PlanProposal | undefined => {
         const proposal = store?.proposal;

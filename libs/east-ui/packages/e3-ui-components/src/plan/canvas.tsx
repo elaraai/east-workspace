@@ -129,6 +129,7 @@ import { createPlanVeto, type PlanCanDropFn } from "./edit/candidate.js";
 import { PlanNarrow, PLAN_NARROW_BELOW } from "./narrow/index.js";
 import type { PlanNarrowPaging } from "./narrow/demand.js";
 import { LinksOverlay } from "./shell/LinksOverlay.js";
+import { ConnectOverlay } from "./shell/ConnectOverlay.js";
 import { linkedElement, ribbonBody, type LinkedElement, type RibbonBeyond } from "./shell/ribbon-layout.js";
 import type { PlanDiagnostics } from "./shell/Diagnostics.js";
 import type { PlanTransport } from "./shell/transport.js";
@@ -2339,14 +2340,18 @@ export function usePlanCanvas({
                     // canvas. `null` without a links focus, never
                     // omitted: the rows' box stays put, so no row
                     // remounts as the ribbons come and go.
-                    overlay={ribbonRows !== undefined && focusVisibleKeys !== undefined ? (
-                        <PlanPartBoundary part={LINKS_LAYER} resetKey={focusVisibleKeys} styles={styles}>
-                            <LinksOverlay styles={styles} links={data.links} visibleKeys={focusVisibleKeys}
-                                body={ribbonRows} beyond={beyond} scale={scale} element={linkedElementOf}
-                                gutterPx={gutterW}
-                                frame={frameFills ? frameRefs : undefined} unlink={unlink} />
-                        </PlanPartBoundary>
-                    ) : null}
+                    overlay={<>
+                        {ribbonRows !== undefined && focusVisibleKeys !== undefined ? (
+                            <PlanPartBoundary part={LINKS_LAYER} resetKey={focusVisibleKeys} styles={styles}>
+                                <LinksOverlay styles={styles} links={data.links} visibleKeys={focusVisibleKeys}
+                                    body={ribbonRows} beyond={beyond} scale={scale} element={linkedElementOf}
+                                    gutterPx={gutterW}
+                                    frame={frameFills ? frameRefs : undefined} unlink={unlink} />
+                            </PlanPartBoundary>
+                        ) : null}
+                        {/* Connect's draft line (#1541, U10), while its tool is held: with or without a links focus. */}
+                        {connecting !== undefined && <ConnectOverlay styles={styles} store={editStore} gutterPx={gutterW} />}
+                    </>}
                     count={body.items.length}
                     // Heights move at a constant count — a chart toggle, a
                     // focus stripping every other row, a band landing as
