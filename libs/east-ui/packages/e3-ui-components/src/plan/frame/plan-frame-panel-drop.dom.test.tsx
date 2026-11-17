@@ -89,9 +89,12 @@ function palettePlan(takes: "create" | "move", { misplaced = false, editable = t
         const onPatch = $.const(East.function([Plan.Types.PatchEvent(Press)], NullType, ($2, event) => {
             $2(lastBind.write(East.str`${event.origin.getTag()} · ${event.label}`));
         }));
-        // A job goes on a press; a card of another family is refused, and anything else moves.
+        // A job goes on a press; a card of another family is refused, and so is a copy of any card; anything else moves.
         const canDrop = $.const(East.function([Plan.Types.Candidate], OptionType(StringType), ($2, candidate) => {
             const said = $2.let(none, OptionType(StringType));
+            $2.match(candidate.gesture, { add: ($3, add) => {
+                $3.if(add.duplicate, ($4) => { $4.assign(said, some("A press takes no copy of a card")); });
+            } });
             $2.match(candidate.from, { card: ($3, card) => {
                 $3.if(cards.has(card.key).and(() => cards.get(card.key).family.equal("job")).not(), ($4) => {
                     $4.assign(said, some("Only a job goes on a press"));
@@ -211,6 +214,21 @@ describe("the library panel's cards on the rows that take them (#1259)", () => {
         expect(rowOf(c, "p1").hasAttribute("data-draft")).toBe(false);
         expect(runsOf(c, "p1")).toEqual([]);
         expect(slot(c, "footer")!.textContent).toContain("LAST · none");
+    });
+
+    test("the ghost says what the verdict is of: a card carried with Alt held is a copy, which `canDrop` refuses in its words", async () => {
+        const { container: c } = await h.mount(palettePlan("create"), DRAG);
+        await settle();
+        // Alt held as the drag rests on the press: the drop would be a copy.
+        fireEvent.pointerDown(cardOf(c, "job-poster"), { clientX: 0, clientY: 0 });
+        pointAt(cellOf(c, "p1"));
+        fireEvent.pointerMove(document, { clientX: 10, clientY: 10, altKey: true });
+        expect(cellOf(c, "p1").hasAttribute("data-drop-invalid")).toBe(true);
+        const said = document.querySelector("[data-drag-caption]");
+        expect([said?.textContent, said?.hasAttribute("data-refused")]).toEqual(["A press takes no copy of a card", true]);
+        fireEvent.pointerUp(document, { clientX: 10, clientY: 10, altKey: true });
+        await settle();
+        expect(runsOf(c, "p1")).toEqual([]);
     });
 
     test("from the keyboard: Space picks a card up in the panel, the arrows carry it onto a press and along its weeks, and Space drops it there", async () => {

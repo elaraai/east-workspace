@@ -42,7 +42,7 @@ import type { PlanWords } from "../words.js";
 import { spanWords } from "./movable.js";
 import type { PlanCarry, PlanEditStore, PlanMovable, PlanProposal, PlanSpan } from "./store.js";
 import { rowIdOfKey } from "../row-key.js";
-import { itemCandidate, type PlanCandidateGesture, type PlanCandidateValue, type PlanVeto } from "./candidate.js";
+import { itemCandidate, itemRef, type PlanCandidateGesture, type PlanCandidateValue, type PlanVeto } from "./candidate.js";
 
 /** One move, as the editing session writes it. */
 export interface PlanMoveRequest {
@@ -140,7 +140,7 @@ export function movedCandidate(movable: PlanMovable, to: PlanProposal): PlanCand
     if (row === undefined) return undefined;
     const origin = originOf(movable, to);
     const gesture = (origin.kind === "resize" ? variant("resize", variant(origin.edge, null)) : variant("move", null)) as PlanCandidateGesture;
-    return itemCandidate(gesture, row.value.series, variant("item", { row: movable.rowKey, key: movable.key }),
+    return itemCandidate(gesture, row.value.series, variant("item", itemRef(movable.rowKey, movable.key)),
         { row, start: to.span.start, end: to.span.end });
 }
 

@@ -12,13 +12,13 @@
  */
 
 import { describe, expect, test, vi } from "vitest";
-import { equalFor, none, some, variant, type option } from "@elaraai/east";
-import { PlanCandidateType } from "@elaraai/e3-ui/internal";
+import { equalFor, none, parseFor, some, variant, type option } from "@elaraai/east";
+import { Plan, PlanCandidateType } from "@elaraai/e3-ui/internal";
 import { timeAt } from "../plan.test-utils.js";
 import { rowKeyOf } from "../row-key.js";
 import { entry } from "../row-id.test-utils.js";
 import { movedCandidate } from "./use-carry.js";
-import { createPlanVeto, eventCandidate, itemCandidate, type PlanCandidateGesture, type PlanCandidateValue } from "./candidate.js";
+import { createPlanVeto, eventCandidate, itemCandidate, itemRef, type PlanCandidateGesture, type PlanCandidateValue } from "./candidate.js";
 import type { PlanMovable } from "./store.js";
 
 const sameCandidate = equalFor(PlanCandidateType);
@@ -79,6 +79,33 @@ describe("the candidate of a gesture on a data series' row", () => {
         expect(sameCandidate({ ...resized, gesture: MOVE }, {
             gesture: MOVE, into: variant("series", "press"), from: variant("item", { row: rowKeyOf(from), key: "j1" }), onto: none,
             row: some(from), lane: none, start: some(at("05")), end: some(at("09")),
+        })).toBe(true);
+    });
+});
+
+describe("an item of `data`'s, as a candidate names it", () => {
+    const readId = parseFor(Plan.Types.RowId);
+    /** A run of Press 3's jobs, in a row under a key of the canvas's. */
+    const run = (rowKey: string): PlanMovable => ({
+        key: "j1", rowKey, kind: "run", label: "J1", items: "Job", resize: true, span: { start: at("05"), end: at("06") },
+    } as unknown as PlanMovable);
+
+    test("by its row's id as East prints it, which reads back — never by the canvas's key for a row repeating an earlier one's id", () => {
+        const from = entry("press", "p03");
+        // A row repeating an earlier row's id keys as its id's text with `#n` after it.
+        const repeated = `${rowKeyOf(from)}#1`;
+        expect(itemRef(repeated, "j1")).toEqual({ row: rowKeyOf(from), key: "j1" });
+        expect(itemRef(rowKeyOf(from), "j1")).toEqual({ row: rowKeyOf(from), key: "j1" });
+        expect(readId(itemRef(repeated, "j1").row).success).toBe(true);
+    });
+
+    test("a moved item of a repeated row is named by the row's id: a check reads it back, and compares it with a row's own", () => {
+        const from = entry("press", "p03");
+        const to = entry("press", "p04");
+        const moved = movedCandidate(run(`${rowKeyOf(from)}#1`), { rowKey: `${rowKeyOf(to)}#2`, span: { start: at("07"), end: at("08") } })!;
+        expect(sameCandidate(moved, {
+            gesture: MOVE, into: variant("series", "press"), from: variant("item", { row: rowKeyOf(from), key: "j1" }), onto: none,
+            row: some(to), lane: none, start: some(at("07")), end: some(at("08")),
         })).toBe(true);
     });
 });

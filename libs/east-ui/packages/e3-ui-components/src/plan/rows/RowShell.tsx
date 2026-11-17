@@ -31,7 +31,7 @@ import { fromPlanSlot, toPlanSlot } from "../slot.js";
 import { spanWords } from "../edit/movable.js";
 import { usePlanEdit, type PlanProposal } from "../edit/store.js";
 import { holdsKey, movedCandidate } from "../edit/use-carry.js";
-import { itemCandidate, type PlanCandidateGesture, type PlanVeto } from "../edit/candidate.js";
+import { itemCandidate, itemRef, type PlanCandidateGesture, type PlanVeto } from "../edit/candidate.js";
 import type { PlanEventDrop } from "../edit/event-drag.js";
 import { LoadingWash, resolveColor } from "@elaraai/east-ui-components/internal";
 import { usePlanCursor, usePlanDispatch, usePlanGeometry, usePlanScale } from "../context.js";
@@ -331,7 +331,7 @@ export function RowShell({
         drop?.canDrop?.refusal(itemCandidate(
             variant("add", { duplicate }) as PlanCandidateGesture, row.id.value.series, variant("card", { library: from.library, key: from.key }),
             { row: row.id, start: slot === "" ? undefined : fromPlanSlot(scale.kind, slot) },
-            onto === undefined ? undefined : { row: row.key, key: onto })),
+            onto === undefined ? undefined : itemRef(row.key, onto))),
     [drop, row, scale]);
     /**
      * Why the Plan's `canDrop` refuses what a drag event would do on this row of `data`'s (#1541, U7); `undefined` where it
@@ -388,10 +388,11 @@ export function RowShell({
      * What the ghost says while the drag rests here (#1187): on an event kind's row, what lands where, or why not
      * (#1196); on one of `data`'s, why the Plan's `canDrop` refuses it (#1541, U7).
      */
-    const caption = useCallback((coord: CellCoord, payload: DragPayload): string | undefined => {
+    const caption = useCallback((coord: CellCoord, payload: DragPayload, _allowed?: boolean, duplicate = false): string | undefined => {
         if (eventTarget === undefined || events === undefined) {
             if (drop?.canDrop === undefined) return undefined;
-            if (payload.kind === "item") return cardRefusal(payload.from, coord.slot, coord.event, false);
+            // A card is asked as the verdict asks it: a copy where Alt is held.
+            if (payload.kind === "item") return cardRefusal(payload.from, coord.slot, coord.event, duplicate);
             const grab = store?.grab;
             const to = landingHere();
             const moved = grab === null || grab === undefined || to === undefined ? undefined : movedCandidate(grab.movable, to);

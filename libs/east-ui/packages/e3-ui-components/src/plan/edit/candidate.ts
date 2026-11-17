@@ -12,15 +12,18 @@
  * A veto that throws lets the drop land, as every target's does: a check that
  * is broken must not stop the surface. Its answers are kept while the check is
  * the same function, by the candidate as East prints it, so a drag resting
- * over a bucket asks once.
+ * over a bucket asks once — the drag layer's own rule for every East `canDrop`
+ * (east-ui-components' `keptDropCheck`).
  *
  * @packageDocumentation
  */
 
 import { none, printFor, some, variant, type ValueTypeOf, type option } from "@elaraai/east";
+import { keptDropCheck } from "@elaraai/east-ui-components/internal";
 import { PlanCandidateType } from "@elaraai/e3-ui/internal";
 import type { PlanInstantValue } from "../instant.js";
-import type { PlanRowId } from "../row-key.js";
+import type { RowKey } from "../plan-state.js";
+import { rowIdOfKey, rowKeyOf, type PlanRowId } from "../row-key.js";
 
 /** What a drop would do: a `Plan.Types.Candidate`, decoded. */
 export type PlanCandidateValue = ValueTypeOf<typeof PlanCandidateType>;
@@ -70,6 +73,25 @@ export function eventCandidate(
 }
 
 /**
+ * An item of `data`'s, as a candidate names it: the row it is in, by the row's
+ * id as East prints it, and its key there. A check reads the row back
+ * (`Plan.Types.RowId`) and compares it with a row's own.
+ *
+ * @remarks
+ * The canvas keys a row by its id's text, and a row repeating an earlier
+ * row's id by that text with `#n` after it, which is no id: a candidate names
+ * the id.
+ *
+ * @param rowKey - The canvas's key for the row
+ * @param key - The item's key in its row
+ * @returns The reference
+ */
+export function itemRef(rowKey: RowKey, key: string): { readonly row: string; readonly key: string } {
+    const id = rowIdOfKey(rowKey);
+    return { row: id === undefined ? rowKey : rowKeyOf(id), key };
+}
+
+/**
  * What a drop on a data series' row would do: a card landing, or one of the
  * series' items moved or resized.
  *
@@ -77,7 +99,7 @@ export function eventCandidate(
  * @param series - The data series it lands in, by its key
  * @param from - What is dragged: a library tab's card, or an item
  * @param place - Where it would land: the row, and its instants there
- * @param onto - The item it lands on, by its row's key and its own, where it lands on one
+ * @param onto - The item it lands on ({@link itemRef}), where it lands on one
  * @returns The candidate
  */
 export function itemCandidate(
@@ -115,21 +137,11 @@ const printCandidate = printFor(PlanCandidateType);
  */
 export function createPlanVeto(canDrop: PlanCanDropFn | undefined): PlanVeto | undefined {
     if (canDrop === undefined) return undefined;
-    const answers = new Map<string, string | undefined>();
+    const ask = keptDropCheck(canDrop, printCandidate, none, "[Plan] canDrop");
     return {
         refusal(candidate) {
-            const key = printCandidate(candidate);
-            if (answers.has(key)) return answers.get(key);
-            let said: string | undefined;
-            try {
-                const answer = canDrop(candidate);
-                said = answer.type === "some" ? answer.value : undefined;
-            } catch (err) {
-                // A broken check must not brick the surface: it lets the drop land.
-                console.error("[Plan] canDrop failed (allowing):", err);
-            }
-            answers.set(key, said);
-            return said;
+            const answer = ask(candidate);
+            return answer.type === "some" ? answer.value : undefined;
         },
     };
 }

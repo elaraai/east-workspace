@@ -16,13 +16,50 @@
  * broken validator must not brick the surface.
  */
 
-import { useMemo, useRef } from "react";
+import { useMemo } from "react";
 import { printFor } from "@elaraai/east";
 import { DragEventType } from "@elaraai/east-ui/internal";
 import type { DragEventValue, DropVeto } from "./drag-layer";
 
 /** The decoded IR predicate shape (`canDrop.unwrap("some")`). */
 export type CanDropFn = (candidate: DragEventValue) => boolean;
+
+/**
+ * A drop check with its answers kept, for as long as it is held: each distinct
+ * candidate is asked once, and a check that throws lets the drop land — its
+ * answer the one given for that — and says so on the console, once a candidate.
+ *
+ * @remarks
+ * A check is a pure East function, so its answer to a candidate moves only
+ * when the function does: a caller makes a new kept check for a new function.
+ * Every builder's `canDrop` is asked through this, whatever it is asked of and
+ * whatever it answers: a drag event to a Boolean ({@link useIRCanDrop}), a
+ * Plan's candidate to its refusal's words.
+ *
+ * @typeParam C - What the check is asked: a candidate
+ * @typeParam A - What it answers
+ * @param check - The check, decoded
+ * @param keyOf - A candidate's key: East's printing of it, so two candidates share an answer exactly when they are equal
+ * @param open - The answer that lets a drop land, given when the check throws
+ * @param label - Whose check it is, as the console names it: `[Plan] canDrop`
+ * @returns The check, its answers kept
+ */
+export function keptDropCheck<C, A>(check: (candidate: C) => A, keyOf: (candidate: C) => string, open: A, label: string): (candidate: C) => A {
+    const answers = new Map<string, A>();
+    return (candidate) => {
+        const key = keyOf(candidate);
+        if (answers.has(key)) return answers.get(key) as A;
+        let answer = open;
+        try {
+            answer = check(candidate);
+        } catch (err) {
+            // A broken check must not brick the surface: it lets the drop land.
+            console.error(`${label} failed (allowing):`, err);
+        }
+        answers.set(key, answer);
+        return answer;
+    };
+}
 
 /**
  * A candidate's cache key — East's own printing of the event, so two
@@ -61,21 +98,6 @@ export function canDropAllows(fn: CanDropFn | undefined, event: DragEventValue |
  * @returns The veto every cell of the target shares
  */
 export function useIRCanDrop(canDropFn: CanDropFn | undefined): DropVeto | undefined {
-    const verdicts = useRef(new Map<string, boolean>());
-    const lastFn = useRef<CanDropFn | undefined>(canDropFn);
-    if (lastFn.current !== canDropFn) {
-        lastFn.current = canDropFn;
-        verdicts.current = new Map();
-    }
-    return useMemo(() => {
-        if (canDropFn === undefined) return undefined;
-        return (candidate: DragEventValue): boolean => {
-            const key = verdictKey(candidate);
-            const hit = verdicts.current.get(key);
-            if (hit !== undefined) return hit;
-            const ok = canDropAllows(canDropFn, candidate);
-            verdicts.current.set(key, ok);
-            return ok;
-        };
-    }, [canDropFn]);
+    return useMemo(() => (canDropFn === undefined ? undefined
+        : keptDropCheck((candidate: DragEventValue) => canDropFn(candidate) === true, verdictKey, true, "[DnD] canDrop validator")), [canDropFn]);
 }

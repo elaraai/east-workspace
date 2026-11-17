@@ -57,7 +57,7 @@ export {
 export { createPickHandOff, usePickHandOff, type PickHandOff, type PickingSource } from "./collections/key-search/hand-off.js";
 // Density, the drag grammar's IR veto, and its slot codecs.
 export { DensityProvider, useDensity } from "./contracts/density.js";
-export { useIRCanDrop, type CanDropFn } from "./dnd/ir-can-drop.js";
+export { keptDropCheck, useIRCanDrop, type CanDropFn } from "./dnd/ir-can-drop.js";
 // A part's own pointers (`src/pointer/`): the one rule a gesture in flight is held to, a surface's handlers over it, a drag
 // that follows the pointer that pressed, and the fingers a surface holds.
 export { makeGestures, pointerState, type GestureHost, type Gestures, type PointerRead, type PointerState } from "./pointer/gestures.js";

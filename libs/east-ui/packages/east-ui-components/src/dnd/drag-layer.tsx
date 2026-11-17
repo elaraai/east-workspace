@@ -244,12 +244,14 @@ export interface DropCellOptions {
      * What the ghost says while the drag rests over the cell (#1187) — where
      * the drop would land (`Edge banding · after row 3`), or, when the cell
      * refuses it, why (the caption turns red) — at the coordinate the drag
-     * rests on, for what is dragged. `allowed` is the cell's verdict there.
-     * A drop it takes with a warning says so in the warning's ink (`{ text,
+     * rests on, for what is dragged. `allowed` is the cell's verdict there,
+     * and `duplicate` whether Alt is held, as the event that verdict was asked
+     * of says it: a caption that asks a check asks it of the same drop. A
+     * drop it takes with a warning says so in the warning's ink (`{ text,
      * warn: true }`: `to K-203 · under min`). Absent, or `undefined`, the
      * ghost goes alone.
      */
-    caption?: (coord: CellCoord, payload: DragPayload, allowed: boolean) => string | { text: string; warn?: boolean } | undefined;
+    caption?: (coord: CellCoord, payload: DragPayload, allowed: boolean, duplicate: boolean) => string | { text: string; warn?: boolean } | undefined;
 }
 
 interface CellRegistration extends DropCellOptions {
@@ -766,7 +768,7 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
                 el.removeAttribute("data-drop-active");
                 el.setAttribute("data-drop-invalid", "");
             }
-            caption.set(captionOf(cell.caption?.(coord, d.payload, allowed), !allowed));
+            caption.set(captionOf(cell.caption?.(coord, d.payload, allowed, track.altKey), !allowed));
             return;
         }
         // Over nothing the ghost goes alone; over a sink, with what its surface says of a return there.
