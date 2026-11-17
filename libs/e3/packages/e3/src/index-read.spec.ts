@@ -18,7 +18,7 @@ import assert from 'node:assert/strict';
 import {
   ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, RecursiveType, SetType, SortedMap,
   SortedSet, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, variant,
-  type EastType, type ValueTypeOf,
+  type EastType, type ExprType, type ValueTypeOf,
 } from '@elaraai/east';
 import { RecordLevelType, RecordNestedTotalsType, RecordSummaryTotalsType, type RecordSummaryTotals } from '@elaraai/e3-types';
 import { function_ } from './function.js';
@@ -27,7 +27,6 @@ import { NestedUnderType } from './index-read.js';
 import { input as input_ } from './input.js';
 import { output } from './output.js';
 import { record } from './record.js';
-import { NESTED_FNS } from './record-nested-programs.js';
 import { builtIndex, indexBuildProgram, summaryMergeProgram } from './record-programs.js';
 import { TILE_FNS, type RecordTile } from './record-tiles.js';
 import { partition, streamTask, task } from './task.js';
@@ -968,9 +967,15 @@ function teamsBeneath(teams: ReadonlyMap<string, Team>, path: readonly string[] 
 const TEAMS = [...YARDS].flatMap(([yard, row]) => teamsBeneath(row.teams).map((found) => ({ yard, ...found })));
 
 const PathType = ArrayType(StringType);
+/** The index's ids (#1540): a team's key under `teams`, a job's id under `teams.jobs`, each in its own type. */
+const YardIdType = yards.indexes.yards_in_time.keyType.fields.path.node.cases.step.fields.key;
+/** A node's keys as a reader is given them: each team's key an id of the index's, under the teams' case. */
+const teamIds = (path: ExprType<typeof PathType>) => path.map((_$, key) => East.value(variant('teams', key) as never, YardIdType));
 const MonthTotals = DictType(DateTimeType, RecordNestedTotalsType);
 const TileFloats = DictType(DateTimeType, FloatType);
-const BeneathType = DictType(NestedUnderType, JobRow);
+/** An item of a subtree, as the yards' index names it: the teams' keys down to the team holding it, and its id. */
+const UnderType = NestedUnderType(yards.indexes.yards_in_time);
+const BeneathType = DictType(UnderType, JobRow);
 
 // The plain tests, each a loop over what a node holds
 
@@ -1079,8 +1084,9 @@ const totalOf = East.compile(East.function([ArrayType(FloatType)], FloatType, (_
 /** The greatest of some Floats, of which there is one at least. */
 const greatestOf = East.compile(East.function([ArrayType(FloatType)], FloatType, (_$, values) =>
   values.reduce((_$, most, value) => East.max(most, value), values.get(0n))), []);
-/** A node's Dict keys as the index's key holds them: a path. */
-const pathOf = East.compile(NESTED_FNS.pathOf, []);
+/** A node's teams' keys as the index's key holds them: a path, each key under the teams' case. */
+const pathOf = (path: readonly string[]) =>
+  path.reduceRight<unknown>((rest, key) => variant('step', { key: variant('teams', key), rest }), variant('end', null)) as never;
 const tileStartOf = East.compile(TILE_FNS.tileStart, []);
 const tileNextOf = East.compile(TILE_FNS.tileNext, []);
 
@@ -1125,7 +1131,7 @@ describe('a nested series index\'s readers', () => {
 
   it('items: a node\'s own items that overlap a window, each once with its id, at every level it files at, for seeded windows', () => {
     const jobsOf = East.compile(East.function([...WINDOW], JobsType, ($, entries, yard, path, from, to) =>
-      inTime.read(entries).items({ collection: ['teams', 'jobs'], row: yard, path, from, to }).collect($)), []);
+      inTime.read(entries).items({ collection: ['teams', 'jobs'], row: yard, path: teamIds(path), from, to }).collect($)), []);
     let given = 0;
     for (const { yard, path, team } of TEAMS) {
       for (const w of WINDOWS) {
@@ -1147,7 +1153,7 @@ describe('a nested series index\'s readers', () => {
   it('items: the window\'s edges, an item past a year once, and no row or node that is not there', () => {
     const idsOf = East.compile(East.function([...WINDOW], ArrayType(StringType), ($, entries, yard, path, from, to) => {
       const ids = $.let([], ArrayType(StringType));
-      inTime.read(entries).items({ collection: ['teams', 'jobs'], row: yard, path, from, to }).each($, ($, _job, id) => { $(ids.pushLast(id)); });
+      inTime.read(entries).items({ collection: ['teams', 'jobs'], row: yard, path: teamIds(path), from, to }).each($, ($, _job, id) => { $(ids.pushLast(id)); });
       return ids;
     }), []);
     const deepest = ['T-1', 'T-1a', 'T-1a-i'];
@@ -1168,12 +1174,12 @@ describe('a nested series index\'s readers', () => {
     const filed = [...(held as SortedMap<Filed, unknown>).keys()];
     const idsOf = East.compile(East.function([...WINDOW], ArrayType(StringType), ($, entries, yard, path, from, to) => {
       const ids = $.let([], ArrayType(StringType));
-      inTime.read(entries).items({ collection: ['teams', 'jobs'], row: yard, path, from, to }).each($, ($, _job, id) => { $(ids.pushLast(id)); });
+      inTime.read(entries).items({ collection: ['teams', 'jobs'], row: yard, path: teamIds(path), from, to }).each($, ($, _job, id) => { $(ids.pushLast(id)); });
       return ids;
     }), []);
-    const beneathOf = East.compile(East.function([...WINDOW], ArrayType(NestedUnderType), ($, entries, yard, path, from, to) => {
-      const under = $.let([], ArrayType(NestedUnderType));
-      inTime.read(entries).subtree({ collection: ['teams', 'jobs'], row: yard, path, from, to }).each($, ($, _job, at) => { $(under.pushLast(at)); });
+    const beneathOf = East.compile(East.function([...WINDOW], ArrayType(UnderType), ($, entries, yard, path, from, to) => {
+      const under = $.let([], ArrayType(UnderType));
+      inTime.read(entries).subtree({ collection: ['teams', 'jobs'], row: yard, path: teamIds(path), from, to }).each($, ($, _job, at) => { $(under.pushLast(at)); });
       return under;
     }), []);
     const samePath = equalFor(inTime.index.keyType.fields.path);
@@ -1186,10 +1192,12 @@ describe('a nested series index\'s readers', () => {
         const own = idsOf(held, yard, path, w.from, w.to);
         const beneath = beneathOf(held, yard, path, w.from, w.to);
         given += own.length + beneath.length;
-        for (const entry of ofNode) if (entry.ik.item.type === 'id' && own.some((id) => keyOrder(id, entry.ik.item.value as string) === 0)) levels.add(entry.ik.level);
-        assert.ok(inIndexOrder(StringType, ofNode, (entry) => entry.ik.run.type === 'items' && entry.ik.item.type === 'id' ? entry.ik.item.value : undefined, own),
+        // A job's id is held under its collection's case of the index's ids.
+        const idOf = (entry: (typeof ofNode)[number]): string | undefined => entry.ik.item.type === 'id' ? (entry.ik.item.value as { value: string }).value : undefined;
+        for (const entry of ofNode) if (own.some((id) => idOf(entry) !== undefined && keyOrder(id, idOf(entry)!) === 0)) levels.add(entry.ik.level);
+        assert.ok(inIndexOrder(StringType, ofNode, (entry) => entry.ik.run.type === 'items' ? idOf(entry) : undefined, own),
           `the jobs of ${node(yard, path)} in ${window(w)} come in the index's order`);
-        assert.ok(inIndexOrder(NestedUnderType, ofNode, (entry) => entry.ik.run.type === 'subtree' && entry.ik.item.type === 'under' ? entry.ik.item.value : undefined, beneath),
+        assert.ok(inIndexOrder(UnderType, ofNode, (entry) => entry.ik.run.type === 'subtree' && entry.ik.item.type === 'under' ? entry.ik.item.value : undefined, beneath),
           `the jobs beneath ${node(yard, path)} in ${window(w)} come in the index's order`);
       }
     }
@@ -1199,9 +1207,9 @@ describe('a nested series index\'s readers', () => {
 
   it('items: instants, by the instant each is at; and values, each with its instant', () => {
     const checksOf = East.compile(East.function([...WINDOW], ChecksType, ($, entries, yard, path, from, to) =>
-      inTime.read(entries).items({ collection: ['teams', 'checks'], row: yard, path, from, to }).collect($)), []);
+      inTime.read(entries).items({ collection: ['teams', 'checks'], row: yard, path: teamIds(path), from, to }).collect($)), []);
     const hoursOf = East.compile(East.function([...WINDOW], HoursType, ($, entries, yard, path, from, to) =>
-      inTime.read(entries).items({ collection: ['teams', 'hours'], row: yard, path, from, to }).collect($)), []);
+      inTime.read(entries).items({ collection: ['teams', 'hours'], row: yard, path: teamIds(path), from, to }).collect($)), []);
     let checks = 0;
     let hours = 0;
     for (const { yard, path, team } of TEAMS) {
@@ -1229,7 +1237,7 @@ describe('a nested series index\'s readers', () => {
 
   it('subtree: the items of every node beneath a node that overlap a window, each once, with the keys down to the node holding it', () => {
     const beneathOf = East.compile(East.function([...WINDOW], BeneathType, ($, entries, yard, path, from, to) =>
-      inTime.read(entries).subtree({ collection: ['teams', 'jobs'], row: yard, path, from, to }).collect($)), []);
+      inTime.read(entries).subtree({ collection: ['teams', 'jobs'], row: yard, path: teamIds(path), from, to }).collect($)), []);
     // The yards themselves, each team, and one with none within it
     const parents = [
       ...[...YARDS].map(([yard, row]) => ({ yard, path: [] as string[], teams: row.teams })),
@@ -1238,9 +1246,9 @@ describe('a nested series index\'s readers', () => {
     let given = 0;
     for (const { yard, path, teams } of parents) {
       for (const w of WINDOWS.slice(0, 30)) {
-        const expected = new SortedMap<ValueTypeOf<typeof NestedUnderType>, Job>(undefined, compareFor(NestedUnderType));
+        const expected = new SortedMap<ValueTypeOf<typeof UnderType>, Job>(undefined, compareFor(UnderType));
         for (const within of teamsBeneath(teams)) {
-          for (const [id, row] of jobsIn(within.team.jobs, none, none, w.from, w.to)) expected.set({ path: pathOf(within.path), id }, row);
+          for (const [id, row] of jobsIn(within.team.jobs, none, none, w.from, w.to)) expected.set({ path: pathOf(within.path), id: variant('teams.jobs', id) }, row);
         }
         given += expected.size;
         assertEast(BeneathType, beneathOf(held, yard, path, w.from, w.to), expected, `the jobs beneath ${node(yard, path)} in ${window(w)}`);
@@ -1252,12 +1260,12 @@ describe('a nested series index\'s readers', () => {
   it('totals, subtreeTotals: a node\'s totals a month, and those of the items beneath it, for each month that overlaps a window', () => {
     const totalsOf = (place: readonly ['teams', 'jobs'] | readonly ['teams', 'checks'] | readonly ['teams', 'hours']) =>
       East.compile(East.function([...WINDOW], MonthTotals, ($, entries, yard, path, from, to) =>
-        inTime.read(entries).totals({ collection: place, row: yard, path, from, to }).collect($)), []);
+        inTime.read(entries).totals({ collection: place, row: yard, path: teamIds(path), from, to }).collect($)), []);
     const jobTotals = totalsOf(['teams', 'jobs']);
     const checkTotals = totalsOf(['teams', 'checks']);
     const hourTotals = totalsOf(['teams', 'hours']);
     const beneathTotals = East.compile(East.function([...WINDOW], MonthTotals, ($, entries, yard, path, from, to) =>
-      inTime.read(entries).subtreeTotals({ collection: ['teams', 'jobs'], row: yard, path, from, to }).collect($)), []);
+      inTime.read(entries).subtreeTotals({ collection: ['teams', 'jobs'], row: yard, path: teamIds(path), from, to }).collect($)), []);
     let months = 0;
     for (const { yard, path, team } of TEAMS) {
       for (const w of WINDOWS.slice(0, 30)) {
@@ -1302,7 +1310,7 @@ describe('a nested series index\'s readers', () => {
       for (const level of levels) {
         const subtotalsOf = East.compile(East.function([...WINDOW], TileFloats, ($, entries, yard, path, from, to) =>
           inTime.read(entries).subtotals({
-            collection: ['teams', 'hours'], row: yard, path, from, to, level,
+            collection: ['teams', 'hours'], row: yard, path: teamIds(path), from, to, level,
             rollup: rollup.fold === 'sum' ? 'sum' : { fold: 'last', aggregate: 'max' },
           }).collect($)), []);
         for (const { yard, path, hours, teams } of parents) {
@@ -1337,15 +1345,15 @@ describe('a nested series index\'s readers', () => {
       const total = $.let(0.0);
       const latest = $.let(from);
       // A value is its collection's Float, at its instant; an item its struct, by its id
-      readers.items({ collection: ['teams', 'hours'], row: yard, path: ['T-1', 'T-1b'], from, to }).each($, ($, hours, logged) => {
+      readers.items({ collection: ['teams', 'hours'], row: yard, path: [variant('teams', 'T-1'), variant('teams', 'T-1b')], from, to }).each($, ($, hours, logged) => {
         $.assign(total, total.add(hours));
         $.assign(latest, logged);
       });
-      readers.items({ collection: ['teams', 'jobs'], row: yard, path: ['T-1'], from, to }).each($, ($, job, id) => {
+      readers.items({ collection: ['teams', 'jobs'], row: yard, path: [variant('teams', 'T-1')], from, to }).each($, ($, job, id) => {
         $.if(East.equal(id, 'W-0001'), ($) => { $.assign(total, total.add(job.sheets)); });
       });
       readers.subtree({ collection: ['teams', 'jobs'], row: yard, from, to }).each($, ($, job, under) => {
-        $.if(East.equal(under.id, 'W-0001'), ($) => { $.assign(total, total.add(job.sheets)); });
+        $.if(East.equal(under.id as never, East.value(variant('teams.jobs', 'W-0001') as never, YardIdType)), ($) => { $.assign(total, total.add(job.sheets)); });
       });
       // @ts-expect-error — the index files no collection at ['teams']: its rows hold the collections
       assert.throws(() => readers.items({ collection: ['teams'], row: yard, from, to }), /items: the index files no collection at \["teams"\]/);
@@ -1396,7 +1404,7 @@ describe('a nested series index\'s readers', () => {
       output: FloatType,
     }, ($, yardsInTime, yard, path, from, to) => {
       const hours = $.let(0.0);
-      yardsInTime.items({ collection: ['teams', 'hours'], row: yard, path, from, to }).each($, ($, logged) => { $.assign(hours, hours.add(logged)); });
+      yardsInTime.items({ collection: ['teams', 'hours'], row: yard, path: teamIds(path), from, to }).each($, ($, logged) => { $.assign(hours, hours.add(logged)); });
       return hours;
     });
     const run = (fn.body as IRBundle).compile([]) as (...args: unknown[]) => number;

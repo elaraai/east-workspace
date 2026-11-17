@@ -20,11 +20,11 @@
  * @packageDocumentation
  */
 import {
-  DateTimeType, StringType, VariantType, isTypeEqual, printType, printTypeSummary, variant,
+  DateTimeType, VariantType, isTypeEqual, printType, printTypeSummary, variant,
   type ArrayType, type DictType, type EastType, type OptionType, type RecursiveType, type RecursiveTypeMarker, type RefType,
   type SetType, type StructType,
 } from '@elaraai/east';
-import type { NestedSpanKeyType, RecordNestedDecl, RecordRollup, RecordSummaryTotalsType } from '@elaraai/e3-types';
+import { NestedIdType, nestedIdCase, type NestedSpanKeyType, type RecordNestedDecl, type RecordRollup, type RecordSummaryTotalsType } from '@elaraai/e3-types';
 import { optionField, type OptionField, type RowType } from './record-keys.js';
 import type { RecordTile } from './record-tiles.js';
 import type { RecordIndexDef } from './types.js';
@@ -91,8 +91,9 @@ export interface SeriesRecursive {
 }
 
 /**
- * Declares a collection of things people drag: a Dict keyed by an id, its
- * items' times the fields named.
+ * Declares a collection of things people drag: a Dict keyed by an id — of any
+ * type a Dict is keyed by but a DateTime (#1540) — its items' times the fields
+ * named.
  *
  * @typeParam T - The times, as written, their field names kept as literal types
  * @typeParam O - The options, as written
@@ -124,8 +125,9 @@ export function values<const O extends SeriesValuesOptions = { readonly rollup?:
 }
 
 /**
- * Declares a collection of child rows: a Dict keyed by an id, holding rows
- * whose own collections are declared the same way.
+ * Declares a collection of child rows: a Dict keyed by an id — of any type a
+ * Dict is keyed by but a DateTime (#1540) — holding rows whose own collections
+ * are declared the same way.
  *
  * @typeParam C - The child rows' collections, as written
  * @param collections - Each collection field of the child row, declared with a builder of `index.nested`
@@ -192,13 +194,13 @@ export type SeriesCollectionFor<F extends string, V, Self> =
   V extends DictType<DateTimeType, EastType>
     ? SeriesValues
       | Misfit<`'${F}' is keyed by its instant: declare it with values()`>
-  : V extends DictType<StringType, infer I>
+  : V extends DictType<EastType, infer I>
     ? ([I] extends [Self] ? SeriesRecursive : never)
       | ([StructFields<I>] extends [never]
-          ? Misfit<`'${F}' holds no struct rows: things people drag and child rows are a Dict<String, Struct>`>
+          ? Misfit<`'${F}' holds no struct rows: things people drag and child rows are a Dict<K, Struct> keyed by an id`>
           : SeriesItems<SeriesTimes<I>> | SeriesRows<SeriesCollections<I, I>>
             | Misfit<`'${F}' is keyed by an id: declare it with items({ from, to }), items({ at }) or rows({ … })`>)
-  : Misfit<`'${F}' is not a Dict: a collection is a Dict<String, Item> keyed by an id, or a Dict<DateTime, V> keyed by its instant`>;
+  : Misfit<`'${F}' is not a Dict: a collection is a Dict<K, Item> keyed by an id, or a Dict<DateTime, V> keyed by its instant`>;
 
 /** The collections a row of type `V` nests, each by its field; `Self` is the type of the row listing them. */
 export type SeriesCollections<V, Self = V> = {
@@ -255,6 +257,10 @@ export interface NestedItems {
   readonly place: readonly string[];
   /** The group of nodes holding it. */
   readonly group: number;
+  /** Its Dict's key type: its items' ids' (#1540). */
+  readonly keyType: EastType;
+  /** The case its items' ids are under among the index's ids (`nestedIdCase` of its place). */
+  readonly idCase: string;
   /** Its items' struct. */
   readonly itemType: RowType;
   /** The field its items start at. */
@@ -297,6 +303,11 @@ export interface NestedGroup {
   readonly type: EastType;
   /** The group whose nodes hold its nodes, and the field they hold them in; none for the row's. */
   readonly parent: { readonly group: number; readonly field: string } | undefined;
+  /**
+   * What its nodes are keyed by beneath the node holding them (#1540): their Dict's key type, and the case their keys
+   * are under among the index's ids (`nestedIdCase` of their field's place); none for the row's, which the record keys.
+   */
+  readonly keyed: { readonly type: EastType; readonly idCase: string } | undefined;
   /** The field through which a node holds more nodes of the group, beside `recursive()`; none without. */
   readonly through: string | undefined;
   /** Its nodes' own collections. */
@@ -316,6 +327,11 @@ export interface NestedDeclaration {
   readonly declaration: RecordNestedDecl;
   /** The variant of the items the row's tree files: the row's group's. */
   readonly places: EastType;
+  /**
+   * The index's ids (#1540, e3-types' `NestedIdType`): a case for each collection of child rows and of items, by its
+   * place, holding its Dict's key type — what an entry's key holds a child row's key and an item's id as.
+   */
+  readonly idType: VariantType<Record<string, EastType>>;
 }
 
 /** A node's struct: the type itself, or a recursive node's struct. */
@@ -418,10 +434,23 @@ export function checkNested(constructor: string, name: string, rowType: EastType
   const groups: NestedGroup[] = [];
   // How many groups have taken their place: a group takes its own before its child groups take theirs.
   let placed = 0;
+  // The index's ids: each collection of child rows and of items, by its place's case, and its Dict's key type.
+  const ids: Record<string, EastType> = {};
+  // A collection keyed by an id takes its case of the index's ids: its place's field names joined, none holding a '.'.
+  const idCaseOf = (at: string, field: string, place: readonly string[], keyType: EastType): string => {
+    if (field.includes('.')) {
+      throw new Error(`${prefix} ${at} is '${field}' — an index names its child rows and items by their place, its field names joined by '.': ` +
+        'name the field without one');
+    }
+    const idCase = nestedIdCase(place);
+    ids[idCase] = keyType;
+    return idCase;
+  };
 
-  // A group: its nodes' type, the group above it, and its declaration as written; its child groups follow it.
+  // A group: its nodes' type, the group above it, what its nodes are keyed by, and its declaration as written; its
+  // child groups follow it.
   const groupOf = (
-    where: string, place: readonly string[], type: EastType, parent: NestedGroup['parent'], declared: unknown,
+    where: string, place: readonly string[], type: EastType, parent: NestedGroup['parent'], keyed: NestedGroup['keyed'], declared: unknown,
   ): { group: NestedGroup; declaration: RecordNestedDecl } => {
     const struct = nodeStruct(type);
     if (struct === undefined) throw new Error(`${prefix} indexes a record with Struct rows`);
@@ -445,7 +474,7 @@ export function checkNested(constructor: string, name: string, rowType: EastType
         throw new Error(`${prefix} ${at} is no declaration — declare it with index.nested.items(times), values(), rows(collections) or recursive()`);
       }
       if (fieldType.type !== 'Dict') {
-        throw new Error(`${prefix} ${at} is '${field}', of type ${printType(fieldType)} — a collection is a Dict: Dict<String, Item> keyed by an id, ` +
+        throw new Error(`${prefix} ${at} is '${field}', of type ${printType(fieldType)} — a collection is a Dict: Dict<K, Item> keyed by an id, ` +
           'or Dict<DateTime, V> keyed by its instant');
       }
       const keyType = fieldType.key;
@@ -454,6 +483,11 @@ export function checkNested(constructor: string, name: string, rowType: EastType
         if (type.type !== 'Recursive' || !isTypeEqual(held, type)) {
           throw new Error(`${prefix} ${at} is recursive(), and holds ${printTypeSummary(held)}, not ${printTypeSummary(type)} — ` +
             'a recursive field holds more rows like the one listing it');
+        }
+        // The rows beneath are keyed as the rows listing them are: one path of keys of one type (#1540).
+        if (keyed !== undefined && !isTypeEqual(keyType, keyed.type)) {
+          throw new Error(`${prefix} ${at} is recursive(), and '${field}' is keyed by ${printType(keyType)}, where the rows listing it are keyed by ` +
+            `${printType(keyed.type)} — rows that recurse are keyed by one type all the way down`);
         }
         recursiveFields.push(field);
         declaration.set(field, variant('recursive', null));
@@ -488,13 +522,13 @@ export function checkNested(constructor: string, name: string, rowType: EastType
         throw new Error(`${prefix} ${at} is ${words}, and '${field}' is keyed by ${printType(keyType)} — a collection keyed by its instant ` +
           'holds values: declare it with values()');
       }
-      const heldStruct = nodeStruct(held);
-      if (keyType.type !== 'String' || heldStruct === undefined) {
-        const what = keyType.type !== 'String' ? `is keyed by ${printType(keyType)}` : `holds ${printType(held)}`;
-        throw new Error(`${prefix} ${at} is ${words}, and '${field}' ${what} — items and child rows are a Dict<String, Struct>`);
+      // An id of any type a Dict is keyed by (#1540): the key holds it as it is.
+      if (nodeStruct(held) === undefined) {
+        throw new Error(`${prefix} ${at} is ${words}, and '${field}' holds ${printType(held)} — items and child rows are a Dict<K, Struct> keyed by an id`);
       }
+      const idCase = idCaseOf(at, field, [...place, field], keyType);
       if (builder === 'rows') {
-        const child = groupOf(at, [...place, field], held, { group: index, field }, (given as SeriesRows)[ROWS].collections);
+        const child = groupOf(at, [...place, field], held, { group: index, field }, { type: keyType, idCase }, (given as SeriesRows)[ROWS].collections);
         childRows.push({ field, group: child.group.index });
         declaration.set(field, variant('rows', child.declaration));
         caseTypes[field] = child.group.places;
@@ -502,7 +536,7 @@ export function checkNested(constructor: string, name: string, rowType: EastType
       }
       // Things people drag: an item's struct, read for its times.
       if (held.type !== 'Struct') {
-        throw new Error(`${prefix} ${at} is items(…), and '${field}' holds ${printType(held)} — items and child rows are a Dict<String, Struct>`);
+        throw new Error(`${prefix} ${at} is items(…), and '${field}' holds ${printType(held)} — items and child rows are a Dict<K, Struct> keyed by an id`);
       }
       const { times, options } = (given as SeriesItems)[ITEMS] as { times: Readonly<Record<string, unknown>>; options: SeriesItemsOptions };
       const timeOf = (role: 'from' | 'to' | 'at'): OptionField<DateTimeType> => {
@@ -524,7 +558,7 @@ export function checkNested(constructor: string, name: string, rowType: EastType
       }
       const rollup = options.rollup === true;
       if (rollup && root) throw new Error(`${prefix} ${at} rolls up, and ${NO_PARENT}`);
-      own.push({ kind: 'items', field, place: [...place, field], group: index, itemType: held, start, end, rollup });
+      own.push({ kind: 'items', field, place: [...place, field], group: index, keyType, idCase, itemType: held, start, end, rollup });
       declaration.set(field, variant('items', {
         times: span ? variant('span', { from: start.field, to: end.field }) : variant('at', start.field),
         rollup,
@@ -537,17 +571,18 @@ export function checkNested(constructor: string, name: string, rowType: EastType
     }
     if (Object.keys(caseTypes).length === 0) throw new Error(`${prefix} ${where} declares no collection`);
     const group: NestedGroup = {
-      index, type, parent, through: recursiveFields[0], collections: own, rows: childRows, places: VariantType(caseTypes),
+      index, type, parent, keyed, through: recursiveFields[0], collections: own, rows: childRows, places: VariantType(caseTypes),
     };
     groups[index] = group;
     return { group, declaration };
   };
 
-  const root = groupOf('collections', [], rowType, undefined, collections);
+  const root = groupOf('collections', [], rowType, undefined, undefined, collections);
   return {
     groups,
     collections: groups.flatMap((group) => group.collections),
     declaration: root.declaration,
     places: root.group.places,
+    idType: NestedIdType(ids),
   };
 }

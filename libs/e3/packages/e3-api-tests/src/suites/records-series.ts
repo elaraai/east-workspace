@@ -44,7 +44,7 @@ import {
   type ValueTypeOf,
 } from '@elaraai/east';
 import {
-  NestedEntryKeyType, NestedEntryType, RecordLevelType, RecordNestedItemType, RecordNestedPathType, RecordNestedRunType, RecordSummaryTotalsType,
+  NestedEntryKeyType, NestedEntryType, NestedIdType, RecordLevelType, RecordNestedPathType, RecordNestedRunType, RecordSummaryTotalsType,
   indexWindowType,
 } from '@elaraai/e3-types';
 import {
@@ -220,17 +220,22 @@ const HOUR_MS = 3_600_000;
 /** The machines' job lengths, in hours, a job each in turn: filed at the week, the week, the week, the month and the quarter. */
 const JOB_HOURS = [4, 30, 80, 200, 1_000] as const;
 
-/** A nested index's entry key, at the records' String keys. */
-const NestedKeyType = NestedEntryKeyType(StringType);
+/**
+ * Each nested index's entry key, at the records' String keys: its ids (#1540) a case for each collection keyed by an
+ * id, by its place — the machines' jobs, the halls' members, the assemblies' parts and their jobs.
+ */
+const MachinesKeyType = NestedEntryKeyType(StringType, NestedIdType({ jobs: StringType }));
+const HallsKeyType = NestedEntryKeyType(StringType, NestedIdType({ members: StringType }));
+const AssembliesKeyType = NestedEntryKeyType(StringType, NestedIdType({ parts: StringType, 'parts.jobs': StringType }));
 /** What each nested index files, by place, nesting as its declaration nests. */
 const MachinePlacesType = VariantType({ jobs: NestedJobType, load: FloatType });
 const HallPlacesType = VariantType({ members: VariantType({ load: FloatType }) });
 const AssemblyPlacesType = VariantType({ parts: VariantType({ jobs: NestedJobType }) });
 /** Each nested index's window: an entry's key, its row's key, what it carries, and no row — a nested index is read alone. */
-const MachinesWindowType = ArrayType(StructType({ ik: NestedKeyType, key: StringType, value: NestedEntryType(MachinePlacesType), row: OptionType(MachineType) }));
-const HallsWindowType = ArrayType(StructType({ ik: NestedKeyType, key: StringType, value: NestedEntryType(HallPlacesType), row: OptionType(HallType) }));
+const MachinesWindowType = ArrayType(StructType({ ik: MachinesKeyType, key: StringType, value: NestedEntryType(MachinePlacesType), row: OptionType(MachineType) }));
+const HallsWindowType = ArrayType(StructType({ ik: HallsKeyType, key: StringType, value: NestedEntryType(HallPlacesType), row: OptionType(HallType) }));
 const AssembliesWindowType = ArrayType(StructType({
-  ik: NestedKeyType, key: StringType, value: NestedEntryType(AssemblyPlacesType), row: OptionType(AssemblyType),
+  ik: AssembliesKeyType, key: StringType, value: NestedEntryType(AssemblyPlacesType), row: OptionType(AssemblyType),
 }));
 type AssembliesEntry = ValueTypeOf<typeof AssembliesWindowType>[number];
 
@@ -242,7 +247,9 @@ const encodeHallsPatch = encodeBeast2For(PatchType(HallsType));
 const encodeAssembliesPatch = encodeBeast2For(PatchType(AssembliesType));
 const printPath = printFor(RecordNestedPathType);
 const printRun = printFor(RecordNestedRunType);
-const printItem = printFor(RecordNestedItemType);
+const printMachineItem = printFor(MachinesKeyType.fields.item);
+const printAssemblyItem = printFor(AssembliesKeyType.fields.item);
+const printAssemblyPath = printFor(AssembliesKeyType.fields.path);
 const machineEntryEqual = equalFor(NestedEntryType(MachinePlacesType));
 const assemblyEntryEqual = equalFor(NestedEntryType(AssemblyPlacesType));
 const hallEntryEqual = equalFor(NestedEntryType(HallPlacesType));
@@ -255,24 +262,37 @@ const TOTALS_RUN = variant('totals', null);
 const SUBTREE = variant('subtree', null);
 const MEAN = variant('subtotals', { fold: variant('mean', null), aggregate: variant('mean', null) });
 
-/** A place, or a node's path, as a nested key holds it: its keys, folded from the last. */
+/** A collection's place as a nested key holds it: its field names, folded from the last. */
 function pathOf(keys: readonly string[]): unknown {
   return keys.reduceRight<unknown>((rest, key) => variant('step', { key, rest }), variant('end', null));
 }
 
+/**
+ * A node's path as a nested key holds it (#1540): its child rows' keys, each under the case of the rows it is a key
+ * of, folded from the last.
+ */
+function nodePath(rows: string, keys: readonly string[]): unknown {
+  return keys.reduceRight<unknown>((rest, key) => variant('step', { key: variant(rows, key), rest }), variant('end', null));
+}
+
+/** The row itself, as a search names a node's path: no child row's key, which every index prints alike. */
+const ROW_ITSELF = printPath(pathOf([]) as never);
+/** The part `p1` of an assembly, as a search names its path. */
+const PART_P1 = printAssemblyPath(nodePath('parts', ['p1']) as never);
+
 /** A nested key's leading fields, as a search names them: the collection's place, the row, the node's path, the run and the level. */
-function nestedLead(collection: readonly string[], row: string, path: readonly string[], run: unknown, level: Level): string[] {
-  return [printPath(pathOf(collection) as never), printString(row), printPath(pathOf(path) as never), printRun(run as never), printLevel(variant(level, null))];
+function nestedLead(collection: readonly string[], row: string, path: string, run: unknown, level: Level): string[] {
+  return [printPath(pathOf(collection) as never), printString(row), path, printRun(run as never), printLevel(variant(level, null))];
 }
 
 /** A search over one run of a nested index at one level: its tiles from `from` to before `to`. */
-function nestedRange(collection: readonly string[], row: string, path: readonly string[], run: unknown, level: Level, from: number, to: number): DatasetKeySearch {
+function nestedRange(collection: readonly string[], row: string, path: string, run: unknown, level: Level, from: number, to: number): DatasetKeySearch {
   const lead = nestedLead(collection, row, path, run, level);
   return { from: [...lead, printDateTime(new Date(from))], to: [...lead, printDateTime(new Date(to))] };
 }
 
 /** An exact search of one tile of a nested index's run. */
-function nestedTile(collection: readonly string[], row: string, path: readonly string[], run: unknown, filed: { level: Level; tile: number }): DatasetKeySearch {
+function nestedTile(collection: readonly string[], row: string, path: string, run: unknown, filed: { level: Level; tile: number }): DatasetKeySearch {
   return { fields: [...nestedLead(collection, row, path, run, filed.level), printDateTime(new Date(filed.tile))] };
 }
 
@@ -648,9 +668,9 @@ export function seriesRecordTests(setup: TestSetup<TestContext>): void {
       const nested = sig.indexes.find((index) => stringEqual(index.name, 'machines_in_time'));
       const bySite = sig.indexes.find((index) => stringEqual(index.name, 'machines_by_site'));
       assert.ok(nested !== undefined && nested.built && nested.multi, 'the nested index is built, a row filing many entries');
-      assert.ok(isTypeValueEqual(nested.keyType, toEastTypeValue(NestedKeyType)), 'keyed by place, row, path, run, level, tile and item');
+      assert.ok(isTypeValueEqual(nested.keyType, toEastTypeValue(MachinesKeyType)), 'keyed by place, row, path, run, level, tile and item, its jobs\' ids in their own type');
       assert.ok(isTypeValueEqual(nested.valueType, toEastTypeValue(NestedEntryType(MachinePlacesType))), 'carrying an item, its totals or a subtotal');
-      assert.ok(isTypeEqual(MachinesWindowType, indexWindowType(StringType, NestedKeyType, NestedEntryType(MachinePlacesType), MachineType)),
+      assert.ok(isTypeEqual(MachinesWindowType, indexWindowType(StringType, MachinesKeyType, NestedEntryType(MachinePlacesType), MachineType)),
         'its window is e3-types\' index window');
       assert.ok(bySite !== undefined && isTypeValueEqual(bySite.keyType, toEastTypeValue(StringType)), 'machines_by_site is keyed by the site');
       assert.ok(isTypeValueEqual(bySite.valueType, toEastTypeValue(MachineType)), 'machines_by_site carries a machine');
@@ -678,22 +698,23 @@ export function seriesRecordTests(setup: TestSetup<TestContext>): void {
       const to = from + 3 * WEEK_MS;
       const runs = levelRuns(from, to);
       const block = [...machines.keys()].slice(5, 55);
-      const searches = block.flatMap((row) => runs.map((run) => nestedRange(['jobs'], row, [], ITEMS, run.level, run.from, run.to)));
+      const searches = block.flatMap((row) => runs.map((run) => nestedRange(['jobs'], row, ROW_ITSELF, ITEMS, run.level, run.from, run.to)));
       assert.equal(searches.length, 50 * 4, 'a range a machine a level, whatever the span');
       const entries = await readRuns(ctx, ws, recordAt('machines'), 'machines_in_time', searches, hash, decodeMachinesWindow);
       const read: string[] = [];
       for (const entry of entries) {
         assert.ok(entry.ik.item.type === 'id', `${entry.key}: a job, by its id`);
-        const id = entry.ik.item.value;
+        // The job's id, out of its collection's case of the index's ids.
+        const id: string = entry.ik.item.value.value;
         const job = machines.get(entry.key)?.jobs.get(id);
         assert.ok(job !== undefined && machineEntryEqual(entry.value, variant('item', variant('jobs', job))), `${entry.key} ${id} is carried whole`);
         assert.ok(entry.row.type === 'none', `${entry.key} ${id} is read from the index alone`);
-        read.push(`${entry.key} ${printItem(entry.ik.item)} ${printLevel(entry.ik.level)} ${printDateTime(entry.ik.tile)}`);
+        read.push(`${entry.key} ${printMachineItem(entry.ik.item)} ${printLevel(entry.ik.level)} ${printDateTime(entry.ik.tile)}`);
       }
       // Held to the brute force: under each run, the block's jobs filed there, each once, and no other.
       const expected = block.flatMap((row) => [...machines.get(row)!.jobs].flatMap(([id, job]) => filingsOf(job)
         .filter((filed) => runs.some((run) => run.level === filed.level && filed.tile >= run.from && filed.tile < run.to))
-        .map((filed) => `${row} ${printItem(variant('id', id))} ${printLevel(variant(filed.level, null))} ${printDateTime(new Date(filed.tile))}`)));
+        .map((filed) => `${row} ${printMachineItem(variant('id', variant('jobs', id)))} ${printLevel(variant(filed.level, null))} ${printDateTime(new Date(filed.tile))}`)));
       assert.ok(expected.length > 0, 'the block has jobs those weeks');
       assert.deepEqual(read.sort(stringOrder), expected.sort(stringOrder), 'every job the runs hold, each once, and no other');
     });
@@ -704,7 +725,7 @@ export function seriesRecordTests(setup: TestSetup<TestContext>): void {
       const from = tileStep('month', tileStart('month', JOBS_FROM.getTime()), -2);
       const to = tileStep('month', from, 8);
       const searches = [...machines.keys()].flatMap((row) => [
-        nestedRange(['jobs'], row, [], TOTALS_RUN, 'month', from, to), nestedRange(['load'], row, [], TOTALS_RUN, 'month', from, to),
+        nestedRange(['jobs'], row, ROW_ITSELF, TOTALS_RUN, 'month', from, to), nestedRange(['load'], row, ROW_ITSELF, TOTALS_RUN, 'month', from, to),
       ]);
       const entries = await readRuns(ctx, ws, recordAt('machines'), 'machines_in_time', searches, hash, decodeMachinesWindow);
       // Worked out from the rows: each machine's jobs a month, and its load's values in key order.
@@ -740,7 +761,7 @@ export function seriesRecordTests(setup: TestSetup<TestContext>): void {
       const from = tileStep('week', weekHolding(JOBS_FROM.getTime()), -2);
       const to = tileStep('week', from, 12);
       const entries = await readRuns(ctx, ws, recordAt('halls'), 'halls_in_time',
-        [nestedRange(['members', 'load'], 'H-1', [], MEAN, 'week', from, to)], hash, decodeHallsWindow);
+        [nestedRange(['members', 'load'], 'H-1', ROW_ITSELF, MEAN, 'week', from, to)], hash, decodeHallsWindow);
       // Worked out from the rows: each member's values a week, in key order, their mean; the hall's, its members' means' mean, in theirs.
       const means = new Map<number, number[]>();
       for (const member of halls.get('H-1')!.members.values()) {
@@ -766,21 +787,21 @@ export function seriesRecordTests(setup: TestSetup<TestContext>): void {
       const { ctx, ws } = await withNested(t);
       const hash = await nestedHash(ctx, ws, 'assemblies');
       const runs = levelRuns(JOBS_FROM.getTime(), JOBS_FROM.getTime() + 8 * WEEK_MS);
-      const searches = runs.map((run) => nestedRange(['parts', 'jobs'], 'A-0', ['p1'], SUBTREE, run.level, run.from, run.to));
+      const searches = runs.map((run) => nestedRange(['parts', 'jobs'], 'A-0', PART_P1, SUBTREE, run.level, run.from, run.to));
       assert.equal(searches.length, 4, 'a range a level');
       const entries: AssembliesEntry[] = await readRuns(ctx, ws, recordAt('assemblies'), 'assemblies_in_time', searches, hash, decodeAssembliesWindow);
       // Beneath p1: p1.1's two jobs and p1.1.1's one — p1's own is in its items, not its subtree.
       const beneath = [{ path: ['p1.1'], letter: 'b' }, { path: ['p1.1'], letter: 'c' }, { path: ['p1.1', 'p1.1.1'], letter: 'd' }] as const;
       const expected = beneath.flatMap(({ path, letter }) => filingsOf(partJob(0, letter)).map((filed) =>
-        `${printItem(variant('under', { path: pathOf(path), id: `j-0-${letter}` }) as never)} ${printLevel(variant(filed.level, null))} ${printDateTime(new Date(filed.tile))}`));
-      const read = entries.map((entry) => `${printItem(entry.ik.item)} ${printLevel(entry.ik.level)} ${printDateTime(entry.ik.tile)}`);
+        `${printAssemblyItem(variant('under', { path: nodePath('parts', path), id: variant('parts.jobs', `j-0-${letter}`) }) as never)} ${printLevel(variant(filed.level, null))} ${printDateTime(new Date(filed.tile))}`));
+      const read = entries.map((entry) => `${printAssemblyItem(entry.ik.item)} ${printLevel(entry.ik.level)} ${printDateTime(entry.ik.tile)}`);
       assert.deepEqual(read.sort(stringOrder), expected.sort(stringOrder), 'every job beneath p1, each once, and no other');
       for (const entry of entries) {
-        assert.ok(stringEqual(printPath(entry.ik.path), printPath(pathOf(['p1']) as never)), 'filed under p1');
+        assert.ok(stringEqual(printAssemblyPath(entry.ik.path), PART_P1), 'filed under p1');
         assert.ok(entry.ik.item.type === 'under', 'a job beneath it, by its path and id');
-        const letter = entry.ik.item.value.id.slice(-1) as keyof typeof PART_JOBS;
+        const letter = entry.ik.item.value.id.value.slice(-1) as keyof typeof PART_JOBS;
         assert.ok(assemblyEntryEqual(entry.value, variant('item', variant('parts', variant('jobs', partJob(0, letter))))),
-          `${entry.ik.item.value.id} is carried whole`);
+          `${letter} is carried whole`);
       }
     });
 
@@ -798,21 +819,21 @@ export function seriesRecordTests(setup: TestSetup<TestContext>): void {
       // Another session moves it, through the record's patch door.
       await writeNested(ctx, ws, 'machines', encodeMachinesPatch(diffFor(MachinesType)(machines, next)));
       const hash = await nestedHash(ctx, ws, 'machines');
-      const itemEqual = equalFor(RecordNestedItemType);
+      const itemEqual = equalFor(MachinesKeyType.fields.item);
       const tile = (filed: { level: Level; tile: number }) =>
-        readRuns(ctx, ws, recordAt('machines'), 'machines_in_time', [nestedTile(['jobs'], row, [], ITEMS, filed)], hash, decodeMachinesWindow);
+        readRuns(ctx, ws, recordAt('machines'), 'machines_in_time', [nestedTile(['jobs'], row, ROW_ITSELF, ITEMS, filed)], hash, decodeMachinesWindow);
       for (const filed of filingsOf(job)) {
         const read = await tile(filed);
-        assert.ok(!read.some((entry) => itemEqual(entry.ik.item, variant('id', id))), `${id} has left the ${filed.level} of ${printDateTime(new Date(filed.tile))}`);
+        assert.ok(!read.some((entry) => itemEqual(entry.ik.item, variant('id', variant('jobs', id)))), `${id} has left the ${filed.level} of ${printDateTime(new Date(filed.tile))}`);
       }
       for (const filed of filingsOf(moved)) {
-        const entry = (await tile(filed)).find((e) => itemEqual(e.ik.item, variant('id', id)));
+        const entry = (await tile(filed)).find((e) => itemEqual(e.ik.item, variant('id', variant('jobs', id))));
         assert.ok(entry !== undefined && machineEntryEqual(entry.value, variant('item', variant('jobs', moved))),
           `${id} is read in the ${filed.level} of ${printDateTime(new Date(filed.tile))}, as moved`);
       }
       const from = tileStep('month', tileStart('month', JOBS_FROM.getTime()), -2);
       const totals = await readRuns(ctx, ws, recordAt('machines'), 'machines_in_time',
-        [nestedRange(['jobs'], row, [], TOTALS_RUN, 'month', from, tileStep('month', from, 8))], hash, decodeMachinesWindow);
+        [nestedRange(['jobs'], row, ROW_ITSELF, TOTALS_RUN, 'month', from, tileStep('month', from, 8))], hash, decodeMachinesWindow);
       const expected = monthTotals(jobs.values());
       assert.equal(totals.length, expected.size, 'a total for each month its jobs touch');
       for (const entry of totals) {

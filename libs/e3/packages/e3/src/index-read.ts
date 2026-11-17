@@ -31,20 +31,21 @@
  */
 
 import {
-  ArrayType, DateTimeType, DictType, East, Expr, FloatType, IntegerType, OptionType, SetType, StringType, compareFor, equalFor, isTypeEqual,
+  ArrayType, DateTimeType, DictType, East, Expr, FloatType, IntegerType, OptionType, SetType, compareFor, equalFor, isTypeEqual,
   none, printType, some, variant,
   type BlockBuilder, type BooleanType, type EastType, type ExprType, type KeyBound, type StructType, type SubtypeExprOrValue, type ValueTypeOf,
+  type VariantType,
 } from '@elaraai/east';
-import { RecordLevelType, RecordNestedItemType, RecordNestedTotalsType, RecordRollupType, RecordSummaryTotalsType } from '@elaraai/e3-types';
+import { RecordLevelType, RecordNestedPathType, RecordNestedTotalsType, RecordRollupType, RecordSummaryTotalsType, type NestedPathType } from '@elaraai/e3-types';
 import { AREA_FINEST_LEVEL, AREA_FNS, AREA_UNPLACED } from './record-area.js';
 import { INTERVAL_LEAF } from './record-interval.js';
 import { optionField, type OptionField, type RowType } from './record-keys.js';
 import {
   checkNested, rollupOf, rollupWords,
-  type ChildOf, type NestedCollection, type NestedDeclaration, type SeriesItems, type SeriesRecursive, type SeriesRollupInput, type SeriesRows,
-  type SeriesValues,
+  type ChildOf, type DictKeyOf, type NestedCollection, type NestedDeclaration, type SeriesItems, type SeriesRecursive, type SeriesRollupInput,
+  type SeriesRows, type SeriesValues,
 } from './record-nested.js';
-import { NESTED_FNS, itemOf } from './record-nested-programs.js';
+import { itemOf, nestedPathOf, placePath } from './record-nested-programs.js';
 import { RECORD_TILES, TILE_FNS, type RecordTile } from './record-tiles.js';
 import type { IndexInputDef, RecordIndexDef } from './types.js';
 
@@ -802,8 +803,12 @@ export interface NestedWindow<K extends EastType = EastType, Place extends reado
   collection: Place;
   /** The record row's key. */
   row: SubtypeExprOrValue<K>;
-  /** The Dict keys from the row down to the node the read is about; left out, the row itself. */
-  path?: SubtypeExprOrValue<ArrayType<StringType>>;
+  /**
+   * The child rows' keys from the row down to the node the read is about; left out, the row itself. Each is an id of
+   * the index's (#1540): the key, in its own type, under the case of the child rows it is a key of — their place's
+   * field names joined, as `[variant('members', memberKey)]`, then `variant('members.tasks', taskKey)`.
+   */
+  path?: SubtypeExprOrValue<ArrayType<EastType>>;
 }
 
 /**
@@ -826,23 +831,40 @@ export type NestedItemAt<V, C, Place> =
       : EastType
     : EastType;
 
-/** What a read names a collection's items by: a thing people drag by its id, a value by its instant. */
-export type NestedKeyAt<C, Place> =
+/** What a read names a collection's items by: a thing people drag by its id, in its collection's own key type (#1540), a value by its instant. */
+export type NestedKeyAt<V, C, Place> =
   Place extends readonly [infer F extends string, ...infer Rest]
     ? F extends keyof C
-      ? C[F] extends SeriesRows<infer Below> ? NestedKeyAt<Below, Rest>
+      ? C[F] extends SeriesRows<infer Below> ? NestedKeyAt<ChildOf<V, F>, Below, Rest>
         : C[F] extends SeriesValues ? DateTimeType
-        : C[F] extends SeriesItems ? StringType
+        : C[F] extends SeriesItems ? DictKeyOf<V, F>
         : EastType
       : EastType
     : EastType;
 
 /**
- * An item of a subtree, as a read names it and the index's key does: the Dict
- * keys from the node down to the node holding it — a path, `end` or a `step`
- * and the rest — and its id.
+ * An item of a subtree, as a read names it and the index's key does: the
+ * child rows' keys from the node down to the node holding it — a path, `end`
+ * or a `step` and the rest — and its id, each an id of the index's (#1540),
+ * under its collection's case.
  */
-export const NestedUnderType = RecordNestedItemType.cases.under;
+export type NestedUnderType = StructType<{ path: ReturnType<typeof NestedPathType<EastType>>; id: EastType }>;
+
+/**
+ * A nested series index's type for an item of a subtree, `{ path, id }`: what
+ * its `subtree` reader names each item by, as the index's own key holds it —
+ * the type to collect such a read under.
+ *
+ * @param index - The nested series index, as `record.indexes.<name>` gives it
+ * @returns The struct type: the child rows' keys from the node down, and the item's id, each an id of the index's
+ * @throws {Error} When the index is no nested series index
+ */
+export function NestedUnderType(index: Pick<RecordIndexDef, 'name' | 'nested' | 'keyType'>): NestedUnderType {
+  if (index.nested === undefined) {
+    throw new Error(`NestedUnderType: '${index.name}' is no nested series index — a subtree's items are an index.nested's, of a collection rolled up`);
+  }
+  return (index.keyType as StructType<{ item: VariantType<{ under: NestedUnderType }> }>).fields.item.cases.under;
+}
 
 /**
  * A nested series index's readers (`index.nested`): one for each run the
@@ -864,7 +886,7 @@ export interface NestedReaders<K extends EastType = EastType, V = unknown, C = u
    * @returns The read: each item or value once, and its id or its instant
    * @throws {Error} Where the function is built, when the index files no collection at the place, naming those it does
    */
-  items<const Place extends NestedPlaceOf<C>>(window: NestedWindow<K, Place>): IndexRead<NestedItemAt<V, C, Place>, NestedKeyAt<C, Place>>;
+  items<const Place extends NestedPlaceOf<C>>(window: NestedWindow<K, Place>): IndexRead<NestedItemAt<V, C, Place>, NestedKeyAt<V, C, Place>>;
   /**
    * A node's totals of a collection, a summary tile at a time, for each tile
    * that overlaps `[from, to)`: how many items touch it, the milliseconds of
@@ -895,7 +917,7 @@ export interface NestedReaders<K extends EastType = EastType, V = unknown, C = u
    * @returns The read: each item once, and the keys from the node down to the one holding it with its id
    * @throws {Error} Where the function is built, when the collection's items are not rolled up
    */
-  subtree<const Place extends NestedPlaceOf<C>>(window: NestedWindow<K, Place>): IndexRead<NestedItemAt<V, C, Place>, typeof NestedUnderType>;
+  subtree<const Place extends NestedPlaceOf<C>>(window: NestedWindow<K, Place>): IndexRead<NestedItemAt<V, C, Place>, NestedUnderType>;
   /**
    * A node's totals of the items beneath it, of a collection rolled up, a
    * summary tile at a time. One run.
@@ -908,8 +930,6 @@ export interface NestedReaders<K extends EastType = EastType, V = unknown, C = u
   subtreeTotals(window: NestedWindow<K, NestedPlaceOf<C>>): IndexRead<typeof RecordNestedTotalsType, DateTimeType>;
 }
 
-/** A node's Dict keys from its row down, as a reader is given them. */
-const KeysType = ArrayType(StringType);
 /** Whether two rollups are one, as an index keeps them. */
 const sameRollup = equalFor(RecordRollupType);
 
@@ -941,6 +961,10 @@ function nestedDeclared(def: RecordIndexDef): NestedDeclaration {
 function nestedReaders(entries: Entries): NestedReaders {
   const nested = entries.def.nested!;
   const rowKeyType = (entries.ik as StructType<{ row: EastType }>).fields.row;
+  // A node's keys as a reader is given them — each an id of the index's — and as its key holds them (#1540): made of
+  // the index's declaration the first time a reader is called.
+  let over: ReturnType<typeof nestedPathOf> | undefined;
+  const keyed = (): ReturnType<typeof nestedPathOf> => (over ??= nestedPathOf(nestedDeclared(entries.def), entries.ik));
   /** The levels the index files at, from its tile up to the year, as a refusal names them. */
   const filedAt = RECORD_TILES.slice(RECORD_TILES.indexOf(nested.tile));
   /** A collection's place, as a refusal names it: `['members', 'load']`. */
@@ -962,7 +986,7 @@ function nestedReaders(entries: Entries): NestedReaders {
     return {
       collection,
       row: East.value(given.row as never, rowKeyType),
-      path: East.value((given.path ?? []) as never, KeysType),
+      path: East.value((given.path ?? []) as never, keyed().KeysType),
       from: instant(entries, reader, 'from', given.from),
       to: instant(entries, reader, 'to', given.to),
     };
@@ -982,8 +1006,8 @@ function nestedReaders(entries: Entries): NestedReaders {
   ): void => {
     const { collection } = at;
     const spans = collection.kind === 'items' && collection.start.field !== collection.end.field;
-    const path = $.const(NESTED_FNS.pathOf);
-    const place = $.const(path(East.value([...collection.place], KeysType)));
+    const path = $.const(keyed().pathOf);
+    const place = $.const(placePath(collection.place), RecordNestedPathType);
     const row = $.const(at.row);
     const node = $.const(path(at.path));
     const from = $.const(at.from);
@@ -1004,7 +1028,10 @@ function nestedReaders(entries: Entries): NestedReaders {
         $.for(range as Entries['dict'], ($, value, entry) => {
           const item = $.const(unwrap(value));
           const filed = indexKeyPart(entry, 'item') as ExprType<StructType<Record<string, never>>> & { unwrap(name: string): Expr };
-          const key = run === 'subtree' ? filed.unwrap('under') : collection.kind === 'items' ? filed.unwrap('id') : filed.unwrap('at');
+          // An item by its id, out of its collection's case of the index's ids; a subtree's as the key holds it.
+          const key = run === 'subtree' ? filed.unwrap('under')
+            : collection.kind === 'items' ? (filed.unwrap('id') as unknown as { unwrap(name: string): Expr }).unwrap(collection.idCase)
+              : filed.unwrap('at');
           if (collection.kind === 'values') {
             // A value is at its instant, which its entry's key holds.
             const instantMs = $.const((filed.unwrap('at') as ExprType<DateTimeType>).toEpochMilliseconds());
@@ -1021,8 +1048,8 @@ function nestedReaders(entries: Entries): NestedReaders {
   const tilesOf = <Ret>(
     $: BlockBuilder<Ret>, run: unknown, tile: RecordTile, held: 'totals' | 'subtotal', at: Written, give: ($: BlockBuilder<Ret>, carried: Expr, key: Expr) => void,
   ): void => {
-    const path = $.const(NESTED_FNS.pathOf);
-    const place = $.const(path(East.value([...at.collection.place], KeysType)));
+    const path = $.const(keyed().pathOf);
+    const place = $.const(placePath(at.collection.place), RecordNestedPathType);
     const row = $.const(at.row);
     const node = $.const(path(at.path));
     const from = $.const(at.from);
@@ -1058,8 +1085,8 @@ function nestedReaders(entries: Entries): NestedReaders {
   return {
     items: (window) => {
       const at = written('items', window);
-      const keyType = at.collection.kind === 'items' ? StringType : DateTimeType;
-      return readOf(keyType as EastType, itemTypeOf(at.collection), ($, give) => { itemsOf($, 'items', at, give); }) as never;
+      const keyType: EastType = at.collection.kind === 'items' ? at.collection.keyType : DateTimeType;
+      return readOf(keyType, itemTypeOf(at.collection), ($, give) => { itemsOf($, 'items', at, give); }) as never;
     },
     totals: (window) => {
       const at = written('totals', window);
@@ -1087,7 +1114,8 @@ function nestedReaders(entries: Entries): NestedReaders {
     subtree: (window) => {
       const at = written('subtree', window);
       rolledUp('subtree', at.collection);
-      return readOf(NestedUnderType, itemTypeOf(at.collection), ($, give) => { itemsOf($, 'subtree', at, give); }) as never;
+      const underType: EastType = keyed().ItemType.cases.under;
+      return readOf(underType, itemTypeOf(at.collection), ($, give) => { itemsOf($, 'subtree', at, give); }) as never;
     },
     subtreeTotals: (window) => {
       const at = written('subtreeTotals', window);
