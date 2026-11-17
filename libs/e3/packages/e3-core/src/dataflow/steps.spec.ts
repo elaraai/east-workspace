@@ -137,9 +137,9 @@ const unread = new LocalStorage();
 describe('stepYield', () => {
   const graph: DataflowGraph = {
     tasks: [
-      { name: 'task-a', hash: 'hash-a', inputs: ['.input'], output: '.out_a', dependsOn: [] },
-      { name: 'task-b', hash: 'hash-b', inputs: ['.out_a'], output: '.out_b', dependsOn: ['task-a'] },
-      { name: 'task-c', hash: 'hash-c', inputs: ['.out_b'], output: '.out_c', dependsOn: ['task-b'] },
+      { name: 'task-a', hash: 'hash-a', inputs: ['.input'], output: '.out_a', dependsOn: [], load: none },
+      { name: 'task-b', hash: 'hash-b', inputs: ['.out_a'], output: '.out_b', dependsOn: ['task-a'], load: none },
+      { name: 'task-c', hash: 'hash-c', inputs: ['.out_b'], output: '.out_c', dependsOn: ['task-b'], load: none },
     ],
   };
 
@@ -205,9 +205,9 @@ describe('stepYield', () => {
 describe('stepTaskForced', () => {
   const graph: DataflowGraph = {
     tasks: [
-      { name: 'extract', hash: 'hash-a', inputs: ['.input'], output: '.out_a', dependsOn: [] },
-      { name: 'model', hash: 'hash-b', inputs: ['.out_a'], output: '.out_b', dependsOn: ['extract'] },
-      { name: 'report', hash: 'hash-c', inputs: ['.out_b'], output: '.out_c', dependsOn: ['model'] },
+      { name: 'extract', hash: 'hash-a', inputs: ['.input'], output: '.out_a', dependsOn: [], load: none },
+      { name: 'model', hash: 'hash-b', inputs: ['.out_a'], output: '.out_b', dependsOn: ['extract'], load: none },
+      { name: 'report', hash: 'hash-c', inputs: ['.out_b'], output: '.out_c', dependsOn: ['model'], load: none },
     ],
   };
 
@@ -235,9 +235,9 @@ describe('stepTaskForced', () => {
 describe('checkDataflowStart', () => {
   const graph: DataflowGraph = {
     tasks: [
-      { name: 'extract', hash: 'hash-a', inputs: ['.input'], output: '.out_a', dependsOn: [] },
-      { name: 'model', hash: 'hash-b', inputs: ['.out_a'], output: '.out_b', dependsOn: ['extract'] },
-      { name: 'report', hash: 'hash-c', inputs: ['.out_b'], output: '.out_c', dependsOn: ['model'] },
+      { name: 'extract', hash: 'hash-a', inputs: ['.input'], output: '.out_a', dependsOn: [], load: none },
+      { name: 'model', hash: 'hash-b', inputs: ['.out_a'], output: '.out_b', dependsOn: ['extract'], load: none },
+      { name: 'report', hash: 'hash-c', inputs: ['.out_b'], output: '.out_c', dependsOn: ['model'], load: none },
     ],
   };
 
@@ -262,10 +262,10 @@ describe('tasks waiting on an unassigned input', () => {
   // input → a → b → c, b reading another input too; d reads that input alone
   const graph: DataflowGraph = {
     tasks: [
-      { name: 'a', hash: 'hash-a', inputs: ['.input'], output: '.out_a', dependsOn: [] },
-      { name: 'b', hash: 'hash-b', inputs: ['.out_a', '.other'], output: '.out_b', dependsOn: ['a'] },
-      { name: 'c', hash: 'hash-c', inputs: ['.out_b'], output: '.out_c', dependsOn: ['b'] },
-      { name: 'd', hash: 'hash-d', inputs: ['.other'], output: '.out_d', dependsOn: [] },
+      { name: 'a', hash: 'hash-a', inputs: ['.input'], output: '.out_a', dependsOn: [], load: none },
+      { name: 'b', hash: 'hash-b', inputs: ['.out_a', '.other'], output: '.out_b', dependsOn: ['a'], load: none },
+      { name: 'c', hash: 'hash-c', inputs: ['.out_b'], output: '.out_c', dependsOn: ['b'], load: none },
+      { name: 'd', hash: 'hash-d', inputs: ['.other'], output: '.out_d', dependsOn: [], load: none },
     ],
   };
   /** Every task pending, under `filter` when given. */
@@ -360,8 +360,8 @@ describe('tasks waiting on an unassigned input', () => {
 describe('split task stages', () => {
   const graph: DataflowGraph = {
     tasks: [
-      { name: 'task-a', hash: 'hash-a', inputs: ['.input'], output: '.out_a', dependsOn: [] },
-      { name: 'task-b', hash: 'hash-b', inputs: ['.input'], output: '.out_b', dependsOn: [] },
+      { name: 'task-a', hash: 'hash-a', inputs: ['.input'], output: '.out_a', dependsOn: [], load: none },
+      { name: 'task-b', hash: 'hash-b', inputs: ['.input'], output: '.out_b', dependsOn: [], load: none },
     ],
   };
 
@@ -410,8 +410,8 @@ describe('stepTasksDue', () => {
   // input → a → b: b reads a's output alone
   const graph: DataflowGraph = {
     tasks: [
-      { name: 'a', hash: 'hash-a', inputs: ['.input'], output: '.a_out', dependsOn: [] },
-      { name: 'b', hash: 'hash-b', inputs: ['.a_out'], output: '.b_out', dependsOn: ['a'] },
+      { name: 'a', hash: 'hash-a', inputs: ['.input'], output: '.a_out', dependsOn: [], load: none },
+      { name: 'b', hash: 'hash-b', inputs: ['.a_out'], output: '.b_out', dependsOn: ['a'], load: none },
     ],
   };
 
@@ -534,7 +534,7 @@ describe('stepTasksDue', () => {
 
 describe('stepTaskDueAgain', () => {
   const graph: DataflowGraph = {
-    tasks: [{ name: 'a', hash: 'hash-a', inputs: ['.input'], output: '.a_out', dependsOn: [] }],
+    tasks: [{ name: 'a', hash: 'hash-a', inputs: ['.input'], output: '.a_out', dependsOn: [], load: none }],
   };
 
   /** a's result has just landed, made from `launched`, the input now at `input`. */
@@ -573,9 +573,9 @@ describe('stepGetReady', () => {
   // a → b → c
   const graph: DataflowGraph = {
     tasks: [
-      { name: 'a', hash: 'hash-a', inputs: ['.input'], output: '.a_out', dependsOn: [] },
-      { name: 'b', hash: 'hash-b', inputs: ['.a_out'], output: '.b_out', dependsOn: ['a'] },
-      { name: 'c', hash: 'hash-c', inputs: ['.b_out'], output: '.c_out', dependsOn: ['b'] },
+      { name: 'a', hash: 'hash-a', inputs: ['.input'], output: '.a_out', dependsOn: [], load: none },
+      { name: 'b', hash: 'hash-b', inputs: ['.a_out'], output: '.b_out', dependsOn: ['a'], load: none },
+      { name: 'c', hash: 'hash-c', inputs: ['.b_out'], output: '.c_out', dependsOn: ['b'], load: none },
     ],
   };
 
@@ -690,7 +690,7 @@ describe('stepDetectInputChanges', () => {
     // Build a minimal state that mirrors what stepInitialize would produce
     const graph: DataflowGraph = {
       tasks: [
-        { name: 'task-a', hash: 'hash-a', inputs: ['.input'], output: '.output', dependsOn: [] },
+        { name: 'task-a', hash: 'hash-a', inputs: ['.input'], output: '.output', dependsOn: [], load: none },
       ],
     };
     const tasks = new Map<string, TaskState>();
@@ -762,10 +762,10 @@ describe('stepTaskCommits', () => {
   // The task reads two results, x and y, and the record itself
   const graph: DataflowGraph = {
     tasks: [
-      { name: 'x', hash: 'hash-x', inputs: ['.records.orders', '.rates'], output: '.x_out', dependsOn: [] },
-      { name: 'y', hash: 'hash-y', inputs: ['.records.orders', '.rates'], output: '.y_out', dependsOn: [] },
-      { name: 'plan', hash: 'hash-plan', inputs: ['.x_out', '.y_out'], output: '.plan_out', dependsOn: ['x', 'y'] },
-      { name: 'direct', hash: 'hash-direct', inputs: ['.rates', '.x_out'], output: '.direct_out', dependsOn: ['x'] },
+      { name: 'x', hash: 'hash-x', inputs: ['.records.orders', '.rates'], output: '.x_out', dependsOn: [], load: none },
+      { name: 'y', hash: 'hash-y', inputs: ['.records.orders', '.rates'], output: '.y_out', dependsOn: [], load: none },
+      { name: 'plan', hash: 'hash-plan', inputs: ['.x_out', '.y_out'], output: '.plan_out', dependsOn: ['x', 'y'], load: none },
+      { name: 'direct', hash: 'hash-direct', inputs: ['.rates', '.x_out'], output: '.direct_out', dependsOn: ['x'], load: none },
     ],
   };
 
@@ -1044,10 +1044,10 @@ describe('stepTaskCompleted', () => {
   // b, c → k; d reads the input alone
   const graph: DataflowGraph = {
     tasks: [
-      { name: 'b', hash: 'hash-b', inputs: ['.input'], output: '.b_out', dependsOn: [] },
-      { name: 'c', hash: 'hash-c', inputs: ['.input'], output: '.c_out', dependsOn: [] },
-      { name: 'k', hash: 'hash-k', inputs: ['.b_out', '.c_out'], output: '.k_out', dependsOn: ['b', 'c'] },
-      { name: 'd', hash: 'hash-d', inputs: ['.input'], output: '.d_out', dependsOn: [] },
+      { name: 'b', hash: 'hash-b', inputs: ['.input'], output: '.b_out', dependsOn: [], load: none },
+      { name: 'c', hash: 'hash-c', inputs: ['.input'], output: '.c_out', dependsOn: [], load: none },
+      { name: 'k', hash: 'hash-k', inputs: ['.b_out', '.c_out'], output: '.k_out', dependsOn: ['b', 'c'], load: none },
+      { name: 'd', hash: 'hash-d', inputs: ['.input'], output: '.d_out', dependsOn: [], load: none },
     ],
   };
   const execution = { inputsHash: 'inputs-c', executionId: 'execution-c' };
@@ -1082,9 +1082,9 @@ describe('stepTaskFailed', () => {
   // a → b → c
   const graph: DataflowGraph = {
     tasks: [
-      { name: 'a', hash: 'hash-a', inputs: ['.input'], output: '.a_out', dependsOn: [] },
-      { name: 'b', hash: 'hash-b', inputs: ['.a_out'], output: '.b_out', dependsOn: ['a'] },
-      { name: 'c', hash: 'hash-c', inputs: ['.b_out'], output: '.c_out', dependsOn: ['b'] },
+      { name: 'a', hash: 'hash-a', inputs: ['.input'], output: '.a_out', dependsOn: [], load: none },
+      { name: 'b', hash: 'hash-b', inputs: ['.a_out'], output: '.b_out', dependsOn: ['a'], load: none },
+      { name: 'c', hash: 'hash-c', inputs: ['.b_out'], output: '.c_out', dependsOn: ['b'], load: none },
     ],
   };
 
@@ -1114,8 +1114,8 @@ describe('a task due again behind a task left waiting', () => {
   // input → a → b, b reading another input too
   const graph: DataflowGraph = {
     tasks: [
-      { name: 'a', hash: 'hash-a', inputs: ['.input'], output: '.out_a', dependsOn: [] },
-      { name: 'b', hash: 'hash-b', inputs: ['.out_a', '.other'], output: '.out_b', dependsOn: ['a'] },
+      { name: 'a', hash: 'hash-a', inputs: ['.input'], output: '.out_a', dependsOn: [], load: none },
+      { name: 'b', hash: 'hash-b', inputs: ['.out_a', '.other'], output: '.out_b', dependsOn: ['a'], load: none },
     ],
   };
 

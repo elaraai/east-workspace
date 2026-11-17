@@ -22,12 +22,11 @@
 
 import {
   ArrayType, BooleanType, DateTimeType, DictType, IntegerType, NullType, OptionType, StringType, StructType, VariantType,
-  decodeBeast2For, encodeBeast2For, isTypeValueEqual, readBeast2Type, toEastTypeValue, variant,
-  type EastType, type EastTypeValue, type ValueTypeOf,
+  encodeBeast2For, toEastTypeValue, variant, type EastType, type ValueTypeOf,
 } from '@elaraai/east';
-import type { StoredRunState } from '../dataflow/state-store/interfaces.js';
 import type { RepositoryUpgrade } from '../storage/interfaces.js';
-import { workInParts } from './parts.js';
+import { isStoredForm, storedFormReader } from './forms.js';
+import { workStoredRunsInParts } from './parts.js';
 
 /** A task's state in a run, as both forms hold it. */
 const FrozenTaskStateType = StructType({
@@ -149,34 +148,15 @@ type StateBeforeForceTasks = ValueTypeOf<typeof DataflowStateBeforeForceTasksTyp
 /** A stored run in the form this upgrade writes. */
 type StateWithForceTasks = ValueTypeOf<typeof DataflowStateWithForceTasksType>;
 
-const BEFORE_TYPE = toEastTypeValue(DataflowStateBeforeForceTasksType);
 const WITH_TYPE = toEastTypeValue(DataflowStateWithForceTasksType);
-const decodeBefore = decodeBeast2For(DataflowStateBeforeForceTasksType);
 const encodeWith = encodeBeast2For(DataflowStateWithForceTasksType);
 
 /** The name a repository's record keeps once the upgrade is applied. */
 export const DATAFLOW_FORCE_TASKS = 'dataflow-force-tasks';
 
-/** Whether a stored state's header names a form's type; false for bytes whose
- *  header does not read. */
-function isForm(bytes: Uint8Array, type: EastTypeValue): boolean {
-  try {
-    return isTypeValueEqual(readBeast2Type(bytes), type);
-  } catch {
-    return false;
-  }
-}
-
 /** A stored run in the form before this upgrade, or null for bytes of any
  *  other form, or that do not decode. */
-function beforeForceTasks(bytes: Uint8Array): StateBeforeForceTasks | null {
-  if (!isForm(bytes, BEFORE_TYPE)) return null;
-  try {
-    return decodeBefore(bytes);
-  } catch {
-    return null;
-  }
-}
+const beforeForceTasks = storedFormReader(DataflowStateBeforeForceTasksType);
 
 /** What a run of the form before this upgrade forced, as this upgrade writes
  *  it: every task, or none. */
@@ -196,32 +176,17 @@ function withForceTasks(state: StateBeforeForceTasks): StateWithForceTasks {
  * `none`.
  *
  * @remarks
- * Every run is read as it is stored, through the repository's run state store
- * (`StorageBackend.runStates`, `ExecutionStateStore.readStored`), so the
- * upgrade goes through every backend's store alike, and written back through
- * the stored run's own `replace`. A run already in the form this upgrade
- * writes is left as it is; and so is one in neither form, which a crash or a
- * failing disk left, and which a read refuses as it did before.
- *
- * A unit of the step is a workspace: every run of it the store holds. The
- * units go in the order of the workspaces' names, one at a time, and a part
- * stops between them once its time is up, with the name of the last workspace
- * it carried as its cursor.
+ * Every run is read as it is stored, a workspace at a time
+ * ({@link workStoredRunsInParts}), and written back through the stored run's
+ * own `replace`. A run already in the form this upgrade writes is left as it
+ * is; and so is one in neither form, which a crash or a failing disk left, and
+ * which a read refuses as it did before.
  */
 export const dataflowForceTasks: RepositoryUpgrade = {
   name: DATAFLOW_FORCE_TASKS,
-  async apply(storage, repo, at, until) {
-    const byWorkspace = new Map<string, StoredRunState[]>();
-    for (const stored of await storage.runStates(repo).readStored(repo)) {
-      byWorkspace.set(stored.workspace, [...(byWorkspace.get(stored.workspace) ?? []), stored]);
-    }
-    const units = [...byWorkspace].map(([key, runs]) => ({ key, unit: runs }));
-    return workInParts(units, at, until, 1, async (runs) => {
-      for (const stored of runs) {
-        if (isForm(stored.bytes, WITH_TYPE)) continue;
-        const earlier = beforeForceTasks(stored.bytes);
-        if (earlier !== null) await stored.replace(encodeWith(withForceTasks(earlier)));
-      }
-    });
-  },
+  apply: (storage, repo, at, until) => workStoredRunsInParts(storage, repo, at, until, async (stored) => {
+    if (isStoredForm(stored.bytes, WITH_TYPE)) return;
+    const earlier = beforeForceTasks(stored.bytes);
+    if (earlier !== null) await stored.replace(encodeWith(withForceTasks(earlier)));
+  }),
 };

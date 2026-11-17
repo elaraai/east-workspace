@@ -25,11 +25,11 @@
 
 import {
   ArrayType, BooleanType, DateTimeType, DictType, IntegerType, NullType, OptionType, StringType, StructType, VariantType,
-  decodeBeast2For, encodeBeast2For, isTypeValueEqual, none, readBeast2Type, toEastTypeValue,
-  type EastType, type EastTypeValue, type ValueTypeOf,
+  encodeBeast2For, none, toEastTypeValue, type EastType, type ValueTypeOf,
 } from '@elaraai/east';
 import { OBJECT_CONCURRENCY } from '../concurrency.js';
 import type { RepositoryUpgrade } from '../storage/interfaces.js';
+import { isStoredForm, storedFormReader } from './forms.js';
 import { workInParts } from './parts.js';
 
 /** A dataset's path, as both forms hold it. */
@@ -180,34 +180,15 @@ type JobBeforeDrafts = ValueTypeOf<typeof FunctionCallJobBeforeDraftsType>;
 /** A kept call in the form this upgrade writes. */
 type JobWithDrafts = ValueTypeOf<typeof FunctionCallJobWithDraftsType>;
 
-const BEFORE_TYPE = toEastTypeValue(FunctionCallJobBeforeDraftsType);
 const WITH_TYPE = toEastTypeValue(FunctionCallJobWithDraftsType);
-const decodeBefore = decodeBeast2For(FunctionCallJobBeforeDraftsType);
 const encodeWith = encodeBeast2For(FunctionCallJobWithDraftsType);
 
 /** The name a repository's record keeps once the upgrade is applied. */
 export const FUNCTION_CALL_DRAFTS = 'function-call-drafts';
 
-/** Whether a stored call's header names a form's type; false for bytes whose
- *  header does not read. */
-function isForm(bytes: Uint8Array, type: EastTypeValue): boolean {
-  try {
-    return isTypeValueEqual(readBeast2Type(bytes), type);
-  } catch {
-    return false;
-  }
-}
-
 /** A kept call in the form before this upgrade, or null for bytes of any
  *  other form, or that do not decode. */
-function beforeDrafts(bytes: Uint8Array): JobBeforeDrafts | null {
-  if (!isForm(bytes, BEFORE_TYPE)) return null;
-  try {
-    return decodeBefore(bytes);
-  } catch {
-    return null;
-  }
-}
+const beforeDrafts = storedFormReader(FunctionCallJobBeforeDraftsType);
 
 /** A call of the form before this upgrade, in the form it writes: it passed
  *  no draft, so it holds none, none ended it, and its run lays none. */
@@ -239,7 +220,7 @@ export const functionCallDrafts: RepositoryUpgrade = {
     const units = (await storage.calls.readStored(repo)).map((stored) => ({ key: `${stored.workspace}/${stored.id}`, unit: stored }));
     return workInParts(units, at, until, OBJECT_CONCURRENCY, async (stored) => {
       const bytes = await stored.read();
-      if (bytes === null || isForm(bytes, WITH_TYPE)) return;
+      if (bytes === null || isStoredForm(bytes, WITH_TYPE)) return;
       const earlier = beforeDrafts(bytes);
       if (earlier !== null) await stored.replace(encodeWith(withDrafts(earlier)));
     });

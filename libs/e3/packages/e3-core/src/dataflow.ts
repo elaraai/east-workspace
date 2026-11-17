@@ -16,12 +16,13 @@
  * by `dataflow/orchestrator/LocalOrchestrator.ts`.
  */
 
-import { StringType, compareFor, decodeBeast2For, variant } from '@elaraai/east';
+import { StringType, compareFor, decodeBeast2For, none, variant } from '@elaraai/east';
 import {
   WorkspaceRecordType,
   decodeRecordCommit,
   decodeRecordObject,
   pathToString,
+  type DataflowGraph,
   type TaskObject,
   type TreePath,
   type VersionVector,
@@ -344,15 +345,7 @@ export async function dataflowGetGraph(
   storage: StorageBackend,
   repo: string,
   ws: string
-): Promise<{
-  tasks: Array<{
-    name: string;
-    hash: string;
-    inputs: string[];
-    output: string;
-    dependsOn: string[];
-  }>;
-}> {
+): Promise<DataflowGraph> {
   let taskNodes: Map<string, TaskNode>;
   let outputToTask: Map<string, string>;
 
@@ -365,13 +358,7 @@ export async function dataflowGetGraph(
     throw new DataflowError(`Failed to build dependency graph: ${err instanceof Error ? err.message : err}`);
   }
 
-  const tasks: Array<{
-    name: string;
-    hash: string;
-    inputs: string[];
-    output: string;
-    dependsOn: string[];
-  }> = [];
+  const tasks: DataflowGraph['tasks'] = [];
 
   for (const [taskName, node] of taskNodes) {
     const dependsOn: string[] = [];
@@ -390,6 +377,7 @@ export async function dataflowGetGraph(
       inputs: node.inputPaths.map(pathToString),
       output: pathToString(node.outputPath),
       dependsOn,
+      load: none,
     });
   }
 
@@ -401,17 +389,10 @@ export async function dataflowGetGraph(
 // =============================================================================
 
 /**
- * Graph structure returned by dataflowGetGraph.
+ * Graph structure returned by dataflowGetGraph: a run's graph, as its state
+ * stores it (e3-types' `DataflowGraphType`).
  */
-export interface DataflowGraph {
-  tasks: Array<{
-    name: string;
-    hash: string;
-    inputs: string[];
-    output: string;
-    dependsOn: string[];
-  }>;
-}
+export type { DataflowGraph };
 
 /**
  * Get tasks that are ready to execute given the tasks that have completed and

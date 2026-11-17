@@ -14,6 +14,8 @@
  */
 
 import { eachAtMost } from '../concurrency.js';
+import type { StoredRunState } from '../dataflow/state-store/interfaces.js';
+import type { StorageBackend } from '../storage/interfaces.js';
 
 /**
  * Orders a step's unit keys as their strings do, code unit by code unit: the
@@ -62,4 +64,41 @@ export async function workInParts<T>(
     if (from + width < left.length && Date.now() >= until) return batch[batch.length - 1]!.key;
   }
   return null;
+}
+
+/**
+ * Works through every dataflow run a repository stores, as {@link workInParts}
+ * does, a unit a workspace: every run of it the store holds.
+ *
+ * @remarks
+ * The runs are read as they are stored, through the repository's run state
+ * store (`StorageBackend.runStates`, `ExecutionStateStore.readStored`), so a
+ * step goes through every backend's store alike. The units go in the order of
+ * the workspaces' names, one at a time, and a part stops between them once its
+ * time is up, with the name of the last workspace it did as its cursor.
+ *
+ * @param storage - The repository's backend
+ * @param repo - The repository
+ * @param at - Where the part before stopped; `null` for the step's first part
+ * @param until - When the part stops, in epoch milliseconds, once it has done a
+ *   workspace
+ * @param work - Rewrites one stored run, or leaves it as it is
+ * @returns The name of the last workspace the part did, which the next part is
+ *   given; `null` once every workspace is done
+ */
+export async function workStoredRunsInParts(
+  storage: StorageBackend,
+  repo: string,
+  at: string | null,
+  until: number,
+  work: (stored: StoredRunState) => Promise<void>,
+): Promise<string | null> {
+  const byWorkspace = new Map<string, StoredRunState[]>();
+  for (const stored of await storage.runStates(repo).readStored(repo)) {
+    byWorkspace.set(stored.workspace, [...(byWorkspace.get(stored.workspace) ?? []), stored]);
+  }
+  const units = [...byWorkspace].map(([key, runs]) => ({ key, unit: runs }));
+  return workInParts(units, at, until, 1, async (runs) => {
+    for (const stored of runs) await work(stored);
+  });
 }

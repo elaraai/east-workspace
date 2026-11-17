@@ -6,17 +6,19 @@
 /**
  * The upgrade that carries stored dataflow runs into the form that names the
  * tasks a run forces: it reads what the releases before it stored, and writes
- * this release's form. The contract suite (`contract/repository-record.ts`)
- * runs it over every backend; this holds its two forms to the bytes a release
- * stored and to the type this release reads.
+ * the form the step after it reads (`dataflow-graph-loads`), which carries a
+ * run on into this release's. The contract suite
+ * (`contract/repository-record.ts`) runs them over every backend; this holds
+ * the form it reads to the bytes a release stored.
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { decodeBeast2For, equalFor, isTypeValueEqual, printFor, toEastTypeValue } from '@elaraai/east';
-import { DataflowExecutionStateType, dataflowForce, decodeDataflowExecutionState } from '@elaraai/e3-types';
+import { decodeBeast2For, equalFor, isTypeValueEqual, none, printFor, readBeast2Type, some, toEastTypeValue } from '@elaraai/east';
+import { DataflowExecutionStateType, dataflowForce, decodeDataflowExecutionState, type DataflowExecutionState } from '@elaraai/e3-types';
 import { InMemoryStorage } from '../storage/in-memory/InMemoryStorage.js';
 import { DataflowStateBeforeForceTasksType, DataflowStateWithForceTasksType, dataflowForceTasks } from './dataflow-force-tasks.js';
+import { dataflowGraphLoads } from './dataflow-graph-loads.js';
 
 /** A run release 1.0.79 stored in workspace `ws` of `repo`, forcing no task:
  *  task `double` completed, `sum` split, and seven events. */
@@ -55,24 +57,28 @@ describe('dataflow-force-tasks', () => {
     assert.deepEqual([state.release, state.workspace, state.force], ['1.0.79', 'ws', false]);
   });
 
-  it('writes this release\'s form', () => {
-    assert.ok(isTypeValueEqual(toEastTypeValue(DataflowStateWithForceTasksType), toEastTypeValue(DataflowExecutionStateType)),
-      'the execution state\'s type changed: its form is the next upgrade\'s to carry, from this one\'s frozen form');
-  });
-
-  it('carries a run an earlier release stored into this release\'s form, forcing none of its tasks', async () => {
+  it('carries a run an earlier release stored into the form that forces none of its tasks, which the next step carries on into this release\'s', async () => {
     const storage = new InMemoryStorage();
     const earlier = decodeBeast2For(DataflowStateBeforeForceTasksType)(STATE_1_0_79);
+    // The run as this release reads it: forcing none, and each node of its graph loading nothing
+    const carried: DataflowExecutionState = {
+      ...earlier,
+      force: dataflowForce(false),
+      graph: earlier.graph.type === 'some' ? some({ tasks: earlier.graph.value.tasks.map((task) => ({ ...task, load: none })) }) : none,
+    };
     const store = storage.runStates('repo');
-    await store.create({ ...earlier, force: dataflowForce(false) });
+    await store.create(carried);
     const [stored] = await store.readStored('repo');
     assert.ok(stored !== undefined && stored.workspace === 'ws', 'the store holds the run');
     await stored.replace(STATE_1_0_79);
     await assert.rejects(store.read('repo', 'ws', earlier.id), /written by e3 1\.0\.79/, 'before the upgrade, the run does not read');
 
     assert.equal(await dataflowForceTasks.apply(storage, 'repo', null, Date.now() + 60_000), null, 'a part with time to spare does the step whole');
+    const [forced] = await store.readStored('repo');
+    assert.ok(forced !== undefined && isTypeValueEqual(readBeast2Type(forced.bytes), toEastTypeValue(DataflowStateWithForceTasksType)),
+      'it is stored in the form the step writes');
+    assert.equal(await dataflowGraphLoads.apply(storage, 'repo', null, Date.now() + 60_000), null);
     const read = await store.read('repo', 'ws', earlier.id);
-    const carried = { ...earlier, force: dataflowForce(false) };
     assert.ok(read !== null && equalFor(DataflowExecutionStateType)(read, carried),
       `the run reads as it was, forcing none: ${read === null ? 'none' : printFor(DataflowExecutionStateType)(read)}`);
     const [rewritten] = await store.readStored('repo');

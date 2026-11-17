@@ -180,9 +180,9 @@ describe('dataflow', () => {
     it('returns all tasks when none have dependencies', () => {
       const graph: DataflowGraph = {
         tasks: [
-          { name: 'a', hash: 'h1', inputs: [], output: 'out-a', dependsOn: [] },
-          { name: 'b', hash: 'h2', inputs: [], output: 'out-b', dependsOn: [] },
-          { name: 'c', hash: 'h3', inputs: [], output: 'out-c', dependsOn: [] },
+          { name: 'a', hash: 'h1', inputs: [], output: 'out-a', dependsOn: [], load: none },
+          { name: 'b', hash: 'h2', inputs: [], output: 'out-b', dependsOn: [], load: none },
+          { name: 'c', hash: 'h3', inputs: [], output: 'out-c', dependsOn: [], load: none },
         ],
       };
 
@@ -194,10 +194,10 @@ describe('dataflow', () => {
       // Diamond: A -> B, A -> C, B -> D, C -> D
       const graph: DataflowGraph = {
         tasks: [
-          { name: 'a', hash: 'h1', inputs: [], output: 'out-a', dependsOn: [] },
-          { name: 'b', hash: 'h2', inputs: [], output: 'out-b', dependsOn: ['a'] },
-          { name: 'c', hash: 'h3', inputs: [], output: 'out-c', dependsOn: ['a'] },
-          { name: 'd', hash: 'h4', inputs: [], output: 'out-d', dependsOn: ['b', 'c'] },
+          { name: 'a', hash: 'h1', inputs: [], output: 'out-a', dependsOn: [], load: none },
+          { name: 'b', hash: 'h2', inputs: [], output: 'out-b', dependsOn: ['a'], load: none },
+          { name: 'c', hash: 'h3', inputs: [], output: 'out-c', dependsOn: ['a'], load: none },
+          { name: 'd', hash: 'h4', inputs: [], output: 'out-d', dependsOn: ['b', 'c'], load: none },
         ],
       };
 
@@ -225,8 +225,8 @@ describe('dataflow', () => {
     it('excludes already completed tasks', () => {
       const graph: DataflowGraph = {
         tasks: [
-          { name: 'a', hash: 'h1', inputs: [], output: 'out-a', dependsOn: [] },
-          { name: 'b', hash: 'h2', inputs: [], output: 'out-b', dependsOn: [] },
+          { name: 'a', hash: 'h1', inputs: [], output: 'out-a', dependsOn: [], load: none },
+          { name: 'b', hash: 'h2', inputs: [], output: 'out-b', dependsOn: [], load: none },
         ],
       };
 
@@ -239,8 +239,8 @@ describe('dataflow', () => {
     it('returns empty array when no tasks depend on failed task', () => {
       const graph: DataflowGraph = {
         tasks: [
-          { name: 'a', hash: 'h1', inputs: [], output: 'out-a', dependsOn: [] },
-          { name: 'b', hash: 'h2', inputs: [], output: 'out-b', dependsOn: [] },
+          { name: 'a', hash: 'h1', inputs: [], output: 'out-a', dependsOn: [], load: none },
+          { name: 'b', hash: 'h2', inputs: [], output: 'out-b', dependsOn: [], load: none },
         ],
       };
 
@@ -251,9 +251,9 @@ describe('dataflow', () => {
     it('returns direct dependents', () => {
       const graph: DataflowGraph = {
         tasks: [
-          { name: 'a', hash: 'h1', inputs: [], output: 'out-a', dependsOn: [] },
-          { name: 'b', hash: 'h2', inputs: [], output: 'out-b', dependsOn: ['a'] },
-          { name: 'c', hash: 'h3', inputs: [], output: 'out-c', dependsOn: ['a'] },
+          { name: 'a', hash: 'h1', inputs: [], output: 'out-a', dependsOn: [], load: none },
+          { name: 'b', hash: 'h2', inputs: [], output: 'out-b', dependsOn: ['a'], load: none },
+          { name: 'c', hash: 'h3', inputs: [], output: 'out-c', dependsOn: ['a'], load: none },
         ],
       };
 
@@ -265,10 +265,10 @@ describe('dataflow', () => {
       // a -> b -> c -> d
       const graph: DataflowGraph = {
         tasks: [
-          { name: 'a', hash: 'h1', inputs: [], output: 'out-a', dependsOn: [] },
-          { name: 'b', hash: 'h2', inputs: [], output: 'out-b', dependsOn: ['a'] },
-          { name: 'c', hash: 'h3', inputs: [], output: 'out-c', dependsOn: ['b'] },
-          { name: 'd', hash: 'h4', inputs: [], output: 'out-d', dependsOn: ['c'] },
+          { name: 'a', hash: 'h1', inputs: [], output: 'out-a', dependsOn: [], load: none },
+          { name: 'b', hash: 'h2', inputs: [], output: 'out-b', dependsOn: ['a'], load: none },
+          { name: 'c', hash: 'h3', inputs: [], output: 'out-c', dependsOn: ['b'], load: none },
+          { name: 'd', hash: 'h4', inputs: [], output: 'out-d', dependsOn: ['c'], load: none },
         ],
       };
 
@@ -281,10 +281,10 @@ describe('dataflow', () => {
       // a -> c -> d
       const graph: DataflowGraph = {
         tasks: [
-          { name: 'a', hash: 'h1', inputs: [], output: 'out-a', dependsOn: [] },
-          { name: 'b', hash: 'h2', inputs: [], output: 'out-b', dependsOn: ['a'] },
-          { name: 'c', hash: 'h3', inputs: [], output: 'out-c', dependsOn: ['a'] },
-          { name: 'd', hash: 'h4', inputs: [], output: 'out-d', dependsOn: ['b', 'c'] },
+          { name: 'a', hash: 'h1', inputs: [], output: 'out-a', dependsOn: [], load: none },
+          { name: 'b', hash: 'h2', inputs: [], output: 'out-b', dependsOn: ['a'], load: none },
+          { name: 'c', hash: 'h3', inputs: [], output: 'out-c', dependsOn: ['a'], load: none },
+          { name: 'd', hash: 'h4', inputs: [], output: 'out-d', dependsOn: ['b', 'c'], load: none },
         ],
       };
 
@@ -295,9 +295,9 @@ describe('dataflow', () => {
     it('excludes already completed tasks', () => {
       const graph: DataflowGraph = {
         tasks: [
-          { name: 'a', hash: 'h1', inputs: [], output: 'out-a', dependsOn: [] },
-          { name: 'b', hash: 'h2', inputs: [], output: 'out-b', dependsOn: ['a'] },
-          { name: 'c', hash: 'h3', inputs: [], output: 'out-c', dependsOn: ['a'] },
+          { name: 'a', hash: 'h1', inputs: [], output: 'out-a', dependsOn: [], load: none },
+          { name: 'b', hash: 'h2', inputs: [], output: 'out-b', dependsOn: ['a'], load: none },
+          { name: 'c', hash: 'h3', inputs: [], output: 'out-c', dependsOn: ['a'], load: none },
         ],
       };
 
@@ -309,9 +309,9 @@ describe('dataflow', () => {
     it('excludes already skipped tasks', () => {
       const graph: DataflowGraph = {
         tasks: [
-          { name: 'a', hash: 'h1', inputs: [], output: 'out-a', dependsOn: [] },
-          { name: 'b', hash: 'h2', inputs: [], output: 'out-b', dependsOn: ['a'] },
-          { name: 'c', hash: 'h3', inputs: [], output: 'out-c', dependsOn: ['b'] },
+          { name: 'a', hash: 'h1', inputs: [], output: 'out-a', dependsOn: [], load: none },
+          { name: 'b', hash: 'h2', inputs: [], output: 'out-b', dependsOn: ['a'], load: none },
+          { name: 'c', hash: 'h3', inputs: [], output: 'out-c', dependsOn: ['b'], load: none },
         ],
       };
 
@@ -329,10 +329,10 @@ describe('dataflow', () => {
       // However, our function finds ALL transitive dependents - the caller decides what to do
       const graph: DataflowGraph = {
         tasks: [
-          { name: 'a', hash: 'h1', inputs: [], output: 'out-a', dependsOn: [] },
-          { name: 'b', hash: 'h2', inputs: [], output: 'out-b', dependsOn: ['a'] },
-          { name: 'c', hash: 'h3', inputs: [], output: 'out-c', dependsOn: [] },
-          { name: 'd', hash: 'h4', inputs: [], output: 'out-d', dependsOn: ['b', 'c'] },
+          { name: 'a', hash: 'h1', inputs: [], output: 'out-a', dependsOn: [], load: none },
+          { name: 'b', hash: 'h2', inputs: [], output: 'out-b', dependsOn: ['a'], load: none },
+          { name: 'c', hash: 'h3', inputs: [], output: 'out-c', dependsOn: [], load: none },
+          { name: 'd', hash: 'h4', inputs: [], output: 'out-d', dependsOn: ['b', 'c'], load: none },
         ],
       };
 
@@ -346,8 +346,8 @@ describe('dataflow', () => {
     it('returns just the task itself when it has no dependencies', () => {
       const graph: DataflowGraph = {
         tasks: [
-          { name: 'a', hash: 'h1', inputs: [], output: 'out-a', dependsOn: [] },
-          { name: 'b', hash: 'h2', inputs: [], output: 'out-b', dependsOn: [] },
+          { name: 'a', hash: 'h1', inputs: [], output: 'out-a', dependsOn: [], load: none },
+          { name: 'b', hash: 'h2', inputs: [], output: 'out-b', dependsOn: [], load: none },
         ],
       };
 
@@ -358,10 +358,10 @@ describe('dataflow', () => {
       // a -> b -> c -> d (d is the leaf)
       const graph: DataflowGraph = {
         tasks: [
-          { name: 'a', hash: 'h1', inputs: [], output: 'out-a', dependsOn: [] },
-          { name: 'b', hash: 'h2', inputs: [], output: 'out-b', dependsOn: ['a'] },
-          { name: 'c', hash: 'h3', inputs: [], output: 'out-c', dependsOn: ['b'] },
-          { name: 'd', hash: 'h4', inputs: [], output: 'out-d', dependsOn: ['c'] },
+          { name: 'a', hash: 'h1', inputs: [], output: 'out-a', dependsOn: [], load: none },
+          { name: 'b', hash: 'h2', inputs: [], output: 'out-b', dependsOn: ['a'], load: none },
+          { name: 'c', hash: 'h3', inputs: [], output: 'out-c', dependsOn: ['b'], load: none },
+          { name: 'd', hash: 'h4', inputs: [], output: 'out-d', dependsOn: ['c'], load: none },
         ],
       };
 
@@ -375,10 +375,10 @@ describe('dataflow', () => {
       // a -> b -> d, a -> c -> d: `a` is reached via both branches but appears once
       const graph: DataflowGraph = {
         tasks: [
-          { name: 'a', hash: 'h1', inputs: [], output: 'out-a', dependsOn: [] },
-          { name: 'b', hash: 'h2', inputs: [], output: 'out-b', dependsOn: ['a'] },
-          { name: 'c', hash: 'h3', inputs: [], output: 'out-c', dependsOn: ['a'] },
-          { name: 'd', hash: 'h4', inputs: [], output: 'out-d', dependsOn: ['b', 'c'] },
+          { name: 'a', hash: 'h1', inputs: [], output: 'out-a', dependsOn: [], load: none },
+          { name: 'b', hash: 'h2', inputs: [], output: 'out-b', dependsOn: ['a'], load: none },
+          { name: 'c', hash: 'h3', inputs: [], output: 'out-c', dependsOn: ['a'], load: none },
+          { name: 'd', hash: 'h4', inputs: [], output: 'out-d', dependsOn: ['b', 'c'], load: none },
         ],
       };
 

@@ -41,8 +41,8 @@ function runningState(): DataflowExecutionState {
     filter: none,
     graph: some({
       tasks: [
-        { name: 'a', hash: 'hash-a', inputs: ['.input'], output: '.out_a', dependsOn: [] },
-        { name: 'b', hash: 'hash-b', inputs: ['.out_a'], output: '.out_b', dependsOn: ['a'] },
+        { name: 'a', hash: 'hash-a', inputs: ['.input'], output: '.out_a', dependsOn: [], load: none },
+        { name: 'b', hash: 'hash-b', inputs: ['.out_a'], output: '.out_b', dependsOn: ['a'], load: none },
       ],
     }),
     graphHash: none,

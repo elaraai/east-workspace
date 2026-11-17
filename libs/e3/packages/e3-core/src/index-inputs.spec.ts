@@ -328,7 +328,7 @@ describe('an index of a record as an input', { timeout: 480_000, concurrency: fa
     }));
     const before = await jobsState();
     const resolved = await withWriteAfterFirstRead(jobKey(7), () => dataflowResolveInputHashes(storage, repo, WS, {
-      name: 'watched_jobs', hash, inputs: ['.records.jobs', '.records.jobs'], output: '.tasks.watched_jobs.output', dependsOn: [],
+      name: 'watched_jobs', hash, inputs: ['.records.jobs', '.records.jobs'], output: '.tasks.watched_jobs.output', dependsOn: [], load: none,
     }));
     assert.deepEqual(resolved, [await indexOf(before), before], 'the index\'s manifest in the state the one read found, and that state');
   });

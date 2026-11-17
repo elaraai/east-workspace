@@ -108,10 +108,17 @@ export type TaskState = ValueTypeOf<typeof TaskStateType>;
 // =============================================================================
 
 /**
- * A task within the dataflow graph.
+ * A node of the dataflow graph: a task of the package, or the load of a
+ * composite record's source that a dataset of the package feeds.
+ *
+ * @remarks
+ * A load node is named `<record>.<source>` (`orders.erp`). Its `hash` is the
+ * load's task object, its one input the feed's path, and its output the
+ * record's path, which stays a root of the run: no node depends on a load
+ * node. It depends on the task that writes its feed, when a task does.
  */
 export const DataflowGraphTaskType = StructType({
-  /** Task name */
+  /** Task name, or a load node's `<record>.<source>` */
   name: StringType,
   /** Task object hash */
   hash: StringType,
@@ -121,6 +128,8 @@ export const DataflowGraphTaskType = StructType({
   output: StringType,
   /** Names of tasks this depends on */
   dependsOn: ArrayType(StringType),
+  /** The record and source a load node loads; `none` for a task */
+  load: OptionType(StructType({ record: StringType, source: StringType })),
 });
 export type DataflowGraphTask = ValueTypeOf<typeof DataflowGraphTaskType>;
 
