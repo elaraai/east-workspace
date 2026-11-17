@@ -32,7 +32,7 @@ import type { OrchestratorStartOptions } from '../dataflow/orchestrator/interfac
 import { InMemoryStateStore } from '../dataflow/state-store/InMemoryStateStore.js';
 import type { ExecutionStateStore } from '../dataflow/state-store/interfaces.js';
 import type { DeferReason } from '../dataflow/types.js';
-import { acquireForDeploy } from '../deploy-lock.js';
+import { acquireForDeploy, deployIntentLock } from '../deploy-lock.js';
 import { DataflowAbortedError, WorkspaceLockError } from '../errors.js';
 import { GatedTaskRunner } from '../execution/GatedTaskRunner.js';
 import { LocalOrchestrator } from '../execution/local-orchestrator.js';
@@ -206,6 +206,113 @@ async function deployCombined(t: TestContext, { storage, repo }: BackendContext,
   await workspaceCreate(storage, repo, 'ws');
   await workspaceDeploy(storage, repo, 'ws', 'combined', '1.0.0');
   return deployedTasks(storage, repo);
+}
+
+/**
+ * Deploys a task over a record, and one over the record and that task's
+ * result, beside a task of its own input, to workspace `ws`: `clean` reads
+ * the record `orders`, `check` reads `orders` and what `clean` writes, and
+ * `slow` reads the input `rates`.
+ */
+async function deployChecked(t: TestContext, { storage, repo }: BackendContext): Promise<Map<string, string>> {
+  const orders = e3.record('orders', OrdersType, { initial: new Map() });
+  const rates = e3.input('rates', IntegerType, variant('value', 1n));
+  const clean = e3.task('clean', [orders], East.function([OrdersType], IntegerType, ($, rows) => rows.size()));
+  const check = e3.task('check', [orders, clean.output], East.function([OrdersType, IntegerType], IntegerType, ($, rows, cleaned) => rows.size().add(cleaned)));
+  const slow = e3.task('slow', [rates], East.function([IntegerType], IntegerType, ($, rate) => rate.add(1n)));
+  const zip = join(scratch(t), 'checked.zip');
+  await e3.export(e3.package('checked', '1.0.0', orders, rates, clean, check, slow), zip);
+  await packageImport(storage, repo, zip);
+  await workspaceCreate(storage, repo, 'ws');
+  await workspaceDeploy(storage, repo, 'ws', 'checked', '1.0.0');
+  return deployedTasks(storage, repo);
+}
+
+/**
+ * Deploys two tasks over a record, and one over both their results, to
+ * workspace `ws`: `left` and `right` each read the record `orders`, and
+ * `both` reads what the two write. The run takes `both` before `left` where
+ * both are ready, by name.
+ */
+async function deployTwoSided(t: TestContext, { storage, repo }: BackendContext): Promise<Map<string, string>> {
+  const orders = e3.record('orders', OrdersType, { initial: new Map() });
+  const size = East.function([OrdersType], IntegerType, ($, rows) => rows.size());
+  const left = e3.task('left', [orders], size);
+  const right = e3.task('right', [orders], size);
+  const both = e3.task('both', [left.output, right.output], East.function([IntegerType, IntegerType], IntegerType, ($, a, b) => a.add(b)));
+  const zip = join(scratch(t), 'two-sided.zip');
+  await e3.export(e3.package('two-sided', '1.0.0', orders, left, right, both), zip);
+  await packageImport(storage, repo, zip);
+  await workspaceCreate(storage, repo, 'ws');
+  await workspaceDeploy(storage, repo, 'ws', 'two-sided', '1.0.0');
+  return deployedTasks(storage, repo);
+}
+
+/**
+ * An object that answers as `target` does, but for the members given: a
+ * storage with one of its parts stood in for. Every other member is the
+ * target's own, a method bound to it.
+ */
+function standIn<T extends object>(target: T, members: Partial<Record<keyof T, unknown>>): T {
+  return new Proxy(target, {
+    get: (of, name) => {
+      if (Object.hasOwn(members, name)) return (members as Record<string | symbol, unknown>)[name];
+      const member: unknown = Reflect.get(of, name);
+      return typeof member === 'function' ? (member as (...args: unknown[]) => unknown).bind(of) : member;
+    },
+  });
+}
+
+/** A call a case holds back: `reached` settles once the call has its answer
+ *  in hand, which its caller is handed only when the case opens it. */
+interface HeldCall {
+  readonly reached: Promise<void>;
+  open(): void;
+}
+
+/**
+ * A storage a case paces: each call of its `refs` and `datasets` goes to the
+ * backend's own at once, and the answer of one the case holds
+ * ({@link PacedStorage.hold}) is kept back until the case opens it. So a case
+ * places a read or a write of the run's between two steps of its own, where
+ * nothing else orders them.
+ */
+interface PacedStorage {
+  readonly storage: StorageBackend;
+  /** Holds the next call of `part`'s `method` whose arguments `when` accepts. */
+  hold(part: 'refs' | 'datasets', method: string, when: (args: readonly unknown[]) => boolean): HeldCall;
+}
+
+function pacedStorage(storage: StorageBackend): PacedStorage {
+  const holds: Array<{ part: string; method: string; when: (args: readonly unknown[]) => boolean; reached: () => void; opened: Promise<void>; taken: boolean }> = [];
+  const paced = <P extends object>(part: 'refs' | 'datasets', target: P): P => new Proxy(target, {
+    get: (of, name) => {
+      const member: unknown = Reflect.get(of, name);
+      if (typeof member !== 'function') return member;
+      const call = (member as (...args: unknown[]) => unknown).bind(of);
+      if (!holds.some((each) => !each.taken && each.part === part && each.method === name)) return call;
+      return async (...args: unknown[]): Promise<unknown> => {
+        const answer = await call(...args);
+        const held = holds.find((each) => !each.taken && each.part === part && each.method === name && each.when(args));
+        if (held === undefined) return answer;
+        held.taken = true;
+        held.reached();
+        await held.opened;
+        return answer;
+      };
+    },
+  });
+  return {
+    storage: standIn(storage, { refs: paced('refs', storage.refs), datasets: paced('datasets', storage.datasets) }),
+    hold(part, method, when) {
+      let reached!: () => void;
+      let open!: () => void;
+      const reaching = new Promise<void>((resolve) => { reached = resolve; });
+      const opened = new Promise<void>((resolve) => { open = resolve; });
+      holds.push({ part, method, when, reached, opened, taken: false });
+      return { reached: reaching, open };
+    },
+  };
 }
 
 /** The record `orders` as its ref stands: its head commit and its state. */
@@ -615,10 +722,10 @@ export function dataflowFollowCases(setup: BackendSetup): void {
     runner.release('clean');
     await runner.launched('forecast');
 
-    const started = Date.now();
+    // The deploy takes the workspace only once the run has let it go: a run
+    // that never stopped would refuse it once the deploy's own wait was over
     const deploy = await acquireForDeploy(storage, repo, 'ws');
     try {
-      assert.ok(Date.now() - started < 10_000, 'the run let the workspace go for the deploy');
       await assert.rejects(waited, (err: unknown) => {
         assert.ok(err instanceof DataflowAbortedError, `a DataflowAbortedError, not ${String(err)}`);
         assert.equal(err.reason, 'a deploy of ws started');
@@ -690,5 +797,145 @@ export function dataflowFollowCases(setup: BackendSetup): void {
     assert.equal(await held(storage, repo, 'tasks/report/output'), made('report', made('forecast', made('clean', v2))));
     const run = await storage.refs.dataflowRunGet(repo, 'ws', result.runId);
     assert.deepEqual([...run!.taskExecutions.keys()].sort(), ['clean', 'forecast', 'report'], 'the run\'s record covers both incarnations');
+  });
+
+  it('asks a change\'s readers again once the look that found it has failed: a wake that failed loses no edit', async (t) => {
+    const context = await setup(t);
+    const { storage, repo } = context;
+    const tasks = await deployChecked(t, context);
+    const runner = gatedRunner(storage, repo, tasks);
+    const lines = new RunLines();
+    const orchestrator = new LocalOrchestrator(stateStoreOf(context));
+    const c0 = await ordersHead(storage, repo);
+    const handle = await orchestrator.start(storage, repo, 'ws', { runner, ...lines.callbacks });
+
+    // clean and check land on the record as the run found it, and slow keeps
+    // the run in flight
+    await runner.launched('slow');
+    assert.deepEqual((await runner.launched('clean')).inputHashes, [c0.state]);
+    runner.release('clean');
+    assert.deepEqual((await runner.launched('check')).inputHashes, [c0.state, made('clean', c0.state)]);
+    runner.release('check');
+    await lines.said('[DONE] check');
+
+    // An edit commits, and the look its writer's start asks for fails once it
+    // has found the edit: check reads the record and a result made from it, so
+    // asking whether it is due reads the store, which is down
+    const c1 = await commitOrders(storage, repo, [['a', 1n]]);
+    const down = standIn(storage, {
+      refs: standIn(storage.refs, { workspaceRead: () => Promise.reject(new Error('the store went away')) }),
+    });
+    assert.equal(await orchestrator.wake(down, repo, 'ws'), false, 'a look that failed hands nothing over');
+
+    // The run asks again by itself, with no second wake: both run on the edit
+    assert.deepEqual((await runner.launched('clean')).inputHashes, [c1.state]);
+    runner.release('clean');
+    assert.deepEqual((await runner.launched('check')).inputHashes, [c1.state, made('clean', c1.state)]);
+    runner.release('check');
+    runner.release('slow');
+    assert.equal((await orchestrator.wait(handle)).success, true);
+    assert.equal(await held(storage, repo, 'tasks/check/output'), made('check', c1.state, made('clean', c1.state)));
+  });
+
+  it('takes no wake once a deploy has announced itself: a start is refused, naming the deploy, and the run stops', async (t) => {
+    const context = await setup(t);
+    const { storage, repo } = context;
+    const tasks = await deployChain(t, context);
+    const runner = gatedRunner(storage, repo, tasks);
+    const orchestrator = new LocalOrchestrator(stateStoreOf(context));
+    const handle = await orchestrator.start(storage, repo, 'ws', { runner });
+    const waited = orchestrator.wait(handle);
+    waited.catch(() => undefined);
+    await runner.launched('clean');
+    assert.equal(await orchestrator.wake(storage, repo, 'ws'), true, 'the run in flight takes a wake');
+
+    // A deploy announces itself, and waits for the run to let the workspace go
+    const intent = await storage.locks.acquire(repo, deployIntentLock('ws'), variant('deployment', null));
+    assert.ok(intent !== null);
+    try {
+      assert.equal(await orchestrator.wake(storage, repo, 'ws'), false, 'the run takes nothing in for a deploy that waits');
+      await assert.rejects(orchestrator.start(storage, repo, 'ws', { runner }), (err: unknown) => {
+        assert.ok(err instanceof WorkspaceLockError, `a WorkspaceLockError, not ${String(err)}`);
+        assert.match(err.message, /^Workspace 'ws' is locked by a deploy/);
+        return true;
+      });
+      await assert.rejects(waited, (err: unknown) => err instanceof DataflowAbortedError && err.reason === 'a deploy of ws started');
+    } finally {
+      await intent.release();
+    }
+  });
+
+  it('launches no catch-up run for a result that lands while a task that reads it is resolved: the task waits for the run in flight', async (t) => {
+    const context = await setup(t);
+    const { repo } = context;
+    const paced = pacedStorage(context.storage);
+    const storage = paced.storage;
+    const tasks = await deployTwoSided(t, context);
+    const runner = gatedRunner(context.storage, repo, tasks);
+    const lines = new RunLines();
+    const orchestrator = new LocalOrchestrator(stateStoreOf(context));
+    const handle = await orchestrator.start(storage, repo, 'ws', { runner, ...lines.callbacks });
+    const edit = async (rows: ReadonlyArray<[string, bigint]>): Promise<{ commit: string; state: string }> => {
+      const commit = await commitOrders(storage, repo, rows);
+      assert.equal(await orchestrator.wake(storage, repo, 'ws'), true);
+      return commit;
+    };
+
+    // left's result moves to c1 while right's goes from c0 to c2, and both
+    // has run on c0
+    await runner.launched('left');
+    await runner.launched('right');
+    const c1 = await edit([['a', 1n]]);
+    runner.release('left');
+    assert.deepEqual((await runner.launched('left')).inputHashes, [c1.state]);
+    const c2 = await edit([['a', 1n], ['b', 2n]]);
+    runner.release('right');
+    assert.deepEqual((await runner.launched('right')).inputHashes, [c2.state]);
+    await runner.launched('both');
+    runner.release('both');
+    await lines.said('[DONE] both');
+    runner.release('right');
+    await lines.said('[DONE] right', 2);
+
+    // An edit puts the record back as it was at c1: right runs on it, over
+    // the very inputs both will read it at
+    const c3 = await edit([['a', 1n]]);
+    assert.equal(c3.state, c1.state);
+    assert.deepEqual((await runner.launched('right')).inputHashes, [c1.state]);
+    const read = inputsHash([c1.state]);
+    const cache = (task: string) => (args: readonly unknown[]): boolean => args[1] === tasks.get(task) && args[2] === read;
+
+    // left lands on c1, and both is resolved as of c1: right's result there
+    // is not its last, and the execution cache has none yet
+    const asked = paced.hold('refs', 'executionListIds', cache('right'));
+    const landing = paced.hold('datasets', 'write', (args) => args[2] === 'tasks/right/output');
+    const next = paced.hold('refs', 'executionListIds', cache('left'));
+    try {
+      runner.release('left');
+      await asked.reached;
+
+      // right's run over those inputs ends while both is still resolved, and
+      // its result is landing as the cache's answer, none, reaches both
+      runner.release('right');
+      await landing.reached;
+      asked.open();
+
+      // The run has gone on to left, the next task it takes: both waits for
+      // right's run, which is still in flight until its result has landed
+      await next.reached;
+      assert.deepEqual(lines.printed.filter((line) => line.startsWith('[CATCH-UP]')), [], 'no catch-up run was launched for the result that is landing');
+    } finally {
+      asked.open();
+      next.open();
+      landing.open();
+    }
+
+    assert.deepEqual((await runner.launched('both')).inputHashes, [made('left', c1.state), made('right', c1.state)]);
+    assert.equal(runner.holding('right'), 0);
+    assert.equal((await context.storage.refs.executionListIds(repo, tasks.get('right')!, read)).length, 1, 'right ran once over those inputs');
+    for (const name of tasks.keys()) runner.pass(name);
+    runner.release('both');
+    assert.equal((await orchestrator.wait(handle)).success, true);
+    assert.deepEqual(lines.printed.filter((line) => line.startsWith('[CATCH-UP]')), []);
   });
 }
