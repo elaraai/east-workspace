@@ -32,83 +32,16 @@
  * `pnpm exec playwright test plan-landings --project desktop`.
  */
 
-import { expect, type Locator } from "playwright/test";
+import { expect } from "playwright/test";
 import { test } from "./kept-page";
-import { PLAN_EVENT_EXAMPLES, openExample, rowId, same, type Edges } from "./plan-page";
+import { PLAN_EVENT_EXAMPLES, openExample, rowId, same } from "./plan-page";
 import { printWorksPressId, type PrintWorksPress } from "./plan-builder-page";
-
-/** One element a row draws: the attribute its draw carries, and its box. */
-interface Item extends Edges { draw: string }
-
-/** One row of the canvas, as the browser lays it out. */
-interface Row extends Edges {
-    id: string;
-    kind: string;
-    level: number;
-    gutter: Edges;
-    plot: Edges;
-    /** Where its line starts: its gutter's edge, in by its level's indent. */
-    start: number;
-    /** The rows it is laid out among: those of one parent tile it. */
-    among: number;
-    /** Where its name starts, and what it reads. */
-    label: { left: number; text: string } | null;
-    sub: string | null;
-    items: Item[];
-}
-
-/** The elements a row draws, by the attribute each way of drawing carries. */
-const DRAWS = ["data-run", "data-mark", "data-chip", "data-event"] as const;
-
-/** The kind of row each way of drawing is on. */
-const KIND_OF = { "data-run": "span", "data-mark": "events", "data-chip": "cards", "data-event": "buckets" } as const;
-
-/** A level's indent of a row's line: a caret, 14px, and its gap, 6px (`RowShell`'s `INDENT_PX`). */
-const INDENT = 20;
-
-/** The rows the canvas draws, in the order it draws them, each with what it draws. */
-async function rowsOf(entry: Locator): Promise<Row[]> {
-    return entry.locator("[data-plan-body]").first().evaluate((body, draws) => {
-        const edges = (el: Element) => {
-            const box = el.getBoundingClientRect();
-            return { top: box.top, bottom: box.bottom, left: box.left, right: box.right };
-        };
-        const parents: Element[] = [];
-        // A group's strip is a row as any other is, under its own attribute.
-        return [...body.querySelectorAll<HTMLElement>("[data-plan-row], [data-plan-group]")].map((row) => {
-            const label = row.querySelector('[data-plan-gutter="label"]');
-            const sub = row.querySelector('[data-plan-gutter="sub"]');
-            const gutter = row.querySelector('[role="rowheader"]')!;
-            const parent = row.parentElement!;
-            if (!parents.includes(parent)) parents.push(parent);
-            return {
-                ...edges(row),
-                id: (row.getAttribute("data-plan-row") ?? row.getAttribute("data-plan-group"))!,
-                kind: row.getAttribute("data-plan-kind") ?? "group",
-                level: Number(row.getAttribute("aria-level")),
-                gutter: edges(gutter),
-                plot: edges(row.querySelector('[role="gridcell"]')!),
-                start: gutter.getBoundingClientRect().left + Number.parseFloat(getComputedStyle(gutter).paddingLeft),
-                among: parents.indexOf(parent),
-                label: label === null ? null : { left: label.getBoundingClientRect().left, text: label.textContent ?? "" },
-                sub: sub === null ? null : sub.textContent,
-                items: draws.flatMap((draw) => [...row.querySelectorAll(`[role="gridcell"] [${draw}]`)]
-                    // A mark's hit target is its button, its dot inside carrying the same attribute; a tile its cell
-                    // folds into a count is not drawn.
-                    .filter((el) => el.parentElement?.closest(`[${draw}]`) === null && !el.hasAttribute("data-folded"))
-                    .map((el) => ({ draw, ...edges(el) }))),
-            };
-        });
-    }, DRAWS);
-}
-
-/** The rule under a row: its 1px line, inside its box. */
-const RULE = 1;
+import { PLAN_INDENT, planBandFaults, planRowsOf } from "./plan-rows";
 
 test.describe("A resource's rows on the Plan (#1541)", () => {
     test("planPrintWorks: a press is its landing row, the row beside it at its level and its own series nested under it, together and in order @desktop", async ({ page }) => {
         const entry = await openExample(page, "planPrintWorks", PLAN_EVENT_EXAMPLES);
-        const rows = await rowsOf(entry);
+        const rows = await planRowsOf(entry);
         const at = (id: string) => rows.findIndex((row) => row.id === id);
         const bad: string[] = [];
         // Hall A's first two presses: what stands in view, the canvas drawing only the rows that do.
@@ -138,9 +71,9 @@ test.describe("A resource's rows on the Plan (#1541)", () => {
                 bad.push(`${press}: the strip, the landing row, the row beside it and its own series at levels ${levels.join(", ")}`);
             }
             const starts = [strip.start, landing.start, beside.start, own.start];
-            const stepped = [strip.start, strip.start + INDENT, strip.start + INDENT, strip.start + 2 * INDENT];
+            const stepped = [strip.start, strip.start + PLAN_INDENT, strip.start + PLAN_INDENT, strip.start + 2 * PLAN_INDENT];
             if (!starts.every((start, n) => same(start, stepped[n]!))) {
-                bad.push(`${press}: their lines start at ${starts.join(", ")}px — a level is ${INDENT}px, so ${stepped.join(", ")}px`);
+                bad.push(`${press}: their lines start at ${starts.join(", ")}px — a level is ${PLAN_INDENT}px, so ${stepped.join(", ")}px`);
             }
             // A row with no caret starts its name where the row it is under starts its own.
             if (strip.label === null || landing.label === null || beside.label === null || own.label === null) { bad.push(`${press}: a row with no name`); continue; }
@@ -156,33 +89,12 @@ test.describe("A resource's rows on the Plan (#1541)", () => {
 
     test("planPrintWorks: every row is one band, the rows tile the canvas, and what a row draws stays in its band, on a row of its kind @desktop", async ({ page }) => {
         const entry = await openExample(page, "planPrintWorks", PLAN_EVENT_EXAMPLES);
-        const rows = await rowsOf(entry);
+        const rows = await planRowsOf(entry);
         const bad: string[] = [];
         // The print works draws bars, marks and chips in what stands in view: a check of none is no check.
         const drawn = new Set(rows.flatMap((row) => row.items.map((item) => item.draw)));
         expect(["data-run", "data-mark", "data-chip"].filter((draw) => !drawn.has(draw))).toEqual([]);
-        rows.forEach((row, i) => {
-            // One band: its gutter and its plot start at its top and end together, on the row's rule or at its bottom.
-            for (const [name, part] of [["gutter", row.gutter], ["plot", row.plot]] as const) {
-                if (!same(part.top, row.top) || part.bottom > row.bottom + 0.5 || part.bottom < row.bottom - RULE - 0.5) {
-                    bad.push(`${row.id}: its ${name} spans ${part.top}–${part.bottom}px, the row ${row.top}–${row.bottom}px`);
-                }
-            }
-            if (!same(row.gutter.bottom, row.plot.bottom)) bad.push(`${row.id}: its gutter ends at ${row.gutter.bottom}px, its plot at ${row.plot.bottom}px`);
-            if (!same(row.gutter.right, row.plot.left)) bad.push(`${row.id}: its gutter ends at ${row.gutter.right}px, its plot starts at ${row.plot.left}px`);
-            // The rows tile: each starts where the one before it, among the rows it is laid out with, ends.
-            const before = rows[i - 1];
-            if (before !== undefined && before.among === row.among && !same(row.top, before.bottom)) {
-                bad.push(`${row.id}: starts at ${row.top}px, the row before it ends at ${before.bottom}px`);
-            }
-            // What it draws stays in its band, on a row of the kind that draws it.
-            for (const item of row.items) {
-                if (item.top < row.plot.top - 0.5 || item.bottom > row.plot.bottom + 0.5) {
-                    bad.push(`${row.id}: a ${item.draw} spans ${item.top}–${item.bottom}px, out of its band ${row.plot.top}–${row.plot.bottom}px`);
-                }
-                if (KIND_OF[item.draw as keyof typeof KIND_OF] !== row.kind) bad.push(`${row.id}: a ${item.draw} on a ${row.kind} row`);
-            }
-        });
+        bad.push(...planBandFaults(rows));
         expect(bad).toEqual([]);
     });
 });
