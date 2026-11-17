@@ -987,8 +987,9 @@ Allocation read; the options only a Plan read are refused, each naming
   by its key, or one for each case of a variant field
   (`{ bay: "bay", van: "van" }`). A name that is neither is refused at
   build, and so is a field that does not hold the series' key type, naming
-  the field and both types. A key is a `String` for now: a series keyed by
-  another type is a later pull request of the epic's.
+  the field and both types. A resource's key is a `String`; the rows beneath
+  a resource, which a kind's `child` lands on, are keyed by any type (*Rows
+  beneath a resource*, below), and so is an event kind's own record.
 - **How a resource's row draws.** It draws a row for each way the kinds
   landing on it draw: the first on the row itself, each other a row after it,
   labelled by its kinds' names. Then come its `series`, then its `children`, as
@@ -1363,6 +1364,26 @@ on the child row its event names.
 
 The Plan's payload gains an event kind's `child` and a landing's `under`
 (`WIRE_MIGRATION.md`). A stored `UIComponentType` value re-emits.
+
+## One templates record for every kind (#1544)
+
+An app kept a templates record for each event kind, and a source of the rail
+for each. It may now keep one: a record whose rows hold a variant field with
+a case for each kind, and one source of the rail.
+
+| Before | Now | Example |
+|---|---|---|
+| a templates record a kind, `Schedule.templates(jobTemplates.read(), { name, values: (t) => t.values, source: "jobTemplates" })` | one record, each kind reading its case: `Schedule.templates(presets.read(), { case: ["values", "job"], name, values: (_preset, _key, job) => job, source: "templates" })` | `planPrintWorksRecords` |
+
+- `case: [field, tag]` is written as a series' `case` is: `field` a variant
+  field of the rows, `tag` the kind's case of it. The kind's templates are the
+  rows holding the case, and every accessor (`name`, `group`, `at`,
+  `duration`, `values`) is handed the case's value after the row and its key.
+- A field that holds no variant, or a tag that is no case of it, is refused at
+  build, naming the field and its cases.
+- A record a kind keeps for itself reads as before: `case` is left out.
+
+Nothing of the Plan's payload changes.
 
 ## Extracted contracts (do this first when migrating imports)
 
