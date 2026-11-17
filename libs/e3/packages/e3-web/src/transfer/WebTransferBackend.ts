@@ -54,6 +54,7 @@ import {
   SplitCallJobType,
   WorkspaceDeployJobType,
   WorkspaceLockError,
+  acquireWorkspaceExclusive,
   adoptProgressToIntakeFile,
   computeHash,
   datasetAdoptObject,
@@ -62,7 +63,6 @@ import {
   handleProcessGc,
   handleProcessImport,
   handleProcessSplitCall,
-  lockStateToHolderInfo,
   type DatasetAdoptProgress,
   type DatasetCommitStatus,
   type DatasetDownloadStore,
@@ -923,7 +923,9 @@ class WebPackageImportStore extends JobStore<PackageImport, ImportRecord> implem
  * @remarks
  * A round stops at the first entry after it has written its share of bytes,
  * and the worker answers what waits — a page's requests — before the next.
- * A workspace's export holds the workspace's lock across its rounds, as the
+ * A workspace's export takes the workspace whole, as e3-core's export does —
+ * it announces itself, so a dataflow running in the workspace stops, and waits
+ * for what holds the workspace — and holds its lock across its rounds, as the
  * shared handler asks of a caller that runs one job over several calls, so
  * nothing changes the workspace between them. The last round's blob is
  * counted with the job's completion, in one write. The download serves the
@@ -935,7 +937,14 @@ class WebPackageExportStore extends JobStore<PackageExport, ExportRecord> implem
    *  counts */
   private readonly writing = new Map<string, number>();
 
-  constructor(host: TransferHost, running: Running, private readonly roundBytes: number) {
+  constructor(
+    host: TransferHost,
+    running: Running,
+    private readonly roundBytes: number,
+    /** How long a workspace's export waits for the workspace; e3-core's
+     *  wait when undefined */
+    private readonly lockWaitMs: number | undefined,
+  ) {
     super(host, running, 'export', exportForm);
   }
 
@@ -1016,16 +1025,18 @@ class WebPackageExportStore extends JobStore<PackageExport, ExportRecord> implem
   protected async work(id: string, record: ExportRecord): Promise<void> {
     const { repo, workspace } = record.job;
     const blobs = this.host.blobs;
-    // A workspace's export holds the workspace from its first round to its
-    // last, as one call of the local server's holds it.
+    // A workspace's export takes the workspace whole, announcing itself, and
+    // holds it from its first round to its last, as one call of the local
+    // server's holds it.
     let lock: LockHandle | null = null;
     if (workspace.type === 'some') {
-      lock = await this.host.storage.locks.acquire(repo, workspace.value, variant('export', null));
-      if (lock === null) {
-        // Its holder, as e3-core names a lock's holder wherever a lock refuses.
-        const state = await this.host.storage.locks.getState(repo, workspace.value);
-        const refused = new WorkspaceLockError(workspace.value, state === null ? undefined : lockStateToHolderInfo(state));
-        await this.updateStatus(id, this.failure(refused.message));
+      try {
+        lock = await acquireWorkspaceExclusive(this.host.storage, repo, workspace.value, variant('export', null), { waitMs: this.lockWaitMs });
+      } catch (err) {
+        // Refused once its wait is over, naming the holder, as e3-core names
+        // a lock's holder wherever a lock refuses
+        if (!(err instanceof WorkspaceLockError)) throw err;
+        await this.updateStatus(id, this.failure(err.message));
         return;
       }
     }
@@ -1241,6 +1252,11 @@ export interface WebTransferBackendOptions {
   /** The most bytes of a zip an export round writes before it stops:
    *  {@link DEFAULT_EXPORT_ROUND_BYTES} unless set */
   readonly exportRoundBytes?: number;
+  /** How long a workspace's export waits for the workspace, in milliseconds:
+   *  for its intent, and then for its lock, which a dataflow the export
+   *  stops, or a write in progress, lets go. e3-core's `EXCLUSIVE_WAIT_MS`
+   *  unless set */
+  readonly exportLockWaitMs?: number;
   /**
    * How long what finished stays readable ({@link DEFAULT_RESULT_TTL_MS}),
    * how long what nothing finished or fetched is kept
@@ -1335,7 +1351,7 @@ export class WebTransferBackend implements TransferBackend {
     this.datasetUpload = new WebDatasetUploadStore(host, BigInt(partBytes));
     this.datasetDownload = new WebDatasetDownloadStore(host);
     this.packageImport = new WebPackageImportStore(host, running);
-    this.packageExport = new WebPackageExportStore(host, running, roundBytes);
+    this.packageExport = new WebPackageExportStore(host, running, roundBytes, options.exportLockWaitMs);
     this.workspaceDeploy = new WebWorkspaceDeployStore(host, running);
     this.repoGc = new WebRepoGcStore(host, running);
     this.splitCall = new WebSplitCallStore(host, running);

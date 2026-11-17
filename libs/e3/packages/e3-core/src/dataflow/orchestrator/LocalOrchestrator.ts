@@ -15,8 +15,9 @@
  * the newest. A task that reads several results reads them all as of one
  * commit of each record — the oldest its inputs came from, a newer result
  * read there from the execution cache or made there by a catch-up run — and
- * is deferred only where its inputs read a plain input at two values. A
- * deploy of its workspace that announces itself stops it.
+ * is deferred only where its inputs read a plain input at two values.
+ * Whatever takes its workspace whole — a deploy, a removal, a copy onto it or
+ * an export of it — announces itself, and stops it.
  *
  * It runs wherever its host does: a run's tasks go to the runner its start
  * names, or else to its host's ({@link LocalOrchestratorHost}), and a split
@@ -36,7 +37,7 @@ import type { SplitUnit, TaskExecuteOptions } from '../../execution/interfaces.j
 import type { ExecutionResult } from '../../execution/cache.js';
 import { SplitTask, isSplitTask, type ThrownUnit } from '../../execution/engine.js';
 import { WorkspaceLockError, DataflowAbortedError, DataflowError, DataflowSupersededError, checkName } from '../../errors.js';
-import { DEPLOY_PROBE_MS, acquireWorkspaceShared, deployAnnounced, workspaceLockRefusal } from '../../deploy-lock.js';
+import { INTENT_PROBE_MS, acquireWorkspaceShared, announcedIntent, intentWords, workspaceLockRefusal } from '../../deploy-lock.js';
 import type { TaskExecutionResult } from '../../dataflow.js';
 import { inputsHash } from '../../executions.js';
 import { uuidv7 } from '../../uuid.js';
@@ -401,8 +402,8 @@ interface RunningExecution {
   /** What each deferred task was last told deferred for, until it launches:
    *  a deferral is told once */
   deferredFor: Map<string, string>;
-  /** Why the run stopped itself — a deploy of its workspace announced
-   *  itself — or `undefined` */
+  /** Why the run stopped itself — something that takes its workspace whole
+   *  announced itself — or `undefined` */
   stopReason?: string;
   /** Wakes whose look for changed inputs is still under way: the loop does
    *  not end the run while one is */
@@ -431,7 +432,8 @@ interface RunningExecution {
   /** Set as the loop leaves off launching, to end the run: a wake after it
    *  is not taken */
   closing: boolean;
-  /** Set while the run asks whether a deploy has announced itself */
+  /** Set while the run asks whether something that takes its workspace
+   *  whole has announced itself */
   probing: boolean;
   /** The tasks and units waiting for room in the runner's budget, by the key
    *  each is tracked under in runningTasks. A wait matters only while it
@@ -537,7 +539,8 @@ export interface LocalOrchestratorHost {
  *   those runs made, is kept in memory: a run resumed in another process
  *   decides each task again, and the execution cache answers what finished
  * - Takes a wake from a start that finds it in flight ({@link wake}), and
- *   stops itself once a deploy of its workspace has announced itself
+ *   stops itself once a deploy, a removal, a copy onto its workspace or an
+ *   export of it has announced itself
  * - Runs a run's tasks on the runner its start names, or else on its host's
  *   ({@link LocalOrchestratorHost})
  * - Checks the workspace's name before a start or a resume takes a lock: a
@@ -593,8 +596,9 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         throw new WorkspaceLockError(workspace);
       }
     } else {
-      // Acquire shared workspace lock first (coexists with e3 set); a deploy
-      // that has announced itself refuses it, as one holding the workspace does
+      // Acquire shared workspace lock first (coexists with e3 set); whatever
+      // takes the workspace whole refuses it once it has announced itself, as
+      // one holding the workspace does
       sharedLock = await acquireWorkspaceShared(storage, repo, workspace, variant('dataflow', null));
       if (!sharedLock) throw await workspaceLockRefusal(storage, repo, workspace);
 
@@ -933,13 +937,13 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       run.closing || run.aborted || run.ended || run.yielded || run.hasFailure || run.abortController.signal.aborted;
     // A run started with a filter leaves the edit's other readers out
     if (execution === undefined || stopping(execution) || execution.state.filter.type === 'some') return false;
-    // A deploy that has announced itself stops the run within a second: the
-    // run takes nothing in meanwhile, and the start is refused as every start
-    // is while a deploy waits, naming it. A deploy that cannot be told of is
-    // not handed a start either.
+    // What takes the workspace whole stops the run within a second of its
+    // intent: the run takes nothing in meanwhile, and the start is refused as
+    // every start is while one waits, naming it. An intent that cannot be told
+    // of is not handed a start either.
     try {
-      if (await deployAnnounced(storage, repo, workspace)) {
-        void this.probeDeploy(storage, repo, execution);
+      if (await announcedIntent(storage, repo, workspace) !== null) {
+        void this.probeIntent(storage, repo, execution);
         return false;
       }
     } catch {
@@ -967,18 +971,20 @@ export class LocalOrchestrator implements DataflowOrchestrator {
   }
 
   /**
-   * Stops the run once a deploy of its workspace has announced itself, as a
-   * stop request does, recording why. A run that people keep editing under
-   * does not end by itself, so every run in flight asks, at each
-   * `DEPLOY_PROBE_MS`.
+   * Stops the run once something that takes its workspace whole — a deploy, a
+   * removal, a copy onto it or an export of it — has announced itself, as a
+   * stop request does, recording why: `a removal of main started`. A run that
+   * people keep editing under does not end by itself, so every run in flight
+   * asks, at each `INTENT_PROBE_MS`.
    */
-  private async probeDeploy(storage: StorageBackend, repo: string, execution: RunningExecution): Promise<void> {
+  private async probeIntent(storage: StorageBackend, repo: string, execution: RunningExecution): Promise<void> {
     if (execution.probing || execution.aborted || execution.ended || execution.yielded) return;
     execution.probing = true;
     try {
-      if (!(await deployAnnounced(storage, repo, execution.state.workspace))) return;
+      const announced = await announcedIntent(storage, repo, execution.state.workspace);
+      if (announced === null) return;
       if (execution.aborted || execution.ended || execution.yielded) return;
-      execution.stopReason = `a deploy of ${execution.state.workspace} started`;
+      execution.stopReason = `${intentWords(announced, execution.state.workspace)} started`;
       execution.aborted = true;
       // Stops the running tasks too.
       execution.abortController.abort();
@@ -1026,8 +1032,8 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     // first, and kept for however the run ends.
     let wsState: WorkspaceState | null = null;
 
-    // A deploy that announces itself stops the run
-    const probe = setInterval(() => { void this.probeDeploy(storage, repo, execution); }, DEPLOY_PROBE_MS);
+    // Whatever takes the workspace whole stops the run once it announces itself
+    const probe = setInterval(() => { void this.probeIntent(storage, repo, execution); }, INTENT_PROBE_MS);
     (probe as unknown as { unref?: () => void }).unref?.();
 
     try {

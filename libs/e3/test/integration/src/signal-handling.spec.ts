@@ -7,8 +7,8 @@
  * Integration tests for signal handling in e3 CLI
  *
  * Tests that SIGINT/SIGTERM properly abort running dataflow executions
- * and clean up child processes; and what a removal, a second start and a
- * deploy do while a dataflow runs.
+ * and clean up child processes; and what a second start, a deploy and a
+ * removal do while a dataflow runs.
  */
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
@@ -341,12 +341,14 @@ describe('signal handling', () => {
   });
 
   describe('workspace locking', () => {
-    it('refuses a removal and a second start while a dataflow is running, and stops the run for a deploy', async () => {
-      // One running dataflow, at the CLI's surface: a removal and a second
-      // start are refused while it holds the workspace, and a deploy stops
-      // it, the run saying why as it exits. (The locks are unit-tested in
-      // LocalLockService.spec.ts and deploy-lock.spec.ts, and the API's side
-      // is the e3-api-tests dataflow suite.)
+    it('refuses a second start while a dataflow is running, and stops the run for a deploy and for a removal, each saying which', async () => {
+      // One running dataflow, at the CLI's surface: a second start is refused
+      // while it holds the workspace, and a deploy stops it, as a removal
+      // stops the next, the run saying which as it exits. (The locks are
+      // unit-tested in LocalLockService.spec.ts and deploy-lock.spec.ts, every
+      // operation that takes a workspace whole in the dataflow loop's
+      // contract suite, and the API's side is the e3-api-tests dataflow
+      // suite.)
       const input = e3.input('input', StringType, variant('value', 'hello'));
 
       const slowTask = e3.customTask(
@@ -373,36 +375,37 @@ describe('signal handling', () => {
       const startProc = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
       await waitFor(() => startProc.getStdout().includes('[START]'), 30000);
 
-      const expectLocked = (name: string, result: { exitCode: number; stdout: string; stderr: string }) => {
-        const output = result.stdout + result.stderr;
-        assert.ok(
-          result.exitCode !== 0 && output.toLowerCase().includes('lock'),
-          `${name} should fail due to lock. Got: exitCode=${result.exitCode}, output=${output}`
-        );
-      };
+      const second = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
+      const refused = second.stdout + second.stderr;
+      assert.ok(
+        second.exitCode !== 0 && refused.toLowerCase().includes('lock'),
+        `a second start should fail due to lock. Got: exitCode=${second.exitCode}, output=${refused}`
+      );
 
-      expectLocked('remove', await runE3Command(
-        ['workspace', 'remove', repoDir, 'ws'], testDir));
-      expectLocked('second start', await runE3Command(
-        ['dataflow', 'run', repoDir, 'ws'], testDir));
+      /** The run exits as an interrupted one does, having said what stopped it */
+      const stoppedBy = async (run: typeof startProc, started: string) => {
+        const stopped = await run.result;
+        assert.strictEqual(stopped.exitCode, 130, `the run exits 130. Got: exitCode=${stopped.exitCode}, output=${stopped.stdout}${stopped.stderr}`);
+        const lines = stopped.stdout.split(/\r?\n/);
+        const at = lines.indexOf(`Stopped: ${started} started.`);
+        assert.ok(at > 0, `the run says ${started} stopped it. Got: ${stopped.stdout}`);
+        assert.deepStrictEqual(lines.slice(at - 1, at + 2), ['', `Stopped: ${started} started.`, '  Completed before it stopped: 0']);
+        assert.ok(lines.includes('  [CANCELLED] slow'), `the task in flight was stopped. Got: ${stopped.stdout}`);
+      };
 
       // A deploy does not wait for the task, which never finishes: it stops
       // the run, and goes through
       const deployed = await runE3Command(['workspace', 'deploy', repoDir, 'ws', 'held-test@1.0.0'], testDir);
       assert.strictEqual(deployed.exitCode, 0, `the deploy went through. Got: ${deployed.stdout}${deployed.stderr}`);
+      await stoppedBy(startProc, 'a deploy of ws');
 
-      // The run exits as an interrupted one does, having said why it stopped
-      const stopped = await startProc.result;
-      assert.strictEqual(stopped.exitCode, 130, `the run exits 130. Got: exitCode=${stopped.exitCode}, output=${stopped.stdout}${stopped.stderr}`);
-      const lines = stopped.stdout.split(/\r?\n/);
-      const at = lines.indexOf('Stopped: a deploy of ws started.');
-      assert.ok(at > 0, `the run says why it stopped. Got: ${stopped.stdout}`);
-      assert.deepStrictEqual(lines.slice(at - 1, at + 2), ['', 'Stopped: a deploy of ws started.', '  Completed before it stopped: 0']);
-      assert.ok(lines.includes('  [CANCELLED] slow'), `the task in flight was stopped. Got: ${stopped.stdout}`);
-
-      // Nothing restarts it, and the workspace is free: its removal goes through
+      // Nothing restarts it. A run started again is stopped by the
+      // workspace's removal as by a deploy, and the removal goes through
+      const again = spawnE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
+      await waitFor(() => again.getStdout().includes('[START]'), 30000);
       const removed = await runE3Command(['workspace', 'remove', repoDir, 'ws'], testDir);
       assert.strictEqual(removed.exitCode, 0, `the removal went through. Got: ${removed.stdout}${removed.stderr}`);
+      await stoppedBy(again, 'a removal of ws');
     });
   });
 });

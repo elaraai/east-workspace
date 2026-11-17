@@ -131,14 +131,16 @@ export {
   type RepositoryHoldOptions,
 } from './running-work.js';
 
-// A deploy's intent: how a deploy takes a workspace, and what every other
-// taker of the workspace reads of it
+// A workspace's intent: how whatever takes a workspace whole — a deploy, a
+// removal, a copy onto it, an export — takes it, and what every other taker of
+// the workspace reads of it
 export {
-  DEPLOY_WAIT_MS,
-  DEPLOY_PROBE_MS,
-  deployIntentLock,
-  deployAnnounced,
-  acquireForDeploy,
+  EXCLUSIVE_WAIT_MS,
+  INTENT_PROBE_MS,
+  workspaceIntentLock,
+  announcedIntent,
+  intentWords,
+  acquireWorkspaceExclusive,
   acquireWorkspaceShared,
   workspaceLockRefusal,
 } from './deploy-lock.js';
@@ -244,6 +246,7 @@ export {
   workspaceDeploy,
   workspaceExport,
   type WorkspaceRemoveOptions,
+  type WorkspaceCopyOptions,
   type WorkspaceListed,
   type WorkspaceDeployOptions,
   type DeploySourceProgress,

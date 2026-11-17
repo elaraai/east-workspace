@@ -24,7 +24,7 @@ import {
 } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { DataflowExecutionStateType, PackageObjectType } from '@elaraai/e3-types';
-import { acquireForDeploy } from '../../deploy-lock.js';
+import { acquireWorkspaceExclusive } from '../../deploy-lock.js';
 import { DataflowAbortedError, DataflowSupersededError } from '../../errors.js';
 import { inputsHash } from '../../executions.js';
 import { MockTaskRunner } from '../../execution/MockTaskRunner.js';
@@ -267,7 +267,7 @@ describe('LocalOrchestrator', () => {
     await running;
 
     // A deploy announces itself: the run stops for it, and the first write of its end fails
-    const deploying = await acquireForDeploy(storage, 'repo', 'ws');
+    const deploying = await acquireWorkspaceExclusive(storage, 'repo', 'ws', variant('deployment', null));
     try {
       await assert.rejects(waited, (err: unknown) => err instanceof DataflowAbortedError && err.reason === 'a deploy of ws started');
       assert.equal(store.failed, 1, 'the first write of the run\'s end failed');

@@ -7,7 +7,8 @@
  * `WebTransferBackend` in Node, over the memory adapters: its jobs and
  * commits as the routes start them, as tabs over one origin share them — an
  * export written a round at a time and holding its workspace across its
- * rounds, and refused, naming the holder, while another holds the workspace;
+ * rounds, and refused, naming the holder, once its wait for a workspace
+ * another holds is over;
  * what a closed tab left, recorded failed and never run again, and
  * what a live one runs, left to it; a job or a commit asked for twice at once,
  * run once; what a transfer staged, swept by gc and forgotten past its
@@ -22,6 +23,7 @@ import { DateTimeType, StringType, encodeBeast2For, equalFor, none, printFor, so
 import { LockStateType } from '@elaraai/e3-types';
 import {
   WorkspaceLockError,
+  announcedIntent,
   computeHash,
   lockStateToHolderInfo,
   repoGc,
@@ -438,7 +440,7 @@ describe('WebTransferBackend', () => {
     assert.equal(await workspaceGetDataset(setup.storage, REPO, WORKSPACE, REPO_PATH), 'after', 'the workspace is free once the export has ended');
   });
 
-  it('refuses a workspace export while another holds the workspace, naming the holder: the lock stays the holder\'s, and an export once it is released completes', async () => {
+  it('refuses a workspace export once its wait for a workspace another holds is over, naming the holder: the lock stays the holder\'s, and an export once it is released completes', async () => {
     const origin = newOrigin();
     const setup = await openTab(origin);
     await deployed(setup, fixtures.platform);
@@ -451,13 +453,15 @@ describe('WebTransferBackend', () => {
     const holder = lockStateToHolderInfo(held);
     assert.equal(holder.operation, 'deployment', 'the holder is the deploy');
 
-    const exporting = await openTab(origin);
+    // The export waits for the workspace before it is refused: here, not long
+    const exporting = await openTab(origin, { exportLockWaitMs: 200 });
     const refused = await exportEnded(exporting, await startExport(exporting, WORKSPACE));
     assert.equal(refused.status, 'failed', 'the export is refused');
     assert.equal(refused.message, new WorkspaceLockError(WORKSPACE, holder).message, 'its failure names the holder, as lockStateToHolderInfo gives it');
     assert.ok(refused.message.includes(printFor(DateTimeType)(holder.acquiredAt)), `it names when the holder took the workspace: ${refused.message}`);
     const after = await exporting.storage.locks.getState(REPO, WORKSPACE);
     assert.ok(after !== null && sameLockState(after, held), 'the lock is still the deploy\'s');
+    assert.equal(await announcedIntent(exporting.storage, REPO, WORKSPACE), null, 'the export left no intent behind');
 
     await deploy.release();
     const zip = await exportedZip(exporting, await startExport(exporting, WORKSPACE));

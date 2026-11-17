@@ -4,9 +4,10 @@
  */
 
 /**
- * A deploy's intent over a local repository: what a deploy that has announced
- * itself refuses, how long a deploy waits for its workspace, and what a plan,
- * a removal and an export do beside one.
+ * A workspace's intent over a local repository: what a deploy that has
+ * announced itself refuses, how long a deploy waits for its workspace, what a
+ * plan does beside one, and a removal, a copy onto the workspace and an export
+ * of it, which take it whole as a deploy does.
  */
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
@@ -17,7 +18,7 @@ import { DateTimeType, East, StringType, encodeBeast2For, none, printFor, varian
 import e3 from '@elaraai/e3';
 import { LockStateType, type LockOperation, type LockState } from '@elaraai/e3-types';
 import { untilAnnounced } from './contract/support.js';
-import { acquireForDeploy, acquireWorkspaceShared, deployAnnounced, deployIntentLock } from './deploy-lock.js';
+import { acquireWorkspaceExclusive, acquireWorkspaceShared, announcedIntent, workspaceIntentLock } from './deploy-lock.js';
 import { WorkspaceLockError } from './errors.js';
 import { LocalOrchestrator } from './execution/local-orchestrator.js';
 import { MockTaskRunner } from './execution/MockTaskRunner.js';
@@ -35,7 +36,7 @@ import { workspaceCopy, workspaceGetState, workspaceRemove } from './workspaces.
 const WS = 'main';
 const NOTE = [variant('field', 'inputs'), variant('field', 'note')];
 
-describe('a deploy\'s intent', () => {
+describe('a workspace\'s intent', () => {
   let repo: string;
   let tempDir: string;
   let storage: StorageBackend;
@@ -59,28 +60,30 @@ describe('a deploy\'s intent', () => {
     removeTempDir(tempDir);
   });
 
-  /** Asserts a refusal names the deploy that has announced itself, in the
-   *  words a caller reads. */
-  async function assertRefusedByDeploy(refused: () => Promise<unknown>, what: string): Promise<void> {
-    const intent = await storage.locks.getState(repo, deployIntentLock(WS));
-    assert.ok(intent !== null, 'a deploy has announced itself');
+  /** Asserts a refusal names what has announced itself on the workspace's
+   *  intent, in the words a caller reads: `a deploy`, `a removal`, `a copy`
+   *  or `an export`. */
+  async function assertRefusedBy(holder: string, refused: () => Promise<unknown>, what: string): Promise<void> {
+    const intent = await storage.locks.getState(repo, workspaceIntentLock(WS));
+    assert.ok(intent !== null, `${holder} has announced itself`);
     await assert.rejects(refused(), (err: unknown) => {
       assert.ok(err instanceof WorkspaceLockError, `${what}: a WorkspaceLockError, not ${String(err)}`);
       assert.equal(
         err.message,
-        `Workspace '${WS}' is locked by a deploy in process ${process.pid} (since ${printFor(DateTimeType)(intent.acquiredAt)})`,
+        `Workspace '${WS}' is locked by ${holder} in process ${process.pid} (since ${printFor(DateTimeType)(intent.acquiredAt)})`,
         what,
       );
       return true;
     });
   }
+  const assertRefusedByDeploy = (refused: () => Promise<unknown>, what: string): Promise<void> => assertRefusedBy('a deploy', refused, what);
 
   it('refuses a write, a record\'s write, an export, a copy and a run start at once, naming the deploy, while a deploy has announced itself', async () => {
     // A run holds the workspace shared, as people's edits keep one running: the
     // deploy has announced itself and waits for it
     const running = await acquireWorkspaceShared(storage, repo, WS, variant('dataflow', null));
     assert.ok(running !== null);
-    const deploying = acquireForDeploy(storage, repo, WS, { waitMs: 20_000 });
+    const deploying = acquireWorkspaceExclusive(storage, repo, WS, variant('deployment', null), { waitMs: 20_000 });
     try {
       // Whether the deploy's wait is over: it waits for the run, which holds
       // the workspace until this case lets it go
@@ -113,7 +116,7 @@ describe('a deploy\'s intent', () => {
     await workspaceDeploy(storage, repo, WS, 'notes', '2.0.0', { lockWaitMs: 20_000 });
     assert.equal(released, true, 'the deploy waited for the write');
     assert.equal((await workspaceGetState(storage, repo, WS))?.packageVersion, '2.0.0');
-    assert.equal(await deployAnnounced(storage, repo, WS), false, 'the intent went with the deploy');
+    assert.equal(await announcedIntent(storage, repo, WS), null, 'the intent went with the deploy');
   });
 
   it('is refused once its wait is over, naming what still holds the workspace, and leaves no intent behind', async () => {
@@ -133,13 +136,13 @@ describe('a deploy\'s intent', () => {
       assert.ok(holder !== null);
       await assert.rejects(workspaceDeploy(storage, repo, WS, 'notes', '2.0.0', { lockWaitMs: 300 }), (err: unknown) => {
         assert.ok(err instanceof WorkspaceLockError, `a WorkspaceLockError, not ${String(err)}`);
-        assert.equal(err.message, `Workspace '${WS}' is locked by process ${process.pid} (since ${printFor(DateTimeType)(holder.acquiredAt)})`);
+        assert.equal(err.message, `Workspace '${WS}' is locked by an export in process ${process.pid} (since ${printFor(DateTimeType)(holder.acquiredAt)})`);
         return true;
       });
       assert.equal(asked.length, 1, 'it asked for the workspace once');
       assert.equal(asked[0]!.wait, true, 'it waited before it was refused');
       assert.ok(asked[0]!.timeout !== undefined && asked[0]!.timeout > 0 && asked[0]!.timeout <= 300, `for what was left of its wait, not ${asked[0]!.timeout}`);
-      assert.equal(await deployAnnounced(storage, repo, WS), false);
+      assert.equal(await announcedIntent(storage, repo, WS), null);
       assert.equal((await workspaceGetState(storage, repo, WS))?.packageVersion, '1.0.0', 'nothing was deployed');
     } finally {
       storage.locks.acquire = acquire;
@@ -163,12 +166,12 @@ describe('a deploy\'s intent', () => {
       };
     };
     try {
-      const deploy = await acquireForDeploy(storage, repo, WS);
+      const deploy = await acquireWorkspaceExclusive(storage, repo, WS, variant('deployment', null));
       await assert.rejects(deploy.release(), /the lock store went away/);
     } finally {
       storage.locks.acquire = acquire;
     }
-    assert.equal(await deployAnnounced(storage, repo, WS), false, 'the intent went with the deploy');
+    assert.equal(await announcedIntent(storage, repo, WS), null, 'the intent went with the deploy');
     await workspaceSetDataset(storage, repo, WS, NOTE, 'after', StringType);
   });
 
@@ -185,7 +188,7 @@ describe('a deploy\'s intent', () => {
       const plans: string[] = [];
       await workspaceDeploy(storage, repo, WS, 'notes', '2.0.0', { plan: true, onInputPlan: (plan) => plans.push(plan.input) });
       assert.deepEqual(plans, ['inputs/note'], 'the plan was made while the run held the workspace');
-      assert.ok(!taken.includes(`${deployIntentLock(WS)}:exclusive`), `the plan announced nothing: ${taken.join(', ')}`);
+      assert.ok(!taken.includes(`${workspaceIntentLock(WS)}:exclusive`), `the plan announced nothing: ${taken.join(', ')}`);
       assert.ok(taken.includes(`${WS}:shared`), 'it shared the workspace');
       assert.equal((await workspaceGetState(storage, repo, WS))?.packageVersion, '1.0.0', 'a plan writes nothing');
     } finally {
@@ -193,7 +196,7 @@ describe('a deploy\'s intent', () => {
       await running.release();
     }
 
-    const deploy = await acquireForDeploy(storage, repo, WS);
+    const deploy = await acquireWorkspaceExclusive(storage, repo, WS, variant('deployment', null));
     try {
       await assertRefusedByDeploy(() => workspaceDeploy(storage, repo, WS, 'notes', '2.0.0', { plan: true }), 'a plan');
     } finally {
@@ -201,21 +204,46 @@ describe('a deploy\'s intent', () => {
     }
   });
 
-  it('refuses a workspace\'s removal and its export as a package while a run is in flight, as before: neither stops a run', async () => {
-    const run = await acquireWorkspaceShared(storage, repo, WS, variant('dataflow', null));
-    assert.ok(run !== null);
-    try {
-      await assert.rejects(workspaceRemove(storage, repo, WS), WorkspaceLockError);
-      await assert.rejects(workspaceExport(storage, repo, WS, join(tempDir, 'out.zip')), WorkspaceLockError);
-      assert.equal(await deployAnnounced(storage, repo, WS), false, 'neither announced a deploy');
-      assert.equal((await workspaceGetState(storage, repo, WS))?.packageVersion, '1.0.0');
-    } finally {
-      await run.release();
+  it('takes the workspace whole for an export, a copy onto it and a removal, as for a deploy: each announces itself, refuses a write and a run start meanwhile, naming itself, and goes through once the run lets go', async () => {
+    await workspaceDeploy(storage, repo, 'staging', 'notes', '2.0.0');
+    const cases: Array<{ holder: string; take: () => Promise<unknown>; done: () => Promise<void> }> = [
+      {
+        holder: 'an export',
+        take: () => workspaceExport(storage, repo, WS, join(tempDir, 'out.zip')),
+        done: async () => { await fs.access(join(tempDir, 'out.zip')); },
+      },
+      {
+        holder: 'a copy',
+        take: () => workspaceCopy(storage, repo, 'staging', WS),
+        done: async () => { assert.equal((await workspaceGetState(storage, repo, WS))?.packageVersion, '2.0.0', 'main is a copy of staging'); },
+      },
+      {
+        holder: 'a removal',
+        take: () => workspaceRemove(storage, repo, WS),
+        done: async () => { assert.equal(await workspaceGetState(storage, repo, WS), null, 'main is gone'); },
+      },
+    ];
+    for (const { holder, take, done } of cases) {
+      // A run holds the workspace shared: what takes it whole announces itself, and waits for it
+      const running = await acquireWorkspaceShared(storage, repo, WS, variant('dataflow', null));
+      assert.ok(running !== null);
+      const taking = take();
+      try {
+        const settled = await untilAnnounced(storage, repo, WS, taking);
+        await assertRefusedBy(holder, () => workspaceSetDataset(storage, repo, WS, NOTE, 'during', StringType), `a dataset write during ${holder}`);
+        await assertRefusedBy(holder, () => new LocalOrchestrator().start(storage, repo, WS, { runner: new MockTaskRunner() }), `a run start during ${holder}`);
+        assert.equal(settled(), false, `${holder} waits for the run`);
+      } finally {
+        await running.release();
+      }
+      await taking;
+      await done();
+      assert.equal(await announcedIntent(storage, repo, WS), null, `the intent went with ${holder}`);
     }
   });
 
-  it('reads the intent of a deploy whose process has died as no deploy, and cleans it', async () => {
-    const lockPath = workspaceLockPath(repo, deployIntentLock(WS));
+  it('reads the intent of a deploy whose process has died as nothing announced, and cleans it', async () => {
+    const lockPath = workspaceLockPath(repo, workspaceIntentLock(WS));
     await fs.mkdir(dirname(lockPath), { recursive: true });
     const dead: LockState = {
       operation: variant('deployment', null),
@@ -225,7 +253,7 @@ describe('a deploy\'s intent', () => {
     };
     await fs.writeFile(lockPath, encodeBeast2For(LockStateType)(dead));
 
-    assert.equal(await deployAnnounced(storage, repo, WS), false);
+    assert.equal(await announcedIntent(storage, repo, WS), null);
     await assert.rejects(fs.access(lockPath), { code: 'ENOENT' });
     await workspaceSetDataset(storage, repo, WS, NOTE, 'after', StringType);
   });

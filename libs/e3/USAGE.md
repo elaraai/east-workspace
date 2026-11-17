@@ -690,10 +690,10 @@ cost follows the number of datasets, never their size, and a write to either
 workspace afterwards leaves the other as it was. A `<to>` that exists is
 replaced whole, its runs going with it. Copy production to staging, deploy the
 next release there and try it on production's data; production is untouched
-until you deploy to it. The copy is refused while a dataflow runs in `<to>` or
-a deploy, a removal or an export holds `<from>`; a run in `<from>` goes on while
-it copies, and each output is copied as it stood before the run wrote it or
-after.
+until you deploy to it. A dataflow running in `<to>` stops for the copy, as
+for a deploy, and the copy is refused while a deploy, a removal or an export
+holds `<from>`; a run in `<from>` goes on while it copies, and each output is
+copied as it stood before the run wrote it or after.
 
 ### Dataset Commands
 

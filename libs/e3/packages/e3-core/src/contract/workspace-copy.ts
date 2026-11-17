@@ -9,9 +9,10 @@
  * each task's output among them — and nothing in the source changes; a write
  * to either afterwards leaves the other as it was. A target that exists is
  * replaced whole, and so are the refs a copy cut short left; a copy onto a
- * workspace a dataflow runs in is refused, and a source held shared is copied.
- * A copy holds both workspaces as a copy, and the repository's running work,
- * so gc holding the repository still refuses it.
+ * workspace a dataflow runs in announces itself on the target's intent and
+ * takes the target once the run has let it go, and a source held shared is
+ * copied. A copy holds both workspaces as a copy, and the repository's running
+ * work, so gc holding the repository still refuses it.
  */
 
 import { describe, it, before, after, type TestContext } from 'node:test';
@@ -22,6 +23,7 @@ import { join } from 'node:path';
 import { East, IntegerType, StringType, encodeBeast2For, none, some, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { WorkspaceRecordType, type TreePath } from '@elaraai/e3-types';
+import { workspaceIntentLock } from '../deploy-lock.js';
 import { InvalidNameError, WorkspaceLockError, WorkspaceNotFoundError } from '../errors.js';
 import { packageImport } from '../package-files.js';
 import { workspaceGetDataset, workspaceSetDataset } from '../trees.js';
@@ -31,6 +33,7 @@ import { TASKS_LOCK } from '../running-work.js';
 import { uuidv7 } from '../uuid.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 import type { BackendSetup } from './setup.js';
+import { untilAnnounced } from './support.js';
 
 const PKG = 'copy-pkg';
 const PROD = 'production';
@@ -162,16 +165,20 @@ export function workspaceCopyTests(setup: BackendSetup): void {
       assert.deepEqual(await refs(ws, STAGING), await refs(ws, PROD), 'the stray ref went');
     });
 
-    it('holds both workspaces as a copy, so what either lock refuses, and what reads them, sees a copy', async (t) => {
+    it('holds both workspaces as a copy, so what either lock refuses, and what reads them, sees a copy, and takes the target whole', async (t) => {
       const ws = await production(t);
       const taken: string[] = [];
       const acquire = ws.storage.locks.acquire.bind(ws.storage.locks);
       ws.storage.locks.acquire = (repo, resource, operation, options) => {
-        if (resource === PROD || resource === STAGING) taken.push(`${resource} ${operation.type} ${options?.mode ?? 'exclusive'}`);
+        if (resource === PROD || resource === STAGING || resource === workspaceIntentLock(STAGING)) {
+          taken.push(`${resource} ${operation.type} ${options?.mode ?? 'exclusive'}`);
+        }
         return acquire(repo, resource, operation, options);
       };
       await workspaceCopy(ws.storage, ws.repo, PROD, STAGING);
-      assert.deepEqual(taken, [`${STAGING} workspace_copy exclusive`, `${PROD} workspace_copy shared`]);
+      assert.deepEqual(taken, [
+        `${workspaceIntentLock(STAGING)} workspace_copy exclusive`, `${STAGING} workspace_copy exclusive`, `${PROD} workspace_copy shared`,
+      ], 'it announces itself on the target\'s intent, then takes the target');
     });
 
     it('copies a workspace nothing is deployed to as one nothing is deployed to', async (t) => {
@@ -185,14 +192,19 @@ export function workspaceCopyTests(setup: BackendSetup): void {
       assert.equal((await refs(ws, STAGING)).size, 0);
     });
 
-    it('is refused while a dataflow runs in the target or something holds the source exclusively, and copies a source held shared', async (t) => {
+    it('takes the target once a dataflow running in it lets it go, is refused while something holds the source exclusively, and copies a source held shared', async (t) => {
       const ws = await production(t);
       await workspaceCreate(ws.storage, ws.repo, STAGING);
 
+      // A run holds the target: the copy announces itself, and waits for it
       const running = await ws.storage.locks.acquire(ws.repo, STAGING, variant('dataflow', null), { mode: 'shared' });
       assert.ok(running !== null);
-      await assert.rejects(workspaceCopy(ws.storage, ws.repo, PROD, STAGING), WorkspaceLockError);
+      const copying = workspaceCopy(ws.storage, ws.repo, PROD, STAGING);
+      const settled = await untilAnnounced(ws.storage, ws.repo, STAGING, copying);
+      assert.equal(settled(), false, 'the copy waits for the run');
       await running.release();
+      await copying;
+      assert.deepEqual(await refs(ws, STAGING), await refs(ws, PROD));
 
       const deploying = await ws.storage.locks.acquire(ws.repo, PROD, variant('deployment', null));
       assert.ok(deploying !== null);

@@ -41,11 +41,9 @@ import {
   WorkspaceNotFoundError,
   WorkspaceNotDeployedError,
   WorkspaceExistsError,
-  WorkspaceLockError,
   RecordDeployRefusedError,
   InvalidNameError,
   checkName,
-  lockStateToHolderInfo,
 } from './errors.js';
 import type { BatchResult, StorageBackend, LockHandle } from './storage/interfaces.js';
 import type { TaskRunner } from './execution/interfaces.js';
@@ -53,7 +51,7 @@ import { buildDeployIndexes, commitDeployIndexes, commitDeployRecords, recordLea
 import { planRecordDeployments, recordDeployCommits, runRecordMigrations, type PriorDeployment } from './record-deploy.js';
 import { planInputDeployments, refsKeepingInputs } from './input-deploy.js';
 import { withRunningWork } from './running-work.js';
-import { acquireForDeploy, acquireWorkspaceShared, workspaceLockRefusal } from './deploy-lock.js';
+import { acquireWorkspaceExclusive, acquireWorkspaceShared, workspaceLockRefusal } from './deploy-lock.js';
 
 /**
  * List workspace names.
@@ -197,6 +195,15 @@ export interface WorkspaceRemoveOptions {
    * @defaultValue true
    */
   sweep?: boolean;
+  /**
+   * How long the removal waits for the workspace, in milliseconds: for its
+   * intent, and then for the workspace's lock, which a dataflow the removal
+   * stops, or a write in progress, lets go. A removal given its `lock` waits
+   * for nothing.
+   *
+   * @defaultValue 30000
+   */
+  lockWaitMs?: number;
 }
 
 /**
@@ -204,8 +211,12 @@ export interface WorkspaceRemoveOptions {
  *
  * Objects remain until repoGc is run.
  *
- * Acquires a workspace lock to prevent removing a workspace while a dataflow
- * is running. Throws WorkspaceLockError if the workspace is currently locked.
+ * Takes the workspace whole ({@link acquireWorkspaceExclusive}): it announces
+ * itself, so a dataflow running in the workspace stops and no write or run
+ * starts, then holds the workspace exclusively. It waits up to
+ * `EXCLUSIVE_WAIT_MS` for what held the workspace to let go, and throws
+ * WorkspaceLockError when something still holds it, or another removal, a
+ * deploy, a copy onto it or an export holds its intent.
  *
  * @remarks
  * The removal goes in two phases, as `RefStore.workspaceRemove` and
@@ -228,7 +239,8 @@ export interface WorkspaceRemoveOptions {
  * @throws {InvalidNameError} If `name` is no workspace's name, before the lock
  *   is taken
  * @throws {WorkspaceNotFoundError} If workspace doesn't exist
- * @throws {WorkspaceLockError} If workspace is locked by another process
+ * @throws {WorkspaceLockError} If the workspace is still held once the wait is
+ *   over, naming what holds it
  */
 export async function workspaceRemove(
   storage: StorageBackend,
@@ -244,14 +256,7 @@ export async function workspaceRemove(
 
   // Acquire lock if not provided externally
   const externalLock = options.lock;
-  let lock: LockHandle | null = externalLock ?? null;
-  if (!lock) {
-    lock = await storage.locks.acquire(repo, name, variant('removal', null));
-    if (!lock) {
-      const state = await storage.locks.getState(repo, name);
-      throw new WorkspaceLockError(name, state ? lockStateToHolderInfo(state) : undefined);
-    }
-  }
+  const lock = externalLock ?? await acquireWorkspaceExclusive(storage, repo, name, variant('removal', null), { waitMs: options.lockWaitMs });
   try {
     // Check if workspace exists
     const existing = await storage.refs.workspaceRead(repo, name);
@@ -295,6 +300,20 @@ export async function workspaceSweep(storage: StorageBackend, repo: string, curs
 }
 
 /**
+ * Options for a workspace's copy.
+ */
+export interface WorkspaceCopyOptions {
+  /**
+   * How long the copy waits for its target, in milliseconds: for the target's
+   * intent, and then for its lock, which a dataflow the copy stops, or a write
+   * in progress, lets go.
+   *
+   * @defaultValue 30000
+   */
+  lockWaitMs?: number;
+}
+
+/**
  * Copy a workspace within its repository: the target becomes the source as it
  * is now — its deployed package and every dataset ref, so each record's head
  * and indexes and each task's output with them, and nothing needs to run
@@ -309,9 +328,10 @@ export async function workspaceSweep(storage: StorageBackend, repo: string, curs
  * It holds the source shared, as a dataflow run or a dataset write does, so
  * the source's work goes on while it copies — a ref written meanwhile is
  * copied as it stood before the write or after it — and a deploy, a removal or
- * an export holding the source refuses the copy. It holds the target
- * exclusively, as a deploy does, so a copy onto a workspace a dataflow runs
- * in, or that a write, a deploy, a removal or an export holds, is refused. Both
+ * an export holding the source refuses the copy. It takes the target whole, as
+ * a deploy does ({@link acquireWorkspaceExclusive}): it announces itself, so a
+ * dataflow running in the target stops and no write or run starts there, and
+ * waits up to `EXCLUSIVE_WAIT_MS` for what held the target to let go. Both
  * locks name the copy (`workspace_copy`), so what either refuses, and what
  * reads them, sees a copy. And it holds the repository's running work
  * ({@link withRunningWork}): the refs it writes name objects the source may
@@ -330,12 +350,13 @@ export async function workspaceSweep(storage: StorageBackend, repo: string, curs
  * @param repo - Repository identifier
  * @param from - The workspace copied
  * @param to - The workspace it is copied to, made or replaced
+ * @param options - How long the copy waits for its target
  * @throws {InvalidNameError} When either name is no workspace's, or `to` is
  *   `from`, before a lock is taken
  * @throws {WorkspaceNotFoundError} When the source does not exist
- * @throws {WorkspaceLockError} When something holds the target — a dataflow
- *   runs in it, or a write, a deploy, a removal or an export holds it — or
- *   holds the source exclusively
+ * @throws {WorkspaceLockError} When something still holds the target once the
+ *   wait is over, or another removal, deploy, copy or export holds its intent,
+ *   or something holds the source exclusively
  * @throws {Error} When a garbage collection or an upgrade holds the repository
  */
 export async function workspaceCopy(
@@ -343,6 +364,7 @@ export async function workspaceCopy(
   repo: string,
   from: string,
   to: string,
+  options: WorkspaceCopyOptions = {},
 ): Promise<void> {
   // Checked before a lock is taken, as every lock's resource is: a lock's
   // name may hold the `#` and `~` no workspace's may.
@@ -350,11 +372,7 @@ export async function workspaceCopy(
   checkName('workspace', to);
   if (from === to) throw new InvalidNameError('workspace', to, 'is the workspace copied: a workspace cannot be copied onto itself');
 
-  const target = await storage.locks.acquire(repo, to, variant('workspace_copy', null));
-  if (target === null) {
-    const state = await storage.locks.getState(repo, to);
-    throw new WorkspaceLockError(to, state ? lockStateToHolderInfo(state) : undefined);
-  }
+  const target = await acquireWorkspaceExclusive(storage, repo, to, variant('workspace_copy', null), { waitMs: options.lockWaitMs });
   try {
     const source = await acquireWorkspaceShared(storage, repo, from, variant('workspace_copy', null));
     if (source === null) throw await workspaceLockRefusal(storage, repo, from);
@@ -581,8 +599,8 @@ export interface WorkspaceDeployOptions {
    *
    * @remarks
    * A caller that holds the workspace for a deploy takes it through
-   * `acquireForDeploy`, as the deploy does when it takes its own: a lock
-   * taken any other way announces nothing, so a dataflow running in the
+   * `acquireWorkspaceExclusive`, as the deploy does when it takes its own: a
+   * lock taken any other way announces nothing, so a dataflow running in the
    * workspace holds the deploy off for as long as it runs.
    */
   lock?: LockHandle;
@@ -747,11 +765,12 @@ const NO_FILES: DeployFiles = {
  * `inputs: 'keep-edited'` keeps the one someone set while its type is the
  * package's.
  *
- * Takes the workspace for the deploy ({@link acquireForDeploy}): it
- * announces itself, so a dataflow running in the workspace stops and no write
- * or run starts, then holds the workspace exclusively. It waits up to
- * {@link DEPLOY_WAIT_MS} for what held the workspace to let go, and throws
- * WorkspaceLockError when something still holds it, or another deploy does.
+ * Takes the workspace whole for the deploy ({@link acquireWorkspaceExclusive}):
+ * it announces itself, so a dataflow running in the workspace stops and no
+ * write or run starts, then holds the workspace exclusively. It waits up to
+ * `EXCLUSIVE_WAIT_MS` for what held the workspace to let go, and throws
+ * WorkspaceLockError when something still holds it, or another deploy, a
+ * removal, a copy onto it or an export holds its intent.
  * A plan (`options.plan`) shares the workspace instead, and stops nothing.
  *
  * A package's `file` source names a file on the machine that exported it,
@@ -820,7 +839,7 @@ export async function workspaceDeployWith(
       lock = await acquireWorkspaceShared(storage, repo, name, variant('deployment', null));
       if (!lock) throw await workspaceLockRefusal(storage, repo, name);
     } else {
-      lock = await acquireForDeploy(storage, repo, name, { waitMs: options.lockWaitMs });
+      lock = await acquireWorkspaceExclusive(storage, repo, name, variant('deployment', null), { waitMs: options.lockWaitMs });
     }
   }
   try {
@@ -1247,6 +1266,15 @@ export interface WorkspaceExportOptions {
   /** External workspace lock. If not provided, an exclusive lock will be acquired internally. */
   lock?: LockHandle;
   /**
+   * How long the export waits for the workspace, in milliseconds: for its
+   * intent, and then for the workspace's lock, which a dataflow the export
+   * stops, or a write in progress, lets go. An export given its `lock` waits
+   * for nothing.
+   *
+   * @defaultValue 30000
+   */
+  lockWaitMs?: number;
+  /**
    * Aborting it stops the export once the entry it is writing is written: it
    * throws an `ExportStoppedError` holding the checkpoint it resumes from. A
    * stream is left open, holding the zip so far; a file destination of the
@@ -1288,6 +1316,11 @@ const LOG_BYTES = new TextEncoder();
  * as a package's export does, and gc holding the repository still sweeps none
  * of it, and an upgrade waits for it.
  *
+ * It takes the workspace whole, for a consistent snapshot
+ * ({@link acquireWorkspaceExclusive}): it announces itself, so a dataflow
+ * running in the workspace stops and no write or run starts, and waits up to
+ * `EXCLUSIVE_WAIT_MS` for what held the workspace to let go.
+ *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param name - Workspace name
@@ -1301,6 +1334,8 @@ const LOG_BYTES = new TextEncoder();
  *   taken
  * @throws {WorkspaceNotFoundError} If workspace doesn't exist
  * @throws {WorkspaceNotDeployedError} If workspace exists but has no package deployed
+ * @throws {WorkspaceLockError} If the workspace is still held once the wait is
+ *   over, naming what holds it
  * @throws {ExportStoppedError} When `options.signal` stopped the export.
  * @throws {TypeError} When the destination is no `WritableStream`: a path or a
  *   Node stream, which the root entry writes to.
@@ -1340,16 +1375,9 @@ async function exportWorkspace(
     throw new Error('a resumed export of a workspace names the version the export it resumes named');
   }
 
-  // Acquire workspace lock for snapshot consistency
+  // The workspace whole, for snapshot consistency
   const externalLock = options?.lock;
-  let lock: LockHandle | null = externalLock ?? null;
-  if (!lock) {
-    lock = await storage.locks.acquire(repo, name, variant('export', null));
-    if (!lock) {
-      const state = await storage.locks.getState(repo, name);
-      throw new WorkspaceLockError(name, state ? lockStateToHolderInfo(state) : undefined);
-    }
-  }
+  const lock = externalLock ?? await acquireWorkspaceExclusive(storage, repo, name, variant('export', null), { waitMs: options?.lockWaitMs });
   try {
 
   // Get workspace state

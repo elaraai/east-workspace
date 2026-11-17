@@ -79,8 +79,9 @@ describe('workspaces', () => {
       await assert.rejects(refused(), (err: unknown) => {
         assert.ok(err instanceof WorkspaceLockError, `a WorkspaceLockError, not ${String(err)}`);
         assert.deepStrictEqual(err.holder, holder, 'the refusal names the holder lockStateToHolderInfo gives');
-        // A holder that is a deploy is named as one
-        const by = operation.type === 'deployment' ? 'a deploy in process' : 'process';
+        // A holder that takes the workspace whole is named as what it is
+        const whole: Readonly<Record<string, string>> = { deployment: 'a deploy', removal: 'a removal', workspace_copy: 'a copy', export: 'an export' };
+        const by = whole[operation.type] === undefined ? 'process' : `${whole[operation.type]} in process`;
         assert.strictEqual(err.message, `Workspace '${ws}' is locked by ${by} ${process.pid} (since ${printFor(DateTimeType)(holder.acquiredAt)})`);
         return true;
       });
@@ -175,7 +176,8 @@ describe('workspaces', () => {
     it('names the holder of the workspace\'s lock when a deploy holds it, as lockStateToHolderInfo gives it', async () => {
       await workspaceCreate(storage, testRepo, 'held');
 
-      await assertRefusalNamesHolder('held', variant('deployment', null), () => workspaceRemove(storage, testRepo, 'held'));
+      // The removal waits for the workspace before it is refused: here, not long
+      await assertRefusalNamesHolder('held', variant('deployment', null), () => workspaceRemove(storage, testRepo, 'held', { lockWaitMs: 200 }));
       assert.ok(existsSync(join(testRepo, 'workspaces', 'held.beast2')), 'the workspace is still there');
     });
 
@@ -668,7 +670,9 @@ describe('workspaces', () => {
       await workspaceDeploy(storage, testRepo, 'held', 'export-held', '1.0.0');
       const exportZip = join(tempDir, 'export-held-out.zip');
 
-      await assertRefusalNamesHolder('held', variant('deployment', null), () => workspaceExport(storage, testRepo, 'held', exportZip));
+      // The export waits for the workspace before it is refused: here, not long
+      await assertRefusalNamesHolder('held', variant('deployment', null), () =>
+        workspaceExport(storage, testRepo, 'held', exportZip, undefined, undefined, { lockWaitMs: 200 }));
       assert.ok(!existsSync(exportZip), 'no zip was written');
     });
 

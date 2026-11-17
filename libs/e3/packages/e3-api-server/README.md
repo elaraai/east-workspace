@@ -298,7 +298,10 @@ most it may ask for, which are their `ceilings` unless the host gives others:
 a host that runs its calls on other compute than its one-shots and split calls
 gives that compute's. Who made a call is `callerOf` (the identity's email, else
 its subject), and who may read or cancel one the call routes' `access`, unset
-here, where every caller the routes admit may.
+here, where every caller the routes admit may. A workspace's removal and a copy
+onto it wait in their request for a run in the workspace to stop and a write
+in it to finish: the workspace routes take `lockWaitMs`, the longest they wait
+(30 s), which a host whose requests have a time limit keeps under it.
 
 A function's call may pass drafts: unsaved edits of the records the function
 reads, each a call of a record's mutation, which the call lays over the record,
@@ -408,7 +411,7 @@ All endpoints are prefixed with `/api/repos/:repo` where `:repo` is:
 | POST | `/api/repos/:repo/workspaces/:ws/deploy` | Start deploying a package to the workspace, as a job: answers the job's id |
 | GET | `/api/repos/:repo/workspaces/:ws/deploy/:id` | Poll a deploy job: `processing` with how far it has got, what the deploy did for each record, index and input, or why it failed |
 | GET | `/api/repos/:repo/workspaces/:ws/lock` | What holds the workspace exclusively, and how far it says it has got; none when nothing does |
-| DELETE | `/api/repos/:repo/workspaces/:ws` | Remove workspace |
+| DELETE | `/api/repos/:repo/workspaces/:ws` | Remove workspace: a run in it stops for the removal, as for a deploy, and a write in it finishes first |
 | POST | `/api/repos/:repo/workspaces/:ws/export` | Start exporting the workspace as a package zip, as a job polled at `/api/repos/:repo/export/:id` |
 
 A deploy that migrates a record, or builds an index over one, takes as long as
@@ -450,9 +453,10 @@ A copy writes refs only — within a repository every value is shared by its
 hash — so it costs what the workspace has of datasets, never what they weigh,
 and nothing the target holds needs to run again. A target that exists loses its
 refs and its runs. The copy holds the workspace copied shared, so a run in it
-goes on, and the target exclusively, as a deploy does: a copy onto a workspace a
-dataflow runs in, or that something else holds, is refused `workspace_locked`,
-and a copy onto itself `invalid_name`.
+goes on, and takes the target whole, as a deploy does: it announces itself, so a
+run in the target stops, and waits for what holds the target — a target still
+held once its wait is over is refused `workspace_locked` — and a copy onto
+itself is refused `invalid_name`.
 
 A bundle is a workspace written out as it is, in one stream of beast2
 (`WorkspaceBundleType`): what a copy makes within a repository, a bundle makes

@@ -80,24 +80,31 @@ export async function createWorkspace(
  * is now, its refs only written, so the copy costs what the workspace has of
  * datasets, never what they weigh.
  *
+ * @remarks
+ * The copy takes the target whole: it announces itself, so a dataflow running
+ * in the target stops, and waits for what holds the target.
+ *
  * @param storage - Storage backend
  * @param repoPath - Repository identifier
  * @param from - The workspace copied
  * @param to - The workspace it is copied to, made or replaced whole
+ * @param options - How long the copy waits for the target: e3-core's
+ *   `EXCLUSIVE_WAIT_MS` unless set
  * @returns The response: the target, as the workspace list gives it; or
  *   `workspace_not_found` for a source that does not exist,
- *   `workspace_locked` for a target a dataflow runs in or something else holds
- *   (or a source held exclusively), or `invalid_name` for a name no workspace
- *   can have, or a target that is the source
+ *   `workspace_locked` for a target something still holds once the wait is
+ *   over (or a source held exclusively), or `invalid_name` for a name no
+ *   workspace can have, or a target that is the source
  */
 export async function copyWorkspace(
   storage: StorageBackend,
   repoPath: string,
   from: string,
   to: string,
+  options: { readonly lockWaitMs?: number } = {},
 ): Promise<Response> {
   try {
-    await workspaceCopy(storage, repoPath, from, to);
+    await workspaceCopy(storage, repoPath, from, to, options);
     const state = await workspaceGetState(storage, repoPath, to);
     return sendSuccess(WorkspaceInfoType, {
       name: to,
@@ -290,17 +297,24 @@ function convertTaskStatus(status: TaskStatus): ApiTaskStatus {
 /**
  * Delete a workspace.
  *
+ * @remarks
+ * The removal takes the workspace whole: it announces itself, so a dataflow
+ * running in it stops, and waits for what holds it.
+ *
  * @param storage - Storage backend
  * @param repoPath - Repository identifier
  * @param name - Workspace name
- * @returns The response: null once it is removed; `workspace_locked` while
- *   something holds it, with a `Retry-After` when the holder is a run that is
- *   stopping; or the error
+ * @param options - How long the removal waits for the workspace: e3-core's
+ *   `EXCLUSIVE_WAIT_MS` unless set
+ * @returns The response: null once it is removed; `workspace_locked` when
+ *   something still holds it once the wait is over, with a `Retry-After` when
+ *   the holder is a run that is stopping; or the error
  */
 export async function deleteWorkspace(
   storage: StorageBackend,
   repoPath: string,
-  name: string
+  name: string,
+  options: { readonly lockWaitMs?: number } = {},
 ): Promise<Response> {
   let stopping = false;
   try {
@@ -309,7 +323,7 @@ export async function deleteWorkspace(
     // refusal (sendLockRefusal).
     checkName('workspace', name);
     stopping = await stoppingRunBefore(storage, storage.runStates(repoPath), repoPath, name);
-    await workspaceRemove(storage, repoPath, name);
+    await workspaceRemove(storage, repoPath, name, options);
     return sendSuccess(NullType, null);
   } catch (err) {
     if (err instanceof WorkspaceLockError) return sendLockRefusal(NullType, err, stopping, storage, storage.runStates(repoPath), repoPath, name);

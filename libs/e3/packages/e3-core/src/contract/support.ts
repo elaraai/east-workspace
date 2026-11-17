@@ -17,7 +17,7 @@ import { join } from 'node:path';
 import { variant } from '@elaraai/east';
 import { InMemoryStateStore } from '../dataflow/state-store/InMemoryStateStore.js';
 import type { ExecutionStateStore } from '../dataflow/state-store/interfaces.js';
-import { deployAnnounced } from '../deploy-lock.js';
+import { announcedIntent } from '../deploy-lock.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 import type { BackendContext } from './setup.js';
 
@@ -45,23 +45,25 @@ export function stateStoreOf(context: BackendContext): ExecutionStateStore {
 }
 
 /**
- * Waits until a deploy that waits for its workspace has announced itself.
+ * Waits until what takes a workspace whole — a deploy, a removal, a copy onto
+ * it or an export of it — has announced itself while it waits for the
+ * workspace.
  *
  * @remarks
- * It asserts on no clock: the fault it looks for is a deploy whose own wait
- * ends before it has announced itself, which it fails on.
+ * It asserts on no clock: the fault it looks for is one whose own wait ends
+ * before it has announced itself, which it fails on.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
- * @param ws - The workspace the deploy waits for
- * @param deploying - The deploy's wait for its workspace
- * @returns Whether the deploy's wait is over, as it stands when asked
+ * @param ws - The workspace it waits for
+ * @param taking - Its wait for the workspace
+ * @returns Whether its wait is over, as it stands when asked
  */
-export async function untilAnnounced(storage: StorageBackend, repo: string, ws: string, deploying: Promise<unknown>): Promise<() => boolean> {
+export async function untilAnnounced(storage: StorageBackend, repo: string, ws: string, taking: Promise<unknown>): Promise<() => boolean> {
   let settled = false;
-  void deploying.then(() => { settled = true; }, () => { settled = true; });
-  while (!(await deployAnnounced(storage, repo, ws))) {
-    assert.equal(settled, false, 'the deploy announces itself while it waits');
+  void taking.then(() => { settled = true; }, () => { settled = true; });
+  while (await announcedIntent(storage, repo, ws) === null) {
+    assert.equal(settled, false, 'it announces itself while it waits');
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   return () => settled;

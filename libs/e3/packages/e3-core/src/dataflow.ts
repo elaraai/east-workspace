@@ -185,9 +185,9 @@ export interface DataflowOptions {
   force?: boolean | readonly string[];
   /** One task's exact name: the run runs it and its dependency closure */
   filter?: string;
-  /** External workspace lock to use: a shared hold of the workspace. Never a
-   *  deploy's (`acquireForDeploy`): a run reads a deploy's intent whoever
-   *  holds it, and stops itself for it. */
+  /** External workspace lock to use: a shared hold of the workspace. Never
+   *  one that takes the workspace whole (`acquireWorkspaceExclusive`): a run
+   *  reads the workspace's intent whoever holds it, and stops itself for it. */
   lock?: LockHandle;
   /** AbortSignal for cancellation. */
   signal?: AbortSignal;

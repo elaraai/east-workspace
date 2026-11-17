@@ -28,7 +28,7 @@ import { PackageObjectType, RecordCommitType } from '@elaraai/e3-types';
 import type { CatchUpPhase } from '../dataflow.js';
 import type { OrchestratorStartOptions } from '../dataflow/orchestrator/interfaces.js';
 import type { DeferReason } from '../dataflow/types.js';
-import { acquireForDeploy, deployIntentLock } from '../deploy-lock.js';
+import { acquireWorkspaceExclusive, workspaceIntentLock } from '../deploy-lock.js';
 import { DataflowAbortedError, ObjectNotFoundError, WorkspaceLockError } from '../errors.js';
 import { GatedTaskRunner } from '../execution/GatedTaskRunner.js';
 import { LocalOrchestrator } from '../execution/local-orchestrator.js';
@@ -39,8 +39,8 @@ import { packageImport } from '../package-files.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 import { datasetWrite, workspaceSetDataset } from '../trees.js';
 import { uuidv7 } from '../uuid.js';
-import { workspaceCreate, workspaceGetPackage } from '../workspaces.js';
-import { workspaceDeploy } from '../workspace-files.js';
+import { workspaceCopy, workspaceCreate, workspaceGetPackage, workspaceGetState, workspaceRemove } from '../workspaces.js';
+import { workspaceDeploy, workspaceExport } from '../workspace-files.js';
 import type { BackendContext, BackendSetup } from './setup.js';
 import { inputPath, scratch, stateStoreOf } from './support.js';
 
@@ -821,7 +821,7 @@ export function dataflowFollowCases(setup: BackendSetup): void {
 
     // The deploy takes the workspace only once the run has let it go: a run
     // that never stopped would refuse it once the deploy's own wait was over
-    const deploy = await acquireForDeploy(storage, repo, 'ws');
+    const deploy = await acquireWorkspaceExclusive(storage, repo, 'ws', variant('deployment', null));
     try {
       await assert.rejects(waited, (err: unknown) => {
         assert.ok(err instanceof DataflowAbortedError, `a DataflowAbortedError, not ${String(err)}`);
@@ -854,6 +854,47 @@ export function dataflowFollowCases(setup: BackendSetup): void {
     assert.equal(next.cached, 1, 'clean is answered by the execution the stopped run recorded');
   });
 
+  it('stops a run for an export, a copy onto its workspace and a removal as for a deploy, saying which started, and each takes the workspace', async (t) => {
+    const context = await setup(t);
+    const { storage, repo } = context;
+    const tasks = await deployChain(t, context);
+    await workspaceCreate(storage, repo, 'other');
+    await workspaceDeploy(storage, repo, 'other', 'chain', '1.0.0');
+    const runner = gatedRunner(storage, repo, tasks);
+    const stateStore = stateStoreOf(context);
+    const orchestrator = new LocalOrchestrator(stateStore);
+
+    /** A run on a new value of sales is stopped while clean runs by what `take` starts. A copy onto the workspace and
+     *  its removal take its runs and their states with it, once the run has let it go */
+    const stopFor = async (sales: bigint, started: string, take: () => Promise<unknown>, keepsRuns: boolean): Promise<void> => {
+      await workspaceSetDataset(storage, repo, 'ws', inputPath('sales'), sales, IntegerType);
+      const lines = new RunLines();
+      const handle = await orchestrator.start(storage, repo, 'ws', { runner, ...lines.callbacks });
+      const waited = orchestrator.wait(handle);
+      waited.catch(() => undefined);
+      await runner.launched('clean');
+
+      // It takes the workspace only once the run has let it go
+      const taking = take();
+      await assert.rejects(waited, (err: unknown) => {
+        assert.ok(err instanceof DataflowAbortedError, `a DataflowAbortedError, not ${String(err)}`);
+        assert.equal(err.reason, `${started} started`);
+        return true;
+      });
+      assert.deepEqual(lines.printed, ['[START] clean', '[CANCELLED] clean'], started);
+      await taking;
+      if (keepsRuns) assert.deepEqual((await stateStore.read(repo, 'ws', handle.id))?.error, some(`${started} started`));
+    };
+
+    await stopFor(10n, 'an export of ws', () => workspaceExport(storage, repo, 'ws', join(scratch(t), 'ws.zip')), true);
+    await stopFor(11n, 'a copy onto ws', () => workspaceCopy(storage, repo, 'other', 'ws'), false);
+    const copied = await storage.datasets.read(repo, 'other', 'inputs/sales');
+    assert.ok(copied?.type === 'value');
+    assert.equal(await held(storage, repo, 'inputs/sales'), copied.value.hash, 'ws holds what other does');
+    await stopFor(12n, 'a removal of ws', () => workspaceRemove(storage, repo, 'ws'), false);
+    assert.equal(await workspaceGetState(storage, repo, 'ws'), null, 'the removal took the workspace');
+  });
+
   it('counts a task due again by the result it holds: a run stopped while the task runs again records the results that stand, as its stop says them', async (t) => {
     const context = await setup(t);
     const { storage, repo } = context;
@@ -874,7 +915,7 @@ export function dataflowFollowCases(setup: BackendSetup): void {
     await runner.launched('clean');
 
     // A deploy stops the run: clean's first result stands, and both the stop and the run's record count it
-    const deploy = await acquireForDeploy(storage, repo, 'ws');
+    const deploy = await acquireWorkspaceExclusive(storage, repo, 'ws', variant('deployment', null));
     try {
       await assert.rejects(waited, (err: unknown) => {
         assert.ok(err instanceof DataflowAbortedError, `a DataflowAbortedError, not ${String(err)}`);
@@ -1193,7 +1234,7 @@ export function dataflowFollowCases(setup: BackendSetup): void {
     assert.equal(await orchestrator.wake(storage, repo, 'ws'), true, 'the run in flight takes a wake');
 
     // A deploy announces itself, and waits for the run to let the workspace go
-    const intent = await storage.locks.acquire(repo, deployIntentLock('ws'), variant('deployment', null));
+    const intent = await storage.locks.acquire(repo, workspaceIntentLock('ws'), variant('deployment', null));
     assert.ok(intent !== null);
     try {
       assert.equal(await orchestrator.wake(storage, repo, 'ws'), false, 'the run takes nothing in for a deploy that waits');

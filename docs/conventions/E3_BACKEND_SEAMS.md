@@ -289,8 +289,8 @@ repository still, and an upgrade, wait for the call; a checkpoint names the
 release that wrote it, so an export whose calls straddle a new release starts
 again.
 
-**A run in flight is reached through the orchestrator, and a deploy
-announces itself through the lock service.** A start that names no filter and
+**A run in flight is reached through the orchestrator, and whatever takes a
+workspace whole announces itself through the lock service.** A start that names no filter and
 forces no task, and finds a run in flight, is handed to that run by
 `DataflowOrchestrator.wake`: the run looks for changed inputs at once, and the
 route answers `handed` with the run's cursor. The shared `LocalOrchestrator`
@@ -299,16 +299,19 @@ processes or instances implements `wake` to reach them, as it reaches one to
 cancel, and its loop takes the wake as the shared loop does: a look for input
 changes, then a launch of what became ready. Where `wake` answers false the
 start is refused as a held workspace refuses it, and the run takes the change
-in as its next task ends, so nothing is lost. A deploy announces itself by a
-lock of its own, `<ws>#deploy`, taken through the lock service before the
-workspace's (e3-core `deploy-lock.ts`, `acquireForDeploy`): every shared taker
-of the workspace's lock asks it first (`acquireWorkspaceShared`), and a run in
-flight asks once a second, by a read of the lock's state, and stops when a
-deploy holds it. No backend implements a method for it: its lock service
-takes the name, as it takes `<ws>#dataflow`, and a host that hands a deploy a
-lock of its own (`ProcessDeployDeps.lock`) takes that lock through
-`acquireForDeploy`, or its deploy would wait behind a run people keep editing
-under.
+in as its next task ends, so nothing is lost. A deploy, a removal, a copy onto
+a workspace and an export of it each announce themselves by a lock of the
+workspace's own, its intent, `<ws>#intent`, taken through the lock service
+before the workspace's (e3-core `deploy-lock.ts`, `acquireWorkspaceExclusive`,
+with the operation): every shared taker of the workspace's lock asks it first
+(`acquireWorkspaceShared`), and a run in flight asks once a second, by a read
+of the lock's state, and stops when one holds it, saying which
+(`intentWords`). No backend implements a method for it: its lock service takes
+the name, as it takes `<ws>#dataflow`, and a host that holds the workspace for
+a job over several calls — a deploy's (`ProcessDeployDeps.lock`), an export's
+(`ProcessExportDeps.lock`) — takes that lock through
+`acquireWorkspaceExclusive`, or its job would wait behind a run people keep
+editing under.
 
 **A route factory takes its seams as arguments.** Each is exported from
 e3-api-server and given the storage, a repository's identifier from its name,
@@ -339,8 +342,11 @@ the host's own job has applied them — a part per run of the job
 (`repositoryUpgradeStep`), each taking a step up where the last stopped, by the
 step's cursor, which the ref store keeps beside the repository record
 (`RefStore.repositoryUpgradeRead`) — and tells the host each time through
-`onUpgradePending`. An in-page request has no time limit, so e3-web's gate
-applies the upgrades in the request.
+`onUpgradePending`. Such a host keeps under its limit, too, how long a
+removal and a copy onto a workspace wait in their request for a run in the
+workspace to stop and a write in it to finish: 30 seconds unless the workspace
+routes are given `lockWaitMs`. An in-page request has no time limit, so e3-web's
+gate applies the upgrades in the request.
 
 ## Where the local backend's code lives
 
@@ -446,10 +452,11 @@ in Node over its adapters in memory, and gives the `damage` hook. The dataflow
 loop's suite replays a run's interleavings a step at a time on
 `GatedTaskRunner`, exported with the suites: a runner that holds each task
 until the case lets it go, so no case waits on a clock but the one of a
-deploy's intent, which a run asks for once a second. Its cases are a result
+workspace's intent, which a run asks for once a second. Its cases are a result
 landing though its input moved, a change travelling a task at a time, a
-catch-up run and two tasks sharing one, a deferral, a wake, a deploy stopping
-a run, and a run that yielded taken up by a second orchestrator.
+catch-up run and two tasks sharing one, a deferral, a wake, a deploy, an
+export, a copy and a removal stopping a run, and a run that yielded taken up
+by a second orchestrator.
 
 - A behaviour every backend must have is a case in the suite, not in one
   implementation's spec. A case only one implementation needs — the file

@@ -86,8 +86,9 @@ longer declares goes. A deploy prints each input it keeps, resets or drops, and
 every input, record and task output, so nothing needs to run again — writing
 refs only, so its cost follows the number of datasets, never their size. A
 `<to>` that exists is replaced whole, its runs going with it, and a write to
-either afterwards leaves the other as it was. It is refused while a dataflow
-runs in `<to>` or a deploy, a removal or an export holds `<from>`.
+either afterwards leaves the other as it was. A dataflow running in `<to>`
+stops for it, as for a deploy; it is refused while a deploy, a removal or an
+export holds `<from>`.
 
 A deploy takes the package's `file` sources in on this machine, locally `-j` at
 a time. A collection is taken in by intake units on the runners — east-c, or

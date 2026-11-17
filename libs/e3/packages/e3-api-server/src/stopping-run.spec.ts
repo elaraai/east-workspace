@@ -10,7 +10,8 @@
  * workspace's removal the workspace's lock refuses while a stopping run holds
  * it is answered `workspace_locked` with a `Retry-After` — one asked to stop
  * that has not, or one that has ended and still holds the dataflow lock it took
- * as it started. Any other holder's refusal names no wait.
+ * as it started. Any other holder's refusal names no wait. A removal waits for
+ * the workspace before it is refused: here, not long.
  */
 
 import { describe, it, mock } from 'node:test';
@@ -30,6 +31,9 @@ import { DataflowExecutionStateType, DataflowRequestType, DataflowStartResultTyp
 
 const REPO = 'test-repo';
 const WS = 'main';
+
+/** How long a removal here waits for the workspace before it is refused. */
+const REMOVAL_WAIT = { lockWaitMs: 200 };
 
 /** A run's state, of no tasks, in workspace `main`, which ended at `completedAt` if given. */
 function runState(id: string, status: 'running' | 'completed' | 'cancelled', completedAt?: Date): DataflowExecutionState {
@@ -182,7 +186,7 @@ describe('a run that is stopping (#1286)', () => {
     await storage.repos.create(REPO);
     await workspaceCreate(storage, REPO, WS);
     const remove = async () => {
-      const response = await deleteWorkspace(storage, REPO, WS);
+      const response = await deleteWorkspace(storage, REPO, WS, REMOVAL_WAIT);
       const answer = decodeBeast2For(ResponseType(NullType))(new Uint8Array(await response.arrayBuffer()));
       return { refused: answer.type === 'error' ? answer.value.type : null, retryAfter: response.headers.get('retry-after') };
     };
@@ -226,7 +230,7 @@ describe('a run that is stopping (#1286)', () => {
       }
       return lock;
     });
-    assert.deepEqual(await answered(await deleteWorkspace(storage, REPO, WS)), { refused: 'workspace_locked', retryAfter: '1' });
+    assert.deepEqual(await answered(await deleteWorkspace(storage, REPO, WS, REMOVAL_WAIT)), { refused: 'workspace_locked', retryAfter: '1' });
 
     // A start: the run lets go of its dataflow lock as the orchestrator is refused.
     const starting = new InMemoryStorage();
