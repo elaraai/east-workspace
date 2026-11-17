@@ -46,6 +46,7 @@ import { runCommand } from './commands/run.js';
 import { callCommand } from './commands/call.js';
 import { mutateCommand } from './commands/mutate.js';
 import { seedCommand } from './commands/seed.js';
+import { loadCommand } from './commands/load.js';
 import { historyCommand } from './commands/history.js';
 import { compactCommand } from './commands/compact.js';
 import { reindexCommand } from './commands/reindex.js';
@@ -416,6 +417,22 @@ program
   .option(...JOBS)
   .option(...MEMORY)
   .action(seedCommand);
+
+// ---------------------------------------------------------------------------
+// load — a delivery into an external source of a composite record, committed
+// once as $load:<source>
+// ---------------------------------------------------------------------------
+program
+  .command('load')
+  .description("Load a delivery into an external source of a composite record, committed once as $load:<source> (source: record.source)")
+  .argument('<repo>', 'Repository path or URL')
+  .argument('<source>', 'Source specifier: record.source')
+  .argument('<delivery>', "A .beast2 file of the source's delivery type, never read whole or modified; or #<hash>, a value the repository holds")
+  .option('-w, --workspace <ws>', 'Workspace holding the record (required)')
+  .option('--as-of <time>', "The time the delivery's data is as of, as East writes one: 2026-11-02T03:00:00 (UTC). A delivery older than the source's is not loaded")
+  .option(...JOBS)
+  .option(...MEMORY)
+  .action(loadCommand);
 
 // ---------------------------------------------------------------------------
 // history — a record's commit history (newest first)

@@ -18,12 +18,14 @@ import {
   type PatchTypeOf, type ValueTypeOf,
 } from '@elaraai/east';
 
+import { computeHash } from '@elaraai/e3-core';
+
 import type { TestContext } from '../context.js';
 import type { TestSetup } from '../setup.js';
 import { removeWorkspaceAfter, runE3Command, writeCliCredentials } from '../cli.js';
 import {
   createPackageZip, createFunctionPackageZip, createDraftsPackageZip, createKeyedRecordPackageZip, createMigrationPackageZip,
-  DraftJobsType, PlansType,
+  createCompositeRecordPackageZip, DraftJobsType, ErpOrdersType, PlansType,
 } from '../fixtures.js';
 
 /** What one touched key of a plans patch carries — derived from the patch type
@@ -479,6 +481,37 @@ export function cliTests(
         assert.match(result.stderr, /p-11/, 'the key that disagreed crosses the API to the caller');
         assert.match(result.stderr, /re-read it and resubmit/);
         assert.doesNotMatch(result.stderr, /try again/, 'the same write would disagree again');
+      });
+    });
+
+    describe('load command', { concurrency: false }, () => {
+      it('R21 — uploads a delivery\'s file as an object, follows its load to its end, and answers the same delivery named by its hash again', async (t) => {
+        const ctx = await withCli(t);
+        const { remoteUrl, workDir } = ctx;
+        const env = getCredentialsEnv();
+        const wsName = `load-cli-ws-${Date.now()}`;
+        removeAfter(t, remoteUrl, wsName);
+        const zipPath = await createCompositeRecordPackageZip(ctx.tempDir, 'load-cli-pkg', '2.0.0');
+        for (const command of [
+          ['package', 'import', remoteUrl, zipPath], ['workspace', 'create', remoteUrl, wsName], ['workspace', 'deploy', remoteUrl, wsName, 'load-cli-pkg@2.0.0'],
+        ]) {
+          const setup = await runE3Command(command, workDir, { env });
+          assert.strictEqual(setup.exitCode, 0, `${command[0]} ${command[1]} failed: ${setup.stderr}`);
+        }
+
+        // The ERP's order book, as a file of it holds it
+        const delivery = encodeBeast2For(ErpOrdersType)(new Map([['SO-1001', { customer: 'Acme', qty: 5n }], ['SO-1002', { customer: 'Cedar', qty: 7n }]]));
+        const file = join(workDir, 'erp.beast2');
+        writeFileSync(file, delivery);
+        const loaded = await runE3Command(['load', remoteUrl, 'orders.erp', file, '-w', wsName, '--as-of', '2026-11-02T03:00:00'], workDir, { env });
+        assert.strictEqual(loaded.exitCode, 0, `load failed: ${loaded.stderr}`);
+        const commit = /^Loaded orders\.erp at ([0-9a-f]{12}), as of 2026-11-02T03:00:00\.000: 2 set, 0 deleted, 0 unchanged$/m.exec(loaded.stdout)?.[1];
+        assert.ok(commit !== undefined, `the load's line: ${loaded.stdout}`);
+
+        // The upload stored the file as the object it is: its hash names the same delivery
+        const again = await runE3Command(['load', remoteUrl, 'orders.erp', `#${computeHash(delivery)}`, '-w', wsName], workDir, { env });
+        assert.strictEqual(again.exitCode, 0, `load by hash failed: ${again.stderr}`);
+        assert.match(again.stdout, new RegExp(`^orders\\.erp already holds this delivery, loaded at ${commit}$`, 'm'));
       });
     });
   });
