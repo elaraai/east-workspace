@@ -22,6 +22,7 @@ describeEast("Chart", (test) => {
         bandConfidence: ex.bandConfidence,
         scatterQuadrants: ex.scatterQuadrants,
         scatterBubble: ex.scatterBubble,
+        pieShares: ex.pieShares,
         composedColumnLine: ex.composedColumnLine,
         composedDualAxis: ex.composedDualAxis,
         composedAnnotations: ex.composedAnnotations,
@@ -275,6 +276,71 @@ describeEast("Chart", (test) => {
             (Chart.Bar as typeof Chart.Column)(rows, { x: r => r.site, y: r => r.v });
         } catch (e) { msg = (e as Error).message; }
         $(Assert.equal(East.value(msg.includes("Chart.Column"), BooleanType), true));
+    });
+
+    // =========================================================================
+    // Pie — shares of one total, a chart of its own (#1671)
+    // =========================================================================
+
+    test("Chart.Pie lowers to a pie node alone in its frame — no axes, no gridlines — a slice per row", $ => {
+        const rows = $.const([
+            { region: "NSW", revenue: 420.0 }, { region: "VIC", revenue: 310.0 },
+        ], ArrayType(StructType({ region: StringType, revenue: FloatType })));
+        const chart = $.let(Chart.Root(Chart.Pie(rows, { label: r => r.region, value: r => r.revenue }), { height: 200 }));
+        const frame = $.const(chart.unwrap().unwrap("VisxChart").unwrap().unwrap("frame"));
+        $(Assert.equal(frame.height, 200.0));
+        $(Assert.equal(frame.children.length(), 1n));
+        const pie = $.const(frame.children.get(0n).unwrap().unwrap("pie"));
+        $(Assert.equal(pie.data.length(), 2n));
+        $(Assert.equal(pie.data.get(0n).key, "NSW"));
+        $(Assert.equal(pie.data.get(1n).value, 310.0));
+        $(Assert.equal(pie.data.get(0n).color.hasTag("none"), true));
+        $(Assert.equal(pie.top.hasTag("none"), true));
+        $(Assert.equal(pie.total.hasTag("none"), true));
+        $(Assert.equal(pie.donut, false));
+    });
+
+    test("Chart.Pie prints a label that is no text as East prints it, and takes a slice's colour by its label", $ => {
+        const rows = $.const([
+            { year: 2025n, units: 12n }, { year: 2026n, units: 30n },
+        ], ArrayType(StructType({ year: IntegerType, units: IntegerType })));
+        const chart = $.let(Chart.Root(Chart.Pie(rows, { label: r => r.year, value: r => r.units }, { colors: { "2026": "teal.solid" } })));
+        const pie = $.const(chart.unwrap().unwrap("VisxChart").unwrap().unwrap("frame").children.get(0n).unwrap().unwrap("pie"));
+        $(Assert.equal(pie.data.get(0n).key, "2025"));
+        $(Assert.equal(pie.data.get(0n).value, 12.0));
+        $(Assert.equal(pie.data.get(0n).color.hasTag("none"), true));
+        $(Assert.equal(pie.data.get(1n).color.unwrap("some"), "teal.solid"));
+    });
+
+    test("Chart.Pie's options lower onto the node: the slices before Other, the total, Other's label, a donut and the value format", $ => {
+        const rows = $.const([
+            { region: "NSW", revenue: 420.0 },
+        ], ArrayType(StructType({ region: StringType, revenue: FloatType })));
+        const chart = $.let(Chart.Root(Chart.Pie(rows, { label: r => r.region, value: r => r.revenue }, {
+            top: 3n, total: 1000.0, other: "Rest", donut: true, format: Chart.format.percent(),
+        })));
+        const pie = $.const(chart.unwrap().unwrap("VisxChart").unwrap().unwrap("frame").children.get(0n).unwrap().unwrap("pie"));
+        $(Assert.equal(pie.top.unwrap("some"), 3n));
+        $(Assert.equal(pie.total.unwrap("some"), 1000.0));
+        $(Assert.equal(pie.other.unwrap("some"), "Rest"));
+        $(Assert.equal(pie.donut, true));
+        $(Assert.equal(pie.format.unwrap("some").hasTag("percent"), true));
+    });
+
+    test("Chart.Pie beside another layer, or with axis options, is a build-time error naming why", $ => {
+        const rows = $.const([
+            { region: "NSW", revenue: 420.0 },
+        ], ArrayType(StructType({ region: StringType, revenue: FloatType })));
+        let beside = "";
+        try {
+            $.const(Chart.Root([Chart.Pie(rows, { label: r => r.region, value: r => r.revenue }), Chart.refLine({ y: 100 })]));
+        } catch (e) { beside = (e as Error).message; }
+        $(Assert.equal(East.value(beside.includes("a chart of its own"), BooleanType), true));
+        let axes = "";
+        try {
+            $.const(Chart.Root(Chart.Pie(rows, { label: r => r.region, value: r => r.revenue }), { y: { label: "Revenue" } }));
+        } catch (e) { axes = (e as Error).message; }
+        $(Assert.equal(East.value(axes.includes("draws no axes — drop y"), BooleanType), true));
     });
 
     test("a categorical y on a vertical mark is a build-time error pointing at Chart.Bar", $ => {

@@ -13,6 +13,7 @@ import {
     StringType,
     FloatType,
     BooleanType,
+    IntegerType,
     OptionType,
     RecursiveType,
     StructType,
@@ -68,6 +69,9 @@ import {
     ChartLegendPositionType,
     ChartTooltipType,
     ChartTooltipCursorType,
+    ChartSliceType,
+    ChartSliceArrayType,
+    ChartPieType,
 } from "./types.js";
 
 // Internal re-export for sibling modules (slice/chart, component dispatch).
@@ -98,6 +102,7 @@ export * from "./types.js";
  * @property gridRows      - Horizontal gridlines (`visx` `GridRows`)
  * @property gridColumns   - Vertical gridlines (`visx` `GridColumns`)
  * @property series        - Multi-series layer: one mark per coloured series
+ * @property pie           - Shares of one total, with its legend: the only node of its frame
  */
 export const ChartSpecType = RecursiveType(node => VariantType({
     frame: StructType({
@@ -132,6 +137,7 @@ export const ChartSpecType = RecursiveType(node => VariantType({
     gridRows:      ChartGridType,
     gridColumns:   ChartGridType,
     series:        ChartSeriesMarkType,
+    pie:           ChartPieType,
 }));
 export type ChartSpecType = typeof ChartSpecType;
 
@@ -315,6 +321,51 @@ export function chartBandArea(
         data,
         curve:       options?.curve !== undefined ? some(typeof options.curve === "string" ? East.value(variant(options.curve, null), ChartCurveType) : options.curve) : none,
         fillOpacity: options?.fillOpacity !== undefined ? some(options.fillOpacity) : none,
+    }), ChartSpecType);
+}
+
+/**
+ * Options for {@link chartPie}.
+ *
+ * @property top    - How many slices are drawn before the rest fold into Other (default 4)
+ * @property total  - The whole the slices are shares of, when they are not all of it
+ * @property other  - Other's label in the legend (default "Other")
+ * @property donut  - Draw a ring with the total in its centre
+ * @property format - How a value prints in the legend and the centre
+ */
+export interface ChartPieOptions {
+    /** How many slices are drawn before the rest fold into Other (default 4). */
+    top?: SubtypeExprOrValue<IntegerType>;
+    /** The whole the slices are shares of, when they are not all of it: what is past their sum is Other's. */
+    total?: SubtypeExprOrValue<FloatType>;
+    /** Other's label in the legend (default "Other"). */
+    other?: SubtypeExprOrValue<StringType>;
+    /** Draw a ring, its total in the middle. */
+    donut?: SubtypeExprOrValue<BooleanType>;
+    /** How a value prints in the legend and the centre. */
+    format?: SubtypeExprOrValue<ChartTickFormatType>;
+}
+
+/**
+ * Creates a `pie` node — shares of one total, with its legend.
+ *
+ * @param data    - The slices, in any order
+ * @param options - How many slices before Other, the total, Other's label, a donut, and the value format (see {@link ChartPieOptions})
+ * @returns A `pie` {@link ChartSpecValue}
+ *
+ * @remarks
+ * A pie is the only node of its frame: it has no axes, and the frame's x and
+ * y scales are unused. The renderer draws the slices largest first from
+ * twelve o'clock, the first `top` and then Other for the rest.
+ */
+export function chartPie(data: SubtypeExprOrValue<ChartSliceArrayType>, options?: ChartPieOptions): ChartSpecValue {
+    return East.value(variant("pie", {
+        data,
+        top:    options?.top !== undefined ? some(options.top) : none,
+        total:  options?.total !== undefined ? some(options.total) : none,
+        other:  options?.other !== undefined ? some(options.other) : none,
+        donut:  options?.donut ?? false,
+        format: options?.format !== undefined ? some(options.format) : none,
     }), ChartSpecType);
 }
 
@@ -745,6 +796,33 @@ export const ChartSpec = {
      * ```
      */
     referenceArea: chartReferenceArea,
+    /**
+     * Creates a pie — shares of one total, with its legend — the only node of its frame.
+     *
+     * @param data    - The slices, in any order: each its key, its value and, optionally, its colour
+     * @param options - How many slices before Other, the total, Other's label, a donut, and the value format
+     * @returns A `pie` {@link ChartSpecValue}
+     *
+     * @remarks
+     * Drawn largest first from twelve o'clock: the first `top` slices (4 by
+     * default), then one Other slice for the rest. The legend carries each
+     * slice's value and share; a donut has the total in its centre.
+     *
+     * @example
+     * ```ts
+     * import { East, none, variant } from "@elaraai/east";
+     * import { Chart, UIComponentType } from "@elaraai/east-ui";
+     *
+     * const example = East.function([], UIComponentType, (_$) =>
+     *     East.value(variant("VisxChart", Chart.Spec.frame([
+     *         Chart.Spec.pie([
+     *             { key: "NSW", value: 42, color: none },
+     *             { key: "VIC", value: 31, color: none },
+     *         ], { donut: true }),
+     *     ], { height: 200 })), UIComponentType));
+     * ```
+     */
+    pie: chartPie,
     Types: {
         /**
          * The recursive visx-primitive chart IR.
@@ -1128,6 +1206,38 @@ export const ChartSpec = {
          * @property tooltip     - Include this layer's series in the tooltip
          */
         SeriesMark: ChartSeriesMarkType,
+        /**
+         * One slice of a pie.
+         *
+         * @remarks
+         * Mirror of {@link ChartSliceType}.
+         *
+         * @property key   - What the slice stands for: its legend label
+         * @property value - Its value
+         * @property color - Its colour; `none` takes the series order by rank
+         */
+        Slice: ChartSliceType,
+        /**
+         * An array of {@link ChartSliceType}.
+         *
+         * @remarks
+         * Mirror of {@link ChartSliceArrayType}.
+         */
+        SliceArray: ChartSliceArrayType,
+        /**
+         * A pie: shares of one total.
+         *
+         * @remarks
+         * Mirror of {@link ChartPieType}.
+         *
+         * @property data   - The slices
+         * @property top    - How many slices are drawn before Other
+         * @property total  - The whole the slices are shares of
+         * @property other  - Other's label
+         * @property donut  - Drawn as a ring with the total in its centre
+         * @property format - How a value prints
+         */
+        Pie: ChartPieType,
         /**
          * In-chart legend configuration.
          *

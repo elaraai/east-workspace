@@ -152,9 +152,15 @@ describe("printVisual", () => {
 
         const summary = visualOf(v.of("orders", v.summary({ rows: [v.group("region"), v.group("customer")], values: [v.mean("revenue"), v.distinct("customer")], total: true })));
         const asks = asksOf(printVisual(summary, SOURCE, { filters: [] }));
-        expect(asks.map(a => a.role)).toEqual(["groups", "total"]);
+        expect(asks.map(a => a.role)).toEqual(["groups", "heads", "total"]);
         expect(answerOf(asks[0]!.program).rows[0]).toEqual({ g0: "NSW", g1: "Harbour", v0s: 50, v0c: 1n, v1: 1n, n: 1n });
-        expect(answerOf(asks[1]!.program).rows).toEqual([{ v0s: 260.5, v0c: 4n, v1: 3n, n: 4n }]);
+        // The heads: the first group alone, a distinct count of its own — South Australia's two customers.
+        expect(answerOf(asks[1]!.program).rows[1]).toEqual({ g0: "SA", v0s: 170.5, v0c: 2n, v1: 2n, n: 2n });
+        expect(answerOf(asks[2]!.program).rows).toEqual([{ v0s: 260.5, v0c: 4n, v1: 3n, n: 4n }]);
+        expect(asks.every(a => splits(a.program))).toBe(true);
+        // One group asks no heads.
+        const flat = visualOf(v.of("orders", v.summary({ rows: [v.group("region")], values: [v.count()] })));
+        expect(asksOf(printVisual(flat, SOURCE, { filters: [] })).map(a => a.role)).toEqual(["groups"]);
 
         const pivot = visualOf(v.of("orders", v.pivot({ rows: v.group("region"), columns: v.group("ordered_at", { bucket: "year" }), value: v.count(), heat: true })));
         expect(answerOf(asksOf(printVisual(pivot, SOURCE, { filters: [] }))[0]!.program).rows).toHaveLength(3);

@@ -67,10 +67,13 @@ import {
     chartGridColumns,
     chartReferenceDot,
     chartReferenceArea,
+    chartPie,
+    ChartSliceArrayType,
     ChartSpec,
     type ChartSpecValue,
     type ChartSeriesOptions,
     type ChartAxisTextStyle,
+    type ChartPieOptions,
 } from "../spec/index.js";
 import { SLICE_SERIES_PALETTE } from "../../platform/slice/impl.js";
 
@@ -354,6 +357,30 @@ export type ScatterEncoding<Row extends EastType> = MarkEncoding<Row> & {
     size?: ValueAccessor<Row>;
 };
 
+/**
+ * Encoding of a pie layer — one slice per row.
+ *
+ * @typeParam Row - The row struct; accessors are checked against its fields
+ * @property label - What a slice stands for: text as it is, any other value as East prints it
+ * @property value - The slice's value; its share is its value over the total
+ */
+export interface PieEncoding<Row extends EastType> {
+    /** What a slice stands for: text as it is, any other value as East prints it. */
+    label: CategoryAccessor<Row>;
+    /** The slice's value; its share is its value over the total. */
+    value: ValueAccessor<Row>;
+}
+
+/**
+ * How a pie draws: {@link ChartPieOptions}, and a slice's colour by its label.
+ *
+ * @property colors - Colours by slice label (theme tokens or CSS); a slice not named takes the chart rules' series order by its rank, largest first
+ */
+export interface PieStyle extends ChartPieOptions {
+    /** Colours by slice label (theme tokens or CSS); a slice not named takes the chart rules' series order by its rank. */
+    colors?: Record<string, string>;
+}
+
 /** Rows feeding a mark — an East array of row structs of type `Row`. */
 export type ChartRows<Row extends EastType> = SubtypeExprOrValue<ArrayType<Row>>;
 
@@ -392,8 +419,13 @@ interface RefLayer {
      *  (`rule` nodes stringify coordinates and drop labels). */
     refOptions: RefLineOptions | RefBandOptions | RefDotOptions;
 }
+/** A pie layer: one `pie` node, which a chart draws alone. */
+interface PieLayer {
+    kind: "pie";
+    node: ChartSpecValue;
+}
 /** A layer accepted by {@link createChartRoot}. */
-export type ChartLayer = SeriesLayer | BandLayer | RefLayer;
+export type ChartLayer = SeriesLayer | BandLayer | RefLayer | PieLayer;
 
 // ============================================================================
 // Coordinate + value coercion
@@ -614,6 +646,31 @@ function createBand<Row extends EastType>(rows: ChartRows<Row>, encoding: BandEn
     const s = style ?? {};
     const { data, xScale } = buildBand(rows, encoding, s);
     return { kind: "band", data, xScale, style: s };
+}
+
+/** Build a pie layer: a slice per row, its label printed as the legend says it, its colour the style's for that label. */
+function createPie<Row extends EastType>(rows: ChartRows<Row>, encoding: PieEncoding<Row>, style?: PieStyle): PieLayer {
+    const arr = East.value(rows) as any;
+    const rowType = (Expr.type(arr) as ArrayType<EastType>).value as EastType;
+    const label = reifyAccessor([rowType], encoding.label as any) as unknown as AnyAccessor;
+    const value = reifyAccessor([rowType], encoding.value as any) as unknown as AnyAccessor;
+    const colorDict = style?.colors !== undefined
+        ? East.value(new Map<string, string>(Object.entries(style.colors)), DictType(StringType, StringType)) as any
+        : undefined;
+    const data = arr.map((_b: unknown, r: any) => {
+        const l = label(r);
+        const v = value(r);
+        const vTag = typeTag(v);
+        if (vTag !== "Integer" && vTag !== "Float") throw new Error(`Chart.Pie's \`value\` accessor must be numeric (Integer/Float), got ${vTag}`);
+        const key = typeTag(l) === "String" ? l : East.print(l as Expr);
+        return {
+            key,
+            value: toFloatExpr(v),
+            color: East.value(colorDict !== undefined ? colorDict.tryGet(key) : none, OptionType(StringType)),
+        };
+    });
+    const { colors: _colors, ...options } = style ?? {};
+    return { kind: "pie", node: chartPie(data as ExprType<ChartSliceArrayType>, compact(options)) };
 }
 
 function createScatter<Row extends EastType>(rows: ChartRows<Row>, encoding: ScatterEncoding<Row>, style?: ScatterStyle): SeriesLayer {
@@ -841,8 +898,27 @@ function domainExpr(domain: AxisDomain | undefined): ExprType<ChartDomainType> |
 }
 
 function createChartRoot(layers: ChartLayer | ChartLayer[], options?: ChartOptions): ExprType<UIComponentType> {
-    const list = Array.isArray(layers) ? layers : [layers];
+    const all = Array.isArray(layers) ? layers : [layers];
     const opts = options ?? {};
+
+    // A pie is a chart of its own: no axes, no gridlines, and no other layer —
+    // its frame holds the pie alone, which draws its own legend.
+    const pie = all.find((l): l is PieLayer => l.kind === "pie");
+    if (pie !== undefined) {
+        if (all.length > 1) {
+            throw new Error("<Chart>: Chart.Pie is a chart of its own — it takes no other layer beside it (no marks, bands or reference layers)");
+        }
+        const axisOptions = (["x", "y", "y2", "slice", "stackOffset"] as const).filter(name => opts[name] !== undefined);
+        if (axisOptions.length > 0) {
+            throw new Error(`<Chart>: Chart.Pie draws no axes — drop ${axisOptions.join(", ")}`);
+        }
+        const frame = chartFrame([pie.node], {
+            height: opts.height === "fill" ? 0 : (opts.height ?? 240),
+            ...(opts.width !== undefined ? { width: opts.width } : {}),
+        });
+        return East.value(variant("VisxChart", frame), UIComponentType);
+    }
+    const list = all.filter((l): l is SeriesLayer | BandLayer | RefLayer => l.kind !== "pie");
 
     // Date tick positions only make sense on the (potentially time-scaled)
     // x axis — the value axes are always numeric (#318).
@@ -1000,6 +1076,26 @@ export const Chart = {
     Scatter: <Row extends EastType>(rows: ChartRows<Row>, encoding: ScatterEncoding<Row>, style?: ScatterStyle): SeriesLayer => createScatter(rows, encoding, style),
     /** Band (area-range) layer over a `{ x, low, high }` encoding. */
     Band: <Row extends EastType>(rows: ChartRows<Row>, encoding: BandEncoding<Row>, style?: MarkStyle): BandLayer => createBand(rows, encoding, style),
+    /**
+     * Pie layer — shares of one total, a slice per row, drawn as a chart of its own.
+     *
+     * @remarks
+     * The slices are drawn largest first from twelve o'clock: the first `top`
+     * (4 by default), then one Other slice for the rest, in `--ink-5`, with a
+     * 1.5 px gap of the surface between slices. Slices carry no labels: the
+     * legend carries each slice's value and share. A donut is a 26 px ring
+     * with the total in its centre. Colours follow the chart rules' series
+     * order by rank — `--brand-d`, then teal, purple, blue, orange — unless
+     * `colors` names a slice's. `total` is the whole the slices are shares
+     * of when they are not all of it; Other holds what is past their sum.
+     * A pie takes no other layer, and no axis options.
+     *
+     * @example
+     * ```tsx
+     * <Chart layers={[Chart.Pie(regions, { label: r => r.region, value: r => r.revenue }, { donut: true })]} height={220} />
+     * ```
+     */
+    Pie: <Row extends EastType>(rows: ChartRows<Row>, encoding: PieEncoding<Row>, style?: PieStyle): PieLayer => createPie(rows, encoding, style),
     /** Slice-parameterized layer — one coloured series per active-breakdown value (see {@link createSliceSeries}). */
     Series: createSliceSeries,
     /** Reference-line annotation layer. */

@@ -224,11 +224,29 @@ export const semanticTokens = defineSemanticTokens({
             hover:   alias("{colors.brandPressed}"),
         },
 
-        /* Chart series — series 1 is `--brand-d`; the next comparison takes the
-         * first accent in the design system's order (teal). */
+        /* Chart series — the chart rules' colours (`guidelines/charts.md`), each
+         * an alias of the design system's value. Series in order: `1` is
+         * `--brand-d`, then the accents teal → purple → blue → orange. The parts
+         * of one stacked measure: `stack.1` … `stack.3`, `--brand-d` / `--brand`
+         * / `--ink-5`, never accent hues. A reference series, and a goal or
+         * target line, `--ink-3`; a pie's Other `--ink-5`. `brand` and
+         * `brandDeep` are Slice's palette's first two. */
         series: {
             brand:     alias("{colors.brand.solid}"),
             brandDeep: alias("{colors.accent.teal}"),
+            "1":       alias("{colors.brand.solid}"),            // --brand-d
+            "2":       alias("{colors.accent.teal}"),            // --teal-500
+            "3":       alias("{colors.accent.purple}"),          // --purple-500
+            "4":       alias("{colors.accent.blue}"),            // --blue-500
+            "5":       alias("{colors.accent.orange}"),          // --orange-500
+            stack: {
+                "1": alias("{colors.brand.solid}"),              // --brand-d
+                "2": alias("{colors.brandMark}"),                // --brand
+                "3": alias("{colors.fg.faint}"),                 // --ink-5
+            },
+            reference: alias("{colors.fg.muted}"),               // --ink-3
+            goal:      alias("{colors.fg.muted}"),               // --ink-3
+            other:     alias("{colors.fg.faint}"),               // --ink-5
         },
 
         /* Valence palettes — `colorPalette="success"` and friends, so a

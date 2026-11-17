@@ -12,7 +12,16 @@
  *     padding. A column that prints numbers sets them in mono, aligned
  *     right, and its header's controls come before its label; one that
  *     prints dates sets them in mono at their start.
- *   - Total row: 1 px `border.strong` top, `bg.panel` fill, weight 600.
+ *   - Total row: 1 px `border.strong` top, `bg.panel` fill, weight 600 — a
+ *     footer the value declares, and the rows of values a host totals it
+ *     with (#1671), each value after what made it (`sum`) in the label voice:
+ *     mono 9.5 uppercase `--ink-4`.
+ *   - A cell its host marks negative (`data-tone=negative`, #1671): the
+ *     negative text step, Font Awesome's circle-exclamation in `--neg` before
+ *     its value.
+ *   - A group's head, as its host marks it (`data-row-head`, #1671): mono
+ *     10/600/0.1em uppercase, then its count on `--paper-3` in mono 9.5
+ *     `--ink-3`.
  *   - Page band (`pagination`, under the rows): `Page 2 of 5 (120 total)` in
  *     mono 10.5 `fg.muted` — the phone pager's range voice — then its ‹ ›
  *     steps, a 1 px `border.subtle` top rule.
@@ -57,7 +66,7 @@ const headerRoom = (size: keyof typeof HEADER_PAD): number =>
 export const tableSlotRecipe = defineSlotRecipe({
     className: "elara-table",
     slots: [
-        "root", "header", "body", "row", "cell", "cellText", "columnHeader",
+        "root", "header", "body", "row", "cell", "cellText", "cellMark", "rowCount", "totalLabel", "columnHeader",
         "columnHeaderContent", "columnHeaderLabel", "columnControls",
         "columnControl", "columnSortIndex", "columnResizer",
         "footer", "caption", "scrollArea", "treeIndent", "treeToggle",
@@ -244,6 +253,10 @@ export const tableSlotRecipe = defineSlotRecipe({
             // A parent's subtotal (#954) — an accounting subtotal: its
             // children's scale, heavier.
             "&[data-subtotal]": { fontWeight: "semibold" },
+            // A value its host marks negative — one on the wrong side of its goal (#1671): the negative text step.
+            "&[data-tone=negative]": { color: "fg.danger" },
+            // A group's head (#1671): the group-head voice, every cell of it.
+            "tr[data-row-head] > &": { fontFamily: "mono", fontSize: "label.sm", fontWeight: "semibold", letterSpacing: "0.1em", textTransform: "uppercase" },
             "[data-table-phone] &": {
                 fontSize: "{fontSizes.body}", paddingY: "8px", paddingX: "12px",
                 "&[data-pinned]": { paddingInlineStart: "16px" },
@@ -258,9 +271,21 @@ export const tableSlotRecipe = defineSlotRecipe({
             textOverflow: "ellipsis",
             "&[data-numeric], &[data-date]": { fontFamily: "mono", fontSize: "12px" },
             "&[data-numeric]": { textAlign: "right" },
+            /* A group's head's: its row's voice, a number's too. */
+            "tr[data-row-head] &": { fontSize: "label.sm" },
             /* A phone's: whole, a value too wide for its column wrapping at its spaces. */
             "[data-table-phone] &": { whiteSpace: "normal", overflow: "visible", overflowWrap: "anywhere", "&[data-numeric], &[data-date]": { fontSize: "13px", fontWeight: "500", fontVariantNumeric: "tabular-nums" } },
         },
+        /* A negative cell's mark: the exclamation before its value, in `--neg`, so colour is never its only sign. */
+        cellMark: { display: "inline-flex", alignItems: "center", flexShrink: 0, marginInlineEnd: "6px", color: "status.neg", "& svg": fontAwesomeSize("10px") },
+        /* A group head's count, after its label: the count chip. */
+        rowCount: {
+            display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, minWidth: "16px", height: "16px", paddingX: "4px", marginInlineStart: "6px",
+            boxSizing: "border-box", background: "bg.subtle", borderRadius: "sm", fontFamily: "mono", fontSize: "label.xs", fontWeight: "500", letterSpacing: "0",
+            color: "fg.muted",
+        },
+        /* What made a total, before it: the label voice. */
+        totalLabel: { flexShrink: 0, marginInlineEnd: "6px", fontFamily: "mono", fontSize: "label.xs", fontWeight: "400", letterSpacing: "0.1em", textTransform: "uppercase", color: "fg.subtle" },
         /* The page band under the rows: its words, then its ‹ ›. */
         pageBand: {
             display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "{spacing.2}", paddingX: "{spacing.3}", paddingY: "{spacing.2}",

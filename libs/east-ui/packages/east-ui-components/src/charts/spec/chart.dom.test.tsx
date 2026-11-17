@@ -22,10 +22,10 @@
 import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
-import { East, variant, some, none, type ValueTypeOf } from "@elaraai/east";
+import { East, equalFor, variant, some, none, type ValueTypeOf } from "@elaraai/east";
 import { Chart } from "@elaraai/east-ui/internal";
 import { system } from "../../theme/index.js";
-import { EastVisxChart } from "./index.js";
+import { EastVisxChart, type ChartMark } from "./index.js";
 
 // jsdom lacks the ResizeObserver Chakra occasionally reaches for.
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
@@ -649,6 +649,116 @@ describe("Chart renderer — series clipped to the plot rect (#152)", () => {
         expect(Number(rect.getAttribute("x"))).toBe(0);
         expect(Number(rect.getAttribute("y"))).toBe(0);
         expect(Number(rect.getAttribute("width"))).toBe(352);
+    });
+});
+
+describe("Chart renderer — a click tells the host the mark it falls on (#1671, CHT-8)", () => {
+    // The frame: innerW 352, innerH 208. Jan's band runs 32–160, a slot of 64
+    // a series; Feb's 192–320. The measure domain is [0, 20]: y(10) = 104.
+    const sameX = equalFor(Chart.Spec.Types.XCoord);
+    const twoBars = () => barNode([
+        series("s0", "series.1", [pt("Jan", 10), pt("Feb", 15)]),
+        series("s1", "series.2", [pt("Jan", 20), pt("Feb", 5)]),
+    ]);
+
+    test("a grouped bar: its series and its x, the plot taking clicks with the tooltip off", () => {
+        const onMark = vi.fn();
+        const { container } = ui(<EastVisxChart value={frame([twoBars(), axisNode("axisBottom"), axisNode("axisLeft")]) as never} onMark={onMark} />);
+        const overlay = container.querySelector('rect[fill="transparent"]');
+        expect(overlay).not.toBeNull();
+        fireEvent.click(overlay!, { clientX: 50, clientY: 180 });
+        fireEvent.click(overlay!, { clientX: 120, clientY: 180 });
+        // Above s0's bar at Feb (its top at 52): Feb, every series.
+        fireEvent.click(overlay!, { clientX: 220, clientY: 20 });
+        const marks = onMark.mock.calls.map(([mark]) => mark as ChartMark);
+        expect(marks.map((m) => m.series)).toEqual(["s0", "s1", undefined]);
+        expect(sameX(marks[0]!.x!, variant("category", "Jan"))).toBe(true);
+        expect(sameX(marks[2]!.x!, variant("category", "Feb"))).toBe(true);
+        expect(marks.every((m) => !m.other)).toBe(true);
+    });
+
+    test("a legend row: its series, and no x", () => {
+        const onMark = vi.fn();
+        ui(<EastVisxChart value={frame([twoBars(), axisNode("axisBottom"), axisNode("axisLeft")], { legend: true }) as never} onMark={onMark} />);
+        fireEvent.click(screen.getByText("s1").closest("button")!);
+        expect(onMark).toHaveBeenCalledWith({ series: "s1", x: undefined, other: false });
+    });
+
+    test("without a host to tell, a chart takes no clicks: its legend rows are no buttons", () => {
+        const { container } = ui(<EastVisxChart value={frame([twoBars(), axisNode("axisBottom"), axisNode("axisLeft")], { legend: true }) as never} />);
+        expect(container.querySelectorAll("button")).toHaveLength(0);
+        expect(container.querySelectorAll('rect[fill="transparent"]')).toHaveLength(0);
+    });
+});
+
+describe("Chart renderer — a pie (#1671, CHT-7)", () => {
+    /** A pie's frame, 400 wide and 200 high: its pie beside its legend. */
+    const pieFrame = (slices: [string, number][], opts: { top?: bigint; donut?: boolean; total?: number } = {}) => variant("frame", {
+        height: 200,
+        width: some(400),
+        margin: some({ top: 8, right: 8, bottom: 24, left: 40 }),
+        xScale: variant("band", null),
+        yScale: variant("linear", null),
+        yScale2: none,
+        tooltip: none,
+        legend: none,
+        slice: none,
+        children: [variant("pie", {
+            data: slices.map(([key, value]) => ({ key, value, color: none })),
+            top: opts.top === undefined ? none : some(opts.top),
+            total: opts.total === undefined ? none : some(opts.total),
+            other: none,
+            donut: opts.donut ?? false,
+            format: none,
+        })],
+    });
+
+    test("draws its slices largest first, the first ones then Other, in the series colours; no axes, no labels on the slices", () => {
+        const { container } = ui(<EastVisxChart value={pieFrame([["QLD", 20], ["NSW", 50], ["VIC", 30]], { top: 2n }) as never} />);
+        const paths = [...container.querySelectorAll("path[data-chart-slice]")];
+        expect(paths.map((p) => p.getAttribute("data-chart-slice"))).toEqual(["NSW", "VIC", "Other"]);
+        expect(paths[0]!.getAttribute("fill")).toContain("series-1");
+        expect(paths[1]!.getAttribute("fill")).toContain("series-2");
+        expect(paths[2]!.getAttribute("fill")).toContain("series-other");
+        expect(paths[2]!.hasAttribute("data-other")).toBe(true);
+        // Beside its legend, at 400 wide; no axis, and no text on the plot.
+        expect(container.querySelector("[data-chart-pie]")!.getAttribute("data-layout")).toBe("side");
+        expect(container.querySelectorAll(".visx-axis")).toHaveLength(0);
+        expect(container.querySelectorAll("[data-chart-pie] svg text")).toHaveLength(0);
+    });
+
+    test("its legend carries each slice's value and share; a donut has the total in its centre", () => {
+        const { container } = ui(<EastVisxChart value={pieFrame([["NSW", 50], ["VIC", 30], ["QLD", 20]], { donut: true }) as never} />);
+        const rows = [...container.querySelectorAll("[data-chart-slice-entry]")].map((row) => [...row.querySelectorAll("span")].map((s) => s.textContent));
+        expect(rows).toEqual([["", "NSW", "50", "50%"], ["", "VIC", "30", "30%"], ["", "QLD", "20", "20%"]]);
+        expect(container.querySelector("[data-chart-pie] svg text")!.textContent).toBe("100");
+    });
+
+    test("Other holds what the pie's total has past its slices", () => {
+        const { container } = ui(<EastVisxChart value={pieFrame([["NSW", 30], ["VIC", 20]], { total: 100 }) as never} />);
+        const other = container.querySelector('[data-chart-slice-entry="Other"]')!;
+        expect([...other.querySelectorAll("span")].map((s) => s.textContent)).toEqual(["", "Other", "50", "50%"]);
+    });
+
+    test("a slice, or its legend row, tells the host its key as the x; Other says it is Other", () => {
+        const onMark = vi.fn();
+        const sameX = equalFor(Chart.Spec.Types.XCoord);
+        const { container } = ui(<EastVisxChart value={pieFrame([["NSW", 50], ["VIC", 30], ["QLD", 20]], { top: 2n }) as never} onMark={onMark} />);
+        fireEvent.click(container.querySelector('path[data-chart-slice="NSW"]')!);
+        fireEvent.click(container.querySelector('button[data-chart-slice-entry="VIC"]')!);
+        fireEvent.click(container.querySelector('button[data-chart-slice-entry="Other"]')!);
+        const marks = onMark.mock.calls.map(([mark]) => mark as ChartMark);
+        expect(sameX(marks[0]!.x!, variant("category", "NSW"))).toBe(true);
+        expect(sameX(marks[1]!.x!, variant("category", "VIC"))).toBe(true);
+        expect(marks.map((m) => [m.series, m.other])).toEqual([[undefined, false], [undefined, false], [undefined, true]]);
+        expect(marks[2]!.x).toBeUndefined();
+    });
+
+    test("a narrow pie puts its legend under it", () => {
+        const narrow = pieFrame([["NSW", 50], ["VIC", 30]]);
+        (narrow.value as { width: unknown }).width = some(240);
+        const { container } = ui(<EastVisxChart value={narrow as never} />);
+        expect(container.querySelector("[data-chart-pie]")!.getAttribute("data-layout")).toBe("below");
     });
 });
 

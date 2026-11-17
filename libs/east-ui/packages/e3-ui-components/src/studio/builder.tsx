@@ -231,11 +231,11 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
         const tile = east.contentTile(content, tiles, sourceNames);
         return tile.type === "some" ? tile.value : undefined;
     }, [east, tiles, sourceNames]);
-    // Each tile's content — kept as the canvas's cells are drawn, so a
-    // dropped card's tile finds what it holds at once.
-    const contentOf = useRef(new Map<string, Content>());
+    // Each tile's placement — kept as the canvas's cells are drawn, so a
+    // dropped card's tile finds what it holds, and its title, at once.
+    const placedOf = useRef(new Map<string, Cell>());
     const cellView = useCallback((cell: Cell): SnapGridEditorCell => {
-        contentOf.current.set(cell.key, cell.content);
+        placedOf.current.set(cell.key, cell);
         const tile = tileOf(cell.content);
         return {
             key: cell.key,
@@ -332,9 +332,13 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
     // Each tile's content: what its placement holds — its component's own UI, its text, its visual — or its placeholder.
     const listedByKey = useListedByKey(components);
     const renderContent = useCallback((cell: SnapGridEditorCell) => {
-        const content = contentOf.current.get(cell.key);
-        if (content === undefined) return null;
-        return <StudioPlacement content={content} listed={listedByKey} sources={sourceNames} storageKey={`${storageKey}.canvas.${cell.key}`} />;
+        const placed = placedOf.current.get(cell.key);
+        if (placed === undefined) return null;
+        // A visual's tile is named by its placement's own title, else by its wells — as the page draws it.
+        return (
+            <StudioPlacement content={placed.content} listed={listedByKey} sources={sourceNames} storageKey={`${storageKey}.canvas.${cell.key}`}
+                title={placed.title.type === "some" ? placed.title.value : undefined} />
+        );
     }, [listedByKey, sourceNames, storageKey]);
 
     // ── The toolbar: the page's status, Save as template, Preview and Publish ──

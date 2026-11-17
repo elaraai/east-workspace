@@ -17,7 +17,7 @@ import {
     type TableRootProps,
 } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowLeft, faCheck, faThumbtack as faPinned, faChevronUp, faChevronDown, faChevronLeft, faChevronRight, faAnglesDown, faThumbtack, faCaretDown } from "@fortawesome/free-solid-svg-icons";
+import { faArrowLeft, faCheck, faCircleExclamation, faThumbtack as faPinned, faChevronUp, faChevronDown, faChevronLeft, faChevronRight, faAnglesDown, faThumbtack, faCaretDown } from "@fortawesome/free-solid-svg-icons";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
     useReactTable,
@@ -214,6 +214,43 @@ export interface ColumnSort {
     direction: SortDirection;
 }
 
+/**
+ * A cell's tone, as its host gives it (#1671): `negative` — a value on the
+ * wrong side of its goal — draws in the negative text step with Font
+ * Awesome's circle-exclamation before it, which `label` names to a screen
+ * reader (`below goal`), so colour is never its only sign.
+ */
+export interface TableCellTone {
+    /** The tone. */
+    readonly tone: "negative";
+    /** What the mark says to a screen reader. */
+    readonly label: string;
+}
+
+/**
+ * One cell of a host's total row (#1671): its value, printed as a body cell
+ * is; what made it, said before it in the label voice (`sum`, `ratio`); and
+ * its tone.
+ */
+export interface TableTotalCell {
+    /** The value. */
+    readonly value: TableCellValue;
+    /** What made it, said before it; `undefined` says nothing. */
+    readonly label?: string | undefined;
+    /** Its tone; `undefined` draws it plainly. */
+    readonly tone?: TableCellTone | undefined;
+}
+
+/**
+ * A row its host draws as a group's head (#1671) — a Studio summary's first
+ * group over its second: the group-head voice (mono, small, strong), and how
+ * many groups it holds after its first cell's text.
+ */
+export interface TableRowHead {
+    /** How many groups it holds; `undefined` says none. */
+    readonly count?: number | undefined;
+}
+
 // Extend TanStack Table's ColumnMeta for our custom properties
 declare module '@tanstack/react-table' {
     /* eslint-disable @typescript-eslint/no-unused-vars */
@@ -279,6 +316,28 @@ export interface EastChakraTableProps {
     phoneBand?: ReactNode;
     /** At a phone's width, its rows read again: the headers drawn, a 12 bar in each cell (QP14). */
     phoneReading?: boolean | undefined;
+    /**
+     * Rows of values its host totals it with — a Studio summary's total row
+     * (#1671): drawn in its footer, after any footer its value declares, each
+     * cell printed as a body cell is — through its column's format, at the
+     * end of a number column — after what made it, and never sorted with the
+     * rows. A host that builds the value in the browser gives them here, where
+     * the value's footer would carry a component in each cell. Keep it by
+     * identity.
+     */
+    totals?: readonly ReadonlyMap<string, TableTotalCell>[] | undefined;
+    /**
+     * A cell's tone, by its row's pre-order index and its column's key
+     * ({@link TableCellTone}); `undefined` draws it plainly. Keep it by
+     * identity.
+     */
+    cellTone?: ((rowIndex: number, columnKey: string) => TableCellTone | undefined) | undefined;
+    /**
+     * Whether a row is a group's head, by its pre-order index
+     * ({@link TableRowHead}); `undefined` draws it as any row. Keep it by
+     * identity.
+     */
+    rowHead?: ((rowIndex: number) => TableRowHead | undefined) | undefined;
 }
 
 /** Paged transport state (#576) — what the chrome reports, and what disables
@@ -395,6 +454,15 @@ function cellText(cell: TableCellVariant, format: TickFormatOpt, words: Formatte
     }
 }
 
+/** A toned cell's mark (#1671): Font Awesome's circle-exclamation, named by its tone's label. */
+function ToneMark({ tone, css }: { readonly tone: TableCellTone; readonly css: React.CSSProperties | undefined }) {
+    return (
+        <Box as="span" css={css} role="img" aria-label={tone.label} data-cell-mark="">
+            <FontAwesomeIcon icon={faCircleExclamation} aria-hidden />
+        </Box>
+    );
+}
+
 interface TablePersistedState {
     sorting: SortingState;
     columnSizing: Record<string, number>;
@@ -463,6 +531,9 @@ const TableCore = function TableCore({
     transport,
     phoneBand,
     phoneReading = false,
+    totals,
+    cellTone,
+    rowHead,
 }: EastChakraTableProps & {
     hidePaginationBand?: boolean;
     /** The resolved row collection — the whole inline array, or the loaded
@@ -1746,6 +1817,9 @@ const TableCore = function TableCore({
                         // A nested table's first data cell leads with the
                         // row's indent — one step per depth — and, on a
                         // parent, the caret that folds its subtree (#954).
+                        // A group's head, as its host says, follows its first
+                        // cell's text with its count (#1671).
+                        const head = rowHead?.(node.index);
                         const isParent = node.subRows.length > 0;
                         const isOpen = isParent && row.getIsExpanded();
                         const treeLead = treeColumnId === undefined ? null : (
@@ -1806,6 +1880,7 @@ const TableCore = function TableCore({
                                 data-selected={isSelected ? "true" : undefined}
                                 data-depth={treeColumnId !== undefined ? node.depth : undefined}
                                 data-parent={isParent ? "" : undefined}
+                                data-row-head={head !== undefined ? "" : undefined}
                                 style={{
                                     display: 'flex',
                                     width: '100%',
@@ -2035,21 +2110,28 @@ const TableCore = function TableCore({
 
                                     // No render: the cell prints itself, in the
                                     // viewer's language (#874) — a count as a
-                                    // whole number, in no column's format.
+                                    // whole number, in no column's format — in
+                                    // the tone its host gives it, and a head's
+                                    // first cell with its count (#1671).
+                                    const tone = cellTone?.(node.index, columnKey);
+                                    const count = lead !== null ? head?.count : undefined;
                                     return (
                                         <ChakraTable.Cell
                                             key={cell.id}
                                             css={tableSlotStyles.cell} style={cellStyle} {...phoneAttrs}
                                             data-subtotal={isSubtotal ? "" : undefined}
+                                            data-tone={tone?.tone}
                                             onClick={cellClickHandler}
                                             onDoubleClick={cellDoubleClickHandler}
                                         >
                                             {lead}
+                                            {tone !== undefined && <ToneMark tone={tone} css={tableCustomSlots.cellMark} />}
                                             {phone && cellValue.type === "Null"
                                                 ? <Box as="span" css={tableCustomSlots.phoneAbsent}>no data</Box>
                                                 : <Text css={tableCustomSlots.cellText} data-numeric={meta?.numeric ? "" : undefined} data-date={meta?.date ? "" : undefined}>
                                                 {isCount && cellValue.type === "Integer" ? words.number(cellValue.value) : cellText(cellValue, meta?.format, words)}
                                             </Text>}
+                                            {count !== undefined && <Box as="span" css={tableCustomSlots.rowCount} data-row-count="">{words.number(count)}</Box>}
                                         </ChakraTable.Cell>
                                     );
                                 })}
@@ -2089,14 +2171,46 @@ const TableCore = function TableCore({
                 {/* Footer rows — `value.footer` is a single dict, `value.footerRows` is
                     an array of dicts. The renderer concatenates: any single-row footer
                     is treated as the first entry of the multi-row list. Each footer
-                    cell carries `content?: UIComponent` and `colSpan?: number`. */}
+                    cell carries `content?: UIComponent` and `colSpan?: number`. Then
+                    the rows of values its host totals it with (`totals`, #1671), each
+                    cell printed as a body cell is. */}
                 {(() => {
                     const singleFooter = getSomeorUndefined(value.footer);
                     const footerRows = [
                         ...(singleFooter !== undefined ? [singleFooter] : []),
                         ...(getSomeorUndefined(value.footerRows) ?? []),
                     ];
-                    if (footerRows.length === 0) return null;
+                    const totalRows = totals ?? [];
+                    if (footerRows.length === 0 && totalRows.length === 0) return null;
+                    // Footer alignment: when columns are flexible (no frozen pin,
+                    // no explicit widths), each footer cell grows in proportion to
+                    // the columns it spans. When columns have explicit widths, use
+                    // `flex: none` + calc width for exact alignment.
+                    const footerRowGrows = !hasFrozen && Object.keys(columnSizing).length === 0
+                        && value.columns.every(c => getSomeorUndefined(c.width) === undefined);
+                    /** A footer cell's place under the columns it spans, its first column's key first. */
+                    const footerCellStyle = (keys: readonly string[]): React.CSSProperties => {
+                        const widthCalc = keys.length > 1 ? `calc(${keys.map(k => `var(--col-${k}-size)`).join(" + ")})` : `var(--col-${keys[0]}-size)`;
+                        // A footer cell spanning the slack-absorbing last column
+                        // must grow with it (min-width keeps the floor).
+                        const spansStretch = lastStretchId !== undefined && keys.includes(lastStretchId);
+                        return {
+                            width: widthCalc,
+                            minWidth: widthCalc,
+                            flex: footerRowGrows ? `${keys.length} 1 0%` : (spansStretch ? "1 0 auto" : "none"),
+                            display: "flex",
+                            alignItems: "center",
+                            overflow: "hidden",
+                            paddingLeft: densityCellPadX,
+                            paddingRight: densityCellPadX,
+                            paddingTop: densityCellPadY,
+                            paddingBottom: densityCellPadY,
+                            background: footerBackground,
+                            borderColor,
+                            fontWeight: 600,
+                            ...phonePlace(keys[0]!),
+                        };
+                    };
                     return (
                         <ChakraTable.Footer style={{ display: "block" }}>
                             {footerRows.map((rowMap, rowIdx) => {
@@ -2114,43 +2228,13 @@ const TableCore = function TableCore({
                                     const cellEntry = rowMap.get(colKey);
                                     const span = phone ? 1 : cellEntry ? Number(getSomeorUndefined(cellEntry.colSpan) ?? 1n) : 1;
                                     skip = span - 1;
-                                    const widthVar = Array.from({ length: span }, (_, k) =>
-                                        `var(--col-${value.columns[i + k]!.key}-size)`
-                                    ).join(" + ");
-                                    // Footer alignment: when columns are flexible (no
-                                    // frozen pin, no explicit widths), each footer cell
-                                    // grows in proportion to the columns it spans. When
-                                    // columns have explicit widths, use `flex: none` +
-                                    // calc width for exact alignment.
-                                    const footerRowGrows = !hasFrozen && Object.keys(columnSizing).length === 0
-                                        && value.columns.every(c => getSomeorUndefined(c.width) === undefined);
-                                    const widthCalc = span > 1 ? `calc(${widthVar})` : `var(--col-${colKey}-size)`;
-                                    // A footer cell spanning the slack-absorbing last
-                                    // column must grow with it (min-width keeps the floor).
-                                    const footerSpansStretch = lastStretchId !== undefined
-                                        && Array.from({ length: span }, (_, k) => value.columns[i + k]!.key).includes(lastStretchId);
-                                    const cellStyle: React.CSSProperties = {
-                                        width: widthCalc,
-                                        minWidth: widthCalc,
-                                        flex: footerRowGrows ? `${span} 1 0%` : (footerSpansStretch ? "1 0 auto" : "none"),
-                                        display: "flex",
-                                        alignItems: "center",
-                                        overflow: "hidden",
-                                        paddingLeft: densityCellPadX,
-                                        paddingRight: densityCellPadX,
-                                        paddingTop: densityCellPadY,
-                                        paddingBottom: densityCellPadY,
-                                        background: footerBackground,
-                                        borderColor,
-                                        fontWeight: 600,
-                                        ...phonePlace(colKey),
-                                    };
+                                    const keys = Array.from({ length: span }, (_, k) => value.columns[i + k]!.key);
                                     // `content` on the IR footer cell is `UIComponentType`
                                     // (not OptionType), so read directly — wrapping in
                                     // `getSomeorUndefined` would always yield undefined.
                                     const content = cellEntry?.content;
                                     cells.push(
-                                        <ChakraTable.Cell key={`${rowIdx}-${colKey}`} css={tableSlotStyles.cell} style={cellStyle}>
+                                        <ChakraTable.Cell key={`${rowIdx}-${colKey}`} css={tableSlotStyles.cell} style={footerCellStyle(keys)}>
                                             {content !== undefined ? (
                                                 <EastChakraComponent
                                                     value={content}
@@ -2166,6 +2250,28 @@ const TableCore = function TableCore({
                                     </ChakraTable.Row>
                                 );
                             })}
+                            {totalRows.map((row, rowIdx) => (
+                                <ChakraTable.Row key={`total-${rowIdx}`} data-table-total="" style={{ display: "flex", width: "100%" }}>
+                                    {value.columns.flatMap((column) => {
+                                        // A phone's: a cell under each column in view.
+                                        if (phone && !phoneInView.has(column.key)) return [];
+                                        const cell = row.get(column.key);
+                                        const numeric = column.valueType.type === "Integer" || column.valueType.type === "Float";
+                                        return [(
+                                            <ChakraTable.Cell key={`total-${rowIdx}-${column.key}`} css={tableSlotStyles.cell} data-tone={cell?.tone?.tone}
+                                                style={{ ...footerCellStyle([column.key]), ...(numeric ? { justifyContent: "flex-end" } : {}) }}>
+                                                {cell?.label !== undefined && <Box as="span" css={tableCustomSlots.totalLabel} data-total-label="">{cell.label}</Box>}
+                                                {cell?.tone !== undefined && <ToneMark tone={cell.tone} css={tableCustomSlots.cellMark} />}
+                                                {cell === undefined ? null : (
+                                                    <Text css={tableCustomSlots.cellText} data-numeric={numeric ? "" : undefined}>
+                                                        {cellText(cell.value, getSomeorUndefined(column.format), words)}
+                                                    </Text>
+                                                )}
+                                            </ChakraTable.Cell>
+                                        )];
+                                    })}
+                                </ChakraTable.Row>
+                            ))}
                         </ChakraTable.Footer>
                     );
                 })()}
@@ -2360,4 +2466,5 @@ export const EastChakraTable = memo(function EastChakraTable(props: EastChakraTa
             </Box>
         </Box>
     );
-}, (prev, next) => tableRootEqual(prev.value, next.value) && prev.storageKey === next.storageKey && prev.phoneBand === next.phoneBand && prev.phoneReading === next.phoneReading);
+}, (prev, next) => tableRootEqual(prev.value, next.value) && prev.storageKey === next.storageKey && prev.phoneBand === next.phoneBand && prev.phoneReading === next.phoneReading
+    && prev.totals === next.totals && prev.cellTone === next.cellTone && prev.rowHead === next.rowHead);

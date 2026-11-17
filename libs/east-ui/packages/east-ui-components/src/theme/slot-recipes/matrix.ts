@@ -100,7 +100,8 @@ export const matrixSlotRecipe = defineSlotRecipe({
         },
         // One weighted slice. `fill` colours it; the in-bar label centres here, on
         // a whole line of 14px in the bar's 24px (#1638): the theme's line of 1.5
-        // is 15px, which the slice centred half a pixel under its edge.
+        // is 15px, which the slice centred half a pixel under its edge. Its
+        // numerals are tabular (a pivot's heat cell, #1671).
         seg: {
             height: "100%",
             display: "flex",
@@ -110,6 +111,7 @@ export const matrixSlotRecipe = defineSlotRecipe({
             fontSize: "10px",
             lineHeight: centredLine(24, 14),
             fontWeight: "semibold",
+            fontVariantNumeric: "tabular-nums",
             position: "relative",
             overflow: "hidden",
             whiteSpace: "nowrap",

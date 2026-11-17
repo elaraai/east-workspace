@@ -51,6 +51,20 @@ export const VISUAL_GROUP_LIMIT = 500;
 /** The rows a records page holds (TBL-1). */
 export const VISUAL_RECORDS_PAGE = 50;
 
+/**
+ * Which of a records table's rows its program asks: a page of them from an
+ * offset, or every row after it — what an export writes.
+ */
+export interface RecordsPage {
+    /** The first row asked, from 0. */
+    readonly offset: number;
+    /** How many rows from it; `"all"` asks every one. */
+    readonly size: number | "all";
+}
+
+/** A records table's first page: what a tile asks first. */
+export const FIRST_RECORDS_PAGE: RecordsPage = { offset: 0, size: VISUAL_RECORDS_PAGE };
+
 // ─── What the printer reads ──────────────────────────────────────────────────
 
 /**
@@ -99,13 +113,16 @@ export interface PrintState {
  * - `groups` — one row a group, `g0`, `g1` the group's keys, then the values'
  *   parts, then `n`: its rows. Sorted by the first group's order, and cut at
  *   {@link VISUAL_GROUP_LIMIT}.
+ * - `heads` — a summary's first group alone, as `groups` answers it: the
+ *   values of its group heads, from the query, a distinct count among them
+ *   (TBL-2).
  * - `total` — one row of the values' parts over every row read.
  * - `trend` — a KPI's value along its trend field, one row a bucket.
  * - `records` — one row a record, `c0`, `c1` its columns, a page of them.
  */
 export interface VisualAsk {
     /** What its answer is for. */
-    readonly role: "groups" | "total" | "trend" | "records";
+    readonly role: "groups" | "heads" | "total" | "trend" | "records";
     /** The period it covers. */
     readonly period: VisualPeriod;
     /** The values it answers, by their index among the visual's values: what `v0`, `v1` read. */
@@ -114,7 +131,12 @@ export interface VisualAsk {
     readonly program: string;
     /** Whether it reads `.now`, the minute it is asked (#1670): a filter's "in the last 7 days". Its answer is that minute's. */
     readonly readsNow: boolean;
+    /** A trend's bucket, which a KPI names under its sparkline — `by month`; `undefined` for any other program. */
+    readonly bucket?: TrendBucket | undefined;
 }
+
+/** The bucket a KPI's trend is drawn in: one that fits the window. */
+export type TrendBucket = "day" | "week" | "month";
 
 /**
  * A visual, printed.
@@ -300,13 +322,26 @@ function totalProgram(rows: string[], source: PrintSource, values: readonly [num
     return [...rows, `{rows: [{${parts.join(", ")}}], groups: 1, n: length}`].join(SEP);
 }
 
-/** A records program: a page of rows, their columns, sorted by one field either way. */
-function recordsProgram(rows: string[], columns: readonly string[], sort: string | undefined, descending: boolean, offset: number): string {
+/**
+ * The key a records program answers a column under: its place among the
+ * table's columns — `c0` for the first — so two columns of one field, and a
+ * field jq cannot name bare, each have their own.
+ *
+ * @param index - The column's place, from 0
+ * @returns Its key in each answered row
+ */
+export function recordsKey(index: number): string {
+    return `c${index}`;
+}
+
+/** A records program: a page of rows — or every row — their columns, sorted by one field either way. */
+function recordsProgram(rows: string[], columns: readonly string[], sort: string | undefined, descending: boolean, page: RecordsPage): string {
     const stages = [...rows];
     if (sort !== undefined) stages.push(`sort_by(${fieldOf(sort)})`);
     if (descending) stages.push("reverse");
-    const picked = columns.map((column, i) => `c${i}: ${fieldOf(column)}`);
-    stages.push(`{rows: (.[${offset}:${offset + VISUAL_RECORDS_PAGE}] | map({${picked.join(", ")}})), groups: length, n: length}`);
+    const picked = columns.map((column, i) => `${recordsKey(i)}: ${fieldOf(column)}`);
+    const cut = page.size === "all" ? (page.offset === 0 ? "." : `.[${page.offset}:]`) : `.[${page.offset}:${page.offset + page.size}]`;
+    stages.push(`{rows: (${cut} | map({${picked.join(", ")}})), groups: length, n: length}`);
     return stages.join(SEP);
 }
 
@@ -330,7 +365,7 @@ export function periodWindow(window: PrintWindow, period: VisualPeriod): PrintWi
 }
 
 /** A trend's bucket: one that fits the window — a day up to a month, a week up to half a year, else a month. */
-function trendBucket(window: PrintWindow | undefined): "day" | "week" | "month" {
+function trendBucket(window: PrintWindow | undefined): TrendBucket {
     if (window === undefined) return "month";
     const days = (window.to.getTime() - window.from.getTime()) / 86_400_000;
     return days <= 31 ? "day" : days <= 183 ? "week" : "month";
@@ -346,6 +381,8 @@ interface ViewShape {
     readonly fields: readonly string[];
     readonly empty: readonly string[];
     readonly total: boolean;
+    /** Whether its first group's heads are asked apart: a summary of two groups. */
+    readonly heads: boolean;
 }
 
 /** What a grouped view reads. */
@@ -355,7 +392,7 @@ function shapeOf(view: Exclude<View, { type: "slicer" }>): ViewShape | { readonl
             const kpi = view.value;
             const values = kpi.compare.type === "some" ? [kpi.value, kpi.compare.value] : [kpi.value];
             const fields = [...values.flatMap(valueFields), ...(kpi.trend.type === "some" ? [kpi.trend.value] : [])];
-            return { groups: [], values, extras: [], fields, empty: [], total: true };
+            return { groups: [], values, extras: [], fields, empty: [], total: true, heads: false };
         }
         case "chart": {
             const chart = view.value;
@@ -367,22 +404,22 @@ function shapeOf(view: Exclude<View, { type: "slicer" }>): ViewShape | { readonl
                     const groups: Group[] = series.split.type === "some"
                         ? [series.x, { field: series.split.value, bucket: none, sort: variant("natural", null), top: none }]
                         : [series.x];
-                    return { groups, values, extras: [], fields: [...groups.map(g => g.field), ...values.flatMap(valueFields)], empty: values.length === 0 ? ["values"] : [], total: false };
+                    return { groups, values, extras: [], fields: [...groups.map(g => g.field), ...values.flatMap(valueFields)], empty: values.length === 0 ? ["values"] : [], total: false, heads: false };
                 }
                 case "combo": {
                     const combo = chart.value;
                     const values = [...combo.columns, ...combo.lines].map(axis => axis.value);
-                    return { groups: [combo.x], values, extras: [], fields: [combo.x.field, ...values.flatMap(valueFields)], empty: values.length === 0 ? ["values"] : [], total: false };
+                    return { groups: [combo.x], values, extras: [], fields: [combo.x.field, ...values.flatMap(valueFields)], empty: values.length === 0 ? ["values"] : [], total: false, heads: false };
                 }
                 case "scatter": {
                     const scatter = chart.value;
                     const point: Group = { field: scatter.point, bucket: none, sort: variant("natural", null), top: none };
                     const extras: [string, string][] = scatter.split.type === "some" ? [["s", scatter.split.value]] : [];
-                    return { groups: [point], values: [scatter.x, scatter.y], extras, fields: [scatter.point, ...extras.map(([, f]) => f), ...valueFields(scatter.x), ...valueFields(scatter.y)], empty: [], total: false };
+                    return { groups: [point], values: [scatter.x, scatter.y], extras, fields: [scatter.point, ...extras.map(([, f]) => f), ...valueFields(scatter.x), ...valueFields(scatter.y)], empty: [], total: false, heads: false };
                 }
                 case "pie": {
                     const pie = chart.value;
-                    return { groups: [pie.slice], values: [pie.value], extras: [], fields: [pie.slice.field, ...valueFields(pie.value)], empty: [], total: true };
+                    return { groups: [pie.slice], values: [pie.value], extras: [], fields: [pie.slice.field, ...valueFields(pie.value)], empty: [], total: true, heads: false };
                 }
             }
             break;
@@ -394,11 +431,14 @@ function shapeOf(view: Exclude<View, { type: "slicer" }>): ViewShape | { readonl
                 case "summary": {
                     const summary = table.value;
                     const empty = [...(summary.rows.length === 0 ? ["rows"] : []), ...(summary.values.length === 0 ? ["values"] : [])];
-                    return { groups: summary.rows.slice(0, 2), values: summary.values, extras: [], fields: [...summary.rows.map(g => g.field), ...summary.values.flatMap(valueFields)], empty, total: summary.total };
+                    return {
+                        groups: summary.rows.slice(0, 2), values: summary.values, extras: [], fields: [...summary.rows.map(g => g.field), ...summary.values.flatMap(valueFields)],
+                        empty, total: summary.total, heads: summary.rows.length >= 2,
+                    };
                 }
                 case "pivot": {
                     const pivot = table.value;
-                    return { groups: [pivot.rows, pivot.columns], values: [pivot.value], extras: [], fields: [pivot.rows.field, pivot.columns.field, ...valueFields(pivot.value)], empty: [], total: false };
+                    return { groups: [pivot.rows, pivot.columns], values: [pivot.value], extras: [], fields: [pivot.rows.field, pivot.columns.field, ...valueFields(pivot.value)], empty: [], total: false, heads: false };
                 }
             }
             break;
@@ -407,9 +447,24 @@ function shapeOf(view: Exclude<View, { type: "slicer" }>): ViewShape | { readonl
             const list = view.value;
             const values = list.values.slice(0, 2);
             const extras: [string, string][] = list.caption.type === "some" ? [["c", list.caption.value]] : [];
-            return { groups: [list.item], values, extras, fields: [list.item.field, ...extras.map(([, f]) => f), ...values.flatMap(valueFields)], empty: [], total: false };
+            return { groups: [list.item], values, extras, fields: [list.item.field, ...extras.map(([, f]) => f), ...values.flatMap(valueFields)], empty: [], total: false, heads: false };
         }
     }
+}
+
+/**
+ * The values a view's programs answer, in the order their indexes name them:
+ * what `v0`, `v1` read — a KPI's value then its compare; a chart's series, the
+ * first alone when it is split; a combo's columns then its lines; a scatter's
+ * x then its y; a list's first two.
+ *
+ * @param view - The view
+ * @returns Its values; none for a records table or a slicer
+ */
+export function visualValues(view: View): readonly VisualValue[] {
+    if (view.type === "slicer") return [];
+    const shape = shapeOf(view);
+    return "records" in shape ? [] : shape.values;
 }
 
 /**
@@ -418,6 +473,7 @@ function shapeOf(view: Exclude<View, { type: "slicer" }>): ViewShape | { readonl
  * @param visual - The visual
  * @param source - Its source, as the printer reads it ({@link PrintSource})
  * @param state - The page's filters on its source and its window
+ * @param page - A records table's rows it asks: its first page unless given
  * @returns The programs; or the wells it needs filled, the fields its source
  *   lacks, that a value over another period needs a date range on its source
  *   or a window on the page, or that it asks nothing
@@ -432,9 +488,14 @@ function shapeOf(view: Exclude<View, { type: "slicer" }>): ViewShape | { readonl
  *   visual's values it holds; a group with no value comes last.
  * - **Totals** are their own program: a KPI's value and what it is compared
  *   with, a pie's total, a summary's total row.
+ * - **A summary of two groups** asks its group heads apart — its first group
+ *   alone (`heads`) — so a head's values are the query's, a distinct count
+ *   among them, never a fold of the rows under it.
  * - **A KPI's trend** is its value along its trend field, bucketed to fit the
  *   window: a day up to a month, a week up to half a year, else a month.
- * - **Records** are a page of {@link VISUAL_RECORDS_PAGE}, from `offset`.
+ * - **Records** are a page of {@link VISUAL_RECORDS_PAGE} from its offset,
+ *   or every row — an export's ({@link RecordsPage}); their `groups` is how
+ *   many rows there are in all.
  * - A visual's own filter, then the page's filters, narrow every program.
  * - **`.now`**: a filter that reads `$now` has every program bind
  *   `.now as $now` first, and each ask says it reads it (`readsNow`).
@@ -445,7 +506,7 @@ function shapeOf(view: Exclude<View, { type: "slicer" }>): ViewShape | { readonl
  * if (printed.kind === "asks") for (const ask of printed.asks) await askOnE3(ask.program);
  * ```
  */
-export function printVisual(visual: Visual, source: PrintSource, state: PrintState, offset = 0): PrintedVisual {
+export function printVisual(visual: Visual, source: PrintSource, state: PrintState, page: RecordsPage = FIRST_RECORDS_PAGE): PrintedVisual {
     const view = visual.view;
     if (view.type === "slicer") return { kind: "none" };
     const where = [...(visual.where.type === "some" ? [visual.where.value] : []), ...state.filters];
@@ -459,7 +520,7 @@ export function printVisual(visual: Visual, source: PrintSource, state: PrintSta
         const missing = [...new Set(fields.filter(f => fieldType(source.row, f) === undefined))];
         if (missing.length > 0) return { kind: "missing", fields: missing };
         const program = recordsProgram(rowsOf(source, where, state.window, now), records.columns,
-            records.sort.type === "some" ? records.sort.value : undefined, records.descending, offset);
+            records.sort.type === "some" ? records.sort.value : undefined, records.descending, page);
         return { kind: "asks", asks: [{ role: "records", period: "current", values: [], program, readsNow: now }] };
     }
     if (shape.empty.length > 0) return { kind: "empty", wells: shape.empty };
@@ -488,18 +549,20 @@ export function printVisual(visual: Visual, source: PrintSource, state: PrintSta
         if (shape.groups.length > 0) {
             asks.push({ role: "groups", period, values: indexes, program: groupedProgram(rows, source, shape.groups, shape.extras, values, VISUAL_GROUP_LIMIT), readsNow: now });
         }
+        // A summary's group heads, from the query: its first group alone (TBL-2).
+        if (shape.heads) {
+            asks.push({ role: "heads", period, values: indexes, program: groupedProgram(rows, source, shape.groups.slice(0, 1), shape.extras, values, VISUAL_GROUP_LIMIT), readsNow: now });
+        }
         if (shape.total) asks.push({ role: "total", period, values: indexes, program: totalProgram(rows, source, values), readsNow: now });
     }
     // A KPI's trend: its value along the trend field, in the current window.
     if (view.type === "kpi" && view.value.trend.type === "some") {
-        const trend: Group = {
-            field: view.value.trend.value, bucket: some(variant(trendBucket(window), null)),
-            sort: variant("natural", null), top: none,
-        };
+        const bucket = trendBucket(window);
+        const trend: Group = { field: view.value.trend.value, bucket: some(variant(bucket, null)), sort: variant("natural", null), top: none };
         asks.push({
             role: "trend", period: "current", values: [0],
             program: groupedProgram(rowsOf(source, where, window, now), source, [trend], [], [[0, view.value.value]], VISUAL_GROUP_LIMIT),
-            readsNow: now,
+            readsNow: now, bucket,
         });
     }
     return { kind: "asks", asks };

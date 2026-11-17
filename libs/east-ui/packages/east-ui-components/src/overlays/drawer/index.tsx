@@ -81,12 +81,16 @@ export interface DrawerContentProps {
     /** Toggle handler paired with {@link DrawerContentProps.fullscreen} — when
      *  provided, the fullscreen button drives the lifted state instead of local. */
     onToggleFullscreen?: () => void;
+    /** What a renderer draws in the body itself, after the value's own — a
+     *  Studio tile's rows (#1671), parts the renderer builds in the browser
+     *  rather than East UI components in the value. */
+    children?: ReactNode;
 }
 
 /**
  * Shared drawer content component used by both trigger-based and programmatic drawers.
  */
-export function DrawerContent({ value, storageKey, trigger, open, onClose, onExitComplete: onExitCompleteCallback, railsSlot, fullscreen, onToggleFullscreen }: DrawerContentProps) {
+export function DrawerContent({ value, storageKey, trigger, open, onClose, onExitComplete: onExitCompleteCallback, railsSlot, fullscreen, onToggleFullscreen, children }: DrawerContentProps) {
     const props = useMemo(() => toChakraDrawer(value), [value]);
     // Fullscreen is controlled by the overlay manager for stacked drawers (so it
     // survives the unmount/remount across nesting changes) and local otherwise.
@@ -191,6 +195,7 @@ export function DrawerContent({ value, storageKey, trigger, open, onClose, onExi
                             {value.body.map((child, index) => (
                                 <EastChakraComponent key={index} value={child} storageKey={`${storageKey}.${index}`} />
                             ))}
+                            {children}
                         </ChakraDrawer.Body>
                     </ChakraDrawer.Content>
                 </ChakraDrawer.Positioner>

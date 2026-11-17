@@ -148,6 +148,11 @@ export { schematicColorTokens } from "./theme/slot-recipes/schematic.js";
 // The Chooser: a searchable, sectioned single-choice list with reasons (#1322).
 export { Chooser, type ChooserOption, type ChooserOptionState, type ChooserProps, type ChooserSection } from "./pick/chooser/index.js";
 
+// The metric chip's frame — the design system's DeltaPill — around a value a renderer has as text: a Studio KPI's change (#1671).
+export { MetricChipFrame, type MetricChipFrameProps, type MetricChipTone } from "./display/metric-chip/index.js";
+// The drawer's content, open as its host says, around what the host draws in it: a Studio tile's Show rows (#1671).
+export { DrawerContent, type DrawerContentProps, type DrawerOpenInputValue } from "./overlays/drawer/index.js";
+
 // Paged builder palettes reuse the Library face, its search box — finding within the tab alone, through its
 // source's part of the rail (#1340, ruling 11) — and the shared bounded window plan; and a builder's own tab — the
 // Schematic's Index (#1389) — its search box and its empty state.
