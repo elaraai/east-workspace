@@ -853,6 +853,47 @@ describe("keyboard drags (#608)", () => {
         if (e.type === "add") { expect(e.value.into.row).toBe("two"); expect(e.value.into.slot).toBe("2"); }
     });
 
+    test("a continuous cell is told whether the keyboard carries the drag: its coordinate and its hover hear a pointer's rest apart from a keyboard's stop", async () => {
+        const events: DragEventValue[] = [];
+        const resolved: boolean[] = [];
+        const hovered: boolean[] = [];
+        function Row() {
+            const ref = useDropCell({ surface: "roster", row: "one", slot: "0" }, false, undefined,
+                (x, _y, _payload, keyboard) => { resolved.push(keyboard); return { surface: "roster", row: "one", slot: String(Math.floor((x - 200) / 50)) }; },
+                { stops: () => [225, 275], onHover: (_x, _y, _payload, keyboard) => { hovered.push(keyboard); } });
+            return <div ref={ref} data-testid="row-one" />;
+        }
+        const { getByTestId } = render(<DragLayerProvider>
+            <Target config={{ id: "roster", sources: ["people"], kinds: KINDS_ALL, onDrag: e => events.push(e) }} />
+            <Card library="people" itemKey="patel" /><Row />
+        </DragLayerProvider>);
+        const card = getByTestId("card-patel");
+        const row = getByTestId("row-one");
+        layOut(new Map([[card, { left: 0, top: 0, width: 80, height: 30 }], [row, { left: 200, top: 0, width: 100, height: 40 }]]));
+        // By pointer: every look at where the drag rests, and its drop, is a pointer's.
+        engage(card, null);
+        pointAt(row);
+        fireEvent.pointerMove(document, { pointerId: 1, clientX: 260, clientY: 10 });
+        fireEvent.pointerUp(document, { pointerId: 1, clientX: 260, clientY: 10 });
+        expect(sole(events).type).toBe("add");
+        expect(resolved.length).toBeGreaterThan(0);
+        expect(resolved.every((keyboard) => !keyboard)).toBe(true);
+        expect(hovered.length).toBeGreaterThan(0);
+        expect(hovered.every((keyboard) => !keyboard)).toBe(true);
+        // By keyboard: the same cell hears a keyboard's.
+        resolved.length = 0;
+        hovered.length = 0;
+        events.length = 0;
+        card.focus(); press("Space"); await tick(); press("ArrowRight");
+        expect(row.hasAttribute("data-drop-active")).toBe(true);
+        press("Space");
+        expect(sole(events).type).toBe("add");
+        expect(resolved.length).toBeGreaterThan(0);
+        expect(resolved.every((keyboard) => keyboard)).toBe(true);
+        expect(hovered.length).toBeGreaterThan(0);
+        expect(hovered.every((keyboard) => keyboard)).toBe(true);
+    });
+
     test("a tall event keeps its keyboard landing point when its ghost is compact", async () => {
         const events: DragEventValue[] = [];
         function Continuous() {
