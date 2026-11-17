@@ -129,7 +129,7 @@ export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, c
     // 23 Oct 2026); the popover's own buttons keep its density.
     const picker = <SliceEditPopover open={open} onOpenChange={changeOpen} label={label}
         trigger={<Button size="sm" variant="ghost" css={styles.trigger} aria-label={label} title={fullLabel} data-time-trigger="">
-            {compact && controls !== undefined ? <FontAwesomeIcon icon={faCalendarWeek} /> : <><Box as="span" css={styles.label} data-time-label="">{compact ? shortLabel : fullLabel}</Box><FontAwesomeIcon icon={faCaretDown} /></>}
+            {compact && controls !== undefined ? <FontAwesomeIcon icon={faCalendarWeek} data-time-icon="" /> : <><Box as="span" css={styles.label} data-time-label="">{compact ? shortLabel : fullLabel}</Box><FontAwesomeIcon icon={faCaretDown} /></>}
         </Button>}
         footLeft={<Box css={styles.footer}>{arrows}</Box>}
         footActions={<Button size="xs" variant="solid" onClick={() => { choose(today.getTime()); onToday?.(); }}>Today</Button>}>

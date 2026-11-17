@@ -33,6 +33,11 @@
  *   as a view over the whole frame, edge to edge; Esc closes it, the focus
  *   back on its tab; one at a time.
  *
+ * An icon a first-row control shows alone is drawn at the row's size — 16px,
+ * as Search's and the View's are, and Filters' at its 14, a segment's option
+ * at its own — never a chip's 10px (#1680's review: the dates' trigger and the
+ * Roster's and the Allocation's View drew theirs at 10).
+ *
  * Every word in it is whole or not there at all (3 Nov 2026) — cut by nothing,
  * over no other word, in its chrome against no control — at 324px too, as wide as a 390px phone gives it
  * in the showcase's card; a set Filters button's fill stands clear of its row;
@@ -240,6 +245,17 @@ function phoneFaults(entry: Locator, name: string): Promise<string[]> {
                 const k = kept.getBoundingClientRect();
                 if (k.width > 0 && k.bottom > band + 0.5) faults.push(`${kept.hasAttribute("data-schematic-scale") ? "the scale" : "the minimap"} ${round(k.bottom - band)}px under the footer's band`);
             }
+        }
+        // An icon a first-row control shows alone — the dates' trigger, a View chip's — is drawn as Search's and the View's
+        // are, 16px, and Filters' at its 14 (FR2): never the 10px a chip's icon is beside its words, nor a caret's. A
+        // segment's option keeps its own (the query's Table · Tree, QP2's 14).
+        for (const svg of slot("toolbar")?.querySelectorAll<SVGElement>("svg") ?? []) {
+            const control = svg.closest("button");
+            const r = svg.getBoundingClientRect();
+            if (control === null || r.width === 0 || (control.textContent ?? "").trim() !== "" || svg.getAttribute("data-icon") === "caret-down") continue;
+            if (control.closest("[role='group'], [role='radiogroup']") !== null) continue;
+            const want = svg.getAttribute("data-icon") === "filter" ? 14 : 16;
+            if (Math.abs(r.height - want) > 0.5) faults.push(`toolbar: ${control.getAttribute("aria-label") ?? svg.getAttribute("data-icon")}'s icon ${round(r.height)}px, want ${want}`);
         }
         // The count line never goes blank while it has room for its first figures (review of #1481, finding 4): a
         // line short of room drops a noun before its figures, so it says `368 of 630` rather than nothing.

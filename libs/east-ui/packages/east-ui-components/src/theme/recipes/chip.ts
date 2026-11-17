@@ -41,7 +41,7 @@
  */
 
 import { defineRecipe } from "@chakra-ui/react";
-import { IN_TOOLBAR_ROW, toolbarControlBox } from "../toolbar-row.js";
+import { IN_PHONE_FRAME, IN_TOOLBAR_ROW, PHONE_ICON_ALONE, toolbarControlBox } from "../toolbar-row.js";
 
 export const chipRecipe = defineRecipe({
     className: "elara-chip",
@@ -67,6 +67,9 @@ export const chipRecipe = defineRecipe({
         lineHeight: "var(--cr-lh, 1)",
         fontVariantNumeric: "tabular-nums",
         "& [data-chip-icon]": { fontSize: "10px" },
+        // A chip that shows its icon alone (`data-icon-alone`, a folded View): in a phone's first row, the 16 its icon-only
+        // neighbours draw theirs at (#1680's review); in a desktop's row, the rail chip's 10.
+        "&[data-icon-alone]": { [IN_PHONE_FRAME]: { "& [data-chip-icon]": PHONE_ICON_ALONE } },
         "& [data-chip-caret]": { fontSize: "8px", "--fa-width": "auto" },
         "& [data-chip-meta]": { color: "fg.muted" },
         "& [data-chip-remove]": { color: "link", cursor: "pointer", flexShrink: "0", fontSize: "0.8em", "--fa-width": "auto" },

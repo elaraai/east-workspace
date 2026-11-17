@@ -24,6 +24,7 @@
  * @packageDocumentation
  */
 
+import { fontAwesomeSize } from "./icon-size.js";
 import { oneLineBox, type OneLineBox } from "./one-line-box.js";
 
 /** The height every control in a toolbar's row stands, in px. */
@@ -31,6 +32,16 @@ const ROW_PX = 28;
 
 /** A recipe's selector for its part in a toolbar's row: the shared `Toolbar`'s root (`[data-toolbar]`), whichever of its items holds it. */
 export const IN_TOOLBAR_ROW = "[data-toolbar] &";
+
+/** A recipe's selector for its part in a phone's frame (`BuilderFrame`'s `data-phone`, 560px or narrower). */
+export const IN_PHONE_FRAME = "[data-phone] &";
+
+/**
+ * The icon a control shows alone in a phone's first row (#1680's review): 16px, as Search's and the View's are there
+ * (`Mobile Builder Frame Spec.md` FR2) — never the 10px a chip's icon is beside its words, which a 44px row of 14 and 16px
+ * icons dwarfs. Filters keeps its 14, and a segment's option its own.
+ */
+export const PHONE_ICON_ALONE = fontAwesomeSize("16px");
 
 /** The height every control in a toolbar's row stands. */
 export const TOOLBAR_CONTROL_HEIGHT = `${ROW_PX}px`;

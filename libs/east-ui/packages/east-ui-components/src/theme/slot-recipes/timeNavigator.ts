@@ -5,6 +5,7 @@
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { fontAwesomeSize } from "../icon-size.js";
+import { IN_PHONE_FRAME, PHONE_ICON_ALONE } from "../toolbar-row.js";
 import { planRowFocus } from "./plan/focus.js";
 
 /** Shared Calendar/Roster navigation; buttons, segments and popover retain their own recipes. */
@@ -16,8 +17,11 @@ export const timeNavigatorSlotRecipe = defineSlotRecipe({
         /* On a coarse pointer at least 44 wide: its icon alone, a phone's View, is a 44 target, the row's height its halo's.
          * Its words are dates, in the design system's mono face as the picker's weeks and days are: the button's own face,
          * so its date reads in its button's type. At a chip's 11.5px, as the toolbar's chips beside it: mono runs wider than
-         * the body face at the same size, and the date at the button's own size would fold a toolbar a step sooner. */
-        trigger: { gap: "6px", fontFamily: "mono", fontSize: "11.5px", fontVariantNumeric: "tabular-nums", "& svg": fontAwesomeSize("10px"), _coarse: { minWidth: "44px" } },
+         * the body face at the same size, and the date at the button's own size would fold a toolbar a step sooner.
+         * Its caret beside its date is 10px; its icon alone (`data-time-icon`) is its `sm` button's 14, and in a phone's
+         * first row the 16 Search's and the View's are (#1680's review). */
+        trigger: { gap: "6px", fontFamily: "mono", fontSize: "11.5px", fontVariantNumeric: "tabular-nums", "& svg": fontAwesomeSize("10px"),
+            "& svg[data-time-icon]": { ...fontAwesomeSize("14px"), [IN_PHONE_FRAME]: PHONE_ICON_ALONE }, _coarse: { minWidth: "44px" } },
         label: { whiteSpace: "nowrap" },
         body: { display: "flex", flexDirection: "column", gap: "12px", minWidth: 0 },
         header: { display: "flex", alignItems: "center", gap: "4px" },
