@@ -12,6 +12,7 @@ import type { ScheduleEventKind } from "./events.js";
 import { tabSource } from "../utils/record-sources.js";
 import { SchedulePatchTypeFor } from "./patch.js";
 import { ScheduleFieldWriteType } from "./types.js";
+import { keyTextOf } from "./window.js";
 
 /** One keyed card, carrying the field writes its drop makes. */
 export const ScheduleLibraryCardType = StructType({
@@ -144,11 +145,9 @@ export function buildScheduleTab(tab: ScheduleTabDeclaration, events: readonly (
     }
 
     // A String key is its own text; any other key as East prints it.
-    const text = keyType.type === "String"
-        ? East.function([StringType], StringType, (_$, key) => key)
-        : East.function([keyType], StringType, (_$, key) => East.print(key));
+    const text = keyTextOf(keyType);
     const describe = East.function([rowType, keyType], ScheduleLibraryCardType, ($, row, key) => {
-        const keyText = $.const(text as unknown as ExprType<FunctionType<[EastType], StringType>>);
+        const keyText = $.const(text);
         const sets = $.let([], ArrayType(ScheduleFieldWriteType));
         if (writes !== undefined) {
             const setsOf = $.const(writes);

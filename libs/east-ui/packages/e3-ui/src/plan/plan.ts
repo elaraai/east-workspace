@@ -783,7 +783,7 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
                 if (part !== undefined) $(checkedScheduleTilings(slot, kind, paging, part.config, "Plan"));
             }
         }
-        const { tabs, made } = buildLibrary(library, { events: eventKinds, rows, picked, sources: sources.names });
+        const { tabs, made } = buildLibrary(library, { events: eventKinds, rows, picked, sources: sources.names, bind: (value) => $.let(value) as typeof value });
         if (events === undefined) {
             return East.value({ plan, landings: onWire, events: [], seam: none, paged, optimise: optimiser, settings, library: tabs, inspector: inspected, vocabulary: words, narrowed } as never, PlanPayloadType);
         }

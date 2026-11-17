@@ -1361,13 +1361,16 @@ Each wire changed under this rule, with the kind it is.
   package-borne. An author's tab of a Plan's library (`PlanAuthorTabType`, the
   `tab` case of `PlanLibraryTabType`) is the tab every builder's library takes
   (`ScheduleAuthorTabType`) with `create` after it: none, or the event kind
-  its cards make an event of, by its slot, and each card's key with the
-  template its kind knows it by (`PlanTabCreateType`, each a
-  `ScheduleCardTemplateType`). The Calendar's, the Roster's, the Flowchart's
-  and the Schematic's tabs keep their form. An event kind's `write` makes an
-  event from a card's template as from one of its own, under a key of the
-  tab's (`tab:<its name>:<the card's key>`), and the kind's `templates` list
-  none of them; the gesture is `create`, unchanged. A UI value encoded under
+  its cards make an event of, by its slot, and each card's key with what a
+  drop reads of the template its kind knows it by — its key, name, group,
+  start on a whole day and duration (`PlanTabCreateType`, each a
+  `ScheduleCardMadeType`); the template's values stay with its kind. The
+  Calendar's, the Roster's, the Flowchart's and the Schematic's tabs keep
+  their form. An event kind's `write` makes an event from a card's template
+  as from one of its own, under a key of the tab's — its name and the card's
+  key as East prints the pair, `(tab="Orders", card="O-1")`, which no other
+  tab's card shares — and the kind's `templates` list none of them; the
+  gesture is `create`, unchanged. A UI value encoded under
   either type does not decode under the other: packages are re-exported, and
   the dataflow computes each UI task's output again under the new type. A UI
   task's output is not stored state, so no repository upgrade step ships with

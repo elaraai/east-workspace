@@ -45,7 +45,7 @@ import { PickItemType } from "@elaraai/east-ui";
 import type { ScheduleEventKind } from "../schedule/events.js";
 import { ScheduleAuthorTabType, buildScheduleTab, scheduleTabRows, type ScheduleLibraryTabConfig } from "../schedule/library.js";
 export { ScheduleLibraryCardType as PlanLibraryCardType } from "../schedule/library.js";
-import { ScheduleCardTemplateType, scheduleCardTemplates, type ScheduleCardTemplatesConfig } from "../schedule/templates.js";
+import { ScheduleCardMadeType, ScheduleCardTemplateType, scheduleCardTemplates, scheduleCardsMade, type ScheduleCardTemplatesConfig } from "../schedule/templates.js";
 import { ScheduleTemplateType } from "../schedule/types.js";
 import { overSeries } from "./over.js";
 import { KIND_ICONS } from "./pick.js";
@@ -132,11 +132,11 @@ export type PlanLibrarySeriesType = typeof PlanLibrarySeriesType;
  * card's from the template its kind knows it by.
  *
  * @property kind - The event kind, by its slot
- * @property makes - Each card's key with its template
+ * @property makes - Each card's key with what a drop reads of its template: its values stay with its kind, whose `write` makes the event
  */
 export const PlanTabCreateType = StructType({
     kind: StringType,
-    makes: ArrayType(ScheduleCardTemplateType),
+    makes: ArrayType(ScheduleCardMadeType),
 });
 
 /** Type representing {@link PlanTabCreateType}. */
@@ -473,6 +473,11 @@ export interface PlanLibraryContext {
     readonly picked: boolean;
     /** The Plan's `Slice.bindRecords` sources, which an author's tab's `source` must be one of; none, a tab may name none (#1343, #1344). */
     readonly sources?: readonly string[] | undefined;
+    /**
+     * Holds a value once in the Plan's own block: what several parts of its payload read — a tab's cards' templates,
+     * its wire and its kind's `write` — is worked out once as the Plan is evaluated, never again at each read.
+     */
+    readonly bind: <T extends EastType>(value: ExprType<T>) => ExprType<T>;
 }
 
 /** How a tab names itself in a refusal. */
@@ -616,7 +621,7 @@ function tabCreate(tab: Extract<PlanLibraryTab, { kind: "tab" }>, ctx: PlanLibra
             ...(create.duration === undefined ? {} : { duration: create.duration }),
             values: create.values,
         },
-        kind.templateValues, `tab:${tab.config.name}:`, where);
+        kind.templateValues, tab.config.name, where);
     return { slot: create.kind, makes };
 }
 
@@ -650,7 +655,8 @@ export function buildLibrary(tabs: readonly PlanLibraryTab[] | undefined, ctx: P
                 "event kinds, `rows`, and `data`'s `series`");
         }
     }
-    const made = new Map<string, ExprType<ArrayType<ScheduleTemplateType>>>();
+    // Each kind's cards' templates, tab by tab, each tab's held once.
+    const cardsOf = new Map<string, ExprType<ArrayType<ScheduleCardTemplateType>>[]>();
     const wires = (tabs ?? []).map((tab): ExprType<PlanLibraryTabType> => {
         switch (tab.kind) {
             case "events":
@@ -662,21 +668,27 @@ export function buildLibrary(tabs: readonly PlanLibraryTab[] | undefined, ctx: P
                 // Every builder's tab, then what its cards make: read once, its fields the Plan's tab's.
                 const shared = buildScheduleTab(tab, ctx.events, "Plan", ctx.sources ?? []);
                 const create = tabCreate(tab, ctx);
-                if (create !== undefined) {
-                    const of = made.get(create.slot);
-                    const templates = create.makes.map((_$, one) => one.template) as ExprType<ArrayType<ScheduleTemplateType>>;
-                    made.set(create.slot, of === undefined ? templates : of.concat(templates) as ExprType<ArrayType<ScheduleTemplateType>>);
-                }
+                // Its cards' templates, worked out once: the tab carries what a drop reads of each, and its kind's `write`
+                // holds their values.
+                const cards = create === undefined ? undefined : ctx.bind(create.makes);
+                if (create !== undefined && cards !== undefined) cardsOf.set(create.slot, [...(cardsOf.get(create.slot) ?? []), cards]);
                 const whole = East.function([], PlanAuthorTabType, ($) => {
                     const own = $.const(shared);
                     return {
                         name: own.name, icon: own.icon, drop: own.drop, cards: own.cards, source: own.source,
-                        create: create === undefined ? East.value(none, OptionType(PlanTabCreateType)) : some({ kind: create.slot, makes: create.makes }),
+                        create: create === undefined || cards === undefined ? East.value(none, OptionType(PlanTabCreateType))
+                            : some({ kind: create.slot, makes: scheduleCardsMade(cards) }),
                     };
                 });
                 return East.value(variant("tab", whole()), PlanLibraryTabType);
             }
         }
     });
+    // What each kind's `write` makes a card's event from: its tabs' cards' templates together, held once.
+    const made = new Map<string, ExprType<ArrayType<ScheduleTemplateType>>>();
+    for (const [slot, tabsCards] of cardsOf) {
+        const templates = tabsCards.map((cards) => cards.map((_$, one) => one.template) as ExprType<ArrayType<ScheduleTemplateType>>);
+        made.set(slot, ctx.bind(templates.reduce((all, more) => all.concat(more) as ExprType<ArrayType<ScheduleTemplateType>>)));
+    }
     return { tabs: East.value(wires, ArrayType(PlanLibraryTabType)), made };
 }

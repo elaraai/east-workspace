@@ -492,7 +492,8 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
          * tab's card makes it from (#1541, U1): from its `at` on a whole day, for its duration, under a key made from
          * `keyFrom`, the kind's own `write` making its row.
          */
-        const planMade = (kind: PlanEventKindValue, target: PlanEventTarget, at: Date, template: PlanEventKindValue["templates"][number],
+        const planMade = (kind: PlanEventKindValue, target: PlanEventTarget, at: Date,
+            template: Pick<PlanEventKindValue["templates"][number], "key" | "name" | "at" | "duration">,
             keyFrom: string, from: PlanCandidateValue["from"]): PlanEventGesture => {
             const a = latest.current;
             const m = a.words.m;

@@ -8,6 +8,7 @@ import {
     type EastType, type ExprType, type FunctionType, type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { ScheduleClockType, ScheduleDurationType, ScheduleTemplateType } from "./types.js";
+import { keyTextOf } from "./window.js";
 
 /** Identifies a declaration of templates read from keyed data. */
 export const SCHEDULE_TEMPLATES: unique symbol = Symbol("Schedule.templates");
@@ -72,7 +73,7 @@ export function scheduleTemplates<K extends EastType, R extends EastType, V exte
     const values = East.function([rowType, keyType], undefined, (_$, row, key) => config.values(row, key));
     const valuesType = (Expr.type(values as unknown as Expr) as FunctionType).output as V;
     if (valuesType.type !== "Struct") throw new Error("Schedule.templates: values must return a struct of initial event fields");
-    const describe = templateOf(rowType, keyType, config, values as unknown as TemplateValues<K, R>, keyTextOf(keyType));
+    const describe = templateOf(rowType, keyType, config, values as unknown as TemplateValues<K, R>, keyTextOf(keyType) as unknown as KeyText<K>);
     const items = source.toArray(($, row, key) => {
         const describeRow = $.const(describe);
         return describeRow(row as never, key as never);
@@ -83,12 +84,8 @@ export function scheduleTemplates<K extends EastType, R extends EastType, V exte
 /** A row's initial values, reified once: a function of the row and its key. */
 type TemplateValues<K extends EastType, R extends EastType> = ExprType<FunctionType<[R, K], EastType>>;
 
-/** A key as text, reified once: a String key its own text, any other as East prints it. */
-function keyTextOf<K extends EastType>(keyType: K): ExprType<FunctionType<[K], StringType>> {
-    return (keyType.type === "String"
-        ? East.function([StringType], StringType, (_$, key) => key)
-        : East.function([keyType], StringType, (_$, key) => East.print(key))) as unknown as ExprType<FunctionType<[K], StringType>>;
-}
+/** A key as text, reified once ({@link keyTextOf}): a String key its own text, any other as East prints it. */
+type KeyText<K extends EastType> = ExprType<FunctionType<[K], StringType>>;
 
 /**
  * One template of a keyed row, reified once: its accessors over the row and
@@ -96,7 +93,7 @@ function keyTextOf<K extends EastType>(keyType: K): ExprType<FunctionType<[K], S
  */
 function templateOf<K extends EastType, R extends EastType>(
     rowType: R, keyType: K, config: Pick<ScheduleTemplatesConfig<K, R, StructType>, "name" | "group" | "at" | "duration">,
-    values: TemplateValues<K, R>, keyOf: ExprType<FunctionType<[K], StringType>>,
+    values: TemplateValues<K, R>, keyOf: KeyText<K>,
 ) {
     const duration = config.duration;
     return East.function([rowType, keyType], ScheduleTemplateType, ($, row, key) => {
@@ -124,6 +121,52 @@ export const ScheduleCardTemplateType = StructType({ card: StringType, template:
 /** Type representing {@link ScheduleCardTemplateType}. */
 export type ScheduleCardTemplateType = typeof ScheduleCardTemplateType;
 
+/** What a drop reads of a template: every part of it but its values, which stay with its kind, whose `write` makes the event. */
+const { values: _values, ...TEMPLATE_HEAD } = ScheduleTemplateType.fields;
+
+/**
+ * A template as a drop reads it: its key, its name, its group, when it starts
+ * on a whole day and how long its event runs — a template less its values.
+ */
+export const ScheduleTemplateHeadType = StructType(TEMPLATE_HEAD);
+
+/** Type representing {@link ScheduleTemplateHeadType}. */
+export type ScheduleTemplateHeadType = typeof ScheduleTemplateHeadType;
+
+/**
+ * One card of a library tab and what a drop reads of the template it makes an
+ * event from (#1541, U1), as the tab carries them: the template's values stay
+ * with its kind.
+ *
+ * @property card - The card's key: its row's key as text
+ * @property template - What a drop reads of the card's template
+ */
+export const ScheduleCardMadeType = StructType({ card: StringType, template: ScheduleTemplateHeadType });
+
+/** Type representing {@link ScheduleCardMadeType}. */
+export type ScheduleCardMadeType = typeof ScheduleCardMadeType;
+
+/**
+ * Some cards' templates as their tab carries them ({@link ScheduleCardMadeType}): each without its values.
+ *
+ * @param cards - The cards with their templates, bound once
+ * @returns Each card with what a drop reads of its template
+ */
+export function scheduleCardsMade(cards: ExprType<ArrayType<ScheduleCardTemplateType>>): ExprType<ArrayType<ScheduleCardMadeType>> {
+    const names = Object.keys(TEMPLATE_HEAD);
+    return cards.map((_$, one) => East.value({
+        card: one.card, template: East.struct(ScheduleTemplateHeadType, East.fields(one.template, names)),
+    }, ScheduleCardMadeType)) as ExprType<ArrayType<ScheduleCardMadeType>>;
+}
+
+/**
+ * The key a card's template stands under: its tab's name and its card's key,
+ * as East prints the two together, `(tab="Orders", card="O-1")` — so no two
+ * tabs' cards share one, however their names and their keys read run
+ * together.
+ */
+const CardTemplateKeyType = StructType({ tab: StringType, card: StringType });
+
 /** The accessors a library tab's `create` gives over one of its rows: what a card makes an event from. */
 export interface ScheduleCardTemplatesConfig<K extends EastType, R extends EastType> extends Pick<ScheduleTemplatesConfig<K, R, StructType>, "name" | "group" | "at" | "duration"> {
     /** The new event's own fields: every field of its kind's row but its start, its end and its resource. */
@@ -133,8 +176,8 @@ export interface ScheduleCardTemplatesConfig<K extends EastType, R extends EastT
 /**
  * The templates a library tab's cards make events of a kind from (#1541, U1):
  * one per row, as `Schedule.templates` makes them, each under a key of the
- * tab's own (`prefix`, then the row's key as text) so none stands under a key
- * of the kind's own templates, its values held to the kind's.
+ * tab's own — its tab and its row's key, as East prints the pair — so no
+ * other tab's card stands under it, its values held to the kind's.
  *
  * @typeParam K - The rows' key type
  * @typeParam R - Their row type
@@ -143,13 +186,13 @@ export interface ScheduleCardTemplatesConfig<K extends EastType, R extends EastT
  * @param rowType - Their row type
  * @param config - The accessors over a row
  * @param valuesType - What the kind's templates give: its row less the fields a drop places
- * @param prefix - What every key starts with: the tab's own
+ * @param tab - The tab's name, which is its own among the library's
  * @param where - What a refusal names: the builder and the tab
  * @returns Each card's key with its template
  * @throws {Error} When `values` gives other than the kind's values
  */
 export function scheduleCardTemplates<K extends EastType, R extends EastType>(
-    rows: ExprType<DictType<K, R>>, keyType: K, rowType: R, config: ScheduleCardTemplatesConfig<K, R>, valuesType: StructType, prefix: string, where: string,
+    rows: ExprType<DictType<K, R>>, keyType: K, rowType: R, config: ScheduleCardTemplatesConfig<K, R>, valuesType: StructType, tab: string, where: string,
 ): ExprType<ArrayType<ScheduleCardTemplateType>> {
     let values: TemplateValues<K, R>;
     try {
@@ -159,11 +202,11 @@ export function scheduleCardTemplates<K extends EastType, R extends EastType>(
         throw new Error(`${where}'s \`create.values\` gives the new event's own fields — every field of its kind's row but its start, its end and ` +
             `its resource, ${printType(valuesType)} — and these are not: ${err instanceof Error ? err.message : String(err)}`);
     }
-    const text = keyTextOf(keyType);
+    const text = keyTextOf(keyType) as unknown as KeyText<K>;
     const keyOf = East.function([keyType], StringType, ($, key) => {
         const own = $.const(text);
-        return East.value(prefix, StringType).concat(own(key as never));
-    }) as unknown as ExprType<FunctionType<[K], StringType>>;
+        return East.print(East.value({ tab, card: own(key as never) }, CardTemplateKeyType));
+    }) as unknown as KeyText<K>;
     const describe = templateOf(rowType, keyType, config, values, keyOf);
     return rows.toArray(($, row, key) => {
         const describeRow = $.const(describe);

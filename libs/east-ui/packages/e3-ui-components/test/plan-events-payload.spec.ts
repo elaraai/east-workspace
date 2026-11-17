@@ -18,7 +18,7 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
     ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, SortedMap,
-    StringType, StructType, compareFor, decodeBeast2For, equalFor, none, printFor, some, variant,
+    StringType, StructType, compareFor, decodeBeast2For, equalFor, none, printFor, some, variant, walkIR,
     type BlockBuilder, type EastType, type ExprType, type ValueTypeOf,
 } from "@elaraai/east";
 import { Chart, DragEventType, Paged, UIComponentType } from "@elaraai/east-ui";
@@ -430,10 +430,12 @@ describe("the payload (PB8, PB11)", () => {
         // No patch: its cards land on no event. Each card with its template, under a key of the tab's own.
         assert.deepEqual([tab.value.drop.type, create.kind, tab.value.cards.map((card) => card.key)], ["none", "job", ["O-501", "O-502", "O-503"]]);
         assert.deepEqual(create.makes.map((one) => [one.card, one.template.key, one.template.name, one.template.duration.type]), [
-            ["O-501", "tab:Orders:O-501", "Market flyers", "hours"],
-            ["O-502", "tab:Orders:O-502", "Season programme", "hours"],
-            ["O-503", "tab:Orders:O-503", "Trail maps", "hours"],
+            ["O-501", '(tab="Orders", card="O-501")', "Market flyers", "hours"],
+            ["O-502", '(tab="Orders", card="O-502")', "Season programme", "hours"],
+            ["O-503", '(tab="Orders", card="O-503")', "Trail maps", "hours"],
         ]);
+        // What a drop reads of a card's template, and no more: its values stay with its kind, whose `write` makes the event.
+        assert.deepEqual(Object.keys(create.makes[0]!.template), ["key", "name", "group", "at", "duration"]);
         const programme = create.makes[1]!.template;
         assert.ok(equalFor(OptionType(StringType))(programme.group, some("Heathfield Theatre")));
         assert.equal(programme.duration.type === "hours" ? programme.duration.value : NaN, 6);
@@ -449,7 +451,84 @@ describe("the payload (PB8, PB11)", () => {
             state: variant("proposed", variant("added", null)), sheets: 48000.0, customer: "Heathfield Theatre", stock: variant("coated", null), due: none,
         }));
         // A key no card stands under makes nothing.
-        assert.equal(kind!.write([{ id: "x", entry: new Uint8Array(), gesture: variant("create", { template: "tab:Orders:O-999", start, end, resource: none }) }])[0]?.type, "none");
+        assert.equal(kind!.write([{ id: "x", entry: new Uint8Array(), gesture: variant("create", { template: '(tab="Orders", card="O-999")', start, end, resource: none }) }])[0]?.type, "none");
+    });
+
+    describe("the keys a tab's cards' templates stand under (#1541, U1)", () => {
+        /** What a card of the tabs here is: a title. */
+        const Card = StructType({ title: StringType });
+        /** A job's own fields, as a template of the kind gives them: every field but its start, its end and its press. */
+        const { start: _start, end: _end, press: _press, ...OWN } = ex.PrintJob.fields;
+        const JobValues = StructType(OWN);
+        const cardsOf = (key: string, title: string) => East.value(new Map([[key, { title }]]), DictType(StringType, Card));
+        /** A tab whose cards make jobs titled as the card is. */
+        const jobsTab = (name: string, key: string, title: string) => Plan.library.tab(cardsOf(key, title), {
+            name, label: (card) => card.title,
+            create: {
+                kind: "job", duration: () => variant("hours", 2.0),
+                values: (card) => ({ title: card.title, customer: "", sheets: 0.0, state: variant("proposed", variant("added", null)), stock: variant("coated", null), due: none }),
+            },
+        });
+        const start = new Date("2026-10-12T00:00:00Z");
+        const end = new Date("2026-10-12T02:00:00Z");
+        const titleOf = (kind: EventKind, template: string) => {
+            const [made] = kind.write([{ id: "new-1", entry: new Uint8Array(), gesture: variant("create", { template, start, end, resource: some({ kind: "presses", key: "a1" }) }) }]);
+            return made?.type === "some" ? decodeBeast2For(ex.PrintJob)(made.value).title : undefined;
+        };
+        const makesOf = (payload: Payload) => payload.library.flatMap((tab) => (tab.type === "tab" && tab.value.create.type === "some" ? tab.value.create.value.makes : []));
+
+        test("two tabs whose names and cards' keys run together alike keep their templates apart: each card makes its own event, and the kind writes", async () => {
+            const payload = await payloadOf(($) => {
+                const jobs = $.let(Record.bind(ex.planEventJobs));
+                return Plan.Payload({
+                    axis: Plan.axis({ window: WINDOW, resolution: "day" }), ...pressesOf($),
+                    events: { job: Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" }, state: "state" }) },
+                    // "A" + "b:c" and "A:b" + "c": the same letters, once joined by colons.
+                    library: [jobsTab("A", "b:c", "From A"), jobsTab("A:b", "c", "From A:b")],
+                });
+            });
+            const [first, second] = makesOf(payload);
+            assert.notEqual(first!.template.key, second!.template.key);
+            const [kind] = payload.events;
+            assert.deepEqual([titleOf(kind!, first!.template.key), titleOf(kind!, second!.template.key)], ["From A", "From A:b"]);
+        });
+
+        test("a kind's own template under the key a card's stands under does not stop the kind writing: its own template is the one made", async () => {
+            const taken = '(tab="Orders", card="O-1")';
+            // The kind alone, as the Plan builds it: one template of its own, and a card's template under the same key.
+            const program = East.function([], PlanEventKindType, ($) => {
+                const jobs = $.let(Record.bind(ex.planEventJobs));
+                const own = { title: "The kind's own", customer: "", sheets: 0.0, state: variant("proposed", variant("added", null)), stock: variant("coated", null), due: none };
+                const cards = $.let(East.value([{
+                    key: taken, name: "The card's", group: none, at: none, duration: variant("hours", 2.0),
+                    values: East.Blob.encodeBeast(East.value({ ...own, title: "The card's" }, JobValues), "v2"),
+                }], ArrayType(Schedule.Types.Template)));
+                return Schedule.events(jobs, {
+                    name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" }, state: "state",
+                    templates: [{ key: taken, name: "Its own", duration: variant("hours", 1.0), values: own }],
+                }).buildPlan("job", undefined, cards);
+            });
+            const { platform } = await h.platform(program);
+            const kind = East.compile(program, platform)() as EventKind;
+            assert.equal(titleOf(kind, taken), "The kind's own");
+        });
+
+        test("a tab's cards' templates are written into the Plan's program once, whatever reads them: the tab's wire and its kind's `write` hold the one value", () => {
+            const program = East.function([], PlanPayloadType, ($) => {
+                const jobs = $.let(Record.bind(ex.planEventJobs));
+                return Plan.Payload({
+                    axis: Plan.axis({ window: WINDOW, resolution: "day" }), ...pressesOf($),
+                    events: { job: Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" }, state: "state" }) },
+                    library: [jobsTab("Orders", "O-1", "The card's")],
+                });
+            });
+            // A card's template is keyed by its tab and its card, printed: the one place the program prints that pair.
+            let keyed = 0;
+            walkIR(program.toIR().ir, (node) => {
+                if (node.type === "Struct" && node.value.fields.map((field) => field.name).join() === "tab,card") keyed += 1;
+            });
+            assert.equal(keyed, 1);
+        });
     });
 
     test("`inspector` gives the Plan its inspector pane, and each kind's own inspector rides on its kind; left out, or `false`, no pane (#1197)", async () => {

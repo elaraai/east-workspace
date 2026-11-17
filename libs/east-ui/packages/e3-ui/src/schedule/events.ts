@@ -1729,10 +1729,13 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             const byTemplate = $.let(new Map(), DictType(StringType, BlobType));
             const presets = $.const(templateRows);
             $.for(presets, ($2, t) => { $2(byTemplate.insert(t.key, t.values)); });
-            // The templates a builder's library tabs' cards make its events from (#1541, U1): known here, listed nowhere.
+            // The templates a builder's library tabs' cards make its events from (#1541, U1): known here, listed nowhere,
+            // and held by their builder, so a gesture reads them and works none of them out again. A card's key is its
+            // tab's and its card's, which no other tab's is; where one of the kind's own templates stands under it, the
+            // kind's own is the one made, and the kind writes on.
             if (cardTemplates !== undefined) {
                 const cards = $.const(cardTemplates) as unknown as typeof presets;
-                $.for(cards, ($2, t) => { $2(byTemplate.insert(t.key, t.values)); });
+                $.for(cards, ($2, t) => { $2(byTemplate.insertOrUpdate(t.key, t.values, (_$3, own) => own)); });
             }
             // Each setter's path as East holds it: a field is named by its steps, never by text a dotted name could mimic.
             const setterFns = setters.map((setter) => ({ path: $.const([...setter.path], ArrayType(StringType)), set: $.const(setter.set) }));
