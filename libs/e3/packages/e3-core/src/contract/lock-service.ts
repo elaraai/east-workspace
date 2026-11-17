@@ -18,6 +18,7 @@ import { acquireForDeploy, acquireWorkspaceShared, deployAnnounced, deployIntent
 import { workspaceLockStatus } from '../workspaces.js';
 import { MALFORMED_NAMES, nameRefusal } from './malformed.js';
 import type { BackendSetup } from './setup.js';
+import { untilAnnounced } from './support.js';
 
 /** A deploy's progress: `done` of its three file sources taken in, the next
  *  one under way, and its one record waiting. */
@@ -185,15 +186,8 @@ export function lockServiceTests(setup: BackendSetup): void {
       assert.equal(await deployAnnounced(storage, repo, 'main'), false);
 
       const deploying = acquireForDeploy(storage, repo, 'main', { waitMs: 10_000 });
-      // Whether the deploy's wait is over: it waits for the holder, which
-      // holds the workspace until this case lets it go
-      let settled = false;
-      void deploying.then(() => { settled = true; }, () => { settled = true; });
       // The intent is what a holder of the workspace reads, and stops for
-      while (!(await deployAnnounced(storage, repo, 'main'))) {
-        assert.equal(settled, false, 'the deploy announces itself while it waits');
-        await new Promise((resolve) => setTimeout(resolve, 10));
-      }
+      await untilAnnounced(storage, repo, 'main', deploying);
       assert.equal(await acquireWorkspaceShared(storage, repo, 'main', variant('dataset_write', null)), null, 'no new shared taker starts');
       await running.release();
       const deploy = await deploying;

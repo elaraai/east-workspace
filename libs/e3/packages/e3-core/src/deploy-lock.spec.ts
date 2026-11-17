@@ -16,6 +16,7 @@ import { dirname, join } from 'node:path';
 import { DateTimeType, East, StringType, encodeBeast2For, none, printFor, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { LockStateType, type LockOperation, type LockState } from '@elaraai/e3-types';
+import { untilAnnounced } from './contract/support.js';
 import { acquireForDeploy, acquireWorkspaceShared, deployAnnounced, deployIntentLock } from './deploy-lock.js';
 import { WorkspaceLockError } from './errors.js';
 import { LocalOrchestrator } from './execution/local-orchestrator.js';
@@ -80,22 +81,17 @@ describe('a deploy\'s intent', () => {
     const running = await acquireWorkspaceShared(storage, repo, WS, variant('dataflow', null));
     assert.ok(running !== null);
     const deploying = acquireForDeploy(storage, repo, WS, { waitMs: 20_000 });
-    // Whether the deploy's wait is over: it waits for the run, which holds
-    // the workspace until this case lets it go
-    let settled = false;
-    void deploying.then(() => { settled = true; }, () => { settled = true; });
     try {
-      while (!(await deployAnnounced(storage, repo, WS))) {
-        assert.equal(settled, false, 'the deploy announces itself while it waits');
-        await new Promise((resolve) => setTimeout(resolve, 10));
-      }
+      // Whether the deploy's wait is over: it waits for the run, which holds
+      // the workspace until this case lets it go
+      const settled = await untilAnnounced(storage, repo, WS, deploying);
 
       await assertRefusedByDeploy(() => workspaceSetDataset(storage, repo, WS, NOTE, 'during', StringType), 'a dataset write');
       await assertRefusedByDeploy(() => withSharedWorkspaceLock(storage, repo, WS, undefined, () => Promise.resolve()), 'a record write');
       await assertRefusedByDeploy(() => workspaceBundleExport(storage, repo, WS, new WritableStream<Uint8Array>()), 'a bundle export');
       await assertRefusedByDeploy(() => workspaceCopy(storage, repo, WS, 'staging'), 'a copy of it');
       await assertRefusedByDeploy(() => new LocalOrchestrator().start(storage, repo, WS, { runner: new MockTaskRunner() }), 'a run start');
-      assert.equal(settled, false, 'each was refused while the deploy still waited: none waited for it');
+      assert.equal(settled(), false, 'each was refused while the deploy still waited: none waited for it');
       assert.equal(await workspaceGetState(storage, repo, 'staging'), null, 'the copy made nothing');
     } finally {
       await running.release();

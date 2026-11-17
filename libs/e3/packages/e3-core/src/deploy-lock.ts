@@ -126,7 +126,12 @@ export async function acquireWorkspaceShared(
  *
  * The handle is the workspace lock's: what its holder reports is read as the
  * workspace's progress, as a deploy's is. Its release lets the workspace go,
- * then the intent.
+ * then the intent, which goes whatever becomes of the workspace's lock.
+ *
+ * The lock is a deploy's, and is never handed to a run. A run started under
+ * it (a start's `lock`) reads the intent as every run does, and stops itself
+ * within a second, saying a deploy started: a host that deploys and then runs
+ * lets this lock go first, and starts its run as any run is started.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
