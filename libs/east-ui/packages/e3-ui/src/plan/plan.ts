@@ -124,8 +124,8 @@ export {
 /**
  * The names a Plan keeps its viewer's state under, by its `id`: its frame's
  * panes (their open tab and collapsed state), the series this viewer hides,
- * the pick over `data`'s series, its library's drag-source id, and the Plan's
- * drop target.
+ * the pick over `data`'s series, its library's drag-source id, the Plan's
+ * drop target, and the tool this viewer holds.
  *
  * @remarks
  * As the Sheet's `sheetKeys` and Studio's `builderKeys`: two Plans on one
@@ -145,6 +145,8 @@ export function planKeys(id: string | undefined): {
     library: string;
     /** The Plan's drop target: where the library's cards and the canvas's elements land. */
     surface: string;
+    /** The tool this viewer holds (#1541, U10): Select or Connect, and the link kind Connect draws. */
+    tools: string;
 } {
     const suffix = id === undefined ? "" : `.${id}`;
     return {
@@ -153,6 +155,7 @@ export function planKeys(id: string | undefined): {
         pick: `plan${suffix}.pick`,
         library: `plan.library${suffix}`,
         surface: `plan${suffix}.surface`,
+        tools: `plan${suffix}.tools`,
     };
 }
 

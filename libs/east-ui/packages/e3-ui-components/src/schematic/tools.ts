@@ -26,9 +26,9 @@
  * @packageDocumentation
  */
 
-import { useCallback, useMemo } from "react";
-import { NullType, OptionType, StringType, StructType, VariantType, none, some, variant, type ValueTypeOf } from "@elaraai/east";
-import { storedCodec, useStoredValue } from "../shared/stored-value.js";
+import { NullType, OptionType, StringType, StructType, VariantType, type ValueTypeOf } from "@elaraai/east";
+import { useHeldTools, type HeldTools } from "../shared/held-tools.js";
+import { storedCodec } from "../shared/stored-value.js";
 
 /** A tool, as the UI store holds it. */
 export const SchematicToolType = VariantType({ select: NullType, zoom: NullType, marquee: NullType, connect: NullType, move: NullType });
@@ -45,12 +45,7 @@ export const SCHEMATIC_TOOLS: readonly SchematicTool[] = ["select", "zoom", "mar
 const toolsCodec = storedCodec(SchematicToolsType);
 
 /** What the viewer holds: the tool, and the link kind Connect draws. */
-export interface SchematicToolsState {
-    /** The tool held. */
-    readonly tool: SchematicTool;
-    /** The link kind Connect draws, by its slot. */
-    readonly link: string | undefined;
-}
+export type SchematicToolsState = HeldTools<SchematicTool>;
 
 /** What the Schematic offers: the link kinds Connect may draw, and whether Move moves anything. */
 export interface SchematicToolsOffered {
@@ -93,13 +88,5 @@ export function toolsInForce(held: SchematicToolsState, offered: SchematicToolsO
  * @returns What the store holds — Select and no link kind until the viewer picks — and the write that picks
  */
 export function useSchematicTools(key: string): [SchematicToolsState, (next: SchematicToolsState) => void] {
-    const [stored, write] = useStoredValue(toolsCodec, key);
-    const held = useMemo((): SchematicToolsState => {
-        if (stored === undefined) return { tool: "select", link: undefined };
-        return { tool: stored.tool.type, link: stored.link.type === "some" ? stored.link.value : undefined };
-    }, [stored]);
-    const pick = useCallback((next: SchematicToolsState) => {
-        write({ tool: variant(next.tool, null), link: next.link === undefined ? none : some(next.link) });
-    }, [write]);
-    return [held, pick];
+    return useHeldTools<SchematicTool>(toolsCodec, key, "select");
 }
