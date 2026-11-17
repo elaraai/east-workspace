@@ -818,6 +818,31 @@ export function dataflowFollowCases(setup: BackendSetup): void {
     assert.equal(await held(storage, repo, 'tasks/check/output'), made('check', c1.state, made('clean', c1.state)));
   });
 
+  it('takes no wake once a task has failed: the run launches nothing more, so a start is refused rather than handed to it', async (t) => {
+    const context = await setup(t);
+    const { storage, repo } = context;
+    const tasks = await deployBeside(t, context);
+    const runner = gatedRunner(storage, repo, tasks);
+    const lines = new RunLines();
+    const orchestrator = new LocalOrchestrator(stateStoreOf(context));
+    const handle = await orchestrator.start(storage, repo, 'ws', { runner, ...lines.callbacks });
+
+    // quick fails while slow runs: the run winds down on slow, launching nothing more
+    await runner.launched('slow');
+    await runner.launched('quick');
+    runner.fail('quick', 'the model did not converge');
+    await lines.said('[FAILED] quick');
+
+    // An edit of slow's input, and its writer's start: the run would never launch slow again
+    await workspaceSetDataset(storage, repo, 'ws', inputPath('a'), 5n, IntegerType);
+    assert.equal(await orchestrator.wake(storage, repo, 'ws'), false, 'a run that launches nothing more takes no wake');
+
+    runner.release('slow');
+    const result = await orchestrator.wait(handle);
+    assert.deepEqual([result.success, result.failed], [false, 1]);
+    assert.equal(runner.holding('slow'), 0, 'slow was not launched again for the edit');
+  });
+
   it('takes no wake once a deploy has announced itself: a start is refused, naming the deploy, and the run stops', async (t) => {
     const context = await setup(t);
     const { storage, repo } = context;

@@ -901,8 +901,10 @@ export class LocalOrchestrator implements DataflowOrchestrator {
    */
   async wake(storage: StorageBackend, repo: string, workspace: string): Promise<boolean> {
     const execution = [...this.executions.values()].find((each) => each.state.repo === repo && each.state.workspace === workspace);
+    // A run with a failed task launches nothing more, and ends once what is in
+    // flight has settled: a change handed to it would never run
     const stopping = (run: RunningExecution): boolean =>
-      run.closing || run.aborted || run.ended || run.yielded || run.abortController.signal.aborted;
+      run.closing || run.aborted || run.ended || run.yielded || run.hasFailure || run.abortController.signal.aborted;
     // A run started with a filter leaves the edit's other readers out
     if (execution === undefined || stopping(execution) || execution.state.filter.type === 'some') return false;
     // A deploy that has announced itself stops the run within a second: the
