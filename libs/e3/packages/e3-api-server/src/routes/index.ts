@@ -38,4 +38,13 @@ export {
   type CallRoutesOptions,
 } from './calls.js';
 export { createWorkspaceRecordRoutes, type RecordRoutesOptions } from './records.js';
+export {
+  allowEveryLoad,
+  createObjectUploadRoutes,
+  createRecordLoadRoutes,
+  type LoadAccess,
+  type LoadAction,
+  type ObjectUploadRoutesOptions,
+  type RecordLoadRoutesOptions,
+} from './record-loads.js';
 export { badQuery, wholeQuery, pathsQuery, type QueryLeast } from './query.js';

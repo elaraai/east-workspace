@@ -33,9 +33,15 @@ import { wholeQuery } from './query.js';
 /** Roles allowed to compact a record's history (drops the prior chain). */
 const COMPACT_ROLES = ['admin', 'owner'];
 
-/** The audited actor + whether it is authoritative (auth-verified, so the
- *  client-supplied actor must be ignored). */
-function resolveActor(identity: Identity | undefined): { actor: string; authoritative: boolean } {
+/**
+ * The audited actor, and whether it is authoritative: auth-verified, so the
+ * client-supplied actor must be ignored. A record's mutation and its load name
+ * their caller alike.
+ *
+ * @param identity - The request's verified identity, when the host authenticates
+ * @returns The actor, and whether it is authoritative
+ */
+export function resolveActor(identity: Identity | undefined): { actor: string; authoritative: boolean } {
   if (identity) return { actor: `auth:${identity.email ?? identity.sub}`, authoritative: true };
   return { actor: 'api', authoritative: false };
 }

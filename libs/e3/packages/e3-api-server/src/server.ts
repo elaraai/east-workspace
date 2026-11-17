@@ -30,6 +30,7 @@ import { createDataEndpoints } from './routes/data.js';
 import { allowEveryDraft, createPackageFunctionRoutes, createWorkspaceFunctionRoutes, createOneShotRoutes, oneShotAccessByRoles } from './routes/functions.js';
 import { createWorkspaceCallRoutes } from './routes/calls.js';
 import { createWorkspaceRecordRoutes } from './routes/records.js';
+import { allowEveryLoad, createObjectUploadRoutes, createRecordLoadRoutes } from './routes/record-loads.js';
 import { localDataflow } from './local-dataflow.js';
 import { checkCallLimits, type CallLimits } from './call-limits.js';
 import type { DataflowRunnerLease } from './dataflow-runner.js';
@@ -353,8 +354,16 @@ export async function createServer(config: ServerConfig): Promise<Server> {
     ...(calls.lifetimes !== undefined && { lifetimes: calls.lifetimes }),
   }));
 
-  // Workspace-scoped record routes: /api/repos/:repo/workspaces/:ws/records/*
+  // Workspace-scoped record routes: /api/repos/:repo/workspaces/:ws/records/*,
+  // and the loads of their sources, run as jobs on the transfer backend, with
+  // the uploads that write no ref a load's delivery arrives by. Every caller
+  // may load, as the record routes admit every caller to every mutation.
   app.route('/api/repos/:repo/workspaces/:ws/records', createWorkspaceRecordRoutes(storage, getRepoPath, getRunner));
+  app.route('/api/repos/:repo/workspaces/:ws/records', createRecordLoadRoutes(transferBackend, { access: allowEveryLoad }));
+  app.route('/api/repos/:repo/workspaces/:ws/objects', createObjectUploadRoutes(storage, getRepoPath, transferBackend, {
+    access: allowEveryLoad,
+    ...(transferCommitWaitMs !== undefined && { commitWaitMs: transferCommitWaitMs }),
+  }));
 
   // Execution/Dataflow routes: /api/repos/:repo/workspaces/:ws/dataflow/*,
   // run, polled and cancelled through each repository's local orchestrator
