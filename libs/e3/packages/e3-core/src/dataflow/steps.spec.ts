@@ -764,6 +764,32 @@ describe('stepTaskCommits', () => {
     assert.strictEqual(at.versions.get('.records.orders'), before);
   });
 
+  it('takes no order from a read of the history that failed: it is raised, and the history is read again by the next to ask', async () => {
+    const before = await commit(null, '$init');
+    const between = await commit(before, 'edit');
+    const first = await commit(between, 'edit');
+    const state = run({ orders: before, rates: 'r1' }, { orders: first, rates: 'r1' });
+    state.inputSnapshot.set('.records.orders', first);
+
+    // The store fails one read of the history: no commit is missing from it
+    const read = storage.objects.read.bind(storage.objects);
+    let failed = false;
+    storage.objects.read = async (repo, hash) => {
+      if (!failed && hash === first) {
+        failed = true;
+        throw new Error('the store went away');
+      }
+      return read(repo, hash);
+    };
+    try {
+      await assert.rejects(recordCommitOrder(storage, state, '.records.orders', before, between), { message: 'the store went away' });
+      assert.strictEqual(failed, true);
+      assert.strictEqual(await recordCommitOrder(storage, state, '.records.orders', before, between), before, 'asked again, it reads the history');
+    } finally {
+      storage.objects.read = read;
+    }
+  });
+
   it('defers a task whose inputs read a plain input at two values, naming the input and the inputs that read it, a direct read first', async () => {
     const state = run({ orders: 'c1', rates: 'r1' }, { orders: 'c1', rates: 'r2' });
     assert.deepStrictEqual(await stepTaskCommits(storage, state, 'plan'), {

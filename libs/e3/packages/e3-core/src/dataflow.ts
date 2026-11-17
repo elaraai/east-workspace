@@ -42,6 +42,7 @@ import {
 } from './trees.js';
 import {
   E3Error,
+  ObjectNotFoundError,
   WorkspaceNotFoundError,
   WorkspaceNotDeployedError,
   DataflowError,
@@ -716,7 +717,9 @@ export function dataflowRecords(storage: StorageBackend, state: DataflowExecutio
  * run resumed — is older than its first snapshot. Two such are ordered by
  * walking back from that snapshot a parent at a time: the first of the two
  * met is the newer, and one never met, which a compaction cut from the
- * record's history, is the older. The run keeps each answer.
+ * record's history, is the older. The history ends at a commit the store no
+ * longer holds. The run keeps each answer, and asks again after a walk that
+ * failed.
  *
  * @param storage - Storage backend
  * @param state - The run's state
@@ -724,6 +727,8 @@ export function dataflowRecords(storage: StorageBackend, state: DataflowExecutio
  * @param a - A commit of the record
  * @param b - Another
  * @returns The older of the two
+ * @throws {Error} When a commit of the record's history cannot be read,
+ *   other than one the store no longer holds
  */
 export async function recordCommitOrder(
   storage: StorageBackend,
@@ -743,29 +748,35 @@ export async function recordCommitOrder(
 
   const [first, second] = compareVersions(a, b) < 0 ? [a, b] : [b, a];
   const key = `${record}\n${first}\n${second}`;
-  let older = roots.older.get(key);
-  if (older === undefined) {
-    older = (async () => {
-      // The run's first snapshot of the record is the commit it numbered first
-      let at: string | null = taken === undefined ? null : [...taken].reduce((least, each) => (each[1] < least[1] ? each : least))[0];
-      while (at !== null) {
-        if (sameVersion(at, first)) return second;
-        if (sameVersion(at, second)) return first;
-        let parent: string | null;
-        try {
-          const commit = decodeRecordCommit(await storage.objects.read(state.repo, at));
-          parent = commit.parent.type === 'some' ? commit.parent.value : null;
-        } catch {
-          // The history ends here: a compaction cut what came before
-          parent = null;
-        }
-        at = parent;
+  const kept = roots.older.get(key);
+  if (kept !== undefined) return kept;
+  const older = (async () => {
+    // The run's first snapshot of the record is the commit it numbered first
+    let at: string | null = taken === undefined ? null : [...taken].reduce((least, each) => (each[1] < least[1] ? each : least))[0];
+    while (at !== null) {
+      if (sameVersion(at, first)) return second;
+      if (sameVersion(at, second)) return first;
+      let parent: string | null;
+      try {
+        const commit = decodeRecordCommit(await storage.objects.read(state.repo, at));
+        parent = commit.parent.type === 'some' ? commit.parent.value : null;
+      } catch (err) {
+        // The history ends at a commit the store no longer holds: a
+        // compaction cut what came before. A read that failed any other way
+        // is no end of it, and an order taken from it would be a guess.
+        if (!(err instanceof ObjectNotFoundError)) throw err;
+        parent = null;
       }
-      // Neither is in the record's history: either answer, the same each time
-      return first;
-    })();
-    roots.older.set(key, older);
-  }
+      at = parent;
+    }
+    // Neither is in the record's history: either answer, the same each time
+    return first;
+  })();
+  roots.older.set(key, older);
+  // A walk that failed is made again by the next to ask
+  older.catch(() => {
+    if (roots.older.get(key) === older) roots.older.delete(key);
+  });
   return older;
 }
 
