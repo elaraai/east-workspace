@@ -685,6 +685,33 @@ it('returns a value of several MiB from the object its completion commits', asyn
   assert.equal(f.budget.peak, 0);
 });
 
+it('runs here a call whose value is too large to carry inline, when its rack\'s source is one it sends no value to as an object, and says so by name', async () => {
+  const f = await fixture();
+  // A rack whose source's hello names no `call-value-objects`: as its agent
+  // reads a source from before the feature, or one that reads no such value
+  const mint = await f.client.enroll();
+  const through = mint.certificateSha256.type === 'some' ? pinnedFetch(mint.certificateSha256.value) : fetch;
+  const agent = await TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken, { fetch: async (input, init) => {
+    const response = await through(input, init);
+    if (!String(input instanceof Request ? input.url : input).endsWith('/api/rack/hello')) return response;
+    return new Response(JSON.stringify({ ...await response.json() as object, features: [] }), { headers: { 'content-type': 'application/json' } });
+  } });
+  cleanup.push(() => agent.close());
+  const rack = await f.open({ selected: true });
+  const many = encodeEastIR(East.function([IntegerType], Numbers, (_$, n) => East.Array.generate(n, IntegerType, (_$, i) => i.multiply(1_000_003n))).toIR());
+  const running = rack.runner.runDetached(callOf(many, [encodeInt(100_000n)]), { storage: f.storage, functionName: 'many' });
+  const done = await agent.runOne(); assert(done !== null);
+  // The rack ran it, and relayed no value: neither inline nor as an object
+  assert.deepEqual([done.status, done.detached?.kind, done.detached?.rackResultTooLarge, done.detached?.valueB64, done.detached?.valueHash, done.outputHash],
+    ['failed', 'failed', true, undefined, undefined, undefined]);
+  // So the call ran here, by that name, and answered its value
+  const values = valueOf(await running, Numbers);
+  assert.equal(values.length, 100_000);
+  assert.equal(values[99_999], 99_999n * 1_000_003n);
+  assert.deepEqual(placed(f.placements), [['rack', 'call', 'fn:many', 'test rack'], ['local', 'call', 'fn:many', 'fallback:value-too-large-to-relay']]);
+  assert.equal(f.budget.peak, 1, 'it ran here');
+});
+
 it('takes a call to a rack by its flag whatever the policy selects, sized by a rule that names it; without the flag, a policy that selects nothing opens no session', async () => {
   const f = await fixture(); const agent = await f.agent();
   const unselected = await f.open({ policy: DEFAULT_RACK_POLICY });

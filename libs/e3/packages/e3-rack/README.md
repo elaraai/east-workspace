@@ -557,7 +557,10 @@ Hub state lives under `~/.e3/rack` (override with `E3_RACK_HOME`). The rack
 listener is off until configured. A running hub and the e3 that calls it speak
 the same control protocol (4) exactly. A hub that an older e3 started is asked
 to exit once idle, and the run that found it runs locally this time; `e3 rack
-stop` with that e3, or ending its process, replaces it now. Agents must report
+stop` with that e3, or ending its process, replaces it now. So every project
+that uses a rack from one machine runs the e3 release that machine's hub was
+started by: they are upgraded together, and a hub kept running as a service
+is stopped and started again with the new e3. Agents must report
 a bundled e3 version at least as new as the project's, and speak the hub's rack
 protocol ([below](#rack-protocol)): `e3 rack list` shows one that does not as
 `incompatible: speaks rack protocol 2, not 3; update the rack`.
