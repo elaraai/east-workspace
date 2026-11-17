@@ -51,7 +51,7 @@ import {
 } from '@elaraai/east';
 import {
   NestedEntryKeyType, NestedEntryType, NestedSpanKeyType, RecordLevelType, RecordNestedPathType, RecordNestedRunType,
-  RecordNestedTotalsType, RecordRollupType, RecordSummaryTotalsType, nestedSpanName,
+  RecordNestedTotalsType, RecordRollupType, RecordSummaryTotalsType, nestedPathValue, nestedSpanName,
   type NestedItemType, type NestedPathType, type RecordLevel, type RecordNestedPath,
 } from '@elaraai/e3-types';
 import { checkNested, type NestedCollection, type NestedDeclaration, type NestedGroup, type NestedItems, type NestedValues } from './record-nested.js';
@@ -103,7 +103,7 @@ function nodeAtOf(shapes: Pick<NestedShapes, 'KeysType' | 'NodeKeyType'>, node: 
  * @returns The place, as a key's value
  */
 export function placePath(place: readonly string[]): RecordNestedPath {
-  return place.reduceRight<RecordNestedPath>((rest, key) => variant('step', { key, rest }), variant('end', null));
+  return nestedPathValue(place) as RecordNestedPath;
 }
 
 /**

@@ -169,6 +169,8 @@ export {
   NestedPathType,
   NestedItemType,
   nestedIdCase,
+  nestedPathCases,
+  nestedPathValue,
   NestedEntryKeyType,
   NestedSpanKeyType,
   nestedSpanName,

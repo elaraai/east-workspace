@@ -60,7 +60,7 @@ import {
 } from "@elaraai/east";
 import type { SeekQueryType } from "@elaraai/east-ui";
 import { levelRuns, summaryRun, tileNext, type RecordTile } from "@elaraai/east-ui/internal";
-import { nestedIdCase, nestedSpanName } from "@elaraai/e3-types";
+import { nestedPathCases, nestedPathValue, nestedSpanName } from "@elaraai/e3-types";
 import { Plan, PlanNestedShadingType, SCHEDULE_EVENT_CAP, type PlanNestedType } from "@elaraai/e3-ui/internal";
 import { useSliceReactivity, useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { snapshotOf, windowedSourceOf } from "@elaraai/east-ui-components/internal";
@@ -189,9 +189,24 @@ interface Literals {
     update(value: unknown, patch: unknown): unknown;
 }
 
-/** A path in the index's key, `end` or a `step` and the rest, from its steps' keys. */
-function pathValue(keys: readonly unknown[]): unknown {
-    return keys.reduceRight<unknown>((rest, key) => variant("step", { key, rest }), variant("end", null));
+
+/** Each id type's reader of a key's text, made the first time a path holds one: a pass over the rows asks it again and again. */
+const idReaders = new WeakMap<EastType, ReturnType<typeof parseFor>>();
+
+/**
+ * A key's text read at an id's type, by its reader made once.
+ *
+ * @param type - The id's type
+ * @param text - The key's text
+ * @returns What its type reads of it
+ */
+function readId(type: EastType, text: string): ReturnType<ReturnType<typeof parseFor>> {
+    let read = idReaders.get(type);
+    if (read === undefined) {
+        read = parseFor(type);
+        idReaders.set(type, read);
+    }
+    return read(text);
 }
 
 /**
@@ -206,14 +221,14 @@ function pathValue(keys: readonly unknown[]): unknown {
  * @returns The ids; `undefined` for a text its type cannot read, or keys where the place has no child rows
  */
 function nodeIds(ids: Readonly<Record<string, EastType>>, place: readonly string[], keys: readonly string[]): unknown[] | undefined {
-    const cases = place.slice(0, -1).map((_, i) => nestedIdCase(place.slice(0, i + 1)));
+    const cases = nestedPathCases(place);
     const out: unknown[] = [];
     for (const [i, text] of keys.entries()) {
         const idCase = cases[Math.min(i, cases.length - 1)];
         const type = idCase === undefined ? undefined : ids[idCase];
         if (idCase === undefined || type === undefined) return undefined;
         if (type.type === "String") { out.push(variant(idCase, text)); continue; }
-        const read = parseFor(type)(text);
+        const read = readId(type, text);
         if (!read.success) return undefined;
         out.push(variant(idCase, read.value));
     }
@@ -252,10 +267,10 @@ function literals(binding: IndexedBindingRead): Literals {
     const printKey = printFor(nested.entry.fields.ik);
     const apply = applyFor(nested.entry.fields.value) as (value: unknown, patch: unknown) => unknown;
     made = {
-        place: (names) => printPlace(pathValue(names) as never),
+        place: (names) => printPlace(nestedPathValue(names) as never),
         node: (place, keys) => {
             const steps = nodeIds(ids.cases, place, keys);
-            return steps === undefined ? undefined : printPath(pathValue(steps) as never);
+            return steps === undefined ? undefined : printPath(nestedPathValue(steps) as never);
         },
         row: (id) => {
             if (parseKey === undefined) return keyLeaves(id);

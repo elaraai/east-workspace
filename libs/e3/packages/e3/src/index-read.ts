@@ -37,7 +37,7 @@ import {
   type VariantType,
 } from '@elaraai/east';
 import {
-  RecordLevelType, RecordNestedPathType, RecordNestedTotalsType, RecordRollupType, RecordSummaryTotalsType, nestedIdCase, type NestedPathType,
+  RecordLevelType, RecordNestedPathType, RecordNestedTotalsType, RecordRollupType, RecordSummaryTotalsType, nestedPathCases, type NestedPathType,
 } from '@elaraai/e3-types';
 import { AREA_FINEST_LEVEL, AREA_FNS, AREA_UNPLACED } from './record-area.js';
 import { INTERVAL_LEAF } from './record-interval.js';
@@ -980,7 +980,7 @@ function nestedReaders(entries: Entries): NestedReaders {
     try {
       return East.value((path ?? []) as never, keyed().KeysType);
     } catch (cause) {
-      const ids = collection.place.slice(0, -1).map((_, i) => `variant('${nestedIdCase(collection.place.slice(0, i + 1))}', key)`);
+      const ids = nestedPathCases(collection.place).map((idCase) => `variant('${idCase}', key)`);
       const wanted = ids.length === 0 ? 'a collection of the row itself has no path: leave `path` out' : `path: [${ids.join(', ')}]`;
       throw new Error(`${entries.name} ${reader}: \`path\` names a node by its child rows' keys from the row down, each an id of the index's ` +
         `under its rows' place — ${wanted}`, { cause });

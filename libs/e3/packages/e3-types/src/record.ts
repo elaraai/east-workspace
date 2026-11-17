@@ -21,7 +21,7 @@
 import {
   ArrayType, BooleanType, DateTimeType, DictType, EastTypeType, FloatType, FunctionType, IntegerType, NullType,
   OptionType, PatchType, RecursiveType, StringType, StructType, VariantType,
-  decodeBeast2For, dictPatchOpsType, setPatchOpsType, toEastTypeValue,
+  decodeBeast2For, dictPatchOpsType, setPatchOpsType, toEastTypeValue, variant,
   type EastType, type EastTypeValue, type PatchTypeOf, type ValueTypeOf,
 } from '@elaraai/east';
 import { RunnerType } from './runner.js';
@@ -269,6 +269,29 @@ export type RecordNestedPath = ValueTypeOf<typeof RecordNestedPathType>;
  */
 export function nestedIdCase(place: readonly string[]): string {
   return place.join('.');
+}
+
+/**
+ * The case each step of a path down to a collection names its child rows' keys under (#1540): at each of its place's
+ * fields but the last, the place so far ({@link nestedIdCase}) — a tree's further steps under the last of them. What
+ * a reader is given a node's path in, and what reads one back, both ask here.
+ *
+ * @param place - The collection's place: the field names from the row down to it
+ * @returns Each step's case, from the row down; none for a collection of the row itself
+ */
+export function nestedPathCases(place: readonly string[]): string[] {
+  return place.slice(0, -1).map((_, i) => nestedIdCase(place.slice(0, i + 1)));
+}
+
+/**
+ * A path as a nested series index's key holds it (#1540): `step { key, rest }` from the first, `end` after the last —
+ * a collection's place by its field names ({@link RecordNestedPathType}), or a node's path by its ids.
+ *
+ * @param keys - The path's steps, from the row down
+ * @returns The path, as a key's value
+ */
+export function nestedPathValue(keys: readonly unknown[]): unknown {
+  return keys.reduceRight<unknown>((rest, key) => variant('step', { key, rest }), variant('end', null));
 }
 
 /**
