@@ -6,7 +6,9 @@
 /**
  * The contract suites every storage backend runs: each registers its cases
  * over a backend its caller sets up. e3-core runs them over its local and
- * in-memory backends; another backend runs them over its own.
+ * in-memory backends; another backend runs them over its own. The transfer
+ * stores' suites — a record load's jobs, and uploads that write no ref — run
+ * over a backend's transfer stores the same way.
  */
 
 export type { BackendContext, BackendDamage, BackendSetup } from './setup.js';
@@ -16,6 +18,8 @@ export { datasetRefStoreTests } from './dataset-ref-store.js';
 export { lockServiceTests } from './lock-service.js';
 export { logStoreTests } from './log-store.js';
 export { functionCallStoreTests } from './function-call-store.js';
+export { recordLoadStoreTests, type RecordLoadStoreContext, type RecordLoadStoreSetup } from './record-load-store.js';
+export { objectUploadStoreTests, type ObjectUploadStoreContext, type ObjectUploadStoreSetup } from './object-upload-store.js';
 export { repoStoreTests, type RepositoriesContext, type RepositoriesSetup } from './repo-store.js';
 export {
   executionStateStoreTests, type ExecutionStateStoreContext, type ExecutionStateStoreSetup,

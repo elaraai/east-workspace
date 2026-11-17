@@ -15,13 +15,14 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, stat, unlink } from 'node:fs/promises';
 import { none, some, variant } from '@elaraai/east';
-import { urlPathToTreePath, type IntakeFile } from '@elaraai/e3-types';
+import { urlPathToTreePath, type FunctionCallCancel, type IntakeFile } from '@elaraai/e3-types';
 
-import type { StorageBackend } from '../storage/index.js';
+import type { LockHandle, StorageBackend } from '../storage/index.js';
 import type { TaskRunner } from '../execution/interfaces.js';
 import { adoptProgressToIntakeFile, datasetAdoptObject, type DatasetAdoptProgress } from '../dataset-adopt.js';
 import { datasetAdoptFile } from '../dataset-adopt-file.js';
 import { DatasetTypeMismatchError } from '../errors.js';
+import { acquireRunningWork } from '../running-work.js';
 import { packageStagingPath, transferStagingDir, transferStagingPath } from '../storage/local/localHelpers.js';
 import type {
   TransferBackend,
@@ -29,14 +30,19 @@ import type {
   DatasetUploadStore,
   DatasetDownloadStore,
   FunctionCallDispatch,
+  ObjectUploadStore,
   PackageImportStore,
   PackageExportStore,
+  RecordLoadStore,
   RepoGcStore,
   SplitCallStore,
   WorkspaceDeployStore,
 } from './interfaces.js';
-import type { DatasetCommitStatus, DatasetUpload, PackageImport, PackageExport, RepoGcJob, SplitCallJob, WorkspaceDeployJob } from './types.js';
-import { handleProcessDeploy, handleProcessGc, handleProcessSplitCall } from './process.js';
+import type {
+  DatasetCommitStatus, DatasetUpload, ObjectCommitStatus, ObjectUploadJob, PackageImport, PackageExport, RecordLoadJob, RepoGcJob, SplitCallJob,
+  WorkspaceDeployJob,
+} from './types.js';
+import { handleProcessDeploy, handleProcessGc, handleProcessRecordLoad, handleProcessSplitCall } from './process.js';
 import { handleProcessExport, handleProcessImport } from './process-files.js';
 import { InProcessFunctionCallDispatch } from './in-process-calls.js';
 
@@ -54,10 +60,10 @@ const SPLIT_CALL_RESULT_TTL_MS = 10 * 60 * 1000;
 // =============================================================================
 
 /** A commit asked for: how it stands, and its end. */
-interface UploadCommit {
-  status: DatasetCommitStatus;
+interface UploadCommit<S> {
+  status: S;
   /** Settles as the commit finishes; never rejects. */
-  settled: Promise<DatasetCommitStatus>;
+  settled: Promise<S>;
 }
 
 /**
@@ -68,28 +74,26 @@ interface UploadCommit {
 export type UploadCommitForm = 'file' | 'object';
 
 /**
- * The local server's uploads: records in memory, each upload's parts staged
- * in one file in its repository, which the commit takes in by link or rename.
+ * The local server's staged uploads: records in memory, each upload's parts
+ * staged in one file in its repository, and its commit, asked for once, which
+ * takes the file in and is answered as it finished.
  */
-class InMemoryDatasetUploadStore implements DatasetUploadStore {
-  private readonly records = new Map<string, DatasetUpload>();
+abstract class InMemoryStagedUploads<R extends { readonly repo: string }, S extends { readonly type: string }> {
+  private readonly records = new Map<string, R>();
   private readonly partPlans = new Map<string, bigint>();
-  private readonly commits = new Map<string, UploadCommit>();
+  private readonly commits = new Map<string, UploadCommit<S>>();
 
   constructor(
     private readonly baseUrl: string,
     private readonly partBytes: bigint,
-    private readonly storage?: StorageBackend,
-    private readonly getRepoPath?: (repo: string) => string,
-    private readonly getRunner?: (repoPath: string) => TaskRunner,
-    private readonly commitAs: UploadCommitForm = 'file',
+    protected readonly getRepoPath?: (repo: string) => string,
   ) {}
 
-  async create(id: string, record: DatasetUpload): Promise<void> {
+  async create(id: string, record: R): Promise<void> {
     this.records.set(id, record);
   }
 
-  async get(id: string): Promise<DatasetUpload | null> {
+  async get(id: string): Promise<R | null> {
     return this.records.get(id) ?? null;
   }
 
@@ -99,7 +103,7 @@ class InMemoryDatasetUploadStore implements DatasetUploadStore {
     this.commits.delete(id);
   }
 
-  async createParts(id: string, record: DatasetUpload): Promise<bigint> {
+  async createParts(id: string, record: R): Promise<bigint> {
     // The parts are staged in the repository, so the commit takes the file
     // in by a same-device link or rename rather than a copy.
     if (this.getRepoPath !== undefined) {
@@ -113,20 +117,20 @@ class InMemoryDatasetUploadStore implements DatasetUploadStore {
     return this.partPlans.get(id) ?? null;
   }
 
-  async getPartUpload(id: string, _record: DatasetUpload, part: number): Promise<DatasetPartUpload> {
+  async getPartUpload(id: string, _record: R, part: number): Promise<DatasetPartUpload> {
     // The server streams a part straight to its offset in the staged file, so
     // it needs no headers beyond the bytes' own length.
     return { url: `${this.baseUrl}/api/uploads/${id}/parts/${part}`, headers: {} };
   }
 
-  async commit(id: string, record: DatasetUpload): Promise<DatasetCommitStatus> {
+  async commit(id: string, record: R): Promise<S> {
     let commit = this.commits.get(id);
     if (commit === undefined) {
-      const started: UploadCommit = { status: variant('processing', none), settled: Promise.resolve(variant('processing', none)) };
+      const started: UploadCommit<S> = { status: this.processing(), settled: Promise.resolve(this.processing()) };
       this.commits.set(id, started);
       // Until it has finished, a poll reads how far it has got.
-      started.settled = this.verifyAndAdopt(id, record, (progress) => {
-        if (started.status.type === 'processing') started.status = variant('processing', some(progress));
+      started.settled = this.takeIn(id, record, (status) => {
+        if (started.status.type === 'processing') started.status = status;
       }).then((status) => {
         started.status = status;
         // The answer stays readable for a while — a client whose response was
@@ -139,8 +143,53 @@ class InMemoryDatasetUploadStore implements DatasetUploadStore {
     return commit.settled;
   }
 
-  async getCommitStatus(id: string): Promise<DatasetCommitStatus | null> {
+  async getCommitStatus(id: string): Promise<S | null> {
     return this.commits.get(id)?.status ?? null;
+  }
+
+  clear(): void {
+    this.records.clear();
+    this.partPlans.clear();
+    this.commits.clear();
+  }
+
+  /** The status of a commit under way, before it has said how far it has got. */
+  protected abstract processing(): S;
+
+  /**
+   * Takes an upload's staged file in, telling `report` how far it has got as
+   * it goes; never rejects.
+   *
+   * @param id - The upload's id
+   * @param record - The upload, as created
+   * @param report - Hears the commit's status while it runs
+   * @returns How the commit finished
+   */
+  protected abstract takeIn(id: string, record: R, report: (status: S) => void): Promise<S>;
+}
+
+/**
+ * The local server's dataset uploads, which the commit takes in by link or
+ * rename and points the dataset at.
+ */
+class InMemoryDatasetUploadStore extends InMemoryStagedUploads<DatasetUpload, DatasetCommitStatus> implements DatasetUploadStore {
+  constructor(
+    baseUrl: string,
+    partBytes: bigint,
+    private readonly storage?: StorageBackend,
+    getRepoPath?: (repo: string) => string,
+    private readonly getRunner?: (repoPath: string) => TaskRunner,
+    private readonly commitAs: UploadCommitForm = 'file',
+  ) {
+    super(baseUrl, partBytes, getRepoPath);
+  }
+
+  protected processing(): DatasetCommitStatus {
+    return variant('processing', none);
+  }
+
+  protected takeIn(id: string, record: DatasetUpload, report: (status: DatasetCommitStatus) => void): Promise<DatasetCommitStatus> {
+    return this.verifyAndAdopt(id, record, (progress) => report(variant('processing', some(progress))));
   }
 
   /**
@@ -194,11 +243,54 @@ class InMemoryDatasetUploadStore implements DatasetUploadStore {
       if (stagingPath !== null) await unlink(stagingPath).catch(() => {});
     }
   }
+}
 
-  clear(): void {
-    this.records.clear();
-    this.partPlans.clear();
-    this.commits.clear();
+// =============================================================================
+// Object Upload
+// =============================================================================
+
+/**
+ * The local server's object uploads: staged as a dataset upload's parts are,
+ * and committed as the object the bytes hash to, which no ref names.
+ */
+class InMemoryObjectUploadStore extends InMemoryStagedUploads<ObjectUploadJob, ObjectCommitStatus> implements ObjectUploadStore {
+  constructor(
+    baseUrl: string,
+    partBytes: bigint,
+    private readonly storage?: StorageBackend,
+    getRepoPath?: (repo: string) => string,
+  ) {
+    super(baseUrl, partBytes, getRepoPath);
+  }
+
+  protected processing(): ObjectCommitStatus {
+    return variant('processing', null);
+  }
+
+  /**
+   * Checks the staged file's size, and stores it as the object it hashes to —
+   * by link or rename, never read whole — refused when that is not the
+   * upload's hash; never rejects.
+   */
+  protected async takeIn(id: string, record: ObjectUploadJob): Promise<ObjectCommitStatus> {
+    if (this.storage === undefined || this.getRepoPath === undefined) {
+      return variant('failed', { message: 'this store takes in no upload: it was given no storage' });
+    }
+    let stagingPath: string | null = null;
+    try {
+      const repoPath = this.getRepoPath(record.repo);
+      stagingPath = transferStagingPath(repoPath, id);
+      const stats = await stat(stagingPath);
+      if (BigInt(stats.size) !== record.size) {
+        return variant('failed', { message: `size mismatch: expected ${record.size}, got ${stats.size}` });
+      }
+      await this.storage.objects.adoptFile(repoPath, stagingPath, record.hash);
+      return variant('completed', null);
+    } catch (err) {
+      return variant('failed', { message: err instanceof Error ? err.message : String(err) });
+    } finally {
+      if (stagingPath !== null) await unlink(stagingPath).catch(() => {});
+    }
   }
 }
 
@@ -593,6 +685,136 @@ class InMemorySplitCallStore implements SplitCallStore {
 }
 
 // =============================================================================
+// Record Load
+// =============================================================================
+
+/** How long a finished load's record stays readable for its poll. */
+const RECORD_LOAD_RESULT_TTL_MS = 10 * 60 * 1000;
+
+/** What one source's loads are ordered by: the record's place and the source. */
+function loadSource(job: RecordLoadJob): string {
+  return [job.repo, job.workspace, job.record, job.source].join('\u0000');
+}
+
+/**
+ * The local server's load jobs: records in memory, each job run in this
+ * process on the repository's runner, each source's jobs one after another in
+ * the order they were made, and a record forgotten a while after its job
+ * ends.
+ */
+class InMemoryRecordLoadStore implements RecordLoadStore {
+  private readonly records = new Map<string, RecordLoadJob>();
+  private readonly executing = new Set<string>();
+  /** The last job of each source dispatched, which the next of it runs after. */
+  private readonly lastOfSource = new Map<string, Promise<void>>();
+  /** Wakes a job waiting for an earlier one of its source: asked to cancel, it
+   *  runs at once, and ends itself. */
+  private readonly waiting = new Map<string, () => void>();
+
+  constructor(
+    private readonly storage?: StorageBackend,
+    private readonly getRepoPath?: (repo: string) => string,
+    private readonly getRunner?: (repoPath: string) => TaskRunner,
+  ) {}
+
+  async create(id: string, record: RecordLoadJob): Promise<void> {
+    this.records.set(id, record);
+    if (record.status.type !== 'processing') this.forget(id);
+  }
+
+  async get(id: string): Promise<RecordLoadJob | null> {
+    return this.records.get(id) ?? null;
+  }
+
+  async updateStatus(id: string, status: RecordLoadJob['status']): Promise<boolean> {
+    const record = this.records.get(id);
+    if (!record) throw new Error(`Record load ${id} not found`);
+    // Checked and written with nothing awaited between: one step.
+    if (record.status.type !== 'processing') return false;
+    this.records.set(id, { ...record, status });
+    return true;
+  }
+
+  async cancel(id: string, cancel: FunctionCallCancel): Promise<RecordLoadJob | null> {
+    const record = this.records.get(id);
+    if (!record) return null;
+    // Checked and written with nothing awaited between: one step.
+    if (record.status.type !== 'processing' || record.cancel.type === 'some') return record;
+    const asked: RecordLoadJob = { ...record, cancel: some(cancel) };
+    this.records.set(id, asked);
+    this.waiting.get(id)?.();
+    return asked;
+  }
+
+  async delete(id: string): Promise<void> {
+    this.records.delete(id);
+  }
+
+  async execute(id: string, repo: string): Promise<void> {
+    const record = this.records.get(id);
+    if (!record) throw new Error(`Record load ${id} not found`);
+    if (record.status.type !== 'processing' || this.executing.has(id)) return;
+    this.executing.add(id);
+
+    const repoPath = this.storage !== undefined && this.getRepoPath !== undefined ? this.getRepoPath(repo) : undefined;
+    const runner = repoPath === undefined ? undefined : this.getRunner?.(repoPath);
+    const failed = async (message: string): Promise<void> => {
+      await this.updateStatus(id, variant('failed', { message }));
+      this.executing.delete(id);
+      this.forget(id);
+    };
+    if (this.storage === undefined || repoPath === undefined || runner === undefined) {
+      await failed('this backend runs no load: it was given no storage or runner');
+      return;
+    }
+    const storage = this.storage;
+    // Held from now until the job ends, so no sweep takes its delivery while
+    // it waits for an earlier load of its source
+    let work: LockHandle;
+    try {
+      work = await acquireRunningWork(storage, repoPath);
+    } catch (err) {
+      await failed(err instanceof Error ? err.message : String(err));
+      return;
+    }
+    const source = loadSource(record);
+    const before = this.lastOfSource.get(source);
+    // Waiting for an earlier load of its source, the job says so
+    if (before !== undefined) await this.updateStatus(id, variant('processing', some(variant('queued', null))));
+    const turn = before === undefined ? Promise.resolve() : Promise.race([
+      before,
+      new Promise<void>((resolve) => { this.waiting.set(id, resolve); }),
+    ]);
+    // The job runs in this process, on the runner every task of the server
+    // runs on, and outlives the request that launched it.
+    const run: Promise<void> = turn
+      .then(() => {
+        this.waiting.delete(id);
+        return handleProcessRecordLoad({ storage, recordLoadStore: this, runner }, { id, repo: repoPath });
+      })
+      .catch(() => {
+        // Its end is recorded in the job's status by handleProcessRecordLoad
+      })
+      .finally(async () => {
+        await work.release();
+        this.executing.delete(id);
+        this.forget(id);
+        if (this.lastOfSource.get(source) === run) this.lastOfSource.delete(source);
+      });
+    this.lastOfSource.set(source, run);
+  }
+
+  /** Forgets an ended job once its poll has had a while to read it. */
+  private forget(id: string): void {
+    setTimeout(() => { this.records.delete(id); }, RECORD_LOAD_RESULT_TTL_MS).unref();
+  }
+
+  clear(): void {
+    this.records.clear();
+  }
+}
+
+// =============================================================================
 // Function Calls
 // =============================================================================
 
@@ -618,11 +840,12 @@ export interface InMemoryTransferBackendOptions {
   getRepoPath?: (repo: string) => string;
   /**
    * The runner, for a repository's path, that a deploy job runs its
-   * migrations and index builds on, an upload's commit its intake units, and a
-   * split call its units, and whose judgement of what still runs gc's history
-   * prune takes. Without one, a deploy that owes either is refused before it
-   * writes anything, a commit of a collection the store does not know fails, a
-   * split call fails, and gc keeps every execution recorded running.
+   * migrations and index builds on, an upload's commit its intake units, a
+   * split call its units and a load its intake and its pieces, and whose
+   * judgement of what still runs gc's history prune takes. Without one, a
+   * deploy that owes either is refused before it writes anything, a commit of
+   * a collection the store does not know fails, a split call and a load fail,
+   * and gc keeps every execution recorded running.
    */
   getRunner?: (repoPath: string) => TaskRunner;
   /**
@@ -657,6 +880,8 @@ export class InMemoryTransferBackend implements TransferBackend {
   readonly workspaceDeploy: InMemoryWorkspaceDeployStore;
   readonly repoGc: InMemoryRepoGcStore;
   readonly splitCall: InMemorySplitCallStore;
+  readonly recordLoad: InMemoryRecordLoadStore;
+  readonly objectUpload: InMemoryObjectUploadStore;
   readonly functionCalls: FunctionCallDispatch;
 
   constructor(options: InMemoryTransferBackendOptions) {
@@ -672,6 +897,8 @@ export class InMemoryTransferBackend implements TransferBackend {
     this.workspaceDeploy = new InMemoryWorkspaceDeployStore(options.storage, options.getRepoPath, options.getRunner);
     this.repoGc = new InMemoryRepoGcStore(options.storage, options.getRepoPath, options.getRunner);
     this.splitCall = new InMemorySplitCallStore(options.storage, options.getRepoPath, options.getRunner, options.splitCallWidth);
+    this.recordLoad = new InMemoryRecordLoadStore(options.storage, options.getRepoPath, options.getRunner);
+    this.objectUpload = new InMemoryObjectUploadStore(baseUrl, BigInt(partBytes), options.storage, options.getRepoPath);
     // A call runs in this process, on the runner every task of the server runs
     // on, and outlives the request that filed it
     const { storage, getRepoPath, getRunner, functionCallWatchMs } = options;
@@ -688,5 +915,7 @@ export class InMemoryTransferBackend implements TransferBackend {
     this.workspaceDeploy.clear();
     this.repoGc.clear();
     this.splitCall.clear();
+    this.recordLoad.clear();
+    this.objectUpload.clear();
   }
 }

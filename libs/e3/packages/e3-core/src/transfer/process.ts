@@ -5,7 +5,8 @@
 
 /**
  * Shared processing handlers for the jobs that outlast a request: package
- * import and export, workspace deploy, repository gc and split calls.
+ * import and export, workspace deploy, repository gc, split calls and the
+ * loads of composite records' deliveries.
  *
  * These are cloud-agnostic handlers that perform the actual work of each job.
  * Used by both the local InMemoryTransferBackend and cloud backends
@@ -16,9 +17,10 @@
  */
 
 import { none, some, variant } from '@elaraai/east';
-import type { InputPlan, RecordIndexPlan, RecordPlan } from '@elaraai/e3-types';
+import type { InputPlan, RecordIndexPlan, RecordLoadProgress, RecordPlan } from '@elaraai/e3-types';
 
-import { ExportStoppedError } from '../errors.js';
+import { ExportStoppedError, RecordLoadStoppedError } from '../errors.js';
+import { recordLoad } from '../record-load.js';
 import { repoGc } from '../gc.js';
 import { packageExport, packageImportFrom, type PackageExportOptions, type PackageExportResult } from '../packages.js';
 import { workspaceDeploy, workspaceExport, type WorkspaceExportOptions, type WorkspaceExportResult } from '../workspaces.js';
@@ -27,7 +29,7 @@ import type { LockHandle, StorageBackend } from '../storage/interfaces.js';
 import type { RunningExecution, TaskRunner } from '../execution/interfaces.js';
 import { splitCallExplain, splitCallReference, splitCallRun, type SplitCallTask } from '../execution/splitCall.js';
 import { openZip, zipSinkOf, zipSourceOf, type ZipReader, type ZipSource } from '../zip.js';
-import type { PackageExportStore, PackageImportStore, RepoGcStore, SplitCallStore, WorkspaceDeployStore } from './interfaces.js';
+import type { PackageExportStore, PackageImportStore, RecordLoadStore, RepoGcStore, SplitCallStore, WorkspaceDeployStore } from './interfaces.js';
 import type { PackageZipCheckpoint } from './types.js';
 
 // =============================================================================
@@ -656,6 +658,147 @@ export async function handleProcessSplitCall(
     if (signal?.aborted === true) throw err;
     const message = err instanceof Error ? err.message : String(err);
     await splitCallStore.updateStatus(id, variant('failed', { message }));
+    throw err;
+  } finally {
+    clearInterval(watch);
+  }
+}
+
+// =============================================================================
+// Process Record Load
+// =============================================================================
+
+/** Dependencies for handleProcessRecordLoad. */
+export interface ProcessRecordLoadDeps {
+  storage: StorageBackend;
+  recordLoadStore: RecordLoadStore;
+  /** Takes the delivery in, and runs the load's pieces. */
+  runner: TaskRunner;
+  /**
+   * Aborted when the caller stops this call to run the job again, as compute
+   * with a time limit does before a long load has finished. The job is left
+   * `processing`, and the call that runs it again takes up its turn, its
+   * intake and its pieces where they stood: the intake remembers the pieces it
+   * took in, and the execution cache answers the load's that finished.
+   */
+  signal?: AbortSignal;
+}
+
+/** Input for handleProcessRecordLoad. */
+export interface ProcessRecordLoadInput {
+  id: string;
+  repo: string;
+}
+
+/** The least time between two writes of a load's pieces to its store. */
+const LOAD_PIECES_INTERVAL_MS = 500;
+
+/** How often a running load's job reads its record, to find a request to
+ *  cancel it. */
+export const LOAD_CANCEL_POLL_MS = 1_000;
+
+/**
+ * Processes a record load job.
+ *
+ * Gets the job, loads its delivery into its record's source (`recordLoad`),
+ * and records what the load did, or why it did not. A client polling the job
+ * reads how far it has got: each step as it happens, its pieces at most every
+ * {@link LOAD_PIECES_INTERVAL_MS}, and the last count of them before the step
+ * after.
+ *
+ * Only the job writes its end. A cancel records a request on the job's
+ * record, which the job reads every {@link LOAD_CANCEL_POLL_MS} as it runs; a
+ * progress write the store refuses, the job having ended, says the same. The
+ * load then stops: stopped before its commit wrote, the job ends `cancelled`,
+ * and its finished pieces stay cached; once its commit has written, the load
+ * has landed, and the job ends `completed`. A job asked to cancel before it
+ * starts loads nothing.
+ *
+ * @param deps - Storage backend, record load store, the runner the load runs
+ *   on, and the caller's signal
+ * @param input - Job ID and repository identifier
+ *
+ * @throws Re-throws the error that stopped the load once the job is recorded
+ *   `failed`, or, when `deps.signal` has aborted, with the job left
+ *   `processing`; a job that ends `cancelled` returns
+ */
+export async function handleProcessRecordLoad(
+  deps: ProcessRecordLoadDeps,
+  input: ProcessRecordLoadInput,
+): Promise<void> {
+  const { storage, recordLoadStore, runner, signal } = deps;
+  const { id, repo } = input;
+
+  const record = await recordLoadStore.get(id);
+  if (!record) throw new Error(`Record load ${id} not found`);
+  if (record.status.type !== 'processing') return;
+
+  // The job's own signal: the caller's, which hands the job over, and a
+  // request to cancel it, once the job finds one
+  const asked = new AbortController();
+  const ask = (): void => {
+    if (!asked.signal.aborted) asked.abort(new Error(`record load ${id} was asked to cancel`));
+  };
+  if (record.cancel.type === 'some') ask();
+  const jobSignal = signal === undefined ? asked.signal : AbortSignal.any([signal, asked.signal]);
+  const watch = setInterval(() => {
+    recordLoadStore.get(id).then((current) => {
+      if (current === null || current.cancel.type === 'some' || current.status.type !== 'processing') ask();
+    }, () => {
+      // A read that fails leaves the load running: the next one looks again.
+    });
+  }, LOAD_CANCEL_POLL_MS);
+
+  // Progress is written one write at a time, and the last before the end
+  let writes: Promise<void> = Promise.resolve();
+  const write = (progress: RecordLoadProgress): void => {
+    writes = writes.then(async () => {
+      // Refused: the job has ended
+      if (!await recordLoadStore.updateStatus(id, variant('processing', some(progress)))) ask();
+    }).catch(() => {
+      // A progress write that fails leaves the last one standing.
+    });
+  };
+  // Pieces settle many times a second: the last count is held back, and
+  // written once the interval has passed, or before the step after
+  let piecesAt = 0;
+  let heldPieces: RecordLoadProgress | null = null;
+  const report = (progress: RecordLoadProgress): void => {
+    if (progress.type === 'pieces') {
+      const now = Date.now();
+      if (now - piecesAt < LOAD_PIECES_INTERVAL_MS) {
+        heldPieces = progress;
+        return;
+      }
+      piecesAt = now;
+    } else if (heldPieces !== null) {
+      write(heldPieces);
+    }
+    heldPieces = null;
+    write(progress);
+  };
+  try {
+    const result = await recordLoad(storage, runner, repo, record.workspace, record.record, record.source, record.delivery, {
+      actor: record.actor,
+      ...(record.asOf.type === 'some' && { asOf: record.asOf.value }),
+      signal: jobSignal,
+      onProgress: report,
+    });
+    await writes;
+    // Its commit has written, when it made one: the load has landed, whatever
+    // was asked since
+    await recordLoadStore.updateStatus(id, variant('completed', result));
+  } catch (err) {
+    await writes;
+    // Stopped before its commit wrote, at a request to cancel it
+    if (err instanceof RecordLoadStoppedError && asked.signal.aborted) {
+      await recordLoadStore.updateStatus(id, variant('cancelled', null));
+      return;
+    }
+    // A load its caller stopped is handed over, not failed.
+    if (signal?.aborted === true) throw err;
+    const message = err instanceof Error ? err.message : String(err);
+    await recordLoadStore.updateStatus(id, variant('failed', { message }));
     throw err;
   } finally {
     clearInterval(watch);

@@ -26,6 +26,12 @@ export {
   SplitCallJobStatusType,
   SplitCallJobType,
   type SplitCallJob,
+  RecordLoadJobType,
+  type RecordLoadJob,
+  ObjectUploadJobType,
+  type ObjectUploadJob,
+  ObjectCommitStatusType,
+  type ObjectCommitStatus,
 } from './types.js';
 
 // Interfaces
@@ -38,6 +44,8 @@ export {
   type WorkspaceDeployStore,
   type RepoGcStore,
   type SplitCallStore,
+  type RecordLoadStore,
+  type ObjectUploadStore,
   type FunctionCallDispatch,
   type TransferBackend,
 } from './interfaces.js';
@@ -69,10 +77,14 @@ export {
   handleProcessDeploy,
   handleProcessGc,
   handleProcessSplitCall,
+  handleProcessRecordLoad,
+  LOAD_CANCEL_POLL_MS,
   type ProcessDeployDeps,
   type ProcessDeployInput,
   type ProcessGcDeps,
   type ProcessGcInput,
   type ProcessSplitCallDeps,
   type ProcessSplitCallInput,
+  type ProcessRecordLoadDeps,
+  type ProcessRecordLoadInput,
 } from './process.js';

@@ -23,8 +23,9 @@ import {
   type ValueTypeOf,
 } from '@elaraai/east';
 import {
-  GcRequestType, GcStatusResultType, InputPolicyType, IntakeFileType, PackageImportProgressType, PackageExportProgressType,
-  SchemaPolicyType, SplitCallPlanType, SplitCallProgressType, TreePathType, WorkspaceDeployStatusType,
+  FunctionCallCancelType, GcRequestType, GcStatusResultType, InputPolicyType, IntakeFileType, PackageImportProgressType,
+  PackageExportProgressType, RecordLoadStatusType, SchemaPolicyType, SplitCallPlanType, SplitCallProgressType, TreePathType,
+  WorkspaceDeployStatusType,
 } from '@elaraai/e3-types';
 import { SplitCallOutcomeType } from '../execution/splitCall.js';
 export { PackageImportProgressType, PackageExportProgressType };
@@ -242,3 +243,71 @@ export const SplitCallJobType = StructType({
 });
 
 export type SplitCallJob = ValueTypeOf<typeof SplitCallJobType>;
+
+// =============================================================================
+// Record Load
+// =============================================================================
+
+/**
+ * A load job, as a store keeps it: the delivery it loads into an external
+ * source of a composite record, who asked and the as-of the delivery carries,
+ * a request to cancel it, and the status a poll reads.
+ *
+ * @remarks
+ * Every field is a name, a hash, a time or a status, so a store with small
+ * records keeps it. Only the job writes its end (`completed`, `failed` or
+ * `cancelled`): a cancel records a request (`cancel`), which the job acts on,
+ * ending `cancelled` when it stops before its commit writes, and `completed`
+ * when its commit has written (ruling 28).
+ */
+export const RecordLoadJobType = StructType({
+  repo: StringType,
+  workspace: StringType,
+  record: StringType,
+  source: StringType,
+  /** The stored hash of the delivery: an object the repository holds. */
+  delivery: StringType,
+  /** Who the load's commit names. */
+  actor: StringType,
+  asOf: OptionType(DateTimeType),
+  /** A request to cancel the job, once one is made: who asked, and when. */
+  cancel: OptionType(FunctionCallCancelType),
+  status: RecordLoadStatusType,
+  createdAt: DateTimeType,
+});
+
+export type RecordLoadJob = ValueTypeOf<typeof RecordLoadJobType>;
+
+// =============================================================================
+// Object Upload
+// =============================================================================
+
+/**
+ * An upload that writes no ref: the dataset upload's protocol, whose commit
+ * checks the bytes and stores them as the object they hash to, for a load's
+ * delivery or a split call's `object` argument to name by its hash.
+ */
+export const ObjectUploadJobType = StructType({
+  repo: StringType,
+  /** The workspace the upload was asked for through, whose routes serve it. */
+  workspace: StringType,
+  /** The SHA-256 the bytes must hash to: the object's name. */
+  hash: StringType,
+  size: IntegerType,
+});
+
+export type ObjectUploadJob = ValueTypeOf<typeof ObjectUploadJobType>;
+
+/**
+ * How an object upload's commit stands, as a store keeps it for a poll:
+ * `processing` while the staged bytes are checked and stored, `completed`
+ * once the store holds the object, and `failed`, naming why, when they are
+ * not the upload's bytes.
+ */
+export const ObjectCommitStatusType = VariantType({
+  processing: NullType,
+  completed: NullType,
+  failed: StructType({ message: StringType }),
+});
+
+export type ObjectCommitStatus = ValueTypeOf<typeof ObjectCommitStatusType>;

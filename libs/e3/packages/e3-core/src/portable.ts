@@ -868,6 +868,12 @@ export {
   SplitCallJobStatusType,
   SplitCallJobType,
   type SplitCallJob,
+  RecordLoadJobType,
+  type RecordLoadJob,
+  ObjectUploadJobType,
+  type ObjectUploadJob,
+  ObjectCommitStatusType,
+  type ObjectCommitStatus,
 } from './transfer/types.js';
 
 export type {
@@ -879,6 +885,8 @@ export type {
   WorkspaceDeployStore,
   RepoGcStore,
   SplitCallStore,
+  RecordLoadStore,
+  ObjectUploadStore,
   FunctionCallDispatch,
   TransferBackend,
 } from './transfer/interfaces.js';
@@ -891,13 +899,15 @@ export {
 } from './transfer/in-process-calls.js';
 
 // The jobs: an import, whose zip is read by ranges where it lies, an export,
-// written to a stream, a deploy, gc, and a split call
+// written to a stream, a deploy, gc, a split call and a record's load
 export {
   handleProcessImport,
   handleProcessExport,
   handleProcessDeploy,
   handleProcessGc,
   handleProcessSplitCall,
+  handleProcessRecordLoad,
+  LOAD_CANCEL_POLL_MS,
   type ProcessImportDeps,
   type ProcessImportInput,
   type ProcessExportDeps,
@@ -908,4 +918,6 @@ export {
   type ProcessGcInput,
   type ProcessSplitCallDeps,
   type ProcessSplitCallInput,
+  type ProcessRecordLoadDeps,
+  type ProcessRecordLoadInput,
 } from './transfer/process.js';
