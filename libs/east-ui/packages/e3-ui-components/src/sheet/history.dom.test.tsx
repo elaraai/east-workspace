@@ -34,11 +34,19 @@ function mount(sheet = view()) {
     const cell = () => utils.container.querySelector('[data-slot="row"] [data-key="qty"]')!;
     const input = () => utils.container.querySelector('[data-slot="editorInput"]')!;
     const flush = () => act(async () => { await Promise.resolve(); await new Promise<void>(resolve => requestAnimationFrame(() => resolve())); });
-    const edit = async (text: string) => {
+    /** Opens the quantity's editor, on its own value. */
+    const open = async () => {
         fireEvent.doubleClick(cell());
         await flush();
+    };
+    /** Types into the open editor. */
+    const type = async (text: string) => {
         fireEvent.input(input(), { target: { value: text } });
         await flush();
+    };
+    const edit = async (text: string) => {
+        await open();
+        await type(text);
     };
     const press = async (name: string) => {
         const button = utils.getByRole("button", { name });
@@ -49,7 +57,7 @@ function mount(sheet = view()) {
     };
     /** The status the history item shows while a Save's revision loads — the footer's loading line is a status of its own. */
     const saveStatus = () => within(utils.container.querySelector<HTMLElement>('[data-slot="history"]')!).queryByRole("status");
-    return { ...utils, cell, input, edit, press, saveStatus, refresh: () => utils.rerender(component(view())) };
+    return { ...utils, cell, input, open, type, edit, press, saveStatus, refresh: () => utils.rerender(component(view())) };
 }
 
 let restoreFrame: () => void = () => {};
@@ -74,6 +82,19 @@ test("Save commits the open editor before writing the checked batch; a saved Und
     ui.refresh();
     expect((ui.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
     expect(ui.saveStatus()).toBeNull();
+});
+
+test("an editor opened on a cell lights none of Undo, Discard and Save until it holds a change; typed back to what it opened with, none again, and committed so it writes nothing (#1680's review)", async () => {
+    const ui = mount();
+    const lit = () => ["Undo", "Discard", "Save"].filter((name) => !(ui.getByRole("button", { name }) as HTMLButtonElement).disabled);
+    await ui.open();
+    expect([ui.input() === null, lit()]).toEqual([false, []]);
+    await ui.type("9");
+    expect(lit()).toEqual(["Undo", "Discard", "Save"]);
+    await ui.type("1");
+    expect(lit()).toEqual([]);
+    await act(async () => { fireEvent.keyDown(ui.input(), { key: "Enter" }); });
+    expect([ui.input(), ui.cell().textContent, lit(), quantity()]).toEqual([null, "1", [], 1n]);
 });
 
 test("Undo first commits an open editor, then undoes that gesture; Redo restores it without writing", async () => {

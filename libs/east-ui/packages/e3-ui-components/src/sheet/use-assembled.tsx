@@ -26,6 +26,7 @@ import { liftDraft, normalizeDraft } from "./draft-values.js";
 import { landSheetOptimise, sheetOptimisePeriod, sheetOptimiseRequest, type SheetOptimiseRequest } from "./optimise.js";
 import type { EntryVersion } from "./transactions.js";
 import { noticeText } from "./words.js";
+import { editUnchanged } from "./sheet-state.js";
 import { SheetInsertLayer, SheetInsertStrip } from "./Insertion.js";
 import { SheetHeader } from "./Header.js";
 import { SheetRow, SheetGroupRow, SheetRetry } from "./Rows.js";
@@ -105,7 +106,7 @@ export function useSheetAssembled(value: SheetRootValue, sheetDecode: SheetDecod
         rowsQuery, run, session, setOptimised, sourceRows, standingIn, total, totalRevision, ui,
     } = sheetSession;
     const { body, colCount, lensLayout, linkCellCtx, memberships, rowAt, rowSpace } = sheetBody;
-    const { emptyNarrowing } = sheetMachine;
+    const { ctx, emptyNarrowing } = sheetMachine;
     const { cardRef, scrollTarget, toolbarRef } = sheetEffects;
     const { actedRef, anchorFor, onHistoryAction, onInsert, onRowDiscard } = sheetGestures;
     const {
@@ -203,7 +204,12 @@ export function useSheetAssembled(value: SheetRootValue, sheetDecode: SheetDecod
         search: pickSearch,
         // The session's error is the frame's banner (#1184), never a line under the item. Its issues button goes to the
         // first issue as the Issues tab's lines do: sought where its row is not drawn, its filters cleared where they hide it.
-        history: !readOnly ? historyToolbarItem({ session, words, editing: ui.edit !== null, onAction: onHistoryAction, onIssue: goToIssue, where: rowWhere, conflictValue, showError: false, locked }) : undefined,
+        // An open editor lights the history's buttons only while its commit would write: one opened on a cell and not
+        // yet typed in holds nothing to save (#1680's review).
+        history: !readOnly ? historyToolbarItem({
+            session, words, editing: ui.edit !== null && !editUnchanged(ui.edit, ctx), onAction: onHistoryAction, onIssue: goToIssue, where: rowWhere,
+            conflictValue, showError: false, locked,
+        }) : undefined,
         optimise: optimiseParts.toolbarItem,
         flash,
     });

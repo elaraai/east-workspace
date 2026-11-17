@@ -204,6 +204,25 @@ export function provisionalCell(edit: EditBuffer, ctx: SheetMachineCtx): SheetCe
     return out.kind === "cell" ? out.cell : null;
 }
 
+/**
+ * Whether the open editor holds nothing to write (#852): closed on the text it opened with, nothing changed — an
+ * untouched editor (its buffer as it opened, no candidate cycled) taking no ghost it was not asked for — or, holding a
+ * chosen member, holding the cell's own (#1536). What a commit writes nothing for, and what the history's buttons
+ * light for no more than for no editor (#1680's review). A link editor's commit always writes.
+ *
+ * @param edit - The open editor
+ * @param ctx - The sheet as the machine sees it
+ * @returns Whether a commit of it would write nothing
+ */
+export function editUnchanged(edit: EditBuffer, ctx: SheetMachineCtx): boolean {
+    if (edit.link !== undefined || edit.opened === undefined) return false;
+    if (edit.pick !== undefined) {
+        const own = ctx.memberAt?.(edit.r, edit.c);
+        return own !== undefined && stringEqual(edit.pick, own);
+    }
+    return commitText(edit, ctx) === edit.opened || (edit.val === edit.opened && edit.hi < 0);
+}
+
 /** Commit the open editor in a direction. */
 function commitEdit(s: SheetUiState, dir: CommitDir, ctx: SheetMachineCtx): Transition {
     const edit = s.edit;
@@ -224,17 +243,9 @@ function commitEdit(s: SheetUiState, dir: CommitDir, ctx: SheetMachineCtx): Tran
     }
     const text = commitText(edit, ctx);
     const effects: SheetEffect[] = [];
-    // Closed on the text it opened with, nothing changed and nothing is
-    // written (#852): the cell keeps its own value, never its edit form read
-    // back, and the history takes no step. An untouched editor (its buffer
-    // as it opened, no candidate cycled) never takes a ghost it was not
-    // asked for either. Holding a chosen member, it is unchanged while that
-    // member is the cell's own (#1536).
-    const own = edit.pick !== undefined ? ctx.memberAt?.(edit.r, edit.c) : undefined;
-    const unchanged = edit.opened !== undefined && (edit.pick !== undefined
-        ? own !== undefined && stringEqual(edit.pick, own)
-        : text === edit.opened || (edit.val === edit.opened && edit.hi < 0));
-    if (!unchanged) {
+    // Closed on the text it opened with, nothing changed and nothing is written (#852): the cell keeps its own value,
+    // never its edit form read back, and the history takes no step ({@link editUnchanged}).
+    if (!editUnchanged(edit, ctx)) {
         const outcome = ctx.parse(edit.r, edit.c, text);
         effects.push({ t: "write", r: edit.r, c: edit.c, cell: outcome.kind === "cell" ? outcome.cell : outcome.kind === "unrecognised" ? variant("Invalid", text) : null, text });
     }
