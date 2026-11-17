@@ -260,10 +260,10 @@ const assemblies = e3.record('assemblies', AssembliesType, {
 
 | Builder (`index.nested.…`) | A field holding |
 |---|---|
-| `items({ from, to })`, `items({ at })` | `Dict<String, Struct>`: things people drag, by id; their times are DateTime or Option<DateTime> fields — no start files an item nowhere, no end (or one at or before its start) makes it an instant. `{ rollup: true }` files each under every ancestor too |
+| `items({ from, to })`, `items({ at })` | `Dict<K, Struct>`: things people drag, by id, of any key type but a DateTime; their times are DateTime or Option<DateTime> fields — no start files an item nowhere, no end (or one at or before its start) makes it an instant. `{ rollup: true }` files each under every ancestor too |
 | `values({ rollup? })` | `Dict<DateTime, V>`: a value per instant. `rollup` keeps every parent's subtotals |
-| `rows({ … })` | `Dict<String, Struct>`: child rows, their own collections declared the same way |
-| `recursive()` | `Dict<String, Self>`: more rows like the one listing it, to any depth |
+| `rows({ … })` | `Dict<K, Struct>`: child rows, keyed by any type but a DateTime (a role, a number, a String), their own collections declared the same way |
+| `recursive()` | `Dict<K, Self>`: more rows like the one listing it, to any depth, keyed as the rows listing it are |
 
 TypeScript types `collections` field by field from the record's type alone: a
 misnamed time, or a builder on the wrong kind of field, is an error where it is
@@ -273,11 +273,22 @@ series index, which takes no `on` and no `value`.
 
 **What it files.** Every entry is keyed `{ collection, row, path, run, level,
 tile, item }` (e3-types' `NestedEntryKeyType`): the collection's place, the
-field names from the row down (`members` then `load`); the row's key; the Dict
-keys from the row down to the node (`[]` for the row, `m-3` for a member); the
-run; the level and tile; and the item. A place and a path are held as a key
+field names from the row down (`members` then `load`); the row's key; the child
+rows' keys from the row down to the node (none for the row, `m-3` for a member);
+the run; the level and tile; and the item. A place and a path are held as a key
 holds a list, folded from the last: `.step (key="members", rest=.step
-(key="load", rest=.end))`. Each run of a node is one contiguous range a level:
+(key="load", rest=.end))`.
+
+A child row's key and an item's id are held in their own types, never as text.
+They are the index's **ids**: one variant with a case for each collection of
+child rows and of items, named by its place's field names joined with a dot
+(`members`, `members.tasks`), each holding that collection's key type. So a
+member's path is `.step (key=.members "m-3", rest=.end)`, a job's item
+`.id .jobs "j-0042"`, and a crew's hours by role, a variant, sit under
+`.step (key=.hours .operator, rest=.end)`. Keys sort in their types' own order.
+A declared field's name holds no dot.
+
+Each run of a node is one contiguous range a level:
 
 | Run | Holds |
 |---|---|
@@ -505,7 +516,7 @@ const sheetsOnUnit = e3.function('sheets_on_unit', {
   inputs: [inTime], args: [StringType, StringType, DateTimeType, DateTimeType], output: FloatType,
 }, ($, linesInTime, line, unit, from, to) => {
   const sheets = $.let(0.0);
-  linesInTime.items({ collection: ['units', 'jobs'], row: line, path: [unit], from, to })
+  linesInTime.items({ collection: ['units', 'jobs'], row: line, path: [variant('units', unit)], from, to })
     .each($, ($, job) => { $.assign(sheets, sheets.add(job.sheets)); });
   return sheets;
 });
@@ -515,8 +526,8 @@ linesInTime.subtotals({ collection: ['units', 'load'], row: line, rollup: 'mean'
 
 | Reader | Gives, each once | Needs | Runs read |
 |---|---|---|---|
-| `items(node)` | the node's own items that overlap `[from, to)`, each with its id; or its values in the window, each with its instant | | one a level for items timed `{ from, to }`; one for values and items timed `{ at }` |
-| `subtree(node)` | the items of every node beneath the node that overlap the window, each with `{ path, id }`: the keys from the node down to the one holding it — a path, `end` or a `step` and the rest — and its id (`NestedUnderType`) | `items(…, { rollup: true })` | one a level |
+| `items(node)` | the node's own items that overlap `[from, to)`, each with its id, in its collection's own key type; or its values in the window, each with its instant | | one a level for items timed `{ from, to }`; one for values and items timed `{ at }` |
+| `subtree(node)` | the items of every node beneath the node that overlap the window, each with `{ path, id }`: the keys from the node down to the one holding it — a path, `end` or a `step` and the rest — and its id, each an id of the index's (`NestedUnderType(index)` is the type) | `items(…, { rollup: true })` | one a level |
 | `totals(node)` | the node's totals of the collection in each summary tile that overlaps the window — `{ count, ms, values }`, `values` the sum, least, greatest and latest of numbers — with the tile's start | `summary` | one |
 | `subtreeTotals(node)` | the same, of the items beneath the node | `rollup: true` and `summary` | one |
 | `subtotals({ …node, rollup, level? })` | a parent's subtotal of its children's values in each tile of `level` that overlaps the window, with the tile's start. `rollup` is written as the collection declares it; `level` is the index's tile where left out, or a coarser one | `values({ rollup })` | one |

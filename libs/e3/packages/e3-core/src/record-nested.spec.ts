@@ -10,13 +10,16 @@
  * ancestor, parents' subtotals — and the lean rows the record's other indexes
  * carry are East the SDK generates, so every runtime must give every row the
  * same entries, byte for byte, and a maintained index must be the one a
- * reindex rebuilds. This deploys the same four records to a workspace per
+ * reindex rebuilds. This deploys the same six records to a workspace per
  * runtime — machines (things people drag, and values), halls (members' loads,
  * rolled up by their mean), assemblies (parts five deep, their jobs rolled up
- * under every ancestor) and ledgers (measure trees three levels deep, their
+ * under every ancestor), ledgers (measure trees three levels deep, their
  * readings rolled up by sum, mean and count, their stock by its last,
- * summed) — each with its patch door, its nested index and an index of its
- * rows. It writes the same rows through the doors, then the issue's writes one
+ * summed), crews (each crew's hours by role, a variant, and a role's shifts by
+ * their number: child rows and items keyed by other types than String, #1540)
+ * and gauges (a value a day and nothing keyed by an id, so an index whose ids
+ * have no case) — each with its patch door, its nested index and an index of
+ * its rows. It writes the same rows through the doors, then the issue's writes one
  * after another, and a reduce over all last, and compares the states hash for
  * hash after each: across the runtimes, against a rebuild in each, and against
  * the same writes with every row they update replaced whole — which the index
@@ -38,8 +41,8 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { join, dirname } from 'node:path';
 import {
-  DateTimeType, DictType, East, FloatType, IntegerType, OptionType, PatchType, RecursiveType, SortedMap, StringType, StructType,
-  compareFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, fromEastTypeValue, printFor, variant,
+  DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, PatchType, RecursiveType, SortedMap, StringType, StructType,
+  VariantType, compareFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, fromEastTypeValue, printFor, variant,
   type EastType, type ValueTypeOf,
 } from '@elaraai/east';
 import e3, { type PartRunner } from '@elaraai/e3';
@@ -78,11 +81,20 @@ const Measure = RecursiveType((self) => StructType({
 }));
 const Ledger = StructType({ name: StringType, site: StringType, measures: DictType(StringType, Measure) });
 const Ledgers = DictType(StringType, Ledger);
+/** A role in a crew (#1540): what a crew's hours are keyed by. */
+const Role = VariantType({ assistant: NullType, operator: NullType });
+const Shift = StructType({ at: DateTimeType, who: StringType });
+const RoleHours = StructType({ hours: DictType(DateTimeType, FloatType), shifts: DictType(IntegerType, Shift) });
+const Crew = StructType({ name: StringType, site: StringType, hours: DictType(Role, RoleHours) });
+const Crews = DictType(StringType, Crew);
+/** A gauge: a level a day, and nothing keyed by an id. */
+const Gauge = StructType({ name: StringType, site: StringType, level: DictType(DateTimeType, FloatType) });
+const Gauges = DictType(StringType, Gauge);
 
 /** A runner selection, as a record's builders take one. */
 type RunnerConfig = PartRunner;
 
-/** The four records, each with its patch door, its nested index and an index of its rows, on a runner; and a reduce over the machines. */
+/** The six records, each with its patch door, its nested index and an index of its rows, on a runner; and a reduce over the machines. */
 function declared(runner?: RunnerConfig) {
   const machines = e3.record('machines', Machines, {
     initial: new Map(),
@@ -148,12 +160,34 @@ function declared(runner?: RunnerConfig) {
     }),
     mutations: (mutation) => ({ patch: mutation.patch(runner) }),
   });
-  return [machines, halls, assemblies, ledgers] as const;
+  // Each crew's hours by role, the roles summed a crew, and each role's shifts by their number.
+  const crews = e3.record('crews', Crews, {
+    initial: new Map(),
+    indexes: (index) => ({
+      crews_in_time: index.nested({
+        collections: { hours: index.nested.rows({ hours: index.nested.values({ rollup: 'sum' }), shifts: index.nested.items({ at: 'at' }) }) },
+        tile: 'week',
+        summary: 'month',
+      }, runner),
+      crews_by_site: index.on(['site'], runner),
+    }),
+    mutations: (mutation) => ({ patch: mutation.patch(runner) }),
+  });
+  const gauges = e3.record('gauges', Gauges, {
+    initial: new Map(),
+    indexes: (index) => ({
+      gauges_in_time: index.nested({ collections: { level: index.nested.values() }, tile: 'day', summary: 'month' }, runner),
+      gauges_by_site: index.on(['site'], runner),
+    }),
+    mutations: (mutation) => ({ patch: mutation.patch(runner) }),
+  });
+  return [machines, halls, assemblies, ledgers, crews, gauges] as const;
 }
 
 /** Each record's name and state type. */
 const RECORDS: ReadonlyArray<{ name: string; type: EastType }> = [
   { name: 'machines', type: Machines }, { name: 'halls', type: Halls }, { name: 'assemblies', type: Assemblies }, { name: 'ledgers', type: Ledgers },
+  { name: 'crews', type: Crews }, { name: 'gauges', type: Gauges },
 ];
 
 /** Each index's record and name. */
@@ -228,6 +262,21 @@ function measures(l: number, draw: () => number): string {
   ]);
 }
 
+/**
+ * A crew as East prints one: each role's hours a week, and the operator's shifts on the days given, each by its
+ * day's number — so 2 files before 10, as numbers sort and their texts do not.
+ */
+function crew(c: number, draw: () => number, shiftDays: readonly number[] = [2, 10, 11]): string {
+  const hours = (weeks: number) => dictText(Array.from({ length: weeks }, (_, w) => `${day(w * 7)}:${(Math.floor(draw() * 400) / 10).toFixed(1)}`));
+  const shifts = dictText(shiftDays.map((n) => `${n}:(at=${day(n, 6)}, who="p-${c}-${n}")`));
+  return `(name="Crew ${c}", site="Site ${c % 2}", hours=${dictText([`.assistant:(hours=${hours(3)}, shifts={:})`, `.operator:(hours=${hours(4)}, shifts=${shifts})`])})`;
+}
+
+/** A gauge as East prints one: a level each of `days` days. */
+function gauge(g: number, days: number, draw: () => number): string {
+  return `(name="Gauge ${g}", site="Site ${g % 2}", level=${dictText(Array.from({ length: days }, (_, d) => `${day(d)}:${(Math.floor(draw() * 100) / 100).toFixed(2)}`))})`;
+}
+
 /** The rows the doors first write. */
 function seeded() {
   const draw = seededStream(1434);
@@ -237,6 +286,8 @@ function seeded() {
       `"H-${h}":(name="Hall ${h}", site="Site ${h % 2}", members=${dictText(Array.from({ length: 4 }, (_, m) => `"m-${m}":${member(`member ${m}`, 20, draw)}`))})`))),
     assemblies: parsedValue(Assemblies, dictText(Array.from({ length: 4 }, (_, a) => `"A-${a}":(name="Assembly ${a}", parts=${parts(a, draw)})`))),
     ledgers: parsedValue(Ledgers, dictText(Array.from({ length: 4 }, (_, l) => `"L-${l}":(name="Ledger ${l}", site="Site ${l % 2}", measures=${measures(l, draw)})`))),
+    crews: parsedValue(Crews, dictText(Array.from({ length: 4 }, (_, c) => `"C-${c}":${crew(c, draw)}`))),
+    gauges: parsedValue(Gauges, dictText(Array.from({ length: 4 }, (_, g) => `"G-${g}":${gauge(g, 20, draw)}`))),
   };
 }
 
@@ -323,6 +374,25 @@ function writes(): Array<{ what: string; record: keyof Rows; next: (rows: Rows) 
       next: (rows) => {
         const next = copied(rows.ledgers);
         next.set('L-0', parsedValue(Ledger, `(name="Ledger 0", site="Site 0", measures=${measures(0, draw)})`));
+        return next;
+      },
+    },
+    {
+      what: 'a role\'s hours changed, a shift moved, one added and one removed, and a crew left with one role', record: 'crews',
+      next: (rows) => {
+        const next = copied(rows.crews);
+        next.set('C-0', parsedValue(Crew, crew(0, draw, [3, 10, 12])));
+        next.set('C-1', parsedValue(Crew, `(name="Crew 1", site="Site 1", hours={.operator:(hours={${day(7)}:12.5}, shifts={:})})`));
+        return next;
+      },
+    },
+    {
+      what: 'a gauge\'s levels changed, a gauge added and one removed', record: 'gauges',
+      next: (rows) => {
+        const next = copied(rows.gauges);
+        next.set('G-0', parsedValue(Gauge, gauge(0, 25, draw)));
+        next.set('G-9', parsedValue(Gauge, gauge(9, 5, draw)));
+        next.delete('G-1');
         return next;
       },
     },
