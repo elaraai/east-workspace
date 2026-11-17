@@ -10,9 +10,9 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { ArrayType, East, IntegerType, StringType, decodeBeast2For, encodeBeast2For, encodeEastIR, none, some, variant, type EastType, type ValueTypeOf } from '@elaraai/east';
+import { ArrayType, East, IntegerType, StringType, decodeBeast2For, encodeBeast2For, encodeEastIR, equalFor, none, some, variant, type EastType, type ValueTypeOf } from '@elaraai/east';
 import e3 from '@elaraai/e3';
-import { TaskObjectType, decodeTaskObject } from '@elaraai/e3-types';
+import { RunnerType, TaskObjectType, decodeTaskObject } from '@elaraai/e3-types';
 import { Budget, InMemoryStateStore, LocalOrchestrator, LocalStorage, LocalTaskRunner, datasetWrite, inputsHash,
   packageImport, packageRead, repoInit, unitCap, workspaceCreate, workspaceDeploy, type DetachedArg, type DetachedResult, type DetachedSpec,
   type UnitRequeue } from '@elaraai/e3-core';
@@ -30,6 +30,7 @@ import { createRackBody } from './rack-body.js';
 import { createRackCall } from './rack-call.js';
 import { RACK_INLINE_ARGS_MAX, RACK_INLINE_VALUE_MAX, type RackLeaseEvent } from '../protocol/task-envelope.js';
 import { RackHeartbeatRequestType, type RackLeaseGrant } from '../protocol/rack-wire.js';
+import { sameLeaseRefs } from '../testing/lease-refs.js';
 import { E3_RACK_VERSION } from '../version.js';
 import { describeRackSummary } from './summary.js';
 
@@ -205,7 +206,7 @@ it('cancels a claimed dataflow and makes the next heartbeat stop its rack execut
   abort.abort(); await assert.rejects(orchestrator.wait(run), /aborted/);
   assert.equal((await orchestrator.getStatus(run)).state, 'cancelled');
   assert.equal(f.budget.peak, 0);
-  assert.deepEqual((await agent.heartbeat([grant])).stop, [{ repo: grant.repo, leaseId: grant.leaseId }]);
+  assert.ok(sameLeaseRefs((await agent.heartbeat([grant])).stop, [{ repo: grant.repo, leaseId: grant.leaseId }]));
 });
 
 it('falls back after a lost lease and keeps the interrupted attempt in history', async () => {
@@ -802,7 +803,7 @@ it('answers a call timed_out once its own timeout has passed on a rack that has 
   const grant = await agent.claim(); assert(grant);
   assert.deepEqual(await running, { kind: 'timed_out', ms: 500, stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false });
   assert(Date.now() - started >= 500);
-  assert.deepEqual((await agent.heartbeat([grant])).stop, [{ repo: grant.repo, leaseId: grant.leaseId }], 'its rack is told to stop it');
+  assert.ok(sameLeaseRefs((await agent.heartbeat([grant])).stop, [{ repo: grant.repo, leaseId: grant.leaseId }]), 'its rack is told to stop it');
   assert.equal(f.budget.peak, 0);
 });
 
@@ -833,7 +834,21 @@ it('gives a call its rule\'s time, longer or shorter than its caller\'s, on its 
   await createRackCall({ session, policy: setRule(g.policy, 'fn:double', 'rack', { timeoutMinutes: 5 }), workspace: 'dev', selected: true })(request, here);
   await createRackCall({ session, policy: g.policy, workspace: 'dev', selected: true })(request, here);
   assert.deepEqual(ran.map((given) => given.limits.timeoutMs), [300_000, 60_000]);
-  assert.deepEqual(ran.map((given) => ({ ...given, limits: spec.limits })), [spec, spec], 'nothing else of the call changes');
+  // Nothing else of the call changes: its runner, as East compares one, and
+  // its program, arguments, environment and other limits
+  const plain = ({ bodyIr, args, environment, limits }: DetachedSpec) => ({ bodyIr, args, environment, maxResultBytes: limits.maxResultBytes, maxLogBytes: limits.maxLogBytes });
+  for (const given of ran) {
+    assert.ok(equalFor(RunnerType)(given.runner, spec.runner));
+    assert.deepEqual(plain(given), plain(spec));
+  }
+});
+
+it('says an opening its caller stopped as the stop, and of no work that it runs locally', async () => {
+  const f = await fixture();
+  const stopped = await f.open({ selected: true, signal: AbortSignal.abort() });
+  assert.equal(stopped.unattached, 'Rack hub connection was abandoned: the run was aborted');
+  assert.equal(stopped.describe(), 'Rack hub connection was abandoned: the run was aborted');
+  assert.equal((await f.client.status()).sessions.length, 0, 'no session was opened');
 });
 
 it('starts nothing here for work its caller aborted before it was leased: a call, and a task', async () => {
@@ -857,6 +872,6 @@ it('leaves the lease of a call its caller aborts, which ends as an aborted local
   const grant = await agent.claim(); assert(grant);
   abort.abort();
   assert.deepEqual(await running, { kind: 'failed', exitCode: -1, stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false });
-  assert.deepEqual((await agent.heartbeat([grant])).stop, [{ repo: grant.repo, leaseId: grant.leaseId }]);
+  assert.ok(sameLeaseRefs((await agent.heartbeat([grant])).stop, [{ repo: grant.repo, leaseId: grant.leaseId }]));
   assert.equal(f.budget.peak, 0);
 });

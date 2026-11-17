@@ -12,7 +12,7 @@ import { dirname, join } from 'node:path';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { setTimeout as delay } from 'node:timers/promises';
-import { East, IntegerType, StringType, decodeBeast2For, encodeBeast2For, none, some, variant } from '@elaraai/east';
+import { East, IntegerType, OptionType, StringType, decodeBeast2For, encodeBeast2For, equalFor, none, some, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { decodeTaskObject } from '@elaraai/e3-types';
 import { LocalStorage, environmentLayerPath, environmentLayersDir, hostEnvironmentPlatform, inputsHash, packageImport, packageRead, processOwner, repoInit, uuidv7 } from '@elaraai/e3-core';
@@ -23,10 +23,11 @@ import { socketRequest } from '../client/local-http.js';
 import { startSessionDataServer } from '../client/session-data-server.js';
 import { HUB_CONFIG_FILE, hubSocketPath } from '../paths.js';
 import { E3_RACK_VERSION, HUB_PROTOCOL } from '../version.js';
-import { ApproveRackType, AttachLeaseResultType, CancelLeaseResultType, CreateLeaseType, CreateLeaseResultType, EmptyType, HubConfigType,
+import { ApproveRackType, AttachLeaseResultType, CancelLeaseResultType, CreateLeaseType, CreateLeaseResultType, EmptyType, HubAttemptType, HubConfigType,
   HubEnrollResultType, HubEnrollType, HubStatusType, OpenSessionType, OpenSessionResultType, RemoveRackResultType, SessionPollType, SessionPollResultType } from '../protocol/control.js';
 import { RackRegistrationType, RackSecurityPolicyType } from '../protocol/registration.js';
 import { RackHeartbeatRequestType, RackHeartbeatResponseType } from '../protocol/rack-wire.js';
+import { sameLeaseRefs } from '../testing/lease-refs.js';
 import { RACK_CALL_VALUE_OBJECTS, RACK_LISTENER_IDLE_MS, RACK_PROTOCOL, RACK_TRANSFERS_AT_ONCE, readRackHello, readRackRefusal } from '../protocol/rack-json.js';
 import { TestRackAgent, type TestRackAgentOptions } from '../testing/test-rack-agent.js';
 import { SlowLink, type SlowLinkOptions } from '../testing/slow-link.js';
@@ -181,7 +182,7 @@ it('takes over acknowledged uploads and cancels a shared lease only after its la
   assert.equal((await agent.heartbeat([grant])).stop.length, 0);
   assert.equal((await agent.storageRequest(grant, { commits: [{ hash, size, version }] })).committed[0]!.committed, true);
   assert.equal((await second.cancel(created.leaseId)).status, 'cancelled');
-  assert.deepEqual((await agent.heartbeat([grant])).stop, [{ repo: grant.repo, leaseId: grant.leaseId }]);
+  assert.ok(sameLeaseRefs((await agent.heartbeat([grant])).stop, [{ repo: grant.repo, leaseId: grant.leaseId }]));
   assert.equal((await f.fetch(target.value.url, { method: 'PUT', body: bytes })).status, 404);
   assert.equal((await agent.complete(grant, { taskName: 'task', status: 'success', outputHash: hash })).disposition.type, 'discarded');
   assert.equal(await f.storage.objects.exists(f.repo, hash), true);
@@ -228,7 +229,7 @@ it('leases each call as its own lease, attaches none to another, and publishes a
   const grant = await agent.claim(); assert.equal(grant?.leaseId, a.leaseId);
   const claims = (await first.events()).events.map((e) => e.event).filter((e) => e.type === 'claimed');
   assert.equal(claims.length, 1); assert(claims[0]!.type === 'claimed');
-  assert.deepEqual(claims[0]!.value.attempt, none, 'a call\'s lease runs no attempt');
+  assert.ok(equalFor(OptionType(HubAttemptType))(claims[0]!.value.attempt, none), 'a call\'s lease runs no attempt');
   assert.deepEqual(first.logs, [], 'and keeps no log');
   await assert.rejects(first.create({ ...call(program, 4n), program: 'not a hash' }), /A call's lease names its program/);
 });

@@ -21,7 +21,7 @@
  * Real filesystem only — an inode assertion has no meaning against a mock.
  */
 
-import { describe, it, beforeEach, afterEach } from 'node:test';
+import { describe, it, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -29,7 +29,7 @@ import { delimiter, dirname, join, resolve, sep } from 'node:path';
 import crossSpawn from 'cross-spawn';
 import { ArrayType, DictType, East, FunctionType, IntegerType, NullType, SortedMap, StringType, UnitType, compareFor, decodeBeast2For, encodeBeast2For, encodeEastIR, variant } from '@elaraai/east';
 import { decodeCollectionManifest } from '@elaraai/e3-types';
-import { collectNodeModulesBins, collectVenvBins, jobLauncher, marshalInputsToDir, quoteWindowsArgument, spawnAndCapture } from './processExec.js';
+import { LONGEST_TIMER_MS, afterWait, collectNodeModulesBins, collectVenvBins, jobLauncher, marshalInputsToDir, quoteWindowsArgument, spawnAndCapture } from './processExec.js';
 import { SegmentFetcher } from './segment-fetch.js';
 import { unitArgv } from './units.js';
 import { storeDatasetFile } from '../store-collection-file.js';
@@ -543,6 +543,19 @@ describe('a runner\'s command line', () => {
     assert.equal(result.stoppedByE3, false);
   });
 
+  it('runs a runner to its end under a time limit longer than one timer waits, which Node would fire at once', async () => {
+    // A rack rule's timeout in minutes, or a task's own, may be more than the
+    // 24.8 days a timer takes: set on one timer it fired after a millisecond,
+    // and the runner was stopped as it started
+    const result = await spawnAndCapture([process.execPath, '-e', 'setTimeout(() => process.exit(0), 300)'], dir, { timeoutMs: LONGEST_TIMER_MS + 1 });
+    assert.deepEqual({ exitCode: result.exitCode, timedOut: result.timedOut, stoppedByE3: result.stoppedByE3 }, { exitCode: 0, timedOut: false, stoppedByE3: false });
+  });
+
+  it('still stops a runner that outlives its time limit', async () => {
+    const result = await spawnAndCapture([process.execPath, '-e', 'setTimeout(() => {}, 60000)'], dir, { timeoutMs: 200 });
+    assert.deepEqual({ timedOut: result.timedOut, stoppedByE3: result.stoppedByE3 }, { timedOut: true, stoppedByE3: true });
+  });
+
   it('gives the runner the caller\'s variables, after the process\'s own', async () => {
     const previous = process.env.E3_TEST_OVERRIDDEN;
     process.env.E3_TEST_OVERRIDDEN = 'the process\'s';
@@ -963,5 +976,36 @@ describe('the stdin lifeline (#770)', () => {
         }
       }
     }
+  });
+});
+
+describe('a wait longer than one timer takes', () => {
+  afterEach(() => mock.timers.reset());
+
+  it('fires once, when the whole of it has passed, and not at all once stopped', () => {
+    mock.timers.enable({ apis: ['setTimeout'] });
+    let fired = 0;
+    // Two timers and a part of a third
+    const ms = 2 * LONGEST_TIMER_MS + 5_000;
+    afterWait(() => { fired++; }, ms);
+    mock.timers.tick(LONGEST_TIMER_MS);
+    mock.timers.tick(LONGEST_TIMER_MS);
+    mock.timers.tick(4_999);
+    assert.equal(fired, 0, 'not before its time, however many timers that takes');
+    mock.timers.tick(1);
+    assert.equal(fired, 1);
+    mock.timers.tick(LONGEST_TIMER_MS);
+    assert.equal(fired, 1, 'once');
+
+    const stop = afterWait(() => { fired++; }, LONGEST_TIMER_MS + 10);
+    mock.timers.tick(LONGEST_TIMER_MS);
+    stop();
+    mock.timers.tick(10);
+    assert.equal(fired, 1, 'stopped between two of its timers, it never fires');
+    const short = afterWait(() => { fired++; }, 50);
+    mock.timers.tick(49);
+    short();
+    mock.timers.tick(1);
+    assert.equal(fired, 1);
   });
 });

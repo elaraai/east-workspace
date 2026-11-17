@@ -639,17 +639,39 @@ async function retryTransient(op: () => Promise<void>, maxAttempts: number): Pro
  */
 export async function atomicWriteFile(filePath: string, data: Uint8Array | string): Promise<void> {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await replaceFileWith(filePath, (stagingPath) => fs.writeFile(stagingPath, data));
+}
+
+/**
+ * Replaces a file with one written beside it: `write` writes the new file at
+ * a staging path of its own, which is then renamed over the destination. The
+ * stage-and-rename {@link atomicWriteFile} and a command's output file
+ * (`writeOutputFile`) share.
+ *
+ * @remarks
+ * A write or a rename that fails leaves the destination as it was and nothing
+ * staged: the staging file is removed once `write` has returned, so `write`
+ * closes what it opened before it does.
+ *
+ * @param filePath - Destination path to replace, in a directory that exists
+ * @param write - Writes the new file at the staging path it is given
+ * @throws What `write` or the rename throws
+ * @example
+ * ```ts
+ * await replaceFileWith(statePath, (stagingPath) => fs.writeFile(stagingPath, encodedState));
+ * ```
+ */
+export async function replaceFileWith(filePath: string, write: (stagingPath: string) => Promise<void>): Promise<void> {
   // A short random suffix so concurrent writers to the same destination never
   // collide on the staging path. Kept short (no timestamp) to minimise the
   // extra length added over the destination — the staging path is always
   // longer than the final path, which matters near the Windows MAX_PATH limit.
-  const randomSuffix = Math.random().toString(36).slice(2, 10);
-  const stagingPath = `${filePath}.${randomSuffix}.partial`;
-  await fs.writeFile(stagingPath, data);
+  const stagingPath = `${filePath}.${Math.random().toString(36).slice(2, 10)}.partial`;
   try {
+    await write(stagingPath);
     await renameWithRetry(stagingPath, filePath);
   } catch (err) {
-    try { await fs.unlink(stagingPath); } catch { /* ignore cleanup failure */ }
+    await unlinkWithRetry(stagingPath).catch(() => { /* never made, or renamed already */ });
     throw err;
   }
 }
@@ -666,8 +688,8 @@ export async function atomicWriteFile(filePath: string, data: Uint8Array | strin
  */
 export function atomicWriteFileSync(filePath: string, data: Uint8Array): void {
   const stagingPath = `${filePath}.${Math.random().toString(36).slice(2, 10)}.partial`;
-  writeFileSync(stagingPath, data);
   try {
+    writeFileSync(stagingPath, data);
     for (let attempt = 0; ; attempt++) {
       try {
         renameSync(stagingPath, filePath);

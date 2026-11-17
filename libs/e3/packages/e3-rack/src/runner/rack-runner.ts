@@ -94,6 +94,8 @@ export interface RackRunnerHandle {
  * Opens a run's rack attachment, falling back to the standard local runner
  * for unavailable service or incompatible agents. Local settings and budget
  * are preserved in either case; a rack problem never prevents a local run.
+ * An opening its caller's signal stopped is unattached too, and says the
+ * stop, not that work runs locally: its caller runs nothing more.
  * @param options - Repository, policy and the host's runtime collaborators
  * @returns The runner and a session handle the caller closes in finally
  * @example
@@ -169,7 +171,10 @@ export async function openRackRunner(options: OpenRackRunnerOptions): Promise<Ra
   } catch (error) {
     await session?.close().catch(() => {});
     const message = error instanceof Error ? error.message : String(error);
-    return { runner: local, unattached: message, rackSlots: 0, describe: () => `${message}; running locally`, refreshSlots: () => Promise.resolve(0), takeSummary,
-      close: () => Promise.resolve() };
+    // Stopped by its caller, the opening names no rack problem a local run
+    // answers: nothing of the caller's runs on
+    const stopped = options.signal?.aborted === true;
+    return { runner: local, unattached: message, rackSlots: 0, describe: () => (stopped ? message : `${message}; running locally`),
+      refreshSlots: () => Promise.resolve(0), takeSummary, close: () => Promise.resolve() };
   }
 }

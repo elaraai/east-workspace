@@ -193,7 +193,8 @@ export const workspaceCommand = {
         await deployRemote(target, name, version);
       }
 
-      if (!target.plan) console.log(`Deployed ${pkgSpec} to workspace: ${ws}`);
+      // The version deployed, which a bare name does not say
+      if (!target.plan) console.log(`Deployed ${name}@${version} to workspace: ${ws}`);
     } catch (err) {
       exitError(formatError(err));
     }

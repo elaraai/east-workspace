@@ -12,7 +12,7 @@
  */
 
 import { setTimeout as delay } from 'node:timers/promises';
-import { EnvironmentTargetRefused, type Budget, type StorageBackend } from '@elaraai/e3-core';
+import { EnvironmentTargetRefused, LONGEST_TIMER_MS, type Budget, type StorageBackend } from '@elaraai/e3-core';
 import type { CreateLease } from '../protocol/control.js';
 import type { LeaseAttempt, LeaseHandle, LeaseUpdate, RackSession } from '../client/session.js';
 import type { RackPlacementEvent } from '../protocol/placement.js';
@@ -804,7 +804,7 @@ function wait(next: Promise<LeaseUpdate>, ms: number, signal?: AbortSignal): Pro
   return new Promise((resolve, reject) => {
     const finish = (value: LeaseUpdate | 'tick' | 'abort') => { clearTimeout(timer); signal?.removeEventListener('abort', abort); resolve(value); };
     const abort = () => finish('abort');
-    const timer = setTimeout(() => finish('tick'), Math.max(1, Math.min(ms, 2147483647)));
+    const timer = setTimeout(() => finish('tick'), Math.max(1, Math.min(ms, LONGEST_TIMER_MS)));
     signal?.addEventListener('abort', abort, { once: true });
     next.then(finish, (error: unknown) => { clearTimeout(timer); signal?.removeEventListener('abort', abort); reject(error); });
   });

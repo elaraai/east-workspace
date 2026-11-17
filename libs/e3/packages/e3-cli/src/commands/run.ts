@@ -25,14 +25,18 @@
  * and assembly staying here. The cache, the execution records and the logs are
  * as a local run writes them. A line says where the task ran, and why, and the
  * run ends with the rack summary a dataflow run ends with, which says where a
- * split task's pieces ran. Ctrl-C leaves the task's leases, whose racks are
- * told to stop it.
+ * split task's pieces ran. A run the cache answers is no rack's work, and
+ * opens no rack session. Ctrl-C leaves the task's leases, whose racks are
+ * told to stop it, and stops the output's write: the file at -o is then as
+ * it was.
  */
 
 import { stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import {
+  inputsHash,
   packageRead,
+  probeExecutionCache,
   readDatasetChunks,
   taskExecute,
   withRunningWork,
@@ -47,7 +51,7 @@ import { openRepo, parsePackageSpec, resolvePackageVersion, formatError, exitErr
 import { createProgress } from '../progress.js';
 import { adoptFileReported, intakeReporter } from '../intake.js';
 import { commandBudget, type BudgetFlags } from './budget.js';
-import { openCommandRack, printRackSummary, refuseRemoteRack, unattachedLine, type RackFlags } from './rack-options.js';
+import { openCommandRack, printRackSummary, rackAsked, refuseRemoteRack, unattachedLine, type RackFlags } from './rack-options.js';
 import { untilInterrupted } from '../interrupt.js';
 
 /**
@@ -157,22 +161,25 @@ export async function runCommand(
     // work: gc takes the repository exclusively, so a sweep never takes an
     // input's segments, or this execution's unrooted objects (carved slices,
     // unit outputs), before its records name them
-    const onRack = options.rack === true || options.rackOnly === true;
+    const onRack = rackAsked(options);
     const run = (signal?: AbortSignal) => withRunningWork(storage, repoPath, async () => {
       const inputHashes = await takeInInputs(storage, repoPath, inputs, budget, signal);
       for (const [i, hash] of inputHashes.entries()) console.log(`  Input: ${inputs[i]} -> ${shortHash(hash)}`);
+      const startTime = Date.now();
+      // A run the cache answers is no rack's work: no session is opened for
+      // it, which may start a hub and wait for a rack
+      const cached = onRack && options.force !== true ? await probeExecutionCache(storage, repoPath, taskHash, inputsHash(inputHashes)) : null;
       // With --rack, a session opened for this task alone, which leases it
       // whatever the policy selects
-      const rack = onRack
+      const rack = onRack && cached === null
         ? await openCommandRack({ repoPath, workspace: `${name}@${version}`, storage, label: `e3 run ${name}@${version}.${task} (pid ${process.pid})`, budget,
           rackOnly: options.rackOnly, ...(signal !== undefined && { signal }), print: (line) => console.log(line) })
         : undefined;
-      const startTime = Date.now();
       let result: TaskResult | ExecutionResult;
       try {
-        result = rack !== undefined
+        result = cached ?? (rack !== undefined
           ? await rack.runner.execute(storage, taskHash, inputHashes, { force: options.force, verbose: options.verbose, taskName: task, ...(signal !== undefined && { signal }) })
-          : await taskExecute(storage, repoPath, taskHash, inputHashes, { force: options.force, verbose: options.verbose, budget });
+          : await taskExecute(storage, repoPath, taskHash, inputHashes, { force: options.force, verbose: options.verbose, budget }));
         if (rack !== undefined) {
           // With no session the task ran here, unless the cache answered it
           const unattached = unattachedLine(rack, task, !result.cached);
@@ -186,13 +193,17 @@ export async function runCommand(
       }
       const elapsed = Date.now() - startTime;
       // The value itself, a collection's from its segments, in a file that
-      // replaces the one at -o and is never written into it
-      if (result.state === 'success' && result.outputHash) await writeOutputFile(output, readDatasetChunks(storage, repoPath, result.outputHash));
+      // replaces the one at -o and is never written into it: Ctrl-C stops the
+      // write, and the file is then as it was
+      if (result.state === 'success' && result.outputHash) {
+        await writeOutputFile(output, readDatasetChunks(storage, repoPath, result.outputHash), { ...(signal !== undefined && { signal }) });
+      }
       return { result, elapsed };
     });
     // Ctrl-C leaves a rack's leases, from before the session opens; a run
-    // here ends as it always has
-    const ran = onRack ? await untilInterrupted(run, 'the task\'s racks are told to stop it') : await run();
+    // here ends as it always has. A run that had succeeded, its output
+    // written, as Ctrl-C came was not interrupted
+    const ran = onRack ? await untilInterrupted(run, 'the task\'s racks are told to stop it', (done) => done.result.state === 'success') : await run();
     if (ran === null) return;
     const { result, elapsed } = ran;
 

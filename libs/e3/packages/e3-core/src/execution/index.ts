@@ -206,6 +206,7 @@ export {
   stageInput,
   type MarshalInputsOptions,
   spawnAndCapture,
+  LONGEST_TIMER_MS,
   type SpawnAndCaptureOptions,
   type SpawnAndCaptureResult,
   type ProcessSettings,

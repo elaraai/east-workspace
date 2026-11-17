@@ -18,7 +18,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ArrayType, East, IRType, IntegerType, PatchType, DictType, StringType, decodeEastIR, encodeBeast2For, encodeEastFor, encodeEastIR, encodeJSONFor,
   equalFor, isTypeValueEqual, toEastTypeValue, variant } from '@elaraai/east';
-import { FunctionDraftType, RunnerType, type RecordSignature } from '@elaraai/e3-types';
+import { FunctionDraftType, FunctionInputType, RunnerType, type RecordSignature } from '@elaraai/e3-types';
 import { checkCallArguments, irProgram, irRunner, readDrafts } from './call.js';
 
 const encodeInt = encodeBeast2For(IntegerType);
@@ -158,7 +158,7 @@ describe('irProgram', () => {
       const read = await irProgram(path, 'east-c', ['none']);
       assert.equal(read.name, 'add', name);
       assert.ok(runnerEqual(read.runner, stock('east_c', [])), name);
-      assert.deepEqual(read.signature.inputs, [], name);
+      assert.ok(equalFor(ArrayType(FunctionInputType))(read.signature.inputs, []), name);
       assert.equal(read.signature.argTypes.length, 2, name);
       for (const type of [...read.signature.argTypes, read.signature.outputType]) assert.ok(isTypeValueEqual(type, toEastTypeValue(IntegerType)), name);
       assert.ok(equalFor(IRType)(decodeEastIR(read.bodyIr).ir, program.ir), `${name} is the program`);

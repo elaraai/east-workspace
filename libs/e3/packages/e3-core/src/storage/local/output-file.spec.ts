@@ -5,12 +5,18 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, linkSync, lstatSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { chmodSync, chownSync, linkSync, lstatSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { pathToFileURL, fileURLToPath } from 'node:url';
 import { createTempDir, removeTempDir } from '../../test-helpers.js';
 import { writeOutputFile } from './output-file.js';
 
 const posix = process.platform === 'win32' ? 'POSIX file modes, links and devices' : false;
+/** Root may write any file, and give any owner. */
+const root = process.getuid?.() === 0;
+/** A group of this user's other than the one its new files take. */
+const otherGroup = process.platform === 'win32' ? undefined : process.getgroups?.().find((gid) => gid !== process.getgid?.());
 
 describe('writeOutputFile', () => {
   let dir: string;
@@ -63,12 +69,68 @@ describe('writeOutputFile', () => {
     assert.deepEqual(readdirSync(dir), []);
   });
 
-  it('keeps the mode of the file it replaces', { skip: posix }, async () => {
-    const file = join(dir, 'private.beast2');
+  it('leaves the file as it was, and nothing beside it, when its signal stops it: before it starts, part way, and once its bytes are whole', async () => {
+    const file = join(dir, 'model.beast2');
+    writeFileSync(file, 'the first model');
+    const before = new AbortController();
+    before.abort(new Error('interrupted'));
+    await assert.rejects(() => writeOutputFile(file, 'the second model', { signal: before.signal }), /interrupted/);
+    // Stopped between two of its parts, and after the last of them: the new
+    // file is whole then, and still never takes the old one's place
+    for (const stopAfter of [1, 2]) {
+      const stop = new AbortController();
+      const parts = (async function* () {
+        for (let part = 1; part <= 2; part++) {
+          yield new Uint8Array([part]);
+          if (part === stopAfter) stop.abort(new Error('interrupted'));
+        }
+      })();
+      await assert.rejects(() => writeOutputFile(file, parts, { signal: stop.signal }), /interrupted/, `stopped after part ${stopAfter}`);
+    }
+    assert.equal(readFileSync(file, 'utf8'), 'the first model');
+    assert.deepEqual(readdirSync(dir), ['model.beast2']);
+  });
+
+  it('keeps the mode of the file it replaces, whatever the process\'s mask would take from a new file', { skip: posix }, async () => {
+    // A mask that leaves a new file its owner's alone: a mode given as the
+    // file is made would lose every bit of its group's and of others'
+    const mask = process.umask(0o077);
+    try {
+      for (const mode of [0o600, 0o664, 0o666, 0o640]) {
+        const file = join(dir, `shared-${mode.toString(8)}.beast2`);
+        writeFileSync(file, 'old');
+        chmodSync(file, mode);
+        await writeOutputFile(file, 'new');
+        assert.equal(statSync(file).mode & 0o777, mode, mode.toString(8));
+        assert.equal(readFileSync(file, 'utf8'), 'new');
+      }
+    } finally {
+      process.umask(mask);
+    }
+  });
+
+  it('keeps the group of the file it replaces, where its user is a member of it', {
+    skip: posix || (otherGroup === undefined ? 'this user is in one group alone' : false),
+  }, async () => {
+    const file = join(dir, 'shared.beast2');
     writeFileSync(file, 'old');
-    chmodSync(file, 0o600);
+    chownSync(file, process.getuid!(), otherGroup!);
+    chmodSync(file, 0o660);
     await writeOutputFile(file, 'new');
-    assert.equal(statSync(file).mode & 0o777, 0o600);
+    const replaced = statSync(file);
+    assert.deepEqual({ gid: replaced.gid, uid: replaced.uid, mode: replaced.mode & 0o777 }, { gid: otherGroup, uid: process.getuid!(), mode: 0o660 });
+  });
+
+  it('refuses a file its user may not write, as a write into it is refused, and leaves it', {
+    skip: posix || (root ? 'root may write any file' : false),
+  }, async () => {
+    const file = join(dir, 'kept.beast2');
+    writeFileSync(file, 'kept');
+    chmodSync(file, 0o444);
+    await assert.rejects(() => writeOutputFile(file, 'new'), { code: 'EACCES' });
+    assert.equal(readFileSync(file, 'utf8'), 'kept');
+    assert.equal(statSync(file).mode & 0o777, 0o444);
+    assert.deepEqual(readdirSync(dir), ['kept.beast2']);
   });
 
   it('writes where a link leads, and leaves the link', { skip: posix }, async () => {
@@ -81,8 +143,32 @@ describe('writeOutputFile', () => {
     assert.equal(readFileSync(real, 'utf8'), 'new');
   });
 
+  it('writes where a link leads that leads nowhere yet, through each such link, and leaves them', { skip: posix }, async () => {
+    // latest -> current -> runs/today, which no run has written yet
+    const today = join(dir, 'today.beast2');
+    const current = join(dir, 'current.beast2');
+    const latest = join(dir, 'latest.beast2');
+    symlinkSync('today.beast2', current);
+    symlinkSync(current, latest);
+    await writeOutputFile(latest, 'the first run');
+    assert.ok(lstatSync(latest).isSymbolicLink() && lstatSync(current).isSymbolicLink(), 'the links are still links');
+    assert.ok(lstatSync(today).isFile());
+    assert.equal(readFileSync(latest, 'utf8'), 'the first run');
+    assert.deepEqual(readdirSync(dir).sort(), ['current.beast2', 'latest.beast2', 'today.beast2']);
+  });
+
   it('writes into what is no regular file, which it cannot replace', { skip: posix }, async () => {
     await writeOutputFile('/dev/null', 'discarded');
     assert.ok(statSync('/dev/null').isCharacterDevice(), 'the device is still the device');
+  });
+
+  it('writes into /dev/stdout when it is a pipe, which names no path a file could be made beside', { skip: posix }, () => {
+    // As `e3 call -o /dev/stdout | …` does, through a shell's pipe: the bytes
+    // reach the pipe's reader
+    const module = pathToFileURL(fileURLToPath(new URL('./output-file.js', import.meta.url))).href;
+    const script = `const { writeOutputFile } = await import(${JSON.stringify(module)}); await writeOutputFile('/dev/stdout', new Uint8Array([1, 2, 3]));`;
+    const piped = execFileSync('/bin/sh', ['-c', '"$NODE" --input-type=module -e "$SCRIPT" | cat'],
+      { env: { ...process.env, NODE: process.execPath, SCRIPT: script }, stdio: ['ignore', 'pipe', 'inherit'] });
+    assert.deepEqual([...piped], [1, 2, 3]);
   });
 });

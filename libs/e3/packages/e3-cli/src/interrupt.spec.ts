@@ -51,4 +51,19 @@ describe('untilInterrupted', () => {
       assert.equal(process.listenerCount('SIGINT'), listening);
     });
   }
+
+  it('answers what work that had finished as Ctrl-C came answers, and says nothing was interrupted; any other answer after Ctrl-C was', async () => {
+    // The work's value was in hand, or its output written, as Ctrl-C reached it
+    const answering = (answer: string): Promise<string | null> => untilInterrupted((signal) => new Promise<string>((resolve) => {
+      signal.addEventListener('abort', () => resolve(answer));
+      ctrlC();
+    }), 'its rack is told to stop it', (result) => result === 'success');
+    assert.equal(await answering('success'), 'success');
+    assert.deepEqual(said, []);
+    assert.equal(process.exitCode, exitCode);
+
+    assert.equal(await answering('failed'), null, 'an answer the stop made is the interrupt\'s');
+    assert.deepEqual(said, ['Interrupted: its rack is told to stop it']);
+    assert.equal(process.exitCode, 130);
+  });
 });

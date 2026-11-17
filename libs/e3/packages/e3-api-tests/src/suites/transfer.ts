@@ -176,6 +176,7 @@ export function transferTests(
             assert.strictEqual(result.exitCode, 0, `${where} workspace create failed: ${result.stderr}`);
             result = await runE3Command(['workspace', 'deploy', repo, wsName, 'bare-name-pkg'], workDir, options);
             assert.strictEqual(result.exitCode, 0, `${where} deploy failed: stdout=${result.stdout}, stderr=${result.stderr}`);
+            assert.ok(result.stdout.includes(`Deployed bare-name-pkg@1.10.0 to workspace: ${wsName}`), `${where} says the version it deployed: ${result.stdout}`);
             result = await runE3Command(['workspace', 'list', repo], workDir, options);
             assert.strictEqual(result.exitCode, 0, `${where} workspace list failed: ${result.stderr}`);
             assert.ok(result.stdout.includes(`${wsName} (bare-name-pkg@1.10.0)`), `${where}: ${result.stdout}`);

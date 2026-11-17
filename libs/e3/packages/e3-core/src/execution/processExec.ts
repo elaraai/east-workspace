@@ -368,6 +368,33 @@ export function pathOf(env: Readonly<Record<string, string | undefined>>): strin
  *  are closed from this side (see spawnAndCapture). */
 const STOP_DRAIN_MS = 5_000;
 
+/** The longest one timer waits, in ms (about 24.8 days): Node fires a timer
+ *  set for longer at once. */
+export const LONGEST_TIMER_MS = 2 ** 31 - 1;
+
+/**
+ * Calls `fire` once `ms` have passed, however long that is: a wait longer
+ * than one timer takes ({@link LONGEST_TIMER_MS}) is waited a timer at a
+ * time, so a time limit of a month ends its process after a month, never at
+ * once.
+ *
+ * @param fire - Called once, when the time has passed
+ * @param ms - How long to wait, in ms
+ * @returns Stops the wait
+ * @internal
+ */
+export function afterWait(fire: () => void, ms: number): () => void {
+  let timer: NodeJS.Timeout;
+  const wait = (left: number): void => {
+    timer = setTimeout(() => {
+      if (left > LONGEST_TIMER_MS) wait(left - LONGEST_TIMER_MS);
+      else fire();
+    }, Math.min(left, LONGEST_TIMER_MS));
+  };
+  wait(ms);
+  return () => clearTimeout(timer);
+}
+
 /** The per-platform package carrying the Windows job launcher. */
 const JOB_LAUNCHER_PACKAGE = '@elaraai/e3-job-win32-x64';
 
@@ -906,10 +933,10 @@ export async function spawnAndCapture(
     killProcessGroup();
   };
 
-  // Handle timeout
-  let timeoutId: NodeJS.Timeout | undefined;
+  // Handle timeout: however long it is, which one timer may not be
+  let stopTimeout: (() => void) | undefined;
   if (options.timeoutMs) {
-    timeoutId = setTimeout(() => {
+    stopTimeout = afterWait(() => {
       timedOut = true;
       stopProcessGroup();
     }, options.timeoutMs);
@@ -944,7 +971,7 @@ export async function spawnAndCapture(
 
   // Cleanup
   if (drainTimer) clearTimeout(drainTimer);
-  if (timeoutId) clearTimeout(timeoutId);
+  stopTimeout?.();
   if (options.signal) {
     options.signal.removeEventListener('abort', stopProcessGroup);
   }

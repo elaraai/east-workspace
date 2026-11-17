@@ -356,8 +356,11 @@ closure. Its value comes back with its completion, or past 192 KiB as the
 object the completion commits. Its time is its rule's timeout when a rule
 that matches `fn:<name>` sets one, longer or shorter than its caller's, and
 else its caller's own (ten minutes from the CLI); it is counted from when its
-lease is first queued. Ctrl-C leaves the lease of a call, and the leases of
-an ad-hoc run.
+lease is first queued, and may be longer than the 24.8 days one timer waits.
+Ctrl-C leaves the lease of a call, and the leases of an ad-hoc run, whose
+output file is then left as it was. A call or a run that had finished as
+Ctrl-C came answers as it would have: nothing was stopped. An ad-hoc run the
+cache answers is no rack's work, and opens no rack session.
 
 | The call | What it comes to |
 | --- | --- |

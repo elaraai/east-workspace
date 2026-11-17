@@ -38,7 +38,7 @@ import { inputPlanLine, inputPolicy, recordPlanLine, schemaPolicy } from './work
 import { describeUnset } from './start.js';
 import { formatSize } from '../format.js';
 import type { RackRunnerHandle } from '@elaraai/e3-rack';
-import { openRack, rackEnabled, refuseRemoteRack, printRackEnvironment, printRackPlacement, printRackSummary, type RackFlags } from './rack-options.js';
+import { openRack, rackAsked, rackEnabled, refuseRemoteRack, printRackEnvironment, printRackPlacement, printRackSummary, type RackFlags } from './rack-options.js';
 
 interface WatchOptions extends BudgetFlags, RackFlags {
   start?: boolean;
@@ -71,7 +71,7 @@ export async function watchCommand(
   options: WatchOptions
 ): Promise<void> {
   refuseRemoteRack(repoArg, options);
-  if ((options.rack === true || options.rackOnly) && !options.start) exitError('--rack requires --start for e3 watch');
+  if (rackAsked(options) && !options.start) exitError('--rack requires --start for e3 watch');
   const repoPath = await openRepo(repoArg);
   const absoluteSourcePath = path.resolve(sourceFile);
   const schema = schemaPolicy(options.schema);

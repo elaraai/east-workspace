@@ -3,7 +3,7 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { parseMemory, type ExecuteCeilings, type FunctionCallLifetimes } from '@elaraai/e3-core';
+import { LONGEST_TIMER_MS, parseMemory, type ExecuteCeilings, type FunctionCallLifetimes } from '@elaraai/e3-core';
 import { parseDuration } from './auth/index.js';
 
 /**
@@ -47,12 +47,6 @@ export interface CallLimitSettings {
   /** The most of each log's tail (`--max-log`), as `1M`. */
   maxLog?: string;
 }
-
-/** The longest a timer waits, in milliseconds: a call's deadline, its timeout,
- *  a start's window and a poll's wait each become one, and Node's
- *  `setTimeout`, as a browser's, fires at once for a delay past 2^31 - 1 ms,
- *  about 24.8 days. */
-const LONGEST_TIMER_MS = 2 ** 31 - 1;
 
 /** The milliseconds of a duration a flag gives, or `null` when it is not a
  *  positive one. */
@@ -107,8 +101,9 @@ export function resolveCallLimits(settings: CallLimitSettings): CallLimits {
  * every one, so the server is told as it is made. A kept call's window and a
  * poll's wait may be 0, which answers at once. A deadline, a timeout, a window
  * and a wait each become a timer, which fires at once past the longest it
- * waits, so none may be longer; a lifetime is a time a call is kept until,
- * and may be.
+ * waits (e3-core's `LONGEST_TIMER_MS`: Node's `setTimeout`, as a browser's,
+ * fires at once for a delay past 2^31 - 1 ms), so none may be longer; a
+ * lifetime is a time a call is kept until, and may be.
  *
  * @param limits - The limits
  * @returns The limits

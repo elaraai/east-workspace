@@ -19,7 +19,7 @@ import { encodeInSegmentsOf } from '@elaraai/e3-core/test';
 import { createDraftsPackageZip } from '@elaraai/e3-api-tests';
 import { E3_RACK_VERSION, HubClient } from '@elaraai/e3-rack';
 import { RACK_PROTOCOL, RackEnrollRequestType, RackEnrollResponseType, RackHeartbeatRequestType, RackHeartbeatResponseType } from '@elaraai/e3-rack/protocol';
-import { TestRackAgent, type TestRackAgentOptions } from '@elaraai/e3-rack/testing';
+import { TestRackAgent, sameLeaseRefs, type TestRackAgentOptions } from '@elaraai/e3-rack/testing';
 import { runE3Command, spawnE3Command, waitFor, type CliResult } from './helpers.js';
 
 const cleanup: Array<() => Promise<unknown>> = [];
@@ -225,7 +225,7 @@ it('shows concurrent sessions and shares their attempt while one CLI cancellatio
   // Windows process.kill terminates outright; it cannot deliver Ctrl-C to
   // the handler. Exercise both concurrent runs there, and cancellation on POSIX.
   if (process.platform !== 'win32') { a.kill('SIGINT'); assert.equal((await a.result).exitCode, 130); }
-  assert.deepEqual((await f.agent.heartbeat([grant])).stop, []);
+  assert.ok(sameLeaseRefs((await f.agent.heartbeat([grant])).stop, []));
   assert.equal((await f.agent.execute(grant)).status, 'success'); ok(await b.result);
   if (process.platform === 'win32') ok(await a.result);
   await waitFor(async () => (await f.client.status()).sessions.length === 0);
@@ -239,7 +239,7 @@ it('cancels the final CLI subscriber and tells the rack to stop', {
   cleanup.push(async () => { run.kill('SIGKILL'); await run.result; });
   const grant = await f.agent.claim(); assert(grant);
   run.kill('SIGINT'); assert.equal((await run.result).exitCode, 130);
-  assert.deepEqual((await f.agent.heartbeat([grant])).stop, [{ repo: grant.repo, leaseId: grant.leaseId }]);
+  assert.ok(sameLeaseRefs((await f.agent.heartbeat([grant])).stop, [{ repo: grant.repo, leaseId: grant.leaseId }]));
 });
 
 it('refuses remote rack flags before authentication and requires watch --start', async () => {
@@ -274,7 +274,7 @@ export default e3.package('watch_rack', '1.0.${increment}', task);
   const before = (await f.client.status()).sessions; assert.equal(before.length, 1);
   await writeFile(source, program(2));
   await waitFor(() => watch.getStdout().includes('Dataflow aborted'));
-  assert.deepEqual((await f.agent.heartbeat([first])).stop, [{ repo: first.repo, leaseId: first.leaseId }]);
+  assert.ok(sameLeaseRefs((await f.agent.heartbeat([first])).stop, [{ repo: first.repo, leaseId: first.leaseId }]));
   const next = await f.agent.claim(); assert(next, watch.getStdout());
   assert.equal((await f.client.status()).sessions[0]!.sessionId, before[0]!.sessionId);
   assert.equal((await f.agent.execute(next)).status, 'success');
@@ -321,6 +321,13 @@ it('runs an ad-hoc task on a rack with --rack, recorded as a local run is, and l
   const first = join(f.home, 'first.beast2'); await writeFile(first, encodeBeast2For(StringType)('four'));
   ok(await f.cli('run', '.', 'cli_rack.train_a', first, '-o', here, '--force'));
   assert.equal(decodeBeast2For(IntegerType)(await readFile(here)), 4n, 'the stored input holds the bytes it was stored under');
+
+  // A run the cache answers opens no rack session: with no hub running, it
+  // starts none
+  ok(await f.cli('rack', 'stop'));
+  const unattended = ok(await f.cli('run', '.', 'cli_rack.train_a', first, '-o', here, '--rack'));
+  assert.match(unattended, /^Cached /m); assert.doesNotMatch(unattended, /\[RACK\]|\[LOCAL\]|starting rack hub/);
+  assert.match(ok(await f.cli('rack', 'status')), /no rack hub running/);
 });
 
 it('leaves an ad-hoc run\'s lease on Ctrl-C and tells its rack to stop, writing no output', {
@@ -336,7 +343,7 @@ it('leaves an ad-hoc run\'s lease on Ctrl-C and tells its rack to stop, writing 
   const result = await run.result;
   assert.equal(result.exitCode, 130, result.stderr);
   assert.match(result.stderr, /Interrupted: the task's racks are told to stop it/);
-  assert.deepEqual((await f.agent.heartbeat([grant])).stop, [{ repo: grant.repo, leaseId: grant.leaseId }]);
+  assert.ok(sameLeaseRefs((await f.agent.heartbeat([grant])).stop, [{ repo: grant.repo, leaseId: grant.leaseId }]));
   await assert.rejects(() => stat(out), /ENOENT/, 'nothing was written');
 });
 
@@ -423,5 +430,5 @@ it('leaves a call\'s lease on Ctrl-C and tells its rack to stop', {
   const result = await call.result;
   assert.equal(result.exitCode, 130, result.stderr);
   assert.match(result.stderr, /Interrupted: the call's rack is told to stop it/);
-  assert.deepEqual((await f.agent.heartbeat([grant])).stop, [{ repo: grant.repo, leaseId: grant.leaseId }]);
+  assert.ok(sameLeaseRefs((await f.agent.heartbeat([grant])).stop, [{ repo: grant.repo, leaseId: grant.leaseId }]));
 });

@@ -320,7 +320,7 @@ export {
   type DatasetAdoptOptions,
 } from './dataset-adopt-file.js';
 // And a stored value written out to a file, a segment or a range at a time
-export { writeOutputFile } from './storage/local/output-file.js';
+export { writeOutputFile, type WriteOutputFileOptions } from './storage/local/output-file.js';
 export {
   datasetAdoptObject,
   datasetAdoptKnown,

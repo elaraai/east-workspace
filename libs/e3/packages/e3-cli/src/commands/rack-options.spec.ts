@@ -5,7 +5,11 @@
 
 import { it } from 'node:test';
 import assert from 'node:assert/strict';
-import { commandPlacement, rackEnvironmentLine, rackPlacementLine, unattachedLine } from './rack-options.js';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { Budget, LocalStorage, repoInit } from '@elaraai/e3-core';
+import { commandPlacement, openCommandRack, rackAsked, rackEnvironmentLine, rackPlacementLine, unattachedLine } from './rack-options.js';
 
 const task = { taskName: 'train', role: 'task' as const };
 const unit = { taskName: 'score', role: 'unit' as const };
@@ -93,4 +97,32 @@ it('says a command\'s work ran here with no rack session only of work that ran',
   assert.equal(unattachedLine(unattached, 'fn:score', true), '  [LOCAL] fn:score (no-rack-session: no rack hub is running)');
   assert.equal(unattachedLine(unattached, 'train', false), undefined, 'a run the cache answered ran nowhere');
   assert.equal(unattachedLine({}, 'train', true), undefined, 'a session\'s work is placed by its own lines');
+});
+
+it('takes a rack as asked for by --rack or --rack-only, and not by --no-rack or no flag, which leave it to the policy', () => {
+  assert.equal(rackAsked({ rack: true }), true);
+  assert.equal(rackAsked({ rackOnly: true }), true);
+  assert.equal(rackAsked({ rack: false }), false);
+  assert.equal(rackAsked({}), false);
+});
+
+it('throws a command\'s interrupt when it stopped the rack session\'s opening, so its work is never said to run here', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'e3-cli-rack-'));
+  const rackHome = process.env.E3_RACK_HOME;
+  process.env.E3_RACK_HOME = join(home, 'rack');
+  try {
+    const repoPath = join(home, 'repo');
+    assert.ok(repoInit(repoPath).success);
+    // Ctrl-C before the hub answered: the opening is given up before any hub
+    // is asked or started
+    const stop = new AbortController();
+    stop.abort(new Error('interrupted'));
+    const lines: string[] = [];
+    await assert.rejects(() => openCommandRack({ repoPath, workspace: 'dev', storage: new LocalStorage(), label: 'e3 call score',
+      budget: new Budget({ cores: 1, memory: 512 * 1024 ** 2 }, { sampler: null }), signal: stop.signal, print: (line) => { lines.push(line); } }), /^Error: interrupted$/);
+    assert.deepEqual(lines, []);
+  } finally {
+    if (rackHome === undefined) delete process.env.E3_RACK_HOME; else process.env.E3_RACK_HOME = rackHome;
+    rmSync(home, { recursive: true, force: true });
+  }
 });

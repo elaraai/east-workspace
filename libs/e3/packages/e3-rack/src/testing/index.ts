@@ -11,5 +11,6 @@ export { leaseStoreContract } from './lease-store-contract.js';
 export { wireSamples } from '../protocol/wire-samples.js';
 export { TestRackAgent, type TestRackAgentOptions, type TestRackAgentFaults, type TestRackAgentTransfers } from './test-rack-agent.js';
 export { SlowLink, type SlowLinkOptions } from './slow-link.js';
+export { sameLeaseRefs } from './lease-refs.js';
 export { InMemoryRackStorageBridge, RecordingLogStore } from './in-memory.js';
 export { rackProtocolSuite, type RackProtocolFixture } from './protocol-suite.js';

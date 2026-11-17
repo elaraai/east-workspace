@@ -113,7 +113,7 @@ import {
 import { parseRepoLocation, resolvePackageVersion, formatError, exitError } from '../utils.js';
 import { parseTaskSpec } from './run.js';
 import { commandBudget, refuseRemoteBudget, type BudgetFlags } from './budget.js';
-import { openCommandRack, refuseRemoteRack, unattachedLine, type RackFlags } from './rack-options.js';
+import { openCommandRack, rackAsked, refuseRemoteRack, unattachedLine, type RackFlags } from './rack-options.js';
 import { arityRefusal, parseMutationSpec } from './mutation-spec.js';
 import { untilInterrupted } from '../interrupt.js';
 
@@ -567,6 +567,8 @@ async function namedProgram(
  *   workspace, the package, or nothing for an IR file's call
  * @param run - Runs the call's function on the rack's runner, which the
  *   signal stops
+ * @param finished - Whether what `run` answered is a value in hand, which a
+ *   Ctrl-C that came with it did not stop
  * @returns The call's outcome, or null once Ctrl-C has stopped it
  */
 async function callOnRack<T>(
@@ -577,6 +579,7 @@ async function callOnRack<T>(
   budget: Budget,
   options: CallOptions,
   run: (runner: TaskRunner, signal: AbortSignal) => Promise<T>,
+  finished: (result: T) => boolean,
 ): Promise<T | null> {
   // Ctrl-C ends the wait for a rack and leaves the call's lease, from before
   // its session opens
@@ -591,7 +594,8 @@ async function callOnRack<T>(
     } finally {
       await rack.close();
     }
-  }, 'the call\'s rack is told to stop it');
+    // A value that came as Ctrl-C did is the call's: nothing was stopped
+  }, 'the call\'s rack is told to stop it', finished);
 }
 
 /**
@@ -611,7 +615,7 @@ async function callLocal(
 ): Promise<void> {
   const { signature } = program;
   checkCallArguments(program.name, signature, rawArgs, workspace, draftWords.length > 0);
-  const onRack = options.rack === true || options.rackOnly === true;
+  const onRack = rackAsked(options);
   const local = new LocalTaskRunner(repoPath, budget);
 
   if (workspace !== undefined && program.named) {
@@ -631,7 +635,9 @@ async function callLocal(
         ...(functionRunner !== undefined && { functionRunner }),
         ...(signal !== undefined && { signal }),
       });
-    const result = onRack ? await callOnRack(storage, repoPath, program, label, budget, options, call) : await call();
+    const result = onRack
+      ? await callOnRack(storage, repoPath, program, label, budget, options, call, (answer) => answer.outcome.type === 'success')
+      : await call();
     if (result !== null) await renderResult(result, signature.outputType, options.output);
     return;
   }
@@ -661,7 +667,7 @@ async function callLocal(
     ...(program.environment !== undefined && { environment: program.environment }) };
   const detached = onRack
     ? await callOnRack(storage, repoPath, program, label, budget, options, (runner, signal) => runner.runDetached(spec, { storage, functionName: program.name, signal,
-      ...(options.verbose !== undefined && { verbose: options.verbose }) }))
+      ...(options.verbose !== undefined && { verbose: options.verbose }) }), (answer) => answer.kind === 'success')
     : await local.runDetached(spec, { storage, verbose: options.verbose });
   if (detached === null) return;
 

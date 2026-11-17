@@ -24,6 +24,17 @@ export function refuseRemoteRack(repo: string, flags: RackFlags): void {
   if (flags.rackOnly && flags.rack === false) throw new Error('--rack-only and --no-rack cannot be combined');
 }
 
+/**
+ * Whether the invocation asks for a rack itself, with `--rack` or
+ * `--rack-only`, whatever the repository's policy says.
+ *
+ * @param flags - The invocation's rack flags
+ * @returns True when it names one of them
+ */
+export function rackAsked(flags: RackFlags): boolean {
+  return flags.rack === true || flags.rackOnly === true;
+}
+
 /** Resolves the invocation override, then the repository's enabled policy. */
 export async function rackEnabled(repo: string, flags: RackFlags): Promise<boolean> {
   if (flags.rackOnly) return true;
@@ -139,12 +150,16 @@ export function commandPlacement(print: (line: string) => void): (event: RackPla
  *   line goes: a run's progress, or, for a call whose value goes to stdout,
  *   the terminal's stderr
  * @returns The session's handle
+ * @throws The signal's reason, when it stopped the session's opening: the
+ *   command's work then runs nowhere, and is not said to run here
  */
-export function openCommandRack(
+export async function openCommandRack(
   options: Pick<OpenRackRunnerOptions, 'repoPath' | 'workspace' | 'storage' | 'label' | 'budget' | 'rackOnly' | 'signal'> & { print: (line: string) => void },
 ): Promise<RackRunnerHandle> {
   const { print, ...session } = options;
-  return openRack({ ...session, selected: true, onPlacement: commandPlacement(print), onEnvironment: (event) => print(rackEnvironmentLine(event)), log: print });
+  const rack = await openRack({ ...session, selected: true, onPlacement: commandPlacement(print), onEnvironment: (event) => print(rackEnvironmentLine(event)), log: print });
+  if (rack.unattached !== undefined) options.signal?.throwIfAborted();
+  return rack;
 }
 
 /**
