@@ -38,6 +38,7 @@ import {
 } from "@elaraai/east";
 import { ValueFormatType, sliceFieldKind, toValueFormat, type SliceFieldFormat } from "@elaraai/east-ui/internal";
 import { DataSourceType, dataSource, type BoundSource } from "../bind/sources.js";
+import { optionOf } from "../schedule/window.js";
 import { nameWords } from "./component.js";
 
 // ============================================================================
@@ -242,22 +243,37 @@ export function createSource<H extends BoundSource>(handle: H, meta: StudioSourc
     return { handle, meta };
 }
 
-/** The fields of a source's rows, by name: an Array's elements', or a Dict's values'; `undefined` for a value that is neither, of Structs. */
-function rowFieldsOf(type: EastType): Record<string, EastType> | undefined {
+/** The rows of a source's value ({@link sourceRowsOf}): the type of one row, and whether they are keyed. */
+export interface StudioSourceRows {
+    /** The type of one row: a Struct. */
+    readonly row: StructType;
+    /** Whether the rows are a Dict's values, each under its key, rather than an Array's elements. */
+    readonly keyed: boolean;
+}
+
+/**
+ * The rows of a source's value: an Array's elements, or a Dict's values, each
+ * a Struct — what a surface refuses a source without, and what a visual's
+ * programs read (#1670).
+ *
+ * @param type - The source's value's type
+ * @returns The type of one row, and whether the rows are keyed; `undefined`
+ *   for a value that is neither an Array nor a Dict of Structs
+ */
+export function sourceRowsOf(type: EastType): StudioSourceRows | undefined {
     if (type.type !== "Array" && type.type !== "Dict") return undefined;
     const row: EastType = type.value;
-    return row.type === "Struct" ? row.fields as Record<string, EastType> : undefined;
+    return row.type === "Struct" ? { row, keyed: type.type === "Dict" } : undefined;
 }
 
-/** The type of an optional field's value — an Option is the variant of exactly `none` and `some`; `undefined` for a field every row has. */
-function optionalValueOf(type: EastType): EastType | undefined {
-    const cases = type.type === "Variant" ? type.cases as Record<string, EastType> : undefined;
-    return cases !== undefined && Object.keys(cases).length === 2 && cases["none"] !== undefined ? cases["some"] : undefined;
+/** The fields of a source's rows, by name; `undefined` for a value that is not an Array or a Dict of Structs. */
+function rowFieldsOf(type: EastType): Record<string, EastType> | undefined {
+    return sourceRowsOf(type)?.row.fields as Record<string, EastType> | undefined;
 }
 
-/** A field's kind, from its East type: an optional field's is its value's. */
+/** A field's kind, from its East type: an optional field's is its value's, an Option told by East's type equality. */
 function fieldKindOf(type: EastType): "date" | "text" | "number" | "boolean" | "other" {
-    switch (sliceFieldKind(optionalValueOf(type) ?? type)) {
+    switch (sliceFieldKind(optionOf(type) ?? type)) {
         case "datetime": return "date";
         case "string": return "text";
         case "integer": case "float": return "number";
@@ -312,7 +328,7 @@ export function studioSources(component: string, sources: Readonly<Record<string
                 throw new Error(`${component}: the source "${key}" names the range field "${meta.range}", which is no date — a page's range is over a date field`);
             }
             // The page's range narrows by this field's value, and a row with none would be in no range.
-            if (optionalValueOf(ranged) !== undefined) {
+            if (optionOf(ranged) !== undefined) {
                 throw new Error(`${component}: the source "${key}" names the range field "${meta.range}", which is an optional date — a page's range is over a date every row has`);
             }
         }

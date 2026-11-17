@@ -80,6 +80,28 @@ export interface StudioMessages {
     noSource: (p: { key: string }) => string;
     /** Under it. */
     noSourceHint: () => string;
+    /** A visual with a well it needs empty (#1670) — its heading. */
+    wellsEmpty: () => string;
+    /** A well it needs, in the list under it. */
+    wellNeeded: (p: { well: string }) => string;
+    /** A visual reading a field its source does not have — its heading. */
+    fieldMissing: (p: { source: string; field: string }) => string;
+    /** Under it. */
+    fieldMissingHint: () => string;
+    /** A visual with a value over another period, on a page with no date window — its heading. */
+    needsWindow: (p: { source: string }) => string;
+    /** Under it. */
+    needsWindowHint: () => string;
+    /** A visual that read no rows — its heading. */
+    noData: () => string;
+    /** Under it, why. */
+    noDataReason: (p: { source: string }) => string;
+    /** A visual whose source could not be read — the banner's title. */
+    sourceError: (p: { source: string }) => string;
+    /** A visual's answer, before it is drawn — `12 groups from 340 rows`. */
+    answerGroups: (p: { n: number; groups: string; nr: number; rows: string }) => string;
+    /** A visual whose query stopped before it answered: out of time, too large, or needing a platform function. */
+    answerStopped: () => string;
     /** A page whose live version is asked for before it is published — its heading. */
     notPublished: (p: { page: string }) => string;
     /** Under it. */
@@ -299,6 +321,17 @@ export const studioMessages: StudioMessages = {
     twoComponentsHint: () => "A surface lists each component once.",
     noSource: ({ key }) => `No source "${key}" is listed`,
     noSourceHint: () => "This surface lists no source with this key.",
+    wellsEmpty: () => "Add fields to draw it",
+    wellNeeded: ({ well }) => (well === "values" ? "A number in Values" : well === "columns" ? "A field in Columns" : well === "rows" ? "A field in Rows" : `A field in ${well}`),
+    fieldMissing: ({ source, field }) => `${source} has no field ${field}`,
+    fieldMissingHint: () => "Pick another field for this visual.",
+    needsWindow: ({ source }) => `Comparing periods needs a date filter on ${source}`,
+    needsWindowHint: () => "Filter the page by date to compare it with another period.",
+    noData: () => "no data",
+    noDataReason: ({ source }) => `No rows of ${source} match.`,
+    sourceError: ({ source }) => `${source} could not be read`,
+    answerGroups: ({ n, groups, nr, rows }) => `${groups} ${n === 1 ? "group" : "groups"} from ${rows} ${nr === 1 ? "row" : "rows"}`,
+    answerStopped: () => "Its query stopped before it answered.",
     notPublished: ({ page }) => `${page} is not published yet`,
     notPublishedHint: () => "Publish it to show it here.",
     noPage: ({ page }) => `No page ${page}`,

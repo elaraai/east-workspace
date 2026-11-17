@@ -124,10 +124,12 @@ export {
     createSource,
     sourceName,
     sourceNames,
+    sourceRowsOf,
     studioSources,
     type StudioSourceDeclaration,
     type StudioSourceField,
     type StudioSourceMeta,
+    type StudioSourceRows,
 } from "./source.js";
 export { StudioMigrations, cellContent, type StudioMigrationsNamespace } from "./migrations.js";
 export {
