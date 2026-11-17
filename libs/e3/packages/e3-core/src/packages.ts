@@ -17,8 +17,8 @@
 import { StringType, decodeBeast2For, encodeBeast2For } from '@elaraai/east';
 import {
   E3_RELEASE,
-  EnvironmentSpecType,
   compareReleases,
+  decodeEnvironmentSpec,
   environmentSpecObjectHashes,
   decodeFunctionObject,
   decodeMigrationObject,
@@ -930,10 +930,10 @@ export async function walkPackageObjects(
   };
 
   // An environment spec, and every blob it names: manifest, lockfile, sdists.
-  const decodeEnvironmentSpec = decodeBeast2For(EnvironmentSpecType);
+  // One an older SDK exported is refused, and its package exported again.
   const addEnvironment = async (envHash: string): Promise<void> => {
     await add(envHash);
-    const spec = decodeEnvironmentSpec(await storage.objects.read(repo, envHash));
+    const spec = decodeEnvironmentSpec(await storage.objects.read(repo, envHash), envHash);
     for (const blobHash of environmentSpecObjectHashes(spec)) await add(blobHash);
   };
 

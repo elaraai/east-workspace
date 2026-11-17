@@ -51,7 +51,6 @@ Each python runtime image (`docker/images/Dockerfile.east-py`,
   "python": { "version": "3.11.2", "executable": "/opt/venv/bin/python", "base": "/usr/bin/python3",
               "site": "/opt/venv/lib/python3.11/site-packages" },
   "namespaces": ["cuda", "nvidia"],
-  "modules": ["east", "six", "torch"],
   "distributions": [
     { "name": "elaraai-east-py", "version": "1.0.109", "files": "sha256:9c1f…" },
     { "name": "torch", "version": "2.9.0+cu130", "files": "sha256:41be…" }
@@ -63,23 +62,19 @@ Each python runtime image (`docker/images/Dockerfile.east-py`,
   (standard library alone), sorted by name. An image's later layer that
   installs more writes it again: the datascience image's is its own.
 - `distributions` are those of the site directory alone: an environment
-  built over the tier adds that directory to its path, and no other of the
+  built over the tier imports from that directory, and no other of the
   interpreter's (the system's, a parent virtualenv's, `PYTHONPATH`'s). A name
   installed there twice, which no install makes, is listed for neither, as
   which files are whose cannot be told.
 - Read by e3, it is checked as what it is, since it arrives from a rack and
-  is written into an environment's `pyvenv.cfg` and path file: the version a
-  Python's, and the interpreter, base and site absolute paths, each on one
-  line.
+  is written into an environment's `pyvenv.cfg` and import gate (section 9):
+  the version a Python's, and the interpreter, base and site absolute paths,
+  each on one line.
 - `base` is the interpreter a virtualenv made over the tier runs: the one the
   image's own virtualenv was made from.
 - `namespaces` is each directory at the top of the site directory that holds
   no `__init__` module: its namespace packages, whose parts an environment
   may leave to the tier singly (section 7).
-- `modules` is each name a module or an ordinary package (one with an
-  `__init__` module) is imported by from the site directory, or from a
-  directory its path files add: what would hide a namespace package's part an
-  environment ships before it (section 8).
 - A manifest's **digest** is the SHA-256 of its bytes.
 - The node and C tiers write none: this change is python environments.
 
@@ -138,25 +133,27 @@ With one:
    left singly (section 7). A distribution with native code that ships takes
    with it each distribution with native code it requires (section 8).
 3. The virtualenv is pointed at the tier: `pyvenv.cfg`'s `home` names the
-   directory of the tier's base interpreter, and one `.pth` file in the
-   environment's site directory adds the tier's with `site.addsitedir`, so the
-   tier's own `.pth` files are read as a site directory's are.
+   directory of the tier's base interpreter, and a module in the
+   environment's site directory, which a path file imports as Python starts,
+   finds in the tier's site directory what was left there, runs its path
+   files, and finds nothing else (section 9).
 4. No interpreter is carried, and the link to the launching machine's is
    removed. The link to the tier's interpreter is made where the environment
    is composed, by the agent, with e3-core's `composeEnvironmentOverTier`: a
    layer holds no link that leads out of the environment, and that rule
    stays. The helper refuses an environment built over another interpreter.
 
-So `sys.path` holds the environment's site directory first, then the tier's: a
-project that pins another version of something the tier has ships its own,
-and its own wins. A namespace package's part is the exception: Python imports
-a module or an ordinary package of its name found later in its place, so an
-environment that would ship a part of one the tier holds as such is built
-whole (section 8).
+So a project that pins another version of something the tier has ships its
+own, and imports it; what it left to the tier is imported from there; and
+nothing else of the tier's is imported or listed, as nothing else is where the
+environment runs whole. A namespace package both hold parts of is read from
+both, the environment's parts first, and a name in it that was not left to
+the tier from the environment's parts alone.
 
-A `.pth` rather than `include-system-site-packages`, because the images keep
-their packages in a virtualenv (`/opt/venv`): a virtualenv made over another
-sees the base interpreter's packages, not that virtualenv's.
+A gate of the environment's own rather than `include-system-site-packages`,
+because the images keep their packages in a virtualenv (`/opt/venv`): a
+virtualenv made over another sees the base interpreter's packages, not that
+virtualenv's, and would see all of them.
 
 The tree is still built at the root a guest mounts it at
 (`ENVIRONMENT_LAYER_ROOT`), and its layers are the package layers that remain
@@ -164,8 +161,7 @@ and the project layer.
 
 **When it is built whole instead, as today:** no manifest (3.5); the project's
 `requires-python` excludes the tier's minor; the environment is not python;
-the build over the tier fails, or would ship a namespace package's part the
-tier hides (section 8).
+the build over the tier fails (8.4).
 
 ### 3.4 What names the layers
 
@@ -267,8 +263,8 @@ and not a copy of it.
   `+cu130`, and one changed file, are not.
 - The build: a workspace member over a manifest that holds one of its
   dependencies ships the other and its own code; the pruned one imports from
-  the tier's site directory; a pinned other version ships and wins; the
-  tier's `.pth` file is read.
+  the tier's site directory; a pinned other version ships and wins; the path
+  file of a distribution left to the tier runs, and no other (section 9).
 - Built whole: no manifest, and a `requires-python` that excludes the tier's
   minor.
 - The key and `over`; a rack that names another manifest is not given the
@@ -283,7 +279,9 @@ and not a copy of it.
 2. Identity is the digest of a distribution's installed files, bookkeeping
    left out (3.2).
 3. The tier's packages are reached by a `.pth` with `site.addsitedir`, not
-   `include-system-site-packages` (3.3).
+   `include-system-site-packages` (3.3). Section 9 replaced the `.pth` with an
+   import gate of the environment's own, after the review; the decision
+   against `include-system-site-packages` stands.
 4. A project whose Python is not the tier's minor is built whole (3.3).
 5. The launching machine still downloads what the tier has, and does not
    ship it (3.2).
@@ -437,12 +435,15 @@ module `pkg.py`, runs the tier's: an older version, and nothing says so. A
 pkgutil-style package, whose `__init__.py` calls `extend_path`, is an ordinary
 one here too.
 
-The manifest gains `modules`: each name a module or an ordinary package is
-imported by from the tier's site directory, or from a directory its path files
-add, sorted (`pkgutil.iter_modules`). Once the environment is installed, and
-what the tier holds is left to it, a part of a namespace package that would
-ship under one of those names refuses the build over the tier. The
-environment is then built whole for the platform (8.4).
+As first built, the manifest named `modules`: each name a module or an
+ordinary package is imported by from the tier's site directory, or from a
+directory its path files add. Once the environment was installed, a part of a
+namespace package that would ship under one of those names refused the build
+over the tier. Section 9 replaced both: the environment no longer has the
+tier's site directory on its path, and looks a name inside a namespace
+package both hold parts of up in its own parts unless it left that name to
+the tier, at any depth. Nothing is refused, and the manifest names no
+modules.
 
 ### 8.2 Native code finds native code by the environment's paths
 
@@ -481,22 +482,124 @@ text the hub refuses is said once in its log.
 ### 8.4 When a build over a tier fails
 
 A build over a rack's image that fails (a dependency with no wheel for the
-image's Python, say, or the refusal of 8.1) is tried whole for the platform,
+image's Python, say) is tried whole for the platform,
 and the rack is served that. When both fail, the work stays local as
 `environment:build-failed`, with the whole build's words.
 
 ### 8.5 Tests
 
-- The manifest script: `modules` names an ordinary package, a module, and a
-  module a path file adds, and no namespace package.
-- `readTierManifest`: a manifest without `modules` is refused.
-- The build over a tier whose `jaraco` is an ordinary package: an environment
-  that would ship the namespace package `jaraco` is refused.
 - `leftToTier`: a torch of another build takes its native libraries with it,
   and theirs, and what shares a directory with them; one left to the tier
   takes nothing; a distribution with no native code takes nothing.
 - The hub: a rack's first heartbeat carries the text and the next its digest
   alone; a hub that started again asks for it, once; a refused text is not
-  asked for again.
+  asked for again (as section 9 narrows it).
 - The placement: an environment whose build over the image fails is built
   whole and placed on the rack; both failing, it stays local.
+
+## 9. After a further review: an environment sees only what it left to the tier
+
+Status: **ruled 17 Nov 2026, and built.** Findings of a further review of the
+pull request changed how an environment reaches its tier, the manifest, how a
+spec an earlier release exported is read, and when the hub asks a rack for a
+manifest. No image had shipped a manifest, and its form was still free to
+change.
+
+### 9.1 What an environment imports from its tier
+
+As first built, a path file put the tier's whole site directory on
+`sys.path`. A member whose lock has no scipy imported the tier's on a rack,
+and failed to import it where it runs whole. pandas uses the optional
+packages it finds (pyarrow-backed strings, bottleneck's reductions, which sum
+in another order), so a rack's output could differ from a local run's, under
+the one key that names both (3.4).
+
+The tier's site directory is no longer on the path. The build writes a module
+of its own into the environment's site directory, `_e3_tier.py`, and a path
+file that imports it as Python starts, `zzz_e3_tier.pth`, read after the
+environment's own. The module puts a finder before the path's on
+`sys.meta_path`, which finds in the tier's site directory:
+
+- a top-level module or package of a distribution left to the tier, when the
+  environment holds none of that name;
+- inside a namespace package both hold parts of, the parts left to the tier,
+  and nothing else of the tier's: a name in it that was not left is looked for
+  in the environment's own parts alone, and is not found when they hold none;
+- the metadata of the distributions left to the tier (`importlib.metadata`),
+  and of no other.
+
+It runs the path files of the distributions left to the tier, as a site
+directory's are read, and no other.
+
+| A name | Imported from |
+|---|---|
+| The environment's own | The environment |
+| Left to the tier | The tier |
+| In the tier, and not in the environment's lock | Nowhere, as where the environment runs whole |
+| A part of a namespace package the environment ships | The environment, whatever the tier holds of that name |
+
+What the gate is given, e3-core's `tierImports` reads from the environment's
+records and the tier's manifest: the names of what was left, at the levels
+`leftToTier` binds distributions by (7.3), the top or one level down in a
+namespace package on both sides; the namespace packages both hold parts of;
+and the path files of what was left.
+
+### 9.2 The manifest names no modules, and nothing is refused
+
+8.1's `modules` and its refusal are gone. They read the top level alone,
+while a namespace package's parts are left one level down: a distribution of
+the tier's that the environment lacks, which installs `ns/sub/__init__.py`,
+would hide an `ns/sub/` the environment ships. The gate looks a name inside a
+namespace package both hold parts of up in the environment's own parts, at
+any depth, unless it was left to the tier. So no build over a tier is refused
+for a hidden part (a refusal that came only after the whole install, and was
+tried again each run), and the manifest's form is version 1 without the
+field.
+
+With bytecode compiling on (`UV_COMPILE_BYTECODE=1`, or the workspace root's
+`[tool.uv] compile-bytecode = true`), uv writes `.pyc` files that no `RECORD`
+lists. Taking a distribution left to the tier out of the environment takes
+the compiled files of each module it removes with it
+(`__pycache__/<module>.*.pyc`), so neither a directory that holds only them
+nor stale bytecode ships.
+
+### 9.3 A spec an earlier release exported is refused
+
+`workspace_python` (#1654) is a sixth case of the environment spec. A spec an
+earlier release exported, of five cases, decodes under the new type, but gc,
+which takes a spec by its current shape, would take it for a leaf and sweep
+the files it names. Every reader of a spec (a build, a package export's walk,
+the check that it fits a tier) reads it at the current type alone
+(`decodeEnvironmentSpec`, e3-types), and refuses another: "the environment
+<hash> was exported by an older e3 SDK — re-export its package with the
+current one". [`WIRE_MIGRATION.md`](../../../docs/conventions/WIRE_MIGRATION.md)
+lists the change.
+
+### 9.4 When the hub asks for a manifest's text
+
+A text the hub had refused was asked of no rack again, whatever the reason.
+Now a text that is the bytes its digest names, and is still refused, is asked
+of no rack, since every rack's text of that digest is those bytes. A text
+that is not those bytes stops the asking of the rack that sent it alone: a
+rack that names the digest honestly is asked, and its text kept (8.3).
+
+### 9.5 Tests
+
+- The gate, run by a Python over a tier of files: a package left to the tier
+  imports, and one not left does not; only the first's metadata is listed;
+  only its path file runs; the tier's site directory is not on the path; the
+  parts of a namespace package the environment ships are imported from it
+  over a package and a module of the tier's of those names.
+- `tierImports`: what was left, at the top and one level down in a namespace
+  package both hold parts of; the path files; only the namespace packages the
+  environment holds parts of.
+- The build over a tier: what the lock never installed, and a path file of no
+  distribution left to the tier, are neither imported nor listed; a tier
+  whose `jaraco` is an ordinary package builds, and the environment imports
+  its own parts; with bytecode compiling on, the compiled files of what is
+  left go too.
+- `decodeEnvironmentSpec` refuses a spec of five cases, and each reader refuses
+  through it.
+- The hub: a rack that sent a text that was not the bytes of its digest is not
+  asked again, and another that names the digest is; a text refused for its
+  own bytes is asked of no rack.

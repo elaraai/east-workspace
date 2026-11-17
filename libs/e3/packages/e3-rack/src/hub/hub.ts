@@ -133,6 +133,10 @@ export class RackHub {
   /** Each tier manifest refused, by the digest it was reported under and the
    *  digest of its text: the same text is refused again with nothing said. */
   private readonly refusedTierManifests = new Set<string>();
+  /** By rack, the digests it sent a text of that is not the bytes the digest
+   *  names: it is not asked for that text again, and another rack that names
+   *  the digest is. */
+  private readonly mismatchedTierManifests = new Map<string, Set<string>>();
   /** How the last leases ended, the latest first: what the status lists. */
   private readonly outcomes: Array<ValueTypeOf<typeof HubOutcomeType>> = [];
   private readonly mutations = new MutationQueue();
@@ -201,9 +205,11 @@ export class RackHub {
    * another.
    *
    * @returns The digests of the manifests the report names whose text is held
-   *   nowhere, and was not refused, sorted: what the rack is asked to send
-   *   with its next heartbeat. A refused one is not asked for again: its rack
-   *   would send the same text.
+   *   nowhere, sorted: what the rack is asked to send with its next heartbeat.
+   *   Not one whose own bytes were refused, which every rack would send
+   *   alike; nor one this rack sent a text of that is not the bytes the digest
+   *   names, which it would send again. Another rack that names that digest
+   *   is asked for it.
    */
   private reported(rackId: string, report: RackReport): string[] {
     this.reports.set(rackId, report);
@@ -212,6 +218,9 @@ export class RackHub {
       if (said.manifest === undefined || this.tierManifests.has(said.digest)) continue;
       const bytes = new TextEncoder().encode(said.manifest);
       const actual = tierManifestDigest(bytes);
+      // A text that is not the bytes its digest names says nothing of the
+      // manifest the digest names: its rack alone is not asked for it again
+      if (actual !== said.digest) this.mismatchedTierManifests.set(rackId, (this.mismatchedTierManifests.get(rackId) ?? new Set<string>()).add(said.digest));
       const refusal = `${said.digest} ${actual}`;
       if (this.refusedTierManifests.has(refusal)) continue;
       try {
@@ -224,17 +233,28 @@ export class RackHub {
       }
     }
     this.forgetTierManifests();
-    const refused = new Set([...this.refusedTierManifests].map((refusal) => refusal.slice(0, refusal.indexOf(' '))));
+    // A manifest whose own bytes were refused: every rack that names it sends those
+    const unread = new Set([...this.refusedTierManifests].flatMap((refusal) => {
+      const [said, actual] = refusal.split(' ');
+      return said === actual ? [said!] : [];
+    }));
+    const sentWrongly = this.mismatchedTierManifests.get(rackId);
     return [...new Set(Object.values(report.tiers ?? {}).map((tier) => tier.digest))]
-      .filter((digest) => !this.tierManifests.has(digest) && !refused.has(digest)).sort(compareString);
+      .filter((digest) => !this.tierManifests.has(digest) && !unread.has(digest) && sentWrongly?.has(digest) !== true).sort(compareString);
   }
 
-  /** Lets go of each tier manifest no rack's last report names, and of each
-   *  refusal of one. */
+  /** Lets go of each tier manifest no rack's last report names, of each
+   *  refusal of one, and of what a rack sent wrongly of one its last report
+   *  does not name. */
   private forgetTierManifests(): void {
     const named = new Set([...this.reports.values()].flatMap((report) => Object.values(report.tiers ?? {}).map((tier) => tier.digest)));
     for (const digest of this.tierManifests.keys()) if (!named.has(digest)) this.tierManifests.delete(digest);
     for (const refusal of this.refusedTierManifests) if (!named.has(refusal.slice(0, refusal.indexOf(' ')))) this.refusedTierManifests.delete(refusal);
+    for (const [rackId, digests] of this.mismatchedTierManifests) {
+      const its = new Set(Object.values(this.reports.get(rackId)?.tiers ?? {}).map((tier) => tier.digest));
+      for (const digest of digests) if (!its.has(digest)) digests.delete(digest);
+      if (digests.size === 0) this.mismatchedTierManifests.delete(rackId);
+    }
   }
 
   /** @param options - State home, idle policy, diagnostics and lifecycle clocks */

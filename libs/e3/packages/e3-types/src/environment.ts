@@ -19,7 +19,7 @@
  * content-addressed object store and transfer machinery.
  */
 
-import { ArrayType, OptionType, StringType, StructType, ValueTypeOf, VariantType } from '@elaraai/east';
+import { ArrayType, OptionType, StringType, StructType, ValueTypeOf, VariantType, decodeBeast2For, isTypeValueEqual, readBeast2Type, toEastTypeValue } from '@elaraai/east';
 
 /**
  * A Python (uv) project environment.
@@ -211,15 +211,12 @@ export type WorkspacePythonEnvironment = ValueTypeOf<typeof WorkspacePythonEnvir
  * (`none`) runs on the stock runtime image as today.
  *
  * @remarks
- * BEAST2 encodes a variant's tag as the index of its case in the
- * **alphabetically sorted** case list, so the case order is load-bearing: a
- * repo persists specs by that order, and reordering the cases in a later
- * edit would re-tag every case after the insertion point and mis-decode
- * already-stored specs. New cases must therefore be added so the sorted
- * order only grows at the end (`tools`, `workspace_node` and
- * `workspace_python` sort after the original three, in that order). The
- * frozen-order guard test in `environment.spec.ts` turns an accidental
- * reorder into a red test.
+ * A spec is package-borne: an export writes it, at the type of the e3 that
+ * exported the package. It is read at this type alone
+ * ({@link decodeEnvironmentSpec}): a spec an earlier release wrote, of a type
+ * with other cases, is refused, and its package exported again
+ * (`docs/conventions/WIRE_MIGRATION.md`). So a case added here changes the
+ * bytes, and the hash, of every spec an export writes after it.
  */
 export const EnvironmentSpecType = VariantType({
   /** Python (uv) project environment */
@@ -237,6 +234,42 @@ export const EnvironmentSpecType = VariantType({
 });
 export type EnvironmentSpecType = typeof EnvironmentSpecType;
 export type EnvironmentSpec = ValueTypeOf<typeof EnvironmentSpecType>;
+
+const ENVIRONMENT_SPEC_TYPE = toEastTypeValue(EnvironmentSpecType);
+const decodeSpec = decodeBeast2For(EnvironmentSpecType);
+
+/**
+ * Decodes an environment's spec object, as this release writes it.
+ *
+ * @remarks
+ * Whatever reads a spec reads it here, so a spec an earlier release wrote is
+ * refused in one set of words wherever it is read. Such a spec, of a type
+ * with fewer cases, would decode at this one still; it is refused by its type
+ * before it is read, as an environment's file an older SDK stored raw is, and
+ * its package is exported again.
+ *
+ * @param data - The object's bytes
+ * @param hash - The object's hash, which a refusal names
+ * @returns The spec
+ * @throws {Error} When the object is not a spec of this release's type: one
+ *   an older e3 SDK exported, whose package is re-exported
+ * @example
+ * ```ts
+ * const spec = decodeEnvironmentSpec(await storage.objects.read(repo, envHash), envHash);
+ * ```
+ */
+export function decodeEnvironmentSpec(data: Uint8Array, hash: string): EnvironmentSpec {
+  let isSpec = false;
+  try {
+    isSpec = isTypeValueEqual(readBeast2Type(data), ENVIRONMENT_SPEC_TYPE);
+  } catch {
+    // Not beast2 at all
+  }
+  if (!isSpec) {
+    throw new Error(`the environment ${hash} was exported by an older e3 SDK — re-export its package with the current one`);
+  }
+  return decodeSpec(data);
+}
 
 /**
  * Lists the object-store hashes an environment spec references.

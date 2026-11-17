@@ -25,7 +25,7 @@ import { tierManifestOf, uvOnPath } from '../test-helpers.js';
 import { packEnvironmentLayers } from '../storage/local/environment-layers.js';
 import { readTierManifest, recordedSiteFiles } from '../tier-manifest.js';
 import {
-  decodeEnvironmentFile, environmentFitsTier, EnvironmentTargetRefused, hostEnvironmentPlatform, materializeEnvironment, materializeEnvironmentFor,
+  decodeEnvironmentFile, environmentFitsTier, EnvironmentTargetRefused, hostEnvironmentPlatform, installShell, materializeEnvironment, materializeEnvironmentFor,
   nodeLockFilename,
 } from './environment.js';
 
@@ -121,6 +121,11 @@ describe('the files an environment names', () => {
   it('tells a node lockfile\'s format from its bytes', () => {
     assert.strictEqual(nodeLockFilename(Buffer.from('  {"lockfileVersion": 3}')), 'package-lock.json');
     assert.strictEqual(nodeLockFilename(Buffer.from("lockfileVersion: '9.0'\n")), 'pnpm-lock.yaml');
+  });
+
+  it('runs npm and pnpm through a shell on Windows, where they are .cmd files, and uv as the executable it is, whose command line cmd.exe would cap', () => {
+    assert.deepStrictEqual(['npm', 'pnpm', 'uv'].map((command) => installShell(command, 'win32')), [true, true, false]);
+    assert.deepStrictEqual(['npm', 'pnpm', 'uv'].map((command) => installShell(command, 'linux')), [false, false, false]);
   });
 });
 
@@ -390,6 +395,19 @@ describe('materializeEnvironment', () => {
       );
       assert.ok(!fs.existsSync(path.join(repo, 'envs', envHash)), 'nothing is materialized');
     }
+  });
+
+  it('refuses wherever it is read a spec of another type than this release\'s, as one an earlier SDK exported is, naming the re-export', async () => {
+    // e3-types' decodeEnvironmentSpec, which each reader goes through, refuses
+    // a spec of the type before `workspace_python` though it decodes at today's
+    const envHash = await storage.objects.write(repo, encodeBeast2For(StringType)('a spec of another type'));
+    const refusal = { message: `the environment ${envHash} was exported by an older e3 SDK — re-export its package with the current one` };
+    await assert.rejects(materializeEnvironment(storage, repo, envHash), refusal);
+    assert.ok(!fs.existsSync(path.join(repo, 'envs', envHash)), 'nothing is materialized');
+    await assert.rejects(materializeEnvironmentFor(storage, repo, envHash, { platform: 'x86_64-manylinux_2_28' }, path.join(tmpDir, 'earlier-spec')), refusal);
+    const tier = { version: 1 as const, python: { version: '3.12.3', executable: '/opt/venv/bin/python', base: '/usr/bin/python3', site: '/opt/venv/lib/python3.12/site-packages' },
+      namespaces: [], distributions: [] };
+    await assert.rejects(environmentFitsTier(storage, repo, envHash, tier), refusal);
   });
 
   it('rejects a tools spec whose file path escapes the environment dir', async () => {
@@ -1098,21 +1116,22 @@ describe('materializeEnvironmentFor: an environment installed for a platform tha
       // A tier: a virtualenv of this machine's, as a runtime image's is one
       // of its system's, holding the idna the lock pins and another six; of
       // the two that share the namespace package `jaraco`, the one the lock
-      // pins and another version of the other; and a path file of its own,
-      // which adds a directory of one module
+      // pins and another version of the other; a tomli, which the lock pins
+      // for the workspace's root and this member never installs; and a path
+      // file no distribution installed, which adds a directory of one module
       const tier = path.join(work, 'tier');
       // Made as an image makes its own: by the interpreter itself (`python3 -m venv /opt/venv`)
       const system = execFileSync('uv', ['python', 'find'], { encoding: 'utf-8', cwd: work }).trim();
       execFileSync(system, ['-m', 'venv', '--without-pip', tier], { stdio: 'ignore' });
       const tierPython = path.join(tier, 'bin', 'python');
-      uv(['pip', 'install', '--python', tierPython, `idna==${locked('idna')}`, 'six==1.16.0',
+      uv(['pip', 'install', '--python', tierPython, `idna==${locked('idna')}`, 'six==1.16.0', `tomli==${locked('tomli')}`,
         `jaraco.classes==${locked('jaraco-classes')}`, `more-itertools==${locked('more-itertools')}`, 'jaraco.functools==4.0.0'], work);
       assert.notStrictEqual(locked('jaraco-functools'), '4.0.0', 'the lock pins another than the tier holds');
       const manifest = readTierManifest(Buffer.from(tierManifestOf(tierPython)));
       assert.ok(manifest.namespaces.includes('jaraco'), `the tier names its namespace packages: ${manifest.namespaces.join(', ')}`);
       const extra = path.join(work, 'tier-extra');
       fs.mkdirSync(extra);
-      fs.writeFileSync(path.join(extra, 'tier_only.py'), 'MARKER = "the tier\'s own path file is read"\n');
+      fs.writeFileSync(path.join(extra, 'tier_only.py'), 'MARKER = "a path file of no distribution left to the tier is read"\n');
       fs.writeFileSync(path.join(manifest.python.site, 'tier-extra.pth'), `${extra}\n`);
       const tierIdna = fs.readFileSync(path.join(manifest.python.site, `idna-${locked('idna')}.dist-info`, 'RECORD'), 'utf8');
 
@@ -1126,7 +1145,7 @@ describe('materializeEnvironmentFor: an environment installed for a platform tha
       const minor = manifest.python.version.split('.').slice(0, 2).join('.');
       const site = path.join(dir, '.venv', 'lib', `python${minor}`, 'site-packages');
       const installed = fs.readdirSync(site);
-      for (const shipped of ['six.py', `six-${locked('six')}.dist-info`, 'features', 'trainer', 'zzz_e3_tier.pth']) {
+      for (const shipped of ['six.py', `six-${locked('six')}.dist-info`, 'features', 'trainer', 'zzz_e3_tier.pth', '_e3_tier.py']) {
         assert.ok(installed.includes(shipped), `${shipped} ships: ${installed.join(', ')}`);
       }
       assert.ok(!installed.some((name) => name === 'idna' || name.startsWith('idna-')), `idna is left to the tier: ${installed.join(', ')}`);
@@ -1152,16 +1171,29 @@ describe('materializeEnvironmentFor: an environment installed for a platform tha
       const packed = await packEnvironmentLayers(repo, built);
       assert.ok(packed.layers.length >= 2, 'its packages and its project');
 
-      // Composed over the tier, it runs: its own first, then the tier's
+      // Composed over the tier, it runs: its own first, then what it left to
+      // the tier, and nothing else of the tier's
       await composeEnvironmentOverTier(dir, manifest.python.base);
       const out = execFileSync(path.join(bin, 'python'), ['-c', [
-        'import sys, six, idna, trainer, features, tier_only',
+        'import sys, six, idna, trainer, features',
         'import jaraco.classes.properties, jaraco.functools',
-        'from importlib.metadata import version',
+        'from importlib.metadata import PackageNotFoundError, version',
+        'def imported(name):',
+        '    try:',
+        '        __import__(name)',
+        '    except ModuleNotFoundError:',
+        '        return "absent"',
+        '    return "imported"',
+        'def listed(name):',
+        '    try:',
+        '        version(name)',
+        '    except PackageNotFoundError:',
+        '        return "unlisted"',
+        '    return "listed"',
         'print(six.__version__, six.__file__)',
         'print(version("idna"), idna.__file__)',
         'print(trainer.MARKER, features.MARKER, sys.prefix)',
-        'print(tier_only.MARKER)',
+        'print(imported("tier_only"), imported("tomli"), listed("tomli"), ' + JSON.stringify(manifest.python.site) + ' in sys.path)',
         'print(version("jaraco.classes"), jaraco.classes.properties.__file__)',
         'print(version("jaraco.functools"), jaraco.functools.__file__)',
       ].join('\n')], { encoding: 'utf-8', cwd: os.tmpdir() }).trim().split('\n');
@@ -1173,13 +1205,14 @@ describe('materializeEnvironmentFor: an environment installed for a platform tha
       assert.deepStrictEqual(found(out[0]!), [locked('six'), fs.realpathSync(path.join(site, 'six.py'))], 'its own six, not the tier\'s 1.16.0');
       assert.deepStrictEqual(found(out[1]!), [locked('idna'), fs.realpathSync(path.join(manifest.python.site, 'idna', '__init__.py'))], 'the tier\'s idna');
       assert.deepStrictEqual(found(out[2]!), ['trainer features', fs.realpathSync(path.join(dir, '.venv'))]);
-      assert.deepStrictEqual(out[3], 'the tier\'s own path file is read');
+      assert.deepStrictEqual(out[3], 'absent absent unlisted False',
+        'the tier\'s site directory is not on the path: what the lock never installed, and a path file of no distribution left to the tier, are neither imported nor listed');
       // One namespace package, read from both: the tier's part, and this environment's own, not the tier's 4.0.0
       assert.deepStrictEqual(found(out[4]!), [locked('jaraco-classes'), fs.realpathSync(path.join(manifest.python.site, 'jaraco', 'classes', 'properties.py'))]);
       assert.deepStrictEqual(found(out[5]!), [locked('jaraco-functools'), fs.realpathSync(path.join(site, 'jaraco', 'functools', '__init__.py'))]);
     });
 
-    it('refuses to build over a tier an environment that would ship a part of a namespace package the tier holds as an ordinary one, which Python would import in its place', async () => {
+    it('builds over a tier whose package of the name of a namespace package the environment ships is an ordinary one, and imports the parts it ships, which the tier\'s would hide on its path', async () => {
       const { pyproject, lock, features, trainer } = await memberWorkspace(fs.mkdtempSync(path.join(work, 'hidden-members-')), write);
       const envHash = await storage.objects.write(repo, encodeBeast2For(EnvironmentSpecType)(
         variant('workspace_python', { pyproject, lock, subjects: ['trainer'], sdists: [features, trainer], requires: [] })));
@@ -1188,16 +1221,48 @@ describe('materializeEnvironmentFor: an environment installed for a platform tha
       const system = execFileSync('uv', ['python', 'find'], { encoding: 'utf-8', cwd: work }).trim();
       execFileSync(system, ['-m', 'venv', '--without-pip', tier], { stdio: 'ignore' });
       const tierPython = path.join(tier, 'bin', 'python');
-      const site = readTierManifest(Buffer.from(tierManifestOf(tierPython))).python.site;
-      fs.mkdirSync(path.join(site, 'jaraco'));
-      fs.writeFileSync(path.join(site, 'jaraco', '__init__.py'), '');
+      const tierSite = readTierManifest(Buffer.from(tierManifestOf(tierPython))).python.site;
+      fs.mkdirSync(path.join(tierSite, 'jaraco'));
+      fs.writeFileSync(path.join(tierSite, 'jaraco', '__init__.py'), 'raise ImportError("the tier\'s jaraco")\n');
       const manifest = readTierManifest(Buffer.from(tierManifestOf(tierPython)));
-      assert.ok(manifest.modules.includes('jaraco') && !manifest.namespaces.includes('jaraco'), manifest.modules.join(', '));
+      assert.ok(!manifest.namespaces.includes('jaraco'), manifest.namespaces.join(', '));
 
       const dir = scratch();
-      await assert.rejects(() => materializeEnvironmentFor(storage, repo, envHash, { platform: host!, over: manifest }, dir),
-        /'jaraco' is a namespace package here and a module or an ordinary package in the tier's image, which Python would import in place of the part this environment ships: it is built whole/);
-      assert.ok(!fs.existsSync(dir), 'nothing is left where it was built');
+      await materializeEnvironmentFor(storage, repo, envHash, { platform: host!, over: manifest }, dir);
+      await composeEnvironmentOverTier(dir, manifest.python.base);
+      const minor = manifest.python.version.split('.').slice(0, 2).join('.');
+      const site = path.join(dir, '.venv', 'lib', `python${minor}`, 'site-packages');
+      const out = execFileSync(path.join(dir, '.venv', 'bin', 'python'), ['-c', 'import jaraco.classes, jaraco.functools; print(jaraco.classes.__file__); print(jaraco.functools.__file__)'],
+        { encoding: 'utf-8', cwd: os.tmpdir() }).trim().split('\n').map((at) => fs.realpathSync(at));
+      assert.deepStrictEqual(out, ['classes', 'functools'].map((part) => fs.realpathSync(path.join(site, 'jaraco', part, '__init__.py'))));
+    });
+
+    it('takes from the site directory the bytecode uv compiled of each module it leaves to the tier, which no record lists', async () => {
+      const { pyproject, lock, features, trainer } = await memberWorkspace(fs.mkdtempSync(path.join(work, 'bytecode-members-')), write);
+      const envHash = await storage.objects.write(repo, encodeBeast2For(EnvironmentSpecType)(
+        variant('workspace_python', { pyproject, lock, subjects: ['trainer'], sdists: [features, trainer], requires: [] })));
+      const lockText = Buffer.from(decodeEnvironmentFile(await storage.objects.read(repo, lock), lock)).toString('utf8');
+      const locked = (name: string): string => new RegExp(`name = "${name}"\\nversion = "([^"]+)"`).exec(lockText)![1]!;
+      // A tier that holds the idna and jaraco.classes the lock pins
+      const tier = path.join(work, 'bytecode-tier');
+      const system = execFileSync('uv', ['python', 'find'], { encoding: 'utf-8', cwd: work }).trim();
+      execFileSync(system, ['-m', 'venv', '--without-pip', tier], { stdio: 'ignore' });
+      const tierPython = path.join(tier, 'bin', 'python');
+      uv(['pip', 'install', '--python', tierPython, `idna==${locked('idna')}`, `jaraco.classes==${locked('jaraco-classes')}`,
+        `more-itertools==${locked('more-itertools')}`], work);
+      const manifest = readTierManifest(Buffer.from(tierManifestOf(tierPython)));
+
+      // Built as a machine that has uv compile what it installs builds it
+      const dir = scratch();
+      const built = await materializeEnvironmentFor(storage, repo, envHash, { platform: host!, over: manifest }, dir,
+        { env: { ...process.env, UV_COMPILE_BYTECODE: '1' } });
+      assert.strictEqual(built.fromTier, 3);
+      const minor = manifest.python.version.split('.').slice(0, 2).join('.');
+      const site = path.join(dir, '.venv', 'lib', `python${minor}`, 'site-packages');
+      for (const left of ['idna', path.join('jaraco', 'classes'), 'more_itertools']) {
+        assert.ok(!fs.existsSync(path.join(site, left)), `${left}, left to the tier, keeps no compiled file here`);
+      }
+      assert.ok(fs.readdirSync(path.join(site, 'jaraco', 'functools', '__pycache__')).some((name) => name.endsWith('.pyc')), 'what ships keeps what uv compiled of it');
     });
 
     it('builds over a tier only an environment that fits it: a python environment whose lock takes the tier\'s Python', async () => {
@@ -1206,7 +1271,7 @@ describe('materializeEnvironmentFor: an environment installed for a platform tha
         variant('workspace_python', { pyproject, lock, subjects: ['features'], sdists: [features], requires: [] })));
       const python = { executable: '/opt/venv/bin/python', base: '/usr/bin/python3', site: '/opt/venv/lib/python3.9/site-packages' };
       // The workspace's lock takes Python 3.11 and later
-      const old = { version: 1 as const, python: { ...python, version: '3.9.2' }, namespaces: [], modules: [], distributions: [] };
+      const old = { version: 1 as const, python: { ...python, version: '3.9.2' }, namespaces: [], distributions: [] };
       assert.strictEqual(await environmentFitsTier(storage, repo, envHash, old), false);
       assert.strictEqual(await environmentFitsTier(storage, repo, envHash, { ...old, python: { ...python, version: '3.11.2' } }), true);
       const dir = scratch();

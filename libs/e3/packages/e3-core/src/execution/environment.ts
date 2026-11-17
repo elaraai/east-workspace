@@ -53,19 +53,18 @@ import { Readable } from 'node:stream';
 import { extract as tarExtract } from 'tar-stream';
 import { BlobType, decodeBeast2For, isTypeValueEqual, readBeast2Type, toEastTypeValue } from '@elaraai/east';
 import { canonicalPythonName, pythonLeftOut, readRequiredDistribution } from '@elaraai/e3';
-import { EnvironmentSpecType, type EnvironmentSpec } from '@elaraai/e3-types';
+import { decodeEnvironmentSpec, type EnvironmentSpec } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/index.js';
 import { withKeyedLock } from '../keyed-mutex.js';
 import { isObjectHash } from '../objects.js';
 import {
-  leftToTier, pythonMinor, pythonSatisfies, readDistributionMetadata, recordedSiteFiles, type InstalledDistribution, type TierManifest,
+  leftToTier, pythonMinor, pythonSatisfies, readDistributionMetadata, recordedSiteFiles, tierImports, type InstalledDistribution, type TierManifest,
 } from '../tier-manifest.js';
+import { TIER_GATE_MODULE, TIER_GATE_PATH_FILE, tierGateModule } from '../tier-gate.js';
 import { getPidStartTime, processExited } from './processHelpers.js';
 import { checkProcessSettings, giveDirectory, type ProcessSettings } from './processExec.js';
 
 const execFileAsync = promisify(execFile);
-
-const decodeEnvironmentSpec = decodeBeast2For(EnvironmentSpecType);
 
 /** An environment's files are objects holding their bytes as beast2 Blobs. */
 const FILE_TYPE = toEastTypeValue(BlobType);
@@ -89,14 +88,28 @@ function environmentBinDir(envDir: string, spec: EnvironmentSpec): string {
   }
 }
 
+/**
+ * Whether an install's command runs through a shell: npm and pnpm on Windows,
+ * which are `npm.cmd` and `pnpm.cmd` there and need one to be found. uv is an
+ * executable, run as one: cmd.exe caps a command line at 8191 characters,
+ * which a sync that leaves out each package of a large lock passes.
+ *
+ * @internal
+ * @param command - The command
+ * @param platform - The platform it runs on
+ * @returns Whether it runs through a shell
+ */
+export function installShell(command: string, platform: NodeJS.Platform = process.platform): boolean {
+  return platform === 'win32' && (command === 'npm' || command === 'pnpm');
+}
+
 /** Runs an install in the build directory, as the settings say: from their
  *  environment, as is, and as their user and group. */
 async function run(command: string, args: string[], cwd: string, what: string, settings: ProcessSettings): Promise<void> {
   try {
     await execFileAsync(command, args, {
       cwd,
-      // npm is npm.cmd on Windows; a shell resolves both.
-      shell: process.platform === 'win32',
+      shell: installShell(command),
       maxBuffer: 16 * 1024 * 1024,
       env: settings.env,
       uid: settings.uid,
@@ -968,10 +981,6 @@ async function carryInterpreter(buildDir: string, platform: TargetPlatform, sett
   return CARRIED_INTERPRETER_DIR;
 }
 
-/** The file in an environment's site directory that adds its tier's, after
- *  every path the environment's own files add. */
-const TIER_PATH_FILE = 'zzz_e3_tier.pth';
-
 /** Removes every directory under `dir` that holds nothing, and so each that
  *  held only such directories; `dir` itself stays. */
 async function removeEmptyDirectories(dir: string): Promise<boolean> {
@@ -994,25 +1003,24 @@ async function removeEmptyDirectories(dir: string): Promise<boolean> {
  *   the files it installed, is removed from the site directory, with its
  *   metadata ({@link leftToTier} says which). Its scripts stay: they run on
  *   the environment's interpreter, which finds the distribution in the tier;
+ *   The bytecode uv compiled of a module that is removed goes with it: no
+ *   record lists it;
  * - the virtualenv's `pyvenv.cfg` names the tier's base interpreter's
  *   directory as its `home`, and the tier's Python as its version;
- * - one path file in the site directory adds the tier's site directory after
- *   the environment's own, read as a site directory is, so its own path
- *   files are too. What the environment ships is found first: a version of
- *   its own of something the tier holds wins. A namespace package's part is
- *   the one exception (PEP 420): Python imports a module or an ordinary
- *   package of its name that it finds later in its place, so an environment
- *   that ships one the tier holds as such ({@link TierManifest.modules}) is
- *   refused here, and built whole;
+ * - the environment imports from the tier through a gate of its own
+ *   (`tier-gate.ts`), which a path file in the site directory imports, after
+ *   every path file of the environment's: the tier's site directory is not
+ *   put on `sys.path`, and the gate finds in it what was left to it, and
+ *   nothing else, as {@link tierImports} says. What the environment ships is
+ *   found first, and inside a namespace package both hold parts of, a name
+ *   not left to the tier is looked for in the environment's own parts alone;
  * - the link to this machine's interpreter is removed. No layer holds a link
  *   that leads out of the environment, so the agent that composes it over
  *   its tier makes the link to the tier's interpreter
  *   (`composeEnvironmentOverTier`).
  *
  * @returns How many distributions were left to the tier
- * @throws {Error} When the virtualenv is not of the tier's Python, or the
- *   environment ships a namespace package's part that the tier's module or
- *   ordinary package of its name would hide
+ * @throws {Error} When the virtualenv is not of the tier's Python
  */
 async function leaveToTier(buildDir: string, tier: TierManifest): Promise<number> {
   const venv = path.join(buildDir, '.venv');
@@ -1042,31 +1050,37 @@ async function leaveToTier(buildDir: string, tier: TierManifest): Promise<number
   }
   const left = leftToTier(installed, tier);
   const root = `${site}${path.sep}`;
+  // The modules removed, by their directory: what uv compiled of each, which
+  // no record lists, goes with it
+  const modules = new Map<string, Set<string>>();
   for (const distribution of installed) {
     if (!left.has(canonicalPythonName(distribution.name))) continue;
     for (const { file } of recordedSiteFiles(distribution.record)) {
       // A record is a wheel's own account of itself: only what it names in
       // the site directory is removed
       const at = path.resolve(site, ...file.split('/'));
-      if (at.startsWith(root)) await fs.rm(at, { force: true });
+      if (!at.startsWith(root)) continue;
+      await fs.rm(at, { force: true });
+      if (at.endsWith('.py')) {
+        const dir = path.dirname(at);
+        modules.set(dir, (modules.get(dir) ?? new Set()).add(path.basename(at, '.py')));
+      }
     }
     await fs.rm(path.join(site, distribution.info), { recursive: true, force: true });
   }
+  for (const [dir, names] of modules) {
+    const cache = path.join(dir, '__pycache__');
+    let compiled: string[];
+    try {
+      compiled = await fs.readdir(cache);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') continue;
+      throw err;
+    }
+    // `<module>.<interpreter tag>.pyc`, and `.opt-1`, `.opt-2` among its tags
+    for (const name of compiled) if (name.endsWith('.pyc') && names.has(name.slice(0, name.indexOf('.')))) await fs.rm(path.join(cache, name), { force: true });
+  }
   await removeEmptyDirectories(site);
-
-  // A namespace package's part that ships: a directory at the top of the site
-  // directory with no `__init__` module, which the tier's module or ordinary
-  // package of its name would hide
-  const hidden: string[] = [];
-  for (const entry of await fs.readdir(site, { withFileTypes: true })) {
-    if (!entry.isDirectory() || !tier.modules.includes(entry.name)) continue;
-    if (!(await fs.readdir(path.join(site, entry.name))).some((name) => name.startsWith('__init__.'))) hidden.push(entry.name);
-  }
-  if (hidden.length > 0) {
-    throw new Error(`environment materialization: ${hidden.map((name) => `'${name}'`).join(', ')} ${hidden.length === 1 ? 'is a namespace package' : 'are namespace packages'} ` +
-      'here and a module or an ordinary package in the tier\'s image, which Python would import in place of the part this environment ships: ' +
-      'it is built whole');
-  }
 
   // The interpreter is the tier's. This machine's is linked by its path here
   const bin = path.join(venv, 'bin');
@@ -1077,9 +1091,10 @@ async function leaveToTier(buildDir: string, tier: TierManifest): Promise<number
   await fs.writeFile(path.join(venv, 'pyvenv.cfg'), config
     .replace(/^home\s*=.*$/m, `home = ${path.posix.dirname(tier.python.base)}`)
     .replace(/^version_info\s*=.*$/m, `version_info = ${tier.python.version}`));
-  // A line that begins `import` is run as the site directory is read: the
-  // tier's is added after it, as a site directory
-  await fs.writeFile(path.join(site, TIER_PATH_FILE), `import site; site.addsitedir(${JSON.stringify(tier.python.site)})\n`);
+  // What it imports from the tier, through its gate: a line that begins
+  // `import` is run as the site directory is read
+  await fs.writeFile(path.join(site, `${TIER_GATE_MODULE}.py`), tierGateModule(tier.python.site, tierImports(installed, tier)));
+  await fs.writeFile(path.join(site, TIER_GATE_PATH_FILE), `import ${TIER_GATE_MODULE}\n`);
   return left.size;
 }
 
@@ -1191,8 +1206,7 @@ export async function materializeEnvironment(
   settings: ProcessSettings = {},
 ): Promise<string[]> {
   checkProcessSettings(settings);
-  const specData = await storage.objects.read(repo, envHash);
-  const spec = decodeEnvironmentSpec(Buffer.from(specData));
+  const spec = decodeEnvironmentSpec(await storage.objects.read(repo, envHash), envHash);
 
   if (spec.type === 'image') {
     throw new Error(
@@ -1323,7 +1337,7 @@ export async function materializeEnvironmentFor(
   settings: ProcessSettings = {},
 ): Promise<TargetEnvironment> {
   checkProcessSettings(settings);
-  const spec = decodeEnvironmentSpec(Buffer.from(await storage.objects.read(repo, envHash)));
+  const spec = decodeEnvironmentSpec(await storage.objects.read(repo, envHash), envHash);
   const named = `environment ${envHash.slice(0, 12)}`;
   if (spec.type === 'image') {
     throw new EnvironmentTargetRefused('image', `${named} is a container image (${spec.value.digest}), which no install makes for another platform`);
@@ -1397,7 +1411,7 @@ async function fitsTier(storage: StorageBackend, repo: string, spec: Environment
  * ```
  */
 export async function environmentFitsTier(storage: StorageBackend, repo: string, envHash: string, tier: TierManifest): Promise<boolean> {
-  return fitsTier(storage, repo, decodeEnvironmentSpec(Buffer.from(await storage.objects.read(repo, envHash))), tier);
+  return fitsTier(storage, repo, decodeEnvironmentSpec(await storage.objects.read(repo, envHash), envHash), tier);
 }
 
 // =============================================================================

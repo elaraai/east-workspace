@@ -771,15 +771,17 @@ hello names `tier-manifests`, the manifest's text:
 
 ```json
 { "features": ["resources", "environments", "environments-over-tier"], "target": "x86_64-manylinux_2_28",
-  "tiers": { "py-datascience": { "digest": "sha256:c41d…", "manifest": "{\"distributions\":[…],\"modules\":[…],\"namespaces\":[…],\"python\":{…},\"version\":1}\n" } } }
+  "tiers": { "py-datascience": { "digest": "sha256:c41d…", "manifest": "{\"distributions\":[…],\"namespaces\":[…],\"python\":{…},\"version\":1}\n" } } }
 ```
 
 The text goes with the agent's first heartbeat to the source, and then only
 with the heartbeat after an answer whose `x-e3-rack-tier-manifests-wanted`
 header names its digest: a JSON array of the digests whose text the source
-holds none of (it started again) and has not refused. Every other heartbeat
-names the digest alone. An agent that does not read the header may send the
-text every time, as agents did before it.
+holds none of (it started again). A text that is the bytes its digest names,
+and that the source still refused, is asked of no rack, since every rack's
+text of that digest is those bytes; a text that is not, of the rack that sent
+it alone. Every other heartbeat names the digest alone. An agent that does
+not read the header may send the text every time, as agents did before it.
 
 A source keeps a manifest whose text is the bytes its digest names, for as
 long as a rack reports it, and builds an environment over it. The manifest

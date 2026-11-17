@@ -41,13 +41,26 @@ export interface CaptureEvent {
 /** Capture progress callback (#311). */
 export type CaptureEventFn = (event: CaptureEvent) => void;
 import { parse as parseToml } from 'smol-toml';
-import { variant, none, encodeBeast2For } from '@elaraai/east';
+import { StringType, compareFor, variant, none, encodeBeast2For } from '@elaraai/east';
 import type { EnvironmentSpec } from '@elaraai/e3-types';
 import { EnvironmentSpecType } from '@elaraai/e3-types';
 import { validateEnvironmentDecl, type EnvironmentDecl } from './environment.js';
 import { STOCK_PLATFORMS_BY_RUNNER } from './runner.js';
 
 const encodeEnvironmentSpec = encodeBeast2For(EnvironmentSpecType);
+
+/** Orders the names and paths a spec holds through East, by code point. */
+const byCodePoint = compareFor(StringType);
+
+/**
+ * The sdists an export built of each local python package, by the package's
+ * directory: built once in an export, however many environments it rides in.
+ * The environments of one declaration whose runners name different stock
+ * platforms differ in what they require, and share their members' builds, so
+ * one that names the same distributions is the same spec, byte for byte, even
+ * from a build backend whose sdists are not reproducible.
+ */
+export type BuiltSdists = Map<string, ReadonlyArray<{ filename: string; hash: string }>>;
 
 // ---------------------------------------------------------------------------
 // Python (uv) dependency-closure capture (#278)
@@ -248,7 +261,7 @@ function pythonClosure(lock: UvLock, root: string, subjects: readonly string[], 
       throw new Error(`Environment for '${owner}': '${name}' is a virtual package (no build-system) and cannot be an environment subject`);
     }
   }
-  return [...build.entries()].map(([name, dir]) => ({ name, dir })).sort((a, b) => (a.name < b.name ? -1 : 1));
+  return [...build.entries()].map(([name, dir]) => ({ name, dir })).sort((a, b) => byCodePoint(a.name, b.name));
 }
 
 function readProjectFile(project: string, name: string, owner: string): Buffer {
@@ -290,15 +303,23 @@ function findUvLock(start: string, owner: string): { root: string; lock: UvLock 
  * Build one sdist per closure member and store it, returning the sorted
  * artifact set. Shared by the explicit `{ python }` capture and the derived
  * platform capture so both produce byte-identical specs for the same closure.
+ * A member the export built already ({@link BuiltSdists}) is not built again.
  */
 function buildMemberSdists(
   closure: Array<{ name: string; dir: string }>,
   owner: string,
   addBlob: (data: Buffer) => string,
   onEvent?: CaptureEventFn,
+  built?: BuiltSdists,
 ): Array<{ filename: string; hash: string }> {
   const sdists: Array<{ filename: string; hash: string }> = [];
   for (const member of closure) {
+    const kept = built?.get(member.dir);
+    if (kept !== undefined) {
+      sdists.push(...kept);
+      continue;
+    }
+    const mine: Array<{ filename: string; hash: string }> = [];
     // Build each closure member's sdist in its own out-dir so the artifact set
     // is unambiguous. Installers derive the package name from the filename.
     const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-env-sdist-'));
@@ -306,14 +327,16 @@ function buildMemberSdists(
       let memberBytes = 0;
       for (const a of buildArtifacts('uv', ['build', '--sdist', '--out-dir', outDir], member.dir, outDir, '.tar.gz', owner)) {
         memberBytes += a.data.byteLength;
-        sdists.push({ filename: a.filename, hash: addBlob(a.data) });
+        mine.push({ filename: a.filename, hash: addBlob(a.data) });
       }
       onEvent?.({ member: member.name, tool: 'uv build --sdist', bytes: memberBytes });
     } finally {
       fs.rmSync(outDir, { recursive: true, force: true });
     }
+    built?.set(member.dir, mine);
+    sdists.push(...mine);
   }
-  sdists.sort((a, b) => (a.filename < b.filename ? -1 : 1));
+  sdists.sort((a, b) => byCodePoint(a.filename, b.filename));
   return sdists;
 }
 
@@ -371,10 +394,10 @@ export function pythonRequires(root: string, lock: UvLock, platforms: readonly s
     .filter((pkg) => localSource(root, pkg.source) === null)
     .map((pkg) => {
       const name = canonicalPythonName(pkg.name);
-      const declared = [...(extras.get(name) ?? [])].sort();
+      const declared = [...(extras.get(name) ?? [])].sort(byCodePoint);
       return declared.length === 0 ? name : `${name}[${declared.join(',')}]`;
     })
-    .sort();
+    .sort(byCodePoint);
 }
 
 /**
@@ -461,7 +484,7 @@ export function pythonLeftOut(lockText: string, requires: readonly string[]): st
     for (const part of fresh) walked.add(part === '' ? key : `${key}[${part}]`);
   }
   const local = (pkg: UvLockPackage): boolean => LOCAL_SOURCE_KINDS.some((kind) => typeof pkg.source?.[kind] === 'string');
-  return [...new Set(packages.filter((pkg) => !local(pkg) && !needed.has(canonicalPythonName(pkg.name))).map((pkg) => pkg.name))].sort();
+  return [...new Set(packages.filter((pkg) => !local(pkg) && !needed.has(canonicalPythonName(pkg.name))).map((pkg) => pkg.name))].sort(byCodePoint);
 }
 
 /**
@@ -474,6 +497,7 @@ export function pythonLeftOut(lockText: string, requires: readonly string[]): st
  * @param lock - Its lock
  * @param subjects - The members, by the lock's names
  * @param platforms - The platform packages the task's runner names
+ * @param built - The sdists the export built already
  * @returns The encoded `workspace_python` spec
  */
 function captureWorkspacePython(
@@ -484,6 +508,7 @@ function captureWorkspacePython(
   owner: string,
   addBlob: (data: Buffer) => string,
   onEvent?: CaptureEventFn,
+  built?: BuiltSdists,
 ): Uint8Array {
   const requires = pythonRequires(root, lock, platforms, owner);
   // The lock's own spelling of each required distribution, for the walk
@@ -492,9 +517,9 @@ function captureWorkspacePython(
   const members = pythonClosure(lock, root, subjects, owner, required);
   const pyproject = addBlob(readProjectFile(root, 'pyproject.toml', owner));
   const lockBlob = addBlob(readProjectFile(root, 'uv.lock', owner));
-  const sdists = buildMemberSdists(members, owner, addBlob, onEvent);
+  const sdists = buildMemberSdists(members, owner, addBlob, onEvent, built);
   return encodeEnvironmentSpec(variant('workspace_python', {
-    pyproject, lock: lockBlob, subjects: [...subjects].sort(), sdists, requires,
+    pyproject, lock: lockBlob, subjects: [...subjects].sort(byCodePoint), sdists, requires,
   }));
 }
 
@@ -519,6 +544,7 @@ function capturePythonPlatforms(
   owner: string,
   addBlob: (data: Buffer) => string,
   onEvent?: CaptureEventFn,
+  built?: BuiltSdists,
 ): Uint8Array | null {
   const found = findUvLock(anchorDir, owner);
   if (!found) return null;
@@ -536,7 +562,7 @@ function capturePythonPlatforms(
       .filter((n): n is string => n !== null),
   )];
   if (subjects.length === 0) return null;
-  return captureWorkspacePython(root, lock, subjects, platforms, owner, addBlob, onEvent);
+  return captureWorkspacePython(root, lock, subjects, platforms, owner, addBlob, onEvent, built);
 }
 
 /**
@@ -707,6 +733,8 @@ function captureNodePlatforms(
  * @param platforms - The stock platform packages the runner names beside its
  *   custom ones (`east-py-std`): a python workspace member's environment
  *   installs their distributions too
+ * @param built - The sdists the export built already, which it adds to: each
+ *   local python package is built once in an export ({@link BuiltSdists})
  * @returns The beast2-encoded EnvironmentSpec, or null when nothing local is
  *   referenced (no workspace, or every platform is a registry/first-party package)
  */
@@ -718,12 +746,13 @@ export function captureAutoEnvironment(
   addBlob: (data: Buffer) => string,
   onEvent?: CaptureEventFn,
   platforms: readonly string[] = [],
+  built?: BuiltSdists,
 ): Uint8Array | null {
   if (customNames.length === 0) return null;
   // east-py resolves against a uv workspace, east-node against an npm
   // workspace. east-c (tools) is never derived — it uses explicit
   // `environment: { tools }`. Unknown runtimes never auto-derive.
-  if (runtime === 'east-py') return capturePythonPlatforms(customNames, platforms, anchorDir, owner, addBlob, onEvent);
+  if (runtime === 'east-py') return capturePythonPlatforms(customNames, platforms, anchorDir, owner, addBlob, onEvent, built);
   if (runtime === 'east-node') return captureNodePlatforms(customNames, anchorDir, owner, addBlob, onEvent);
   return null;
 }
@@ -749,7 +778,7 @@ function buildArtifacts(
       `Environment for '${owner}': '${command} ${args.join(' ')}' failed in '${project}':\n${stderr}`,
     );
   }
-  const files = fs.readdirSync(outDir).filter((f) => f.endsWith(extension)).sort();
+  const files = fs.readdirSync(outDir).filter((f) => f.endsWith(extension)).sort(byCodePoint);
   if (files.length === 0) {
     throw new Error(
       `Environment for '${owner}': '${command}' produced no ${extension} artifacts in '${project}'`,
@@ -918,7 +947,7 @@ function npmClosure(lock: NpmLock, root: string, subject: string, owner: string)
       }
     }
   }
-  return [...included.entries()].map(([p, name]) => ({ path: p, name })).sort((a, b) => (a.path < b.path ? -1 : 1));
+  return [...included.entries()].map(([p, name]) => ({ path: p, name })).sort((a, b) => byCodePoint(a.path, b.path));
 }
 
 /**
@@ -937,6 +966,8 @@ function npmClosure(lock: NpmLock, root: string, subject: string, owner: string)
  * @param platforms - The stock platform packages the declaring task's runner
  *   names (`east-py-std`): the environment of a python workspace's member
  *   installs their distributions too
+ * @param built - The sdists the export built already, which it adds to: each
+ *   local python package is built once in an export ({@link BuiltSdists})
  * @returns The beast2-encoded EnvironmentSpec bytes
  * @throws {Error} if the project is missing its manifest/lockfile or the build fails
  */
@@ -946,6 +977,7 @@ export function captureEnvironment(
   addBlob: (data: Buffer) => string,
   onEvent?: CaptureEventFn,
   platforms: readonly string[] = [],
+  built?: BuiltSdists,
 ): Uint8Array {
   let spec: EnvironmentSpec;
 
@@ -970,7 +1002,7 @@ export function captureEnvironment(
       }
       return { path: `bin/${path.basename(p)}`, hash: addBlob(fs.readFileSync(p)) };
     });
-    files.sort((a, b) => (a.path < b.path ? -1 : 1));
+    files.sort((a, b) => byCodePoint(a.path, b.path));
     spec = variant('tools', { files });
   } else if ('python' in decl) {
     const project = path.resolve(decl.python.project);
@@ -980,14 +1012,14 @@ export function captureEnvironment(
     // A member of a workspace names itself, so its environment installs its
     // own dependencies and not its workspace's (#1654)
     if (canonicalPath(root) !== canonicalPath(project)) {
-      return captureWorkspacePython(root, lock, [subject], platforms, owner, addBlob, onEvent);
+      return captureWorkspacePython(root, lock, [subject], platforms, owner, addBlob, onEvent, built);
     }
     // A project that is its own root: the ROOT manifest/lockfile are its own,
     // and materialization syncs the whole of its lock. The captured spec is
     // byte-identical to the pre-#278 single-project one.
     const pyproject = addBlob(readProjectFile(root, 'pyproject.toml', owner));
     const lockBlob = addBlob(readProjectFile(root, 'uv.lock', owner));
-    const sdists = buildMemberSdists(pythonClosure(lock, root, [subject], owner), owner, addBlob, onEvent);
+    const sdists = buildMemberSdists(pythonClosure(lock, root, [subject], owner), owner, addBlob, onEvent, built);
     spec = variant('python', { pyproject, lock: lockBlob, sdists });
   } else {
     const project = path.resolve(decl.node.project);

@@ -15,7 +15,7 @@ import { createHash } from 'node:crypto';
 import { canonicalPythonName } from '@elaraai/e3';
 import {
   installedFilesDigest, leftToTier, pythonMinor, pythonSatisfies, readDistributionMetadata, readTierManifest, recordedSiteFiles, tierHolds,
-  tierManifestDigest, type InstalledDistribution, type TierManifest,
+  tierImports, tierManifestDigest, type InstalledDistribution, type TierManifest,
 } from './tier-manifest.js';
 import { tierManifestOf, uvOnPath } from './test-helpers.js';
 
@@ -79,7 +79,7 @@ describe('a tier manifest', () => {
   });
 
   it('says a tier holds a distribution only of that name, that version and the same files', () => {
-    const manifest: TierManifest = { version: 1, python: TIER_PYTHON, namespaces: [], modules: [],
+    const manifest: TierManifest = { version: 1, python: TIER_PYTHON, namespaces: [],
       distributions: [{ name: 'torch', version: '2.9.0+cu130', files: 'sha256:aa' }, { name: 'elaraai-east-py', version: '1.0.109', files: 'sha256:bb' }] };
     assert.equal(tierHolds(manifest, { name: 'torch', version: '2.9.0+cu130', files: 'sha256:aa' }), true);
     assert.equal(tierHolds(manifest, { name: 'Elaraai_East.Py', version: '1.0.109', files: 'sha256:bb' }), true, 'by its PEP 503 name');
@@ -90,34 +90,28 @@ describe('a tier manifest', () => {
   });
 
   it('reads a manifest of the form it knows, and refuses any other by what is wrong with it', () => {
-    const bytes = new TextEncoder().encode(JSON.stringify({ version: 1, python: TIER_PYTHON, namespaces: ['cuda', 'nvidia'], modules: ['six', 'torch'],
+    const bytes = new TextEncoder().encode(JSON.stringify({ version: 1, python: TIER_PYTHON, namespaces: ['cuda', 'nvidia'],
       distributions: [{ name: 'Typing_Extensions', version: '4.12.2', files: 'sha256:aa' }] }));
     assert.deepEqual(readTierManifest(bytes).distributions, [{ name: 'typing-extensions', version: '4.12.2', files: 'sha256:aa' }]);
     assert.deepEqual(readTierManifest(bytes).python, TIER_PYTHON);
     assert.deepEqual(readTierManifest(bytes).namespaces, ['cuda', 'nvidia']);
-    assert.deepEqual(readTierManifest(bytes).modules, ['six', 'torch']);
     assert.match(tierManifestDigest(bytes), /^sha256:[0-9a-f]{64}$/);
     const refused = (value: unknown, words: RegExp): void => { assert.throws(() => readTierManifest(new TextEncoder().encode(JSON.stringify(value))), words); };
     assert.throws(() => readTierManifest(new TextEncoder().encode('not json')), /is not JSON/);
     refused({ version: 2 }, /not of the form this e3 reads/);
     refused({ version: 1 }, /names no interpreter/);
-    refused({ version: 1, python: { ...TIER_PYTHON, executable: '' }, namespaces: [], modules: [], distributions: [] }, /names no interpreter$/);
-    refused({ version: 1, python: { version: '3.11.2', executable: '/p', site: '/s' }, namespaces: [], modules: [], distributions: [] }, /names no base interpreter/);
-    refused({ version: 1, python: TIER_PYTHON, namespaces: [], modules: [] }, /lists no distributions/);
-    refused({ version: 1, python: TIER_PYTHON, namespaces: [], modules: [], distributions: [{ name: 'a', version: '1' }] }, /files digest/);
+    refused({ version: 1, python: { ...TIER_PYTHON, executable: '' }, namespaces: [], distributions: [] }, /names no interpreter$/);
+    refused({ version: 1, python: { version: '3.11.2', executable: '/p', site: '/s' }, namespaces: [], distributions: [] }, /names no base interpreter/);
+    refused({ version: 1, python: TIER_PYTHON, namespaces: [] }, /lists no distributions/);
+    refused({ version: 1, python: TIER_PYTHON, namespaces: [], distributions: [{ name: 'a', version: '1' }] }, /files digest/);
     // Which of its packages are namespace packages is part of what a tier says: one that does not say is not read
     refused({ version: 1, python: TIER_PYTHON, distributions: [] }, /names no namespace packages/);
     refused({ version: 1, python: TIER_PYTHON, namespaces: 'nvidia', distributions: [] }, /names no namespace packages/);
     refused({ version: 1, python: TIER_PYTHON, namespaces: ['nvidia', 3], distributions: [] }, /names no namespace packages/);
     refused({ version: 1, python: TIER_PYTHON, namespaces: ['nvidia/cudnn'], distributions: [] }, /names no namespace packages/);
-    // And which names a module or an ordinary package holds, which would hide a namespace package's part shipped before it
-    refused({ version: 1, python: TIER_PYTHON, namespaces: [], distributions: [] }, /names no modules/);
-    refused({ version: 1, python: TIER_PYTHON, namespaces: [], modules: 'six', distributions: [] }, /names no modules/);
-    refused({ version: 1, python: TIER_PYTHON, namespaces: [], modules: ['six', 3], distributions: [] }, /names no modules/);
-    refused({ version: 1, python: TIER_PYTHON, namespaces: [], modules: [''], distributions: [] }, /names no modules/);
 
     // What an environment built over the tier writes of it: a Python's version, and absolute paths, each on one line
-    const python = (fields: Partial<typeof TIER_PYTHON>): unknown => ({ version: 1, python: { ...TIER_PYTHON, ...fields }, namespaces: [], modules: [], distributions: [] });
+    const python = (fields: Partial<typeof TIER_PYTHON>): unknown => ({ version: 1, python: { ...TIER_PYTHON, ...fields }, namespaces: [], distributions: [] });
     for (const version of ['3.11.2\ninclude-system-site-packages = true', '3.11', 'latest', '3.11.2 ']) {
       refused(python({ version }), /interpreter version .* is not a Python's/);
     }
@@ -149,7 +143,7 @@ describe('a tier manifest', () => {
       { name: 'Own_Pkg', version: '0.1.0', record: record('own_pkg/__init__.py', 'own_pkg-0.1.0.dist-info/METADATA') },
     ].map((distribution) => ({ ...distribution, requires: [] }));
     // The tier names `nvidia` a namespace package, and it is none here: these distributions give it an `__init__` module
-    const held = (names: string[], version?: Record<string, string>): TierManifest => ({ version: 1, python: TIER_PYTHON, namespaces: ['nvidia'], modules: [],
+    const held = (names: string[], version?: Record<string, string>): TierManifest => ({ version: 1, python: TIER_PYTHON, namespaces: ['nvidia'],
       distributions: installed.filter(({ name }) => names.includes(name))
         .map(({ name, version: own, record: files }) => ({ name: canonicalPythonName(name), version: version?.[name] ?? own, files: installedFilesDigest(files) })) });
     const left = (manifest: TierManifest): string[] => [...leftToTier(installed, manifest)].sort();
@@ -183,7 +177,7 @@ describe('a tier manifest', () => {
     ].map((distribution) => ({ ...distribution, requires: [] }));
     const names = installed.map(({ name }) => name);
     /** A tier that holds each of these but the ones named, and says which of its packages are namespace packages. */
-    const tier = (without: string[], namespaces: string[] = ['cuda', 'nvidia', 'outer']): TierManifest => ({ version: 1, python: TIER_PYTHON, namespaces, modules: [],
+    const tier = (without: string[], namespaces: string[] = ['cuda', 'nvidia', 'outer']): TierManifest => ({ version: 1, python: TIER_PYTHON, namespaces,
       distributions: installed.filter(({ name }) => !without.includes(name))
         .map(({ name, version, record: files }) => ({ name, version, files: installedFilesDigest(files) })) });
     const shipped = (manifest: TierManifest): string[] => names.filter((name) => !leftToTier(installed, manifest).has(name));
@@ -231,7 +225,7 @@ describe('a tier manifest', () => {
     ];
     const names = installed.map(({ name }) => name);
     /** A tier that holds each of these but the ones named. */
-    const tier = (without: string[]): TierManifest => ({ version: 1, python: TIER_PYTHON, namespaces: ['nvidia'], modules: [],
+    const tier = (without: string[]): TierManifest => ({ version: 1, python: TIER_PYTHON, namespaces: ['nvidia'],
       distributions: installed.filter(({ name }) => !without.includes(name))
         .map(({ name, version, record: files }) => ({ name, version, files: installedFilesDigest(files) })) });
     const shipped = (manifest: TierManifest): string[] => names.filter((name) => !leftToTier(installed, manifest).has(name));
@@ -244,6 +238,35 @@ describe('a tier manifest', () => {
     assert.deepEqual(shipped(tier(['nvidia-cudnn'])), ['nvidia-cudnn', 'nvidia-cudnn-ops', 'nvidia-cudnn-headers']);
     // A distribution of no native code that ships finds the native code it requires through Python's path, which holds the tier's
     assert.deepEqual(shipped(tier(['helper'])), ['helper']);
+  });
+
+  it('says what an environment imports from its tier: the names of what it left there, the namespace packages both hold parts of, and their path files', () => {
+    const record = (...files: string[]): string => files.map((file) => `${file},sha256=${file.length},1\n`).join('');
+    const installed: InstalledDistribution[] = [
+      // A module, its bytecode at the top of the site directory
+      { name: 'six', version: '1.17.0', record: record('six.py', '__pycache__/six.cpython-311.pyc', 'six-1.17.0.dist-info/METADATA') },
+      // Two packages and the path file that runs one of them, and what is no package's name
+      { name: 'setuptools', version: '82.0.1', record: record('setuptools/__init__.py', '_distutils_hack/__init__.py', 'distutils-precedence.pth',
+        'setuptools-82.0.1.dist-info/METADATA') },
+      { name: 'numpy', version: '2.4.4', record: record('numpy/__init__.py', 'numpy.libs/libscipy_openblas.so', 'LICENSE.txt',
+        'numpy/_core/_multiarray_umath.cpython-311-x86_64-linux-gnu.so', 'numpy-2.4.4.dist-info/METADATA') },
+      // Parts of a namespace package both hold parts of, one left and one shipped; and an extension module directly in it
+      { name: 'nvidia-cudnn', version: '9.26', record: record('nvidia/cudnn/__init__.py', 'nvidia/cudnn/lib/libcudnn.so.9', 'nvidia_cudnn-9.26.dist-info/METADATA') },
+      { name: 'nvidia-cublas', version: '13.4', record: record('nvidia/cublas/__init__.py', 'nvidia_cublas-13.4.dist-info/METADATA') },
+      { name: 'nvidia-tools', version: '1', record: record('nvidia/_tools.cpython-311-x86_64-linux-gnu.so', 'nvidia_tools-1.dist-info/METADATA') },
+    ].map((distribution) => ({ ...distribution, requires: [] }));
+    // The tier holds all but nvidia-cublas, and names two namespace packages: one the environment holds no part of
+    const manifest: TierManifest = { version: 1, python: TIER_PYTHON, namespaces: ['google', 'nvidia'],
+      distributions: installed.filter(({ name }) => name !== 'nvidia-cublas')
+        .map(({ name, version, record: files }) => ({ name, version, files: installedFilesDigest(files) })) };
+    assert.deepEqual(tierImports(installed, manifest), {
+      distributions: ['numpy', 'nvidia-cudnn', 'nvidia-tools', 'setuptools', 'six'],
+      roots: ['_distutils_hack', 'numpy', 'nvidia._tools', 'nvidia.cudnn', 'setuptools', 'six'],
+      namespaces: ['nvidia'],
+      pathFiles: ['distutils-precedence.pth'],
+    });
+    // Left to the tier as nvidia/ binds them, by name, when the tier does not name it a namespace package: the whole of it
+    assert.deepEqual(tierImports(installed, { ...manifest, namespaces: [] }).roots, ['_distutils_hack', 'numpy', 'setuptools', 'six']);
   });
 
   it('reads a distribution\'s name, version and what it requires from its metadata\'s headers alone', () => {
@@ -310,19 +333,6 @@ describe('a tier manifest', () => {
         }
         const named = readTierManifest(Buffer.from(tierManifestOf(python))).namespaces;
         assert.deepEqual(named.filter((name) => !manifest.namespaces.includes(name)), ['aa_namespace', 'zz_namespace'], 'sorted, and none that has an `__init__` module');
-        // Its modules: each name a module or an ordinary package is imported by, from the site directory or a directory its
-        // path files add, a line that runs an import adding none
-        assert.ok(['idna', 'six'].every((name) => manifest.modules.includes(name)), manifest.modules.join(', '));
-        const extra = join(dir, 'extra');
-        mkdirSync(extra);
-        writeFileSync(join(extra, 'tier_only.py'), '');
-        writeFileSync(join(manifest.python.site, 'extra.pth'), `# a comment\n${extra}\nno-such-directory\n`);
-        writeFileSync(join(manifest.python.site, 'runs.pth'), 'import os\n');
-        const modules = readTierManifest(Buffer.from(tierManifestOf(python))).modules;
-        // (`extension`'s `__init__` is an extension module of Python 3.11's: an `__init__` module to a 3.11 interpreter alone)
-        assert.ok(['ordinary', 'tier_only'].every((name) => modules.includes(name)), `an ordinary package, and a module a path file adds: ${modules.join(', ')}`);
-        assert.ok(modules.every((name) => !named.includes(name)), 'no namespace package');
-        assert.deepEqual([...modules], [...modules].sort());
 
         // A runtime image's own shape: its packages in a virtualenv that the
         // system's interpreter made itself (`python3 -m venv /opt/venv`)

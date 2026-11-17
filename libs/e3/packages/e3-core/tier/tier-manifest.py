@@ -7,8 +7,8 @@ An environment a rack runs over this image is built without what the manifest
 says the image already holds (e3: environments built over their base tier).
 The manifest names the interpreter, the base interpreter a virtualenv over it
 is made from, its site directory, the namespace packages of that directory,
-the modules and ordinary packages it imports, and each installed distribution
-by name, version and the digest of the files it installed.
+and each installed distribution by name, version and the digest of the files
+it installed.
 
 Run with the interpreter the image's tasks run with:
 
@@ -24,7 +24,6 @@ import csv
 import hashlib
 import json
 import os
-import pkgutil
 import platform
 import re
 import sys
@@ -86,39 +85,6 @@ def namespace_packages(site):
     return sorted(names)
 
 
-def path_file_directories(site):
-    """The directories a site directory's path files add, as Python's `site`
-    reads them: each line that names one that exists. A line that begins
-    `import` is run, not read as a directory, and adds none here.
-    """
-    directories = []
-    for name in sorted(os.listdir(site)):
-        if not name.endswith(".pth"):
-            continue
-        with open(os.path.join(site, name), "rb") as file:
-            lines = file.read().decode("utf-8", errors="replace").splitlines()
-        for line in lines:
-            if line.startswith("#") or not line.strip() or line.startswith(("import ", "import\t")):
-                continue
-            directory = os.path.join(site, line.rstrip())
-            if os.path.exists(directory):
-                directories.append(directory)
-    return directories
-
-
-def modules(site):
-    """The names a module, or an ordinary package (one with an `__init__`
-    module), is imported by from a site directory or a directory its path
-    files add.
-
-    Python imports the first module or ordinary package of a name it finds on
-    its path, and reads a namespace package from the directories it passed
-    before finding one (PEP 420). A namespace package's part that an
-    environment ships, ahead of this directory, is hidden by one of these.
-    """
-    return sorted({info.name for info in pkgutil.iter_modules([site, *path_file_directories(site)])})
-
-
 def tier_manifest():
     """This interpreter's manifest: itself, and what is installed for it.
 
@@ -155,7 +121,6 @@ def tier_manifest():
             "site": site,
         },
         "namespaces": namespace_packages(site),
-        "modules": modules(site),
         "distributions": [distributions[name] for name in sorted(distributions)],
     }
 

@@ -111,7 +111,7 @@ async function fixture(options: RackHubOptions = {}, port = 0, overrides: Partia
 /** A tier image's manifest, as its script writes it, of the Python and the
  *  distributions given: its text, and its digest. */
 function tierImage(python = '3.11.2', distributions: Array<{ name: string; version: string; files: string }> = []): { text: string; digest: string } {
-  const text = `${JSON.stringify({ distributions, modules: [], namespaces: [], python: { base: '/usr/bin/python3', executable: '/opt/venv/bin/python',
+  const text = `${JSON.stringify({ distributions, namespaces: [], python: { base: '/usr/bin/python3', executable: '/opt/venv/bin/python',
     site: '/opt/venv/lib/python3.11/site-packages', version: python }, version: 1 })}\n`;
   return { text, digest: tierManifestDigest(new TextEncoder().encode(text)) };
 }
@@ -465,7 +465,7 @@ it('keeps the manifest of each tier image a rack reports, by its digest, says wh
   for (let beat = 0; beat < 3; beat++) await forger.heartbeat();
   assert.equal(lines.filter((line) => /the manifest it reports of its tier 'py' was not kept/.test(line)).length, 1);
   assert.deepEqual((await racks()).get('forged'), []);
-  // One that sends it when asked is not asked for the text of a manifest refused: its rack would send the same
+  // One that sends it when asked is not asked again for a text it sent that was not the bytes its digest names: it would send the same
   const asked = await f.agent({ label: 'refused', report: { ...composing, tiers: { py: { digest: forged.digest, manifest: py.text } } } });
   await asked.heartbeat();
   assert.deepEqual(asked.lastReport?.tiers?.py, { digest: forged.digest });
@@ -488,6 +488,37 @@ it('keeps the manifest of each tier image a rack reports, by its digest, says wh
   const unsaid = (await f.status()).capacity.racks.find((rack) => rack.label === 'unsaid')!;
   await socketRequest(f.socket, 'DELETE', `/v1/racks/${unsaid.rackId}`, { responseType: RemoveRackResultType });
   assert.deepEqual(await manifest(py.digest), none);
+});
+
+it('asks each rack that names a manifest for its text but the one that sent a text that was not the bytes its digest names, and none for a text whose own bytes were refused', async () => {
+  const lines: string[] = [];
+  const f = await fixture({ log: (line) => { lines.push(line); } });
+  const manifest = (digest: string) => socketRequest(f.socket, 'POST', '/v1/tier-manifests', { requestType: TierManifestRequestType, body: { digest }, responseType: TierManifestResultType });
+  const composing = { features: ['environments', RACK_ENVIRONMENTS_OVER_TIER], target: 'x86_64-manylinux_2_28' };
+  /** The digests a rack is asked to send the text of, answering a heartbeat that reports `said` of its tier. */
+  const wanted = async (rack: TestRackAgent, said: { digest: string; manifest?: string }): Promise<string[]> => {
+    const answer = await rack.raw('heartbeat', RackHeartbeatRequestType, { healthy: true, freeCapacity: 1n, runningLeases: [], agentVersion: `0.5.0+e3.${E3_RACK_VERSION}`,
+      bootId: rack.bootId, cacheBytes: 0n, report: JSON.stringify({ ...composing, tiers: { py: said } }) });
+    assert.equal(answer.status, 200); await answer.arrayBuffer();
+    return readRackManifestsWanted(answer.headers.get(RACK_MANIFESTS_WANTED_HEADER));
+  };
+  const image = tierImage('3.11.2');
+  const [wrong, honest] = [await f.agent({ label: 'wrong', report: { features: [] } }), await f.agent({ label: 'honest', report: { features: [] } })];
+
+  // One rack's text is not the bytes the digest names: that rack is not asked for it again, and another that names the digest is
+  assert.deepEqual(await wanted(wrong, { digest: image.digest, manifest: `${image.text} ` }), []);
+  assert.deepEqual(await wanted(wrong, { digest: image.digest }), [], 'it would send the same text');
+  assert.deepEqual(await wanted(honest, { digest: image.digest }), [image.digest]);
+  assert.deepEqual(await wanted(honest, { digest: image.digest, manifest: image.text }), []);
+  assert.deepEqual(await manifest(image.digest), some(image.text));
+
+  // A text that is the bytes its digest names, but no manifest this e3 reads: every rack's text of it is those bytes, so none is asked
+  const unread = `${JSON.stringify({ version: 2 })}\n`;
+  const unreadDigest = tierManifestDigest(new TextEncoder().encode(unread));
+  assert.deepEqual(await wanted(wrong, { digest: unreadDigest, manifest: unread }), []);
+  assert.deepEqual(await wanted(honest, { digest: unreadDigest }), [], 'no rack is asked for it');
+  assert.deepEqual(await manifest(unreadDigest), none);
+  assert.equal(lines.filter((line) => /was not kept: the tier manifest is not of the form this e3 reads/.test(line)).length, 1);
 });
 
 it('never enrols an agent of another rack protocol, and keeps its token for the agent that replaces it', async () => {

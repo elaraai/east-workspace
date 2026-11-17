@@ -4,41 +4,46 @@
  */
 
 /**
- * Encode/decode contract for {@link EnvironmentSpecType}.
- *
- * BEAST2 encodes a variant's tag as the index of its case in the
- * alphabetically-sorted case list, so the case order is load-bearing: a repo
- * persists specs by that order, and a later code edit that inserts a case
- * before an existing one silently re-tags every later case and mis-decodes
- * already-stored specs. The frozen-order test pins the order so that mistake
- * is a red test; the round-trip tests pin the new cases.
+ * Encode/decode contract for {@link EnvironmentSpecType}: every case round
+ * trips through {@link decodeEnvironmentSpec}, which reads a spec at this
+ * release's type alone.
  */
 
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
-import { encodeBeast2For, decodeBeast2For, variant, some, none } from '@elaraai/east';
+import { StringType, VariantType, encodeBeast2For, variant, some, none } from '@elaraai/east';
 import {
   EnvironmentSpecType,
+  ImageEnvironmentType,
+  NodeEnvironmentType,
+  PythonEnvironmentType,
+  ToolsEnvironmentType,
+  WorkspaceNodeEnvironmentType,
+  decodeEnvironmentSpec,
   environmentSpecObjectHashes,
   type EnvironmentSpec,
 } from './environment.js';
 
 const encodeCurrent = encodeBeast2For(EnvironmentSpecType);
-const decodeCurrent = decodeBeast2For(EnvironmentSpecType);
+const decodeCurrent = (bytes: Uint8Array): EnvironmentSpec => decodeEnvironmentSpec(bytes, H('9'));
 
 const H = (c: string): string => c.repeat(64); // stand-in 64-hex object hash
 
-describe('EnvironmentSpecType frozen case order', () => {
-  it('is exactly [image, node, python, tools, workspace_node, workspace_python]', () => {
-    // BEAST2 tags are indices into this sorted list. A new case must be
-    // added so the order only grows at the end (or readers must migrate to
-    // name-based decoding first) — inserting before an existing case
-    // re-tags every later one and mis-decodes stored specs. This assertion
-    // turns that mistake into a red test.
-    assert.deepStrictEqual(
-      Object.keys((EnvironmentSpecType as unknown as { cases: Record<string, unknown> }).cases),
-      ['image', 'node', 'python', 'tools', 'workspace_node', 'workspace_python'],
-    );
+describe('decodeEnvironmentSpec', () => {
+  it('refuses a spec an earlier release exported, which decodes at this type, and bytes of another type, naming the re-export', () => {
+    // The type before its `workspace_python` case: its values decode at today's, and are refused by their type
+    const Earlier = VariantType({
+      python: PythonEnvironmentType, node: NodeEnvironmentType, image: ImageEnvironmentType, tools: ToolsEnvironmentType,
+      workspace_node: WorkspaceNodeEnvironmentType,
+    });
+    const refusal = { message: `the environment ${H('a')} was exported by an older e3 SDK — re-export its package with the current one` };
+    for (const bytes of [
+      encodeBeast2For(Earlier)(variant('tools', { files: [{ path: 'bin/my-runner', hash: H('1') }] })),
+      encodeBeast2For(StringType)('not a spec'),
+      new TextEncoder().encode('not beast2'),
+    ]) {
+      assert.throws(() => decodeEnvironmentSpec(bytes, H('a')), refusal);
+    }
   });
 });
 

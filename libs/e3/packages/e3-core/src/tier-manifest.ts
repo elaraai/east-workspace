@@ -10,9 +10,9 @@
  * A runtime image writes its manifest when it is built
  * (this package's `tier/tier-manifest.py`): its interpreter, the base interpreter a
  * virtualenv over it runs, its site directory, the namespace packages of
- * that directory, the modules and ordinary packages it imports, and each
- * distribution installed for it, by name, version and the digest of the files
- * it installed. A manifest is named by the SHA-256 of its bytes.
+ * that directory, and each distribution installed for it, by name, version
+ * and the digest of the files it installed. A manifest is named by the
+ * SHA-256 of its bytes.
  *
  * @packageDocumentation
  */
@@ -54,16 +54,6 @@ export interface TierManifest {
    * may be left to the tier singly ({@link leftToTier}).
    */
   readonly namespaces: readonly string[];
-  /**
-   * The names a module, or an ordinary package (one with an `__init__`
-   * module), is imported by from its site directory or a directory that
-   * directory's path files add, sorted. Python imports the first module or
-   * ordinary package of a name it finds on its path, and reads a namespace
-   * package only from the directories before it (PEP 420): a namespace
-   * package's part an environment ships is hidden by one of these, and such
-   * an environment is built whole.
-   */
-  readonly modules: readonly string[];
   /** The distributions installed for it, sorted by name */
   readonly distributions: readonly TierDistribution[];
 }
@@ -184,7 +174,7 @@ export function readTierManifest(bytes: Uint8Array): TierManifest {
   } catch {
     throw new Error('the tier manifest is not JSON');
   }
-  const fields = value as { version?: unknown; python?: Record<string, unknown>; namespaces?: unknown; modules?: unknown; distributions?: unknown } | null;
+  const fields = value as { version?: unknown; python?: Record<string, unknown>; namespaces?: unknown; distributions?: unknown } | null;
   if (typeof fields !== 'object' || fields === null || fields.version !== 1) {
     throw new Error('the tier manifest is not of the form this e3 reads (version 1)');
   }
@@ -206,15 +196,11 @@ export function readTierManifest(bytes: Uint8Array): TierManifest {
     return said;
   };
   if (typeof python !== 'object' || python === null) throw new Error('the tier manifest names no interpreter');
-  // Each a name at the top of a directory: what a tier does not say of its packages is not guessed
-  const names = (field: unknown, what: string): string[] => {
-    if (!Array.isArray(field) || !field.every((name: unknown): name is string => typeof name === 'string' && name !== '' && !/[/\\]/.test(name))) {
-      throw new Error(`the tier manifest names no ${what}`);
-    }
-    return field;
-  };
-  const namespaces = names(fields.namespaces, 'namespace packages');
-  const modules = names(fields.modules, 'modules');
+  // Each a name at the top of its site directory: what a tier does not say of its packages is not guessed
+  const namespaces = fields.namespaces;
+  if (!Array.isArray(namespaces) || !namespaces.every((name: unknown): name is string => typeof name === 'string' && name !== '' && !/[/\\]/.test(name))) {
+    throw new Error('the tier manifest names no namespace packages');
+  }
   if (!Array.isArray(fields.distributions)) throw new Error('the tier manifest lists no distributions');
   return {
     version: 1,
@@ -225,7 +211,6 @@ export function readTierManifest(bytes: Uint8Array): TierManifest {
       site: absolute(python.site, 'site directory'),
     },
     namespaces,
-    modules,
     distributions: fields.distributions.map((entry: unknown): TierDistribution => {
       const { name, version: held, files } = (entry ?? {}) as Record<string, unknown>;
       return { name: canonicalPythonName(text(name, 'distribution\'s name')), version: text(held, 'distribution\'s version'),
@@ -289,6 +274,24 @@ export function readDistributionMetadata(metadata: string): { name: string; vers
  *  platform (`libcublas.so.13`, `_C.cpython-311-x86_64-linux-gnu.so`). */
 const NATIVE_CODE = /\.(so(\.\d+)*|dylib|pyd|dll)$/;
 
+/** Each distribution's files in the site directory, as path segments. Left
+ *  out: its own metadata, and compiled files, whose directory every module
+ *  beside it shares. */
+function packageFiles(installed: readonly InstalledDistribution[]): string[][][] {
+  return installed.map((distribution) => recordedSiteFiles(distribution.record).map(({ file }) => file.split('/'))
+    .filter((parts) => !parts[0]!.endsWith('.dist-info') && !parts.includes('__pycache__')));
+}
+
+/** The top-level namespace packages an environment and its tier both hold
+ *  parts of: each the tier's manifest names, in which no distribution of the
+ *  environment installs an `__init__` module. */
+function sharedNamespaces(files: readonly string[][][], manifest: TierManifest): Set<string> {
+  // A package some distribution here gives an `__init__` module is an ordinary one
+  const ordinary = new Set<string>();
+  for (const parts of files.flat()) if (parts.length === 2 && parts[1]!.startsWith('__init__.')) ordinary.add(parts[0]!);
+  return new Set(manifest.namespaces.filter((name) => !ordinary.has(name)));
+}
+
 /**
  * Which of an environment's installed distributions are left to the tier it
  * is built over: each the tier holds the same ({@link tierHolds}), unless it
@@ -330,15 +333,8 @@ const NATIVE_CODE = /\.(so(\.\d+)*|dylib|pyd|dll)$/;
  * const shipped = installed.filter(({ name }) => !left.has(canonicalPythonName(name)));
  */
 export function leftToTier(installed: readonly InstalledDistribution[], manifest: TierManifest): Set<string> {
-  // Each distribution's files in the site directory, as path segments.
-  // Left out: its own metadata, and compiled files, whose directory every
-  // module beside it shares
-  const files = installed.map((distribution) => recordedSiteFiles(distribution.record).map(({ file }) => file.split('/'))
-    .filter((parts) => !parts[0]!.endsWith('.dist-info') && !parts.includes('__pycache__')));
-  // A package some distribution here gives an `__init__` module is an ordinary one
-  const ordinary = new Set<string>();
-  for (const parts of files.flat()) if (parts.length === 2 && parts[1]!.startsWith('__init__.')) ordinary.add(parts[0]!);
-  const namespaces = new Set(manifest.namespaces.filter((name) => !ordinary.has(name)));
+  const files = packageFiles(installed);
+  const namespaces = sharedNamespaces(files, manifest);
 
   // Each distribution's group, by what it shares with others: a top-level
   // name, or, in a namespace package, what is directly in it
@@ -374,6 +370,77 @@ export function leftToTier(installed: readonly InstalledDistribution[], manifest
     }
   }
   return new Set(installed.filter((_, i) => whole.get(find(i)) === true).map(({ name }) => canonicalPythonName(name)));
+}
+
+/**
+ * What an environment built over a tier imports from it: what its import gate
+ * lets through, and nothing else (`tierGateModule`).
+ */
+export interface TierImports {
+  /** The canonical names of the distributions left to the tier, sorted */
+  readonly distributions: readonly string[];
+  /** The names their code is imported by, sorted: a module or a package at
+   *  the top of the site directory, or, in a namespace package both hold
+   *  parts of, one directly in it (`nvidia.cudnn`) */
+  readonly roots: readonly string[];
+  /** The namespace packages both hold parts of, which the environment holds
+   *  parts of too, sorted */
+  readonly namespaces: readonly string[];
+  /** The path files (`.pth`) those distributions installed, sorted */
+  readonly pathFiles: readonly string[];
+}
+
+/** The name a module or a package is imported by, from its file's or its
+ *  directory's name: `six` of `six.py`, `_C` of
+ *  `_C.cpython-312-x86_64-linux-gnu.so`; null for one no import names
+ *  (`numpy.libs`, `LICENSE`). */
+function importName(entry: string, file: boolean): string | null {
+  if (file && !/\.(py|so|pyd)$/.test(entry)) return null;
+  const name = file ? entry.slice(0, entry.indexOf('.')) : entry;
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) ? name : null;
+}
+
+/**
+ * What an environment imports from the tier it is built over: the
+ * distributions left to it ({@link leftToTier}), the names their code is
+ * imported by, the namespace packages both hold parts of, and the path files
+ * those distributions installed.
+ *
+ * @remarks
+ * A name is taken where {@link leftToTier} binds distributions: at the top of
+ * the site directory, or one level down in a namespace package both hold
+ * parts of. So a name the environment ships and one it left to the tier are
+ * never the same.
+ *
+ * @param installed - The environment's distributions, as installed whole
+ * @param manifest - The tier's manifest
+ * @returns What the environment imports from the tier
+ * @example
+ * const imports = tierImports(installed, manifest);
+ * // imports.roots: ['idna', 'nvidia.cudnn', …]; imports.namespaces: ['nvidia']
+ */
+export function tierImports(installed: readonly InstalledDistribution[], manifest: TierManifest): TierImports {
+  const left = leftToTier(installed, manifest);
+  const files = packageFiles(installed);
+  const shared = sharedNamespaces(files, manifest);
+  const roots = new Set<string>();
+  const pathFiles = new Set<string>();
+  for (const [i, distribution] of installed.entries()) {
+    if (!left.has(canonicalPythonName(distribution.name))) continue;
+    for (const parts of files[i]!) {
+      if (parts.length === 1 && parts[0]!.endsWith('.pth')) { pathFiles.add(parts[0]!); continue; }
+      const top = importName(parts[0]!, parts.length === 1);
+      if (top === null) continue;
+      if (!shared.has(top) || parts.length === 1) { roots.add(top); continue; }
+      const inner = importName(parts[1]!, parts.length === 2);
+      if (inner !== null) roots.add(`${top}.${inner}`);
+    }
+  }
+  // A namespace package the environment holds no part of is the tier's alone,
+  // and no name in it was left
+  const held = new Set(files.flat().map((parts) => parts[0]!));
+  const sorted = (names: Iterable<string>): string[] => [...names].sort(byCodePoint);
+  return { distributions: sorted(left), roots: sorted(roots), namespaces: sorted([...shared].filter((name) => held.has(name))), pathFiles: sorted(pathFiles) };
 }
 
 /** A version's release numbers: `3.11.2` as `[3, 11, 2]`, what follows them

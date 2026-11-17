@@ -25,7 +25,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { decodeBeast2For } from '@elaraai/east';
 import { EnvironmentSpecType } from '@elaraai/e3-types';
-import { captureEnvironment, captureAutoEnvironment, canonicalPythonName, pythonLeftOut, pythonRequires, type UvLock } from './environment-capture.js';
+import { captureEnvironment, captureAutoEnvironment, canonicalPythonName, pythonLeftOut, pythonRequires, type BuiltSdists, type UvLock } from './environment-capture.js';
 
 function toolAvailable(cmd: string): boolean {
   try { execFileSync(cmd, ['--version'], { stdio: 'ignore', shell: process.platform === 'win32' }); return true; } catch { return false; }
@@ -252,6 +252,23 @@ describe('python closure capture (#278)', () => {
       } finally {
         fs.rmSync(dir, { recursive: true, force: true });
       }
+    });
+
+  it('builds each local package once in an export: the environments of one declaration whose runners name other stock platforms, and one derived from a runner, share its sdists, and those that require the same are one spec, byte for byte',
+    { skip: hasUv ? false : 'uv not on PATH' }, () => {
+      const built: BuiltSdists = new Map();
+      const builds: string[] = [];
+      const hash = (buf: Buffer): string => createHash('sha256').update(buf).digest('hex');
+      const pricing = path.join(ws, 'packages', 'pricing');
+      const withStd = captureEnvironment({ python: { project: pricing } }, 'a', hash, (event) => builds.push(event.member), ['east-py-std'], built);
+      const withScience = captureEnvironment({ python: { project: pricing } }, 'b', hash, (event) => builds.push(event.member),
+        ['east-py-datascience', 'east-py-std'], built);
+      const derived = captureAutoEnvironment('east-py', ['pricing'], ws, 'c', hash, (event) => builds.push(event.member), [], built);
+      assert.deepStrictEqual(builds, ['common', 'pricing'], 'each member is built once, by the first capture that needs it');
+      // This workspace's lock holds no stock distribution: each requires the same, nothing
+      assert.deepStrictEqual(Buffer.from(withScience), Buffer.from(withStd));
+      assert.ok(derived !== null);
+      assert.deepStrictEqual(Buffer.from(derived), Buffer.from(withStd));
     });
 
   it('does NOT cross-invalidate: editing an unrelated sibling leaves the spec byte-identical',
