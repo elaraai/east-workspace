@@ -12,11 +12,12 @@
 import { describe, expect, it } from "vitest";
 import {
     ArrayType, BooleanType, DateTimeType, DictType, FloatType, IntegerType, OptionType, StringType, StructType,
-    checkJq, evaluateJq, isValueOf, none, parseFor, parseJq, some, toEastTypeValue, variant,
+    checkJq, evaluateJq, isValueOf, none, parseJq, some, toEastTypeValue, variant,
     type EastType, type JqNode, type ValueTypeOf,
 } from "@elaraai/east";
 import { Studio } from "@elaraai/e3-ui";
 import type { StudioSourceType } from "@elaraai/e3-ui/internal";
+import { utcAt as at } from "../../plan/plan.test-utils.js";
 import { draftPlan } from "../plan.js";
 import { queryRoot } from "../one-shot.js";
 import { visualAnswerType } from "./ask.js";
@@ -29,13 +30,6 @@ const Row = StructType({
 });
 type RowValue = ValueTypeOf<typeof Row>;
 
-const parseAt = parseFor(DateTimeType);
-/** An instant, written as East prints a DateTime, read by East's parser. */
-function at(text: string): Date {
-    const read = parseAt(text);
-    if (!read.success) throw new Error(read.error);
-    return read.value;
-}
 const ORDERS: RowValue[] = [
     { ordered_at: at("2026-07-03T10:00:00"), region: "SA", customer: "Northwind", revenue: 100.5, units: 3n, export: true, margin: some(0.2), shipped_at: some(at("2026-07-05T00:00:00")) },
     { ordered_at: at("2026-07-20T10:00:00"), region: "NSW", customer: "Harbour", revenue: 50, units: 1n, export: false, margin: none, shipped_at: none },

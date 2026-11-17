@@ -19,10 +19,11 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
-    ArrayType, DateTimeType, FloatType, IntegerType, StringType, StructType, none, parseFor, parseJq, some, toEastTypeValue, variant, type JqNode, type ValueTypeOf,
+    ArrayType, DateTimeType, FloatType, IntegerType, StringType, StructType, none, parseJq, some, toEastTypeValue, variant, type JqNode, type ValueTypeOf,
 } from "@elaraai/east";
 import { Studio, type StudioCellType, type StudioSourceType } from "@elaraai/e3-ui/internal";
 import { StateRuntime, UIStore, system } from "@elaraai/east-ui-components";
+import { utcAt as at } from "../plan/plan.test-utils.js";
 import { QueryCallProvider, QuerySourceStatusProvider, type QueryCall } from "../query/hooks.js";
 import { createInMemoryQueryCall, createInMemorySourceStatus } from "../query/in-memory-call.js";
 import { VisualAnswersProvider } from "../query/visual/answers.js";
@@ -38,15 +39,7 @@ class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 beforeEach(() => { StateRuntime.initializeStore(new UIStore()); });
 afterEach(() => { cleanup(); });
 
-const parseAt = parseFor(DateTimeType);
-/** An instant, written as East prints a DateTime, read by East's parser. */
-function at(text: string): Date {
-    const read = parseAt(text);
-    if (!read.success) throw new Error(read.error);
-    return read.value;
-}
-
-const Row = StructType({ ordered_at: DateTimeType, region: StringType, revenue: FloatType, units: IntegerType });
+const Row =StructType({ ordered_at: DateTimeType, region: StringType, revenue: FloatType, units: IntegerType });
 const PATH = [variant("field", "inputs"), variant("field", "orders")];
 const ORDERS: ValueTypeOf<typeof Row>[] = [
     { ordered_at: at("2026-07-03T10:00:00"), region: "SA", revenue: 100, units: 4n },
