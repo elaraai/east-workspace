@@ -6,8 +6,8 @@
  *
  * A Plan of event kinds on the canvas (#1192, #1541, `Plan Builder Spec.md`
  * §9.4): its resources are its own rows, a resources series' or a kinds
- * case's — each a landing row, a row beside it for each further way its kinds
- * draw, its own series beneath it, under group strips and nested as their tree
+ * case's — each a landing row, beneath it a row for each further way its kinds
+ * draw and then its own series, under group strips and nested as their tree
  * is — and the Unassigned rows after them, the events read from the records
  * over the range the canvas draws, and read again when a record commits. Each
  * Plan is built by the e3-ui factory — the print works' examples, or a test's
@@ -59,8 +59,8 @@ describe("the print works' rows (PB12–PB16)", () => {
     test("each press its bars, its stops' marks and its utilisation, under its hall's strip; each crew its shifts' chips; every element its event, keyed by its kind and key", async () => {
         const { container } = await h.mount(ex.planPrintWorks);
         await settle();
-        // The works' groups in their record's order, each a strip over its resources: a press its landing row of bars, a
-        // row of its stops' marks beside it and its utilisation beneath; a crew its landing row of chips.
+        // The works' groups in their record's order, each a strip over its resources: a press its landing row of bars, and
+        // beneath it a row of its stops' marks, then its utilisation; a crew its landing row of chips.
         const presses = [["1-presses-a", ["a1", "a2", "a3"]], ["2-presses-b", ["b1", "b2", "b3"]]] as const;
         const crews = [["3-crews-a", ["c1", "c2"]], ["4-crews-b", ["c3", "c4"]]] as const;
         expect(drawn(container)).toEqual([
@@ -83,10 +83,28 @@ describe("the print works' rows (PB12–PB16)", () => {
         expect(container.querySelector(`${rowAt(entry("presses.marks", "1-presses-a", "a1"))} ${el("data-mark", "stop", "S-01")}`)).toBeTruthy();
         expect(container.querySelector(`${rowAt(entry("crews", "3-crews-a", "c1"))} ${el("data-chip", "shift", "SH-01")}`)).toBeTruthy();
         expect(container.querySelector(rowAt(entry("util", "2-presses-b", "b2")))!.getAttribute("data-plan-kind")).toBe("heat");
-        // A press's landing row carries its name; the row beside it names the kinds that draw that way.
+        // A press's landing row carries its name; the row beneath it names the kinds that draw that way.
         expect(bars.textContent).toContain("Press A1");
         expect(container.querySelector(rowAt(entry("presses.marks", "1-presses-a", "a1")))!.textContent).toContain("Stop");
         expect(container.querySelector(stripAt(entry("groups", "2-presses-b")))!.textContent).toContain("Hall B");
+    });
+
+    test("a press's stops' marks stand beneath it, a level down and before its utilisation, and fold with it (#1541 §3.5)", async () => {
+        const { container } = await h.mount(ex.planPrintWorks);
+        await settle();
+        const press = entry("presses", "1-presses-a", "a1");
+        const marks = entry("presses.marks", "1-presses-a", "a1");
+        const util = entry("util", "1-presses-a", "a1");
+        const level = (id: PlanRowId) => container.querySelector(rowAt(id))?.getAttribute("aria-level") ?? null;
+        // The row, the kinds drawn on it, then its series: the press's own rows, each a level beneath it — a row of its
+        // marks at the press's own level stood between the press and its utilisation, as though the utilisation were its.
+        const beneath = String(Number(level(press)) + 1);
+        expect([level(marks), level(util)]).toEqual([beneath, beneath]);
+        // Folded, the press draws alone: its marks fold with its utilisation.
+        fireEvent.click(container.querySelector(rowAt(press))!.querySelector("[role='rowheader']")!);
+        await settle();
+        expect(container.querySelector(rowAt(press))!.getAttribute("aria-expanded")).toBe("false");
+        expect([container.querySelector(rowAt(marks)), container.querySelector(rowAt(util))]).toEqual([null, null]);
     });
 
     test("the rows are read over the range the canvas draws — its window and the periods it lays out beyond each edge", async () => {

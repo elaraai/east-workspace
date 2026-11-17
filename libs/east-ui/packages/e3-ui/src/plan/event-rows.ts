@@ -25,9 +25,11 @@
  *   at all;
  * - `place` fills rows with them: a landing row takes the elements of the
  *   first way its kinds draw (bars, tiles, chips, marks, in that order), and a
- *   row is added beside it for each further way, at the same path under
+ *   row is added beneath it for each further way, at the same path under
  *   `<series>.<draw>`, named by its kinds — left out while the viewer hides
- *   every one of them. A landing row the resources' shading names draws its
+ *   every one of them. Those rows are the landing row's first: the kinds drawn
+ *   on a row stand before its series and its children, and fold with it
+ *   (#1541 §3.5). A landing row the resources' shading names draws its
  *   heat in place of its events. Over rows read whole, it adds the
  *   Unassigned rows after them all: each kind's events on no resource, or on
  *   one no row of the canvas holds — save the events of a landing the viewer
@@ -129,7 +131,7 @@ export type PlanEventPlacedType = typeof PlanEventPlacedType;
  *   its cells)` → the events overlapping `[from, to)`, every kind's drafts in place, filed — a kind read by its cells from
  *   what was read, a hidden kind not at all; `none` while a kind's read is in flight
  * @property place - `(blocks, placed, shading, the ids the viewer hides, whole)` → the blocks with the events joined into
- *   their landing rows, a row beside each for each further way its kinds draw, the shading's heat in place of events
+ *   their landing rows, a row beneath each for each further way its kinds draw, the shading's heat in place of events
  *   where it names a row; `whole`, the canvas's every row at hand, the Unassigned rows after them
  */
 export const PlanEventSeamType = StructType({
@@ -639,13 +641,15 @@ export function createEventSeam(
                                             $5(rows.pushLast(remake(row, kind)));
                                             return;
                                         }
-                                        // A further way of drawing: a row beside the landing row, named by its kinds, there while
-                                        // the viewer shows any of them.
+                                        // A further way of drawing: a row beneath the landing row, named by its kinds, there while
+                                        // the viewer shows any of them. It is the landing row's first, before the rows of its series
+                                        // and its children that follow in the block, and folds with it (#1541 §3.5): a row beside
+                                        // it stood between the resource and its own rows, and stayed while the resource folded.
                                         const shows = d.slots.reduce<ExprType<BooleanType>>((any, slot) => any.or(() => hidden.has(planHideId.events(slot)).not()), East.value(false, BooleanType));
                                         $5.if(shows, ($6) => {
                                             $6(rows.pushLast(planRow({
                                                 id: East.value(variant("entry", { series, path: at.path }), PlanRowIdType),
-                                                parent: row.parent,
+                                                parent: East.value(some(row.id), OptionType(PlanRowIdType)),
                                                 gutter: planGutter({ label: d.names }),
                                                 kind,
                                             })));
