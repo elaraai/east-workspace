@@ -156,6 +156,40 @@ export const recordCompositeSources = example({
   },
 });
 
+export const recordCompositeFed = example({
+  keywords: ['e3', 'record', 'recordComposite', 'composite', 'source.load', 'feed', 'fed source', 'dataflow', 'load node', 'task output', 'input', 'ERP', 'extract'],
+  description: 'A composite record whose source the dataflow loads: `source.load(key, feed, fn)` names a task, an input or a record of the package in place of a delivery type, and each run loads the value it holds, as a step of the run named `<record>.<source>`, after the task that writes it',
+  fn: () => {
+    const OrderType = StructType({ customer: StringType, status: StringType, qty: IntegerType });
+    const ErpOrderType = StructType({ cust: StringType, state: StringType, qty: IntegerType });
+    const ErpBookType = DictType(StringType, ErpOrderType);
+    const ErpEntriesType = DictType(StringType, OrderType);
+    // What the ERP exports, set by an integration or a person, and a task that keeps the orders it has not cancelled.
+    const erpExport = e3.input('erp_export', ErpBookType);
+    const erpOrders = e3.task('erp_orders', [erpExport], East.function([ErpBookType], ErpBookType,
+      ($, book) => book.filter(($, sent) => East.notEqual(sent.state, 'cancelled'))));
+    // The load is delivered the feed's value, and gives the right entries from it alone: each run loads only the value
+    // the feed holds when the run reaches it.
+    const loadErp = East.function([ErpBookType, ErpEntriesType], PatchType(ErpEntriesType),
+      ($, book, current) => East.diff(current, book.map(($, sent) => ({ customer: sent.cust, status: sent.state, qty: sent.qty }))));
+    const orders = e3.recordComposite('orders', OrderType, {
+      sources: (source) => ({
+        erp: source.load(StringType, erpOrders, loadErp),   // fed by erp_orders' output: each run loads it, as orders.erp
+        own: source.mutations(StringType),
+      }),
+      initial: { own: new Map() },
+      mutations: (mutation) => ({ patch: mutation.patch() }),
+    });
+    // A reader of the record runs on it as it stands, and again after the load's commit, in the same run. While the
+    // load cannot run — erp_export not yet set — it waits with it: `[WAIT] orders_open: record 'orders' waits on its
+    // load orders.erp`.
+    const ordersOpen = e3.task('orders_open', [orders], East.function([orders.type], IntegerType,
+      ($, held) => held.filter(($, order) => East.equal(order.status, 'open')).size()));
+    // The package takes the record's feed with it, and the task that writes it.
+    return e3.package('order_book_fed', '1.0.0', ordersOpen);
+  },
+});
+
 // ---
 // e3.index — a reader for each kind of index
 // ---

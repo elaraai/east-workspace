@@ -679,9 +679,12 @@ whose type changed takes the new package's value, and the deploy says it reset
 it, and why. An input the new package takes from a file takes its file, and one
 the package no longer declares goes. One the deployed package took from a file
 takes the new package's value under either policy, since a value set since
-cannot be told from the file's, and the deploy says so. A deploy prints each
-input it keeps, resets or drops, and `--plan` prints every input's fate; when
-`--inputs reset` alone reset one, it names `--inputs keep-edited`.
+cannot be told from the file's, and the deploy says so. An input someone set
+that feeds a load the dataflow runs is kept whatever `--inputs` says, while
+its type is unchanged: `keep input inputs/erp_extract, as it was set: it feeds
+orders.erp, which a deploy never resets`. A deploy prints each input it keeps,
+resets or drops, and `--plan` prints every input's fate; when `--inputs reset`
+alone reset one, it names `--inputs keep-edited`.
 
 `workspace copy` makes `<to>` the workspace `<from>` is now: its package and
 every input, record and task output, so nothing needs to run again. Within a
@@ -768,8 +771,10 @@ delivery again is answered `orders.erp already holds this delivery`, and one
 older than the source's `--as-of` is `superseded`, nothing loaded. Against a
 server the file is uploaded as an object and the load runs as a job the
 command follows; Ctrl-C asks it to cancel (`Cancelled: nothing loaded.`, exit
-130). `e3 history` says what a load's commit loaded. A composite record's
-sources and their loads are in the e3 skill's `reference/record-composite.md`.
+130). `e3 history` says what a load's commit loaded. A source fed by a dataset
+of the package is the dataflow's to load, so `e3 load` refuses it, naming its
+feed. A composite record's sources and their loads are in the e3 skill's
+`reference/record-composite.md`.
 
 ### Task Commands
 
@@ -860,6 +865,17 @@ index of one, that has yet to hear from an external source: the record holds
 the solution's own entries alone until each has delivered once, and the line
 names the sources it waits for (`[WAIT] forecast: record 'orders' waits for
 the first delivery of erp`).
+
+A source fed by a dataset of the package is loaded as a step of the run,
+`<record>.<source>`, after the task that writes its feed, and committed once.
+While its load cannot run — its feed unset, a record yet to deliver, or an
+input that holds its package's value — the load waits, and the record's
+readers with it:
+
+```
+  [WAIT] orders.erp: input 'erp_extract' holds its package's value: set it, and orders.erp loads it
+  [WAIT] forecast: record 'orders' waits on its load orders.erp
+```
 
 After a successful run, the CLI prints the resolved task output paths so you can read them straight away without having to walk the tree:
 
@@ -1106,7 +1122,7 @@ so it takes no `--draft`.
 e3 watch <source.ts> <repo> <ws> [--start] [--schema <policy>] [--inputs <policy>] [-j <n>] [--memory <size>] [--abort-on-change]
 ```
 
-The source file is the first argument — that's the thing you're editing, the rest is plumbing. `-j` and `--memory` are the budget its deploys and the runs `--start` launches share, as for `e3 dataflow run`. `--schema` and `--inputs` are the deploy's (`e3 workspace deploy`); a record whose type changes with no migration stops the watch, naming `--schema=reset`, and each save says which inputs someone set it resets — all of them, unless `--inputs keep-edited`, which it names when the policy alone reset one.
+The source file is the first argument — that's the thing you're editing, the rest is plumbing. `-j` and `--memory` are the budget its deploys and the runs `--start` launches share, as for `e3 dataflow run`. `--schema` and `--inputs` are the deploy's (`e3 workspace deploy`); a record whose type changes with no migration stops the watch, naming `--schema=reset`, and each save says which inputs someone set it resets — all of them, unless `--inputs keep-edited`, which it names when the policy alone reset one — and which it keeps because they feed a load.
 
 **Cancellation:** Press Ctrl-C in a running `e3 dataflow run` to abort it. In watch mode, `--abort-on-change` cancels in-flight runs when files change.
 

@@ -1576,3 +1576,47 @@ Each wire changed under this rule, with the kind it is.
   `ObjectUploadStore`). Nothing an earlier release wrote is one, so no upgrade
   step ships. A job's status is the poll's answer, so a change to either form
   is a change to the other.
+- **A dataflow graph's node says what it loads, and stored runs are upgraded
+  to it** — stored state, and the dataflow graph route's answer.
+  `DataflowGraphTaskType` gains `load`, after `dependsOn`: the record and
+  source a load node loads, and `none` for a task. A run's graph holds a load
+  node for each source of a composite record that a dataset of the package
+  feeds, named `<record>.<source>`, its one input the feed and its output the
+  record. A run's state stores its graph, and a stored state's header names
+  the whole state type, so a run an earlier release stored does not decode
+  under the new type. The release ships the repository upgrade step
+  `dataflow-graph-loads` (e3-core `upgrades/dataflow-graph-loads.ts`), after
+  every step before it, through the backend's run-state store
+  (`StorageBackend.runStates`): every run an earlier release stored is
+  rewritten, each node of its graph loading nothing, since no earlier release
+  ran a load. It reads the form `dataflow-force-tasks` writes, as that step
+  froze it. A unit of the step is a workspace's stored runs. A run already in
+  the new form is left as it is, and so is one in neither form. The graph
+  route answers the same type (`DataflowGraphType`): an answer of either
+  release does not decode as the other's, and a client refuses a server's
+  answer of the other release, naming both types, as it refuses any type it
+  does not read.
+- **A deploy's plan keeps an input that feeds a load: `InputPlanType` gains
+  `retained`** — neither package-borne nor stored in a repository: the deploy
+  route's answer, which a transfer store's record of a deploy's job holds
+  (e3-core's `WorkspaceDeployJobType`). `InputPlanType`'s `action` gains
+  `retained`, `{ load }`: an input someone set that the deploy keeps, whatever
+  `--inputs` says, because it feeds the load named (`orders.erp`). The case is
+  named to sort after `reset`, the last case before it, so every case before
+  it keeps its tag. A plan travels inside the deploy's answer, an Array of
+  them (`WorkspaceDeployResultType`'s `inputs`), and beast2 reads a value only
+  as the type its header names, so an answer of either release does not
+  decode as the other's: a client refuses a server's answer of the other
+  release, naming both types, and `e3 workspace deploy` and the server it
+  deploys on are of one release. No store keeps a plan past its deploy's job,
+  so no repository upgrade step ships.
+- **A fed load's commit names the versions its feed was made from** — stored
+  state; new. A load the dataflow runs commits, beside the slots every load
+  writes (`$load.<source>` and its `.load`, `.commit`, `.execution` and
+  `.asOf`, above), `$load.<source>.feed`: the version of each root its feed
+  read, as East prints a version vector (`VersionVectorType`). A task that
+  reads the record beside the feed's upstream reads that upstream at those
+  versions. A delivery `e3 load` sends drops it, and a rollback, a restore and
+  a migration drop it with the delivery's other slots. The ref's version
+  vector keeps its type, and a commit that owns none of a source's slots
+  carries each as it is, so no repository upgrade step ships.
