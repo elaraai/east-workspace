@@ -20,7 +20,7 @@ import { centredLine } from "../../one-line-box.js";
 import { moveGhostBase } from "../time/move-ghost.js";
 import { timeResizeEdge } from "../time/resize.js";
 import { CONFLICT_RING } from "../../conflict-ring.js";
-import { lifecycleStates } from "./states.js";
+import { STATE_EDGE, lifecycleStates } from "./states.js";
 import {
     PLAN_STATUS_COLOR, PLAN_STATUS_OPEN_RING, PLAN_STATUS_RING, planElementConflicts, planElementOverlap, planElementStatus, planStatusTones,
 } from "./status.js";
@@ -29,7 +29,7 @@ import { PLAN_DRAFT_HALO, PLAN_OVERLAP_RING, planElementConflict, planElementDra
 /** The slots this part styles. */
 export const elementsSlots = [
     "bar", "barLabel", "barQty", "rollBand", "rollBandLabel", "port", "diamond", "chartMarks", "chartRefBand", "plotTicks", "chartTickLeft", "chartTickRight", "refLabel",
-    "chartReadout", "chartReadoutValue", "milestoneDot", "exceptionTri", "markIcon", "markLabel", "lock", "markLock",
+    "chartReadout", "chartReadoutValue", "milestoneDot", "exceptionTri", "markIcon", "markLabel", "markLabelText", "lock", "markLock",
     "moveEdge", "moveGhost", "moveGhostLabel", "moveGhostSpan",
 ] as const;
 
@@ -108,7 +108,8 @@ export const elementsBase = {
         alignContent: "flex-start",
         columnGap: "4px",
         rowGap: 0,
-        padding: "0 7px",
+        // Less the border its state draws, which stands in it (`states.ts`).
+        padding: `0 calc(7px - ${STATE_EDGE})`,
         fontFamily: "mono",
         fontSize: "11px",
         fontWeight: "semibold",
@@ -141,7 +142,7 @@ export const elementsBase = {
         ...grab,
         // Locked (#1541, U9): 4px either side, so the least bar the canvas draws (`--plan-bar-min-w`, 18px) holds its
         // 8px lock whole. Before the strip's rule, which sets its own.
-        "&[data-locked]": { paddingInline: "4px" },
+        "&[data-locked]": { paddingInline: `calc(4px - ${STATE_EDGE})` },
         // ── R1 GEOMETRY SHRINKS (#591) ──
         // The mark already owns a position and a width on the axis, so it
         // keeps both and drops to 7px. Ink goes `transparent` rather than
@@ -516,11 +517,14 @@ export const elementsBase = {
         ...planElementConflict,
     },
     // A mark's label, its middle on the middle of its row's plot (#1638): the plot is the row less its rule, an odd
-    // height — 31px in a 32px row — so an odd 15px line starts a whole number of pixels under the row's edge.
+    // height — 31px in a 32px row — so an odd 15px line starts a whole number of pixels under the row's edge. Its box
+    // is the room its mark leaves it, as wide as the renderer sets it (K7, #1680's review): a container, so its text
+    // reads that room in the label's own font.
     markLabel: {
         position: "absolute",
         top: "50%",
         transform: "translateY(-50%)",
+        containerType: "inline-size",
         fontFamily: "mono",
         fontSize: "9.5px",
         lineHeight: centredLine(31, 15),
@@ -531,6 +535,15 @@ export const elementsBase = {
         zIndex: 3,
         pointerEvents: "none",
         "&[data-ctx]": { display: "none" },
+    },
+    // Its words — whole, or ellipsized when the room is short of them; below a letter and the ellipsis not drawn at
+    // all, never a sliver of a glyph, as a bar's label (#1264).
+    markLabelText: {
+        display: "block",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        ...hideShortText,
     },
     // ── Locks (#1541, U9) ──
     // What a bar or a chip its `locked` holds where it is leads with: Font

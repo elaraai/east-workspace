@@ -1388,6 +1388,8 @@ describe("a kind landing on the rows beneath its resource: a drop writes what pl
             expect(task(c, "T-01", WASH_3)).toBeNull();
             expect(cellOf(task(c, "T-01", INK_3))).toBe("1:1");
             expect(pending(c)).toBe("1 pending");
+            // A draft keeps its title, as the tiles beside it do (#1680's review).
+            expect(task(c, "T-01", INK_3)!.querySelector("[data-plan-label]")?.textContent).toBe("Wash blankets");
             await press(historyButton(c, SAVE));
             await waitFor(() => expect(pending(c)).toBe("0 pending"));
             const held = await taskHeld("T-01");

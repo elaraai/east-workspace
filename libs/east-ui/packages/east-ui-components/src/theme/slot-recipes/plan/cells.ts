@@ -18,7 +18,7 @@ import { coarseHitArea } from "../../../style/hit-area.js";
 import { centredLine } from "../../one-line-box.js";
 import { CONFLICT_RING_INSET, CONFLICT_RING_INSIDE_FOCUS } from "../../conflict-ring.js";
 import { fieldInRingedControl } from "../../field-chrome.js";
-import { lifecycleStates } from "./states.js";
+import { STATE_EDGE, lifecycleStates } from "./states.js";
 import { planElementConflicts, planElementOverlap, planElementStatus } from "./status.js";
 import { planElementDrafted, planElementFocus, planElementSelected } from "./focus.js";
 import { PLAN_LOCK_W, planLabelAfterLock } from "./elements.js";
@@ -281,9 +281,10 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         boxSizing: "border-box",
         // 5px either side, or what the room leaves beside the widest ring a
         // state draws (a proposal's 1.5px, half the least a tile draws): a
-        // percentage here is of the tiles' box, the room.
+        // percentage here is of the tiles' box, the room. Less the border its
+        // state draws, which stands in it (`states.ts`).
         paddingBlock: 0,
-        paddingInline: "min(5px, calc(50% - var(--plan-tile-least-w) / 2))",
+        paddingInline: `max(0px, calc(min(5px, calc(50% - var(--plan-tile-least-w) / 2)) - ${STATE_EDGE}))`,
         // The strut: the line's height, and no width.
         "&::before": { content: '""', height: "100%" },
         // Its parts 4px apart — a margin, which the strut, being no element,
@@ -459,7 +460,8 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         overflow: "hidden",
         boxSizing: "border-box",
         zIndex: 2,
-        padding: "0 9px",
+        // Less the border its state draws, which stands in it (`states.ts`).
+        padding: `0 calc(9px - ${STATE_EDGE})`,
         // The lifecycle axis (§4.3), shared (`states.ts`). The tint means
         // selected or dirty only (#949): a chip at rest is the ONE committed
         // fill, confirmed rests on paper in a solid brand ring, a proposal
@@ -482,7 +484,7 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         "&[data-draggable]": { cursor: "grab" },
         // Locked (#1541, U9): 6px either side, so the least chip the canvas draws (`--plan-chip-min-w`, 22px) holds
         // its 8px lock whole. Before the strip's rule, which sets its own.
-        "&[data-locked]": { paddingInline: "6px" },
+        "&[data-locked]": { paddingInline: `calc(6px - ${STATE_EDGE})` },
         // ── R1 GEOMETRY SHRINKS (#591) ──
         // The mark already owns a position and a width on the axis, so it
         // keeps both and drops to 7px. Ink goes `transparent` rather than

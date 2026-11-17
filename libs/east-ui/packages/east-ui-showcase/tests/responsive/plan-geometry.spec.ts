@@ -1016,6 +1016,91 @@ test.describe("Plan element text (#1258, #1264, #1266, #1269)", { tag: "@desktop
         await expect.poll(() => entry.evaluate(rulerFaults)).toEqual([]);
     });
 
+    test("planPrintWorks: a mark's label runs no further than the next mark on its row, and a mark before the window shows none of its words in it (#1680's review)", async ({ page }) => {
+        await page.setViewportSize({ width: 1440, height: 1400 });
+        const entry = await openExample(page, "planPrintWorks", PLAN_EVENT_EXAMPLES);
+        /** Each events row's labels its plot shows, and those that run over the next mark or stand for a mark before the window. */
+        const markLabelFaults = (root: Element): { labels: number; faults: string[] } => {
+            const faults: string[] = [];
+            let labels = 0;
+            for (const plot of root.querySelectorAll<HTMLElement>("[data-plan-plot]")) {
+                const cell = plot.getBoundingClientRect();
+                const centres = [...plot.querySelectorAll<HTMLElement>("[data-mark][role='button']")].map((g) => {
+                    const b = g.getBoundingClientRect();
+                    return { left: b.left, centre: (b.left + b.right) / 2 };
+                });
+                for (const label of plot.querySelectorAll<HTMLElement>("[data-mark]:not([role='button'])")) {
+                    const b = label.getBoundingClientRect();
+                    // What of it the plot cell shows: a mark past the window mounts at its true place for a pan, clipped from view.
+                    if (Math.min(b.right, cell.right) - Math.max(b.left, cell.left) <= 0.5 || b.height <= 0) continue;
+                    labels += 1;
+                    const glyph = plot.querySelector<HTMLElement>(`[role='button'][data-mark="${CSS.escape(label.getAttribute("data-mark") ?? "")}"]`);
+                    if (glyph === null) { faults.push(`${label.textContent}: no mark`); continue; }
+                    const g = glyph.getBoundingClientRect();
+                    const centre = (g.left + g.right) / 2;
+                    if (centre < cell.left - 0.5) faults.push(`${label.textContent}: shown in the window, its mark ${Math.round(cell.left - centre)}px before it`);
+                    const next = centres.filter((c) => c.centre > centre + 0.5).sort((a, c) => a.centre - c.centre)[0];
+                    if (next !== undefined && b.right > next.left + 0.5) faults.push(`${label.textContent}: runs ${Math.round(b.right - next.left)}px over the next mark`);
+                }
+            }
+            return { labels, faults };
+        };
+        // As it opens: the platesetter's plates three days apart, the presses' stops.
+        const opened = await entry.evaluate(markLabelFaults);
+        expect(opened.labels, "the labels in view").toBeGreaterThan(5);
+        expect.soft(opened.faults, "as it opens").toEqual([]);
+        // Thirteen days on, a day a press: the Handbook plates' mark two days before the window, where a pan would slide
+        // it in from — mounted, out of view.
+        await entry.locator("[data-plan-row]").first().click();
+        for (let step = 0; step < 13; step++) await page.keyboard.press("]");
+        await settled(page);
+        await expect(entry.locator("[data-frame-slot='toolbar'] [data-time-trigger]").first()).toHaveAttribute("title", /^Oct 18\s–\sNov 14, 2026$/);
+        expect.soft((await entry.evaluate(markLabelFaults)).faults, "thirteen days on").toEqual([]);
+    });
+
+    /** The elements a state's border is drawn on, each where it is laid out at a width its cell sets: a bar, a tile, a chip. */
+    const STATE_EDGES: readonly { name: string; file: string; sel: string; narrow: boolean }[] = [
+        { name: "planPrintWorks", file: PLAN_EVENT_EXAMPLES, sel: "[data-plan-plot] [data-run]", narrow: false },
+        // Its tiles fold at four weeks: five days lays them out, each as wide as its cell.
+        { name: "planPressTasks", file: PLAN_EVENT_EXAMPLES, sel: "[data-plan-plot] [data-event]", narrow: true },
+        { name: "planPrintWorks", file: PLAN_EVENT_EXAMPLES, sel: "[data-plan-plot] [data-chip]", narrow: false },
+    ];
+    for (const { name, file, sel, narrow } of STATE_EDGES) {
+        test(`${name}: a drafted or proposed ${sel} leaves its words the room a resting one of its width does — the border its state draws stands in its padding (#1680's review)`, async ({ page }) => {
+            await page.setViewportSize({ width: 1440, height: 1200 });
+            const entry = await openExample(page, name, file);
+            if (narrow) {
+                await entry.locator("[data-slot='horizon'] [data-brush-handle='hi']").focus();
+                for (let i = 0; i < 2; i++) await page.keyboard.press("Shift+ArrowLeft");
+                for (let i = 0; i < 3; i++) await page.keyboard.press("ArrowLeft");
+                await settled(page);
+            }
+            const { checked, shrunk } = await entry.evaluate((root, sel) => {
+                /** The room inside an element's padding: what its words have. */
+                const room = (el: HTMLElement) => {
+                    const cs = getComputedStyle(el);
+                    return el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+                };
+                const resting = [...root.querySelectorAll<HTMLElement>(sel)].filter((el) => el.getBoundingClientRect().width > 0
+                    && !el.hasAttribute("data-draft") && ["obs", "appr"].includes(el.getAttribute("data-state") ?? "")).slice(0, 12);
+                const out: string[] = [];
+                for (const el of resting) {
+                    const rest = room(el);
+                    const state = el.getAttribute("data-state")!;
+                    el.setAttribute("data-draft", "");
+                    if (room(el) < rest - 0.01) out.push(`drafted: ${rest.toFixed(1)} → ${room(el).toFixed(1)}`);
+                    el.removeAttribute("data-draft");
+                    el.setAttribute("data-state", "prop");
+                    if (room(el) < rest - 0.01) out.push(`proposed: ${rest.toFixed(1)} → ${room(el).toFixed(1)}`);
+                    el.setAttribute("data-state", state);
+                }
+                return { checked: resting.length, shrunk: out };
+            }, sel);
+            expect(checked, "the resting elements measured").toBeGreaterThan(0);
+            expect(shrunk).toEqual([]);
+        });
+    }
+
     /** Each element set either side of a width its text turns at (#1264) — the examples draw few such widths. In
      *  the mono faces a letter and the ellipsis take 2ch: 11.4px at a band's 9.5px, which has no padding, and 12px
      *  at a chip's 10px, inside its 9px padding either side; a chip's icon takes 1.25em, 12.5px, and its gap 4px.

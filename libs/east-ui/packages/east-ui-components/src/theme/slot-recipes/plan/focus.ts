@@ -69,13 +69,15 @@ export const PLAN_OVERLAP_RING = "0 0 0 1.5px {colors.status.warn}";
  * lifecycle look: the tint means selected or dirty only (#949), and the
  * Calendar's drafted blocks wear the same. Spread AFTER the lifecycle states,
  * so it takes their place, and BEFORE the rings — a status's and the overlap's,
- * the selection and the focus — which ride over it.
+ * the selection and the focus — which ride over it. Its border stands in the
+ * element's padding (`--state-edge`, `states.ts`), never in its words' room.
  */
 export const planElementDrafted = {
     "&[data-draft]": {
         background: "{colors.brandTint}",
         color: "brand.fg",
         borderWidth: "1.5px",
+        "--state-edge": "1.5px",
         borderStyle: "solid",
         borderColor: "{colors.brand.solid}",
         boxShadow: "none",
