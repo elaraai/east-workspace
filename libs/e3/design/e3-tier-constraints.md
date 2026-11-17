@@ -366,6 +366,10 @@ reads current xgboost models: without it, it resolves shap 0.48.0.
 
 - **torch 2.15.0 met xgboost's NCCL library** (3.2). The package's suites
   found it, on their second run. It is why there is a third pin file.
+- **An environment that held both NCCL libraries loses the file they
+  share** when uv removes xgboost's, though torch's is still listed:
+  `uv sync --reinstall-package nvidia-nccl-cu13` puts it back, once. A fresh
+  environment, an image and CI are not touched by it.
 - **The pin files are committed, in `@elaraai/e3-core`**, and not written as
   an image is built or a release is made. One copy is what the images
   install under, what the package ships and what a pull request shows: a

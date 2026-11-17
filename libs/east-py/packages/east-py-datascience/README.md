@@ -54,6 +54,10 @@ library serves it. In your workspace root:
 exclude-dependencies = ["nvidia-nccl-cu12"]
 ```
 
+An environment that already holds both loses the file they share when uv
+removes xgboost's: put torch's back once, with `uv sync --reinstall-package
+nvidia-nccl-cu13`.
+
 Each release ships the settings its packages were tested with, in
 `@elaraai/e3-core` (`tier/`): `east-py-constraints.txt`, every third-party
 version of this workspace's lock; `east-py-overrides.txt`; and
