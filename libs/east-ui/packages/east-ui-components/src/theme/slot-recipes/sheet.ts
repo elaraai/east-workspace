@@ -1183,6 +1183,9 @@ export const sheetSlotRecipe = defineSlotRecipe({
             color: "fg",
             "& [role=spinbutton]": { ...fieldInRingedControl, borderColor: "transparent" },
             "& [role=spinbutton]:focus:not([data-readonly])": { background: "brandTint", color: "fg", borderColor: "transparent" },
+            // Its segments on the cell's line, of the editor's room's parity, as a cell's words are (#1638): the field's
+            // own even 16px stood them half a pixel off in a row's odd room (#1646's review, found by its editor's check).
+            "& :has(> [role=spinbutton])": { lineHeight: "inherit" },
         },
         // the common combobox inside the ring: the root and the
         // control are chromeless (the ring is the chrome), the list is the

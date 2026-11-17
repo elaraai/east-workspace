@@ -350,6 +350,7 @@ describe("the small boxes whose words are centred in them (#1638)", () => {
         ["a Sheet row's number, on a coarse pointer", at(sheet, "gutterNumber", "_coarse"), "20px"],
         ["a Sheet row's number, in a phone's frame", at(sheet, "gutterNumber", "[data-sheet-card][data-phone] &"), "19px"],
         ["a Sheet half's label", at(sheet, "halfLabel"), "inherit"],
+        ["a Sheet date editor's segments: the cell's line", at(sheet, "editorDate", "& :has(> [role=spinbutton])"), "inherit"],
         ["the Sheet's footer", at(sheet, "footer"), "15px"],
         ["the Sheet's strip", at(sheet, "strip"), "15px"],
         ["a Sheet strip's chip", at(sheet, "stripChip"), "17px"],
