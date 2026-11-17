@@ -321,7 +321,7 @@ const NO_PANEL: readonly string[] = [];
  * toolbar, banners and footer are drawn from — see the module docs. The
  * frame calls it once per render and places what it hands back.
  *
- * @param args - The root, its storage key, where the event kinds' events land, what the viewer hides, the panel's tabs whose cards land, the event kinds, the series they land on, the library's tabs, the event kinds' drop veto, the optimiser, and whether its Autosave begins on
+ * @param args - The root, its storage key, where the event kinds' events land, what the viewer hides, the panel's tabs whose cards land, the event kinds, the series they land on, the library's tabs, the optimiser, and whether its Autosave begins on
  * @returns The canvas's parts: its contexts, main, its declared bound, and its chrome's facts
  */
 export function usePlanCanvas({

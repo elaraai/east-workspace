@@ -180,14 +180,6 @@ export type PlanLibraryTabType = typeof PlanLibraryTabType;
 // ============================================================================
 
 /**
- * An author's tab: its name and icon, and the accessors over one of its rows —
- * its value and its key — as `Schedule.resources` takes them.
- *
- * @typeParam K - The rows' key type
- * @typeParam R - Their row type
- * @typeParam P - The patch `drop` returns: `Schedule.Types.Patch` of one event kind's row type
- */
-/**
  * What a card of an author's tab makes when dropped on a resource's row
  * (#1541, U1): an event of a kind, as a template of that kind does.
  *

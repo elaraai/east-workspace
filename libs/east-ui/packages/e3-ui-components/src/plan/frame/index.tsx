@@ -165,8 +165,6 @@ const landingsEqual = equalFor(PlanPayloadType.fields.landings);
 /** Whether two optimiser bindings are one: the function's name, and the records it lists and reads. */
 const optimiseEqual = equalFor(FuncBindingType);
 
-/** No veto: every drop the event kinds take lands. */
-
 /** No event kind has an event on the canvas. */
 const NO_PATCH_KINDS: ReadonlySet<string> = new Set();
 
