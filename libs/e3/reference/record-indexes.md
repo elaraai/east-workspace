@@ -262,7 +262,7 @@ const assemblies = e3.record('assemblies', AssembliesType, {
 |---|---|
 | `items({ from, to })`, `items({ at })` | `Dict<K, Struct>`: things people drag, by id, of any key type but a DateTime; their times are DateTime or Option<DateTime> fields — no start files an item nowhere, no end (or one at or before its start) makes it an instant. `{ rollup: true }` files each under every ancestor too |
 | `values({ rollup? })` | `Dict<DateTime, V>`: a value per instant. `rollup` keeps every parent's subtotals |
-| `rows({ … })` | `Dict<K, Struct>`: child rows, keyed by any type but a DateTime (a role, a number, a String), their own collections declared the same way |
+| `rows({ … })` | `Dict<K, Struct>`: child rows, keyed by any type but a DateTime (a role, a number, a String), their own collections declared the same way. `rows({})` declares child rows that nest nothing in time: the index names them among its ids and files nothing of them |
 | `recursive()` | `Dict<K, Self>`: more rows like the one listing it, to any depth, keyed as the rows listing it are |
 
 TypeScript types `collections` field by field from the record's type alone: a

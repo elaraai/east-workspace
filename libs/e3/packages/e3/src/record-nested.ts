@@ -127,10 +127,13 @@ export function values<const O extends SeriesValuesOptions = { readonly rollup?:
 /**
  * Declares a collection of child rows: a Dict keyed by an id — of any type a
  * Dict is keyed by but a DateTime (#1540) — holding rows whose own collections
- * are declared the same way.
+ * are declared the same way. Child rows that nest nothing in time declare none
+ * (`rows({})`): the index names them, their keys among its ids, and files
+ * nothing of them.
  *
  * @typeParam C - The child rows' collections, as written
- * @param collections - Each collection field of the child row, declared with a builder of `index.nested`
+ * @param collections - Each collection field of the child row, declared with a builder of `index.nested`; `{}` for
+ *   child rows that hold none
  * @returns The declaration, for its field in `collections`
  */
 export function rows<const C>(collections: C): SeriesRows<C> {
@@ -454,7 +457,10 @@ export function checkNested(constructor: string, name: string, rowType: EastType
   ): { group: NestedGroup; declaration: RecordNestedDecl } => {
     const struct = nodeStruct(type);
     if (struct === undefined) throw new Error(`${prefix} indexes a record with Struct rows`);
-    if (typeof declared !== 'object' || declared === null || Array.isArray(declared) || Object.keys(declared).length === 0) {
+    const written = typeof declared === 'object' && declared !== null && !Array.isArray(declared);
+    // Child rows may declare none (`rows({})`): rows that nest nothing in time. The index itself declares one at least.
+    const bare = written && Object.keys(declared).length === 0 && parent !== undefined;
+    if (!written || (Object.keys(declared).length === 0 && !bare)) {
       throw new Error(`${prefix} ${where} declares no collection`);
     }
     const index = placed++;
@@ -569,7 +575,7 @@ export function checkNested(constructor: string, name: string, rowType: EastType
       throw new Error(`${prefix} ${where} declares recursive() on '${recursiveFields[0]}' and '${recursiveFields[1]}' — ` +
         'a row\'s rows recurse through one field, so each holds one path');
     }
-    if (Object.keys(caseTypes).length === 0) throw new Error(`${prefix} ${where} declares no collection`);
+    if (Object.keys(caseTypes).length === 0 && !bare) throw new Error(`${prefix} ${where} declares no collection`);
     const group: NestedGroup = {
       index, type, parent, keyed, through: recursiveFields[0], collections: own, rows: childRows, places: VariantType(caseTypes),
     };

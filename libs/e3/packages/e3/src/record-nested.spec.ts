@@ -639,6 +639,33 @@ describe('index.nested — child rows and items keyed by any type (#1540)', () =
     assertEast(def.valueType, subtotal('2026-10-12'), parsed(def.valueType, '.subtotal 6.0'), 'the week the operator alone has');
   });
 
+  it('takes child rows that nest nothing in time, declared rows({}): names them among its ids and files nothing of them', () => {
+    // A press's kinds of task, keyed by the kind: rows a page draws, holding no collection of their own.
+    const Kind = VariantType({ ink_fill: NullType, wash: NullType });
+    const Press = StructType({ name: StringType, load: DictType(DateTimeType, FloatType), kinds: DictType(Kind, StructType({ name: StringType })) });
+    const presses = record('presses', DictType(StringType, Press), {
+      initial: new Map(),
+      indexes: (index) => ({
+        presses_in_time: index.nested({ collections: { load: index.nested.values(), kinds: index.nested.rows({}) }, tile: 'day', summary: 'month' }),
+      }),
+      mutations: (mutation) => ({ patch: mutation.patch() }),
+    });
+    const kinds = presses.indexes.presses_in_time;
+    assert.ok(isTypeEqual(kinds.keyType, NestedEntryKeyType(StringType, NestedIdType({ kinds: Kind }))), `its key is ${printType(kinds.keyType)}`);
+    const press = parsed(Press, '(name="Press 1", load={2026-10-05T00:00:00.000:0.5}, kinds={.ink_fill:(name="Ink fill"), .wash:(name="Wash")})');
+    const filed = entries(kinds, 'P1', press);
+    const print = printFor(kinds.keyType);
+    assert.deepEqual([...filed.keys()].map((ik) => /collection=\.step \(key="(\w+)"/.exec(print(ik as never))?.[1]).filter((place) => place !== 'load'), [],
+      'every entry is the load\'s');
+    // The lean row keeps its kinds, which hold nothing to take out; filled, it is the row.
+    const lean = leanOf(kinds, 'P1', press);
+    assertEast(Press, lean, parsed(Press, '(name="Press 1", load={:}, kinds={.ink_fill:(name="Ink fill"), .wash:(name="Wash")})'), 'the lean row');
+    assertEast(Press, filled(kinds, 'P1', lean, [...filed]), press as never, 'the row filled whole');
+    // The index itself declares one at least, and a tree of bare rows is still refused.
+    assert.throws(() => series('bare_in_time', presses, { collections: {} as never, tile: 'day' }),
+      /^Error: e3\.record 'presses': index\.nested 'bare_in_time' collections declares no collection$/);
+  });
+
   it('refuses a collection whose field\'s name holds a dot, and rows that recurse keyed by another type than the rows listing them', () => {
     const Dotted = StructType({ name: StringType, 'a.b': DictType(StringType, Job) });
     const dotted = record('dotted', DictType(StringType, Dotted), { initial: new Map() });
