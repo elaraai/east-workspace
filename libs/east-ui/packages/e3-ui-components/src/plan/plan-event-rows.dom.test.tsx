@@ -342,10 +342,15 @@ describe("a link's event ends", () => {
             // No row has a link to focus on: none is read, so none is drawn.
             expect(container.querySelector('[data-plan-control="links"]')).toBeNull();
             expect(container.querySelectorAll("[data-link]")).toHaveLength(0);
-            // The flows taken away again: within the cap, the seventeen draw and the notice goes.
+            // Connect draws none of the flows: one it drew would draw nowhere. The flows are the Plan's one link kind, so it
+            // offers no tools.
+            const tools = () => within(slot(container, "toolbar")!).queryByRole("radiogroup", { name: "Tools" });
+            expect(tools()).toBeNull();
+            // The flows taken away again: within the cap, the seventeen draw and the notice goes, and Connect is offered.
             await h.commit(ex.planLinkFlows, new Map(before));
             await settle();
             await waitFor(() => expect(notice()).toBeNull());
+            expect(tools()).not.toBeNull();
             fireEvent.click(container.querySelector(`${rowAt(entry("presses", "a1"))} [data-plan-control="links"]`)!);
             await settle();
             expect(container.querySelectorAll("[data-link]")).toHaveLength(17);

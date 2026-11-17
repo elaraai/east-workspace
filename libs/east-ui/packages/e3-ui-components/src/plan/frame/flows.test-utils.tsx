@@ -6,13 +6,14 @@
 /**
  * Example 16's Plan as the link kinds' tests mount it (#1541, U10): the works'
  * centres, their four event kinds and the flows between them — a link kind
- * over a record — with its inspector, and the Plan's own `canConnect` where a
- * test gives one.
+ * over a record — with its inspector, and the Plan's own `canConnect`, the
+ * flows' `key`, their presets or a binding that reads them only where a test
+ * gives one.
  */
 
 import { DictType, East, FloatType, OptionType, StringType, StructType, some, type ExprType, type FunctionType } from "@elaraai/east";
-import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
-import { Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
+import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui/internal";
+import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 
 /** The works' four weeks. */
@@ -31,24 +32,37 @@ const FLOW_PRESETS = new Map([["standard", { name: "Standard run", values: { she
 export interface FlowsPlanOptions {
     /** The Plan's veto over a connection, built inside the Plan's own block; left out, none. */
     canConnect?: () => FlowsCanConnect;
-    /** Whether the flows have their presets, listed in the library's Events tab; left out, none and no library. */
+    /**
+     * Whether the flows have their presets, listed in the library's Events tab beside the plates' templates — a record
+     * of the print works', through a rail of its own; left out, none, no rail and no library.
+     */
     templates?: boolean;
+    /** The flows' `key`, built from a new flow's row; left out, a String key made up. */
+    key?: (flow: ExprType<typeof ex.PrintFlow>) => ExprType<StringType>;
+    /** Whether the flows are read only, bound with `Data.bind`; left out, bound with their patch door. */
+    readOnly?: boolean;
 }
 
 /**
  * Example 16's Plan, with its inspector.
  *
- * @param options - The Plan's veto, and whether the flows have templates
+ * @param options - The Plan's veto, the flows' key, whether they have templates and whether they are read only
  * @returns The program, for the harness's `mount`
  */
-export function flowsPlan({ canConnect, templates = false }: FlowsPlanOptions = {}) {
+export function flowsPlan({ canConnect, templates = false, key, readOnly = false }: FlowsPlanOptions = {}) {
     return { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
         const works = $.let(Record.bind(ex.planLinkWorks, []));
         const plates = $.let(Record.bind(ex.planLinkPlates));
         const jobs = $.let(Record.bind(ex.planLinkCaseJobs));
         const bindings = $.let(Record.bind(ex.planLinkBindings));
         const deliveries = $.let(Record.bind(ex.planLinkDeliveries));
-        const links = $.let(Record.bind(ex.planLinkFlows));
+        const links = readOnly ? $.let(Data.bind(ex.planLinkFlows)) : $.let(Record.bind(ex.planLinkFlows));
+        // The plates' templates, an event kind's, through the rail every template record is narrowed by.
+        const plateTemplates = templates ? $.let(Data.bind(ex.planPrintPlatesTemplates)) : undefined;
+        const slice = templates ? $.let(Slice.bindRecords("flows.templates", {
+            platesTemplates: { source: Data.bindPaged(ex.planPrintPlatesTemplates, { indexes: ["plan_print_plates_templates_by_group"] }), icon: { prefix: "fas", name: "layer-group" },
+                fields: { group: { label: "Plates templates", hints: ["Plate room"] } } },
+        })) : undefined;
         const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "week" }));
         return Plan({
             axis,
@@ -60,7 +74,14 @@ export function flowsPlan({ canConnect, templates = false }: FlowsPlanOptions = 
                 Plan.series.resources(ex.PrintLinkCentre, { key: "bays", title: "Dispatch", icon: "warehouse", match: (c) => c.what.hasTag("bay"), label: (c) => c.name }),
             ],
             events: {
-                plate: Schedule.events(plates, { name: "Plates", icon: "clone", title: "title", at: "at", resource: { field: "setter", of: "setters" } }),
+                plate: Schedule.events(plates, {
+                    name: "Plates", icon: "clone", title: "title", at: "at", resource: { field: "setter", of: "setters" },
+                    ...(plateTemplates === undefined ? {} : {
+                        templates: Schedule.templates(plateTemplates.read(), {
+                            name: (preset) => preset.name, group: (preset) => some(preset.group), values: (preset) => preset.values, source: "platesTemplates",
+                        }),
+                    }),
+                }),
                 job: Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" } }),
                 binding: Schedule.events(bindings, { name: "Bindery job", icon: "book-open", draw: "cards", title: "title", start: "start", end: "end", resource: { field: "line", of: "lines" } }),
                 delivery: Schedule.events(deliveries, { name: "Delivery", icon: "truck", draw: "buckets", title: "title", at: "at", resource: { field: "bay", of: "bays" } }),
@@ -71,12 +92,13 @@ export function flowsPlan({ canConnect, templates = false }: FlowsPlanOptions = 
                     from: { field: "from", of: { plate: "plate", job: "job", binding: "binding" } },
                     to: { field: "to", of: { job: "job", binding: "binding", delivery: "delivery" } },
                     quantity: { field: "sheets", unit: "k sheets" },
+                    ...(key === undefined ? {} : { key }),
                     ...(templates ? {
                         templates: Schedule.templates($.const(FLOW_PRESETS, DictType(StringType, FlowPreset)), { name: (preset) => preset.name, values: (preset) => preset.values }),
                     } : {}),
                 }),
             },
-            ...(templates ? { library: [Plan.library.events()] } : {}),
+            ...(slice === undefined ? {} : { slice: { slice }, library: [Plan.library.events()] }),
             ...(canConnect === undefined ? {} : { canConnect: $.const(canConnect()) }),
             inspector: true,
         });

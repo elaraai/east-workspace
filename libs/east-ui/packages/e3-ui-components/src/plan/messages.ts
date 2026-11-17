@@ -244,8 +244,10 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     linkEndRefused: (p: { kind: string; end: "start" | "end"; item: string }) => string;
     /** Why Connect's draft doesn't land: the kind's record holds a link under the key this one's row builds. */
     linkHeld: (p: { kind: string }) => string;
-    /** Why Connect's draft doesn't land: no key can be made for a new link of the kind. */
+    /** Why Connect's draft doesn't land: no key can be made for a new link of the kind, or its `key` failed. */
     linkUnkeyed: (p: { kind: string }) => string;
+    /** Why Connect's draft doesn't land: the kind's new row failed as it was made. */
+    linkFailed: (p: { kind: string }) => string;
     /** The inspector's Connect to…, by the link kind it draws: its group's name — `Connect a flow`. */
     inspectorConnect: (p: { kind: string }) => string;
     /** A field of Connect to…: the link `kind` it draws, and the event it runs `to`. */
@@ -709,6 +711,7 @@ export const planMessages: PlanMessages = {
     linkEndRefused: ({ kind, end, item }) => `${kind} can't ${end} at ${item}`,
     linkHeld: ({ kind }) => `That ${lowerWord(kind)} is drawn already`,
     linkUnkeyed: ({ kind }) => `No key can be made for a new ${lowerWord(kind)}`,
+    linkFailed: ({ kind }) => `A new ${lowerWord(kind)} can't be made here`,
     inspectorConnect: ({ kind }) => `Connect ${withArticle(lowerWord(kind))}`,
     inspectorConnectField: ({ field }) => (field === "kind" ? "Link" : "Connect to"),
 

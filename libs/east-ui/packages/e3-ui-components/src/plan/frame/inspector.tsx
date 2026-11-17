@@ -129,7 +129,7 @@ import { heldRowOf } from "../../shared/schedule/editing.js";
 import { useFieldAsk } from "../../shared/schedule/field-ask.js";
 import { fieldChange, fieldWrite, rowCodec } from "../../shared/schedule/records.js";
 import { removePlanEvents, type PlanEventChange, type PlanEventEditing } from "../edit/events.js";
-import { kindLinkOf, linkStepLabel, type PlanLinkKindValue, type PlanLinkRolesValue } from "../links/kinds.js";
+import { kindLinkOf, linkEndTitle, linkStepLabel, type PlanLinkKindValue, type PlanLinkRolesValue } from "../links/kinds.js";
 import type { PlanToolsChrome } from "../links/connect.js";
 import type { PlanLinkSource } from "../edit/event-drag.js";
 import { scheduleEventKey } from "../../shared/schedule/overlaps.js";
@@ -375,16 +375,6 @@ function sameEvents(a: readonly InspectedEvent[], b: readonly InspectedEvent[]):
         const other = b[i]!;
         return stringEqual(event.key, other.key) && Object.is(event.kind, other.kind) && itemEqual(event.item, other.item) && blobEqual(event.row, other.row);
     });
-}
-
-/** An event a link joins, as the inspector names it: its title, or its key's text where the page holds no such event. */
-function linkEndTitle(editing: PlanEventEditing, ref: PlanLinkRolesValue["from"]): string {
-    try {
-        return editing.read(ref.kind, ref.key)?.item.title ?? ref.key;
-    } catch (err) {
-        console.error(`[Plan] ${ref.kind}'s read of ${ref.key} failed; a link names it by its key:`, err);
-        return ref.key;
-    }
 }
 
 /**

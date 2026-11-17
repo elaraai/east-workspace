@@ -1200,6 +1200,19 @@ describe("Connect draws a link kind's link from one event to another (#1541, U10
         expect(pending(c)).toBe("0 pending");
     });
 
+    test("a `key` that fails for the two events makes no link: the ghost says no key can be made, and the drop draws nothing", async () => {
+        // A flow's key, its plates' key: a flow from a job has none, and its key fails.
+        const keyed = flowsPlan({ key: (flow) => flow.from.unwrap("plate") });
+        const { container: c } = await h.mount(keyed, DRAG);
+        await settle();
+        await press(tool(c, "Connect"));
+        const y = layOutPlots(c, [LINK_A1, LINK_A2], [[linkJob(c, LINK_A2, "J-2004"), PRICE_LISTS]]);
+        const release = await carry(linkJob(c, LINK_A1, "J-2001"), { x: xAt(COVERS_AT.day, COVERS_AT.hour), y: y(LINK_A1) }, { x: xAt(3, 0), y: y(LINK_A2) });
+        expect(caption()).toBe("refused: No key can be made for a new flow");
+        await release();
+        expect(pending(c)).toBe("0 pending");
+    });
+
     test("over no event the draft has nowhere to land: nothing is said, and letting go there draws nothing and moves nothing", async () => {
         const { container: c } = await h.mount(flowsPlan(), DRAG);
         await settle();
@@ -1239,6 +1252,8 @@ describe("Connect draws a link kind's link from one event to another (#1541, U10
         const preset = () => cardOf(c, elementKey("flow", "standard"))!;
         expect(preset().textContent).toContain("Standard run");
         expect(preset().hasAttribute("data-placed")).toBe(false);
+        // Only a link kind's template takes the click: the plates' preset beside it drags, and is no button of the click.
+        expect([preset().hasAttribute("data-clickable"), cardOf(c, elementKey("plate", "plates"))!.hasAttribute("data-clickable")]).toEqual([true, false]);
         await press(preset());
         expect(preset().hasAttribute("data-placed")).toBe(true);
         await press(tool(c, "Connect"));

@@ -777,6 +777,57 @@ describe("a link kind's link in the inspector (#1541, U10)", () => {
         }
     });
 
+    test("a link's ×, the link selected beside an event, removes the link alone: the event stays selected, the pane showing it", async () => {
+        const restore = ribbonWidth({ tall: true });
+        try {
+            const { container } = await h.mount(flows);
+            await settle();
+            fireEvent.click(container.querySelector(`${rowAt(entry("presses", "a1"))} [data-plan-control="links"]`)!);
+            await settle();
+            const job = () => container.querySelector(el("data-run", "job", "J-2001"));
+            // The covers' flow, which has a caption, and the job it runs from: one link among the selection carries its ×.
+            fireEvent.click(hit(container, "covers")!);
+            await settle();
+            fireEvent.click(job()!, { shiftKey: true });
+            await settle();
+            fireEvent.click(container.querySelector<HTMLElement>("[data-plan-ribbon-unlink] button")!);
+            await settle();
+            expect(hit(container, "covers")).toBeUndefined();
+            expect([job()!.getAttribute("aria-pressed"), showing(container)]).toEqual(["true", "event"]);
+            expect(pane(container).querySelector("[data-inspector-title]")!.textContent).toBe("Catalogue covers");
+        } finally {
+            restore();
+        }
+    });
+
+    test("a link kind read only draws its links as links built in code are drawn: a click selects none, and Delete over an event selected beside one removes the event", async () => {
+        const restore = ribbonWidth({ tall: true });
+        try {
+            const { container } = await h.mount(flowsPlan({ readOnly: true }));
+            await settle();
+            fireEvent.click(container.querySelector(`${rowAt(entry("presses", "a1"))} [data-plan-control="links"]`)!);
+            await settle();
+            const group = () => hit(container, "plates")!.closest("[data-plan-link]")!;
+            // A click on the link selects nothing: no link, and no row in its place.
+            const before = showing(container);
+            fireEvent.click(hit(container, "plates")!);
+            await settle();
+            expect([group().hasAttribute("data-selected"), showing(container)]).toEqual([false, before]);
+            // An event selected, the link added to it by Shift: the link takes no selection, and the Delete key removes the event.
+            const job = () => container.querySelector(el("data-run", "job", "J-2001"));
+            fireEvent.click(job()!);
+            await settle();
+            fireEvent.click(hit(container, "plates")!, { shiftKey: true });
+            await settle();
+            expect(group().hasAttribute("data-selected")).toBe(false);
+            fireEvent.keyDown(job()!, { key: "Delete" });
+            await settle();
+            expect(job()).toBeNull();
+        } finally {
+            restore();
+        }
+    });
+
     test("several links show how many, each by the events it joins, and Delete removes them all as one step", async () => {
         const restore = ribbonWidth({ tall: true });
         try {

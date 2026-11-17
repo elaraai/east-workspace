@@ -43,6 +43,7 @@
 import { useCallback, useMemo } from "react";
 import { Box, Button, chakra, useRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { StringType, equalFor } from "@elaraai/east";
 import { faAnglesDown, faAnglesUp, faArrowPointer, faLink, faTriangleExclamation, type IconDefinition } from "@fortawesome/free-solid-svg-icons";
 import { HOST_RANK, coarseHitArea, useRecordSlicesToolbarItems } from "@elaraai/east-ui-components/internal";
 import { type ToolbarItem, historyToolbarItem, useKeySearchToolbarItem } from "@elaraai/east-ui-components";
@@ -73,6 +74,8 @@ const PLAN_RANK = {
     time: HOST_RANK,
     controls: HOST_RANK + 6,
 } as const;
+
+const stringEqual = equalFor(StringType);
 
 /** Each tool's icon, Font Awesome's solid: the Schematic's for the same tools. */
 const TOOL_ICONS: { readonly [T in PlanTool]: IconDefinition } = { select: faArrowPointer, connect: faLink };
@@ -194,7 +197,8 @@ export function usePlanToolbarItems(chrome: PlanChrome | undefined, overlaps?: P
     // kind holds Connect.
     const toolStrip = useCallback((iconsOnly: boolean, fullWidth = false) => {
         if (tools === undefined) return null;
-        const kind = tools.links.find((link) => link.key === tools.held.link)?.name ?? "";
+        const held = tools.held.link;
+        const kind = (held === undefined ? undefined : tools.links.find((link) => stringEqual(link.key, held)))?.name ?? "";
         const items = PLAN_TOOLS.map((tool) => ({ key: tool, label: words.m.toolName({ tool }), hint: words.m.toolHint({ tool, kind }), icon: TOOL_ICONS[tool] }));
         return <Seg label={words.m.toolsLabel()} name="tools" items={items} active={tools.held.tool} iconsOnly={iconsOnly} fullWidth={fullWidth}
             onPick={(tool) => tools.pick({ tool, link: tools.held.link })} />;

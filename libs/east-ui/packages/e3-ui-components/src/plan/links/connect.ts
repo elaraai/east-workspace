@@ -22,7 +22,7 @@
  * @packageDocumentation
  */
 
-import { NullType, OptionType, StringType, StructType, VariantType, type ValueTypeOf } from "@elaraai/east";
+import { NullType, OptionType, StringType, StructType, VariantType, equalFor, type ValueTypeOf } from "@elaraai/east";
 import { useHeldTools, type HeldTools, type LinkChoice } from "../../shared/held-tools.js";
 import { storedCodec } from "../../shared/stored-value.js";
 import type { PlanLinkSource } from "../edit/event-drag.js";
@@ -41,6 +41,7 @@ export type PlanTool = ValueTypeOf<typeof PlanToolType>["type"];
 export const PLAN_TOOLS: readonly PlanTool[] = ["select", "connect"];
 
 const toolsCodec = storedCodec(PlanToolsType);
+const stringEqual = equalFor(StringType);
 
 /** What the viewer holds: the tool, and the link kind Connect draws. */
 export type PlanToolsState = HeldTools<PlanTool>;
@@ -81,7 +82,8 @@ export interface PlanToolsChrome {
  */
 export function planToolsInForce(held: PlanToolsState, links: readonly string[]): PlanToolsState {
     const tool = held.tool === "connect" && links.length === 0 ? "select" : held.tool;
-    const link = held.link !== undefined && links.includes(held.link) ? held.link : links[0];
+    const kept = held.link;
+    const link = kept !== undefined && links.some((one) => stringEqual(one, kept)) ? kept : links[0];
     return { tool, link };
 }
 

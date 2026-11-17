@@ -68,7 +68,7 @@ import type { PlanEditStore, PlanMovable, PlanProposal, PlanSpan } from "./store
 import { originOf, unmoved, type PlanMoveRequest } from "./use-carry.js";
 import { eventCandidate, type PlanCandidatePlace, type PlanCandidateValue, type PlanVeto } from "./candidate.js";
 import type { ConnectVetoOf } from "../../shared/links/veto.js";
-import { connectLink, linkStepLabel, type PlanLinkKindValue } from "../links/kinds.js";
+import { connectLink, linkEndTitle, linkStepLabel, type PlanLinkKindValue } from "../links/kinds.js";
 
 type PlanPayloadValue = ValueTypeOf<typeof PlanPayloadType>;
 /** One event kind, as the payload carries it. */
@@ -812,11 +812,8 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
             const key = event.type === "remove" ? getSomeorUndefined(event.value.from.event) ?? "" : "";
             return ask(`return|${library}|${key}`, () => planReturn(event, library));
         };
-        /** An event's title, as the ghost names it: its key's text for one the page does not hold. */
-        const titleOf = (ref: { readonly kind: string; readonly key: string }): string => {
-            const kind = kindOf(ref.kind);
-            return (kind === undefined ? undefined : readEvent(kind, ref.key)?.item.title) ?? ref.key;
-        };
+        /** An event's title, as the ghost names it ({@link linkEndTitle}): its key's text for one the page does not hold. */
+        const titleOf = (ref: { readonly kind: string; readonly key: string }): string => linkEndTitle(latest.current.editing, ref);
         /** An event's extent on the axis: what the row's landing band spans where a link would end at it. */
         const extentOf = (ref: { readonly kind: string; readonly key: string }): PlanSpan | undefined => {
             const kind = kindOf(ref.kind);
@@ -836,11 +833,14 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
             const m = a.words.m;
             // Where it would end: the event under the pointer, which the row's landing band spans, refused or not.
             const span = extentOf(to);
+            // Its kind's session takes no gesture while its Save is out: the ghost says so, as a drop's does.
+            if (!a.editing.available(kind.key)) return refused(m.dropBusy({ kind: kind.name }), span);
             const made = connectLink(kind, { from, to }, (slot) => a.editing.mint(slot, "", NONE_MINTED), (slot, id) => a.editing.row(slot, id)?.type === "some", a.linkValues(kind.key));
             if ("refused" in made) {
                 return refused(made.refused === "start" ? m.linkEndRefused({ kind: kind.name, end: "start", item: titleOf(from) })
                     : made.refused === "end" ? m.linkEndRefused({ kind: kind.name, end: "end", item: titleOf(to) })
-                        : made.refused === "held" ? m.linkHeld({ kind: kind.name }) : m.linkUnkeyed({ kind: kind.name }), span);
+                        : made.refused === "held" ? m.linkHeld({ kind: kind.name })
+                            : made.refused === "failed" ? m.linkFailed({ kind: kind.name }) : m.linkUnkeyed({ kind: kind.name }), span);
             }
             const said = veto(kind.key, movable.key, event);
             if (said !== undefined) return refused(said, span);

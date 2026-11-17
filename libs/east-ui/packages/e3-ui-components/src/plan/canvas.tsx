@@ -114,7 +114,7 @@ import { removePlanEvents, usePlanEventEditing } from "./edit/events.js";
 import { lowerWord } from "../shared/schedule/words.js";
 import { parseEventRef } from "../shared/schedule/event-ref.js";
 import {
-    NO_LINK_KINDS, NO_LINK_KINDS_READ, kindLinkOf, kindLinks, linkKindRecords, linkStepLabel, linkedEventKinds, linksOver, readLinkKinds,
+    NO_LINK_KINDS, NO_LINK_KINDS_READ, editableLinkKinds, kindLinkOf, kindLinks, linkKindEdits, linkKindRecords, linkStepLabel, linkedEventKinds, linksOver, readLinkKinds,
     type PlanLinkEnd, type PlanLinkKindValue,
 } from "./links/kinds.js";
 import { NO_LINK_CHOICES, planToolsInForce, usePlanTools, type PlanToolsChrome } from "./links/connect.js";
@@ -466,9 +466,9 @@ export function usePlanCanvas({
     const drawsLanded = useMemo(() => new Set(cellKinds(kinds)), [kinds]);
     // A new event whose made key another Save took goes on under the next its session makes (#1583) — two planners who
     // each duplicate one event, or drop one template, are given the same key. A link of the list built in code names
-    // events the record holds, so nothing drafted names such an event by its key. A link kind's drafted link may: an
-    // event of a kind its ends name keeps the key made for it, as a Schematic's item does, until the rows that name one
-    // another are re-keyed together (#1609).
+    // events the record holds, so nothing drafted names such an event by its key. The drafted link of a link kind edited
+    // here may: an event of a kind its ends name keeps the key made for it, as a Schematic's item does, until the rows
+    // that name one another are re-keyed together (#1609). A kind read only drafts no link, and keeps no event's key.
     const rekeys = useMemo(() => {
         const named = linkedEventKinds(linkKinds);
         return new Set(kinds.map((kind) => kind.key).filter((key) => !named.has(key)));
@@ -583,6 +583,8 @@ export function usePlanCanvas({
     const linkDrafted = useDraftedRows(eventEditing, linkKinds);
     const [linkStanding] = useState(() => new DraftedStanding());
     const ofKinds = useMemo(() => kindLinks(linkKinds, linksRead, linkDrafted, linkStanding), [linkKinds, linksRead, linkDrafted, linkStanding]);
+    // The kinds holding more links than are drawn: none of their links draws, and Connect draws none of them.
+    const linksOverCap = useMemo(() => linksOver(linkKinds, linksRead), [linkKinds, linksRead]);
     const linked = useMemo(() => (ofKinds.length === 0 ? nested : {
         value: { ...nested.value, links: [...nested.value.links, ...ofKinds] },
         data: { ...nested.data, links: [...nested.data.links, ...ofKinds] },
@@ -1025,10 +1027,12 @@ export function usePlanCanvas({
     const veto = useMemo(() => createPlanVeto(getSomeorUndefined(hostData.canDrop) as PlanCanDropFn | undefined), [hostData.canDrop]);
     // Whether the canvas takes a write now: no run's call is out, and what it shows is no window being replaced.
     const takesWrites = !locked && !retained;
-    // The tools (#1541, U10): Connect is offered while a link kind is bound with its patch door and the canvas takes a
-    // write; what the viewer holds is kept under the Plan's `id`, and held as the Plan offers it.
+    // The tools (#1541, U10): Connect is offered while a link kind is edited here and draws its links — one past the cap
+    // draws none, so a link Connect drew there would draw nowhere — and the canvas takes a write; what the viewer holds
+    // is kept under the Plan's `id`, and held as the Plan offers it.
     const [heldTools, pickTools] = usePlanTools(keys.tools);
-    const connectableKinds = useMemo(() => (takesWrites ? linkKinds.filter((kind) => kind.editable) : NO_LINK_KINDS), [linkKinds, takesWrites]);
+    const connectableKinds = useMemo(() => (!takesWrites ? NO_LINK_KINDS
+        : editableLinkKinds(linkKinds).filter((kind) => !linksOverCap.some((over) => stringEqual(over.kind, kind.key)))), [linkKinds, takesWrites, linksOverCap]);
     const connectable = useMemo((): readonly LinkChoice[] => (connectableKinds.length === 0 ? NO_LINK_CHOICES
         : connectableKinds.map((kind) => ({ key: kind.key, name: kind.name }))), [connectableKinds]);
     const tools = useMemo(() => planToolsInForce(heldTools, connectable.map((link) => link.key)), [heldTools, connectable]);
@@ -1066,7 +1070,8 @@ export function usePlanCanvas({
         return ref.success ? ref.value : undefined;
     }, "Plan"), [canConnect]);
     const connecting = useMemo((): PlanConnecting | undefined => {
-        const kind = tools.tool === "connect" ? linkKinds.find((one) => one.key === tools.link) : undefined;
+        const held = tools.link;
+        const kind = tools.tool === "connect" && held !== undefined ? linkKinds.find((one) => stringEqual(one.key, held)) : undefined;
         return kind === undefined ? undefined : { kind, veto: connectVeto };
     }, [tools, linkKinds, connectVeto]);
     const eventDrag = usePlanEventDrag({
@@ -1307,9 +1312,11 @@ export function usePlanCanvas({
     const resolvers = useMemo<PlanResolvers>(
         () => ({ onElementClick: clickable ? controller.elementClick : undefined }),
         [clickable, controller]);
-    // What the elements select by (#1197): an event kind's element, its event — and a link kind's link, its row (#1541,
-    // U10), whose key names its kind's slot as an event's names its kind's.
-    const selectable = useMemo(() => selectableOf([...(eventKinds ?? []), ...linkKinds.map((kind) => kind.key)]), [eventKinds, linkKinds]);
+    // What the elements select by (#1197): an event kind's element, its event — and the link of a link kind edited here,
+    // its row (#1541, U10), whose key names its kind's slot as an event's names its kind's. A kind read only draws its
+    // links as links built in code are drawn: none selects.
+    const selectable = useMemo(() => selectableOf([...(eventKinds ?? []), ...editableLinkKinds(linkKinds).map((kind) => kind.key)]),
+        [eventKinds, linkKinds]);
     // The series the event kinds land on, by their keys; and the rows a resource the canvas does not hold is read from.
     const landingsByKey = useMemo(() => new Map(landings.map((landing) => [landing.key, landing] as const)), [landings]);
     const rowsDrawn = data.rows;
@@ -1339,6 +1346,21 @@ export function usePlanCanvas({
     // out, which they never find, among every row the source narrows. Each is its own function, the same while what it
     // reads is, so a pane's names are made again as the rows move and never as a draft, the scale or a derivation does.
     const resource = useCallback<PlanCanvasInspect["resource"]>((ref) => resourceRows.byRef.get(scheduleCellId(ref.kind, ref.key)), [resourceRows]);
+    // The events the canvas draws (#1541, U10), each once, in the rows' order, with their kinds' slots: read off the rows
+    // once as they move, not each time the inspector asks.
+    const drawnEvents = useMemo(() => {
+        const seen = new Set<string>();
+        const out: { readonly kind: string; readonly key: string }[] = [];
+        for (const row of index.rows) {
+            for (const key of elementKeys(row)) {
+                if (seen.has(key)) continue;
+                seen.add(key);
+                const ref = parseEventRef(key);
+                if (ref.success) out.push({ kind: ref.value.kind, key });
+            }
+        }
+        return out;
+    }, [index]);
     const resourceByKey = useCallback<PlanCanvasInspect["resourceByKey"]>((ref) => {
         const landing = landingsByKey.get(ref.kind);
         const drawn = landingNameByKey(rowsDrawn, landing, ref.key);
@@ -1357,23 +1379,14 @@ export function usePlanCanvas({
         resourceByKey,
         resources: (landing) => (paged ? undefined : resourceRows.bySeries.get(landing) ?? NO_RESOURCE_ROWS),
         // The events the canvas draws of the kinds given (#1541, U10), each once, in the rows' order.
-        events: (slots) => {
-            const drawn = new Set<string>();
-            for (const row of index.rows) {
-                for (const key of elementKeys(row)) {
-                    const ref = parseEventRef(key);
-                    if (ref.success && slots.includes(ref.value.kind)) drawn.add(key);
-                }
-            }
-            return [...drawn];
-        },
+        events: (slots) => drawnEvents.filter((one) => slots.some((slot) => stringEqual(slot, one.kind))).map((one) => one.key),
         // What the session the rows save through refuses of the entry a row came from (#1541, U5), read as the pane draws:
         // a read-only row, an Unassigned row, or a Plan whose rows save through none, has none.
         refusals: (key) => {
             const at = sourceEntries.get(key);
             return at === undefined || !editing.enabled ? NO_REFUSALS : sessionEntryRefusals(editing.session, at);
         },
-    }), [index, derived, scale, words, resource, resourceByKey, resourceRows, paged, sourceEntries, editing.enabled, editing.session]);
+    }), [index, derived, scale, words, resource, resourceByKey, resourceRows, paged, drawnEvents, sourceEntries, editing.enabled, editing.session]);
     // Events selected from the frame (#1198) — the overlaps chip's pair, the
     // inspector's banner, a duplicate the inspector made (#1194): on the row
     // given, else the row that draws the first, which the controller brings
@@ -1393,17 +1406,23 @@ export function usePlanCanvas({
         }
         controller.selectEvents(keys, row ?? indexRef.current?.rows.find((r) => holdsElement(r, first))?.key ?? null);
     }, [controller]);
-    // A link kind's link removed from the canvas (#1541, U10): the selected link's ×, where its kind is bound with its
-    // patch door and the canvas takes a write — one step of the history, as Delete's is.
+    // A link kind's link removed from the canvas (#1541, U10): the selected link's ×, where its kind is edited here, its
+    // session takes a gesture — never while its Save is out — and the canvas takes a write: one step of the history, as
+    // Delete's is. The link alone leaves the selection; what was selected beside it stays.
     const unlink = useMemo((): PlanLinkUnlink | undefined => (linkKinds.length === 0 ? undefined : {
-        can: (key) => takesWrites && kindLinkOf(linkKinds, key)?.kind.editable === true,
+        can: (key) => {
+            const named = kindLinkOf(linkKinds, key);
+            return takesWrites && named !== undefined && linkKindEdits(named.kind) && eventEditing.available(named.kind.key);
+        },
         run: (key) => {
             const named = kindLinkOf(linkKinds, key);
             if (named === undefined || !takesWrites) return;
-            if (removePlanEvents([key], eventEditing, linkStepLabel("Delete", [named.kind]))) selectEvents([]);
+            if (removePlanEvents([key], eventEditing, linkStepLabel("Delete", [named.kind])) === undefined) return;
+            const ui = controller.getSnapshot().store.ui;
+            selectEvents(ui.elements.filter((one) => !stringEqual(one, key)), ui.selected ?? undefined);
         },
         label: (key) => words.m.linkRemove({ name: lowerWord(kindLinkOf(linkKinds, key)?.kind.name ?? "") }),
-    }), [linkKinds, takesWrites, eventEditing, selectEvents, words]);
+    }), [linkKinds, takesWrites, eventEditing, selectEvents, controller, words]);
     // What every row of this render shares (#616: per-row facts are computed
     // from it, and each row's memo skips unless ITS facts moved).
     const marks = editing.marks;
@@ -2460,7 +2479,7 @@ export function usePlanCanvas({
                 landing: { ref: landingRoot, attributes: landing.attributes, css: landingStyles.main },
             } : undefined,
             cells: lead.cells,
-            linksOver: linksOver(linkKinds, linksRead),
+            linksOver: linksOverCap,
             tools: toolsChrome,
             footer: data.footer,
             id: getSomeorUndefined(data.id),

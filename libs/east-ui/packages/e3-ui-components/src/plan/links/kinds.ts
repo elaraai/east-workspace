@@ -22,22 +22,32 @@
  *   (`draftsInPlace`): a stored link as drafted, one its draft deletes
  *   nowhere, one its draft adds after them — a link the Connect tool drew —
  *   and, through a carry-over, one the canvas last drew.
- * - **Saved beside the event kinds**: an editable kind is a record of the
- *   shared editing, its session named by its slot.
+ * - **Saved beside the event kinds**: an editable kind — bound with its patch
+ *   door — is a record of the shared editing, its session named by its slot,
+ *   and its links are selected, drawn by Connect and removed. A kind read only
+ *   draws its links as a link built in code is drawn: none is selected.
  * - **Past the cap, none drawn**: a kind holding more links than an event
- *   kind's events are read under reads none of them, and is named with how
- *   many it holds (`linksOver`), which the frame says in a notice.
+ *   kind's events are drawn under draws none of them, is named with how many
+ *   it holds (`linksOver`), which the frame says in a notice, and Connect
+ *   draws none of it. Its binding still reads its record whole: the cap
+ *   bounds what is decoded and drawn, not what is read.
  *
  * @packageDocumentation
  */
 
-import { none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { StringType, equalFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import type { PlanLinkKindType } from "@elaraai/e3-ui/internal";
 import { parseEventRef, printEventRef } from "../../shared/schedule/event-ref.js";
 import { draftedOf, draftsInPlace, type DraftedRowsByKind, type DraftedStanding } from "../../shared/schedule/drafted-rows.js";
 import type { ScheduleChange, ScheduleEditingRecord } from "../../shared/schedule/editing.js";
 import { lowerWord } from "../../shared/schedule/words.js";
+import type { PlanEventEditing } from "../edit/events.js";
 import type { PlanLinkValue } from "../model.js";
+
+const stringEqual = equalFor(StringType);
+
+/** Whether a list of slots holds one, as East compares the two. */
+const holdsSlot = (slots: readonly string[], slot: string): boolean => slots.some((one) => stringEqual(one, slot));
 
 /** A link kind, as the payload carries it. */
 export type PlanLinkKindValue = ValueTypeOf<PlanLinkKindType>;
@@ -99,10 +109,10 @@ export interface PlanLinkEnd {
 
 /**
  * Why a kind makes no link between two events: its `start` or its `end` holds no event of that kind — or, at its
- * `end`, no key that event's prints as; no `key` can be made for it; or the record `held`s a link under the key its
- * row builds.
+ * `end`, no key that event's prints as; no `key` can be made for it, or its `key` failed as it was built; the record
+ * `held`s a link under the key its row builds; or its new row `failed` as it was made.
  */
-export type PlanConnectRefusal = "start" | "end" | "key" | "held";
+export type PlanConnectRefusal = "start" | "end" | "key" | "held" | "failed";
 
 /** The link a Connect makes: its key on the canvas, and the change that records its row. */
 export interface PlanConnectMade {
@@ -128,11 +138,25 @@ export function connectLink(
     kind: PlanLinkKindValue, ends: { readonly from: PlanLinkEnd; readonly to: PlanLinkEnd },
     mint: (slot: string) => string | undefined, holds: (slot: string, id: string) => boolean, values?: Uint8Array | undefined,
 ): PlanConnectMade | { readonly refused: PlanConnectRefusal } {
-    if (!kind.ends.from.includes(ends.from.kind)) return { refused: "start" };
-    if (!kind.ends.to.includes(ends.to.kind)) return { refused: "end" };
-    const made = kind.create(ends, values === undefined ? none : some(values));
+    if (!holdsSlot(kind.ends.from, ends.from.kind)) return { refused: "start" };
+    if (!holdsSlot(kind.ends.to, ends.to.kind)) return { refused: "end" };
+    // The kind's own functions, run as a drag rests: its row, and the author's `key` over it. One that throws makes no
+    // link, and says so, where it would otherwise throw out of the drag.
+    let made: ReturnType<PlanLinkKindValue["create"]>;
+    try {
+        made = kind.create(ends, values === undefined ? none : some(values));
+    } catch (err) {
+        console.error(`[Plan] ${kind.name}'s row for a new link failed:`, err);
+        return { refused: "failed" };
+    }
     if (made.type !== "some") return { refused: "end" };
-    const id = kind.rowKey.type === "some" ? kind.rowKey.value(made.value) : mint(kind.key);
+    let id: string | undefined;
+    try {
+        id = kind.rowKey.type === "some" ? kind.rowKey.value(made.value) : mint(kind.key);
+    } catch (err) {
+        console.error(`[Plan] ${kind.name}'s key for a new link failed:`, err);
+        return { refused: "key" };
+    }
     if (id === undefined) return { refused: "key" };
     if (holds(kind.key, id)) return { refused: "held" };
     return { key: kindLinkKey(kind.key, id), change: { kind: kind.key, id, row: made.value, created: true } };
@@ -150,8 +174,26 @@ export function kindLinkOf(kinds: readonly PlanLinkKindValue[], key: string): { 
     if (kinds.length === 0) return undefined;
     const ref = parseEventRef(key);
     if (!ref.success) return undefined;
-    const kind = kinds.find((one) => one.key === ref.value.kind);
+    const kind = kinds.find((one) => stringEqual(one.key, ref.value.kind));
     return kind === undefined ? undefined : { kind, id: ref.value.key };
+}
+
+/**
+ * An event a link names, as the Plan names it to a viewer — the inspector's facts, Connect to…'s choices and Connect's
+ * ghost: its title as its kind reads it, its drafts in place; its key's text where the page holds no such event, or
+ * its read fails.
+ *
+ * @param editing - What reads an event: the Plan's event editing
+ * @param ref - The event, by its kind's slot and its key's text
+ * @returns Its name
+ */
+export function linkEndTitle(editing: Pick<PlanEventEditing, "read">, ref: PlanLinkEnd): string {
+    try {
+        return editing.read(ref.kind, ref.key)?.item.title ?? ref.key;
+    } catch (err) {
+        console.error(`[Plan] ${ref.kind}'s read of ${ref.key} failed; a link names it by its key:`, err);
+        return ref.key;
+    }
 }
 
 /**
@@ -170,30 +212,54 @@ export function linkStepLabel(verb: string, kinds: readonly PlanLinkKindValue[],
 }
 
 /**
- * The link kinds bound with their patch door, as records of the shared editing: a session each, named by its slot.
+ * Whether a link kind's links are made, changed and removed here: it is bound with its patch door, its session one of
+ * the shared editing's. A kind read only (`Data.bind`) draws its links as links built in code are drawn: none is
+ * selected, drawn by Connect or removed.
+ *
+ * @param kind - The link kind
+ * @returns Whether it is edited here
+ */
+export function linkKindEdits(kind: PlanLinkKindValue): boolean {
+    return kind.editable && kind.editing.type === "some";
+}
+
+/**
+ * The link kinds edited here ({@link linkKindEdits}), in the payload's order.
+ *
+ * @param kinds - The link kinds
+ * @returns Those edited here: the list given, where every one is
+ */
+export function editableLinkKinds(kinds: readonly PlanLinkKindValue[]): readonly PlanLinkKindValue[] {
+    const edited = kinds.filter(linkKindEdits);
+    return edited.length === kinds.length ? kinds : edited;
+}
+
+/**
+ * The link kinds edited here, as records of the shared editing: a session each, named by its slot.
  *
  * @param kinds - The link kinds
  * @returns The records
  */
 export function linkKindRecords(kinds: readonly PlanLinkKindValue[]): ScheduleEditingRecord[] {
-    return kinds.flatMap((kind) => (kind.editable && kind.editing.type === "some"
+    return editableLinkKinds(kinds).flatMap((kind) => (kind.editing.type === "some"
         ? [{ key: kind.key, name: kind.name, editing: kind.editing.value, entries: kind.entries, fields: kind.fields }]
         : []));
 }
 
 /**
- * The event kinds a link kind's end may name, by their slots: an event of one may be named by a drafted link, so its
- * key is never re-made beneath it.
+ * The event kinds the end of a link kind edited here may name, by their slots: an event of one may be named by a
+ * drafted link, so its key is never re-made beneath it. A kind read only drafts no link, and holds no event's key.
  *
  * @param kinds - The link kinds
  * @returns The slots
  */
 export function linkedEventKinds(kinds: readonly PlanLinkKindValue[]): ReadonlySet<string> {
-    return new Set(kinds.flatMap((kind) => [...kind.ends.from, ...kind.ends.to]));
+    return new Set(editableLinkKinds(kinds).flatMap((kind) => [...kind.ends.from, ...kind.ends.to]));
 }
 
 /**
- * Reads each link kind's stored links — whole, within its cap. Tracked where it is called: it reads each kind's record.
+ * Reads each link kind's stored links — each kind's record read whole by its binding, its links decoded only within
+ * the cap. Tracked where it is called: it reads each kind's record.
  *
  * @param kinds - The link kinds
  * @returns Each kind's stored links, and the kinds with more than are read
