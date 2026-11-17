@@ -214,15 +214,21 @@ async function deployChecked(t: TestContext, { storage, repo }: BackendContext):
  * workspace `ws`: `left` and `right` each read the record `orders`, and
  * `both` reads what the two write. The run takes `both` before `left` where
  * both are ready, by name.
+ *
+ * @param options - `probe`: a task `zz` over an input `probe` too, which the
+ *   run takes after every other where several are ready, by name: once it is
+ *   launched, the run has decided each task due beside it
  */
-async function deployTwoSided(t: TestContext, { storage, repo }: BackendContext): Promise<Map<string, string>> {
+async function deployTwoSided(t: TestContext, { storage, repo }: BackendContext, options: { probe?: boolean } = {}): Promise<Map<string, string>> {
   const orders = e3.record('orders', OrdersType, { initial: new Map() });
   const size = East.function([OrdersType], IntegerType, ($, rows) => rows.size());
   const left = e3.task('left', [orders], size);
   const right = e3.task('right', [orders], size);
   const both = e3.task('both', [left.output, right.output], East.function([IntegerType, IntegerType], IntegerType, ($, a, b) => a.add(b)));
+  const probe = e3.input('probe', IntegerType, variant('value', 1n));
+  const zz = e3.task('zz', [probe], East.function([IntegerType], IntegerType, ($, x) => x.add(1n)));
   const zip = join(scratch(t), 'two-sided.zip');
-  await e3.export(e3.package('two-sided', '1.0.0', orders, left, right, both), zip);
+  await e3.export(e3.package('two-sided', '1.0.0', orders, left, right, both, ...(options.probe === true ? [probe, zz] : [])), zip);
   await packageImport(storage, repo, zip);
   await workspaceCreate(storage, repo, 'ws');
   await workspaceDeploy(storage, repo, 'ws', 'two-sided', '1.0.0');
@@ -944,6 +950,62 @@ export function dataflowFollowCases(setup: BackendSetup): void {
     } finally {
       await intent.release();
     }
+  });
+
+  it('launches no run of a task over the inputs a catch-up run of it is running over: the task waits for it, and the cache answers it', async (t) => {
+    const context = await setup(t);
+    const { storage, repo } = context;
+    const tasks = await deployTwoSided(t, context, { probe: true });
+    const runner = gatedRunner(storage, repo, tasks);
+    const lines = new RunLines();
+    const orchestrator = new LocalOrchestrator(stateStoreOf(context));
+    const handle = await orchestrator.start(storage, repo, 'ws', { runner, ...lines.callbacks });
+    const edit = async (rows: ReadonlyArray<[string, bigint]>): Promise<{ commit: string; state: string }> => {
+      const commit = await commitOrders(storage, repo, rows);
+      assert.equal(await orchestrator.wake(storage, repo, 'ws'), true);
+      return commit;
+    };
+    await runner.launched('zz');
+    runner.release('zz');
+
+    // left's result moves to c1 while right's goes from c0 to c2, and both runs on c0
+    await runner.launched('left');
+    await runner.launched('right');
+    const c1 = await edit([['a', 1n]]);
+    runner.release('left');
+    assert.deepEqual((await runner.launched('left')).inputHashes, [c1.state]);
+    await edit([['a', 1n], ['b', 2n]]);
+    runner.release('right');
+    await runner.launched('right');
+    await runner.launched('both');
+    runner.release('both');
+    await lines.said('[DONE] both');
+    runner.release('right');
+    await lines.said('[DONE] right', 2);
+
+    // left lands on c1, and runs on: both reads both as of c1, where right never ran, and a catch-up run of it starts
+    runner.release('left');
+    await lines.said('[CATCH-UP] right for both');
+    assert.deepEqual((await runner.launched('right')).inputHashes, [c1.state]);
+
+    // An edit puts the record back as it was at c1, and the probe moves: right is due, over the very inputs its
+    // catch-up run reads, and zz, which the run decides after right, is due too
+    const c4 = await commitOrders(storage, repo, [['a', 1n]]);
+    assert.equal(c4.state, c1.state);
+    await workspaceSetDataset(storage, repo, 'ws', inputPath('probe'), 2n, IntegerType);
+    assert.equal(await orchestrator.wake(storage, repo, 'ws'), true);
+    await runner.launched('zz');
+    assert.equal(runner.holding('right'), 1, 'right waits for its catch-up run: no run of it beside it');
+
+    // The catch-up run lands, and right reads what it made from the cache: right ran once over those inputs
+    runner.release('right');
+    await lines.said('[DONE] right for both');
+    await lines.said('[CACHED] right');
+    assert.equal((await storage.refs.executionListIds(repo, tasks.get('right')!, inputsHash([c1.state]))).length, 1);
+
+    for (const name of tasks.keys()) runner.pass(name);
+    for (const name of tasks.keys()) while (runner.holding(name) > 0) runner.release(name);
+    assert.equal((await orchestrator.wait(handle)).success, true);
   });
 
   it('launches no catch-up run for a result that lands while a task that reads it is resolved: the task waits for the run in flight', async (t) => {

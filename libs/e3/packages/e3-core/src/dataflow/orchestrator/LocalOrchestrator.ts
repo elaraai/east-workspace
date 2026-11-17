@@ -442,8 +442,9 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 }
 
 /** A catch-up run's key: what it is tracked in flight under, and what its
- *  output is kept under once it has landed. */
-function catchUpKey(run: CatchUpRun): string {
+ *  output is kept under once it has landed. A task's own run over the same
+ *  inputs would have the same. */
+function catchUpKey(run: Pick<CatchUpRun, 'task' | 'inputsHash'>): string {
   return `${run.task}@${run.inputsHash}`;
 }
 
@@ -1229,6 +1230,14 @@ export class LocalOrchestrator implements DataflowOrchestrator {
             continue;
           }
 
+          // A catch-up run of the task over these very inputs is in flight: its
+          // execution lands in the cache, which answers the task once it has,
+          // so nothing runs twice over the same inputs. The task stays ready,
+          // and the loop waits on the run
+          const inHash = inputsHash(prepared.inputHashes);
+          const catchingUpOver = catchUpKey({ task: taskName, inputsHash: inHash });
+          if (execution.runningTasks.has(catchingUpOver) || execution.splits.has(catchingUpOver)) continue;
+
           // Mark as started (event added by step function), under the mutex
           // as every other change of the run's state is
           await execution.mutex.runExclusive(async () => {
@@ -1236,7 +1245,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
             await this.persistState(execution, state);
           });
           options.onTaskStart?.(taskName);
-          execution.launches.set(taskName, inputsHash(prepared.inputHashes));
+          execution.launches.set(taskName, inHash);
 
           // A task whose work is split over its inputs runs as the units of
           // its stages, which join the loop's; any other task runs as one.
