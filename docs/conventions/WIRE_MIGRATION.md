@@ -1380,8 +1380,10 @@ Each wire changed under this rule, with the kind it is.
   form, its setter and its row type), its slot, name and icon, the event kinds
   each of its ends may name, how many links it holds, its stored links — each
   one's two events and its quantity beside its row's bytes, none past the cap
-  an event kind is read under — a drafted link's same roles, a new link from
-  its two ends, its key's builder and its key type. The second is the connect
+  an event kind is read under — a drafted link's same roles, its templates
+  (each as an event kind's are, `ScheduleTemplateType`, its values every field
+  of a link but its two ends), a new link from its two ends and a template's
+  values, or none, its key's builder and its key type. The second is the connect
   veto (`PlanCanConnectType`, over `PlanConnectCandidateType`: the link kind
   and the two events), none where the Plan gives none. The canvas's own
   `links` hold the links built in code, as before. A link kind's links are

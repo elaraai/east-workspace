@@ -1228,6 +1228,7 @@ const flows = $.let(Record.bind(planLinkFlows));
 | `from`, `to` | each end, `{ field, of }`: the field holding the key of the event the link runs from, or to. With `of` an event kind's slot, the field holds a key of that kind, in the kind's own key type; with `of` a slot for each case, the field is a variant, each case holding a key of the kind it names |
 | `quantity` | `{ field, unit?, format? }`: what the link moves, a Float or an Option of one. It weighs the ribbon and prints its caption; a link holding none draws at the thinnest weight, with no caption |
 | `fields` | the inspector's form over the fields no end is (`Fields`); every such field unless given |
+| `templates` | its presets, a templates record's: `Schedule.templates(rows, { name, group?, values })`, `values` every field of a link but its two ends. The library's Events tab lists them under the kind's name; a click holds one, and a link Connect draws takes its values |
 | `key` | a new link's key, built from its row: for a record keyed by another type than String or Integer |
 
 A link kind's link is a row of the record, its key the link's identity. The
@@ -1244,7 +1245,9 @@ whole; an end that is no `{ field, of }`, a field its row lacks, an Option,
 or both ends naming one field; an `of` naming no event kind of the Plan,
 naming the kinds it has; an end whose field does not hold its event kind's
 key type, naming the field and both types; a quantity field that is neither
-a Float nor an Option of one; and a link kind under a slot an event kind has.
+a Float nor an Option of one; templates written as a list in the code, or
+giving a time, or whose `values` are not the link's fields but its ends; and
+a link kind under a slot an event kind has.
 
 `canConnect={fn(Plan.Types.ConnectCandidate) => Option<String>}` is the veto
 over a link the Connect tool would draw, on a Plan with a link kind: the
