@@ -830,7 +830,10 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
  * @throws {Error} Naming the type it takes, and what a check of either older type is rewritten against
  */
 function checkedCanDrop(canDrop: unknown): ExprType<PlanCanDropType> {
-    const fn = East.value(canDrop as SubtypeExprOrValue<EastType>) as ExprType<EastType>;
+    // A function written in place, `($, candidate) => …`, is one East has not typed yet: it is the one check the prop
+    // takes, typed as it. An expression says its own type, and one of another is refused in the Plan's words.
+    if (!(canDrop instanceof Expr)) return East.value(canDrop as SubtypeExprOrValue<PlanCanDropType>, PlanCanDropType) as ExprType<PlanCanDropType>;
+    const fn = canDrop as unknown as ExprType<EastType>;
     const type = Expr.type(fn as unknown as Expr) as EastType;
     if (isTypeEqual(type, PlanCanDropType)) return fn as unknown as ExprType<PlanCanDropType>;
     const was = isTypeEqual(type, CanDropFnType) ? " — a check over a drag (Fn(DragEvent) → Boolean) is rewritten against it: its row is `row`, its card `from`, and it answers some(message) to refuse"

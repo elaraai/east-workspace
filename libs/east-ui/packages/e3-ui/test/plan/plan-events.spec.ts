@@ -204,6 +204,15 @@ describe("the Plan's refusals (PB8)", () => {
         // The one check builds, with or without event kinds.
         assert.equal(over(East.function([Plan.Types.Candidate], OptionType(StringType), () => none)), "");
     });
+
+    test("a `canDrop` written as a function of the candidate builds as the check it is, as the prop's type lets it be written (#1541, U7)", () => {
+        const over = (canDrop: unknown) => refusal(($) => Plan.Payload({ axis, data: $.const(ROWS, Rows), series: [MARKS], canDrop: canDrop as never }));
+        // What `<Plan canDrop={($, candidate) => …}>` hands over: a function East has not typed yet.
+        assert.equal(over((_$: unknown, candidate: { into: { hasTag(tag: string): { ifElse(a: () => unknown, b: () => unknown): unknown } } }) =>
+            candidate.into.hasTag("kind").ifElse(() => some("No event lands here"), () => none)), "");
+        // One that answers no refusal's words is refused as East refuses any function of the wrong return, never built.
+        assert.notEqual(over(() => true), "");
+    });
 });
 
 describe("the rows' save door: `record`, with `onPatch` and `ready` as props (#1541, U4)", () => {
