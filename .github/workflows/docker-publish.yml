@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Exact @elaraai package version to bake (e.g. 1.0.5). Empty = resolve from the release channel.'
+        description: 'Exact @elaraai package version to bake (e.g. 1.0.5). Empty = resolve from the release channel. Run it on that release''s tag: the python images install under the pins of the checkout they are built from.'
         required: false
         type: string
       release_type:

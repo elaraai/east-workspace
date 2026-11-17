@@ -44,6 +44,21 @@ runs() {
 # (--quiet): a failure inside the image is then in this job's log, which
 # v1.0.71's and v1.0.83's were not.
 
+# holds_pins <image>: for a named release, the image holds the build of
+# everything its release pins (e3: a project and its tier resolve the same
+# torch). Its own tier manifest says what it holds, and the pins it was
+# installed under are in it. Unpinned, an image installs `latest` under no
+# pins, and there is nothing to hold it to.
+holds_pins() {
+    local image="$1"
+    if [ -z "${EAST_RELEASE_VERSION:-}" ]; then
+        return 0
+    fi
+    echo "  holds its release's pins"
+    docker run --rm -v "$SCRIPT_DIR/check-tier-pins.py:/tmp/check-tier-pins.py:ro" "$image" \
+        python3 /tmp/check-tier-pins.py /opt/e3/tier-manifest.json /opt/e3/east-py-constraints.txt
+}
+
 echo "=== Testing Docker builds ==="
 if [ -n "${EAST_RELEASE_VERSION:-}" ]; then
     echo "(every image pinned to ${EAST_RELEASE_VERSION})"
@@ -78,6 +93,7 @@ runs test-east-py-$$ east-py version
 runs test-east-py-$$ python3 -c "import east, east_py_std, east_py_io"
 # Its tier manifest names what it holds, for an environment built over it
 runs test-east-py-$$ python3 -c "import json; m = json.load(open('/opt/e3/tier-manifest.json')); names = [d['name'] for d in m['distributions']]; assert m['version'] == 1 and m['python']['executable'] == '/opt/venv/bin/python' and m['python']['base'].startswith('/usr/') and isinstance(m['namespaces'], list) and 'east' not in m['namespaces'] and 'elaraai-east-py-std' in names and 'elaraai-east-py-datascience' not in names, names"
+holds_pins test-east-py-$$
 echo "[OK] Dockerfile.east-py (builds + east-py runs + tier manifest)"
 
 # Test 4: east-py-datascience FROM the image test 3 just built (BASE_IMAGE
@@ -92,6 +108,12 @@ runs test-east-py-ds-$$ east-py version
 runs test-east-py-ds-$$ python3 -c "import east, east_py_datascience"
 # Its manifest is its own, written again once the datascience packages are in
 runs test-east-py-ds-$$ python3 -c "import json; m = json.load(open('/opt/e3/tier-manifest.json')); names = [d['name'] for d in m['distributions']]; assert 'elaraai-east-py-datascience' in names and 'elaraai-east-py-std' in names, names"
+holds_pins test-east-py-ds-$$
+if [ -n "${EAST_RELEASE_VERSION:-}" ]; then
+    # The torch a project gets by asking for the package's extras is the
+    # image's: the extras pin it exactly, at the version installed here
+    runs test-east-py-ds-$$ python3 -c "from importlib.metadata import requires, version; pins = [r.split(';')[0].replace(' ', '') for r in requires('elaraai-east-py-datascience') if r.replace(' ', '').startswith('torch')]; assert pins and all(pin == 'torch==' + version('torch') for pin in pins), (pins, version('torch'))"
+fi
 docker rmi test-east-py-ds-$$ test-east-py-$$ > /dev/null
 echo "[OK] Dockerfile.east-py-datascience (builds + its platform imports + tier manifest)"
 

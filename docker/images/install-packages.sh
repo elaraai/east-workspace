@@ -7,6 +7,12 @@
 #   EAST_NODE_CLI_VERSION, EAST_UI_VERSION, E3_VERSION, etc.
 #   TYPESCRIPT_VERSION defaults to the TypeScript the workspace builds with.
 #
+# EAST_PY_CONSTRAINTS_DIR (optional): the directory that holds the pins a
+#   release's python packages are installed under, east-py-constraints.txt and
+#   east-py-overrides.txt, as east-py-constraints.py writes them from the
+#   east-py workspace's lock. Set for a named release, whose image then holds
+#   what the release was tested with; unset, the install is unconstrained.
+#
 # Flags (each selects one image's package set; default = the e3 everything image):
 #   --node-only    East's Node.js packages only (east-node image: no e3, no
 #                  Python, no east-c)
@@ -152,7 +158,14 @@ if [ "$INSTALL_PYTHON" = true ]; then
         # was newest on PyPI, drifting the runtime out of lockstep with the IR.
         # "latest" means no constraint (dev/local convenience).
         if [ "$EAST_PY_VERSION" = "latest" ]; then EAST_PY_PIN=""; else EAST_PY_PIN="==${EAST_PY_VERSION}"; fi
-        uv pip install \
+        # Under the release's pins, when they are given: every third-party
+        # package is then the build the release's lock holds, and its
+        # overrides are part of what makes those pins resolve.
+        EAST_PY_PINS=()
+        if [ -n "${EAST_PY_CONSTRAINTS_DIR:-}" ]; then
+            EAST_PY_PINS=(--constraint "${EAST_PY_CONSTRAINTS_DIR}/east-py-constraints.txt" --override "${EAST_PY_CONSTRAINTS_DIR}/east-py-overrides.txt")
+        fi
+        uv pip install "${EAST_PY_PINS[@]}" \
             "numba>=0.58.0" \
             "llvmlite>=0.41.0" \
             "elaraai-east-py${EAST_PY_PIN}" \
@@ -163,7 +176,7 @@ if [ "$INSTALL_PYTHON" = true ]; then
         # image multi-GB — the slim east-py image skips it; the
         # east-py-datascience image adds it as its own FROM-layer.
         if [ "$INSTALL_DATASCIENCE" = true ]; then
-            uv pip install "elaraai-east-py-datascience[all]${EAST_PY_PIN}"
+            uv pip install "${EAST_PY_PINS[@]}" "elaraai-east-py-datascience[all]${EAST_PY_PIN}"
         fi
     else
         echo "Warning: uv not found, skipping Python packages"
