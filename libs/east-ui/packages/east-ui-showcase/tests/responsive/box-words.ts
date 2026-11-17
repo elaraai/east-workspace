@@ -134,6 +134,15 @@ export function boxWords(root: Element, tallest: number): { boxed: number; held:
  *   editor stands as tall as its row
  */
 export async function expectWholeBoxWords(part: Locator, what: string, tallest = TALLEST): Promise<void> {
+    // Read once the part's opening is over: a popover scales in, its boxes drawn at a zoom until it ends, and the page
+    // at rest (`settled`) waits on a builder's panes alone — a popover is portaled outside them. A spinner's endless
+    // animation is no opening.
+    await part.evaluate((el) => Promise.all(document.getAnimations()
+        .filter((animation) => {
+            const target = animation.effect instanceof KeyframeEffect ? animation.effect.target : null;
+            return target !== null && (target.contains(el) || el.contains(target)) && animation.effect?.getTiming().iterations !== Infinity;
+        })
+        .map((animation) => animation.finished.then(() => undefined, () => undefined))).then(() => undefined));
     const found = await part.evaluate(boxWords, tallest);
     expect(found.held, `${what}: the small boxes the rule held`).toBeGreaterThan(0);
     expect(found.faults, `${what}: boxes whose words start at a fraction of a pixel under their top edge`).toEqual([]);
