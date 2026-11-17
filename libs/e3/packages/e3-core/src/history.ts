@@ -10,7 +10,8 @@
  * gc keeps, of each workspace, its last `keepRuns` runs, every run from the
  * last `keepDays` days and the run its current state came from. It keeps every
  * execution those runs used, every execution a workspace's current state is
- * served from, every execution from the last `keepDays` days, and whatever is
+ * served from — a load node's, the one its record's slot names — every
+ * execution from the last `keepDays` days, and whatever is
  * running — as the runner that started it judges it, when gc is given its
  * judgement: an attempt that cannot finish is recorded interrupted, as the
  * execution cache's probe records one, and pruned as any attempt that ended.
@@ -55,9 +56,11 @@ import { WorkspaceRecordType, decodeUnitPlan, executionStatusRoots, type Executi
 import type { StorageBackend } from './storage/interfaces.js';
 import { OBJECT_CONCURRENCY, eachAtMost } from './concurrency.js';
 import { dataflowGetGraph, dataflowResolveInputHashes, type DataflowGraph } from './dataflow.js';
+import { keypathToRefPath } from './dataset-refs.js';
 import { GcReadError, ObjectNotFoundError } from './errors.js';
 import { inputsHash } from './executions.js';
 import { interruptStale } from './execution/cache.js';
+import { sourceExecution } from './record-slots.js';
 import { stageUnits } from './execution/engine.js';
 import type { ExecutionLiveness } from './execution/interfaces.js';
 import { compareUnitKeys } from './upgrades/parts.js';
@@ -470,17 +473,33 @@ async function keepOf(storage: StorageBackend, repo: string, workspace: string, 
     } catch (err) {
       throw new Error(`gc deletes nothing while it cannot read what workspace '${workspace}' is served from: ${messageOf(err)}`);
     }
-    const resolved: (string | null)[][] = new Array<(string | null)[]>(graph.tasks.length);
+    const served: (string | null)[] = new Array<string | null>(graph.tasks.length);
     await eachAtMost(graph.tasks.map((_, i) => i), width, async (i) => {
-      resolved[i] = await dataflowResolveInputHashes(storage, repo, workspace, graph.tasks[i]!);
+      served[i] = await servedFrom(storage, repo, workspace, graph.tasks[i]!);
     });
-    graph.tasks.forEach((task, i) => {
-      const inputs = resolved[i]!;
-      const assigned = inputs.filter((hash): hash is string => hash !== null);
-      if (assigned.length === inputs.length) identities.push(`${task.hash}/${inputsHash(assigned)}`);
-    });
+    for (const identity of served) if (identity !== null) identities.push(identity);
   }
   return { workspace, attempts: [...attempts].sort(compareUnitKeys), identities, runs: deleting };
+}
+
+/**
+ * The identity a node of a workspace's graph is served from as the workspace
+ * stands, `<task>/<inputs>`: a task over its inputs as they are; a load node,
+ * the execution its record's `$load.<source>.execution` slot names, since a
+ * load runs over its delivery and its source's run, not its feed.
+ *
+ * @returns The identity; `null` for a task an input of which has no value, and
+ *   for a load node whose record names no execution
+ */
+async function servedFrom(storage: StorageBackend, repo: string, workspace: string, node: DataflowGraph['tasks'][number]): Promise<string | null> {
+  if (node.load.type === 'some') {
+    const ref = await storage.datasets.read(repo, workspace, keypathToRefPath(node.output));
+    const execution = sourceExecution(ref?.type === 'value' ? ref.value.versions : undefined, node.load.value.source);
+    return execution === null ? null : `${node.hash}/${execution.inputsHash}`;
+  }
+  const inputs = await dataflowResolveInputHashes(storage, repo, workspace, node);
+  const assigned = inputs.filter((hash): hash is string => hash !== null);
+  return assigned.length === inputs.length ? `${node.hash}/${inputsHash(assigned)}` : null;
 }
 
 /** What the workspaces keep, as the `keep` phase's parts hold it. */

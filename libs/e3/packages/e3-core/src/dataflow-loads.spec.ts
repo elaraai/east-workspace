@@ -30,6 +30,7 @@ import { LocalOrchestrator } from './execution/local-orchestrator.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
 import { packageImport } from './package-files.js';
 import { recordHistory, recordMutate, recordSystemCommit } from './records.js';
+import { pruneHistory } from './history.js';
 import { sourceExecution, sourceLoadSlots } from './record-slots.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { StorageBackend } from './storage/interfaces.js';
@@ -692,5 +693,21 @@ describe('a source the dataflow loads', () => {
     } finally {
       removeTestRepo(into);
     }
+  });
+
+  it('R59 — history\'s prune keeps a load node\'s current execution, the one its record\'s slot names, though no run it keeps names it', async () => {
+    await loadedOnce();
+    // The workspace's current run names no load
+    const filtered = await run({ filter: 'forecast' });
+    assert.equal(filtered.result.success, true, filtered.told);
+    const node = (await dataflowGetGraph(storage, repo, WS)).tasks.find((task) => task.name === 'orders.erp')!;
+    const execution = sourceExecution((await refOf('orders')).versions, 'erp');
+    assert.ok(execution !== null, 'the record names its load\'s execution');
+
+    await pruneHistory(storage, repo, { keepRuns: 0, keepDays: 0, dryRun: false }, Date.now() + 1);
+    const status = await storage.refs.executionGet(repo, node.hash, execution.inputsHash, execution.executionId);
+    assert.equal(status?.type, 'success', 'the load\'s execution is kept');
+    const { lines, told } = await run();
+    assert.ok(lines.includes('cached orders.erp'), told);
   });
 });
