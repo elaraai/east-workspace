@@ -23,7 +23,7 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
     ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType, VariantType,
-    decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, variant, type BlockBuilder, type EastType, type ValueTypeOf,
+    SortedMap, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, variant, type BlockBuilder, type EastType, type ValueTypeOf,
 } from "@elaraai/east";
 import { Schedule } from "@elaraai/e3-ui";
 import { Plan, PlanPayloadType } from "@elaraai/e3-ui/internal";
@@ -467,6 +467,59 @@ export function planKindsTypeChecks(): void {
     // @ts-expect-error — "name" holds a String
     Plan.series.kinds(Resource, "name", {});
 }
+
+// ── Child rows keyed by any type but a DateTime (#1540, E1) ─────────────────
+
+describe("child rows keyed by another type than String (#1540, E1)", () => {
+    const Kind = VariantType({ ink_fill: NullType, wash: NullType });
+    const Press = StructType({
+        name: StringType,
+        kinds: DictType(Kind, TaskKindRow),
+        counts: DictType(IntegerType, TaskKindRow),
+        days: DictType(DateTimeType, TaskKindRow),
+    });
+    const Presses = DictType(StringType, Press);
+    const PRESSES: ValueTypeOf<typeof Presses> = new Map([
+        ["P03", {
+            name: "Heidelberg 3",
+            kinds: new SortedMap<ValueTypeOf<typeof Kind>, ValueTypeOf<typeof TaskKindRow>>(
+                [[variant("ink_fill", null), { name: "Ink fill" }], [variant("wash", null), { name: "Blanket wash" }]], compareFor(Kind)),
+            counts: new SortedMap<bigint, ValueTypeOf<typeof TaskKindRow>>([[2n, { name: "Second" }], [10n, { name: "Tenth" }]], compareFor(IntegerType)),
+            days: new SortedMap<Date, ValueTypeOf<typeof TaskKindRow>>([], compareFor(DateTimeType)),
+        }],
+    ]);
+    /** The presses, each with the rows of one of its fields beneath it, the rows' series keyed by `keyType`. */
+    const rootOver = <K extends typeof Kind | typeof IntegerType>(field: "kinds" | "counts", keyType: K, label: (row: { name: unknown }, key: unknown) => unknown) =>
+        East.function([], Plan.Types.Root, ($) => Plan.Root({
+            axis, data: $.const(PRESSES, Presses),
+            series: [Plan.series.resources(Press, {
+                key: "presses", title: "Presses", label: (press) => press.name,
+                children: Plan.children(field, [Plan.series.resources(TaskKindRow, { key: "rows", title: "Rows", keyType, label: label as never })]),
+            })],
+        } as never)).toIR().compile([])();
+
+    test("a variant keys them: each row at its parent's path and its key as East prints it, in the keys' own order", () => {
+        const root = rootOver("kinds", Kind, (row) => row.name);
+        assert.ok(sameIds(ids(root), [entry("presses", "P03"), entry("rows", "P03", ".ink_fill"), entry("rows", "P03", ".wash")]));
+        assert.ok(sameLabels(labels(root), ["Heidelberg 3", "Ink fill", "Blanket wash"]));
+    });
+
+    test("an Integer keys them: in the Integers' order, never their text's, and an accessor hears each key at its type", () => {
+        const root = rootOver("counts", IntegerType, (row, key) => East.str`${row.name as never} (${(key as never)})`);
+        assert.ok(sameIds(ids(root), [entry("presses", "P03"), entry("rows", "P03", "2"), entry("rows", "P03", "10")]));
+        assert.ok(sameLabels(labels(root), ["Heidelberg 3", "Second (2)", "Tenth (10)"]));
+    });
+
+    test("a Dict keyed by a DateTime is values over time, never child rows: refused, naming the field", () => {
+        assert.throws(() => East.function([], Plan.Types.Root, ($) => Plan.Root({
+            axis, data: $.const(PRESSES, Presses),
+            series: [Plan.series.resources(Press, {
+                key: "presses", title: "Presses", label: (press) => press.name,
+                children: Plan.children("days" as never, [Plan.series.resources(TaskKindRow, { key: "rows", title: "Rows", label: (row) => row.name })]),
+            })],
+        })), /Plan\.children: "days" is keyed by a DateTime — child rows are keyed by an id, and a Dict keyed by a DateTime is values over time: read it with Plan\.values/);
+    });
+});
 
 // ── An event kind's child: the rows beneath its resource (#1541, U1) ────────
 

@@ -2530,8 +2530,9 @@ function checkStepField(rowType: EastType, field: string, where: string): void {
     if (t.type !== "Dict") {
         throw new Error(`Plan.children: "${field}" is ${anOf(t as EastType)} — child rows are a Dict, keyed by an id`);
     }
-    if (!isTypeEqual(t.key!, StringType)) {
-        throw new Error(`Plan.children: "${field}" is keyed by ${(t.key as { type: string }).type} — child rows are keyed by an id, a String`);
+    // Child rows are keyed by an id of any type but a DateTime (#1540, E1): a Dict keyed by one is values over time.
+    if ((t.key as { type: string }).type === "DateTime") {
+        throw new Error(`Plan.children: "${field}" is keyed by a DateTime — child rows are keyed by an id, and a Dict keyed by a DateTime is values over time: read it with Plan.values`);
     }
     const child = (t.value as { type: string }).type;
     if (child !== "Struct" && child !== "Recursive") {
