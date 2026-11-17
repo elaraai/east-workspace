@@ -29,6 +29,11 @@ pip install "east-py-datascience[scipy,sklearn,xgboost]"
 pip install "east-py-datascience[all]"
 ```
 
+**Python 3.12 or later.** xgboost 3.4, whose NCCL library is the CUDA 13 one
+torch uses, needs it. Give your project's `requires-python` a floor of 3.12
+too: uv locks for every Python a project admits, so a project that admits 3.11
+is locked to an earlier release of this package, one that took 3.11.
+
 **torch is pinned.** The `torch`, `lightning` and `all` extras pin torch and
 pytorch-lightning exactly, at the versions the release was tested with. Ask
 for torch through them, and name no torch of your own:
@@ -37,35 +42,44 @@ for torch through them, and name no torch of your own:
 dependencies = ["elaraai-east-py-datascience[torch,lightning]"]   # not "torch", "pytorch-lightning"
 ```
 
-Your lock then holds the torch that the release's `py-datascience` image
-holds, so an e3 task that runs on a rack over that image is not sent torch
-and its NVIDIA libraries. A project that needs another torch leaves the
-extras out and lists torch itself.
+Your lock then holds the torch from PyPI that the release's `py-datascience`
+image holds, so an e3 task that runs on a rack over that image is not sent
+torch and its NVIDIA libraries. A pin with no local label is met by every
+local label, so a project that takes torch from a PyTorch index locks that
+index's build (`2.15.0+cpu`, `2.15.0+cu130`), which is not the image's, and is
+sent it. A project that needs another torch leaves the extras out and lists
+torch itself.
 
-**With torch and xgboost on Python 3.11, leave xgboost's NCCL library out.**
-torch brings its NCCL library as `nvidia-nccl-cu13`, and the xgboost that runs
-on Python 3.11 asks for `nvidia-nccl-cu12`. The two install the same file, and
-when xgboost's is installed last `import torch` fails (`undefined symbol:
-ncclCommResume`). xgboost opens NCCL only for multi-GPU training, and torch's
-library serves it. In your workspace root:
-
-```toml
-[tool.uv]
-exclude-dependencies = ["nvidia-nccl-cu12"]
-```
-
-An environment that already holds both loses the file they share when uv
-removes xgboost's: put torch's back once, with `uv sync --reinstall-package
-nvidia-nccl-cu13`.
+**torch and xgboost share one NCCL library.** The extras ask for xgboost 3.4 or
+later, whose NCCL library is `nvidia-nccl-cu13`, the one torch pins. An
+earlier xgboost asks for `nvidia-nccl-cu12`, which installs the same file, and
+with it on top `import torch` fails (`undefined symbol: ncclCommResume`): a
+project that names xgboost itself keeps it at 3.4 or later. An environment
+that held both, from an earlier xgboost beside this torch, loses the file they
+share when uv removes xgboost's: put torch's back once, with `uv sync
+--reinstall-package nvidia-nccl-cu13`.
 
 Each release ships the settings its packages were tested with, in
 `@elaraai/e3-core` (`tier/`): `east-py-constraints.txt`, every third-party
-version of this workspace's lock; `east-py-overrides.txt`; and
-`east-py-excludes.txt`, the line above. Put the constraint lines you want held
-under `[tool.uv] constraint-dependencies` in your workspace root, and the
-overrides under `override-dependencies`. With the `causal` and `shap` extras
-together, the override (`shap>=0.51.0`) is what gives you a shap that reads
-current xgboost models.
+version of this workspace's lock, each pin with the platforms it is for, and
+`east-py-overrides.txt`. To hold a distribution at the release's version, put
+its pins under `[tool.uv] constraint-dependencies` in your workspace root, each
+as `name==version ; marker`: the pin and its marker, and none of the line's
+trailing `\`, `--hash` lines or `# via` notes. Keep every pin of the name and
+its marker, or one platform is held at another's version:
+
+```toml
+[tool.uv]
+constraint-dependencies = [
+  "numpy==2.3.5 ; platform_machine == 'x86_64' and sys_platform == 'darwin'",
+  "numpy==2.4.4 ; platform_machine != 'x86_64' or sys_platform != 'darwin'",
+]
+override-dependencies = ["shap>=0.51.0"]
+```
+
+The overrides go under `override-dependencies`, as above. With the `causal`
+and `shap` extras together, the override (`shap>=0.51.0`) is what gives you a
+shap that reads current xgboost models.
 
 When using a git dependency in `pyproject.toml`:
 ```toml

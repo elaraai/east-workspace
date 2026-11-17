@@ -2,7 +2,7 @@
 
 > Python runtime and platform functions for the East language
 
-[![Python Version](https://img.shields.io/badge/python-%3E%3D3.11-brightgreen.svg)](https://python.org)
+[![Python Version](https://img.shields.io/badge/python-%3E%3D3.12-brightgreen.svg)](https://python.org)
 [![uv](https://img.shields.io/badge/uv-package%20manager-blueviolet.svg)](https://docs.astral.sh/uv/)
 [![License: BSL 1.1](https://img.shields.io/badge/License-BSL%201.1-orange.svg)](LICENSE.md)
 
@@ -56,7 +56,7 @@ uv add git+https://github.com/elaraai/east-workspace/tree/main/libs/east-py#subd
 
 ### Prerequisites
 
-- Python 3.11+
+- Python 3.12+
 - [uv](https://docs.astral.sh/uv/) package manager
 - Docker (for east-py-io integration tests)
 
