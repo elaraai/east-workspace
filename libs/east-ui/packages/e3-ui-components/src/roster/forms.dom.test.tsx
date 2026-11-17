@@ -84,6 +84,10 @@ describe('Roster shared and custom forms', () => {
         expect(needed()).toMatch(/ of 56 needed$/);
         // Its group's skills, then Inbound's: each under its own label.
         expect([...end().querySelectorAll('[data-roster-coverage-line]')].map(line => line.getAttribute('title')?.split(' · ')[0])).toEqual(['Packing', 'Loading', 'Unloading']);
+        // Its form lists every line its hours hold, as its coverage does: Inbound's Unloading too, under its own label, its
+        // hours there to edit or remove.
+        const lines = [...end().querySelectorAll('[data-roster-target-line]')];
+        expect(lines.map(line => [line.getAttribute('data-roster-target-line'), line.firstElementChild?.textContent])).toEqual([['pack', 'Packing'], ['load', 'Loading'], ['unload', 'Unloading']]);
         await typeNumber(user, within(end()).getByRole('spinbutton', { name: 'Positions' }), '8');
         await user.keyboard('{Enter}'); await settle();
         // Eight heads' shifts, read again from the target as drafted: nothing saved.

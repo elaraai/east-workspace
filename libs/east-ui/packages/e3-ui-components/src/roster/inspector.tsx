@@ -26,7 +26,7 @@ import type { RolesChange } from "./actions.js";
 import type { RosterFind } from "./fit.js";
 import {
     DAY, NO_GROUP, costsOf, dayOfSlot, dayStart, groupName, groupSkills, issueGoesTo, placeOf, requirementOf, samePlace, sameSlot, slotOfPlace, viewTotals, weekNumber,
-    type Assignment, type Issue, type Person, type PlacedDuties, type PlacedTargets, type RosterStyles, type Slot,
+    type Assignment, type Coverage, type Issue, type Person, type PlacedDuties, type PlacedTargets, type RosterStyles, type Slot,
 } from "./model.js";
 
 /** The Find fixes, as the inspector offers them (#1334): only with the app's fit, and reading `Finding…` while their find is asked. */
@@ -203,8 +203,11 @@ function OneAssignment({ props, id, assignment: a }: { props: Args; id: string; 
         <Box css={props.styles.section}><AssignmentActions id={id} assignment={a} removed={removed} value={props.value} start={props.start} commands={props.commands} styles={props.styles} /></Box>
     </>;
 }
-/** A slot's targets: the targets' own form where the app gives one, over the slot's row — or a new one — else the Roster's. */
-function Targets({ props, slot }: { props: Args; slot: Slot }) {
+/**
+ * A slot's targets: the targets' own form where the app gives one, over the slot's row — or a new one — else the
+ * Roster's, listing the lines its coverage draws.
+ */
+function Targets({ props, slot, coverage }: { props: Args; slot: Slot; coverage: Coverage }) {
     const kind = props.value.targets.type === "some" ? props.value.targets.value : undefined;
     const form = kind?.inspector.type === "some" ? kind.inspector.value : undefined;
     const target = requirementOf(props.week, slot);
@@ -219,7 +222,7 @@ function Targets({ props, slot }: { props: Args; slot: Slot }) {
     const { result } = useTrackedEvaluation(read);
     if (kind === undefined) return <Box css={props.styles.detail}>This roster has no targets.</Box>;
     return <>{result.ok && result.value !== undefined ? <chakra.fieldset disabled={!props.commands.availableOn(slot.day)}><EastChakraComponent value={result.value} storageKey={`${props.storageKey}.requirement`} /></chakra.fieldset>
-        : <RequirementFields value={props.value} week={props.week} held={props.held} slot={slot} commands={props.commands} styles={props.styles} />}
+        : <RequirementFields value={props.value} week={props.week} held={props.held} slot={slot} coverage={coverage} commands={props.commands} styles={props.styles} />}
         {!result.ok && <Box role="alert" css={props.styles.error}>The targets form could not be rendered.</Box>}</>;
 }
 function OneSlot({ props, slot }: { props: Args; slot: Slot }) {
@@ -230,7 +233,7 @@ function OneSlot({ props, slot }: { props: Args; slot: Slot }) {
         <RosterIssues props={props} issues={props.issues.filter(i => i.slot.type === "some" && sameSlot(i.slot.value, slot))} />
         <Box css={props.styles.section}><Box css={props.styles.sectionHead}>Coverage</Box><CoverageView coverage={c} value={props.value} styles={props.styles} format={props.format} />
             <Box css={props.styles.detail}>{props.value.vocabulary.permanent} · {props.value.vocabulary.agency} · Requested · Open · Needed</Box></Box>
-        <Box css={props.styles.fields}><Box css={props.styles.sectionHead}>Targets</Box><Targets props={props} slot={slot} /></Box>
+        <Box css={props.styles.fields}><Box css={props.styles.sectionHead}>Targets</Box><Targets props={props} slot={slot} coverage={c} /></Box>
         <Box css={props.styles.section}><Box css={props.styles.sectionHead}>Roster</Box><Box css={props.styles.detail}>{String(c.filled)} filled · {String(c.open)} open · {c.lead ? "Lead assigned" : "No lead"} · {c.trainer ? "Trainer assigned" : "No trainer"}</Box>
             {costed(props.value) && <Box css={props.styles.detail}>{money(props.format, props.value, c.cost, false)}</Box>}<PlaceAction label="Assign person" place={placeOf(slot)} value={props.value} start={props.start} commands={props.commands} styles={props.styles} /></Box>
     </>;

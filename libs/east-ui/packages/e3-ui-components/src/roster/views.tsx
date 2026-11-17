@@ -539,7 +539,7 @@ function DayAssignments({ props, ctx, slot }: { props: RosterViewsProps; ctx: Vi
         <Box css={props.styles.chips}>{assignments(props, place).map(({ id, a, removed }) => <AssignmentChip key={id} id={id} assignment={a} removed={removed} ctx={ctx} />)}</Box>
         {props.proposals.filter(p => sameSlot(p.slot, slot) && (props.value.visiblePeople.type === "none" || props.value.visiblePeople.value.has(p.person))).map(p => <ProposalCard key={p.key} props={props} proposal={p} />)}
         {c.open > 0n && <Box css={props.styles.openPosition}>{String(c.open)} open position{c.open === 1n ? "" : "s"}</Box>}
-        <Box css={props.styles.dropStrip}><SlotActions props={props} slot={slot} />{!props.value.inspector && <RequirementAction slot={slot} week={props.week} held={props.held} value={props.value} commands={props.commands} styles={props.styles} />}</Box>
+        <Box css={props.styles.dropStrip}><SlotActions props={props} slot={slot} />{!props.value.inspector && <RequirementAction slot={slot} week={props.week} held={props.held} value={props.value} coverage={c} commands={props.commands} styles={props.styles} />}</Box>
     </DropSlot>;
 }
 /**
@@ -2212,7 +2212,7 @@ function Agenda({ props, ctx }: { props: RosterViewsProps; ctx: ViewContext }) {
                 {props.value.settings.requirements && <CoverageView coverage={c} value={props.value} styles={props.styles} format={props.format} compact />}
                 {assignments(props, placeOf(slot)).map(({ id, a, removed }) => <AssignmentCard key={id} ctx={ctx} id={id} assignment={a} removed={removed} />)}
                 {props.proposals.filter(p => sameSlot(p.slot, slot) && (props.value.visiblePeople.type === "none" || props.value.visiblePeople.value.has(p.person))).map(p => <ProposalCard key={p.key} props={props} proposal={p} />)}
-                <SlotActions props={props} slot={slot} /><RequirementAction slot={slot} week={props.week} held={props.held} value={props.value} commands={props.commands} styles={props.styles} />
+                <SlotActions props={props} slot={slot} /><RequirementAction slot={slot} week={props.week} held={props.held} value={props.value} coverage={c} commands={props.commands} styles={props.styles} />
             </Box>; }))}
             {props.read.state === "held" && props.value.duty.roles.noGroup && props.value.shifts.map(shift => <NoGroupCard key={shift.key} props={props} ctx={ctx} day={day} shift={shift} />)}
         </Box>)}
