@@ -36,6 +36,7 @@ import { rowKeyOf, type PlanRowId } from "../model.js";
 import { carry, carrySaid, dragTo, keyOn } from "../plan-move.test-utils.js";
 import { act, drawnFrom, el, elementKey, entry, madeFrom, planHarness, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
 import { flowsPlan } from "./flows.test-utils.js";
+import { pressKindStep, pressPlan } from "./press.test-utils.js";
 
 const h = planHarness();
 
@@ -1147,5 +1148,77 @@ describe("Connect draws a link kind's link from one event to another (#1541, U10
         // Let go by a second click, the next flow moves none: a flow's sheets are an Option, none by default.
         await press(preset());
         expect(preset().hasAttribute("data-placed")).toBe(false);
+    });
+});
+
+describe("a kind landing on the rows beneath its resource: a drop writes what places it (#1541, U1)", () => {
+    /** A press's row of a kind of task. */
+    const kindRow = (press: string, kind: Parameters<typeof pressKindStep>[0]) => entry("kinds", press, pressKindStep(kind));
+    const PRESS_3 = entry("press", "P03");
+    const WASH_3 = kindRow("P03", "blanket_wash");
+    const INK_3 = kindRow("P03", "ink_fill");
+    const ROLLERS_4 = kindRow("P04", "roller_wash");
+    /** A task's tile on a row. */
+    const task = (c: HTMLElement, key: string, row: PlanRowId) => c.querySelector<HTMLElement>(`${rowAt(row)} ${el("data-event", "task", key)}`);
+    /** The cell a tile is in: its bucket's place among the days, and its lane's among the row's. */
+    const cellOf = (node: HTMLElement | null) => node?.closest("[data-plan-cell]")?.getAttribute("data-plan-cell") ?? null;
+    // A plot is 32px tall and its two lanes 16px each: the morning's above its centre, the afternoon's below.
+    const AM = -8;
+    const PM = 8;
+
+    test("each task draws on its press's row of its kind, in its half's lane; the press's own row draws none", async () => {
+        const { container: c } = await h.mount(pressPlan(), DRAG);
+        await settle();
+        // Tuesday 6 October: the blankets washed in the morning, the cyan filled in the afternoon.
+        expect(cellOf(task(c, "T-01", WASH_3))).toBe("1:0");
+        expect(cellOf(task(c, "T-02", INK_3))).toBe("1:1");
+        expect(cellOf(task(c, "T-07", ROLLERS_4))).toBe("2:0");
+        expect(c.querySelectorAll(`${rowAt(PRESS_3)} [data-event]`).length).toBe(0);
+    });
+
+    test("a task dragged onto another kind's row of its press, into the afternoon, writes its kind and its half as one step, which Undo takes back", async () => {
+        const { container: c } = await h.mount(pressPlan(), DRAG);
+        await settle();
+        const y = layOutPlots(c, [WASH_3, INK_3, ROLLERS_4]);
+        await drop(task(c, "T-01", WASH_3)!, { x: xAt(1), y: y(WASH_3) + AM }, { x: xAt(1), y: y(INK_3) + PM });
+        expect(task(c, "T-01", WASH_3)).toBeNull();
+        expect(cellOf(task(c, "T-01", INK_3))).toBe("1:1");
+        await press(historyButton(c, UNDO));
+        expect(cellOf(task(c, "T-01", WASH_3))).toBe("1:0");
+        expect(historyButton(c, UNDO).disabled).toBe(true);
+    });
+
+    test("a task dragged into its row's other lane writes its half alone: its day and its kind stand", async () => {
+        const { container: c } = await h.mount(pressPlan(), DRAG);
+        await settle();
+        const y = layOutPlots(c, [WASH_3, INK_3, ROLLERS_4]);
+        await drop(task(c, "T-01", WASH_3)!, { x: xAt(1), y: y(WASH_3) + AM }, { x: xAt(1), y: y(WASH_3) + PM });
+        expect(cellOf(task(c, "T-01", WASH_3))).toBe("1:1");
+        // Let go where it stands, in its own lane, it moves nothing: no step is recorded.
+        await press(historyButton(c, UNDO));
+        await drop(task(c, "T-01", WASH_3)!, { x: xAt(1), y: y(WASH_3) + AM }, { x: xAt(1), y: y(WASH_3) + AM });
+        expect(historyButton(c, UNDO).disabled).toBe(true);
+    });
+
+    test("a task dragged onto a kind's row of another press writes its press with its kind, on the day it lands", async () => {
+        const { container: c } = await h.mount(pressPlan(), DRAG);
+        await settle();
+        const y = layOutPlots(c, [WASH_3, INK_3, ROLLERS_4]);
+        await drop(task(c, "T-01", WASH_3)!, { x: xAt(1), y: y(WASH_3) + AM }, { x: xAt(3), y: y(ROLLERS_4) + AM });
+        expect(task(c, "T-01", WASH_3)).toBeNull();
+        expect(cellOf(task(c, "T-01", ROLLERS_4))).toBe("3:0");
+    });
+
+    test("a press's own row is no destination for a task: a drag rests on it over nothing, and the drop moves nothing", async () => {
+        const { container: c } = await h.mount(pressPlan(), DRAG);
+        await settle();
+        const y = layOutPlots(c, [PRESS_3, WASH_3]);
+        const release = await carry(task(c, "T-01", WASH_3)!, { x: xAt(1), y: y(WASH_3) + AM }, { x: xAt(2), y: y(PRESS_3) });
+        expect(caption()).toBeNull();
+        expect(c.querySelector(`${rowAt(PRESS_3)} [data-plan-plot]`)!.hasAttribute("data-drop-active")).toBe(false);
+        await release();
+        await settle();
+        expect(cellOf(task(c, "T-01", WASH_3))).toBe("1:0");
+        expect(historyButton(c, UNDO).disabled).toBe(true);
     });
 });

@@ -64,6 +64,8 @@ export interface PlanMoveRequest {
     units?: number | undefined;
     /** Whether `units` are Shift's finer ones. */
     fine?: boolean | undefined;
+    /** The lane of the row it lands in (#1541, U1), where a pointer named one. */
+    lane?: string | undefined;
 }
 
 /** A landing judged by the event kinds' drag (#1196): whether it is taken, and why not. */
@@ -85,7 +87,9 @@ export type PlanMoveOrigin = { kind: "move" } | { kind: "resize"; edge: "start" 
  * @returns Whether nothing moved
  */
 export function unmoved(movable: PlanMovable, to: PlanProposal): boolean {
-    return to.rowKey === movable.rowKey && equalInstants(to.span.start, movable.span.start) && equalInstants(to.span.end, movable.span.end);
+    return to.rowKey === movable.rowKey && equalInstants(to.span.start, movable.span.start) && equalInstants(to.span.end, movable.span.end)
+        // A lane the landing names that is not the element's own moves it (#1541, U1).
+        && (to.lane === undefined || to.lane === movable.lane);
 }
 
 /**

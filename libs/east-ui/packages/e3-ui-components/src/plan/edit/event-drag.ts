@@ -69,6 +69,7 @@ import { originOf, unmoved, type PlanMoveRequest } from "./use-carry.js";
 import { eventCandidate, type PlanCandidatePlace, type PlanCandidateValue, type PlanVeto } from "./candidate.js";
 import type { ConnectVetoOf } from "../../shared/links/veto.js";
 import { connectLink, linkStepLabel, type PlanLinkKindValue } from "../links/kinds.js";
+import { keyFieldWrite, laneFieldWrite } from "../../shared/schedule/records.js";
 
 type PlanPayloadValue = ValueTypeOf<typeof PlanPayloadType>;
 /** One event kind, as the payload carries it. */
@@ -461,9 +462,42 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
             return found;
         };
 
-        /** The resource a row stands for, as an event names it. */
-        const resourceOf = (target: PlanEventTarget): PlanResourceOption =>
-            (target.kind === "resource" ? some({ kind: target.slot, key: target.key }) : none);
+        /** The rows beneath its resource a kind's events land on (#1541, U1): its `child`; `undefined`, its resource's own. */
+        const childOf = (kind: PlanEventKindValue) => getSomeorUndefined(kind.child);
+        /** The series a kind's events land on, by key: the one its `child` names, or the ones its resource does. */
+        const landsOnSeries = (kind: PlanEventKindValue): readonly string[] => {
+            const child = childOf(kind);
+            return child === undefined ? kind.takes : [child.of];
+        };
+        /**
+         * The resource a kind's event on what a row stands for names: the row's own — or, for a kind landing a step
+         * beneath its resource (#1541, U1), the resource the row stands beneath, by the step of its path before its own.
+         */
+        const resourceFor = (kind: PlanEventKindValue, target: PlanEventTarget): PlanResourceOption => {
+            if (target.kind !== "resource") return none;
+            if (childOf(kind) === undefined) return some({ kind: target.slot, key: target.key });
+            const landing = latest.current.landings.find((l) => stringEqual(l.key, target.slot));
+            const under = landing === undefined ? undefined : getSomeorUndefined(landing.under);
+            const key = target.path[target.path.length - 2];
+            return under === undefined || key === undefined ? none : some({ kind: under, key });
+        };
+        /**
+         * What places an event on a row beside its `place` or its `create` (#1541, U1): its child's key, on a row a
+         * step beneath its resource, and its lane, where the drop names one — each written into its own field.
+         */
+        const placing = (kind: PlanEventKindValue, id: string, target: PlanEventTarget, lane: string | undefined): PlanEventChange[] => {
+            const rowType = kind.editing.entryType;
+            const child = childOf(kind);
+            const laneField = getSomeorUndefined(kind.roles.lane);
+            const writes = [
+                child !== undefined && target.kind === "resource" ? keyFieldWrite(rowType, child.field, target.key) : undefined,
+                lane !== undefined && laneField !== undefined ? laneFieldWrite(rowType, laneField, lane) : undefined,
+            ];
+            return writes.flatMap((write) => (write === undefined ? [] : [{ kind: kind.key, id, gesture: variant("field", write) as PlanEventGestureValue }]));
+        };
+        /** The lane a drop names, where the kind has a lane to write it into: what a candidate is told. */
+        const laneFor = (kind: PlanEventKindValue, lane: string | undefined): string | undefined =>
+            (kind.roles.lane.type === "some" ? lane : undefined);
         /**
          * A row's resource by name: its landing row's label — the row the drag rests on, or the one beside it, in the
          * window that holds both (#1541) — else its key; an Unassigned row's, `Unassigned`.
@@ -475,7 +509,7 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
         };
         /** Whether a kind is placed on what a row stands for. */
         const onResource = (kind: PlanEventKindValue, target: PlanEventTarget): boolean => (target.kind === "resource"
-            ? kind.takes.some((slot) => stringEqual(slot, target.slot))
+            ? landsOnSeries(kind).some((slot) => stringEqual(slot, target.slot))
             : stringEqual(kind.key, target.event));
         /** A drop must stay on the sub-row that actually draws its kind. */
         const takes = (kind: PlanEventKindValue, target: PlanEventTarget): boolean =>
@@ -484,7 +518,7 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
         const needs = (kind: PlanEventKindValue, target?: PlanEventTarget): string => {
             const a = latest.current;
             if (target !== undefined && onResource(kind, target)) return a.words.m.dropNeedsRow({ kind: kind.name });
-            const names = kind.takes.map((slot) => (a.landings.find((l) => stringEqual(l.key, slot))?.name ?? slot).toLocaleLowerCase(a.words.locale));
+            const names = landsOnSeries(kind).map((slot) => (a.landings.find((l) => stringEqual(l.key, slot))?.name ?? slot).toLocaleLowerCase(a.words.locale));
             return a.words.m.dropNeeds({ resources: names });
         };
         /** The day an event starts, and its time when it has one — or the canvas reads hours. */
@@ -544,10 +578,24 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
          * Where an event of a kind would land on what a row stands for, as a candidate says it: the resource's own
          * row — its landing row, whichever row beside it the kind draws on — or the kind's Unassigned row, and its times.
          */
-        const landsOn = (kind: PlanEventKindValue, target: PlanEventTarget, start: Date, end: Date): PlanCandidatePlace => ({
+        const landsOn = (kind: PlanEventKindValue, target: PlanEventTarget, start: Date, end: Date, lane?: string | undefined): PlanCandidatePlace => ({
             row: target.kind === "resource" ? landingRowId(target.slot, target.path) : kindRowId(kind, { kind: "unassigned", event: kind, draw: target.draw }),
-            start: timeInstant(start), end: timeInstant(end),
+            lane: laneFor(kind, lane), start: timeInstant(start), end: timeInstant(end),
         });
+        /**
+         * The row an event stands on as its record holds it, where the canvas has it: its resource's landing row — for a
+         * kind landing a step beneath its resource (#1541, U1), the row beneath that its child's key names — or, on no
+         * resource, its kind's Unassigned row.
+         */
+        const ownRow = (kind: PlanEventKindValue, item: PlanEventReadValue["item"]): PlanRowId | undefined => {
+            const kept = getSomeorUndefined(item.resource);
+            if (kept === undefined) return kindRowId(kind, { kind: "unassigned", event: kind, draw: kind.draw.type });
+            const on = latest.current.resource(kept)?.id;
+            const child = childOf(kind);
+            if (child === undefined || on === undefined) return on;
+            const segment = getSomeorUndefined(item.child);
+            return segment === undefined || on.type !== "entry" ? undefined : landingRowId(child.of, [...on.value.path, segment]);
+        };
         /** A card landing: nothing of it an alt-drag copy. */
         const ADD = variant("add", { duplicate: false }) as PlanCandidateValue["gesture"];
 
@@ -563,7 +611,7 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
          * `keyFrom`, the kind's own `write` making its row.
          */
         const planMade = (kind: PlanEventKindValue, target: PlanEventTarget, at: Date, template: PlanEventKindValue["templates"][number],
-            keyFrom: string, from: PlanCandidateValue["from"]): PlanEventGesture => {
+            keyFrom: string, from: PlanCandidateValue["from"], lane: string | undefined): PlanEventGesture => {
             const a = latest.current;
             const m = a.words.m;
             const where = whereName(target);
@@ -575,13 +623,13 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
             const span = { start: timeInstant(start), end: timeInstant(end) };
             const id = a.editing.mint(kind.key, keyFrom, NONE_MINTED);
             if (id === undefined) return refused(m.dropRefused(), span);
-            const gesture = variant("create", { template: template.key, start, end, resource: resourceOf(target) }) as PlanEventGestureValue;
+            const gesture = variant("create", { template: template.key, start, end, resource: resourceFor(kind, target) }) as PlanEventGestureValue;
             const why = judge(kind, { id, entry: NO_ENTRY, gesture },
-                eventCandidate(ADD, kind.key, from, landsOn(kind, target, start, end)), target.kind === "unassigned");
+                eventCandidate(ADD, kind.key, from, landsOn(kind, target, start, end, lane)), target.kind === "unassigned");
             if (why !== undefined) return refused(why, span);
             return {
                 verdict: { allowed: true, caption: m.dropCaption({ what: template.name, where, ...whenOf(start) }), span },
-                changes: [{ kind: kind.key, id, gesture }],
+                changes: [{ kind: kind.key, id, gesture }, ...placing(kind, id, target, lane)],
                 origin: "drop",
                 label: `Drop ${template.name} on ${where}`,
                 selects: { keys: [printEventRef({ kind: kind.key, key: id })], row: rowFor(kind, target) },
@@ -589,7 +637,8 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
         };
 
         // ── A card where the drag rests ───────────────────────────────────────
-        const planCard = (row: PlanRowValue, from: { readonly library: string; readonly key: string }, slot: string, event: string | undefined): PlanEventGesture => {
+        const planCard = (row: PlanRowValue, from: { readonly library: string; readonly key: string }, slot: string, event: string | undefined,
+            lane: string | undefined): PlanEventGesture => {
             const a = latest.current;
             const m = a.words.m;
             const target = targetOf(row);
@@ -611,7 +660,7 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
                     if (makes === undefined || made === undefined || at === undefined) return refused(undefined);
                     if (!takes(makes, target)) return refused(needs(makes, target));
                     // Its key is made from the card's own, never from the key its kind knows its template by.
-                    return planMade(makes, target, at, made.template, card.key, variant("card", { library: from.library, key: from.key }));
+                    return planMade(makes, target, at, made.template, card.key, variant("card", { library: from.library, key: from.key }), lane);
                 }
                 if (tab.drop.type !== "some") return refused(undefined);
                 const fields = card.sets.map((set) => set.path[set.path.length - 1] ?? "");
@@ -651,10 +700,10 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
                 // A template (PB32): a new event at the bucket — from its `at` on a whole day — for its duration.
                 const template = kind.templates.find((t) => stringEqual(t.key, ref.key));
                 if (template === undefined) return refused(undefined);
-                return planMade(kind, target, at, template, template.key, variant("template", template.key));
+                return planMade(kind, target, at, template, template.key, variant("template", template.key), lane);
             }
             const where = whereName(target);
-            const resource = resourceOf(target);
+            const resource = resourceFor(kind, target);
             // A backlog event (PB33): scheduled at the bucket, for its own duration.
             const read = readEvent(kind, ref.key);
             if (read === undefined) return refused(undefined);
@@ -666,11 +715,11 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
             const held = lockOf(read);
             if (held !== undefined) return refused(held, span);
             const why = judge(kind, { id: ref.key, entry: read.row, gesture },
-                eventCandidate(ADD, kind.key, variant("backlog", { kind: kind.key, key: ref.key }), landsOn(kind, target, start, end)), target.kind === "unassigned");
+                eventCandidate(ADD, kind.key, variant("backlog", { kind: kind.key, key: ref.key }), landsOn(kind, target, start, end, lane)), target.kind === "unassigned");
             if (why !== undefined) return refused(why, span);
             return {
                 verdict: { allowed: true, caption: m.dropCaption({ what: read.item.title, where, ...whenOf(start) }), span },
-                changes: [{ kind: kind.key, id: ref.key, gesture }],
+                changes: [{ kind: kind.key, id: ref.key, gesture }, ...placing(kind, ref.key, target, lane)],
                 origin: "drop",
                 label: `Schedule ${read.item.title} on ${where}`,
                 selects: { keys: [printEventRef({ kind: kind.key, key: ref.key })], row: rowFor(kind, target) },
@@ -695,7 +744,7 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
              * One event placed by the gesture: its times moved, and its resource the row's when it moves across onto
              * it — and whether that moves it at all.
              */
-            const placeOf = (k: PlanEventKindValue, id: string, read: PlanEventReadValue, exact: PlanSpan | undefined, follows: boolean) => {
+            const placeOf = (k: PlanEventKindValue, id: string, read: PlanEventReadValue, exact: PlanSpan | undefined, follows: boolean, lane: string | undefined) => {
                 const start0 = getSomeorUndefined(read.item.start);
                 const end0 = getSomeorUndefined(read.item.end);
                 if (start0 === undefined || end0 === undefined) return undefined;
@@ -703,16 +752,20 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
                 const start = dateOf(span.start);
                 const end = dateOf(span.end);
                 if (start === undefined || end === undefined) return undefined;
-                const resource = follows ? resourceOf(target) : read.item.resource;
+                const resource = follows ? resourceFor(k, target) : read.item.resource;
                 const gesture = variant("place", { start, end, resource }) as PlanEventGestureValue;
-                const moved = !dateEqual(start, start0) || !dateEqual(end, end0) || !resourceEqual(resource, read.item.resource);
-                // The row it would be on: the row's resource where it follows the drag onto it, else its own resource's
-                // landing row, where the canvas holds it — or, on none, its kind's Unassigned row.
-                const kept = getSomeorUndefined(read.item.resource);
-                const at: PlanRowId | undefined = follows ? landsOn(k, target, start, end).row
-                    : kept !== undefined ? a.resource(kept)?.id
-                        : kindRowId(k, { kind: "unassigned", event: k, draw: k.draw.type });
-                return { kind: k, id, read, start, end, resource, gesture, moved, row: at };
+                // What places it beside its times and its resource (#1541, U1): the row beneath its resource it follows
+                // the drag onto, and the lane the drop names — each moving it where it is not there already.
+                const beneath = follows && childOf(k) !== undefined && target.kind === "resource" ? target.key : undefined;
+                const held = getSomeorUndefined(read.item.child);
+                const stepped = beneath !== undefined && (held === undefined || !stringEqual(held, beneath));
+                const sat = getSomeorUndefined(read.item.lane);
+                const into = laneFor(k, lane);
+                const laned = into !== undefined && (sat === undefined || !stringEqual(sat, into));
+                const moved = !dateEqual(start, start0) || !dateEqual(end, end0) || !resourceEqual(resource, read.item.resource) || stepped || laned;
+                // The row it would be on: the row's own where it follows the drag onto it, else the row it stands on.
+                const at: PlanRowId | undefined = follows ? landsOn(k, target, start, end).row : ownRow(k, read.item);
+                return { kind: k, id, read, start, end, resource, gesture, moved, row: at, lane: into, also: follows ? placing(k, id, target, lane) : [] };
             };
             const read = readEvent(kind, ref.key);
             if (read === undefined) return refused(undefined, to.span);
@@ -720,7 +773,7 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
             // put it; any other's tile or mark moves its event's own times by the units the element moved.
             const exact = movable.kind === "run" || movable.kind === "chip" || kind.instant;
             // The element grabbed lands on the row the drag rests on: its own, or the one it is carried across to.
-            const own = placeOf(kind, ref.key, read, exact ? to.span : undefined, true);
+            const own = placeOf(kind, ref.key, read, exact ? to.span : undefined, true, to.lane);
             if (own === undefined) return refused(undefined, to.span);
             const placed = [own];
             // A selected element moves the selection (PB34): the others by the same units, those on its resource onto the row's.
@@ -733,7 +786,8 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
                     const otherRead = other !== undefined && otherKind !== undefined ? readEvent(otherKind, other.key) : undefined;
                     if (other === undefined || otherKind === undefined || otherRead === undefined) continue;
                     const follows = across && resourceEqual(otherRead.item.resource, read.item.resource);
-                    const one = placeOf(otherKind, other.key, otherRead, undefined, follows);
+                    // The others keep their lanes: the lane the drop names is the grabbed element's.
+                    const one = placeOf(otherKind, other.key, otherRead, undefined, follows, undefined);
                     if (one !== undefined) placed.push(one);
                 }
             }
@@ -749,7 +803,7 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
                 const why = judge(one.kind, { id: one.id, entry: one.read.row, gesture: one.gesture }, eventCandidate(
                     origin.kind === "resize" ? variant("resize", variant(origin.edge, null)) as PlanCandidateValue["gesture"] : MOVE,
                     one.kind.key, variant("event", { kind: one.kind.key, key: one.id }),
-                    { row: one.row, start: timeInstant(one.start), end: timeInstant(one.end) }), one.resource.type === "none");
+                    { row: one.row, lane: one.lane, start: timeInstant(one.start), end: timeInstant(one.end) }), one.resource.type === "none");
                 if (why !== undefined) return refused(why, to.span);
             }
             const what = changed.length > 1 ? m.inspectorEvents({ n: changed.length, count: a.words.number(changed.length) }) : movable.label;
@@ -759,7 +813,7 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
                     : across ? `Move ${movable.label} to ${where}` : `Move ${movable.label}`;
             return {
                 verdict: { allowed: true, caption: m.dropCaption({ what, where, ...whenOf(own.start) }), span: to.span },
-                changes: changed.map((one): PlanEventChange => ({ kind: one.kind.key, id: one.id, gesture: one.gesture })),
+                changes: changed.flatMap((one): PlanEventChange[] => [{ kind: one.kind.key, id: one.id, gesture: one.gesture }, ...one.also]),
                 origin: origin.kind,
                 label,
                 selects: undefined,
@@ -796,10 +850,13 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
             };
         };
 
-        const cardGesture = (row: PlanRowValue, from: { readonly library: string; readonly key: string }, slot: string, event: string | undefined) =>
-            ask(`card|${row.key}|${from.library}|${from.key}|${slot}|${event ?? ""}`, () => planCard(row, from, slot, event));
+        // A card lands in the lane the drag rests in (#1541, U1): the store's, as the row told it.
+        const cardGesture = (row: PlanRowValue, from: { readonly library: string; readonly key: string }, slot: string, event: string | undefined) => {
+            const lane = latest.current.store.cardLane;
+            return ask(`card|${row.key}|${from.library}|${from.key}|${slot}|${event ?? ""}|${lane ?? ""}`, () => planCard(row, from, slot, event, lane));
+        };
         const elementGesture = (row: PlanRowValue, movable: PlanMovable, to: PlanProposal) =>
-            ask(`element|${row.key}|${movable.rowKey}|${movable.key}|${to.rowKey}|${instantKey(to.span.start)}|${instantKey(to.span.end)}|${to.units ?? ""}|${to.fine === true}`,
+            ask(`element|${row.key}|${movable.rowKey}|${movable.key}|${to.rowKey}|${instantKey(to.span.start)}|${instantKey(to.span.end)}|${to.units ?? ""}|${to.fine === true}|${to.lane ?? ""}`,
                 () => planElement(row, movable, to));
         const returnGesture = (event: DragEventValue, library: string) => {
             const key = event.type === "remove" ? getSomeorUndefined(event.value.from.event) ?? "" : "";
@@ -905,7 +962,7 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
                 const movable = request.element;
                 const row = latest.current.rowOf(request.to);
                 if (movable === undefined || !stringEqual(movable.items, PLAN_EVENT_ITEMS) || row === undefined) return false;
-                const to: PlanProposal = { rowKey: request.to, span: request.span, units: request.units, fine: request.fine };
+                const to: PlanProposal = { rowKey: request.to, span: request.span, units: request.units, fine: request.fine, lane: request.lane };
                 return !unmoved(movable, to) && record(elementGesture(row, movable, to));
             },
             returnElement: (event, library) => record(returnGesture(event, library)),

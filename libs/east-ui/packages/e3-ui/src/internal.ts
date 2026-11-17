@@ -722,7 +722,7 @@ export { scheduleNumberText } from './schedule/words.js';
 // through its day index and its backlog index — the Calendar's and Plan's —
 // and one entry of a record read by its key, through its own entries.
 export {
-    SCHEDULE_INDEX_PAGE, ScheduleKeyReadType, checkEntries, checkIndexWindow, joinRefusal, scheduleBacklogWindow, scheduleDayWindow,
+    SCHEDULE_INDEX_PAGE, ScheduleKeyReadType, checkEntries, checkIndexWindow, joinRefusal, optionOf, scheduleBacklogWindow, scheduleDayWindow,
     scheduleEntryByKey, scheduleLastKey, type ScheduleWindowProp,
 } from './schedule/window.js';
 export { SchedulePatchTypeFor, schedulePatch, type SchedulePatchInput, type SchedulePatchOf } from './schedule/patch.js';

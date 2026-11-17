@@ -1412,6 +1412,92 @@ export const planConflicts = example({
 });
 
 // ============================================================================
+// The press tasks — a press's kinds of task as rows beneath it, each task on its kind's row in its half's lane
+// ============================================================================
+
+/** What a machine is. */
+export const PressMachineKind = VariantType({ folder: NullType, press: NullType });
+
+/** A kind of task on a press. */
+export const PressTaskKind = VariantType({ blanket_wash: NullType, ink_fill: NullType, plate_check: NullType, roller_wash: NullType });
+
+/** The half of a day a task is done in: its lane. */
+export const PressHalf = VariantType({ am: NullType, pm: NullType });
+
+/** A kind of task as the works names it: a child row of its press. */
+export const PressTaskKindRow = StructType({ name: StringType });
+
+/** A machine, keyed by its code: a press fills `temperature` and `kinds`, a folder `utilisation`. */
+export const PressMachine = StructType({
+    name: StringType,
+    what: PressMachineKind,
+    /** Its ink's temperature at each reading, in °C. */
+    temperature: DictType(DateTimeType, FloatType),
+    /** The share of each day it is busy, in %. */
+    utilisation: DictType(DateTimeType, FloatType),
+    /** The kinds of task it takes: its child rows, keyed by the kind. */
+    kinds: DictType(PressTaskKind, PressTaskKindRow),
+});
+
+/** A day of the press tasks' four weeks, by its place among them. */
+const pressDay = (n: number): Date => new Date(Date.UTC(2026, 9, 5 + n));
+/** A reading a day over the first two weeks, from a level, by a step a day. */
+const pressReadings = (from: number, step: number) =>
+    new SortedMap(Array.from({ length: 14 }, (_, n) => [pressDay(n), from + step * (n % 5)] as const), compareFor(DateTimeType));
+/** No reading: a folder's ink, a press's utilisation. */
+const noReadings = () => new SortedMap<Date, number>([], compareFor(DateTimeType));
+/** A press's kinds of task, by the kind. */
+const pressKinds = (...kinds: readonly (readonly [keyof typeof PressTaskKind.cases, string])[]) =>
+    new SortedMap(kinds.map(([kind, name]) => [variant(kind, null), { name }] as const), compareFor(PressTaskKind));
+
+/** The works' machines: two presses, each with the kinds of task it takes, and a folder. */
+export const planPressMachines = e3.record("plan_press_machines", DictType(StringType, PressMachine), {
+    initial: new Map([
+        ["F1", { name: "Folder 1", what: variant("folder", null), temperature: noReadings(), utilisation: pressReadings(62.0, 6.0), kinds: pressKinds() }],
+        ["P03", {
+            name: "Heidelberg 3", what: variant("press", null), temperature: pressReadings(28.0, 0.5), utilisation: noReadings(),
+            kinds: pressKinds(["blanket_wash", "Blanket wash"], ["ink_fill", "Ink fill"], ["plate_check", "Plate check"]),
+        }],
+        ["P04", {
+            name: "Heidelberg 4", what: variant("press", null), temperature: pressReadings(27.0, 0.4), utilisation: noReadings(),
+            kinds: pressKinds(["blanket_wash", "Blanket wash"], ["roller_wash", "Roller wash"]),
+        }],
+    ]),
+});
+
+/** A task on a press: its kind, the day and the half it is done in, and its lifecycle. */
+export const PressTask = StructType({
+    title: StringType,
+    press: StringType,
+    kind: PressTaskKind,
+    day: DateTimeType,
+    half: PressHalf,
+    state: EventStateType,
+});
+
+/** A task's row, by its press, its kind, the day it is done on and its half. */
+const pressTask = (title: string, press: string, kind: keyof typeof PressTaskKind.cases, day: number, half: "am" | "pm") =>
+    ({ title, press, kind: variant(kind, null), day: pressDay(day), half: variant(half, null), state: variant("confirmed", null) });
+
+/** The presses' tasks, a record of their own. */
+export const planPressTaskRows = e3.record("plan_press_tasks", DictType(StringType, PressTask), {
+    initial: new Map([
+        ["T-01", pressTask("Wash blankets", "P03", "blanket_wash", 1, "am")],
+        ["T-02", pressTask("Fill cyan", "P03", "ink_fill", 1, "pm")],
+        ["T-03", pressTask("Fill black", "P03", "ink_fill", 2, "am")],
+        ["T-04", pressTask("Check plates", "P03", "plate_check", 3, "am")],
+        ["T-05", pressTask("Wash blankets", "P03", "blanket_wash", 4, "pm")],
+        ["T-06", pressTask("Wash blankets", "P04", "blanket_wash", 1, "pm")],
+        ["T-07", pressTask("Wash rollers", "P04", "roller_wash", 2, "am")],
+        ["T-08", pressTask("Wash rollers", "P04", "roller_wash", 4, "am")],
+    ]),
+    mutations: (mutation) => ({
+        // The tasks' patch door — every Save commits through it.
+        patch: mutation.patch(),
+    }),
+});
+
+// ============================================================================
 // planConnect — links drawn by hand: the Connect tool, Connect to…, a link kind's templates and the veto
 // ============================================================================
 
