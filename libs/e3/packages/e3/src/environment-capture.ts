@@ -76,7 +76,7 @@ export interface UvLockPackage {
   name: string;
   source?: Record<string, string>;
   dependencies?: Array<{ name: string; extra?: string[] }>;
-  'optional-dependencies'?: Record<string, Array<{ name: string }>>;
+  'optional-dependencies'?: Record<string, Array<{ name: string; extra?: string[] }>>;
   'dev-dependencies'?: Record<string, Array<{ name: string }>>;
 }
 /** A uv lock, for what a capture reads of it. */
@@ -94,18 +94,33 @@ function canonicalPath(p: string): string {
   return process.platform === 'win32' ? r.toLowerCase() : r;
 }
 
-/** PEP 503 canonical form of a python package name: lowercase, runs of
- *  `-`/`_`/`.` collapsed to `-`. uv.lock stores canonical names while a
- *  `{ custom }` platform ref uses the import-style name (`platform_module`),
- *  so both sides must canonicalize before comparison (#391 — a strict match
- *  silently derived NO environment for any underscore-named member, leaving
- *  its source edits out of the task hash and serving stale cached outputs). */
-function canonicalPythonName(name: string): string {
+/**
+ * A python distribution's name as PEP 503 writes it: lowercase, runs of `-`,
+ * `_` and `.` as one `-`.
+ *
+ * @remarks
+ * uv.lock stores canonical names while a `{ custom }` platform ref uses the
+ * import-style name (`platform_module`), so both sides must canonicalize
+ * before comparison (#391 — a strict match silently derived NO environment for
+ * any underscore-named member, leaving its source edits out of the task hash
+ * and serving stale cached outputs). e3-core names a tier's distributions by
+ * it too, and the image's script that writes a tier's manifest
+ * (`tier/tier-manifest.py` in `@elaraai/e3-core`) writes the same rule in
+ * python: a name both sides spell otherwise is no longer told to be the
+ * tier's.
+ *
+ * @param name - The name, as a lock, a manifest or a directory spells it
+ * @returns The canonical name
+ * @example
+ * canonicalPythonName('Typing_Extensions'); // 'typing-extensions'
+ */
+export function canonicalPythonName(name: string): string {
   return name.toLowerCase().replace(/[-_.]+/g, '-');
 }
 
 /** The on-disk directory a lock `source` points at, with its kind — or null
- *  for registry/git/url sources (installed by uv sync, not captured). */
+ *  for registry/git/url sources (installed by uv sync, not captured), and for
+ *  a local archive (`path`), which no environment takes. */
 function localSource(root: string, source: Record<string, string> | undefined):
   { dir: string; kind: 'editable' | 'directory' | 'virtual' } | null {
   if (!source) return null;
@@ -113,6 +128,44 @@ function localSource(root: string, source: Record<string, string> | undefined):
     if (typeof source[kind] === 'string') return { dir: path.resolve(root, source[kind]!), kind };
   }
   return null;
+}
+
+/** The refusal of a package the lock holds as a local archive (`path`), which
+ *  no environment takes: neither its sdist nor a registry's copy of it. */
+function localArchiveRefused(owner: string, name: string): Error {
+  return new Error(`Environment for '${owner}': local archive dependency '${name}' is not supported — use a directory/workspace source or a registry`);
+}
+
+/**
+ * Every package of a lock that `starts` reach by what they depend on, each
+ * once, in the order they are reached: the starts, then what each depends on
+ * — its dependencies, and those of every optional and development group —
+ * through a package of any source. A registry package's dependency may be a
+ * local package: the lock resolves a name the workspace holds to the
+ * workspace's package.
+ *
+ * @param lock - The lock
+ * @param starts - The packages to start from, by the lock's names
+ * @returns Each package reached, by its name, with its entry; none for a name
+ *   the lock does not hold
+ */
+function* lockReach(lock: UvLock, starts: readonly string[]): Generator<{ name: string; pkg: UvLockPackage | undefined }> {
+  const byName = new Map((lock.package ?? []).map((p) => [p.name, p]));
+  const seen = new Set<string>();
+  const queue = [...starts];
+  while (queue.length > 0) {
+    const name = queue.shift()!;
+    if (seen.has(name)) continue;
+    seen.add(name);
+    const pkg = byName.get(name);
+    yield { name, pkg };
+    if (pkg === undefined) continue;
+    for (const edge of [
+      ...(pkg.dependencies ?? []),
+      ...Object.values(pkg['optional-dependencies'] ?? {}).flat(),
+      ...Object.values(pkg['dev-dependencies'] ?? {}).flat(),
+    ]) queue.push(edge.name);
+  }
 }
 
 /**
@@ -158,50 +211,42 @@ function discoverPythonRoot(project: string, owner: string): { root: string; loc
 }
 
 /**
- * The transitive closure of LOCAL packages reachable from `subject` — the
- * set whose sdists must ride the environment.
+ * The LOCAL packages reachable from an environment's subjects, and from the
+ * registry distributions it requires beside them — the set whose sdists must
+ * ride the environment.
  *
  * Walks `dependencies` plus every optional-dependency and dev-dependency
- * group (over-capture is sound: it only over-invalidates). Registry/git/url
- * targets are skipped (uv sync installs them); a `path=<archive>` source is
+ * group (over-capture is sound: it only over-invalidates), through packages
+ * of every source ({@link lockReach}): a registry package is installed from
+ * the lock, and a local package it depends on rides as an sdist, as the
+ * installs take no local package from a registry. A `path=<archive>` source is
  * refused, and a virtual package contributes its deps but no sdist.
  *
+ * @param subjects - The members the environment is of, by the lock's names
+ * @param required - The registry distributions it requires beside them
  * @returns The buildable closure members, sorted by name
  * @throws {Error} P6 (dangling edge), P7 (subject not packaged), P8 (source
  *   dir missing), P9 (local archive dependency)
  */
-function pythonClosure(lock: UvLock, root: string, subject: string, owner: string): Array<{ name: string; dir: string }> {
-  const byName = new Map((lock.package ?? []).map((p) => [p.name, p]));
+function pythonClosure(lock: UvLock, root: string, subjects: readonly string[], owner: string,
+  required: readonly string[] = []): Array<{ name: string; dir: string }> {
   const build = new Map<string, string>();
-  const seen = new Set<string>();
-  const queue = [subject];
-  while (queue.length > 0) {
-    const name = queue.shift()!;
-    if (seen.has(name)) continue;
-    seen.add(name);
-    const pkg = byName.get(name);
+  for (const { name, pkg } of lockReach(lock, [...subjects, ...required])) {
     if (!pkg) {
-      if (name === subject) throw new Error(`Environment for '${owner}': subject '${name}' not in uv.lock`);
+      if (subjects.includes(name)) throw new Error(`Environment for '${owner}': subject '${name}' not in uv.lock`);
       throw new Error(`Environment for '${owner}': uv.lock is inconsistent — depends on unknown '${name}'; run 'uv lock'`);
     }
-    if (typeof pkg.source?.path === 'string') {
-      throw new Error(`Environment for '${owner}': local archive dependency '${name}' is not supported — use a directory/workspace source or a registry`);
-    }
+    if (typeof pkg.source?.path === 'string') throw localArchiveRefused(owner, name);
     const local = localSource(root, pkg.source);
-    if (!local) continue; // registry/git/url — sync installs it; don't recurse
+    if (!local) continue; // registry/git/url — sync installs it, and what it depends on is walked
     if (local.kind !== 'virtual') {
       if (!fs.existsSync(local.dir)) {
         throw new Error(`Environment for '${owner}': package '${name}' resolves to '${local.dir}' which does not exist — run 'uv lock' or fix its path`);
       }
       build.set(name, local.dir);
-    } else if (name === subject) {
+    } else if (subjects.includes(name)) {
       throw new Error(`Environment for '${owner}': '${name}' is a virtual package (no build-system) and cannot be an environment subject`);
     }
-    for (const edge of [
-      ...(pkg.dependencies ?? []),
-      ...Object.values(pkg['optional-dependencies'] ?? {}).flat(),
-      ...Object.values(pkg['dev-dependencies'] ?? {}).flat(),
-    ]) queue.push(edge.name);
   }
   return [...build.entries()].map(([name, dir]) => ({ name, dir })).sort((a, b) => (a.name < b.name ? -1 : 1));
 }
@@ -293,13 +338,18 @@ const PYTHON_RUNTIME_DISTRIBUTIONS = ['elaraai-east-py', 'elaraai-east-py-cli'];
  * whose task names the platform, and does not list the distribution itself,
  * runs with what the workspace asked of it, torch among it.
  *
+ * One the lock holds as a local archive (`path`) is refused, as a member's
+ * own is: an install would otherwise take a registry's copy of it.
+ *
  * @internal
  * @param root - The workspace root
  * @param lock - Its lock
  * @param platforms - The platform packages the runner names
+ * @param owner - The declaring task or function, which a refusal names
  * @returns The distributions, by PEP 503 name and with their extras, sorted
+ * @throws {Error} When the lock holds one of them as a local archive
  */
-export function pythonRequires(root: string, lock: UvLock, platforms: readonly string[]): string[] {
+export function pythonRequires(root: string, lock: UvLock, platforms: readonly string[], owner: string): string[] {
   const stock: readonly string[] = STOCK_PLATFORMS_BY_RUNNER.east_py;
   const wanted = new Set([...PYTHON_RUNTIME_DISTRIBUTIONS, ...platforms.filter((name) => stock.includes(name)).map((name) => `elaraai-${name}`)]
     .map(canonicalPythonName));
@@ -315,8 +365,10 @@ export function pythonRequires(root: string, lock: UvLock, platforms: readonly s
       extras.set(name, declared);
     }
   }
-  return (lock.package ?? [])
-    .filter((pkg) => wanted.has(canonicalPythonName(pkg.name)) && localSource(root, pkg.source) === null)
+  const held = (lock.package ?? []).filter((pkg) => wanted.has(canonicalPythonName(pkg.name)));
+  for (const pkg of held) if (typeof pkg.source?.path === 'string') throw localArchiveRefused(owner, pkg.name);
+  return held
+    .filter((pkg) => localSource(root, pkg.source) === null)
     .map((pkg) => {
       const name = canonicalPythonName(pkg.name);
       const declared = [...(extras.get(name) ?? [])].sort();
@@ -326,9 +378,97 @@ export function pythonRequires(root: string, lock: UvLock, platforms: readonly s
 }
 
 /**
+ * A required distribution, as {@link pythonRequires} names one: its name, and
+ * the extras it is installed with.
+ *
+ * @param required - A name, or a name with its extras
+ *   (`elaraai-east-py-datascience[lightning,torch]`)
+ * @returns Its name and extras; null for what is neither, which its reader
+ *   refuses in its own words
+ * @example
+ * readRequiredDistribution('elaraai-east-py-datascience[torch]'); // { name: 'elaraai-east-py-datascience', extras: ['torch'] }
+ */
+export function readRequiredDistribution(required: string): { name: string; extras: string[] } | null {
+  const parts = /^([^[\]]+)(?:\[([^[\]]+)\])?$/.exec(required);
+  return parts === null ? null : { name: parts[1]!, extras: parts[2]?.split(',') ?? [] };
+}
+
+/** The sources a lock installs a package from that are this machine's: what
+ *  a sync told `--no-install-local` and `--no-install-workspace` installs
+ *  nothing of. */
+const LOCAL_SOURCE_KINDS = ['editable', 'directory', 'virtual', 'path'] as const;
+
+/**
+ * The packages of a workspace's lock, by the lock's names, that the sync
+ * installing an environment's required distributions leaves out: every one it
+ * installs from an index, a repository or a URL but those the required
+ * distributions need, with their extras, and what those depend on.
+ *
+ * @remarks
+ * So that sync installs the required distributions as the lock pins them and
+ * from where the lock pins them — an explicit index of the workspace's
+ * among them, which no install that resolves again from a registry reads —
+ * and nothing else. A local package one of them depends on rides as an sdist
+ * ({@link captureEnvironment}), and no sync of an environment installs a local
+ * package: none is taken from a registry.
+ *
+ * What a distribution needs is read from the lock for every platform it was
+ * resolved for, its markers aside: one a platform does not need is in no
+ * install for that platform, which the sync decides.
+ *
+ * @internal
+ * @param lockText - The lock, as `uv.lock` holds it
+ * @param requires - The required distributions, each a name or a name with
+ *   its extras (`elaraai-east-py-datascience[lightning,torch]`), as
+ *   {@link pythonRequires} names them
+ * @returns The names, sorted
+ * @throws {Error} When the lock is not of the version this reads, or a
+ *   required distribution is not a name with or without extras
+ * @example
+ * const leftOut = pythonLeftOut(await readFile('uv.lock', 'utf8'), ['elaraai-east-py-datascience[torch]']);
+ * // uv sync --frozen --inexact --all-packages ... --no-install-package <each>
+ */
+export function pythonLeftOut(lockText: string, requires: readonly string[]): string[] {
+  const lock = parseToml(lockText) as unknown as UvLock;
+  if (lock.version !== 1) throw new Error(`unsupported uv.lock version ${String(lock.version)}`);
+  const packages = lock.package ?? [];
+  // A name may be locked at several versions, one for each platform it forks for
+  const byName = new Map<string, UvLockPackage[]>();
+  for (const pkg of packages) {
+    const name = canonicalPythonName(pkg.name);
+    byName.set(name, [...(byName.get(name) ?? []), pkg]);
+  }
+  const needed = new Set<string>();
+  // What has been walked: a package's dependencies by its name, and an extra's by `name[extra]`
+  const walked = new Set<string>();
+  const queue = requires.map((required) => {
+    const read = readRequiredDistribution(required);
+    if (read === null) throw new Error(`the required distribution '${required}' is not a package's name`);
+    return read;
+  });
+  while (queue.length > 0) {
+    const { name, extras } = queue.shift()!;
+    const key = canonicalPythonName(name);
+    needed.add(key);
+    const fresh = [...(walked.has(key) ? [] : ['']), ...extras.filter((extra) => !walked.has(`${key}[${extra}]`))];
+    for (const pkg of byName.get(key) ?? []) {
+      for (const part of fresh) {
+        for (const edge of part === '' ? pkg.dependencies ?? [] : pkg['optional-dependencies']?.[part] ?? []) {
+          queue.push({ name: edge.name, extras: edge.extra ?? [] });
+        }
+      }
+    }
+    for (const part of fresh) walked.add(part === '' ? key : `${key}[${part}]`);
+  }
+  const local = (pkg: UvLockPackage): boolean => LOCAL_SOURCE_KINDS.some((kind) => typeof pkg.source?.[kind] === 'string');
+  return [...new Set(packages.filter((pkg) => !local(pkg) && !needed.has(canonicalPythonName(pkg.name))).map((pkg) => pkg.name))].sort();
+}
+
+/**
  * Captures the environment of members of a uv workspace: the root's manifest
- * and lock, the sdists of the members and of every local package they depend
- * on, and the distributions installed beside the members' own.
+ * and lock, the sdists of the members and of every local package they — or
+ * the distributions installed beside them — depend on, and those
+ * distributions.
  *
  * @param root - The workspace root
  * @param lock - Its lock
@@ -345,17 +485,16 @@ function captureWorkspacePython(
   addBlob: (data: Buffer) => string,
   onEvent?: CaptureEventFn,
 ): Uint8Array {
-  // Union the members' closures, deduped by package name.
-  const union = new Map<string, string>();
-  for (const subject of subjects) {
-    for (const member of pythonClosure(lock, root, subject, owner)) union.set(member.name, member.dir);
-  }
+  const requires = pythonRequires(root, lock, platforms, owner);
+  // The lock's own spelling of each required distribution, for the walk
+  const required = requires.map((name) => name.replace(/\[.*$/, ''))
+    .flatMap((name) => (lock.package ?? []).filter((pkg) => canonicalPythonName(pkg.name) === name).map((pkg) => pkg.name));
+  const members = pythonClosure(lock, root, subjects, owner, required);
   const pyproject = addBlob(readProjectFile(root, 'pyproject.toml', owner));
   const lockBlob = addBlob(readProjectFile(root, 'uv.lock', owner));
-  const members = [...union.entries()].map(([name, dir]) => ({ name, dir })).sort((a, b) => (a.name < b.name ? -1 : 1));
   const sdists = buildMemberSdists(members, owner, addBlob, onEvent);
   return encodeEnvironmentSpec(variant('workspace_python', {
-    pyproject, lock: lockBlob, subjects: [...subjects].sort(), sdists, requires: pythonRequires(root, lock, platforms),
+    pyproject, lock: lockBlob, subjects: [...subjects].sort(), sdists, requires,
   }));
 }
 
@@ -452,25 +591,14 @@ export function pythonMemberSources(name: string, anchorDir: string, owner: stri
   const found = findUvLock(anchorDir, owner);
   if (!found) return null;
   const { root, lock } = found;
-  const byName = new Map((lock.package ?? []).map((p) => [p.name, p]));
   const canon = canonicalPythonName(name);
   const subject = (lock.package ?? []).find((p) => canonicalPythonName(p.name) === canon);
   if (subject === undefined || localSource(root, subject.source) === null) return null;
+  // Through registry packages too: one may depend on a local package
   const dirs = new Set<string>();
-  const seen = new Set<string>();
-  const queue = [subject.name];
-  while (queue.length > 0) {
-    const pkg = byName.get(queue.shift()!);
-    if (pkg === undefined || seen.has(pkg.name)) continue;
-    seen.add(pkg.name);
-    const local = localSource(root, pkg.source);
-    if (local === null) continue;
-    dirs.add(local.dir);
-    for (const edge of [
-      ...(pkg.dependencies ?? []),
-      ...Object.values(pkg['optional-dependencies'] ?? {}).flat(),
-      ...Object.values(pkg['dev-dependencies'] ?? {}).flat(),
-    ]) queue.push(edge.name);
+  for (const { pkg } of lockReach(lock, [subject.name])) {
+    const local = pkg === undefined ? null : localSource(root, pkg.source);
+    if (local !== null) dirs.add(local.dir);
   }
   return { root, dirs: [...dirs].sort() };
 }
@@ -859,7 +987,7 @@ export function captureEnvironment(
     // byte-identical to the pre-#278 single-project one.
     const pyproject = addBlob(readProjectFile(root, 'pyproject.toml', owner));
     const lockBlob = addBlob(readProjectFile(root, 'uv.lock', owner));
-    const sdists = buildMemberSdists(pythonClosure(lock, root, subject, owner), owner, addBlob, onEvent);
+    const sdists = buildMemberSdists(pythonClosure(lock, root, [subject], owner), owner, addBlob, onEvent);
     spec = variant('python', { pyproject, lock: lockBlob, sdists });
   } else {
     const project = path.resolve(decl.node.project);

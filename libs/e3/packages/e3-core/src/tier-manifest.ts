@@ -17,6 +17,8 @@
  * @packageDocumentation
  */
 
+import { StringType, compareFor } from '@elaraai/east';
+import { canonicalPythonName } from '@elaraai/e3';
 import { computeHash } from './objects.js';
 
 /** One distribution a tier holds. */
@@ -60,16 +62,9 @@ export interface TierManifest {
  *  was installed and not what was. */
 const BOOKKEEPING: readonly string[] = ['RECORD', 'INSTALLER', 'REQUESTED', 'direct_url.json'];
 
-/**
- * A distribution's name as PEP 503 writes it: lowercase, runs of `-`, `_` and
- * `.` as one `-`.
- *
- * @param name - The name, as a manifest or a directory spells it
- * @returns The canonical name
- */
-export function canonicalDistributionName(name: string): string {
-  return name.toLowerCase().replace(/[-_.]+/g, '-');
-}
+/** Orders strings by code point, as the image's script, which is python,
+ *  orders them: JavaScript's `<` orders UTF-16 code units, which differs. */
+const byCodePoint = compareFor(StringType);
 
 /** The fields of one row of a RECORD, which is CSV: a field that holds a
  *  comma or a quote is quoted, a quote in it doubled. */
@@ -116,7 +111,7 @@ export function installedFilesDigest(record: string): string {
     return !parts.includes('__pycache__') && !file.endsWith('.pyc');
   });
   // By code point, as the image's script sorts them
-  rows.sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : 0));
+  rows.sort((a, b) => byCodePoint(a.file, b.file));
   const lines = rows.map(({ file, digest, size }) => `${file}\t${digest}\t${size}\n`).join('');
   return `sha256:${computeHash(new TextEncoder().encode(lines))}`;
 }
@@ -160,6 +155,12 @@ export function tierManifestDigest(bytes: Uint8Array): string {
 /**
  * Reads a tier manifest.
  *
+ * @remarks
+ * It arrives from a rack, and what it names is written into an environment
+ * built over the tier (its virtualenv's `pyvenv.cfg`, a path file of its site
+ * directory): so its interpreter's version is a Python's, and its paths are
+ * absolute, on one line each.
+ *
  * @param bytes - The manifest file's bytes
  * @returns The manifest
  * @throws {Error} When it is not a manifest of the form this build reads
@@ -182,6 +183,18 @@ export function readTierManifest(bytes: Uint8Array): TierManifest {
     if (typeof field !== 'string' || field === '') throw new Error(`the tier manifest names no ${what}`);
     return field;
   };
+  // A Python's version, as `platform.python_version()` writes one: `3.11.2`, `3.13.0rc1`, `3.14.0a1+`
+  const version = (field: unknown): string => {
+    const said = text(field, 'interpreter version');
+    if (!/^\d+\.\d+\.\d+[A-Za-z0-9.+]*$/.test(said)) throw new Error(`the tier manifest's interpreter version ${JSON.stringify(said)} is not a Python's`);
+    return said;
+  };
+  // An absolute path of the image's, on one line
+  const absolute = (field: unknown, what: string): string => {
+    const said = text(field, what);
+    if (!said.startsWith('/') || /[\u0000-\u001f\u007f]/.test(said)) throw new Error(`the tier manifest's ${what} ${JSON.stringify(said)} is not an absolute path`);
+    return said;
+  };
   if (typeof python !== 'object' || python === null) throw new Error('the tier manifest names no interpreter');
   // Each a directory's name: what a tier does not say of its packages is not guessed
   const namespaces: unknown = fields.namespaces;
@@ -192,15 +205,15 @@ export function readTierManifest(bytes: Uint8Array): TierManifest {
   return {
     version: 1,
     python: {
-      version: text(python.version, 'interpreter version'),
-      executable: text(python.executable, 'interpreter'),
-      base: text(python.base, 'base interpreter'),
-      site: text(python.site, 'site directory'),
+      version: version(python.version),
+      executable: absolute(python.executable, 'interpreter'),
+      base: absolute(python.base, 'base interpreter'),
+      site: absolute(python.site, 'site directory'),
     },
     namespaces,
     distributions: fields.distributions.map((entry: unknown): TierDistribution => {
-      const { name, version, files } = (entry ?? {}) as Record<string, unknown>;
-      return { name: canonicalDistributionName(text(name, 'distribution\'s name')), version: text(version, 'distribution\'s version'),
+      const { name, version: held, files } = (entry ?? {}) as Record<string, unknown>;
+      return { name: canonicalPythonName(text(name, 'distribution\'s name')), version: text(held, 'distribution\'s version'),
         files: text(files, 'distribution\'s files digest') };
     }),
   };
@@ -216,7 +229,7 @@ export function readTierManifest(bytes: Uint8Array): TierManifest {
  * @returns Whether the tier's is the same
  */
 export function tierHolds(manifest: TierManifest, distribution: TierDistribution): boolean {
-  const name = canonicalDistributionName(distribution.name);
+  const name = canonicalPythonName(distribution.name);
   return manifest.distributions.some((held) => held.name === name && held.version === distribution.version && held.files === distribution.files);
 }
 
@@ -260,7 +273,7 @@ export interface InstalledDistribution {
  * @returns The canonical names of those left to the tier
  * @example
  * const left = leftToTier(installed, manifest);
- * const shipped = installed.filter(({ name }) => !left.has(canonicalDistributionName(name)));
+ * const shipped = installed.filter(({ name }) => !left.has(canonicalPythonName(name)));
  */
 export function leftToTier(installed: readonly InstalledDistribution[], manifest: TierManifest): Set<string> {
   // Each distribution's files in the site directory, as path segments.
@@ -293,7 +306,7 @@ export function leftToTier(installed: readonly InstalledDistribution[], manifest
     tierHolds(manifest, { name: distribution.name, version: distribution.version, files: installedFilesDigest(distribution.record) }));
   const whole = new Map<number, boolean>();
   for (const i of installed.keys()) whole.set(find(i), (whole.get(find(i)) ?? true) && held[i]!);
-  return new Set(installed.filter((_, i) => whole.get(find(i)) === true).map(({ name }) => canonicalDistributionName(name)));
+  return new Set(installed.filter((_, i) => whole.get(find(i)) === true).map(({ name }) => canonicalPythonName(name)));
 }
 
 /** A version's release numbers: `3.11.2` as `[3, 11, 2]`, what follows them

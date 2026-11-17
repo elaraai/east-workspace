@@ -64,6 +64,7 @@ interface Subscription {
   endedAt?: number;
 }
 const equalString = equalFor(StringType);
+const compareString = compareFor(StringType);
 const compareInteger = compareFor(IntegerType);
 /** How many of its last leases' ends a hub keeps for its status. */
 const LAST_OUTCOMES = 20;
@@ -129,6 +130,9 @@ export class RackHub {
   /** The text of each tier manifest a rack's last report names, by its
    *  digest: checked against it, and read as a manifest, as it arrived. */
   private readonly tierManifests = new Map<string, string>();
+  /** Each tier manifest refused, by the digest it was reported under and the
+   *  digest of its text: the same text is refused again with nothing said. */
+  private readonly refusedTierManifests = new Set<string>();
   /** How the last leases ended, the latest first: what the status lists. */
   private readonly outcomes: Array<ValueTypeOf<typeof HubOutcomeType>> = [];
   private readonly mutations = new MutationQueue();
@@ -192,6 +196,8 @@ export class RackHub {
    * Takes in what a rack reports of itself: the report, and the text of each
    * tier manifest it carries, kept by its digest once it is the manifest the
    * digest names. A manifest no rack's last report names any more is let go.
+   * One that is refused is said once in the log: a rack reports it again with
+   * each heartbeat, until it reports another.
    */
   private reported(rackId: string, report: RackReport): void {
     this.reports.set(rackId, report);
@@ -199,21 +205,27 @@ export class RackHub {
     for (const [tier, said] of Object.entries(report.tiers ?? {})) {
       if (said.manifest === undefined || this.tierManifests.has(said.digest)) continue;
       const bytes = new TextEncoder().encode(said.manifest);
+      const actual = tierManifestDigest(bytes);
+      const refusal = `${said.digest} ${actual}`;
+      if (this.refusedTierManifests.has(refusal)) continue;
       try {
-        if (tierManifestDigest(bytes) !== said.digest) throw new Error('its text is not the bytes its digest names');
+        if (actual !== said.digest) throw new Error('its text is not the bytes its digest names');
         readTierManifest(bytes);
         this.tierManifests.set(said.digest, said.manifest);
       } catch (error) {
+        this.refusedTierManifests.add(refusal);
         this.options.log?.(`rack ${rackId}: the manifest it reports of its tier '${tier}' was not kept: ${messageOf(error)}`);
       }
     }
     this.forgetTierManifests();
   }
 
-  /** Lets go of each tier manifest no rack's last report names. */
+  /** Lets go of each tier manifest no rack's last report names, and of each
+   *  refusal of one. */
   private forgetTierManifests(): void {
     const named = new Set([...this.reports.values()].flatMap((report) => Object.values(report.tiers ?? {}).map((tier) => tier.digest)));
     for (const digest of this.tierManifests.keys()) if (!named.has(digest)) this.tierManifests.delete(digest);
+    for (const refusal of this.refusedTierManifests) if (!named.has(refusal.slice(0, refusal.indexOf(' ')))) this.refusedTierManifests.delete(refusal);
   }
 
   /** @param options - State home, idle policy, diagnostics and lifecycle clocks */
@@ -385,6 +397,9 @@ export class RackHub {
     if (existing !== null && nonterminal(existing)) {
       const sub = this.subscriptions.get(existing.leaseId)!;
       sub.subscribers.add(session.id);
+      // It built the work's layers for the racks it saw: a key found to keep
+      // none of them is asked again
+      this.bridge.forgetEnvMisses(existing.repo, existing.leaseId);
       if (existing.status === 'claimed') this.emit(session, await this.claimedEvent(existing));
       return { leaseId: existing.leaseId, attached: true,
         attempt: existing.attempt === undefined ? none : some({ executionId: existing.attempt.executionId, startedAt: new Date(existing.attempt.startedAtMs) }) };
@@ -469,7 +484,7 @@ export class RackHub {
         // held: a session can ask for no other
         tierManifests: report?.features.includes(RACK_ENVIRONMENTS_OVER_TIER) !== true ? []
           : Object.entries(report.tiers ?? {}).filter(([, tier]) => this.tierManifests.has(tier.digest))
-            .map(([tier, said]) => ({ tier, manifest: said.digest })).sort((a, b) => (a.tier < b.tier ? -1 : a.tier > b.tier ? 1 : 0)) };
+            .map(([tier, said]) => ({ tier, manifest: said.digest })).sort((a, b) => compareString(a.tier, b.tier)) };
     }), queued: BigInt(active.filter((lease) => lease.status === 'pending').length), mine: { pending: BigInt(pending), claimed: BigInt(claimed) } };
   }
 

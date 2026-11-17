@@ -86,20 +86,30 @@ def namespace_packages(site):
 
 
 def tier_manifest():
-    """This interpreter's manifest: itself, and what is installed for it."""
+    """This interpreter's manifest: itself, and what is installed for it.
+
+    The distributions of its site directory alone: an environment built over
+    the tier adds that directory to its path, and no other of this
+    interpreter's (the system's, a parent virtualenv's, PYTHONPATH's), so what
+    is elsewhere is no distribution the environment could be left to.
+    """
     site = sysconfig.get_path("purelib")
     distributions = {}
-    for dist in metadata.distributions():
+    twice = set()
+    for dist in metadata.distributions(path=[site]):
         name = dist.metadata["Name"]
         record = dist.read_text("RECORD")
         # One with no RECORD cannot be told from another: it is never left out
         if name is None or record is None:
             continue
-        distributions[canonical_name(name)] = {
-            "name": canonical_name(name),
-            "version": dist.version,
-            "files": files_digest(record),
-        }
+        name = canonical_name(name)
+        # Two of one name, which is no install of one: which files are whose
+        # cannot be told, so neither is left out
+        if name in distributions:
+            twice.add(name)
+        distributions[name] = {"name": name, "version": dist.version, "files": files_digest(record)}
+    for name in twice:
+        del distributions[name]
     return {
         "version": 1,
         "python": {

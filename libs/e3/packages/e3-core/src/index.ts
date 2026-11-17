@@ -322,7 +322,7 @@ export {
 // And a stored value written out to a file, a segment or a range at a time
 export { writeOutputFile, type WriteOutputFileOptions } from './storage/local/output-file.js';
 export {
-  canonicalDistributionName, installedFilesDigest, leftToTier, pythonMinor, pythonSatisfies, readTierManifest, recordedSiteFiles, tierHolds,
+  installedFilesDigest, leftToTier, pythonMinor, pythonSatisfies, readTierManifest, recordedSiteFiles, tierHolds,
   tierManifestDigest,
   type InstalledDistribution, type RecordedFile, type TierDistribution, type TierManifest,
 } from './tier-manifest.js';

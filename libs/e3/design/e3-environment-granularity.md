@@ -171,10 +171,16 @@ uv pip check --python .venv                                          # loud sati
 > syncs the subjects' locked dependencies alone — `uv sync --frozen
 > --no-default-groups --package <member>`, what `uv export --frozen
 > --no-default-groups --package <member>` lists — and then installs `requires`
-> at the lock's versions, checked against the lock's hashes. A frozen sync
-> reads the lock and no member's manifest, so the build directory still holds
-> the root's manifest and lock alone. A torch-heavy sibling, or a heavy
-> dependency the root lists, is no longer in a member's environment.
+> with a second frozen sync of the whole lock (`--all-packages --inexact`)
+> that leaves out every package but the required distributions, their extras
+> and what they depend on (`--no-install-package`, e3's `pythonLeftOut`). So
+> each is installed as the lock pins it and from where the lock pins it — an
+> explicit index of the workspace's among them, which a `uv pip install`
+> under the lock's pins, resolving again from a registry, never read — and no
+> local package is taken from a registry. A frozen sync reads the lock and no
+> member's manifest, so the build directory still holds the root's manifest
+> and lock alone. A torch-heavy sibling, or a heavy dependency the root lists,
+> is no longer in a member's environment.
 >
 > - **A member's development groups are not installed.** They are its tests'
 >   and its tools', and a member's environment is new with this change, so
@@ -184,6 +190,13 @@ uv pip check --python .venv                                          # loud sati
 >   (`elaraai-east-py-datascience[lightning]`). The union-scoped sync
 >   installed those; a member whose task names the platform, and does not
 >   list the distribution itself, still runs with them.
+> - **A local package a registry distribution depends on rides as an sdist.**
+>   A lock resolves a name the workspace holds to the workspace's package,
+>   from a registry package's dependencies too, so the capture walks the lock
+>   through registry packages to the local packages they reach: from the
+>   subjects, and from the required distributions. A required distribution
+>   the lock holds as a local archive (`path`) is refused, as P9 refuses a
+>   member's.
 > - A project that is its own root keeps the `python` spec, whose lock is all
 >   its own, and installs as it did, its development groups among it; a
 >   package exported before this keeps its `python` spec until it is exported

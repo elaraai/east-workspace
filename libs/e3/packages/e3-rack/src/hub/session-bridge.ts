@@ -152,6 +152,9 @@ export class SessionProxyStorageBridge implements RackStorageBridge {
   /** The key a rack is served a lease's environment by, for as long as it
    *  holds the lease: by the lease and the rack. */
   private readonly envKeys = new Map<string, string>();
+  /** The keys a lease's session was found to keep no manifest by, each but a
+   *  rack's last: by the lease and the key. */
+  private readonly envMisses = new Set<string>();
   private readonly transfersAtOnce: number;
   private readonly now: () => number;
 
@@ -386,13 +389,23 @@ export class SessionProxyStorageBridge implements RackStorageBridge {
    * @remarks
    * A rack that holds the lease is served the one manifest for as long as it
    * holds it, though its session builds another meanwhile: the layers it asks
-   * for are that manifest's. A key no manifest is kept by is asked again each
-   * time, since it may be built.
+   * for are that manifest's.
+   *
+   * A session builds a lease's layers before it leases the work, so a key
+   * that keeps no manifest of the lease's environment — the layers built over
+   * a rack's tier image, when they were built whole — keeps none until
+   * another session joins the lease, having built what it built
+   * ({@link forgetEnvMisses}), and is not asked again till then: a claim poll
+   * asks the session nothing more of it. A rack's last key, the whole
+   * environment's, is asked each time. A read that fails is no answer of
+   * whether a key keeps a manifest: the next is asked, and the failure stands
+   * when none answers.
    *
    * @param repo - The lease's repository
    * @param leaseId - The lease
    * @param rackId - The rack that asks, or would claim it
    * @returns The key, or null when its session keeps none of them
+   * @throws {Error} When no key answered, and a read of one failed
    */
   async envManifestKeyOf(repo: string, leaseId: string, rackId: string): Promise<string | null> {
     const held = `${repo} ${leaseId} ${rackId}`;
@@ -400,12 +413,40 @@ export class SessionProxyStorageBridge implements RackStorageBridge {
     if (known !== undefined) return known;
     const lease = await this.options.leases.get(repo, leaseId);
     if (lease === null) return null;
-    for (const key of this.options.envManifestKeys?.(rackId, lease) ?? []) {
-      if (await this.readEnvManifestOf(repo, leaseId, key) === null) continue;
+    const keys = this.options.envManifestKeys?.(rackId, lease) ?? [];
+    let failed: { error: unknown } | undefined;
+    for (const [i, key] of keys.entries()) {
+      const missed = `${repo} ${leaseId} ${key}`;
+      const last = i === keys.length - 1;
+      if (!last && this.envMisses.has(missed)) continue;
+      let manifest: string | null;
+      try {
+        manifest = await this.readEnvManifestOf(repo, leaseId, key);
+      } catch (error) {
+        failed ??= { error };
+        continue;
+      }
+      if (manifest === null) {
+        if (!last) this.envMisses.add(missed);
+        continue;
+      }
       if (lease.status === 'claimed' && lease.claimedBy === rackId) this.envKeys.set(held, key);
       return key;
     }
+    if (failed !== undefined) throw failed.error;
     return null;
+  }
+
+  /**
+   * Forgets the keys a lease's session was found to keep no manifest by: a
+   * session that joins the lease built the layers of its environment for the
+   * racks it saw first, which may be kept under one of them now.
+   *
+   * @param repo - The lease's repository
+   * @param leaseId - The lease
+   */
+  forgetEnvMisses(repo: string, leaseId: string): void {
+    for (const missed of this.envMisses) if (missed.startsWith(`${repo} ${leaseId} `)) this.envMisses.delete(missed);
   }
 
   /**
@@ -443,6 +484,7 @@ export class SessionProxyStorageBridge implements RackStorageBridge {
     this.revoke(repo, leaseId);
     // Its next claim, by this rack or another, is served its manifest anew
     for (const held of this.envKeys.keys()) if (held.startsWith(`${repo} ${leaseId} `)) this.envKeys.delete(held);
+    this.forgetEnvMisses(repo, leaseId);
     const caps = [...this.capabilities.values()].filter((cap) => cap.repo === repo && cap.leaseId === leaseId);
     for (const cap of caps) this.capabilities.delete(cap.id);
     const results = await Promise.allSettled(caps.map(async (cap) => {
@@ -557,5 +599,6 @@ export class SessionProxyStorageBridge implements RackStorageBridge {
     this.manifests.clear();
     this.manifestBytes = 0;
     this.envKeys.clear();
+    this.envMisses.clear();
   }
 }

@@ -61,8 +61,10 @@ function layersFor(platform: string, image?: RackTierImage): string {
 
 /**
  * The builds of environments' layers a session's runs asked for, each once
- * for an environment, a platform and the tier image it is built over: a
- * second ask is answered what the first came to.
+ * for an environment, a platform, and the tier and its image it is built
+ * over: a second ask is answered what the first came to. Two tiers whose
+ * racks boot one image are two builds, as their manifests are kept under
+ * keys that name the tier.
  *
  * @remarks
  * A build that failed is tried again by the next run, once its session is
@@ -123,7 +125,9 @@ export class RackLayerBuilds {
    */
   publish(storage: StorageBackend, repo: string, envHash: string, target: EnvLayerTarget,
     onEvent?: (event: RackEnvironmentEvent) => void, signal?: AbortSignal): Promise<RackLayerBuild> {
-    return this.get(envHash, layersFor(target.platform, target.over), () => publishEnvLayers(storage, repo, envHash, target, onEvent, signal).then(
+    // Over an image, named by its tier too, as the manifest's key is
+    const name = target.over === undefined ? target.platform : `${layersFor(target.platform, target.over)} ${target.tier}`;
+    return this.get(envHash, name, () => publishEnvLayers(storage, repo, envHash, target, onEvent, signal).then(
       (manifest) => ({ over: manifest.over !== undefined }),
       (error: unknown) => error instanceof EnvironmentTargetRefused ? { reason: error.reason, said: error.message }
         : { reason: 'build-failed', said: error instanceof Error ? error.message : String(error) }));
@@ -641,9 +645,10 @@ export class RackFleet {
    * environment is a rack's once the environment's layers are kept for the
    * platform of a rack that could hold it: they are built first, for each
    * such platform, over the tier image each such rack names and whole for a
-   * rack that names none, and work whose environment no install makes for
-   * any of them, or whose builds fail, runs locally with the build's reason
-   * and words.
+   * rack that names none. A build over an image that fails is tried whole for
+   * its platform, which a rack of that image runs too. Work whose environment
+   * no install makes for any of them, or whose builds fail, runs locally with
+   * the build's reason and words: a whole build's, when one was tried.
    *
    * @param options - Whether it waits for a rack, what it asks, and how its
    *   environment's layers are built
@@ -683,12 +688,20 @@ export class RackFleet {
       const built = [...wanted.keys()].sort().map((name) => wanted.get(name)!);
       const made = await Promise.all(built.map(({ platform, image }) => options.layers(environment, platform, image)));
       if (options.signal?.aborted) return { kind: 'aborted' };
+      // A build over an image that failed is tried whole, once for its
+      // platform: the whole environment runs on a rack of that image too
+      const failedOver = new Set(built.filter(({ image }, i) => image !== undefined && made[i]!.reason !== undefined).map(({ platform }) => platform));
+      const wholes = [...failedOver].filter((platform) => !built.some((build) => build.image === undefined && build.platform === platform)).sort();
+      const whole = await Promise.all(wholes.map((platform) => options.layers(environment, platform)));
+      if (options.signal?.aborted) return { kind: 'aborted' };
       // Kept over the image asked for, or whole: an environment that does
       // not fit an image is kept whole, which a rack of that image runs too
-      this.kept = new Set(built.flatMap(({ platform, image }, i) => made[i]!.reason !== undefined ? []
-        : [layersFor(platform, made[i]!.over === true ? image : undefined)]));
+      this.kept = new Set([
+        ...built.flatMap(({ platform, image }, i) => made[i]!.reason !== undefined ? [] : [layersFor(platform, made[i]!.over === true ? image : undefined)]),
+        ...wholes.flatMap((platform, i) => whole[i]!.reason !== undefined ? [] : [layersFor(platform)]),
+      ]);
       if (this.kept.size === 0) {
-        const refused = made.find((result) => result.reason !== undefined)!;
+        const refused = whole.find((result) => result.reason !== undefined) ?? made.find((result) => result.reason !== undefined)!;
         return { kind: 'local', why: { reason: `environment:${refused.reason!}`, ...(refused.said !== undefined && { said: refused.said }) } };
       }
       const nowhere = this.unheld(asked);

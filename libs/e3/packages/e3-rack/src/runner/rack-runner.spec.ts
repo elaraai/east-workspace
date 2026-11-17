@@ -128,6 +128,8 @@ for (const failure of [
   { state: 'failed' as const, exitCode: -1, error: 'runner killed by signal', retry: false, expected: 'failed' },
   { state: 'failed' as const, exitCode: 7, error: 'task refused input', retry: true, expected: 'success' },
   { state: 'error' as const, exitCode: -1, error: 'timed out: e3 stopped the runner', retry: true, expected: 'error' },
+  // As it does where the rack names it the task's own failure
+  { state: 'error' as const, exitCode: -1, error: 'timed out: e3 stopped the runner after 5 min', reason: { code: 'task-error' }, retry: false, expected: 'error' },
   // A failure the rack gives a reason of its own for is the rack's, whatever its words begin with
   { state: 'error' as const, exitCode: -1, error: 'timed out: waiting for the guest to take its lease', reason: { code: 'guest-boot-failed', detail: 'no guest in 120 s' },
     retry: false, expected: 'success' },

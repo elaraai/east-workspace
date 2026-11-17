@@ -6,13 +6,14 @@
 import { it } from 'node:test';
 import assert from 'node:assert/strict';
 import { none, some } from '@elaraai/east';
-import { Budget } from '@elaraai/e3-core';
+import { Budget, type StorageBackend, type TierManifest } from '@elaraai/e3-core';
+import type { RackSession } from '../client/session.js';
 import { DEFAULT_RACK_POLICY } from '../routing/policy.js';
 import { E3_RACK_VERSION } from '../version.js';
 import type { SnapshotRack } from './capacity.js';
 import type { RackPlacementEvent } from '../protocol/placement.js';
-import { RACK_ONLY_WAIT_MS, RackLayerBuilds, RackPlacementReport, fallbackReason, hostBound, leaveLease, outgrownCap, readDelegation, thrownFallback,
-  transferFailed } from './rack-lease.js';
+import { RACK_ONLY_WAIT_MS, RackFleet, RackLayerBuilds, RackPlacementReport, fallbackReason, hostBound, leaveLease, outgrownCap, readDelegation, thrownFallback,
+  transferFailed, wholeResources, type RackLayerBuild, type RackTierImage, type RackVerdict } from './rack-lease.js';
 
 const GiB = 1024 ** 3;
 const needs = { kind: 'task' as const, cores: 8, memoryBytes: 16 * GiB, gpu: false };
@@ -121,4 +122,52 @@ it('tells a run where work is placed lease by lease: its wait, its claims, what 
   const silent = new RackPlacementReport(undefined, work);
   silent.claimed('rack-a', 'L1', needs);
   assert.equal(silent.rackLabel, 'rack-a');
+});
+
+/** A python runtime image's manifest, which names no distribution. */
+const TIER: TierManifest = { version: 1, python: { version: '3.11.2', executable: '/opt/venv/bin/python', base: '/usr/bin/python3',
+  site: '/opt/venv/lib/python3.11/site-packages' }, namespaces: [], distributions: [] };
+
+it('builds an environment\'s layers once for each tier over an image, though two tiers boot one image, as their manifests\' keys name the tier', async () => {
+  // A repository that holds no environment: a build fails at once, having asked for its spec
+  let asked = 0;
+  const storage = { objects: { read: () => { asked++; return Promise.reject(new Error('no such object')); } } } as unknown as StorageBackend;
+  const builds = new RackLayerBuilds();
+  const over = { digest: `sha256:${'a'.repeat(64)}`, manifest: TIER };
+  const target = (tier: string) => ({ platform: 'x86_64-manylinux_2_28', tier, e3Version: E3_RACK_VERSION, over });
+  assert.equal((await builds.publish(storage, '/repo', 'e'.repeat(64), target('py'))).reason, 'build-failed');
+  await builds.publish(storage, '/repo', 'e'.repeat(64), target('py'));
+  assert.equal(asked, 1, 'asked again for one tier, it is answered what the first build came to');
+  await builds.publish(storage, '/repo', 'e'.repeat(64), target('py-datascience'));
+  assert.equal(asked, 2, 'another tier over the same image is its own build');
+});
+
+it('tries an environment whole for a platform whose build over a rack\'s tier image failed, and leases the work to that rack when it is kept', async () => {
+  const digest = `sha256:${'b'.repeat(64)}`;
+  const resources = (cores: number, memoryBytes: number) => ({ cores: BigInt(cores), memoryBytes: BigInt(memoryBytes), gpus: 0n });
+  const rack: SnapshotRack = { rackId: 'r1', label: 'rack-a', tiers: ['py'], capacity: 4n, busy: 0n, healthy: true, bundledE3: some(E3_RACK_VERSION),
+    pendingApproval: false, reported: true, features: ['environments'], target: some('x86_64-manylinux_2_28'), problem: none,
+    resources: some(resources(8, 64 * GiB)), free: some(resources(8, 64 * GiB)), tierManifests: [{ tier: 'py', manifest: digest }] };
+  const session = { capacity: () => ({ racks: [rack], queued: 0n, mine: { pending: 0n, claimed: 0n } }), hubLost: false } as unknown as RackSession;
+  const verdict: RackVerdict = { eligible: true, tier: 'py', size: 'small', timeoutMinutes: 60, memoryLimit: null, gpu: false, environment: 'e'.repeat(64) };
+  const built: Array<string | undefined> = [];
+  const place = (outcome: (image?: RackTierImage) => RackLayerBuild) => new RackFleet(session, verdict, false).place({
+    rackOnly: false, unreachableWaitMs: 0, asks: (cores) => wholeResources(verdict, cores),
+    layers: (_environment, _platform, image) => { built.push(image?.digest); return Promise.resolve(outcome(image)); } });
+
+  // No wheel of a dependency for the image's Python, which the whole build's own Python has
+  const placed = await place((image) => image === undefined ? {} : { reason: 'no-wheel:onlyfor312', said: 'onlyfor312 has no wheel for it' });
+  assert.deepEqual(placed, { kind: 'rack', resources: wholeResources(verdict, 8) });
+  assert.deepEqual(built, [digest, undefined], 'built over the image, then whole');
+
+  // Neither is kept: the work runs here, by the whole build's reason and words
+  built.length = 0;
+  assert.deepEqual(await place((image) => image === undefined ? { reason: 'build-failed', said: 'the whole build failed' } : { reason: 'no-wheel:x', said: 'over it' }),
+    { kind: 'local', why: { reason: 'environment:build-failed', said: 'the whole build failed' } });
+  assert.deepEqual(built, [digest, undefined]);
+
+  // Kept over the image: nothing is built whole
+  built.length = 0;
+  assert.equal((await place(() => ({ over: true }))).kind, 'rack');
+  assert.deepEqual(built, [digest]);
 });

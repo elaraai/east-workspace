@@ -454,12 +454,16 @@ it('keeps the manifest of each tier image a rack reports, by its digest, says wh
   // bytes its digest names, and one that names an image without saying it
   // composes over one: none is a tier a session could build over
   await f.agent({ label: 'no text', report: { ...composing, tiers: { py: { digest: forged.digest } } } });
-  await f.agent({ label: 'forged', report: { ...composing, tiers: { py: { digest: forged.digest, manifest: py.text } } } });
+  const forger = await f.agent({ label: 'forged', report: { ...composing, tiers: { py: { digest: forged.digest, manifest: py.text } } } });
   await f.agent({ label: 'unsaid', report: { features: ['environments'], target: 'x86_64-manylinux_2_28', tiers: { py: { digest: py.digest, manifest: py.text } } } });
   const named = await racks();
   assert.deepEqual([named.get('no text'), named.get('forged'), named.get('unsaid')], [[], [], []]);
   assert.deepEqual(await manifest(forged.digest), none);
   assert.equal(lines.filter((line) => /the manifest it reports of its tier 'py' was not kept: its text is not the bytes its digest names/.test(line)).length, 1);
+  // Its rack reports it again with each heartbeat: refused each time, and said once
+  for (let beat = 0; beat < 3; beat++) await forger.heartbeat();
+  assert.equal(lines.filter((line) => /the manifest it reports of its tier 'py' was not kept/.test(line)).length, 1);
+  assert.deepEqual((await racks()).get('forged'), []);
 
   // A report this build cannot read of a tier refuses the heartbeat, as any other field does
   assert.throws(() => readRackReport(JSON.stringify({ features: [], tiers: { py: { digest: 'latest' } } })), /the report's tier 'py' names no manifest digest/);
@@ -884,4 +888,34 @@ it('serves a rack the layers built over the image of the lease\'s tier it names,
   const grant = await rack.claim(); assert.equal(grant?.leaseId, lease.leaseId);
   const { env } = await rack.storageRequest(grant, { envManifest: some(only) });
   assert(env.type === 'some'); assert.deepEqual(JSON.parse(env.value.manifestJson), alone);
+});
+
+it('asks again for the layers built over a rack\'s image once another session joins a lease that its claim polls found none of', async () => {
+  const f = await fixture({ leaseWindowMs: 40 });
+  const platform = 'x86_64-manylinux_2_28';
+  const image = tierImage('3.11.2');
+  const envHash = 'e'.repeat(64);
+  const layer = Buffer.from('a layer');
+  const digest = `sha256:${createHash('sha256').update(layer).digest('hex')}`;
+  await mkdir(dirname(environmentLayerPath(f.repo, digest)), { recursive: true });
+  await writeFile(environmentLayerPath(f.repo, digest), layer);
+  await mkdir(join(environmentLayersDir(f.repo), 'manifests'), { recursive: true });
+  const over = { tier: 'node', manifest: image.digest };
+  const built: EnvLayerManifest = { envHash, e3Version: E3_RACK_VERSION, baseImage: 'rack-tier:node', baseTier: 'node',
+    layers: [{ digest, sizeBytes: layer.length, mediaType: 'application/vnd.oci.image.layer.v1.tar+gzip' }], over };
+
+  const first = await f.session();
+  const work = { ...event([envHash]), environment: envHash };
+  const lease = await first.create(work);
+  const rack = await f.agent({ report: { features: ['environments', RACK_ENVIRONMENTS_OVER_TIER], target: platform, tiers: { node: { digest: image.digest, manifest: image.text } } } });
+  assert.equal(await rack.claim(), null, 'its session keeps no layers of the environment for the rack');
+  // Layers built over the rack's image since, by a session that has not joined the lease: its polls found none, and ask no more
+  await writeFile(join(environmentLayersDir(f.repo), 'manifests', envManifestName(envManifestKey(envHash, E3_RACK_VERSION, platform, over))!), JSON.stringify(built));
+  assert.equal(await rack.claim(), null);
+  // The session joins the lease, having built them
+  const second = await f.session();
+  assert.equal((await second.create(work)).attached, true);
+  const grant = await rack.claim(); assert.equal(grant?.leaseId, lease.leaseId);
+  const { env } = await rack.storageRequest(grant, { envManifest: some(envHash) });
+  assert(env.type === 'some'); assert.deepEqual(JSON.parse(env.value.manifestJson), built);
 });

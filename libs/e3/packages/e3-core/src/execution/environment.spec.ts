@@ -36,6 +36,40 @@ const encodeFile = encodeBeast2For(BlobType);
 interface CapturedSdist { filename: string; hash: string }
 
 /**
+ * Writes a python project that hatchling builds: its manifest, which names
+ * what it depends on, and a package of its name whose `MARKER` is `marker`.
+ *
+ * @param dir - The project's directory
+ * @param name - Its name, and its package's
+ * @param dependencies - What it depends on
+ * @param marker - Its package's `MARKER`
+ * @param more - More of its manifest, written before its build system
+ */
+function pythonProject(dir: string, name: string, dependencies: readonly string[], marker: string, more = ''): void {
+  fs.mkdirSync(path.join(dir, 'src', name), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'pyproject.toml'),
+    `[project]\nname = "${name}"\nversion = "0.1.0"\nrequires-python = ">=3.11"\n` +
+    `dependencies = [${dependencies.map((d) => `"${d}"`).join(', ')}]\n` + more +
+    '\n[build-system]\nrequires = ["hatchling"]\nbuild-backend = "hatchling.build"\n');
+  fs.writeFileSync(path.join(dir, 'src', name, '__init__.py'), `MARKER = "${marker}"\n`);
+}
+
+/**
+ * Builds a project's sdist and stores it as an environment's file, as a
+ * capture does.
+ *
+ * @param project - The project's directory
+ * @param out - Where its sdist is built: a directory of its own
+ * @param write - Stores a file's bytes, answering its object's hash
+ * @returns The sdist's file name and its object's hash
+ */
+async function storedSdist(project: string, out: string, write: (bytes: Uint8Array) => Promise<string>): Promise<CapturedSdist> {
+  execFileSync('uv', ['build', '--sdist', '--out-dir', out], { cwd: project, stdio: 'ignore' });
+  const filename = fs.readdirSync(out).find((f) => f.endsWith('.tar.gz'))!;
+  return { filename, hash: await write(fs.readFileSync(path.join(out, filename))) };
+}
+
+/**
  * A uv workspace of two members, locked, with its root's manifest and lock and
  * each member's sdist stored as an environment's files (#1654).
  *
@@ -59,25 +93,12 @@ Promise<{ pyproject: string; lock: string; features: CapturedSdist; trainer: Cap
     'dependencies = ["six", "tomli", "markdown-it-py[linkify]", "features", "trainer"]\n\n' +
     '[tool.uv.workspace]\nmembers = ["packages/*"]\n\n' +
     '[tool.uv.sources]\nfeatures = { workspace = true }\ntrainer = { workspace = true }\n');
-  const member = (name: string, dependencies: string[]): void => {
-    const at = path.join(dir, 'packages', name);
-    fs.mkdirSync(path.join(at, 'src', name), { recursive: true });
-    fs.writeFileSync(path.join(at, 'pyproject.toml'),
-      `[project]\nname = "${name}"\nversion = "0.1.0"\nrequires-python = ">=3.11"\n` +
-      `dependencies = [${dependencies.map((d) => `"${d}"`).join(', ')}]\n` +
-      (dependencies.includes('features') ? '\n[tool.uv.sources]\nfeatures = { workspace = true }\n' : '\n[dependency-groups]\ndev = ["iniconfig"]\n') +
-      '\n[build-system]\nrequires = ["hatchling"]\nbuild-backend = "hatchling.build"\n');
-    fs.writeFileSync(path.join(at, 'src', name, '__init__.py'), `MARKER = "${name}"\n`);
-  };
+  const member = (name: string, dependencies: string[]): void => pythonProject(path.join(dir, 'packages', name), name, dependencies, name,
+    dependencies.includes('features') ? '\n[tool.uv.sources]\nfeatures = { workspace = true }\n' : '\n[dependency-groups]\ndev = ["iniconfig"]\n');
   member('features', ['idna']);
   member('trainer', ['six', 'features', 'jaraco.classes', 'jaraco.functools']);
   execFileSync('uv', ['lock'], { cwd: dir, stdio: 'ignore' });
-  const sdistOf = async (name: string): Promise<CapturedSdist> => {
-    const out = path.join(dir, 'dist', name);
-    execFileSync('uv', ['build', '--sdist', '--out-dir', out], { cwd: path.join(dir, 'packages', name), stdio: 'ignore' });
-    const filename = fs.readdirSync(out).find((f) => f.endsWith('.tar.gz'))!;
-    return { filename, hash: await write(fs.readFileSync(path.join(out, filename))) };
-  };
+  const sdistOf = (name: string): Promise<CapturedSdist> => storedSdist(path.join(dir, 'packages', name), path.join(dir, 'dist', name), write);
   return {
     pyproject: await write(fs.readFileSync(path.join(dir, 'pyproject.toml'))),
     lock: await write(fs.readFileSync(path.join(dir, 'uv.lock'))),
@@ -390,6 +411,8 @@ describe('materializeEnvironment', () => {
   // self-skip where uv is unavailable, matching the integration e2e.
   const hasUv = uvOnPath();
 
+  const write = (bytes: Uint8Array): Promise<string> => storage.objects.write(repo, encodeFile(bytes));
+
   it('materializes a single-project python env: sdist installs, uv pip check passes, imports work — in a repository named absolutely, and in one named relative to the working directory',
     { skip: hasUv ? false : 'uv not on PATH' }, async () => {
       // Build a minimal locked uv project (no third-party deps → no registry
@@ -444,7 +467,7 @@ describe('materializeEnvironment', () => {
     { skip: hasUv ? false : 'uv not on PATH' }, async () => {
       const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-py-ws-'));
       try {
-        const { pyproject, lock, features, trainer } = await memberWorkspace(ws, (bytes) => storage.objects.write(repo, encodeFile(bytes)));
+        const { pyproject, lock, features, trainer } = await memberWorkspace(ws, write);
         /** The modules of the eight that an environment built from the spec imports. */
         const imports = async (spec: EnvironmentSpec): Promise<string[]> => {
           const envHash = await storage.objects.write(repo, encodeBeast2For(EnvironmentSpecType)(spec));
@@ -481,6 +504,40 @@ describe('materializeEnvironment', () => {
           await assert.rejects(() => materializeEnvironment(storage, repo, envHash), refusal);
           assert.ok(!fs.existsSync(path.resolve(repo, 'envs', envHash)), 'nothing was built');
         }
+      } finally {
+        fs.rmSync(ws, { recursive: true, force: true });
+      }
+    });
+
+  it('installs what a member\'s environment requires from where the lock pins it, an explicit index of the workspace\'s, and a local package it depends on from its sdist, never a registry',
+    { skip: hasUv ? false : 'uv not on PATH' }, async () => {
+      const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-py-index-'));
+      try {
+        // A registry only the workspace's sources name, which no install that
+        // resolves again from a registry reads, holding a package that depends
+        // on a name the workspace holds as a member
+        const index = path.join(ws, 'index');
+        pythonProject(path.join(ws, 'regpkg'), 'regpkg', ['helper'], 'regpkg-of-the-index');
+        execFileSync('uv', ['build', '--wheel', '--out-dir', index], { cwd: path.join(ws, 'regpkg'), stdio: 'ignore' });
+        const root = path.join(ws, 'root');
+        pythonProject(path.join(root, 'packages', 'helper'), 'helper', [], 'helper-of-the-workspace');
+        pythonProject(path.join(root, 'packages', 'pricing'), 'pricing', [], 'pricing-of-the-workspace');
+        fs.writeFileSync(path.join(root, 'pyproject.toml'),
+          '[project]\nname = "ws-root"\nversion = "0.1.0"\nrequires-python = ">=3.11"\ndependencies = ["regpkg", "pricing"]\n\n' +
+          '[tool.uv.workspace]\nmembers = ["packages/*"]\n\n' +
+          `[[tool.uv.index]]\nname = "local"\nurl = ${JSON.stringify(index)}\nformat = "flat"\nexplicit = true\n\n` +
+          '[tool.uv.sources]\nregpkg = { index = "local" }\npricing = { workspace = true }\n');
+        execFileSync('uv', ['lock'], { cwd: root, stdio: 'ignore' });
+        const sdistOf = (name: string): Promise<CapturedSdist> => storedSdist(path.join(root, 'packages', name), path.join(ws, 'dist', name), write);
+        // As the capture makes it: the member, and the local package what it requires depends on
+        const envHash = await storage.objects.write(repo, encodeBeast2For(EnvironmentSpecType)(variant('workspace_python', {
+          pyproject: await write(fs.readFileSync(path.join(root, 'pyproject.toml'))), lock: await write(fs.readFileSync(path.join(root, 'uv.lock'))),
+          subjects: ['pricing'], sdists: [await sdistOf('helper'), await sdistOf('pricing')], requires: ['regpkg'],
+        })));
+        const [bin] = await materializeEnvironment(storage, repo, envHash);
+        const out = execFileSync(path.join(bin!, process.platform === 'win32' ? 'python.exe' : 'python'),
+          ['-c', 'import regpkg, helper, pricing; print(regpkg.MARKER, helper.MARKER, pricing.MARKER)'], { encoding: 'utf-8' });
+        assert.deepStrictEqual(out.trim().split(' '), ['regpkg-of-the-index', 'helper-of-the-workspace', 'pricing-of-the-workspace']);
       } finally {
         fs.rmSync(ws, { recursive: true, force: true });
       }

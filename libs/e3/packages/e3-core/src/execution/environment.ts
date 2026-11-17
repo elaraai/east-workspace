@@ -52,12 +52,13 @@ import { gunzipSync } from 'node:zlib';
 import { Readable } from 'node:stream';
 import { extract as tarExtract } from 'tar-stream';
 import { BlobType, decodeBeast2For, isTypeValueEqual, readBeast2Type, toEastTypeValue } from '@elaraai/east';
+import { canonicalPythonName, pythonLeftOut, readRequiredDistribution } from '@elaraai/e3';
 import { EnvironmentSpecType, type EnvironmentSpec } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/index.js';
 import { withKeyedLock } from '../keyed-mutex.js';
 import { isObjectHash } from '../objects.js';
 import {
-  canonicalDistributionName, leftToTier, pythonMinor, pythonSatisfies, recordedSiteFiles, type InstalledDistribution, type TierManifest,
+  leftToTier, pythonMinor, pythonSatisfies, recordedSiteFiles, type InstalledDistribution, type TierManifest,
 } from '../tier-manifest.js';
 import { getPidStartTime, processExited } from './processHelpers.js';
 import { checkProcessSettings, giveDirectory, type ProcessSettings } from './processExec.js';
@@ -194,10 +195,10 @@ function distributionName(name: string, what: string): string {
  * @throws {Error} When it is neither
  */
 function requiredDistribution(required: string): string {
-  const parts = /^([^[\]]+)(?:\[([^[\]]+)\])?$/.exec(required);
-  if (parts === null) throw new Error(`environment materialization: the required distribution '${required}' is not a package's name`);
-  distributionName(parts[1]!, 'the required distribution');
-  for (const extra of parts[2]?.split(',') ?? []) distributionName(extra, `the extra of the required distribution '${parts[1]!}'`);
+  const read = readRequiredDistribution(required);
+  if (read === null) throw new Error(`environment materialization: the required distribution '${required}' is not a package's name`);
+  distributionName(read.name, 'the required distribution');
+  for (const extra of read.extras) distributionName(extra, `the extra of the required distribution '${read.name}'`);
   return required;
 }
 
@@ -251,10 +252,13 @@ async function writeSdists(
  * @remarks
  * The locked third-party dependencies first ({@link syncedPackages}); then,
  * for members of a workspace, the distributions the environment requires
- * beside its members' own, each with the extras its spec names, at the
- * version the lock pins and checked against the lock's hashes, with what it
- * depends on; then the project's own packages, from their sdists; and a
- * check that what is installed is whole.
+ * beside its members' own, each with the extras its spec names, with what it
+ * depends on: by a second sync of the lock, which leaves out everything else
+ * the lock installs (`pythonLeftOut`), so each is installed as the lock pins
+ * it and from where the lock pins it — an explicit index of the workspace's
+ * among them — and none of the local packages they depend on is taken from a
+ * registry; then the project's own packages, from their sdists; and a check
+ * that what is installed is whole.
  *
  * @param platform - The platform it is installed for, when not this machine's:
  *   its dependencies are then the platform's wheels alone, copied, the
@@ -291,16 +295,15 @@ async function buildPython(
   try {
     await run('uv', [...SYNC, ...synced, ...forPlatform], buildDir, 'locked dependency sync', settings);
     if (required.length > 0) {
-      // The lock's pins and hashes of everything it holds, a development
-      // group's among them, as constraints: a required distribution, and
-      // what it and its extras depend on, is installed as the lock names it,
-      // and refused when its hash is not the lock's
-      const constraints = path.join(buildDir, '.constraints.txt');
-      await run('uv', ['export', '--frozen', '--all-packages', '--no-emit-workspace', '--no-emit-local', '--quiet', '--output-file', constraints],
-        buildDir, 'locked versions export', settings);
-      await run('uv', ['pip', 'install', '--python', venv, '--constraint', constraints, ...forPlatform, ...required],
-        buildDir, 'required distribution install', settings);
-      await fs.rm(constraints, { force: true });
+      // A sync of the whole workspace's lock, its default groups among it as
+      // any sync of it has, that leaves out all but the required
+      // distributions and what they and their extras need. It installs each
+      // from where the lock pins it, as no install that resolves again from a
+      // registry does; `--inexact` keeps what the members' own sync installed.
+      const leftOut = pythonLeftOut(await fs.readFile(path.join(buildDir, 'uv.lock'), 'utf-8'), required)
+        .map((name) => distributionName(name, 'the locked distribution'));
+      await run('uv', [...SYNC, '--inexact', '--all-packages', ...leftOut.flatMap((name) => ['--no-install-package', name]), ...forPlatform],
+        buildDir, 'required distribution sync', settings);
     }
   } catch (err) {
     throw (platform === undefined ? null : unbuiltWheel(err, platform)) ?? err;
@@ -1035,7 +1038,7 @@ async function leaveToTier(buildDir: string, tier: TierManifest): Promise<number
   const left = leftToTier(installed, tier);
   const root = `${site}${path.sep}`;
   for (const distribution of installed) {
-    if (!left.has(canonicalDistributionName(distribution.name))) continue;
+    if (!left.has(canonicalPythonName(distribution.name))) continue;
     for (const { file } of recordedSiteFiles(distribution.record)) {
       // A record is a wheel's own account of itself: only what it names in
       // the site directory is removed

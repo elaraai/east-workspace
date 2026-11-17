@@ -25,10 +25,29 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { decodeBeast2For } from '@elaraai/east';
 import { EnvironmentSpecType } from '@elaraai/e3-types';
-import { captureEnvironment, captureAutoEnvironment, pythonRequires, type UvLock } from './environment-capture.js';
+import { captureEnvironment, captureAutoEnvironment, canonicalPythonName, pythonLeftOut, pythonRequires, type UvLock } from './environment-capture.js';
 
 function toolAvailable(cmd: string): boolean {
   try { execFileSync(cmd, ['--version'], { stdio: 'ignore', shell: process.platform === 'win32' }); return true; } catch { return false; }
+}
+
+/**
+ * Writes a python project that hatchling builds, with an empty package of its
+ * import name: its manifest names what it depends on.
+ *
+ * @param dir - The project's directory
+ * @param name - Its name
+ * @param version - Its version
+ * @param deps - What it depends on
+ * @param more - More of its manifest, written before its build system
+ */
+function hatchlingProject(dir: string, name: string, version: string, deps: readonly string[], more = ''): void {
+  const module = canonicalPythonName(name).replaceAll('-', '_');
+  fs.mkdirSync(path.join(dir, 'src', module), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'pyproject.toml'),
+    `[project]\nname = "${name}"\nversion = "${version}"\nrequires-python = ">=3.11"\ndependencies = [${deps.map((d) => `"${d}"`).join(', ')}]\n` + more +
+    '\n[build-system]\nrequires = ["hatchling"]\nbuild-backend = "hatchling.build"\n');
+  fs.writeFileSync(path.join(dir, 'src', module, '__init__.py'), '');
 }
 
 /** Capture a workspace member's env and return its sorted sdist filenames,
@@ -116,12 +135,12 @@ describe('python closure capture (#278)', () => {
       { name: 'elaraai-east-py-io', source: { editable: 'vendor/io' } },
       { name: 'six', source: registry },
     ] };
-    assert.deepStrictEqual(pythonRequires('/ws', lock, ['east-py-std']),
+    assert.deepStrictEqual(pythonRequires('/ws', lock, ['east-py-std'], 'test'),
       ['elaraai-east-py', 'elaraai-east-py-cli', 'elaraai-east-py-std'], 'not the datascience package its runner does not name');
-    assert.deepStrictEqual(pythonRequires('/ws', lock, ['east-py-datascience', 'east-py-io', 'east-py-std', 'six']),
+    assert.deepStrictEqual(pythonRequires('/ws', lock, ['east-py-datascience', 'east-py-io', 'east-py-std', 'six'], 'test'),
       ['elaraai-east-py', 'elaraai-east-py-cli', 'elaraai-east-py-datascience', 'elaraai-east-py-std'], 'a stock package alone, and none held locally');
-    assert.deepStrictEqual(pythonRequires('/ws', lock, []), ['elaraai-east-py', 'elaraai-east-py-cli'], 'the runtime, whatever the runner names');
-    assert.deepStrictEqual(pythonRequires('/ws', { version: 1, package: [{ name: 'six', source: registry }] }, ['east-py-std']), [],
+    assert.deepStrictEqual(pythonRequires('/ws', lock, [], 'test'), ['elaraai-east-py', 'elaraai-east-py-cli'], 'the runtime, whatever the runner names');
+    assert.deepStrictEqual(pythonRequires('/ws', { version: 1, package: [{ name: 'six', source: registry }] }, ['east-py-std'], 'test'), [],
       'a lock that holds none of them requires none: they come from where the task runs');
 
     // With the extras the workspace declares each with, on its root or a
@@ -135,11 +154,105 @@ describe('python closure capture (#278)', () => {
       // A registry package's own extras are its own: no declaration of the workspace's
       { name: 'some-plugin', source: registry, dependencies: [{ name: 'elaraai-east-py-std', extra: ['theirs'] }] },
     ] };
-    assert.deepStrictEqual(pythonRequires('/ws', declared, ['east-py-datascience', 'east-py-std']),
+    assert.deepStrictEqual(pythonRequires('/ws', declared, ['east-py-datascience', 'east-py-std'], 'test'),
       ['elaraai-east-py', 'elaraai-east-py-cli', 'elaraai-east-py-datascience[lightning,torch]', 'elaraai-east-py-std']);
-    assert.deepStrictEqual(pythonRequires('/ws', declared, ['east-py-std']), ['elaraai-east-py', 'elaraai-east-py-cli', 'elaraai-east-py-std'],
+    assert.deepStrictEqual(pythonRequires('/ws', declared, ['east-py-std'], 'test'), ['elaraai-east-py', 'elaraai-east-py-cli', 'elaraai-east-py-std'],
       'only of what the runner names');
+
+    // One the lock holds as a local archive is refused, as a member's own is:
+    // an install would otherwise take a registry's copy of it
+    const archived: UvLock = { version: 1, package: [{ name: 'elaraai-east-py', source: { path: 'wheels/elaraai_east_py-1.0.0-py3-none-any.whl' } },
+      { name: 'elaraai-east-py-cli', source: registry }] };
+    assert.throws(() => pythonRequires('/ws', archived, [], 'score'),
+      /Environment for 'score': local archive dependency 'elaraai-east-py' is not supported/);
+    assert.strictEqual(canonicalPythonName('Elaraai_East.Py--Std'), 'elaraai-east-py-std');
   });
+
+  it('leaves out of the sync of the required distributions every package the lock installs from elsewhere that none of them needs, with its extras', () => {
+    const lock = [
+      'version = 1',
+      'requires-python = ">=3.11"',
+      '',
+      '[[package]]', 'name = "ws-root"', 'version = "0.1.0"', 'source = { virtual = "." }',
+      'dependencies = [{ name = "needed-a" }, { name = "with-extras", extra = ["x"] }, { name = "own-only" }]',
+      '',
+      '[[package]]', 'name = "member"', 'version = "0.1.0"', 'source = { editable = "packages/member" }',
+      'dependencies = [{ name = "own-only" }, { name = "from-git" }]',
+      '',
+      '[[package]]', 'name = "helper"', 'version = "0.1.0"', 'source = { editable = "packages/helper" }',
+      'dependencies = [{ name = "helper-dep" }]',
+      '',
+      // A registry package that depends on a local one, and on one locked at two versions
+      '[[package]]', 'name = "needed-a"', 'version = "1.0"', 'source = { registry = "https://pypi.org/simple" }',
+      'dependencies = [{ name = "forked" }, { name = "helper" }]',
+      '',
+      '[[package]]', 'name = "forked"', 'version = "1.0"', 'source = { registry = "https://pypi.org/simple" }', 'resolution-markers = ["python_full_version < \'3.12\'"]',
+      '[[package]]', 'name = "forked"', 'version = "2.0"', 'source = { registry = "https://pypi.org/simple" }', 'resolution-markers = ["python_full_version >= \'3.12\'"]',
+      '',
+      '[[package]]', 'name = "helper-dep"', 'version = "1.0"', 'source = { registry = "https://pypi.org/simple" }',
+      '',
+      // One extra asked for, one not, and one that asks for its own others
+      '[[package]]', 'name = "with-extras"', 'version = "1.0"', 'source = { registry = "https://download.example/simple" }',
+      '[package.optional-dependencies]',
+      'x = [{ name = "extra-x" }]',
+      'y = [{ name = "extra-y" }]',
+      'all = [{ name = "with-extras", extra = ["x", "y"] }]',
+      '',
+      '[[package]]', 'name = "extra-x"', 'version = "1.0"', 'source = { registry = "https://pypi.org/simple" }',
+      '[[package]]', 'name = "extra-y"', 'version = "1.0"', 'source = { registry = "https://pypi.org/simple" }',
+      '[[package]]', 'name = "own-only"', 'version = "1.0"', 'source = { registry = "https://pypi.org/simple" }',
+      '[[package]]', 'name = "from-git"', 'version = "1.0"', 'source = { git = "https://example.invalid/repo?rev=abc#abc" }',
+      '[[package]]', 'name = "archive"', 'version = "1.0"', 'source = { path = "wheels/archive-1.0-py3-none-any.whl" }',
+      '',
+    ].join('\n');
+    assert.deepStrictEqual(pythonLeftOut(lock, ['needed-a', 'with-extras[x]']), ['extra-y', 'from-git', 'own-only'],
+      'what a local package a required one depends on needs is needed too, both versions of a forked one, and no local package is listed');
+    assert.deepStrictEqual(pythonLeftOut(lock, ['Needed_A', 'with-extras[all]']), ['from-git', 'own-only'], 'an extra that asks for others of its own');
+    assert.deepStrictEqual(pythonLeftOut(lock, []), ['extra-x', 'extra-y', 'forked', 'from-git', 'helper-dep', 'needed-a', 'own-only', 'with-extras']);
+    assert.throws(() => pythonLeftOut(lock, ['needed-a[x']), /'needed-a\[x' is not a package's name/);
+    assert.throws(() => pythonLeftOut('version = 2\n', []), /unsupported uv\.lock version 2/);
+  });
+
+  it('carries the sdist of each local package a registry package depends on: one a required distribution does, and one a member reaches through it',
+    { skip: hasUv ? false : 'uv not on PATH' }, () => {
+      // A registry of this machine's, which only the workspace's sources name: the runtime's
+      // command, and another package, each depending on a name the workspace holds as a member
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-cap-reg-'));
+      try {
+        const flat = path.join(dir, 'flat');
+        const wheel = (name: string, version: string, deps: string[]): void => {
+          const project = path.join(dir, 'src', name);
+          hatchlingProject(project, name, version, deps);
+          execFileSync('uv', ['build', '--wheel', '--out-dir', flat, project], { stdio: 'ignore', shell: process.platform === 'win32' });
+        };
+        wheel('elaraai-east-py-cli', '9.9.9', ['clihelper']);
+        wheel('regpkg', '1.0.0', ['helper']);
+        const root = path.join(dir, 'ws');
+        const member = (name: string, deps: string[]): void => hatchlingProject(path.join(root, 'packages', name), name, '0.1.0', deps,
+          deps.includes('regpkg') ? '\n[tool.uv.sources]\nregpkg = { index = "local" }\n' : '');
+        member('helper', []);
+        member('clihelper', []);
+        member('pricing', []);
+        member('viareg', ['regpkg']);
+        fs.writeFileSync(path.join(root, 'pyproject.toml'),
+          '[project]\nname = "root"\nversion = "0.1.0"\nrequires-python = ">=3.11"\ndependencies = ["elaraai-east-py-cli"]\n\n' +
+          '[tool.uv.workspace]\nmembers = ["packages/*"]\n\n' +
+          `[[tool.uv.index]]\nname = "local"\nurl = ${JSON.stringify(flat)}\nformat = "flat"\nexplicit = true\n\n` +
+          '[tool.uv.sources]\nelaraai-east-py-cli = { index = "local" }\nregpkg = { index = "local" }\n');
+        execFileSync('uv', ['lock'], { cwd: root, stdio: 'ignore', shell: process.platform === 'win32' });
+        const pricing = decodeBeast2For(EnvironmentSpecType)(captureEnvironment({ python: { project: path.join(root, 'packages', 'pricing') } }, 'test',
+          (buf) => createHash('sha256').update(buf).digest('hex')));
+        assert.ok(pricing.type === 'workspace_python');
+        assert.deepStrictEqual(pricing.value.requires, ['elaraai-east-py-cli']);
+        assert.deepStrictEqual(pricing.value.sdists.map((s) => s.filename).sort(), ['clihelper-0.1.0.tar.gz', 'pricing-0.1.0.tar.gz'],
+          'the member a required distribution depends on rides: no install takes it from a registry');
+        assert.deepStrictEqual(capture(path.join(root, 'packages', 'viareg')).sdists, ['clihelper', 'helper', 'viareg'], 'nor one a member reaches through a registry package');
+        // The sync of the required distributions installs no other registry package
+        assert.deepStrictEqual(pythonLeftOut(fs.readFileSync(path.join(root, 'uv.lock'), 'utf-8'), pricing.value.requires), ['regpkg']);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    });
 
   it('does NOT cross-invalidate: editing an unrelated sibling leaves the spec byte-identical',
     { skip: hasUv ? false : 'uv not on PATH' }, () => {

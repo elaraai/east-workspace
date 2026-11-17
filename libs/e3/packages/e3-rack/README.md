@@ -783,7 +783,9 @@ environment's interpreter to the image's with e3-core's
 `composeEnvironmentOverTier(<tree>, manifest.python.base)`: no layer holds a
 link that leads out of the environment, so that one link is the agent's to
 make. An agent that reports the feature is still answered a whole environment
-when its source built one: for an environment that does not fit the image.
+when its source built one: for an environment that does not fit the image,
+and for one whose build over the image failed, which its source then builds
+whole for the platform.
 
 A lease says what it asks of a rack, in its event's `resources`: `{ "kind":
 "unit", "cores": 1, "memoryBytes": 3328599654, "reserveBytes": 2219066436,

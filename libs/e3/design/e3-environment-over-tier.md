@@ -61,6 +61,15 @@ Each python runtime image (`docker/images/Dockerfile.east-py`,
 - Written to `/opt/e3/tier-manifest.json` by `tier-manifest.py`, a file of `@elaraai/e3-core`
   (standard library alone), sorted by name. An image's later layer that
   installs more writes it again: the datascience image's is its own.
+- `distributions` are those of the site directory alone: an environment
+  built over the tier adds that directory to its path, and no other of the
+  interpreter's (the system's, a parent virtualenv's, `PYTHONPATH`'s). A name
+  installed there twice, which no install makes, is listed for neither, as
+  which files are whose cannot be told.
+- Read by e3, it is checked as what it is, since it arrives from a rack and
+  is written into an environment's `pyvenv.cfg` and path file: the version a
+  Python's, and the interpreter, base and site absolute paths, each on one
+  line.
 - `base` is the interpreter a virtualenv made over the tier runs: the one the
   image's own virtualenv was made from.
 - `namespaces` is each directory at the top of the site directory that holds

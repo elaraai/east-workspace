@@ -237,12 +237,12 @@ export function createRackBody(options: RackDelegationOptions): TaskBodyExecutor
       }
       // e3-core, which the rack ran, records its own timeout as an error whose
       // message begins `timed out:` (as an abort's begins `cancelled:`), and
-      // the rack gives it no reason. The task would use its time up again
-      // here, so that error stands. Any other error is the rack's, and the
-      // work runs locally: so is one the rack gives a reason of its own for,
-      // whatever its words begin with. A task's own failure is its verdict,
-      // whatever its message mentions, unless the policy retries failures
-      // locally.
+      // the rack gives it no reason, or `task-error`, which names the task's
+      // own failure. The task would use its time up again here, so that error
+      // stands. Any other error is the rack's, and the work runs locally: so
+      // is one the rack gives a reason of its own for, whatever its words
+      // begin with. A task's own failure is its verdict, whatever its message
+      // mentions, unless the policy retries failures locally.
       // A transfer that failed its tries is the link's fault: a run that
       // keeps its work for a rack leases it once more before it runs locally.
       if (rackOnly && !leasedAgain && transferFailed(reason)) {
@@ -250,7 +250,7 @@ export function createRackBody(options: RackDelegationOptions): TaskBodyExecutor
         untee?.(); untee = undefined;
         continue leases;
       }
-      const timedOut = state === 'error' && reason === undefined && /^timed out:/.test(result.error ?? '');
+      const timedOut = state === 'error' && (reason === undefined || reason.code === 'task-error') && /^timed out:/.test(result.error ?? '');
       if (state === 'error' ? !timedOut : policy.retryTaskFailuresLocally) return await fallback(result.error, 'rack execution failed');
       return { inputsHash: request.ids.inHash, executionId: attempt.executionId, cached: false, state, outputHash: null,
         exitCode: result.exitCode ?? null, duration: duration(), error: result.error ?? null, cancelled: false, ...peak };
