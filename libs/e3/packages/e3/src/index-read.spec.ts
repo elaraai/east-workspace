@@ -1383,6 +1383,11 @@ describe('a nested series index\'s readers', () => {
       /subtotals: the collection at \['teams', 'hours'\] rolls up by "median", which is no rollup/);
     assert.throws(over((readers) => readers.subtotals({ collection: ['teams', 'hours'], row: 'Y-1', rollup: 'sum', level: 'day', from, to })),
       /subtotals: the index keeps subtotals at week, month, quarter, year, and none at "day"/);
+    // A node's path given as its keys alone, where each is an id of the index's (#1540): refused in words that write it.
+    assert.throws(over((readers) => readers.items({ collection: ['teams', 'jobs'], row: 'Y-1', path: ['T-1'] as never, from, to })),
+      /^Error: e3\.index 'yards\.yards_in_time' items: `path` names a node by its child rows' keys from the row down, each an id of the index's under its rows' place — path: \[variant\('teams', key\)\]$/);
+    assert.throws(over((readers) => readers.items({ collection: ['visits'], row: 'Y-1', path: ['T-1'] as never, from, to })),
+      /items: `path` names a node by its child rows' keys from the row down, each an id of the index's under its rows' place — a collection of the row itself has no path: leave `path` out$/);
 
     // An index that declares no summary keeps no totals
     const Shed = StructType({ name: StringType, visits: JobsType });

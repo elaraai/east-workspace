@@ -36,7 +36,9 @@ import {
   type BlockBuilder, type BooleanType, type EastType, type ExprType, type KeyBound, type StructType, type SubtypeExprOrValue, type ValueTypeOf,
   type VariantType,
 } from '@elaraai/east';
-import { RecordLevelType, RecordNestedPathType, RecordNestedTotalsType, RecordRollupType, RecordSummaryTotalsType, type NestedPathType } from '@elaraai/e3-types';
+import {
+  RecordLevelType, RecordNestedPathType, RecordNestedTotalsType, RecordRollupType, RecordSummaryTotalsType, nestedIdCase, type NestedPathType,
+} from '@elaraai/e3-types';
 import { AREA_FINEST_LEVEL, AREA_FNS, AREA_UNPLACED } from './record-area.js';
 import { INTERVAL_LEAF } from './record-interval.js';
 import { optionField, type OptionField, type RowType } from './record-keys.js';
@@ -970,6 +972,21 @@ function nestedReaders(entries: Entries): NestedReaders {
   /** A collection's place, as a refusal names it: `['members', 'load']`. */
   const placeWords = (collection: NestedCollection): string => `[${collection.place.map((name) => `'${name}'`).join(', ')}]`;
 
+  /**
+   * A node's path as a reader is given it: its child rows' keys from the row down, each an id of the index's (#1540).
+   * One that is not — a key as it is, where its id is wanted — is refused in words that write the path.
+   */
+  const pathGiven = (reader: string, collection: NestedCollection, path: unknown) => {
+    try {
+      return East.value((path ?? []) as never, keyed().KeysType);
+    } catch (cause) {
+      const ids = collection.place.slice(0, -1).map((_, i) => `variant('${nestedIdCase(collection.place.slice(0, i + 1))}', key)`);
+      const wanted = ids.length === 0 ? 'a collection of the row itself has no path: leave `path` out' : `path: [${ids.join(', ')}]`;
+      throw new Error(`${entries.name} ${reader}: \`path\` names a node by its child rows' keys from the row down, each an id of the index's ` +
+        `under its rows' place — ${wanted}`, { cause });
+    }
+  };
+
   /** The collection a reader is given by its place, the node it reads, and the window, refused where they do not fit. */
   const written = (reader: string, window: unknown) => {
     const given = (window ?? {}) as { collection?: unknown; row?: unknown; path?: unknown; from?: unknown; to?: unknown };
@@ -986,7 +1003,7 @@ function nestedReaders(entries: Entries): NestedReaders {
     return {
       collection,
       row: East.value(given.row as never, rowKeyType),
-      path: East.value((given.path ?? []) as never, keyed().KeysType),
+      path: pathGiven(reader, collection, given.path),
       from: instant(entries, reader, 'from', given.from),
       to: instant(entries, reader, 'to', given.to),
     };
