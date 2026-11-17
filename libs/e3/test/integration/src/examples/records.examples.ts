@@ -328,17 +328,18 @@ export const recordReadNestedIndex = example({
     });
     const inTime = e3.index(lines.indexes.lines_in_time);
     const Window = [StringType, StringType, DateTimeType, DateTimeType] as const;
-    // A read names a node: its collection's place — the field names from the row down — the row's key, and the Dict
-    // keys from the row down to the node. `items` gives a node's own items that overlap `[from, to)`, each with its id.
+    // A read names a node: its collection's place — the field names from the row down — the row's key, and the child
+    // rows' keys from the row down to the node, each under its rows' place (`variant('units', unit)`). `items` gives a
+    // node's own items that overlap `[from, to)`, each with its id.
     const sheetsOnUnit = e3.function('sheets_on_unit', { inputs: [inTime], args: [...Window], output: FloatType },
       ($, linesInTime, line, unit, from, to) => {
         const sheets = $.let(0.0);
-        linesInTime.items({ collection: ['units', 'jobs'], row: line, path: [unit], from, to }).each($, ($, job) => { $.assign(sheets, sheets.add(job.sheets)); });
+        linesInTime.items({ collection: ['units', 'jobs'], row: line, path: [variant('units', unit)], from, to }).each($, ($, job) => { $.assign(sheets, sheets.add(job.sheets)); });
         return sheets;
       });
     // A collection of values is read the same way: each value in the window, with its instant.
     const loadOfUnit = e3.function('load_of_unit', { inputs: [inTime], args: [...Window], output: DictType(DateTimeType, FloatType) },
-      ($, linesInTime, line, unit, from, to) => linesInTime.items({ collection: ['units', 'load'], row: line, path: [unit], from, to }).collect($));
+      ($, linesInTime, line, unit, from, to) => linesInTime.items({ collection: ['units', 'load'], row: line, path: [variant('units', unit)], from, to }).collect($));
     // `subtree`: the items of every node beneath a node — here the line itself, its path left out — each with the keys
     // from the node down to the one holding it, and its id. The collection declares `rollup: true`.
     const jobsOnLine = e3.function('jobs_on_line', { inputs: [inTime], args: [StringType, DateTimeType, DateTimeType], output: IntegerType },
@@ -348,7 +349,7 @@ export const recordReadNestedIndex = example({
     const peakLoad = e3.function('peak_load_a_month', { inputs: [inTime], args: [...Window], output: DictType(DateTimeType, FloatType) },
       ($, linesInTime, line, unit, from, to) => {
         const peaks = $.let(new Map(), DictType(DateTimeType, FloatType));
-        linesInTime.totals({ collection: ['units', 'load'], row: line, path: [unit], from, to }).each($, ($, totals, month) => {
+        linesInTime.totals({ collection: ['units', 'load'], row: line, path: [variant('units', unit)], from, to }).each($, ($, totals, month) => {
           $.match(totals.values, { some: ($, values) => { $(peaks.insert(month, values.max)); } });
         });
         return peaks;
