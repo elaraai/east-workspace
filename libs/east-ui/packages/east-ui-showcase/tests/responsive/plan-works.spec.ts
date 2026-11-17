@@ -27,20 +27,15 @@
  * `pnpm exec playwright test plan-works --project desktop`.
  */
 
-import { expect, type Locator } from "playwright/test";
+import { expect } from "playwright/test";
 import { test } from "./kept-page";
 import { PLAN_EVENT_EXAMPLES, openExample, rowId, rowSel, same } from "./plan-page";
-import { PLAN_INDENT, planBandFaults, planRowsOf } from "./plan-rows";
-
-/** Waits until an event is drawn on a row: the events are read a cell at a time once the rows are. */
-async function drawn(entry: Locator, row: string, attr: string, key: string): Promise<void> {
-    await expect.poll(() => entry.locator(`${row} [${attr}*=${JSON.stringify(key)}]`).count(), { timeout: 20_000 }).toBeGreaterThan(0);
-}
+import { PLAN_INDENT, planBandFaults, planDrawn, planRowsOf } from "./plan-rows";
 
 test.describe("The print works over plain records (#1541)", () => {
     test("planPrintWorksRecords: a group is its strip, then its resources by their kind a level under it, a press's stops on the row beside its jobs' @desktop", async ({ page }) => {
         const entry = await openExample(page, "planPrintWorksRecords", PLAN_EVENT_EXAMPLES);
-        await drawn(entry, rowSel("press", "1-presses-a", "a1"), "data-run", "J-9001");
+        await planDrawn(entry, rowSel("press", "1-presses-a", "a1"), "data-run", "J-9001");
         const rows = await planRowsOf(entry);
         const at = (id: string) => rows.findIndex((row) => row.id === id);
         const bad: string[] = [];
@@ -68,10 +63,10 @@ test.describe("The print works over plain records (#1541)", () => {
     test("planPrintWorksRecords: each kind draws on its resource's row, read a cell at a time, and every row is one band @desktop", async ({ page }) => {
         const entry = await openExample(page, "planPrintWorksRecords", PLAN_EVENT_EXAMPLES);
         // The handbook's two foldings on the folder, as chips; the bay's delivery on the bay, a tile.
-        await drawn(entry, rowSel("line", "5-bindery", "fold"), "data-chip", "B-9001");
-        await drawn(entry, rowSel("line", "5-bindery", "fold"), "data-chip", "B-9002");
-        await drawn(entry, rowSel("bay", "6-dispatch", "bay"), "data-event", "D-9001");
-        await drawn(entry, rowSel("press", "1-presses-a", "a1"), "data-run", "J-9002");
+        await planDrawn(entry, rowSel("line", "5-bindery", "fold"), "data-chip", "B-9001");
+        await planDrawn(entry, rowSel("line", "5-bindery", "fold"), "data-chip", "B-9002");
+        await planDrawn(entry, rowSel("bay", "6-dispatch", "bay"), "data-event", "D-9001");
+        await planDrawn(entry, rowSel("press", "1-presses-a", "a1"), "data-run", "J-9002");
         // No bindery job on a press, and no job on a line.
         await expect(entry.locator(`${rowSel("press", "1-presses-a", "a1")} [data-chip]`)).toHaveCount(0);
         await expect(entry.locator(`${rowSel("line", "5-bindery", "fold")} [data-run]`)).toHaveCount(0);

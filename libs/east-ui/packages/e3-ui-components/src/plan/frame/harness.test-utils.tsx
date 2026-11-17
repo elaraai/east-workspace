@@ -27,7 +27,7 @@ import { StringType, equalFor, parseFor, printFor, type EastType, type ValueType
 import { ScheduleEventRefType } from "@elaraai/e3-ui/internal";
 import { parseEventRef, printEventRef } from "../../shared/schedule/event-ref.js";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
-import type { E3Record } from "../../e3-web.test-utils.js";
+import type { E3Record, E3RequestKind } from "../../e3-web.test-utils.js";
 import { act, e3Harness, programOf, settle, type E3Harness, type Example, type UIProgram } from "../../e3-web-mount.test-utils.js";
 import { rowKeyOf, type PlanRowId } from "../model.js";
 import { entry } from "../row-id.test-utils.js";
@@ -69,6 +69,15 @@ export interface PlanHarness extends E3Harness {
      * @returns The render
      */
     mount(example: Example, options?: MountOptions): Promise<RenderResult>;
+    /**
+     * The kinds of request a record was read with so far, in order: through
+     * one of its indexes, or however it was read.
+     *
+     * @param dataset - The record's path, as e3's requests name it: `records.plan_works`
+     * @param index - The index read through; every request naming the record when left out
+     * @returns Each request's kind: `page`, `find`, `runs`, …
+     */
+    readKinds(dataset: string, index?: string): E3RequestKind[];
 }
 
 /**
@@ -84,6 +93,9 @@ export function planHarness(modules: Readonly<Record<string, Readonly<Record<str
     const mountOver = h.mount;
     return Object.assign(h, {
         commit: <T extends EastType>(record: E3Record<T>, state: ValueTypeOf<T>) => h.patch(record, state),
+        readKinds: (dataset: string, index?: string) => h.requests()
+            .filter((request) => request.dataset === dataset && (index === undefined || (request.query.get("index") ?? undefined) === index))
+            .map((request) => request.kind),
         mount: (example: Example, options: MountOptions = {}) => mountOver(example, {
             drag: options.drag === true,
             storageKey: options.storageKey ?? "plan",
