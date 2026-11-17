@@ -615,7 +615,7 @@ for (const phone of [false, true]) {
                         expect(await paneFaults(pane)).toEqual([]);
                     });
                 }
-                await test.step(`one event: its kind's form — a customer, a stock, a due date and time — on one column and one line (${theme})`, async () => {
+                await test.step(`one event: its kind's form — a customer, a stock, its sheets, a due date and time — on one column and one line (${theme})`, async () => {
                     // On a phone the Plan is its narrow list (#570): the press's card, in the Rows tab, draws its runs.
                     if (phone) {
                         await entry.locator("[data-plan-tab='rows']").tap();
@@ -623,7 +623,8 @@ for (const phone of [false, true]) {
                     }
                     const bar = phone ? entry.locator("[data-run]", { hasText: "Spring catalogue" }).first() : printWorksBars(entry, "a1", "Spring catalogue");
                     await select(page, frame, bar, phone);
-                    await expect(pane.locator("[data-plan-inspector='event'] [data-field]")).toHaveCount(3);
+                    // Its sheets, the quantity, a field of the form like any other number (#1680's review).
+                    await expect(pane.locator("[data-plan-inspector='event'] [data-field]")).toHaveCount(4);
                     await expect.poll(() => formFaults(pane, phone)).toEqual([]);
                     expect(await paneFaults(pane)).toEqual([]);
                     if (phone) {
