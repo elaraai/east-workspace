@@ -25,13 +25,33 @@
  * is its head; a view with none — the Plan's Nothing selected, the Calendar's
  * empty state — is its own.
  *
+ * A region shows a subject at a time, and a new one is shown from the start of
+ * the pane it scrolls in, as one opened afresh: its heading, the home, in view
+ * (#1680's review). The pane keeps its scroll from one subject to the next, and
+ * a link's Details opened under where a job's long form was left scrolled hid
+ * the link's heading. The subject is the key its view is drawn under
+ * ({@link viewSubject}), which draws the next subject's view afresh too.
+ *
  * @packageDocumentation
  */
 
-import { useCallback, useEffect, useRef, type FocusEvent, type RefObject } from "react";
+import { isValidElement, useCallback, useEffect, useLayoutEffect, useRef, type FocusEvent, type ReactNode, type RefObject } from "react";
 
 /** What marks a region's home: the element the keyboard lands on as the control it was on goes. */
 export const FOCUS_HOME = "data-focus-home";
+
+/** A pane's scrolling body, as `DockPane` marks its own: what a region's subject is shown in. */
+const PANE_BODY = "[data-dock-body]";
+
+/**
+ * The subject a region's view shows, by the key it is drawn under: what draws the next subject's view afresh.
+ *
+ * @param view - The view the region draws
+ * @returns Its key; `null` for a view drawn under none — several picked, nothing picked
+ */
+export function viewSubject(view: ReactNode): string | null {
+    return isValidElement(view) ? view.key : null;
+}
 
 /** A home's attributes, as a view's heading spreads them: out of the tab order, focusable by script. */
 export const FOCUS_HOME_PROPS = { tabIndex: -1, [FOCUS_HOME]: "" } as const;
@@ -47,12 +67,22 @@ export interface FocusHomeRegion<E extends HTMLElement> {
 }
 
 /**
- * Keeps the keyboard in a region (see the module docs).
+ * Keeps the keyboard in a region, and shows a new subject from its pane's start (see the module docs).
  *
+ * @param subject - What the region shows ({@link viewSubject}); left out, the pane keeps its scroll
  * @returns What the region's element spreads
  */
-export function useFocusHome<E extends HTMLElement = HTMLDivElement>(): FocusHomeRegion<E> {
+export function useFocusHome<E extends HTMLElement = HTMLDivElement>(subject?: string | null): FocusHomeRegion<E> {
     const ref = useRef<E | null>(null);
+    // A new subject from the pane's start: in a layout effect, so before what its view asks once drawn — a field an issue
+    // names, brought into view by its form's own effect — and before the frame paints the subject where the last was left.
+    const shown = useRef(subject);
+    useLayoutEffect(() => {
+        if (Object.is(shown.current, subject)) return;
+        shown.current = subject;
+        const pane = ref.current?.closest<HTMLElement>(PANE_BODY);
+        if (pane !== null && pane !== undefined) pane.scrollTop = 0;
+    }, [subject]);
     // Whether the keyboard is the region's: set as the focus enters it; let go as the focus leaves for another element, or
     // for the page with the control it was on still there, and at a press outside it.
     const held = useRef(false);

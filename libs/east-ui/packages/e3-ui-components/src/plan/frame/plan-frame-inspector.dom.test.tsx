@@ -501,6 +501,18 @@ describe("the inspector keeps the keyboard as a control goes with its view (#139
         expect(focused).not.toBe(document.body);
         expect(focused.closest("[data-plan-row]")?.getAttribute("data-plan-row")).toBe(rowKey(container, A1));
     });
+
+    test("a new selection's Details open at their head: the pane scrolled down a job's form, a stop selected shows from the pane's start (#1680's review)", async () => {
+        const { container } = await h.mount(ex.planPrintWorks);
+        await settle();
+        const body = () => pane(container).querySelector<HTMLElement>("[data-dock-body]")!;
+        fireEvent.click(job(container, "J-1001"));
+        await settle();
+        body().scrollTop = 48;
+        fireEvent.click(stop(container, "S-01"));
+        await settle();
+        expect([showing(container), body().scrollTop]).toEqual(["event", 0]);
+    });
 });
 
 // ============================================================================

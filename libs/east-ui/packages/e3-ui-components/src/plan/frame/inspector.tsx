@@ -107,7 +107,7 @@
  */
 
 import { ScheduleInspectorHead } from "../../shared/schedule/inspector-head.js";
-import { FOCUS_HOME_PROPS, useFocusHome } from "../../shared/focus-home.js";
+import { FOCUS_HOME_PROPS, useFocusHome, viewSubject } from "../../shared/focus-home.js";
 import { memo, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -532,10 +532,12 @@ interface BodyProps {
  */
 const PlanInspectorBody = memo(function PlanInspectorBody(props: BodyProps) {
     const styles = useSlotRecipe({ key: "planInspector" })() as Styles;
-    const home = useFocusHome();
+    const view = bodyView(props, styles);
+    // A new subject is shown from the pane's start, its heading in view (#1680's review): its view's key names it.
+    const home = useFocusHome(viewSubject(view));
     return (
         <Box ref={home.ref} css={styles.home} onFocus={home.onFocus} onBlur={home.onBlur} data-inspector-home="">
-            {bodyView(props, styles)}
+            {view}
         </Box>
     );
 });
