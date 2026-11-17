@@ -551,9 +551,10 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
     }
     return (
         <Box ref={widthRef} css={styles.root} data-studio-builder="">
-            <Box css={styles.canvas} hidden={previewing} data-studio-canvas="">
-                {/* The canvas's visuals ask their programs over the sources the surface lists (#1670). */}
-                <VisualAnswersProvider sources={sources}>
+            {/* The canvas's visuals ask their programs over the sources the surface lists (#1670); the preview
+                beside it asks through the same answers, so what the canvas has answered it draws at once. */}
+            <VisualAnswersProvider sources={sources}>
+                <Box css={styles.canvas} hidden={previewing} data-studio-canvas="">
                     <SnapGridEditor
                         value={canvas}
                         storageKey={`${storageKey}.canvas`}
@@ -568,19 +569,19 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
                             onAdd: () => { setPlacing(undefined); setCollapsed((was) => ({ ...was, start: false })); },
                         }}
                     />
-                </VisualAnswersProvider>
-            </Box>
-            {previewing && preview !== undefined && (
-                <StudioPublishPreview value={preview}
-                    page={<StudioLayout cells={cells} components={components} sources={sources} storageKey={`${storageKey}.preview`} />}
-                    phone={!phone ? undefined : {
-                        tab: previewTab, onTab: setPreviewTab, width,
-                        tiles: cells.map((cell) => ({
-                            key: cell.key, row: cell.row, span: Number(cell.span),
-                            name: cell.title.type === "some" ? cell.title.value : tileOf(cell.content)?.name ?? east.contentWords(cell.content, sourceNames, componentNames),
-                        })),
-                    }} />
-            )}
+                </Box>
+                {previewing && preview !== undefined && (
+                    <StudioPublishPreview value={preview}
+                        page={<StudioLayout cells={cells} components={components} sources={sources} storageKey={`${storageKey}.preview`} />}
+                        phone={!phone ? undefined : {
+                            tab: previewTab, onTab: setPreviewTab, width,
+                            tiles: cells.map((cell) => ({
+                                key: cell.key, row: cell.row, span: Number(cell.span),
+                                name: cell.title.type === "some" ? cell.title.value : tileOf(cell.content)?.name ?? east.contentWords(cell.content, sourceNames, componentNames),
+                            })),
+                        }} />
+                )}
+            </VisualAnswersProvider>
         </Box>
     );
 });

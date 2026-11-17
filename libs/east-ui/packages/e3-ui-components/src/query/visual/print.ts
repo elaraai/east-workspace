@@ -118,6 +118,8 @@ export interface VisualAsk {
  * - `asks` — the programs it asks.
  * - `empty` — a well that must hold something holds nothing: their names, for the tile's checklist.
  * - `missing` — fields its source does not have, by id.
+ * - `range` — a value over another period, over a source with no date range
+ *   to move the page's window along: no filter the page can set gives it one.
  * - `window` — a value over another period, on a page with no window to move.
  * - `none` — it asks nothing: a slicer.
  */
@@ -125,6 +127,7 @@ export type PrintedVisual =
     | { readonly kind: "asks"; readonly asks: readonly VisualAsk[] }
     | { readonly kind: "empty"; readonly wells: readonly string[] }
     | { readonly kind: "missing"; readonly fields: readonly string[] }
+    | { readonly kind: "range" }
     | { readonly kind: "window" }
     | { readonly kind: "none" };
 
@@ -152,9 +155,12 @@ function isOptional(source: PrintSource, name: string): boolean {
     return type !== undefined && optionPayload(type) !== undefined;
 }
 
-/** A field's values as a value's parts read them: an optional field's present values alone. */
+/**
+ * A field's values as a value's parts read them: an optional field's present
+ * values alone — `values` drops only none, where `//` would drop `false` too.
+ */
 function valuesOf(source: PrintSource, name: string): string {
-    return isOptional(source, name) ? `map(${fieldOf(name)} // empty)` : `map(${fieldOf(name)})`;
+    return isOptional(source, name) ? `map(${fieldOf(name)} | values)` : `map(${fieldOf(name)})`;
 }
 
 // ─── Values and groups ───────────────────────────────────────────────────────
@@ -192,7 +198,7 @@ function valueFields(value: VisualValue): string[] {
  */
 function keyOf(source: PrintSource, group: Group): string {
     if (group.bucket.type === "none") return fieldOf(group.field);
-    const field = isOptional(source, group.field) ? `(${fieldOf(group.field)} // empty)` : fieldOf(group.field);
+    const field = isOptional(source, group.field) ? `(${fieldOf(group.field)} | values)` : fieldOf(group.field);
     switch (group.bucket.value.type) {
         case "hour": return `(${field} | epoch_ms / 3600000 | floor)`;
         case "day": return `(${field} | epoch_ms / 86400000 | floor)`;
@@ -204,12 +210,41 @@ function keyOf(source: PrintSource, group: Group): string {
     }
 }
 
-/** The stage that orders groups by the first group's sort: by its key as `group_by` leaves them, or by the first value. */
-function sortOf(group: Group): string | undefined {
+/**
+ * What a group is ordered by, of a value's parts in its row: the value, made
+ * negative for the highest first; for a value a group may have none of — a
+ * mean or a ratio over nothing, a least or a most of no values — a struct of
+ * whether it has none, then the value, so a group with none comes last either
+ * way. A division guards its zero, which East's jq raises on.
+ */
+function sortKeyOf(value: VisualValue, index: number, highFirst: boolean): string {
+    const v = `.v${index}`;
+    const signed = (key: string) => (highFirst ? `-(${key})` : `(${key})`);
+    switch (value.measure.type) {
+        case "count": case "sum": case "distinct":
+            return signed(v);
+        case "min": case "max":
+            return `{none: (${v} == null), key: ${signed(`${v} // 0`)}}`;
+        case "mean":
+            return `{none: (${v}c == 0), key: ${signed(`if ${v}c == 0 then 0 else ${v}s / ${v}c end`)}}`;
+        case "ratio":
+            return `{none: (${v}p == 0), key: ${signed(`if ${v}p == 0 then 0 else ${v}o / ${v}p end`)}}`;
+    }
+}
+
+/**
+ * The stage that orders a program's groups by the first group's sort: by its
+ * key, as `group_by` leaves them; or by the first of the visual's values the
+ * program holds, high or low — a value over another period is another
+ * program's, so each orders by its own. A program with no value keeps the
+ * key's order.
+ */
+function sortOf(group: Group, first: readonly [number, VisualValue] | undefined): string | undefined {
+    if (first === undefined) return undefined;
     switch (group.sort.type) {
         case "natural": case "label": return undefined;
-        case "high": return "sort_by(.v0) | reverse";
-        case "low": return "sort_by(.v0)";
+        case "high": return `sort_by(${sortKeyOf(first[1], first[0], true)})`;
+        case "low": return `sort_by(${sortKeyOf(first[1], first[0], false)})`;
     }
 }
 
@@ -237,7 +272,7 @@ function groupedProgram(rows: string[], source: PrintSource, groups: readonly Gr
     const stages = [...rows];
     for (const group of groups) {
         // A bucket reads a date: a row whose optional date has none falls in no bucket.
-        if (group.bucket.type === "some" && isOptional(source, group.field)) stages.push(`map(select(${fieldOf(group.field)} // empty | true))`);
+        if (group.bucket.type === "some" && isOptional(source, group.field)) stages.push(`map(select(${fieldOf(group.field)} != null))`);
     }
     const keys = groups.map((group, i) => `g${i}: ${keyOf(source, group)}`);
     stages.push(`group_by({${keys.join(", ")}})`);
@@ -245,7 +280,7 @@ function groupedProgram(rows: string[], source: PrintSource, groups: readonly Gr
     const extraParts = extras.map(([name, path]) => `${name}: $f${fieldOf(path)}`);
     const parts = [...firstRow, ...extraParts, ...values.flatMap(([i, value]) => valueParts(source, value, i)), "n: length"];
     stages.push(`map((.[0] // error("empty")) as $f | {${parts.join(", ")}})`);
-    const sort = groups[0] === undefined ? undefined : sortOf(groups[0]);
+    const sort = groups[0] === undefined ? undefined : sortOf(groups[0], values[0]);
     if (sort !== undefined) stages.push(sort);
     stages.push(`{rows: .[:${limit}], groups: length, n: (map(.n) | add)}`);
     return stages.join(SEP);
@@ -376,12 +411,17 @@ function shapeOf(view: Exclude<View, { type: "slicer" }>): ViewShape | { readonl
  * @param source - Its source, as the printer reads it ({@link PrintSource})
  * @param state - The page's filters on its source and its window
  * @returns The programs; or the wells it needs filled, the fields its source
- *   lacks, that a value over another period needs a window, or that it asks nothing
+ *   lacks, that a value over another period needs a date range on its source
+ *   or a window on the page, or that it asks nothing
  *
  * @remarks
  * - **One program a period**: a value over the previous period, or a year
  *   ago, is asked by the same program with the window moved
  *   ({@link periodWindow}); a visual's values are asked a period at a time.
+ *   A list with no values still lists its items: one program, of the page's
+ *   window.
+ * - **Ordered high or low**, a program's groups follow the first of the
+ *   visual's values it holds; a group with no value comes last.
  * - **Totals** are their own program: a KPI's value and what it is compared
  *   with, a pie's total, a summary's total row.
  * - **A KPI's trend** is its value along its trend field, bucketed to fit the
@@ -420,8 +460,15 @@ export function printVisual(visual: Visual, source: PrintSource, state: PrintSta
         if (at === undefined) periods.set(value.period.type, [[i, value]]);
         else at.push([i, value]);
     });
+    // A list with no values still lists its items: one program, of the page's window.
+    if (periods.size === 0) periods.set("current", []);
+    for (const period of periods.keys()) {
+        if (period === "current") continue;
+        // Another period moves the window along the source's date: a source with none has nothing to move it by.
+        if (source.range === undefined) return { kind: "range" };
+        if (state.window === undefined) return { kind: "window" };
+    }
     const window = source.range === undefined ? undefined : state.window;
-    for (const period of periods.keys()) if (period !== "current" && window === undefined) return { kind: "window" };
     const asks: VisualAsk[] = [];
     for (const [period, values] of periods) {
         const rows = rowsOf(source, where, window === undefined ? undefined : periodWindow(window, period));

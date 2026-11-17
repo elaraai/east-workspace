@@ -8,20 +8,24 @@
  *
  * A visual's tile (#1670): it asks its programs through the query builder's
  * calls and draws each of its states — waiting, a well empty, a field
- * missing, its source's error, no rows — and its answer; two tiles with one
- * program make one call.
+ * missing, a source with no date to compare periods by, its source's error
+ * with a Retry, a source the page cannot query, no rows — and its answer; two
+ * tiles with one program make one call, and so do two pages over the same
+ * sources, one inside the other; an answer outlives its calls' identity.
  */
 
+import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
-    ArrayType, DateTimeType, FloatType, IntegerType, StringType, StructType, none, parseJq, some, toEastTypeValue, variant, type JqNode, type ValueTypeOf,
+    ArrayType, DateTimeType, FloatType, IntegerType, StringType, StructType, none, parseFor, parseJq, some, toEastTypeValue, variant, type JqNode, type ValueTypeOf,
 } from "@elaraai/east";
 import { Studio, type StudioCellType, type StudioSourceType } from "@elaraai/e3-ui/internal";
 import { StateRuntime, UIStore, system } from "@elaraai/east-ui-components";
 import { QueryCallProvider, QuerySourceStatusProvider, type QueryCall } from "../query/hooks.js";
 import { createInMemoryQueryCall, createInMemorySourceStatus } from "../query/in-memory-call.js";
+import { VisualAnswersProvider } from "../query/visual/answers.js";
 import { StudioLayout } from "./page.js";
 
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
@@ -34,12 +38,20 @@ class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 beforeEach(() => { StateRuntime.initializeStore(new UIStore()); });
 afterEach(() => { cleanup(); });
 
+const parseAt = parseFor(DateTimeType);
+/** An instant, written as East prints a DateTime, read by East's parser. */
+function at(text: string): Date {
+    const read = parseAt(text);
+    if (!read.success) throw new Error(read.error);
+    return read.value;
+}
+
 const Row = StructType({ ordered_at: DateTimeType, region: StringType, revenue: FloatType, units: IntegerType });
 const PATH = [variant("field", "inputs"), variant("field", "orders")];
 const ORDERS: ValueTypeOf<typeof Row>[] = [
-    { ordered_at: new Date("2026-07-03T10:00:00Z"), region: "SA", revenue: 100, units: 4n },
-    { ordered_at: new Date("2026-07-20T10:00:00Z"), region: "NSW", revenue: 50, units: 1n },
-    { ordered_at: new Date("2026-08-02T10:00:00Z"), region: "SA", revenue: 60, units: 2n },
+    { ordered_at: at("2026-07-03T10:00:00"), region: "SA", revenue: 100, units: 4n },
+    { ordered_at: at("2026-07-20T10:00:00"), region: "NSW", revenue: 50, units: 1n },
+    { ordered_at: at("2026-08-02T10:00:00"), region: "SA", revenue: 60, units: 2n },
 ];
 const DATASETS = [{ path: PATH, type: ArrayType(Row), value: ORDERS }];
 const SOURCE: ValueTypeOf<typeof StudioSourceType> = {
@@ -60,18 +72,29 @@ function condition(text: string): JqNode {
     return parsed.program.value;
 }
 
-/** A page of placements over the orders, its calls the given one's, its sources' status read in memory. */
-function page(cells: ValueTypeOf<typeof StudioCellType>[], call?: QueryCall) {
-    const layout = <StudioLayout cells={cells} components={[]} sources={[SOURCE]} storageKey="tile" />;
-    return render(
+/** What a page draws in: the theme, and — given a call — its calls, its sources' status read in memory. */
+function host(children: ReactNode, call?: QueryCall) {
+    return (
         <ChakraProvider value={system}>
-            {call === undefined ? layout : (
+            {call === undefined ? children : (
                 <QueryCallProvider call={call}>
-                    <QuerySourceStatusProvider status={createInMemorySourceStatus(DATASETS)}>{layout}</QuerySourceStatusProvider>
+                    <QuerySourceStatusProvider status={createInMemorySourceStatus(DATASETS)}>{children}</QuerySourceStatusProvider>
                 </QueryCallProvider>
             )}
-        </ChakraProvider>,
+        </ChakraProvider>
     );
+}
+
+/** A page of placements over the sources — the orders unless given — its calls the given one's. */
+function page(cells: ValueTypeOf<typeof StudioCellType>[], call?: QueryCall, sources: ValueTypeOf<typeof StudioSourceType>[] = [SOURCE]) {
+    return render(host(<StudioLayout cells={cells} components={[]} sources={sources} storageKey="tile" />, call));
+}
+
+/** The in-memory call, counting its calls. */
+function counting(): { call: QueryCall; calls: () => number } {
+    let n = 0;
+    const inMemory = createInMemoryQueryCall(DATASETS);
+    return { call: (request, options) => { n += 1; return inMemory(request, options); }, calls: () => n };
 }
 
 describe("a visual's tile", () => {
@@ -111,12 +134,72 @@ describe("a visual's tile", () => {
     });
 
     test("two tiles with one program make one call", async () => {
-        let calls = 0;
-        const inMemory = createInMemoryQueryCall(DATASETS);
-        const counting: QueryCall = (request, options) => { calls += 1; return inMemory(request, options); };
+        const { call, calls } = counting();
         const content = v.of("orders", v.bar({ x: v.group("region"), values: [v.count()] }));
-        page([cell("c1", content), cell("c2", content)], counting);
+        page([cell("c1", content), cell("c2", content)], call);
         expect(await screen.findAllByText("2 groups from 3 rows")).toHaveLength(2);
-        expect(calls).toBe(1);
+        expect(calls()).toBe(1);
+    });
+
+    test("offers Retry when its call failed, and asks again", async () => {
+        let tries = 0;
+        const inMemory = createInMemoryQueryCall(DATASETS);
+        // e3 unreachable once, then back.
+        const flaky: QueryCall = (request, options) => {
+            tries += 1;
+            return tries === 1 ? Promise.reject(new TypeError("fetch failed")) : inMemory(request, options);
+        };
+        page([cell("c1", v.of("orders", v.bar({ x: v.group("region"), values: [v.count()] })))], flaky);
+        expect(await screen.findByText("Orders could not be read")).toBeTruthy();
+        fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+        expect(await screen.findByText("2 groups from 3 rows")).toBeTruthy();
+        expect(tries).toBe(2);
+    });
+
+    test("says a source with no date range has no date to compare periods by", () => {
+        page([cell("c1", v.of("orders", v.kpi({ value: v.sum("revenue", { period: "previous" }) })))], createInMemoryQueryCall(DATASETS), [{ ...SOURCE, range: none }]);
+        expect(screen.getByText("Orders has no date to compare periods by")).toBeTruthy();
+    });
+
+    test("a source the page cannot query fails only the visuals that read it, with no Retry", async () => {
+        const lines: ValueTypeOf<typeof StudioSourceType> = {
+            ...SOURCE, key: "lines", name: "Lines",
+            binding: { name: "lines", source: variant("paged", "not-bound"), type: toEastTypeValue(ArrayType(Row)) },
+        };
+        page([
+            cell("c1", v.of("orders", v.bar({ x: v.group("region"), values: [v.count()] }))),
+            cell("c2", v.of("lines", v.bar({ x: v.group("region"), values: [v.count()] }))),
+        ], createInMemoryQueryCall(DATASETS), [SOURCE, lines]);
+        expect(await screen.findByText("2 groups from 3 rows")).toBeTruthy();
+        expect(await screen.findByText("Lines could not be read")).toBeTruthy();
+        expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    });
+
+    test("a page inside another over the same sources asks through it: what one has answered, the other draws", async () => {
+        const { call, calls } = counting();
+        const content = v.of("orders", v.bar({ x: v.group("region"), values: [v.count()] }));
+        // A builder's canvas, and its preview beside it.
+        render(host(
+            <VisualAnswersProvider sources={[SOURCE]}>
+                <StudioLayout cells={[cell("c1", content)]} components={[]} sources={[SOURCE]} storageKey="canvas" />
+                <StudioLayout cells={[cell("c1", content)]} components={[]} sources={[SOURCE]} storageKey="preview" />
+            </VisualAnswersProvider>,
+            call,
+        ));
+        expect(await screen.findAllByText("2 groups from 3 rows")).toHaveLength(2);
+        expect(calls()).toBe(1);
+    });
+
+    test("keeps its answer when the host's calls change identity — a token refreshed — and asks nothing again", async () => {
+        const first = counting();
+        const content = v.of("orders", v.bar({ x: v.group("region"), values: [v.count()] }));
+        const layout = <StudioLayout cells={[cell("c1", content)]} components={[]} sources={[SOURCE]} storageKey="tile" />;
+        const { rerender } = render(host(layout, first.call));
+        expect(await screen.findByText("2 groups from 3 rows")).toBeTruthy();
+        const second = counting();
+        rerender(host(layout, second.call));
+        // Still drawn as it was: no answer dropped, so no wait.
+        expect(screen.getByText("2 groups from 3 rows")).toBeTruthy();
+        expect([first.calls(), second.calls()]).toEqual([1, 0]);
     });
 });

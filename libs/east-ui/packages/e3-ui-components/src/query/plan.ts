@@ -61,6 +61,7 @@ import {
     type CheckJqResult, type JqCombine, type JqPruning, type JqRange, type JqSplit, type JqSplitCall, type JqSplitStages, type JqWholeReason,
 } from "@elaraai/east";
 import { PIECE_SIZES, pieceSizesFor, type ExecuteResult, type SplitCallRequest } from "@elaraai/e3-types";
+import { messageOf } from "../shared/message.js";
 import {
     entryNamed, prepareCheckedQuery, prepareQuery, programChecks, queryLimits,
     type PreparedQuery, type QueryOptions, type QueryReading, type QueryResult, type QueryRoot,
@@ -510,11 +511,6 @@ function serverOf(options: PlanOptions): { memoryBytes: number | null; cores: nu
     const cores = options.cores ?? PLAN_COSTS.cores;
     if (!Number.isSafeInteger(cores) || cores < 1) throw new RangeError(`planQuery: cores is ${cores}, not a whole number of at least 1`);
     return { memoryBytes, cores };
-}
-
-/** An error's message. */
-function messageOf(err: unknown): string {
-    return err instanceof Error ? err.message : String(err);
 }
 
 /**

@@ -19,6 +19,7 @@
 
 import { ApiError, AuthError, type RemoteCollection } from "@elaraai/e3-api-client";
 import type { ExecuteResult, SplitCallProgress, SplitCallReport, SplitCallRequest } from "@elaraai/e3-types";
+import { messageOf } from "../shared/message.js";
 import type { QueryCall, QueryCollection, QuerySourceStatus, QuerySplitCall } from "./hooks.js";
 import type { QueryReading, QueryResult, QueryRoot } from "./one-shot.js";
 import { weighPlan, type PlanDraft, type QueryPlan, type SourceWeight } from "./plan.js";
@@ -71,15 +72,8 @@ export type DraftRun =
         readonly pieces: number | undefined; readonly report: SplitCallReport | undefined; readonly counted: SplitCallRequest | undefined;
     };
 
-/**
- * An error's message.
- *
- * @param err - What was thrown
- * @returns Its message, or it as text
- */
-export function messageOf(err: unknown): string {
-    return err instanceof Error ? err.message : String(err);
-}
+/** An error's message, as a draft's run and its callers say it: the package's one copy (`shared/message.ts`). */
+export { messageOf };
 
 /**
  * Whether an error a call rejected with is the server's refusal of it, not a
