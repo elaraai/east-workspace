@@ -85,20 +85,27 @@ function sample(page: Page, holding: boolean, reading: boolean): Promise<{ start
 }
 
 /**
- * Waits for every builder frame's panes to stop moving. A pane opening,
- * closing or changing its mode slides over the design system's duration (the
- * `builderFrame` recipe's pane transitions, on the `[data-frame-slot]` itself),
- * and a pane's width moves no row and no document width — all {@link sample}
- * sees — so a spec that measured a pane, or main beside it, as soon as the rows
- * stood still read it partway, a few px off: a collapsed rail 45 or 52 wide
- * rather than its 44. A transition another change cut short is over too.
+ * Waits for every builder frame's panes to stop moving, and every layer the
+ * page has open or is closing — a popover, a menu, a tooltip, a dialog — to
+ * finish growing in or fading out. A pane opening, closing or changing its
+ * mode slides over the design system's duration (the `builderFrame` recipe's
+ * pane transitions, on the `[data-frame-slot]` itself), and a layer grows in
+ * and fades out over Chakra's (its `content` part's `scale-fade-in` and
+ * `scale-fade-out`). Neither moves a row or the document's width — all
+ * {@link sample} sees — so a spec that measured a pane, or main beside it, as
+ * soon as the rows stood still read it partway, a few px off: a collapsed rail
+ * 45 or 52 wide rather than its 44; and one that measured a popover just
+ * opened read it short of its size: Autosave's row 31.9 tall rather than its
+ * 32, the popover's scale not yet 1. A transition another change cut short is
+ * over too. A part that loops for good — a spinner, a skeleton — is not waited
+ * for.
  *
- * @returns Whether any pane was moving: the page is read again once it stopped
+ * @returns Whether anything was moving: the page is read again once it stopped
  */
-function panesStill(page: Page): Promise<boolean> {
+function motionStill(page: Page): Promise<boolean> {
     return page.evaluate(async () => {
-        const moving = [...document.querySelectorAll("[data-frame-slot]")]
-            .flatMap(slot => slot.getAnimations())
+        const moving = [...document.querySelectorAll("[data-frame-slot], [data-scope][data-part='content']")]
+            .flatMap(part => part.getAnimations())
             .filter(animation => animation.effect?.getTiming().iterations !== Infinity);
         await Promise.all(moving.map(animation => animation.finished.then(() => undefined, () => undefined)));
         return moving.length > 0;
@@ -126,8 +133,8 @@ export async function escapeLayer(page: Page): Promise<void> {
  * the spec holds that read — and, asked for, a Plan's rows reading their
  * cells: {@link SettleOptions}), visible deferred
  * previews have started, every virtualized row and the document's width
- * hold still across two frames, and then two more, and no builder's pane is
- * still sliding.
+ * hold still across two frames, and then two more, no builder's pane is
+ * still sliding, and no layer is still growing in or fading out.
  *
  * @remarks
  * An example compiles after the first paint, when the page is next idle, and
@@ -145,8 +152,9 @@ export async function settled(page: Page, options: SettleOptions = {}): Promise<
         message: "an example kept compiling, or its e3 or builder loading",
         timeout: STARTING_MS,
     }).toBe(0);
-    // A pane still sliding is waited for, and the page read again once it has stopped: main takes its last width as it does.
-    if (await panesStill(page)) last = await sample(page, holding, reading);
+    // A pane still sliding, or a layer still growing in or fading out, is waited for, and the page read again once it has
+    // stopped: main takes its last width as a pane does.
+    if (await motionStill(page)) last = await sample(page, holding, reading);
     if (last.still && last.starting === 0) return;
     await expect.poll(async () => {
         const { starting, still } = await sample(page, holding, reading);
