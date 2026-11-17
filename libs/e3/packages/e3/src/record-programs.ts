@@ -40,6 +40,7 @@ import { argumentsType, callWithArguments, programOverArguments } from './record
 import { emptiedRow } from './record-index.js';
 import { NestedPatchedType } from './record-nested-programs.js';
 import { patchTypeOf } from './record-patches.js';
+import { solutionKeyType } from './record-sources.js';
 import type { MigrationDef, MutationDef, RecordDef, RecordIndexDef } from './types.js';
 import { lazyBuilds } from './lazy-build.js';
 
@@ -865,7 +866,7 @@ function dictApply(indexes: readonly RecordIndexDef[], types: DictWrite) {
  * delta's conflict naming the key, as an apply would name it, rather than
  * reaching the apply as an op that cannot be represented.
  */
-function editOps(fn: IndexFunction, argTypes: readonly EastType[], types: DictWrite) {
+function editOps(fn: IndexFunction, argTypes: readonly EastType[], types: DictWrite, ownKeyType: VariantType<Record<string, EastType>> | undefined) {
   const { keyType, valueType, stateType, rows, opsType, emitType } = types;
   // The capability, typed as the ops are: its `update` takes the row's patch, checked to be East's own.
   const editType = StructType({
@@ -879,7 +880,17 @@ function editOps(fn: IndexFunction, argTypes: readonly EastType[], types: DictWr
   }
   const editsType = DictType(keyType, editOpsType(valueType, rows));
   const argsType = argumentsType(argTypes);
-  const body = callWithArguments(fn, stateType, argTypes, [editType], NullType);
+  // A composite record's body may declare the capability over its own sources' keys alone: it is then handed that
+  // one, whose writes go through the capability over every key.
+  const own = ownKeyType === undefined ? undefined : ownCapability(ownKeyType, editType, types);
+  const narrowed = own !== undefined && sameEastType(own.type, signatureOf(fn).inputs.at(-1) ?? NullType) ? own : undefined;
+  const called = callWithArguments(fn, stateType, argTypes, [narrowed?.type ?? editType], NullType);
+  // The body as the program runs it, `(State, Args, Edit) → Null`: handed the capability, or its own made from it.
+  const body = narrowed === undefined ? called : East.function([stateType, argsType, editType], NullType, ($, state, args, whole) => {
+    const call = $.const(called);
+    const ownOf = $.const(narrowed.of);
+    $(call(state, args, ownOf(whole)));
+  });
   const resolve = East.function([stateType, editsType, emitType], opsType, ($, state, edits, emit) => {
     const diff = $.const(rows.diff);
     const ops = $.let(new Map(), opsType);
@@ -991,6 +1002,60 @@ function editOps(fn: IndexFunction, argTypes: readonly EastType[], types: DictWr
     $(run(state, args, capability));
     return resolveFn(state, edits, emit);
   });
+}
+
+/**
+ * The capability a composite record's `edit` body writes through when it
+ * declares the one over its own sources' keys: its type, and the function
+ * that makes it from the capability over every key, `(Edit) → OwnEdit`.
+ *
+ * @remarks
+ * Each of its functions takes a key of the solution's own cases, puts it under
+ * the same case of the record's key and calls the capability over every key,
+ * so a write through either is folded the same way. A key of an external
+ * source has no case to be written under, which is what holds a body to the
+ * sources it may write as it is written.
+ *
+ * @param ownKeyType - The variant of the record's solution sources' cases
+ * @param editType - The capability over every key of the record
+ * @param types - The record's write types
+ * @returns The capability's type, and the function making it
+ */
+function ownCapability(
+  ownKeyType: VariantType<Record<string, EastType>>,
+  editType: StructType<{
+    set: FunctionType<[EastType, EastType], NullType>;
+    delete: FunctionType<[EastType], NullType>;
+    update: FunctionType<[EastType, EastType], NullType>;
+  }>,
+  types: DictWrite,
+) {
+  const { keyType, valueType, rows } = types;
+  const patchType: EastType = rows.patchType;
+  const type = StructType({
+    set: FunctionType([ownKeyType, valueType], NullType),
+    delete: FunctionType([ownKeyType], NullType),
+    update: FunctionType([ownKeyType, patchType], NullType),
+  });
+  // A key of one of the solution's cases, under the same case of the record's key: a variant of fewer cases is
+  // another type than the record's key, so each case is put on again.
+  const cases = Object.fromEntries(Object.keys(ownKeyType.cases).map((name) => [name, (_$: unknown, id: unknown) => East.inCase(keyType, name, id)]));
+  const widen = East.function([ownKeyType], keyType, (_$, key) => key.match(cases));
+  const of = East.function([editType], type, ($, whole) => {
+    const widenFn = $.const(widen);
+    return {
+      set: East.function([ownKeyType, valueType], NullType, ($, key, value) => {
+        $(whole.set(widenFn(key), value));
+      }),
+      delete: East.function([ownKeyType], NullType, ($, key) => {
+        $(whole.delete(widenFn(key)));
+      }),
+      update: East.function([ownKeyType, patchType], NullType, ($, key, patch) => {
+        $(whole.update(widenFn(key), patch));
+      }),
+    };
+  });
+  return { type, of };
 }
 
 /**
@@ -1156,7 +1221,7 @@ function writeProgram(rec: RecordDef, mut: MutationDef): FunctionExpr<EastType[]
     const indexes = Object.values(rec.indexes).map((index) => builtIndex(rec, index)).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
     const types = dictWrite(recordType.key, recordType.value, indexes);
     steps = dictSteps(types, indexes);
-    argumentOps = mut.form === 'edit' ? editOps(bodyOf(mut), mut.argTypes, types)
+    argumentOps = mut.form === 'edit' ? editOps(bodyOf(mut), mut.argTypes, types, rec.sources === undefined ? undefined : solutionKeyType(rec.sources))
       : mut.form === 'reduce' ? reduceOps(bodyOf(mut), mut.argTypes, steps)
       : undefined;
   } else if (recordType.type === 'Set') {

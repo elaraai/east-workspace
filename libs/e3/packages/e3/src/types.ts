@@ -366,6 +366,85 @@ export interface RecordDef<
   /** Migrations of this record, in chain order: the steps a deploy runs over
    *  a workspace's state that has not applied them. */
   readonly migrations: readonly MigrationDef[];
+  /** A composite record's sources, by name ({@link RecordSourceDef}): each a
+   *  case of its key. Absent for a record `e3.record` declared, which has
+   *  none. */
+  readonly sources?: Readonly<Record<string, RecordSourceDef>>;
+}
+
+/**
+ * A composite record: one record over several sources, each the authority for
+ * its own entries — what `e3.recordComposite` returns.
+ *
+ * It is a {@link RecordDef}, so it is read, paged, indexed, bound and packaged
+ * as any record is. Its type is `Dict<Variant{ <source>: <key>… }, Row>`: an
+ * entry's key names its source, and each source's entries are one run of the
+ * record.
+ *
+ * @typeParam T - The record's state type, which e3 builds from its sources
+ * @typeParam Path - Its path in the package's tree
+ * @typeParam S - Its sources by name, as declared
+ * @typeParam I - Its indexes by name, as declared
+ * @typeParam M - Its mutations by name, as declared
+ */
+export interface CompositeRecordDef<
+  T extends EastType = EastType,
+  Path extends TreePath = TreePath,
+  S extends Readonly<Record<string, RecordSourceDef>> = Readonly<Record<string, RecordSourceDef>>,
+  I extends object = Record<string, RecordIndexDef>,
+  M extends object = Record<string, MutationDef>,
+> extends RecordDef<T, Path, I, M> {
+  /** Its sources, by name. */
+  readonly sources: S;
+}
+
+/**
+ * A source of a composite record: one case of the record's key, and who
+ * writes the entries under it. Declared in its record's `sources`, by the
+ * `source` builder; the record carries it by its name.
+ *
+ * @typeParam Name - The source's name (literal type): its case of the record's key
+ * @typeParam K - The source's key type
+ * @typeParam External - Whether its load alone writes its entries
+ */
+export interface RecordSourceDef<
+  Name extends string = string,
+  K extends EastType = EastType,
+  External extends boolean = boolean,
+> {
+  readonly kind: 'recordSource';
+  /** The source's name: an identifier, and its case of the record's key. */
+  readonly name: Name;
+  /** The source's key type: the type of its case of the record's key. */
+  readonly key: K;
+  /** Whether its load alone writes its entries (`source.load`), or the
+   *  record's mutations do (`source.mutations`). */
+  readonly external: External;
+  /** An external source's load; undefined for a source of the solution's own. */
+  readonly load: [External] extends [true] ? RecordLoadDef : [External] extends [false] ? undefined : RecordLoadDef | undefined;
+}
+
+/**
+ * The load of an external source of a composite record: what the source is
+ * delivered, and the author's function from a delivery and the source's
+ * entries to a patch of them.
+ */
+export interface RecordLoadDef {
+  /** The type of what the source is delivered. */
+  readonly delivery: EastType;
+  /** The author's function, `(delivery, Dict<key, Row>) -> Patch(Dict<key,
+   *  Row>)`, as its IR bundle. */
+  readonly body: IRBundle;
+  /** The function as an expression, kept beside its IR so export can compose
+   *  it into the load's program, which reaches it through its IR alone — so no
+   *  call signature is claimed here. */
+  readonly fn: { toIR(): unknown };
+  /** Whether a delivery is a Dict or a Set keyed by the source's key: it is
+   *  then cut with the source's entries at the same keys, and the function
+   *  runs a piece at a time. Any other delivery runs as one piece. */
+  readonly keyed: boolean;
+  /** Runtime the load's program runs on; defaults to DEFAULT_RECORD_RUNNER, east-c. */
+  readonly runner: Runner;
 }
 
 /**

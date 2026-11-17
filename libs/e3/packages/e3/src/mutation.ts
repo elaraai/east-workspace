@@ -27,6 +27,7 @@ import { editTypeOf } from '@elaraai/e3-types';
 import type { MutationDef, RecordDef } from './types.js';
 import { hasKeyedDelta } from './record-programs.js';
 import { checkPure, sameEastType, signatureOf, type IndexFunction } from './record-guards.js';
+import { solutionEditType } from './record-sources.js';
 import { DEFAULT_RECORD_RUNNER, runnerToVariant, type FunctionRunner } from './runner.js';
 
 /** A mutation's name is an identifier, as a migration's and an index's are: it
@@ -135,7 +136,8 @@ export function reduceDefinition(
  * @param words - The declaration, as a refusal names it
  * @param name - The mutation
  * @param rec - The record it writes
- * @param fn - The body `(state, ...args, edit) => null`
+ * @param fn - The body `(state, ...args, edit) => null`. A composite record's takes the capability over its own
+ *   sources' keys, which its mutations are handed as `edit`, or the one over every key
  * @param config - Its runner selection; {@link DEFAULT_RECORD_RUNNER} when it names none
  * @returns The definition
  * @throws {Error} When the name is not an identifier, the runner is not a known runtime, the record is not a Dict or a
@@ -150,12 +152,19 @@ export function editDefinition(
 
   const signature = checkBody(words, name, rec, fn);
   const editType = editTypeOf(rec.type);
+  // A composite's body takes the capability over its own sources' keys, which
+  // its declaration is handed as `edit`; the capability over every key is
+  // taken too, and a write of an external entry through it is refused as it runs.
+  const own = solutionEditType(rec);
   const last = signature.inputs[signature.inputs.length - 1];
-  if (signature.inputs.length < 2 || last === undefined || !sameEastType(editType, last)) {
-    throw new Error(
-      `${words} '${name}' body's LAST parameter must be the edit ` +
-      `capability ${printType(editType)} — e3.mutation.editType of the record's type — but got ` +
-      `${last === undefined ? 'no parameters' : printType(last)}.`,
+  const taken = last !== undefined && (sameEastType(editType, last) || (own !== undefined && sameEastType(own, last)));
+  if (signature.inputs.length < 2 || !taken) {
+    const got = last === undefined ? 'no parameters' : printType(last);
+    throw new Error(own === undefined
+      ? `${words} '${name}' body's LAST parameter must be the edit ` +
+        `capability ${printType(editType)} — e3.mutation.editType of the record's type — but got ${got}.`
+      : `${words} '${name}' body's LAST parameter must be the edit capability ${printType(own)} — the \`edit\` its ` +
+        `mutations are handed, (mutation, { state, edit }) => …, which writes the entries of the record's own sources — but got ${got}.`,
     );
   }
   if (!sameEastType(NullType, signature.output)) {
