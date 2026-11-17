@@ -112,9 +112,11 @@ run is in flight, as a second local run of a workspace is.
 **A deploy stops a run.** A deploy announces itself before it takes its
 workspace. A run in flight stops within about a second — a local one prints
 `[CANCELLED]` for each task in flight, then `Stopped: a deploy of <ws>
-started.` and `Completed before it stopped: <n>`, and exits 130; `e3 watch`
-says `Dataflow stopped: a deploy of <ws> started` — and every result it landed
-stands. Nothing restarts it: run again once the deploy is done, and the cache
+started.` and `Completed before it stopped: <n>`, and exits 130; one followed
+on a server prints its summary, then `Stopped: the run on <ws> was stopped
+before it finished.`, and exits 130 too, as it does for a run another caller
+stopped; `e3 watch` says `Dataflow stopped: a deploy of <ws> started` — and
+every result it landed stands. Nothing restarts it: run again once the deploy is done, and the cache
 answers what the deploy left. While a deploy has announced itself, a dataset
 write, a mutation, a bundle's export, a copy and a run's start are refused at
 once (`Workspace '<ws>' is locked by a deploy in process <pid> (since

@@ -176,7 +176,7 @@ describe('a remote run', () => {
    *   cancels it was sent and how many times its outputs were listed
    */
   function server(
-    start: DataflowStartResult, events: DataflowEvent[], status: 'completed' | 'failed', from = 0n,
+    start: DataflowStartResult, events: DataflowEvent[], status: 'completed' | 'failed' | 'aborted', from = 0n,
   ): { api: RemoteRunApi; polls: bigint[]; asked: { cancels: number; outputs: number } } {
     const polls: bigint[] = [];
     const asked = { cancels: 0, outputs: 0 };
@@ -253,6 +253,20 @@ describe('a remote run', () => {
     assert.equal(code, 130);
     assert.deepEqual(lines().slice(-2), ['', 'Aborted.']);
     assert.equal(asked.cancels, 1);
+  });
+
+  it('says a run someone else stopped was stopped, and exits 130: the run its own start began, and one it was handed to', async (t) => {
+    const lines = printedLines(t);
+    const stopped = ['', 'Stopped: the run on main was stopped before it finished.'];
+    const own = server(variant('started', null), capacity, 'aborted');
+    assert.equal(await runRemote(own.api, 'main', () => false, async () => {}), 130);
+    assert.deepEqual(lines(), ['  [START] capacity', '  [DONE] capacity [50120ms]', ...summary, ...stopped]);
+    assert.deepEqual(own.asked, { cancels: 0, outputs: 0 }, 'it sends no cancel, and lists no outputs');
+
+    const handed = server(variant('handed', { since: 1_842n }), capacity, 'aborted', 1_842n);
+    assert.equal(await runRemote(handed.api, 'main', () => false, async () => {}), 130);
+    assert.deepEqual(lines().slice(-2), stopped);
+    assert.deepEqual(handed.asked, { cancels: 0, outputs: 0 });
   });
 
   it('exits 1 for a run that failed, and lists no outputs', async (t) => {

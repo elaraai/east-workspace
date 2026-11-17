@@ -374,12 +374,18 @@ export interface RemoteRunApi {
  * stopping it leaves the run going, where stopping a run it began cancels
  * that run on the server.
  *
+ * A run someone else stopped — a deploy of its workspace stops a run in
+ * flight — ends without finishing: after its summary the command says
+ * `Stopped: the run on <ws> was stopped before it finished.`, and exits as a
+ * stopped run does.
+ *
  * @param api - The server's start, poll and cancel, and the outputs' listing
  * @param ws - The workspace, as the lines name it
  * @param isAborted - Whether the caller has asked to stop
  * @param wait - Waits between polls that left no event to read
  * @returns The command's exit code: 0 for a run that completed, 1 for one
- *   that failed, and 130 when the caller stopped it, or stopped following it
+ *   that failed, and 130 when the caller stopped it or stopped following it,
+ *   or someone else stopped the run
  */
 export async function runRemote(
   api: RemoteRunApi,
@@ -430,6 +436,16 @@ export async function runRemote(
       console.log('Warning: could not reach the server to cancel — the run may still be executing.');
     }
     console.log('Aborted.');
+    return 130;
+  }
+
+  // A run someone else stopped — a deploy of its workspace, or another
+  // caller's stop — did not finish, whoever began it: the command says so,
+  // and exits as a stopped run does, so nothing chained after it carries on
+  // as if the run had completed. The server serves no reason.
+  if (lastStatus === 'aborted') {
+    console.log('');
+    console.log(`Stopped: the run on ${ws} was stopped before it finished.`);
     return 130;
   }
 
