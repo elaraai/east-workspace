@@ -156,16 +156,17 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
     await workspaceDeploy(ctx.config.baseUrl, ctx.repoName, 'slow-ws', 'slow-pkg@1.0.0', opts);
     return ctx;
   };
-  // A task of a few seconds: long enough to be found in flight, short enough
-  // to be followed through a second run of it
-  const withBrief: TestSetup<TestContext> = async (t) => {
+  // The slow task, slow on the value it is deployed with alone: its run is
+  // found in flight for as long as `slow-ws`'s is, and the task's second
+  // run, on an edit, does not wait
+  const withSlowOnce: TestSetup<TestContext> = async (t) => {
     const ctx = await setup(t);
     const opts = await ctx.opts();
-    const zipPath = await createSlowPackageZip(ctx.tempDir, 'brief-pkg', '1.0.0', 4);
+    const zipPath = await createSlowPackageZip(ctx.tempDir, 'once-pkg', '1.0.0', 30, 'test');
     const packageZip = readFileSync(zipPath);
     await packageImport(ctx.config.baseUrl, ctx.repoName, packageZip, opts);
-    await workspaceCreate(ctx.config.baseUrl, ctx.repoName, 'brief-ws', opts);
-    await workspaceDeploy(ctx.config.baseUrl, ctx.repoName, 'brief-ws', 'brief-pkg@1.0.0', opts);
+    await workspaceCreate(ctx.config.baseUrl, ctx.repoName, 'once-ws', opts);
+    await workspaceDeploy(ctx.config.baseUrl, ctx.repoName, 'once-ws', 'once-pkg@1.0.0', opts);
     return ctx;
   };
   const withSlowDiamond: TestSetup<TestContext> = async (t) => {
@@ -722,37 +723,37 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
       });
 
       it('hands a start that names no filter and forces no task to the run in flight, which runs its task once more on what was written before it', async (t) => {
-        const ctx = await withBrief(t);
+        const ctx = await withSlowOnce(t);
         const opts = await ctx.opts();
         const url = ctx.config.baseUrl;
         const inputPath = [variant('field', 'inputs'), variant('field', 'value')];
         const outputPath = [variant('field', 'tasks'), variant('field', 'slow'), variant('field', 'output')];
 
-        const first = await dataflowExecuteLaunch(url, ctx.repoName, 'brief-ws', {}, opts);
+        const first = await dataflowExecuteLaunch(url, ctx.repoName, 'once-ws', {}, opts);
         assert.strictEqual(first.type, 'started', 'a start that finds no run in flight begins one');
-        // The task has started, on the input as the run found it: the edit
-        // lands while it runs, and its start is behind the cursor the second
-        // start is given
+        // The task has started, on the input as the run found it, which it
+        // sleeps half a minute on: the edit lands while it runs, and its
+        // start is behind the cursor the second start is given
         await waitFor(async () => {
           try {
-            return (await dataflowExecutePoll(url, ctx.repoName, 'brief-ws', {}, opts)).events.some((event) => event.type === 'start');
+            return (await dataflowExecutePoll(url, ctx.repoName, 'once-ws', {}, opts)).events.some((event) => event.type === 'start');
           } catch {
             return false; // execution record not created yet
           }
         }, 60000);
-        const run = (await dataflowExecutePoll(url, ctx.repoName, 'brief-ws', { limit: 0 }, opts)).runId;
+        const run = (await dataflowExecutePoll(url, ctx.repoName, 'once-ws', { limit: 0 }, opts)).runId;
 
         // An edit, then the start a view follows it with
-        await datasetSet(url, ctx.repoName, 'brief-ws', inputPath, encodeBeast2For(StringType)('edited'), opts);
+        await datasetSet(url, ctx.repoName, 'once-ws', inputPath, encodeBeast2For(StringType)('edited'), opts);
         let since = 0n;
         if (ctx.wakesRuns) {
-          const second = await dataflowExecuteLaunch(url, ctx.repoName, 'brief-ws', {}, opts);
+          const second = await dataflowExecuteLaunch(url, ctx.repoName, 'once-ws', {}, opts);
           if (second.type !== 'handed') assert.fail('a start that finds a run in flight is handed to it, not answered that it began a run');
           since = second.value.since;
         } else {
           // A server whose start does not reach its runs refuses it, as a
           // held workspace refuses any start
-          await assert.rejects(dataflowExecuteLaunch(url, ctx.repoName, 'brief-ws', {}, opts), (err: unknown) => {
+          await assert.rejects(dataflowExecuteLaunch(url, ctx.repoName, 'once-ws', {}, opts), (err: unknown) => {
             assert.ok(err instanceof ApiError, `Expected ApiError, got ${String(err)}`);
             assert.strictEqual(err.code, 'workspace_locked');
             return true;
@@ -760,10 +761,11 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         }
 
         // Followed from the cursor the start was given, the same run lands
-        // the result it was making and starts its task again, on the edit
+        // the result it was making and starts its task again, on the edit,
+        // which the task copies at once
         const events: Awaited<ReturnType<typeof dataflowExecutePoll>>['events'] = [];
         await waitFor(async () => {
-          const state = await dataflowExecutePoll(url, ctx.repoName, 'brief-ws', { since }, opts);
+          const state = await dataflowExecutePoll(url, ctx.repoName, 'once-ws', { since }, opts);
           assert.strictEqual(state.runId, run, 'no second run began');
           events.push(...state.events);
           since = state.nextSeq;
@@ -775,7 +777,7 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
           assert.deepStrictEqual(past, ['complete slow', 'start slow', 'complete slow'],
             'past the cursor: the result in the making lands, and the task runs once more');
         }
-        const { data } = await datasetGet(url, ctx.repoName, 'brief-ws', outputPath, opts);
+        const { data } = await datasetGet(url, ctx.repoName, 'once-ws', outputPath, opts);
         assert.strictEqual(decodeBeast2For(StringType)(data), 'edited', 'the run ended on the edit');
       });
 
