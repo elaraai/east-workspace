@@ -550,29 +550,58 @@ export function ledgerOrders(options: { readonly erp?: LedgerErpLoad; readonly o
 }
 
 /**
- * A package for a fed load's spec, after the design's §4.4: the ERP's rows
- * (`erp_rows`, an input); `combine_erp`, a task that makes the ERP's order book
- * from them; `orders`, a composite record whose `erp` source the dataflow
- * loads from `combine_erp`'s output, whose `wms` source `e3 load` delivers, and
- * whose own source (`own`) holds order `P-1` (Birch, 2); and `forecast`, a
- * task over `orders` that counts its entries.
+ * A package for a fed load's spec, after the design's §4.4: `orders`, a
+ * composite record whose `erp` source the dataflow loads from its feed, beside
+ * the warehouse's (`wms`) and the solution's own (`own`), which holds order
+ * `P-1` (Birch, 2) and which the mutation `plan` writes by id; and
+ * `forecast`, a task over `orders` that counts its entries.
  *
+ * `erp`'s feed is, as asked:
+ * - `task` (the default): `combine_erp`, a task that makes the ERP's order
+ *   book from the ERP's rows (`erp_rows`, an input with no value);
+ * - `packaged`: `erp_extract`, an input the package gives a placeholder book,
+ *   order `SO-0`, which a load waits on until someone sets it.
+ *
+ * `wms` is, as asked, delivered by `e3 load` (the default), or `fed` too:
+ * loaded from `combine_wms`, a task that makes the warehouse's book from its
+ * rows (`wms_rows`, an input with no value).
+ *
+ * @param options - `erp`'s feed, `wms`'s, and an order id whose delivery makes
+ *   `erp`'s load fail, naming the order
  * @returns Each part, and the package of them (`fed`, at the version given,
  *   `1.0.0` when omitted)
  */
-export function fedOrders() {
+export function fedOrders(options: { readonly feed?: 'task' | 'packaged'; readonly wms?: 'delivered' | 'fed'; readonly failsOn?: string } = {}) {
   const erpRows = e3.input('erp_rows', ErpDeliveryType);
   const combineErp = e3.task('combine_erp', [erpRows], East.function([ErpDeliveryType], ErpDeliveryType, (_$, rows) => rows));
-  const orders = e3.recordComposite('orders', SourcedOrderType, {
+  const erpExtract = e3.input('erp_extract', ErpDeliveryType, variant('value', new Map([['SO-0', { customer: 'Placeholder', qty: 0n }]])));
+  const wmsRows = e3.input('wms_rows', ErpDeliveryType);
+  const combineWms = e3.task('combine_wms', [wmsRows], East.function([ErpDeliveryType], ErpDeliveryType, (_$, rows) => rows));
+  const failsOn = options.failsOn;
+  const loadErp = failsOn === undefined ? loadBook : East.function(
+    [ErpDeliveryType, ErpDeliveryType], PatchType(ErpDeliveryType), ($, delivery, current) => {
+      $.if(delivery.has(failsOn), ($) => $.error(East.str`the ERP sent order ${East.value(failsOn)}, which no order book holds`));
+      return East.diff(current, delivery);
+    });
+  const fedBy = (feed: typeof combineErp | typeof erpExtract) => e3.recordComposite('orders', SourcedOrderType, {
     sources: (source) => ({
-      erp: source.load(StringType, combineErp, loadBook),
+      erp: source.load(StringType, feed, loadErp),
       own: source.mutations(StringType),
-      wms: source.load(StringType, ErpDeliveryType, loadBook),
+      wms: options.wms === 'fed' ? source.load(StringType, combineWms, loadBook) : source.load(StringType, ErpDeliveryType, loadBook),
     }),
     initial: { own: new Map([['P-1', { customer: 'Birch', qty: 2n }]]) },
+    mutations: (mutation, { state, edit }) => ({
+      plan: mutation.edit(East.function([state, StringType, SourcedOrderType, edit], NullType, ($, _orders, id, order, edit) => {
+        $(edit.set(variant('own', id), order));
+      })),
+    }),
   });
+  const orders = options.feed === 'packaged' ? fedBy(erpExtract) : fedBy(combineErp);
   const forecast = e3.task('forecast', [orders], East.function([orders.type], IntegerType, (_$, held) => held.size()));
-  return { erpRows, combineErp, orders, forecast, pkg: (version = '1.0.0') => e3.package('fed', version, forecast) };
+  return {
+    erpRows, combineErp, erpExtract, wmsRows, combineWms, orders, forecast,
+    pkg: (version = '1.0.0') => e3.package('fed', version, forecast),
+  };
 }
 
 /**

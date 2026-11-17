@@ -29,7 +29,7 @@
 
 import { StringType, decodeBeast2For, encodeBeast2For, equalFor, none, some, variant } from '@elaraai/east';
 import type {
-  DataflowRun, ExecutionOwner, StageUnit, TaskExecutionRecord, Structure, TaskObject, UnitWait, VersionVector, WorkspaceState,
+  DataflowRun, DatasetRef, ExecutionOwner, StageUnit, TaskExecutionRecord, Structure, TaskObject, UnitWait, VersionVector, WorkspaceState,
 } from '@elaraai/e3-types';
 import { WorkspaceRecordType, decodePackageObject, decodeTaskObject } from '@elaraai/e3-types';
 import type { StorageBackend, LockHandle } from '../../storage/interfaces.js';
@@ -40,6 +40,7 @@ import { WorkspaceLockError, DataflowAbortedError, DataflowError, DataflowSupers
 import { INTENT_PROBE_MS, acquireWorkspaceShared, announcedIntent, intentWords, workspaceLockRefusal } from '../../deploy-lock.js';
 import { catchUpKey, type TaskExecutionResult } from '../../dataflow.js';
 import { inputsHash } from '../../executions.js';
+import { recordLoadCommit, recordLoadCounts, type RecordLoadCommitOutcome } from '../../record-load.js';
 import { uuidv7 } from '../../uuid.js';
 import type {
   DataflowOrchestrator,
@@ -57,6 +58,8 @@ import type {
   DataflowExecutionState,
   ExecutionEvent,
   FinalizeResult,
+  PrepareLoadAnswered,
+  PrepareLoadResult,
   PrepareTaskResult,
   TaskCommits,
   TaskState,
@@ -65,6 +68,7 @@ import {
   stepInitialize,
   stepGetReady,
   stepPrepareTask,
+  stepPrepareLoad,
   stepTaskStarted,
   stepTaskSplit,
   stepTaskMergeStarted,
@@ -72,6 +76,8 @@ import {
   stepUnitRequeued,
   stepTaskCompleted,
   stepTaskFailed,
+  stepLoadFailed,
+  stepTaskRestarted,
   stepTasksSkipped,
   stepTasksWaiting,
   stepIsComplete,
@@ -87,6 +93,7 @@ import {
   deferralPath,
   stepGetRunSet,
   stepTaskForced,
+  resultVersionsKey,
   waitingTasks,
 } from '../steps.js';
 import type { Mutable } from '../types.js';
@@ -460,6 +467,13 @@ interface RunningExecution {
   hasFailure: boolean;
   /** The workspace's package structure, read once for the execution */
   structure: Structure | null;
+  /** The deployed package's refs, by ref path, read once with its structure:
+   *  a load whose feed input holds its package's value waits */
+  packageRefs: ReadonlyMap<string, DatasetRef> | null;
+  /** The commits of load nodes under way outside the run's mutex, by node:
+   *  each one's abort, a child of the run's, and what settles as it ends. A
+   *  yield stops each and waits for it before it takes the mutex */
+  loadCommits: Map<string, { readonly abort: AbortController; readonly settled: Promise<void> }>;
   /** Mutex to serialize state mutations from concurrent task completions */
   mutex: AsyncMutex;
   /** Task execution records for DataflowRun */
@@ -469,6 +483,11 @@ interface RunningExecution {
   completionPromise: Promise<FinalizeResult>;
   resolveCompletion: (result: FinalizeResult) => void;
   rejectCompletion: (error: Error) => void;
+}
+
+/** Whether a prepared node is a load node, whose commit its answer carries. */
+function isPreparedLoad(prepared: PrepareTaskResult): prepared is PrepareLoadResult {
+  return 'load' in prepared;
 }
 
 /** A promise, and what settles it. */
@@ -737,7 +756,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
               taskHash: task.hash,
               inputsHash: ts.execution.value.inputsHash,
               cached: ts.cached.type === 'some' ? ts.cached.value : false,
-              outputVersions: new Map(state.versionVectors.get(task.output) ?? []),
+              outputVersions: new Map(state.versionVectors.get(resultVersionsKey(task)) ?? []),
               executionCount: 1n,
             });
           }
@@ -828,6 +847,8 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       unitSeq: 0,
       hasFailure: false,
       structure: null,
+      packageRefs: null,
+      loadCommits: new Map(),
       mutex: new AsyncMutex(),
       taskExecutions: init.taskExecutions,
       completionPromise,
@@ -1051,9 +1072,11 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       const wsRecord = wsData === null ? null : decodeBeast2For(WorkspaceRecordType)(wsData);
       wsState = wsRecord?.type === 'some' ? wsRecord.value : null;
 
-      // Cache structure for the entire execution (immutable during execution)
-      const structure = wsState ? await this.readStructure(storage, repo, wsState.packageHash) : null;
-      execution.structure = structure;
+      // Cache structure for the entire execution (immutable during execution),
+      // and the package's refs, which a load's feed input is compared with
+      const pkg = wsState ? await this.readPackage(storage, repo, wsState.packageHash) : null;
+      execution.structure = pkg?.data.structure ?? null;
+      execution.packageRefs = pkg?.data.refs ?? null;
 
       // Write initial DataflowRun record
       if (wsState) {
@@ -1212,11 +1235,13 @@ export class LocalOrchestrator implements DataflowOrchestrator {
             versions = at.versions;
           }
 
-          // Prepare task (resolve inputs at its versions, check cache)
+          // Prepare it (resolve inputs at its versions, check cache): a load
+          // node by its own step, which its record's slots may answer
           const landed = execution.landed;
-          const prepared = await stepPrepareTask(storage, state, taskName, versions, {
-            landed: (task, inHash) => execution.caughtUp.get(catchUpKey({ task, inputsHash: inHash })),
-          });
+          const caughtUp = (task: string, inHash: string): string | undefined => execution.caughtUp.get(catchUpKey({ task, inputsHash: inHash }));
+          const prepared = this.isLoadNode(state, taskName)
+            ? await stepPrepareLoad(storage, state, taskName, versions, { landed: caughtUp, packageRefs: execution.packageRefs ?? undefined })
+            : await stepPrepareTask(storage, state, taskName, versions, { landed: caughtUp });
 
           // Its status may have moved while it was prepared: a failure
           // skipped it, or a task it reads was left waiting
@@ -1273,6 +1298,49 @@ export class LocalOrchestrator implements DataflowOrchestrator {
           }
           this.releaseCatchUps(execution, taskName);
           execution.deferredFor.delete(taskName);
+
+          // A load node its record's slots answer completes at once: the
+          // record holds the delivery already, and nothing commits
+          if (prepared.kind === 'answered') {
+            hadSyncCompletion = true;
+            await execution.mutex.runExclusive(async () => {
+              this.landLoadAnswer(execution, prepared, versions);
+              await this.persistState(execution, state);
+            });
+            continue;
+          }
+
+          // A load node runs its pieces, or takes the delta the cache holds,
+          // and commits it outside the run's mutex (completeLoad)
+          if (isPreparedLoad(prepared)) {
+            await execution.mutex.runExclusive(async () => {
+              stepTaskStarted(state, taskName);
+              await this.persistState(execution, state);
+            });
+            options.onTaskStart?.(taskName);
+            execution.launches.set(taskName, inputsHash(prepared.inputHashes));
+            const delta = prepared.cached;
+            if (delta !== null) {
+              this.launchLoad(storage, repo, execution, taskName, prepared, versions, () => Promise.resolve({
+                state: 'success', cached: true, outputHash: delta.outputHash, executionId: delta.executionId, duration: 0,
+              }));
+              continue;
+            }
+            const loadTask = await this.readSplitTask(storage, repo, prepared.taskHash);
+            if (loadTask !== null) {
+              this.launchSplit(storage, repo, execution, taskName, {
+                task: taskName,
+                taskHash: prepared.taskHash,
+                inputHashes: prepared.inputHashes,
+                own: true,
+                complete: (outcome) => this.completeLoad(storage, repo, execution, taskName, prepared, versions, outcome),
+                fail: (err) => this.loadThrew(execution, taskName, versions, err),
+              }, loadTask);
+            } else {
+              this.launchLoad(storage, repo, execution, taskName, prepared, versions, () => this.executeTask(storage, repo, execution, taskName, prepared));
+            }
+            continue;
+          }
 
           // Check cache
           const cached = prepared.cached;
@@ -1691,6 +1759,11 @@ export class LocalOrchestrator implements DataflowOrchestrator {
   private async checkpointYield(execution: RunningExecution): Promise<void> {
     const { state } = execution;
     execution.yielded = true;
+    // A load's commit under way outside the mutex is stopped, and waited for,
+    // so none lands once the run lets its workspace go: one that wrote its ref
+    // already is answered by the record's slots when the run resumes
+    for (const { abort } of execution.loadCommits.values()) abort.abort();
+    await Promise.all([...execution.loadCommits.values()].map(({ settled }) => settled));
     await execution.mutex.runExclusive(async () => {
       // A split task in progress is left mid-stage: its state keeps naming
       // the stage's plan, which a resumed run takes up again. A catch-up run
@@ -2156,6 +2229,284 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     });
   }
 
+  /** The node of the run's graph by its name: a task, or a load node. */
+  private nodeOf(state: DataflowExecutionState, name: string): NonNullable<DataflowExecutionState['graph']['value']>['tasks'][number] | undefined {
+    return state.graph.type === 'some' ? state.graph.value.tasks.find((task) => task.name === name) : undefined;
+  }
+
+  /** Whether a node of the run's graph is a load node: the load of a fed source. */
+  private isLoadNode(state: DataflowExecutionState, name: string): boolean {
+    return this.nodeOf(state, name)?.load.type === 'some';
+  }
+
+  /**
+   * Completes a load node its record's slots answer, under the mutex: the
+   * record holds the delivery already, under the same load, so nothing
+   * commits. Its output is the record's head, and its execution the one the
+   * slots name.
+   */
+  private landLoadAnswer(execution: RunningExecution, prepared: PrepareLoadAnswered, versions: VersionVector): void {
+    const { state, options } = execution;
+    stepTaskCompleted(state, prepared.task, prepared.commit, true, 0, prepared.execution, versions);
+    const existing = execution.taskExecutions.get(prepared.task);
+    execution.taskExecutions.set(prepared.task, {
+      ...prepared.execution,
+      taskHash: this.nodeOf(state, prepared.task)?.hash ?? '',
+      cached: true,
+      outputVersions: new Map(versions),
+      executionCount: (existing?.executionCount ?? 0n) + 1n,
+    });
+    options.onTaskComplete?.({ name: prepared.task, cached: true, state: 'success', duration: 0 });
+  }
+
+  /**
+   * Launches a load node whose work is one execution — or none, the delta the
+   * cache holds — tracked under its name: its success commits outside the
+   * run's mutex ({@link completeLoad}).
+   */
+  private launchLoad(
+    storage: StorageBackend,
+    repo: string,
+    execution: RunningExecution,
+    name: string,
+    prepared: PrepareLoadResult,
+    versions: VersionVector,
+    run: () => Promise<TaskOutcome>
+  ): void {
+    const loadPromise = run()
+      .then((outcome) => this.completeLoad(storage, repo, execution, name, prepared, versions, outcome))
+      .catch((err) => this.loadThrew(execution, name, versions, err))
+      .finally(() => {
+        execution.moved++;
+        if (execution.runningTasks.get(name) === loadPromise) {
+          execution.runningTasks.delete(name);
+          execution.waiting.delete(name);
+        }
+      });
+    execution.runningTasks.set(name, loadPromise);
+  }
+
+  /**
+   * Completes a load node: its delta commits to its record outside the run's
+   * mutex, and the run then lands what the commit came to ({@link applyLoad}).
+   * Its run then leaves flight, as a task's does.
+   */
+  private async completeLoad(
+    storage: StorageBackend,
+    repo: string,
+    execution: RunningExecution,
+    name: string,
+    prepared: PrepareLoadResult,
+    versions: VersionVector,
+    outcome: TaskOutcome
+  ): Promise<void> {
+    try {
+      await this.applyLoad(storage, repo, execution, name, prepared, versions, outcome);
+    } finally {
+      execution.launches.delete(name);
+      execution.landed++;
+    }
+  }
+
+  /**
+   * What a load node's execution comes to.
+   *
+   * @remarks
+   * A failed piece fails the node, its run going on (ruling 15): no node
+   * depends on it, and it runs again once its feed moves. A cancelled one goes
+   * back to pending. A delta commits in three steps:
+   *
+   * 1. Under the mutex, nothing for a run that yielded or that another
+   *    process took up; otherwise the node stays in progress, and its
+   *    commit's abort, a child of the run's, is entered in the run's
+   *    `loadCommits`, which a yield stops and waits for.
+   * 2. Outside the mutex, {@link recordLoadCommit}, named `system:dataflow`:
+   *    every other completion, launch and cache hit goes on meanwhile, and so
+   *    do people's edits. A forced node whose record held its delivery already
+   *    commits only a delta that sets or deletes an entry, and otherwise
+   *    completes with the execution the record's slots name.
+   * 3. Under the mutex, by its answer: committed, the node completes, its
+   *    output the commit and its versions the feed's it was launched with, and
+   *    the run takes the record's change in, so its readers are due; restarted,
+   *    back to pending, to run again on the record's new head; stopped, back to
+   *    pending; thrown, failed as a piece's failure fails it.
+   */
+  private async applyLoad(
+    storage: StorageBackend,
+    repo: string,
+    execution: RunningExecution,
+    name: string,
+    prepared: PrepareLoadResult,
+    versions: VersionVector,
+    outcome: TaskOutcome
+  ): Promise<void> {
+    const { state, options } = execution;
+    const delta = outcome.state === 'success' ? outcome.outputHash : undefined;
+    if (delta === undefined) {
+      await execution.mutex.runExclusive(async () => {
+        if (execution.stoppedBy === 'refused') return;
+        if (outcome.cancelled) this.loadStopped(execution, name, outcome.duration);
+        else await this.failLoad(storage, execution, name, versions, outcome.error, outcome);
+        await this.persistState(execution, state);
+      });
+      return;
+    }
+
+    // 1. The commit's abort, entered under the mutex. A run that yielded, or
+    // that another process took up, commits nothing more: the run that takes
+    // it up loads again, its pieces from the cache
+    let commit: { readonly signal: AbortSignal; readonly done: () => void } | null = null;
+    await execution.mutex.runExclusive(() => {
+      if (execution.stoppedBy === 'refused' || execution.yielded) return;
+      const abort = new AbortController();
+      const run = execution.abortController.signal;
+      const onAbort = (): void => abort.abort();
+      run.addEventListener('abort', onAbort, { once: true });
+      if (run.aborted) abort.abort();
+      const settled = deferred();
+      execution.loadCommits.set(name, { abort, settled: settled.promise });
+      commit = {
+        signal: abort.signal,
+        done: () => {
+          run.removeEventListener('abort', onAbort);
+          execution.loadCommits.delete(name);
+          settled.resolve();
+        },
+      };
+    });
+    if (commit === null) return;
+    const { signal, done } = commit as { readonly signal: AbortSignal; readonly done: () => void };
+
+    // 2. The commit, outside the mutex
+    const { load } = prepared;
+    const made = { inputsHash: inputsHash(prepared.inputHashes), executionId: outcome.executionId };
+    type Unchanged = { readonly kind: 'unchanged'; readonly commit: string; readonly execution: { inputsHash: string; executionId: string } };
+    let committed: RecordLoadCommitOutcome | Unchanged | { readonly kind: 'thrown'; readonly error: unknown };
+    try {
+      // A forced node over a delivery the record holds commits only a delta
+      // that changes something; otherwise it completes as the record holds it
+      const { loadedBy, base } = load;
+      const unchanged = loadedBy !== null && base !== undefined && stepTaskForced(state, name)
+        && await this.deltaChangesNothing(storage, repo, delta, load.run);
+      committed = unchanged ? { kind: 'unchanged', commit: base!, execution: loadedBy! } : await recordLoadCommit(storage, repo, state.workspace, load.record, load.source, {
+        delta,
+        run: load.run,
+        ...(load.base !== undefined && { base: load.base }),
+        delivery: load.delivery,
+        load: load.loadHash,
+        execution: made,
+        actor: 'system:dataflow',
+        signal,
+      });
+    } catch (error) {
+      committed = { kind: 'thrown', error };
+    } finally {
+      done();
+    }
+
+    // 3. What it came to, under the mutex
+    await execution.mutex.runExclusive(async () => {
+      if (execution.stoppedBy === 'refused') return;
+      switch (committed.kind) {
+        case 'committed':
+        case 'unchanged': {
+          // The execution the record's slots name: one that changed nothing
+          // leaves them naming the one that made what the record holds
+          const completed = committed.kind === 'unchanged' ? committed.execution : made;
+          stepTaskCompleted(state, name, committed.commit, outcome.cached, outcome.duration, completed, versions, outcome.peakBytes);
+          const existing = execution.taskExecutions.get(name);
+          execution.taskExecutions.set(name, {
+            ...completed, taskHash: prepared.taskHash, cached: outcome.cached, outputVersions: new Map(versions),
+            executionCount: (existing?.executionCount ?? 0n) + 1n,
+          });
+          options.onTaskComplete?.({ name, cached: outcome.cached, state: 'success', duration: outcome.duration });
+          // Every result lands: the node is asked whether its feed moved while
+          // it ran, and the run takes its commit in, a change of its record,
+          // whose readers are then due. One that fails leaves both to ask.
+          try {
+            const again = await stepTaskDueAgain(storage, state, name);
+            if (again?.type === 'task_invalidated') options.onTaskInvalidated?.(name, again.value.reason);
+            await this.handleInputChanges(storage, execution);
+          } catch {
+            for (const input of this.nodeOf(state, name)?.inputs ?? []) execution.unasked.add(input);
+            execution.unasked.add(prepared.outputPath);
+          }
+          break;
+        }
+        case 'restart': {
+          stepTaskRestarted(state, name, committed.reason);
+          options.onTaskInvalidated?.(name, committed.reason);
+          break;
+        }
+        case 'stopped':
+          this.loadStopped(execution, name, outcome.duration);
+          break;
+        case 'thrown': {
+          const message = committed.error instanceof Error ? committed.error.message : String(committed.error);
+          await this.failLoad(storage, execution, name, versions, message, { ...outcome, exitCode: undefined });
+          break;
+        }
+      }
+      await this.persistState(execution, state);
+    });
+  }
+
+  /** Whether a load's delta sets or deletes no entry of its source. */
+  private async deltaChangesNothing(storage: StorageBackend, repo: string, delta: string, run: string): Promise<boolean> {
+    const counts = await recordLoadCounts(storage, repo, delta, run);
+    return counts.set === 0n && counts.deleted === 0n;
+  }
+
+  /** Sends a load node e3 stopped back to pending, as a cancelled task goes. */
+  private loadStopped(execution: RunningExecution, name: string, duration: number): void {
+    const ts = execution.state.tasks.get(name) as Mutable<TaskState> | undefined;
+    if (ts) {
+      ts.status = 'pending';
+      ts.plan = none;
+    }
+    execution.options.onTaskComplete?.({ name, cached: false, state: 'cancelled', duration });
+  }
+
+  /**
+   * Fails a load node under the mutex, its run going on (ruling 15): it
+   * says so at once, no node depends on it, and it runs again once its feed
+   * moves — at once, when the feed moved while it ran.
+   */
+  private async failLoad(
+    storage: StorageBackend, execution: RunningExecution, name: string, versions: VersionVector, error: string | undefined,
+    outcome: Pick<TaskOutcome, 'exitCode' | 'duration'>,
+  ): Promise<void> {
+    const { state, options } = execution;
+    stepLoadFailed(state, name, error, outcome.exitCode, outcome.duration, versions);
+    options.onTaskComplete?.({
+      name, cached: false, state: outcome.exitCode !== undefined ? 'failed' : 'error', error, exitCode: outcome.exitCode, duration: outcome.duration,
+    });
+    try {
+      const again = await stepTaskDueAgain(storage, state, name);
+      if (again?.type === 'task_invalidated') options.onTaskInvalidated?.(name, again.value.reason);
+    } catch {
+      for (const input of this.nodeOf(state, name)?.inputs ?? []) execution.unasked.add(input);
+    }
+  }
+
+  /** Fails a load node whose launch or completion threw, its run going on (ruling 15). */
+  private async loadThrew(execution: RunningExecution, name: string, versions: VersionVector, err: unknown): Promise<void> {
+    const { state, options } = execution;
+    const error = err instanceof Error ? err.message : String(err);
+    execution.launches.delete(name);
+    execution.landed++;
+    await execution.mutex.runExclusive(async () => {
+      if (execution.stoppedBy === 'refused') return;
+      try {
+        stepLoadFailed(state, name, error, undefined, 0, versions);
+        await this.persistState(execution, state);
+      } catch {
+        // best-effort — the error above is what matters
+      }
+    });
+    options.onTaskComplete?.({ name, cached: false, state: 'error', error, duration: 0 });
+  }
+
   /** Launches a task that runs as one execution, tracked under its name. */
   private launchTask(
     storage: StorageBackend,
@@ -2427,6 +2778,8 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       // Scoped as the task's own cache bypass is: under a filter, only the
       // target's units re-run.
       force: stepTaskForced(execution.state, taskName),
+      // A load's pieces run on any runtime, as `e3 load`'s do
+      ...(this.isLoadNode(execution.state, taskName) && { anyRuntime: true }),
       verbose: options.verbose,
       signal: execution.abortController.signal,
       onStdout: options.onStdout ? (data) => options.onStdout!(taskName, data) : undefined,
@@ -2488,6 +2841,8 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       // Scoped like the cache bypass in stepPrepareTask: a filtered run forces
       // only the target, so a launched dependency still honours its own cache.
       force: stepTaskForced(execution.state, taskName),
+      // A load runs on any runtime, as `e3 load`'s does
+      ...(this.isLoadNode(execution.state, taskName) && { anyRuntime: true }),
       verbose: options.verbose,
       signal: execution.abortController.signal,
       onStdout: options.onStdout ? (data) => options.onStdout!(taskName, data) : undefined,
@@ -2617,16 +2972,14 @@ export class LocalOrchestrator implements DataflowOrchestrator {
   }
 
   /**
-   * Read workspace structure from storage.
+   * Read the deployed package from storage: its structure and its refs.
    */
-  private async readStructure(
+  private async readPackage(
     storage: StorageBackend,
     repo: string,
     packageHash: string
-  ): Promise<Structure> {
-    const pkgData = await storage.objects.read(repo, packageHash);
-    const pkgObject = decodePackageObject(pkgData);
-    return pkgObject.data.structure;
+  ): Promise<ReturnType<typeof decodePackageObject>> {
+    return decodePackageObject(await storage.objects.read(repo, packageHash));
   }
 
   /**

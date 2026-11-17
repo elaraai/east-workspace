@@ -28,7 +28,7 @@ import {
   type LockOperation, type PartitionProgress, type RecordCommit, type RecordLoadArgs, type RecordLoadObject, type RecordLoadProgress,
   type RecordLoadResult, type RecordSignature,
 } from '@elaraai/e3-types';
-import { DeltaStoppedError, applyDeltaWhere, type DeltaApply, type DeltaArmSummary } from './record-apply.js';
+import { DeltaStoppedError, applyDeltaWhere, summarizeDelta, type DeltaApply, type DeltaArmSummary } from './record-apply.js';
 import { PENDING_SLOT, pendingSources, sourceEntriesIn, sourceLoadSlots, sourceSegments, sourcesSlot } from './record-slots.js';
 import {
   casBackoffMs, encodeMutationArgs, named, nextVersions, readRecordState, resolveRecord, stateTargets, stateWritten, storeCommit,
@@ -358,6 +358,27 @@ async function loadCounts(
   const [inserted, updated, deleted] = [primary?.insert ?? 0, primary?.update ?? 0, primary?.delete ?? 0];
   const held = (await DatasetSegments.open(storage, repo, run)).elementCount;
   return { set: BigInt(inserted + updated), deleted: BigInt(deleted), unchanged: BigInt(held - updated - deleted) };
+}
+
+/**
+ * What a load's delta does to its source's entries, counted by a read of the
+ * delta: what the load's commit counts as it applies it
+ * ({@link recordLoadCommit}). A forced load node whose record holds its
+ * delivery already commits only a delta that sets or deletes one. The count
+ * reads the whole delta, and is stopped as the apply is.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param delta - The load's delta
+ * @param run - The source's run it was computed over ({@link recordSourceRun})
+ * @param signal - Stops the count between two of the delta's segments
+ * @returns The counts a load's commit records in its arguments
+ * @throws {DeltaStoppedError} When `signal` stopped it
+ */
+export async function recordLoadCounts(
+  storage: StorageBackend, repo: string, delta: string, run: string, signal?: AbortSignal,
+): Promise<Pick<RecordLoadArgs, 'set' | 'deleted' | 'unchanged'>> {
+  return loadCounts(storage, repo, await summarizeDelta(storage, repo, delta, signal === undefined ? {} : { signal }), run);
 }
 
 /**

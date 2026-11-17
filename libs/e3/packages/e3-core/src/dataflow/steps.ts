@@ -23,7 +23,7 @@
  */
 
 import { StringType, equalFor, variant, some, none } from '@elaraai/east';
-import { E3_RELEASE, dataflowForce, type StageUnit, type VersionVector, type Structure } from '@elaraai/e3-types';
+import { E3_RELEASE, dataflowForce, type DatasetRef, type StageUnit, type VersionVector, type Structure } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/interfaces.js';
 import type { UnitRequeue } from '../execution/interfaces.js';
 import { DataflowError, TaskNotFoundError } from '../errors.js';
@@ -39,13 +39,18 @@ import {
   dataflowSnapshotLooked,
   dataflowSnapshotTaken,
   dataflowCheckCache,
+  loadsOf,
   recordCommitOrder,
   taskProducers,
   type ResolveInputsOptions,
 } from '../dataflow.js';
+import { recordSourceRun } from '../record-load.js';
+import { sourceLoadSlots } from '../record-slots.js';
+import { resolveRecord } from '../records.js';
 import { workspaceSetDatasetByHash } from '../trees.js';
 import {
   inputVersionVector,
+  keypathToRefPath,
   snapshotInputVersions,
   detectInputChanges,
   sameVersion,
@@ -59,6 +64,8 @@ import type {
   TaskState,
   InitializeResult,
   InputWait,
+  PrepareLoadAnswered,
+  PrepareLoadResult,
   PrepareTaskBehind,
   PrepareTaskResult,
   PrepareTaskWaiting,
@@ -298,6 +305,42 @@ async function getWorkspaceStructure(
   return pkgObject.data.structure;
 }
 
+/** Whether two objects are one, by their hashes. */
+const sameObject = equalFor(StringType);
+
+/**
+ * Where a node's result's versions are kept in the run's state: under a
+ * task's output, and under a load node's own name. A load node writes its
+ * record, a root of the run whose versions are its snapshot's, so the feed's
+ * versions its result was made from are kept for the node alone.
+ *
+ * @param node - A node of the run's graph
+ * @returns The key of `versionVectors` its result's versions are kept under
+ */
+export function resultVersionsKey(node: DataflowGraph['tasks'][number]): string {
+  return node.load.type === 'some' ? node.name : node.output;
+}
+
+/**
+ * What a node waits on while a record it reads cannot be loaded: for each
+ * record it reads directly, the first of the record's load nodes the run has
+ * left waiting.
+ *
+ * @param state - Execution state
+ * @param graph - The run's graph
+ * @param node - The node
+ * @returns The waits, `upstream` each, in the node's input order
+ */
+function upstreamWaits(state: DataflowExecutionState, graph: DataflowGraph, node: DataflowGraph['tasks'][number]): InputWait[] {
+  const loads = loadsOf(graph);
+  const waits: InputWait[] = [];
+  for (const input of new Set(node.inputs)) {
+    const waitingLoad = loads.get(input)?.find((load) => load.name !== node.name && state.tasks.get(load.name)?.status === 'waiting');
+    if (waitingLoad !== undefined) waits.push({ input, kind: 'upstream', task: waitingLoad.name });
+  }
+  return waits;
+}
+
 // =============================================================================
 // Pure Step Functions
 // =============================================================================
@@ -360,6 +403,12 @@ export function stepTaskForced(state: DataflowExecutionState, taskName: string):
  * 2. It passes the filter (if any)
  * 3. It is not already completed, in-progress, failed, skipped, or deferred
  *
+ * Load nodes come first, then the tasks, each in the graph's order. No node
+ * depends on a load node, so the order decides nothing but which is prepared
+ * first: a load that cannot run waits before a reader of its record is
+ * prepared, and the reader then waits on the load (`upstream`) rather than on
+ * what the load waits for.
+ *
  * This is a pure function - it only reads state.
  *
  * @param state - Current execution state
@@ -385,8 +434,9 @@ export function stepGetReady(state: DataflowExecutionState): string[] {
 
   // Restrict to the filter's dependency closure (null = no filter)
   const runSet = stepGetRunSet(state);
+  const loads = new Set(getGraph(state).tasks.filter((node) => node.load.type === 'some').map((node) => node.name));
 
-  return graphReady.filter(taskName => {
+  return [...graphReady.filter((name) => loads.has(name)), ...graphReady.filter((name) => !loads.has(name))].filter(taskName => {
     const taskState = state.tasks.get(taskName);
     if (!taskState) return false;
 
@@ -746,6 +796,14 @@ function taskDue(state: DataflowExecutionState, taskState: Mutable<TaskState>, r
  * - skipped: left as-is (upstream failure still applies)
  * - failed: left as-is (task already failed; the run is winding down)
  *
+ * A load node reads its feed, and is due as a task is when its feed moves. It
+ * is due too when its record changed and the record's `.execution` slot no
+ * longer names the execution the node completed with: a rollback or a restore
+ * forgot its delivery, which it loads again. A mutation leaves the slot, and
+ * the node, as they are. A failed load node goes back to pending, out of the
+ * failed count, once its feed has moved since the launch that failed: a
+ * load's failure does not end its run, which loads the feed's next output.
+ *
  * @param storage - Storage backend
  * @param state - Execution state to mutate
  * @param changed - The datasets that changed, by keypath
@@ -766,14 +824,24 @@ export async function stepTasksDue(
 
   for (const task of graph.tasks) {
     const read = [...new Set(task.inputs.filter((input) => paths.has(input)))];
-    if (read.length === 0) continue;
     const taskState = state.tasks.get(task.name) as Mutable<TaskState> | undefined;
     if (!taskState) continue;
+    const forgotten = task.load.type === 'some' && paths.has(task.output) && taskState.status === 'completed' &&
+      await loadForgotten(storage, state, task, taskState);
+    if (read.length === 0 && !forgotten) continue;
 
     if (taskState.status === 'completed') {
-      if (!(await wouldReadOther(storage, state, task.name, task.output))) continue;
+      if (forgotten) {
+        events.push(taskDue(state, taskState, `its record forgot its delivery: ${task.output}`));
+        due.push(task.name);
+        continue;
+      }
+      if (!(await wouldReadOther(storage, state, task.name, resultVersionsKey(task)))) continue;
       events.push(taskDue(state, taskState, `input changed: ${read.join(', ')}`));
       due.push(task.name);
+    } else if (task.load.type === 'some' && taskState.status === 'failed') {
+      // A load's failure leaves its run going: it loads the feed's next output
+      if (await wouldReadOther(storage, state, task.name, resultVersionsKey(task))) events.push(loadDueAfterFailure(state, taskState));
     } else if (taskState.status === 'deferred') {
       // Un-defer — it is decided again as it next launches
       taskState.status = 'pending';
@@ -807,8 +875,13 @@ export async function stepTaskDueAgain(
 ): Promise<ExecutionEvent | null> {
   const task = getGraph(state).tasks.find(t => sameName(t.name, taskName));
   const taskState = state.tasks.get(taskName) as Mutable<TaskState> | undefined;
-  if (!task || !taskState || taskState.status !== 'completed') return null;
-  if (!(await wouldReadOther(storage, state, taskName, task.output))) return null;
+  if (!task || !taskState) return null;
+  // A load node that failed runs again once its feed has moved since its launch
+  if (task.load.type === 'some' && taskState.status === 'failed') {
+    return await wouldReadOther(storage, state, taskName, resultVersionsKey(task)) ? loadDueAfterFailure(state, taskState) : null;
+  }
+  if (taskState.status !== 'completed') return null;
+  if (!(await wouldReadOther(storage, state, taskName, resultVersionsKey(task)))) return null;
   return taskDue(state, taskState, 'its inputs moved while it ran');
 }
 
@@ -847,6 +920,44 @@ export async function stepResumedTasksDue(
     due.push(task.name);
   }
   return { due, events };
+}
+
+/**
+ * Puts a failed load node back to pending, out of the failed count, to load
+ * its feed's next output: its feed moved since the launch that failed.
+ */
+function loadDueAfterFailure(state: DataflowExecutionState, taskState: Mutable<TaskState>): ExecutionEvent {
+  const mutableState = state as Mutable<DataflowExecutionState>;
+  taskState.status = 'pending';
+  taskState.error = none;
+  taskState.exitCode = none;
+  mutableState.failed = state.failed - 1n;
+  mutableState.reexecuted = state.reexecuted + 1n;
+  mutableState.eventSeq = state.eventSeq + 1n;
+  const event: ExecutionEvent = variant('task_invalidated', {
+    seq: mutableState.eventSeq,
+    timestamp: new Date(),
+    task: taskState.name,
+    reason: 'its feed moved since its load failed',
+  });
+  (mutableState.events as ExecutionEvent[]).push(event);
+  return event;
+}
+
+/**
+ * Whether a completed load node's record has forgotten the delivery the node
+ * loaded: the record's `.execution` slot for the node's source no longer
+ * names the execution the node completed with.
+ */
+async function loadForgotten(
+  storage: StorageBackend, state: DataflowExecutionState, node: DataflowGraph['tasks'][number], taskState: Pick<TaskState, 'execution'>,
+): Promise<boolean> {
+  if (node.load.type !== 'some' || taskState.execution.type !== 'some') return false;
+  const ref = await storage.datasets.read(state.repo, state.workspace, keypathToRefPath(node.output));
+  if (ref === null || ref.type !== 'value') return true;
+  const held = ref.value.versions.get(sourceLoadSlots(node.load.value.source).execution);
+  const { inputsHash, executionId } = taskState.execution.value;
+  return held === undefined || !sameObject(held, `${inputsHash}/${executionId}`);
 }
 
 /**
@@ -891,7 +1002,9 @@ function uncountResult(state: DataflowExecutionState, taskState: Mutable<TaskSta
  * whose first state is not yet committed, or a composite record that waits
  * for an external source's first delivery — cannot run: the answer names the
  * inputs, each with why, and the loop leaves the task waiting
- * ({@link stepTasksWaiting}) rather than fail the run.
+ * ({@link stepTasksWaiting}) rather than fail the run. So does a task that
+ * reads a record one of whose load nodes waits (`upstream`): it is asked
+ * first, before an input is read.
  *
  * A task that reads a result made from newer versions than its own, which
  * the execution cache does not hold at its own, is behind: the answer names
@@ -920,6 +1033,10 @@ export async function stepPrepareTask(
   if (!task) {
     throw new Error(`Task '${taskName}' not found in graph`);
   }
+
+  // A record it reads cannot be loaded: it waits with the record's load
+  const upstream = upstreamWaits(state, graph, task);
+  if (upstream.length > 0) return { kind: 'waiting', task: taskName, waits: upstream };
 
   // Resolve the inputs at the task's versions
   const resolved = await dataflowResolveInputs(storage, state, task, versions, {
@@ -958,6 +1075,130 @@ export async function stepPrepareTask(
   };
 }
 
+/** What {@link stepPrepareLoad} is told of the run it prepares for. */
+export interface PrepareLoadOptions extends Pick<ResolveInputsOptions, 'landed'> {
+  /** The deployed package's refs, by ref path: a feed input that holds its
+   *  package's value waits until someone sets it */
+  packageRefs?: ReadonlyMap<string, DatasetRef>;
+}
+
+/**
+ * Prepare a load node — the load of a composite record's fed source — for its
+ * launch.
+ *
+ * @remarks
+ * 1. **Wait**, as on an input it cannot read, while its feed has no value
+ *    (`unset`), is a record that waits for a first delivery (`pending`), or is
+ *    an input that holds the deployed package's value for it (`package`), as a
+ *    deploy compares them. A record one of whose load nodes waits leaves its
+ *    readers waiting as well (`upstream`).
+ * 2. **Answer** from the record's slots, unless the run forces the node: when
+ *    `$load.<source>` names the feed's delivery, `$load.<source>.load` the
+ *    node's load object and `$load.<source>.execution` an execution, the node
+ *    completes at once, its output the record's head and its execution that
+ *    one. Nothing commits.
+ * 3. **Prepare.** Read the record's head, store the source's run of it
+ *    (`recordSourceRun`), and ask the execution cache for the load's task over
+ *    the delivery and the run, unless the run forces the node. The node's
+ *    output is a commit, not a ref, so no ref is checked against it.
+ *
+ * @param storage - Storage backend
+ * @param state - Current execution state
+ * @param taskName - The load node, `<record>.<source>`
+ * @param versions - The version of each root its feed reads ({@link stepTaskCommits})
+ * @param options - The catch-up runs the loop holds, and the deployed package's refs
+ * @returns The prepared node and what its commit needs; the slots' answer; the
+ *   node waiting, with why; or the catch-up runs its feed waits for
+ * @throws {Error} When the node is not a load node of the run's graph, or its
+ *   record or source is not the deployed package's
+ */
+export async function stepPrepareLoad(
+  storage: StorageBackend,
+  state: DataflowExecutionState,
+  taskName: string,
+  versions: VersionVector,
+  options: PrepareLoadOptions = {}
+): Promise<PrepareLoadResult | PrepareLoadAnswered | PrepareTaskWaiting | PrepareTaskBehind> {
+  const graph = getGraph(state);
+  const node = graph.tasks.find((t) => t.name === taskName);
+  if (node?.load.type !== 'some') {
+    throw new Error(`Load node '${taskName}' not found in graph`);
+  }
+  const { record: recordName, source } = node.load.value;
+  const forced = stepTaskForced(state, taskName);
+
+  // 1. Its feed, at the node's versions; or why it cannot be read
+  const upstream = upstreamWaits(state, graph, node);
+  if (upstream.length > 0) return { kind: 'waiting', task: taskName, waits: upstream };
+  const resolved = await dataflowResolveInputs(storage, state, node, versions, {
+    landed: options.landed,
+    forced: (name) => stepTaskForced(state, name),
+  });
+  if (resolved.kind === 'unassigned') return { kind: 'waiting', task: taskName, waits: resolved.waits };
+  if (resolved.kind === 'behind') return { kind: 'behind', task: taskName, runs: resolved.runs };
+  const feed = node.inputs[0]!;
+  const delivery = resolved.hashes[0]!;
+  if (await holdsPackageValue(storage, state, graph, feed, delivery, options.packageRefs)) {
+    return { kind: 'waiting', task: taskName, waits: [{ input: feed, kind: 'package' }] };
+  }
+
+  const record = await resolveRecord(storage, state.repo, state.workspace, recordName);
+  const declared = record?.sources.get(source);
+  if (record === null || declared?.type !== 'load') {
+    throw new Error(`the deployed package has no source '${source}' of record '${recordName}' that a load writes`);
+  }
+  const loadHash = declared.value;
+  const held = await storage.datasets.read(state.repo, state.workspace, record.refPath);
+  if (held === null || held.type !== 'value') throw new Error(`record ${record.selfKeypath} holds no state`);
+  const slots = sourceLoadSlots(source);
+  const heldDelivery = held.value.versions.get(slots.delivery);
+  const heldLoad = held.value.versions.get(slots.load);
+  const loadedBy = heldDelivery !== undefined && heldLoad !== undefined && sameObject(heldDelivery, delivery) && sameObject(heldLoad, loadHash)
+    ? executionNamed(held.value.versions.get(slots.execution))
+    : null;
+  const base = held.value.versions.get(record.selfKeypath);
+
+  // 2. The record holds this delivery already, under this load
+  if (loadedBy !== null && !forced && base !== undefined) {
+    return { kind: 'answered', task: taskName, commit: base, execution: loadedBy };
+  }
+
+  // 3. The source's run of the record's head, and the cache over it
+  const run = await recordSourceRun(storage, state.repo, held.value.hash, source);
+  const inputHashes = [delivery, run];
+  const cached = forced ? null : await dataflowCheckCache(storage, state.repo, node.hash, inputHashes);
+  return {
+    kind: 'prepared',
+    task: taskName,
+    taskHash: node.hash,
+    inputHashes,
+    outputPath: node.output,
+    cached,
+    load: { record: { refPath: record.refPath, selfKeypath: record.selfKeypath }, source, loadHash, base, delivery, run, loadedBy },
+  };
+}
+
+/** The execution a record's `.execution` slot names, `<inputsHash>/<executionId>`; null for none. */
+function executionNamed(slot: string | undefined): { inputsHash: string; executionId: string } | null {
+  const at = slot === undefined ? -1 : slot.indexOf('/');
+  if (slot === undefined || at <= 0 || at === slot.length - 1) return null;
+  return { inputsHash: slot.slice(0, at), executionId: slot.slice(at + 1) };
+}
+
+/**
+ * Whether a load's feed is an input that holds the deployed package's value
+ * for it, as a deploy compares them: a value someone set that is the
+ * package's reads as the package's. A task's output, and a record, never do.
+ */
+async function holdsPackageValue(
+  storage: StorageBackend, state: DataflowExecutionState, graph: DataflowGraph, feed: string, delivery: string,
+  packageRefs: ReadonlyMap<string, DatasetRef> | undefined,
+): Promise<boolean> {
+  if (packageRefs === undefined || taskProducers(graph).has(feed) || (await dataflowRecords(storage, state)).has(feed)) return false;
+  const given = packageRefs.get(keypathToRefPath(feed));
+  return given?.type === 'value' && sameObject(given.value.hash, delivery);
+}
+
 // =============================================================================
 // State Mutation Step Functions
 // =============================================================================
@@ -979,11 +1220,20 @@ export function waitingTasks(state: DataflowExecutionState): string[] {
   return waiting;
 }
 
-/** Whether a task depends on a task left waiting: it cannot run until that
- *  task has, however its own inputs stand, so it keeps waiting. */
+/** Whether a task depends on a task left waiting, or reads a record one of
+ *  whose load nodes waits: it cannot run until that one has, however its own
+ *  inputs stand, so it keeps waiting. */
 function waitsOnDependency(state: DataflowExecutionState, graph: DataflowGraph, taskName: string): boolean {
   const task = graph.tasks.find((each) => each.name === taskName);
-  return task !== undefined && task.dependsOn.some((dep) => state.tasks.get(dep)?.status === 'waiting');
+  return task !== undefined &&
+    (task.dependsOn.some((dep) => state.tasks.get(dep)?.status === 'waiting') || upstreamWaits(state, graph, task).length > 0);
+}
+
+/** The nodes that read a record directly, a load node's record: what waits
+ *  while the load waits, and is decided again once it runs. */
+function readersOf(graph: DataflowGraph, node: DataflowGraph['tasks'][number]): DataflowGraph['tasks'][number][] {
+  if (node.load.type !== 'some') return [];
+  return graph.tasks.filter((each) => each.name !== node.name && each.inputs.includes(node.output));
 }
 
 /**
@@ -992,7 +1242,9 @@ function waitsOnDependency(state: DataflowExecutionState, graph: DataflowGraph, 
  * Mutates the execution state: the task's status is `waiting`, and so is
  * every task downstream of it that has not run — within the filter's run set,
  * when the run has one, as a failure's skips are — since none can have its
- * inputs while this one waits. The run goes on without them and ends
+ * inputs while this one waits. A load node that waits leaves the tasks that
+ * read its record directly waiting too (`upstream`), and theirs downstream:
+ * a record's readers wait while its load cannot run. The run goes on without them and ends
  * completed once the rest has run: a waiting task counts against no outcome,
  * and is no failure. It goes back to pending once the input is assigned
  * while the run is in flight ({@link stepTasksDue}), as a task it
@@ -1020,36 +1272,54 @@ export function stepTasksWaiting(
     throw new Error(`Task '${taskName}' not found in state`);
   }
   const graph = getGraph(state);
-  taskState.status = 'waiting';
-  const waiting: TasksWaitingResult['waiting'] = [{ task: taskName, waits: [...waits] }];
-
-  // Its dependents that have not run wait with it, as a failure's are
-  // skipped: those in the filter's run set, and none already settled
+  const byName = new Map(graph.tasks.map((each) => [each.name, each] as const));
   const runSet = stepGetRunSet(state);
-  const completed = new Set<string>();
-  const settled = new Set<string>();
-  for (const [name, ts] of state.tasks) {
-    if (ts.status === 'completed') completed.add(name);
-    else if (ts.status === 'skipped' || ts.status === 'waiting') settled.add(name);
-  }
-  const dependents = dataflowGetDependentsToSkip(graph, taskName, completed, settled).filter((name) => {
+  const producerOf = taskProducers(graph);
+  /** Whether a task waits with the one left waiting: one that has not run, in the filter's run set. */
+  const holds = (name: string): boolean => {
     const ts = state.tasks.get(name);
     if (!ts || (ts.status !== 'pending' && ts.status !== 'ready' && ts.status !== 'deferred')) return false;
     return runSet === null || runSet.has(name);
-  });
-  const producerOf = taskProducers(graph);
-  const nowWaiting = new Set([taskName, ...dependents]);
-  for (const name of dependents) {
-    (state.tasks.get(name) as Mutable<TaskState>).status = 'waiting';
-    const task = graph.tasks.find((each) => each.name === name)!;
-    waiting.push({
-      task: name,
-      waits: task.inputs
-        .filter((input) => {
-          const producer = producerOf.get(input);
-          return producer !== undefined && nowWaiting.has(producer.name);
-        })
-        .map((input): InputWait => ({ input, kind: 'unset' })),
+  };
+  taskState.status = 'waiting';
+  const waiting: TasksWaitingResult['waiting'] = [{ task: taskName, waits: [...waits] }];
+
+  // What waits with it, a node at a time: the tasks that read a waiting
+  // node's output, which is unset; and the readers of a waiting load node's
+  // record, on the record (`upstream`). Each waits once, on what left it
+  // waiting first.
+  const queue = [taskName];
+  for (let at = queue.shift(); at !== undefined; at = queue.shift()) {
+    const node = byName.get(at);
+    if (node === undefined) continue;
+    const held: Array<{ name: string; wait: InputWait }> = [];
+    if (node.load.type === 'some') {
+      for (const reader of readersOf(graph, node)) held.push({ name: reader.name, wait: { input: node.output, kind: 'upstream', task: node.name } });
+    } else {
+      for (const dependent of graph.tasks) {
+        if (dependent.dependsOn.includes(node.name) && producerOf.get(node.output)?.name === node.name) {
+          held.push({ name: dependent.name, wait: { input: node.output, kind: 'unset' } });
+        }
+      }
+    }
+    for (const { name, wait } of held) {
+      if (!holds(name)) continue;
+      (state.tasks.get(name) as Mutable<TaskState>).status = 'waiting';
+      waiting.push({ task: name, waits: [wait] });
+      queue.push(name);
+    }
+  }
+
+  // Each that waits with it names every input it waits on: an output of a
+  // task now waiting, which is unset, and a record whose load now waits
+  const nowWaiting = new Set(waiting.map((each) => each.task));
+  const loads = loadsOf(graph);
+  for (const entry of waiting.slice(1)) {
+    entry.waits = byName.get(entry.task)!.inputs.flatMap((input): InputWait[] => {
+      const producer = producerOf.get(input);
+      if (producer !== undefined && nowWaiting.has(producer.name)) return [{ input, kind: 'unset' }];
+      const load = loads.get(input)?.find((each) => nowWaiting.has(each.name));
+      return load === undefined ? [] : [{ input, kind: 'upstream', task: load.name }];
     });
   }
   return { waiting };
@@ -1295,18 +1565,20 @@ export function stepTaskCompleted(
     mutableState.executed = state.executed + 1n;
   }
 
-  // The output's versions are those the task was launched with
+  // The output's versions are those the task was launched with: a load
+  // node's, its feed's, kept for the node alone, its record a root
   const graph = getGraph(state);
   const task = graph.tasks.find(t => t.name === taskName);
   if (task) {
-    state.versionVectors.set(task.output, new Map(versions));
+    state.versionVectors.set(resultVersionsKey(task), new Map(versions));
   }
 
   // Its deferred dependents are decided again, and so are its waiting ones
   // that wait on no other task: left waiting with this task, which has since
-  // run
+  // run. A load node's are its record's readers.
+  const readers = new Set(task === undefined ? [] : readersOf(graph, task).map((reader) => reader.name));
   for (const dependent of graph.tasks) {
-    if (!dependent.dependsOn.includes(taskName)) continue;
+    if (!dependent.dependsOn.includes(taskName) && !readers.has(dependent.name)) continue;
     const ts = state.tasks.get(dependent.name) as Mutable<TaskState> | undefined;
     if (ts?.status === 'deferred') ts.status = 'pending';
     else if (ts?.status === 'waiting' && !waitsOnDependency(state, graph, dependent.name)) ts.status = 'pending';
@@ -1415,6 +1687,59 @@ export function stepTaskFailed(
   (mutableState.events as ExecutionEvent[]).push(event);
 
   return { result: { toSkip }, event };
+}
+
+/**
+ * Mark a load node as failed, its run going on: a load's failure does not end
+ * its run (ruling 15). No node depends on a load node, so none is skipped.
+ *
+ * @remarks
+ * The versions it was launched with are kept for the node, so it runs again
+ * once its feed has moved from them ({@link stepTasksDue}, {@link stepTaskDueAgain}).
+ *
+ * @param state - Execution state to mutate
+ * @param taskName - The load node
+ * @param error - Why it failed, as its runner or its commit said (optional)
+ * @param exitCode - The exit code of a piece that failed, when one did
+ * @param duration - How long it ran, in milliseconds
+ * @param versions - The versions of its feed it was launched with
+ * @returns The `task_failed` event
+ */
+export function stepLoadFailed(
+  state: DataflowExecutionState,
+  taskName: string,
+  error: string | undefined,
+  exitCode: number | undefined,
+  duration: number,
+  versions: VersionVector,
+): ExecutionEvent {
+  const { event } = stepTaskFailed(state, taskName, error, exitCode, duration);
+  state.versionVectors.set(taskName, new Map(versions));
+  return event;
+}
+
+/**
+ * Send a node in flight back to pending, to run again, saying why: a load
+ * whose commit found the source's entries changed under it. What it held
+ * stays, and the cache answers its pieces still valid.
+ *
+ * @param state - Execution state to mutate
+ * @param taskName - The node
+ * @param reason - Why it runs again
+ * @returns The `task_invalidated` event
+ */
+export function stepTaskRestarted(state: DataflowExecutionState, taskName: string, reason: string): ExecutionEvent {
+  const taskState = state.tasks.get(taskName) as Mutable<TaskState> | undefined;
+  if (!taskState) {
+    throw new Error(`Task '${taskName}' not found in state`);
+  }
+  const mutableState = state as Mutable<DataflowExecutionState>;
+  taskState.status = 'pending';
+  taskState.plan = none;
+  mutableState.eventSeq = state.eventSeq + 1n;
+  const event: ExecutionEvent = variant('task_invalidated', { seq: mutableState.eventSeq, timestamp: new Date(), task: taskName, reason });
+  (mutableState.events as ExecutionEvent[]).push(event);
+  return event;
 }
 
 /**

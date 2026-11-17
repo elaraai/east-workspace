@@ -26,6 +26,7 @@ import { LocalOrchestrator } from '../execution/local-orchestrator.js';
 import type { ExecutionHandle } from '../dataflow/orchestrator/interfaces.js';
 import type { InputWait } from '../dataflow/types.js';
 import type { StorageBackend } from '../storage/interfaces.js';
+import { dataflowGetGraph } from '../dataflow.js';
 import { DataflowAbortedError, DataflowError, TaskNotFoundError } from '../errors.js';
 import { inputsHash } from '../executions.js';
 import { MockTaskRunner } from '../execution/MockTaskRunner.js';
@@ -122,6 +123,37 @@ async function deployOrders(
   await workspaceDeploy(storage, repo, 'ws', 'orders', version);
   const deployed = decodeBeast2For(PackageObjectType)(await storage.objects.read(repo, (await workspaceGetPackage(storage, repo, 'ws')).hash));
   return { double: deployed.tasks.get('double')!, tally: deployed.tasks.get('tally')!, report: deployed.tasks.get('report')! };
+}
+
+/**
+ * Deploys a package whose composite record `orders` has a source the dataflow
+ * loads, `erp`, fed by the input `erp_rows`, which the test sets; `tally` over
+ * the record; and `first` over an input, and `second` over what `first`
+ * writes.
+ *
+ * @returns The hash of the load node's task, `first`'s and `second`'s
+ */
+async function deployFedOrders(t: TestContext, { storage, repo }: BackendContext): Promise<{ load: string; first: string; second: string }> {
+  const loadErp = East.function([ErpOrdersType, ErpOrdersType], PatchType(ErpOrdersType), (_$, delivery, current) => East.diff(current, delivery));
+  const erpRows = e3.input('erp_rows', ErpOrdersType);
+  const orders = e3.recordComposite('orders', OrderType, {
+    sources: (source) => ({ erp: source.load(StringType, erpRows, loadErp), own: source.mutations(StringType) }),
+    initial: { own: new Map([['P-1', { customer: 'Birch', qty: 2n }]]) },
+  });
+  const tally = e3.task('tally', [orders], East.function([OrdersType], IntegerType, ($, held) => held.size()));
+  const a = e3.input('a', IntegerType, variant('value', 1n));
+  const add = East.function([IntegerType], IntegerType, ($, x) => x.add(1n));
+  const first = e3.task('first', [a], add);
+  const second = e3.task('second', [first.output], add);
+  const zip = join(scratch(t), 'fed.zip');
+  await e3.export(e3.package('fed', '1.0.0', orders, tally, a, first, second), zip);
+  await packageImport(storage, repo, zip);
+  await workspaceCreate(storage, repo, 'ws');
+  await workspaceDeploy(storage, repo, 'ws', 'fed', '1.0.0');
+  await workspaceSetDataset(storage, repo, 'ws', inputPath('erp_rows'), new Map([['SO-9', { customer: 'Nobody', qty: 1n }]]), ErpOrdersType);
+  const graph = await dataflowGetGraph(storage, repo, 'ws');
+  const hashOf = (name: string): string => graph.tasks.find((node) => node.name === name)!.hash;
+  return { load: hashOf('orders.erp'), first: hashOf('first'), second: hashOf('second') };
 }
 
 /**
@@ -498,6 +530,45 @@ export function dataflowTests(setup: BackendSetup): void {
       const ran = await orchestrator.wait(await orchestrator.start(storage, repo, 'ws', { runner }));
       assert.deepEqual([ran.success, ran.executed, ran.waiting], [true, 3, 0]);
       assert.deepEqual(runner.getCalls().map(({ taskHash }) => taskHash), [next.double, next.tally, next.report]);
+    });
+
+    it('R54 — a fed load that fails says so and leaves the run going: the loop launches what becomes ready after it, nothing is skipped, and the run ends failed, naming it', async (t) => {
+      const context = await setup(t);
+      const { storage, repo } = context;
+      const { load, first, second } = await deployFedOrders(t, context);
+      const runner = new MockTaskRunner();
+      const error = 'the ERP sent order SO-9, which no order book holds';
+      runner.setUnitResult(load, () => ({ state: 'failed', cached: false, exitCode: 1, error }));
+      runner.setResult(load, { state: 'failed', cached: false, exitCode: 1, error });
+      // `first` ends once the load has failed, so `second` becomes ready after it
+      let failed!: () => void;
+      const loadFailed = new Promise<void>((resolve) => { failed = resolve; });
+      runner.setResult(first, async () => {
+        await loadFailed;
+        return { state: 'success', cached: false, outputHash: 'first-out' };
+      });
+      runner.setResult(second, { state: 'success', cached: false, outputHash: 'second-out' });
+      const told: string[] = [];
+      const stateStore = stateStoreOf(context);
+      const orchestrator = new LocalOrchestrator(stateStore);
+      const handle = await orchestrator.start(storage, repo, 'ws', {
+        runner,
+        onTaskComplete: ({ name, state }) => {
+          told.push(`${state} ${name}`);
+          if (name === 'orders.erp') failed();
+        },
+        onTaskWaiting: (task, waits) => told.push(`wait ${task}: ${waits.map((wait) => wait.kind).join(', ')}`),
+      });
+      const result = await orchestrator.wait(handle);
+
+      assert.equal(result.success, false, told.join('\n'));
+      assert.deepEqual([result.failed, result.skipped, result.executed], [1, 0, 2], 'no node depends on a load: none is skipped');
+      assert.ok(told.indexOf('failed orders.erp') < told.indexOf('success second'), `the run went on after the failure\n${told.join('\n')}`);
+      assert.ok(told.includes('wait tally: pending'), 'the record never heard from erp: its reader waits');
+      const ended = await stateStore.read(repo, 'ws', handle.id);
+      assert.deepEqual([ended?.status, ended?.tasks.get('orders.erp')?.status], ['failed', 'failed']);
+      const run = await storage.refs.dataflowRunGet(repo, 'ws', result.runId);
+      assert.ok(run?.status.type === 'failed' && run.status.value.failedTask === 'orders.erp', 'the run\'s record names the load');
     });
 
     it('runs a waiting task in the same run when its input is set while the run is in flight', async (t) => {
