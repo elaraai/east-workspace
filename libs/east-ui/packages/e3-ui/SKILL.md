@@ -479,7 +479,8 @@ start and end are `Option<DateTime>` when it can wait in the backlog. A
   dataset's pieces — once a program and dataset hash however many tiles ask;
   it shows waiting, a well to fill, a field its source lacks, its source's
   error, "no data", or its answer's size, which the next release draws as its
-  chart, table or list. The calls run as the reader: a host that admits its
+  chart, table or list. A visual whose filter reads `$now` ("in the last 7
+  days") is asked for the page's minute, and again as it moves on. The calls run as the reader: a host that admits its
   readers only what their pages bind must admit their platform-free calls over
   those datasets. A text block draws. A pages record written before a placement
   held content is carried by listing `Studio.migrations.cellContent` as a rows
@@ -489,7 +490,13 @@ start and end are `Option<DateTime>` when it can wait in the backlog. A
   saved jq queries; `Query.value(sources, queries)` ships some, checked at
   build. `<Query.Builder queries datasets />` edits a query as steps or jq,
   checks it, runs it on e3 (split over a large dataset's pieces) and saves it;
-  `<Query.Library>` lists them. The open query is the host's, as Studio's open
+  `<Query.Library>` lists them. Its steps say, beside the rest, a date in the
+  last N hours, days or weeks, a group by several fields, and a ratio total
+  (one field added up over another), each of which splits. A query may read
+  `.now`, the minute it is asked: the root's last field — unless a data source
+  is named `now` — given to the call as a value beside the datasets, and no
+  data source of a saved query's root; `Query.value` checks a query that reads
+  it, and an answer that read it is kept for that minute. The open query is the host's, as Studio's open
   page is: a `Query.Types.Open` — `Query.open.saved(name)`, or
   `Query.open.on(source)` for a new query — given to both as `query` and
   changed in `onOpen` (a builder's `query` takes a saved query's name too). A run of one program is a call the workspace

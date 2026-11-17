@@ -110,6 +110,9 @@ export type QueryMatchType = typeof QueryMatchType;
  * @property before - Is before a day, for a date
  * @property lengthAtLeast - Has at least a number of items, for a list
  * @property anyWhere - Has an item where an inner condition holds, for a list
+ * @property inLastHours - Is in the last number of hours, to the minute the query is asked, for a date (#1670)
+ * @property inLastDays - Is in the last number of days, for a date
+ * @property inLastWeeks - Is in the last number of weeks, for a date
  */
 export const QueryComparisonType = VariantType({
     eq: NullType,
@@ -130,6 +133,9 @@ export const QueryComparisonType = VariantType({
     before: NullType,
     lengthAtLeast: NullType,
     anyWhere: NullType,
+    inLastHours: NullType,
+    inLastDays: NullType,
+    inLastWeeks: NullType,
 });
 
 /** Type representing how a condition compares a field. */
@@ -178,6 +184,8 @@ export type QueryConditionType = typeof QueryConditionType;
  * @property min - The lowest
  * @property max - The highest
  * @property distinct - How many different values
+ * @property ratio - The total's field added up over another field added up:
+ *   the field it is per, `none` until chosen (#1670)
  */
 export const QueryAggregateFunctionType = VariantType({
     count: NullType,
@@ -186,6 +194,7 @@ export const QueryAggregateFunctionType = VariantType({
     min: NullType,
     max: NullType,
     distinct: NullType,
+    ratio: OptionType(StringType),
 });
 
 /** Type representing what a total totals with. */
@@ -217,10 +226,12 @@ export type QueryAggregateType = typeof QueryAggregateType;
  *
  * @property field - One group per value of a field
  * @property all - All rows together, as one group
+ * @property fields - One group per set of values of several fields, in order (#1670)
  */
 export const QueryGroupByType = VariantType({
     field: StringType,
     all: NullType,
+    fields: ArrayType(StringType),
 });
 
 /** Type representing what a Group and total step groups by. */

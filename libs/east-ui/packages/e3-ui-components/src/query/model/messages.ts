@@ -31,7 +31,7 @@ export type SlotKind =
     | "match" | "group-match"
     | "field" | "cmp" | "value"
     | "key" | "dataset" | "lookup-add"
-    | "by" | "agg-fn" | "agg-field"
+    | "by" | "by-add" | "agg-fn" | "agg-field" | "agg-per"
     | "sort-field" | "dir"
     | "pick-field" | "pick-add"
     | "fill-field" | "drill-field" | "via"
@@ -45,7 +45,7 @@ export type KindName =
     | "oneOf" | "list" | "lookupTable" | "calculation" | "record" | "tree" | "value";
 
 /** A total's function. */
-export type TotalName = "count" | "sum" | "mean" | "min" | "max" | "distinct";
+export type TotalName = "count" | "sum" | "mean" | "min" | "max" | "distinct" | "ratio";
 
 /** What one value is, for the shape of a query that gives one. */
 export type OneKind = "wholeNumber" | "number" | "text" | "record" | "tree" | "calculation" | "list" | "lookupTable" | "value";
@@ -101,10 +101,14 @@ export interface QueryMessages {
     startWith: (p: { source: string }) => string;
 
     // ── Comparisons ──────────────────────────────────────────────────────
-    /** A comparison — `is at least`. */
+    /** A comparison, as its list offers it — `is at least`, `is in the last … days`. */
     comparison: (p: { cmp: ComparisonKind }) => string;
     /** Beside a comparison in the list, when it needs saying. */
     comparisonDetail: (p: { cmp: ComparisonKind }) => string;
+    /** A comparison in a step card's slot, before its value — `is at least`, `is in the last` (#1670). */
+    comparisonSlot: (p: { cmp: ComparisonKind }) => string;
+    /** After an "is in the last" value, its unit — `days`, `day`; `""` for any other comparison. */
+    lastUnit: (p: { cmp: ComparisonKind; n: number }) => string;
 
     // ── Kinds, shapes and counts ─────────────────────────────────────────
     /** A kind of value — `list of lines`, `one of cancelled, pending, shipped`. */
@@ -149,6 +153,8 @@ export interface QueryMessages {
     thenTotal: (p: { first: boolean }) => string;
     /** Before a name. */
     as: () => string;
+    /** Group and total: before the field a ratio is per (#1670). */
+    per: () => string;
     /** Group and total: all rows together. */
     allRowsTogether: () => string;
     /** Count the rows' row. */
@@ -233,6 +239,8 @@ export interface QueryMessages {
     monthsGroup: () => string;
     /** How many items. */
     itemsGroup: () => string;
+    /** How many hours, days or weeks back an "is in the last" counts (#1670). */
+    lastGroup: () => string;
     /** A value typed. */
     typedGroup: () => string;
     /** The match's group. */
@@ -315,6 +323,8 @@ export interface QueryMessages {
     enterMonth: () => string;
     /** On or after and before, given no date. */
     enterDate: () => string;
+    /** Is in the last, given no whole number — `Enter a whole number of days.` (#1670) */
+    enterLast: (p: { unit: string }) => string;
     /** A number field given text. */
     notANumber: (p: { label: string; kind: string; value: string }) => string;
     /** A whole number compared with a fraction. */
@@ -405,8 +415,8 @@ export interface QueryMessages {
     describeConditions: (p: { match: "all" | "any"; conditions: readonly string[] }) => string;
     /** A group of conditions in a sentence. */
     describeGroup: (p: { match: "all" | "any"; conditions: readonly string[] }) => string;
-    /** A condition — `total is at least 100`. */
-    describeCondition: (p: { field: string; cmp: ComparisonKind; value: string }) => string;
+    /** A condition — `total is at least 100`, `ordered is in the last 7 days`; `n` the value's number, for a unit's plural. */
+    describeCondition: (p: { field: string; cmp: ComparisonKind; value: string; n?: number }) => string;
     /** Look ups — `, with name and region from customers`. */
     describeWith: (p: { lookups: readonly { fields: string; dataset: string }[] }) => string;
     /** A sort — `, sorted by total, highest first`. */
@@ -949,13 +959,19 @@ const COMPARISON: Readonly<Record<ComparisonKind, string>> = {
     contains: "contains", startsWith: "starts with", missing: "is missing", present: "has a value", yes: "is yes", no: "is no",
     inYear: "is in year", inMonth: "is in month", onOrAfter: "is on or after", before: "is before",
     lengthAtLeast: "has at least", anyWhere: "has any where",
+    inLastHours: "is in the last … hours", inLastDays: "is in the last … days", inLastWeeks: "is in the last … weeks",
+};
+
+/** An "is in the last" comparison's unit: one, and more. */
+const LAST_UNIT_WORDS: Readonly<Partial<Record<ComparisonKind, readonly [string, string]>>> = {
+    inLastHours: ["hour", "hours"], inLastDays: ["day", "days"], inLastWeeks: ["week", "weeks"],
 };
 
 const SLOT_LABEL: Readonly<Record<SlotKind, string>> = {
     "match": "Match", "group-match": "Match",
     "field": "Field", "cmp": "Compare", "value": "Value",
     "key": "Find by", "dataset": "Dataset", "lookup-add": "Bring in",
-    "by": "Group by", "agg-fn": "Total", "agg-field": "Of",
+    "by": "Group by", "by-add": "Group by", "agg-fn": "Total", "agg-field": "Of", "agg-per": "Per",
     "sort-field": "Sort by", "dir": "Order",
     "pick-field": "Field", "pick-add": "Add field",
     "fill-field": "Field", "drill-field": "List", "via": "List",
@@ -968,7 +984,7 @@ const PLACEHOLDER: Readonly<Record<SlotKind, string>> = {
     "match": "choose", "group-match": "choose",
     "field": "field", "cmp": "compare", "value": "value",
     "key": "field", "dataset": "dataset", "lookup-add": "field",
-    "by": "field", "agg-fn": "total", "agg-field": "field",
+    "by": "field", "by-add": "field", "agg-fn": "total", "agg-field": "field", "agg-per": "field",
     "sort-field": "field", "dir": "order",
     "pick-field": "field", "pick-add": "field",
     "fill-field": "field", "drill-field": "list", "via": "list",
@@ -1019,8 +1035,9 @@ const PLAN_UNITS: Readonly<Record<"partition" | "merge" | "combine", readonly [s
 const takesValue = (slot: SlotKind): boolean => slot === "value" || slot === "fixed";
 /** Whether a slot offers fields of the checked type. */
 const takesField = (slot: SlotKind): boolean =>
-    slot === "field" || slot === "key" || slot === "by" || slot === "agg-field" || slot === "sort-field" || slot === "pick-field"
-    || slot === "pick-add" || slot === "fill-field" || slot === "drill-field" || slot === "via" || slot === "date-field" || slot === "lookup-add";
+    slot === "field" || slot === "key" || slot === "by" || slot === "by-add" || slot === "agg-field" || slot === "agg-per" || slot === "sort-field"
+    || slot === "pick-field" || slot === "pick-add" || slot === "fill-field" || slot === "drill-field" || slot === "via" || slot === "date-field"
+    || slot === "lookup-add";
 
 /** `a`, `a and b`, `a, b and c`. */
 function englishList(items: readonly string[]): string {
@@ -1080,7 +1097,12 @@ export const queryMessages: QueryMessages = {
     startWith: ({ source }) => `Start with ${source}`,
 
     comparison: ({ cmp }) => COMPARISON[cmp],
-    comparisonDetail: ({ cmp }) => (cmp === "anyWhere" ? "check the items in the list" : ""),
+    comparisonDetail: ({ cmp }) => (cmp === "anyWhere" ? "check the items in the list" : LAST_UNIT_WORDS[cmp] !== undefined ? "up to the minute the query runs" : ""),
+    comparisonSlot: ({ cmp }) => (LAST_UNIT_WORDS[cmp] !== undefined ? "is in the last" : COMPARISON[cmp]),
+    lastUnit: ({ cmp, n }) => {
+        const words = LAST_UNIT_WORDS[cmp];
+        return words === undefined ? "" : words[n === 1 ? 0 : 1];
+    },
 
     kind: ({ kind, items, cases }) => {
         switch (kind) {
@@ -1132,6 +1154,7 @@ export const queryMessages: QueryMessages = {
     by: () => "by",
     thenTotal: ({ first }) => (first ? "then" : "and"),
     as: () => "as",
+    per: () => "per",
     allRowsTogether: () => "all rows together",
     givesOneWholeNumber: () => "gives one whole number",
     where: () => "where",
@@ -1160,6 +1183,7 @@ export const queryMessages: QueryMessages = {
             case "min": return "lowest";
             case "max": return "highest";
             case "distinct": return "count different";
+            case "ratio": return "ratio of";
         }
     },
     direction: ({ dir, kind }) => {
@@ -1190,6 +1214,7 @@ export const queryMessages: QueryMessages = {
     yearsGroup: () => "Years in the data",
     monthsGroup: () => "Months in the data",
     itemsGroup: () => "Items",
+    lastGroup: () => "How far back",
     typedGroup: () => "Typed",
     matchGroup: () => "Match",
     groupGroup: () => "Group",
@@ -1231,6 +1256,7 @@ export const queryMessages: QueryMessages = {
     enterYear: () => "Enter a year, like 2026.",
     enterMonth: () => "Enter a month, like 2026-03.",
     enterDate: () => "Enter a date, like 2026-03-01.",
+    enterLast: ({ unit }) => `Enter a whole number of ${unit}.`,
     notANumber: ({ label, kind, value }) => `${capital(label)} is a ${kind} — “${value}” isn't one.`,
     neverEqual: ({ label, value }) => `${capital(label)} is a whole number, so it can never equal ${value}.`,
     finishInner: () => "Finish the inner condition.",
@@ -1277,7 +1303,10 @@ export const queryMessages: QueryMessages = {
     describeWhere: ({ conditions }) => (conditions.length === 0 ? "" : ` where ${conditions.join(" and ")}`),
     describeConditions: ({ match, conditions }) => (match === "any" ? conditions.join(" or ") : englishList(conditions)),
     describeGroup: ({ match, conditions }) => (conditions.length > 1 ? `(${conditions.join(match === "any" ? " or " : " and ")})` : conditions[0] ?? ""),
-    describeCondition: ({ field, cmp, value }) => {
+    describeCondition: ({ field, cmp, value, n }) => {
+        // "is in the last … days 7" reads as "is in the last 7 days".
+        const unit = LAST_UNIT_WORDS[cmp];
+        if (unit !== undefined) return `${field} is in the last ${value} ${unit[n === 1 ? 0 : 1]}`;
         // "is in year 2026" reads better as "is in 2026".
         const words = cmp === "inYear" || cmp === "inMonth" ? "is in" : COMPARISON[cmp];
         return value === "" ? `${field} ${words}` : `${field} ${words} ${value}`;

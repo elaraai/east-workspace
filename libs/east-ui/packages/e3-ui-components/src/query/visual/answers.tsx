@@ -9,10 +9,11 @@
  * the sources it lists, and each tile's {@link useVisualAnswers}. A program is
  * asked on e3 once per the hashes of what it read, however many tiles ask it;
  * a dataset's new hash, which the dataset cache's poll follows without
- * reading its content, asks again only the programs that read it; a tile that
- * goes, or asks another program, stops waiting, and a program no tile waits
- * for is given up. A source the page cannot query fails only the visuals that
- * read it, and a tile whose call failed offers to ask again.
+ * reading its content, asks again only the programs that read it, and a new
+ * minute only those that read `.now`; a tile that goes, or asks another
+ * program, stops waiting, and a program no tile waits for is given up. A
+ * source the page cannot query fails only the visuals that read it, and a
+ * tile whose call failed offers to ask again.
  *
  * The rules are the asking layer's (`ask.ts`, `summaries.ts`); these hooks
  * hold them for React.
@@ -25,8 +26,10 @@ import { ArrayType, equalFor, type ValueTypeOf } from "@elaraai/east";
 import { StudioSourceType } from "@elaraai/e3-ui/internal";
 import { useReactiveDatasetCacheOptional } from "../../platform/dataset-hooks.js";
 import { messageOf } from "../../shared/message.js";
+import { useNow } from "../../shared/time/now-line.js";
 import { useQueryCall, useQueryCollection, useQueryPlanOptions, useQuerySourceStatus, useQuerySourcesRoot, useQuerySplitCall } from "../hooks.js";
-import type { QueryRoot } from "../one-shot.js";
+import { withMinute } from "../model/summaries.js";
+import { NOW_FIELD, minuteOf, rootHasClock, type QueryRoot } from "../one-shot.js";
 import type { PlanOptions } from "../plan.js";
 import type { DraftRunSeams } from "../run-draft.js";
 import { useQueryWords } from "../words.js";
@@ -40,8 +43,9 @@ const sourcesEqual = equalFor(ArrayType(StudioSourceType));
 
 /**
  * A page's answers: the sources it lists, and by key; its kept answers; the
- * hash of each source as the poll last read it; and why each source it
- * cannot query cannot, by key.
+ * hash of each source as the poll last read it — and the minute, under `now`,
+ * where the root's `.now` is the clock; why each source it cannot query
+ * cannot, by key; and the minute it is.
  */
 interface PageAnswers {
     readonly list: Source[];
@@ -49,6 +53,7 @@ interface PageAnswers {
     readonly answers: VisualAnswers;
     readonly hashes: ReadonlyMap<string, string>;
     readonly refused: ReadonlyMap<string, string>;
+    readonly minute: Date;
 }
 
 const PageAnswersContext = createContext<PageAnswers | null>(null);
@@ -81,6 +86,8 @@ function useSourceHashes(root: QueryRoot | undefined): ReadonlyMap<string, strin
 export interface VisualAnswersProviderProps {
     /** The sources the page lists. */
     readonly sources: readonly Source[];
+    /** The instant the page takes as now, whose minute a program reads as `.now` — a test's or a showcase's; the clock, read at each minute, when omitted. */
+    readonly now?: Date | undefined;
     /** The page. */
     readonly children?: ReactNode;
 }
@@ -92,27 +99,28 @@ export interface VisualAnswersProviderProps {
  * page's sources that can be queried — or a host's own calls, where it
  * provides them.
  *
- * @param props - The sources and the page
+ * @param props - The sources, the instant taken as now, and the page
  * @returns The page, its tiles able to ask
  *
  * @remarks
  * - **One per page**: a provider inside another over the same sources — a
  *   builder's publish preview beside its canvas — asks through the outer one,
- *   so what the canvas has answered the preview draws at once.
+ *   so what the canvas has answered the preview draws at once; one that names
+ *   an instant of its own keeps its own.
  * - **The answers outlive the calls' identity**: a host that renders its
  *   `E3Provider` with a new config — a token refreshed — keeps every answer;
  *   only new sources start the page's answers again.
  * - **A source the page cannot query** — a paged source read through a
  *   record's index — fails only the visuals that read it, with why.
  */
-export function VisualAnswersProvider({ sources, children }: VisualAnswersProviderProps) {
+export function VisualAnswersProvider({ sources, now, children }: VisualAnswersProviderProps) {
     const outer = useContext(PageAnswersContext);
-    if (outer !== null && sourcesEqual(outer.list, [...sources])) return createElement(Fragment, null, children);
-    return createElement(PageAnswersRoot, { sources }, children);
+    if (outer !== null && now === undefined && sourcesEqual(outer.list, [...sources])) return createElement(Fragment, null, children);
+    return createElement(PageAnswersRoot, { sources, now }, children);
 }
 
 /** A page's own answers: see {@link VisualAnswersProvider}. */
-function PageAnswersRoot({ sources, children }: VisualAnswersProviderProps) {
+function PageAnswersRoot({ sources, now, children }: VisualAnswersProviderProps) {
     const words = useQueryWords();
     const bindings = useMemo(() => sources.map((source) => source.binding), [sources]);
     const { root, refused: refusedByName } = useQuerySourcesRoot(bindings, words);
@@ -126,10 +134,15 @@ function PageAnswersRoot({ sources, children }: VisualAnswersProviderProps) {
     useLayoutEffect(() => {
         seams.current = { seams: { call, split, collection, status }, options };
     }, [call, split, collection, status, options]);
-    const answers = useMemo(() => new VisualAnswers((program, signal) => (root === undefined
+    const answers = useMemo(() => new VisualAnswers((program, signal, at) => (root === undefined
         ? Promise.reject(new VisualAskError("refused", ""))
-        : askProgram(program, root, seams.current.seams, seams.current.options, signal))), [root]);
-    const hashes = useSourceHashes(root);
+        : askProgram(program, root, seams.current.seams, at === undefined ? seams.current.options : { ...seams.current.options, now: at }, signal))), [root]);
+    // `.now` is the clock unless a source is named `now`, whose poll then gives its hash.
+    const clock = root !== undefined && rootHasClock(root);
+    const instant = useNow(now);
+    const minute = useMemo(() => minuteOf(instant), [instant]);
+    const sourceHashes = useSourceHashes(root);
+    const hashes = useMemo(() => (clock ? withMinute(sourceHashes, minute) : sourceHashes), [clock, sourceHashes, minute]);
     const value = useMemo((): PageAnswers => {
         // A key two sources share keeps the first, as the sources' names do.
         const byKey = new Map<string, Source>();
@@ -140,8 +153,8 @@ function PageAnswersRoot({ sources, children }: VisualAnswersProviderProps) {
             const why = refusedByName.get(source.binding.name);
             if (why !== undefined) refused.set(source.key, why);
         }
-        return { list: [...sources], sources: byKey, answers, hashes, refused };
-    }, [sources, refusedByName, answers, hashes]);
+        return { list: [...sources], sources: byKey, answers, hashes, refused, minute };
+    }, [sources, refusedByName, answers, hashes, minute]);
     return createElement(PageAnswersContext.Provider, { value }, children);
 }
 
@@ -167,7 +180,8 @@ export type VisualAnswersState =
 
 /**
  * A tile's answers: each of its programs' answers, in order, once all have
- * landed.
+ * landed. A program that reads `.now` is asked for the page's minute, and
+ * asked again when the minute moves on.
  *
  * @param asks - Its programs, as the printer gave them
  * @param source - The source they read, by its key
@@ -182,7 +196,11 @@ export type VisualAnswersState =
  */
 export function useVisualAnswers(asks: readonly VisualAsk[], source: string): VisualAnswersState {
     const page = useContext(PageAnswersContext);
-    const requests = useMemo(() => asks.map((ask): VisualRequest => ({ prefix: ask.program, reads: [source] })), [asks, source]);
+    // Only a tile whose programs read `.now` follows the minute.
+    const minute = asks.some((ask) => ask.readsNow) ? page?.minute : undefined;
+    const requests = useMemo(() => asks.map((ask): VisualRequest => (ask.readsNow
+        ? { prefix: ask.program, reads: [source, NOW_FIELD], ...(minute === undefined ? {} : { now: minute }) }
+        : { prefix: ask.program, reads: [source] })), [asks, source, minute]);
     const key = requests.map((request) => request.prefix).join("\u0001");
     // What the tile asks for: its programs, under the hashes the page holds of what they read.
     const askedFor = page === null ? key

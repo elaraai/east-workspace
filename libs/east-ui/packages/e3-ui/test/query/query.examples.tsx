@@ -8,9 +8,11 @@
  * The query builder (#875) as a solution writes it: the datasets its queries
  * read — #875's shared fixture, the query editor mock's data (`Query Editor
  * Spec.md` §6) — the one saved queries record its operators build, holding the
- * mock's seven saved queries, and the builder over them, open on one; and an
+ * mock's seven saved queries, and the builder over them, open on one; an
  * order history too large for one call, which e3 tasks generate when the
- * dataflow runs, with its own saved queries and builder (#1132).
+ * dataflow runs, with its own saved queries and builder (#1132); and a year
+ * and more of sales, whose saved query counts back from the minute it runs,
+ * groups by two fields and totals a ratio (#1670).
  */
 
 import {
@@ -680,6 +682,78 @@ export const queryBuilderHistory = example({
                 <Box height="760px">
                     <Query.Builder queries={saved} query={open.read()} onOpen={go} id="history"
                         datasets={{ order_history: history, accounts, credit }} />
+                </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+// ============================================================================
+// The sales, and the steps that count back from now (#1670)
+// ============================================================================
+
+/** A quarter's sales in a region through a channel: the day the quarter opened, its revenue, and the units sold. */
+const Sale = StructType({ sold_on: DateTimeType, region: StringType, channel: StringType, revenue: FloatType, units: IntegerType });
+
+/** Sales in two regions through two channels, a row a quarter from October 2025 to October 2026: the store's units dearer than online's. */
+export const sales = e3.input("sales", ArrayType(Sale), variant("value", [
+    { sold_on: new Date("2025-10-01T00:00:00.000Z"), region: "NSW", channel: "store", revenue: 18_400.0, units: 920n },
+    { sold_on: new Date("2025-10-01T00:00:00.000Z"), region: "NSW", channel: "online", revenue: 9_600.0, units: 600n },
+    { sold_on: new Date("2025-10-01T00:00:00.000Z"), region: "VIC", channel: "store", revenue: 15_300.0, units: 850n },
+    { sold_on: new Date("2025-10-01T00:00:00.000Z"), region: "VIC", channel: "online", revenue: 7_040.0, units: 440n },
+    { sold_on: new Date("2026-04-01T00:00:00.000Z"), region: "NSW", channel: "store", revenue: 21_000.0, units: 1_000n },
+    { sold_on: new Date("2026-04-01T00:00:00.000Z"), region: "NSW", channel: "online", revenue: 12_750.0, units: 750n },
+    { sold_on: new Date("2026-04-01T00:00:00.000Z"), region: "VIC", channel: "store", revenue: 16_800.0, units: 875n },
+    { sold_on: new Date("2026-04-01T00:00:00.000Z"), region: "VIC", channel: "online", revenue: 9_180.0, units: 540n },
+    { sold_on: new Date("2026-10-01T00:00:00.000Z"), region: "NSW", channel: "store", revenue: 22_500.0, units: 1_050n },
+    { sold_on: new Date("2026-10-01T00:00:00.000Z"), region: "NSW", channel: "online", revenue: 15_300.0, units: 850n },
+    { sold_on: new Date("2026-10-01T00:00:00.000Z"), region: "VIC", channel: "store", revenue: 18_000.0, units: 900n },
+    { sold_on: new Date("2026-10-01T00:00:00.000Z"), region: "VIC", channel: "online", revenue: 11_050.0, units: 650n },
+]));
+
+/**
+ * The saved query over the sales, in its canonical jq: the sales of the last
+ * 52 weeks before the minute it runs — `.now`, which e3 is given beside the
+ * data — grouped by region and channel together, each group's revenue totalled
+ * over its units as a ratio.
+ */
+export const salesQueries = e3.record("sales_queries", Query.Types.Saved, {
+    initial: Query.value({ sales }, [
+        {
+            name: "Revenue per unit, last 52 weeks",
+            jq: `.now as $now
+    | .sales
+    | map(select(.sold_on >= ($now | datetime_add(-52; "week"))))
+    | group_by({region, channel})
+    | map({region: .[0].region, channel: .[0].channel, revenue: map(.revenue) | add, units: map(.units) | add, revenue_per_unit: (map(.revenue) | add) / (map(.units) | add)})
+    | sort_by(-.revenue_per_unit)`,
+            description: "Revenue over units sold in the last 52 weeks, by region and channel.",
+            savedAt: new Date("2026-10-05T09:00:00Z"),
+        },
+    ]),
+    mutations: (mutation) => ({
+        // Its one write.
+        patch: mutation.patch(),
+    }),
+});
+
+export const queryBuilderSteps = example({
+    keywords: [
+        "Query", "Query.Builder", "Query.value", "in the last", "last 7 days", "last 52 weeks", "relative date", "now", ".now", "$now", "datetime_add",
+        "group by several fields", "group_by", "ratio", "per", "revenue per unit", "Group and total",
+    ],
+    description: "The builder open on Revenue per unit, last 52 weeks: its steps keep the sales of the last 52 weeks before the minute the query runs — `.now`, the root's last field, which e3 is given beside the datasets — group them by region and channel together, and total each group's revenue over its units as a ratio. What it gives counts back from the minute it runs, so it changes as time passes",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const saved = $.let(Record.bind(salesQueries));
+            const rows = $.let(Data.bind(sales));
+            // The open query is the surface's: the builder shows it, and tells the surface when its own tabs ask for another.
+            const open = $.let(State.bind([Query.Types.Open], "ex.queryBuilderSteps.open", Query.open.saved("Revenue per unit, last 52 weeks")));
+            const go = $.const(East.function([Query.Types.Open], NullType, ($2, next) => { $2(open.write(next)); }));
+            return (
+                <Box height="640px">
+                    <Query.Builder queries={saved} query={open.read()} onOpen={go} id="steps" datasets={{ sales: rows }} />
                 </Box>
             );
         }}</Reactive>

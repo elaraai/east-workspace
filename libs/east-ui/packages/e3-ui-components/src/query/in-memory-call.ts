@@ -118,21 +118,22 @@ function raised(err: EastError, inputs: ExecuteResult["inputs"]): ExecuteResult 
 /**
  * Builds a one-shot call answered in memory, as e3 answers one: the request's
  * body decoded from its IR and compiled with no platform function — a query's
- * call is platform-free — then called with the value of each dataset its
- * arguments name, each pinned at its hash.
+ * call is platform-free — then called with its arguments: the value of each
+ * dataset an argument names, pinned at its hash, and each inline value as its
+ * bytes say — a query's `.now` (#1670).
  *
  * @param datasets - The datasets a call may read
  * @returns The call
  *
  * @remarks
  * - **Success**: the answer, beast2 at the body's output type, and each
- *   dataset read with its hash.
+ *   dataset read with its hash; an inline value is no dataset, and is not named.
  * - **Failed**: a body that raises an East error fails as a runner's run does —
  *   exit code 1, and on stderr `Error: <message>` with each place it was
  *   raised, so the builder places it in the jq.
  * - **Invalid**: an argument naming no dataset here is refused as e3 refuses
- *   an unassigned one ("Dataset argument 0 is not assigned"), and an inline
- *   value as one this stand-in does not take.
+ *   an unassigned one ("Dataset argument 0 is not assigned"), numbered among
+ *   every argument, as e3 numbers it.
  * - **Too large**: an answer over the request's `maxResultBytes`.
  *
  * The time limit is not kept: a body runs to its end.
@@ -148,21 +149,24 @@ function raised(err: EastError, inputs: ExecuteResult["inputs"]): ExecuteResult 
 export function createInMemoryQueryCall(datasets: readonly InMemoryDataset[]): QueryCall {
     const held = hold(datasets);
     return async (request: OneShotRequest): Promise<ExecuteResult> => {
-        const read: HeldDataset[] = [];
+        const values: unknown[] = [];
+        const inputs: ExecuteResult["inputs"] = [];
         for (const [i, arg] of request.args.entries()) {
-            const found = arg.type === "dataset" ? held.find(d => samePath(d.path, arg.value)) : undefined;
-            if (found === undefined) {
-                return invalid(arg.type === "dataset" ? unassigned(i, arg.value) : `Argument ${i} is an inline value, which an in-memory call does not take`);
+            if (arg.type === "value") {
+                values.push(decodeBeast2(arg.value).value);
+                continue;
             }
-            read.push(found);
+            const found = held.find(d => samePath(d.path, arg.value));
+            if (found === undefined) return invalid(unassigned(i, arg.value));
+            values.push(found.value);
+            inputs.push({ path: found.path, index: none, hash: found.hashOf() });
         }
-        const inputs = read.map(d => ({ path: d.path, index: none, hash: d.hashOf() }));
         const body = decodeEastIR(request.bodyIr);
         const type = fromEastTypeValue(body.ir.value.type);
         if (type.type !== "Function") throw new Error("createInMemoryQueryCall: a call's body is a function");
         let value: unknown;
         try {
-            value = body.compile([])(...read.map(d => d.value));
+            value = body.compile([])(...values);
         } catch (err) {
             if (!(err instanceof EastError)) throw err;
             return raised(err, inputs);
