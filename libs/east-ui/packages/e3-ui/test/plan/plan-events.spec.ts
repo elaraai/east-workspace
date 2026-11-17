@@ -45,6 +45,7 @@ describeEast("Plan of event kinds — the examples (#1191)", (test) => {
         planPressTasks: ex.planPressTasks,
         planOnePress: ex.planOnePress,
         planPressKinds: ex.planPressKinds,
+        planTypedKeys: ex.planTypedKeys,
     });
 }, { platformFns: TestImpl });
 

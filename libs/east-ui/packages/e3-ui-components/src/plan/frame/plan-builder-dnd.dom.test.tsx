@@ -26,7 +26,7 @@
 
 import { describe, test, expect } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
-import { ArrayType, DateTimeType, DictType, East, OptionType, StringType, StructType, equalFor, none, some, variant } from "@elaraai/east";
+import { ArrayType, DateTimeType, DictType, East, OptionType, StringType, StructType, equalFor, none, printFor, some, variant } from "@elaraai/east";
 import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui/internal";
 import { editingMessages } from "@elaraai/east-ui-components";
 import { announced, layOut } from "@elaraai/east-ui-components/testing";
@@ -35,7 +35,7 @@ import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import { boundFrame } from "../../sheet/frame.test-utils.js";
 import { rowKeyOf, type PlanRowId } from "../model.js";
 import { carry, carrySaid, dragTo, keyOn } from "../plan-move.test-utils.js";
-import { act, drawnFrom, el, elementKey, entry, madeFrom, planHarness, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
+import { act, drawnFrom, el, elementKey, entry, madeFrom, planHarness, ribbonWidth, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
 import { flowsPlan } from "./flows.test-utils.js";
 import { pressKindStep, pressPlan } from "./press.test-utils.js";
 
@@ -1272,5 +1272,102 @@ describe("a kind landing on the rows beneath its resource: a drop writes what pl
         await settle();
         expect(cellOf(task(c, "T-01", WASH_3))).toBe("1:0");
         expect(historyButton(c, UNDO).disabled).toBe(true);
+    });
+});
+
+describe("an event kind whose record is keyed by a variant: drawn, dragged, saved, joined and optimised by its typed key (#1541)", () => {
+    const printKey = printFor(ex.PrintJobKey);
+    /** The jobs' keys, each as East prints it: what an event of the kind is named by on the canvas. */
+    const CATALOGUE = variant("order", "J-8001");
+    const PRICE_LIST = variant("order", "J-8002");
+    const CATALOGUE_PROOF = variant("sample", 1n);
+    const PRICE_LIST_PROOF = variant("sample", 2n);
+    const P_A1 = entry("presses", "a1");
+    const P_A2 = entry("presses", "a2");
+    /** A job's bar on a press's row, by its typed key. */
+    const keyed = (c: HTMLElement, row: PlanRowId, key: Parameters<typeof printKey>[0]) =>
+        c.querySelector<HTMLElement>(`${rowAt(row)} ${el("data-run", "job", printKey(key))}`);
+    const sameStart = equalFor(OptionType(DateTimeType));
+    const sameKey = equalFor(ex.PrintJobKey);
+    /** The client x of an hour of a day of this Plan's one week, which the plots' four weeks of px lay out: a day four times as wide. */
+    const xIn = (day: number, hour: number) => xAt(4 * day, 4 * hour);
+    /** The jobs and the sign-offs as their records hold them now. */
+    const jobsHeld = () => h.read(ex.planKeyedJobs);
+    const signOffsHeld = () => h.read(ex.planKeyedSignOffs);
+
+    test("its bars draw on their presses, each named by its key as East prints it, and the record's sign-off joins two of them", async () => {
+        // The ribbons' overlay is laid out, so a link draws.
+        const restore = ribbonWidth({ tall: true });
+        try {
+            const { container: c } = await h.mount(ex.planTypedKeys, DRAG);
+            await settle();
+            for (const [row, key] of [[P_A1, CATALOGUE], [P_A2, PRICE_LIST], [P_A1, CATALOGUE_PROOF], [P_A2, PRICE_LIST_PROOF]] as const) {
+                expect(keyed(c, row, key), printKey(key)).not.toBeNull();
+            }
+            // The catalogue's proof to its run: a link whose ends the record holds as the jobs' keys. In the press's links
+            // focus it is drawn from the one bar to the other, each end named by its job's key.
+            fireEvent.click(c.querySelector(`${rowAt(P_A1)} [data-plan-control="links"]`)!);
+            await settle();
+            expect([...c.querySelectorAll("[data-link]")].map((path) => [
+                path.getAttribute("data-link-key"),
+                path.getAttribute("data-link-from"), path.getAttribute("data-link-from-run"),
+                path.getAttribute("data-link-to"), path.getAttribute("data-link-to-run"),
+            ])).toEqual([[
+                elementKey("signOff", "S-1"),
+                rowKeyOf(P_A1), elementKey("job", printKey(CATALOGUE_PROOF)), rowKeyOf(P_A1), elementKey("job", printKey(CATALOGUE)),
+            ]]);
+            // Only the press both jobs are on takes the links control.
+            expect(c.querySelector(`${rowAt(P_A2)} [data-plan-control="links"]`)).toBeNull();
+        } finally {
+            restore();
+        }
+    });
+
+    test("a bar dragged a day on is a draft, and Save writes the job under its typed key", async () => {
+        const { container: c } = await h.mount(ex.planTypedKeys, DRAG);
+        await settle();
+        const y = layOutPlots(c, [P_A1, P_A2]);
+        // The price list, Wednesday 7 October from six: a day on.
+        await drop(keyed(c, P_A2, PRICE_LIST)!, { x: xIn(2, 9), y: y(P_A2) }, { x: xIn(3, 9), y: y(P_A2) });
+        expect(pending(c)).toBe("1 pending");
+        await press(historyButton(c, SAVE));
+        await waitFor(() => expect(pending(c)).toBe("0 pending"));
+        const held = await jobsHeld();
+        expect(sameStart(held.get(PRICE_LIST)!.start, some(new Date("2026-10-08T06:00:00Z")))).toBe(true);
+        // No other job moved, and none stands under another key.
+        expect(sameStart(held.get(CATALOGUE)!.start, some(new Date("2026-10-06T06:00:00Z")))).toBe(true);
+        expect(held.size).toBe(4);
+    });
+
+    test("a sign-off drawn from one job to another is saved with both ends the jobs' typed keys", async () => {
+        const { container: c } = await h.mount(ex.planTypedKeys, DRAG);
+        await settle();
+        await press(tool(c, "Connect"));
+        const y = layOutPlots(c, [P_A1, P_A2], [[keyed(c, P_A2, PRICE_LIST)!, { left: xIn(2, 6), top: 44, width: 133, height: 24 }]]);
+        // From the price list's proof, Tuesday afternoon, onto the price list itself, Wednesday morning.
+        const release = await carry(keyed(c, P_A2, PRICE_LIST_PROOF)!, { x: xIn(1, 14), y: y(P_A2) }, { x: xIn(2, 9), y: y(P_A2) });
+        expect(caption()).toBe("Sign-off · Price list proof → Trade price list");
+        await release();
+        expect(pending(c)).toBe("1 pending");
+        await press(historyButton(c, SAVE));
+        await waitFor(() => expect(pending(c)).toBe("0 pending"));
+        const made = [...(await signOffsHeld())].filter(([key]) => key !== "S-1");
+        expect(made.length).toBe(1);
+        expect([sameKey(made[0]![1].from, PRICE_LIST_PROOF), sameKey(made[0]![1].to, PRICE_LIST)]).toEqual([true, true]);
+    });
+
+    test("the optimiser's answer names each job by its typed key: a run moves the proofs to six on Monday, one edit that Save writes", async () => {
+        const { container: c } = await h.mount(ex.planTypedKeys, DRAG);
+        await settle();
+        await press(c.querySelector("[data-optimise-button]")!);
+        // Both proofs moved: the catalogue's on its press from nine, the price list's from Tuesday afternoon.
+        await waitFor(() => expect(pending(c)).toBe("2 pending"));
+        await press(historyButton(c, SAVE));
+        await waitFor(() => expect(pending(c)).toBe("0 pending"));
+        const held = await jobsHeld();
+        const six = some(new Date("2026-10-05T06:00:00Z"));
+        expect([sameStart(held.get(CATALOGUE_PROOF)!.start, six), sameStart(held.get(PRICE_LIST_PROOF)!.start, six)]).toEqual([true, true]);
+        // The orders stand where they were.
+        expect(sameStart(held.get(CATALOGUE)!.start, some(new Date("2026-10-06T06:00:00Z")))).toBe(true);
     });
 });
