@@ -36,6 +36,7 @@ import {
   dataflowCommitSwept,
   dataflowRecords,
   dataflowResolveInputs,
+  dataflowSnapshotLooked,
   dataflowSnapshotTaken,
   dataflowCheckCache,
   recordCommitOrder,
@@ -139,9 +140,10 @@ export async function stepInitialize(
   // Read package structure for input snapshot
   const structure = await getWorkspaceStructure(storage, repo, workspace);
 
-  // Snapshot root input hashes
+  // Snapshot root input hashes, and what each record waits for at its version
+  const waited = new Map<string, readonly string[]>();
   const inputSnapshotMap = await snapshotInputVersions(
-    storage, repo, workspace, structure, taskOutputPathsSet
+    storage, repo, workspace, structure, taskOutputPathsSet, waited
   );
 
   // Initialize version vectors for root inputs
@@ -194,6 +196,7 @@ export async function stepInitialize(
     events: [] as ExecutionEvent[],
     eventSeq: 0n,
   } as DataflowExecutionState;
+  dataflowSnapshotLooked(state, waited);
 
   // Find initially ready tasks
   const readyTasks = stepGetReady(state);
@@ -463,7 +466,9 @@ export function stepIsComplete(state: DataflowExecutionState): boolean {
  *
  * Reads current root input dataset hashes from storage and compares
  * against the snapshot stored in state. For each change, updates the
- * input snapshot and version vectors, and emits input_changed events.
+ * input snapshot and version vectors, and emits input_changed events. What
+ * the look read of each composite record's wait goes with the version it took
+ * ({@link dataflowSnapshotLooked}).
  *
  * @param storage - Storage backend
  * @param state - Execution state to mutate (inputSnapshot, versionVectors)
@@ -480,9 +485,10 @@ export async function stepDetectInputChanges(
   const structure = cachedStructure ?? await getWorkspaceStructure(storage, state.repo, state.workspace);
   const taskOutputPathsSet = new Set(state.taskOutputPaths);
 
+  const waited = new Map<string, readonly string[]>();
   const changes = await detectInputChanges(
     storage, state.repo, state.workspace,
-    state.inputSnapshot, structure, taskOutputPathsSet
+    state.inputSnapshot, structure, taskOutputPathsSet, waited
   );
 
   const events: ExecutionEvent[] = [];
@@ -511,6 +517,7 @@ export async function stepDetectInputChanges(
     (mutableState.events as ExecutionEvent[]).push(event);
     events.push(event);
   }
+  dataflowSnapshotLooked(state, waited);
 
   return { changes, events };
 }

@@ -35,6 +35,8 @@ import {
 } from '@elaraai/e3-types';
 import { dataflowGetGraph, dataflowResolveInputHashes } from './dataflow.js';
 import type { InputWait } from './dataflow/types.js';
+import { stepDetectInputChanges, stepInitialize } from './dataflow/steps.js';
+import { dataflowResolveInputs } from './dataflow.js';
 import { readDatasetWhole } from './dataset-open.js';
 import { packageImport } from './package-files.js';
 import { packageRead } from './packages.js';
@@ -591,6 +593,30 @@ describe('a composite record: an external entry is never written (the mutation\'
       assert.equal(decodeBeast2For(IntegerType)(await readDatasetWhole(storage, repo, output.value.hash)), 2n,
         `${task} counts two orders: the solution's own, and the ERP's`);
     }
+  });
+
+  it('R27, R28 — a first delivery that lands after a run took the record leaves its readers waiting until the run looks again, so none reads the record as it stood before', async () => {
+    // The run takes the record as it stands: waiting for erp's first delivery
+    const { state } = await stepInitialize(storage, repo, WS, 'run-1');
+    if (state.graph.type !== 'some') assert.fail('the run holds its graph');
+    const counted = state.graph.value.tasks.find((task) => task.name === 'counted')!;
+    const at = (commit: string): Map<string, string> => new Map([['.records.orders', commit]]);
+    const waits = { kind: 'unassigned', waits: [{ input: '.records.orders', kind: 'pending', sources: ['erp'] }] };
+    const taken = (await heldRef(storage, repo, WS, 'orders')).versions.get('.records.orders')!;
+    assert.deepEqual(await dataflowResolveInputs(storage, state, counted, at(taken)), waits);
+
+    // The ERP delivers. Until the run looks again it reads the record at the commit it took, at which the record waited
+    await sourceLoaded(storage, runner, repo, WS, 'orders', 'erp', { type: Entries, value: new Map([['SO-1001', acme]]) }, AS_OF);
+    assert.equal((await heldRef(storage, repo, WS, 'orders')).versions.has(PENDING_SLOT), false, 'the ref waits no more');
+    assert.deepEqual(await dataflowResolveInputs(storage, state, counted, at(taken)), waits,
+      'the task waits, rather than read the record as it stood before the delivery');
+
+    // The run looks, and takes the delivery in: the task reads the record as the load left it
+    const { changes } = await stepDetectInputChanges(storage, state);
+    assert.deepEqual(changes.map(({ path }) => path), ['.records.orders']);
+    const loaded = await heldRef(storage, repo, WS, 'orders');
+    assert.deepEqual(await dataflowResolveInputs(storage, state, counted, at(loaded.versions.get('.records.orders')!)),
+      { kind: 'resolved', hashes: [loaded.hash] });
   });
 
   it('R32 — a compaction empties the commit a source\'s last delivery names, and keeps the delivery', async () => {
