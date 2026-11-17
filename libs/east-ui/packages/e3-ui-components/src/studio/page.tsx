@@ -11,18 +11,22 @@
  * not yet published.
  *
  * {@link StudioLayout} draws a layout's placements — the page's, and the
- * builder's publish preview's. A placement renders its component's function,
- * re-run when what it read changes; a frameless component (`frame: "none"`)
- * is bare; a placement whose component the surface does not list is a
- * placeholder naming its key, and one whose key two listed components share
- * is an error naming it.
+ * builder's publish preview's — each by what it holds (#1669). A component's
+ * placement renders its function, re-run when what it read changes; a
+ * frameless component (`frame: "none"`) is bare; a placement whose component
+ * the surface does not list is a placeholder naming its key, and one whose
+ * key two listed components share is an error naming it. A text block is its
+ * heading over its paragraphs, bare. A visual is a tile naming its view and
+ * its source; one whose source the surface does not list says so.
  *
  * @packageDocumentation
  */
 
 import { memo, useCallback, useMemo } from "react";
 import { equalFor, equivalentFor, type ValueTypeOf } from "@elaraai/east";
-import { StudioCellType, StudioComponentType, StudioEntryType, StudioKeyType, StudioPageComponent } from "@elaraai/e3-ui/internal";
+import {
+    StudioCellType, StudioComponentType, StudioContentType, StudioEntryType, StudioKeyType, StudioPageComponent, StudioSourceType,
+} from "@elaraai/e3-ui/internal";
 import {
     BannerView,
     EastChakraComponent,
@@ -34,11 +38,17 @@ import {
 } from "@elaraai/east-ui-components";
 
 import { useStudioMessages } from "./messages.js";
+import { studioEast } from "./studio-east.js";
+import { StudioText } from "./text.js";
 
 /** The renderer's payload, decoded. */
 type StudioPageValue = ValueTypeOf<typeof StudioPageComponent.schema>;
 /** A listed component. */
 type Component = ValueTypeOf<typeof StudioComponentType>;
+/** A listed source. */
+type Source = ValueTypeOf<typeof StudioSourceType>;
+/** What a placement holds. */
+type Content = ValueTypeOf<typeof StudioContentType>;
 /** One placement. */
 type Cell = ValueTypeOf<typeof StudioCellType>;
 /** One entry of the pages record. */
@@ -69,26 +79,63 @@ function StudioComponentView({ component, storageKey }: StudioComponentViewProps
     return <EastChakraComponent value={result.value} storageKey={storageKey} />;
 }
 
+/**
+ * The listed components under each key — more than one under a key is an
+ * error its placements name.
+ *
+ * @param components - The components the surface lists
+ * @returns The components, by key
+ */
+export function useListedByKey(components: readonly Component[]): ReadonlyMap<string, readonly Component[]> {
+    return useMemo(() => {
+        const byKey = new Map<string, Component[]>();
+        for (const component of components) {
+            const same = byKey.get(component.key);
+            if (same === undefined) byKey.set(component.key, [component]);
+            else same.push(component);
+        }
+        return byKey;
+    }, [components]);
+}
+
 /** Props of {@link StudioPlacement}. */
 export interface StudioPlacementProps {
-    /** The key of the component it places. */
-    component: string;
-    /** The listed components under that key — one, when the surface lists it once. */
-    listed: readonly Component[];
+    /** What it holds: a component's key, a visual or a text block. */
+    content: Content;
+    /** The listed components, by key ({@link useListedByKey}). */
+    listed: ReadonlyMap<string, readonly Component[]>;
+    /** Each listed source's name, by its key — e3-ui's `sourceNames`, decoded. */
+    sources: Map<string, string>;
     /** Where its component's UI keeps its state. */
     storageKey: string;
 }
 
 /**
- * One placement's content: its component's own UI; a placeholder naming its
- * component's key when the surface lists none under it; an error naming the
- * key when two listed components share it.
+ * One placement's content, by what it holds: its component's own UI — a
+ * placeholder naming its component's key when the surface lists none under
+ * it, an error naming the key when two listed components share it; a text
+ * block's heading and paragraphs; a visual's view and source by name, or that
+ * the surface lists no source of its key.
  *
- * @param props - The component's key and the components listed under it
+ * @param props - What it holds, the listed components and the listed sources' names
  * @returns The content
  */
-export function StudioPlacement({ component: key, listed, storageKey }: StudioPlacementProps) {
+export function StudioPlacement({ content, listed: byKey, sources, storageKey }: StudioPlacementProps) {
     const m = useStudioMessages();
+    const east = studioEast();
+    if (content.type === "text") return <StudioText text={content.value} />;
+    if (content.type === "visual") {
+        const visual = content.value;
+        if (!sources.has(visual.source)) {
+            return (
+                <EmptyStateView icon={{ prefix: "fas", name: "database" }}
+                    title={m.noSource({ key: visual.source })} description={m.noSourceHint()} />
+            );
+        }
+        return <EmptyStateView icon={{ prefix: "fas", name: east.viewIcon(visual.view) }} title={east.contentWords(content, sources)} />;
+    }
+    const key = content.value;
+    const listed = byKey.get(key) ?? [];
     if (listed.length > 1) {
         return <BannerView status="error" title={m.twoComponents({ key })} description={m.twoComponentsHint()} />;
     }
@@ -108,47 +155,45 @@ export interface StudioLayoutProps {
     cells: readonly Cell[];
     /** The components the surface lists. */
     components: readonly Component[];
+    /** The sources the surface lists. */
+    sources: readonly Source[];
     /** Where its placements' UIs keep their state. */
     storageKey: string;
 }
 
 /**
- * A layout's placements on the snap grid, each its component's own UI — a
- * frameless component bare, a placement the surface cannot draw its
- * placeholder, in a tile. Under a narrow container the tiles stack in row
+ * A layout's placements on the snap grid, each what it holds — a frameless
+ * component and a text block bare; a visual, and a placement the surface
+ * cannot draw, in a tile. Under a narrow container the tiles stack in row
  * order.
  *
- * @param props - The placements and the listed components
+ * @param props - The placements, the listed components and the listed sources
  * @returns The grid
  */
-export function StudioLayout({ cells, components, storageKey }: StudioLayoutProps) {
-    // The listed components under each key — more than one is an error.
-    const listed = useMemo(() => {
-        const byKey = new Map<string, Component[]>();
-        for (const component of components) {
-            const same = byKey.get(component.key);
-            if (same === undefined) byKey.set(component.key, [component]);
-            else same.push(component);
-        }
-        return byKey;
-    }, [components]);
+export function StudioLayout({ cells, components, sources, storageKey }: StudioLayoutProps) {
+    const east = studioEast();
+    const listed = useListedByKey(components);
+    const names = useMemo(() => east.sourceNames([...sources]), [east, sources]);
+    // Whether a placement is framed is its content's tile's: e3-ui's East.
+    const framed = useMemo(() => east.canvasTiles([...components]), [east, components]);
     const tiles = useMemo(() => cells.map((cell): SnapGridLayoutCell & { cell: Cell } => {
-        const first = listed.get(cell.component)?.[0];
+        const tile = east.contentTile(cell.content, framed, names);
         return {
             key: cell.key,
             row: cell.row,
             span: cell.span,
             height: cell.height,
             align: cell.align,
-            frame: first === undefined ? true : first.frame.type === "card",
+            // A placement whose component the surface does not list is its placeholder, in a tile.
+            frame: tile.type === "none" ? true : tile.value.frame,
             cell,
         };
-    }), [cells, listed]);
+    }), [east, cells, framed, names]);
     return (
         <SnapGridTiles
             cells={tiles}
             content={(tile) => (
-                <StudioPlacement component={tile.cell.component} listed={listed.get(tile.cell.component) ?? []} storageKey={`${storageKey}.${tile.key}`} />
+                <StudioPlacement content={tile.cell.content} listed={listed} sources={names} storageKey={`${storageKey}.${tile.key}`} />
             )}
         />
     );
@@ -194,7 +239,7 @@ export const EastChakraStudioPage = memo(function EastChakraStudioPage({ value, 
                 title={m.notPublished({ page: key.page })} description={m.notPublishedHint()} />
         );
     }
-    return <StudioLayout cells={layout.cells} components={value.components} storageKey={storageKey} />;
+    return <StudioLayout cells={layout.cells} components={value.components} sources={value.sources} storageKey={storageKey} />;
 }, (prev, next) => pageEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
 
 implementUIComponent(StudioPageComponent, EastChakraStudioPage);

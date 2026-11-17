@@ -6,8 +6,9 @@
 /**
  * The builder's palette (#994): what its cards and its page list say, computed
  * in East over the listed components and the record — a card's reads, the
- * placed component and its count (B3, B4); the project's pages with their
- * status (B6) — and the names a builder's palette takes from its id.
+ * placed component and its count (B3, B4), a visual or a text block placing
+ * none (#1669); the project's pages with their status (B6) — and the names a
+ * builder's palette takes from its id.
  */
 
 import { describe, test } from "node:test";
@@ -40,6 +41,10 @@ const revenueTrend = Studio.component("revenue_trend", { name: "Revenue trend", 
 const note = Studio.component("note", { name: "Note", category: "Display", icon: "note-sticky" },
     East.function([], UIComponentType, (_$) => Text.Root("A note")));
 
+/** A visual over a source, and a text block: neither places a component. */
+const salesByRegion = Studio.visual.of("sales", Studio.visual.column({ x: Studio.visual.group("region"), values: [Studio.visual.sum("revenue")] }));
+const aNote = Studio.visual.text("Figures are to last night.");
+
 /** The record: the Overview live, the Weekly drafted past its live version, the Detail never published, a template, and another project's page. */
 const PAGES = new SortedMap<Key, Entry>([
     [{ project: "ops", page: "a-overview" }, variant("page", {
@@ -71,9 +76,9 @@ describeEast("The builder's palette — its cards and its pages (#994)", (test) 
 
     test("B4: the selected placement's component is placed, and counts the page's placements of it", $ => {
         const cells = $.let([
-            { key: "c-trend-1", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, component: "revenue_trend" },
-            { key: "c-note", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, component: "note" },
-            { key: "c-trend-2", row: "r2", span: 12n, height: none, align: variant("top", null), title: none, component: "revenue_trend" },
+            { key: "c-trend-1", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
+            { key: "c-note", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, content: variant("component", "note") },
+            { key: "c-trend-2", row: "r2", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
         ], ArrayType(Studio.Types.Cell));
         const listed = $.let([revenueTrend, note]);
         const cards = $.let(paletteCards(listed, cells, some("c-trend-2")));
@@ -84,6 +89,24 @@ describeEast("The builder's palette — its cards and its pages (#994)", (test) 
         // A selection no placement holds places nothing.
         const stale = $.let(paletteCards(listed, cells, some("c-gone")));
         $(Assert.equal(stale.get("revenue_trend").placed, false));
+    });
+
+    test("#1669: a placement that holds a visual or a text block places no component — it counts for none, and selected, marks no card", $ => {
+        const cells = $.let([
+            { key: "c-trend", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
+            { key: "c-chart", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, content: salesByRegion },
+            { key: "c-text", row: "r2", span: 12n, height: none, align: variant("top", null), title: none, content: aNote },
+        ], ArrayType(Studio.Types.Cell));
+        const listed = $.let([revenueTrend, note]);
+        const onChart = $.let(paletteCards(listed, cells, some("c-chart")));
+        $(Assert.equal(onChart.get("revenue_trend").placed, false));
+        $(Assert.equal(onChart.get("note").placed, false));
+        const onText = $.let(paletteCards(listed, cells, some("c-text")));
+        $(Assert.equal(onText.get("revenue_trend").placed, false));
+        // The component beside them counts its own placement alone.
+        const onTrend = $.let(paletteCards(listed, cells, some("c-trend")));
+        $(Assert.equal(onTrend.get("revenue_trend").placed, true));
+        $(Assert.equal(onTrend.get("revenue_trend").meta, "ON CANVAS · ×1"));
     });
 
     test("a key two listed components share keeps the first one's card", $ => {

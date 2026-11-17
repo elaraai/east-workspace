@@ -43,8 +43,8 @@ export const studioComponent = example({
                 draft: {
                     title: "Counters",
                     cells: [
-                        { key: "c-one", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, component: "counter" },
-                        { key: "c-two", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, component: "counter" },
+                        { key: "c-one", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, content: variant("component", "counter") },
+                        { key: "c-two", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, content: variant("component", "counter") },
                     ],
                 },
                 live: none,

@@ -157,6 +157,7 @@ import { flowchartInspectorSlotRecipe } from "./slot-recipes/flowchartInspector.
 import { schematicInspectorSlotRecipe } from "./slot-recipes/schematicInspector.js";
 import { studioLibrarySlotRecipe } from "./slot-recipes/studioLibrary.js";
 import { studioPublishSlotRecipe } from "./slot-recipes/studioPublish.js";
+import { studioTextSlotRecipe } from "./slot-recipes/studioText.js";
 import { queryBuilderSlotRecipe } from "./slot-recipes/queryBuilder.js";
 import { queryResultsSlotRecipe } from "./slot-recipes/queryResults.js";
 import { queryPhoneSlotRecipe } from "./slot-recipes/queryPhone.js";
@@ -315,6 +316,7 @@ const config = defineConfig({
             schematicInspector: schematicInspectorSlotRecipe,
             studioLibrary: studioLibrarySlotRecipe,
             studioPublish:   studioPublishSlotRecipe,
+            studioText:      studioTextSlotRecipe,
             queryBuilder:    queryBuilderSlotRecipe,
             queryResults:    queryResultsSlotRecipe,
             queryPhone:      queryPhoneSlotRecipe,

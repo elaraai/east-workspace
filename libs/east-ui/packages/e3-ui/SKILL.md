@@ -127,11 +127,13 @@ Task → What do you need?
     │
     ├─ Offer components for operators to arrange on pages (Studio)
     │   ├─ Declare one — self-contained, like a ui() body   → Studio.component(key, meta, fn)
-    │   ├─ Store the pages operators build                  → e3.record("pages", Studio.Types.Pages, { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }) })
-    │   ├─ The builder: canvas, palette, inspector, preview → <Studio.Builder pages components project page? onOpen? env? audience? rollout? id? />
-    │   ├─ Templates, pages, and where new pages start      → <Studio.Library pages components project onOpen page? />
+    │   ├─ Store the pages operators build                  → e3.record("pages", Studio.Types.Pages, { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }), migrations: (migration) => [migration.rows("cell_content", Studio.migrations.cellContent)] })
+    │   ├─ List the data a page's visuals may read          → sources={{ orders: Studio.source(handle, { name, icon, description?, fields?, range?, search?, split? }) }} on the builder, the library and the page
+    │   ├─ Seed a page: a component, a visual, a text block → a placement's content: Studio.visual.component(key) · Studio.visual.of("orders", Studio.visual.column({ x: Studio.visual.group("ordered_at", { bucket: "month" }), values: [Studio.visual.sum("revenue")] })) · Studio.visual.text(body, heading?)
+    │   ├─ The builder: canvas, palette, inspector, preview → <Studio.Builder pages components project sources? page? onOpen? env? audience? rollout? id? />
+    │   ├─ Templates, pages, and where new pages start      → <Studio.Library pages components project onOpen sources? page? />
     │   ├─ Open a page from the library in the builder      → hold the open page (a route's params, or State.bind([Studio.Types.Key], …)); give it to both as `page`, change it in `onOpen`
-    │   └─ Show one page, live or draft, with no chrome     → <Studio.Page pages components page version? />
+    │   └─ Show one page, live or draft, with no chrome     → <Studio.Page pages components page sources? version? />
     │
     ├─ Let users query the bound datasets and save their queries (typed jq)
     │   ├─ Store the queries they save                    → e3.record("queries", Query.Types.Saved, { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }) })
@@ -474,6 +476,19 @@ start and end are `Option<DateTime>` when it can wait in the backlog. A
   the page library calls `onOpen` and opens nothing itself — the host
   navigates, or writes the State both read. A builder given no `page` holds
   its own; `page` without `onOpen` is refused when the surface is built.
+  A placement holds `content` (`Studio.Types.Content`): a component's key, a
+  visual — a KPI, a chart, a table, a list or a slicer over a source — or a
+  text block. `Studio.visual` builds each with its defaults, for a record's
+  seeds. A surface lists the sources its visuals may read as
+  `sources={{ orders: Studio.source(handle, meta) }}`: the key is the name a
+  query reads the source by, the handle a `Data.bind`, `Data.bindPaged` or
+  `Record.bind` whose rows are an Array or a Dict of Structs, and `fields`,
+  `range`, `search` and `split` name the row's own fields, checked when the
+  surface is built. This release stores a visual with its page and draws its
+  tile by name; a text block draws. A pages record written before a placement
+  held content is carried by listing `Studio.migrations.cellContent` as a rows
+  step; a later kind of content ships a step of its own.
+  `e3-ui:studio.examples.tsx:studioContent` holds all of it.
 - **Queries.** One `Query.Types.Saved` record with a patch mutation holds the
   saved jq queries; `Query.value(sources, queries)` ships some, checked at
   build. `<Query.Builder queries datasets />` edits a query as steps or jq,

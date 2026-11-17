@@ -22,8 +22,10 @@ import {
     SetType,
     StringType,
     StructType,
+    some,
 } from "@elaraai/east";
 import { StudioComponentType, readNames } from "./component.js";
+import { StudioContentType, contentWords, viewIcon } from "./content.js";
 
 // ============================================================================
 // What a placement's tile shows
@@ -69,6 +71,32 @@ export const canvasTiles = East.function(
         });
         return tiles;
     },
+);
+
+/**
+ * The tile of what a placement holds: a listed component's ({@link
+ * canvasTiles}), `none` for one the surface does not list; a visual's — in a
+ * tile frame, named by its view and its source ("Column chart · Orders"),
+ * with its view's icon and its source's name as its meta line; a text
+ * block's, bare, named "Text".
+ *
+ * @remarks
+ * `tiles` is each listed component's tile, by key; `sources` each listed
+ * source's name, by its key.
+ */
+export const contentTile = East.function(
+    [StudioContentType, DictType(StringType, CanvasTileType), DictType(StringType, StringType)],
+    OptionType(CanvasTileType),
+    (_$, content, tiles, sources) => content.match({
+        component: (_$2, key) => tiles.tryGet(key),
+        visual: (_$2, visual) => East.value(some({
+            frame: true,
+            name: contentWords(content, sources),
+            icon: viewIcon(visual.view),
+            meta: sources.tryGet(visual.source).match({ some: (_$3, name) => name, none: (_$3) => visual.source }),
+        }), OptionType(CanvasTileType)),
+        text: (_$2) => East.value(some({ frame: false, name: "Text", icon: "align-left", meta: "" }), OptionType(CanvasTileType)),
+    }),
 );
 
 // ============================================================================

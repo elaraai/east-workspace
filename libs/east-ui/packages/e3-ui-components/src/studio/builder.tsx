@@ -7,8 +7,8 @@
  * `EastChakraStudioBuilder` — the renderer of the `StudioBuilder` extension
  * declared in `@elaraai/e3-ui` (#1000): the builder, built in the browser from
  * its interface — the pages record bound with its patch, the listed
- * components, the project, the page it shows and who to tell of another, and
- * the publish preview's words.
+ * components and sources, the project, the page it shows and who to tell of
+ * another, and the publish preview's words.
  *
  * - **The canvas** is the snap grid's editing canvas over the open page's
  *   placements: every gesture a draft of the page's editing session, Apply one
@@ -53,7 +53,7 @@ import {
 } from "@elaraai/east";
 import { Editing, EditingDraftFieldType, SnapGrid } from "@elaraai/east-ui/internal";
 import {
-    StudioBuilderComponent, StudioCellType, StudioComponentType, StudioEntryType, StudioKeyType, builderKeys,
+    StudioBuilderComponent, StudioCellType, StudioComponentType, StudioContentType, StudioEntryType, StudioKeyType, builderKeys,
 } from "@elaraai/e3-ui/internal";
 import {
     BannerView,
@@ -77,7 +77,7 @@ import {
 import { openCodec, useOpen } from "../shared/open.js";
 import { StudioInspector } from "./inspector.js";
 import { useStudioMessages } from "./messages.js";
-import { StudioLayout, StudioPlacement } from "./page.js";
+import { StudioLayout, StudioPlacement, useListedByKey } from "./page.js";
 import { useStudioPalette } from "./palette.js";
 import { StudioPhoneBar } from "./phone.js";
 import { StudioPublishPreview } from "./publish.js";
@@ -94,6 +94,8 @@ type Component = ValueTypeOf<typeof StudioComponentType>;
 type StudioKey = ValueTypeOf<typeof StudioKeyType>;
 /** One placement. */
 type Cell = ValueTypeOf<typeof StudioCellType>;
+/** What a placement holds. */
+type Content = ValueTypeOf<typeof StudioContentType>;
 /** One entry of the pages record. */
 type Entry = ValueTypeOf<typeof StudioEntryType>;
 /** The canvas's selection, and a change asked of it. */
@@ -149,8 +151,10 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
     const m = useStudioMessages();
     const words = useFormatters();
     const east = studioEast();
-    const { pages: handle, components, project } = value;
+    const { pages: handle, components, sources, project } = value;
     const id = value.id.type === "some" ? value.id.value : undefined;
+    // Each listed source's name, by its key: what a visual's source is called.
+    const sourceNames = useMemo(() => east.sourceNames(sources), [east, sources]);
     const keys = useMemo(() => builderKeys(id), [id]);
 
     // The record, read where the builder renders, and again when it moves.
@@ -219,12 +223,17 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
 
     // ── The canvas ────────────────────────────────────────────────────────
     const tiles = useMemo(() => east.canvasTiles(components), [east, components]);
-    // Each tile's component, for the tile's content — kept as the canvas's
-    // cells are drawn, so a dropped card's tile finds its component at once.
-    const componentOf = useRef(new Map<string, string>());
+    // The tile of what a placement holds: e3-ui's East — none for a component the surface does not list.
+    const tileOf = useCallback((content: Content) => {
+        const tile = east.contentTile(content, tiles, sourceNames);
+        return tile.type === "some" ? tile.value : undefined;
+    }, [east, tiles, sourceNames]);
+    // Each tile's content — kept as the canvas's cells are drawn, so a
+    // dropped card's tile finds what it holds at once.
+    const contentOf = useRef(new Map<string, Content>());
     const cellView = useCallback((cell: Cell): SnapGridEditorCell => {
-        componentOf.current.set(cell.key, cell.component);
-        const tile = tiles.get(cell.component);
+        contentOf.current.set(cell.key, cell.content);
+        const tile = tileOf(cell.content);
         return {
             key: cell.key,
             row: cell.row,
@@ -232,15 +241,15 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
             height: cell.height,
             minHeight: none,
             align: cell.align,
-            // A frameless component renders bare; one the surface does not
-            // list is its placeholder, in a tile.
+            // A frameless component and a text block render bare; a component
+            // the surface does not list is its placeholder, in a tile.
             frame: tile === undefined ? true : tile.frame,
             label: cell.title.type === "some" ? cell.title : tile === undefined ? none : some(tile.name),
             icon: tile === undefined ? none : some(tile.icon),
             // What its code reads, never its key; a component the surface does not list is known by its key alone.
-            meta: tile === undefined ? some(cell.component) : tile.meta.length === 0 ? none : some(tile.meta),
+            meta: tile !== undefined ? (tile.meta.length === 0 ? none : some(tile.meta)) : cell.content.type === "component" ? some(cell.content.value) : none,
         };
-    }, [tiles]);
+    }, [tileOf]);
     const snapshot = useMemo(() => encodeCells([...saved]), [saved]);
     const editing = useMemo((): SnapGridEditorEditing => ({
         sourceId: `studio.page:${openName}`,
@@ -273,7 +282,7 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
                 height: none,
                 align: variant("top", null),
                 title: none,
-                component: component.key,
+                content: variant("component", component.key),
             });
         }),
         ready: none,
@@ -317,26 +326,19 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
         surface: some(variant("shell", null)),
     }), [saved, cellView, editing, uiBind, applyBind, keys.components, m]);
 
-    // Each tile's content: its component's own UI, or its placeholder.
-    const listedByKey = useMemo(() => {
-        const byKey = new Map<string, Component[]>();
-        for (const component of components) {
-            const same = byKey.get(component.key);
-            if (same === undefined) byKey.set(component.key, [component]);
-            else same.push(component);
-        }
-        return byKey;
-    }, [components]);
+    // Each tile's content: what its placement holds — its component's own UI, its text, its visual — or its placeholder.
+    const listedByKey = useListedByKey(components);
     const renderContent = useCallback((cell: SnapGridEditorCell) => {
-        const component = componentOf.current.get(cell.key) ?? "";
-        return <StudioPlacement component={component} listed={listedByKey.get(component) ?? []} storageKey={`${storageKey}.canvas.${cell.key}`} />;
-    }, [listedByKey, storageKey]);
+        const content = contentOf.current.get(cell.key);
+        if (content === undefined) return null;
+        return <StudioPlacement content={content} listed={listedByKey} sources={sourceNames} storageKey={`${storageKey}.canvas.${cell.key}`} />;
+    }, [listedByKey, sourceNames, storageKey]);
 
     // ── The toolbar: the page's status, Save as template, Preview and Publish ──
     const status = entry === undefined ? undefined
         : entry.type === "template" ? { label: m.statusTemplate(), tone: "neutral" as const, ring: false }
             : entry.value.live.type === "none" ? { label: m.statusDraft(), tone: "neutral" as const, ring: true }
-                : east.changes(entry.value.live.value.page, entry.value.draft).length === 0
+                : east.changes(entry.value.live.value.page, entry.value.draft, sourceNames).length === 0
                     ? { label: m.statusLive(), tone: "success" as const, ring: false }
                     : { label: m.statusLiveEdited(), tone: "warning" as const, ring: false };
     const statusStyles = status === undefined ? undefined : statusRecipe({ status: status.tone, size: "md", ring: status.ring }) as Styles;
@@ -422,7 +424,7 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
     const projectPages = useMemo(() => (pages === undefined ? [] : east.palettePages(pages, project)), [east, pages, project]);
     // A card's click selects its component's first placement on the page.
     const selectFirst = useCallback((component: string) => {
-        const placement = cells.find((c) => c.component === component);
+        const placement = cells.find((c) => c.content.type === "component" && c.content.value === component);
         if (placement !== undefined) setUi({ selected: some(placement.key), request: none });
     }, [cells]);
     // A page's click asks for it: the builder's own opens, a host's is the host's to change. What follows a page opening —
@@ -436,7 +438,7 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
         openAnother({ project, page });
     }, [openAnother, open, project, phone]);
     // A card's tap on a phone: the view closes and placing starts (ST22).
-    const onPage = useMemo(() => new Set(cells.map((c) => c.component)), [cells]);
+    const onPage = useMemo(() => new Set(cells.flatMap((c) => (c.content.type === "component" ? [c.content.value] : []))), [cells]);
     const palettePhone = useMemo(() => (!phone ? undefined : {
         onPage,
         onPlace: (component: Component) => {
@@ -452,8 +454,8 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
     });
 
     // ── The inspector, after it ──────────────────────────────────────────
-    const selection = useMemo(() => east.inspectorSelection(components, [...cells], ui.selected),
-        [east, components, cells, ui.selected]);
+    const selection = useMemo(() => east.inspectorSelection(components, sourceNames, [...cells], ui.selected),
+        [east, components, sourceNames, cells, ui.selected]);
     // A layout edit is a request on the selection: the canvas takes it as one gesture.
     const onRequest = useCallback((request: Request) => {
         setUi({ selected: some(request.key), request: some(request) });
@@ -511,8 +513,8 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
 
     // ── The publish preview, in the canvas's place ───────────────────────
     const summary = useMemo(() => (entry === undefined ? undefined
-        : east.publishSummary(components, entry.type === "page" ? entry.value.live : none, { title, cells: [...cells] }, [...saved], entry.type === "template")),
-    [east, components, entry, title, cells, saved]);
+        : east.publishSummary(components, sourceNames, entry.type === "page" ? entry.value.live : none, { title, cells: [...cells] }, [...saved], entry.type === "template")),
+    [east, components, sourceNames, entry, title, cells, saved]);
     const preview = useMemo(() => (summary === undefined ? undefined : {
         project: open.project,
         title,
@@ -564,12 +566,12 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
             </Box>
             {previewing && preview !== undefined && (
                 <StudioPublishPreview value={preview}
-                    page={<StudioLayout cells={cells} components={components} storageKey={`${storageKey}.preview`} />}
+                    page={<StudioLayout cells={cells} components={components} sources={sources} storageKey={`${storageKey}.preview`} />}
                     phone={!phone ? undefined : {
                         tab: previewTab, onTab: setPreviewTab, width,
                         tiles: cells.map((cell) => ({
                             key: cell.key, row: cell.row, span: Number(cell.span),
-                            name: cell.title.type === "some" ? cell.title.value : tiles.get(cell.component)?.name ?? cell.component,
+                            name: cell.title.type === "some" ? cell.title.value : tileOf(cell.content)?.name ?? east.contentWords(cell.content, sourceNames),
                         })),
                     }} />
             )}

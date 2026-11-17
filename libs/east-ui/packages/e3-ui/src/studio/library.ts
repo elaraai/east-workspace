@@ -52,7 +52,9 @@ import {
 } from "@elaraai/east-ui/internal";
 import { RecordOutcomeType } from "../bind/record.js";
 import { StudioComponentType } from "./component.js";
+import { viewWords } from "./content.js";
 import { StudioCellType, StudioKeyType, StudioPagesHandleType, StudioPagesType, pageStatus, type StudioPagesHandle } from "./pages.js";
+import { StudioSourceType, studioSources, type StudioSourceDeclaration } from "./source.js";
 
 // ============================================================================
 // Types
@@ -99,6 +101,7 @@ export type StudioLibraryTemplateType = typeof StudioLibraryTemplateType;
  *
  * @property pages - The pages record, bound with its patch — what it reads, and a new page commits through
  * @property components - The components the surface lists — what a layout's summary names
+ * @property sources - The sources its pages' visuals read, in the order listed; none when the surface lists none
  * @property project - The project it shows first
  * @property page - The page open in the builder, which the pane marks; `none`, no page is marked
  * @property onOpen - Told when a page is asked for, with its key — the host shows it in its builder
@@ -106,6 +109,7 @@ export type StudioLibraryTemplateType = typeof StudioLibraryTemplateType;
 export const StudioLibraryPayloadType = StructType({
     pages: StudioPagesHandleType,
     components: ArrayType(StudioComponentType),
+    sources: ArrayType(StudioSourceType),
     project: StringType,
     page: OptionType(StudioKeyType),
     onOpen: FunctionType([StudioKeyType], NullType),
@@ -138,9 +142,10 @@ export const libraryProjects = East.function(
 
 /**
  * What a layout places, as its card's meta line says: each component's name,
- * counted when it is placed more than once — "KPI rail ×4 · Revenue trend" —
- * in the order they first appear. A component the surface does not list is
- * named by its key.
+ * a visual by its view ("Column chart") and a text block as "Text", counted
+ * when placed more than once — "KPI rail ×4 · Revenue trend" — in the order
+ * they first appear. A component the surface does not list is named by its
+ * key.
  */
 export const layoutSummary = East.function(
     [ArrayType(StudioComponentType), ArrayType(StudioCellType)],
@@ -149,21 +154,25 @@ export const layoutSummary = East.function(
         const order = $.let([], ArrayType(StringType));
         const counts = $.let(new Map(), DictType(StringType, IntegerType));
         $.for(cells, ($2, cell) => {
-            $2.if(counts.has(cell.component).not(), ($3) => {
-                $3(order.pushLast(cell.component));
+            const placed = $2.let(cell.content.match({
+                component: (_$3, key) => components.firstMap((_$4, c) => c.key.equal(key).ifElse(
+                    () => East.value(some(c.name), OptionType(StringType)),
+                    () => East.value(none, OptionType(StringType)),
+                )).match({
+                    some: (_$4, found) => found,
+                    none: (_$4) => key,
+                }),
+                visual: (_$3, visual) => viewWords(visual.view),
+                text: (_$3) => East.value("Text"),
+            }));
+            $2.if(counts.has(placed).not(), ($3) => {
+                $3(order.pushLast(placed));
             });
-            $2(counts.insertOrUpdate(cell.component, 1n, (_$3, n) => n.add(1n)));
+            $2(counts.insertOrUpdate(placed, 1n, (_$3, n) => n.add(1n)));
         });
         const parts = $.let([], ArrayType(StringType));
-        $.for(order, ($2, key) => {
-            const name = $2.let(components.firstMap((_$3, c) => c.key.equal(key).ifElse(
-                () => East.value(some(c.name), OptionType(StringType)),
-                () => East.value(none, OptionType(StringType)),
-            )).match({
-                some: (_$3, found) => found,
-                none: (_$3) => key,
-            }));
-            const count = $2.let(counts.get(key));
+        $.for(order, ($2, name) => {
+            const count = $2.let(counts.get(name));
             $2(parts.pushLast(count.greater(1n).ifElse(
                 () => East.str`${name} ×${East.print(count)}`,
                 () => name,
@@ -261,6 +270,7 @@ export const StudioLibraryComponent = EastUI.component("StudioLibrary", StudioLi
  *
  * @property pages - The pages record, bound with its patch mutation — `Record.bind(pages)`
  * @property components - The components the surface lists — what a layout's summary names
+ * @property sources - The sources its pages' visuals read, by the names their queries read them by
  * @property project - The project it shows first
  * @property page - The page open in the builder, which the pane marks
  * @property onOpen - Told when a page is asked for, with its key — the host shows it in its builder
@@ -270,6 +280,8 @@ export interface StudioLibraryOptions {
     pages: StudioPagesHandle;
     /** The components the surface lists — what a layout's summary names. */
     components: SubtypeExprOrValue<ArrayType<StudioComponentType>>;
+    /** The sources its pages' visuals read: each name to its `Studio.source(handle, meta)`, as its builder is given them. Omitted, the surface lists none. */
+    sources?: Readonly<Record<string, StudioSourceDeclaration>>;
     /** The project it shows first. */
     project: SubtypeExprOrValue<StringType>;
     /** The page open in the builder, which the pane marks — the value the host gives its builder's `page`. Omitted, no page is marked. */
@@ -339,6 +351,7 @@ function createLibrary(options: StudioLibraryOptions): ExprType<UIComponentType>
     return StudioLibraryComponent.Root({
         pages: { read: options.pages.read, history: options.pages.history, commit: { patch: options.pages.commit.patch } },
         components: options.components,
+        sources: studioSources("Studio.Library", options.sources),
         project: options.project,
         page: options.page === undefined ? none : some(options.page),
         onOpen: options.onOpen,
