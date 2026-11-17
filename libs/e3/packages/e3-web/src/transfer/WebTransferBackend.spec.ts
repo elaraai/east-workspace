@@ -33,6 +33,7 @@ import {
   workspaceSetDataset,
   type DatasetUpload,
 } from '@elaraai/e3-core/portable';
+import { objectUploadStoreTests, recordLoadStoreTests } from '@elaraai/e3-core/test';
 import { AdapterClosedError, type BlobKey, type BlobsAdapter, type ByteSource, type RecordKey } from '../storage/adapters.js';
 import { MemoryBlobs, MemoryFiles, MemoryLockSpace, MemoryRecordStore, openMemoryRecords, type MemoryLocks } from '../storage/memory.js';
 import { WebStorage } from '../storage/WebStorage.js';
@@ -280,6 +281,25 @@ async function commitStatus(tab: Tab, id: string): Promise<{ readonly status: st
   if (status === null) return { status: 'none', message: '' };
   return { status: status.type, message: status.type === 'failed' ? status.value.message : '' };
 }
+
+recordLoadStoreTests('e3-web', async () => {
+  const tab = await openTab(newOrigin());
+  return { store: tab.transfer.recordLoad, teardown: () => tab.close() };
+});
+
+objectUploadStoreTests('e3-web', async () => {
+  const tab = await openTab(newOrigin(), { partBytes: 256 });
+  await tab.storage.repos.create(REPO);
+  return {
+    store: tab.transfer.objectUpload,
+    storage: tab.storage,
+    repo: REPO,
+    sendPart: async (id, record, part, bytes) => {
+      await tab.transfer.objectUpload.stagePart(id, record.repo, part, bytes);
+    },
+    teardown: () => tab.close(),
+  };
+});
 
 describe('WebTransferBackend', () => {
   let fixtures: Awaited<ReturnType<typeof buildE3Fixtures>>;
@@ -548,6 +568,27 @@ describe('WebTransferBackend', () => {
       const { id } = await stagedUpload(tab, 'forgotten');
       await until(async () => ((await tab.transfer.datasetUpload.get(id)) === null ? true : null), 'the upload no one committed to be forgotten', 5_000);
       assert.deepEqual(await stagedBy(origin, id), [], 'what it staged went with it');
+    });
+
+    it('R72 — forgets, in a tab that lives, a load that ended and an upload that writes no ref no one committed, past their retention', async () => {
+      const origin = newOrigin();
+      const tab = await openTab(origin, { retention: { resultTtlMs: 50, recordMs: 50, intervalMs: 20 } });
+      await tab.storage.repos.create(REPO);
+      const load = crypto.randomUUID();
+      await tab.transfer.recordLoad.create(load, {
+        repo: REPO, workspace: WORKSPACE, record: 'orders', source: 'erp', delivery: 'd'.repeat(64), actor: 'ada@example.com', asOf: none,
+        cancel: none, status: variant('failed', { message: 'the load of orders.erp failed' }), createdAt: new Date(),
+      });
+      const upload = crypto.randomUUID();
+      const record = { repo: REPO, workspace: WORKSPACE, hash: computeHash(new Uint8Array([1, 2, 3])), size: 3n };
+      await tab.transfer.objectUpload.create(upload, record);
+      await tab.transfer.objectUpload.createParts(upload, record);
+      await tab.transfer.objectUpload.stagePart(upload, REPO, 1, new Uint8Array([1, 2, 3]));
+      assert.notDeepEqual(await stagedBy(origin, upload), [], 'the upload staged its part');
+      await tab.transfer.start();
+      await until(async () => ((await tab.transfer.recordLoad.get(load)) === null && (await tab.transfer.objectUpload.get(upload)) === null ? true : null),
+        'the load and the upload to be forgotten', 5_000);
+      assert.deepEqual(await stagedBy(origin, upload), [], 'what the upload staged went with it');
     });
 
     it('deletes a record that does not decode, with what its transfer staged', async () => {

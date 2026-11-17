@@ -124,8 +124,10 @@ function blobKey(repo: string, blob: string): BlobKey {
 // Where each transfer is
 // =============================================================================
 
-/** The kinds of record a transfer backend over a `WebStorage` keeps. */
-export type TransferKind = 'upload' | 'download' | 'import' | 'export' | 'deploy' | 'gc' | 'split';
+/** The kinds of record a transfer backend over a `WebStorage` keeps: a
+ *  dataset's upload, a download, an import, an export, a deploy, gc, a split
+ *  call, a record's load, and an upload that writes no ref. */
+export type TransferKind = 'upload' | 'download' | 'import' | 'export' | 'deploy' | 'gc' | 'split' | 'load' | 'object';
 
 /**
  * The key of each record a transfer backend over a `WebStorage` keeps, in its
@@ -154,7 +156,7 @@ export const stagedKeys = {
   all: (repo: string): BlobKey => [repo, 'transfer'],
   /** Everything a transfer staged */
   of: (repo: string, id: string): BlobKey => [repo, 'transfer', id],
-  /** A part of a dataset upload, from 1 */
+  /** A part of an upload — a dataset's, or one that writes no ref — from 1 */
   part: (repo: string, id: string, part: number): BlobKey => [repo, 'transfer', id, `part-${String(part).padStart(6, '0')}`],
   /** A package import's zip */
   zip: (repo: string, id: string): BlobKey => [repo, 'transfer', id, 'zip'],

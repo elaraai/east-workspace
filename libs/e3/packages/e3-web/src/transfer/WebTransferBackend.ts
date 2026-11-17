@@ -38,18 +38,22 @@ import {
   none,
   some,
   variant,
+  type EastType,
   type option,
   type ValueTypeOf,
 } from '@elaraai/east';
-import { transferPartCount, transferPartRange, urlPathToTreePath } from '@elaraai/e3-types';
+import { transferPartCount, transferPartRange, urlPathToTreePath, type FunctionCallCancel } from '@elaraai/e3-types';
 import {
   DatasetCommitStatusType,
   DatasetTypeMismatchError,
   DatasetUploadType,
   ExportStoppedError,
   InProcessFunctionCallDispatch,
+  ObjectCommitStatusType,
+  ObjectUploadJobType,
   PackageExportType,
   PackageImportType,
+  RecordLoadJobType,
   RepoGcJobType,
   SplitCallJobType,
   WorkspaceDeployJobType,
@@ -62,6 +66,7 @@ import {
   handleProcessExport,
   handleProcessGc,
   handleProcessImport,
+  handleProcessRecordLoad,
   handleProcessSplitCall,
   type DatasetAdoptProgress,
   type DatasetCommitStatus,
@@ -71,11 +76,16 @@ import {
   type DatasetUploadStore,
   type FunctionCallDispatch,
   type LockHandle,
+  type ObjectCommitStatus,
+  type ObjectUploadJob,
+  type ObjectUploadStore,
   type PackageExport,
   type PackageExportStore,
   type PackageImport,
   type PackageImportStore,
   type PackageZipCheckpoint,
+  type RecordLoadJob,
+  type RecordLoadStore,
   type RepoGcJob,
   type RepoGcStore,
   type SplitCallJob,
@@ -95,20 +105,35 @@ export type { TransferKind } from '../storage/WebStorage.js';
 // Record forms
 // =============================================================================
 
-/** A dataset upload: the upload, its plan as parts, and its commit. */
-const UploadRecordType = StructType({
-  upload: DatasetUploadType,
-  /** The size of every part but the last, once planned */
-  partBytes: OptionType(IntegerType),
-  /** How its commit stands, once asked for */
-  commit: OptionType(DatasetCommitStatusType),
-  /** The session running its commit, while one does */
-  owner: OptionType(StringType),
-  createdAt: DateTimeType,
-  /** When its commit finished */
-  finishedAt: OptionType(DateTimeType),
-});
+/**
+ * A staged upload's record: the upload, its plan as parts, and its commit.
+ *
+ * @param upload - The upload's type: a dataset's, or one that writes no ref
+ * @param commit - Its commit's status's type
+ * @returns The record's type
+ */
+function stagedUploadRecordType<U extends EastType, C extends EastType>(upload: U, commit: C) {
+  return StructType({
+    upload,
+    /** The size of every part but the last, once planned */
+    partBytes: OptionType(IntegerType),
+    /** How its commit stands, once asked for */
+    commit: OptionType(commit),
+    /** The session running its commit, while one does */
+    owner: OptionType(StringType),
+    createdAt: DateTimeType,
+    /** When its commit finished */
+    finishedAt: OptionType(DateTimeType),
+  });
+}
+
+/** A dataset upload. */
+const UploadRecordType = stagedUploadRecordType(DatasetUploadType, DatasetCommitStatusType);
 type UploadRecord = ValueTypeOf<typeof UploadRecordType>;
+
+/** An upload that writes no ref. */
+const ObjectRecordType = stagedUploadRecordType(ObjectUploadJobType, ObjectCommitStatusType);
+type ObjectRecord = ValueTypeOf<typeof ObjectRecordType>;
 
 /** A download URL's object. */
 const DownloadRecordType = StructType({ repo: StringType, hash: StringType, createdAt: DateTimeType });
@@ -124,6 +149,8 @@ const GcRecordType = StructType({ job: RepoGcJobType, owner: OptionType(StringTy
 type GcRecord = ValueTypeOf<typeof GcRecordType>;
 const SplitRecordType = StructType({ job: SplitCallJobType, owner: OptionType(StringType), finishedAt: OptionType(DateTimeType) });
 type SplitRecord = ValueTypeOf<typeof SplitRecordType>;
+const LoadRecordType = StructType({ job: RecordLoadJobType, owner: OptionType(StringType), finishedAt: OptionType(DateTimeType) });
+type LoadRecord = ValueTypeOf<typeof LoadRecordType>;
 
 /** An export: the job, and how many rounds of its zip are written. The
  *  checkpoint a round goes on from is the job's own, in memory: a progress
@@ -150,6 +177,8 @@ const exportForm: RecordForm<ExportRecord> = { encode: encodeBeast2For(ExportRec
 const deployForm: RecordForm<DeployRecord> = { encode: encodeBeast2For(DeployRecordType), decode: decodeBeast2For(DeployRecordType) };
 const gcForm: RecordForm<GcRecord> = { encode: encodeBeast2For(GcRecordType), decode: decodeBeast2For(GcRecordType) };
 const splitForm: RecordForm<SplitRecord> = { encode: encodeBeast2For(SplitRecordType), decode: decodeBeast2For(SplitRecordType) };
+const loadForm: RecordForm<LoadRecord> = { encode: encodeBeast2For(LoadRecordType), decode: decodeBeast2For(LoadRecordType) };
+const objectForm: RecordForm<ObjectRecord> = { encode: encodeBeast2For(ObjectRecordType), decode: decodeBeast2For(ObjectRecordType) };
 
 /** Whether two owners are the same session, or both none. */
 const sameOwner = equalFor(OptionType(StringType));
@@ -345,11 +374,22 @@ class Running {
 }
 
 // =============================================================================
-// Dataset uploads
+// Staged uploads
 // =============================================================================
 
+/** What a staged upload's record holds, as {@link stagedUploadRecordType}
+ *  builds it for each kind of upload. */
+interface StagedRecord<U, C> {
+  readonly upload: U;
+  readonly partBytes: option<bigint>;
+  readonly commit: option<C>;
+  readonly owner: option<string>;
+  readonly createdAt: Date;
+  readonly finishedAt: option<Date>;
+}
+
 /**
- * Dataset uploads: each part staged as a blob, and committed as the object the
+ * Staged uploads: each part staged as a blob, and committed as the object the
  * staged bytes hash to.
  *
  * @remarks
@@ -358,29 +398,62 @@ class Running {
  * into one buffer of the upload's size, checking each is there at its planned
  * size, hashes the bytes once, and stores them as the object they hash to —
  * refused, with nothing written, when that is not the upload's hash — then
- * adopts that object (`datasetAdoptObject`): a collection is taken in by
- * intake units on the repository's runner, as the local server's `object`
- * commit takes one in.
+ * takes that object in as its kind of upload does.
+ *
+ * @typeParam U - The upload, as e3-core's store interface has it
+ * @typeParam C - Its commit's status
+ * @typeParam R - Its record
  */
-class WebDatasetUploadStore implements DatasetUploadStore {
+abstract class WebStagedUploads<
+  U extends { readonly repo: string; readonly hash: string; readonly size: bigint },
+  C extends { readonly type: string },
+  R extends StagedRecord<U, C>,
+> {
   /** The commits this worker runs, or is taking, by upload: a commit asked
    *  for while one runs here is answered by it */
-  private readonly commits = new Map<string, Promise<DatasetCommitStatus>>();
+  private readonly commits = new Map<string, Promise<C>>();
 
-  constructor(private readonly host: TransferHost, private readonly partBytes: bigint) {}
+  constructor(
+    protected readonly host: TransferHost,
+    private readonly partBytes: bigint,
+    private readonly kind: TransferKind,
+    private readonly form: RecordForm<R>,
+  ) {}
 
   private key(id: string): RecordKey {
-    return transferKeys.of('upload', id);
+    return transferKeys.of(this.kind, id);
   }
 
-  async create(id: string, record: DatasetUpload): Promise<void> {
-    await putRecord(this.host.records, this.key(id), uploadForm, {
-      upload: record, partBytes: none, commit: none, owner: none, createdAt: new Date(), finishedAt: none,
-    });
+  /** A new upload's record: nothing planned, nothing committed. */
+  protected abstract fresh(upload: U): R;
+
+  /** How a commit stands while it runs, before it says how far it has got. */
+  protected abstract processing(): C;
+
+  /** A commit's failure, naming why. */
+  protected abstract failure(message: string): C;
+
+  /**
+   * Takes in the object the upload's bytes were stored as, as the upload's
+   * kind does, once they are found to be the upload's.
+   *
+   * @param id - The upload's id
+   * @param upload - The upload, as created
+   * @returns How the commit finished
+   */
+  protected abstract takeIn(id: string, upload: U): Promise<C>;
+
+  /** How the commit finished, for an error its taking in threw. */
+  protected caught(err: unknown): C {
+    return this.failure(messageOf(err));
   }
 
-  async get(id: string): Promise<DatasetUpload | null> {
-    return (await readRecord(this.host.records, this.key(id), uploadForm))?.upload ?? null;
+  async create(id: string, record: U): Promise<void> {
+    await putRecord(this.host.records, this.key(id), this.form, this.fresh(record));
+  }
+
+  async get(id: string): Promise<U | null> {
+    return (await readRecord(this.host.records, this.key(id), this.form))?.upload ?? null;
   }
 
   /**
@@ -389,22 +462,22 @@ class WebDatasetUploadStore implements DatasetUploadStore {
    * @param id - The upload's id
    */
   async delete(id: string): Promise<void> {
-    const record = await readRecord(this.host.records, this.key(id), uploadForm);
+    const record = await readRecord(this.host.records, this.key(id), this.form);
     await deleteRecord(this.host.records, this.key(id));
     if (record !== null) await this.host.blobs.deletePrefix(stagedKeys.of(record.upload.repo, id));
   }
 
-  async createParts(id: string, _record: DatasetUpload): Promise<bigint> {
-    await changeRecord(this.host.records, this.key(id), uploadForm, (current) => ({ ...current, partBytes: some(this.partBytes) }));
+  async createParts(id: string, _record: U): Promise<bigint> {
+    await changeRecord(this.host.records, this.key(id), this.form, (current) => ({ ...current, partBytes: some(this.partBytes) }));
     return this.partBytes;
   }
 
   async getPartBytes(id: string): Promise<bigint | null> {
-    const record = await readRecord(this.host.records, this.key(id), uploadForm);
+    const record = await readRecord(this.host.records, this.key(id), this.form);
     return record?.partBytes.type === 'some' ? record.partBytes.value : null;
   }
 
-  getPartUpload(id: string, _record: DatasetUpload, part: number): Promise<DatasetPartUpload> {
+  getPartUpload(id: string, _record: U, part: number): Promise<DatasetPartUpload> {
     // e3-web's own byte endpoint takes the part whole, so its PUT needs no
     // headers beyond its bytes; the route resolves the URL against its origin.
     return Promise.resolve({ url: `/api/uploads/${id}/parts/${part}`, headers: {} });
@@ -433,7 +506,7 @@ class WebDatasetUploadStore implements DatasetUploadStore {
    * closed left is recorded failed, naming why, and what it staged removed:
    * it is never run again.
    */
-  commit(id: string, record: DatasetUpload): Promise<DatasetCommitStatus> {
+  commit(id: string, record: U): Promise<C> {
     const running = this.commits.get(id);
     if (running !== undefined) return running;
     const committing = this.commitOnce(id, record);
@@ -445,10 +518,10 @@ class WebDatasetUploadStore implements DatasetUploadStore {
   }
 
   /** Runs a commit here, or answers how it stands; never rejects. */
-  private async commitOnce(id: string, record: DatasetUpload): Promise<DatasetCommitStatus> {
+  private async commitOnce(id: string, record: U): Promise<C> {
     try {
-      const current = await readRecord(this.host.records, this.key(id), uploadForm);
-      if (current === null) return variant('failed', { message: `the upload '${id}' is not known` });
+      const current = await readRecord(this.host.records, this.key(id), this.form);
+      if (current === null) return this.failure(`the upload '${id}' is not known`);
       if (current.commit.type === 'some') {
         if (current.commit.value.type !== 'processing') return current.commit.value;
         const owner = await ownerOf(this.host.locks, current.owner);
@@ -456,25 +529,25 @@ class WebDatasetUploadStore implements DatasetUploadStore {
         return await this.abandon(id, owner === 'dead' ? CLOSED_TAB : STOPPED);
       }
       const session = this.host.locks.session;
-      const claim = await this.host.records.transact(async (tx): Promise<{ taken: true } | { taken: false; status: DatasetCommitStatus }> => {
-        const now = await readRecord(tx, this.key(id), uploadForm);
-        if (now === null) return { taken: false, status: variant('failed', { message: `the upload '${id}' is not known` }) };
+      const claim = await this.host.records.transact(async (tx): Promise<{ taken: true } | { taken: false; status: C }> => {
+        const now = await readRecord(tx, this.key(id), this.form);
+        if (now === null) return { taken: false, status: this.failure(`the upload '${id}' is not known`) };
         // Another tab claimed it meanwhile: how far it has got.
         if (now.commit.type === 'some') return { taken: false, status: now.commit.value };
-        tx.put(this.key(id), uploadForm.encode({ ...now, commit: some(variant('processing', none)), owner: some(session) }));
+        tx.put(this.key(id), this.form.encode({ ...now, commit: some(this.processing()), owner: some(session) }));
         return { taken: true };
       });
       if (!claim.taken) return claim.status;
-      const status = await this.verifyAndAdopt(id, record);
+      const status = await this.verifyAndTake(id, record);
       // Its end is recorded before what it staged goes: a tab that closes
       // between the two leaves the parts to gc's sweep.
-      await changeRecord(this.host.records, this.key(id), uploadForm, (now) => ({
+      await changeRecord(this.host.records, this.key(id), this.form, (now) => ({
         ...now, commit: some(status), owner: none, finishedAt: some(new Date()),
       }));
       await this.host.blobs.deletePrefix(stagedKeys.of(record.repo, id));
       return status;
     } catch (err) {
-      return variant('failed', { message: messageOf(err) });
+      return this.failure(messageOf(err));
     }
   }
 
@@ -483,9 +556,9 @@ class WebDatasetUploadStore implements DatasetUploadStore {
    *
    * @returns The commit's status, as recorded
    */
-  private async abandon(id: string, why: string): Promise<DatasetCommitStatus> {
-    const failed: DatasetCommitStatus = variant('failed', { message: why });
-    const record = await changeRecord(this.host.records, this.key(id), uploadForm, (current) =>
+  private async abandon(id: string, why: string): Promise<C> {
+    const failed = this.failure(why);
+    const record = await changeRecord(this.host.records, this.key(id), this.form, (current) =>
       (current.commit.type === 'some' && current.commit.value.type === 'processing'
         ? { ...current, commit: some(failed), owner: none, finishedAt: some(new Date()) }
         : null));
@@ -499,60 +572,53 @@ class WebDatasetUploadStore implements DatasetUploadStore {
    * is being taken here, before its record says so; `null` before one is
    * asked for.
    */
-  async getCommitStatus(id: string): Promise<DatasetCommitStatus | null> {
-    const record = await readRecord(this.host.records, this.key(id), uploadForm);
+  async getCommitStatus(id: string): Promise<C | null> {
+    const record = await readRecord(this.host.records, this.key(id), this.form);
     if (record?.commit.type === 'some') return record.commit.value;
-    return this.commits.has(id) ? variant('processing', none) : null;
+    return this.commits.has(id) ? this.processing() : null;
+  }
+
+  /** Writes how far a commit has got to its upload's record, while it runs. */
+  protected reportCommit(id: string, status: C): void {
+    void changeRecord(this.host.records, this.key(id), this.form, (current) =>
+      (current.commit.type === 'some' && current.commit.value.type === 'processing' ? { ...current, commit: some(status) } : null),
+    ).catch(() => undefined);
   }
 
   /**
-   * Checks the staged parts are the upload's bytes, and points the upload's
-   * dataset at them; never rejects.
+   * Checks the staged parts are the upload's bytes, stores them as their
+   * object, and takes it in; never rejects.
    *
    * @remarks
    * The parts are copied, in order, into one buffer of the upload's size, each
    * checked against its planned range, and the bytes are hashed once: they are
    * stored as the object they hash to only when that is the upload's hash, so
-   * a store holds no object of bytes no one asked for. A collection's object
-   * is then taken in by intake units, how far they have got written to the
-   * upload's record as they go.
+   * a store holds no object of bytes no one asked for.
    */
-  private async verifyAndAdopt(id: string, record: DatasetUpload): Promise<DatasetCommitStatus> {
-    const { repo, workspace, path, hash, size } = record;
+  private async verifyAndTake(id: string, record: U): Promise<C> {
+    const { repo, hash, size } = record;
     try {
       const partBytes = await this.getPartBytes(id);
-      if (partBytes === null) return variant('failed', { message: 'the upload was not planned as parts' });
+      if (partBytes === null) return this.failure('the upload was not planned as parts');
       const count = transferPartCount(size, partBytes);
       const staged = new Uint8Array(Number(size));
       for (let part = 1; part <= count; part++) {
         const range = transferPartRange(size, partBytes, part)!;
         const bytes = await this.host.blobs.read(stagedKeys.part(repo, id, part));
-        if (bytes === null) return variant('failed', { message: `part ${part} of ${count} was not sent` });
+        if (bytes === null) return this.failure(`part ${part} of ${count} was not sent`);
         if (bytes.length !== range.end - range.start) {
-          return variant('failed', { message: `part ${part} of ${count} is ${range.end - range.start} bytes, and ${bytes.length} were staged` });
+          return this.failure(`part ${part} of ${count} is ${range.end - range.start} bytes, and ${bytes.length} were staged`);
         }
         staged.set(bytes, range.start);
       }
       const digest = computeHash(staged);
       if (!sameString(digest, hash)) {
-        return variant('failed', { message: `the staged bytes hash to ${digest}, not the upload's ${hash}` });
+        return this.failure(`the staged bytes hash to ${digest}, not the upload's ${hash}`);
       }
       await this.host.storage.objects.writeHashed(repo, digest, staged);
-      let reported = 0;
-      const report = (progress: DatasetAdoptProgress): void => {
-        const now = Date.now();
-        if (now - reported < PROGRESS_INTERVAL_MS) return;
-        reported = now;
-        const intake = adoptProgressToIntakeFile(path, progress);
-        void changeRecord(this.host.records, this.key(id), uploadForm, (current) =>
-          (current.commit.type === 'some' && current.commit.value.type === 'processing' ? { ...current, commit: some(variant('processing', some(intake))) } : null),
-        ).catch(() => undefined);
-      };
-      await datasetAdoptObject(this.host.storage, repo, workspace, urlPathToTreePath(path), hash, this.host.getRunner(repo), { onProgress: report });
-      return variant('completed', null);
+      return await this.takeIn(id, record);
     } catch (err) {
-      if (err instanceof DatasetTypeMismatchError) return variant('type_mismatch', { path: err.path, message: err.message });
-      return variant('failed', { message: messageOf(err) });
+      return this.caught(err);
     }
   }
 
@@ -563,9 +629,9 @@ class WebDatasetUploadStore implements DatasetUploadStore {
    */
   async sweep(now: number): Promise<void> {
     const { resultTtlMs, recordMs } = this.host.retention;
-    for (const key of await this.host.records.keys(transferKeys.kind('upload'))) {
+    for (const key of await this.host.records.keys(transferKeys.kind(this.kind))) {
       const id = key[2]!;
-      const found = await readAs(this.host.records, key, uploadForm);
+      const found = await readAs(this.host.records, key, this.form);
       if (found.kind === 'none') continue;
       if (found.kind === 'undecodable') {
         await deleteRecord(this.host.records, key);
@@ -586,6 +652,77 @@ class WebDatasetUploadStore implements DatasetUploadStore {
       if (owner === 'dead') await this.abandon(id, CLOSED_TAB);
       else if (owner !== 'alive') await this.abandon(id, STOPPED);
     }
+  }
+}
+
+/**
+ * Dataset uploads: staged and stored as {@link WebStagedUploads} stores them,
+ * then adopted (`datasetAdoptObject`): a collection is taken in by intake
+ * units on the repository's runner, as the local server's `object` commit
+ * takes one in, how far they have got written to the upload's record as they
+ * go.
+ */
+class WebDatasetUploadStore extends WebStagedUploads<DatasetUpload, DatasetCommitStatus, UploadRecord> implements DatasetUploadStore {
+  constructor(host: TransferHost, partBytes: bigint) {
+    super(host, partBytes, 'upload', uploadForm);
+  }
+
+  protected fresh(upload: DatasetUpload): UploadRecord {
+    return { upload, partBytes: none, commit: none, owner: none, createdAt: new Date(), finishedAt: none };
+  }
+
+  protected processing(): DatasetCommitStatus {
+    return variant('processing', none);
+  }
+
+  protected failure(message: string): DatasetCommitStatus {
+    return variant('failed', { message });
+  }
+
+  protected caught(err: unknown): DatasetCommitStatus {
+    if (err instanceof DatasetTypeMismatchError) return variant('type_mismatch', { path: err.path, message: err.message });
+    return this.failure(messageOf(err));
+  }
+
+  protected async takeIn(id: string, upload: DatasetUpload): Promise<DatasetCommitStatus> {
+    const { repo, workspace, path, hash } = upload;
+    let reported = 0;
+    const report = (progress: DatasetAdoptProgress): void => {
+      const now = Date.now();
+      if (now - reported < PROGRESS_INTERVAL_MS) return;
+      reported = now;
+      this.reportCommit(id, variant('processing', some(adoptProgressToIntakeFile(path, progress))));
+    };
+    await datasetAdoptObject(this.host.storage, repo, workspace, urlPathToTreePath(path), hash, this.host.getRunner(repo), { onProgress: report });
+    return variant('completed', null);
+  }
+}
+
+/**
+ * Uploads that write no ref: staged and stored as {@link WebStagedUploads}
+ * stores them, as the object a load's delivery or a split call's `object`
+ * argument then names by its hash.
+ */
+class WebObjectUploadStore extends WebStagedUploads<ObjectUploadJob, ObjectCommitStatus, ObjectRecord> implements ObjectUploadStore {
+  constructor(host: TransferHost, partBytes: bigint) {
+    super(host, partBytes, 'object', objectForm);
+  }
+
+  protected fresh(upload: ObjectUploadJob): ObjectRecord {
+    return { upload, partBytes: none, commit: none, owner: none, createdAt: new Date(), finishedAt: none };
+  }
+
+  protected processing(): ObjectCommitStatus {
+    return variant('processing', null);
+  }
+
+  protected failure(message: string): ObjectCommitStatus {
+    return variant('failed', { message });
+  }
+
+  /** Stored as the object it is, the upload is done: it names nothing. */
+  protected takeIn(): Promise<ObjectCommitStatus> {
+    return Promise.resolve(variant('completed', null));
   }
 }
 
@@ -1231,6 +1368,64 @@ class WebSplitCallStore extends JobStore<SplitCallJob, SplitRecord> implements S
 }
 
 // =============================================================================
+// Record loads
+// =============================================================================
+
+/**
+ * Record loads: each run in this worker through e3-core's shared handler, on
+ * the repository's runner, its turn among its source's loads taken through
+ * the storage's locks. A cancel is recorded on the job, which the job acts
+ * on, ending itself: `cancelled` before its commit writes, `completed` after.
+ */
+class WebRecordLoadStore extends JobStore<RecordLoadJob, LoadRecord> implements RecordLoadStore {
+  constructor(host: TransferHost, running: Running) {
+    super(host, running, 'load', loadForm);
+  }
+
+  /** Records the job's status unless it has ended, in one transaction. */
+  updateStatus(id: string, status: RecordLoadJob['status']): Promise<boolean> {
+    return this.writeStatus(id, status, true);
+  }
+
+  /** Records a request to cancel the job, in one transaction: a job that has
+   *  ended, or was asked already, is left as it is. */
+  async cancel(id: string, cancel: FunctionCallCancel): Promise<RecordLoadJob | null> {
+    const record = await changeRecord(this.host.records, this.key(id), loadForm, (current) =>
+      (this.finished(current.job.status) || current.job.cancel.type === 'some' ? null : { ...current, job: { ...current.job, cancel: some(cancel) } }));
+    return record?.job ?? null;
+  }
+
+  protected fresh(job: RecordLoadJob, owner: option<string>): LoadRecord {
+    return { job, owner, finishedAt: this.finished(job.status) ? some(new Date()) : none };
+  }
+
+  protected withStatus(_id: string, record: LoadRecord, status: RecordLoadJob['status'], ended: boolean): LoadRecord {
+    return { ...record, job: { ...record.job, status }, ...(ended && { owner: none, finishedAt: some(new Date()) }) };
+  }
+
+  protected withOwner(record: LoadRecord, owner: option<string>): LoadRecord {
+    return { ...record, owner };
+  }
+
+  protected finished(status: RecordLoadJob['status']): boolean {
+    return status.type !== 'processing';
+  }
+
+  protected failed(status: RecordLoadJob['status']): boolean {
+    return status.type === 'failed';
+  }
+
+  protected failure(message: string): RecordLoadJob['status'] {
+    return variant('failed', { message });
+  }
+
+  protected work(id: string, record: LoadRecord): Promise<void> {
+    const repo = record.job.repo;
+    return handleProcessRecordLoad({ storage: this.host.storage, recordLoadStore: this, runner: this.host.getRunner(repo) }, { id, repo });
+  }
+}
+
+// =============================================================================
 // The backend
 // =============================================================================
 
@@ -1243,11 +1438,12 @@ export interface WebTransferBackendOptions {
    *  the backend runs */
   readonly storage: WebStorage;
   /** Each repository's runner: what a deploy's migrations and index builds,
-   *  a commit's intake units, a split call's units and a function's calls run
-   *  on, and whose judgement of what still runs gc's history prune takes */
+   *  a commit's intake units, a split call's units, a load's intake and pieces
+   *  and a function's calls run on, and whose judgement of what still runs
+   *  gc's history prune takes */
   readonly getRunner: (repo: string) => TaskRunner;
-  /** The size of every part of a dataset upload but the last:
-   *  {@link DEFAULT_WEB_PART_BYTES} unless set */
+  /** The size of every part of an upload but the last — a dataset's, or one
+   *  that writes no ref: {@link DEFAULT_WEB_PART_BYTES} unless set */
   readonly partBytes?: number;
   /** The most bytes of a zip an export round writes before it stops:
    *  {@link DEFAULT_EXPORT_ROUND_BYTES} unless set */
@@ -1273,8 +1469,8 @@ export interface WebTransferBackendOptions {
 /**
  * e3's {@link TransferBackend} in a browser: uploads staged in the storage's
  * blobs, downloads served from its object store, and every job — import,
- * export, deploy, gc, split call — run in this worker through e3-core's shared
- * handlers, its status in the storage's records.
+ * export, deploy, gc, split call, a record's load — run in this worker through
+ * e3-core's shared handlers, its status in the storage's records.
  *
  * @remarks
  * Its URLs are e3-web's own byte endpoints (`createWebDataEndpoints`),
@@ -1306,6 +1502,8 @@ export class WebTransferBackend implements TransferBackend {
   readonly workspaceDeploy: WebWorkspaceDeployStore;
   readonly repoGc: WebRepoGcStore;
   readonly splitCall: WebSplitCallStore;
+  readonly recordLoad: WebRecordLoadStore;
+  readonly objectUpload: WebObjectUploadStore;
   readonly functionCalls: FunctionCallDispatch;
   private readonly retention: Retention;
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -1355,6 +1553,8 @@ export class WebTransferBackend implements TransferBackend {
     this.workspaceDeploy = new WebWorkspaceDeployStore(host, running);
     this.repoGc = new WebRepoGcStore(host, running);
     this.splitCall = new WebSplitCallStore(host, running);
+    this.recordLoad = new WebRecordLoadStore(host, running);
+    this.objectUpload = new WebObjectUploadStore(host, BigInt(partBytes));
     // A repository's name is its identifier in the storage, as every route
     // here takes it
     this.functionCalls = new InProcessFunctionCallDispatch({ storage, getRunner });
@@ -1394,6 +1594,8 @@ export class WebTransferBackend implements TransferBackend {
         await this.workspaceDeploy.sweep(now);
         await this.repoGc.sweep(now);
         await this.splitCall.sweep(now);
+        await this.recordLoad.sweep(now);
+        await this.objectUpload.sweep(now);
       } finally {
         this.sweeping = null;
       }
