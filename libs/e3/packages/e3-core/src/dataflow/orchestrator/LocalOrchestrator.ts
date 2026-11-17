@@ -1226,7 +1226,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
             continue;
           }
 
-          // An input of it is unassigned: the task waits for it, and its
+          // An input of it cannot be read: the task waits for it, and its
           // dependents with it, and the run goes on without them. Their
           // statuses may have ended the run: the top of the loop checks.
           if (prepared.kind === 'waiting') {
@@ -1239,9 +1239,9 @@ export class LocalOrchestrator implements DataflowOrchestrator {
               // found it passed the task by as one about to launch. It is
               // decided again; one a failure settled meanwhile stays settled.
               if (execution.changed !== changed || !this.stillReady(execution, taskName)) return;
-              const { waiting } = stepTasksWaiting(state, taskName, prepared.unassigned);
+              const { waiting } = stepTasksWaiting(state, taskName, prepared.waits);
               await this.persistState(execution, state);
-              for (const each of waiting) options.onTaskWaiting?.(each.task, each.inputs);
+              for (const each of waiting) options.onTaskWaiting?.(each.task, each.waits);
             });
             continue;
           }

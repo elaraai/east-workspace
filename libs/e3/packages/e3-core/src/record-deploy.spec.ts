@@ -47,7 +47,7 @@ import { EXTERNAL_SLOT, PENDING_SLOT, sourceLoadSlots } from './record-slots.js'
 import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, sourceDelivered, withEnv } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
-import type { StorageBackend, TaskRunner } from './index.js';
+import type { InputWait, StorageBackend, TaskRunner } from './index.js';
 
 const RowV1Type = StructType({ title: StringType });
 const RowV2Type = StructType({ title: StringType, owner: StringType });
@@ -976,10 +976,10 @@ describe('a deploy\'s record migrations', () => {
       // ever runs on an empty state
       const status = await workspaceStatus(storage, runner, repo, ws);
       assert.equal(status.tasks.find((task) => task.name === 'count')?.status.type, 'waiting');
-      const waiting: [string, string[]][] = [];
-      const run = await dataflowExecute(storage, repo, ws, { onTaskWaiting: (task, inputs) => waiting.push([task, inputs]) });
+      const waiting: [string, InputWait[]][] = [];
+      const run = await dataflowExecute(storage, repo, ws, { onTaskWaiting: (task, waits) => waiting.push([task, waits]) });
       assert.deepEqual([run.success, run.executed, run.waiting], [true, 0, 1], JSON.stringify(run));
-      assert.deepEqual(waiting, [['count', ['.records.plans']]]);
+      assert.deepEqual(waiting, [['count', [{ input: '.records.plans', kind: 'unset' }]]]);
       assert.equal((await storage.datasets.read(repo, ws, 'tasks/count/output'))?.type ?? 'unassigned', 'unassigned');
 
       const refused = [

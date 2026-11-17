@@ -15,7 +15,7 @@ import type { ExecutionOwner, PartitionProgress, SplitProgress, StageUnit, UnitW
 import type { StorageBackend, LockHandle } from '../../storage/interfaces.js';
 import type { TaskRunner, UnitRequeue } from '../../execution/interfaces.js';
 import type { CatchUpPhase } from '../../dataflow.js';
-import type { DataflowExecutionState, DeferReason, ExecutionEvent, FinalizeResult } from '../types.js';
+import type { DataflowExecutionState, DeferReason, ExecutionEvent, FinalizeResult, InputWait } from '../types.js';
 
 /**
  * Handle to a running dataflow execution.
@@ -164,14 +164,15 @@ export interface OrchestratorStartOptions {
    */
   onCatchUp?: (task: string, forTask: string, phase: CatchUpPhase) => void;
   /**
-   * Called when a task is left waiting on an unassigned input — one nothing
-   * has set, or a record whose first state is not yet committed — and once
-   * for each of its dependents, which wait with it, naming the inputs each
-   * waits on as keypaths. The run goes on without them: they run once the
-   * input is assigned, in this run if that happens while it is in flight,
-   * else in the next.
+   * Called when a task is left waiting on an input it cannot read — one
+   * nothing has set, a record whose first state is not yet committed, or a
+   * composite record that waits for an external source's first delivery —
+   * and once for each of its dependents, which wait with it, naming the
+   * inputs each waits on as keypaths, each with why ({@link InputWait}). The
+   * run goes on without them: they run once the input can be read, in this
+   * run if that happens while it is in flight, else in the next.
    */
-  onTaskWaiting?: (taskName: string, inputs: string[]) => void;
+  onTaskWaiting?: (taskName: string, waits: InputWait[]) => void;
   /**
    * Polled by the execution loop (before each launch and each wait).
    * Return true to checkpoint: the loop stops launching, resets in-flight

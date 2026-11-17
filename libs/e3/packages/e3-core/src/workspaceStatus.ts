@@ -40,6 +40,7 @@ import {
 import type { TaskRunner } from './execution/interfaces.js';
 import { computeHash } from './objects.js';
 import { packageObjectRead } from './packages.js';
+import { pendingSources, pendingWaitWords } from './record-slots.js';
 import type { StorageBackend } from './storage/interfaces.js';
 import { taskObjectRead } from './tasks.js';
 
@@ -510,6 +511,10 @@ function refOf(refs: ReadonlyMap<string, DatasetRef>, path: TreePath): { refType
  * (`taskInputRead`, which the run decides by too): a state is read once and
  * then from memory, so a status polled over an unchanged record reads nothing
  * more for it.
+ *
+ * An input that is a composite record, or an index of one, that waits for an
+ * external source's first delivery makes the task wait, as a run leaves it
+ * waiting: its ref says so, which is read before its state is.
  */
 async function inputsOf(
   storage: StorageBackend,
@@ -538,6 +543,11 @@ async function inputsOf(
         return { type: 'waiting', reason: `Input '${inputPathStr}' is not set` };
       }
     } else {
+      // A record yet to hear from an external source holds its own entries
+      // alone: the task waits for the first delivery, in the run's words
+      const ref = refs.get(treePathToRefPath(inputPath));
+      const pending = ref?.type === 'value' ? pendingSources(ref.value.versions) : [];
+      if (pending.length > 0) return { type: 'waiting', reason: pendingWaitWords(inputPathStr, pending) };
       const index = node.task.inputs[at]!.index;
       // A state that holds no such index: the task waits until a deploy has built it
       const read = await taskInputRead(storage, repo, inputPathStr, hash, index.type === 'some' ? index.value : null);

@@ -27,7 +27,7 @@ import {
   type VersionVector,
 } from '@elaraai/e3-types';
 import { OBJECT_CONCURRENCY, eachAtMost } from './concurrency.js';
-import type { CatchUpRun, DataflowExecutionState, DeferReason } from './dataflow/types.js';
+import type { CatchUpRun, DataflowExecutionState, DeferReason, InputWait } from './dataflow/types.js';
 import { taskInputRead } from './dataset-open.js';
 import { keypathToRefPath, madeAt, refPathToKeypath, sameVersion, versionRoots } from './dataset-refs.js';
 import {
@@ -35,6 +35,7 @@ import {
   inputsHash,
 } from './executions.js';
 import { packageObjectRead } from './packages.js';
+import { pendingSources } from './record-slots.js';
 import { taskObjectRead } from './tasks.js';
 import type { TaskRunner } from './execution/interfaces.js';
 import {
@@ -217,9 +218,11 @@ export interface DataflowOptions {
    *  there */
   onCatchUp?: (task: string, forTask: string, phase: CatchUpPhase) => void;
   /** Callback when a task is left waiting on an input it cannot read — an
-   *  unassigned one, or an index its record's state does not hold — and for
-   *  each of its dependents, naming the inputs each waits on */
-  onTaskWaiting?: (taskName: string, inputs: string[]) => void;
+   *  unassigned one, an index its record's state does not hold, or a
+   *  composite record that waits for an external source's first delivery —
+   *  and for each of its dependents, naming the inputs each waits on, with
+   *  why */
+  onTaskWaiting?: (taskName: string, waits: InputWait[]) => void;
 }
 
 /**
@@ -947,9 +950,10 @@ export function catchUpKey(run: Pick<CatchUpRun, 'task' | 'inputsHash'>): string
 export type ResolvedInputs =
   /** Every input is at hand: each one's object, in the task's input order */
   | { readonly kind: 'resolved'; readonly hashes: string[] }
-  /** Inputs the task cannot read, as keypaths in its input order: one with
-   *  no value, or an index its record's state does not hold */
-  | { readonly kind: 'unassigned'; readonly inputs: string[] }
+  /** The inputs the task cannot read, in its input order, each with why: one
+   *  with no value, an index its record's state does not hold, or a composite
+   *  record that waits for an external source's first delivery */
+  | { readonly kind: 'unassigned'; readonly waits: InputWait[] }
   /** A result the task reads is not at hand at its versions: the catch-up
    *  runs that make it, those whose own inputs are at hand, the deepest
    *  first */
@@ -965,8 +969,16 @@ export interface ResolveInputsOptions {
   forced?: (task: string) => boolean;
 }
 
-/** One input of a task, or one task's result, as read at a set of versions. */
-type ReadAt = { readonly kind: 'object'; readonly hash: string } | { readonly kind: 'unassigned' } | { readonly kind: 'behind' };
+/** One input of a task, or one task's result, as read at a set of versions:
+ *  its object; that it cannot be read, `pending` naming the external sources
+ *  its record waits for when that is why; or that it is behind. */
+type ReadAt =
+  | { readonly kind: 'object'; readonly hash: string }
+  | { readonly kind: 'unassigned'; readonly pending?: readonly string[] }
+  | { readonly kind: 'behind' };
+
+/** A root as read at its version: its dataset object, or that it cannot be read. */
+type RootAt = Exclude<ReadAt, { kind: 'behind' }>;
 
 /**
  * Resolve a task's inputs at the versions it reads: the object each input
@@ -992,6 +1004,13 @@ type ReadAt = { readonly kind: 'object'; readonly hash: string } | { readonly ki
  * task that reads an index is decided again whenever its record's commit
  * moves, and the execution cache answers it when the index it reads did not.
  *
+ * A composite record that waits for an external source's first delivery
+ * (`$pending`, in its ref's version vector) cannot be read, though it holds a
+ * state: the solution's own entries alone. Its ref says so, and is asked
+ * before the record's state, or an index of it, is looked for: so a task
+ * reading the record, or an index of it, waits naming the sources yet to
+ * deliver, and a task reading that task's output waits on an output not set.
+ *
  * @param storage - Storage backend
  * @param state - The run's state
  * @param task - The task, from the run's graph
@@ -1011,27 +1030,32 @@ export async function dataflowResolveInputs(
   const graph = state.graph.type === 'some' ? state.graph.value : null;
   if (graph === null) throw new DataflowError('Execution state has no graph');
   const producerOf = taskProducers(graph);
-  const roots = new Map<string, Promise<string | null>>();
+  const roots = new Map<string, Promise<RootAt>>();
   const outputs = new Map<string, Promise<ReadAt>>();
   const runs = new Map<string, CatchUpRun>();
 
-  // A root's dataset object at its version; null for one with no value
-  const rootAt = (path: string): Promise<string | null> => {
+  // A root's dataset object at its version; or that it cannot be read: it
+  // has no value, or it is a record yet to hear from an external source
+  const rootAt = (path: string): Promise<RootAt> => {
     let read = roots.get(path);
     if (read === undefined) {
-      read = (async () => {
+      read = (async (): Promise<RootAt> => {
         const wanted = versions.get(path);
-        if (wanted === undefined) return null;
+        if (wanted === undefined) return { kind: 'unassigned' };
         const ref = await storage.datasets.read(repo, workspace, keypathToRefPath(path));
-        if (ref !== null && ref.type === 'value' && sameVersion(ref.value.versions.get(path) ?? ref.value.hash, wanted)) {
-          return ref.value.hash;
+        if (ref !== null && ref.type === 'value') {
+          // A record that waits for a first delivery holds its own entries
+          // alone: asked first, before its state or an index of it is read
+          const pending = pendingSources(ref.value.versions);
+          if (pending.length > 0) return { kind: 'unassigned', pending };
+          if (sameVersion(ref.value.versions.get(path) ?? ref.value.hash, wanted)) return { kind: 'object', hash: ref.value.hash };
         }
         // It has moved on since the run's snapshot: a record's commit is
         // read from its history, and a plain input's version is its value
         if ((await dataflowRecords(storage, state)).has(path)) {
-          return decodeRecordCommit(await storage.objects.read(repo, wanted)).state;
+          return { kind: 'object', hash: decodeRecordCommit(await storage.objects.read(repo, wanted)).state };
         }
-        return wanted;
+        return { kind: 'object', hash: wanted };
       })();
       roots.set(path, read);
     }
@@ -1050,14 +1074,14 @@ export async function dataflowResolveInputs(
         read.push(await outputAt(producer));
         continue;
       }
-      const hash = await rootAt(path);
-      if (hash === null) {
-        read.push({ kind: 'unassigned' });
+      const root = await rootAt(path);
+      if (root.kind === 'unassigned') {
+        read.push(root);
         continue;
       }
       const index = inputs[at]?.index.type === 'some' ? inputs[at].index.value : null;
       // An index its record's state does not hold: the task waits, as its status says
-      const object = await taskInputRead(storage, repo, path, hash, index);
+      const object = await taskInputRead(storage, repo, path, root.hash, index);
       read.push('object' in object ? { kind: 'object', hash: object.object } : { kind: 'unassigned' });
     }
     return read;
@@ -1099,8 +1123,13 @@ export async function dataflowResolveInputs(
   };
 
   const inputs = await inputsAt(task);
-  const unassigned = task.inputs.filter((_, at) => inputs[at]!.kind === 'unassigned');
-  if (unassigned.length > 0) return { kind: 'unassigned', inputs: unassigned };
+  const waits: InputWait[] = [];
+  for (const [at, input] of task.inputs.entries()) {
+    const read = inputs[at]!;
+    if (read.kind !== 'unassigned') continue;
+    waits.push(read.pending === undefined ? { input, kind: 'unset' } : { input, kind: 'pending', sources: [...read.pending] });
+  }
+  if (waits.length > 0) return { kind: 'unassigned', waits };
   if (inputs.some((input) => input.kind === 'behind')) return { kind: 'behind', runs: [...runs.values()] };
   return { kind: 'resolved', hashes: inputs.map((input) => (input as { hash: string }).hash) };
 }

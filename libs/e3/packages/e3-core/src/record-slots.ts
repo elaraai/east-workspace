@@ -28,6 +28,7 @@
  */
 
 import { DateTimeType, StringType, compareFor, decodeBeast2ElementsFor, isVariant, parseFor } from '@elaraai/east';
+import { parseKeypath } from '@elaraai/e3-types';
 import { DatasetSegments } from './dataset-open.js';
 import type { StorageBackend } from './storage/interfaces.js';
 
@@ -129,6 +130,27 @@ export function sourcesSlot(sources: Iterable<string>): string | undefined {
  */
 export function pendingSources(versions: ReadonlyMap<string, string>): string[] {
   return slotNames(versions, PENDING_SLOT);
+}
+
+/**
+ * What a composite record's readers wait for, in words: what a run's `[WAIT]`
+ * line and a workspace's status say of a task whose input is the record, or
+ * an index of it, while the record has yet to hear from external sources.
+ *
+ * @param record - The record's keypath, as a task's input names it
+ * @param sources - The external sources yet to deliver, by name
+ * @returns The words, naming the record as it was declared
+ *
+ * @example
+ * ```ts
+ * pendingWaitWords('.records.orders', ['erp', 'wms']);
+ * // "record 'orders' waits for the first delivery of erp, wms"
+ * ```
+ */
+export function pendingWaitWords(record: string, sources: readonly string[]): string {
+  const path = parseKeypath(record);
+  const name = path.length === 2 && path[0]!.value === 'records' ? path[1]!.value : record;
+  return `record '${name}' waits for the first delivery of ${sources.join(', ')}`;
 }
 
 /** A source's last delivery, as its record's ref names it. */

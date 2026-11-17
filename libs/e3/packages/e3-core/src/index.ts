@@ -290,6 +290,8 @@ export {
   type RecordHistoryEntry,
   type RecordSignature,
 } from './records.js';
+// What a composite record's readers wait for: the external sources yet to deliver
+export { PENDING_SLOT, pendingSources, pendingWaitWords } from './record-slots.js';
 
 // Tree and dataset operations (low-level, by hash)
 export {
@@ -497,6 +499,7 @@ export {
   // Result types (TypeScript-only)
   type InitializeResult,
   type PrepareTaskResult,
+  type InputWait,
   type PrepareTaskWaiting,
   type PrepareTaskBehind,
   type CatchUpRun,

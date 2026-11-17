@@ -8,7 +8,9 @@ import assert from 'node:assert/strict';
 import { none, some, variant } from '@elaraai/east';
 import { DataflowAbortedError } from '@elaraai/e3-core';
 import type { DataflowEvent, DataflowExecutionState, DataflowStartResult } from '@elaraai/e3-api-client';
-import { describeDeferral, followRemoteRun, forcedTasks, runCallbacks, runRemote, stoppedLines, type RemoteRunApi } from './start.js';
+import {
+  describeDeferral, describeWaits, followRemoteRun, forcedTasks, runCallbacks, runRemote, stoppedLines, waitingLine, type RemoteRunApi,
+} from './start.js';
 
 describe('forcedTasks', () => {
   it('forces nothing unless told: --force every task, --force-task the tasks it names', () => {
@@ -141,6 +143,27 @@ describe('a local run\'s lines', () => {
     );
   });
 
+  it('R27 — says what a task waits on: a record yet to hear from its sources, once, and the inputs not set, together', (t) => {
+    const lines = printedLines(t);
+    const run = runCallbacks();
+    // The orders wait for the ERP's first delivery; reconcile reads what forecast writes
+    run.onTaskWaiting!('forecast', [{ input: '.records.orders', kind: 'pending', sources: ['erp'] }]);
+    run.onTaskWaiting!('reconcile', [{ input: '.tasks.forecast.output', kind: 'unset' }]);
+    assert.deepEqual(lines(), [
+      '  [WAIT] forecast: record \'orders\' waits for the first delivery of erp',
+      '  [WAIT] reconcile: input \'.tasks.forecast.output\' not set',
+    ]);
+
+    assert.equal(describeWaits([{ input: '.inputs.a', kind: 'unset' }, { input: '.inputs.b', kind: 'unset' }]), 'inputs \'.inputs.a\', \'.inputs.b\' not set',
+      'inputs not set are named together, as before');
+    // A task that reads the record and an index of it, beside an input nothing has set
+    assert.equal(describeWaits([
+      { input: '.records.orders', kind: 'pending', sources: ['erp', 'wms'] },
+      { input: '.inputs.rates', kind: 'unset' },
+      { input: '.records.orders', kind: 'pending', sources: ['erp', 'wms'] },
+    ]), 'input \'.inputs.rates\' not set; record \'orders\' waits for the first delivery of erp, wms', 'a record is said once, its sources joined with commas');
+  });
+
   it('says why a run stopped itself, and what it completed first; a run a signal stopped says Aborted, as before', (t) => {
     const lines = printedLines(t);
     const run = runCallbacks();
@@ -172,11 +195,13 @@ describe('a remote run', () => {
    * A server whose run records `events`, one for each poll that asks past
    * the one before, and then ends as `status`.
    *
+   * `waiting` is how many tasks its summary says it left waiting.
+   *
    * @returns What the command asks of it, with each poll's cursor, how many
    *   cancels it was sent and how many times its outputs were listed
    */
   function server(
-    start: DataflowStartResult, events: DataflowEvent[], status: 'completed' | 'failed' | 'aborted', from = 0n,
+    start: DataflowStartResult, events: DataflowEvent[], status: 'completed' | 'failed' | 'aborted', from = 0n, waiting = 0n,
   ): { api: RemoteRunApi; polls: bigint[]; asked: { cancels: number; outputs: number } } {
     const polls: bigint[] = [];
     const asked = { cancels: 0, outputs: 0 };
@@ -190,7 +215,7 @@ describe('a remote run', () => {
         const ended = next === undefined;
         return {
           runId: 'run-1', status: variant(ended ? status : 'running', null), startedAt: AT, completedAt: ended ? some(AT) : none,
-          summary: ended ? some({ executed: 2n, cached: 0n, failed: status === 'failed' ? 1n : 0n, skipped: 0n, waiting: 0n, duration: 1_500 }) : none,
+          summary: ended ? some({ executed: 2n, cached: 0n, failed: status === 'failed' ? 1n : 0n, skipped: 0n, waiting, duration: 1_500 }) : none,
           events: ended ? [] : [next], nextSeq: ended ? since : since + 1n, lastSeq: last, budget: none, waiting: [], splits: [],
         };
       },
@@ -216,6 +241,19 @@ describe('a remote run', () => {
     assert.deepEqual(lines(), ['  [START] capacity', '  [DONE] capacity [50120ms]', ...summary]);
     assert.deepEqual(polls, [0n, 1n, 2n]);
     assert.deepEqual(asked, { cancels: 0, outputs: 1 });
+  });
+
+  it('R27 — says, after the summary of a run that left tasks waiting, what they wait on and what to do', async (t) => {
+    const lines = printedLines(t);
+    const { api } = server(variant('started', null), capacity, 'completed', 0n, 3n);
+    assert.equal(await runRemote(api, 'main', () => false, async () => {}), 0, 'a task left waiting fails nothing');
+    assert.deepEqual(lines().slice(-4), [
+      '  Waiting:  3',
+      '  Duration: 1500ms',
+      '',
+      '3 tasks wait on an input that is not set, or on a record\'s load: set the input, or load the record\'s sources, and run again.',
+    ]);
+    assert.equal(waitingLine(1), '1 task waits on an input that is not set, or on a record\'s load: set the input, or load the record\'s sources, and run again.');
   });
 
   it('says a run in flight took the start in, and follows that run from the cursor the start was given', async (t) => {

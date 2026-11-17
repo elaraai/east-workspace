@@ -40,7 +40,7 @@ import {
 import { DataflowError, TaskNotFoundError } from '../errors.js';
 import * as root from '../index.js';
 import * as portable from '../portable.js';
-import type { DataflowExecutionState, TaskState, Mutable } from './types.js';
+import type { DataflowExecutionState, InputWait, TaskState, Mutable } from './types.js';
 import { catchUpKey, dataflowRootsHeld, dataflowSnapshotTaken, recordCommitOrder, type DataflowGraph } from '../dataflow.js';
 import { createTestRepo, removeTestRepo, writableStrings } from '../test-helpers.js';
 import { LocalStorage } from '../storage/local/index.js';
@@ -277,30 +277,44 @@ describe('tasks waiting on an unassigned input', () => {
   /** Each task's status, in the state's order. */
   const statuses = (state: DataflowExecutionState): [string, string][] =>
     [...state.tasks.values()].map((task) => [task.name, task.status]);
+  /** An input nothing has set. */
+  const unset = (input: string): InputWait => ({ input, kind: 'unset' });
 
   it('leaves the task waiting, and its dependents with it, each naming what it waits on, no other task, and no event', () => {
     const state = pending();
-    const { waiting } = stepTasksWaiting(state, 'a', ['.input']);
+    const { waiting } = stepTasksWaiting(state, 'a', [unset('.input')]);
     assert.deepStrictEqual(waiting, [
-      { task: 'a', inputs: ['.input'] },
-      { task: 'b', inputs: ['.out_a'] },
-      { task: 'c', inputs: ['.out_b'] },
+      { task: 'a', waits: [unset('.input')] },
+      { task: 'b', waits: [unset('.out_a')] },
+      { task: 'c', waits: [unset('.out_b')] },
     ]);
     assert.deepStrictEqual(waitingTasks(state), ['a', 'b', 'c']);
     assert.strictEqual(state.tasks.get('d')!.status, 'pending');
     assert.deepStrictEqual(state.events, []);
   });
 
+  it('R27 — tells a task that waits for a record\'s first delivery by the sources yet to deliver, and its dependents by the output each reads, which is unset', () => {
+    const state = pending();
+    const delivery: InputWait = { input: '.input', kind: 'pending', sources: ['erp', 'wms'] };
+    const { waiting } = stepTasksWaiting(state, 'a', [delivery]);
+    assert.deepStrictEqual(waiting, [
+      { task: 'a', waits: [delivery] },
+      { task: 'b', waits: [unset('.out_a')] },
+      { task: 'c', waits: [unset('.out_b')] },
+    ]);
+    assert.deepStrictEqual(waitingTasks(state), ['a', 'b', 'c'], 'it waits as on an unset input');
+  });
+
   it('leaves no dependent outside the filter\'s run set waiting', () => {
     const state = pending('b');
-    const { waiting } = stepTasksWaiting(state, 'a', ['.input']);
+    const { waiting } = stepTasksWaiting(state, 'a', [unset('.input')]);
     assert.deepStrictEqual(waiting.map((each) => each.task), ['a', 'b']);
     assert.strictEqual(state.tasks.get('c')!.status, 'pending', 'outside the run set, as it was');
   });
 
   it('ends the run with them: complete once the rest has run, and finalized completed, counting them', () => {
     const state = pending();
-    stepTasksWaiting(state, 'a', ['.input']);
+    stepTasksWaiting(state, 'a', [unset('.input')]);
     assert.strictEqual(stepIsComplete(state), false, 'd has yet to run');
     (state.tasks.get('d') as Mutable<TaskState>).status = 'completed';
     assert.strictEqual(stepIsComplete(state), true);
@@ -311,8 +325,8 @@ describe('tasks waiting on an unassigned input', () => {
 
   it('decides them again as an input is assigned, unless a task they read still waits', async () => {
     const state = pending();
-    stepTasksWaiting(state, 'a', ['.input']);
-    stepTasksWaiting(state, 'd', ['.other']);
+    stepTasksWaiting(state, 'a', [unset('.input')]);
+    stepTasksWaiting(state, 'd', [unset('.other')]);
     // `.other` assigned: d is decided again; b reads it too, but still waits
     // on a, and c on b
     const { due } = await stepTasksDue(unread, state, [{ path: '.other' }]);
@@ -326,7 +340,7 @@ describe('tasks waiting on an unassigned input', () => {
 
   it('decides a waiting dependent again as the task it waited on completes, unless another it reads still waits', () => {
     const state = pending();
-    stepTasksWaiting(state, 'a', ['.input']);
+    stepTasksWaiting(state, 'a', [unset('.input')]);
     // `.input` assigned and a run, as the loop runs it once decided again
     (state.tasks.get('a') as Mutable<TaskState>).status = 'in_progress';
     const { result } = stepTaskCompleted(state, 'a', 'out-a', false, 10, { inputsHash: 'inputs-a', executionId: 'execution-a' }, new Map());

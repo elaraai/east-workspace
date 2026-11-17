@@ -13,13 +13,13 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-import e3, { type IndexDraft, type PackageDef } from '@elaraai/e3';
+import e3, { type IndexDraft, type PackageDef, type RecordDef } from '@elaraai/e3';
 import {
   ArrayType, DateTimeType, DictType, FloatType, FunctionType, IntegerType, NullType, PatchType, RecursiveType, SetType, StringType, StructType, OptionType,
   VariantType, East, variant, some, none,
 } from '@elaraai/east';
 import { Console, Time } from '@elaraai/east-node-std';
-import { RecordLevelType } from '@elaraai/e3-types';
+import { RecordLevelType, type TreePath } from '@elaraai/e3-types';
 
 /**
  * Create a simple compute package for testing.
@@ -1175,11 +1175,13 @@ export const CompositeOrderRowType = StructType({ customer: StringType, qty: Int
 export const CompositeOrderKeyType = VariantType({ erp: StringType, own: StringType });
 /** The composite fixture's record: orders, each under the source it is of. */
 export const CompositeOrdersType = DictType(CompositeOrderKeyType, CompositeOrderRowType);
+/** Where a workspace holds the composite fixture's record. */
+export const COMPOSITE_ORDERS_PATH: TreePath = [variant('field', 'records'), variant('field', 'orders')];
 /** What the composite fixture's ERP delivers: its whole order book, by its own order id. */
 export const ErpOrdersType = DictType(StringType, CompositeOrderRowType);
 
 /** The versions of the composite fixture. */
-export type CompositeFixtureVersion = '1.0.0' | '2.0.0';
+export type CompositeFixtureVersion = '1.0.0' | '2.0.0' | '2.1.0';
 
 /**
  * Create a version of a package whose record is a composite: one record over
@@ -1194,6 +1196,9 @@ export type CompositeFixtureVersion = '1.0.0' | '2.0.0';
  *   `.own "P-1"` (Birch, 2)
  * - `2.0.0`: `erp` is loaded from a delivery of the ERP's whole order book
  *   ({@link ErpOrdersType}), so only its load writes its entries
+ * - `2.1.0`: as `2.0.0`, with the index "by_customer" of the record, Task
+ *   "tally", which counts the record's orders, and Task "customers", which
+ *   counts the entries of the index
  *
  * A workspace holding 1.0.0's rows that deploys 2.0.0 has an external source
  * that holds rows, and so waits for no first delivery; one that deploys 2.0.0
@@ -1213,27 +1218,44 @@ export async function createCompositeRecordPackageZip(
 ): Promise<string> {
   mkdirSync(tempDir, { recursive: true });
 
-  const orders = version === '1.0.0'
-    ? e3.recordComposite('orders', CompositeOrderRowType, {
+  /** The function every version declares over its record. */
+  const orderCount = (orders: RecordDef<typeof CompositeOrdersType>) =>
+    e3.function('order_count', { inputs: [orders], drafts: [orders], args: [], output: IntegerType }, ($, held) => {
+      $(Console.log('counting the orders'));
+      return held.size();
+    });
+  // The ERP's whole order book: the load answers what takes its entries to it
+  const loadErp = East.function([ErpOrdersType, ErpOrdersType], PatchType(ErpOrdersType), (_$, delivery, current) => East.diff(current, delivery));
+  const ownOrder = new Map([['P-1', { customer: 'Birch', qty: 2n }]]);
+
+  let pkg: ReturnType<typeof e3.package>;
+  if (version === '1.0.0') {
+    const orders = e3.recordComposite('orders', CompositeOrderRowType, {
       sources: (source) => ({ erp: source.mutations(StringType), own: source.mutations(StringType) }),
-      initial: { erp: new Map([['SO-1001', { customer: 'Acme', qty: 5n }]]), own: new Map([['P-1', { customer: 'Birch', qty: 2n }]]) },
-      mutations: (mutation) => ({ patch: mutation.patch() }),
-    })
-    : e3.recordComposite('orders', CompositeOrderRowType, {
-      sources: (source) => ({
-        // The ERP's whole order book: the load answers what takes its entries to it
-        erp: source.load(StringType, ErpOrdersType, East.function([ErpOrdersType, ErpOrdersType], PatchType(ErpOrdersType),
-          (_$, delivery, current) => East.diff(current, delivery))),
-        own: source.mutations(StringType),
-      }),
-      initial: { own: new Map([['P-1', { customer: 'Birch', qty: 2n }]]) },
+      initial: { erp: new Map([['SO-1001', { customer: 'Acme', qty: 5n }]]), own: ownOrder },
       mutations: (mutation) => ({ patch: mutation.patch() }),
     });
-  const orderCount = e3.function('order_count', { inputs: [orders], drafts: [orders], args: [], output: IntegerType }, ($, orders) => {
-    $(Console.log('counting the orders'));
-    return orders.size();
-  });
-  const pkg = e3.package(name, version, orders, orderCount);
+    pkg = e3.package(name, version, orders, orderCount(orders));
+  } else if (version === '2.0.0') {
+    const orders = e3.recordComposite('orders', CompositeOrderRowType, {
+      sources: (source) => ({ erp: source.load(StringType, ErpOrdersType, loadErp), own: source.mutations(StringType) }),
+      initial: { own: ownOrder },
+      mutations: (mutation) => ({ patch: mutation.patch() }),
+    });
+    pkg = e3.package(name, version, orders, orderCount(orders));
+  } else {
+    const orders = e3.recordComposite('orders', CompositeOrderRowType, {
+      sources: (source) => ({ erp: source.load(StringType, ErpOrdersType, loadErp), own: source.mutations(StringType) }),
+      initial: { own: ownOrder },
+      indexes: (index) => ({ by_customer: index.on(['customer']) }),
+      mutations: (mutation) => ({ patch: mutation.patch() }),
+    });
+    // A task over the record, and one over an index of it
+    const byCustomer = e3.index(orders.indexes.by_customer);
+    const tally = e3.task('tally', [orders], East.function([CompositeOrdersType], IntegerType, ($, held) => held.size()));
+    const customers = e3.task('customers', [byCustomer], East.function([byCustomer.type], IntegerType, ($, entries) => entries.size()));
+    pkg = e3.package(name, version, orders, orderCount(orders), tally, customers);
+  }
 
   const zipPath = join(tempDir, `${name}-${version}.zip`);
   await e3.export(pkg, zipPath);

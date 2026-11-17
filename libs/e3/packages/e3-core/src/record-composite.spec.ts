@@ -13,7 +13,9 @@
  *
  * And what its ref keeps of its external sources: which wait for a first
  * delivery once a source is handed to its load, or a migration makes the
- * record composite, and what a compaction leaves of a delivery.
+ * record composite, and what a compaction leaves of a delivery. While one
+ * waits, a task that reads the record, or an index of it, waits too, and a
+ * function that declares it ends its call `invalid`.
  *
  * Each case is titled by the requirement of the design it checks.
  */
@@ -30,8 +32,10 @@ import e3 from '@elaraai/e3';
 import {
   ExecuteResultType, MutationObjectType, decodeRecordLoadObject, decodeTaskObject, type ExecuteResult, type FunctionDraft, type RecordSource,
 } from '@elaraai/e3-types';
+import type { InputWait } from './dataflow/types.js';
 import { readDatasetWhole } from './dataset-open.js';
 import { packageImport } from './package-files.js';
+import { packageRead } from './packages.js';
 import { EXTERNAL_SLOT, PENDING_SLOT, sourceLoadSlots } from './record-slots.js';
 import { repoGc } from './gc.js';
 import { readRecordState, recordCompact, recordDraftMutation, recordHistory, recordMutate, resolveRecord } from './records.js';
@@ -40,6 +44,8 @@ import type { StorageBackend } from './storage/interfaces.js';
 import { LocalStorage } from './storage/local/index.js';
 import { createTempDir, createTestRepo, ran, removeTempDir, removeTestRepo, sourceDelivered } from './test-helpers.js';
 import { workspaceCreate, workspaceDeploy } from './workspaces.js';
+import { workspaceStatus } from './workspaceStatus.js';
+import { dataflowExecute } from './execution/local-orchestrator.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
 import { MockTaskRunner } from './execution/MockTaskRunner.js';
 import { functionCallRun, functionCallStart, functionCallStatus } from './execution/functionCall.js';
@@ -116,7 +122,9 @@ function notesPackage(version: '1.0.0' | '2.0.0'): ReturnType<typeof e3.package>
   const count = e3.function('count', { inputs: [notes], drafts: [notes], args: [], output: IntegerType }, ($, notes) => notes.size());
   // Declares no input: its caller names the orders it is given
   const sized = e3.function('sized', { inputs: [], args: [Orders], output: IntegerType }, ($, given) => given.size());
-  return e3.package('notes', version, notes, count, sized);
+  // A task over the record: every order, whichever source it is of
+  const tally = e3.task('tally', [notes], East.function([Orders], IntegerType, ($, held) => held.size()));
+  return e3.package('notes', version, notes, count, sized, tally);
 }
 
 /**
@@ -146,10 +154,11 @@ function ordersPackage(): ReturnType<typeof e3.package> {
       patch: mutation.patch(),
     }),
   });
-  // Reads the record through its index alone
-  const customers = e3.function('customers', { inputs: [e3.index(orders.indexes.by_customer)], args: [], output: IntegerType },
-    ($, byCustomer) => byCustomer.size());
-  return e3.package('orders', '1.0.0', orders, customers);
+  // Each reads the record through its index alone: a function, and a task
+  const byCustomer = e3.index(orders.indexes.by_customer);
+  const customers = e3.function('customers', { inputs: [byCustomer], args: [], output: IntegerType }, ($, entries) => entries.size());
+  const served = e3.task('served', [byCustomer], East.function([byCustomer.type], IntegerType, ($, entries) => entries.size()));
+  return e3.package('orders', '1.0.0', orders, customers, served);
 }
 
 /** The key of `book` once it is a composite: the source each order is of. */
@@ -321,6 +330,30 @@ describe('a composite record: an external entry is never written (no program run
       assert.equal(ran.outcome.type, 'success');
     });
 
+    it('R27 — a task that reads the record waits, naming the sources yet to deliver, and the run goes on without it; it runs once the source has delivered', async () => {
+      const tally = (await packageRead(storage, REPO, 'notes', '2.0.0')).tasks.get('tally')!;
+      runner.setResult(tally, { state: 'success', cached: false, outputHash: 'tally-out' });
+      const waiting: Array<[string, InputWait[]]> = [];
+      const run = await dataflowExecute(storage, REPO, FRESH, { runner, onTaskWaiting: (task, waits) => waiting.push([task, waits]) });
+      assert.deepEqual([run.success, run.executed, run.waiting], [true, 0, 1], JSON.stringify(run.tasks));
+      assert.deepEqual(waiting, [['tally', [{ input: '.records.notes', kind: 'pending', sources: ['erp'] }]]]);
+      assert.deepEqual(runner.getCalls(), [], 'nothing ran over the solution\'s own entries alone');
+      const status = await workspaceStatus(storage, runner, REPO, FRESH);
+      assert.deepEqual(status.tasks.find((task) => task.name === 'tally')?.status,
+        { type: 'waiting', reason: 'record \'notes\' waits for the first delivery of erp' }, 'the status says so in the run\'s words');
+
+      // The ERP delivers: the ref written as a load's commit leaves it, until a load does
+      await sourceDelivered(storage, REPO, FRESH, 'records/notes', 'erp', '2026-11-02T03:00:00.000');
+      const next = await dataflowExecute(storage, REPO, FRESH, { runner });
+      assert.deepEqual([next.success, next.executed, next.waiting], [true, 1, 0], JSON.stringify(next.tasks));
+      assert.deepEqual(runner.getCalls().map(({ taskHash, inputHashes }) => [taskHash, inputHashes]), [[tally, [(await heldRef(storage, REPO, FRESH, 'notes')).hash]]],
+        'the task reads the record at the state it holds');
+
+      // In the workspace whose ERP source was handed to its load holding a row, the task never waited
+      const held = await dataflowExecute(storage, REPO, WS, { runner });
+      assert.deepEqual([held.success, held.executed, held.waiting], [true, 1, 0], JSON.stringify(held.tasks));
+    });
+
     it('R82 — a caller that names the record as a dataset argument reads it as it stands', async () => {
       const stood = await heldRef(storage, REPO, FRESH, 'notes');
       const notesPath = [variant('field', 'records'), variant('field', 'notes')];
@@ -448,6 +481,43 @@ describe('a composite record: an external entry is never written (the mutation\'
     if (result.outcome.type !== 'invalid') assert.fail(`the call ended ${result.outcome.type}`);
     assert.deepEqual(result.outcome.value.diagnostics.map(({ message }) => message),
       ['The function\'s input .records.orders waits for the first delivery of erp: a task reading it would wait too, and nothing ran']);
+  });
+
+  it('R83 — a task whose input is an index of a record waiting for a first delivery waits, as one that reads the record does, before the index is looked for', async () => {
+    const waited = [['served', [{ input: '.records.orders', kind: 'pending', sources: ['erp'] }]]];
+    const reason = { type: 'waiting', reason: 'record \'orders\' waits for the first delivery of erp' };
+    /** A run of the workspace, and what it left waiting. */
+    const run = async () => {
+      const waiting: Array<[string, InputWait[]]> = [];
+      const result = await dataflowExecute(storage, repo, WS, { runner, onTaskWaiting: (task, waits) => waiting.push([task, waits]) });
+      return { result, waiting };
+    };
+
+    // The state holds the index, built at the deploy over the solution's own order: the task is not run on it
+    const ref = await heldRef(storage, repo, WS, 'orders');
+    assert.ok((await readRecordState(storage, repo, ref.hash)).indexes.has('by_customer'));
+    const first = await run();
+    assert.deepEqual([first.result.success, first.result.executed, first.result.waiting], [true, 0, 1], JSON.stringify(first.result.tasks));
+    assert.deepEqual(first.waiting, waited);
+    assert.deepEqual((await workspaceStatus(storage, runner, repo, WS)).tasks.find((task) => task.name === 'served')?.status, reason);
+
+    // A state that holds no such index: the task still waits for the delivery, which is asked first
+    const { primary } = await readRecordState(storage, repo, ref.hash);
+    await storage.datasets.write(repo, WS, 'records/orders', variant('value', { ...ref, hash: primary }));
+    try {
+      assert.deepEqual((await run()).waiting, waited);
+      assert.deepEqual((await workspaceStatus(storage, runner, repo, WS)).tasks.find((task) => task.name === 'served')?.status, reason);
+    } finally {
+      await storage.datasets.write(repo, WS, 'records/orders', variant('value', ref));
+    }
+
+    // The ERP delivers: the ref written as a load's commit leaves it, until a load does. The task runs over the index
+    await sourceDelivered(storage, repo, WS, 'records/orders', 'erp', '2026-11-02T03:00:00.000');
+    const next = await run();
+    assert.deepEqual([next.result.success, next.result.executed, next.result.waiting], [true, 1, 0], JSON.stringify(next.result.tasks));
+    const output = await storage.datasets.read(repo, WS, 'tasks/served/output');
+    if (output?.type !== 'value') assert.fail('served wrote its output');
+    assert.equal(decodeBeast2For(IntegerType)(await readDatasetWhole(storage, repo, output.value.hash)), 1n, 'one order, the solution\'s own');
   });
 
   it('R70 — a collection keeps what a composite\'s load runs: its load object, the task object it names, the load\'s program and its merge', async () => {

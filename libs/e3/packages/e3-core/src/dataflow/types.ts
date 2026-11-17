@@ -173,9 +173,29 @@ export type TaskCommits =
   | { kind: 'deferred'; reason: DeferReason };
 
 /**
+ * An input a task waits on, by its keypath, and why the task cannot read it
+ * now.
+ *
+ * @remarks
+ * A task waits on an input it cannot read, and the run goes on without it.
+ * Nothing stores the reason: it is told to the run's caller as the task is
+ * left waiting (`onTaskWaiting`), and a workspace's status works it out again.
+ */
+export type InputWait =
+  /** The input has no value — nothing has set it, the task that writes it has
+   *  not run, or a record's first state is not yet committed — or it is an
+   *  index its record's state does not hold */
+  | { input: string; kind: 'unset' }
+  /** The input is a composite record, or an index of one, that has yet to
+   *  hear from these external sources: it holds the solution's own entries
+   *  alone until each has delivered once */
+  | { input: string; kind: 'pending'; sources: string[] };
+
+/**
  * What stepPrepareTask answers for a task that cannot run yet: an input of it
  * cannot be read — one nothing has set, a record whose first state is not yet
- * committed, or an index its record's state does not hold
+ * committed, an index its record's state does not hold, or a composite record
+ * that waits for an external source's first delivery
  * (`dataflowResolveInputs`) — so the task is left waiting
  * (stepTasksWaiting) and the run goes on without it.
  */
@@ -184,9 +204,9 @@ export interface PrepareTaskWaiting {
   kind: 'waiting';
   /** Task name */
   task: string;
-  /** The task's inputs it cannot read, as keypaths, in the task's input
-   *  order: unassigned, or an index its record's state does not hold */
-  unassigned: string[];
+  /** The task's inputs it cannot read, in the task's input order, each with
+   *  why */
+  waits: InputWait[];
 }
 
 /**
@@ -194,9 +214,9 @@ export interface PrepareTaskWaiting {
  */
 export interface TasksWaitingResult {
   /** Each task left waiting, the one with an input it cannot read first and
-   *  its dependents after it, with the inputs each waits on: a dependent waits
-   *  on the outputs of the waiting tasks it reads */
-  waiting: Array<{ task: string; inputs: string[] }>;
+   *  its dependents after it, with what each waits on: a dependent waits on
+   *  the outputs of the waiting tasks it reads, which are unset */
+  waiting: Array<{ task: string; waits: InputWait[] }>;
 }
 
 /**

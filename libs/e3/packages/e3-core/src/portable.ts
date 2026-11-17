@@ -327,6 +327,8 @@ export {
   type RecordHistoryEntry,
   type RecordSignature,
 } from './records.js';
+// What a composite record's readers wait for: the external sources yet to deliver
+export { PENDING_SLOT, pendingSources, pendingWaitWords } from './record-slots.js';
 
 // Tree and dataset operations: low-level, by hash, and high-level, by path
 export {
@@ -671,6 +673,7 @@ export type {
   DataflowGraphTask as DataflowGraphTaskType,
   InitializeResult,
   PrepareTaskResult,
+  InputWait,
   PrepareTaskWaiting,
   PrepareTaskBehind,
   CatchUpRun,

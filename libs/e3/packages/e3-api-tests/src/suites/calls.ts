@@ -49,7 +49,7 @@ import { ExecuteResultType, FunctionCallType, type RunnerValue, type TreePath } 
 
 import type { TestContext } from '../context.js';
 import type { TestSetup } from '../setup.js';
-import { CompositeOrdersType, createCompositeRecordPackageZip, createFunctionPackageZip } from '../fixtures.js';
+import { COMPOSITE_ORDERS_PATH, CompositeOrdersType, createCompositeRecordPackageZip, createFunctionPackageZip } from '../fixtures.js';
 
 const PKG = 'calls-test-pkg';
 const VERSION = '1.0.0';
@@ -359,8 +359,7 @@ export function callTests(setup: TestSetup<TestContext>): void {
 
       // R82: a program handed the record as a dataset argument reads it as it stands, the solution's own order alone
       const size = East.function([CompositeOrdersType], IntegerType, ($, orders) => orders.size());
-      const orders: TreePath = [variant('field', 'records'), variant('field', 'orders')];
-      assert.equal(successValue(await oneShotCall(base, ctx.repoName, WS, oneShotOf(size, [variant('dataset', orders)]), opts)), 1n);
+      assert.equal(successValue(await oneShotCall(base, ctx.repoName, WS, oneShotOf(size, [variant('dataset', COMPOSITE_ORDERS_PATH)]), opts)), 1n);
     });
 
     it('the sync route answers its result within its request, and keeps its call too', async (t) => {
