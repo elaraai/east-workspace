@@ -548,6 +548,7 @@ export function inputPlanLine(plan: InputPlan): string {
   switch (action.type) {
     case 'package': return `give input ${plan.input} the package's value`;
     case 'keep': return `keep input ${plan.input}, as it was set in the workspace`;
+    case 'retained': return `keep input ${plan.input}, as it was set: it feeds ${action.value.load}, which a deploy never resets`;
     case 'reset': return `reset input ${plan.input}: it ${action.value.reason}`;
     case 'file': return action.value.taken
       ? `take input ${plan.input} from its file, ${action.value.path}`

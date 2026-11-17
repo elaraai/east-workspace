@@ -5,8 +5,9 @@
 
 /**
  * The API's forms for a composite record: a source as a record's description
- * answers it, and a load's request, progress, result and status. Each
- * round-trips through beast2 as a client and a server exchange it.
+ * answers it, a load's request, progress, result and status, and a deploy's
+ * plan for an input that feeds a load. Each round-trips through beast2 as a
+ * client and a server exchange it.
  */
 
 import { describe, it } from 'node:test';
@@ -16,8 +17,8 @@ import {
   type EastType, type ValueTypeOf,
 } from '@elaraai/east';
 import {
-  RecordLoadProgressType, RecordLoadRequestType, RecordLoadResultType, RecordLoadStatusType, RecordSourceInfoType,
-  type RecordLoadProgress, type RecordLoadResult, type RecordLoadStatus, type RecordSourceInfo,
+  InputPlanType, RecordLoadProgressType, RecordLoadRequestType, RecordLoadResultType, RecordLoadStatusType, RecordSourceInfoType,
+  type InputPlan, type RecordLoadProgress, type RecordLoadResult, type RecordLoadStatus, type RecordSourceInfo,
 } from './api.js';
 
 /** Asserts a value is the value its beast2 encoding decodes to. */
@@ -92,5 +93,23 @@ describe('a load, as a client and a server exchange it', () => {
       variant('cancelled', null),
     ];
     for (const status of statuses) roundTrips(RecordLoadStatusType, status, status.type);
+  });
+});
+
+describe('a deploy\'s plan for an input', () => {
+  it('round-trips each action, an input kept because it feeds a load among them', () => {
+    const plans: InputPlan[] = [
+      { input: 'inputs/rates', action: variant('package', null) },
+      { input: 'inputs/rates', action: variant('keep', null) },
+      { input: 'tasks/erp_orders/output', action: variant('retained', { load: 'orders.erp' }) },
+      { input: 'inputs/rates', action: variant('reset', { reason: 'its type changed', policy: false }) },
+      { input: 'inputs/rates', action: variant('file', { path: 'rates.beast2', taken: true }) },
+      { input: 'inputs/rates', action: variant('drop', null) },
+    ];
+    for (const plan of plans) roundTrips(InputPlanType, plan, plan.action.type);
+  });
+
+  it('sorts `retained` after `reset`, so every case before it keeps its place on the wire', () => {
+    assert.deepEqual(Object.keys(InputPlanType.fields.action.cases), ['drop', 'file', 'keep', 'package', 'reset', 'retained']);
   });
 });

@@ -29,6 +29,13 @@ describe('inputPlanLine', () => {
       'reset input inputs/note: it was set in the workspace',
     );
   });
+
+  it('keeps one someone set that feeds a load, naming the load, which no deploy resets', () => {
+    assert.strictEqual(
+      inputPlanLine({ input: 'inputs/erp_extract', action: variant('retained', { load: 'orders.erp' }) }),
+      'keep input inputs/erp_extract, as it was set: it feeds orders.erp, which a deploy never resets',
+    );
+  });
 });
 
 describe('remoteTaskStatus', () => {

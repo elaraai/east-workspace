@@ -451,6 +451,10 @@ export const RecordIndexPlanType = StructType({
  *     value the deployed package gave it, or does not hold the input
  *   - `keep`: kept as the workspace holds it: someone set it, and its type is
  *     the new package's (`keep-edited`)
+ *   - `retained`: kept as the workspace holds it, whatever the policy: someone
+ *     set it, its type is the new package's, and it feeds the load named
+ *     (`orders.erp`), the source of a composite record it delivers to. It is
+ *     named to sort after `reset`, the last case before it
  *   - `reset`: it takes the new package's value in place of one someone may
  *     have set, and why: its type changed; the deployed package took it from a
  *     file, so a value set since cannot be told from the file's; the new
@@ -471,6 +475,7 @@ export const InputPlanType = StructType({
     reset: StructType({ reason: StringType, policy: BooleanType }),
     file: StructType({ path: StringType, taken: BooleanType }),
     drop: NullType,
+    retained: StructType({ load: StringType }),
   }),
 });
 
