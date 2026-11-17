@@ -23,7 +23,7 @@
  */
 
 import { NullType, OptionType, StringType, StructType, VariantType, type ValueTypeOf } from "@elaraai/east";
-import { useHeldTools, type HeldTools } from "../../shared/held-tools.js";
+import { useHeldTools, type HeldTools, type LinkChoice } from "../../shared/held-tools.js";
 import { storedCodec } from "../../shared/stored-value.js";
 
 /** A tool, as the UI store holds it. */
@@ -42,6 +42,19 @@ const toolsCodec = storedCodec(PlanToolsType);
 
 /** What the viewer holds: the tool, and the link kind Connect draws. */
 export type PlanToolsState = HeldTools<PlanTool>;
+
+/** No link kind Connect may draw. */
+export const NO_LINK_CHOICES: readonly LinkChoice[] = [];
+
+/** What the toolbar's tools show and drive (#1541, U10): there while a link kind is editable. */
+export interface PlanToolsChrome {
+    /** The tools in force: the tool held, and the link kind Connect draws. */
+    readonly held: PlanToolsState;
+    /** The link kinds Connect may draw: the editable ones, in the order the Plan lists them. */
+    readonly links: readonly LinkChoice[];
+    /** Picks a tool, or the link kind Connect draws. */
+    readonly pick: (next: PlanToolsState) => void;
+}
 
 /**
  * What the viewer holds, as the Plan offers it: Connect over no editable link

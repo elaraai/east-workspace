@@ -43,7 +43,7 @@
 import { useCallback, useMemo } from "react";
 import { Box, Button, chakra, useRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faAnglesDown, faAnglesUp, faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
+import { faAnglesDown, faAnglesUp, faArrowPointer, faLink, faTriangleExclamation, type IconDefinition } from "@fortawesome/free-solid-svg-icons";
 import { HOST_RANK, coarseHitArea, useRecordSlicesToolbarItems } from "@elaraai/east-ui-components/internal";
 import { type ToolbarItem, historyToolbarItem, useKeySearchToolbarItem } from "@elaraai/east-ui-components";
 import { usePlanDispatch } from "../context.js";
@@ -58,6 +58,7 @@ import { PlanTimeNavigator } from "./TimeNavigator.js";
 import { scheduleEventKey } from "../../shared/schedule/overlaps.js";
 import { SEARCH_BOX_RANK } from "../../shared/schedule/search-rank.js";
 import { isPlanRowsFind } from "../find.js";
+import { PLAN_TOOLS, type PlanTool } from "../links/connect.js";
 
 /** The Plan's own fold ranks, after every step of the rail's (#952): the
  *  overlaps chip keeps its glyph and its count, the resolution then the fold
@@ -67,10 +68,14 @@ const PLAN_RANK = {
     overlapsShort: HOST_RANK,
     resolution: HOST_RANK + 1,
     grain: HOST_RANK + 2,
+    tools: HOST_RANK + 3,
     seek: HOST_RANK + 4,
     time: HOST_RANK,
     controls: HOST_RANK + 6,
 } as const;
+
+/** Each tool's icon, Font Awesome's solid: the Schematic's for the same tools. */
+const TOOL_ICONS: { readonly [T in PlanTool]: IconDefinition } = { select: faArrowPointer, connect: faLink };
 
 /** No items: a Plan with no window draws none. */
 const NO_ITEMS: ReadonlyArray<ToolbarItem | false | undefined> = [];
@@ -163,6 +168,7 @@ export function usePlanToolbarItems(chrome: PlanChrome | undefined, overlaps?: P
     const diagnostics = chrome?.diagnostics;
     const history = chrome?.history;
     const selectEvents = chrome?.selectEvents;
+    const tools = chrome?.tools;
     const optimiseItem = chrome?.optimise?.toolbarItem;
     const resolution = scale?.resolution ?? "";
     // The resolution is the slice's: without one the segment would offer a control that does nothing.
@@ -183,6 +189,24 @@ export function usePlanToolbarItems(chrome: PlanChrome | undefined, overlaps?: P
         <FontAwesomeIcon icon={folded ? faAnglesDown : faAnglesUp} />
         {!compact && (folded ? words.m.expandAll() : words.m.collapseAll())}
     </Button>, [folded, words, controller]);
+    // The tools (#1541, U10), while a link kind is editable: Select and Connect, one strip, as the Schematic's are — its
+    // words first, then its icons alone — and Connect's menu of the kind it draws while several are editable. Picking a
+    // kind holds Connect.
+    const toolStrip = useCallback((iconsOnly: boolean, fullWidth = false) => {
+        if (tools === undefined) return null;
+        const kind = tools.links.find((link) => link.key === tools.held.link)?.name ?? "";
+        const items = PLAN_TOOLS.map((tool) => ({ key: tool, label: words.m.toolName({ tool }), hint: words.m.toolHint({ tool, kind }), icon: TOOL_ICONS[tool] }));
+        return <Seg label={words.m.toolsLabel()} name="tools" items={items} active={tools.held.tool} iconsOnly={iconsOnly} fullWidth={fullWidth}
+            onPick={(tool) => tools.pick({ tool, link: tools.held.link })} />;
+    }, [tools, words]);
+    const linkMenu = useCallback((fullWidth = false) => {
+        if (tools === undefined || tools.links.length < 2) return null;
+        const items = tools.links.map((link) => ({ key: link.key, label: link.name }));
+        const pick = (link: string) => tools.pick({ tool: "connect", link });
+        return fullWidth
+            ? <Seg label={words.m.connectDraws()} name="link" items={items} active={tools.held.link ?? ""} fullWidth onPick={pick} />
+            : <SegMenu label={words.m.connectDraws()} name="link" items={items} active={tools.held.link ?? ""} onPick={pick} />;
+    }, [tools, words]);
     const groupsItem = useMemo((): ToolbarItem | undefined => (drawn && folded !== undefined ? {
         key: "groups", rank: [PLAN_RANK.grain, PLAN_RANK.controls],
         bundle: [undefined, "plan.controls"],
@@ -195,6 +219,8 @@ export function usePlanToolbarItems(chrome: PlanChrome | undefined, overlaps?: P
             {folded !== undefined && foldToggle()}
             {showResolution && <Seg label={words.m.resolutionLabel()} name="compact-resolution" items={resolutionItems}
                 active={resolution} onPick={pickResolution} fullWidth />}
+            {toolStrip(true, true)}
+            {linkMenu(true)}
             {pairs > 0 && <OverlapsChip n={pairs} short={false} onSelect={selectFirst} />}
         </>;
         return {
@@ -204,7 +230,7 @@ export function usePlanToolbarItems(chrome: PlanChrome | undefined, overlaps?: P
                 <PlanTimeNavigator {...window} compact controls={compactControls} />],
         };
     }, [timeNavigation, scale, windowParts, lead, moveWindow, folded, foldToggle, showResolution, words, resolutionItems, resolution,
-        pickResolution, pairs, selectFirst]);
+        pickResolution, pairs, selectFirst, toolStrip, linkMenu]);
     // The segment writes the slice's resolution (`slice.setResolution`) — without a slice the effect runner drops it, so
     // mounting it would offer a control that does nothing. The unbound-canvas fallback story is #572's (resolution
     // persist fallback); until then, no slice ⇒ no segment.
@@ -220,6 +246,22 @@ export function usePlanToolbarItems(chrome: PlanChrome | undefined, overlaps?: P
             ...(timeNavigation ? [null] : []),
         ],
     } : undefined), [drawn, showResolution, words, resolutionItems, resolution, pickResolution, timeNavigation]);
+    // What the tools' forms show moves with the tool held and the kinds offered: their widths are measured again.
+    const toolsVersion = tools === undefined ? "" : `${tools.held.tool}|${tools.held.link ?? ""}|${tools.links.map((link) => link.key).join(",")}`;
+    const toolsItem = useMemo((): ToolbarItem | undefined => (drawn && tools !== undefined ? {
+        key: "tools",
+        rank: [PLAN_RANK.tools, PLAN_RANK.controls],
+        bundle: [undefined, "plan.controls"],
+        version: toolsVersion,
+        forms: [toolStrip(false), toolStrip(true), ...(timeNavigation ? [null] : [])],
+    } : undefined), [drawn, tools, toolsVersion, toolStrip, timeNavigation]);
+    const linkMenuItem = useMemo((): ToolbarItem | undefined => (drawn && tools !== undefined && tools.links.length > 1 ? {
+        key: "tools-link",
+        rank: PLAN_RANK.controls,
+        bundle: "plan.controls",
+        version: toolsVersion,
+        forms: [linkMenu(), ...(timeNavigation ? [null] : [])],
+    } : undefined), [drawn, tools, toolsVersion, linkMenu, timeNavigation]);
     const diagnosticsItem = useMemo((): ToolbarItem | undefined => (diagnostics !== undefined && styles !== undefined && hasDiagnostics(diagnostics)
         ? { key: "diagnostics", forms: [<PlanDiagnosticChips diagnostics={diagnostics} styles={styles} />] }
         : undefined), [diagnostics, styles]);
@@ -246,10 +288,12 @@ export function usePlanToolbarItems(chrome: PlanChrome | undefined, overlaps?: P
         groupsItem,
         timeItem,
         resolutionItem,
+        toolsItem,
+        linkMenuItem,
         diagnosticsItem,
         overlapsItem,
         // The Elara eye (#1409): the app's optimiser's item, immediately before the history item.
         optimiseItem,
         historyItem,
-    ] : NO_ITEMS), [drawn, rail, seek, groupsItem, timeItem, resolutionItem, diagnosticsItem, overlapsItem, optimiseItem, historyItem]);
+    ] : NO_ITEMS), [drawn, rail, seek, groupsItem, timeItem, resolutionItem, toolsItem, linkMenuItem, diagnosticsItem, overlapsItem, optimiseItem, historyItem]);
 }

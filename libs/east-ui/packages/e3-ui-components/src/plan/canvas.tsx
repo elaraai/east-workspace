@@ -116,6 +116,8 @@ import {
     NO_LINK_KINDS, NO_LINK_KINDS_READ, kindLinkOf, kindLinks, linkKindRecords, linkStepLabel, linkedEventKinds, linksOver, readLinkKinds,
     type PlanLinkKindValue,
 } from "./links/kinds.js";
+import { NO_LINK_CHOICES, planToolsInForce, usePlanTools, type PlanToolsChrome } from "./links/connect.js";
+import type { LinkChoice } from "../shared/held-tools.js";
 import type { PlanLinkUnlink } from "./shell/LinksOverlay.js";
 import { DraftedStanding } from "../shared/schedule/drafted-rows.js";
 import { useDraftedRows } from "../shared/schedule/use-drafted-rows.js";
@@ -1333,6 +1335,14 @@ export function usePlanCanvas({
         },
         label: (key) => words.m.linkRemove({ name: lowerWord(kindLinkOf(linkKinds, key)?.kind.name ?? "") }),
     }), [linkKinds, takesWrites, eventEditing, selectEvents, words]);
+    // The tools (#1541, U10): Connect is offered while a link kind is bound with its patch door and the canvas takes a
+    // write; what the viewer holds is kept under the Plan's `id`, and held as the Plan offers it.
+    const [heldTools, pickTools] = usePlanTools(keys.tools);
+    const connectable = useMemo((): readonly LinkChoice[] => (takesWrites
+        ? linkKinds.filter((kind) => kind.editable).map((kind) => ({ key: kind.key, name: kind.name })) : NO_LINK_CHOICES), [linkKinds, takesWrites]);
+    const tools = useMemo(() => planToolsInForce(heldTools, connectable.map((link) => link.key)), [heldTools, connectable]);
+    const toolsChrome = useMemo((): PlanToolsChrome | undefined => (connectable.length === 0 ? undefined
+        : { held: tools, links: connectable, pick: pickTools }), [connectable, tools, pickTools]);
     // What every row of this render shares (#616: per-row facts are computed
     // from it, and each row's memo skips unless ITS facts moved).
     const marks = editing.marks;
@@ -2385,6 +2395,7 @@ export function usePlanCanvas({
             } : undefined,
             cells: lead.cells,
             linksOver: linksOver(linkKinds, linksRead),
+            tools: toolsChrome,
             footer: data.footer,
             id: getSomeorUndefined(data.id),
             narrow,
