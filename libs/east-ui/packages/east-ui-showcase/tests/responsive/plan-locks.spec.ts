@@ -185,6 +185,24 @@ test.describe("A locked event on the Plan, and a card that makes one (#1541)", (
         expect(least.length, "a locked chip at the least width a chip is drawn at").toBeGreaterThan(0);
     });
 
+    test("planLocks: a press dragged off a locked shift or a locked tile selects none of the canvas's words — no drag takes it, and no text selection starts on it (#1680's review) @desktop", async ({ page }) => {
+        const entry = await openExample(page, "planLocks", PLAN_EVENT_EXAMPLES);
+        const lockedTo = async (draw: string) => (await lockedOf(entry)).find((one) => one.locked && one.draw === draw);
+        await expect.poll(async () => (await lockedTo("data-chip")) !== undefined && (await lockedTo("data-event")) !== undefined, { timeout: 20_000 }).toBe(true);
+        await settled(page);
+        for (const draw of ["data-chip", "data-event"]) {
+            const one = (await lockedTo(draw))!;
+            const [x, y] = [(one.box.left + one.box.right) / 2, (one.box.top + one.box.bottom) / 2];
+            await page.mouse.move(x, y);
+            await page.mouse.down();
+            await page.mouse.move(x + 160, y + 80, { steps: 12 });
+            const selected = await page.evaluate(() => window.getSelection()?.toString() ?? "");
+            await page.mouse.up();
+            await page.evaluate(() => window.getSelection()?.removeAllRanges());
+            expect(selected, `${draw} ${one.name}`).toBe("");
+        }
+    });
+
 
     test("planPrintWorks: a job under way leads with a lock — whole in its bar whatever its width, centred on its line, its label clear of it — and is not picked up; a job that is not locked draws none @desktop", async ({ page }) => {
         const entry = await openExample(page, "planPrintWorks", PLAN_EVENT_EXAMPLES);

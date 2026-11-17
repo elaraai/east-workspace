@@ -166,6 +166,9 @@ export const rowsBase = {
         // different element entirely and never moves either way.
         "&[data-axis='dim'] [data-plan-axisline]": { opacity: 0.4 },
         "&[data-axis='off'] [data-plan-axisline]": { display: "none" },
+        // An element's press is a pick-up, never the start of a text selection — a locked one's too, which no drag
+        // takes, so a press dragged off it selected the canvas's words (#1680's review).
+        "& :is([data-run], [data-chip], [data-event], [data-mark], [data-plan-mark])": { userSelect: "none" },
     },
     // A single bucket's background grid line (column separators). The
     // expand render's `axis` treatment washes / suppresses them INSIDE
