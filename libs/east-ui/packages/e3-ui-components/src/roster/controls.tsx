@@ -33,7 +33,8 @@ const DUTY_FIELDS = Fields.specs(DutyForm, { position: Fields.reference({ of: "p
 /** A duty's own times (§5.5, rule 4). */
 const TimesForm = StructType({ start: DateTimeType, end: DateTimeType });
 const TIME_FIELDS = Fields.specs(TimesForm, {});
-const TARGET_FIELDS = Fields.specs(RosterRequirementType, { positions: Fields.number({ min: 0n, step: 1n }) }, ["hours"]);
+// The hours needed are the targets' own, read from the row, never edited here (#1678).
+const TARGET_FIELDS = Fields.specs(RosterRequirementType, { positions: Fields.number({ min: 0n, step: 1n }) }, ["hours", "needed"]);
 const Hours = StructType({ hours: FloatType });
 const HOUR_FIELDS = Fields.specs(Hours, { hours: Fields.number({ min: 0, step: 0.5, unit: "h" }) });
 const AddLine = StructType({ activity: OptionType(StringType), hours: FloatType });

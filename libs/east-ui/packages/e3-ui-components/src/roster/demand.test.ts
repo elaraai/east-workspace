@@ -32,7 +32,9 @@ const value: Pick<RosterValue, "shifts" | "activities"> = {
     ],
 };
 const slot = (day: number, group: string, shift: string): Slot => ({ day: BigInt(day), group, shift });
-const target = (positions: bigint, hours: [string, number][]): Requirement => ({ positions, hours: new SortedMap(hours, byString) });
+/** A slot's target: its positions and its activities' hours, its hours needed their sum, as targets with no `needed` of their own give (#1678). */
+const target = (positions: bigint, hours: [string, number][]): Requirement =>
+    ({ positions, hours: new SortedMap(hours, byString), needed: hours.reduce((sum, [, h]) => sum + h, 0) });
 /** A skill's line of a slot's coverage: what it needs and has, short by the rest. */
 function line(skill: string, needed: number, assigned: number, holders: option<bigint> = none, capacity: option<number> = none): Coverage["lines"][number] {
     return { skill, needed, assigned, gap: Math.max(0, needed - assigned), holders, capacity };
@@ -393,6 +395,23 @@ describe("a shift's day across the groups", () => {
             positions: 0n, filled: 0n, open: 0n, people: 0n, cost: 0, lead: false, trainer: false,
             hours: { permanent: 0, agency: 0, requested: 0, needed: 0, rostered: 0 }, lines: [],
         }));
+    });
+    test("every key its slots' lines name has its line: the activities' in their order, then every other key in key order, drawn under itself (#1678)", () => {
+        // Picking's target names a skill of Inbound's and two keys that are no activity; Inbound's, its own skill.
+        const picking: Coverage = { ...covered(20, 12), lines: [line("pick", 8, 8, some(1n), some(8)), line("zeta", 4, 0), line("unload", 4, 4, some(1n), some(8)), line("alpha", 4, 0)] };
+        const inbound: Coverage = { ...covered(8, 8), lines: [line("unload", 8, 4, some(1n), some(8))] };
+        expect(summedCoverage(value, [picking, inbound]).lines.map(l => [l.skill, l.needed])).toEqual([["pick", 8], ["unload", 12], ["alpha", 4], ["zeta", 4]]);
+        // A lane's skill rows read them the same, and add up to its hours needed.
+        const week = [{
+            requirements: new SortedMap<Slot, Requirement>([
+                [slot(1, "picking", "early"), target(2n, [["pick", 8], ["zeta", 4], ["unload", 4], ["alpha", 4]])],
+                [slot(1, "inbound", "early"), target(1n, [["unload", 8]])],
+            ], compareSlot),
+            coverage: new SortedMap<Slot, Coverage>([[slot(1, "picking", "early"), picking], [slot(1, "inbound", "early"), inbound]], compareSlot),
+        }];
+        const [early] = demandOf(value, week, ["inbound", "picking"]).lanes;
+        expect(early!.skills.map(skill => skill.skill)).toEqual(["pick", "unload", "alpha", "zeta"]);
+        expect(early!.skills.reduce((sum, skill) => sum + skill.total.needed, 0)).toBe(early!.total.needed);
     });
     test("its hours are the lane's day's: both sum the same slots", () => {
         const [early] = demandOf(value, [{ requirements, coverage }], ["inbound", "picking"]).lanes;

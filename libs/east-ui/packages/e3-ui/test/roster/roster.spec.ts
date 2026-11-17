@@ -14,7 +14,7 @@
  */
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { ArrayType, DictType, East, FloatType, StringType, StructType, printType, variant, type ValueTypeOf } from "@elaraai/east";
+import { ArrayType, DictType, East, FloatType, StringType, StructType, printType, variant, type ExprType, type ValueTypeOf } from "@elaraai/east";
 import { Assert, TestImpl, describeEast } from "@elaraai/east-node-std";
 import * as EastUI from "@elaraai/east-ui";
 import { Slice } from "@elaraai/east-ui";
@@ -22,12 +22,12 @@ import e3 from "@elaraai/e3";
 import { Data, Roster, Schedule } from "@elaraai/e3-ui";
 import { Func, FuncBindingType, Record, RosterPayloadType, createRosterPayload, rosterEdits, rosterFitBinding, type RosterProps } from "@elaraai/e3-ui/internal";
 import { refusingPlatform } from "../refusing-platform.js";
-import { WarehouseDuty } from "./warehouse.js";
+import { WarehouseCover, WarehouseDuty } from "./warehouse.js";
 import * as ex from "./roster.examples.js";
 
 describeEast("Roster — inline bound examples", test => {
     Assert.examples(test, { rosterWarehouse: ex.rosterWarehouse, rosterMobile: ex.rosterMobile, rosterPeople: ex.rosterPeople,
-        rosterPeopleMonth: ex.rosterPeopleMonth, rosterPeopleNoBands: ex.rosterPeopleNoBands, rosterWorkRequirement: ex.rosterWorkRequirement,
+        rosterPeopleMonth: ex.rosterPeopleMonth, rosterPeopleNoBands: ex.rosterPeopleNoBands, rosterWorkRequirement: ex.rosterWorkRequirement, rosterHoursNeeded: ex.rosterHoursNeeded,
         rosterWeek: ex.rosterWeek, rosterWindowed: ex.rosterWindowed, rosterMinimal: ex.rosterMinimal, rosterViews: ex.rosterViews, rosterVocabulary: ex.rosterVocabulary, rosterPublished: ex.rosterPublished, rosterDaily: ex.rosterDaily,
         rosterCustomInspector: ex.rosterCustomInspector, rosterConflicts: ex.rosterConflicts, rosterNoGroup: ex.rosterNoGroup, rosterRota: ex.rosterRota });
 }, { platformFns: TestImpl });
@@ -364,12 +364,12 @@ describe("the People layout's periods, its patterns and its display props (#1406
 
 describe("Roster.targets", () => {
     const Cover = StructType({ day: Schedule.Types.Clock, team: StringType });
+    const targets = (config: object, record: unknown = ex.rosterCover) => payload(() => {
+        const def = record as typeof ex.rosterCover;
+        return { targets: Roster.targets(Record.bind(def, ["patch"]) as never, config as never) };
+    });
+    const roles = { day: "day", group: "team", shift: "shift", positions: "heads", hours: "hours" };
     test("refuses a role naming a field of another type, two roles naming one field, and a record not keyed by String", () => {
-        const targets = (config: object, record: unknown = ex.rosterCover) => payload(() => {
-            const def = record as typeof ex.rosterCover;
-            return { targets: Roster.targets(Record.bind(def, ["patch"]) as never, config as never) };
-        });
-        const roles = { day: "day", group: "team", shift: "shift", positions: "heads", hours: "hours" };
         assert.doesNotThrow(() => targets(roles));
         assert.throws(() => targets({ ...roles, positions: "team" }), /Roster\.targets: `positions` names an Integer field, the positions to fill — "team" holds \.String/);
         assert.throws(() => targets({ ...roles, day: "nope" }), /Roster\.targets: `day` names "nope", a field the row does not have/);
@@ -379,5 +379,19 @@ describe("Roster.targets", () => {
         // Read by key beside the slice's `targets` source alone.
         assert.throws(() => targets({ ...roles, entries: Data.bindPaged(ex.rosterCover) }),
             /Roster\.targets: `entries` reads one target by its key beside the Roster's slice's `targets` source/);
+    });
+
+    test("takes `needed`, the slot's hours needed of its row and its shift's nominal hours, and refuses one of another type, naming it (#1678)", () => {
+        type Row = ExprType<typeof WarehouseCover>;
+        type Hours = ExprType<typeof FloatType>;
+        assert.doesNotThrow(() => targets({ ...roles, needed: (row: Row, shiftHours: Hours) => row.heads.toFloat().multiply(shiftHours) }));
+        assert.throws(() => targets({ ...roles, needed: (row: Row) => row.heads }), {
+            message: "Roster.targets: `needed` returns the slot's hours needed, a Float, from the target's row and its shift's nominal hours — " +
+                "and this one returns .Integer: (row, shiftHours) => row.heads.toFloat().multiply(shiftHours)",
+        });
+        assert.throws(() => targets({ ...roles, needed: 8 }), {
+            message: "Roster.targets: `needed` is a function of the target's row and its shift's nominal hours, returning the slot's hours needed as a Float — " +
+                "(row, shiftHours) => row.heads.toFloat().multiply(shiftHours)",
+        });
     });
 });

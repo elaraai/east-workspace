@@ -53,7 +53,8 @@ export const week: ValueTypeOf<typeof DomainWeek> = {
             start: new Date("2028-03-05T06:00:00Z"), end: new Date("2028-03-05T14:00:00Z"), hours: 8,
             row: { who: variant("agency", "agency"), start: new Date("2028-03-05T06:00:00Z"), end: new Date("2028-03-05T14:00:00Z"), note: "" } }],
     ]),
-    requirements: new SortedMap([[slot, { positions: 4n, hours: new Map([["reach", 24], ["general", 6]]) }]], compareFor(Roster.Types.Slot)),
+    // The hours needed are the targets' own (#1678): here the sum of the hours the activities need, as with no `needed`.
+    requirements: new SortedMap([[slot, { positions: 4n, hours: new Map([["reach", 24], ["general", 6]]), needed: 30 }]], compareFor(Roster.Types.Slot)),
 };
 /** The app's pay for the week, by its own codes: the lead's eight ordinary hours and two of overtime, and the agency's sixteen. */
 export const pay: ValueTypeOf<typeof Roster.Types.Pay> = new Map([

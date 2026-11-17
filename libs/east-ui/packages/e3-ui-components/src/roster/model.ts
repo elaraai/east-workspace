@@ -567,29 +567,34 @@ export interface PlacedTargets {
 /**
  * The week's targets, a row per slot: the first row of a slot in key order
  * holds its target; a row of another day, group or shift than the Roster's is
- * no slot's.
+ * no slot's. A slot's hours needed are the targets' own (#1678), read from its
+ * row as drafted with its shift's nominal hours, so an edit of the row moves
+ * them before Save.
  *
  * @param stored - The targets the week's read gave, by key
  * @param drafts - Every drafted target of the session, by key: its bytes and roles, or `undefined` for one removed
  * @param start - The week's first day
- * @param value - The payload: its groups and shifts
- * @returns The week's requirements, and each slot's row
+ * @param value - The payload: its groups, its shifts and its targets
+ * @returns The week's requirements, and each slot's row; none for a Roster with no targets
  */
 export function placeTargets(stored: ReadonlyMap<string, StoredTarget>, drafts: ReadonlyMap<string, StoredTarget | undefined>, start: Date,
-    value: Pick<RosterPayload, "groups" | "shifts">): PlacedTargets {
-    const merged = new SortedMap<string, StoredTarget>([...stored].filter(([key]) => !drafts.has(key)), compareString);
-    for (const [key, draft] of drafts) if (draft !== undefined) merged.set(key, draft);
+    value: Pick<RosterPayload, "groups" | "shifts" | "targets">): PlacedTargets {
     const requirements = new SortedMap<Slot, Requirement>([], compareSlot);
     const rows = new SortedMap<Slot, { key: string; bytes: Uint8Array }>([], compareSlot);
+    if (value.targets.type !== "some") return { requirements, rows };
+    const kind = value.targets.value;
+    const merged = new SortedMap<string, StoredTarget>([...stored].filter(([key]) => !drafts.has(key)), compareString);
+    for (const [key, draft] of drafts) if (draft !== undefined) merged.set(key, draft);
     const end = weekSpan(start).to;
     for (const [key, target] of merged) {
         const { day, group, shift } = target.roles;
         if (compareDate(day, start) < 0 || compareDate(day, end) >= 0) continue;
-        if (!value.groups.some(g => g.key === group) || !value.shifts.some(s => s.key === shift)) continue;
+        const of = shiftOf(value, shift);
+        if (!value.groups.some(g => g.key === group) || of === undefined) continue;
         const slot: Slot = { day: rosterDays().dayIndex(start, day), group, shift };
         if (rows.has(slot)) continue;
         rows.set(slot, { key, bytes: target.bytes });
-        requirements.set(slot, { positions: target.roles.positions, hours: target.roles.hours });
+        requirements.set(slot, { positions: target.roles.positions, hours: target.roles.hours, needed: kind.needed(target.bytes, of.hours) });
     }
     return { requirements, rows };
 }
@@ -1058,7 +1063,7 @@ export function availableProposals(value: RosterValue, week: Week, start: Date, 
 }
 /** A slot's target: what the targets hold of it, or nothing — never staffing the record does not hold. */
 export function requirementOf(week: Week, slot: Slot): Requirement {
-    return week.requirements.get(slot) ?? { positions: 0n, hours: new SortedMap([], compareString) };
+    return week.requirements.get(slot) ?? { positions: 0n, hours: new SortedMap([], compareString), needed: 0 };
 }
 /** Whether two targets ask the same of a slot. */
 export function sameTarget(a: Requirement, b: Requirement): boolean { return sameRequirement(a, b); }

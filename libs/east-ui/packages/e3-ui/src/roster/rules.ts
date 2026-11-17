@@ -75,7 +75,7 @@ export function rosterRest<R extends EastType>(row: R) {
  * @typeParam R - The app's duty row type
  * @param row - The app's duty row type
  * @returns An East function `(week, context) → Array<Issue>`: issues in day, group and shift order, with actionable fixes — each day's duties in no group after its groups'
- * @remarks Pure East, shared by tasks and the renderer. Rest is confined to this week. Issues explain the roster; they do not automatically block Save or Publish. The pay's codes are the app's: its own `check` reads them (`CheckContext(R)`). Its words print hours as the fit's do (`scheduleNumberText`): `6 h rest`, `7.5 h unfilled`. A duty in no group (#1548) is checked as its person's — double booked, rest, a skill they don't hold, a person no longer in the staff — its issue in no slot, and its words naming its shift alone (`Night · on 2 shifts this day`); no group has a target, a lead or a trainer to check.
+ * @remarks Pure East, shared by tasks and the renderer. Rest is confined to this week. A slot's skill gap is any skill its target names hours of, its group's or another group's (#1678), as its coverage's line counts it. Issues explain the roster; they do not automatically block Save or Publish. The pay's codes are the app's: its own `check` reads them (`CheckContext(R)`). Its words print hours as the fit's do (`scheduleNumberText`): `6 h rest`, `7.5 h unfilled`. A duty in no group (#1548) is checked as its person's — double booked, rest, a skill they don't hold, a person no longer in the staff — its issue in no slot, and its words naming its shift alone (`Night · on 2 shifts this day`); no group has a target, a lead or a trainer to check.
  */
 export function rosterCheck<R extends EastType>(row: R) {
     const Row = row as EastType;
@@ -206,7 +206,9 @@ export function rosterCheck<R extends EastType>(row: R) {
                         $.if(context.rules.skill.and(() => East.greater(c.filled, 0n)), $ => {
                             $.for(c.lines, ($, line) => {
                                 $.if(East.greater(line.gap, 0.0), $ => {
-                                    $.for(skills, ($, skill) => {
+                                    // A skill the slot's target needs, its group's or another's (#1678), as its line counts it:
+                                    // only a skill's line has a gap.
+                                    $.for(context.activities, ($, skill) => {
                                         $.if(East.equal(skill.key, line.skill), $ => {
                                             $(issues.pushLast({ kind: variant("gap", null), tone: variant("warning", null),
                                                 title: East.str`${skill.label} · ${hoursText(line.gap)} h short`,

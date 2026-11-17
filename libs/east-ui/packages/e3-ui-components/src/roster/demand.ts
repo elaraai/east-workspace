@@ -17,8 +17,8 @@
  *
  * @packageDocumentation
  */
-import { none, some } from "@elaraai/east";
-import type { Coverage, RosterValue, Shift, Slot, Week } from "./model.js";
+import { SortedSet, none, some } from "@elaraai/east";
+import { compareString, type Coverage, type RosterValue, type Shift, type Slot, type Week } from "./model.js";
 
 /** A week of the span, as the work requirement reads it: its targets, each slot's coverage over it, and its duties in no group. */
 export interface DemandWeek {
@@ -92,7 +92,10 @@ export interface DemandLane {
     readonly days: readonly DemandFigures[];
     /** The span's. */
     readonly total: DemandFigures;
-    /** Its skill rows: one a skill its slots' targets need hours of or have assigned, in the activities' order (A4.1). */
+    /**
+     * Its skill rows: one a key its slots' targets need hours of or have assigned, in the activities' order (A4.1), then
+     * every other key, in key order (#1678) — so they add up to the lane where the targets give no hours needed of their own.
+     */
     readonly skills: readonly DemandSkill[];
 }
 
@@ -395,8 +398,22 @@ export function looseOf(value: Pick<RosterValue, "people">, week: Week): readonl
 }
 
 /**
- * A lane's skill rows: each skill its slots' lines need hours of or have assigned, summed each day, in the activities'
- * order as the lines are — what each slot is short of it summed on its own (K4), the week's its days'. A line with
+ * The keys of lines summed over slots, in the lines' order (#1678): the activities', in their order, then every other
+ * key, in key order — a key of a target's hours that is no activity, drawn under itself.
+ *
+ * @param value - The payload: its activities, in their order
+ * @param keys - The keys the lines name
+ * @returns The keys, in order
+ */
+function lineOrder(value: Pick<RosterValue, "activities">, keys: Iterable<string>): string[] {
+    const held = new SortedSet<string>(keys, compareString);
+    const activities = new SortedSet<string>(value.activities.map(activity => activity.key), compareString);
+    return [...value.activities.flatMap(activity => held.has(activity.key) ? [activity.key] : []), ...[...held].filter(key => !activities.has(key))];
+}
+
+/**
+ * A lane's skill rows: each key its slots' lines need hours of or have assigned, summed each day, in the lines' order
+ * ({@link lineOrder}) — what each slot is short of it summed on its own (K4), the week's its days'. A line with
  * neither is no line, as a target needing no hours is no target: its day is empty, and a skill with no other has no row.
  */
 function skillsOf(value: Pick<RosterValue, "activities">, days: readonly (readonly Entry[])[]): DemandSkill[] {
@@ -413,12 +430,11 @@ function skillsOf(value: Pick<RosterValue, "activities">, days: readonly (readon
             };
         }
     });
-    return value.activities.flatMap(activity => {
-        const row = by.get(activity.key);
-        if (row === undefined) return [];
+    return lineOrder(value, by.keys()).map(skill => {
+        const row = by.get(skill)!;
         const total = row.reduce<SkillFigures>((sum, day) => day === undefined ? sum
             : { needed: sum.needed + day.needed, assigned: sum.assigned + day.assigned, short: sum.short + day.short }, { needed: 0, assigned: 0, short: 0 });
-        return [{ skill: activity.key, days: row, total }];
+        return { skill, days: row, total };
     });
 }
 
@@ -470,8 +486,8 @@ export function demandOf(value: Pick<RosterValue, "shifts" | "activities">, week
 
 /**
  * Coverage summed over slots (#1568): a shift's day across the groups, as the inspector draws it — positions, people,
- * hours and cost added, a lead or a trainer where any slot has one, and each skill's line summed over the slots whose
- * targets need it, in the activities' order, its holders and capacity where any slot counts them. With `loose`, the
+ * hours and cost added, a lead or a trainer where any slot has one, and each key's line summed over the slots whose
+ * targets need it, in the lines' order ({@link lineOrder}), its holders and capacity where any slot counts them. With `loose`, the
  * hours of the duties in no group there count as rostered too, as the one block's lane counts them (#1548): they fill
  * no position.
  *
@@ -501,12 +517,12 @@ export function summedCoverage(value: Pick<RosterValue, "activities">, list: rea
     return {
         positions, filled, open, people, cost, lead, trainer,
         hours: { permanent, agency, requested, needed, rostered },
-        lines: value.activities.flatMap(activity => {
-            const line = lines.get(activity.key);
-            return line === undefined ? [] : [{
-                skill: activity.key, needed: line.needed, assigned: line.assigned, gap: line.gap,
+        lines: lineOrder(value, lines.keys()).map(skill => {
+            const line = lines.get(skill)!;
+            return {
+                skill, needed: line.needed, assigned: line.assigned, gap: line.gap,
                 holders: line.holders === undefined ? none : some(line.holders), capacity: line.capacity === undefined ? none : some(line.capacity),
-            }];
+            };
         }),
     };
 }

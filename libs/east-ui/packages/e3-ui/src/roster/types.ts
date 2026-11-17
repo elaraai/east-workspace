@@ -78,11 +78,12 @@ export type RosterAssignmentTypeFor<R extends EastType> = ReturnType<typeof Rost
 
 /**
  * A slot's staffing and work targets.
- * @remarks A duty needs assigned hours, whereas a skill also has holder capacity.
+ * @remarks A duty needs assigned hours, whereas a skill also has holder capacity. The slot's hours needed are the app's to define (#1678): `needed` is what its coverage's `hours.needed` reads, its lines each the hours of one key of `hours`.
  * @property positions - Positions to fill
  * @property hours - Hours required by skill or duty key
+ * @property needed - The hours the slot needs: the targets' `needed` of its row and its shift's nominal hours, or the sum of `hours` where the targets give none
  */
-export const RosterRequirementType = StructType({ positions: IntegerType, hours: DictType(StringType, FloatType) });
+export const RosterRequirementType = StructType({ positions: IntegerType, hours: DictType(StringType, FloatType), needed: FloatType });
 export type RosterRequirementType = typeof RosterRequirementType;
 /** Targets keyed by the complete slot. @remarks Use East's comparator for these struct keys. */
 export const RosterRequirementsType = DictType(RosterSlotType, RosterRequirementType);
@@ -234,9 +235,9 @@ export const RosterContextType = StructType({
 });
 export type RosterContextType = typeof RosterContextType;
 /**
- * Coverage for one required activity.
- * @remarks Duties have no holder count or capacity and no skill gap.
- * @property skill - Skill or duty key
+ * Coverage for one key of a slot's target hours: an activity, or another key the app gives (#1678).
+ * @remarks Duties have no holder count or capacity and no skill gap; nor has a key that is no activity, which counts as a duty does.
+ * @property skill - Skill or duty key, or another key of the target's hours
  * @property needed - Required hours
  * @property holders - Number of people holding the skill, or none for a duty
  * @property capacity - Nominal hours available from holders, or none for a duty
@@ -254,8 +255,8 @@ export type RosterCoverageLineType = typeof RosterCoverageLineType;
  * @property filled - Assignments including requests
  * @property open - Unfilled positions, at least zero
  * @property people - Named people assigned
- * @property hours - Permanent, agency, requested, needed and total rostered hours: each duty's hours
- * @property lines - Required skills in group order, then duties
+ * @property hours - Permanent, agency, requested and total rostered hours, each duty's hours; and the hours needed, its target's `needed`
+ * @property lines - A line for every key of its target's hours (#1678): the group's skills, then the duties, each in the activities' order; then every other key, in key order — another group's skill counted as the group's own are, a key that is no activity as a duty is
  * @property cost - The slot's pay: its duties' costs summed over every code; zero without `pay`
  * @property lead - A named person holds a lead position
  * @property trainer - A trainer is assigned
@@ -497,6 +498,7 @@ export type RosterTargetEntryType = typeof RosterTargetEntryType;
  * @property entries - The record read by key, when it is given `entries`; `none` for a record read whole
  * @property rows - The targets whose day falls in `[from, to)`, by key, each its roles and its row; `none` while a read is in flight
  * @property read - A drafted row's roles, from its bytes
+ * @property needed - A drafted row's hours needed (#1678), from its bytes and its shift's nominal hours: the targets' `needed`, or the sum of its `hours`
  * @property write - The row with its roles written, and every other field as it was
  * @property create - A new row from the roles, every other field its type's default
  * @property history - The record's commits, newest first
@@ -508,6 +510,7 @@ export const RosterTargetsKindType = StructType({
     entries: OptionType(ScheduleEntriesType),
     rows: FunctionType([DateTimeType, DateTimeType], OptionType(DictType(StringType, RosterTargetEntryType))),
     read: FunctionType([BlobType], RosterTargetRolesType),
+    needed: FunctionType([BlobType, FloatType], FloatType),
     write: FunctionType([BlobType, RosterTargetRolesType], BlobType),
     create: FunctionType([RosterTargetRolesType], BlobType),
     history: FunctionType([], OptionType(ArrayType(RecordCommitInfoType))),
