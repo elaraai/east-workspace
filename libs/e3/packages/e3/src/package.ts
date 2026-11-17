@@ -7,12 +7,14 @@
  * Package definitions for e3.
  */
 
-import { nameProblem, pathToString } from '@elaraai/e3-types';
+import { loadStepProblem, nameProblem, pathToString, type DataflowStep, type TreePath } from '@elaraai/e3-types';
 import type {
   DatasetDef,
   FunctionDef,
+  InputDef,
   PackageDef,
   PackageItem,
+  PartitionDef,
   RecordDef,
   TaskDef,
 } from './types.js';
@@ -38,7 +40,10 @@ import { isRecord } from './record.js';
  * @throws {Error} When the name or the version cannot be a file name — a
  *   repository keeps the package at `packages/<name>/<version>` — or when given
  *   a record's index, mutation or migration apart from its record: a record is
- *   declared whole, its parts in `e3.record`, and a package takes the record
+ *   declared whole, its parts in `e3.record`, and a package takes the record.
+ *   And when a task is named as the step a fed source's load is in a run,
+ *   `<record>.<source>`, or what feeds a load reads the record it loads,
+ *   directly or through other datasets, naming the task or the cycle's steps
  *
  * @example
  * ```ts
@@ -149,6 +154,7 @@ export function package_(
   for (const item of all_items) {
     if (isRecord(item)) records[item.name] = item;
   }
+  refuseLoadClashes(name, tasks, records);
 
   return {
     kind: 'package',
@@ -180,4 +186,36 @@ function refusePart(name: string, item: unknown): void {
     `e3.package '${name}': the ${words} '${part.name}' is part of record '${part.record?.name}' — a record is declared ` +
     `whole, its ${words === 'index' ? 'indexes' : `${words}s`} in e3.record, so pass the record`,
   );
+}
+
+/** The dataset a task's input reads: itself, an index's record, or a partition's dataset. */
+function readPath(input: InputDef | PartitionDef): TreePath {
+  return input.kind === 'index' ? input.record.path : input.kind === 'partition' ? input.dataset.path : input.path;
+}
+
+/**
+ * Refuses what a fed load cannot run beside, as the dataflow's graph does
+ * ({@link loadStepProblem}): a task named as a fed source's step in a run,
+ * `<record>.<source>`, and a cycle through a fed load — what feeds a load
+ * reading the record the load writes, directly or through other datasets,
+ * tasks and loads. Datasets are matched by path, so a task declared again
+ * under a feed's name is found.
+ *
+ * @param pkg - The package
+ * @param tasks - Its tasks, by name
+ * @param records - Its records, by name
+ * @throws {Error} Naming the task that takes a load's name, or the cycle's steps
+ */
+function refuseLoadClashes(pkg: string, tasks: Readonly<Record<string, TaskDef>>, records: Readonly<Record<string, RecordDef>>): void {
+  const loads: DataflowStep[] = Object.values(records).flatMap((record) => Object.values(record.sources ?? {}).flatMap((source) =>
+    (source.load?.feed === undefined ? [] : [{
+      load: { record: record.name, source: source.name }, inputs: [pathToString(source.load.feed.path)], output: pathToString(record.path),
+    }])));
+  if (loads.length === 0) return;
+  const steps: DataflowStep[] = [
+    ...Object.values(tasks).map((task) => ({ task: task.name, inputs: task.inputs.map((input) => pathToString(readPath(input))), output: pathToString(task.output.path) })),
+    ...loads,
+  ];
+  const problem = loadStepProblem(steps);
+  if (problem !== null) throw new Error(`e3.package '${pkg}': ${problem}`);
 }

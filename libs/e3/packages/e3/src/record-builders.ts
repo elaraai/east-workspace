@@ -18,7 +18,7 @@
 
 import type { CallableFunctionExpr, DictType, EastType, FunctionExpr, NullType, PatchTypeOf, StructType } from '@elaraai/east';
 import type { RecordSummaryTotalsType } from '@elaraai/e3-types';
-import type { MigrationDef, MutationDef, RecordDef, RecordIndexDef, RecordSourceDef } from './types.js';
+import type { DatasetDef, MigrationDef, MutationDef, RecordDef, RecordIndexDef, RecordSourceDef, TaskDef } from './types.js';
 import { loadDefinition, mutationsDefinition } from './record-sources.js';
 import { entriesDefinition, plainDefinition } from './record-index.js';
 import type {
@@ -121,6 +121,18 @@ export interface SourceDraft<K extends EastType = EastType, External extends boo
 }
 
 /**
+ * A load's function: from a delivery and the source's entries, keyed by the
+ * source's own key, to a patch of them.
+ *
+ * @typeParam D - The delivery's type
+ * @typeParam K - The source's key type
+ * @typeParam Row - The record's row type
+ */
+export type LoadFunction<D extends EastType, K extends EastType, Row extends EastType> =
+  | FunctionExpr<[D, DictType<K, Row>], PatchTypeOf<DictType<K, Row>>>
+  | CallableFunctionExpr<[D, DictType<K, Row>], PatchTypeOf<DictType<K, Row>>>;
+
+/**
  * The `source` builder a composite record hands its `sources`: who writes
  * each source's entries, each source typed by the record's row.
  *
@@ -153,6 +165,13 @@ export interface SourceBuilder<Row extends EastType> {
    * An external source: its entries are another system's, written only by its
    * load and never by a mutation, a patch or a view's save.
    *
+   * The source is delivered one of two ways. Given a type, it is loaded with
+   * `e3 load`, a delivery at a time. Given a dataset of the package — a task,
+   * whose output feeds it, an input or a record — the dataflow loads it: each
+   * run loads the value the dataset holds once the run reaches it, a step of
+   * the run named `<record>.<source>`. The record then depends on the dataset,
+   * so a package that takes the record takes it too.
+   *
    * The load's function takes a delivery and the source's entries as they
    * stand, keyed by the source's own key, and returns a patch of them; e3 puts
    * the source's case on each key, and takes it off again. It is pure,
@@ -162,6 +181,11 @@ export interface SourceBuilder<Row extends EastType> {
    * loaded before it: a whole snapshot of the source, as
    * `East.diff(current, snapshot)` gives, or an upsert of the latest state that
    * gives the same entries however often it is applied. e3 cannot check this.
+   * The dataflow loads only the value its dataset holds when a run reaches it,
+   * never one the dataset held between two runs, and loads it again after a
+   * rollback forgets it. A system that sends changes, each the changes since
+   * the last, is loaded with `e3 load`, a delivery at a time, in order, each
+   * with its as-of.
    *
    * A delivery that is a Dict or a Set keyed by the source's key is cut with
    * the source's entries at the same keys, and the function runs once a piece,
@@ -169,18 +193,45 @@ export interface SourceBuilder<Row extends EastType> {
    * as one piece.
    *
    * @param key - The source's key type: the system's own key of an entry
-   * @param delivery - The type of what the source is delivered
+   * @param delivery - The type of what `e3 load` delivers the source
    * @param fn - `(delivery, Dict<key, Row>) -> Patch(Dict<key, Row>)`
    * @param options - Its runner
    * @returns The source
    * @throws {Error} As the record is declared, naming the record and the source: when the key is no type a Dict is
-   *   keyed by; the delivery is not a type; the function is async, calls a platform function, or is not of that
-   *   signature
+   *   keyed by; the delivery is neither a type nor a task, an input or a record of the package; the function is
+   *   async, calls a platform function, or is not of that signature
+   *
+   * @example
+   * ```ts
+   * // Delivered by `e3 load`: the ERP's order book, a file at a time
+   * erp: source.load(StringType, ErpDelivery, loadErp),
+   * // Fed by the dataflow: a task's output, loaded as each run reaches it
+   * wms: source.load(StringType, wmsExtract, loadWms),
+   * ```
    */
   load<K extends EastType, D extends EastType>(
     key: K,
     delivery: D,
-    fn: FunctionExpr<[D, DictType<K, Row>], PatchTypeOf<DictType<K, Row>>> | CallableFunctionExpr<[D, DictType<K, Row>], PatchTypeOf<DictType<K, Row>>>,
+    fn: LoadFunction<D, K, Row>,
+    options?: PartRunner,
+  ): SourceDraft<K, true>;
+  /**
+   * An external source the dataflow loads from a dataset of the package: a
+   * task, whose output feeds it, an input or a record. Each run loads the
+   * value the dataset holds once the run reaches it, a step of the run named
+   * `<record>.<source>`, and the record depends on the dataset.
+   *
+   * @param key - The source's key type: the system's own key of an entry
+   * @param feed - The task, input or record whose value the dataflow loads
+   * @param fn - `(delivery, Dict<key, Row>) -> Patch(Dict<key, Row>)`, its delivery the feed's type
+   * @param options - Its runner
+   * @returns The source
+   * @throws {Error} As the record is declared, naming the record and the source, as the other form refuses
+   */
+  load<K extends EastType, D extends EastType>(
+    key: K,
+    feed: DatasetDef<D> | TaskDef<D>,
+    fn: LoadFunction<D, K, Row>,
     options?: PartRunner,
   ): SourceDraft<K, true>;
   /**

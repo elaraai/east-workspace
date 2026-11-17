@@ -16,7 +16,7 @@
  */
 
 import { DictType, SortedMap, VariantType, compareFor, isValueOf, printType, variant, type EastType, type ValueTypeOf } from '@elaraai/east';
-import { editTypeOf } from '@elaraai/e3-types';
+import { editTypeOf, pathToString } from '@elaraai/e3-types';
 import type { CompositeRecordDef, RecordDef, RecordSourceDef } from './types.js';
 import { builderOf, declareRecord, declaredObject, partsOf, type EditCapability, type RecordConfig, type RecordTypes } from './record.js';
 import {
@@ -115,11 +115,11 @@ export interface CompositeRecordConfig<Row extends EastType, S extends object, I
  * @returns A CompositeRecordDef, usable anywhere a record is, its sources and its parts by name
  * @throws {Error} Naming the record and the source or the part: a declaration that is not an object of `sources`,
  *   `initial`, `indexes`, `mutations` and `migrations`; no source, or one whose name is not an identifier or that the
- *   `source` builder did not make; a source keyed by a type no Dict is keyed by; a load whose delivery is not a
- *   type, or whose function is async, calls a platform function or is not `(delivery, Dict<key, Row>) ->
- *   Patch(Dict<key, Row>)`; an `initial` that names an external source, or no source of the record, or entries that
- *   are not the source's; mutations declared with no source of the solution's own to write; or anything
- *   `e3.record` refuses of a part
+ *   `source` builder did not make; a source keyed by a type no Dict is keyed by; a load whose delivery is neither a
+ *   type nor a task, an input or a record of the package, or that is fed by the record itself, or whose function is
+ *   async, calls a platform function or is not `(delivery, Dict<key, Row>) -> Patch(Dict<key, Row>)`; an `initial`
+ *   that names an external source, or no source of the record, or entries that are not the source's; mutations
+ *   declared with no source of the solution's own to write; or anything `e3.record` refuses of a part
  *
  * @example
  * ```ts
@@ -172,6 +172,7 @@ export function recordComposite(name: string, row: EastType, declared: unknown):
   const where = `e3.recordComposite '${name}'`;
   const config = declarationOf(where, declared);
   const sources = sourcesOf(where, row, config.sources(SOURCE_BUILDER));
+  refuseSelfFed(where, name, sources);
   const keyType = VariantType(Object.fromEntries(Object.values(sources).map((source): [string, EastType] => [source.name, source.key])));
   const ownKey = solutionKeyType(sources);
   if (config.mutations !== undefined && ownKey === undefined) {
@@ -246,6 +247,25 @@ function sourcesOf(where: string, row: EastType, returned: unknown): Readonly<Re
     throw new Error(`${where} declares no source — a composite record holds its sources' entries: declare each as source.load(key, delivery, fn) or source.mutations(key)`);
   }
   return Object.freeze(sources);
+}
+
+/**
+ * Refuses a source the dataflow would load from the record itself: a load is
+ * fed a dataset the record does not hold.
+ *
+ * @param where - The record, as a refusal names it
+ * @param name - The record's name
+ * @param sources - Its sources
+ * @throws {Error} Naming the source
+ */
+function refuseSelfFed(where: string, name: string, sources: Readonly<Record<string, RecordSourceDef>>): void {
+  const own = pathToString([variant('field', 'records'), variant('field', name)]);
+  for (const source of Object.values(sources)) {
+    const feed = source.load?.feed;
+    if (feed !== undefined && pathToString(feed.path) === own) {
+      throw new Error(`${where}: source '${source.name}' is fed by the record itself — a load is fed a dataset the record does not hold`);
+    }
+  }
 }
 
 /**

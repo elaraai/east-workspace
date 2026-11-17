@@ -14,7 +14,7 @@
 
 import { DictType, PatchType, VariantType, printType, toEastTypeValue, type EastType } from '@elaraai/east';
 import { editTypeOf } from '@elaraai/e3-types';
-import type { RecordDef, RecordSourceDef } from './types.js';
+import type { DatasetDef, RecordDef, RecordSourceDef, TaskDef } from './types.js';
 import { bundleOf, checkPure, indexRunner, sameEastType, signatureOf, type IndexFunction } from './record-guards.js';
 import type { FunctionRunner } from './runner.js';
 
@@ -125,20 +125,49 @@ export function mutationsDefinition(where: string, name: string, row: EastType, 
 }
 
 /**
+ * What a load is delivered, as given: a type, which `e3 load` delivers, or a
+ * dataset of the package the dataflow loads it from — a task, which feeds it
+ * its output, an input or a record.
+ *
+ * @param words - The source's declaration, as a refusal names it
+ * @param form - How the source is declared, for the refusal
+ * @param delivery - What was given
+ * @returns The delivery's type, and the dataset that feeds it, if one does
+ * @throws {Error} When it is an index of a record or a partition, which no load
+ *   is fed, or neither a dataset nor a type
+ */
+function deliveryOf(words: string, form: string, delivery: unknown): { readonly type: EastType; readonly feed: DatasetDef | undefined } {
+  const given = delivery as { readonly kind?: unknown } | null;
+  if (typeof given === 'object' && given !== null && typeof given.kind === 'string') {
+    const fed = given as DatasetDef | TaskDef | { readonly kind: string };
+    if (fed.kind === 'task') {
+      const output = (fed as TaskDef).output;
+      return { type: output.type, feed: output };
+    }
+    if (fed.kind === 'dataset') return { type: (fed as DatasetDef).type, feed: fed as DatasetDef };
+    const what = fed.kind === 'index' ? 'an index of a record, which the record\'s own state holds' : fed.kind === 'partition' ? 'a partition, which a stream task\'s work is split over' : `a ${fed.kind}`;
+    throw new Error(`${words} is fed a task, an input or a record of the package, which the dataflow loads, or delivered a type — not ${what}`);
+  }
+  return { type: typeOf(words, `what it is delivered, or a task, an input or a record that feeds it — ${form}`, delivery), feed: undefined };
+}
+
+/**
  * Builds an external source, `source.load(key, delivery, fn)`: its key and
  * delivery types, and its load's function, checked — pure, synchronous East of
- * `(delivery, Dict<key, Row>) -> Patch(Dict<key, Row>)`.
+ * `(delivery, Dict<key, Row>) -> Patch(Dict<key, Row>)`. A source fed by a
+ * dataset of the package is delivered the dataset's type.
  *
  * @param where - The declaration, as a refusal names it
  * @param name - The source
  * @param row - The record's row type
  * @param key - Its key type, as given
- * @param delivery - The type of what it is delivered, as given
+ * @param delivery - The type of what it is delivered, or the task, input or record that feeds it, as given
  * @param fn - Its load's function
  * @param config - Its runner selection; the records' default runner when it names none
  * @returns The source
- * @throws {Error} When the key is no type a Dict is keyed by, the delivery is not a type, the runner is not a known
- *   runtime, or the function is async, calls a platform function or is not of the load's signature
+ * @throws {Error} When the key is no type a Dict is keyed by, the delivery is neither a type nor a task, input or
+ *   record, the runner is not a known runtime, or the function is async, calls a platform function or is not of the
+ *   load's signature
  */
 export function loadDefinition(
   where: string, name: string, row: EastType, key: unknown, delivery: unknown, fn: IndexFunction, config: { runner?: FunctionRunner } | undefined,
@@ -146,7 +175,7 @@ export function loadDefinition(
   const words = `${where} '${name}'`;
   const form = 'source.load(key, delivery, fn)';
   const keyType = keyOf(words, row, key, form);
-  const deliveryType = typeOf(words, `what it is delivered — ${form}`, delivery);
+  const { type: deliveryType, feed } = deliveryOf(words, form, delivery);
   const runner = indexRunner(config);
 
   checkPure(`${words} function`, fn, LOAD_PURITY);
@@ -163,5 +192,5 @@ export function loadDefinition(
   }
   // A delivery keyed as the source is cut with the source's entries at the same keys.
   const keyed = (deliveryType.type === 'Dict' || deliveryType.type === 'Set') && sameEastType(deliveryType.key, keyType);
-  return { kind: 'recordSource', name, key: keyType, external: true, load: { delivery: deliveryType, body: bundleOf(fn), fn, keyed, runner } };
+  return { kind: 'recordSource', name, key: keyType, external: true, load: { delivery: deliveryType, feed, body: bundleOf(fn), fn, keyed, runner } };
 }

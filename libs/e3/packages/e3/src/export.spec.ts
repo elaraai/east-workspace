@@ -851,6 +851,21 @@ describe('a composite record\'s export', () => {
     assert.deepStrictEqual(loadTask.runner, variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }), 'the runner its source names');
   });
 
+  it('writes a fed source\'s load object naming the dataset that feeds it, and the package takes the dataset with the record', async () => {
+    const extract = task('erp_extract', [input('erp_rows', Orders)], East.function([Orders], Orders, (_$, rows) => rows));
+    const fed = recordComposite('orders', Order, {
+      sources: (source) => ({ erp: source.load(StringType, extract, loadBook), own: source.mutations(StringType) }),
+    });
+    const { pkg, object } = await exported('fed-load-pkg', fed);
+    const source = decodeRecordObject(object(pkg.records.get('orders')!)).sources.get('erp');
+    assert.ok(source?.type === 'load');
+    const load = decodeRecordLoadObject(object(source.value));
+    assert.deepStrictEqual(load.feed, some([variant('field', 'tasks'), variant('field', 'erp_extract'), variant('field', 'output')]), 'the task\'s output feeds it');
+    assert.ok(isTypeValueEqual(load.delivery, toEastTypeValue(Orders)), 'delivered the output\'s type');
+    assert.deepStrictEqual([...pkg.tasks.keys()], ['erp_extract'], 'the package takes the task that feeds it, through the record alone');
+    assert.ok(pkg.data.refs.has('inputs/erp_rows'), 'and what the task reads');
+  });
+
   it('writes a record with no sources as naming none, its mutations free to write every key', async () => {
     const plain = record('plain', Orders, { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }) });
     const { pkg, object } = await exported('plain-pkg', plain);

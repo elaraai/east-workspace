@@ -286,7 +286,7 @@ describe('e3.recordComposite refuses, naming the record and the source or the pa
     assert.throws(() => e3.recordComposite('orders', Order, {
       // @ts-expect-error a load is delivered a type
       sources: (source) => ({ erp: source.load(StringType, { rows: ErpDelivery }, loadErp) }),
-    }), /^Error: e3\.recordComposite 'orders': source\.load 'erp' takes an East type as what it is delivered — source\.load\(key, delivery, fn\)$/);
+    }), /^Error: e3\.recordComposite 'orders': source\.load 'erp' takes an East type as what it is delivered, or a task, an input or a record that feeds it — source\.load\(key, delivery, fn\)$/);
     assert.throws(() => e3.recordComposite('orders', Order, {
       // @ts-expect-error a source takes its runner alone
       sources: (source) => ({ erp: source.load(StringType, ErpDelivery, loadErp, { value: loadErp }) }),
@@ -351,5 +351,55 @@ describe('e3.recordComposite refuses, naming the record and the source or the pa
       sources: erpAndOwn,
       indexes: (index) => ({ primary: index.on(['customer']) }),
     }), /^Error: e3\.recordComposite 'orders': index\.on cannot be named 'primary'/);
+  });
+});
+
+describe('a source the dataflow loads, fed by a dataset of the package', () => {
+  /** A task whose output is the ERP's order book. */
+  const extract = e3.task('erp_extract', [e3.input('erp_rows', ErpDelivery)], East.function([ErpDelivery], ErpDelivery, ($, rows) => rows));
+
+  it('B5 — is fed by a task, an input or a record, delivered the dataset\'s type, and its record depends on each, so a package takes them with it', () => {
+    const lines = e3.input('wms_lines', ErpDelivery);
+    const book = e3.record('erp_book', ErpDelivery, { initial: new Map() });
+    const orders = e3.recordComposite('orders', Order, {
+      sources: (source) => ({
+        erp: source.load(StringType, extract, loadErp),      // a task: its output feeds the load
+        wms: source.load(StringType, lines, loadErp),        // an input
+        book: source.load(StringType, book, loadErp),        // a record
+        file: source.load(StringType, ErpDelivery, loadErp), // delivered by e3 load
+        own: source.mutations(StringType),
+      }),
+    });
+    const { erp, wms, book: fromBook, file } = orders.sources;
+    assert.deepEqual([erp.load.feed, wms.load.feed, fromBook.load.feed, file.load.feed], [extract.output, lines, book, undefined]);
+    for (const source of [erp, wms, fromBook, file]) {
+      assert.ok(isTypeEqual(source.load.delivery, ErpDelivery), `${source.name}: delivered the dataset's type`);
+      assert.equal(source.load.keyed, true, `${source.name}: keyed as its source`);
+    }
+    for (const feed of [extract.output, lines, book]) assert.ok(orders.deps.has(feed), `the record depends on ${feed.name}`);
+
+    const pkg = e3.package('sales', '1.0.0', orders);
+    for (const item of [extract, extract.output, lines, book]) assert.ok(pkg.contents.includes(item), `the package takes ${item.name} with the record`);
+  });
+
+  it('B5 — refuses a feed that is an index of a record, a partition, or the record itself, and a function that does not take the feed\'s type', () => {
+    const book = e3.record('erp_book', ErpDelivery, { initial: new Map(), indexes: (index) => ({ by_cust: index.on(['cust']) }) });
+    assert.throws(() => e3.recordComposite('orders', Order, {
+      // @ts-expect-error a load is fed a dataset, not an index of one
+      sources: (source) => ({ erp: source.load(StringType, e3.index(book.indexes.by_cust), loadErp) }),
+    }), /^Error: e3\.recordComposite 'orders': source\.load 'erp' is fed a task, an input or a record of the package, which the dataflow loads, or delivered a type — not an index of a record, which the record's own state holds$/);
+    assert.throws(() => e3.recordComposite('orders', Order, {
+      // @ts-expect-error a load is fed a dataset, not a partition of one
+      sources: (source) => ({ erp: source.load(StringType, e3.partition(e3.input('erp_rows', ErpDelivery)), loadErp) }),
+    }), /^Error: e3\.recordComposite 'orders': source\.load 'erp' is fed a task, an input or a record of the package, which the dataflow loads, or delivered a type — not a partition, which a stream task's work is split over$/);
+    // A record of the same name: the dataset the composite itself is
+    const shadow = e3.record('orders', ErpDelivery, { initial: new Map() });
+    assert.throws(() => e3.recordComposite('orders', Order, { sources: (source) => ({ erp: source.load(StringType, shadow, loadErp) }) }),
+      /^Error: e3\.recordComposite 'orders': source 'erp' is fed by the record itself — a load is fed a dataset the record does not hold$/);
+    const counts = e3.input('counts', IntegerType);
+    assert.throws(() => e3.recordComposite('orders', Order, {
+      // @ts-expect-error the function's delivery is the feed's type
+      sources: (source) => ({ erp: source.load(StringType, counts, loadErp) }),
+    }), /^Error: e3\.recordComposite 'orders': source\.load 'erp' function takes a delivery and the source's entries by its own key, and returns a patch of the entries — \(\.Integer, /);
   });
 });
