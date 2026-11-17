@@ -402,6 +402,8 @@ export async function export_<D extends Record<string, unknown>>(pkg: PackageDef
         runner: runnerToVariant(mdef.runner),
         form: variant(mdef.form, null),
         programIr,
+        // A record with no sources: the mutation may write its every key.
+        cases: none,
       };
       const mutHash = addObject(zipfile, Buffer.from(mutationEncoder(mutObject)));
       mutations.set(mname, mutHash);
@@ -453,7 +455,7 @@ export async function export_<D extends Record<string, unknown>>(pkg: PackageDef
       migrations.push({ name: step.name, migration: addObject(zipfile, Buffer.from(migrationEncoder(migrationObject))) });
     }
 
-    const recObject: RecordObject = { path: recordRefPath, mutations, indexes, migrations };
+    const recObject: RecordObject = { path: recordRefPath, mutations, indexes, migrations, sources: new SortedMap() };
     const recHash = addObject(zipfile, Buffer.from(recordEncoder(recObject)));
     records.set(rname, recHash);
   }

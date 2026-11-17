@@ -348,14 +348,15 @@ describe('draft access', () => {
     }));
     const ir = await storage.objects.write(REPO, encodeInt(0n)); // stand-in IR: the mock runner reads none
     const reducer = (argTypes: EastTypeValue[]): Promise<string> =>
-      storage.objects.write(REPO, encodeBeast2For(MutationObjectType)({ bodyIr: ir, argTypes, runner: STOCK, form: variant('reduce', null), programIr: '' }));
+      storage.objects.write(REPO, encodeBeast2For(MutationObjectType)({ bodyIr: ir, argTypes, runner: STOCK, form: variant('reduce', null), programIr: '', cases: none }));
     const record = await storage.objects.write(REPO, encodeBeast2For(RecordObjectType)({
       path: 'records/jobs',
       mutations: new Map([['add', await reducer([toEastTypeValue(IntegerType)])], ['reset', await reducer([])]]),
       indexes: new Map(),
       migrations: [],
+      sources: new Map(),
     }));
-    const planned = await storage.objects.write(REPO, encodeBeast2For(FunctionObjectType)({
+    const planned =await storage.objects.write(REPO, encodeBeast2For(FunctionObjectType)({
       bodyIr: ir, inputs: [{ path: JOBS_PATH, index: none }], drafts: ['jobs'], argTypes: [], outputType: toEastTypeValue(IntegerType), runner: STOCK, environment: none,
     }));
     const structure = variant('struct', new Map([

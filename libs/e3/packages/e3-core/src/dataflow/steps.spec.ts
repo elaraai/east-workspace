@@ -760,7 +760,7 @@ describe('stepTaskCommits', () => {
     storage = new LocalStorage();
     // A workspace whose package declares one record, `orders`
     const record = await objectWrite(testRepo, encodeBeast2For(RecordObjectType)({
-      path: 'records/orders', mutations: new Map(), indexes: new Map(), migrations: [],
+      path: 'records/orders', mutations: new Map(), indexes: new Map(), migrations: [], sources: new Map(),
     }));
     const pkg = await objectWrite(testRepo, encodeBeast2For(PackageObjectType)({
       data: { structure: writableStrings(['rates']), refs: new Map() },
