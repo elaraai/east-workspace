@@ -2171,8 +2171,12 @@ export const planWorksRows = e3.record("plan_works_rows", DictType(StringType, W
     indexes: (index) => ({
         // The rail's order and its search.
         plan_works_rows_by_name: index.on(["name"]),
-        // A group under each of its resources' codes, so the rail finds a press by its code.
-        plan_works_rows_by_resource: index.keys(East.function([StringType, WorksGroup], SetType(StringType), (_$, _key, group) => group.resources.keys())),
+        // A group under each of its resources' codes, a field of the rail's (`code`), so the rail finds a press by its code.
+        plan_works_rows_by_resource: index.keys(East.function([StringType, WorksGroup], SetType(StructType({ code: StringType })), ($, _key, group) => {
+            const codes = $.let(new Set<{ code: string }>(), SetType(StructType({ code: StringType })));
+            $.for(group.resources, ($2, _resource, code) => { $2(codes.insert({ code })); });
+            return codes;
+        })),
         // What belongs to the resources, a day at a time, its totals by the month: a press's utilisation, and a crew's
         // hours by role, the crew keeping its roles' sum from the day up — the finest the Plan's axis zooms to.
         plan_works_rows_in_time: index.nested({
@@ -2499,8 +2503,9 @@ export const planPrintWorksRecords = example({
                     // collections, each collection a day at a time.
                     source: Data.bindPaged(planWorksRows, { indexes: ["plan_works_rows_by_name", "plan_works_rows_by_resource", "plan_works_rows_in_time"] }),
                     label: "Works", icon: { prefix: "fas", name: "industry" },
-                    fields: { name: { label: "Group" } },
-                    search: ["name"],
+                    // The rail narrows the groups by name, and to the group holding a resource by the resource's code.
+                    fields: { name: { label: "Group" }, code: { label: "Resource" } },
+                    search: ["name", "code"],
                 },
                 // The jobs on the rows in view, a cell at a time: the presses in view by the weeks in view, and each
                 // press's months where the jobs are too many to draw. Its range is the window the rows share.
