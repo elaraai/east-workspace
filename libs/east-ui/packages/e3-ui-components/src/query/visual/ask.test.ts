@@ -11,8 +11,9 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { ArrayType, DateTimeType, FloatType, IntegerType, StringType, StructType, none, parseFor, some, toEastTypeValue, variant, type ValueTypeOf } from "@elaraai/east";
+import { ArrayType, DateTimeType, FloatType, IntegerType, StringType, StructType, none, some, toEastTypeValue, variant, type ValueTypeOf } from "@elaraai/east";
 import { Studio } from "@elaraai/e3-ui";
+import { utcAt as at } from "../../plan/plan.test-utils.js";
 import type { QueryCall, QuerySplitCall } from "../hooks.js";
 import { createInMemoryQueryCall, createInMemorySourceStatus, createInMemorySplitCall } from "../in-memory-call.js";
 import { AnswerCache, type KeptResult } from "../model/summaries.js";
@@ -21,15 +22,7 @@ import { askProgram, VisualAnswers, VisualAskError, visualAnswerType, visualRead
 import { printVisual } from "./print.js";
 import { printSourceOf } from "./source.js";
 
-const parseAt = parseFor(DateTimeType);
-/** An instant, written as East prints a DateTime, read by East's parser. */
-function at(text: string): Date {
-    const read = parseAt(text);
-    if (!read.success) throw new Error(read.error);
-    return read.value;
-}
-
-const Row = StructType({ ordered_at: DateTimeType, region: StringType, revenue: FloatType, units: IntegerType });
+const Row =StructType({ ordered_at: DateTimeType, region: StringType, revenue: FloatType, units: IntegerType });
 const PATH = [variant("field", "inputs"), variant("field", "orders")];
 const ORDERS: ValueTypeOf<typeof Row>[] = [
     { ordered_at: at("2026-07-03T10:00:00"), region: "SA", revenue: 100, units: 4n },
