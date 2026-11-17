@@ -100,12 +100,16 @@ export type PlanValuesField<R extends EastType> = {
 
 /**
  * A `Dict` field of an entry holding child rows, keyed by an id: what
- * `Plan.children(field, [series…])` steps down to.
+ * `Plan.children(field, [series…])` steps down to. The id is of any type a
+ * Dict is keyed by but a DateTime (#1540, E1) — a String, or a variant a
+ * child row a case — which the series over the rows name with `keyType`; a
+ * Dict keyed by a DateTime is values over time, read with `Plan.values`.
  *
  * @typeParam R - The entry type
  */
 export type PlanChildField<R extends EastType> = {
-    [F in PlanCollectionField<R>]: PlanEntryFields<R>[F] extends DictType<StringType, StructType | RecursiveType<any>> ? F : never
+    [F in PlanCollectionField<R>]: PlanEntryFields<R>[F] extends DictType<DateTimeType, EastType> ? never
+        : PlanEntryFields<R>[F] extends DictType<any, StructType | RecursiveType<any>> ? F : never
 }[PlanCollectionField<R>];
 
 /**
