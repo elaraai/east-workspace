@@ -31,9 +31,8 @@ function write(from, ...flags) {
 const canonical = (name) => name.toLowerCase().replace(/[-_.]+/g, '-');
 
 /**
- * What a constraints file pins: each pin by its name, version and marker,
- * with its hashes. A map, so two files are compared for what they pin, in
- * whatever order, and not for how uv writes them, which a later uv may change.
+ * What a constraints file pins: each pin by its name, version and marker, as
+ * uv wrote it, with its hashes.
  */
 function pins(constraints) {
   const found = new Map();
@@ -49,6 +48,72 @@ function pins(constraints) {
   }
   for (const hashes of found.values()) hashes.sort();
   return found;
+}
+
+/**
+ * The script {@link held} runs, given each file's pins and markers: where each
+ * marker holds, as packaging reads it, over every environment the markers
+ * tell apart. Each variable takes each value a marker compares it with, and
+ * one that none does; a Python's version takes each version a marker names,
+ * and one either side of it.
+ */
+const HELD = String.raw`
+import itertools, json, re, sys
+from packaging.markers import Marker
+
+files = json.load(sys.stdin)
+markers = sorted({marker for pins in files for _, marker in pins if marker})
+operator = r"(?:===|==|!=|<=|>=|~=|<|>|not in|in)"
+compared = re.compile(rf"([a-z_]+)\s*{operator}\s*'([^']*)'|'([^']*)'\s*{operator}\s*([a-z_]+)")
+seen = {}
+for marker in markers:
+    for match in compared.finditer(marker):
+        name, value = (match[1], match[2]) if match[1] else (match[4], match[3])
+        seen.setdefault(name, set()).add(value)
+versions = set()
+for literal in seen.pop("python_full_version", set()) | seen.pop("python_version", set()):
+    a, b, c = ([int(part) for part in literal.split(".")] + [0, 0])[:3]
+    below = (a, b, c - 1) if c > 0 else (a, b - 1, 999) if b > 0 else (a - 1, 999, 999)
+    versions |= {(a, b, c), below, (a, b, c + 1)}
+names = sorted(seen)
+grid = [
+    dict(zip(names, values), python_full_version=".".join(map(str, version)), python_version=f"{version[0]}.{version[1]}", extra="")
+    for values in itertools.product(*(sorted(seen[name]) + ["e3-compared-with-none"] for name in names))
+    for version in sorted(versions) or [(3, 12, 0)]
+]
+where = {}
+for marker in markers:
+    parsed = Marker(marker)
+    where[marker] = "".join("1" if parsed.evaluate(environment) else "0" for environment in grid)
+json.dump([[where[marker] if marker else "1" * len(grid) for _, marker in pins] for pins in files], sys.stdout)
+`;
+
+/**
+ * What constraints files hold, compared by what they install where: each pin
+ * by its name, version and hashes, with the environments its marker holds in,
+ * read by packaging over every environment their markers tell apart. A marker
+ * written otherwise, as one release of uv writes it and another does not,
+ * holds the same; a marker moved or dropped does not.
+ *
+ * @param files - The files' text
+ * @returns For each file, where each pin holds, by the pin and its hashes
+ */
+function held(...files) {
+  const read = files.map((text) => [...pins(text)].map(([key, hashes]) => {
+    const [pin, marker = null] = key.split(' ; ');
+    return { pin: `${pin} ${hashes.join(',')}`, marker };
+  }));
+  const ran = spawnSync('uv', ['run', '--no-project', '--with', 'packaging', 'python', '-c', HELD],
+    { input: JSON.stringify(read.map((entries) => entries.map(({ pin, marker }) => [pin, marker]))), encoding: 'utf8', cwd: os.tmpdir() });
+  assert.equal(ran.status, 0, ran.stderr);
+  return JSON.parse(ran.stdout).map((where, file) => {
+    const byPin = new Map();
+    read[file].forEach(({ pin }, at) => {
+      const before = byPin.get(pin);
+      byPin.set(pin, before === undefined ? where[at] : [...where[at]].map((bit, i) => (bit === '1' || before[i] === '1' ? '1' : '0')).join(''));
+    });
+    return byPin;
+  });
 }
 
 /** The versions a constraints file pins a distribution at, a platform's each. */
@@ -151,22 +216,39 @@ describe('the pins a release\'s east-py packages are installed under', { skip: h
     assert.equal(written.status, 0, written.stderr);
     const shipped = (name) => fs.readFileSync(path.join(kept, name), 'utf8');
     const stale = (name) => `${EAST_PY_PINS_DIR}/${name} is stale: python3 scripts/east-py-constraints.py libs/east-py ${EAST_PY_PINS_DIR}`;
-    // The overrides to the byte; the pins by what they pin, each with its marker and hashes
+    // The overrides to the byte; the pins by what they install where, with their hashes
     assert.equal(shipped(OVERRIDES), written.files[OVERRIDES], stale(OVERRIDES));
-    assert.deepEqual(pins(shipped(CONSTRAINTS)), pins(written.files[CONSTRAINTS]), stale(CONSTRAINTS));
+    const [inShipped, inWritten] = held(shipped(CONSTRAINTS), written.files[CONSTRAINTS]);
+    assert.deepEqual(inShipped, inWritten, stale(CONSTRAINTS));
     assert.equal(shipped(CONSTRAINTS).split('\n', 1)[0], written.files[CONSTRAINTS].split('\n', 1)[0]);
     assert.deepEqual(fs.readdirSync(kept).filter((name) => name.startsWith('east-py-')).sort(), [...EAST_PY_PINS].sort(), 'and no other pin file');
   });
 
-  it('compares pins by what they pin: a marker moved, or one dropped, is another pin, whatever the order', () => {
-    const mac = `numpy==2.3.5 ; sys_platform == 'darwin' \\\n    --hash=sha256:${'a'.repeat(64)}\n`;
-    const other = `numpy==2.4.4 ; sys_platform != 'darwin' \\\n    --hash=sha256:${'b'.repeat(64)}\n`;
-    const six = `six==1.17.0 \\\n    --hash=sha256:${'c'.repeat(64)}\n`;
-    const constraints = `# pins\n${mac}${other}${six}`;
-    assert.deepEqual(pins(constraints), pins(`# pins\n${six}${other}${mac}`), 'in another order, the same');
-    assert.equal(pins(constraints).size, 3);
-    assert.notDeepEqual(pins(constraints), pins(constraints.replace('sys_platform == \'darwin\'', 'sys_platform == \'linux\'')), 'a marker moved');
-    assert.notDeepEqual(pins(constraints), pins(constraints.replace(' ; sys_platform == \'darwin\'', '')), 'a marker dropped');
+  it('compares pins by what they install where: in another order, or a marker as another uv writes it, the same; a marker moved, swapped or dropped, another', () => {
+    const pin = (name, version, marker, hash) => `${name}==${version}${marker === '' ? '' : ` ; ${marker}`} \\\n    --hash=sha256:${hash.repeat(64)}\n`;
+    const mac = "platform_machine == 'x86_64' and sys_platform == 'darwin'";
+    const notMac = "platform_machine != 'x86_64' or sys_platform != 'darwin'";
+    // One marker, as uv 0.11 and uv 0.13 write it
+    const factored = "(platform_machine == 'aarch64' or platform_machine == 'x86_64') and sys_platform == 'linux'";
+    const expanded = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')";
+    const file = ({ numpy = [mac, notMac], cupti = factored, split = '3.13', six = '', reversed = false } = {}) => {
+      const each = [
+        pin('numpy', '2.3.5', numpy[0], 'a'), pin('numpy', '2.4.4', numpy[1], 'b'),
+        pin('nvidia-cuda-cupti', '13.2.86', cupti, 'c'),
+        pin('scipy', '1.15.3', `python_full_version < '${split}'`, 'd'), pin('scipy', '1.17.1', `python_full_version >= '${split}'`, 'e'),
+        pin('six', '1.17.0', six, 'f'),
+      ];
+      return `# pins\n${(reversed ? each.reverse() : each).join('')}`;
+    };
+    const [as, reordered, rewritten, moved, swapped, split, dropped] = held(
+      file(), file({ reversed: true }), file({ cupti: expanded }), file({ six: "sys_platform == 'win32'" }),
+      file({ numpy: [notMac, mac] }), file({ split: '3.12' }), file({ numpy: [mac, ''] }));
+    assert.equal(as.size, 6);
+    assert.deepEqual(reordered, as, 'in another order');
+    assert.deepEqual(rewritten, as, 'a marker as another uv writes it');
+    for (const [other, why] of [[moved, 'a marker moved'], [swapped, 'two markers swapped'], [split, 'a version split moved'], [dropped, 'a marker dropped']]) {
+      assert.notDeepEqual(other, as, why);
+    }
   });
 });
 

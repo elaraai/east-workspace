@@ -364,9 +364,10 @@ At review, the same day:
   and lock alone; a release named as its tag names it; another release's
   refused, and nothing written.
 - The files `@elaraai/e3-core` ships are the lock's, now: the overrides to the
-  byte, the pins by name, version and marker, as sets, so a later uv that
-  writes them in another order does not fail it, and a pin moved to another
-  platform does.
+  byte, the pins by what each installs where, with its hashes, its marker
+  read by packaging over every environment the markers tell apart. So a later
+  uv that writes the pins in another order, or a marker in another form, does
+  not fail it, and a pin moved to another platform does.
 - The lock holds one NCCL library, `nvidia-nccl-cu13`, and xgboost 3.4 or
   later.
 - The image install script, with a `uv` and an `npm` that only say what they
@@ -517,8 +518,9 @@ builds that version, under its pins.
 - The install script's global-npm dedupe runs only when it installs Node
   packages, and its tests run on a `PATH` of stand-in tools, so they never
   touch the machine's own npm root.
-- The test that holds the shipped pins to the lock compares name, version and
-  marker, as sets.
+- The test that holds the shipped pins to the lock compares what each pin
+  installs where, in any order: uv 0.11 and uv 0.13 write one marker in two
+  forms, which a comparison of their text took for two pins.
 - The extras' pins are read from the manifest with `tomllib`.
 - The two tooling files are under AGPL-3.0, as the repository's tooling is.
 - The docs say how a pin is taken (`name==version ; marker`), that a PyTorch
