@@ -15,6 +15,7 @@
  */
 
 import { SummaryType, summaryProgram, type EastType, type ValueTypeOf } from "@elaraai/east";
+import type { QueryResult } from "../one-shot.js";
 import type { StepField } from "../steps/fields.js";
 import { SEP, layOutSteps } from "../steps/print.js";
 import type { Shape } from "../steps/shape.js";
@@ -107,10 +108,127 @@ export interface SummaryResult {
  */
 export type SummaryRun = (request: SummaryRequest) => Promise<SummaryResult | undefined>;
 
+/** What an answer cache keeps a run by: the program's text, and the data sources it reads. */
+export interface KeptRequest {
+    /** The program's canonical text: what its answer is kept by. */
+    readonly prefix: string;
+    /** The data sources it reads, by name: a newer hash of any of them misses. */
+    readonly reads: readonly string[];
+}
+
+/** What a kept run gave: its answer, and the hash of each data source it read. */
+export interface KeptResult<V> {
+    /** The answer. */
+    readonly value: V;
+    /** Each data source read, by name, with the hash the run read. */
+    readonly hashes: ReadonlyMap<string, string>;
+}
+
+/**
+ * The hash of each data source a run read, by its name in the root: what its
+ * answer is kept by ({@link KeptResult}).
+ *
+ * @param result - what the run answered
+ * @returns each data source's hash, by name; none when nothing ran
+ */
+export function readHashes(result: QueryResult): ReadonlyMap<string, string> {
+    return new Map(result.inputs.map(input => [input.name, input.hash]));
+}
+
+/** A run in flight: its answer, how to give it up, and how many still wait for it. */
+interface InFlight<V> {
+    readonly answer: Promise<V | undefined>;
+    readonly controller: AbortController;
+    waiting: number;
+}
+
+/**
+ * Answers kept by their program and the hashes of the data sources they read
+ * (#934, #1670): the query builder's summaries, and a Studio page's tiles.
+ * One run per program and hashes, however many ask for it while it is in
+ * flight; given up once every one that asked has stopped waiting.
+ *
+ * @example
+ * ```ts
+ * const answers = new AnswerCache((request, signal) => askOnE3(request.prefix, signal));
+ * const kept = answers.get(request, hashes) ?? await answers.ensure(request, hashes, tile.signal);
+ * ```
+ */
+export class AnswerCache<R extends KeptRequest, V> {
+    private readonly entries = new Map<string, KeptResult<V>>();
+    private readonly pending = new Map<string, InFlight<V>>();
+
+    /**
+     * @param run - runs a request's program; given up by its signal, it answers `undefined`
+     */
+    constructor(private readonly run: (request: R, signal: AbortSignal) => Promise<KeptResult<V> | undefined>) {}
+
+    /**
+     * The answer to a request, when the cache holds it for the data sources as they are.
+     *
+     * @param request - the request
+     * @param hashes - each data source's current hash, by name; a source not listed is taken as unchanged
+     * @returns the answer, or `undefined` when it has not been run, or a source it read has changed since
+     */
+    get(request: R, hashes: ReadonlyMap<string, string>): V | undefined {
+        const entry = this.entries.get(request.prefix);
+        if (entry === undefined) return undefined;
+        for (const source of request.reads) {
+            const now = hashes.get(source);
+            if (now !== undefined && entry.hashes.get(source) !== now) return undefined;
+        }
+        return entry.value;
+    }
+
+    /**
+     * Runs a request's program unless the cache holds its answer: once per
+     * program and hashes, however often it is asked for while the run is in
+     * flight.
+     *
+     * @param request - the request
+     * @param hashes - each data source's current hash, by name
+     * @param signal - this asker stops waiting; once every asker has, the run is given up
+     * @returns the answer, or `undefined` when the run was given up, or gave none; it rejects as a run that failed rejects
+     */
+    ensure(request: R, hashes: ReadonlyMap<string, string>, signal?: AbortSignal): Promise<V | undefined> {
+        const held = this.get(request, hashes);
+        if (held !== undefined) return Promise.resolve(held);
+        if (signal?.aborted === true) return Promise.resolve(undefined);
+        const key = `${request.prefix}\u0000${request.reads.map(s => hashes.get(s) ?? "").join("\u0000")}`;
+        let inFlight = this.pending.get(key);
+        if (inFlight === undefined) {
+            const controller = new AbortController();
+            const answer = this.run(request, controller.signal).then(result => {
+                if (this.pending.get(key) === inFlight) this.pending.delete(key);
+                if (result === undefined) return undefined;
+                this.entries.set(request.prefix, result);
+                return result.value;
+            }, (err: unknown) => {
+                // A run that failed keeps nothing: its askers hear why, and the next ask runs again.
+                if (this.pending.get(key) === inFlight) this.pending.delete(key);
+                throw err;
+            });
+            inFlight = { answer, controller, waiting: 0 };
+            this.pending.set(key, inFlight);
+        }
+        const run = inFlight;
+        run.waiting += 1;
+        signal?.addEventListener("abort", () => {
+            run.waiting -= 1;
+            // The last asker gone: the run is given up, and the next ask starts another.
+            if (run.waiting === 0 && this.pending.get(key) === run) {
+                this.pending.delete(key);
+                run.controller.abort();
+            }
+        }, { once: true });
+        return run.answer;
+    }
+}
+
 /**
  * The summaries a builder has fetched, while it is mounted: one per prefix,
  * kept with the hashes of the data sources the run read, so a newer dataset
- * misses.
+ * misses ({@link AnswerCache}).
  *
  * @example
  * ```ts
@@ -120,56 +238,19 @@ export type SummaryRun = (request: SummaryRequest) => Promise<SummaryResult | un
  * const summary = request === undefined ? undefined : cache.get(request, hashes);
  * ```
  */
-export class SummaryCache {
-    private readonly entries = new Map<string, SummaryResult>();
-    private readonly pending = new Map<string, Promise<Summary | undefined>>();
-
+export class SummaryCache extends AnswerCache<SummaryRequest, Summary> {
     /**
      * @param run - runs a summary's program
      */
-    constructor(private readonly run: SummaryRun) {}
-
-    /**
-     * The summary of a request, when the cache holds it for the data sources as they are.
-     *
-     * @param request - the request
-     * @param hashes - each data source's current hash, by name; a source not listed is taken as unchanged
-     * @returns the summary, or `undefined` when it has not been fetched, or a source it read has changed since
-     */
-    get(request: SummaryRequest, hashes: ReadonlyMap<string, string>): Summary | undefined {
-        const entry = this.entries.get(request.prefix);
-        if (entry === undefined) return undefined;
-        for (const source of request.reads) {
-            const now = hashes.get(source);
-            if (now !== undefined && entry.hashes.get(source) !== now) return undefined;
-        }
-        return entry.summary;
-    }
-
-    /**
-     * Fetches a request's summary unless the cache holds it: once per prefix
-     * and hashes, however often it is asked for while the run is in flight.
-     *
-     * @param request - the request
-     * @param hashes - each data source's current hash, by name
-     * @returns the summary, or `undefined` when the run failed
-     */
-    ensure(request: SummaryRequest, hashes: ReadonlyMap<string, string>): Promise<Summary | undefined> {
-        const held = this.get(request, hashes);
-        if (held !== undefined) return Promise.resolve(held);
-        const key = `${request.prefix}\u0000${request.reads.map(s => hashes.get(s) ?? "").join("\u0000")}`;
-        const inFlight = this.pending.get(key);
-        if (inFlight !== undefined) return inFlight;
-        const fetched = this.run(request).then(result => {
-            this.pending.delete(key);
-            if (result === undefined) return undefined;
-            this.entries.set(request.prefix, result);
-            return result.summary;
-        }, () => {
-            this.pending.delete(key);
-            return undefined;
+    constructor(run: SummaryRun) {
+        super(async (request) => {
+            try {
+                const result = await run(request);
+                return result === undefined ? undefined : { value: result.summary, hashes: result.hashes };
+            } catch {
+                // A summary that fails leaves the slot's offers without values.
+                return undefined;
+            }
         });
-        this.pending.set(key, fetched);
-        return fetched;
     }
 }

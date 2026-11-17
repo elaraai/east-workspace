@@ -32,6 +32,7 @@ import {
     publishRefusal,
     publishSummary,
     saveCells,
+    sourceName,
     sourceNames,
     textParagraphs,
     viewIcon,
@@ -67,6 +68,8 @@ export interface StudioEast {
     textParagraphs: Compiled<typeof textParagraphs>;
     /** Each listed source's name, by its key. */
     sourceNames: Compiled<typeof sourceNames>;
+    /** A source's name, by its key: its key where the surface lists none of it. */
+    sourceName: Compiled<typeof sourceName>;
     /** The selected placement, as the inspector shows it. */
     inspectorSelection: Compiled<typeof inspectorSelection>;
     /** What the publish preview shows of the open entry. */
@@ -120,6 +123,8 @@ function compileStudio(): StudioEast {
         textParagraphs: East.compile(textParagraphs, []),
         /** Each listed source's name, by its key. */
         sourceNames: East.compile(sourceNames, []),
+        /** A source's name, by its key: its key where the surface lists none of it. */
+        sourceName: East.compile(sourceName, []),
         /** The selected placement, as the inspector shows it. */
         inspectorSelection: East.compile(inspectorSelection, []),
         /** What the publish preview shows of the open entry. */

@@ -484,8 +484,14 @@ start and end are `Option<DateTime>` when it can wait in the backlog. A
   query reads the source by, the handle a `Data.bind`, `Data.bindPaged` or
   `Record.bind` whose rows are an Array or a Dict of Structs, and `fields`,
   `range`, `search` and `split` name the row's own fields, checked when the
-  surface is built. This release stores a visual with its page and draws its
-  tile by name; a text block draws. A pages record written before a placement
+  surface is built. A visual's tile prints its jq programs and asks them on e3
+  as `<Query.Builder>` runs a query — one call, or a split call over a large
+  dataset's pieces — once a program and dataset hash however many tiles ask;
+  it shows waiting, a well to fill, a field its source lacks, its source's
+  error, "no data", or its answer's size, which the next release draws as its
+  chart, table or list. The calls run as the reader: a host that admits its
+  readers only what their pages bind must admit their platform-free calls over
+  those datasets. A text block draws. A pages record written before a placement
   held content is carried by listing `Studio.migrations.cellContent` as a rows
   step; a later kind of content ships a step of its own.
   `e3-ui:studio.examples.tsx:studioContent` holds all of it.

@@ -184,6 +184,9 @@ export {
     visualWords,
     sourceName,
     sourceNames,
+    // A source's rows, which the surface's check and a visual's printer both read (#1670).
+    sourceRowsOf,
+    type StudioSourceRows,
     studioSources,
     cellContent,
     PublishChangeType,

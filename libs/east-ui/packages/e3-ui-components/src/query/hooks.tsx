@@ -58,7 +58,7 @@ import { useDataStable, usePersistedState } from "@elaraai/east-ui-components";
 import { keptRead } from "@elaraai/east-ui-components/internal";
 import { e3RequestOptions, useE3ConfigOptional, type E3Config } from "../platform/e3-config.js";
 import { pagedSourceOf } from "../platform/paged-runtime.js";
-import { SUMMARY_LIMITS, SummaryCache, type Summary, type SummaryRequest } from "./model/summaries.js";
+import { SUMMARY_LIMITS, SummaryCache, readHashes, type Summary, type SummaryRequest } from "./model/summaries.js";
 import type { QueryWords } from "./model/words.js";
 import { prepareQuery, queryResultOf, queryRoot, type QueryRoot, type QueryRootEntry } from "./one-shot.js";
 import type { PlanOptions } from "./plan.js";
@@ -571,7 +571,7 @@ export function useQuerySummaries(root: QueryRoot | string, call: QueryCall | un
         if (result.outcome.type !== "ok") return undefined;
         const decoded = decodeBeast2(result.outcome.value.result);
         if (!isValueOf(decoded.value, SummaryType)) return undefined;
-        const read = new Map(result.inputs.map(input => [input.name, input.hash]));
+        const read = readHashes(result);
         setHashes(previous => new Map([...previous, ...read]));
         return { summary: decoded.value as Summary, hashes: read };
     }), [root, call]);

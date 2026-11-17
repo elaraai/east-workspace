@@ -48,12 +48,12 @@ import {
     decodeBeast2, fromEastTypeValue, parseJq, printJq,
     type CheckJqResult, type EastType, type option,
 } from "@elaraai/east";
-import { ApiError, AuthError } from "@elaraai/e3-api-client";
 import type { ExecuteResult, SplitCallProgress, SplitCallReport, SplitCallRequest } from "@elaraai/e3-types";
 import type { QueryCall, QueryCollection, QuerySourceStatus, QuerySplitCall, QuerySplitExplain } from "./hooks.js";
 import { queryResultOf, type QueryReading, type QueryResult, type QueryRoot } from "./one-shot.js";
 import { pagedResultOf, type PagedResult } from "./paged-result.js";
-import { draftPlan, weighPlan, type PlanDraft, type PlanOptions, type QueryPlan, type SourceWeight } from "./plan.js";
+import { draftPlan, type PlanOptions, type QueryPlan } from "./plan.js";
+import { messageOf, runDraft } from "./run-draft.js";
 import type { QueryHeader } from "./session.js";
 import type { CheckedSteps } from "./steps/check.js";
 import { SOURCE_COUNT, countingProgram, readCounts } from "./steps/count.js";
@@ -263,71 +263,6 @@ export interface QueryRunSeams {
     readonly options: PlanOptions;
 }
 
-/** An error's message. */
-function messageOf(err: unknown): string {
-    return err instanceof Error ? err.message : String(err);
-}
-
-/**
- * Whether an error a call rejected with is the server's refusal of it, not a
- * failure to reach it: an `ApiError` or an `AuthError`; and, from a split call,
- * anything but the `TypeError` `fetch` rejects with — a job that ended
- * `failed` is e3's refusal to run it.
- */
-function refusedBy(err: unknown, split: boolean): boolean {
-    if (err instanceof ApiError || err instanceof AuthError) return true;
-    return split && !(err instanceof TypeError);
-}
-
-/**
- * What the datasets a run plans over weigh, by name: those whose weights
- * decide its path — the one a split call would cut, those cut at the same keys
- * with it, and a join's other side (#942) — and the source whose stored rows a
- * split visual run counts. A status that cannot be read leaves its dataset's
- * weight unknown.
- */
-async function weigh(draft: PlanDraft, source: string | undefined, root: QueryRoot, status: QuerySourceStatus | undefined): Promise<ReadonlyMap<string, SourceWeight>> {
-    const weights = new Map<string, SourceWeight>();
-    if (status === undefined || draft.weighs.length === 0) return weights;
-    const names = [...new Set([...draft.weighs, ...(source === undefined ? [] : [source])])];
-    await Promise.all(names.map(async (name) => {
-        const entry = root.entries.find(e => e.name === name);
-        if (entry === undefined) return;
-        try {
-            weights.set(name, await status(entry.path));
-        } catch {
-            // Not weighed: the plan says its weight is not known, and the run is one call.
-        }
-    }));
-    return weights;
-}
-
-/**
- * The split call a run goes on as when its one call, which the estimates
- * chose, answered too large for one answer (#1113): one with no final step,
- * whose output is read a page at a time.
- *
- * @param planned - the run's one call
- * @param draft - its query, checked and split
- * @param weights - what its datasets weigh
- * @returns the split call; `undefined` when the estimates did not choose the
- *   one call, or the run has no such split call to make — it does not split,
- *   or its split has a final step, which answers inline as one call does
- */
-function pagedInstead(
-    planned: Extract<QueryPlan, { kind: "one_shot" }>, draft: PlanDraft, weights: ReadonlyMap<string, SourceWeight>,
-): Extract<QueryPlan, { kind: "split" }> | undefined {
-    const path = planned.explanation.path;
-    if (path.kind !== "one_shot" || path.why.kind !== "faster") return undefined;
-    try {
-        const again = weighPlan(draft, weights, { tooLarge: true });
-        return "plan" in again && again.plan.kind === "split" && again.plan.request.then.type === "none" ? again.plan : undefined;
-    } catch {
-        // A split program the translator cannot express: the one call's answer stands.
-        return undefined;
-    }
-}
-
 /**
  * Runs the open query: each run planned in the browser and sent as one
  * one-shot call, or as a split call over the dataset it works through; one
@@ -458,113 +393,46 @@ export function useQueryRun(
         };
 
         void (async () => {
-            const weights = await weigh(draft, plan.split.source, root, status);
-            if (!live()) return;
-            let planned: QueryPlan;
-            try {
-                const weighed = weighPlan(draft, weights);
-                if ("result" in weighed) {
-                    ended({ status: "done", n, plan, result: weighed.result, output: undefined, at: new Date(), ms: 0, planned: undefined, pieces: undefined, report: undefined });
-                    return;
-                }
-                planned = weighed.plan;
-            } catch (err) {
-                failed("refused", messageOf(err), undefined);
-                return;
-            }
-            setState({ status: "running", n, plan, reads, planned, progress: undefined, pieces: undefined });
-
-            if (planned.kind === "one_shot") {
-                if (call === undefined) {
-                    failed("unreachable", "", planned);
-                    return;
-                }
-                let answer: ExecuteResult;
-                try {
-                    // Started as a call of the workspace, held to no request's deadline, and stopped once the run is given up
-                    answer = await call(planned.prepared.request, { run: true, signal: controller.signal });
-                } catch (err) {
-                    if (live()) failed(refusedBy(err, false) ? "refused" : "unreachable", messageOf(err), planned);
-                    return;
-                }
-                if (!live()) return;
-                // Too large for one answer, a one call's result is never read a page at a time, and a split call's output is.
-                const instead = answer.outcome.type === "too_large" && split !== undefined && collection !== undefined
-                    ? pagedInstead(planned, draft, weights) : undefined;
-                if (instead === undefined) {
-                    answered(planned, planned.prepared, answer, (result) => runOutput(plan, result), undefined, undefined);
-                    return;
-                }
-                planned = instead;
-                setState({ status: "running", n, plan, reads, planned, progress: undefined, pieces: undefined });
-            }
-
-            if (split === undefined) {
-                failed("unreachable", "", planned);
-                return;
-            }
-            let pieces: number | undefined;
-            // The call whose pieces the read-out names: the split call, or a re-keyed join's join call.
-            let counted: SplitCallRequest | undefined;
-            // How it ran, when it reports so (#1105), and its assembled output's hash.
-            let report: SplitCallReport | undefined;
-            let output: string | null = null;
-            /** A split call, its progress told as it goes. */
-            const send = (request: SplitCallRequest) => split(request, {
-                signal: controller.signal,
-                onProgress: (progress) => {
-                    if (!live()) return;
-                    if (progress.phase.type === "partition") pieces = Number(progress.units);
-                    setState({ status: "running", n, plan, reads, planned, progress, pieces });
+            // The plan the run calls by, once weighed: what its read-outs name as it goes.
+            let planned: QueryPlan | undefined;
+            const ran = await runDraft(draft, { call, split, collection, status }, controller.signal, {
+                source: plan.split.source,
+                onPlanned: (next) => {
+                    planned = next;
+                    if (live()) setState({ status: "running", n, plan, reads, planned: next, progress: undefined, pieces: undefined });
+                },
+                onProgress: (progress, pieces) => {
+                    if (live()) setState({ status: "running", n, plan, reads, planned, progress, pieces });
                 },
             });
-            let answer: ExecuteResult;
-            try {
-                if (planned.kind === "split") {
-                    counted = planned.request;
-                    const done = await send(counted);
-                    ({ result: answer, output } = done);
-                    report = done.report ?? undefined;
-                } else {
-                    // A re-keyed join (#942): the re-key call, then the join call over its output, by its hash.
-                    const first = await send(planned.first);
-                    if (!live()) return;
-                    pieces = undefined;
-                    if (first.output === null) {
-                        answer = planned.answer(first.result, undefined);
-                    } else {
-                        counted = planned.join(first.output);
-                        const joined = await send(counted);
-                        answer = planned.answer(first.result, joined.result);
-                        output = joined.output;
-                        report = joined.report ?? undefined;
-                    }
-                }
-            } catch (err) {
-                if (live()) failed(refusedBy(err, true) ? "refused" : "unreachable", messageOf(err), planned);
+            if (!live()) return;
+            switch (ran.kind) {
+                case "abandoned":
+                    return;
+                case "refused":
+                    ended({ status: "done", n, plan, result: ran.result, output: undefined, at: new Date(), ms: 0, planned: undefined, pieces: undefined, report: undefined });
+                    return;
+                case "failed":
+                    failed(ran.reason, ran.message, ran.planned);
+                    return;
+                case "answered":
+                    break;
+            }
+            const { answer, weights, opened, pieces, report, counted } = ran;
+            if (ran.planned.kind === "one_shot") {
+                answered(ran.planned, ran.reading, answer, (result) => runOutput(plan, result), undefined, undefined);
                 return;
             }
-            if (!live()) return;
-            // The pieces its report says it cut: which a call that never said them as it went says once it answered (#1105).
-            if (report !== undefined) pieces = Number(report.pieces);
             // The source's count is its dataset's stored rows; a rows result's, the call's.
             const rows = plan.split.source === undefined ? undefined : weights.get(plan.split.source)?.rows;
             const known: ReadonlyMap<string, number> = rows === undefined ? NO_COUNTS : new Map([[SOURCE_COUNT, rows]]);
-            // An answer too large for one, which no final step made — the assembled output itself — is read a page at a time (#1113).
-            let paged: PagedResult | undefined;
-            if (answer.outcome.type === "too_large" && counted?.then.type === "none" && output !== null && collection !== undefined) {
-                try {
-                    paged = pagedResultOf(await collection(output));
-                } catch {
-                    // Not opened: the answer stays too large.
-                }
-                if (!live()) return;
-            }
+            // An output opened, read a page at a time (#1113): an Array's or a Set's rows.
+            const paged: PagedResult | undefined = opened === undefined ? undefined : pagedResultOf(opened);
             const readOutput = (result: QueryResult): RunOutput | undefined => (paged === undefined ? runOutput(plan.split, result, known)
                 : { type: paged.type, value: undefined, counts: known.size === 0 ? undefined : known, total: undefined, truncated: false, paged });
             // How its units ran, for a call that gave its output: a unit that failed is neither run nor served (#1105).
             const gave = answer.outcome.type === "success" || answer.outcome.type === "too_large";
-            const read = answered(planned, planned.reading, answer, readOutput, pieces, gave ? report : undefined);
+            const read = answered(ran.planned, ran.reading, answer, readOutput, pieces, gave ? report : undefined);
             // A call that answered with no report — a host's — before it said how many pieces it cut, and cut some: one e3 found wrong cut none.
             if (read && pieces === undefined && counted !== undefined && answer.outcome.type !== "invalid") countPieces(counted);
         })();

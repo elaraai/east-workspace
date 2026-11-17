@@ -16,8 +16,9 @@
  * frameless component (`frame: "none"`) is bare; a placement whose component
  * the surface does not list is a placeholder naming its key, and one whose
  * key two listed components share is an error naming it. A text block is its
- * heading over its paragraphs, bare. A visual is a tile naming its view and
- * its source; one whose source the surface does not list says so.
+ * heading over its paragraphs, bare. A visual is a tile that asks its
+ * programs on e3 and draws its state (#1670); one whose source the surface
+ * does not list says so.
  *
  * @packageDocumentation
  */
@@ -37,9 +38,11 @@ import {
     type SnapGridLayoutCell,
 } from "@elaraai/east-ui-components";
 
+import { VisualAnswersProvider } from "../query/visual/answers.js";
 import { useStudioMessages } from "./messages.js";
 import { studioEast } from "./studio-east.js";
 import { StudioText } from "./text.js";
+import { StudioVisualTile } from "./visual-tile.js";
 
 /** The renderer's payload, decoded. */
 type StudioPageValue = ValueTypeOf<typeof StudioPageComponent.schema>;
@@ -114,15 +117,15 @@ export interface StudioPlacementProps {
  * One placement's content, by what it holds: its component's own UI — a
  * placeholder naming its component's key when the surface lists none under
  * it, an error naming the key when two listed components share it; a text
- * block's heading and paragraphs; a visual's view and source by name, or that
- * the surface lists no source of its key.
+ * block's heading and paragraphs; a visual's tile, which asks its programs
+ * under the {@link VisualAnswersProvider} around it, or that the surface lists
+ * no source of its key.
  *
  * @param props - What it holds, the listed components and the listed sources' names
  * @returns The content
  */
 export function StudioPlacement({ content, listed: byKey, sources, storageKey }: StudioPlacementProps) {
     const m = useStudioMessages();
-    const east = studioEast();
     if (content.type === "text") return <StudioText text={content.value} />;
     if (content.type === "visual") {
         const visual = content.value;
@@ -132,7 +135,7 @@ export function StudioPlacement({ content, listed: byKey, sources, storageKey }:
                     title={m.noSource({ key: visual.source })} description={m.noSourceHint()} />
             );
         }
-        return <EmptyStateView icon={{ prefix: "fas", name: east.viewIcon(visual.view) }} title={east.visualWords(visual, sources)} />;
+        return <StudioVisualTile content={content} names={sources} />;
     }
     const key = content.value;
     const listed = byKey.get(key) ?? [];
@@ -188,12 +191,14 @@ export function StudioLayout({ cells, components, sources, storageKey }: StudioL
         cell,
     })), [east, cells, frames]);
     return (
-        <SnapGridTiles
-            cells={tiles}
-            content={(tile) => (
-                <StudioPlacement content={tile.cell.content} listed={listed} sources={names} storageKey={`${storageKey}.${tile.key}`} />
-            )}
-        />
+        <VisualAnswersProvider sources={sources}>
+            <SnapGridTiles
+                cells={tiles}
+                content={(tile) => (
+                    <StudioPlacement content={tile.cell.content} listed={listed} sources={names} storageKey={`${storageKey}.${tile.key}`} />
+                )}
+            />
+        </VisualAnswersProvider>
     );
 }
 
