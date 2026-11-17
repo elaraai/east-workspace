@@ -6,9 +6,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
   canonicalDistributionName, installedFilesDigest, leftToTier, pythonMinor, pythonSatisfies, readTierManifest, recordedSiteFiles, tierHolds, tierManifestDigest,
   type TierManifest,
@@ -209,6 +209,23 @@ describe('a tier manifest', () => {
         }
         const named = readTierManifest(Buffer.from(tierManifestOf(python))).namespaces;
         assert.deepEqual(named.filter((name) => !manifest.namespaces.includes(name)), ['aa_namespace', 'zz_namespace'], 'sorted, and none that has an `__init__` module');
+
+        // A runtime image's own shape: its packages in a virtualenv that the
+        // system's interpreter made itself (`python3 -m venv /opt/venv`)
+        const image = join(dir, 'image');
+        execFileSync(manifest.python.base, ['-m', 'venv', '--without-pip', image], { stdio: 'ignore' });
+        const imagePython = join(image, 'bin', 'python');
+        execFileSync('uv', ['pip', 'install', '--python', imagePython, 'idna==3.10'], { stdio: 'ignore' });
+        const made = readTierManifest(Buffer.from(tierManifestOf(imagePython)));
+        const home = /^home\s*=\s*(.*?)\s*$/m.exec(readFileSync(join(image, 'pyvenv.cfg'), 'utf8'))![1]!;
+        assert.equal(made.python.executable, imagePython);
+        // The interpreter that made it, in the directory the virtualenv calls its home: what an
+        // environment built over this tier names as its own home, where the standard library is found
+        assert.ok(!made.python.base.startsWith(image), made.python.base);
+        assert.equal(realpathSync(dirname(made.python.base)), realpathSync(home));
+        assert.ok(made.python.site.startsWith(join(image, 'lib')) && made.python.site.endsWith('site-packages'), made.python.site);
+        assert.equal(made.python.version, manifest.python.version);
+        assert.deepEqual(made.distributions.map(({ name, version }) => `${name}==${version}`), ['idna==3.10']);
         // This module's digest of each installed distribution is the script's
         for (const held of manifest.distributions) {
           const info = readdirSync(manifest.python.site).find((entry) => entry.endsWith('.dist-info') && canonicalDistributionName(entry).startsWith(`${held.name}-`))!;

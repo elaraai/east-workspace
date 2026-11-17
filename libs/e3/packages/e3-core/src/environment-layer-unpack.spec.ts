@@ -148,6 +148,27 @@ describe('an environment built over a tier, composed over it', { skip: process.p
     assert.deepStrictEqual(everything(dir).sort(), ['.venv', '.venv/bin', '.venv/bin/python', '.venv/bin/python3', '.venv/pyvenv.cfg']);
   });
 
+  it('composes where the tier is not: its interpreter is linked as a path and never looked at, and only that link is written', async () => {
+    // The tree alone, as where an environment's disk is made from its layers: the tier's image is not unpacked there
+    const absent = '/opt/e3-no-such-tier/python/bin/python3.12';
+    assert.ok(!fs.existsSync('/opt/e3-no-such-tier'), 'no file of this machine');
+    const dir = environment(path.join('stage', 'var', 'task', '.e3-env'), path.posix.dirname(absent));
+    fs.writeFileSync(path.join(tmp, 'stage', 'beside'), 'not the environment\'s');
+    const config = fs.readFileSync(path.join(dir, '.venv', 'pyvenv.cfg'), 'utf8');
+    const before = everything(tmp);
+
+    await composeEnvironmentOverTier(dir, absent);
+    const link = path.join(dir, '.venv', 'bin', 'python');
+    assert.strictEqual(fs.readlinkSync(link), absent, 'the tier\'s path, as it was given');
+    assert.ok(fs.lstatSync(link).isSymbolicLink() && !fs.existsSync(link), 'a link that names no file here');
+    // The one link, beneath the directory given: nothing beside it, and nothing where the interpreter would be
+    assert.deepStrictEqual(everything(tmp).sort(), [...before, 'stage/var/task/.e3-env/.venv/bin/python'].sort());
+    assert.ok(!fs.existsSync('/opt/e3-no-such-tier'));
+    // It is the last write: the virtualenv's own files are as its layers left them
+    assert.strictEqual(fs.readFileSync(path.join(dir, '.venv', 'pyvenv.cfg'), 'utf8'), config);
+    assert.strictEqual(fs.readlinkSync(path.join(dir, '.venv', 'bin', 'python3')), 'python', 'the virtualenv\'s other names reach it by the link');
+  });
+
   it('refuses an environment built over another interpreter, an interpreter that is no absolute path, and a virtualenv whose directories are not real, linking nothing', async () => {
     const other = environment('other', '/usr/local/bin');
     await assert.rejects(() => composeEnvironmentOverTier(other, '/usr/bin/python3'),

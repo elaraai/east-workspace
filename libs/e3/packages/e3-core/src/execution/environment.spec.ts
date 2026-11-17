@@ -1044,7 +1044,9 @@ describe('materializeEnvironmentFor: an environment installed for a platform tha
       // pins and another version of the other; and a path file of its own,
       // which adds a directory of one module
       const tier = path.join(work, 'tier');
-      uv(['venv', tier], work);
+      // Made as an image makes its own: by the interpreter itself (`python3 -m venv /opt/venv`)
+      const system = execFileSync('uv', ['python', 'find'], { encoding: 'utf-8', cwd: work }).trim();
+      execFileSync(system, ['-m', 'venv', '--without-pip', tier], { stdio: 'ignore' });
       const tierPython = path.join(tier, 'bin', 'python');
       uv(['pip', 'install', '--python', tierPython, `idna==${locked('idna')}`, 'six==1.16.0',
         `jaraco.classes==${locked('jaraco-classes')}`, `more-itertools==${locked('more-itertools')}`, 'jaraco.functools==4.0.0'], work);
