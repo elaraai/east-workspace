@@ -10,6 +10,8 @@
  * lock, and says where they part.
  */
 
+import { execFileSync } from 'node:child_process';
+
 /**
  * The extras whose pins are held to a lock: for each package, the manifest,
  * the lock, and for each pinned distribution the extras that pin it.
@@ -27,59 +29,38 @@ function canonicalName(name) {
   return name.toLowerCase().replace(/[-_.]+/g, '-');
 }
 
+/** Reads a manifest on its stdin as TOML, and writes its extras as JSON. */
+const READ_EXTRAS = [
+  'import json, sys, tomllib',
+  'manifest = tomllib.loads(sys.stdin.read())',
+  'json.dump(manifest.get("project", {}).get("optional-dependencies", {}), sys.stdout)',
+].join('\n');
+
 /**
  * The requirement strings of each extra of a `pyproject.toml`.
  *
- * Reads the `[project.optional-dependencies]` table for what such a table
- * holds: arrays of strings, with comments. It is not a TOML parser, and reads
- * nothing else of the file.
+ * The manifest is read as TOML by Python's `tomllib`, as
+ * scripts/east-py-constraints.py reads one: what uv reads, this reads.
  *
  * @param pyproject - The manifest's text
  * @returns Each extra's requirements, in the manifest's order
- * @throws {Error} When the table holds what is not an array of strings
+ * @throws {Error} When the manifest is not TOML, or its
+ *   `[project.optional-dependencies]` holds what is not an array of strings
  */
 export function extraRequirements(pyproject) {
+  let read;
+  try {
+    read = execFileSync('python3', ['-c', READ_EXTRAS], { input: pyproject, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+  } catch (error) {
+    const said = typeof error.stderr === 'string' && error.stderr.trim() !== '' ? error.stderr.trim().split('\n').at(-1) : String(error);
+    throw new Error(`the manifest is not read as TOML: ${said}`);
+  }
   const extras = new Map();
-  const lines = pyproject.split(/\r?\n/);
-  const start = lines.findIndex((line) => line.trim() === '[project.optional-dependencies]');
-  if (start === -1) return extras;
-  const rest = lines.slice(start + 1);
-  const end = rest.findIndex((line) => /^\[/.test(line));
-  const table = (end === -1 ? rest : rest.slice(0, end)).join('\n');
-  let at = 0;
-  /** Skips blanks and comments. */
-  const skip = () => {
-    for (;;) {
-      while (at < table.length && /\s/.test(table[at])) at++;
-      if (table[at] !== '#') return;
-      while (at < table.length && table[at] !== '\n') at++;
+  for (const [name, requirements] of Object.entries(JSON.parse(read))) {
+    if (!Array.isArray(requirements) || !requirements.every((requirement) => typeof requirement === 'string')) {
+      throw new Error(`[project.optional-dependencies]: the extra '${name}' is not an array of strings`);
     }
-  };
-  const fail = (what) => { throw new Error(`[project.optional-dependencies]: ${what} at offset ${at}`); };
-  for (skip(); at < table.length; skip()) {
-    const key = /^[A-Za-z0-9_-]+/.exec(table.slice(at));
-    if (key === null) fail('expected an extra\'s name');
-    at += key[0].length;
-    skip();
-    if (table[at] !== '=') fail(`expected '=' after '${key[0]}'`);
-    at++;
-    skip();
-    if (table[at] !== '[') fail(`the extra '${key[0]}' is not an array`);
-    at++;
-    const requirements = [];
-    for (skip(); table[at] !== ']'; skip()) {
-      const quote = table[at];
-      if (quote !== '"' && quote !== '\'') fail(`the extra '${key[0]}' holds what is not a string`);
-      const close = table.indexOf(quote, at + 1);
-      if (close === -1) fail(`the extra '${key[0]}' holds a string that does not end`);
-      requirements.push(table.slice(at + 1, close));
-      at = close + 1;
-      skip();
-      if (table[at] === ',') at++;
-      else if (table[at] !== ']') fail(`expected ',' or ']' in the extra '${key[0]}'`);
-    }
-    at++;
-    extras.set(key[0], requirements);
+    extras.set(name, requirements);
   }
   return extras;
 }

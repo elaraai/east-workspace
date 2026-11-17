@@ -187,8 +187,13 @@ if (errors.length > 0) {
 // its workspace's lock holds, the same in every extra: the release's images
 // are built under the lock's pins, so a project that asks for the extras
 // then locks the build its tier image holds (#1662).
-const pinErrors = PINNED_EXTRAS.flatMap((pinned) => extrasPinErrors(
-  fs.readFileSync(path.join(repoRoot, pinned.file), 'utf8'), fs.readFileSync(path.join(repoRoot, pinned.lock), 'utf8'), pinned));
+const pinErrors = PINNED_EXTRAS.flatMap((pinned) => {
+  try {
+    return extrasPinErrors(fs.readFileSync(path.join(repoRoot, pinned.file), 'utf8'), fs.readFileSync(path.join(repoRoot, pinned.lock), 'utf8'), pinned);
+  } catch (error) {
+    return [`${pinned.file}: ${error instanceof Error ? error.message : String(error)}`];
+  }
+});
 if (pinErrors.length > 0) {
   console.error(`An extra's pin is not its lock's:`);
   for (const e of pinErrors) console.error(`  - ${e}`);

@@ -35,6 +35,15 @@ describe('the exact pins an extra holds, against the lock', () => {
     assert.deepEqual([...extraRequirements('[project]\nname = "pkg"\n')], [], 'a manifest with no extras has none');
   });
 
+  it('reads the manifest as TOML: a comment after the table\'s header, an indented header after it, and an escaped quote in a marker', () => {
+    const read = extraRequirements('[project]\nname = "pkg"\n\n[project.optional-dependencies]  # extras\n' +
+      'torch = ["torch==2.15.0 ; sys_platform == \\"linux\\""]\n\n  [build-system]\n  requires = ["hatchling"]\n');
+    assert.deepEqual([...read], [['torch', ['torch==2.15.0 ; sys_platform == "linux"']]]);
+    assert.throws(() => extraRequirements('[project.optional-dependencies]\ntorch = ["torch==2.15.0"\n'), /the manifest is not read as TOML: /);
+    assert.throws(() => extraRequirements('[project.optional-dependencies]\ntorch = "torch==2.15.0"\n'),
+      /the extra 'torch' is not an array of strings/);
+  });
+
   it('reads the versions a lock holds a package at, by its name as PEP 503 writes it', () => {
     assert.deepEqual(lockedVersions(held, 'numpy'), ['2.3.5', '2.4.4']);
     assert.deepEqual(lockedVersions(held, 'PyTorch_Lightning'), ['2.6.6']);
