@@ -135,6 +135,26 @@ export function readHashes(result: QueryResult): ReadonlyMap<string, string> {
     return new Map(result.inputs.map(input => [input.name, input.hash]));
 }
 
+/**
+ * The hashes an answer is kept by: each data source the run read, by the hash
+ * it read; and each it reads that the run named no hash for — a run that ended
+ * before it read, with the checker's problems or a refusal — by the hash its
+ * asker saw, so the answer stands until that source moves.
+ *
+ * @param request - the request: the data sources it reads
+ * @param asked - each data source's hash as the asker saw it
+ * @param read - each data source's hash as the run read it
+ * @returns the hashes to keep the answer by
+ */
+function keptHashes(request: KeptRequest, asked: ReadonlyMap<string, string>, read: ReadonlyMap<string, string>): ReadonlyMap<string, string> {
+    const kept = new Map(read);
+    for (const source of request.reads) {
+        const hash = asked.get(source);
+        if (hash !== undefined && !kept.has(source)) kept.set(source, hash);
+    }
+    return kept;
+}
+
 /** A run in flight: its answer, how to give it up, and how many still wait for it. */
 interface InFlight<V> {
     readonly answer: Promise<V | undefined>;
@@ -183,7 +203,9 @@ export class AnswerCache<R extends KeptRequest, V> {
     /**
      * Runs a request's program unless the cache holds its answer: once per
      * program and hashes, however often it is asked for while the run is in
-     * flight.
+     * flight. The answer is kept by the hashes the run read, and a source the
+     * run named none for by the hash in `hashes` — so an answer that ended
+     * before reading, a problem, stands until that source moves.
      *
      * @param request - the request
      * @param hashes - each data source's current hash, by name
@@ -201,7 +223,7 @@ export class AnswerCache<R extends KeptRequest, V> {
             const answer = this.run(request, controller.signal).then(result => {
                 if (this.pending.get(key) === inFlight) this.pending.delete(key);
                 if (result === undefined) return undefined;
-                this.entries.set(request.prefix, result);
+                this.entries.set(request.prefix, { value: result.value, hashes: keptHashes(request, hashes, result.hashes) });
                 return result.value;
             }, (err: unknown) => {
                 // A run that failed keeps nothing: its askers hear why, and the next ask runs again.
