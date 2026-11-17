@@ -13,14 +13,68 @@
  * write protocol differs.
  */
 
-import type { EastType, ValueTypeOf } from '@elaraai/east';
+import type { DictType, EastType, FunctionType, NullType, PatchTypeOf, SetType, StructType, ValueTypeOf } from '@elaraai/east';
 import { isValueOf, printType, variant } from '@elaraai/east';
+import { editTypeOf } from '@elaraai/e3-types';
 import type { DataTreeDef, MigrationDef, MutationDef, RecordDef, RecordIndexDef } from './types.js';
 import {
   INDEX_BUILDER, MIGRATION_BUILDER, MUTATION_BUILDER, RECORD_PART,
   type IndexBuilder, type IndexDraft, type IndexesOf, type MigrationBuilder, type MigrationDraft, type MutationBuilder, type MutationDraft, type MutationsOf,
 } from './record-builders.js';
 import { sameEastType } from './record-guards.js';
+
+/**
+ * The capability an `edit` body writes a Dict record through, as an East type:
+ * `set`, `delete` and `update` over the keys it may write.
+ *
+ * @typeParam K - The key type it writes
+ * @typeParam V - The record's row type
+ */
+export type EditCapability<K extends EastType, V extends EastType> = StructType<{
+  set: FunctionType<[K, V], NullType>;
+  delete: FunctionType<[K], NullType>;
+  update: FunctionType<[K, PatchTypeOf<V>], NullType>;
+}>;
+
+/** A Dict record's key type, or a Set record's element type; none for any other record. */
+export type RecordKeyOf<T> = T extends DictType<infer K, EastType> ? K : T extends SetType<infer K> ? K : undefined;
+
+/** The capability a Dict record's `edit` bodies write through, over its every key; none for any other record. */
+export type RecordEditOf<T> = T extends DictType<infer K extends EastType, infer V extends EastType> ? EditCapability<K, V> : undefined;
+
+/**
+ * A record's types, as its declaration is handed them: the second argument of
+ * `indexes`, `mutations` and `migrations`, beside each one's builder, so a
+ * part's function is typed by the record without naming its type again.
+ *
+ * @typeParam T - The record's state type
+ * @typeParam E - The type of the capability its `edit` bodies write through
+ *
+ * @example
+ * ```ts
+ * const plans = e3.record('plans', DictType(StringType, PlanType), {
+ *   initial: new Map(),
+ *   mutations: (mutation, { state, edit }) => ({
+ *     // The body's state and its capability are the record's, by its own types
+ *     retitle: mutation.edit(East.function([state, StringType, StringType, edit], NullType, ($, plans, id, title, edit) => {
+ *       const plan = $.let(plans.get(id));
+ *       $(edit.set(id, { title, owner: plan.owner }));
+ *     })),
+ *   }),
+ * });
+ * ```
+ */
+export interface RecordTypes<T extends EastType, E = RecordEditOf<T>> {
+  /** The record's state type. */
+  readonly state: T;
+  /** A Dict record's key type, or a Set record's element type; undefined for
+   *  any other record. */
+  readonly key: RecordKeyOf<T>;
+  /** The capability an `edit` body writes through, its last parameter: what
+   *  `e3.mutation.editType(state)` gives. Undefined for a record that is not
+   *  a Dict, which an `edit` does not write. */
+  readonly edit: E;
+}
 
 /**
  * What `e3.record` takes beside its name and type: its initial state, and its
@@ -38,12 +92,27 @@ export interface RecordConfig<T extends EastType, I extends object, M extends ob
    * reads it. Omitted for a record whose first state is committed from outside.
    */
   readonly initial?: NoInfer<ValueTypeOf<T>> | (() => NoInfer<ValueTypeOf<T>>);
-  /** Its indexes by name, from the `index` builder. */
-  readonly indexes?: (index: IndexBuilder<T>) => I;
-  /** Its mutations by name, from the `mutation` builder. */
-  readonly mutations?: (mutation: MutationBuilder<T>) => M;
-  /** Its migrations in order, each named, from the `migration` builder. */
-  readonly migrations?: (migration: MigrationBuilder) => readonly MigrationDraft[];
+  /** Its indexes by name, from the `index` builder, which is handed the record's types beside it. */
+  readonly indexes?: (index: IndexBuilder<T>, types: RecordTypes<T>) => I;
+  /** Its mutations by name, from the `mutation` builder, which is handed the record's types beside it. */
+  readonly mutations?: (mutation: MutationBuilder<T>, types: RecordTypes<T>) => M;
+  /** Its migrations in order, each named, from the `migration` builder, which is handed the record's types beside it. */
+  readonly migrations?: (migration: MigrationBuilder, types: RecordTypes<T>) => readonly MigrationDraft[];
+}
+
+/**
+ * A record's types as its declaration is handed them ({@link RecordTypes}),
+ * read off its state type.
+ *
+ * @param type - The record's state type
+ * @returns Its types: the state, a Dict's key or a Set's element type, and a Dict's edit capability
+ */
+function typesOf(type: EastType): RecordTypes<EastType, EastType | undefined> {
+  return {
+    state: type,
+    key: type.type === 'Dict' || type.type === 'Set' ? type.key : undefined,
+    edit: type.type === 'Dict' ? editTypeOf(type) : undefined,
+  };
 }
 
 /**
@@ -90,7 +159,10 @@ export function isRecord(value: unknown): value is RecordDef {
  * Its parts are declared through the builders it hands each: `indexes` gets
  * `index` and returns them by name, `mutations` gets `mutation` and returns
  * them by name, and `migrations` gets `migration` and returns its steps in
- * order, each named. Each is built and checked here, every refusal naming the
+ * order, each named. Each is handed the record's types as a second argument,
+ * `{ state, key, edit }` ({@link RecordTypes}), so a part's function is typed
+ * by the record without naming its type again:
+ * `mutations: (mutation, { state, edit }) => …`. Each is built and checked here, every refusal naming the
  * record and the part, and the record's type carries each by its name — so a
  * binding names them, and TypeScript holds each name to the record. The parts
  * are frozen: nothing adds to a record once declared.
@@ -168,8 +240,9 @@ export function record(name: string, type: EastType, declared?: unknown): Record
     Object.defineProperty(rec, 'default', { enumerable: true, get: () => (state ??= { value: (initial as () => unknown)() }).value });
   }
   // Each part is built in the order declared, over the record itself: an index or a mutation under its key, a
-  // migration after the step before it.
-  for (const [key, draft] of partsOf(where, 'indexes', config?.indexes?.(INDEX_BUILDER as unknown as IndexBuilder<EastType>))) {
+  // migration after the step before it. Each part's function is handed the record's types beside its builder.
+  const types = typesOf(type) as RecordTypes<EastType>;
+  for (const [key, draft] of partsOf(where, 'indexes', config?.indexes?.(INDEX_BUILDER as unknown as IndexBuilder<EastType>, types))) {
     rec.indexes[key] = builderOf(where, 'index', key, draft).build(rec, key);
   }
   checkEntries(where, Object.values(rec.indexes));
@@ -183,10 +256,10 @@ export function record(name: string, type: EastType, declared?: unknown): Record
     }
     rec.indexes[companion.name] = companion;
   }
-  for (const [key, draft] of partsOf(where, 'mutations', config?.mutations?.(MUTATION_BUILDER as unknown as MutationBuilder<EastType>))) {
+  for (const [key, draft] of partsOf(where, 'mutations', config?.mutations?.(MUTATION_BUILDER as unknown as MutationBuilder<EastType>, types))) {
     rec.mutations[key] = builderOf(where, 'mutation', key, draft).build(rec, key);
   }
-  const steps: unknown = config?.migrations?.(MIGRATION_BUILDER as unknown as MigrationBuilder);
+  const steps: unknown = config?.migrations?.(MIGRATION_BUILDER as unknown as MigrationBuilder, types);
   if (steps !== undefined) {
     if (!Array.isArray(steps)) {
       throw new Error(`${where}: migrations returns the steps in order, as a list — [migration.rows('add_site', fn), …]`);

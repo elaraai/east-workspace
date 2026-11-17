@@ -151,7 +151,7 @@ export type { FunctionSpec } from './function.js';
 // Singleton tree definitions
 export { inputsTree } from './input.js';
 export { recordsTree } from './record.js';
-export type { RecordConfig } from './record.js';
+export type { EditCapability, RecordConfig, RecordEditOf, RecordKeyOf, RecordTypes } from './record.js';
 export type {
   IndexBuilder, NestedBuilder, MutationBuilder, MigrationBuilder, IndexDraft, MutationDraft, MigrationDraft,
   IndexesOf, MutationsOf, PlainIndexOptions, PartRunner,
