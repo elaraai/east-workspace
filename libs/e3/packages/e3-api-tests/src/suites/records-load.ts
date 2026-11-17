@@ -12,7 +12,8 @@
  * superseded. A cancel asks, and the job ends itself: cancelled with nothing
  * loaded, or completed once its commit wrote (R85). Where the host does not
  * grant a load it is refused `permission_denied`, naming it (R86). A load the
- * workspace cannot take fails, saying why, and loads nothing.
+ * workspace cannot take fails, saying why, and loads nothing; so does a load
+ * into a source the dataflow loads, naming its feed (R20).
  */
 
 import { describe, it } from 'node:test';
@@ -29,7 +30,7 @@ import {
 
 import type { TestContext } from '../context.js';
 import type { TestSetup } from '../setup.js';
-import { COMPOSITE_ORDERS_PATH, CompositeOrderKeyType, CompositeOrdersType } from '../fixtures.js';
+import { COMPOSITE_ORDERS_PATH, CompositeOrderKeyType, CompositeOrdersType, createFedRecordPackageZip } from '../fixtures.js';
 import { LOAD_WS, deployLoadedOrders, erpDelivery, erpWaits, type ErpOrder } from './object-upload.js';
 
 const decodeOrders = decodeBeast2For(CompositeOrdersType);
@@ -60,6 +61,19 @@ function request(delivery: string, asOf?: Date): RecordLoadRequest {
 /** The as-of of the first delivery, and of an older one. */
 const LATER = new Date('2026-11-02T03:00:00.000Z');
 const EARLIER = new Date('2026-11-01T03:00:00.000Z');
+
+/**
+ * A workspace of the fed fixture, deployed fresh: the dataflow loads
+ * `orders.erp` from the task `combine_erp`, and `orders.wms` from the input
+ * `wms_extract`.
+ *
+ * @param ctx - The test's context
+ */
+async function deployFedOrders(ctx: TestContext): Promise<void> {
+  await ctx.importPackage(await createFedRecordPackageZip(ctx.tempDir, 'fed-load-pkg', '1.0.0'));
+  await ctx.createWorkspace(LOAD_WS);
+  await ctx.deployPackage(LOAD_WS, 'fed-load-pkg@1.0.0');
+}
 
 /**
  * Register the record load tests.
@@ -177,6 +191,19 @@ export function recordLoadTests(setup: TestSetup<TestContext>): void {
         ['orders', 'ftp', 'record \'orders\' has no source \'ftp\''],
       ] as const) {
         await assert.rejects(load(ctx, request(delivery), undefined, source, record), { message: words });
+      }
+      assert.deepEqual(await chain(ctx), ['$init'], 'nothing committed');
+    });
+
+    it('R20 — a load into a source the dataflow loads fails, naming its feed, and loads nothing', async (t) => {
+      const ctx = await setup(t);
+      await deployFedOrders(ctx);
+      const delivery = await upload(ctx, [['SO-1001', ACME]]);
+      for (const [source, words] of [
+        ['erp', 'orders.erp is fed by .tasks.combine_erp.output, and the dataflow loads it'],
+        ['wms', 'orders.wms is fed by .inputs.wms_extract, and the dataflow loads it'],
+      ] as const) {
+        await assert.rejects(load(ctx, request(delivery), undefined, source), { message: words });
       }
       assert.deepEqual(await chain(ctx), ['$init'], 'nothing committed');
     });

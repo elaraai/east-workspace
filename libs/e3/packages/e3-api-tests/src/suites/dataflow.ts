@@ -16,18 +16,27 @@
  * A start made while a run is in flight is handed to that run, where the
  * server's start reaches it ({@link TestContext.wakesRuns}), and one that asks
  * for a run of its own is refused; and a deploy stops a run in flight.
+ *
+ * A composite record whose sources the dataflow loads (#1465): its graph holds
+ * a load node for each (R58), and a run loads each after its feed, its readers
+ * waiting while a load waits on an input that holds its package's value (R51,
+ * R52); a redeploy keeps a value set in that input (R68).
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { IntegerType, StringType, encodeBeast2For, decodeBeast2For, isValueOf, lessFor, variant } from '@elaraai/east';
-import { TaskLogChunkType } from '@elaraai/e3-types';
+import {
+  IntegerType, SortedMap, StringType, compareFor, encodeBeast2For, decodeBeast2For, equalFor, isValueOf, lessFor, none, printFor, some, variant,
+  type ValueTypeOf,
+} from '@elaraai/east';
+import { DataflowGraphTaskType, InputPlanType, TaskLogChunkType, type DataflowGraphTask, type DataflowResult, type InputPlan } from '@elaraai/e3-types';
 import {
   packageImport,
   workspaceCreate,
   workspaceDeploy,
+  workspaceRecordHistory,
   workspaceRemove,
   workspaceStatus,
   dataflowExecuteLaunch,
@@ -46,7 +55,13 @@ import {
 import type { TestContext } from '../context.js';
 import type { TestSetup } from '../setup.js';
 import {
+  COMPOSITE_ORDERS_PATH,
+  CompositeOrderRowType,
+  ErpOrdersType,
+  FedOrderKeyType,
+  FedOrdersType,
   LOGGED_LINES,
+  createFedRecordPackageZip,
   createPackageZip,
   createDiamondPackageZip,
   createFailingPackageZip,
@@ -76,6 +91,39 @@ async function rejectsBadRequest(call: Promise<unknown>, message: string): Promi
     assert.strictEqual(err.details, message);
     return true;
   });
+}
+
+/** A row of the fed fixture's record. */
+type FedOrder = ValueTypeOf<typeof CompositeOrderRowType>;
+
+const sameNode = equalFor(DataflowGraphTaskType);
+const printNode = printFor(DataflowGraphTaskType);
+const samePlan = equalFor(InputPlanType);
+const printPlan = printFor(InputPlanType);
+const sameFedOrders = equalFor(FedOrdersType);
+const printFedOrders = printFor(FedOrdersType);
+const decodeFedOrders = decodeBeast2For(FedOrdersType);
+const byText = compareFor(StringType);
+
+/**
+ * The fed fixture's record holding these orders, each under its source.
+ *
+ * @param orders - Each order's key, its source's case on it, and its row
+ * @returns The record's state
+ */
+function fedOrders(orders: ReadonlyArray<readonly [ValueTypeOf<typeof FedOrderKeyType>, FedOrder]>): ValueTypeOf<typeof FedOrdersType> {
+  return new SortedMap(orders.map(([key, row]) => [key, row] as const), compareFor(FedOrderKeyType));
+}
+
+/**
+ * What a run did with each task it reports: `<task> done`, or `<task> cached`
+ * where the cache answered it, in the order of their names.
+ *
+ * @param result - The run
+ * @returns The lines
+ */
+function ranLines(result: DataflowResult): string[] {
+  return result.tasks.map((task) => `${task.name} ${task.cached ? 'cached' : 'done'}`).sort(byText);
 }
 
 /** Helper: import package, create workspace, deploy */
@@ -187,6 +235,7 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
   const withLogPag = withDeployed(setup, createLoggingPackageZip, 'logpag-pkg', 'logpag-ws');
   const withEvtPag = withDeployed(setup, createDiamondPackageZip, 'evtpag-pkg', 'evtpag-ws');
   const withPartial = withDeployed(setup, createPartialPackageZip, 'partial-pkg', 'partial-ws');
+  const withFed = withDeployed(setup, createFedRecordPackageZip, 'fed-pkg', 'fed-ws');
 
   describe('dataflow', { concurrency: false }, () => {
     describe('simple execution', { concurrency: false }, () => {
@@ -1068,6 +1117,93 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         const reportPath = [variant('field', 'tasks'), variant('field', 'report'), variant('field', 'output')];
         const { data } = await datasetGet(ctx.config.baseUrl, ctx.repoName, 'partial-ws', reportPath, opts);
         assert.strictEqual(decodeBeast2For(IntegerType)(data), 4n, 'report = (a + b) + 1 = 4');
+      });
+    });
+
+    // A composite record whose sources the dataflow loads: orders.erp fed by
+    // the task combine_erp, and orders.wms by the input wms_extract, which
+    // holds its package's value until someone sets it.
+    describe('sources the dataflow loads', { concurrency: false }, () => {
+      it('R58 — the graph holds a load node for each fed source, depending on the task that writes its feed; no node depends on a load node, and the record stays a root input', async (t) => {
+        const ctx = await withFed(t);
+        const graph = await dataflowGraph(ctx.config.baseUrl, ctx.repoName, 'fed-ws', await ctx.opts());
+
+        const nodes: ReadonlyArray<Omit<DataflowGraphTask, 'hash'>> = [
+          { name: 'combine_erp', inputs: ['.inputs.erp_book'], output: '.tasks.combine_erp.output', dependsOn: [], load: none },
+          { name: 'tally', inputs: ['.records.orders'], output: '.tasks.tally.output', dependsOn: [], load: none },
+          {
+            name: 'orders.erp', inputs: ['.tasks.combine_erp.output'], output: '.records.orders', dependsOn: ['combine_erp'],
+            load: some({ record: 'orders', source: 'erp' }),
+          },
+          { name: 'orders.wms', inputs: ['.inputs.wms_extract'], output: '.records.orders', dependsOn: [], load: some({ record: 'orders', source: 'wms' }) },
+        ];
+        assert.deepStrictEqual(graph.tasks.map((node) => node.name).sort(byText), nodes.map((node) => node.name).sort(byText),
+          'a node a task, and one a fed source');
+        for (const node of nodes) {
+          const served = graph.tasks.find((each) => each.name === node.name);
+          assert.ok(served !== undefined && sameNode(served, { ...node, hash: served.hash }), served === undefined ? node.name : printNode(served));
+        }
+      });
+
+      it('R51, R52, R68 — a run loads each fed source after its feed, its readers waiting while a load waits on an input that holds its package\'s value; once the input is set the next run loads it and runs them; a redeploy keeps the value set, saying so', async (t) => {
+        const ctx = await withFed(t);
+        const opts = await ctx.opts();
+        const url = ctx.config.baseUrl;
+        const run = async (what: string): Promise<DataflowResult> => {
+          const result = await dataflowExecute(url, ctx.repoName, 'fed-ws', {}, opts);
+          assertDataflowSucceeded(result, what);
+          return result;
+        };
+        const held = async (): Promise<ValueTypeOf<typeof FedOrdersType>> =>
+          decodeFedOrders((await datasetGet(url, ctx.repoName, 'fed-ws', COMPOSITE_ORDERS_PATH, opts)).data);
+        const commits = async () => (await workspaceRecordHistory(url, ctx.repoName, 'fed-ws', 'orders', undefined, opts)).commits;
+        const acme = { customer: 'Acme', qty: 5n };
+        const cedar = { customer: 'Cedar', qty: 7n };
+        const own: readonly [ValueTypeOf<typeof FedOrderKeyType>, FedOrder] = [variant('own', 'P-1'), { customer: 'Birch', qty: 2n }];
+
+        // The ERP's orders load once combine_erp has run, which drops the
+        // one that asks for none; orders.wms waits on its input, and tally
+        // with it
+        const first = await run('the first run');
+        assert.deepStrictEqual(ranLines(first), ['combine_erp done', 'orders.erp done'], describeDataflowResult(first));
+        assert.deepStrictEqual([first.executed, first.waiting], [2n, 2n], 'orders.wms and tally wait');
+        const loaded = await held();
+        assert.ok(sameFedOrders(loaded, fedOrders([[variant('erp', 'SO-1001'), acme], own])), printFedOrders(loaded));
+        const [erp] = await commits();
+        assert.deepStrictEqual([erp?.mutation, erp?.actor], ['$load:erp', 'system:dataflow'], 'one commit, named by the load, which the dataflow made');
+
+        // Someone sets the warehouse's orders: the next run loads them, and
+        // tally runs on the record that holds them
+        const wmsExtract = [variant('field', 'inputs'), variant('field', 'wms_extract')];
+        const set = encodeBeast2For(ErpOrdersType)(new Map([['W-1', cedar]]));
+        await datasetSet(url, ctx.repoName, 'fed-ws', wmsExtract, set, opts);
+        const second = await run('the run after the input was set');
+        assert.deepStrictEqual(ranLines(second), ['combine_erp cached', 'orders.erp cached', 'orders.wms done', 'tally done'], describeDataflowResult(second));
+        assert.strictEqual(second.waiting, 0n);
+        const both = await held();
+        assert.ok(sameFedOrders(both, fedOrders([[variant('erp', 'SO-1001'), acme], [variant('wms', 'W-1'), cedar], own])), printFedOrders(both));
+        assert.deepStrictEqual((await commits()).map((commit) => commit.mutation), ['$load:wms', '$load:erp', '$init']);
+        const tallyPath = [variant('field', 'tasks'), variant('field', 'tally'), variant('field', 'output')];
+        assert.strictEqual(decodeBeast2For(IntegerType)((await datasetGet(url, ctx.repoName, 'fed-ws', tallyPath, opts)).data), 3n);
+
+        // A redeploy keeps the value someone set in the input that feeds a
+        // load, under the default policy, and says so; the next run has
+        // nothing to do
+        const redeployed = await workspaceDeploy(url, ctx.repoName, 'fed-ws', 'fed-pkg@1.0.0', opts);
+        const planOf = (input: string): InputPlan | undefined => redeployed.inputs.find((plan) => plan.input === input);
+        const expected: InputPlan[] = [
+          { input: 'inputs/wms_extract', action: variant('retained', { load: 'orders.wms' }) },
+          { input: 'inputs/erp_book', action: variant('package', null) },
+        ];
+        for (const plan of expected) {
+          const planned = planOf(plan.input);
+          assert.ok(planned !== undefined && samePlan(planned, plan), planned === undefined ? `no plan for ${plan.input}` : printPlan(planned));
+        }
+        const kept = (await datasetGet(url, ctx.repoName, 'fed-ws', wmsExtract, opts)).data;
+        assert.ok(equalFor(ErpOrdersType)(decodeBeast2For(ErpOrdersType)(kept), new Map([['W-1', cedar]])), 'the input holds the value set');
+        const third = await run('the run after the redeploy');
+        assert.deepStrictEqual(ranLines(third), ['combine_erp cached', 'orders.erp cached', 'orders.wms cached', 'tally cached'], describeDataflowResult(third));
+        assert.strictEqual(third.executed, 0n);
       });
     });
 
