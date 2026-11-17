@@ -41,6 +41,7 @@ describeEast("Plan of event kinds — the examples (#1191)", (test) => {
         planPrintWorks: ex.planPrintWorks,
         planEventLinks: ex.planEventLinks,
         planConflicts: ex.planConflicts,
+        planConnect: ex.planConnect,
     });
 }, { platformFns: TestImpl });
 

@@ -1410,3 +1410,127 @@ export const planConflicts = example({
     )),
     inputs: [],
 });
+
+// ============================================================================
+// planConnect — links drawn by hand: the Connect tool, Connect to…, a link kind's templates and the veto
+// ============================================================================
+
+/** The jobs the connect example joins, in a record of their own, so no other example's edits meet them. */
+export const planConnectJobs = e3.record("plan_connect_jobs", DictType(StringType, PrintJob), {
+    initial: new Map([
+        ["J-5001", { title: "Guide covers", start: some(new Date("2026-10-06T06:00:00Z")), end: some(new Date("2026-10-06T18:00:00Z")), press: some("a1"), state: variant("confirmed", null), sheets: 8000.0, customer: "", stock: variant("board", null), due: none }],
+        ["J-5002", { title: "Guide pages", start: some(new Date("2026-10-07T06:00:00Z")), end: some(new Date("2026-10-08T06:00:00Z")), press: some("a2"), state: variant("confirmed", null), sheets: 64000.0, customer: "", stock: variant("uncoated", null), due: none }],
+        ["J-5003", { title: "Guide inserts", start: some(new Date("2026-10-08T06:00:00Z")), end: some(new Date("2026-10-08T18:00:00Z")), press: some("b1"), state: variant("confirmed", null), sheets: 16000.0, customer: "", stock: variant("coated", null), due: none }],
+        ["J-5004", { title: "Guide wraps", start: some(new Date("2026-10-09T06:00:00Z")), end: some(new Date("2026-10-09T18:00:00Z")), press: some("a1"), state: variant("confirmed", null), sheets: 8000.0, customer: "", stock: variant("coated", null), due: none }],
+    ]),
+    mutations: (mutation) => ({
+        // The jobs' patch door — every Save commits through it.
+        patch: mutation.patch(),
+    }),
+});
+
+/** A handover between two print jobs: the job whose sheets leave, the job they go into, how many, and what carries them. */
+export const PrintHandover = StructType({ from: StringType, to: StringType, sheets: FloatType, carrier: StringType });
+
+/** The works' handovers, a record of their own: one to start with, the rest drawn by hand. */
+export const planConnectHandovers = e3.record("plan_connect_handovers", DictType(StringType, PrintHandover), {
+    initial: new Map([
+        ["H-1", { from: "J-5001", to: "J-5002", sheets: 8000.0, carrier: "Pallet" }],
+    ]),
+    mutations: (mutation) => ({
+        // The handovers' patch door — Save writes each one drawn through it.
+        patch: mutation.patch(),
+    }),
+});
+
+/** A handover's preset: its name in the library, and a value for every field of a handover but its two jobs. */
+export const PrintHandoverTemplate = StructType({ name: StringType, values: StructType({ sheets: FloatType, carrier: StringType }) });
+
+/** The handovers' presets. A Plan never writes them: the library lists them, and a handover drawn takes the one held. */
+export const planConnectHandoverTemplates = e3.record("plan_connect_handover_templates", DictType(StringType, PrintHandoverTemplate), {
+    initial: new Map([
+        ["pallet", { name: "Pallet of 5,000", values: { sheets: 5000.0, carrier: "Pallet" } }],
+        ["trolley", { name: "Trolley of 1,000", values: { sheets: 1000.0, carrier: "Trolley" } }],
+    ]),
+});
+
+/**
+ * Links drawn by hand (#1541, U10): a handover of sheets from one print job to
+ * another, a link kind over a record of its own.
+ *
+ * - **By pointer:** pick Connect in the toolbar, then drag from a job onto
+ *   another. The line follows the pointer out of the job's end and snaps into
+ *   the other's start; the drop draws the handover, a draft Save writes with
+ *   the Plan's others.
+ * - **By keyboard:** select a job; its inspector's Connect to lists the jobs a
+ *   handover may run to, and a choice draws it.
+ * - **Templates:** the library's Events tab lists the handovers' presets under
+ *   the kind's name. A click holds one, and a handover drawn takes its sheets
+ *   and its carrier; with none held it takes each field's default.
+ * - **The veto:** `canConnect` is asked of every link before it is drawn, by
+ *   the drag and by Connect to alike. Here the wraps take no handover, and
+ *   the refusal is the app's own words.
+ */
+export const planConnect = example({
+    keywords: [
+        "Plan", "Connect", "connect tool", "draw a link", "links", "Plan.links", "link kind", "templates", "Schedule.templates", "preset",
+        "canConnect", "Plan.Types.ConnectCandidate", "veto", "refusal", "inspector", "Connect to", "keyboard", "library",
+        "Plan.library.events", "Schedule.events", "Plan.series.resources", "Record.bind", "Data.bind", "e3.record", "#1541",
+    ],
+    description: "Links drawn by hand — a handover of sheets from one print job to another, a link kind over a record of its own (Plan.links): the toolbar's Connect tool draws one by a drag from a job onto another, a selected job's inspector draws one by keyboard (Connect to), the library's Events tab holds the kind's templates (Schedule.templates) whose values a new handover takes, and canConnect refuses a link in the app's own words (Plan.Types.ConnectCandidate)",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const presses = $.let(Record.bind(planPrintPresses, []));
+            const jobs = $.let(Record.bind(planConnectJobs));
+            const handovers = $.let(Record.bind(planConnectHandovers));
+            const presets = $.let(Data.bind(planConnectHandoverTemplates));
+            const axis = $.let(Plan.axis({
+                window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-10-12T00:00:00Z") },
+                resolution: "day", now: new Date("2026-10-07T09:00:00Z"),
+            }));
+            // The Plan's one check of a link before it is drawn, over what it would join (`Plan.Types.ConnectCandidate`): the
+            // link kind, and the two events by their kind and key. The wraps are sealed, and take no handover.
+            const canConnect = $.const(East.function([Plan.Types.ConnectCandidate], OptionType(StringType), ($2, candidate) => {
+                const reason = $2.let(none, OptionType(StringType));
+                $2.if(candidate.kind.equal("handover").and(() => candidate.to.key.equal("J-5004")), $3 => {
+                    $3.assign(reason, some("The wraps are sealed; hand over to another job"));
+                });
+                return reason;
+            }));
+            return (
+                <Box height="420px">
+                    <Plan
+                        id="connect"
+                        axis={axis}
+                        data={presses.read()}
+                        series={[Plan.series.resources(PrintPress, { key: "presses", title: "Presses", icon: "print", label: p => p.name })]}
+                        events={{
+                            job: Schedule.events(jobs, {
+                                name: "Print job", icon: "file-lines",
+                                title: "title", start: "start", end: "end",
+                                resource: { field: "press", of: "presses" },
+                                state: "state",
+                            }),
+                        }}
+                        // The handovers, one link kind over a record of its own: each row a link, its ends the keys of the
+                        // two jobs it joins. Its templates are a record's, each a value for every field but the two ends.
+                        links={{
+                            handover: Plan.links(handovers, {
+                                name: "Handover", icon: "arrow-right-long",
+                                from: { field: "from", of: "job" },
+                                to: { field: "to", of: "job" },
+                                quantity: { field: "sheets", unit: "sheets" },
+                                templates: Schedule.templates(presets.read(), { name: t => t.name, values: t => t.values }),
+                            }),
+                        }}
+                        canConnect={canConnect}
+                        // The Events tab lists the handovers' templates; the inspector offers Connect to on a selected job.
+                        library={[Plan.library.events()]}
+                        inspector
+                    />
+                </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
