@@ -285,7 +285,8 @@ export async function startOneShotCall(
  * a transport cut. Its run stops it at that timeout and records it so; should
  * the record not land within a second of the deadline, the request answers
  * `timed_out` itself. A call cancelled while the request waits, or lost, has
- * no result: it is answered `internal`, saying which. Its drafts are put to
+ * no result: it is answered `internal`, saying which, whether the wait heard
+ * of it or the read after the wait found it ({@link syncCallAnswer}). Its drafts are put to
  * `options.admitDraft` as a started call's are ({@link startFunctionCall}).
  *
  * @param storage - Storage backend
@@ -318,38 +319,65 @@ export async function callFunctionInWorkspace(
       sync: options.syncDeadlineMs === undefined ? {} : { deadlineMs: options.syncDeadlineMs },
     });
     const status = await runAndWait(storage, dispatch, repo, repoPath, job, job.deadline.getTime() + SYNC_GRACE_MS - Date.now());
-    switch (status.type) {
-      case 'completed':
-        return sendSuccess(ExecuteResultType, status.value);
-      case 'running': {
-        // Its run stops it at its timeout, which is under the deadline, and
-        // records it timed out too. The call as it stands now: an end recorded
-        // meanwhile is its own, and one still running names its inputs as its
-        // run pinned them once its drafts were laid, as a poll of it will
-        const current = await functionCallRead(storage, repoPath, workspace, job.call.id) ?? job;
-        if (current.call.state.type !== 'running') {
-          const ended = await functionCallStatus(storage, repoPath, current);
-          if (ended.type === 'completed') return sendSuccess(ExecuteResultType, ended.value);
-        }
-        return sendSuccess(ExecuteResultType, {
-          outcome: variant('timed_out', { ms: current.call.limits.timeoutMs }),
-          stdout: '',
-          stderr: '',
-          stdoutTruncated: false,
-          stderrTruncated: false,
-          inputs: functionCallInputs(current),
-          drafts: functionCallDrafted(current),
-        });
-      }
-      case 'cancelled': {
-        const by = status.value.by.type === 'some' ? ` by ${status.value.by.value}` : '';
-        return sendError(ExecuteResultType, variant('internal', { message: `call ${job.call.id} was cancelled${by}, and has no result` }));
-      }
-      case 'lost':
-        return sendError(ExecuteResultType, variant('internal', { message: `call ${job.call.id} was lost: ${status.value.message}` }));
-    }
+    return await syncCallAnswer(storage, repoPath, workspace, job, status);
   } catch (err) {
     return sendError(ExecuteResultType, errorToVariant(err));
+  }
+}
+
+/**
+ * How a sync call's request answers once its wait has ended: the call's
+ * result, or `internal` for a call that has none — cancelled while the request
+ * waited, or lost — saying which.
+ *
+ * @remarks
+ * A call the wait left running is read once more, and answered as it stands
+ * then: an end recorded meanwhile, whichever it is, as the wait's own would
+ * have been — a cancel or a loss is no timeout (#1680's review) — and a call
+ * still running `timed_out`, as its run stops it at its timeout, under the
+ * deadline, and records it so, naming its inputs as its run pinned them once
+ * its drafts were laid, as a poll of it will.
+ *
+ * @param storage - Storage backend
+ * @param repoPath - The repository's identifier, which the store takes
+ * @param workspace - The workspace the call was made through
+ * @param job - The call, as it was filed
+ * @param waited - How it stood when the wait ended
+ * @returns The response: the call's result, or the error that stopped it
+ * @internal Exported for its spec.
+ */
+export async function syncCallAnswer(
+  storage: StorageBackend,
+  repoPath: string,
+  workspace: string,
+  job: FunctionCallJob,
+  waited: FunctionCallStatus,
+): Promise<Response> {
+  let status = waited;
+  let current = job;
+  if (status.type === 'running') {
+    current = await functionCallRead(storage, repoPath, workspace, job.call.id) ?? job;
+    if (current.call.state.type !== 'running') status = await functionCallStatus(storage, repoPath, current);
+  }
+  switch (status.type) {
+    case 'completed':
+      return sendSuccess(ExecuteResultType, status.value);
+    case 'running':
+      return sendSuccess(ExecuteResultType, {
+        outcome: variant('timed_out', { ms: current.call.limits.timeoutMs }),
+        stdout: '',
+        stderr: '',
+        stdoutTruncated: false,
+        stderrTruncated: false,
+        inputs: functionCallInputs(current),
+        drafts: functionCallDrafted(current),
+      });
+    case 'cancelled': {
+      const by = status.value.by.type === 'some' ? ` by ${status.value.by.value}` : '';
+      return sendError(ExecuteResultType, variant('internal', { message: `call ${job.call.id} was cancelled${by}, and has no result` }));
+    }
+    case 'lost':
+      return sendError(ExecuteResultType, variant('internal', { message: `call ${job.call.id} was lost: ${status.value.message}` }));
   }
 }
 

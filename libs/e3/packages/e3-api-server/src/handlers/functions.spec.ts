@@ -26,6 +26,7 @@ import {
   type VariantType,
 } from '@elaraai/east';
 import { InMemoryTransferBackend, MockTaskRunner, type OneShotGrant } from '@elaraai/e3-core';
+import { functionCallStart, type FunctionCallEnd } from '@elaraai/e3-core/portable';
 import { InMemoryStorage } from '@elaraai/e3-core/test';
 import {
   BEAST2_CONTENT_TYPE,
@@ -48,6 +49,7 @@ import {
   allowEveryDraft, createOneShotRoutes, createPackageFunctionRoutes, createWorkspaceFunctionRoutes, oneShotAccessByRoles,
   type DraftAccess, type OneShotAccess,
 } from '../routes/functions.js';
+import { syncCallAnswer } from './calls.js';
 import type { Identity } from '../identity.js';
 import {
   ErrorType,
@@ -442,6 +444,29 @@ describe('draft access', () => {
     }
     assert.equal(await keptCalls(), 0, 'no call is filed');
     assert.equal(runner.getCalls().length + runner.getDetachedCalls().length, 0, 'and nothing runs: no reducer, nor the function');
+  });
+
+  it('answers a sync call its wait left running by how it stands a read later: cancelled or lost meanwhile is said so, never timed_out, and still running is timed_out (#1680\'s review)', async () => {
+    const file = () => functionCallStart(storage, REPO, WS, 'planned', { args: [], runner: none, limits: none, drafts: [] }, { caller: null, grant: 'any', sync: {} });
+    const ended = (state: FunctionCallEnd['state']): FunctionCallEnd => ({
+      state, endedAt: new Date(), expiresAt: new Date(Date.now() + 3_600_000), stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false,
+    });
+    // Filed and never run: the wait ends with it running, and it ends, cancelled or lost, before the request reads it again.
+    for (const [end, said] of [
+      [variant('cancelled', { by: some('a planner') }), /was cancelled by a planner, and has no result$/],
+      [variant('lost', { message: 'its host stopped' }), /was lost: its host stopped$/],
+    ] as const) {
+      const job = await file();
+      await storage.calls.end(REPO, WS, job.call.id, ended(end));
+      const answer = await decodeResponse(await syncCallAnswer(storage, REPO, WS, job, variant('running', null)), ExecuteResultType);
+      assert.ok(answer.type === 'error' && answer.value.type === 'internal', `${end.type}: an internal error`);
+      assert.match(answer.value.value.message, said);
+    }
+    // Still running a read later: its run stops it at its timeout.
+    const running = await file();
+    const answer = await decodeResponse(await syncCallAnswer(storage, REPO, WS, running, variant('running', null)), ExecuteResultType);
+    assert.ok(answer.type === 'success');
+    assert.deepEqual(answer.value.outcome, variant('timed_out', { ms: running.call.limits.timeoutMs }));
   });
 
   it('admits every draft for a host whose rule is allowEveryDraft, and asks nothing of a call that passes none', async () => {
