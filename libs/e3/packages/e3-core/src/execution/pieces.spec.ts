@@ -13,8 +13,8 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import {
-  ArrayType, DictType, IntegerType, StringType, StructType,
-  SortedMap, compareFor, decodeBeast2For, some, none, variant,
+  ArrayType, DictType, IntegerType, StringType, StructType, VariantType,
+  SortedMap, compareFor, decodeBeast2For, some, none, variant, type ValueTypeOf,
 } from '@elaraai/east';
 import { decodeCollectionManifest } from '@elaraai/e3-types';
 import { PIECE_SIZES, pieceBoundaries, pieceSizes, pieceSizesFor, planPieces, type PieceSizes } from './pieces.js';
@@ -199,6 +199,27 @@ describe('planning the pieces of an input', () => {
   /** A stored collection's manifest entries. */
   const entriesOf = async (hash: string) => decodeCollectionManifest(await storage.objects.read(repo, hash)).entries;
 
+  /** `storage` with each object's reads counted by its hash, whole or
+   *  ranged, each write noted in order, and `onWrite` called after each. */
+  function counting(onWrite: (hash: string) => void = () => {}): { counted: StorageBackend; reads: Map<string, number>; written: string[] } {
+    const reads = new Map<string, number>();
+    const written: string[] = [];
+    const read = (hash: string) => reads.set(hash, (reads.get(hash) ?? 0) + 1);
+    const objects = Object.create(storage.objects, {
+      read: { value: (at: string, hash: string) => { read(hash); return storage.objects.read(at, hash); } },
+      readRange: { value: (at: string, hash: string, offset: number, length: number) => { read(hash); return storage.objects.readRange(at, hash, offset, length); } },
+      write: {
+        value: async (at: string, data: Uint8Array) => {
+          const hash = await storage.objects.write(at, data);
+          written.push(hash);
+          onWrite(hash);
+          return hash;
+        },
+      },
+    }) as StorageBackend['objects'];
+    return { counted: Object.assign(Object.create(storage) as StorageBackend, { objects }), reads, written };
+  }
+
   it('cuts a manifest into runs of its own segments, which concatenate back into it', async () => {
     const hash = await datasetWrite(storage, repo, table(0, 8000), TableType);
     const entries = await entriesOf(hash);
@@ -345,27 +366,6 @@ describe('planning the pieces of an input', () => {
     const sales = { path: [variant('field', 'sales')], index: none, partition: some({ by: [] }) };
     const returns = { path: [variant('field', 'returns')], index: none, partition: some({ by: [] }) };
 
-    /** `storage` with each object's reads counted by its hash, whole or
-     *  ranged, each write noted in order, and `onWrite` called after each. */
-    function counting(onWrite: (hash: string) => void = () => {}): { counted: StorageBackend; reads: Map<string, number>; written: string[] } {
-      const reads = new Map<string, number>();
-      const written: string[] = [];
-      const read = (hash: string) => reads.set(hash, (reads.get(hash) ?? 0) + 1);
-      const objects = Object.create(storage.objects, {
-        read: { value: (at: string, hash: string) => { read(hash); return storage.objects.read(at, hash); } },
-        readRange: { value: (at: string, hash: string, offset: number, length: number) => { read(hash); return storage.objects.readRange(at, hash, offset, length); } },
-        write: {
-          value: async (at: string, data: Uint8Array) => {
-            const hash = await storage.objects.write(at, data);
-            written.push(hash);
-            onWrite(hash);
-            return hash;
-          },
-        },
-      }) as StorageBackend['objects'];
-      return { counted: Object.assign(Object.create(storage) as StorageBackend, { objects }), reads, written };
-    }
-
     /** The reads one open of a stored collection makes of its manifest. */
     const opening = async (hash: string): Promise<number> => {
       const { counted, reads } = counting();
@@ -503,6 +503,96 @@ describe('planning the pieces of an input', () => {
       ], [primary, other], EVERY_SEGMENT),
       /partitioned input 2 is cut by \(\.String\) and partitioned input 1 by \(\.Integer\): inputs partitioned together are cut by fields of the same types/,
     );
+  });
+
+  describe('an input keyed by a variant, cut through one of its cases', () => {
+    /** A composite record's key: the source each entry is of. */
+    const SourceKeyType = VariantType({ erp: IntegerType, own: IntegerType });
+    type SourceKey = ValueTypeOf<typeof SourceKeyType>;
+    const EntriesType = DictType(SourceKeyType, StringType);
+    /** A source's entries: rows `[from, to)` of `erp`, each keyed by its number. */
+    const erpEntries = (from: number, to: number): Array<[SourceKey, string]> =>
+      Array.from({ length: to - from }, (_, i): [SourceKey, string] => [variant('erp', BigInt(from + i)), `held-${from + i}`]);
+    const entriesOfSource = (rows: Array<[SourceKey, string]>): Promise<string> =>
+      datasetWrite(storage, repo, new SortedMap<SourceKey, string>(rows, compareFor(SourceKeyType)), EntriesType);
+    /** A load's inputs: its delivery, keyed by the source's own key, and the source's entries, cut through its case. */
+    const delivery = { path: [], index: none, partition: some({ by: [] }) };
+    const held = { path: [], index: none, partition: some({ by: ['erp'] }) };
+    const decodeDelivery = decodeBeast2For(TableType);
+    const decodeEntries = decodeBeast2For(EntriesType);
+
+    /** Each piece holds the same ids of both inputs: none of the delivery's falls in another piece's run of the source's entries. */
+    async function assertCutAtTheSameKeys(pieces: string[][]): Promise<void> {
+      const ranges: Array<{ delivered: bigint[]; held: bigint[] }> = [];
+      for (const [deliveredPiece, heldPiece] of pieces) {
+        ranges.push({
+          delivered: [...decodeDelivery(await readDatasetWhole(storage, repo, deliveredPiece!)).keys()],
+          held: [...decodeEntries(await readDatasetWhole(storage, repo, heldPiece!)).keys()].map((key) => key.value),
+        });
+      }
+      for (let p = 1; p < ranges.length; p++) {
+        const before = [...ranges[p - 1]!.delivered, ...ranges[p - 1]!.held];
+        const after = [...ranges[p]!.delivered, ...ranges[p]!.held];
+        if (before.length === 0 || after.length === 0) continue;
+        const last = before.reduce((a, b) => (a > b ? a : b));
+        const first = after.reduce((a, b) => (a < b ? a : b));
+        assert.ok(last < first, `piece ${p - 1} ends at ${last}, and piece ${p} starts at ${first}`);
+      }
+    }
+
+    it('R88 — cuts a delivery and a source\'s entries at the same keys, whichever of the two weighs more, each piece the manifest of its rows', async () => {
+      // The source's entries outweigh the delivery: they are the input cut, and the delivery follows
+      const heavyHeld = await entriesOfSource(erpEntries(0, 8000));
+      const lightDelivery = await datasetWrite(storage, repo, table(1000, 3000), TableType);
+      const overHeld = await planPieces(storage, repo, [delivery, held], [lightDelivery, heavyHeld], EVERY_SEGMENT);
+      assert.equal(overHeld.primary, 1);
+      assert.equal(overHeld.pieces.length, (await entriesOf(heavyHeld)).length, 'a piece per segment of the source\'s entries');
+      await assertCutAtTheSameKeys(overHeld.pieces);
+      assert.equal(await storeCollection(storage, repo, EntriesType, overHeld.pieces.map((piece) => ({ stored: piece[1]! }))), heavyHeld);
+      assert.equal(await storeCollection(storage, repo, TableType, overHeld.pieces.map((piece) => ({ stored: piece[0]! }))), lightDelivery);
+
+      // The delivery outweighs them: it is the input cut, and the source's entries follow, through their case
+      const heavyDelivery = await datasetWrite(storage, repo, table(0, 8000), TableType);
+      const lightHeld = await entriesOfSource(erpEntries(1000, 3000));
+      const overDelivery = await planPieces(storage, repo, [delivery, held], [heavyDelivery, lightHeld], EVERY_SEGMENT);
+      assert.equal(overDelivery.primary, 0);
+      assert.ok(overDelivery.pieces.length > 2);
+      await assertCutAtTheSameKeys(overDelivery.pieces);
+      assert.equal(await storeCollection(storage, repo, EntriesType, overDelivery.pieces.map((piece) => ({ stored: piece[1]! }))), lightHeld);
+    });
+
+    it('R88 — decodes no segment of a source\'s entries to find where a piece starts', async () => {
+      const heavyHeld = await entriesOfSource(erpEntries(0, 8000));
+      const segments = (await entriesOf(heavyHeld)).map((entry) => entry.hash);
+      assert.ok(segments.length >= 6, `the source's entries span several segments, got ${segments.length}`);
+      // A delivery of no row: no key of it falls inside a segment of the entries
+      const nothing = await datasetWrite(storage, repo, table(0, 0), TableType);
+      const { counted, reads } = counting();
+      const { pieces } = await planPieces(counted, repo, [delivery, held], [nothing, heavyHeld], EVERY_SEGMENT);
+      assert.equal(pieces.length, segments.length);
+      assert.deepEqual(segments.map((hash) => reads.get(hash) ?? 0), segments.map(() => 0),
+        'every boundary is a segment\'s own first key, which the manifest holds: each piece names its segment as it stands');
+    });
+
+    it('refuses an entry of another case in an input cut through a case, naming the input', async () => {
+      const mixed = await entriesOfSource([...erpEntries(0, 4000), [variant('own', 1n), 'planned']]);
+      const big = await datasetWrite(storage, repo, table(0, 8000), TableType);
+      const small = await datasetWrite(storage, repo, table(0, 10), TableType);
+      // As the input that follows another's cut, and as the input cut
+      await assert.rejects(planPieces(storage, repo, [delivery, held], [big, mixed], EVERY_SEGMENT),
+        { message: 'partitioned input 2 is cut through the case \'erp\' of its key, and holds an entry of case \'own\'' });
+      const heavyMixed = await entriesOfSource([...erpEntries(0, 2), ...Array.from({ length: 8000 }, (_, i): [SourceKey, string] => [variant('own', BigInt(i)), `planned-${i}`])]);
+      await assert.rejects(planPieces(storage, repo, [delivery, held], [small, heavyMixed], EVERY_SEGMENT),
+        { message: 'partitioned input 2 is cut through the case \'erp\' of its key, and holds an entry of case \'own\'' });
+    });
+
+    it('refuses a `by` naming a case the key does not have', async () => {
+      const hash = await entriesOfSource(erpEntries(0, 10));
+      await assert.rejects(
+        planPieces(storage, repo, [{ path: [], index: none, partition: some({ by: ['wms'] }) }], [hash], EVERY_SEGMENT),
+        /partitioned input 1: `by` names 'wms', and its key has no such case/,
+      );
+    });
   });
 
   it('refuses a `by` naming a field the key does not have', async () => {

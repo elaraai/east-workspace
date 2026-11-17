@@ -18,6 +18,10 @@
  * splits that segment there. Every other partitioned input is split at the
  * same keys, and the unmarked inputs reach every piece whole.
  *
+ * An input keyed by a variant is cut through one of its cases, by that case's
+ * own value: a source's entries of a composite record, each keyed
+ * `.erp <id>`, are cut at the ids a delivery keyed by `<id>` is.
+ *
  * Each piece of an input is stored through the door as the manifest the Writer
  * writes for its rows. Its whole segments are named as they stand, and a
  * segment a boundary splits is re-cut. So a piece copies no more than the
@@ -32,6 +36,7 @@ import {
   decodeBeast2ElementsFor,
   fromEastTypeValue,
   isTypeValueEqual,
+  isVariant,
   printType,
   segmentKeyTypeOf,
   type EastTypeValue,
@@ -153,7 +158,14 @@ interface Cut {
   readonly types: readonly EastTypeValue[];
   /** A key's tuple. */
   readonly project: (key: unknown) => unknown[];
+  /** Whether a tuple is a key whole — the key itself, or the value of the one
+   *  case it is cut through — so no two rows share one, and a piece may start
+   *  at any row: no `by` group has to be kept together. */
+  readonly whole: boolean;
 }
+
+/** One step of a `by` entry's path: a struct's field, or a variant's case. */
+type CutStep = { readonly field: string } | { readonly through: string };
 
 /**
  * How a partitioned Set or Dict is cut: the fields its `by` names, read by
@@ -161,23 +173,45 @@ interface Cut {
  * first fields such as `at.day`; the SDK checks as much when the task is
  * defined, so the tuples ascend with the keys.
  *
+ * A step of a path that meets a variant names one of its cases, and reads that
+ * case's value: `['erp']` cuts a key of `Variant{ erp: K, … }` by its `K`, as
+ * an input keyed by `K` with no `by` is cut. Every key of such an input is of
+ * that case: a key of another refuses the plan.
+ *
  * @param keyType - The input's key type
  * @param by - The fields, as `e3.partition` names them
  * @param where - The input, for an error
  * @returns The cut
- * @throws {Error} When `by` names a field the key does not have.
+ * @throws {Error} When `by` names a field, or a case, the key does not have.
  */
 function cutOf(keyType: EastTypeValue, by: readonly string[], where: string): Cut {
-  if (by.length === 0) return { types: [keyType], project: (key) => [key] };
-  const paths = by.map((entry) => entry.split('.'));
-  const types = paths.map((path) => path.reduce((level: EastTypeValue, name) => {
-    const field = level.type === 'Struct' ? level.value.find((f) => f.name === name) : undefined;
-    if (field === undefined) throw new Error(`${where}: \`by\` names '${path.join('.')}', and its key has no such field`);
-    return field.type as EastTypeValue;
-  }, keyType));
+  if (by.length === 0) return { types: [keyType], project: (key) => [key], whole: true };
+  const paths = by.map((entry) => {
+    let level = keyType;
+    const steps = entry.split('.').map((name): CutStep => {
+      if (level.type === 'Variant') {
+        const held = level.value.find((c) => c.name === name);
+        if (held === undefined) throw new Error(`${where}: \`by\` names '${entry}', and its key has no such case`);
+        level = held.type as EastTypeValue;
+        return { through: name };
+      }
+      const field = level.type === 'Struct' ? level.value.find((f) => f.name === name) : undefined;
+      if (field === undefined) throw new Error(`${where}: \`by\` names '${entry}', and its key has no such field`);
+      level = field.type as EastTypeValue;
+      return { field: name };
+    });
+    return { steps, type: level };
+  });
   return {
-    types,
-    project: (key) => paths.map((path) => path.reduce((level, name) => (level as Record<string, unknown>)[name], key)),
+    types: paths.map(({ type }) => type),
+    project: (key) => paths.map(({ steps }) => steps.reduce((level: unknown, step) => {
+      if ('field' in step) return (level as Record<string, unknown>)[step.field];
+      if (!isVariant(level) || level.type !== step.through) {
+        throw new Error(`${where} is cut through the case '${step.through}' of its key, and holds an entry of ${isVariant(level) ? `case '${level.type}'` : 'no case'}`);
+      }
+      return level.value;
+    }, key)),
+    whole: paths.length === 1 && paths[0]!.steps.length === 1 && 'through' in paths[0]!.steps[0]!,
   };
 }
 
@@ -232,7 +266,8 @@ export interface PiecePlan {
  *   cut at
  * @throws {Error} When no input is partitioned, a partitioned input is not a
  *   stored collection, co-partitioned inputs are not all Sets or Dicts cut by
- *   fields of the same types, or a read fails.
+ *   fields of the same types, an input cut through a case of its key holds an
+ *   entry of another, or a read fails.
  * @throws The signal's reason, once it has aborted.
  */
 export async function planPieces(
@@ -287,8 +322,10 @@ export async function planPieces(
 
   // Where a piece closed before segment `seg` ends, under a `by`: past the
   // group of the row before `seg`. Equal fences settle a segment without a
-  // read, since every row between them is in their group.
-  const groupEnd = cut === null || first.by.length === 0 ? undefined : async (seg: number): Promise<SplitPoint | null> => {
+  // read, since every row between them is in their group. A cut by the key
+  // whole has no group to keep together: a piece ends where its segment does,
+  // and no segment is read to find where.
+  const groupEnd = cut === null || cut.whole ? undefined : async (seg: number): Promise<SplitPoint | null> => {
     const at = cut.project(await segments.fence(seg));
     const group = compare(cut.project(await segments.fence(seg - 1)), at) === 0 ? at : cut.project(await segments.lastKey(seg - 1));
     if (compare(group, at) !== 0) return { seg, offset: 0 };
