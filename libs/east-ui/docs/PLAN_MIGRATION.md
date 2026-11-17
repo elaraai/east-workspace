@@ -1234,8 +1234,11 @@ const flows = $.let(Record.bind(planLinkFlows));
 A link kind's link is a row of the record, its key the link's identity. The
 record is bound whole, with `Record.bind` and its patch door to edit it or
 `Data.bind` to read it: a link has no times and its ends are keys, so the
-rail narrows no link kind. It is counted first and read within the 10,000 an
-event kind's events are read under.
+rail narrows no link kind. The binding reads the record whole; its links are
+decoded and drawn within the 10,000 an event kind's events are drawn under,
+and past it none is drawn, the frame saying how many the kind holds, and
+Connect draws none of it. A kind bound with `Data.bind` draws its links as a
+link built in code is drawn: none is selected.
 
 **Today's list stays.** `links={[Plan.link(…), …]}` is taken as it was, and a
 slot may hold a list beside the kinds.
@@ -1245,8 +1248,9 @@ whole; an end that is no `{ field, of }`, a field its row lacks, an Option,
 or both ends naming one field; an `of` naming no event kind of the Plan,
 naming the kinds it has; an end whose field does not hold its event kind's
 key type, naming the field and both types; a quantity field that is neither
-a Float nor an Option of one; templates written as a list in the code, or
-giving a time, or whose `values` are not the link's fields but its ends; and
+a Float nor an Option of one; templates written as a list in the code,
+giving a time (`at` or `duration`) or a `source`, or whose `values` are not
+the link's fields but its ends; and
 a link kind under a slot an event kind has.
 
 `canConnect={fn(Plan.Types.ConnectCandidate) => Option<String>}` is the veto

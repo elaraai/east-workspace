@@ -25,6 +25,8 @@ export interface ScheduleTemplates<V extends StructType> {
     readonly source: string | undefined;
     /** Whether each gives how long its event runs (`duration`): a span kind's templates do, an instant kind's do not (#1344). */
     readonly timed: boolean;
+    /** Whether each gives when its event starts on a whole day (`at`): a link kind's, whose links have no time, give none (#1541, U10). */
+    readonly startsAt: boolean;
 }
 
 /** Accessors describing one template record row. Each receives the row and its key. */
@@ -78,7 +80,7 @@ export function scheduleTemplates<K extends EastType, R extends EastType, V exte
         const describeRow = $.const(describe);
         return describeRow(row as never, key as never);
     });
-    return { [SCHEDULE_TEMPLATES]: true, valuesType, items, source: config.source, timed: config.duration !== undefined };
+    return { [SCHEDULE_TEMPLATES]: true, valuesType, items, source: config.source, timed: config.duration !== undefined, startsAt: config.at !== undefined };
 }
 
 /** A row's initial values, reified once: a function of the row and its key. */

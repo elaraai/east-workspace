@@ -162,7 +162,7 @@ describe("a link kind over the app's record: its links, each a row", () => {
         assert.equal(kind.templates.length, 0);
     });
 
-    test("its templates are refused, naming the kind: a list written in the code, a template with a time, and values that are not the row's fields but its ends", () => {
+    test("its templates are refused, naming the kind: a list written in the code, a template with a time — a `duration` or an `at` — or a source of the rail, and values that are not the row's fields but its ends", () => {
         const Preset = StructType({ name: StringType, values: StructType({ sheets: FloatType }), other: StructType({ pallets: FloatType }) });
         const presets = dataHandle(DictType(StringType, Preset), new Map(), "presets");
         const declare = ($: BlockBuilder<EastType>, templates: unknown) => Plan.links($.let(feedsRecord()), {
@@ -173,6 +173,12 @@ describe("a link kind over the app's record: its links, each a row", () => {
         assert.match(refusal(($) => declare($ as never, Schedule.templates($.let(presets()).read(), {
             name: (preset) => preset.name, duration: () => variant("hours", 1.0), values: (preset) => preset.values,
         }))), /^Plan\.links: "Feed": a link has no time — its templates give no `duration`, and no `at`$/);
+        assert.match(refusal(($) => declare($ as never, Schedule.templates($.let(presets()).read(), {
+            name: (preset) => preset.name, at: () => some({ hour: 6n, minute: 0n }), values: (preset) => preset.values,
+        }))), /^Plan\.links: "Feed": a link has no time — its templates give no `duration`, and no `at`$/);
+        assert.match(refusal(($) => declare($ as never, Schedule.templates($.let(presets()).read(), {
+            name: (preset) => preset.name, values: (preset) => preset.values, source: "feedPresets",
+        }))), /^Plan\.links: "Feed": its templates are listed whole, following no source of the rail — they take no `source`, and these give "feedPresets"$/);
         assert.match(refusal(($) => declare($ as never, Schedule.templates($.let(presets()).read(), {
             name: (preset) => preset.name, values: (preset) => preset.other,
         }))), /^Plan\.links: "Feed": its templates' `values` give every field of the row but `from` and `to` — .* — and these give .*$/);

@@ -21,12 +21,13 @@
  *   an event by its kind's slot and its key's text, and its quantity: the
  *   field its `quantity` names, with the unit and the format given. A quantity
  *   field holding an Option draws a link with none where it holds none.
- * - **Read whole,** counted first and read only within the cap the Plan's
- *   event kinds are read under (`SCHEDULE_EVENT_CAP`): bound
- *   `Record.bind(record)`, its record declaring `patch: mutation.patch()`, to
- *   make, edit and remove links, or `Data.bind(record)` to read them only. A
- *   link has no times and its ends hold keys, which a rail narrows by neither:
- *   a paged binding is refused.
+ * - **Read whole:** bound `Record.bind(record)`, its record declaring
+ *   `patch: mutation.patch()`, to make, edit and remove links, or
+ *   `Data.bind(record)` to read them only. A link has no times and its ends
+ *   hold keys, which a rail narrows by neither: a paged binding is refused.
+ *   The binding reads the record whole; its links are decoded and drawn within
+ *   the cap the Plan's event kinds are drawn under (`SCHEDULE_EVENT_CAP`), and
+ *   past it none is: the cap bounds what is drawn, not what is read.
  * - **A new link** takes its ends from the two events a Connect joins, and
  *   every other field its type's default. Its key is made up for a String key
  *   and counted on for an Integer one; a record keyed by any other type gives
@@ -204,7 +205,8 @@ export interface PlanLinksConfig<R extends StructType, FF extends string, TF ext
     /**
      * Its presets, a templates record's — `Schedule.templates(rows, { name, group?, values })`, `values` every field of
      * the row but its two ends: the library lists them under the kind's name, and a link Connect draws takes the
-     * values of the one held there. A link has no time: a template giving `at` or `duration` is refused.
+     * values of the one held there. A link has no time: a template giving `at` or `duration` is refused. They are
+     * listed whole, following no source of the rail: one giving `source` is refused.
      */
     templates?: ScheduleTemplates<ScheduleValuesOf<R, FF | TF>>;
     /**
@@ -217,14 +219,14 @@ export interface PlanLinksConfig<R extends StructType, FF extends string, TF ext
 
 /**
  * A link kind's templates on the wire, checked: a templates record's, each a value for every field of the row but its
- * two ends, and none giving a time, which a link has none of.
+ * two ends, none giving a time, which a link has none of, and following no source of the rail.
  *
  * @param templates - The kind's `templates`
  * @param expected - The row's fields less its two ends
  * @param ends - The two ends' fields
  * @param where - The kind, as a refusal names it
  * @returns The templates; none for a kind given none
- * @throws {Error} For a list written in the code, timed templates, or values of another type, naming both
+ * @throws {Error} For a list written in the code, templates giving a time or a source, or values of another type, naming both
  */
 function linkTemplates(templates: unknown, expected: StructType, ends: readonly [string, string], where: string): ExprType<ArrayType<ScheduleTemplateType>> {
     if (templates === undefined) return East.value([], ArrayType(ScheduleTemplateType));
@@ -233,7 +235,10 @@ function linkTemplates(templates: unknown, expected: StructType, ends: readonly 
         throw new Error(`${where}: templates are a record's — Schedule.templates(templates.read(), { name, values }) over a record of the app's, never a list written in the code`);
     }
     const given = declared as ScheduleTemplates<StructType>;
-    if (given.timed) throw new Error(`${where}: a link has no time — its templates give no \`duration\`, and no \`at\``);
+    if (given.timed || given.startsAt) throw new Error(`${where}: a link has no time — its templates give no \`duration\`, and no \`at\``);
+    if (given.source !== undefined) {
+        throw new Error(`${where}: its templates are listed whole, following no source of the rail — they take no \`source\`, and these give "${given.source}"`);
+    }
     if (!isTypeEqual(given.valuesType, expected)) {
         throw new Error(`${where}: its templates' \`values\` give every field of the row but \`${ends[0]}\` and \`${ends[1]}\` — ${printType(expected)} — and these give ${printType(given.valuesType)}`);
     }
@@ -582,7 +587,7 @@ export function planLinks<R extends StructType, FF extends KeyEndField<R>, TF ex
     // Its presets: a templates record's, each a value for every field but its ends — and none of them timed.
     const templates = linkTemplates(config.templates, ValuesType, [from.field, to.field], where);
 
-    // Read whole, counted first, and read only within the cap an event kind is read under.
+    // Read whole by its binding; its links decoded and drawn only within the cap an event kind is drawn under.
     const Held = DictType(bound.keyType, rowType);
     const whole = kindWholeRows(bound.handle, bound.keyType, rowType);
     const read = (bound.handle as unknown as { read: () => ExprType<DictType<EastType, StructType>> }).read;
