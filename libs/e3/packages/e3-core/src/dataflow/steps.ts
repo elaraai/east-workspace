@@ -22,7 +22,7 @@
  * record.
  */
 
-import { variant, some, none, equalFor, StringType } from '@elaraai/east';
+import { variant, some, none } from '@elaraai/east';
 import { E3_RELEASE, dataflowForce, type StageUnit, type VersionVector, type Structure } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/interfaces.js';
 import type { UnitRequeue } from '../execution/interfaces.js';
@@ -37,6 +37,7 @@ import {
   dataflowSnapshotTaken,
   dataflowCheckCache,
   recordCommitOrder,
+  taskProducers,
   type ResolveInputsOptions,
 } from '../dataflow.js';
 import {
@@ -47,6 +48,8 @@ import {
   inputVersionVector,
   snapshotInputVersions,
   detectInputChanges,
+  sameVersion,
+  sameVersions,
   versionRoots,
 } from '../dataset-refs.js';
 import type { DataflowGraph } from '../dataflow.js';
@@ -501,23 +504,6 @@ export async function stepDetectInputChanges(
   return { changes, events };
 }
 
-/** Whether two of a version vector's versions are the same. */
-const sameVersion = equalFor(StringType);
-
-/**
- * Whether two version vectors name the same versions of the same roots. The
- * reserved slots a ref's vector carries, whose keys begin `$`, are no roots,
- * and are left out.
- */
-function sameVersions(a: VersionVector, b: VersionVector): boolean {
-  const left = versionRoots(a);
-  if (left.length !== versionRoots(b).length) return false;
-  return left.every(([root, version]) => {
-    const other = b.get(root);
-    return other !== undefined && sameVersion(other, version);
-  });
-}
-
 /**
  * The version of each root a task reads: for a record, one commit.
  *
@@ -557,10 +543,10 @@ export async function stepTaskCommits(
 
   // Each root the task's inputs name, at the version each names it at, with
   // the input that does: a task by its name, or the root itself
-  const producerOf = new Map(graph.tasks.map((each) => [each.output, each.name] as const));
+  const producerOf = taskProducers(graph);
   const named = new Map<string, Array<{ version: string; through: string }>>();
   for (const inputPath of new Set(task.inputs)) {
-    const through = producerOf.get(inputPath) ?? inputPath;
+    const through = producerOf.get(inputPath)?.name ?? inputPath;
     for (const [root, version] of versionRoots(state.versionVectors.get(inputPath) ?? new Map())) {
       let names = named.get(root);
       if (names === undefined) {
@@ -898,7 +884,7 @@ export function stepTasksWaiting(
     if (!ts || (ts.status !== 'pending' && ts.status !== 'ready' && ts.status !== 'deferred')) return false;
     return runSet === null || runSet.has(name);
   });
-  const producerOf = new Map(graph.tasks.map((task) => [task.output, task.name] as const));
+  const producerOf = taskProducers(graph);
   const nowWaiting = new Set([taskName, ...dependents]);
   for (const name of dependents) {
     (state.tasks.get(name) as Mutable<TaskState>).status = 'waiting';
@@ -907,7 +893,7 @@ export function stepTasksWaiting(
       task: name,
       inputs: task.inputs.filter((input) => {
         const producer = producerOf.get(input);
-        return producer !== undefined && nowWaiting.has(producer);
+        return producer !== undefined && nowWaiting.has(producer.name);
       }),
     });
   }

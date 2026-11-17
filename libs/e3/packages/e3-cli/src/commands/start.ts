@@ -41,7 +41,7 @@ import {
   type DataflowStartResult,
 } from '@elaraai/e3-api-client';
 import { parseKeypath } from '@elaraai/e3-types';
-import { IntegerType, lessFor, type EastTypeValue } from '@elaraai/east';
+import { IntegerType, StringType, equalFor, lessFor, type EastTypeValue } from '@elaraai/east';
 import { parseRepoLocation, formatError, exitError, type RepoLocation } from '../utils.js';
 import { getValidToken } from '../credentials.js';
 import { formatRequeue, formatSize } from '../format.js';
@@ -53,6 +53,9 @@ const POLL_INTERVAL = 500;
 
 /** Whether one event sequence number comes before another. */
 const seqBefore = lessFor(IntegerType);
+
+/** Whether a keypath's field is the one named. */
+const sameField = equalFor(StringType);
 
 /**
  * The tasks a run forces, from its flags: `--force` every task the run runs —
@@ -587,7 +590,7 @@ function listed(names: readonly string[]): string {
 export function describeDeferral(reason: DeferReason): string {
   // An input is named as it was declared: its path's last field, under `.inputs`
   const path = parseKeypath(reason.input);
-  const input = path.length === 2 && path[0]!.value === 'inputs' ? path[1]!.value : reason.input;
+  const input = path.length === 2 && sameField(path[0]!.value, 'inputs') ? path[1]!.value : reason.input;
   // The task's inputs that read it: the input itself, said first, and the
   // tasks whose results were made from it
   const tasks = reason.through.filter((each) => each !== reason.input);

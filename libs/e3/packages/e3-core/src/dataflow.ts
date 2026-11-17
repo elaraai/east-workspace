@@ -16,7 +16,7 @@
  * by `dataflow/orchestrator/LocalOrchestrator.ts`.
  */
 
-import { StringType, compareFor, decodeBeast2For, equalFor, variant } from '@elaraai/east';
+import { StringType, compareFor, decodeBeast2For, variant } from '@elaraai/east';
 import {
   WorkspaceRecordType,
   decodeRecordCommit,
@@ -29,7 +29,7 @@ import {
 import { OBJECT_CONCURRENCY, eachAtMost } from './concurrency.js';
 import type { CatchUpRun, DataflowExecutionState, DeferReason } from './dataflow/types.js';
 import { taskInputRead } from './dataset-open.js';
-import { keypathToRefPath, refPathToKeypath, versionRoots } from './dataset-refs.js';
+import { keypathToRefPath, madeAt, refPathToKeypath, sameVersion, versionRoots } from './dataset-refs.js';
 import {
   executionGetOutput,
   inputsHash,
@@ -477,6 +477,30 @@ export function dataflowGetDependencyClosure(
   return closure;
 }
 
+/** Each graph's tasks by the output each writes, built once for the graph. */
+const producersOf = new WeakMap<DataflowGraph, ReadonlyMap<string, DataflowGraph['tasks'][number]>>();
+
+/**
+ * Each task of a run's graph by the output it writes: what tells a task's
+ * input that is another task's result from one that is a root.
+ *
+ * @remarks
+ * Built once for a graph and kept with it, so a run that asks for it at every
+ * decision — a task's commits, its inputs, the tasks left waiting with it —
+ * builds it once, however many tasks land.
+ *
+ * @param graph - The run's graph
+ * @returns Each task, by its output's keypath
+ */
+export function taskProducers(graph: DataflowGraph): ReadonlyMap<string, DataflowGraph['tasks'][number]> {
+  let producers = producersOf.get(graph);
+  if (producers === undefined) {
+    producers = new Map(graph.tasks.map((task) => [task.output, task] as const));
+    producersOf.set(graph, producers);
+  }
+  return producers;
+}
+
 /**
  * Check if a task execution is cached for the given inputs.
  *
@@ -616,9 +640,6 @@ export async function dataflowResolveInputHashes(
 // =============================================================================
 // What a run reads: its records' commits, and each input at them
 // =============================================================================
-
-/** Whether two of a version vector's versions are the same. */
-const sameVersion = equalFor(StringType);
 
 /** The order of two versions as strings, for an answer that must only be the
  *  same each time. */
@@ -852,7 +873,7 @@ export async function dataflowResolveInputs(
   const { repo, workspace } = state;
   const graph = state.graph.type === 'some' ? state.graph.value : null;
   if (graph === null) throw new DataflowError('Execution state has no graph');
-  const producerOf = new Map(graph.tasks.map((each) => [each.output, each] as const));
+  const producerOf = taskProducers(graph);
   const roots = new Map<string, Promise<string | null>>();
   const outputs = new Map<string, Promise<ReadAt>>();
   const runs = new Map<string, CatchUpRun>();
@@ -914,13 +935,7 @@ export async function dataflowResolveInputs(
         const result = state.tasks.get(of.name)?.outputHash;
         // The task holds no result in the run: its reader is not ready
         if (made === undefined || result === undefined || result.type !== 'some') return { kind: 'unassigned' };
-        const reads = versionRoots(made);
-        if (reads.every(([root, version]) => {
-          const wanted = versions.get(root);
-          return wanted !== undefined && sameVersion(wanted, version);
-        })) {
-          return { kind: 'object', hash: result.value };
-        }
+        if (madeAt(made, versions)) return { kind: 'object', hash: result.value };
         const inputs = await inputsAt(of);
         if (inputs.some((input) => input.kind === 'unassigned')) return { kind: 'unassigned' };
         if (inputs.some((input) => input.kind === 'behind')) return { kind: 'behind' };
@@ -933,7 +948,7 @@ export async function dataflowResolveInputs(
           if (cached !== null) return { kind: 'object', hash: cached.outputHash };
         }
         const at = new Map<string, string>();
-        for (const [root] of reads) {
+        for (const [root] of versionRoots(made)) {
           const wanted = versions.get(root);
           if (wanted !== undefined) at.set(root, wanted);
         }

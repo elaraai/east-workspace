@@ -26,7 +26,7 @@
  * process.
  */
 
-import { decodeBeast2For, encodeBeast2For, none, some, variant } from '@elaraai/east';
+import { StringType, decodeBeast2For, encodeBeast2For, equalFor, none, some, variant } from '@elaraai/east';
 import type {
   DataflowRun, ExecutionOwner, StageUnit, TaskExecutionRecord, Structure, TaskObject, UnitWait, VersionVector, WorkspaceState,
 } from '@elaraai/e3-types';
@@ -87,6 +87,10 @@ import {
   waitingTasks,
 } from '../steps.js';
 import type { Mutable } from '../types.js';
+
+/** Whether two inputs hashes are the same: what tells a task's own run over
+ *  a set of inputs from a catch-up run of it over the same. */
+const sameInputs = equalFor(StringType);
 
 /** The tasks and units the loop keeps in flight unless its caller sets a
  *  width. */
@@ -1742,7 +1746,8 @@ export class LocalOrchestrator implements DataflowOrchestrator {
   private catchUpInFlight(execution: RunningExecution, run: CatchUpRun): boolean {
     const key = catchUpKey(run);
     if (execution.runningTasks.has(key) || execution.splits.has(key)) return true;
-    return execution.launches.get(run.task) === run.inputsHash &&
+    const launched = execution.launches.get(run.task);
+    return launched !== undefined && sameInputs(launched, run.inputsHash) &&
       (execution.runningTasks.has(run.task) || execution.splits.has(run.task));
   }
 

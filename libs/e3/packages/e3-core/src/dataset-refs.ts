@@ -10,7 +10,7 @@
  * input change detection for the reactive execution loop.
  */
 
-import { variant, printIdentifier } from '@elaraai/east';
+import { StringType, equalFor, variant, printIdentifier } from '@elaraai/east';
 import { type DataRef, type Structure, type VersionVector, type DatasetRef } from '@elaraai/e3-types';
 import { treeWrite } from './trees.js';
 import type { StorageBackend } from './storage/interfaces.js';
@@ -54,6 +54,56 @@ export function inputVersionVector(path: string, hash: string): VersionVector {
  */
 export function versionRoots(vector: VersionVector): Array<[string, string]> {
   return [...vector].filter(([root]) => !root.startsWith('$'));
+}
+
+/**
+ * Whether two versions of a root are the same: two of a plain input's hashes,
+ * or two of a record's commits.
+ */
+export const sameVersion = equalFor(StringType);
+
+/**
+ * Whether two version vectors name the same versions of the same roots.
+ *
+ * @remarks
+ * Each is read through {@link versionRoots}, so their reserved slots, whose
+ * keys begin `$`, are left out.
+ *
+ * @param a - A version vector
+ * @param b - Another
+ * @returns Whether they name the same roots, each at the same version
+ */
+export function sameVersions(a: VersionVector, b: VersionVector): boolean {
+  const roots = versionRoots(a);
+  if (roots.length !== versionRoots(b).length) return false;
+  return roots.every(([root, version]) => {
+    const other = b.get(root);
+    return other !== undefined && sameVersion(other, version);
+  });
+}
+
+/**
+ * Whether a value was made from the versions given: each root its vector
+ * names stands at its version in `versions`, which may name more roots.
+ *
+ * @remarks
+ * What a run asks of a task's result, when another task reads it as of a set
+ * of versions: the result is read there when it was made there.
+ *
+ * @param made - The version vector the value was made from
+ * @param versions - The version of each root a reader reads
+ * @returns Whether every root the value was made from stands at its version
+ *
+ * @example
+ * ```ts
+ * madeAt(new Map([['.records.orders', 'c1']]), new Map([['.records.orders', 'c1'], ['.inputs.rates', 'r1']])); // true
+ * ```
+ */
+export function madeAt(made: VersionVector, versions: VersionVector): boolean {
+  return versionRoots(made).every(([root, version]) => {
+    const wanted = versions.get(root);
+    return wanted !== undefined && sameVersion(wanted, version);
+  });
 }
 
 /**
@@ -168,7 +218,7 @@ export async function detectInputChanges(
   // Check for changes in current snapshot vs previous
   for (const [path, newHash] of currentSnapshot) {
     const prevHash = previousSnapshot.get(path) ?? null;
-    if (prevHash !== newHash) {
+    if (prevHash === null || !sameVersion(prevHash, newHash)) {
       changes.push({ path, previousHash: prevHash, newHash });
     }
   }
