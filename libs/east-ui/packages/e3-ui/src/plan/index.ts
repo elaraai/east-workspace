@@ -188,6 +188,7 @@ import {
     createSeriesResources,
     createSeriesKinds,
     createChildren,
+    createChildrenOf,
 } from "./series.js";
 import { createPlanRoot } from "./root.js";
 import { createItems, createValues } from "./reads.js";
@@ -575,8 +576,14 @@ export interface PlanNamespace extends PlanTagType {
         /** Each case of a variant field of the rows a resources series, in one block (#1541). */
         kinds: typeof createSeriesKinds;
     };
-    /** A step down from an entry to its child rows — a `Dict` field of it, keyed by an id — for a series' `children` (#822, #1436). */
-    children: typeof createChildren;
+    /**
+     * A step down from an entry to its child rows — a `Dict` field of it, keyed by an id — for a series' `children` (#822, #1436);
+     * `Plan.children.of(fn, [series…])` steps down to child rows from a list, read only (#1541, U12).
+     */
+    children: typeof createChildren & {
+        /** Child rows from a list (#1541, U12): the collection the function returns from the row and its key, read only. */
+        of: typeof createChildrenOf;
+    };
     /** Read a row's collection of things people drag — a `Dict` keyed by an id, their times the fields named — as a series' runs, decisions, tiles, chips or marks (#1436). */
     items: typeof createItems;
     /** Read a row's collection of values — a `Dict` keyed by their instants — as cells, a table position's cells, a chart layer's points, ports or markers (#1436). */
@@ -844,7 +851,7 @@ const PLAN_MEMBERS = {
         resources: createSeriesResources,
         kinds: createSeriesKinds,
     },
-    children: createChildren,
+    children: Object.assign(createChildren, { of: createChildrenOf }),
     items: createItems,
     values: createValues,
     ref: createRef,

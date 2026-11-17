@@ -444,21 +444,44 @@ export function createChildren<R extends EastType, F extends PlanChildField<R>, 
 }
 
 /**
- * Step down from an entry to a collection an accessor computes (#1194) — the
- * event kinds' own: a resource's events come from another record, so its
- * child rows are no field of it. An author's step-down names its field
- * ({@link createChildren}).
+ * Step down from an entry to child rows from a list (#1541, U12): the
+ * collection `of` returns from the entry and its key — a `Dict` keyed by an
+ * id — its rows laid out by `series` beneath each entry, as a field's are
+ * ({@link createChildren}). The same kinds under every press is
+ * `Plan.children.of(() => kinds.read(), [kindRows])`.
  *
- * @internal
- * @param of - The child collection, from the parent entry's value and key
- * @param series - The series over the child entries
- * @returns The step-down
+ * @remarks
+ * Its rows are read with their parent — `of` reads the entry and what the page
+ * binds whole — never through the rows' nested series index, so e3 keeps no
+ * rollup of them and a parent's `aggregate` doesn't count them. They are read
+ * only: a series over them declares no `edit`. An event kind's `child` lands
+ * on a resources series among them as on a field's. Child rows that are many,
+ * or that change over time, belong in the record, as `index.nested.rows`.
+ *
+ * @typeParam R - The parent entry type (inferred from where the step-down is used)
+ * @typeParam KT - The parent entries' key type
+ * @param of - The child collection, from the parent entry and its key
+ * @param series - The series over the child rows
+ * @returns The step-down, for a series' `children`
+ * @throws {Error} If `of` is no function, or a series over the rows declares `edit`, naming it
  */
-export function createChildrenOf(
-    of: (row: ExprType<EastType>, key: ExprType<EastType>) => Expr,
-    series: PlanSeriesValue<PlanAxisKindLiteral>[],
-): PlanChildren {
-    return { [PLAN_CHILDREN]: true, of, series } as unknown as PlanChildren;
+export function createChildrenOf<R extends EastType, KT extends EastType = StringType>(
+    of: (row: PlanEntryExpr<R>, key: ExprType<KT>) => unknown,
+    series: readonly PlanSeriesValue<PlanAxisKindLiteral, unknown>[],
+): PlanChildren<R, never, unknown, unknown> {
+    if (typeof of !== "function") {
+        throw new Error("Plan.children.of: give the function returning the child rows — a Dict keyed by an id, from the row and its key: " +
+            "Plan.children.of(() => kinds.read(), [series…])");
+    }
+    const edits = (spec: PlanSeriesSpec): PlanSeriesSpec | undefined => (spec.edits === true ? spec : spec.nested.map(edits).find((e) => e !== undefined));
+    for (const one of series) {
+        const editable = edits(nestedSpec(one, "Plan.children.of"));
+        if (editable !== undefined) {
+            throw new Error(`Plan.children.of: ${nameOf(editable)} declares \`edit\`, and the rows of a list are read only — ` +
+                "leave `edit` out, or keep the rows in the record and step down to their field: Plan.children(field, [series…])");
+        }
+    }
+    return { [PLAN_CHILDREN]: true, of, series } as unknown as PlanChildren<R, never, unknown, unknown>;
 }
 
 function isStepDown(x: unknown): x is AnyStepDown {
@@ -1373,6 +1396,8 @@ interface PlanSeriesSpec {
     /** A data series' own edit for entries keyed by `key` (#880; `views` dispatches its members' by key) —
      *  `undefined` when it declares no `edit`. */
     ownFor?(key: EastType): OwnEditFn | undefined;
+    /** Whether its own rows take gestures: a data series declaring `edit`, on its elements or its cells. */
+    readonly edits?: boolean;
 }
 
 /**
@@ -3048,6 +3073,7 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
         arm: recipe.arm,
         nested,
         nests: children !== undefined,
+        edits: edits !== undefined,
         unlabelled: cfg.label === undefined,
         charts,
         reads: recipe.reads ?? [],
