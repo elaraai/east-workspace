@@ -594,17 +594,12 @@ async function wouldReadOther(storage: StorageBackend, state: DataflowExecutionS
 /**
  * Puts a completed task back to pending, to run once more: it keeps its
  * result — its output, its execution and its output's versions — which stays
- * in the workspace and which its dependents go on reading.
+ * in the workspace and which its dependents go on reading, and it stays
+ * counted by that result until its next lands ({@link uncountResult}).
  */
 function taskDue(state: DataflowExecutionState, taskState: Mutable<TaskState>, reason: string): ExecutionEvent {
   const mutableState = state as Mutable<DataflowExecutionState>;
   taskState.status = 'pending';
-  // It counts again as it lands again
-  if (taskState.cached.type === 'some' && taskState.cached.value) {
-    mutableState.cached = state.cached - 1n;
-  } else {
-    mutableState.executed = state.executed - 1n;
-  }
   mutableState.reexecuted = state.reexecuted + 1n;
 
   mutableState.eventSeq = state.eventSeq + 1n;
@@ -705,6 +700,31 @@ export async function stepTaskDueAgain(
   if (!task || !taskState || taskState.status !== 'completed') return null;
   if (!(await wouldReadOther(storage, state, taskName, task.output))) return null;
   return taskDue(state, taskState, 'its inputs moved while it ran');
+}
+
+/**
+ * Takes a task's standing result out of the run's counts, where the task's
+ * next landing, its failure or its skip is about to count the task again.
+ *
+ * @remarks
+ * A task is counted once, by the result it holds: as `executed` or `cached`,
+ * as that result landed, from its landing until it fails or is skipped. A
+ * task due again keeps its result, which stands in the workspace, and so
+ * stays counted while it runs again: a run stopped meanwhile counts it, as
+ * the results it reports do. A task with no result, or one already counted as
+ * failed or skipped, is counted by none.
+ *
+ * @param state - Execution state to mutate
+ * @param taskState - The task, before the step that settles it changes it
+ */
+function uncountResult(state: DataflowExecutionState, taskState: Mutable<TaskState>): void {
+  if (taskState.outputHash.type !== 'some' || taskState.status === 'failed' || taskState.status === 'skipped') return;
+  const mutableState = state as Mutable<DataflowExecutionState>;
+  if (taskState.cached.type === 'some' && taskState.cached.value) {
+    mutableState.cached = state.cached - 1n;
+  } else {
+    mutableState.executed = state.executed - 1n;
+  }
 }
 
 // =============================================================================
@@ -1107,6 +1127,8 @@ export function stepTaskCompleted(
   const now = new Date();
   const mutableState = state as Mutable<DataflowExecutionState>;
 
+  // A task due again is counted by the result it held, which this one replaces
+  uncountResult(state, taskState);
   taskState.status = 'completed';
   taskState.cached = some(cached);
   taskState.outputHash = some(outputHash);
@@ -1190,6 +1212,8 @@ export function stepTaskFailed(
   const now = new Date();
   const mutableState = state as Mutable<DataflowExecutionState>;
 
+  // A task due again that fails is counted as failed, and no longer by the result it held
+  uncountResult(state, taskState);
   taskState.status = 'failed';
   taskState.error = error !== undefined ? some(error) : none;
   taskState.exitCode = exitCode !== undefined ? some(BigInt(exitCode)) : none;
@@ -1259,6 +1283,8 @@ export function stepTasksSkipped(
     const taskState = state.tasks.get(taskName) as Mutable<TaskState> | undefined;
     if (!taskState) continue;
 
+    // Counted as skipped, and no longer by a result it held
+    uncountResult(state, taskState);
     taskState.status = 'skipped';
     taskState.completedAt = some(now);
     taskState.duration = some(0n);

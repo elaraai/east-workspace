@@ -819,6 +819,41 @@ export function dataflowFollowCases(setup: BackendSetup): void {
     assert.equal(next.cached, 1, 'clean is answered by the execution the stopped run recorded');
   });
 
+  it('counts a task due again by the result it holds: a run stopped while the task runs again records the results that stand, as its stop says them', async (t) => {
+    const context = await setup(t);
+    const { storage, repo } = context;
+    const tasks = await deployChain(t, context);
+    const runner = gatedRunner(storage, repo, tasks);
+    const stateStore = stateStoreOf(context);
+    const orchestrator = new LocalOrchestrator(stateStore);
+    const handle = await orchestrator.start(storage, repo, 'ws', { runner });
+    const waited = orchestrator.wait(handle);
+    waited.catch(() => undefined);
+
+    // clean lands, and runs again on an edit while forecast runs on its first result
+    await runner.launched('clean');
+    runner.release('clean');
+    await runner.launched('forecast');
+    await workspaceSetDataset(storage, repo, 'ws', inputPath('sales'), 5n, IntegerType);
+    assert.equal(await orchestrator.wake(storage, repo, 'ws'), true);
+    await runner.launched('clean');
+
+    // A deploy stops the run: clean's first result stands, and both the stop and the run's record count it
+    const deploy = await acquireForDeploy(storage, repo, 'ws');
+    try {
+      await assert.rejects(waited, (err: unknown) => {
+        assert.ok(err instanceof DataflowAbortedError, `a DataflowAbortedError, not ${String(err)}`);
+        assert.deepEqual(err.partialResults?.map((each) => [each.name, each.state]), [['clean', 'success']]);
+        return true;
+      });
+      const run = await storage.refs.dataflowRunGet(repo, 'ws', handle.id);
+      assert.deepEqual([run?.summary.completed, run?.summary.reexecuted], [1n, 1n], 'the record counts the result that stands, and that it was due again');
+      assert.equal((await stateStore.read(repo, 'ws', handle.id))?.executed, 1n);
+    } finally {
+      await deploy.release();
+    }
+  });
+
   it('keeps every result of a run that yields with a task due again, and decides each task again once another orchestrator resumes it', async (t) => {
     const context = await setup(t);
     const { storage, repo } = context;

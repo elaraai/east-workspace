@@ -28,6 +28,7 @@ import {
   stepTaskCompleted,
   stepTaskFailed,
   stepTaskForced,
+  stepTasksSkipped,
   stepTasksWaiting,
   stepIsComplete,
   stepFinalize,
@@ -411,7 +412,7 @@ describe('stepTasksDue', () => {
     return state;
   }
 
-  it('puts a completed task that reads the changed input back to pending, keeping its result, and counts it a re-execution', async () => {
+  it('puts a completed task that reads the changed input back to pending, keeping its result and its count, and counts it a re-execution', async () => {
     const state = run('v2', 'v1');
     const { due, events } = await stepTasksDue(unread, state, [{ path: '.input' }]);
 
@@ -421,7 +422,7 @@ describe('stepTasksDue', () => {
     assert.deepStrictEqual(a.outputHash, some('a-out'), 'its result stays, for its dependents to read');
     assert.deepStrictEqual(a.execution, some({ inputsHash: 'inputs-a', executionId: 'execution-a' }));
     assert.deepStrictEqual(state.versionVectors.get('.a_out'), new Map([['.input', 'v1']]), "and so do its output's versions");
-    assert.deepStrictEqual([state.executed, state.reexecuted], [1n, 1n]);
+    assert.deepStrictEqual([state.executed, state.reexecuted], [2n, 1n], 'it is counted by the result it holds');
     assert.strictEqual(events.length, 1);
     assert.ok(events[0]!.type === 'task_invalidated');
     assert.deepStrictEqual([events[0].value.task, events[0].value.reason], ['a', 'input changed: .input']);
@@ -448,10 +449,26 @@ describe('stepTasksDue', () => {
     assert.deepStrictEqual([state.tasks.get('a')!.status, state.tasks.get('b')!.status], ['completed', 'completed']);
   });
 
-  it('takes a cached result out of the cached count, and no other', async () => {
+  it('keeps a task due again counted by the result it holds, until what settles it next counts it: its next result, its failure or its skip', async () => {
+    // a's result came from the cache, and b's ran
     const state = run('v2', 'v1', 'completed', true);
     await stepTasksDue(unread, state, [{ path: '.input' }]);
-    assert.deepStrictEqual([state.cached, state.executed], [0n, 1n]);
+    assert.deepStrictEqual([state.cached, state.executed], [1n, 1n], 'due again, a is still counted as it landed');
+
+    // a's next result runs: its count moves from cached to executed
+    (state.tasks.get('a') as Mutable<TaskState>).status = 'in_progress';
+    stepTaskCompleted(state, 'a', 'a-out-2', false, 10, { inputsHash: 'inputs-a2', executionId: 'execution-a2' }, new Map([['.input', 'v2']]));
+    assert.deepStrictEqual([state.cached, state.executed], [0n, 2n]);
+
+    // b is due again, and fails: it is counted as failed, and no longer by the result it held
+    (state.tasks.get('b') as Mutable<TaskState>).status = 'in_progress';
+    stepTaskFailed(state, 'b', 'the model did not converge', 1, 10);
+    assert.deepStrictEqual([state.executed, state.failed], [1n, 1n]);
+
+    // a is due again, and skipped: counted as skipped alone
+    (state.tasks.get('a') as Mutable<TaskState>).status = 'pending';
+    stepTasksSkipped(state, ['a'], 'b');
+    assert.deepStrictEqual([state.cached, state.executed, state.skipped], [0n, 0n, 1n]);
   });
 
   it('leaves a task in flight, which is asked as it lands, and one failed, skipped or pending', async () => {
@@ -500,7 +517,7 @@ describe('stepTaskDueAgain', () => {
     const a = state.tasks.get('a')!;
     assert.strictEqual(a.status, 'pending');
     assert.deepStrictEqual(a.outputHash, some('a-out'), 'the result that landed stays');
-    assert.deepStrictEqual([state.executed, state.reexecuted], [0n, 1n]);
+    assert.deepStrictEqual([state.executed, state.reexecuted], [1n, 1n], 'and counts, until the next lands');
   });
 
   it('leaves a task whose inputs stand where it was launched, and one that is not completed', async () => {
