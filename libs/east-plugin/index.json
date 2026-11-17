@@ -1,7 +1,7 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1381,
+    "totalEntries": 1382,
     "totalFiles": 226,
     "packages": {
       "east": 595,
@@ -9,7 +9,7 @@
       "east-node-io": 63,
       "east-py-datascience": 94,
       "east-ui": 308,
-      "e3-ui": 218,
+      "e3-ui": 219,
       "e3": 34,
       "e3-ui-cli": 8,
       "e3-create": 6
@@ -43690,7 +43690,7 @@
       "imports": [
         "import {",
         "import { Box, Button, Chart, EventStateType, Format, HStack, Reactive, SegmentGroup, Select, Slice, State, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
-        "import { Data, Plan, Record, Schedule } from \"@elaraai/e3-ui\";",
+        "import { Data, Func, Plan, Record, Schedule } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
       "languages": [
