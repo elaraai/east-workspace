@@ -101,7 +101,14 @@ export const opsConsole = ui("ops_console", [], East.function([], UIComponentTyp
 ```
 
 The public `Studio` namespace is exactly this: `Studio.component`,
-`<Studio.Builder>`, `<Studio.Library>`, `<Studio.Page>` and `Studio.Types`.
+`<Studio.Builder>`, `<Studio.Library>`, `<Studio.Page>` and `Studio.Types` —
+and, since a placement holds content (a component's key, a visual or a text
+block), `Studio.source`, which declares a source a surface's visuals may read
+(`sources={{ orders: Studio.source(handle, meta) }}` on each tag),
+`Studio.visual`, which builds a placement's content for a record's seeds, and
+`Studio.migrations`, the steps a pages record lists
+(`migration.rows("cell_content", Studio.migrations.cellContent)` carries pages
+stored when a placement held a component's key alone).
 
 ---
 

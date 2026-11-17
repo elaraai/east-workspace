@@ -23,6 +23,10 @@
  * its ladder, the ⋯ chip's bundle and menu, and Save as template hung from the
  * chip. The page it shows (#1668): its host's, which its palette's Pages tab
  * asks to change; or, given none, its own, kept for a reload while it stands.
+ * What a placement holds (#1669): a text block bare, a visual's tile naming its
+ * view and its source, on the canvas and in the preview; what the selection
+ * bar and the inspector say of each; and a placement configured since the live
+ * version, in the preview's change list.
  */
 
 import { describe, test, expect, beforeEach, afterEach, beforeAll, afterAll, vi } from "vitest";
@@ -31,7 +35,7 @@ import { East, NullType, SortedMap, applyFor, compareFor, decodeBeast2For, encod
 import { Reactive, Stack, State, Text, UIComponentType } from "@elaraai/east-ui/internal";
 import { StateRuntime, editingMessages } from "@elaraai/east-ui-components";
 import { foreignIcons, markOf } from "@elaraai/east-ui-components/testing";
-import { Record, Studio, StudioKeyType, StudioPagesType, builderKeys } from "@elaraai/e3-ui/internal";
+import { Data, Record, Studio, StudioKeyType, StudioPagesType, builderKeys } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/studio/studio";
 import { conflictCards, act, e3Harness, reloadPage, settle } from "../e3-web-mount.test-utils.js";
 // The builder is an extension: its renderer registers as it loads.
@@ -83,41 +87,41 @@ const PAGES: Pages = new SortedMap<Key, Entry>([
         draft: {
             title: "Overview",
             cells: [
-                { key: "c-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail" },
-                { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend" },
+                { key: "c-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
+                { key: "c-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
             ],
         },
         live: none,
     })],
     [{ project: "ops", page: "b-weekly" }, variant("page", {
-        draft: { title: "Weekly", cells: [{ key: "w-orders", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "orders_by_week" }] },
-        live: some({ version: 1n, page: { title: "Weekly", cells: [{ key: "w-orders", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "orders_by_week" }] } }),
+        draft: { title: "Weekly", cells: [{ key: "w-orders", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "orders_by_week") }] },
+        live: some({ version: 1n, page: { title: "Weekly", cells: [{ key: "w-orders", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "orders_by_week") }] } }),
     })],
     [{ project: "ops", page: "c-monthly" }, variant("page", {
-        draft: { title: "Monthly", cells: [{ key: "m-orders", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, component: "orders_by_week" }] },
-        live: some({ version: 3n, page: { title: "Monthly", cells: [{ key: "m-orders", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "orders_by_week" }] } }),
+        draft: { title: "Monthly", cells: [{ key: "m-orders", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, content: variant("component", "orders_by_week") }] },
+        live: some({ version: 3n, page: { title: "Monthly", cells: [{ key: "m-orders", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "orders_by_week") }] } }),
     })],
     [{ project: "ops", page: "d-double" }, variant("page", {
         draft: {
             title: "Double",
             cells: [
-                { key: "d-trend-1", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, component: "revenue_trend" },
-                { key: "d-trend-2", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, component: "revenue_trend" },
+                { key: "d-trend-1", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
+                { key: "d-trend-2", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
             ],
         },
         live: none,
     })],
     [{ project: "ops", page: "e-starter" }, variant("template", {
         title: "Starter",
-        cells: [{ key: "s-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail" }],
+        cells: [{ key: "s-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "kpi_rail") }],
     })],
     [REGIONAL, variant("page", {
         draft: {
             title: "Regional",
             cells: [
-                { key: "p-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail" },
-                { key: "p-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, component: "revenue_trend" },
-                { key: "p-bars", row: "r2", span: 4n, height: none, align: variant("top", null), title: none, component: "breakdown_bars" },
+                { key: "p-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
+                { key: "p-trend", row: "r2", span: 8n, height: none, align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
+                { key: "p-bars", row: "r2", span: 4n, height: none, align: variant("top", null), title: none, content: variant("component", "breakdown_bars") },
             ],
         },
         live: some({
@@ -125,8 +129,8 @@ const PAGES: Pages = new SortedMap<Key, Entry>([
             page: {
                 title: "Regional",
                 cells: [
-                    { key: "p-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, component: "kpi_rail" },
-                    { key: "p-trend", row: "r2", span: 12n, height: none, align: variant("top", null), title: none, component: "revenue_trend" },
+                    { key: "p-kpi", row: "r1", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
+                    { key: "p-trend", row: "r2", span: 12n, height: none, align: variant("top", null), title: none, content: variant("component", "revenue_trend") },
                 ],
             },
         }),
@@ -552,7 +556,7 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
         const overview = (await readRecord()).get(OVERVIEW)!;
         if (overview.type !== "page") throw new Error("expected a page");
         const cell = overview.value.draft.cells.at(-1)!;
-        expect([cell.key, cell.component, cell.span]).toEqual([dropped, "orders_by_week", 6n]);
+        expect([cell.key, cell.content, cell.span]).toEqual([dropped, Studio.visual.component("orders_by_week"), 6n]);
     });
 
     test("B12: Save is one patch commit on the page, and the toolbar says when it saved", async () => {
@@ -1233,6 +1237,141 @@ describe("<Studio.Builder> — the toolbar on a row short of room (#1229)", () =
         await waitFor(() => expect(stateOf(container).get("more")).toBe(0));
         expect(["save-template", "preview", "publish"].map((key) => stateOf(container).get(key))).toEqual([0, 0, 0]);
         expect(await commits()).toEqual(before);
+    });
+});
+
+describe("<Studio.Builder> — what a placement holds (#1669)", () => {
+    const NOTES: Key = { project: "ops", page: "g-notes" };
+    /** The sales by region as columns, and as bars with a second value, over the listed source; a KPI over a source the surface does not list; a note, and the note edited. */
+    const byRegion = Studio.visual.group("region");
+    const columns = Studio.visual.of("sales", Studio.visual.column({ x: byRegion, values: [Studio.visual.sum("revenue")] }));
+    const bars = Studio.visual.of("sales", Studio.visual.bar({ x: byRegion, values: [Studio.visual.sum("revenue"), Studio.visual.count()] }));
+    const stock = Studio.visual.of("stock", Studio.visual.kpi({ value: Studio.visual.sum("units") }));
+    const noteWas = Studio.visual.text("Figures are to last night.", "About these numbers");
+    const note = Studio.visual.text("Figures are to last night.\nRefreshed at six.\n\n\nAsk the desk for more.", "About these numbers");
+    const placed = (key: string, row: string, span: bigint, content: ReturnType<typeof Studio.visual.text>) =>
+        ({ key, row, span, height: none, align: variant("top", null), title: none, content });
+    /** The Notes page: live as v1 — the note over the sales as columns — and its draft since: the note edited, the sales as bars, the KPI beside them, and a component under them. */
+    const NOTES_PAGE: Entry = variant("page", {
+        draft: {
+            title: "Notes",
+            cells: [
+                placed("n-note", "r1", 12n, note), placed("n-sales", "r2", 8n, bars), placed("n-stock", "r2", 4n, stock),
+                placed("n-kpi", "r3", 12n, Studio.visual.component("kpi_rail")),
+            ],
+        },
+        live: some({ version: 1n, page: { title: "Notes", cells: [placed("n-note", "r1", 12n, noteWas), placed("n-sales", "r2", 8n, columns)] } }),
+    });
+
+    /** A builder that lists the sales as a source, its surface holding the Notes page open. */
+    const notesBuilder = {
+        fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+            const listed = $.let(components);
+            const record = $.let(Record.bind(ex.studioPages, ["patch"]));
+            const sales = $.let(Data.bind(ex.studioSales));
+            const asked = $.let(State.bind([StudioKeyType], ASKED, { project: "", page: "" }));
+            const heard = $.const(East.function([StudioKeyType], NullType, ($2, key) => { $2(asked.write(key)); }));
+            return Studio.Builder({
+                pages: record, components: listed, project: "ops", page: NOTES, onOpen: heard,
+                sources: { sales: Studio.source(sales, { name: "Sales", icon: "receipt" }) },
+            });
+        }))),
+    };
+
+    /** Mount it over the record with the Notes page in it. */
+    async function mountNotes() {
+        await h.patch(ex.studioPages, withEntry(NOTES, NOTES_PAGE)(PAGES));
+        return h.mount(notesBuilder, { storageKey: "studio-builder" });
+    }
+    /** A text block's heading and paragraphs, as drawn in an element. */
+    const textIn = (el: Element) => [
+        el.querySelector("[data-studio-text-heading]")?.textContent,
+        ...[...el.querySelectorAll("[data-studio-text-paragraph]")].map((p) => p.textContent),
+    ];
+    /** Whether a canvas tile draws a frame. */
+    const framed = (c: HTMLElement, key: string) => tile(c, key).querySelector("[data-frame]") !== null;
+
+    test("on the canvas: a text block is its heading over its paragraphs, bare — a blank line starts a new one; a visual is a tile naming its view and its source, one whose source the surface does not list says so; a component is its own UI", async () => {
+        const { container } = await mountNotes();
+        expect([...container.querySelectorAll("[data-snap-grid-tile]")].map((t) => t.getAttribute("data-snap-grid-tile"))).toEqual(["n-note", "n-sales", "n-stock", "n-kpi"]);
+        expect(textIn(tile(container, "n-note"))).toEqual(["About these numbers", "Figures are to last night.\nRefreshed at six.", "Ask the desk for more."]);
+        expect(tile(container, "n-note").querySelector("[data-studio-text-heading]")!.tagName).toBe("H3");
+        expect([framed(container, "n-note"), framed(container, "n-sales"), framed(container, "n-stock")]).toEqual([false, true, true]);
+        expect(within(tile(container, "n-sales")).getByText("Bar chart · Sales")).toBeTruthy();
+        expect(tile(container, "n-sales").querySelector("svg[data-icon=chart-bar]")).not.toBeNull();
+        expect(within(tile(container, "n-stock")).getByText('No source "stock" is listed')).toBeTruthy();
+        expect(within(tile(container, "n-stock")).getByText("This surface lists no source with this key.")).toBeTruthy();
+        expect(tile(container, "n-kpi").textContent).toContain("KPIs");
+    });
+
+    test("the content example (studioContent): a text block, two visuals over the listed sales — one under its own title — and a component, on the canvas of a record that declares the migration step", async () => {
+        const { container } = await h.mount(ex.studioContent, { storageKey: "studio-content" });
+        await settle();
+        await waitFor(() => expect(container.querySelector('[data-snap-grid-tile="s-note"]')).not.toBeNull());
+        expect([...container.querySelectorAll("[data-snap-grid-tile]")].map((t) => t.getAttribute("data-snap-grid-tile"))).toEqual(["s-note", "s-revenue", "s-top", "s-kpi"]);
+        expect(textIn(tile(container, "s-note"))).toEqual(["About these numbers", "Figures are to last night's close.", "Revenue is in US dollars, before returns."]);
+        expect(within(tile(container, "s-revenue")).getByText("Column chart · Sales")).toBeTruthy();
+        expect(within(tile(container, "s-top")).getByText("List · Sales")).toBeTruthy();
+        await select(container, "s-revenue");
+        expect(inspector(container).querySelector("[data-inspector-name]")!.textContent).toBe("Revenue by region");
+    });
+
+    test("the selection bar and the inspector say what is selected: a visual by its view and its source, its source its data and its view named, no developer's lock; a text block by Text, with its layout alone", async () => {
+        const { container } = await mountNotes();
+        const bar = () => container.querySelector<HTMLElement>("[data-snap-grid-selection]")!;
+        const block = (name: string) => inspector(container).querySelector(`[data-inspector="${name}"]`);
+
+        await select(container, "n-sales");
+        expect(bar().querySelector("svg")!.getAttribute("data-icon")).toBe("chart-bar");
+        expect([...bar().children].slice(1).map((el) => el.textContent)).toEqual(["Bar chart · Sales", "Sales"]);
+        expect(block("selection")!.textContent).toBe("Selected visualBar chart · Sales");
+        expect([...block("data")!.querySelectorAll("li")].map((li) => li.textContent)).toEqual(["Sales"]);
+        expect(block("view")!.textContent).toBe("ViewBar chart");
+        expect([block("config"), block("footer")]).toEqual([null, null]);
+        expect(inspector(container).querySelector("[data-inspector-span]")!.textContent).toBe("8 / 12");
+
+        await select(container, "n-stock");
+        expect(block("selection")!.textContent).toBe("Selected visualKPI · stock");
+        expect([...block("data")!.querySelectorAll("li")].map((li) => li.textContent)).toEqual(["stock"]);
+
+        await select(container, "n-note");
+        expect([...bar().children].slice(1).map((el) => el.textContent)).toEqual(["Text"]);
+        expect(block("selection")!.textContent).toBe("Selected textText");
+        expect([block("data"), block("view"), block("config"), block("footer")]).toEqual([null, null, null, null]);
+        expect(block("layout")).not.toBeNull();
+
+        await select(container, "n-kpi");
+        expect(block("selection")!.textContent).toBe("Selected componentKPI rail");
+        expect(block("footer")!.textContent).toBe("Published component · logic immutable");
+    });
+
+    test("a layout edit of a visual is a draft like any other, and Save keeps what it holds", async () => {
+        const { container } = await mountNotes();
+        await keyOn(container, "n-sales", { key: "[" });
+        expect(spanOf(container, "n-sales")).toBe("7");
+        await press("Save");
+        const notes = (await readRecord()).get(NOTES)!;
+        if (notes.type !== "page") throw new Error("expected a page");
+        expect(notes.value.draft.cells.map((c) => [c.key, c.span, c.content])).toEqual([
+            ["n-note", 12n, note], ["n-sales", 7n, bars], ["n-stock", 4n, stock], ["n-kpi", 12n, Studio.visual.component("kpi_rail")],
+        ]);
+    });
+
+    test("the publish preview: the page as it will publish, its text block bare; and a placement configured since the live version, named by what it holds, its change in words", async () => {
+        const { container } = await mountNotes();
+        await press("Preview");
+        const frame = container.querySelector<HTMLElement>("[data-studio-publish] [data-publish-frame]")!;
+        const cell = (key: string) => frame.querySelector<HTMLElement>(`[data-snap-grid-cell="${key}"]`)!;
+        expect(textIn(cell("n-note"))).toEqual(["About these numbers", "Figures are to last night.\nRefreshed at six.", "Ask the desk for more."]);
+        expect([cell("n-note").hasAttribute("data-frame"), cell("n-sales").hasAttribute("data-frame")]).toEqual([false, true]);
+        expect(within(cell("n-sales")).getByText("Bar chart · Sales")).toBeTruthy();
+        expect([...container.querySelectorAll("[data-studio-publish] [data-publish-change]")].map((row) => [row.getAttribute("data-publish-change"), row.textContent])).toEqual([
+            ["configured", "Configured Texttext edited"],
+            ["configured", "Configured Bar chart · Salesview Column chart → Bar chart · values 1 → 2"],
+            ["added", "Added KPI · stockrow 2 · span 4"],
+            ["added", "Added KPI railrow 3 · span 12"],
+        ]);
+        expect(markOf(container.querySelector('[data-publish-change="configured"] [data-sign]'))).toBe("fas plus-minus");
     });
 });
 

@@ -76,6 +76,10 @@ export interface StudioMessages {
     twoComponents: (p: { key: string }) => string;
     /** Under it. */
     twoComponentsHint: () => string;
+    /** A visual whose source the surface does not list — its heading. */
+    noSource: (p: { key: string }) => string;
+    /** Under it. */
+    noSourceHint: () => string;
     /** A page whose live version is asked for before it is published — its heading. */
     notPublished: (p: { page: string }) => string;
     /** Under it. */
@@ -94,6 +98,12 @@ export interface StudioMessages {
     newPageFromTemplate: () => string;
     /** The inspector's selection block — its eyebrow. */
     selectedComponent: () => string;
+    /** Its eyebrow while a visual is selected. */
+    selectedVisual: () => string;
+    /** Its eyebrow while a text block is selected. */
+    selectedText: () => string;
+    /** The eyebrow over a visual's view. */
+    view: () => string;
     /** The Data block's eyebrow. */
     data: () => string;
     /** A component whose code reads no dataset. */
@@ -221,7 +231,7 @@ export interface StudioMessages {
     /** The change list's head while nothing changed — `No changes since v4`. */
     noChangesSince: (p: { version: string }) => string;
     /** A change's verb, before the placement's name — `Added`, `Resized`. */
-    changeVerb: (p: { change: "added" | "removed" | "moved" | "resized" | "height" | "aligned" | "retitled" }) => string;
+    changeVerb: (p: { change: "added" | "removed" | "moved" | "resized" | "height" | "aligned" | "retitled" | "configured" }) => string;
     /** The Audience row's label. */
     audience: () => string;
     /** The Rollout row's label. */
@@ -287,6 +297,8 @@ export const studioMessages: StudioMessages = {
     noComponentHint: () => "This surface lists no component with this key.",
     twoComponents: ({ key }) => `Two components share the key "${key}"`,
     twoComponentsHint: () => "A surface lists each component once.",
+    noSource: ({ key }) => `No source "${key}" is listed`,
+    noSourceHint: () => "This surface lists no source with this key.",
     notPublished: ({ page }) => `${page} is not published yet`,
     notPublishedHint: () => "Publish it to show it here.",
     noPage: ({ page }) => `No page ${page}`,
@@ -296,6 +308,9 @@ export const studioMessages: StudioMessages = {
     openInBuilder: () => "Open in builder →",
     newPageFromTemplate: () => "New page from template",
     selectedComponent: () => "Selected component",
+    selectedVisual: () => "Selected visual",
+    selectedText: () => "Selected text",
+    view: () => "View",
     data: () => "Data",
     readsNothing: () => "reads no data",
     configuration: () => "Configuration",
@@ -368,6 +383,7 @@ export const studioMessages: StudioMessages = {
             case "resized": case "height": return "Resized";
             case "aligned": return "Aligned";
             case "retitled": return "Retitled";
+            case "configured": return "Configured";
         }
     },
     audience: () => "Audience",

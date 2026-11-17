@@ -34,6 +34,7 @@ import {
 } from "@elaraai/east-ui/internal";
 import { StudioComponentType } from "./component.js";
 import { StudioKeyType, StudioPagesType } from "./pages.js";
+import { StudioSourceType, studioSources, type StudioSourceDeclaration } from "./source.js";
 
 // ============================================================================
 // Types
@@ -61,12 +62,14 @@ export type StudioVersionLiteral = "live" | "draft";
  *
  * @property pages - The pages record's value
  * @property components - The components the surface lists
+ * @property sources - The sources its visuals read, in the order listed; none when the surface lists none
  * @property page - The page's key
  * @property version - Which of its layouts to draw
  */
 export const StudioPagePayloadType = StructType({
     pages: StudioPagesType,
     components: ArrayType(StudioComponentType),
+    sources: ArrayType(StudioSourceType),
     page: StudioKeyType,
     version: StudioVersionType,
 });
@@ -89,6 +92,7 @@ export const StudioPageComponent = EastUI.component("StudioPage", StudioPagePayl
  *
  * @property pages - The pages record's value — `Data.bind(pages).read()`
  * @property components - The components the surface lists
+ * @property sources - The sources its visuals read, by the names their queries read them by
  * @property page - The page's key
  * @property version - `"live"` (the default) or `"draft"`
  */
@@ -97,6 +101,8 @@ export interface StudioPageOptions {
     pages: SubtypeExprOrValue<StudioPagesType>;
     /** The components the surface lists, in palette order. */
     components: SubtypeExprOrValue<ArrayType<StudioComponentType>>;
+    /** The sources its visuals read: each name to its `Studio.source(handle, meta)`, as its builder is given them. Omitted, the surface lists none, and a visual on the page says so. */
+    sources?: Readonly<Record<string, StudioSourceDeclaration>>;
     /** The page's key. */
     page: SubtypeExprOrValue<StudioKeyType>;
     /** Which layout: the published one (`"live"`, the default), or the draft. */
@@ -112,7 +118,9 @@ export interface StudioPageOptions {
  * (`frame: "none"`) is bare, and a tile's label is its title or its
  * component's name. Two placements of one component share its State and Slice
  * keys. A placement whose component the surface does not list is a
- * placeholder naming its key. A page the record does not hold, or a live
+ * placeholder naming its key. A text block draws with no frame: its heading
+ * over its paragraphs. A visual draws in a tile naming its view and its
+ * source. A page the record does not hold, or a live
  * version not yet published, is a placeholder that says so. Under a narrow
  * container the tiles stack in row order. The page draws no border around
  * itself.
@@ -120,6 +128,7 @@ export interface StudioPageOptions {
  * @param options - The record's value, the listed components, the page and
  *   its version ({@link StudioPageOptions})
  * @returns An East expression of type `UIComponentType`
+ * @throws {Error} When a source's key, rows or fields do not fit ({@link studioSources})
  *
  * @example
  * ```tsx
@@ -143,6 +152,7 @@ function createPage(options: StudioPageOptions): ExprType<UIComponentType> {
     return StudioPageComponent.Root({
         pages: options.pages,
         components: options.components,
+        sources: studioSources("Studio.Page", options.sources),
         page: options.page,
         version: typeof version === "string" ? variant(version, null) : version,
     });

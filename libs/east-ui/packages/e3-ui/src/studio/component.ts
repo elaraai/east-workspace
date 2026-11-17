@@ -101,6 +101,19 @@ export type StudioComponentType = typeof StudioComponentType;
 // ============================================================================
 
 /**
+ * A name as code spells it, in words: its words apart and the first upper
+ * case (`sales_daily` "Sales daily", `weeklyForecast` "Weekly forecast",
+ * `ordered_at` "Ordered at"); a name with no letters or digits as it is.
+ */
+export const nameWords = East.function([StringType], StringType, ($, name) => {
+    const words = $.let(name.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").trim().lowerCase());
+    return words.length().equal(0n).ifElse(
+        () => name,
+        () => words.substring(0n, 1n).upperCase().concat(words.substring(1n, words.length())),
+    );
+});
+
+/**
  * The name of the data at a path, in words, as the people who build pages
  * read it — never its keypath, nor its name as code spells it: a task's
  * output by its task's name, anything else by its own, its words apart and
@@ -113,12 +126,7 @@ export const dataName = East.function([TreePathType], StringType, ($, path) => {
     const output = $.let(path.size().equal(3n)
         .and(() => path.get(0n).unwrap("field").equal("tasks"))
         .and(() => path.get(last).unwrap("field").equal("output")));
-    const name = $.let(output.ifElse(() => path.get(1n).unwrap("field"), () => path.get(last).unwrap("field")));
-    const words = $.let(name.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").trim().lowerCase());
-    return words.length().equal(0n).ifElse(
-        () => name,
-        () => words.substring(0n, 1n).upperCase().concat(words.substring(1n, words.length())),
-    );
+    return nameWords(output.ifElse(() => path.get(1n).unwrap("field"), () => path.get(last).unwrap("field")));
 });
 
 /**

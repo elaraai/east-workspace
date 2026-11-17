@@ -26,6 +26,11 @@
  * names the page, and nothing is overwritten. The type never depends on the
  * components, so a deploy that adds, changes or removes one runs no migration.
  *
+ * A placement holds its content (#1669): a component's key, a visual an
+ * operator builds, or a text block. A record whose placements hold a
+ * component's key alone, as they did before, is carried by one migration,
+ * `Studio.migrations.cellContent`.
+ *
  * @packageDocumentation
  */
 
@@ -39,6 +44,7 @@ import {
     NullType,
     OptionType,
     PatchType,
+    type PatchTypeOf,
     SetType,
     StringType,
     StructType,
@@ -51,28 +57,17 @@ import {
 import { Editing, SnapGrid } from "@elaraai/east-ui/internal";
 import { RecordCommitInfoType } from "@elaraai/e3-types";
 import { Record, RecordOutcomeType } from "../bind/record.js";
+import { StudioContentType, contentChange } from "./content.js";
+import { StudioKeyType } from "./key.js";
+
+export { StudioKeyType };
 
 // ============================================================================
 // Types
 // ============================================================================
 
 /**
- * A page's key: the project it belongs to, and its name in the project. A
- * project's pages are one contiguous run in key order.
- *
- * @property project - The project
- * @property page - The page's name in the project
- */
-export const StudioKeyType = StructType({
-    project: StringType,
-    page: StringType,
-});
-
-/** Type representing a page's key. */
-export type StudioKeyType = typeof StudioKeyType;
-
-/**
- * One placement on a page: a component's key, and where it sits on the
+ * One placement on a page: what it holds, and where it sits on the
  * 12-column grid.
  *
  * @remarks
@@ -85,8 +80,8 @@ export type StudioKeyType = typeof StudioKeyType;
  * @property span - Its width, in columns of 12
  * @property height - Its height in px; `none` is its content's height
  * @property align - Where it sits in a taller row
- * @property title - Its title; `none` is its component's name
- * @property component - The key of the component it places
+ * @property title - Its title; `none` is its content's own name: its component's, or one made from its visual's view
+ * @property content - What it holds: a component's key, a visual or a text block
  */
 export const StudioCellType = StructType({
     key: StringType,
@@ -95,11 +90,29 @@ export const StudioCellType = StructType({
     height: OptionType(IntegerType),
     align: SnapGrid.Types.Align,
     title: OptionType(StringType),
-    component: StringType,
+    content: StudioContentType,
 });
 
 /** Type representing one placement on a page. */
 export type StudioCellType = typeof StudioCellType;
+
+const StudioPageTypeImpl = StructType({
+    title: StringType,
+    cells: ArrayType(StudioCellType),
+});
+type StudioPageTypeImpl = typeof StudioPageTypeImpl;
+
+/**
+ * Type representing a page's layout.
+ *
+ * @remarks
+ * An interface, so a type that mentions it refers to it by name in
+ * declaration output rather than spelling it out: a placement's content is a
+ * deep type, and a patch of it deeper, past the length TypeScript will
+ * serialize (TS7056) and costly for every reader to hold spelled out.
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- the empty interface is the point: it attaches a symbol the declaration emitter can reference by name
+export interface StudioPageType extends StudioPageTypeImpl {}
 
 /**
  * A page's layout: its title and its placements.
@@ -107,13 +120,7 @@ export type StudioCellType = typeof StudioCellType;
  * @property title - The page's title
  * @property cells - Its placements, in the order the canvas holds them
  */
-export const StudioPageType = StructType({
-    title: StringType,
-    cells: ArrayType(StudioCellType),
-});
-
-/** Type representing a page's layout. */
-export type StudioPageType = typeof StudioPageType;
+export const StudioPageType: StudioPageType = StudioPageTypeImpl;
 
 /**
  * A published version of a page.
@@ -143,35 +150,101 @@ export const StudioPageEntryType = StructType({
 /** Type representing a page. */
 export type StudioPageEntryType = typeof StudioPageEntryType;
 
+const StudioEntryTypeImpl = VariantType({
+    page: StudioPageEntryType,
+    template: StudioPageType,
+});
+type StudioEntryTypeImpl = typeof StudioEntryTypeImpl;
+
+/**
+ * Type representing one entry of the pages record.
+ *
+ * @remarks
+ * An interface, so a type that mentions it refers to it by name in
+ * declaration output rather than spelling it out: a placement's content is a
+ * deep type, and a patch of it deeper, past the length TypeScript will
+ * serialize (TS7056) and costly for every reader to hold spelled out.
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- the empty interface is the point: it attaches a symbol the declaration emitter can reference by name
+export interface StudioEntryType extends StudioEntryTypeImpl {}
+
 /**
  * One entry of the pages record.
  *
  * @property page - A page, drafted and published
  * @property template - A layout saved from a page, which new pages start from
  */
-export const StudioEntryType = VariantType({
-    page: StudioPageEntryType,
-    template: StudioPageType,
-});
+export const StudioEntryType: StudioEntryType = StudioEntryTypeImpl;
 
-/** Type representing one entry of the pages record. */
-export type StudioEntryType = typeof StudioEntryType;
+const StudioPagesTypeImpl = DictType(StudioKeyType, StudioEntryType);
+type StudioPagesTypeImpl = typeof StudioPagesTypeImpl;
+
+/**
+ * Type representing the pages record.
+ *
+ * @remarks
+ * An interface, so a type that mentions it refers to it by name in
+ * declaration output rather than spelling it out: a placement's content is a
+ * deep type, and a patch of it deeper, past the length TypeScript will
+ * serialize (TS7056) and costly for every reader to hold spelled out.
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- the empty interface is the point: it attaches a symbol the declaration emitter can reference by name
+export interface StudioPagesType extends StudioPagesTypeImpl {}
 
 /**
  * The pages record's type — every page and template, by key. A solution
  * declares its record with it: `e3.record("pages", Studio.Types.Pages, {
  * initial: new Map(), mutations: … })`, its one mutation a patch.
  */
-export const StudioPagesType = DictType(StudioKeyType, StudioEntryType);
+export const StudioPagesType: StudioPagesType = StudioPagesTypeImpl;
 
-/** Type representing the pages record. */
-export type StudioPagesType = typeof StudioPagesType;
+/**
+ * Type representing the pages record's patch.
+ *
+ * @remarks
+ * An interface over the patch's type by name, so a type that mentions it
+ * refers to it by name in declaration output rather than spelling it out: a
+ * patch of a placement's content is a deep type, past the length TypeScript
+ * will serialize (TS7056) and costly for every reader to hold spelled out.
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- the empty interface is the point: it attaches a symbol the declaration emitter can reference by name
+export interface StudioPagesPatchType extends PatchTypeOf<StudioPagesType> {}
 
 /** The pages record's patch — what every write is. */
-export const StudioPagesPatchType = PatchType(StudioPagesType);
+export const StudioPagesPatchType: StudioPagesPatchType = PatchType(StudioPagesType);
 
-/** Type representing the pages record's patch. */
-export type StudioPagesPatchType = typeof StudioPagesPatchType;
+/**
+ * Type representing a batch of the canvas's edits to a page's placements.
+ *
+ * @remarks
+ * An interface, for the reason {@link StudioPagesPatchType} is one.
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- the empty interface is the point: it attaches a symbol the declaration emitter can reference by name
+export interface StudioCellChangesType extends ReturnType<typeof Editing.Types.ChangeSet<StudioCellType>> {}
+
+/** A batch of the canvas's edits to a page's placements — what its Apply sends ({@link saveCells}). */
+export const StudioCellChangesType: StudioCellChangesType = Editing.Types.ChangeSet(StudioCellType);
+
+const StudioPagesHandleTypeImpl = StructType({
+    read: FunctionType([], StudioPagesType),
+    history: FunctionType([], OptionType(ArrayType(RecordCommitInfoType))),
+    commit: StructType({
+        patch: AsyncFunctionType([StringType, StudioPagesPatchType], RecordOutcomeType),
+    }),
+});
+type StudioPagesHandleTypeImpl = typeof StudioPagesHandleTypeImpl;
+
+/**
+ * Type representing the bound pages record.
+ *
+ * @remarks
+ * An interface, so a type that mentions it refers to it by name in
+ * declaration output rather than spelling it out: a placement's content is a
+ * deep type, and a patch of it deeper, past the length TypeScript will
+ * serialize (TS7056) and costly for every reader to hold spelled out.
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- the empty interface is the point: it attaches a symbol the declaration emitter can reference by name
+export interface StudioPagesHandleType extends StudioPagesHandleTypeImpl {}
 
 /**
  * The pages record, bound with its patch — what the builder and the page
@@ -183,16 +256,7 @@ export type StudioPagesPatchType = typeof StudioPagesPatchType;
  * @property history - Its commit chain, newest first — who changed a page last, for a conflict's words
  * @property commit - Its patch write, awaited: a request id and the patch, answered by the outcome
  */
-export const StudioPagesHandleType = StructType({
-    read: FunctionType([], StudioPagesType),
-    history: FunctionType([], OptionType(ArrayType(RecordCommitInfoType))),
-    commit: StructType({
-        patch: AsyncFunctionType([StringType, StudioPagesPatchType], RecordOutcomeType),
-    }),
-});
-
-/** Type representing the bound pages record. */
-export type StudioPagesHandleType = typeof StudioPagesHandleType;
+export const StudioPagesHandleType: StudioPagesHandleType = StudioPagesHandleTypeImpl;
 
 /**
  * The pages record as the Studio's factories take it — a `Record.bind(pages,
@@ -209,12 +273,12 @@ export type StudioPagesHandle = ExprType<StructType<{
  * One change to a placement.
  *
  * @property cell - The placement's key
- * @property component - The key of the component it places
+ * @property content - What it holds, in the later layout where both hold it
  * @property detail - What changed, such as "row 2 · span 4" or "span 12 → 8"
  */
 export const StudioCellChangeType = StructType({
     cell: StringType,
-    component: StringType,
+    content: StudioContentType,
     detail: StringType,
 });
 
@@ -230,7 +294,8 @@ export type StudioCellChangeType = typeof StudioCellChangeType;
  * @property resized - Its span changed
  * @property height - Its height changed; `auto` is its content's height
  * @property aligned - Where it sits in a taller row changed
- * @property retitled - Its title changed; `default` is its component's name
+ * @property retitled - Its title changed; `default` is its content's own name
+ * @property configured - What it holds changed: a visual's source, view, values, filter or click; a text block's text; or another component
  */
 export const StudioChangeType = VariantType({
     added: StudioCellChangeType,
@@ -240,6 +305,7 @@ export const StudioChangeType = VariantType({
     height: StudioCellChangeType,
     aligned: StudioCellChangeType,
     retitled: StudioCellChangeType,
+    configured: StudioCellChangeType,
 });
 
 /** Type representing one change between two layouts of a page. */
@@ -409,7 +475,7 @@ const withDraftCells = East.function([StudioEntryType, ArrayType(StudioCellType)
  * and cells another write moved since the edit began are a conflict.
  */
 export const saveCells = East.asyncFunction(
-    [StudioPagesHandleType, StudioKeyType, Editing.Types.ChangeSet(StudioCellType)],
+    [StudioPagesHandleType, StudioKeyType, StudioCellChangesType],
     Editing.Types.ApplyResult,
     ($, handle, key, batch) => {
         const apply = $.const(Record.onApply(handle, { entry: key, get: draftCellsOf, set: withDraftCells, idField: "key" }));
@@ -465,12 +531,15 @@ const layoutOf = East.function([StudioPageType], LayoutType, ($, page) => {
  * placements it no longer has. A placement moved when its row changed, or when
  * it left the longest run of placements still in their reading order, so a
  * move reports the placement moved and not the ones around it; which of two
- * placements that swapped places moved is ambiguous, and one is reported.
+ * placements that swapped places moved is ambiguous, and one is reported. A
+ * placement whose content changed is configured, its detail saying what
+ * changed in words; `sources` is each listed source's name, by its key, which
+ * those words name a visual's source by.
  */
 export const pageChanges = East.function(
-    [StudioPageType, StudioPageType],
+    [StudioPageType, StudioPageType, DictType(StringType, StringType)],
     ArrayType(StudioChangeType),
-    ($, before, after) => {
+    ($, before, after, sources) => {
         const layout = $.const(layoutOf);
         const was = $.let(layout(before));
         const now = $.let(layout(after));
@@ -524,7 +593,7 @@ export const pageChanges = East.function(
             $2.match(cellsBefore.tryGet(key), {
                 none: ($3) => {
                     $3(changes.pushLast(variant("added", {
-                        cell: key, component: cell.component,
+                        cell: key, content: cell.content,
                         detail: East.str`row ${East.print(place.row)} · span ${East.print(cell.span)}`,
                     })));
                 },
@@ -543,28 +612,31 @@ export const pageChanges = East.function(
                                 () => East.str`row ${East.print(from.row)} → row ${East.print(place.row)}`,
                             ),
                         ));
-                        $4(changes.pushLast(variant("moved", { cell: key, component: cell.component, detail })));
+                        $4(changes.pushLast(variant("moved", { cell: key, content: cell.content, detail })));
                     });
                     $3.if(East.notEqual(old.span, cell.span), ($4) => {
                         $4(changes.pushLast(variant("resized", {
-                            cell: key, component: cell.component,
+                            cell: key, content: cell.content,
                             detail: East.str`span ${East.print(old.span)} → ${East.print(cell.span)}`,
                         })));
                     });
                     $3.if(East.notEqual(old.height, cell.height), ($4) => {
                         const oldHeight = $4.let(old.height.match({ some: (_$5, px) => East.print(px), none: (_$5) => East.value("auto") }));
                         const newHeight = $4.let(cell.height.match({ some: (_$5, px) => East.print(px), none: (_$5) => East.value("auto") }));
-                        $4(changes.pushLast(variant("height", { cell: key, component: cell.component, detail: East.str`height ${oldHeight} → ${newHeight}` })));
+                        $4(changes.pushLast(variant("height", { cell: key, content: cell.content, detail: East.str`height ${oldHeight} → ${newHeight}` })));
                     });
                     $3.if(East.notEqual(old.align, cell.align), ($4) => {
                         const oldAlign = $4.let(old.align.match({ top: (_$5) => East.value("top"), center: (_$5) => East.value("center"), stretch: (_$5) => East.value("stretch") }));
                         const newAlign = $4.let(cell.align.match({ top: (_$5) => East.value("top"), center: (_$5) => East.value("center"), stretch: (_$5) => East.value("stretch") }));
-                        $4(changes.pushLast(variant("aligned", { cell: key, component: cell.component, detail: East.str`align ${oldAlign} → ${newAlign}` })));
+                        $4(changes.pushLast(variant("aligned", { cell: key, content: cell.content, detail: East.str`align ${oldAlign} → ${newAlign}` })));
                     });
                     $3.if(East.notEqual(old.title, cell.title), ($4) => {
                         const oldTitle = $4.let(old.title.match({ some: (_$5, text) => East.str`"${text}"`, none: (_$5) => East.value("default") }));
                         const newTitle = $4.let(cell.title.match({ some: (_$5, text) => East.str`"${text}"`, none: (_$5) => East.value("default") }));
-                        $4(changes.pushLast(variant("retitled", { cell: key, component: cell.component, detail: East.str`title ${oldTitle} → ${newTitle}` })));
+                        $4(changes.pushLast(variant("retitled", { cell: key, content: cell.content, detail: East.str`title ${oldTitle} → ${newTitle}` })));
+                    });
+                    $3.if(East.notEqual(old.content, cell.content), ($4) => {
+                        $4(changes.pushLast(variant("configured", { cell: key, content: cell.content, detail: contentChange(old.content, cell.content, sources) })));
                     });
                 },
             });
@@ -574,7 +646,7 @@ export const pageChanges = East.function(
                 const cell = $3.let(cellsBefore.get(key));
                 const place = $3.let(was.places.get(key));
                 $3(changes.pushLast(variant("removed", {
-                    cell: key, component: cell.component,
+                    cell: key, content: cell.content,
                     detail: East.str`row ${East.print(place.row)} · span ${East.print(cell.span)}`,
                 })));
             });

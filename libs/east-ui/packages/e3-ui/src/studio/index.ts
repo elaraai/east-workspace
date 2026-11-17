@@ -4,8 +4,9 @@
  */
 
 /**
- * The Studio (#787) — components developers publish as code, and the pages
- * operators build from them on the 12-column snap grid.
+ * The Studio (#787) — components developers publish as code, the sources a
+ * surface lists, and the pages operators build on the 12-column snap grid
+ * from components, visuals over those sources, and text blocks (#1669).
  *
  * @packageDocumentation
  */
@@ -31,6 +32,25 @@ import {
 import { StudioPage, StudioVersionType } from "./page.js";
 import { StudioBuilder } from "./builder.js";
 import { StudioLibrary } from "./library.js";
+import {
+    StudioChartType,
+    StudioClickType,
+    StudioContentType,
+    StudioFollowType,
+    StudioGroupType,
+    StudioKpiType,
+    StudioListType,
+    StudioMeasureType,
+    StudioSlicerType,
+    StudioTableType,
+    StudioTextType,
+    StudioValueType,
+    StudioViewType,
+    StudioVisualType,
+    StudioVisuals,
+} from "./content.js";
+import { StudioMigrations } from "./migrations.js";
+import { StudioFieldType, StudioSourceType, createSource } from "./source.js";
 
 export {
     StudioComponentType,
@@ -56,6 +76,58 @@ export {
     type StudioPagesHandle,
 } from "./pages.js";
 export {
+    StudioAxisValueType,
+    StudioBetterType,
+    StudioChartType,
+    StudioClickType,
+    StudioComboChartType,
+    StudioContentType,
+    StudioFollowType,
+    StudioGroupType,
+    StudioKpiType,
+    StudioListType,
+    StudioMeasureType,
+    StudioPeriodType,
+    StudioPieChartType,
+    StudioScatterChartType,
+    StudioSeriesChartType,
+    StudioSlicerType,
+    StudioSortType,
+    StudioStackType,
+    StudioTableType,
+    StudioTextType,
+    StudioValueType,
+    StudioViewType,
+    StudioVisualType,
+    StudioVisuals,
+    contentChange,
+    contentWords,
+    textParagraphs,
+    viewIcon,
+    viewWords,
+    type StudioAxisValue,
+    type StudioContent,
+    type StudioGroup,
+    type StudioGroupOptions,
+    type StudioValue,
+    type StudioValueOptions,
+    type StudioView,
+    type StudioVisual,
+    type StudioVisualOptions,
+} from "./content.js";
+export {
+    StudioFieldKindType,
+    StudioFieldType,
+    StudioSourceType,
+    createSource,
+    sourceNames,
+    studioSources,
+    type StudioSourceDeclaration,
+    type StudioSourceField,
+    type StudioSourceMeta,
+} from "./source.js";
+export { StudioMigrations, cellContent, type StudioMigrationsNamespace } from "./migrations.js";
+export {
     StudioPage,
     StudioPageComponent,
     StudioPagePayloadType,
@@ -78,6 +150,7 @@ export {
 } from "./palette.js";
 export {
     canvasTiles,
+    contentTile,
     CanvasTileType,
     StudioSaveTemplatePayloadType,
 } from "./canvas.js";
@@ -104,6 +177,7 @@ export {
 } from "./publish.js";
 export {
     inspectorSelection,
+    InspectorContentType,
     InspectorLayoutType,
     InspectorSelectionType,
     StudioInspectorPayloadType,
@@ -131,12 +205,50 @@ export interface StudioTypes {
     Cell: typeof StudioCellType;
     /** Which layout of a page to draw ({@link StudioVersionType}). */
     Version: typeof StudioVersionType;
+    /** What a placement holds: a component's key, a visual or a text block ({@link StudioContentType}). */
+    Content: StudioContentType;
+    /** A visual: its source, its filter, its view, its click and the visual it follows ({@link StudioVisualType}). */
+    Visual: StudioVisualType;
+    /** What a visual draws: a KPI, a chart, a table, a list or a slicer ({@link StudioViewType}). */
+    View: StudioViewType;
+    /** A KPI ({@link StudioKpiType}). */
+    Kpi: typeof StudioKpiType;
+    /** A chart, by its kind ({@link StudioChartType}). */
+    Chart: typeof StudioChartType;
+    /** A table, by its kind ({@link StudioTableType}). */
+    Table: typeof StudioTableType;
+    /** A list ({@link StudioListType}). */
+    List: typeof StudioListType;
+    /** A slicer ({@link StudioSlicerType}). */
+    Slicer: typeof StudioSlicerType;
+    /** One value of a visual: a measure, and how it reads ({@link StudioValueType}). */
+    Value: StudioValueType;
+    /** What a value measures ({@link StudioMeasureType}). */
+    Measure: typeof StudioMeasureType;
+    /** What a visual groups its rows by ({@link StudioGroupType}). */
+    Group: StudioGroupType;
+    /** A text block ({@link StudioTextType}). */
+    Text: typeof StudioTextType;
+    /** What a click on a visual does ({@link StudioClickType}). */
+    Click: typeof StudioClickType;
+    /** The visual a visual follows ({@link StudioFollowType}). */
+    Follow: typeof StudioFollowType;
+    /** A source a surface's visuals may read ({@link StudioSourceType}). */
+    Source: typeof StudioSourceType;
+    /** One field of a source ({@link StudioFieldType}). */
+    Field: typeof StudioFieldType;
 }
 
 /** The type of the {@link Studio} namespace — what a solution mounts and declares. */
 export interface StudioNamespace {
     /** Declares a component: a self-contained East UI function, and what the palette shows of it. */
     component: typeof StudioComponents.component;
+    /** Declares a source a surface's visuals may read: a bound handle, and what operators see of it ({@link createSource}). */
+    source: typeof createSource;
+    /** Builds a placement's content and a visual's parts, each with its defaults, for a pages record's seeds ({@link StudioVisuals}). */
+    visual: typeof StudioVisuals;
+    /** The pages record's migration steps: `migration.rows("cell_content", Studio.migrations.cellContent)` ({@link StudioMigrations}). */
+    migrations: typeof StudioMigrations;
     /** `<Studio.Builder>` — the builder: the open page's canvas, the palette and the inspector beside it, and the publish preview. */
     Builder: typeof StudioBuilder;
     /** `<Studio.Library>` — a project's templates and pages, and where new pages start. */
@@ -158,16 +270,37 @@ const types: StudioTypes = {
     Page: StudioPageType,
     Cell: StudioCellType,
     Version: StudioVersionType,
+    Content: StudioContentType,
+    Visual: StudioVisualType,
+    View: StudioViewType,
+    Kpi: StudioKpiType,
+    Chart: StudioChartType,
+    Table: StudioTableType,
+    List: StudioListType,
+    Slicer: StudioSlicerType,
+    Value: StudioValueType,
+    Measure: StudioMeasureType,
+    Group: StudioGroupType,
+    Text: StudioTextType,
+    Click: StudioClickType,
+    Follow: StudioFollowType,
+    Source: StudioSourceType,
+    Field: StudioFieldType,
 };
 
 /**
  * The Studio — components developers publish as code (`Studio.component`),
- * the pages record operators build (`Studio.Types.Pages`), and the components
- * a solution mounts: the builder (`<Studio.Builder>`), the page library
- * (`<Studio.Library>`) and one page (`<Studio.Page>`).
+ * the sources a surface lists (`Studio.source`), the pages record operators
+ * build (`Studio.Types.Pages`, its seeds built with `Studio.visual`, its
+ * migrations `Studio.migrations`), and the components a solution mounts: the
+ * builder (`<Studio.Builder>`), the page library (`<Studio.Library>`) and one
+ * page (`<Studio.Page>`).
  */
 export const Studio: StudioNamespace = {
     component: StudioComponents.component,
+    source: createSource,
+    visual: StudioVisuals,
+    migrations: StudioMigrations,
     Builder: StudioBuilder,
     Library: StudioLibrary,
     Page: StudioPage,
@@ -212,6 +345,9 @@ export interface StudioInternalNamespace extends Omit<StudioNamespace, "Types"> 
  */
 export const StudioInternal: StudioInternalNamespace = {
     component: StudioComponents.component,
+    source: createSource,
+    visual: StudioVisuals,
+    migrations: StudioMigrations,
     Builder: StudioBuilder,
     Library: StudioLibrary,
     Page: StudioPage,

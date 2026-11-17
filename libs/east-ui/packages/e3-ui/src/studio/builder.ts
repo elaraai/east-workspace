@@ -42,6 +42,7 @@ import {
 } from "@elaraai/east-ui/internal";
 import { StudioComponentType } from "./component.js";
 import { StudioKeyType, StudioPagesHandleType, type StudioPagesHandle } from "./pages.js";
+import { StudioSourceType, studioSources, type StudioSourceDeclaration } from "./source.js";
 
 // ============================================================================
 // The renderer's payload
@@ -52,6 +53,7 @@ import { StudioKeyType, StudioPagesHandleType, type StudioPagesHandle } from "./
  *
  * @property pages - The pages record, bound with its patch — what the builder reads, and saves and publishes through
  * @property components - The components the surface lists, in palette order
+ * @property sources - The sources its visuals may read, in the order listed; none when the surface lists none
  * @property project - The project whose pages the builder opens
  * @property env - Where the publish preview publishes to — its Env pill, and "Publish vN to <env>"
  * @property audience - Who sees a published page — the preview's Audience row
@@ -63,6 +65,7 @@ import { StudioKeyType, StudioPagesHandleType, type StudioPagesHandle } from "./
 export const StudioBuilderPayloadType = StructType({
     pages: StudioPagesHandleType,
     components: ArrayType(StudioComponentType),
+    sources: ArrayType(StudioSourceType),
     project: StringType,
     env: OptionType(StringType),
     audience: OptionType(StringType),
@@ -90,6 +93,7 @@ export const StudioBuilderComponent = EastUI.component("StudioBuilder", StudioBu
  *
  * @property pages - The pages record, bound with its patch mutation — `Record.bind(pages)`
  * @property components - The components the surface lists, in palette order
+ * @property sources - The sources its visuals may read, by the names their queries read them by
  * @property project - The project whose pages the builder opens
  * @property env - Where the publish preview publishes to — its Env pill, and "Publish vN to <env>"
  * @property audience - Who sees a published page — the preview's Audience row
@@ -103,6 +107,12 @@ export interface StudioBuilderOptions {
     pages: StudioPagesHandle;
     /** The components the surface lists, in palette order. */
     components: SubtypeExprOrValue<ArrayType<StudioComponentType>>;
+    /**
+     * The sources its visuals may read: each name, as a visual's query reads
+     * it (`orders` for `.orders`), to its `Studio.source(handle, meta)`.
+     * Omitted, the surface lists none, and a visual on a page says so.
+     */
+    sources?: Readonly<Record<string, StudioSourceDeclaration>>;
     /** The project whose pages the builder opens. */
     project: SubtypeExprOrValue<StringType>;
     /** Where the publish preview publishes to — its Env pill, and "Publish vN to <env>"; omitted, neither names one. */
@@ -156,7 +166,7 @@ export interface StudioBuilderOptions {
  *
  * @param options - The bound record, the listed components, the project, the page it shows and the preview's words ({@link StudioBuilderOptions})
  * @returns An East expression of type `UIComponentType`
- * @throws {Error} When `page` is given without `onOpen`: its palette's Pages tab could open nothing
+ * @throws {Error} When `page` is given without `onOpen`: its palette's Pages tab could open nothing; and when a source's key, rows or fields do not fit ({@link studioSources})
  *
  * @example
  * ```tsx
@@ -186,6 +196,7 @@ function createBuilder(options: StudioBuilderOptions): ExprType<UIComponentType>
     return StudioBuilderComponent.Root({
         pages: { read: options.pages.read, history: options.pages.history, commit: { patch: options.pages.commit.patch } },
         components: options.components,
+        sources: studioSources("Studio.Builder", options.sources),
         project: options.project,
         env: options.env === undefined ? none : some(options.env),
         audience: options.audience === undefined ? none : some(options.audience),
