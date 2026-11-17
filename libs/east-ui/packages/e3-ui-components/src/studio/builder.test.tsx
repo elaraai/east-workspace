@@ -21,18 +21,19 @@
  * bar (E1), the page (E2), the aside (E3, E5) — every mark in it Font Awesome's
  * (#1263) — and the footer (E6). The toolbar on a row short of room (#1229):
  * its ladder, the ⋯ chip's bundle and menu, and Save as template hung from the
- * chip.
+ * chip. The page it shows (#1668): its host's, which its palette's Pages tab
+ * asks to change; or, given none, its own, kept for a reload while it stands.
  */
 
 import { describe, test, expect, beforeEach, afterEach, beforeAll, afterAll, vi } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { East, SortedMap, applyFor, compareFor, encodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
-import { Reactive, Text, UIComponentType } from "@elaraai/east-ui/internal";
+import { East, NullType, SortedMap, applyFor, compareFor, decodeBeast2For, encodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { Reactive, State, Text, UIComponentType } from "@elaraai/east-ui/internal";
 import { StateRuntime, editingMessages } from "@elaraai/east-ui-components";
 import { foreignIcons, markOf } from "@elaraai/east-ui-components/testing";
 import { Record, Studio, StudioKeyType, StudioPagesType, builderKeys } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/studio/studio";
-import { conflictCards, act, e3Harness, settle } from "../e3-web-mount.test-utils.js";
+import { conflictCards, act, e3Harness, reloadPage, settle } from "../e3-web-mount.test-utils.js";
 // The builder is an extension: its renderer registers as it loads.
 import "./builder.js";
 
@@ -146,15 +147,48 @@ beforeEach(async () => {
     before = await commits();
 });
 
-/** The builder over the record, as a surface mounts it: the record bound with its patch door, and the listed components. */
+/** Where the surface holds the page open in its builder, and where one that holds its page still says which page it was asked for. */
+const OPEN = "studio-test.open";
+const ASKED = "studio-test.asked";
+
+/**
+ * The builder over the record, as a surface mounts it: the record bound with
+ * its patch door, the listed components, and the open page, which the surface
+ * holds — the Overview to begin with — gives the builder, and writes when the
+ * builder's palette asks for another.
+ */
 const builder = {
     fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
         const listed = $.let(components);
         const record = $.let(Record.bind(ex.studioPages, ["patch"]));
+        const open = $.let(State.bind([StudioKeyType], OPEN, OVERVIEW));
+        const go = $.const(East.function([StudioKeyType], NullType, ($2, key) => { $2(open.write(key)); }));
         return Studio.Builder({
-            pages: record, components: listed, project: "ops",
+            pages: record, components: listed, project: "ops", page: open.read(), onOpen: go,
             env: "Staging", audience: "Field ops · 24 users", rollout: "Immediate",
         });
+    }))),
+};
+
+/** A builder whose surface holds its page still — the Regional — and only notes the page it was asked for. */
+const heldBuilder = {
+    fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+        const listed = $.let(components);
+        const record = $.let(Record.bind(ex.studioPages, ["patch"]));
+        const asked = $.let(State.bind([StudioKeyType], ASKED, { project: "", page: "" }));
+        const note = $.const(East.function([StudioKeyType], NullType, ($2, key) => { $2(asked.write(key)); }));
+        return Studio.Builder({ pages: record, components: listed, project: "ops", page: REGIONAL, onOpen: note });
+    }))),
+};
+
+/** A builder given no page: it holds its own, and tells the surface the page it opened. */
+const ownBuilder = {
+    fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+        const listed = $.let(components);
+        const record = $.let(Record.bind(ex.studioPages, ["patch"]));
+        const asked = $.let(State.bind([StudioKeyType], ASKED, { project: "", page: "" }));
+        const note = $.const(East.function([StudioKeyType], NullType, ($2, key) => { $2(asked.write(key)); }));
+        return Studio.Builder({ pages: record, components: listed, project: "ops", onOpen: note });
     }))),
 };
 
@@ -164,13 +198,22 @@ const mountBuilder = () => h.mount(builder, { storageKey: "studio-builder" });
 /** The pages as another session's write leaves them: one entry set, the others as they stand. */
 const withEntry = (key: Key, entry: Entry) => (now: Pages): Pages => new SortedMap([...now].filter(([k]) => keys(k, key) !== 0).concat([[key, entry]]), keys);
 
-/** Open a page, as the page library does. */
+/** Open a page, as the builder's host does: it writes the open page it holds. */
 async function openPage(page: string) {
     await act(async () => {
-        StateRuntime.getStore().write(builderKeys(undefined).page, encodeBeast2For(StudioKeyType)({ project: "ops", page }));
+        StateRuntime.getStore().write(OPEN, encodeBeast2For(StudioKeyType)({ project: "ops", page }));
     });
     await settle();
 }
+
+/** A page the surface holds in its state, if it has written one. */
+function held(key: string): Key | undefined {
+    const bytes = StateRuntime.getStore().read(key);
+    return bytes === undefined ? undefined : decodeBeast2For(StudioKeyType)(bytes);
+}
+
+/** The entry a page library and a builder once shared by id: nothing writes it (#1668). */
+const sharedEntry = () => StateRuntime.getStore().read("studio.builder.page");
 
 /** The record as e3 holds it now. */
 const readRecord = (): Promise<Pages> => h.read(ex.studioPages);
@@ -347,6 +390,81 @@ describe("<Studio.Builder> — the palette (#994)", () => {
         expect(pane.getByText("Orders by week")).toBeTruthy();
         expect(pane.queryByText("Revenue trend")).toBeNull();
         expect(pane.queryByText("KPI rail")).toBeNull();
+    });
+});
+
+describe("<Studio.Builder> — the page it shows (#1668)", () => {
+    /** The canvas's tiles, by key. */
+    const tiles = (c: HTMLElement) => [...c.querySelectorAll("[data-snap-grid-tile]")].map((t) => t.getAttribute("data-snap-grid-tile"));
+    /** Press a page of the palette's Pages tab. */
+    async function pressPage(c: HTMLElement, title: string) {
+        await act(async () => { fireEvent.click(within(palette(c)).getByRole("tab", { name: "Pages" })); });
+        await act(async () => { fireEvent.click(within(within(palette(c)).getByRole("tabpanel", { name: "Pages" })).getByText(title)); });
+        await settle();
+    }
+
+    test("given its page, it shows that page and changes only when its host changes it: its palette's Pages tab tells the host the page asked for, and opens nothing itself", async () => {
+        const { container } = await h.mount(heldBuilder, { storageKey: "studio-builder" });
+        expect(tiles(container)).toEqual(["p-kpi", "p-trend", "p-bars"]);
+        await pressPage(container, "Weekly");
+        // The host is told, once, the page asked for.
+        expect(held(ASKED)).toEqual({ project: "ops", page: "b-weekly" });
+        // It holds its page still, so the builder shows the Regional yet, and marks it open.
+        expect(tiles(container)).toEqual(["p-kpi", "p-trend", "p-bars"]);
+        expect(cardOf(container, "Regional").hasAttribute("data-placed")).toBe(true);
+        expect(cardOf(container, "Weekly").hasAttribute("data-placed")).toBe(false);
+        // Nothing of its own is kept or shared: a reload shows the host's page again.
+        expect(sharedEntry()).toBeUndefined();
+        reloadPage();
+        const again = await h.mount(heldBuilder, { storageKey: "studio-builder" });
+        expect(tiles(again.container)).toEqual(["p-kpi", "p-trend", "p-bars"]);
+    });
+
+    test("its host's page changing — a page library's click, a route — opens that page, with nothing selected", async () => {
+        const { container } = await mountBuilder();
+        await select(container, "c-trend");
+        await openPage("d-double");
+        expect(tiles(container)).toEqual(["d-trend-1", "d-trend-2"]);
+        expect(container.querySelector("[data-snap-grid-tile][data-selected]")).toBeNull();
+        expect(sharedEntry()).toBeUndefined();
+    });
+
+    test("given no page, it holds its own — the project's first to begin with: its palette opens a page in it, it tells a host given to tell, and a reload shows that page again", async () => {
+        const { container } = await h.mount(ownBuilder, { storageKey: "studio-builder" });
+        expect(tiles(container)).toEqual(["c-kpi", "c-trend"]);
+        // Nothing asked for yet: the surface's note is as it began.
+        expect(held(ASKED)).toEqual({ project: "", page: "" });
+        await pressPage(container, "Weekly");
+        expect(tiles(container)).toEqual(["w-orders"]);
+        expect(cardOf(container, "Weekly").hasAttribute("data-placed")).toBe(true);
+        expect(held(ASKED)).toEqual({ project: "ops", page: "b-weekly" });
+        expect(sharedEntry()).toBeUndefined();
+
+        reloadPage();
+        const again = await h.mount(ownBuilder, { storageKey: "studio-builder" });
+        expect(tiles(again.container)).toEqual(["w-orders"]);
+    });
+
+    test("the page it kept is shown only while it stands: one the record no longer holds gives way to the project's first", async () => {
+        const { container } = await h.mount(ownBuilder, { storageKey: "studio-builder" });
+        await pressPage(container, "Weekly");
+        expect(tiles(container)).toEqual(["w-orders"]);
+
+        reloadPage();
+        // Another session removes the Weekly while the page is away.
+        await h.patch(ex.studioPages, new SortedMap([...PAGES].filter(([key]) => keys(key, { project: "ops", page: "b-weekly" }) !== 0), keys));
+        const again = await h.mount(ownBuilder, { storageKey: "studio-builder" });
+        expect(tiles(again.container)).toEqual(["c-kpi", "c-trend"]);
+    });
+
+    test("two builders on one surface, each given no page, each hold their own", async () => {
+        const first = await h.mount(ownBuilder, { storageKey: "studio-builder-a" });
+        await pressPage(first.container, "Weekly");
+        expect(tiles(first.container)).toEqual(["w-orders"]);
+        reloadPage();
+        // Another builder, under a storage key of its own, starts at the project's first.
+        const second = await h.mount(ownBuilder, { storageKey: "studio-builder-b" });
+        expect(tiles(second.container)).toEqual(["c-kpi", "c-trend"]);
     });
 });
 

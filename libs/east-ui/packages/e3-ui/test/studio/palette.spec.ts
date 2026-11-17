@@ -7,7 +7,7 @@
  * The builder's palette (#994): what its cards and its page list say, computed
  * in East over the listed components and the record — a card's reads, the
  * placed component and its count (B3, B4); the project's pages with their
- * status (B6) — and the names a builder shares by its id.
+ * status (B6) — and the names a builder's palette takes from its id.
  */
 
 import { describe, test } from "node:test";
@@ -110,9 +110,9 @@ describeEast("The builder's palette — its cards and its pages (#994)", (test) 
     });
 }, { platformFns: TestImpl });
 
-describe("The builder's shared names (#994)", () => {
-    test("a builder shares its open page, and its palette's library ids, by its id", () => {
-        assert.deepEqual(builderKeys(undefined), { page: "studio.builder.page", components: "studio.components", pages: "studio.pages" });
-        assert.deepEqual(builderKeys("north"), { page: "studio.builder.north.page", components: "studio.components.north", pages: "studio.pages.north" });
+describe("The builder's names (#994)", () => {
+    test("a builder's id names its palette's libraries — its drag sources — and no entry for its open page, which is its host's (#1668)", () => {
+        assert.deepEqual(builderKeys(undefined), { components: "studio.components", pages: "studio.pages" });
+        assert.deepEqual(builderKeys("north"), { components: "studio.components.north", pages: "studio.pages.north" });
     });
 });

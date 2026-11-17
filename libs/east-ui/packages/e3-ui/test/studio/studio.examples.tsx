@@ -18,7 +18,7 @@ import {
     example, none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import {
-    BarStrip, Box, Button, Chart, Format, Grid, HStack, MetricChip, Reactive, Table, Sparkline, Stat, Text, UIComponentType, VStack,
+    BarStrip, Box, Button, Chart, Format, Grid, HStack, MetricChip, Reactive, Table, Sparkline, Stat, State, Text, UIComponentType, VStack,
 } from "@elaraai/east-ui";
 import { Data, Record, Studio } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
@@ -416,14 +416,18 @@ export const studioBuilder = example({
         "SnapGrid", "toolbar", "history", "Undo", "Save", "Save as template", "Record.bind", "patch", "e3.record",
         "mutation.patch", "Studio.component", "components", "pages", "Desktop", "Tablet", "env", "audience", "rollout",
     ],
-    description: "The builder over the pages record: the Ops console's Overview on the canvas under one toolbar — its status, the zoom, the history item, Desktop · Tablet, Save as template, Preview and Publish — the palette of the seven components before it and the inspector after it; Preview and Publish open the publish preview in the canvas's place, its two changes since v3, and Exit returns",
+    description: "The builder over the pages record: the Ops console's Overview on the canvas under one toolbar — its status, the zoom, the history item, Desktop · Tablet, Save as template, Preview and Publish — the palette of the seven components before it and the inspector after it; Preview and Publish open the publish preview in the canvas's place, its two changes since v3, and Exit returns; the page it shows is the surface's own state, given as `page` and changed in `onOpen` when the palette's Pages tab asks for another",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const components = $.let([kpiRail, breakdownBars, revenueTrend, ordersByWeek, visitsSparkline, assignmentBoard, shiftRoster]);
             const pages = $.let(Record.bind(studioPages));
+            // The open page is the surface's — the project's first to begin with: the builder shows it, and the page library below opens another.
+            const open = $.let(State.bind([Studio.Types.Key], "ex.studio.open", { project: "Ops console", page: "Account detail" }));
+            const go = $.const(East.function([Studio.Types.Key], NullType, ($2, key) => { $2(open.write(key)); }));
             return (
                 <Box height="760px">
                     <Studio.Builder pages={pages} components={components} project="Ops console" id="studio"
+                        page={open.read()} onOpen={go}
                         env="Staging" audience="Field ops · 24 users" rollout="Immediate" />
                 </Box>
             );
@@ -434,7 +438,7 @@ export const studioBuilder = example({
 
 export const studioBuilderMobile = example({
     keywords: ["Studio", "Studio.Builder", "builder", "mobile", "phone", "pane strip", "drawer", "palette", "inspector", "second row", "history"],
-    description: "The same builder over the pages record in a phone's 390-wide frame: the toolbar over its second row — the history at 44px — the canvas the frame's whole width, and the palette and the inspector a strip of drawers along the bottom edge",
+    description: "The same builder over the pages record in a phone's 390-wide frame: the toolbar over its second row — the history at 44px — the canvas the frame's whole width, and the palette and the inspector a strip of drawers along the bottom edge; given no `page`, it holds its own open page, the project's first to begin with",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const components = $.let([kpiRail, breakdownBars, revenueTrend, ordersByWeek, visitsSparkline, assignmentBoard, shiftRoster]);
@@ -514,16 +518,19 @@ export const studioLibrary = example({
     keywords: [
         "Studio", "Studio.Library", "page library", "pages", "templates", "Blank grid", "new page", "project", "Library",
         "gallery", "wireframe", "search", "sort", "grid", "list", "Open in builder", "status", "Live", "Draft",
-        "Record.bind", "patch", "e3.record",
+        "Record.bind", "patch", "e3.record", "onOpen", "page", "State.bind", "navigate",
     ],
-    description: "The page library over the same record: one toolbar — the search over templates and pages, Sort · Name, Grid · List and \"+ New page in Ops console\" — beside the projects and the project's pages with their status; the Templates row starts with Blank grid, each card a wireframe of its layout; the Pages row shows each page's wireframe, status and component count with \"Open in builder →\", which opens the page in the builder above; a new page takes a name and a template and is one patch commit",
+    description: "The page library over the same record: one toolbar — the search over templates and pages, Sort · Name, Grid · List and \"+ New page in Ops console\" — beside the projects and the project's pages with their status; the Templates row starts with Blank grid, each card a wireframe of its layout; the Pages row shows each page's wireframe, status and component count with \"Open in builder →\", which tells the surface in `onOpen`: the surface writes the open page it holds, which the builder above shows and the pane marks; a new page takes a name and a template and is one patch commit",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const components = $.let([kpiRail, breakdownBars, revenueTrend, ordersByWeek, visitsSparkline, assignmentBoard, shiftRoster]);
             const pages = $.let(Record.bind(studioPages));
+            // The open page is the surface's: the builder above shows it. A host with routes navigates here instead.
+            const open = $.let(State.bind([Studio.Types.Key], "ex.studio.open", { project: "Ops console", page: "Account detail" }));
+            const go = $.const(East.function([Studio.Types.Key], NullType, ($2, key) => { $2(open.write(key)); }));
             return (
                 <Box height="764px">
-                    <Studio.Library pages={pages} components={components} project="Ops console" id="studio" />
+                    <Studio.Library pages={pages} components={components} project="Ops console" page={open.read()} onOpen={go} />
                 </Box>
             );
         }}</Reactive>

@@ -7,7 +7,8 @@
  * `EastChakraStudioBuilder` — the renderer of the `StudioBuilder` extension
  * declared in `@elaraai/e3-ui` (#1000): the builder, built in the browser from
  * its interface — the pages record bound with its patch, the listed
- * components, the project, and the publish preview's words.
+ * components, the project, the page it shows and who to tell of another, and
+ * the publish preview's words.
  *
  * - **The canvas** is the snap grid's editing canvas over the open page's
  *   placements: every gesture a draft of the page's editing session, Apply one
@@ -27,10 +28,12 @@
  *   and it applies them when the preview asks before it publishes.
  *
  * What each part shows is e3-ui's East, compiled once ({@link studioEast}).
- * The page open in the builder is the UI store's, by the builder's id, which
- * the page library writes when it opens a page; the selection, the drafts
- * the canvas draws and the preview's state are the builder's own. The builder
- * fills its host and draws no border around itself.
+ * The page open in the builder is its host's when it gives one — the builder
+ * shows it, and tells the host when its palette's Pages tab asks for another
+ * — else the builder's own, kept under its storage key ({@link useOpen},
+ * #1668); the selection, the drafts the canvas draws and the preview's state
+ * are the builder's own. The builder fills its host and draws no border
+ * around itself.
  *
  * In a phone's frame (`Studio Mobile Spec.md`) the canvas is its phone form, which
  * the snap grid draws by itself; the builder gives it the page's head, Add a
@@ -71,9 +74,9 @@ import {
     type ToolbarItem,
 } from "@elaraai/east-ui-components";
 
+import { openCodec, useOpen } from "../shared/open.js";
 import { StudioInspector } from "./inspector.js";
 import { useStudioMessages } from "./messages.js";
-import { useOpenPage, type StudioKey } from "./open-page.js";
 import { StudioLayout, StudioPlacement } from "./page.js";
 import { useStudioPalette } from "./palette.js";
 import { StudioPhoneBar } from "./phone.js";
@@ -87,6 +90,8 @@ type Styles = Record<string, SystemStyleObject>;
 type StudioBuilderValue = ValueTypeOf<typeof StudioBuilderComponent.schema>;
 /** A listed component. */
 type Component = ValueTypeOf<typeof StudioComponentType>;
+/** A page's key. */
+type StudioKey = ValueTypeOf<typeof StudioKeyType>;
 /** One placement. */
 type Cell = ValueTypeOf<typeof StudioCellType>;
 /** One entry of the pages record. */
@@ -108,6 +113,8 @@ const CELL_TYPE = toEastTypeValue(StudioCellType);
 const CELL_DRAFT_TYPE = toEastTypeValue(EditingDraftFieldType(StudioCellType));
 const keyEqual = equalFor(StudioKeyType);
 const printKey = printFor(StudioKeyType);
+/** How the builder's own open page is kept, and one page told from another. */
+const OPEN_PAGE = openCodec(StudioKeyType);
 const NOTHING_SELECTED: UiState = { selected: none, request: none };
 
 /**
@@ -150,7 +157,7 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
     const { result } = useTrackedEvaluation(read);
     const pages = result.ok ? result.value : undefined;
 
-    // The page open in the builder — the project's first until one is opened.
+    // The page open in the builder: its host's, else its own — the project's first until one is opened.
     const first = useMemo((): StudioKey => {
         if (pages !== undefined) {
             for (const [key, entry] of pages) {
@@ -159,7 +166,18 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
         }
         return { project, page: "" };
     }, [pages, project]);
-    const [open, writeOpen] = useOpenPage(keys.page, first);
+    // The page it kept stands while the record holds it in this project.
+    const stands = useCallback((kept: StudioKey) => {
+        if (pages === undefined || kept.project !== project) return false;
+        for (const [key] of pages) {
+            if (keyEqual(key, kept)) return true;
+        }
+        return false;
+    }, [pages, project]);
+    const [open, openAnother] = useOpen({
+        codec: OPEN_PAGE, storageKey: `${storageKey}.page`, given: value.page, first, stands,
+        onOpen: value.onOpen.type === "some" ? value.onOpen.value : undefined,
+    });
     const openName = printKey(open);
     let entry: Entry | undefined;
     if (pages !== undefined) {
@@ -186,7 +204,7 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
     const [collapsed, setCollapsed] = useState({ start: false, end: false });
     // Save as template's popover, opened from the ⋯ chip's menu (#1229).
     const [naming, setNaming] = useState(false);
-    // A page opened from anywhere — the palette, the page library — opens with nothing selected.
+    // A page opened from anywhere — the palette, the host — opens with nothing selected.
     const shown = useRef(openName);
     useEffect(() => {
         if (shown.current === openName) return;
@@ -408,13 +426,13 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
         const placement = cells.find((c) => c.component === component);
         if (placement !== undefined) setUi({ selected: some(placement.key), request: none });
     }, [cells]);
-    // A page's click opens it, with nothing selected.
+    // A page's click asks for it: the builder's own opens, a host's is the host's to change — with nothing selected.
     const openPage = useCallback((page: string) => {
-        writeOpen({ project, page });
+        openAnother({ project, page });
         setUi(NOTHING_SELECTED);
         setPlacing(undefined);
         setCollapsed((was) => (phone ? { ...was, start: true } : was));
-    }, [writeOpen, project, phone]);
+    }, [openAnother, project, phone]);
     // A card's tap on a phone: the view closes and placing starts (ST22).
     const onPage = useMemo(() => new Set(cells.map((c) => c.component)), [cells]);
     const palettePhone = useMemo(() => (!phone ? undefined : {

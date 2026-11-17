@@ -9,8 +9,9 @@
  *
  * The page library is a component of its own, apart from the builder: an
  * interface — the pages record bound with its patch, the listed components,
- * the project it shows first, the builder it opens pages in, and who to tell —
- * which the `StudioLibrary` renderer draws, headerless with one toolbar: the
+ * the project it shows first, the page open in the builder, and who to tell
+ * when another is asked for — which the `StudioLibrary` renderer draws,
+ * headerless with one toolbar: the
  * search over both rows, Sort · Name, the pages' Grid · List and the primary
  * "+ New page in <project>"; beside it the projects the record holds and the
  * project's pages; under it the Templates — Blank grid, then the project's
@@ -18,8 +19,9 @@
  *
  * A new page — from the toolbar's button, the dashed last card or a template's
  * card — takes a name and a template, and is one commit on the record.
- * "Open in builder →" opens a page in the builder: it writes the builder's
- * open page ({@link builderKeys}) and tells the host.
+ * "Open in builder →" tells the host (`onOpen`), which shows the page in its
+ * builder: the page library opens nothing itself, and shares no store entry
+ * with a builder (#1668).
  *
  * @packageDocumentation
  */
@@ -98,15 +100,15 @@ export type StudioLibraryTemplateType = typeof StudioLibraryTemplateType;
  * @property pages - The pages record, bound with its patch — what it reads, and a new page commits through
  * @property components - The components the surface lists — what a layout's summary names
  * @property project - The project it shows first
- * @property id - Names the builder whose open page it writes; `none` for the one builder
- * @property onOpen - Told when a page opens in the builder, with its key — the host shows the builder
+ * @property page - The page open in the builder, which the pane marks; `none`, no page is marked
+ * @property onOpen - Told when a page is asked for, with its key — the host shows it in its builder
  */
 export const StudioLibraryPayloadType = StructType({
     pages: StudioPagesHandleType,
     components: ArrayType(StudioComponentType),
     project: StringType,
-    id: OptionType(StringType),
-    onOpen: OptionType(FunctionType([StudioKeyType], NullType)),
+    page: OptionType(StudioKeyType),
+    onOpen: FunctionType([StudioKeyType], NullType),
 });
 
 /** Type representing the `StudioLibrary` renderer's payload. */
@@ -260,8 +262,8 @@ export const StudioLibraryComponent = EastUI.component("StudioLibrary", StudioLi
  * @property pages - The pages record, bound with its patch mutation — `Record.bind(pages)`
  * @property components - The components the surface lists — what a layout's summary names
  * @property project - The project it shows first
- * @property id - Names the builder whose open page it writes, when a surface holds two
- * @property onOpen - Told when a page opens in the builder, with its key — the host shows the builder
+ * @property page - The page open in the builder, which the pane marks
+ * @property onOpen - Told when a page is asked for, with its key — the host shows it in its builder
  */
 export interface StudioLibraryOptions {
     /** The pages record, bound with its patch mutation — `Record.bind(pages)`. */
@@ -270,10 +272,15 @@ export interface StudioLibraryOptions {
     components: SubtypeExprOrValue<ArrayType<StudioComponentType>>;
     /** The project it shows first. */
     project: SubtypeExprOrValue<StringType>;
-    /** Names the builder whose open page it writes — needed only when one surface holds two builders. */
-    id?: string;
-    /** Told when a page opens in the builder, with its key — the host shows the builder. */
-    onOpen?: SubtypeExprOrValue<FunctionType<[StudioKeyType], NullType>>;
+    /** The page open in the builder, which the pane marks — the value the host gives its builder's `page`. Omitted, no page is marked. */
+    page?: SubtypeExprOrValue<StudioKeyType>;
+    /**
+     * Told when "Open in builder" or a page of the pane is pressed, with the
+     * page's key. The host shows it in its builder: it navigates, or writes
+     * the state its builder's `page` reads. The page library opens nothing
+     * itself.
+     */
+    onOpen: SubtypeExprOrValue<FunctionType<[StudioKeyType], NullType>>;
 }
 
 /**
@@ -286,8 +293,8 @@ export interface StudioLibraryOptions {
  *   <project>".
  * - **The pane**: the projects the record holds, the one shown in the brand;
  *   then the project's pages, each with its status dot — ● live, ○ draft —
- *   the one open in the builder in the strong ink, a click opening one in the
- *   builder; and the legend.
+ *   the one open in the builder (`page`) in the strong ink, a click asking
+ *   the host for one (`onOpen`); and the legend.
  * - **Templates**, "clone to start a page": Blank grid, then the project's
  *   templates, four across, each with its wireframe, its title and what it
  *   places; a click starts a new page from it.
@@ -301,24 +308,29 @@ export interface StudioLibraryOptions {
  *   popover.
  *
  * The project shown, the search, the order and the Pages row's layout are the
- * page library's own; the page it opens is the builder's, shared by `id` with
- * a `<Studio.Builder>`. The page library draws no border around itself.
+ * page library's own; the open page is the host's, which gives it to the page
+ * library and to its `<Studio.Builder>` as `page` and changes it in `onOpen`.
+ * The page library draws no border around itself.
  *
- * @param options - The bound record, the listed components and the project ({@link StudioLibraryOptions})
+ * @param options - The bound record, the listed components, the project, the open page and who to tell ({@link StudioLibraryOptions})
  * @returns An East expression of type `UIComponentType`
  *
  * @example
  * ```tsx
- * import { East } from "@elaraai/east";
- * import { Reactive, UIComponentType } from "@elaraai/east-ui";
+ * import { East, NullType } from "@elaraai/east";
+ * import { Reactive, State, UIComponentType } from "@elaraai/east-ui";
  * import { Record, Studio, ui } from "@elaraai/e3-ui";
  *
  * // The page library: the project's pages and templates, and where new pages start.
+ * // The surface holds the open page, which its builder shows.
  * export const library = ui("library", [], East.function([], UIComponentType, _$ => (
  *     <Reactive>{$ => {
  *         const components = $.let([kpiRail, revenueTrend, breakdownBars]);
  *         const pages      = $.let(Record.bind(d.pages));
- *         return <Studio.Library pages={pages} components={components} project="Ops console" />;
+ *         const open       = $.let(State.bind([Studio.Types.Key], "studio.open", { project: "Ops console", page: "Overview" }));
+ *         const go         = $.const(East.function([Studio.Types.Key], NullType, ($2, key) => { $2(open.write(key)); }));
+ *         return <Studio.Library pages={pages} components={components} project="Ops console"
+ *             page={open.read()} onOpen={go} />;
  *     }}</Reactive>
  * )));
  * ```
@@ -328,8 +340,8 @@ function createLibrary(options: StudioLibraryOptions): ExprType<UIComponentType>
         pages: { read: options.pages.read, history: options.pages.history, commit: { patch: options.pages.commit.patch } },
         components: options.components,
         project: options.project,
-        id: options.id === undefined ? none : some(options.id),
-        onOpen: options.onOpen === undefined ? none : some(options.onOpen),
+        page: options.page === undefined ? none : some(options.page),
+        onOpen: options.onOpen,
     });
 }
 

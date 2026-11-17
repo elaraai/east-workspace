@@ -12,7 +12,10 @@
  * whole ({@link QueryHarness.mountBuilder}) — or over the order history the
  * examples' tasks generate, too large for one call
  * ({@link QueryHarness.mountHistory}); and the query library (#1063) the same
- * way, alone or beside a builder sharing its id. A run is e3's: a one-shot
+ * way, alone or beside a builder sharing its id. Each surface holds its open
+ * query as a host does (#1668) — a State of its own ({@link OPEN}), given to
+ * the builder and the query library as `query` and written when they ask for
+ * another — which a test writes as the host would ({@link openQuery}). A run is e3's: a one-shot
  * call, or a split call e3 cuts into pieces as the showcase's e3 does (#941,
  * #1132). What a run sent is its request's body ({@link QueryHarness.oneShots},
  * {@link QueryHarness.splitCalls}); what e3 answered, a tap's
@@ -31,12 +34,12 @@
  * @packageDocumentation
  */
 
-import { StrictMode, type ReactNode } from "react";
+import { StrictMode, useCallback, useMemo, useSyncExternalStore, type ReactNode } from "react";
 import { fireEvent, screen, within, type RenderResult } from "@testing-library/react";
-import { East, NullType, StringType, decodeBeast2For, encodeBeast2For, toEastTypeValue } from "@elaraai/east";
+import { East, NullType, StringType, decodeBeast2For, encodeBeast2For, none, toEastTypeValue, variant } from "@elaraai/east";
 import { Reactive, Stack, State, Text, UIComponentType } from "@elaraai/east-ui/internal";
 import { StateRuntime } from "@elaraai/east-ui-components";
-import { Data, Query, Record, queryKeys } from "@elaraai/e3-ui/internal";
+import { Data, Query, QueryOpenType, Record } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/query/query";
 import { datasetGetStatus, oneShotExecute, splitCallExplain, splitCallStatus } from "@elaraai/e3-api-client";
 import {
@@ -48,7 +51,7 @@ import {
 import { act, e3Harness, settle, type E3Harness } from "../e3-web-mount.test-utils.js";
 import type { E3Answer, E3Dataset, E3Match } from "../e3-web.test-utils.js";
 import { queryRoot, type QueryRoot } from "./one-shot.js";
-import { QueryOpenType, type QueryOpen } from "./open-query.js";
+import type { QueryOpen } from "./open-query.js";
 import type { SavedQuery } from "./session.js";
 import { savedRecord, type Saved } from "./fixture.test-utils.js";
 // The builder and the query library are extensions: their renderers register as they load.
@@ -58,8 +61,51 @@ import "./library.js";
 /** The `act` the query tests take: each scope its test's work, until it closes (#1280). */
 export { act, settle };
 
-/** The State a query library's `onOpen` writes the name it opened to, in the surface {@link QueryHarness.mountLibrary} mounts. */
+/**
+ * The State a query library's `onOpen` writes what it was told to, in the
+ * surface {@link QueryHarness.mountLibrary} mounts: a saved query's name, the
+ * name of the run a new query begins as, or `a new query on <data source>`.
+ */
 export const TOLD = "query-library-test.told";
+
+/** The State a test's surface holds its open query in, as a host does: what its builder and its query library are given. */
+export const OPEN = "query-test.open";
+
+/** The entry a query library and a builder once shared by id: nothing writes it (#1668). */
+export const sharedEntry = () => StateRuntime.getStore().read("query.builder.query");
+
+const encodeOpen = encodeBeast2For(QueryOpenType);
+const decodeOpen = decodeBeast2For(QueryOpenType);
+
+/** A new query on a data source, as a builder given no query begins: what a surface that names none holds to begin with. */
+export const firstQuery = (source: string): QueryOpen => variant("new", { id: "first", source, from: none });
+
+/**
+ * The open query the test's surface holds, if one is mounted.
+ *
+ * @returns The open query, as its host's State holds it
+ */
+export function hostQuery(): QueryOpen | undefined {
+    const bytes = StateRuntime.getStore().read(OPEN);
+    return bytes === undefined ? undefined : decodeOpen(bytes);
+}
+
+/**
+ * The open query a host holds, for a test that renders a part of the builder
+ * itself: what {@link openQuery} writes, and a write of its own.
+ *
+ * @param first - The query it holds before any is written
+ * @returns The open query, and what opens another
+ */
+export function useHostQuery(first: QueryOpen): [QueryOpen, (next: QueryOpen) => void] {
+    const store = StateRuntime.getStore();
+    const subscribe = useCallback((notify: () => void) => store.subscribe(OPEN, notify), [store]);
+    const snapshot = useCallback(() => store.read(OPEN), [store]);
+    const bytes = useSyncExternalStore(subscribe, snapshot);
+    const open = useMemo(() => (bytes === undefined ? first : decodeOpen(bytes)), [bytes, first]);
+    const write = useCallback((next: QueryOpen) => { store.write(OPEN, encodeOpen(next)); }, [store]);
+    return [open, write];
+}
 
 /**
  * A one-shot call: what a run of one call sends, started as a call of the
@@ -127,12 +173,12 @@ function successes<T>(read: (bytes: Uint8Array) => { type: "success"; value: T }
 }
 
 /**
- * Opens a query, as the query library does.
+ * Opens a query, as the builder's host does: it writes the open query it holds.
  *
  * @param open - The query to open
  */
 export async function openQuery(open: QueryOpen) {
-    await act(async () => { StateRuntime.getStore().write(queryKeys(undefined).query, encodeBeast2For(QueryOpenType)(open)); });
+    await act(async () => { StateRuntime.getStore().write(OPEN, encodeOpen(open)); });
     await settle();
 }
 
@@ -161,8 +207,10 @@ export const enabled = (name: string) => !(screen.getByRole("button", { name }) 
 
 /** How a builder is mounted. */
 export interface BuilderOptions {
-    /** The saved query the builder opens first, by name — its payload's `query`, which it runs as it mounts. */
+    /** The saved query its host holds as open to begin with, by name, which the builder runs as it mounts; a new query on the first data source unless given. */
     readonly query?: string;
+    /** Mounts it given no query and no one to tell: it holds its own open query. */
+    readonly own?: boolean;
     /** Mounts it under React's `StrictMode`, as the showcase does: mounted, unmounted and mounted again. */
     readonly strict?: boolean;
     /** The token its `E3Provider` gives e3 with every request. */
@@ -173,10 +221,12 @@ export interface BuilderOptions {
 
 /** How the query library is mounted. */
 export interface LibraryOptions {
-    /** The name the library and the builder share. */
+    /** The name the library and the builder share: its cards' drag source, and their recent runs. */
     readonly id?: string;
-    /** Mounts the builder beside it, sharing its id. */
+    /** Mounts the builder beside it, sharing its id and shown the same open query. */
     readonly builder?: boolean;
+    /** Gives it no open query to mark: `false`; the surface's open query unless given. */
+    readonly marked?: boolean;
     /** Under the page's drag layer, as a surface whose cards drag is. */
     readonly drag?: boolean;
 }
@@ -224,9 +274,10 @@ export interface QueryHarness extends E3Harness {
     mountHistory(options?: BuilderOptions): Promise<RenderResult>;
     /**
      * The query library over the saved queries and the same two data
-     * sources, under a line saying what it last told the host it opened
-     * (`told Big orders`); with the builder beside it, sharing its id, when
-     * asked; under a drag layer when asked.
+     * sources, under a line saying what it last told the host was asked for
+     * (`told Big orders`), which the surface holds as its open query; with the
+     * builder beside it, sharing its id and shown that query, when asked;
+     * under a drag layer when asked.
      *
      * @param options - The id, the builder, the drag layer
      * @returns The render
@@ -316,24 +367,27 @@ export function queryHarness(): QueryHarness {
         commits: async () => (await h.history(ex.queries)).commits.map((commit) => commit.mutation),
         seedHistory: (queries: readonly SavedQuery[]) => h.patch(ex.historyQueries, savedRecord(queries)),
         mountBuilder: (options: BuilderOptions = {}) => {
-            const opening = options.query === undefined ? {} : { query: options.query };
             const builder = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
                 const saved = $.let(Record.bind(ex.queries, ["patch"]));
                 const orders = $.let(Data.bindPaged(ex.orders));
                 const customers = $.let(Data.bind(ex.customers));
-                return Query.Builder({ queries: saved, datasets: { orders, customers }, ...opening });
+                if (options.own === true) return Query.Builder({ queries: saved, datasets: { orders, customers } });
+                const open = $.let(State.bind([QueryOpenType], OPEN, options.query === undefined ? firstQuery("orders") : variant("saved", options.query)));
+                const go = $.const(East.function([QueryOpenType], NullType, ($2, next) => { $2(open.write(next)); }));
+                return Query.Builder({ queries: saved, datasets: { orders, customers }, query: open.read(), onOpen: go });
             }))) };
             return mountOver(builder, { drag: false, storageKey: "query-builder", ...paged(options), ...tokened(options.token) });
         },
         mountHistory: (options: BuilderOptions = {}) => {
-            const opening = options.query === undefined ? {} : { query: options.query };
             const builder = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
                 const saved = $.let(Record.bind(ex.historyQueries, ["patch"]));
                 const history = $.let(Data.bindPaged(ex.historyTask));
                 const accounts = $.let(Data.bindPaged(ex.accountsTask));
                 const credit = $.let(Data.bindPaged(ex.creditTask));
                 const customers = $.let(Data.bind(ex.customers));
-                return Query.Builder({ queries: saved, datasets: { order_history: history, accounts, credit, customers }, ...opening });
+                const open = $.let(State.bind([QueryOpenType], OPEN, options.query === undefined ? firstQuery("order_history") : variant("saved", options.query)));
+                const go = $.const(East.function([QueryOpenType], NullType, ($2, next) => { $2(open.write(next)); }));
+                return Query.Builder({ queries: saved, datasets: { order_history: history, accounts, credit, customers }, query: open.read(), onOpen: go });
             }))) };
             return mountOver(builder, { drag: false, storageKey: "query-history", ...paged(options), ...tokened(options.token) });
         },
@@ -344,12 +398,26 @@ export function queryHarness(): QueryHarness {
                 const saved = $.let(Record.bind(ex.queries, ["patch"]));
                 const orders = $.let(Data.bindPaged(ex.orders));
                 const customers = $.let(Data.bind(ex.customers));
+                // The surface holds the open query, as a host does: told of another, it writes it, and says what it was told.
+                const open = $.let(State.bind([QueryOpenType], OPEN, firstQuery("orders")));
                 const told = $.let(State.bind([StringType], TOLD, "nothing"));
-                const onOpen = $.const(East.function([StringType], NullType, ($2, name) => { $2(told.write(name)); }));
-                const shelf = $.let(Query.Library({ queries: saved, datasets: { orders, customers }, onOpen, ...named }));
+                const go = $.const(East.function([QueryOpenType], NullType, ($2, next) => { $2(open.write(next)); }));
+                const onOpen = $.const(East.function([QueryOpenType], NullType, ($2, next) => {
+                    $2(open.write(next));
+                    $2(told.write(next.match({
+                        saved: (_$3, name) => name,
+                        new: (_$3, started) => started.from.match({
+                            some: (_$4, run) => run.name,
+                            none: (_$4) => East.str`a new query on ${started.source}`,
+                        }),
+                    })));
+                }));
+                const shelf = $.let(options.marked === false
+                    ? Query.Library({ queries: saved, datasets: { orders, customers }, onOpen, ...named })
+                    : Query.Library({ queries: saved, datasets: { orders, customers }, query: open.read(), onOpen, ...named }));
                 const said = $.let(Text.Root(East.str`told ${told.read()}`));
                 return withBuilder
-                    ? Stack.VStack([said, shelf, Query.Builder({ queries: saved, datasets: { orders, customers }, ...named })])
+                    ? Stack.VStack([said, shelf, Query.Builder({ queries: saved, datasets: { orders, customers }, query: open.read(), onOpen: go, ...named })])
                     : Stack.VStack([said, shelf]);
             }))) };
             return mountOver(library, { drag: options.drag === true, storageKey: "query-library" });

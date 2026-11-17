@@ -14,6 +14,7 @@ import { DataSourceType } from "../bind/sources.js";
 import { nameWriteRefusal } from "../studio/library.js";
 import { QueryBuilder, QueryBuilderComponent, QueryBuilderPayloadType, QueryResultViewType, QueryViewType } from "./builder.js";
 import { QueryLibrary, QueryLibraryComponent, QueryLibraryPayloadType } from "./library.js";
+import { QueryOpenType, queryOpen } from "./open.js";
 import { QueriesHandleType, QueryRootBoundType, rootBound, saveQuery } from "./queries.js";
 import { savedQueriesValue } from "./saved.js";
 import {
@@ -72,6 +73,7 @@ export {
     QueryLibraryPayloadType,
     type QueryLibraryOptions,
 } from "./library.js";
+export { QueryOpenType, queryOpen } from "./open.js";
 
 /** The query builder's East types — what a solution declares its saved queries record with. */
 export interface QueryTypes {
@@ -107,6 +109,8 @@ export interface QueryTypes {
     View: typeof QueryViewType;
     /** A view of the result, as `resultViews` lists it ({@link QueryResultViewType}). */
     ResultView: typeof QueryResultViewType;
+    /** The query open in a builder: a saved query by its name, or a new query on a data source ({@link QueryOpenType}). */
+    Open: typeof QueryOpenType;
 }
 
 /** The type of the {@link Query} namespace — what a solution mounts and declares. */
@@ -117,6 +121,8 @@ export interface QueryNamespace {
     Library: typeof QueryLibrary;
     /** The saved queries record's value: the queries a solution ships in it, by name, each checked against the data sources it may read ({@link savedQueriesValue}). */
     value: typeof savedQueriesValue;
+    /** Builds the query open in a builder: `Query.open.saved(name)`, a saved query, or `Query.open.on(source)`, a new query on a data source ({@link queryOpen}). */
+    open: typeof queryOpen;
     /** The query builder's East types. */
     Types: QueryTypes;
 }
@@ -138,18 +144,21 @@ const types: QueryTypes = {
     StepInput: QueryStepInputType,
     View: QueryViewType,
     ResultView: QueryResultViewType,
+    Open: QueryOpenType,
 };
 
 /**
  * The query builder and the query library — the components a solution mounts
  * (`<Query.Builder>`, `<Query.Library>`), and the East types it declares its
  * saved queries record with (`Query.Types`), and its value, the queries it
- * ships in it (`Query.value`).
+ * ships in it (`Query.value`), and the query open in a builder, which its
+ * host holds (`Query.open`).
  */
 export const Query: QueryNamespace = {
     Builder: QueryBuilder,
     Library: QueryLibrary,
     value: savedQueriesValue,
+    open: queryOpen,
     Types: types,
 };
 
@@ -191,6 +200,7 @@ export const QueryInternal: QueryInternalNamespace = {
     Builder: QueryBuilder,
     Library: QueryLibrary,
     value: savedQueriesValue,
+    open: queryOpen,
     save: saveQuery,
     nameWriteRefusal,
     rootBound,
