@@ -24,9 +24,10 @@ import {
     none,
     some,
     variant,
+    type ValueTypeOf,
 } from "@elaraai/east";
 import { Box, Button, Chart, EventStateType, Format, HStack, Reactive, SegmentGroup, Select, Slice, State, Text, UIComponentType, VStack } from "@elaraai/east-ui";
-import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui";
+import { Data, Func, Plan, Record, Schedule } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 
 // A Plan of event kinds (#1191, `Plan Builder Spec.md` §3, #1541): the resources
@@ -1957,3 +1958,139 @@ export const planConnect = example({
     )),
     inputs: [],
 });
+
+// ============================================================================
+// planTypedKeys — an event kind whose record is keyed by a variant
+// ============================================================================
+
+/** A job's key: an order's number, or a sample's — the works' own proofs, numbered apart from its orders. */
+export const PrintJobKey = VariantType({ order: StringType, sample: IntegerType });
+
+/** The jobs by their key, an order's or a sample's. */
+export const PrintKeyedJobs = DictType(PrintJobKey, PrintJob);
+
+/** A job of the typed keys' example, on a press over some hours of a day of its week. */
+const keyedJob = (title: string, press: string, day: number, from: number, to: number, sheets: number) => ({
+    title, start: some(new Date(Date.UTC(2026, 9, 5 + day, from))), end: some(new Date(Date.UTC(2026, 9, 5 + day, to))), press: some(press),
+    state: variant("confirmed", null), sheets, customer: "", stock: variant("coated", null), due: none,
+});
+
+/** Two orders and two samples, a record keyed by which each is: an order by its number, a sample by its own. */
+export const planKeyedJobs = e3.record("plan_keyed_jobs", PrintKeyedJobs, {
+    initial: new SortedMap<ValueTypeOf<typeof PrintJobKey>, ValueTypeOf<typeof PrintJob>>([
+        [variant("order", "J-8001"), keyedJob("Trade catalogue", "a1", 1, 6, 18, 96000.0)],
+        [variant("order", "J-8002"), keyedJob("Trade price list", "a2", 2, 6, 14, 24000.0)],
+        [variant("sample", 1n), keyedJob("Catalogue proof", "a1", 0, 9, 11, 200.0)],
+        [variant("sample", 2n), keyedJob("Price list proof", "a2", 1, 13, 15, 100.0)],
+    ], compareFor(PrintJobKey)),
+    mutations: (mutation) => ({
+        // The jobs' patch door — every Save commits through it, each job by its typed key.
+        patch: mutation.patch(),
+    }),
+});
+
+/** A sign-off: the proof a job waits on, each end a job's key in the jobs' own key type. */
+export const PrintSignOff = StructType({ from: PrintJobKey, to: PrintJobKey, sheets: FloatType });
+
+/** The works' sign-offs, a record of links: the catalogue's proof to its run to start with. */
+export const planKeyedSignOffs = e3.record("plan_keyed_sign_offs", DictType(StringType, PrintSignOff), {
+    initial: new Map([
+        ["S-1", { from: variant("sample", 1n), to: variant("order", "J-8001"), sheets: 200.0 }],
+    ]),
+    mutations: (mutation) => ({
+        // The sign-offs' patch door — Save writes each one drawn through it.
+        patch: mutation.patch(),
+    }),
+});
+
+/**
+ * The typed keys' optimiser, on e3: every sample in the window runs first, at six in the morning of the window's first
+ * day, for its two hours. It reads the jobs with the Plan's unsaved edits laid over them, and answers a patch of them,
+ * each job named by its typed key.
+ */
+export const proofsFirst = e3.function("plan_proofs_first", {
+    inputs: [planKeyedJobs],
+    drafts: [planKeyedJobs],
+    args: [Plan.Types.OptimiseRequest],
+    output: Plan.Types.OptimiseResult({ job: PrintKeyedJobs }),
+}, ($, jobs, request) => {
+    const before = $.let(new Map(), PrintKeyedJobs);
+    const after = $.let(new Map(), PrintKeyedJobs);
+    // Six in the morning of the window's first day: where a proof runs, for its two hours.
+    const first = $.const(request.from.addHours(6n));
+    $.for(jobs, ($2, job, key) => {
+        const inWindow = $2.const(job.start.match({
+            some: (_$3, start) => East.greaterEqual(start, request.from).and(() => East.less(start, request.to)),
+            none: () => false,
+        }));
+        $2.if(key.hasTag("sample").and(() => inWindow), ($3) => {
+            $3(before.insert(key, job));
+            $3(after.insert(key, {
+                title: job.title, start: some(first), end: some(first.addHours(2n)), press: job.press,
+                state: job.state, sheets: job.sheets, customer: job.customer, stock: job.stock, due: job.due,
+            }));
+        });
+    });
+    return { events: { job: East.diff(before, after) } };
+});
+
+/**
+ * An event kind whose record is keyed by a variant (#1541, any key type): the
+ * works' jobs, each an order by its number or a sample by its own. Nothing of
+ * the Plan is written differently for it. Its events draw, are dragged, drafted
+ * and saved by their typed key; a link kind's ends hold that key in its own
+ * type (`PrintSignOff`'s `from` and `to`); and the optimiser's answer is a
+ * patch of the record, each job named by it.
+ */
+export const planTypedKeys = example({
+    keywords: [
+        "Plan", "key type", "typed key", "variant key", "any key type", "record keyed by a variant", "Schedule.events", "Plan.links",
+        "link ends", "optimise", "Func.bind", "Plan.Types.OptimiseRequest", "Plan.Types.OptimiseResult", "East.diff", "patch",
+        "Record.bind", "Plan.series.resources", "#1541", "#1549",
+    ],
+    description: "An event kind whose record is keyed by a variant — the works' jobs, each an order by its number or a sample by its own (Dict<Variant<{ order: String, sample: Integer }>, Job>): its events draw, are dragged, drafted and saved by their typed key, a link kind's ends hold that key in its own type (Plan.links over a record whose `from` and `to` are the jobs' key), and the optimiser's answer is a patch of the record naming each job by it",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const presses = $.let(Record.bind(planPrintPresses, []));
+            const jobs = $.let(Record.bind(planKeyedJobs));
+            const signOffs = $.let(Record.bind(planKeyedSignOffs));
+            const optimise = $.let(Func.bind(proofsFirst));
+            return (
+                <Box height="420px">
+                    <Plan
+                        id="planTypedKeys"
+                        axis={Plan.axis({
+                            window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-10-12T00:00:00Z") },
+                            resolution: "day", now: new Date("2026-10-06T09:00:00Z"),
+                        })}
+                        data={presses.read()}
+                        series={[Plan.series.resources(PrintPress, { key: "presses", title: "Presses", icon: "print", label: p => p.name })]}
+                        // The jobs, a record keyed by a variant: written as a kind over any record is.
+                        events={{
+                            job: Schedule.events(jobs, {
+                                name: "Print job", icon: "file-lines",
+                                title: "title", start: "start", end: "end",
+                                resource: { field: "press", of: "presses" },
+                                state: "state",
+                            }),
+                        }}
+                        // The sign-offs: each end the key of a job, in the jobs' own key type.
+                        links={{
+                            signOff: Plan.links(signOffs, {
+                                name: "Sign-off", icon: "check",
+                                from: { field: "from", of: "job" },
+                                to: { field: "to", of: "job" },
+                                quantity: { field: "sheets", unit: "sheets" },
+                            }),
+                        }}
+                        // The works' optimiser: the eye calls it once a run, and its patch names each job by its typed key.
+                        optimise={optimise}
+                        inspector
+                    />
+                </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
