@@ -36,6 +36,8 @@ import {
   type BlockBuilder, type BooleanType, type EastType, type ExprType, type KeyBound, type StructType, type SubtypeExprOrValue, type ValueTypeOf,
   type VariantType,
 } from '@elaraai/east';
+// What a reader's `on` is written as, an object literal, by the rule a key range's bound is (east's `key_range.ts`).
+import { isObjectLiteral } from '@elaraai/east/internal';
 import {
   RecordLevelType, RecordNestedPathType, RecordNestedTotalsType, RecordRollupType, RecordSummaryTotalsType, nestedPathCases, type NestedPathType,
 } from '@elaraai/e3-types';
@@ -119,11 +121,6 @@ const indexKeyPart = (entry: Expr, part: string): Expr => East.field(East.field(
 /** The instant a millisecond before one. */
 function msBefore(at: ExprType<DateTimeType>): ExprType<DateTimeType> {
   return East.DateTime.fromEpochMilliseconds(at.toEpochMilliseconds().subtract(1n));
-}
-
-/** An object literal: what a reader's `on` is written as. */
-function isObjectLiteral(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === 'object' && value !== null && Object.getPrototypeOf(value) === Object.prototype;
 }
 
 /**

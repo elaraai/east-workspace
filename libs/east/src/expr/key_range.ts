@@ -59,8 +59,16 @@ export interface KeyRangeBounds<K> {
   to?: KeyBound<K>;
 }
 
-/** Whether a value is an object literal: what a struct is written as. */
-function isObjectLiteral(value: unknown): value is Readonly<Record<string, unknown>> {
+/**
+ * Whether a value is an object literal: what a struct is written as — a key range's bound here, and an index reader's
+ * `on` in e3, which takes it from here.
+ *
+ * @param value - The value as written
+ * @returns Whether it is a plain object, its prototype `Object.prototype`
+ *
+ * @internal
+ */
+export function isObjectLiteral(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === "object" && value !== null && Object.getPrototypeOf(value) === Object.prototype;
 }
 
