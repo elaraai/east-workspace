@@ -33,6 +33,7 @@ import { announced, layOut } from "@elaraai/east-ui-components/testing";
 import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import { boundFrame } from "../../sheet/frame.test-utils.js";
+import { instantKey, timeInstant } from "../instant.js";
 import { rowKeyOf, type PlanRowId } from "../model.js";
 import { carry, carrySaid, dragTo, keyOn } from "../plan-move.test-utils.js";
 import { act, drawnFrom, el, elementKey, entry, madeFrom, planHarness, ribbonWidth, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
@@ -1518,5 +1519,161 @@ describe("an event kind whose record is keyed by a variant: drawn, dragged, save
         expect([sameStart(held.get(CATALOGUE_PROOF)!.start, six), sameStart(held.get(PRICE_LIST_PROOF)!.start, six)]).toEqual([true, true]);
         // The orders stand where they were.
         expect(sameStart(held.get(CATALOGUE)!.start, some(new Date("2026-10-06T06:00:00Z")))).toBe(true);
+    });
+});
+
+describe("the print works over plain records (planPrintWorksRecords, #1541 §3)", () => {
+    /** A resource's row, under its group: a press, a crew, a bindery line, the bay or a van. */
+    const A1_ROW = entry("press", "1-presses-a", "a1");
+    const A3_ROW = entry("press", "1-presses-a", "a3");
+    const B2_ROW = entry("press", "2-presses-b", "b2");
+    const FOLD = entry("line", "5-bindery", "fold");
+    const C1_HOURS = entry("hours", "3-crews-a", "c1");
+    const printRole = printFor(ex.WorksRole);
+    const C1_OPERATORS = entry("role", "3-crews-a", "c1", printRole(variant("operator", null)));
+    /** What a row draws of a kind, by its events' keys. */
+    const drawnOn = (c: HTMLElement, row: PlanRowId, attr: "data-run" | "data-mark" | "data-chip" | "data-event", kind: string, keys: readonly string[]) =>
+        keys.filter((key) => c.querySelector(`${rowAt(row)} ${el(attr, kind, key)}`) !== null);
+    /** The kinds of request a record was read with through one of its indexes. */
+    const readsOf = (dataset: string, index: string) => h.requests()
+        .filter((request) => request.dataset === dataset && (request.query.get("index") ?? undefined) === index).map((request) => request.kind);
+    const sameInstant = equalFor(DateTimeType);
+    const sameFrom = equalFor(ex.WorksFeed.fields.from);
+    const sameTo = equalFor(ex.WorksFeed.fields.to);
+    /** Its canvas is bounded: laid out, its paged rows mount. */
+    const mounted = async () => {
+        const restore = boundFrame(2000);
+        const { container } = await h.mount(ex.planPrintWorksRecords, DRAG);
+        await settle();
+        await waitFor(() => expect(container.querySelector(`${rowAt(A1_ROW)} ${el("data-run", "job", "J-9001")}`)).not.toBeNull());
+        return { c: container, restore };
+    };
+
+    test("one record of rows, each resource by its kind, and five event kinds on them, each read a cell at a time through its own source", async () => {
+        const { c, restore } = await mounted();
+        try {
+            // A press's jobs as bars and its stops as marks beside them, a line's bindery jobs and a crew's shifts as
+            // chips, a bay's and a van's deliveries as tiles.
+            expect(drawnOn(c, A1_ROW, "data-run", "job", ["J-9001", "J-9002", "J-9003"])).toEqual(["J-9001", "J-9002"]);
+            expect(drawnOn(c, entry("press.marks", "1-presses-a", "a2"), "data-mark", "stop", ["S-9001"])).toEqual(["S-9001"]);
+            expect(drawnOn(c, FOLD, "data-chip", "binding", ["B-9001", "B-9002", "B-9003"])).toEqual(["B-9001", "B-9002"]);
+            expect(drawnOn(c, entry("crew", "3-crews-a", "c1"), "data-chip", "shift", ["H-9001", "H-9002", "H-9003"])).toEqual(["H-9001", "H-9003"]);
+            expect(drawnOn(c, entry("bay", "6-dispatch", "bay"), "data-event", "delivery", ["D-9001"])).toEqual(["D-9001"]);
+            expect(drawnOn(c, entry("van", "7-vans", "van2"), "data-event", "delivery", ["D-9003"])).toEqual(["D-9003"]);
+            // The rows a page at a time, what belongs to them through their nested series index; each kind by its series
+            // index, a bay's and a van's deliveries through one filed by a variant field.
+            expect(readsOf("records.plan_works_rows", "plan_works_rows_by_name")).toContain("page");
+            expect(readsOf("records.plan_works_rows", "plan_works_rows_in_time")).toEqual(expect.arrayContaining(["find", "runs"]));
+            for (const [record, index] of [
+                ["jobs", "by_press_week"], ["stops", "by_press_week"], ["bindings", "by_line_week"], ["shifts", "by_crew_week"], ["deliveries", "by_location_week"],
+            ] as const) {
+                expect(readsOf(`records.plan_works_${record}`, `plan_works_${record}_${index}`), record).toEqual(expect.arrayContaining(["find", "runs"]));
+            }
+            // The library: every kind's templates from the one presets record, the series, the orders and the customers.
+            expect(tabs(slot(c, "start")!)).toEqual(["Events 7", "Series 14", "Orders 3", "Customers 16"]);
+            expect(pending(c)).toBe("0 pending");
+        } finally {
+            restore();
+        }
+    });
+
+    test("an order's card dropped on a press makes a job there, and Save writes it to the jobs' record", async () => {
+        const { c, restore } = await mounted();
+        try {
+            const before = [...(await h.read(ex.planWorksJobs)).keys()];
+            await openTab(c, "Orders");
+            const y = layOutPlots(c, [A3_ROW]);
+            // Monday 19 October, a whole day: from its start.
+            const letGo = await carry(cardOf(c, "O-701")!, OFF, { x: xAt(14, 9), y: y(A3_ROW) });
+            expect(caption()).toBe("Season programme · Press A3 · Mon, Oct 19, 2026");
+            await letGo();
+            await settle();
+            expect(pending(c)).toBe("1 pending");
+            await press(historyButton(c, SAVE));
+            await waitFor(() => expect(pending(c)).toBe("0 pending"));
+            const after = await h.read(ex.planWorksJobs);
+            const made = [...after].filter(([key]) => !before.includes(key)).map(([, job]) => job);
+            expect(made.length).toBe(1);
+            // 48,000 sheets at 8,000 an hour: six hours on Press A3, with the order's own fields.
+            expect([made[0]!.title, made[0]!.customer, made[0]!.press, made[0]!.sheets]).toEqual(["Season programme", "Heathfield Theatre", "a3", 48000.0]);
+            expect([sameInstant(made[0]!.start, new Date("2026-10-19T00:00:00Z")), sameInstant(made[0]!.end, new Date("2026-10-19T06:00:00Z"))]).toEqual([true, true]);
+        } finally {
+            restore();
+        }
+    });
+
+    test("the Connect tool draws a feed from a job to a bindery job, both read a cell at a time, and Save writes its ends under their kinds", async () => {
+        const { c, restore } = await mounted();
+        try {
+            await press(tool(c, "Connect"));
+            const inserts = c.querySelector<HTMLElement>(`${rowAt(FOLD)} ${el("data-chip", "binding", "B-9002")}`)!;
+            const y = layOutPlots(c, [B2_ROW, FOLD], [[inserts, { left: xAt(9, 10), top: 44, width: 25, height: 24 }]]);
+            // From the market posters, Tuesday 13 October on Press B2, onto the handbook's inserts at the folder.
+            const release = await carry(c.querySelector<HTMLElement>(`${rowAt(B2_ROW)} ${el("data-run", "job", "J-9007")}`)!,
+                { x: xAt(8, 9), y: y(B2_ROW) }, { x: xAt(9, 12), y: y(FOLD) });
+            expect(caption()).toBe("Feed · Market posters → Fold handbook inserts");
+            await release();
+            expect(pending(c)).toBe("1 pending");
+            await press(historyButton(c, SAVE));
+            await waitFor(() => expect(pending(c)).toBe("0 pending"));
+            const made = [...(await h.read(ex.planWorksFeeds))].filter(([key]) => !["F-1", "F-2", "F-3"].includes(key)).map(([, feed]) => feed);
+            expect(made.length).toBe(1);
+            expect([sameFrom(made[0]!.from, variant("job", "J-9007")), sameTo(made[0]!.to, variant("binding", "B-9002"))]).toEqual([true, true]);
+        } finally {
+            restore();
+        }
+    });
+
+    test("the optimiser places each order on the press free soonest: one edit, and Save writes each as a job under its order's key", async () => {
+        const { c, restore } = await mounted();
+        try {
+            await press(c.querySelector("[data-optimise-button]")!);
+            await waitFor(() => expect(pending(c)).toBe("3 pending"));
+            await press(historyButton(c, SAVE));
+            await waitFor(() => expect(pending(c)).toBe("0 pending"));
+            const jobs = await h.read(ex.planWorksJobs);
+            // Press A3 is free first, from Wednesday 7 October at two: the three orders run there one after another, each
+            // for as long as its sheets take at 8,000 an hour.
+            const placed = ["O-701", "O-702", "O-703"].map((key) => jobs.get(key)!);
+            expect(placed.map((job) => [job.title, job.press])).toEqual([["Season programme", "a3"], ["Autumn catalogue", "a3"], ["Members' newsletter", "a3"]]);
+            expect(placed.map((job) => [job.start, job.end].map((at) => at.getTime()))).toEqual([
+                ["2026-10-07T14:00:00Z", "2026-10-07T20:00:00Z"], ["2026-10-07T20:00:00Z", "2026-10-08T06:00:00Z"], ["2026-10-08T06:00:00Z", "2026-10-08T08:00:00Z"],
+            ].map((span) => span.map((text) => new Date(text).getTime())));
+            // No job of the works moved.
+            expect(sameInstant(jobs.get("J-9005")!.start, new Date("2026-10-07T06:00:00Z"))).toBe(true);
+        } finally {
+            restore();
+        }
+    });
+
+    test("a crew's hours by role, child rows keyed by a variant, are typed into and saved through the rows' record", async () => {
+        const { c, restore } = await mounted();
+        try {
+            // The crews' hours are folded to start: unfolded, each role draws beneath its crew.
+            await act(async () => { fireEvent.click(within(slot(c, "toolbar")!).getByRole("button", { name: "Expand all" })); });
+            await settle();
+            const week = new Date("2026-10-05T00:00:00Z");
+            const cell = (row: PlanRowId) => [...c.querySelectorAll<HTMLElement>(`${rowAt(row)} [data-cell]`)]
+                .find((one) => one.getAttribute("data-cell") === instantKey(timeInstant(week)));
+            const printed = (row: PlanRowId) => cell(row)?.querySelector("[data-part='0']")?.textContent ?? "none";
+            // The operators' 152 hours that week, and the crew's sum of its roles as e3 keeps it: 152 and the assistants' 76.
+            await waitFor(() => expect(printed(C1_OPERATORS)).toBe("152"));
+            expect(printed(C1_HOURS)).toBe("228");
+            await act(async () => { fireEvent.doubleClick(cell(C1_OPERATORS)!); });
+            const input = c.querySelector<HTMLInputElement>("[data-plan-typing] input")!;
+            await act(async () => { fireEvent.input(input, { target: { value: "200" } }); });
+            await act(async () => { fireEvent.keyDown(input, { key: "Enter" }); });
+            await settle();
+            // The crew's sum moves at once.
+            await waitFor(() => expect(printed(C1_HOURS)).toBe("276"));
+            await press(historyButton(c, SAVE));
+            await waitFor(() => expect(pending(c)).toBe("0 pending"));
+            const crew = (await h.read(ex.planWorksRows)).get("3-crews-a")!.resources.get("c1")!;
+            expect(crew.hours.get(variant("operator", null))!.hours.get(week)).toBe(200);
+            // The assistants' hours stand.
+            expect(crew.hours.get(variant("assistant", null))!.hours.get(week)).toBe(76);
+        } finally {
+            restore();
+        }
     });
 });

@@ -15,6 +15,7 @@ import {
     NullType,
     OptionType,
     PatchType,
+    SetType,
     SortedMap,
     StringType,
     StructType,
@@ -2088,6 +2089,606 @@ export const planTypedKeys = example({
                         inspector
                     />
                 </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+// ============================================================================
+// planPrintWorksRecords — the print works over plain records (#1541 §3)
+// ============================================================================
+
+/** What a resource of the works is. */
+export const WorksResourceKind = VariantType({ bay: NullType, crew: NullType, line: NullType, press: NullType, van: NullType });
+
+/** A role in a crew: the key of a crew's hours. */
+export const WorksRole = VariantType({ assistant: NullType, operator: NullType });
+
+/** A role's planned hours in its crew, a value a week. */
+export const WorksRoleHours = StructType({ hours: DictType(DateTimeType, FloatType) });
+
+/**
+ * A resource and what belongs to it over time, each collection empty on the
+ * kinds without it: a press fills `utilisation`, a crew `hours`.
+ */
+export const WorksResource = StructType({
+    name: StringType,
+    what: WorksResourceKind,
+    /** The share of each day it is busy, in %. */
+    utilisation: DictType(DateTimeType, FloatType),
+    /** Its planned hours by role: child rows keyed by the role, a variant. */
+    hours: DictType(WorksRole, WorksRoleHours),
+});
+
+/** A group: a hall's presses, a hall's crews, the bindery, dispatch or the vans, and its resources by their code. */
+export const WorksGroup = StructType({ name: StringType, resources: DictType(StringType, WorksResource) });
+
+/** A day of the works' four weeks, by its place among them. */
+const worksDay = (n: number, hour = 0): Date => new Date(Date.UTC(2026, 9, 5 + n, hour));
+/** A press's utilisation, a reading a day over the four weeks: a level, and a rise through each week. */
+const worksUtilisation = (level: number) =>
+    new SortedMap(Array.from({ length: 28 }, (_, n) => [worksDay(n), n % 7 >= 5 ? 0 : level + 6 * (n % 5)] as const), compareFor(DateTimeType));
+/** No reading, and no hours: what a resource of another kind holds. */
+const noWorksReadings = () => new SortedMap<Date, number>([], compareFor(DateTimeType));
+const noWorksHours = () => new SortedMap<ValueTypeOf<typeof WorksRole>, ValueTypeOf<typeof WorksRoleHours>>([], compareFor(WorksRole));
+/** A crew's planned hours: its operators' and its assistants', a value each of the four weeks. */
+const worksHours = (operators: number, assistants: number) => new SortedMap<ValueTypeOf<typeof WorksRole>, ValueTypeOf<typeof WorksRoleHours>>([
+    [variant("assistant", null), { hours: new SortedMap(Array.from({ length: 4 }, (_, w) => [worksDay(7 * w), assistants + 4 * w] as const), compareFor(DateTimeType)) }],
+    [variant("operator", null), { hours: new SortedMap(Array.from({ length: 4 }, (_, w) => [worksDay(7 * w), operators - 2 * w] as const), compareFor(DateTimeType)) }],
+], compareFor(WorksRole));
+/** A resource of a kind, by its name. */
+const worksResource = (name: string, what: keyof typeof WorksResourceKind.cases, level?: number, crew?: readonly [number, number]) => ({
+    name, what: variant(what, null),
+    utilisation: level === undefined ? noWorksReadings() : worksUtilisation(level),
+    hours: crew === undefined ? noWorksHours() : worksHours(crew[0], crew[1]),
+});
+
+/**
+ * The works as one record of rows (#1541 §3.1): each group with its resources,
+ * and what belongs to a resource over time with it — a press's utilisation a
+ * day, a crew's hours a week by role. Read a page at a time through its
+ * indexes, each collection a day at a time through its nested series index.
+ */
+export const planWorksRows = e3.record("plan_works_rows", DictType(StringType, WorksGroup), {
+    initial: new Map([
+        ["1-presses-a", { name: "Hall A", resources: new Map([
+            ["a1", worksResource("Press A1", "press", 62)], ["a2", worksResource("Press A2", "press", 48)], ["a3", worksResource("Press A3", "press", 71)],
+        ]) }],
+        ["2-presses-b", { name: "Hall B", resources: new Map([
+            ["b1", worksResource("Press B1", "press", 55)], ["b2", worksResource("Press B2", "press", 73)], ["b3", worksResource("Press B3", "press", 30)],
+        ]) }],
+        ["3-crews-a", { name: "Hall A crews", resources: new Map([
+            ["c1", worksResource("Crew 1", "crew", undefined, [152, 76])], ["c2", worksResource("Crew 2", "crew", undefined, [114, 76])],
+        ]) }],
+        ["4-crews-b", { name: "Hall B crews", resources: new Map([
+            ["c3", worksResource("Crew 3", "crew", undefined, [152, 38])], ["c4", worksResource("Crew 4", "crew", undefined, [76, 38])],
+        ]) }],
+        ["5-bindery", { name: "Bindery", resources: new Map([["fold", worksResource("Folder", "line")], ["bind", worksResource("Binder", "line")]]) }],
+        ["6-dispatch", { name: "Dispatch", resources: new Map([["bay", worksResource("Dispatch bay", "bay")]]) }],
+        ["7-vans", { name: "Vans", resources: new Map([["van1", worksResource("Van 1", "van")], ["van2", worksResource("Van 2", "van")]]) }],
+    ]),
+    indexes: (index) => ({
+        // The rail's order and its search.
+        plan_works_rows_by_name: index.on(["name"]),
+        // A group under each of its resources' codes, so the rail finds a press by its code.
+        plan_works_rows_by_resource: index.keys(East.function([StringType, WorksGroup], SetType(StringType), (_$, _key, group) => group.resources.keys())),
+        // What belongs to the resources, a day at a time, its totals by the month: a press's utilisation, and a crew's
+        // hours by role, the crew keeping its roles' sum from the day up — the finest the Plan's axis zooms to.
+        plan_works_rows_in_time: index.nested({
+            collections: {
+                resources: index.nested.rows({
+                    utilisation: index.nested.values(),
+                    hours: index.nested.rows({ hours: index.nested.values({ rollup: "sum" }) }),
+                }),
+            },
+            tile: "day",
+            summary: "month",
+        }),
+    }),
+    mutations: (mutation) => ({
+        // The Plan's save door for the rows, by a group's key.
+        patch: mutation.patch(),
+    }),
+});
+
+/** A print job on a press: what it is, for whom, when it runs, its sheets and its lifecycle. */
+export const WorksJob = StructType({
+    title: StringType, customer: StringType, press: StringType, start: DateTimeType, end: DateTimeType, sheets: FloatType, state: EventStateType,
+});
+
+/** The jobs by key. */
+export const WorksJobs = DictType(StringType, WorksJob);
+
+/** A job of the works, on a press from an hour of a day for some hours. */
+const worksJob = (title: string, customer: string, press: string, day: number, hour: number, hours: number, sheets: number, state: ValueTypeOf<typeof EventStateType> = variant("confirmed", null)) =>
+    ({ title, customer, press, start: worksDay(day, hour), end: worksDay(day, hour + hours), sheets, state });
+
+/** The works' jobs: read a window at a time, and each press's a cell at a time. One is under way, and locked. */
+export const planWorksJobs = e3.record("plan_works_jobs", WorksJobs, {
+    initial: new Map([
+        ["J-9001", worksJob("Spring catalogue", "Alder & Finch", "a1", 1, 6, 12, 96000.0, variant("in-progress", null))],
+        ["J-9002", worksJob("Course handbook", "Elmway College", "a1", 7, 6, 18, 144000.0)],
+        ["J-9003", worksJob("Annual report", "Harbour Arts Society", "a2", 3, 6, 6, 48000.0)],
+        ["J-9004", worksJob("Event posters", "Heathfield Theatre", "a2", 8, 8, 4, 20000.0)],
+        ["J-9005", worksJob("Museum guides", "Harbour Arts Society", "a3", 2, 6, 8, 40000.0)],
+        ["J-9006", worksJob("Store flyers", "Northwind Outfitters", "b1", 4, 6, 10, 150000.0)],
+        ["J-9007", worksJob("Market posters", "Orchard Street Market", "b2", 8, 6, 6, 72000.0)],
+        ["J-9008", worksJob("Price lists", "Northwind Outfitters", "b2", 9, 6, 5, 60000.0, variant("proposed", variant("added", null)))],
+        ["J-9009", worksJob("Menu cards", "Orchard Street Market", "b3", 10, 8, 4, 12000.0)],
+    ]),
+    indexes: (index) => ({
+        // The rail's window: each job overlapping it, read once.
+        plan_works_jobs_by_time: index.interval({ from: "start", to: "end" }),
+        // The jobs by the press each is on and by time: the presses in view are read a cell at a time.
+        plan_works_jobs_by_press_week: index.series({ key: "press", from: "start", to: "end", tile: "week" }),
+        // How busy each press is, a month at a time: what the Plan shades where the jobs in view are too many to draw.
+        plan_works_jobs_by_press_month: index.summary({ key: "press", from: "start", to: "end", tile: "month" }),
+    }),
+    mutations: (mutation) => ({
+        // The Plan's save door for the jobs.
+        patch: mutation.patch(),
+    }),
+});
+
+/** The works' stops: an instant each, its end its start. */
+export const planWorksStops = e3.record("plan_works_stops", DictType(StringType, PrintStop), {
+    initial: new Map([
+        ["S-9001", { title: "Plate change", at: worksDay(3, 5), press: "a2", kind: variant("plate_change", null) }],
+        ["S-9002", { title: "Service", at: worksDay(5, 9), press: "b3", kind: variant("service", null) }],
+        ["S-9003", { title: "Plate change", at: worksDay(8, 5), press: "b2", kind: variant("plate_change", null) }],
+    ]),
+    indexes: (index) => ({
+        plan_works_stops_by_time: index.interval({ from: "at", to: "at" }),
+        plan_works_stops_by_press_week: index.series({ key: "press", from: "at", to: "at", tile: "week" }),
+        plan_works_stops_by_press_month: index.summary({ key: "press", from: "at", to: "at", tile: "month" }),
+    }),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+
+/** The works' bindery jobs. */
+export const planWorksBindings = e3.record("plan_works_bindings", DictType(StringType, PrintBinding), {
+    initial: new Map([
+        ["B-9001", { title: "Fold handbook sections", start: worksDay(9, 6), end: worksDay(9, 14), line: "fold", state: variant("confirmed", null) }],
+        ["B-9002", { title: "Fold handbook inserts", start: worksDay(9, 10), end: worksDay(9, 16), line: "fold", state: variant("confirmed", null) }],
+        ["B-9003", { title: "Bind handbooks", start: worksDay(10, 6), end: worksDay(10, 14), line: "bind", state: variant("confirmed", null) }],
+    ]),
+    indexes: (index) => ({
+        plan_works_bindings_by_time: index.interval({ from: "start", to: "end" }),
+        plan_works_bindings_by_line_week: index.series({ key: "line", from: "start", to: "end", tile: "week" }),
+        plan_works_bindings_by_line_month: index.summary({ key: "line", from: "start", to: "end", tile: "month" }),
+    }),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+
+/** The crews' shifts: early and late, the first week. */
+export const planWorksShifts = e3.record("plan_works_shifts", DictType(StringType, PrintShift), {
+    initial: new Map([
+        ["H-9001", { title: "Early", start: worksDay(0, 6), end: worksDay(0, 14), crew: "c1", state: variant("confirmed", null) }],
+        ["H-9002", { title: "Late", start: worksDay(0, 14), end: worksDay(0, 22), crew: "c2", state: variant("confirmed", null) }],
+        ["H-9003", { title: "Early", start: worksDay(1, 6), end: worksDay(1, 14), crew: "c1", state: variant("confirmed", null) }],
+        ["H-9004", { title: "Early", start: worksDay(1, 6), end: worksDay(1, 14), crew: "c3", state: variant("confirmed", null) }],
+        ["H-9005", { title: "Late", start: worksDay(2, 14), end: worksDay(2, 22), crew: "c4", state: variant("proposed", variant("added", null)) }],
+    ]),
+    indexes: (index) => ({
+        plan_works_shifts_by_time: index.interval({ from: "start", to: "end" }),
+        plan_works_shifts_by_crew_week: index.series({ key: "crew", from: "start", to: "end", tile: "week" }),
+        plan_works_shifts_by_crew_month: index.summary({ key: "crew", from: "start", to: "end", tile: "month" }),
+    }),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+
+/** The works' deliveries, from the bay or a van: filed by the bay or the van itself, a variant. */
+export const planWorksDeliveries = e3.record("plan_works_deliveries", DictType(StringType, PrintDispatch), {
+    initial: new Map([
+        ["D-9001", { title: "Handbooks", at: worksDay(11, 10), location: variant("bay", "bay"), lane: "AM", status: variant("queued", null), pallets: 3.0 }],
+        ["D-9002", { title: "Event posters", at: worksDay(9, 14), location: variant("van", "van1"), lane: "PM", status: variant("ready", null), pallets: 2.0 }],
+        ["D-9003", { title: "Museum guides", at: worksDay(4, 10), location: variant("van", "van2"), lane: "AM", status: variant("dispatched", null), pallets: 1.0 }],
+    ]),
+    indexes: (index) => ({
+        plan_works_deliveries_by_time: index.interval({ from: "at", to: "at" }),
+        // The key field is the variant, so a row's cells are asked by its key in its case.
+        plan_works_deliveries_by_location_week: index.series({ key: "location", from: "at", to: "at", tile: "week" }),
+        plan_works_deliveries_by_location_month: index.summary({ key: "location", from: "at", to: "at", tile: "month" }),
+    }),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+
+/**
+ * A feed: the sheets a job or a bindery job passes on to a bindery job or a
+ * delivery. Each end holds the key of the event it joins, under its kind.
+ */
+export const WorksFeed = StructType({
+    from: VariantType({ binding: StringType, job: StringType }),
+    to: VariantType({ binding: StringType, delivery: StringType }),
+    sheets: FloatType,
+});
+
+/** The planner's feeds, a record of links: the handbook from its press through the bindery to the bay. */
+export const planWorksFeeds = e3.record("plan_works_feeds", DictType(StringType, WorksFeed), {
+    initial: new Map([
+        ["F-1", { from: variant("job", "J-9002"), to: variant("binding", "B-9001"), sheets: 144000.0 }],
+        ["F-2", { from: variant("binding", "B-9001"), to: variant("binding", "B-9003"), sheets: 144000.0 }],
+        ["F-3", { from: variant("binding", "B-9003"), to: variant("delivery", "D-9001"), sheets: 144000.0 }],
+    ]),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+
+/** An order not yet planned, for the library's Orders tab. */
+export const WorksOrder = StructType({ title: StringType, customer: StringType, sheets: FloatType, due: DateTimeType });
+
+/** The works' orders to plan: the solution's own list, kept as it chooses. */
+export const planWorksOrders = e3.record("plan_works_orders", DictType(StringType, WorksOrder), {
+    initial: new Map([
+        ["O-701", { title: "Season programme", customer: "Heathfield Theatre", sheets: 48000.0, due: worksDay(16) }],
+        ["O-702", { title: "Autumn catalogue", customer: "Alder & Finch", sheets: 80000.0, due: worksDay(20) }],
+        ["O-703", { title: "Members' newsletter", customer: "Harbour Arts Society", sheets: 16000.0, due: worksDay(12) }],
+    ]),
+});
+
+/**
+ * A preset: its name in the library, how long its event runs where it runs
+ * any time, and what it gives the event it makes — a case for each event kind.
+ * One record holds every kind's.
+ */
+export const WorksPreset = StructType({
+    name: StringType,
+    hours: FloatType,
+    values: VariantType({
+        job: StructType({ title: StringType, customer: StringType, sheets: FloatType, state: EventStateType }),
+        stop: StructType({ title: StringType, kind: PrintStop.fields.kind }),
+        binding: StructType({ title: StringType, state: EventStateType }),
+        shift: StructType({ title: StringType, state: EventStateType }),
+        delivery: StructType({ title: StringType, lane: StringType, status: PrintDispatchStatus, pallets: FloatType }),
+    }),
+});
+
+/** The works' presets, every kind's in one record. A Plan never writes them: the library lists each kind's under its name. */
+export const planWorksPresets = e3.record("plan_works_presets", DictType(StringType, WorksPreset), {
+    initial: new Map([
+        ["brochure", { name: "Brochure run", hours: 6.0, values: variant("job", { title: "Brochure run", customer: "", sheets: 40000.0, state: variant("proposed", variant("added", null)) }) }],
+        ["poster", { name: "Poster run", hours: 4.0, values: variant("job", { title: "Poster run", customer: "", sheets: 20000.0, state: variant("proposed", variant("added", null)) }) }],
+        ["plates", { name: "Plate change", hours: 0.0, values: variant("stop", { title: "Plate change", kind: variant("plate_change", null) }) }],
+        ["service", { name: "Service", hours: 0.0, values: variant("stop", { title: "Service", kind: variant("service", null) }) }],
+        ["fold", { name: "Fold sections", hours: 8.0, values: variant("binding", { title: "Fold sections", state: variant("confirmed", null) }) }],
+        ["early", { name: "Early shift", hours: 8.0, values: variant("shift", { title: "Early", state: variant("confirmed", null) }) }],
+        ["delivery", { name: "Morning delivery", hours: 0.0, values: variant("delivery", { title: "Delivery", lane: "AM", status: variant("queued", null), pallets: 1.0 }) }],
+    ]),
+    indexes: (index) => ({
+        // The presets by name: what the rail's one templates source narrows them by.
+        plan_works_presets_by_name: index.on(["name"]),
+    }),
+});
+
+/** The works' stops, bindery jobs, shifts and deliveries, each by key. */
+export const WorksStops = DictType(StringType, PrintStop);
+export const WorksBindings = DictType(StringType, PrintBinding);
+export const WorksShifts = DictType(StringType, PrintShift);
+export const WorksDeliveries = DictType(StringType, PrintDispatch);
+
+/** The works' optimiser's answer: a patch of each record the Plan edits, by its event kind's slot. */
+export const WorksOptimiseResult = Plan.Types.OptimiseResult({
+    binding: WorksBindings, delivery: WorksDeliveries, job: WorksJobs, shift: WorksShifts, stop: WorksStops,
+});
+
+/**
+ * The works' optimiser, on e3, by the builders' one contract (#1622): its
+ * request is the dates in view, the run's number and the rail's narrowing,
+ * and no row. Each order no job stands under yet is placed on the press free
+ * soonest, from when that press is free — the window's start, or the end of
+ * its last job in the window — for as long as its sheets take at 8,000 an
+ * hour. It reads each press's jobs through their series index, the Plan's
+ * unsaved jobs laid over them, the presses from the works' rows and the
+ * orders from their record. Its answer is a patch of each record the Plan
+ * edits: of the jobs an insert for each order placed, under the order's key,
+ * and of every other kind no change.
+ */
+export const placeWorksOrders = e3.function("plan_works_place_orders", {
+    inputs: [e3.index(planWorksJobs.indexes.plan_works_jobs_by_press_week), planWorksJobs, planWorksOrders, planWorksRows],
+    // The Plan's unsaved edits of the jobs are laid over them, and over their index.
+    drafts: [planWorksJobs],
+    args: [Plan.Types.OptimiseRequest],
+    output: WorksOptimiseResult,
+}, ($, jobsByPress, jobs, orders, works, request) => {
+    // When each press is next free: the window's start, or past its last job in the window.
+    const free = $.let(new Map(), DictType(StringType, DateTimeType));
+    $.for(works, ($2, group) => {
+        $2.for(group.resources, ($3, resource, code) => {
+            $3.if(resource.what.hasTag("press"), ($4) => {
+                const last = $4.let(request.from);
+                jobsByPress.events({ key: code, from: request.from, to: request.to }).each($4, ($5, job) => {
+                    $5.if(East.less(last, job.end), ($6) => { $6.assign(last, job.end); });
+                });
+                $4(free.insert(code, last));
+            });
+        });
+    });
+    const before = $.let(new Map(), WorksJobs);
+    const after = $.let(new Map(), WorksJobs);
+    $.for(orders, ($2, order, key) => {
+        // An order a job stands under is planned already.
+        $2.if(jobs.has(key).not().and(() => free.size().greater(0n)), ($3) => {
+            const press = $3.const(free.toArray((_$4, at, code) => ({ code, at })).sort((_$4, slot) => slot.at).get(0n).code);
+            const start = $3.const(free.get(press));
+            // A job's hours on a press are its sheets at 8,000 an hour: its minutes, whole.
+            const end = $3.const(start.addMinutes(East.Float.roundHalf(order.sheets.divide(8000.0).multiply(60.0))));
+            // Within the window it was asked of: an order that would end past it stays an order.
+            $3.if(East.lessEqual(end, request.to), ($4) => {
+                $4(after.insert(key, {
+                    title: order.title, customer: order.customer, press, start, end, sheets: order.sheets,
+                    state: variant("proposed", variant("added", null)),
+                }));
+                $4(free.insertOrUpdate(press, end, (_$5, _held, later) => later));
+            });
+        });
+    });
+    return {
+        events: {
+            job: East.diff(before, after),
+            binding: East.value(variant("unchanged", null), PatchType(WorksBindings)),
+            delivery: East.value(variant("unchanged", null), PatchType(WorksDeliveries)),
+            shift: East.value(variant("unchanged", null), PatchType(WorksShifts)),
+            stop: East.value(variant("unchanged", null), PatchType(WorksStops)),
+        },
+    };
+});
+
+/**
+ * The print works over plain records (#1541 §3): one record of rows — each
+ * group with its resources, a press its utilisation and a crew its hours by
+ * role — read a page at a time, what belongs to a resource a day at a time
+ * through the rows' nested series index. The rows save through `record`.
+ *
+ * Five event kinds land on the rows by the kind of resource each is on
+ * (`of`): jobs and stops on a press, bindery jobs on a line, shifts on a crew,
+ * deliveries on a bay or a van. Every kind is read a cell at a time through
+ * its own source of the one rail, by its series and summary indexes: over
+ * paged rows no kind is read whole. The rail has a source for the rows, one
+ * for each kind, one for the Customers tab and one for every kind's templates.
+ *
+ * - **Feeds** are a link kind over a record of their own: each joins a job or
+ *   a bindery job to a bindery job or a delivery, its ends the events' keys.
+ *   The Connect tool draws one.
+ * - **Orders** are the solution's own list: a card dropped on a press makes a
+ *   job there, as a template does.
+ * - **Templates** are one record for every kind, and one source of the rail:
+ *   each kind reads its own case of a preset's `values`.
+ * - **The optimiser** places each order no job stands under yet on the press
+ *   free soonest, by the builders' one contract: the dates in view in, a
+ *   patch of the jobs out.
+ * - A job under way is locked, by the works' own rule.
+ */
+export const planPrintWorksRecords = example({
+    keywords: [
+        "Plan", "print works", "one record of rows", "Plan.series.group", "Plan.series.kinds", "Plan.children", "Plan.series.table", "Plan.series.heat",
+        "keyType", "variant key", "record", "Record.bind", "save door", "Slice.bindRecords", "rows", "Data.bindPaged", "index.nested", "index.keys",
+        "index.interval", "index.series", "index.summary", "Schedule.events", "resource", "of", "cell at a time", "locked", "status", "ready", "lane",
+        "overlaps", "Plan.links", "feeds", "link kind", "Connect", "Plan.library.tab", "create", "orders", "drop", "Schedule.patch", "customers",
+        "Schedule.templates", "case", "one templates record", "Plan.library.events", "Plan.library.series", "hidden", "optimise", "Func.bind",
+        "e3.function", "Plan.Types.OptimiseRequest", "Plan.Types.OptimiseResult", "inspector", "#1541", "#1544",
+    ],
+    description: "The print works over plain records — one record of rows, each group with its resources (Plan.series.group, its children drawn by their kind with Plan.series.kinds), read a page at a time and what belongs to a resource a day at a time through the rows' nested series index (a press's utilisation, a crew's hours by role, typed in and saved through `record`); five event kinds on the rows by `of`, each read a cell at a time through its own source of the one rail; feeds as a link kind over a record (Plan.links, drawn with the Connect tool); an Orders tab whose cards make jobs (create); one templates record for every kind (Schedule.templates' case); a locked job; and the works' optimiser by the builders' one contract",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            // The rows' save door: the groups and the resources, their own fields and values, by a group's key.
+            const record = $.let(Record.bind(planWorksRows, ["patch"]));
+            // Each event kind's record and save door, and its entries, which read one event by its key: every kind here
+            // is read a cell at a time.
+            const jobRecord = $.let(Record.bind(planWorksJobs, ["patch"]));
+            const jobEntries = $.let(Data.bindPaged(planWorksJobs));
+            const stopRecord = $.let(Record.bind(planWorksStops, ["patch"]));
+            const stopEntries = $.let(Data.bindPaged(planWorksStops));
+            const bindingRecord = $.let(Record.bind(planWorksBindings, ["patch"]));
+            const bindingEntries = $.let(Data.bindPaged(planWorksBindings));
+            const shiftRecord = $.let(Record.bind(planWorksShifts, ["patch"]));
+            const shiftEntries = $.let(Data.bindPaged(planWorksShifts));
+            const deliveryRecord = $.let(Record.bind(planWorksDeliveries, ["patch"]));
+            const deliveryEntries = $.let(Data.bindPaged(planWorksDeliveries));
+            // The link kind's record and save door, read whole.
+            const feedRecord = $.let(Record.bind(planWorksFeeds, ["patch"]));
+            // What the library lists: the orders to plan, the customers, and every kind's presets in one record.
+            const orderRows = $.let(Data.bind(planWorksOrders));
+            const customerRows = $.let(Data.bind(planPrintCustomers));
+            const presets = $.let(Data.bind(planWorksPresets));
+            // The works' optimiser: the Elara eye in the toolbar calls it once a run.
+            const optimise = $.let(Func.bind(placeWorksOrders));
+            // One rail: the rows, each event kind, the Customers tab, and one source for every kind's templates.
+            const slice = $.let(Slice.bindRecords("ex.planPrintWorksRecords", {
+                rows: {
+                    // The groups a page at a time, by name, beside their nested series index: read without their
+                    // collections, each collection a day at a time.
+                    source: Data.bindPaged(planWorksRows, { indexes: ["plan_works_rows_by_name", "plan_works_rows_by_resource", "plan_works_rows_in_time"] }),
+                    label: "Works", icon: { prefix: "fas", name: "industry" },
+                    fields: { name: { label: "Group" } },
+                    search: ["name"],
+                },
+                // The jobs on the rows in view, a cell at a time: the presses in view by the weeks in view, and each
+                // press's months where the jobs are too many to draw. Its range is the window the rows share.
+                job: {
+                    source: Data.bindPaged(planWorksJobs, { indexes: ["plan_works_jobs_by_time", "plan_works_jobs_by_press_week", "plan_works_jobs_by_press_month"] }),
+                    label: "Print jobs", icon: { prefix: "fas", name: "file-lines" },
+                    fields: { start: { label: "Dates" } }, range: "start",
+                },
+                shift: {
+                    source: Data.bindPaged(planWorksShifts, { indexes: ["plan_works_shifts_by_time", "plan_works_shifts_by_crew_week", "plan_works_shifts_by_crew_month"] }),
+                    label: "Shifts", icon: { prefix: "fas", name: "user-clock" },
+                    fields: { start: { label: "Dates" } }, range: "start",
+                },
+                stop: {
+                    source: Data.bindPaged(planWorksStops, { indexes: ["plan_works_stops_by_time", "plan_works_stops_by_press_week", "plan_works_stops_by_press_month"] }),
+                    label: "Stops", icon: { prefix: "fas", name: "screwdriver-wrench" },
+                    fields: { at: { label: "Dates" } }, range: "at",
+                },
+                binding: {
+                    source: Data.bindPaged(planWorksBindings, { indexes: ["plan_works_bindings_by_time", "plan_works_bindings_by_line_week", "plan_works_bindings_by_line_month"] }),
+                    label: "Bindery jobs", icon: { prefix: "fas", name: "book-open" },
+                    fields: { start: { label: "Dates" } }, range: "start",
+                },
+                delivery: {
+                    source: Data.bindPaged(planWorksDeliveries, {
+                        indexes: ["plan_works_deliveries_by_time", "plan_works_deliveries_by_location_week", "plan_works_deliveries_by_location_month"],
+                    }),
+                    label: "Deliveries", icon: { prefix: "fas", name: "truck" },
+                    fields: { at: { label: "Dates" } }, range: "at",
+                },
+                // A library tab's source: it narrows the Customers tab by district.
+                customers: {
+                    source: Data.bindPaged(planPrintCustomers, { indexes: ["plan_print_customers_by_district"] }),
+                    icon: { prefix: "fas", name: "building" },
+                    fields: { district: { label: "District", hints: ["North Quay", "Old Town", "Riverside"] } },
+                },
+                // Every kind's templates, one record and one source: each kind's cards are its case of them.
+                templates: {
+                    source: Data.bindPaged(planWorksPresets, { indexes: ["plan_works_presets_by_name"] }),
+                    icon: { prefix: "fas", name: "layer-group" },
+                    fields: { name: { label: "Template" } },
+                },
+            }));
+            return (
+                <Box width="100%" height="720px"><Plan
+                    id="planPrintWorksRecords"
+                    slice={{ slice }}
+                    record={record}
+                    axis={Plan.axis({
+                        window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") },
+                        resolution: "day", resolutions: ["day", "week", "month", "quarter"],
+                    })}
+                    // The rows: the groups, each resource drawn by its kind with what belongs to it.
+                    series={[
+                        Plan.series.group(WorksGroup, {
+                            key: "groups", title: "Works", label: (group) => group.name,
+                            children: Plan.children("resources", [
+                                // Each resource by its kind: a case of `what` per entry, each case the rows its event
+                                // kinds land on, its `series` rows beneath it.
+                                Plan.series.kinds(WorksResource, "what", {
+                                    press: {
+                                        title: "Presses", icon: "print", label: (press) => press.name,
+                                        series: [
+                                            Plan.series.heat(WorksResource, {
+                                                key: "utilisation", title: "Utilisation",
+                                                cells: Plan.heatCells(Plan.values("utilisation", (pct) => ({ value: some(pct) })), { min: 0, max: 100, warnAt: 95 }),
+                                            }),
+                                        ],
+                                    },
+                                    line: { title: "Bindery lines", icon: "book-open", label: (line) => line.name },
+                                    crew: {
+                                        title: "Crews", icon: "users", label: (crew) => crew.name,
+                                        series: [
+                                            // The crew's planned hours each week, the sum e3 keeps of its roles', each
+                                            // role beneath it, typed into a week at a time.
+                                            Plan.series.table(WorksResource, {
+                                                key: "hours", title: "Hours", aggregate: "sum", collapsed: true,
+                                                children: Plan.children("hours", [Plan.series.table(WorksRoleHours, {
+                                                    key: "role", title: "Role", keyType: WorksRole, edit: true,
+                                                    label: (_hours, role) => role.match({ assistant: () => "Assistant", operator: () => "Operator" }),
+                                                    cells: Plan.tableCells(Plan.values("hours", (h) => ({ value: some(h) }))),
+                                                })]),
+                                            }),
+                                        ],
+                                    },
+                                    bay: { title: "Bays", icon: "warehouse", label: (bay) => bay.name },
+                                    van: { title: "Vans", icon: "truck", label: (van) => van.name },
+                                }),
+                            ]),
+                        }),
+                    ]}
+                    // The events: a kind per record, each on the rows its `of` names. Each kind's templates are its case
+                    // of the one presets record.
+                    events={{
+                        job: Schedule.events(jobRecord, {
+                            name: "Print job", icon: "file-lines", draw: "span",
+                            title: "title", start: "start", end: "end",
+                            resource: { field: "press", of: "press" },
+                            state: "state", quantity: { field: "sheets", unit: "sheets" },
+                            // A job under way is locked, by the works' own rule.
+                            locked: (job) => job.state.hasTag("in-progress"),
+                            fields: {
+                                customer: Schedule.field.text({ label: "Customer" }),
+                                sheets: Schedule.field.number({ label: "Sheets", step: 1000.0, min: 0.0 }),
+                            },
+                            entries: jobEntries,
+                            templates: Schedule.templates(presets.read(), {
+                                case: ["values", "job"], name: (preset) => preset.name,
+                                duration: (preset) => variant("hours", preset.hours), values: (_preset, _key, job) => job, source: "templates",
+                            }),
+                        }),
+                        stop: Schedule.events(stopRecord, {
+                            name: "Stop", icon: "screwdriver-wrench", draw: "marks",
+                            title: "title", at: "at", resource: { field: "press", of: "press" },
+                            entries: stopEntries,
+                            // A stop is one instant: its templates give no duration.
+                            templates: Schedule.templates(presets.read(), { case: ["values", "stop"], name: (preset) => preset.name, values: (_preset, _key, stop) => stop, source: "templates" }),
+                        }),
+                        binding: Schedule.events(bindingRecord, {
+                            name: "Bindery job", icon: "book-open", draw: "cards",
+                            title: "title", start: "start", end: "end", resource: { field: "line", of: "line" },
+                            state: "state", overlaps: "allow", entries: bindingEntries,
+                            templates: Schedule.templates(presets.read(), {
+                                case: ["values", "binding"], name: (preset) => preset.name,
+                                duration: (preset) => variant("hours", preset.hours), values: (_preset, _key, binding) => binding, source: "templates",
+                            }),
+                        }),
+                        shift: Schedule.events(shiftRecord, {
+                            name: "Crew shift", icon: "user-clock", draw: "cards",
+                            title: "title", start: "start", end: "end", resource: { field: "crew", of: "crew" },
+                            state: "state", entries: shiftEntries,
+                            templates: Schedule.templates(presets.read(), {
+                                case: ["values", "shift"], name: (preset) => preset.name,
+                                duration: (preset) => variant("hours", preset.hours), values: (_preset, _key, shift) => shift, source: "templates",
+                            }),
+                        }),
+                        // A bay's and a van's deliveries, drawn alike: tiles at their slot in AM and PM lanes, a queued one ringed.
+                        delivery: Schedule.events(deliveryRecord, {
+                            name: "Delivery", icon: "truck", draw: "buckets", title: "title", at: "at",
+                            resource: { field: "location", of: { bay: "bay", van: "van" } }, lane: "lane",
+                            status: { field: "status", cases: {
+                                queued: { label: "Queued", tone: variant("warning", null), ring: true },
+                                ready: { label: "Ready", tone: variant("info", null), ring: false },
+                                dispatched: { label: "Dispatched", tone: variant("success", null), ring: false },
+                            } },
+                            ready: (d) => d.pallets.lessEqual(0.0).ifElse(
+                                () => variant("invalid", [{ field: "pallets", message: "Pallets must be positive" }]),
+                                () => variant("ready", null)),
+                            fields: { pallets: Schedule.field.number({ label: "Pallets", min: 0.0, step: 1.0 }) },
+                            entries: deliveryEntries,
+                            templates: Schedule.templates(presets.read(), { case: ["values", "delivery"], name: (preset) => preset.name, values: (_preset, _key, delivery) => delivery, source: "templates" }),
+                        }),
+                    }}
+                    // The links: a kind per record, each link joining two events, each end a case per event kind it may name.
+                    links={{
+                        feed: Plan.links(feedRecord, {
+                            name: "Feed", icon: "arrow-right-long",
+                            from: { field: "from", of: { binding: "binding", job: "job" } },
+                            to: { field: "to", of: { binding: "binding", delivery: "delivery" } },
+                            quantity: { field: "sheets", unit: "sheets" },
+                            fields: { sheets: Schedule.field.number({ label: "Sheets", step: 1000.0, min: 0.0 }) },
+                        }),
+                    }}
+                    hidden={["utilisation"]}
+                    optimise={optimise}
+                    library={[
+                        Plan.library.events(),
+                        Plan.library.series(),
+                        // A card dropped on a press makes a job there, as a template does: as long as its sheets take at
+                        // 8,000 an hour.
+                        Plan.library.tab(orderRows.read(), {
+                            name: "Orders", icon: "inbox", label: (o) => o.title, group: (o) => o.customer,
+                            create: {
+                                kind: "job",
+                                duration: (o) => variant("hours", o.sheets.divide(8000.0)),
+                                values: (o) => ({ title: o.title, customer: o.customer, sheets: o.sheets, state: variant("proposed", variant("added", null)) }),
+                            },
+                        }),
+                        // A customer dropped on a job sets its customer. The tab follows the rail's `customers` source.
+                        Plan.library.tab(customerRows.read(), {
+                            name: "Customers", icon: "building", label: (c) => c.name, group: (c) => c.district,
+                            drop: (c) => Schedule.patch(WorksJob, { customer: c.name }),
+                            source: "customers",
+                        }),
+                    ]}
+                    inspector
+                    style={{ height: "fill" }}
+                /></Box>
             );
         }}</Reactive>
     )),
