@@ -11,6 +11,7 @@ import {
 } from '@elaraai/e3-api-client';
 import type {
     RequestOptions, DataflowOptions, DataflowPollOptions, ExecutionStateOptions, LogOptions, DataflowResult, DataflowExecutionState, DataflowStartResult,
+    DataflowGraph,
 } from '@elaraai/e3-api-client';
 
 /** Prints a poll's cursor for its query key, which react-query hashes as
@@ -42,7 +43,20 @@ export function useDataflowStart(url: string, repo: string, workspace: string | 
     });
 }
 
-export function useDataflowGraph(url: string, repo: string, workspace: string | null, requestOptions?: RequestOptions, queryOptions?: QueryOverrides) {
+/**
+ * Reads a workspace's dataflow graph: each task with its inputs, its output
+ * and the tasks it depends on, and the load of each source the dataflow
+ * loads.
+ *
+ * @param url - The API's base URL
+ * @param repo - Repository name
+ * @param workspace - Workspace name; nothing is read while it is `null`
+ * @param requestOptions - The request's token
+ * @param queryOptions - react-query overrides
+ * @returns The query of the graph, typed as the API's `DataflowGraph`: written
+ *   out, the graph's type names East's variants, which a declaration cannot
+ */
+export function useDataflowGraph(url: string, repo: string, workspace: string | null, requestOptions?: RequestOptions, queryOptions?: QueryOverrides): UseQueryResult<DataflowGraph, Error> {
     return useQuery({
         queryKey: ['dataflowGraph', url, repo, workspace],
         queryFn: () => dataflowGraph(url, repo, workspace!, requestOptions ?? { token: null }),
