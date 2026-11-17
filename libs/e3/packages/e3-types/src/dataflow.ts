@@ -108,6 +108,18 @@ export type TaskState = ValueTypeOf<typeof TaskStateType>;
 // =============================================================================
 
 /**
+ * What a load node of the dataflow graph loads: the composite record, and its
+ * source that a dataset of the package feeds.
+ */
+export const DataflowLoadType = StructType({
+  /** The composite record's name */
+  record: StringType,
+  /** The source's name */
+  source: StringType,
+});
+export type DataflowLoad = ValueTypeOf<typeof DataflowLoadType>;
+
+/**
  * A node of the dataflow graph: a task of the package, or the load of a
  * composite record's source that a dataset of the package feeds.
  *
@@ -129,7 +141,7 @@ export const DataflowGraphTaskType = StructType({
   /** Names of tasks this depends on */
   dependsOn: ArrayType(StringType),
   /** The record and source a load node loads; `none` for a task */
-  load: OptionType(StructType({ record: StringType, source: StringType })),
+  load: OptionType(DataflowLoadType),
 });
 export type DataflowGraphTask = ValueTypeOf<typeof DataflowGraphTaskType>;
 

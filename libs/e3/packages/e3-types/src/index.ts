@@ -627,6 +627,8 @@ export {
   type TaskStatus,
   TaskStateType,
   type TaskState,
+  DataflowLoadType,
+  type DataflowLoad,
   DataflowGraphTaskType,
   type DataflowGraphTask,
   DataflowGraphType,

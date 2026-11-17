@@ -10,6 +10,8 @@
  * the SDK refuses a package with the words the dataflow's graph refuses it with.
  */
 
+import type { DataflowLoad } from './dataflow.js';
+
 /**
  * The name a fed source's load has as a step of a run.
  *
@@ -38,7 +40,7 @@ export interface DataflowStep {
   /** A task's name; undefined for a load. */
   readonly task?: string;
   /** A load's record and source; undefined for a task. */
-  readonly load?: { readonly record: string; readonly source: string };
+  readonly load?: DataflowLoad;
 }
 
 /** A step from a dataset, by the words that name it, to the dataset it makes. */

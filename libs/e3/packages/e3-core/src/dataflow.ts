@@ -27,6 +27,7 @@ import {
   loadStepProblem,
   pathToString,
   type DataflowGraph,
+  type DataflowLoad,
   type PackageObject,
   type TaskObject,
   type TreePath,
@@ -128,7 +129,7 @@ interface GraphNode {
   /** Output dataset path: a load's record */
   readonly outputPath: TreePath;
   /** The record and source a load loads; undefined for a task */
-  readonly load?: { readonly record: string; readonly source: string };
+  readonly load?: DataflowLoad;
 }
 
 /**
@@ -339,7 +340,7 @@ export async function packageLoadTasks(storage: StorageBackend, repo: string, pk
 /**
  * What feeds a package's loads: each fed source's feed, by its ref path, to
  * the loads it feeds, `<record>.<source>`, joined with commas where it feeds
- * several. A deploy reads its inputs' entries ({@link planInputDeployments}).
+ * several. A deploy reads its inputs' entries (`planInputDeployments`).
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
