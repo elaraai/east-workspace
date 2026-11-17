@@ -14,14 +14,13 @@
  * @packageDocumentation
  */
 
-import { useCallback, useMemo, useSyncExternalStore } from "react";
-import { decodeBeast2For, encodeBeast2For, variant } from "@elaraai/east";
+import { useCallback } from "react";
+import { variant } from "@elaraai/east";
 import { Flowchart } from "@elaraai/e3-ui/internal";
-import { StateRuntime } from "@elaraai/east-ui-components";
+import { storedCodec, useStoredValue } from "../shared/stored-value.js";
 import type { FlowchartOrientation } from "./toolbar.js";
 
-const encodeOrientation = encodeBeast2For(Flowchart.Types.Orientation);
-const decodeOrientation = decodeBeast2For(Flowchart.Types.Orientation);
+const orientationCodec = storedCodec(Flowchart.Types.Orientation);
 
 /** Each orientation as the East value the store holds. */
 const ORIENTATIONS = { LR: variant("LR", null), TD: variant("TD", null) } as const;
@@ -36,11 +35,7 @@ const ORIENTATIONS = { LR: variant("LR", null), TD: variant("TD", null) } as con
  * @returns The orientation shown, and the write that picks another
  */
 export function useViewerOrientation(key: string, initial: FlowchartOrientation): [FlowchartOrientation, (orientation: FlowchartOrientation) => void] {
-    const store = StateRuntime.getStore();
-    const subscribe = useCallback((notify: () => void) => store.subscribe(key, notify), [store, key]);
-    const snapshot = useCallback(() => store.read(key), [store, key]);
-    const bytes = useSyncExternalStore(subscribe, snapshot);
-    const picked = useMemo(() => (bytes === undefined ? undefined : decodeOrientation(bytes).type), [bytes]);
-    const pick = useCallback((orientation: FlowchartOrientation) => { store.write(key, encodeOrientation(ORIENTATIONS[orientation])); }, [store, key]);
-    return [picked ?? initial, pick];
+    const [stored, write] = useStoredValue(orientationCodec, key);
+    const pick = useCallback((orientation: FlowchartOrientation) => { write(ORIENTATIONS[orientation]); }, [write]);
+    return [stored?.type ?? initial, pick];
 }
