@@ -30,24 +30,20 @@ ARG EAST_PY_VERSION=latest
 ARG EAST_PY_CACHEBUST=0
 
 # The pins a named release's python packages are installed under: the east-py
-# workspace's lock, exported, with its overrides (e3: a project and its tier
-# resolve the same torch). Written from this build's own checkout, and not
-# taken from the base image, so they are this release's whatever the base is.
-COPY libs/east-py/pyproject.toml libs/east-py/uv.lock /tmp/east-py-lock/
-COPY docker/images/east-py-constraints.py /tmp/east-py-constraints.py
+# workspace's lock, exported, with its overrides and excludes, as
+# @elaraai/e3-core ships them (e3: a project and its tier resolve the same
+# torch). Copied from this build's own checkout, and not taken from the base
+# image, so they are this release's whatever the base is.
+COPY libs/e3/packages/e3-core/tier/east-py-constraints.txt libs/e3/packages/e3-core/tier/east-py-overrides.txt libs/e3/packages/e3-core/tier/east-py-excludes.txt /opt/e3/
 
 # The single datascience layer. "latest" means no version constraint
 # (dev/local convenience) — releases always pin, and install under the
 # release's pins: torch is then the build the package's extras pin, and every
 # other package the build the release was tested with.
-RUN if [ "$EAST_PY_VERSION" = "latest" ]; then \
-      uv pip install "elaraai-east-py-datascience[all]"; \
-    else \
-      python3 /tmp/east-py-constraints.py /tmp/east-py-lock /opt/e3 --release "$EAST_PY_VERSION" && \
-      uv pip install --constraint /opt/e3/east-py-constraints.txt --override /opt/e3/east-py-overrides.txt \
-        "elaraai-east-py-datascience[all]==${EAST_PY_VERSION}"; \
-    fi && \
-    rm -rf /tmp/east-py-constraints.py /tmp/east-py-lock
+COPY docker/images/install-packages.sh /tmp/install-packages.sh
+RUN chmod +x /tmp/install-packages.sh && \
+    EAST_PY_PINS_DIR=/opt/e3 /tmp/install-packages.sh --datascience-only && \
+    rm /tmp/install-packages.sh
 
 # What this image holds, for an environment built over it: its tier manifest
 # (e3: environments built over their base tier). Written last, by the

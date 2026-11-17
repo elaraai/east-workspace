@@ -10,6 +10,10 @@ passes.
 
     check-tier-pins.py <tier-manifest.json> <east-py-constraints.txt>
 
+It also holds no two distributions of one NCCL library: torch's and
+xgboost's install the same file, and with xgboost's on top torch does not
+import, so the release's excludes keep xgboost's out.
+
 Exits 1 and names each distribution that is at another version. The standard
 library alone, so it runs in any image.
 """
@@ -49,6 +53,10 @@ def main(argv):
             f"{dist['name']} is {dist['version']}, and the release pins it at {' or '.join(sorted(pins[dist['name']]))}\n"
         )
     if other:
+        return 1
+    nccl = sorted(dist["name"] for dist in held if dist["name"].startswith("nvidia-nccl-"))
+    if len(nccl) > 1:
+        sys.stderr.write(f"the image holds {' and '.join(nccl)}, which install the same library: the release excludes all but one\n")
         return 1
     if not checked:
         sys.stderr.write("the image holds none of what the release pins\n")

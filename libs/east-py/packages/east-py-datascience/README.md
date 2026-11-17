@@ -42,13 +42,26 @@ holds, so an e3 task that runs on a rack over that image is not sent torch
 and its NVIDIA libraries. A project that needs another torch leaves the
 extras out and lists torch itself.
 
-Each release also attaches the pins its packages were tested with, as
-`east-py-constraints.txt` and `east-py-overrides.txt`: every third-party
-version of this workspace's lock. Put the lines you want held under
-`[tool.uv] constraint-dependencies` in your workspace root, and the overrides
-under `override-dependencies`. With the `causal` and `shap` extras together,
-the override (`shap>=0.51.0`) is what gives you a shap that reads current
-xgboost models.
+**With torch and xgboost on Python 3.11, leave xgboost's NCCL library out.**
+torch brings its NCCL library as `nvidia-nccl-cu13`, and the xgboost that runs
+on Python 3.11 asks for `nvidia-nccl-cu12`. The two install the same file, and
+when xgboost's is installed last `import torch` fails (`undefined symbol:
+ncclCommResume`). xgboost opens NCCL only for multi-GPU training, and torch's
+library serves it. In your workspace root:
+
+```toml
+[tool.uv]
+exclude-dependencies = ["nvidia-nccl-cu12"]
+```
+
+Each release ships the settings its packages were tested with, in
+`@elaraai/e3-core` (`tier/`): `east-py-constraints.txt`, every third-party
+version of this workspace's lock; `east-py-overrides.txt`; and
+`east-py-excludes.txt`, the line above. Put the constraint lines you want held
+under `[tool.uv] constraint-dependencies` in your workspace root, and the
+overrides under `override-dependencies`. With the `causal` and `shap` extras
+together, the override (`shap>=0.51.0`) is what gives you a shap that reads
+current xgboost models.
 
 When using a git dependency in `pyproject.toml`:
 ```toml

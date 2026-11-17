@@ -7,11 +7,13 @@
 #   EAST_NODE_CLI_VERSION, EAST_UI_VERSION, E3_VERSION, etc.
 #   TYPESCRIPT_VERSION defaults to the TypeScript the workspace builds with.
 #
-# EAST_PY_CONSTRAINTS_DIR (optional): the directory that holds the pins a
-#   release's python packages are installed under, east-py-constraints.txt and
-#   east-py-overrides.txt, as east-py-constraints.py writes them from the
-#   east-py workspace's lock. Set for a named release, whose image then holds
-#   what the release was tested with; unset, the install is unconstrained.
+# EAST_PY_PINS_DIR (optional): the directory that holds the pins a release's
+#   python packages are installed under: east-py-constraints.txt,
+#   east-py-overrides.txt and east-py-excludes.txt, as @elaraai/e3-core ships
+#   them (its `tier/`, written from the east-py workspace's lock by
+#   scripts/east-py-constraints.py). A named release is installed under them,
+#   and its image then holds what the release was tested with; they must be
+#   that release's. `latest` is installed under none, and keeps none.
 #
 # Flags (each selects one image's package set; default = the e3 everything image):
 #   --node-only    East's Node.js packages only (east-node image: no e3, no
@@ -19,6 +21,9 @@
 #   --py-only      Python packages minus datascience (east-py image: no Node
 #                  East packages, no east-c; datascience is the
 #                  east-py-datascience image's own FROM-layer)
+#   --datascience-only
+#                  The datascience package alone, over an east-py image
+#                  (east-py-datascience image's own layer)
 #   --c-only       east-c binary only (east-c image)
 #   --skip-verify  Skip verification step
 
@@ -41,6 +46,9 @@ for arg in "$@"; do
         # --py-only = the slim BUSL east-py image: python runtime without the
         # multi-GB datascience stack (elaraai/east-workspace#299).
         --py-only) INSTALL_NODE=false; INSTALL_E3=false; INSTALL_DATASCIENCE=false; INSTALL_EAST_C=false ;;
+        # --datascience-only = the east-py-datascience image's one layer, over
+        # the east-py image it is built from, which holds everything else.
+        --datascience-only) INSTALL_NODE=false; INSTALL_E3=false; INSTALL_PYTHON=false; INSTALL_EAST_C=false ;;
         # --c-only = the tiny BUSL east-c image: just the prebuilt evaluator.
         --c-only) INSTALL_NODE=false; INSTALL_E3=false; INSTALL_PYTHON=false; INSTALL_DATASCIENCE=false ;;
         --skip-verify) VERIFY=false ;;
@@ -149,33 +157,55 @@ fi
 
 # Install Python packages if requested
 PYTHON_INSTALLED=false
-if [ "$INSTALL_PYTHON" = true ]; then
+DATASCIENCE_INSTALLED=false
+if [ "$INSTALL_PYTHON" = true ] || [ "$INSTALL_DATASCIENCE" = true ]; then
     if command -v uv &> /dev/null; then
         echo "Installing Python packages..."
-        PYTHON_INSTALLED=true
-        # Pin numba/llvmlite for compatibility; pin east-py to the lockstep
-        # release (==${EAST_PY_VERSION}) — unpinned installs pulled whatever
-        # was newest on PyPI, drifting the runtime out of lockstep with the IR.
-        # "latest" means no constraint (dev/local convenience).
+        # Pin east-py to the lockstep release (==${EAST_PY_VERSION}) —
+        # unpinned installs pulled whatever was newest on PyPI, drifting the
+        # runtime out of lockstep with the IR. "latest" means no constraint
+        # (dev/local convenience).
         if [ "$EAST_PY_VERSION" = "latest" ]; then EAST_PY_PIN=""; else EAST_PY_PIN="==${EAST_PY_VERSION}"; fi
-        # Under the release's pins, when they are given: every third-party
-        # package is then the build the release's lock holds, and its
-        # overrides are part of what makes those pins resolve.
+        # A named release is installed under its pins, when they are given:
+        # every third-party package is then the build the release's lock
+        # holds. Its overrides are what makes those pins resolve, and its
+        # excludes keep out what the lock leaves out. They are that release's,
+        # or the install is refused: under another release's, an image would
+        # not be what its release was tested with. `latest` is installed under
+        # none, and keeps none, so no image says it holds pins it does not.
         EAST_PY_PINS=()
-        if [ -n "${EAST_PY_CONSTRAINTS_DIR:-}" ]; then
-            EAST_PY_PINS=(--constraint "${EAST_PY_CONSTRAINTS_DIR}/east-py-constraints.txt" --override "${EAST_PY_CONSTRAINTS_DIR}/east-py-overrides.txt")
+        if [ -n "${EAST_PY_PINS_DIR:-}" ]; then
+            if [ "$EAST_PY_VERSION" = "latest" ]; then
+                rm -f "${EAST_PY_PINS_DIR}"/east-py-constraints.txt "${EAST_PY_PINS_DIR}"/east-py-overrides.txt "${EAST_PY_PINS_DIR}"/east-py-excludes.txt
+            else
+                # A release's version as PEP 440 writes it, which is how the pins name it
+                EAST_PY_RELEASE="$(printf '%s' "$EAST_PY_VERSION" | sed -E 's/-alpha\./a/; s/-beta\./b/; s/-rc\./rc/')"
+                for pins in east-py-constraints.txt east-py-overrides.txt east-py-excludes.txt; do
+                    if ! head -n 1 "${EAST_PY_PINS_DIR}/${pins}" | grep -qF " of release ${EAST_PY_RELEASE} "; then
+                        echo "${EAST_PY_PINS_DIR}/${pins} is not release ${EAST_PY_VERSION}'s: a release's images are built from its own tag" >&2
+                        exit 1
+                    fi
+                done
+                EAST_PY_PINS=(--constraint "${EAST_PY_PINS_DIR}/east-py-constraints.txt" --override "${EAST_PY_PINS_DIR}/east-py-overrides.txt"
+                    --excludes "${EAST_PY_PINS_DIR}/east-py-excludes.txt")
+            fi
         fi
-        uv pip install "${EAST_PY_PINS[@]}" \
-            "numba>=0.58.0" \
-            "llvmlite>=0.41.0" \
-            "elaraai-east-py${EAST_PY_PIN}" \
-            "elaraai-east-py-std${EAST_PY_PIN}" \
-            "elaraai-east-py-io[all]${EAST_PY_PIN}" \
-            "elaraai-east-py-cli${EAST_PY_PIN}"
+        if [ "$INSTALL_PYTHON" = true ]; then
+            PYTHON_INSTALLED=true
+            # numba/llvmlite at versions that go together
+            uv pip install "${EAST_PY_PINS[@]}" \
+                "numba>=0.58.0" \
+                "llvmlite>=0.41.0" \
+                "elaraai-east-py${EAST_PY_PIN}" \
+                "elaraai-east-py-std${EAST_PY_PIN}" \
+                "elaraai-east-py-io[all]${EAST_PY_PIN}" \
+                "elaraai-east-py-cli${EAST_PY_PIN}"
+        fi
         # The datascience stack (torch, sklearn, pymc, …) is what makes an
         # image multi-GB — the slim east-py image skips it; the
         # east-py-datascience image adds it as its own FROM-layer.
         if [ "$INSTALL_DATASCIENCE" = true ]; then
+            DATASCIENCE_INSTALLED=true
             uv pip install "${EAST_PY_PINS[@]}" "elaraai-east-py-datascience[all]${EAST_PY_PIN}"
         fi
     else
@@ -202,9 +232,14 @@ if [ "$VERIFY" = true ]; then
     if [ "$PYTHON_INSTALLED" = true ]; then
         east-py version
         python3 -c "import east, east_py_std, east_py_io"
-        if [ "$INSTALL_DATASCIENCE" = true ]; then
-            python3 -c "import east_py_datascience"
-        fi
+    fi
+    if [ "$DATASCIENCE_INSTALLED" = true ]; then
+        python3 -c "import east_py_datascience"
+        # torch and xgboost load in one process: each brings an NCCL library
+        # of its own, which install the same file, and with xgboost's on top
+        # torch does not import (see the east-py workspace's
+        # exclude-dependencies).
+        python3 -c "import torch, xgboost"
     fi
 fi
 

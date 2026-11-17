@@ -13,6 +13,15 @@ members = ["packages/*"]
 # (TreeExplainer "could not convert string to float"). We never call econml's
 # shap-based interpretability, so lift the pin for the whole workspace.
 override-dependencies = ["shap>=0.51.0"]
+# torch 2.11 and later bring their NCCL library as `nvidia-nccl-cu13`, pinned
+# exactly; xgboost 3.2.0, the newest that runs on Python 3.11, asks for
+# `nvidia-nccl-cu12`. The two distributions install the same file,
+# `nvidia/nccl/lib/libnccl.so.2`, so whichever is installed last wins, and with
+# xgboost's on top `import torch` fails (`undefined symbol: ncclCommResume`).
+# xgboost's is left out: its library does not link NCCL (it opens it only for
+# multi-GPU training), and torch's exports every function xgboost's does. One
+# NCCL library is then installed, the one torch pins.
+exclude-dependencies = ["nvidia-nccl-cu12"]
 
 [dependency-groups]
 dev = [

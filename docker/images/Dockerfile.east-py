@@ -57,21 +57,17 @@ WORKDIR /workspace
 ARG EAST_PY_CACHEBUST=0
 
 # The pins a named release's python packages are installed under: the east-py
-# workspace's lock, exported, with its overrides (e3: a project and its tier
-# resolve the same torch). They stay in the image, which then holds the build
-# of everything the release was tested with. `latest` is unconstrained.
-COPY libs/east-py/pyproject.toml libs/east-py/uv.lock /tmp/east-py-lock/
-COPY docker/images/east-py-constraints.py /tmp/east-py-constraints.py
+# workspace's lock, exported, with its overrides and excludes, as
+# @elaraai/e3-core ships them (e3: a project and its tier resolve the same
+# torch). They stay in the image, which then holds the build of everything
+# the release was tested with. `latest` is unconstrained, and keeps none.
+COPY libs/e3/packages/e3-core/tier/east-py-constraints.txt libs/e3/packages/e3-core/tier/east-py-overrides.txt libs/e3/packages/e3-core/tier/east-py-excludes.txt /opt/e3/
 
 # Copy and run install script (python packages minus datascience)
 COPY docker/images/install-packages.sh /tmp/install-packages.sh
 RUN chmod +x /tmp/install-packages.sh && \
-    if [ "$EAST_PY_VERSION" != "latest" ]; then \
-      python3 /tmp/east-py-constraints.py /tmp/east-py-lock /opt/e3 --release "$EAST_PY_VERSION" && \
-      export EAST_PY_CONSTRAINTS_DIR=/opt/e3; \
-    fi && \
-    /tmp/install-packages.sh --py-only && \
-    rm -rf /tmp/install-packages.sh /tmp/east-py-constraints.py /tmp/east-py-lock
+    EAST_PY_PINS_DIR=/opt/e3 /tmp/install-packages.sh --py-only && \
+    rm /tmp/install-packages.sh
 
 # What this image holds, for an environment built over it: its tier manifest
 # (e3: environments built over their base tier). Written last, by the

@@ -3,24 +3,28 @@
 # Licensed under BSL 1.1. See LICENSE for details.
 """Writes the pins a release's east-py packages are installed under.
 
-They are the east-py workspace's lock, exported: what the packages' own tests
-ran against. A release's python images install under them, so an image holds
-the build of everything that was tested, and a project that asks for the
-datascience package's extras locks the torch its tier image holds (e3:
-environments built over their base tier).
+They are the east-py workspace's lock, exported, with the two settings the
+lock was resolved under: what the packages' own tests ran against. A
+release's python images install under them, so an image holds the build of
+everything that was tested, and a project that asks for the datascience
+package's extras locks the torch its tier image holds (e3: environments built
+over their base tier).
 
-Two files, for uv:
+Three files, for uv, kept in `@elaraai/e3-core` (`tier/`), which ships them:
 
     east-py-constraints.txt   every third-party pin of the lock, with hashes
     east-py-overrides.txt     the workspace's override-dependencies
+    east-py-excludes.txt      the workspace's exclude-dependencies
 
     uv pip install --constraint east-py-constraints.txt \\
                    --override east-py-overrides.txt \\
+                   --excludes east-py-excludes.txt \\
                    "elaraai-east-py-datascience[all]==<release>"
 
-The overrides are part of what was tested: a pin the lock holds by an
-override does not resolve without it. pip takes no overrides, so it cannot
-install under these.
+The overrides and the excludes are part of what was tested: a pin the lock
+holds by an override does not resolve without it, and a distribution the lock
+leaves out is installed again without the exclude. pip takes neither, so it
+cannot install under these.
 
 Run on the workspace root's `pyproject.toml` and `uv.lock`, which are all it
 reads: a frozen export reads no member's manifest.
@@ -28,8 +32,8 @@ reads: a frozen export reads no member's manifest.
     east-py-constraints.py <workspace> <out> [--release <version>]
 
 With `--release`, the lock must be that release's: another release's pins are
-refused. The standard library and `uv` alone. The same lock writes the same
-bytes.
+refused. The release's version bump runs it (`scripts/set-python-version.mjs`),
+and nobody edits what it writes. The standard library and `uv` alone.
 """
 
 import re
@@ -40,6 +44,7 @@ from pathlib import Path
 
 CONSTRAINTS = "east-py-constraints.txt"
 OVERRIDES = "east-py-overrides.txt"
+EXCLUDES = "east-py-excludes.txt"
 
 # Every third-party pin of the lock, of every member and extra, and none of
 # the workspace's own packages or its development groups. With no header:
@@ -51,6 +56,8 @@ EXPORT = [
 
 # The workspace member whose version is the release's: all of them share it.
 MEMBER = "elaraai-east-py"
+
+INSTALL = f"uv pip install --constraint {CONSTRAINTS} --override {OVERRIDES} --excludes {EXCLUDES} ..."
 
 
 def pep440(version):
@@ -79,19 +86,21 @@ def constraints(workspace, release):
         raise SystemExit(f"east-py-constraints: the lock was not exported: {failed.stderr.strip()}") from None
     header = (
         f"# The pins the east-py packages of release {release} were tested with: their\n"
-        "# workspace's lock, exported by docker/images/east-py-constraints.py.\n"
-        f"# Install under them with uv, beside {OVERRIDES}:\n"
-        f"#   uv pip install --constraint {CONSTRAINTS} --override {OVERRIDES} ...\n"
+        "# workspace's lock, exported by scripts/east-py-constraints.py. Not edited by hand.\n"
+        f"# Install under them with uv, beside {OVERRIDES} and {EXCLUDES}:\n"
+        f"#   {INSTALL}\n"
     )
     return header + exported.stdout
 
 
-def overrides(manifest, release):
-    """The workspace's overrides, a requirement a line."""
-    lines = manifest.get("tool", {}).get("uv", {}).get("override-dependencies", [])
+def setting(manifest, name, what, release):
+    """One of the workspace's uv settings that a lock is resolved under, a
+    requirement a line."""
+    lines = manifest.get("tool", {}).get("uv", {}).get(name, [])
     header = (
-        f"# The overrides the east-py packages of release {release} were tested with: their\n"
-        f"# workspace's override-dependencies. {CONSTRAINTS} does not resolve without them.\n"
+        f"# The {what} the east-py packages of release {release} were tested with: their\n"
+        f"# workspace's {name}. Not edited by hand. Used beside {CONSTRAINTS}:\n"
+        f"#   {INSTALL}\n"
     )
     return header + "".join(f"{line}\n" for line in lines)
 
@@ -120,8 +129,12 @@ def main(argv):
             "its pins are another release's. Build a release from its own tag.\n"
         )
         return 1
-    # Both are made before either is written: a failure leaves no file
-    written = {CONSTRAINTS: constraints(workspace, release), OVERRIDES: overrides(manifest, release)}
+    # All are made before any is written: a failure leaves no file
+    written = {
+        CONSTRAINTS: constraints(workspace, release),
+        OVERRIDES: setting(manifest, "override-dependencies", "overrides", release),
+        EXCLUDES: setting(manifest, "exclude-dependencies", "excludes", release),
+    }
     out.mkdir(parents=True, exist_ok=True)
     for name, text in written.items():
         (out / name).write_text(text, encoding="utf-8")

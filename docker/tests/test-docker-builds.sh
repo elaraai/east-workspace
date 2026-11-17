@@ -106,6 +106,9 @@ docker build -f docker/images/Dockerfile.east-py-datascience \
     -t test-east-py-ds-$$ . --progress=plain
 runs test-east-py-ds-$$ east-py version
 runs test-east-py-ds-$$ python3 -c "import east, east_py_datascience"
+# torch and xgboost load in one process: each brings an NCCL library of its
+# own, which install the same file
+runs test-east-py-ds-$$ python3 -c "import torch, xgboost"
 # Its manifest is its own, written again once the datascience packages are in
 runs test-east-py-ds-$$ python3 -c "import json; m = json.load(open('/opt/e3/tier-manifest.json')); names = [d['name'] for d in m['distributions']]; assert 'elaraai-east-py-datascience' in names and 'elaraai-east-py-std' in names, names"
 holds_pins test-east-py-ds-$$

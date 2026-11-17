@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { semverToPep440 } from './set-python-version.mjs';
+import { EAST_PY_PINS, EAST_PY_PINS_DIR, semverToPep440 } from './set-python-version.mjs';
 import { PINNED_EXTRAS, extrasPinErrors } from './lib/extras-pins.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -127,6 +127,19 @@ for (const block of lockRaw.split(/\n(?=\[\[package\]\])/)) {
 }
 if (lockMembersChecked === 0) {
   errors.push(`${UV_LOCK}: found no editable east-py members to verify (parse failure?)`);
+}
+
+// The pins the release's python packages are installed under name the
+// release they are of, in their first line: the bump writes them again of
+// the lock it makes (set-python-version.mjs), and an image refuses pins that
+// are another release's.
+for (const name of EAST_PY_PINS) {
+  const rel = `${EAST_PY_PINS_DIR}/${name}`;
+  const first = fs.existsSync(path.join(repoRoot, rel)) ? fs.readFileSync(path.join(repoRoot, rel), 'utf8').split('\n', 1)[0] : null;
+  const named = first === null ? null : / of release (\S+) /.exec(first)?.[1] ?? null;
+  if (first === null) errors.push(`${rel}: missing`);
+  else if (named === null) errors.push(`${rel}: its first line names no release`);
+  else if (named !== expectedPep440) errors.push(`${rel}: ${named} ≠ ${expectedPep440} (PEP 440 of ${canonical})`);
 }
 
 const pluginVersion = readJsonVersion(PLUGIN_JSON);
