@@ -50,7 +50,7 @@
  * @packageDocumentation
  */
 
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import { DateTimeType, StringType, compareFor, equalFor, none, some, type ValueTypeOf } from "@elaraai/east";
 import { PLAN_PAGE_SIZE, planHideId, type PlanPayloadType } from "@elaraai/e3-ui/internal";
 import { windowedSourceOf } from "@elaraai/east-ui-components/internal";
@@ -166,6 +166,9 @@ function booked(kind: EventKind): boolean {
     return kind.draw.type === "span" || kind.draw.type === "cards";
 }
 
+/** No event of a kind is named at a link's end. */
+const NO_LINK_ENDS: readonly string[] = [];
+
 /** The keys' texts of a kind's events the canvas's links name at their ends: an end at no path, its run the event's key. */
 function linkEnds(links: Links, slot: string): string[] {
     const out: string[] = [];
@@ -174,6 +177,45 @@ function linkEnds(links: Links, slot: string): string[] {
             if (end.row.type === "entry" && end.row.value.path.length === 0 && stringEqual(end.row.value.series, slot)) out.push(end.run);
         }
     }
+    return out;
+}
+
+/** Each kind's events named at a link's end, by the kind's slot. */
+export type PlanLinkEnds = ReadonlyMap<string, readonly string[]>;
+
+/**
+ * The events of each kind the canvas's links name at their ends, by the kind's slot, kept by identity while they name
+ * the same events: the map held before where no kind's list moved, and within a map that moved each list that did not.
+ *
+ * The canvas makes its links anew whenever what they join is read again — a link kind's links join the root's own each
+ * time its record or its drafts are read. A reader handed new lists for the same ends would read its kinds again, land
+ * the same events, and so have the links made again, without end.
+ *
+ * @param held - The ends held before; `undefined` for none
+ * @param links - The canvas's links
+ * @param slots - The event kinds' slots
+ * @returns The ends, `held` itself while every kind's are the same
+ */
+export function keptLinkEnds(held: PlanLinkEnds | undefined, links: Links, slots: readonly string[]): PlanLinkEnds {
+    let moved = held === undefined || held.size !== slots.length;
+    const out = new Map<string, readonly string[]>();
+    for (const slot of slots) {
+        const ends = linkEnds(links, slot);
+        const was = held?.get(slot);
+        const same = was !== undefined && was.length === ends.length && was.every((id, i) => stringEqual(id, ends[i]!));
+        out.set(slot, same ? was : ends);
+        if (!same) moved = true;
+    }
+    return moved || held === undefined ? out : held;
+}
+
+/** {@link keptLinkEnds}, over the renders of the reader: what it held last, kept while the links and the kinds are the same objects. */
+function useLinkEnds(links: Links, kinds: readonly EventKind[]): PlanLinkEnds {
+    const prev = useRef<{ links: Links; kinds: readonly EventKind[]; out: PlanLinkEnds } | null>(null);
+    const last = prev.current;
+    if (last !== null && last.links === links && last.kinds === kinds) return last.out;
+    const out = keptLinkEnds(last?.out, links, kinds.map((kind) => kind.key));
+    prev.current = { links, kinds, out };
     return out;
 }
 
@@ -190,6 +232,7 @@ export function usePlanCells(args: PlanCellsArgs): ScheduleCellsRead {
     const { kinds, landings, rows, parts, scale, range, drafts, hidden, span, links, editing } = args;
     const held = editing?.held;
     const carrying = editing?.carrying;
+    const ends = useLinkEnds(links, kinds);
     const cellKindsOf = useMemo((): ScheduleCellKind[] => kinds.map((kind) => ({
         key: kind.key,
         name: kind.name,
@@ -204,7 +247,7 @@ export function usePlanCells(args: PlanCellsArgs): ScheduleCellsRead {
         exact: kind.countExact,
         part: parts.find((p) => stringEqual(p.kind.key, kind.key))?.part,
         hidden: hides(hidden, planHideId.events(kind.key)),
-        wanted: linkEnds(links, kind.key),
+        wanted: ends.get(kind.key) ?? NO_LINK_ENDS,
         // A kind narrowed through its source draws a draft only of an event its window's read holds — its backlog's among
         // them — or of a new one (#1343): one its session began from no stored row.
         isNew: held !== undefined && parts.some((p) => stringEqual(p.kind.key, kind.key)) ? (id: string) => held(kind.key, id) === undefined : undefined,
@@ -215,7 +258,7 @@ export function usePlanCells(args: PlanCellsArgs): ScheduleCellsRead {
         // no source narrowing it — the revision its record reads at.
         stored: kind.entries.type === "some" ? kind.stored : undefined,
         revision: kind.entries.type === "some" ? kind.entries.value.revision : undefined,
-    })), [kinds, parts, hidden, links, held, carrying]);
+    })), [kinds, parts, hidden, ends, held, carrying]);
     // Over rows read whole: every landing row of the canvas, by its series.
     const whole = useMemo((): ScheduleCellResources[] => {
         if (rows.type !== "inline") return [];
