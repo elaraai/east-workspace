@@ -83,6 +83,7 @@ import {
     type KindAccessor as Accessor, type KindBinding, type KindKeyBuilder, type KindRowInspector as RowInspector, type RecordSide,
 } from "../utils/record-kind.js";
 import { checkedSchematicTemplates, isSchematicTemplates, type SchematicTemplates } from "./templates.js";
+import { templateValues } from "../schedule/templates.js";
 import {
     SchematicDetailsEntryType, SchematicDetailsRolesType, SchematicKindDetailsType, SchematicEndsType, SchematicGeometryType, SchematicItemEntryType,
     SchematicItemKindType, SchematicItemType, SchematicLinkEntryType, SchematicLinkKindType, SchematicLinkStyleType, SchematicLinkType,
@@ -705,10 +706,7 @@ export function schematicItems<R extends StructType, X extends SchematicPlaceFie
     // A new row at a position, every other field from a template's values, or its type's default.
     const blank = East.value(defaultValue(ValuesType) as never, ValuesType) as ExprType<EastType>;
     const create = East.function([OptionType(SchematicPointType), OptionType(BlobType)], OptionType(BlobType), ($, position, values) => {
-        const given = $.const(values.match({
-            some: (_$2, bytes) => bytes.decodeBeast(ValuesType, "v2") as ExprType<EastType>,
-            none: (_$2) => blank,
-        }) as ExprType<EastType>);
+        const given = $.const(templateValues(values, ValuesType, (_$2) => blank));
         return placed(given, position) as never;
     });
 
@@ -1074,14 +1072,11 @@ export function schematicLinks<R extends StructType, FF extends SchematicEndFiel
     // `values` of its ends, or its type's default.
     const blank = East.value(defaultValue(ValuesType) as never, ValuesType) as ExprType<EastType>;
     const create = East.function([SchematicEndsType, OptionType(BlobType)], OptionType(BlobType), ($, ends, values) => {
-        const given = $.const(values.match({
-            some: (_$2, bytes) => bytes.decodeBeast(ValuesType, "v2") as ExprType<EastType>,
-            none: ($2) => {
-                if (valuesOf === undefined) return blank;
-                const ownOf = $2.const(valuesOf);
-                return ownOf(ends as never) as ExprType<EastType>;
-            },
-        }) as ExprType<EastType>);
+        const given = $.const(templateValues(values, ValuesType, ($2) => {
+            if (valuesOf === undefined) return blank;
+            const ownOf = $2.const(valuesOf);
+            return ownOf(ends as never) as ExprType<EastType>;
+        }));
         return ended($ as never, given, ends) as never;
     });
 
@@ -1311,14 +1306,11 @@ export function schematicNets<R extends StructType, SRC extends SchematicMembers
     // or its type's default.
     const blank = East.value(defaultValue(ValuesType) as never, ValuesType) as ExprType<EastType>;
     const create = East.function([SchematicSidesType, OptionType(BlobType)], OptionType(BlobType), ($, sidesOf, values) => {
-        const given = $.const(values.match({
-            some: (_$2, bytes) => bytes.decodeBeast(ValuesType, "v2") as ExprType<EastType>,
-            none: ($2) => {
-                if (valuesOf === undefined) return blank;
-                const ownOf = $2.const(valuesOf);
-                return ownOf(sidesOf as never) as ExprType<EastType>;
-            },
-        }) as ExprType<EastType>);
+        const given = $.const(templateValues(values, ValuesType, ($2) => {
+            if (valuesOf === undefined) return blank;
+            const ownOf = $2.const(valuesOf);
+            return ownOf(sidesOf as never) as ExprType<EastType>;
+        }));
         return sided($ as never, given, sidesOf) as never;
     });
 

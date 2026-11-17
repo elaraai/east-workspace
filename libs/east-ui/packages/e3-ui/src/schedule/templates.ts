@@ -5,7 +5,7 @@
 
 import {
     ArrayType, DictType, East, Expr, OptionType, StringType, StructType, isTypeEqual, none, printType, variant,
-    type EastType, type ExprType, type FunctionType, type SubtypeExprOrValue,
+    type BlobType, type BlockBuilder, type EastType, type ExprType, type FunctionType, type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { ScheduleClockType, ScheduleDurationType, ScheduleTemplateType } from "./types.js";
 import { keyTextOf } from "./window.js";
@@ -213,6 +213,25 @@ export function scheduleCardTemplates<K extends EastType, R extends EastType>(
         const own = $.const(text);
         return East.value({ card: own(key as never), template: describeRow(row as never, key as never) }, ScheduleCardTemplateType);
     }) as ExprType<ArrayType<ScheduleCardTemplateType>>;
+}
+
+/**
+ * A new row's values, where a template may give them: what every kind's `create` starts its row from, whichever
+ * builder the kind is of. The template's values are decoded at the values' type; a row made from no template takes
+ * what `otherwise` builds.
+ *
+ * @param values - The template's values as bytes; none for a row made from no template
+ * @param valuesType - The values' type: the row's fields less what the gesture places
+ * @param otherwise - What a row made from no template takes, built in the block it is given
+ * @returns The values
+ */
+export function templateValues(
+    values: ExprType<OptionType<BlobType>>, valuesType: StructType, otherwise: ($: BlockBuilder<EastType>) => ExprType<EastType>,
+): ExprType<EastType> {
+    return values.match({
+        some: (_$, bytes) => bytes.decodeBeast(valuesType, "v2") as ExprType<EastType>,
+        none: ($) => otherwise($ as never),
+    }) as ExprType<EastType>;
 }
 
 /** Checks a bound template's initial values against the fields its kind requires. */
