@@ -1179,13 +1179,34 @@ describe('materializeEnvironmentFor: an environment installed for a platform tha
       assert.deepStrictEqual(found(out[5]!), [locked('jaraco-functools'), fs.realpathSync(path.join(site, 'jaraco', 'functools', '__init__.py'))]);
     });
 
+    it('refuses to build over a tier an environment that would ship a part of a namespace package the tier holds as an ordinary one, which Python would import in its place', async () => {
+      const { pyproject, lock, features, trainer } = await memberWorkspace(fs.mkdtempSync(path.join(work, 'hidden-members-')), write);
+      const envHash = await storage.objects.write(repo, encodeBeast2For(EnvironmentSpecType)(
+        variant('workspace_python', { pyproject, lock, subjects: ['trainer'], sdists: [features, trainer], requires: [] })));
+      // A tier whose `jaraco` has an `__init__` module, and which holds neither of the two the environment installs in it
+      const tier = path.join(work, 'hidden-tier');
+      const system = execFileSync('uv', ['python', 'find'], { encoding: 'utf-8', cwd: work }).trim();
+      execFileSync(system, ['-m', 'venv', '--without-pip', tier], { stdio: 'ignore' });
+      const tierPython = path.join(tier, 'bin', 'python');
+      const site = readTierManifest(Buffer.from(tierManifestOf(tierPython))).python.site;
+      fs.mkdirSync(path.join(site, 'jaraco'));
+      fs.writeFileSync(path.join(site, 'jaraco', '__init__.py'), '');
+      const manifest = readTierManifest(Buffer.from(tierManifestOf(tierPython)));
+      assert.ok(manifest.modules.includes('jaraco') && !manifest.namespaces.includes('jaraco'), manifest.modules.join(', '));
+
+      const dir = scratch();
+      await assert.rejects(() => materializeEnvironmentFor(storage, repo, envHash, { platform: host!, over: manifest }, dir),
+        /'jaraco' is a namespace package here and a module or an ordinary package in the tier's image, which Python would import in place of the part this environment ships: it is built whole/);
+      assert.ok(!fs.existsSync(dir), 'nothing is left where it was built');
+    });
+
     it('builds over a tier only an environment that fits it: a python environment whose lock takes the tier\'s Python', async () => {
       const { pyproject, lock, features } = await memberWorkspace(fs.mkdtempSync(path.join(work, 'fit-members-')), write);
       const envHash = await storage.objects.write(repo, encodeBeast2For(EnvironmentSpecType)(
         variant('workspace_python', { pyproject, lock, subjects: ['features'], sdists: [features], requires: [] })));
       const python = { executable: '/opt/venv/bin/python', base: '/usr/bin/python3', site: '/opt/venv/lib/python3.9/site-packages' };
       // The workspace's lock takes Python 3.11 and later
-      const old = { version: 1 as const, python: { ...python, version: '3.9.2' }, namespaces: [], distributions: [] };
+      const old = { version: 1 as const, python: { ...python, version: '3.9.2' }, namespaces: [], modules: [], distributions: [] };
       assert.strictEqual(await environmentFitsTier(storage, repo, envHash, old), false);
       assert.strictEqual(await environmentFitsTier(storage, repo, envHash, { ...old, python: { ...python, version: '3.11.2' } }), true);
       const dir = scratch();

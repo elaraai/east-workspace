@@ -10,9 +10,9 @@
  * A runtime image writes its manifest when it is built
  * (this package's `tier/tier-manifest.py`): its interpreter, the base interpreter a
  * virtualenv over it runs, its site directory, the namespace packages of
- * that directory, and each distribution installed for it, by name, version
- * and the digest of the files it installed. A manifest is named by the
- * SHA-256 of its bytes.
+ * that directory, the modules and ordinary packages it imports, and each
+ * distribution installed for it, by name, version and the digest of the files
+ * it installed. A manifest is named by the SHA-256 of its bytes.
  *
  * @packageDocumentation
  */
@@ -54,6 +54,16 @@ export interface TierManifest {
    * may be left to the tier singly ({@link leftToTier}).
    */
   readonly namespaces: readonly string[];
+  /**
+   * The names a module, or an ordinary package (one with an `__init__`
+   * module), is imported by from its site directory or a directory that
+   * directory's path files add, sorted. Python imports the first module or
+   * ordinary package of a name it finds on its path, and reads a namespace
+   * package only from the directories before it (PEP 420): a namespace
+   * package's part an environment ships is hidden by one of these, and such
+   * an environment is built whole.
+   */
+  readonly modules: readonly string[];
   /** The distributions installed for it, sorted by name */
   readonly distributions: readonly TierDistribution[];
 }
@@ -174,7 +184,7 @@ export function readTierManifest(bytes: Uint8Array): TierManifest {
   } catch {
     throw new Error('the tier manifest is not JSON');
   }
-  const fields = value as { version?: unknown; python?: Record<string, unknown>; namespaces?: unknown; distributions?: unknown } | null;
+  const fields = value as { version?: unknown; python?: Record<string, unknown>; namespaces?: unknown; modules?: unknown; distributions?: unknown } | null;
   if (typeof fields !== 'object' || fields === null || fields.version !== 1) {
     throw new Error('the tier manifest is not of the form this e3 reads (version 1)');
   }
@@ -196,11 +206,15 @@ export function readTierManifest(bytes: Uint8Array): TierManifest {
     return said;
   };
   if (typeof python !== 'object' || python === null) throw new Error('the tier manifest names no interpreter');
-  // Each a directory's name: what a tier does not say of its packages is not guessed
-  const namespaces: unknown = fields.namespaces;
-  if (!Array.isArray(namespaces) || !namespaces.every((name: unknown): name is string => typeof name === 'string' && name !== '' && !/[/\\]/.test(name))) {
-    throw new Error('the tier manifest names no namespace packages');
-  }
+  // Each a name at the top of a directory: what a tier does not say of its packages is not guessed
+  const names = (field: unknown, what: string): string[] => {
+    if (!Array.isArray(field) || !field.every((name: unknown): name is string => typeof name === 'string' && name !== '' && !/[/\\]/.test(name))) {
+      throw new Error(`the tier manifest names no ${what}`);
+    }
+    return field;
+  };
+  const namespaces = names(fields.namespaces, 'namespace packages');
+  const modules = names(fields.modules, 'modules');
   if (!Array.isArray(fields.distributions)) throw new Error('the tier manifest lists no distributions');
   return {
     version: 1,
@@ -211,6 +225,7 @@ export function readTierManifest(bytes: Uint8Array): TierManifest {
       site: absolute(python.site, 'site directory'),
     },
     namespaces,
+    modules,
     distributions: fields.distributions.map((entry: unknown): TierDistribution => {
       const { name, version: held, files } = (entry ?? {}) as Record<string, unknown>;
       return { name: canonicalPythonName(text(name, 'distribution\'s name')), version: text(held, 'distribution\'s version'),
@@ -241,7 +256,38 @@ export interface InstalledDistribution {
   readonly version: string;
   /** Its `RECORD` file's text */
   readonly record: string;
+  /** The distributions it requires, by the names its metadata gives them
+   *  ({@link readDistributionMetadata}) */
+  readonly requires: readonly string[];
 }
+
+/**
+ * What a distribution's `METADATA` says of it: its name, its version, and the
+ * distributions it requires (`Requires-Dist`), by name, whatever their markers
+ * and extras say.
+ *
+ * @remarks
+ * Its headers alone are read, which end at its first blank line: the
+ * description that may follow is the package's own text.
+ *
+ * @param metadata - The `METADATA` file's text
+ * @returns What it says, or null when it names no name or no version
+ * @example
+ * const read = readDistributionMetadata(await readFile(join(site, 'torch-2.15.0.dist-info', 'METADATA'), 'utf8'));
+ * // { name: 'torch', version: '2.15.0', requires: ['filelock', 'nvidia-cublas', …] }
+ */
+export function readDistributionMetadata(metadata: string): { name: string; version: string; requires: string[] } | null {
+  const headers = metadata.split(/\r?\n\r?\n/, 1)[0]!;
+  const name = /^Name:[ \t]*(\S.*?)[ \t]*$/m.exec(headers)?.[1];
+  const version = /^Version:[ \t]*(\S.*?)[ \t]*$/m.exec(headers)?.[1];
+  if (name === undefined || version === undefined) return null;
+  const requires = [...headers.matchAll(/^Requires-Dist:[ \t]*([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)/gm)].map((match) => match[1]!);
+  return { name, version, requires };
+}
+
+/** A file of native code: a shared library or an extension module, of any
+ *  platform (`libcublas.so.13`, `_C.cpython-311-x86_64-linux-gnu.so`). */
+const NATIVE_CODE = /\.(so(\.\d+)*|dylib|pyd|dll)$/;
 
 /**
  * Which of an environment's installed distributions are left to the tier it
@@ -267,6 +313,14 @@ export interface InstalledDistribution {
  *
  * Distributions are grouped by what they share, and a group is left only
  * when the tier holds every distribution of it.
+ *
+ * Native code finds the native code of what it requires by paths of the
+ * environment's own site directory: a library's RUNPATH relative to itself
+ * (`$ORIGIN/../../nvidia/cublas/lib`), or `site.getsitepackages()`, which
+ * names the environment's directory alone. So a distribution with native code
+ * that ships takes with it each distribution with native code it requires,
+ * with its group, and what that requires in turn. One left to the tier finds
+ * the tier's copies the same way, and takes nothing.
  *
  * @param installed - The environment's distributions
  * @param manifest - The tier's manifest
@@ -306,6 +360,19 @@ export function leftToTier(installed: readonly InstalledDistribution[], manifest
     tierHolds(manifest, { name: distribution.name, version: distribution.version, files: installedFilesDigest(distribution.record) }));
   const whole = new Map<number, boolean>();
   for (const i of installed.keys()) whole.set(find(i), (whole.get(find(i)) ?? true) && held[i]!);
+
+  const native = files.map((paths) => paths.some((parts) => NATIVE_CODE.test(parts[parts.length - 1]!)));
+  const byName = new Map(installed.map((distribution, i) => [canonicalPythonName(distribution.name), i]));
+  const shipping = [...installed.keys()].filter((i) => native[i]! && whole.get(find(i)) !== true);
+  while (shipping.length > 0) {
+    for (const required of installed[shipping.pop()!]!.requires) {
+      const j = byName.get(canonicalPythonName(required));
+      if (j === undefined || !native[j]! || whole.get(find(j)) !== true) continue;
+      // It ships, with its group, and takes what it requires in turn
+      whole.set(find(j), false);
+      for (const k of installed.keys()) if (native[k]! && find(k) === find(j)) shipping.push(k);
+    }
+  }
   return new Set(installed.filter((_, i) => whole.get(find(i)) === true).map(({ name }) => canonicalPythonName(name)));
 }
 

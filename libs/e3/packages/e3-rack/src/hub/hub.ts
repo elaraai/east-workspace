@@ -196,10 +196,16 @@ export class RackHub {
    * Takes in what a rack reports of itself: the report, and the text of each
    * tier manifest it carries, kept by its digest once it is the manifest the
    * digest names. A manifest no rack's last report names any more is let go.
-   * One that is refused is said once in the log: a rack reports it again with
-   * each heartbeat, until it reports another.
+   * One that is refused is said once in the log: an agent that sends a
+   * manifest's text with each heartbeat sends it again, until it reports
+   * another.
+   *
+   * @returns The digests of the manifests the report names whose text is held
+   *   nowhere, and was not refused, sorted: what the rack is asked to send
+   *   with its next heartbeat. A refused one is not asked for again: its rack
+   *   would send the same text.
    */
-  private reported(rackId: string, report: RackReport): void {
+  private reported(rackId: string, report: RackReport): string[] {
     this.reports.set(rackId, report);
     this.problems.delete(rackId);
     for (const [tier, said] of Object.entries(report.tiers ?? {})) {
@@ -218,6 +224,9 @@ export class RackHub {
       }
     }
     this.forgetTierManifests();
+    const refused = new Set([...this.refusedTierManifests].map((refusal) => refusal.slice(0, refusal.indexOf(' '))));
+    return [...new Set(Object.values(report.tiers ?? {}).map((tier) => tier.digest))]
+      .filter((digest) => !this.tierManifests.has(digest) && !refused.has(digest)).sort(compareString);
   }
 
   /** Lets go of each tier manifest no rack's last report names, and of each

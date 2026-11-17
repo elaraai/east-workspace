@@ -22,8 +22,8 @@ import { RackCompleteRequestType, RackCompleteResponseType, RackEnrollRequestTyp
   RackExtendRequestType, RackHeartbeatRequestType, RackHeartbeatResponseType, RackLeaseGrantType, RackLeaseRequestType,
   RackLogsRequestType, RackStorageRequestType, RackStorageResponseType, type RackLeaseGrant, type RackLeaseRef,
   type RackLogChunk, type RackObjectCommit, type RackStorageRequest } from '../protocol/rack-wire.js';
-import { RACK_CALL_VALUE_OBJECTS, RACK_ENVIRONMENTS_OVER_TIER, RACK_PROTOCOL, RACK_PROTOCOL_HEADER, RACK_TIER_MANIFESTS, RACK_TRANSFERS_AT_ONCE, RACK_WAITING_HEADER,
-  readRackHello, readRackRefusal, readRackWaiting,
+import { RACK_CALL_VALUE_OBJECTS, RACK_ENVIRONMENTS_OVER_TIER, RACK_MANIFESTS_WANTED_HEADER, RACK_PROTOCOL, RACK_PROTOCOL_HEADER, RACK_TIER_MANIFESTS,
+  RACK_TRANSFERS_AT_ONCE, RACK_WAITING_HEADER, readRackHello, readRackManifestsWanted, readRackRefusal, readRackWaiting,
   type RackHello, type RackOffer, type RackReport, type RackResources, type RackWaiting } from '../protocol/rack-json.js';
 import { RACK_INLINE_VALUE_MAX, leaseReserve, readRackLeaseResources, type RackFunctionResult, type RackLeaseEvent, type RackLeaseResources, type RackLeaseResult,
   type RackTransferRetry } from '../protocol/task-envelope.js';
@@ -138,6 +138,10 @@ export interface TestRackAgentOptions {
    * manifest's.
    */
   overTier?: string;
+  /** Sends each tier manifest's text with every heartbeat, as an agent that
+   *  does not read which its source wants does
+   *  ({@link RACK_MANIFESTS_WANTED_HEADER}). */
+  manifestEveryHeartbeat?: boolean;
 }
 
 /**
@@ -193,6 +197,11 @@ export class TestRackAgent {
   readonly bookedMost = { leases: 0, cores: 0, memoryBytes: 0 };
   /** What the last idle poll said waits for room on this rack, if anything. */
   waitingFor: RackWaiting | undefined;
+  /** The report the last heartbeat carried. */
+  lastReport: RackReport | undefined;
+  /** The digests of the tier manifests whose text the next heartbeat carries:
+   *  every one, for the first; then those its source's last answer asked for. */
+  private manifestsWanted: 'all' | readonly string[] = 'all';
   private readonly storage = new LocalStorage();
   private token = '';
   private readonly abort = new AbortController();
@@ -365,10 +374,25 @@ export class TestRackAgent {
   /** What the agent has booked for a lease it holds, when it admits by its resources. */
   bookedFor(leaseId: string): RackLeaseResources | undefined { return this.booked.get(leaseId); }
 
+  /** What a heartbeat reports: what the agent is and has, with the text of
+   *  each tier manifest its source wants, and the digest alone of every other. */
+  private reportSent(): RackReport {
+    const report = this.report();
+    const wanted = this.manifestsWanted;
+    if (report.tiers === undefined || wanted === 'all' || this.options.manifestEveryHeartbeat === true) return report;
+    return { ...report, tiers: Object.fromEntries(Object.entries(report.tiers)
+      .map(([tier, said]) => [tier, wanted.includes(said.digest) ? said : { digest: said.digest }])) };
+  }
+
   /** Reports health and returns the leases the hub asks this agent to stop. */
   async heartbeat(runningLeases: RackLeaseRef[] = [...this.active.values()].filter((value) => !value.silent).map((value) => value.lease)): Promise<ValueTypeOf<typeof RackHeartbeatResponseType>> {
-    const response = await this.post('heartbeat', RackHeartbeatRequestType, { healthy: true, freeCapacity: BigInt(Math.max(0, this.capacity - Math.max(this.active.size, runningLeases.length))),
-      runningLeases, agentVersion: this.version, bootId: this.bootId, cacheBytes: 0n, report: JSON.stringify(this.report()) }, RackHeartbeatResponseType);
+    const report = this.reportSent();
+    const sent = await this.raw('heartbeat', RackHeartbeatRequestType, { healthy: true, freeCapacity: BigInt(Math.max(0, this.capacity - Math.max(this.active.size, runningLeases.length))),
+      runningLeases, agentVersion: this.version, bootId: this.bootId, cacheBytes: 0n, report: JSON.stringify(report) });
+    if (sent.status !== 200) throw await this.refused('heartbeat', sent);
+    this.lastReport = report;
+    this.manifestsWanted = readRackManifestsWanted(sent.headers.get(RACK_MANIFESTS_WANTED_HEADER));
+    const response = decodeBeast2For(RackHeartbeatResponseType)(new Uint8Array(await sent.arrayBuffer()));
     if (response.rotatedToken.type === 'some') this.token = response.rotatedToken.value;
     for (const lease of response.stop) this.active.get(lease.leaseId)?.stop.abort();
     return response;

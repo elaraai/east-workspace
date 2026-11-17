@@ -131,9 +131,49 @@ export const RACK_ENVIRONMENTS_OVER_TIER = 'environments-over-tier';
 export interface RackReportedTier {
   /** The digest of the tier image's manifest: `sha256:<hex>` of its bytes */
   readonly digest: string;
-  /** The manifest's text, as its image holds it, for a source that reads it
-   *  ({@link RACK_TIER_MANIFESTS}) */
+  /**
+   * The manifest's text, as its image holds it, for a source that reads it
+   * ({@link RACK_TIER_MANIFESTS}): with the rack's first heartbeat to the
+   * source, and then with the heartbeat after an answer that asks for it
+   * ({@link RACK_MANIFESTS_WANTED_HEADER}). Otherwise the digest goes alone,
+   * by which a source that holds the text keeps it.
+   */
   readonly manifest?: string;
+}
+
+/**
+ * The header of a heartbeat's answer that names, by their digests, the tier
+ * manifests the rack reports whose text the source holds none of: a JSON
+ * array. The rack sends each one's text with its next heartbeat. A source
+ * that started again holds none, and asks; one that refused a manifest's text
+ * does not ask for it again.
+ */
+export const RACK_MANIFESTS_WANTED_HEADER = 'x-e3-rack-tier-manifests-wanted';
+
+/**
+ * Reads a heartbeat answer's wanted-manifests header.
+ *
+ * @param json - The header's value, or null when the answer had none
+ * @returns The digests of the manifests whose text the source asks for; none
+ *   when the header is absent or does not read, and none of an entry that is
+ *   not a manifest's digest
+ *
+ * @example
+ * ```ts
+ * const wanted = readRackManifestsWanted(response.headers.get(RACK_MANIFESTS_WANTED_HEADER));
+ * // the next heartbeat's report carries the text of each tier whose digest is wanted
+ * ```
+ */
+export function readRackManifestsWanted(json: string | null): string[] {
+  if (json === null) return [];
+  let value: unknown;
+  try {
+    value = JSON.parse(json);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(value)) return [];
+  return value.filter((digest: unknown): digest is string => typeof digest === 'string' && /^sha256:[0-9a-f]{64}$/.test(digest));
 }
 
 /**

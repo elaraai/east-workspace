@@ -30,8 +30,8 @@ import { ApproveRackType, AttachLeaseResultType, CancelLeaseResultType, CreateLe
 import { RackRegistrationType, RackSecurityPolicyType } from '../protocol/registration.js';
 import { RackHeartbeatRequestType, RackHeartbeatResponseType } from '../protocol/rack-wire.js';
 import { sameLeaseRefs } from '../testing/lease-refs.js';
-import { RACK_CALL_VALUE_OBJECTS, RACK_ENVIRONMENTS_OVER_TIER, RACK_LISTENER_IDLE_MS, RACK_PROTOCOL, RACK_TIER_MANIFESTS, RACK_TRANSFERS_AT_ONCE, readRackHello,
-  readRackRefusal, readRackReport } from '../protocol/rack-json.js';
+import { RACK_CALL_VALUE_OBJECTS, RACK_ENVIRONMENTS_OVER_TIER, RACK_LISTENER_IDLE_MS, RACK_MANIFESTS_WANTED_HEADER, RACK_PROTOCOL, RACK_TIER_MANIFESTS,
+  RACK_TRANSFERS_AT_ONCE, readRackHello, readRackManifestsWanted, readRackRefusal, readRackReport } from '../protocol/rack-json.js';
 import { TestRackAgent, type TestRackAgentOptions } from '../testing/test-rack-agent.js';
 import { SlowLink, type SlowLinkOptions } from '../testing/slow-link.js';
 import { certificateSha256, createHubCertificate, pinnedFetch } from '../tls/tls.js';
@@ -83,7 +83,8 @@ async function fixture(options: RackHubOptions = {}, port = 0, overrides: Partia
     const cancel = (id: string) => socketRequest(socket, 'POST', `${path}/leases/${encodeURIComponent(id)}/cancel`, { responseType: CancelLeaseResultType });
     return { ...opened, close, create, events, cancel, logs };
   };
-  const agent = async (as: Pick<TestRackAgentOptions, 'report' | 'protocol' | 'capacity' | 'transfersAtOnce' | 'timings' | 'faults' | 'resources' | 'label'> & { version?: string } = {}, origin?: string) => {
+  const agent = async (as: Pick<TestRackAgentOptions, 'report' | 'protocol' | 'capacity' | 'transfersAtOnce' | 'timings' | 'faults' | 'resources' | 'label' | 'manifestEveryHeartbeat'>
+    & { version?: string } = {}, origin?: string) => {
     const mint = await socketRequest(socket, 'POST', '/v1/enroll', { requestType: HubEnrollType,
       body: { label: none, ttlMinutes: none }, responseType: HubEnrollResultType });
     assert.equal(mint.certificateSha256.type === 'some' ? mint.certificateSha256.value : undefined, pin);
@@ -110,7 +111,7 @@ async function fixture(options: RackHubOptions = {}, port = 0, overrides: Partia
 /** A tier image's manifest, as its script writes it, of the Python and the
  *  distributions given: its text, and its digest. */
 function tierImage(python = '3.11.2', distributions: Array<{ name: string; version: string; files: string }> = []): { text: string; digest: string } {
-  const text = `${JSON.stringify({ distributions, namespaces: [], python: { base: '/usr/bin/python3', executable: '/opt/venv/bin/python',
+  const text = `${JSON.stringify({ distributions, modules: [], namespaces: [], python: { base: '/usr/bin/python3', executable: '/opt/venv/bin/python',
     site: '/opt/venv/lib/python3.11/site-packages', version: python }, version: 1 })}\n`;
   return { text, digest: tierManifestDigest(new TextEncoder().encode(text)) };
 }
@@ -454,16 +455,21 @@ it('keeps the manifest of each tier image a rack reports, by its digest, says wh
   // bytes its digest names, and one that names an image without saying it
   // composes over one: none is a tier a session could build over
   await f.agent({ label: 'no text', report: { ...composing, tiers: { py: { digest: forged.digest } } } });
-  const forger = await f.agent({ label: 'forged', report: { ...composing, tiers: { py: { digest: forged.digest, manifest: py.text } } } });
+  const forger = await f.agent({ label: 'forged', report: { ...composing, tiers: { py: { digest: forged.digest, manifest: py.text } } }, manifestEveryHeartbeat: true });
   await f.agent({ label: 'unsaid', report: { features: ['environments'], target: 'x86_64-manylinux_2_28', tiers: { py: { digest: py.digest, manifest: py.text } } } });
   const named = await racks();
   assert.deepEqual([named.get('no text'), named.get('forged'), named.get('unsaid')], [[], [], []]);
   assert.deepEqual(await manifest(forged.digest), none);
   assert.equal(lines.filter((line) => /the manifest it reports of its tier 'py' was not kept: its text is not the bytes its digest names/.test(line)).length, 1);
-  // Its rack reports it again with each heartbeat: refused each time, and said once
+  // An agent that sends a manifest's text with each heartbeat sends it again: refused each time, and said once
   for (let beat = 0; beat < 3; beat++) await forger.heartbeat();
   assert.equal(lines.filter((line) => /the manifest it reports of its tier 'py' was not kept/.test(line)).length, 1);
   assert.deepEqual((await racks()).get('forged'), []);
+  // One that sends it when asked is not asked for the text of a manifest refused: its rack would send the same
+  const asked = await f.agent({ label: 'refused', report: { ...composing, tiers: { py: { digest: forged.digest, manifest: py.text } } } });
+  await asked.heartbeat();
+  assert.deepEqual(asked.lastReport?.tiers?.py, { digest: forged.digest });
+  assert.equal(lines.filter((line) => /the manifest it reports of its tier 'py' was not kept/.test(line)).length, 1);
 
   // A report this build cannot read of a tier refuses the heartbeat, as any other field does
   assert.throws(() => readRackReport(JSON.stringify({ features: [], tiers: { py: { digest: 'latest' } } })), /the report's tier 'py' names no manifest digest/);
@@ -918,4 +924,48 @@ it('asks again for the layers built over a rack\'s image once another session jo
   const grant = await rack.claim(); assert.equal(grant?.leaseId, lease.leaseId);
   const { env } = await rack.storageRequest(grant, { envManifest: some(envHash) });
   assert(env.type === 'some'); assert.deepEqual(JSON.parse(env.value.manifestJson), built);
+});
+
+it('asks a rack for a tier manifest\'s text only while it holds none: the rack sends it with its first heartbeat, and then with the one after an answer that asks', async () => {
+  const f = await fixture({ leaseWindowMs: 40 });
+  // The hub starts again on another port, below: its rack follows it there
+  let origin = '';
+  const listening = async () => { const listener = (await f.status()).rackListener; assert(listener.type === 'up'); origin = listener.value.origin; };
+  await listening();
+  const follow: typeof fetch = (input, init) => { const url = new URL(String(input)); return f.fetch(`${origin}${url.pathname}${url.search}`, init); };
+  const image = tierImage('3.11.2');
+  const report = { features: ['environments', RACK_ENVIRONMENTS_OVER_TIER], target: 'x86_64-manylinux_2_28', tiers: { py: { digest: image.digest, manifest: image.text } } };
+  const mint = await socketRequest(f.socket, 'POST', '/v1/enroll', { requestType: HubEnrollType, body: { label: none, ttlMinutes: none }, responseType: HubEnrollResultType });
+  const rack = await TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken, { fetch: follow, report });
+  cleanup.push(() => rack.close());
+  const named = async () => (await f.status()).capacity.racks[0]!.tierManifests;
+  const sent = () => rack.lastReport?.tiers?.py;
+
+  // Its first heartbeat, at its enrolment, carries the text; the next its digest alone, by which the hub keeps it
+  assert.deepEqual(sent(), { digest: image.digest, manifest: image.text });
+  await rack.heartbeat();
+  assert.deepEqual(sent(), { digest: image.digest });
+  assert.deepEqual(await named(), [{ tier: 'py', manifest: image.digest }]);
+
+  // A hub that starts again holds no manifest's text: told the digest alone, it asks for the text, which the next heartbeat carries
+  await f.hub.stop();
+  const again = new RackHub({ foreground: true, home: f.home, leaseWindowMs: 40 });
+  assert(await again.start()); cleanup.push(() => again.stop());
+  await listening();
+  const answer = await rack.raw('heartbeat', RackHeartbeatRequestType, { healthy: true, freeCapacity: 1n, runningLeases: [], agentVersion: `0.5.0+e3.${E3_RACK_VERSION}`,
+    bootId: rack.bootId, cacheBytes: 0n, report: JSON.stringify({ ...report, tiers: { py: { digest: image.digest } } }) });
+  assert.equal(answer.status, 200); await answer.arrayBuffer();
+  assert.deepEqual(JSON.parse(answer.headers.get(RACK_MANIFESTS_WANTED_HEADER)!), [image.digest]);
+  assert.deepEqual(await named(), [], 'no session builds over an image whose manifest the hub does not hold');
+  await rack.heartbeat();
+  assert.deepEqual(sent(), { digest: image.digest });
+  await rack.heartbeat();
+  assert.deepEqual(sent(), { digest: image.digest, manifest: image.text });
+  assert.deepEqual(await named(), [{ tier: 'py', manifest: image.digest }]);
+  await rack.heartbeat();
+  assert.deepEqual(sent(), { digest: image.digest }, 'and asked no more');
+
+  // What a rack reads of the header: the digests of manifests alone
+  assert.deepEqual(readRackManifestsWanted(JSON.stringify([image.digest, 'latest', 7, `sha256:${'A'.repeat(64)}`])), [image.digest]);
+  for (const unread of [null, 'not json', '{"wanted":[]}']) assert.deepEqual(readRackManifestsWanted(unread), [], String(unread));
 });

@@ -58,7 +58,7 @@ import type { StorageBackend } from '../storage/index.js';
 import { withKeyedLock } from '../keyed-mutex.js';
 import { isObjectHash } from '../objects.js';
 import {
-  leftToTier, pythonMinor, pythonSatisfies, recordedSiteFiles, type InstalledDistribution, type TierManifest,
+  leftToTier, pythonMinor, pythonSatisfies, readDistributionMetadata, recordedSiteFiles, type InstalledDistribution, type TierManifest,
 } from '../tier-manifest.js';
 import { getPidStartTime, processExited } from './processHelpers.js';
 import { checkProcessSettings, giveDirectory, type ProcessSettings } from './processExec.js';
@@ -999,14 +999,20 @@ async function removeEmptyDirectories(dir: string): Promise<boolean> {
  * - one path file in the site directory adds the tier's site directory after
  *   the environment's own, read as a site directory is, so its own path
  *   files are too. What the environment ships is found first: a version of
- *   its own of something the tier holds wins;
+ *   its own of something the tier holds wins. A namespace package's part is
+ *   the one exception (PEP 420): Python imports a module or an ordinary
+ *   package of its name that it finds later in its place, so an environment
+ *   that ships one the tier holds as such ({@link TierManifest.modules}) is
+ *   refused here, and built whole;
  * - the link to this machine's interpreter is removed. No layer holds a link
  *   that leads out of the environment, so the agent that composes it over
  *   its tier makes the link to the tier's interpreter
  *   (`composeEnvironmentOverTier`).
  *
  * @returns How many distributions were left to the tier
- * @throws {Error} When the virtualenv is not of the tier's Python
+ * @throws {Error} When the virtualenv is not of the tier's Python, or the
+ *   environment ships a namespace package's part that the tier's module or
+ *   ordinary package of its name would hide
  */
 async function leaveToTier(buildDir: string, tier: TierManifest): Promise<number> {
   const venv = path.join(buildDir, '.venv');
@@ -1031,9 +1037,8 @@ async function leaveToTier(buildDir: string, tier: TierManifest): Promise<number
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') continue;
       throw err;
     }
-    const name = /^Name:[ \t]*(\S.*?)[ \t]*$/m.exec(metadata)?.[1];
-    const version = /^Version:[ \t]*(\S.*?)[ \t]*$/m.exec(metadata)?.[1];
-    if (name !== undefined && version !== undefined) installed.push({ name, version, record, info });
+    const read = readDistributionMetadata(metadata);
+    if (read !== null) installed.push({ ...read, record, info });
   }
   const left = leftToTier(installed, tier);
   const root = `${site}${path.sep}`;
@@ -1048,6 +1053,20 @@ async function leaveToTier(buildDir: string, tier: TierManifest): Promise<number
     await fs.rm(path.join(site, distribution.info), { recursive: true, force: true });
   }
   await removeEmptyDirectories(site);
+
+  // A namespace package's part that ships: a directory at the top of the site
+  // directory with no `__init__` module, which the tier's module or ordinary
+  // package of its name would hide
+  const hidden: string[] = [];
+  for (const entry of await fs.readdir(site, { withFileTypes: true })) {
+    if (!entry.isDirectory() || !tier.modules.includes(entry.name)) continue;
+    if (!(await fs.readdir(path.join(site, entry.name))).some((name) => name.startsWith('__init__.'))) hidden.push(entry.name);
+  }
+  if (hidden.length > 0) {
+    throw new Error(`environment materialization: ${hidden.map((name) => `'${name}'`).join(', ')} ${hidden.length === 1 ? 'is a namespace package' : 'are namespace packages'} ` +
+      'here and a module or an ordinary package in the tier\'s image, which Python would import in place of the part this environment ships: ' +
+      'it is built whole');
+  }
 
   // The interpreter is the tier's. This machine's is linked by its path here
   const bin = path.join(venv, 'bin');

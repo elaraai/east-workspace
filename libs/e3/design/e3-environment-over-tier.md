@@ -51,6 +51,7 @@ Each python runtime image (`docker/images/Dockerfile.east-py`,
   "python": { "version": "3.11.2", "executable": "/opt/venv/bin/python", "base": "/usr/bin/python3",
               "site": "/opt/venv/lib/python3.11/site-packages" },
   "namespaces": ["cuda", "nvidia"],
+  "modules": ["east", "six", "torch"],
   "distributions": [
     { "name": "elaraai-east-py", "version": "1.0.109", "files": "sha256:9c1f…" },
     { "name": "torch", "version": "2.9.0+cu130", "files": "sha256:41be…" }
@@ -75,6 +76,10 @@ Each python runtime image (`docker/images/Dockerfile.east-py`,
 - `namespaces` is each directory at the top of the site directory that holds
   no `__init__` module: its namespace packages, whose parts an environment
   may leave to the tier singly (section 7).
+- `modules` is each name a module or an ordinary package (one with an
+  `__init__` module) is imported by from the site directory, or from a
+  directory its path files add: what would hide a namespace package's part an
+  environment ships before it (section 8).
 - A manifest's **digest** is the SHA-256 of its bytes.
 - The node and C tiers write none: this change is python environments.
 
@@ -130,7 +135,8 @@ With one:
    `__init__` module are left to the tier together or not at all: Python
    finds such a package in the first directory that holds it, so a part that
    ships would hide the part left behind. A namespace package's parts are
-   left singly (section 7).
+   left singly (section 7). A distribution with native code that ships takes
+   with it each distribution with native code it requires (section 8).
 3. The virtualenv is pointed at the tier: `pyvenv.cfg`'s `home` names the
    directory of the tier's base interpreter, and one `.pth` file in the
    environment's site directory adds the tier's with `site.addsitedir`, so the
@@ -143,7 +149,10 @@ With one:
 
 So `sys.path` holds the environment's site directory first, then the tier's: a
 project that pins another version of something the tier has ships its own,
-and its own wins.
+and its own wins. A namespace package's part is the exception: Python imports
+a module or an ordinary package of its name found later in its place, so an
+environment that would ship a part of one the tier holds as such is built
+whole (section 8).
 
 A `.pth` rather than `include-system-site-packages`, because the images keep
 their packages in a virtualenv (`/opt/venv`): a virtualenv made over another
@@ -154,7 +163,9 @@ The tree is still built at the root a guest mounts it at
 and the project layer.
 
 **When it is built whole instead, as today:** no manifest (3.5); the project's
-`requires-python` excludes the tier's minor; the environment is not python.
+`requires-python` excludes the tier's minor; the environment is not python;
+the build over the tier fails, or would ship a namespace package's part the
+tier hides (section 8).
 
 ### 3.4 What names the layers
 
@@ -178,7 +189,8 @@ A rack that can boot an environment over its tier says so with its
 heartbeats, in the report it already sends (JSON, read for what a reader
 knows, so no rack protocol number moves). It names each tier image by its
 manifest's digest, and sends the manifest's text to a source whose hello
-names `tier-manifests`:
+names `tier-manifests`: with its first heartbeat to the source, and then when
+the source asks for it (section 8):
 
 ```json
 { "features": ["resources", "environments", "environments-over-tier"],
@@ -189,7 +201,7 @@ names `tier-manifests`:
 
 The hub keeps a manifest whose text is the bytes its digest names, for as
 long as a rack reports it: no route is added for it, and a hub that restarts
-has it again with the next heartbeat. It tells a session which image each rack
+asks for it, and has it again with the heartbeat after. It tells a session which image each rack
 names, and answers a manifest by its digest. The launching machine builds an
 environment over an image only for racks that name it; for any other rack it
 builds whole. Two racks with different images of one tier are two builds.
@@ -407,3 +419,84 @@ directly under it.
   package, `jaraco.classes` and `jaraco.functools`: the tier's build of one is
   left, another version of the other ships, and both import, each from its
   own directory.
+
+## 8. After the review: what a shipped part still meets
+
+Status: **approved 17 Nov 2026, and built.** Three findings of the pull
+request's review changed the manifest, the build and the report, while no
+image had shipped a manifest and its form was still free to change.
+
+### 8.1 A namespace package's part can be hidden by the tier's
+
+Python reads a namespace package from the directories on its path it passes
+before it finds a module or an ordinary package of that name, and imports
+that one instead (PEP 420). The tier's site directory comes after the
+environment's. So an environment that ships a part of a namespace package,
+`pkg/` with no `__init__` module, while the tier holds an ordinary `pkg` or a
+module `pkg.py`, runs the tier's: an older version, and nothing says so. A
+pkgutil-style package, whose `__init__.py` calls `extend_path`, is an ordinary
+one here too.
+
+The manifest gains `modules`: each name a module or an ordinary package is
+imported by from the tier's site directory, or from a directory its path files
+add, sorted (`pkgutil.iter_modules`). Once the environment is installed, and
+what the tier holds is left to it, a part of a namespace package that would
+ship under one of those names refuses the build over the tier. The
+environment is then built whole for the platform (8.4).
+
+### 8.2 Native code finds native code by the environment's paths
+
+An extension finds the libraries of a distribution it requires by a RUNPATH
+relative to itself (`$ORIGIN/../../nvidia/cublas/lib`), or through
+`site.getsitepackages()`, which names the environment's own site directory. A
+torch that ships, with its NVIDIA libraries left to the tier, finds none of
+them there.
+
+So a distribution with native code (a file ending `.so`, with or without a
+version after it, `.dylib`, `.pyd` or `.dll`) that ships takes with it each
+distribution with native code it requires (`Requires-Dist`, by name, whatever
+its markers say), with its group, and what that requires in turn. One left to
+the tier takes nothing: the tier's copy finds the tier's libraries the same
+way. A distribution with no native code that ships finds what it requires
+through Python's path, which holds the tier's, and takes nothing.
+
+| The environment's torch | Its NVIDIA libraries |
+|---|---|
+| The tier's build | Left to the tier |
+| Another build | Ship with it |
+
+### 8.3 A manifest's text is sent when it is wanted
+
+A datascience tier's manifest is tens of KB, and a rack heartbeats every 15 s.
+A rack sends a manifest's text with its first heartbeat to a source, and then
+only with the heartbeat after an answer whose `x-e3-rack-tier-manifests-wanted`
+header names its digest: a JSON array of the digests whose text the source
+holds none of, and has not refused. Otherwise it sends the digest alone, by
+which the hub keeps the text. A hub that started again holds none, and asks.
+
+Rack protocol 3's structs are fixed, and the header leaves them as they are:
+an agent that does not read it sends the text every time, as before, and a
+text the hub refuses is said once in its log.
+
+### 8.4 When a build over a tier fails
+
+A build over a rack's image that fails (a dependency with no wheel for the
+image's Python, say, or the refusal of 8.1) is tried whole for the platform,
+and the rack is served that. When both fail, the work stays local as
+`environment:build-failed`, with the whole build's words.
+
+### 8.5 Tests
+
+- The manifest script: `modules` names an ordinary package, a module, and a
+  module a path file adds, and no namespace package.
+- `readTierManifest`: a manifest without `modules` is refused.
+- The build over a tier whose `jaraco` is an ordinary package: an environment
+  that would ship the namespace package `jaraco` is refused.
+- `leftToTier`: a torch of another build takes its native libraries with it,
+  and theirs, and what shares a directory with them; one left to the tier
+  takes nothing; a distribution with no native code takes nothing.
+- The hub: a rack's first heartbeat carries the text and the next its digest
+  alone; a hub that started again asks for it, once; a refused text is not
+  asked for again.
+- The placement: an environment whose build over the image fails is built
+  whole and placed on the rack; both failing, it stays local.
