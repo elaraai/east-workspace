@@ -51,9 +51,9 @@ export {
 } from "./derive.js";
 export {
     linkedRowKeys, bodyItemKey, rowItemKey, placeFailures, firstDiagnosticItem, focusBandKey, focusBodyItems, focusGathers,
-    focusRoleCounts, focusRoleOf, deriveLinkFamily, PLAN_FOCUS_ROLES,
+    focusGatheredKeys, focusRoleCounts, focusRoleOf, deriveLinkFamily, PLAN_FOCUS_ROLES,
     type PlanFocusBand, type PlanFocusRole, type PlanGathered, type PlanBand, type PlanWindowFailure, type PlanBodyItem,
-    type LinkFamily,
+    type PlanLaneBand, type PlanLaneTracks, type LinkFamily,
 } from "./body-items.js";
 
 /** The decoded Plan root value. */

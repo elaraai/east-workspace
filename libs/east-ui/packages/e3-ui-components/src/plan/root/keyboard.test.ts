@@ -175,6 +175,16 @@ describe("strips and a links focus's bands (#819, #1680's review)", () => {
         }
         expect(planNavKey(open, "l:others", "ArrowRight", 0)).toEqual({ t: "none" });
     });
+
+    test("a lane band is no item: ↓ steps over it, and the row above takes its height, so a page travels as far as the rows do (#1680's review)", () => {
+        const gathered = (r: PlanRowValue): PlanBodyItem =>
+            ({ kind: "row", row: { row: r, depth: 1, collapsed: false, gathered: { role: "upstream", path: [] } } });
+        const lane: PlanBodyItem = { kind: "lanes", lanes: { rule: 1, px: 12, above: K.key } };
+        const nav = items([gathered(P), lane, gathered(K)], { focus: { kind: "links", key: "P" } });
+        // Every item 32 tall in this grid: P takes the band's 32 with its own.
+        expect(nav.map((n) => [n.key, n.h])).toEqual([["r:P", 64], [`r:${K.key}`, 32]]);
+        expect(planNavKey(nav, "r:P", "ArrowDown", 0)).toEqual({ t: "focus", key: `r:${K.key}`, align: "auto" });
+    });
 });
 
 describe("bands (#819)", () => {

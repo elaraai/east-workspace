@@ -29,7 +29,8 @@ import { usePlanWords } from "../words.js";
 import { usePlanGridRow } from "./grid.js";
 import {
     chartsOpenFor, focusBandKey, rowHeight,
-    type PlanDerived, type PlanFocusBand, type PlanFocusCtx, type PlanRowIndex, type PlanRowValue, type VisibleRow,
+    type PlanDerived, type PlanFocusBand, type PlanFocusCtx, type PlanLaneBand, type PlanRowIndex, type PlanRowValue,
+    type VisibleRow,
 } from "../model.js";
 import type { PlanEvent, RowKey } from "../plan-state.js";
 
@@ -220,6 +221,27 @@ export function PlanFocusBandRow({ band, h, styles, gridTemplate, dispatch }: {
                 </Box>
                 <Box as="span" />
             </Box>
+            <BandPlot styles={styles} />
+        </Box>
+    );
+}
+
+/**
+ * A rule a links focus opens for its family's lanes (#1680's review): room
+ * between two rows it gathers, as tall as the lane tracks the links layer draws
+ * along it. No row of the grid — a reader hears the rows either side.
+ */
+export function PlanLaneBandRow({ band, h, styles, gridTemplate }: {
+    band: PlanLaneBand;
+    /** The height the model laid the band out at (#817). */
+    h: number;
+    styles: Styles;
+    gridTemplate: string;
+}) {
+    return (
+        <Box css={styles.laneBand} style={{ gridTemplateColumns: gridTemplate, height: `${h}px` }} aria-hidden="true"
+            data-plan-lanes={band.rule} data-plan-h={h}>
+            <Box data-plan-lane-gutter />
             <BandPlot styles={styles} />
         </Box>
     );

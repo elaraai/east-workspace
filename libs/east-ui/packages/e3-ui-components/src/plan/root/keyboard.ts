@@ -140,6 +140,13 @@ export function planNavItems(src: PlanNavSource): PlanNavItem[] {
                 out.push({ key: bodyItemKey(item), kind: "group", nests: false, toggle, activate: toggle?.event, h });
                 break;
             }
+            // A lane band is room between two rows, never an item: the row above it takes its height, so a page's
+            // travel stays exact.
+            case "lanes": {
+                const above = out[out.length - 1];
+                if (above !== undefined) above.h += h;
+                break;
+            }
             case "band": out.push({
                 key: bodyItemKey(item), kind: "band",
                 band: { block: item.band.block, at: item.band.at, px: item.band.px }, nests: false, h,

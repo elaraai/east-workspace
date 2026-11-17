@@ -54,6 +54,7 @@ export interface PlanBody {
  * @param origin - Which block and window each paged row came from
  * @param focusCtx - Which row is focused
  * @param placed - Whether the canvas has placed a row it does not hold (a paged source's evicted window's)
+ * @param lanes - The rules a links focus opens for its lanes, and their tracks' heights ({@link focusBodyItems})
  * @returns The items
  */
 export function planBodyItems(
@@ -63,11 +64,12 @@ export function planBodyItems(
     origin: ReadonlyMap<string, PlanRowOrigin>,
     focusCtx: PlanFocusCtx | undefined,
     placed?: (key: RowKey) => boolean,
+    lanes?: ReadonlyMap<number, number>,
 ): PlanBodyItem[] {
     const links = focusCtx?.kind === "links" ? focusCtx.links : undefined;
     if (focusCtx === undefined || links === undefined) return laidOut(visible, blocks, origin);
     const others = links.others ? laidOut(visible.filter((v) => !focusGathers(focusCtx, v.row.key)), blocks, origin) : [];
-    return focusBodyItems(index, focusCtx.key, links.family, { open: links.others, items: others }, placed);
+    return focusBodyItems(index, focusCtx.key, links.family, { open: links.others, items: others }, placed, lanes);
 }
 
 /** The body's rows block after block, each paged block's between its bands and with its failed windows in its seams. */
@@ -121,8 +123,9 @@ function laidOut(
  * group whose members run into a band has no end on the canvas yet. A links
  * focus's band (#1680's review) closes the band before it at its last row, and
  * a role's band opens over the rows it gathers, one level in; the others'
- * opens over nothing, its rows at their own levels. The last row closes every
- * parent still open.
+ * opens over nothing, its rows at their own levels. A lane band between two
+ * rows it gathers is room between them, and changes nothing. The last row
+ * closes every parent still open.
  *
  * @param items - The body items, in order
  * @returns The keys of the rows that end a group
@@ -144,6 +147,7 @@ export function groupEndsOf(items: readonly PlanBodyItem[]): ReadonlySet<RowKey>
             if (item.band.role !== "others") open.push(0);
             continue;
         }
+        if (item.kind === "lanes") continue;
         if (item.kind !== "row") {
             open.length = 0;
             last = undefined;
@@ -170,6 +174,7 @@ export function groupEndsOf(items: readonly PlanBodyItem[]): ReadonlySet<RowKey>
  * @param dense - The declared density
  * @param chartsExpanded - The user's expanded chart rows
  * @param placed - Whether the canvas has placed a row it does not hold — read as the paging moves, which renews the items
+ * @param lanes - The rules a links focus opens for its lanes, and their tracks' heights ({@link focusBodyItems})
  * @returns The body
  */
 export function usePlanBody(
@@ -182,17 +187,23 @@ export function usePlanBody(
     dense: boolean,
     chartsExpanded: ReadonlySet<RowKey>,
     placed?: (key: RowKey) => boolean,
+    lanes?: ReadonlyMap<number, number>,
 ): PlanBody {
     const { blocks, origin } = paging;
     const items = useMemo<readonly PlanBodyItem[]>(
-        () => planBodyItems(visible, index, blocks, origin, focusCtx, placed),
-        [focusCtx, visible, index, blocks, origin, placed]);
+        () => planBodyItems(visible, index, blocks, origin, focusCtx, placed, lanes),
+        [focusCtx, visible, index, blocks, origin, placed, lanes]);
     // The height SIGNATURE (#812): a row's kind, the density, a chart's toggle,
     // a focus and the expand clamp all reach it, so any of them changing a
     // height re-measures the frame — and a selection, which reaches none of
-    // its inputs, re-measures nothing. A links focus's band is a group band's height.
+    // its inputs, re-measures nothing. A links focus's band is a group band's height, or, where its lane tracks need
+    // more, their height over its rule; a lane band is its tracks'.
     const heights = useMemo(() => items.map((item) => {
-        if (item.kind === "focus") return planGeometry(dense).group;
+        if (item.kind === "focus") {
+            const g = planGeometry(dense);
+            return Math.max(g.group, item.band.lanes !== undefined ? item.band.lanes.px + g.rule : 0);
+        }
+        if (item.kind === "lanes") return item.lanes.px;
         if (item.kind === "band") return Math.max(1, item.band.px);
         if (item.kind === "failed") return item.failure.px;
         return rowHeight(item.row, dense, chartsExpanded, heightCtx, derived);

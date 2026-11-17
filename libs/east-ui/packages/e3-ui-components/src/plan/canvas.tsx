@@ -102,8 +102,8 @@ import { axisNow, axisResolutions, ordinalIndexOf } from "./axis.js";
 import type { PlanEvent } from "./plan-state.js";
 import type { PlanPart } from "./messages.js";
 import {
-    bodyItemKey, canvasRowsOf, derivePlan, focusRoleCounts, indexRows, linkedRowKeys, pinnedRows, pxOf, rowHeight, rowItemKey,
-    rowKeyOf, rowKeyWords, visibleRows,
+    bodyItemKey, canvasRowsOf, derivePlan, focusGatheredKeys, focusRoleCounts, indexRows, linkedRowKeys, pinnedRows, pxOf,
+    rowHeight, rowItemKey, rowKeyOf, rowKeyWords, visibleRows,
     type PlanBand, type PlanBodyItem, type PlanRootValue, type PlanRowIndex, type PlanRowValue, type VisibleRow,
 } from "./model.js";
 import { PLAN_PAGE_SIZE, bandElements } from "./use-plan-paging.js";
@@ -132,7 +132,8 @@ import { PlanNarrow, PLAN_NARROW_BELOW } from "./narrow/index.js";
 import type { PlanNarrowPaging } from "./narrow/demand.js";
 import { LinksOverlay } from "./shell/LinksOverlay.js";
 import { ConnectOverlay } from "./shell/ConnectOverlay.js";
-import { linkedElement, placedBeyond, ribbonBody, type LinkedElement, type RibbonBeyond } from "./shell/ribbon-layout.js";
+import { linkedElement, placedBeyond, planFocusLanes, ribbonBody, type LinkedElement, type RibbonBeyond } from "./shell/ribbon-layout.js";
+import { useElementWidth } from "./use-element-height.js";
 import type { PlanDiagnostics } from "./shell/Diagnostics.js";
 import type { PlanTransport } from "./shell/transport.js";
 import { retryPeriod, type PagedLoading } from "../shared/loading.js";
@@ -160,7 +161,7 @@ import type { PlanCanvasParts, PlanSessionBanner } from "./root/chrome.js";
 import { useHostBound } from "./root/host-bound.js";
 import { usePlanExpand, usePlanFocus } from "./root/focus.js";
 import { groupEndsOf, usePlanBody, usePlanRangeReport, usePlanScrollTarget } from "./root/body.js";
-import { PlanFocusBandRow, PlanStickyParent, renderPlanRow, type PlanRowContext } from "./root/rows.js";
+import { PlanFocusBandRow, PlanLaneBandRow, PlanStickyParent, renderPlanRow, type PlanRowContext } from "./root/rows.js";
 import { PlanHeader } from "./root/Header.js";
 import { usePlanCursorController } from "./root/cursor.js";
 import { usePlanDropTarget } from "./root/drop.js";
@@ -1165,7 +1166,22 @@ export function usePlanCanvas({
     // A row of a paged source's evicted window has a place the canvas knows: a links focus counts it with its role, and
     // its links end where it is (#1680's review). The driver's, read as the paging moves — which renews the body.
     const placed = useCallback((key: RowKey) => paged && controller.placeOf(key) !== undefined, [paged, controller]);
-    const body = usePlanBody(visible, index, derived, paging, focusCtx, heightCtx, dense, chartsExpanded, placed);
+    // A links focus opens the rules its family's lanes and one-row captions take into bands of their tracks (#1680's
+    // review), planned from where the elements draw across the plot — the rows' width less the gutter's, as the links
+    // layer measures it — at the weights its ribbons draw at. A click opens the focus, and its effects run before the
+    // frame paints, so the first frame has the width. The reading is kept as the focus goes, read only under one: a
+    // focus that goes commits once (#815).
+    const rowsWidth = useElementWidth(frameFills ? scrollElRef : focusBodyRef, view.focus?.kind === "links", true);
+    const plotPx = rowsWidth !== undefined ? rowsWidth - gutterW : 0;
+    const laneFamily = focusCtx?.kind === "links" ? focusCtx.links?.family : undefined;
+    const lanes = useMemo(() => {
+        if (focusCtx === undefined || laneFamily === undefined || focusVisibleKeys === undefined || scale === undefined || plotPx <= 0) return undefined;
+        return planFocusLanes({
+            links: data.links, order: focusGatheredKeys(index, focusCtx.key, laneFamily), visibleKeys: focusVisibleKeys,
+            element: linkedElementOf, scale, plot: { left: gutterW, width: plotPx }, geometry,
+        });
+    }, [focusCtx, laneFamily, focusVisibleKeys, plotPx, data.links, index, linkedElementOf, scale, gutterW, geometry]);
+    const body = usePlanBody(visible, index, derived, paging, focusCtx, heightCtx, dense, chartsExpanded, placed, lanes?.plan.bands);
     const target = usePlanScrollTarget(body.items, index, derived, scroll);
     // The rows' pitch where a run stands for rows not read yet (#1398, CL2): the height most resident rows draw at —
     // a two-line row's 42, a span row's 32 — else the default row's.
@@ -2459,7 +2475,7 @@ export function usePlanCanvas({
                             <PlanPartBoundary part={LINKS_LAYER} resetKey={focusVisibleKeys} styles={styles}>
                                 <LinksOverlay styles={styles} links={data.links} visibleKeys={focusVisibleKeys}
                                     body={ribbonRows} beyond={beyond} scale={scale} element={linkedElementOf}
-                                    gutterPx={gutterW}
+                                    gutterPx={gutterW} lanes={lanes}
                                     frame={frameFills ? frameRefs : undefined} unlink={unlink} />
                             </PlanPartBoundary>
                         ) : null}
@@ -2485,6 +2501,9 @@ export function usePlanCanvas({
                             case "focus":
                                 return <PlanFocusBandRow band={item.band} h={body.heights[i] ?? 0} styles={styles}
                                     gridTemplate={gridTemplate} dispatch={controller.dispatch} />;
+                            // A rule it opens for its family's lanes.
+                            case "lanes":
+                                return <PlanLaneBandRow band={item.lanes} h={body.heights[i] ?? 0} styles={styles} gridTemplate={gridTemplate} />;
                             // A run of rows not drawn yet (#1398, CL2): an unloaded run, or a failed window.
                             case "band":
                             case "failed":

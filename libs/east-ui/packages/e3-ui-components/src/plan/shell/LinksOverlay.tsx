@@ -61,7 +61,7 @@
 import { useCallback, useContext, useMemo, useRef, type MouseEvent, type RefObject } from "react";
 import { Box } from "@chakra-ui/react";
 import { variant } from "@elaraai/east";
-import { layoutRibbons, type LinkedElement, type RibbonBeyond, type RibbonBody } from "./ribbon-layout.js";
+import { layoutRibbons, type LinkedElement, type RibbonBeyond, type RibbonBody, type RibbonLanes } from "./ribbon-layout.js";
 import { LinksLayer, type LinkRibbon } from "../../shared/links/layer.js";
 import { useScrollTop } from "../../shared/links/scroll.js";
 import { rowKeyOf, type PlanLinkValue } from "../model.js";
@@ -97,6 +97,8 @@ export interface LinksOverlayProps {
     element: (rowKey: string, runKey: string) => LinkedElement | undefined;
     /** The grid's fixed track before the plot: the gutter (px). */
     gutterPx: number;
+    /** The focus's lane plan (`planFocusLanes`), whose rules the body opened into bands (#1680's review); left out, none. */
+    lanes?: RibbonLanes | undefined;
     /** A bounded frame's scroll element and the sticky chrome above its rows —
      *  what the view is read from. Absent for an unbounded frame, which shows
      *  every row. */
@@ -123,7 +125,7 @@ const selectElements = (s: { store: { ui: { elements: readonly string[] } } }): 
 
 /** The links-focus ribbon layer — `VirtualRows`' overlay, in the rows' coordinates. */
 export function LinksOverlay({
-    styles, links, visibleKeys, body, beyond, scale, element, gutterPx, frame, unlink,
+    styles, links, visibleKeys, body, beyond, scale, element, gutterPx, lanes, frame, unlink,
 }: LinksOverlayProps) {
     const words = usePlanWords();
     const { onElementClick } = usePlanResolvers();
@@ -160,9 +162,9 @@ export function LinksOverlay({
             links, visibleKeys, body, beyond, element, scale,
             plot: { left: gutterPx, width: plotWidth },
             viewport: viewTop !== undefined && viewBottom !== undefined ? { top: viewTop, bottom: viewBottom } : undefined,
-            words,
+            words, lanes,
         })
-        : NO_LAYOUT), [links, visibleKeys, body, beyond, element, scale, gutterPx, plotWidth, viewTop, viewBottom, words]);
+        : NO_LAYOUT), [links, visibleKeys, body, beyond, element, scale, gutterPx, plotWidth, viewTop, viewBottom, words, lanes]);
     const ribbons = useMemo((): LinkRibbon[] => layout.ribbons.map((r) => ({ ...r, id: r.link })), [layout]);
     // A hit on a link names its ref — the canvas's tooltip reads its caption,
     // and a click opens the root's popover for it (`refOfElement`) and reports it.

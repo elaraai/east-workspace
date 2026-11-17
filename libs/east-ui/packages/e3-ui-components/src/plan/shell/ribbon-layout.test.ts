@@ -27,9 +27,10 @@ import type { PlanInstantValue } from "../instant.js";
 import { PLAN_CELL_INSET, PLAN_GEOMETRY } from "../geometry.js";
 import { PLAN_WORDS } from "../words.js";
 import {
-    RIBBON_CAPTION_CHAR, RIBBON_CAPTION_PAD, linkedElement, layoutRibbons, ribbonBody, ribbonWeight,
+    RIBBON_CAPTION_CHAR, RIBBON_CAPTION_PAD, linkedElement, layoutRibbons, planFocusLanes, ribbonBody, ribbonWeight,
     type RibbonLayoutInput, type RibbonViewport,
 } from "./ribbon-layout.js";
+import { LINK_CAPTION_DROP } from "../../shared/links/look.js";
 
 const W27 = new Date("2026-06-29T00:00:00Z");
 const W39 = new Date("2026-09-21T00:00:00Z");
@@ -114,6 +115,78 @@ describe("the ribbon body (#818)", () => {
         expect(ribbonBody([rowItem(p, false), rowItem(c)], [32, 32], G).slots.get(rowKey("p"))!.bar).toBe(G.bar);
         // Dense tightens the bar the table says.
         expect(ribbonBody([rowItem(c)], [24], PLAN_GEOMETRY.dense).slots.get(rowKey("c"))!.bar).toBe(PLAN_GEOMETRY.dense.bar);
+    });
+});
+
+describe("a links focus's lanes (#1680's review)", () => {
+    const a = spanRow("a");
+    const b = spanRow("b");
+    const c = spanRow("c");
+    const order = [rowKey("a"), rowKey("b"), rowKey("c")];
+    const visibleKeys = new Set(order);
+    /** A link's caption sits 3 under the line it is centred on. */
+    const DROP = LINK_CAPTION_DROP;
+
+    test("the body records where each opened rule's tracks lie, and every band between the rows", () => {
+        const items: PlanBodyItem[] = [
+            { kind: "focus", band: { role: "upstream", count: 1, open: true, lanes: { rule: 0, px: 10 } } },
+            rowItem(a),
+            { kind: "lanes", lanes: { rule: 1, px: 14, above: rowKey("b") } },
+            rowItem(b),
+            { kind: "focus", band: { role: "downstream", count: 1, open: true } },
+            rowItem(c),
+        ];
+        const body = ribbonBody(items, [26, 32, 14, 32, 26, 32], G);
+        // In a role band, the tracks lie in the middle of its plot cell; a lane band is all tracks.
+        expect(body.lanes).toEqual(new Map([[0, { top: (26 - G.rule - 10) / 2, height: 10 }], [1, { top: 58, height: 14 }]]));
+        expect(body.gaps).toEqual([{ top: 0, bottom: 26 - G.rule }, { top: 58, bottom: 72 }, { top: 104, bottom: 104 + 26 - G.rule }]);
+        expect(body.slots.get(rowKey("b"))!.top).toBe(72);
+    });
+
+    test("a loopback between rows that are not adjacent runs on a track of the rule on its destination's source-facing side, never across the bar of the row between", () => {
+        // c's run ends after a's starts: a loopback from c up to a, past b.
+        const element = barsOf({ "c|rc": [at("2026-07-20"), at("2026-08-03")], "a|ra": [at("2026-07-06"), at("2026-07-27")] });
+        const links = [link("c", "rc", "a", "ra")];
+        const lanes = planFocusLanes({ links, order, visibleKeys, element, scale, plot: PLOT, geometry: G });
+        const w = ribbonWeight(10, 10);
+        // Running up into a, its lane is on the rule below a: rule 1, one track.
+        expect(lanes.plan.bands).toEqual(new Map([[1, w + 6]]));
+        expect(lanes.planned).toEqual(new Map([[0, 0]]));
+        const body = ribbonBody([rowItem(a), { kind: "lanes", lanes: { rule: 1, px: w + 6, above: rowKey("b") } }, rowItem(b), rowItem(c)],
+            [32, w + 6, 32, 32], G);
+        const [loop] = layoutRibbons(input({ links, body, element, lanes })).ribbons;
+        expect(loop!.route).toBe("loop");
+        expect(loop!.ly - DROP).toBe(32 + (w + 6) / 2);
+        // Unplanned, it takes the rule itself: a's bottom edge — still clear of b's bar.
+        const [plain] = layoutRibbons(input({ links, body: ribbonBody([rowItem(a), rowItem(b), rowItem(c)], [32, 32, 32], G), element })).ribbons;
+        expect(plain!.ly - DROP).toBe(32);
+    });
+
+    test("a one-row link's caption takes its track in the band above its row, never the row above's bars", () => {
+        // On b: rb starts before ra ends — a runoff, captioned.
+        const element = barsOf({ "b|ra": [at("2026-07-06"), at("2026-07-27")], "b|rb": [at("2026-07-20"), at("2026-08-03")] });
+        const links = [link("b", "ra", "b", "rb")];
+        const lanes = planFocusLanes({ links, order, visibleKeys, element, scale, plot: PLOT, geometry: G });
+        expect(lanes.plan.bands).toEqual(new Map([[1, 14]]));
+        const body = ribbonBody([rowItem(a), { kind: "lanes", lanes: { rule: 1, px: 14, above: rowKey("b") } }, rowItem(b), rowItem(c)],
+            [32, 14, 32, 32], G);
+        const [runoff] = layoutRibbons(input({ links, body, element, lanes })).ribbons;
+        expect(runoff!.route).toBe("runoff");
+        expect(runoff!.ly).toBe(32 + 7 + DROP);
+        // A link with no quantity takes no caption track.
+        expect(planFocusLanes({ links: [link("b", "ra", "b", "rb", null)], order, visibleKeys, element, scale, plot: PLOT, geometry: G }).plan.bands.size).toBe(0);
+    });
+
+    test("an S's caption sits where its riser crosses the band nearest its mid-height, not at the mid-height", () => {
+        // a's run ends weeks before c's starts: an S down from a to c, across the Downstream band under a.
+        const element = barsOf({ "a|ra": [at("2026-07-06"), at("2026-07-13")], "c|rc": [at("2026-08-10"), at("2026-08-17")] });
+        const links = [link("a", "ra", "c", "rc")];
+        const body = ribbonBody([rowItem(a), focusItem, rowItem(b), rowItem(c)], [32, 26, 32, 32], G);
+        const [s] = layoutRibbons(input({ links, body, element })).ribbons;
+        expect(s!.route).toBe("s");
+        // Mid-height is (15.5 + 105.5) / 2 = 60.5, on b's bar; the band it crosses is centred at 32 + 12.5.
+        expect(centre(0, 32)).toBe(15.5);
+        expect(s!.ly - DROP).toBe(32 + (26 - G.rule) / 2);
     });
 });
 

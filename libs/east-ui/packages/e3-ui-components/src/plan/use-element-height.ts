@@ -39,12 +39,14 @@ const widthOf = (el: HTMLElement): number => el.clientWidth;
  * @param ref - The element to measure
  * @param active - Skip observing entirely when false
  * @param read - The dimension
+ * @param keep - Keep the last reading while inactive rather than drop it — for a caller that reads it only while active
  * @returns The measured px, or `undefined` when there is nothing to measure
  */
 function useClientSize(
     ref: RefObject<HTMLElement | null>,
     active: boolean,
     read: (el: HTMLElement) => number,
+    keep = false,
 ): number | undefined {
     const [px, setPx] = useState<number | undefined>(undefined);
     // A PASSIVE effect, deliberately: a layout effect's `setPx` schedules a
@@ -55,8 +57,11 @@ function useClientSize(
         if (!active) {
             // Drop the stale reading rather than keep it: a clamp computed
             // against the height the canvas had during the LAST focus would
-            // silently mis-size the next one after a resize in between.
-            setPx(undefined);
+            // silently mis-size the next one after a resize in between. A
+            // caller that reads it only while active keeps it: dropping it
+            // would cost a commit as the focus goes, and the next focus
+            // measures again before it paints.
+            if (!keep) setPx(undefined);
             return;
         }
         const el = ref.current;
@@ -71,7 +76,7 @@ function useClientSize(
         ro.observe(el);
         return () => ro.disconnect();
         // `ref` is stable and `read` a module constant; `active` gates the whole effect.
-    }, [ref, active, read]);
+    }, [ref, active, read, keep]);
     return px;
 }
 
@@ -91,8 +96,9 @@ export function useElementHeight(ref: RefObject<HTMLElement | null>, active: boo
  *
  * @param ref - The element to measure
  * @param active - Skip observing entirely when false
+ * @param keep - Keep the last reading while inactive, for a caller that reads it only while active; left out, it is dropped
  * @returns The measured width in px, or `undefined` when there is nothing to measure
  */
-export function useElementWidth(ref: RefObject<HTMLElement | null>, active: boolean): number | undefined {
-    return useClientSize(ref, active, widthOf);
+export function useElementWidth(ref: RefObject<HTMLElement | null>, active: boolean, keep = false): number | undefined {
+    return useClientSize(ref, active, widthOf, keep);
 }

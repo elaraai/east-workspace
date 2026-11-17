@@ -45,8 +45,9 @@ import { PLAN_CELL_INSET, type PlanGeometry } from "../geometry.js";
 import type { RowKey } from "../plan-state.js";
 import { quantityText } from "../quantity.js";
 import type { PlanWords } from "../words.js";
-import type { RibbonEdgeSlot, RibbonEnd, RibbonOff, RibbonPath, RibbonRouteOptions } from "../../shared/links/geometry.js";
+import { ribbonForward, type RibbonEdgeSlot, type RibbonEnd, type RibbonOff, type RibbonPath, type RibbonRouteOptions } from "../../shared/links/geometry.js";
 import { ribbonWeight } from "../../shared/links/captions.js";
+import { planLanes, sCaptionAt, type LaidBand, type LanePlan, type LaneTrack, type PlannedLink } from "../../shared/links/lanes.js";
 import { routeLinks } from "../../shared/links/route.js";
 
 // The weight, the caption measures and the off-window slot are the shared
@@ -84,6 +85,18 @@ export interface RibbonBody {
      * own band not in the body. `undefined` while no such band is folded.
      */
     folded?: number | undefined;
+    /** Where each rule a links focus opens for its lanes holds its tracks (#1680's review), by the rule: a lane band, or
+     *  the middle of the role band's plot cell where the tracks stand in it. Empty with no focus. */
+    lanes: ReadonlyMap<number, RibbonLaneBox>;
+    /** The bands between a links focus's rows, as laid out — each role band's plot cell and each lane band: where an S's
+     *  caption sits off the rows' bars (#1680's review). Empty with no focus. */
+    gaps: readonly LaidBand[];
+}
+
+/** Where a rule's lane tracks lie down the rows: the first track's top, and their height. */
+export interface RibbonLaneBox {
+    top: number;
+    height: number;
 }
 
 /** Where a row the body does not hold is drawn: past an edge of the rows (a
@@ -194,12 +207,12 @@ export function linkedElement(row: PlanRowValue, key: string, scale: PlanScale):
 }
 
 /**
- * The body's rows as slots.
+ * The body's rows as slots, and a links focus's bands as the ribbons see them.
  *
  * @param items - The body items, in order
  * @param heights - Each item's exact height (`usePlanBody`)
  * @param geometry - The canvas's geometry table
- * @returns The slots and the body's height
+ * @returns The slots, the bands, and the body's height
  */
 export function ribbonBody(
     items: readonly PlanBodyItem[],
@@ -208,6 +221,8 @@ export function ribbonBody(
 ): RibbonBody {
     const slots = new Map<RowKey, RibbonSlot>();
     const bands = new Map<string, number>();
+    const lanes = new Map<number, RibbonLaneBox>();
+    const gaps: LaidBand[] = [];
     let folded: number | undefined;
     let y = 0;
     items.forEach((item, i) => {
@@ -217,13 +232,22 @@ export function ribbonBody(
             slots.set(item.row.row.key, { top: y, height: h, bar: geometry.bar });
         } else if (item.kind === "band") {
             bands.set(`${item.band.block}:${item.band.at}`, y);
-        } else if (item.kind === "focus" && item.band.role === "others" && !item.band.open) {
-            // The others' band, folded: a bar centred in its plot cell — the band less the rule under it.
-            folded = y + (h - geometry.rule - geometry.bar) / 2;
+        } else if (item.kind === "focus") {
+            // Its plot cell: the band less the rule under it.
+            const cell = h - geometry.rule;
+            gaps.push({ top: y, bottom: y + cell });
+            // Lane tracks standing in it lie in the middle of its plot cell.
+            const tracks = item.band.lanes;
+            if (tracks !== undefined) lanes.set(tracks.rule, { top: y + (cell - tracks.px) / 2, height: tracks.px });
+            // The others' band, folded: a bar centred in its plot cell.
+            if (item.band.role === "others" && !item.band.open) folded = y + (cell - geometry.bar) / 2;
+        } else if (item.kind === "lanes") {
+            gaps.push({ top: y, bottom: y + h });
+            lanes.set(item.lanes.rule, { top: y, height: h });
         }
         y += h;
     });
-    return { slots, bands, geometry, height: y, folded };
+    return { slots, bands, geometry, height: y, folded, lanes, gaps };
 }
 
 /**
@@ -280,8 +304,8 @@ export interface RibbonLayoutInput {
     viewport: RibbonViewport | undefined;
     /** The canvas's words — a caption prints the link's quantity in them (#824). */
     words: PlanWords;
-    /** Each link's planned lane and caption, by its index in `links`, where the body lays bands out for them (`lanes.ts`); left out, none. */
-    plan?: ((link: number) => RibbonRouteOptions | undefined) | undefined;
+    /** A links focus's lane plan ({@link planFocusLanes}), whose rules the body opened into bands; left out, none. */
+    lanes?: RibbonLanes | undefined;
 }
 
 /** One endpoint, and the slot its off-window run lands in. */
@@ -342,37 +366,8 @@ function drawnY(draw: LinkedDraw | undefined, slot: RibbonSlot, g: Readonly<Plan
 function endpointOf(input: RibbonLayoutInput, rowKey: RowKey, runKey: string): Endpoint | undefined {
     const { body, plot, scale, viewport } = input;
     const g = body.geometry;
-    const plotRight = plot.left + plot.width;
-    // ── x: the element across the plot, as it draws ──
-    // An element touching the window keeps its window-clamped extent, drawn
-    // at least as wide as the canvas draws it and clipped where the plot
-    // clips it; one wholly outside the window lands at the plot edge it lies
-    // past, in a dashed slot. A row with no such element is met across its
-    // whole plot.
-    let leftX = plot.left;
-    let rightX = plotRight;
-    let offWindow: "left" | "right" | undefined;
     const el = input.element(rowKey, runKey);
-    if (el !== undefined) {
-        const mark = el.draw.kind === "mark";
-        const f0 = scale.fracOf(el.start);
-        // A mark has one instant; anything else ends at its end's far edge.
-        const f1 = mark ? f0 : scale.endFracOf(el.end);
-        if (Number.isFinite(f0) && Number.isFinite(f1)) {
-            if (mark ? f0 < 0 : f1 <= 0) {
-                offWindow = "left";
-                rightX = leftX;
-            } else if (mark ? f0 > 1 : f0 >= 1) {
-                offWindow = "right";
-                leftX = rightX;
-            } else {
-                const [x0, x1] = drawnX(el.draw,
-                    plot.left + Math.max(0, f0) * plot.width, plot.left + Math.min(1, f1) * plot.width, g);
-                leftX = Math.min(plotRight, Math.max(plot.left, x0));
-                rightX = Math.min(plotRight, Math.max(plot.left, x1));
-            }
-        }
-    }
+    const { leftX, rightX, offWindow } = elementAcross(el, plot, scale, g);
     // ── y: the element down its row's plot cell, as it draws ──
     let top: number;
     let bottom: number;
@@ -420,6 +415,132 @@ function endpointOf(input: RibbonLayoutInput, rowKey: RowKey, runKey: string): E
     return { end, edgeSlot };
 }
 
+/**
+ * Where an element draws across the plot (#1258): an element touching the
+ * window keeps its window-clamped extent, drawn at least as wide as the canvas
+ * draws it and clipped where the plot clips it; one wholly outside the window
+ * lands at the plot edge it lies past, in a dashed slot. A row with no such
+ * element is met across its whole plot.
+ */
+function elementAcross(
+    el: LinkedElement | undefined,
+    plot: { left: number; width: number },
+    scale: PlanScale,
+    g: Readonly<PlanGeometry>,
+): { leftX: number; rightX: number; offWindow: "left" | "right" | undefined } {
+    const plotRight = plot.left + plot.width;
+    let leftX = plot.left;
+    let rightX = plotRight;
+    let offWindow: "left" | "right" | undefined;
+    if (el !== undefined) {
+        const mark = el.draw.kind === "mark";
+        const f0 = scale.fracOf(el.start);
+        // A mark has one instant; anything else ends at its end's far edge.
+        const f1 = mark ? f0 : scale.endFracOf(el.end);
+        if (Number.isFinite(f0) && Number.isFinite(f1)) {
+            if (mark ? f0 < 0 : f1 <= 0) {
+                offWindow = "left";
+                rightX = leftX;
+            } else if (mark ? f0 > 1 : f0 >= 1) {
+                offWindow = "right";
+                leftX = rightX;
+            } else {
+                const [x0, x1] = drawnX(el.draw,
+                    plot.left + Math.max(0, f0) * plot.width, plot.left + Math.min(1, f1) * plot.width, g);
+                leftX = Math.min(plotRight, Math.max(plot.left, x0));
+                rightX = Math.min(plotRight, Math.max(plot.left, x1));
+            }
+        }
+    }
+    return { leftX, rightX, offWindow };
+}
+
+/** A link's size: its quantity's value, or `undefined` for a link with none (#824). */
+const linkSize = (l: PlanLinkValue): number | undefined => (l.quantity.type === "some" ? Math.abs(l.quantity.value.value) : undefined);
+
+/**
+ * The largest quantity among the links a focus gathers both ends of — what a
+ * link's weight is a third of, over the whole family, so a link holds its
+ * weight as others scroll away.
+ */
+function familyLargest(links: readonly PlanLinkValue[], visibleKeys: ReadonlySet<RowKey>): number {
+    let largest = 0;
+    for (const l of links) {
+        if (visibleKeys.has(rowKeyOf(l.from.row)) && visibleKeys.has(rowKeyOf(l.to.row))) largest = Math.max(largest, linkSize(l) ?? 0);
+    }
+    return largest;
+}
+
+/** A links focus's lane plan, and each planned link's place in it by its index in the root's `links`. */
+export interface RibbonLanes {
+    readonly plan: LanePlan;
+    readonly planned: ReadonlyMap<number, number>;
+}
+
+/**
+ * A links focus's lane plan (#1680's review, `shared/links/lanes.ts`): the
+ * rules between its gathered rows that its family's loopbacks run along and its
+ * one-row links caption on, each opened into a band of tracks — planned from
+ * where each link's elements draw across the plot, at the weights its ribbons
+ * draw at. A link with an end the body does not gather — a pinned row's, a row
+ * folded with the others — is not planned: its route keeps its own.
+ *
+ * @param input - The links, the gathered rows top to bottom (`focusGatheredKeys`), the rows the focus keeps, and how an element draws across the plot
+ * @returns The plan, and each planned link's place in it
+ */
+export function planFocusLanes(input: Pick<RibbonLayoutInput, "links" | "visibleKeys" | "element" | "scale" | "plot"> & {
+    /** The gathered rows, top to bottom. */
+    order: readonly RowKey[];
+    geometry: Readonly<PlanGeometry>;
+}): RibbonLanes {
+    const at = new Map(input.order.map((key, i) => [key, i]));
+    const largest = familyLargest(input.links, input.visibleKeys);
+    const planned = new Map<number, number>();
+    const list: PlannedLink[] = [];
+    input.links.forEach((l, link) => {
+        const fromKey = rowKeyOf(l.from.row);
+        const toKey = rowKeyOf(l.to.row);
+        const from = at.get(fromKey);
+        const to = at.get(toKey);
+        if (from === undefined || to === undefined) return;
+        const source = elementAcross(input.element(fromKey, l.from.run), input.plot, input.scale, input.geometry);
+        const destination = elementAcross(input.element(toKey, l.to.run), input.plot, input.scale, input.geometry);
+        planned.set(link, list.length);
+        list.push({
+            from, to, sourceEnd: source.rightX, destinationStart: destination.leftX,
+            weight: ribbonWeight(linkSize(l), largest), captioned: l.quantity.type === "some",
+        });
+    });
+    return { plan: planLanes(input.order.length, list), planned };
+}
+
+/**
+ * What a link's route takes of its focus's lanes (#1680's review): a
+ * loopback's lane on its track, a one-row link's caption on its track — each
+ * where the rule it was planned on lies down the rows — and an S's caption where
+ * its riser crosses the band nearest its mid-height, off the rows' bars.
+ */
+function routeOptionsOf(input: RibbonLayoutInput, link: number, from: RibbonEnd, to: RibbonEnd): RibbonRouteOptions | undefined {
+    const { body, lanes } = input;
+    const at = (track: LaneTrack | undefined): number | undefined => {
+        const box = track !== undefined ? body.lanes.get(track.rule) : undefined;
+        return box !== undefined && track !== undefined ? box.top + track.centre : undefined;
+    };
+    const p = lanes?.planned.get(link);
+    const lane = p !== undefined ? at(lanes!.plan.lanes[p]) : undefined;
+    let caption = p !== undefined ? at(lanes!.plan.captions[p]) : undefined;
+    const ySrc = (from.top + from.bottom) / 2;
+    const yDst = (to.top + to.bottom) / 2;
+    if (caption === undefined && from.off === undefined && to.off === undefined && Math.abs(ySrc - yDst) >= 0.5
+        && ribbonForward(from.rightX, to.leftX)) {
+        const lo = Math.min(ySrc, yDst);
+        const hi = Math.max(ySrc, yDst);
+        caption = sCaptionAt(body.gaps.filter((b) => b.top >= lo && b.bottom <= hi), (ySrc + yDst) / 2);
+    }
+    if (lane === undefined && caption === undefined) return undefined;
+    return { lane, caption };
+}
+
 /** The element an end meets, as the shared layout names it: its row and its key, apart. */
 const elementAt = (rowKey: RowKey, key: string): string => `${rowKey}\u0000${key}`;
 
@@ -445,8 +566,7 @@ export function layoutRibbons(input: RibbonLayoutInput): { ribbons: LaidRibbon[]
     // The weight is a third of the FAMILY's largest quantity — over every
     // edge the focus gathers, so a link holds its weight as others scroll
     // away. A link's size is its quantity's value (#824).
-    const size = (l: PlanLinkValue): number | undefined => (l.quantity.type === "some" ? Math.abs(l.quantity.value.value) : undefined);
-    const largest = edges.reduce((m, { l }) => Math.max(m, size(l) ?? 0), 0);
+    const largest = familyLargest(links, visibleKeys);
     const kept: { link: number; from: RibbonEnd; to: RibbonEnd; fromAt: string; toAt: string; weight: number; label: string | undefined }[] = [];
     const edgeSlots: RibbonEdgeSlot[] = [];
     for (const { link, l, fromKey, toKey } of edges) {
@@ -459,15 +579,17 @@ export function layoutRibbons(input: RibbonLayoutInput): { ribbons: LaidRibbon[]
         if (to.edgeSlot !== undefined) edgeSlots.push(to.edgeSlot);
         kept.push({
             link, from: from.end, to: to.end, fromAt: elementAt(fromKey, l.from.run), toAt: elementAt(toKey, l.to.run),
-            weight: ribbonWeight(size(l), largest),
+            weight: ribbonWeight(linkSize(l), largest),
             label: l.quantity.type === "some" ? quantityText(l.quantity.value, words) : undefined,
         });
     }
     // Semantic routing (`routeRibbon`, through the shared layout): the link
     // exits the source's END and enters the destination's BEGINNING in every
     // arrangement, nothing of it leaving the plot, each caption kept inside
-    // it and stepped clear of any earlier one within 60 × 12.
-    const routed = routeLinks(kept.map((k) => ({ ...k, plan: input.plan?.(k.link) })),
+    // it and stepped clear of any earlier one within 60 × 12 — a loopback on
+    // the track its focus opened for it, a caption on its own or where its
+    // riser crosses a band.
+    const routed = routeLinks(kept.map((k) => ({ ...k, plan: routeOptionsOf(input, k.link, k.from, k.to) })),
         { left: input.plot.left, right: input.plot.left + input.plot.width });
     const ribbons = routed.map((r, i): LaidRibbon => ({ ...r, link: kept[i]!.link, weight: kept[i]!.weight }));
     return { ribbons, edgeSlots };

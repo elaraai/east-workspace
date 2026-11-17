@@ -198,6 +198,45 @@ const outsidePlot = (root: Element): string[] => {
 };
 
 /**
+ * Every loopback's lane, and each bar it runs across (#1680's review): a lane runs on a rule or in a band of tracks,
+ * never across a row's bar. A lane is its stroke's longest level run at neither end's height, read along the drawn
+ * path; a crossing is a bar of a row, the link's own ends' or another's, whose box the lane's line passes through.
+ */
+const lanesOnBars = (root: Element): { loops: number; crossings: string[] } => {
+    const bars = [...root.querySelectorAll("[data-plan-row] [data-run]")].map((el) => ({
+        what: `${el.closest("[data-plan-row]")!.getAttribute("data-plan-row")} ${el.getAttribute("data-run")}`, box: el.getBoundingClientRect(),
+    }));
+    const crossings: string[] = [];
+    let loops = 0;
+    for (const g of root.querySelectorAll('[data-plan-link][data-plan-route="loop"]')) {
+        const path = g.querySelector<SVGPathElement>("[data-plan-ribbon-band]");
+        const ctm = path?.getScreenCTM();
+        if (path === null || path === undefined || ctm === null || ctm === undefined) continue;
+        loops += 1;
+        const total = path.getTotalLength();
+        const points: DOMPoint[] = [];
+        for (let s = 0; s <= total; s += 0.5) points.push(new DOMPoint(path.getPointAtLength(s).x, path.getPointAtLength(s).y).matrixTransform(ctm));
+        const first = points[0]!.y;
+        const last = points[points.length - 1]!.y;
+        let lane: { y: number; x0: number; x1: number } | undefined;
+        for (let i = 0; i < points.length;) {
+            let j = i;
+            while (j + 1 < points.length && Math.abs(points[j + 1]!.y - points[i]!.y) < 0.05) j += 1;
+            const [x0, x1] = [Math.min(points[i]!.x, points[j]!.x), Math.max(points[i]!.x, points[j]!.x)];
+            const y = points[i]!.y;
+            if (Math.abs(y - first) > 1 && Math.abs(y - last) > 1 && (lane === undefined || x1 - x0 > lane.x1 - lane.x0)) lane = { y, x0, x1 };
+            i = j + 1;
+        }
+        if (lane === undefined) continue;
+        const key = g.querySelector("[data-link]")?.getAttribute("data-link-key") ?? "?";
+        for (const bar of bars) {
+            if (bar.box.top < lane.y && lane.y < bar.box.bottom && bar.box.left < lane.x1 && bar.box.right > lane.x0) crossings.push(`${key} over ${bar.what}`);
+        }
+    }
+    return { loops, crossings };
+};
+
+/**
  * Each part of a links focus drawn otherwise than `Plan links.html` draws it
  * (#1258): each link at its weight — its quantity's third of the family's
  * largest (`want.weights`, by link) — its head 8 long and max(8, 2 × weight)
@@ -544,6 +583,16 @@ test.describe("Plan links focus (#818, #1258)", { tag: "@desktop" }, () => {
         });
     }
 
+    test("a loopback's lane runs on a rule or in a band of tracks, never across a row's bar (#1680's review)", async ({ page }) => {
+        for (const focus of FOCUSES) await test.step(focus.label, async () => {
+            const entry = await focusLinks(page, focus, WIDTHS[0]);
+            const { loops, crossings } = await entry.evaluate(lanesOnBars);
+            expect(crossings).toEqual([]);
+            // H1-P09's family holds the loopback from H2-P11 back to H1-P09, past Contract A's H1-P03.
+            if (focus === FOCUSES[0]) expect(loops).toBeGreaterThan(0);
+        });
+    });
+
     /** A flow's link on the canvas: planEventLinks' links are rows of one link kind, `flow` (#1541, U10). */
     const flow = (key: string): string => linkKey("flow", key);
     /** Each flow's figure, by its link's key on the canvas. */
@@ -557,12 +606,12 @@ test.describe("Plan links focus (#818, #1258)", { tag: "@desktop" }, () => {
         card: "stub", covers: "s", inserts: "stub", pads: "runoff", plates: "s", posters: "stub", "proof-sheets": "s",
         proofs: "stub", "report-covers": "stub", "seed-prints": "stub", tags: "feed",
     };
-    /** …and scrolled to the end, the band the other rows fold into under them: the plates and the tags draw nothing,
-     *  and five leave a row above the view in a stub. */
+    /** …and scrolled to the end, the band the other rows fold into under them, the rules its loopbacks and its pads'
+     *  caption take opened into bands of their tracks (#1680's review): the plates, the tags, the covers, the pads and
+     *  the proof sheets draw nothing — both ends above the view — and six leave a row above it in a stub. */
     const EVENT_ROUTES_AT_THE_END = {
-        "book-blocks": "loop", books: "s", card: "stub", covers: "stub", folded: "loop", inserts: "stub", pads: "runoff",
-        posters: "stub", "proof-sheets": "stub", proofs: "loop", "report-covers": "loop", sections: "s", "sections-more": "s",
-        "seed-prints": "loop", tickets: "s",
+        "book-blocks": "loop", books: "s", card: "stub", folded: "loop", inserts: "stub", posters: "stub", proofs: "stub",
+        "report-covers": "stub", sections: "s", "sections-more": "s", "seed-prints": "stub", tickets: "s",
     };
 
     test("planEventLinks: every case its own link — each draws its figure at rest and scrolled to the end, meeting its elements as they draw; scrolled between, the posters' link crosses the view as a band; the night run is entered from above; the layer lies in the rows' own stacking context", async ({ page }) => {

@@ -26,7 +26,7 @@ export const rowsSlots = [
     "row", "gutterCell", "plot", "gridCol", "gridSep", "dropPreview", "dropPreviewText", "gutterName", "gutterNameCell", "gutterLabel",
     "gutterSub", "gutterValue", "gutterMeta", "gutterSwatch", "gutterLane", "gutterLaneCaption", "gutterHandle", "caret", "statusDot",
     "rowControls", "rowControl", "ribbons", "expandRowBand",
-    "expandRenderBody", "expandGutterBody", "toneCell", "groupBand", "groupName", "groupMeta", "focusNone",
+    "expandRenderBody", "expandGutterBody", "toneCell", "groupBand", "groupName", "groupMeta", "focusNone", "laneBand",
     "stickyParent", "stickyPath",
 ] as const;
 
@@ -654,6 +654,13 @@ export const rowsBase = {
         whiteSpace: "nowrap",
         textTransform: "none",
         letterSpacing: "normal",
+    },
+    // A rule a links focus opens for its family's lanes (#1680's review): room between two rows, the rows' surface, the
+    // gutter's rule down its gutter cell, and no rule of its own — the tracks run along it.
+    laneBand: {
+        display: "grid",
+        background: "bg.surface",
+        "& > [data-plan-lane-gutter]": { borderRightWidth: "1px", borderRightColor: "border.subtle" },
     },
 
     // ── Sticky parent (#823) ──

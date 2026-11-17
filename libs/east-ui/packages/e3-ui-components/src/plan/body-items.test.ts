@@ -19,8 +19,8 @@
 import { describe, test, expect } from "vitest";
 import { some, none, variant } from "@elaraai/east";
 import {
-    deriveLinkFamily, focusBodyItems, focusGathers, focusRoleCounts, focusRoleOf, indexRows, linkedRowKeys, placeFailures,
-    firstDiagnosticItem, toCanvasRows,
+    bodyItemKey, deriveLinkFamily, focusBodyItems, focusGatheredKeys, focusGathers, focusRoleCounts, focusRoleOf, indexRows,
+    linkedRowKeys, placeFailures, firstDiagnosticItem, toCanvasRows,
     type PlanBodyItem, type PlanLinkValue, type PlanWindowFailure, type PlanWireRow,
 } from "./model.js";
 import { rowId, rowKey, testKeyOf } from "./plan.test-utils.js";
@@ -122,6 +122,29 @@ describe("a links focus's body (#1680's review)", () => {
         expect(["f", "u", "p", "x"].map((k) => focusGathers(focus, rowKey(k)))).toEqual([true, true, true, false]);
         // No other focus gathers a row.
         expect(focusGathers({ kind: "expand", key: rowKey("f") }, rowKey("f"))).toBe(false);
+    });
+
+    test("the rows it gathers, top to bottom, are the ones its lanes are planned over", () => {
+        expect(focusGatheredKeys(index, rowKey("f"), family).map(testKeyOf)).toEqual(["u", "f", "m", "d"]);
+    });
+
+    test("a rule its lanes take opens into a band of their tracks: the role's band where the rule lies above the role's first row, else a lane band of its own between the two rows", () => {
+        // u and x both upstream: rule 1 lies between them, rule 2 above f, under the Focused band.
+        const two = deriveLinkFamily([link("u", "f"), link("x", "f"), link("f", "d")], rowKey("f"));
+        expect(focusGatheredKeys(index, rowKey("f"), two).map(testKeyOf)).toEqual(["u", "x", "f", "d"]);
+        const items = focusBodyItems(index, rowKey("f"), two, { open: false, items: [] }, undefined, new Map([[1, 10], [2, 14]]));
+        expect(words(items)).toEqual([
+            "[upstream 2+]", "u@1 upstream:H1", "lanes", "x@1 upstream:H2",
+            "[focused 1+]", "f@1 focused:H2", "[downstream 1+]", "d@1 downstream:H2", "[others 2]",
+        ]);
+        const lane = items[2]!;
+        expect(lane.kind === "lanes" ? lane.lanes : undefined).toEqual({ rule: 1, px: 10, above: rowKey("x") });
+        expect(bodyItemKey(lane)).toBe(`n:${rowKey("x")}`);
+        const focused = items[4]!;
+        expect(focused.kind === "focus" ? focused.band.lanes : undefined).toEqual({ rule: 2, px: 14 });
+        // No rule opened: no lane band, and no band holds tracks.
+        const plain = focusBodyItems(index, rowKey("f"), two, { open: false, items: [] });
+        expect(plain.some((i) => i.kind === "lanes" || (i.kind === "focus" && i.band.lanes !== undefined))).toBe(false);
     });
 
     test("the caption counts each role band's rows; a body with no links focus counts none", () => {

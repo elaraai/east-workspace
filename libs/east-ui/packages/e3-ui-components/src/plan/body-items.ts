@@ -54,6 +54,24 @@ export interface PlanFocusBand {
     count: number;
     /** Whether its rows show under it: a role's always do, the others' once the band is opened. */
     open: boolean;
+    /** The lane tracks it holds: the rule above the first row it gathers, opened for the family's lanes and captions —
+     *  the band stands in for that rule, and is as tall as the tracks where they need more than its own height. */
+    lanes?: PlanLaneTracks | undefined;
+}
+
+/**
+ * A rule a links focus opens for its family's lanes and captions (#1680's review, `shared/links/lanes.ts`): the rule,
+ * by the place among the gathered rows of the row below it, and its tracks' height.
+ */
+export interface PlanLaneTracks {
+    readonly rule: number;
+    readonly px: number;
+}
+
+/** A band a links focus opens a rule between two rows it gathers into, holding the rule's lane tracks (#1680's review). */
+export interface PlanLaneBand extends PlanLaneTracks {
+    /** The row below it. */
+    readonly above: RowKey;
 }
 
 /** A row a links focus gathers under its role's band (#1680's review). */
@@ -115,9 +133,9 @@ export interface PlanWindowFailure {
     error: string;
 }
 
-/** One line of the canvas body: a row, a links focus's band (#1680's review),
- *  an unloaded run of the source (#577, one per paged block's end — #823), or a
- *  window whose read failed (#811).
+/** One line of the canvas body: a row, a links focus's band or a rule it opens
+ *  for its lanes (#1680's review), an unloaded run of the source (#577, one per
+ *  paged block's end — #823), or a window whose read failed (#811).
  *
  *  The R2 developer render is NOT an item here — it renders inside the
  *  focused row, which grows to hold it (see {@link PlanFocusCtx.renderPx}).
@@ -126,12 +144,14 @@ export interface PlanWindowFailure {
 export type PlanBodyItem =
     | { kind: "row"; row: VisibleRow }
     | { kind: "focus"; band: PlanFocusBand }
+    | { kind: "lanes"; lanes: PlanLaneBand }
     | { kind: "band"; band: PlanBand }
     | { kind: "failed"; failure: PlanWindowFailure };
 
 /**
- * A body item's identity (#812) — its row's key, a links focus band's role,
- * its band's block and end, its failed window's block and window — prefixed by
+ * A body item's identity (#812) — its row's key, a links focus band's role, a
+ * lane band's row below it, its band's block and end, its failed window's
+ * block and window — prefixed by
  * kind, so no two items of a body share one. The virtualizer keys rows by it,
  * so a row keeps its component instance when a collapse, a focus or a landing
  * window moves it; keyed by index, the instance at a moved row's old index was
@@ -144,6 +164,7 @@ export function bodyItemKey(item: PlanBodyItem): string {
     switch (item.kind) {
         case "row": return rowItemKey(item.row.row.key);
         case "focus": return focusBandKey(item.band.role);
+        case "lanes": return `n:${item.lanes.above}`;
         case "band": return `b:${item.band.block}:${item.band.at}`;
         case "failed": return `f:${item.failure.block}:${item.failure.w}`;
     }
@@ -279,41 +300,15 @@ function pathOf(index: PlanRowIndex, row: PlanRowValue): string[] {
     return path;
 }
 
-/**
- * A links focus's body (#1680's review): its family gathered under one band
- * per role — upstream, the focused row, linked (only where a row is both),
- * downstream — each 26px, in the open group band's look, its rows under it in
- * stream order at one level, wherever they sit and however their sections are
- * folded; then ONE band every other row folds into, which opens in place.
- *
- * @remarks
- * A role with no rows keeps its band, which says so — the Linked band alone
- * stands only for a family that has one. A gathered row says the rows it nests
- * under on its sub line, which tells two rows of one name apart, and opens
- * nothing: its subtree is the other rows'. Pinned rows draw above the body, and
- * a row under one draws nowhere — neither is gathered. A role's band counts its
- * family's rows wherever the canvas draws them: the rows under it, a pinned row
- * of the family, and a row the canvas does not hold but has placed — one of a
- * paged source's evicted windows — whose links end at the others' band while
- * it is folded, where that row is. The others' band counts every other data row
- * the canvas holds, folded or not; opened, it holds the body's own items for
- * them — their groups, the unloaded runs of a paged source and its failed
- * windows among them — as they draw with no focus.
- *
- * @param index - The row index
- * @param focus - The focused row
- * @param family - Its family ({@link deriveLinkFamily})
- * @param others - Whether the others' band is open, and the items it holds when it is
- * @param placed - Whether the canvas has placed a row it does not hold (a paged source's evicted window's); none, inline
- * @returns The body's items
- */
-export function focusBodyItems(
-    index: PlanRowIndex,
-    focus: RowKey,
-    family: LinkFamily,
-    others: { readonly open: boolean; readonly items: readonly PlanBodyItem[] },
-    placed: (key: RowKey) => boolean = () => false,
-): PlanBodyItem[] {
+/** A links focus's family as its body gathers it: each role's rows, what each role's band counts, and the other data rows. */
+interface Gathered {
+    readonly byRole: ReadonlyMap<PlanFocusRole, readonly VisibleRow[]>;
+    readonly counts: ReadonlyMap<PlanFocusRole, number>;
+    readonly otherRows: number;
+}
+
+/** Gathers a links focus's family from the rows, as {@link focusBodyItems} describes. */
+function gather(index: PlanRowIndex, focus: RowKey, family: LinkFamily, placed: (key: RowKey) => boolean): Gathered {
     const byRole = new Map<PlanFocusRole, VisibleRow[]>(PLAN_FOCUS_ROLES.map((role) => [role, []]));
     const counts = new Map<PlanFocusRole, number>(PLAN_FOCUS_ROLES.map((role) => [role, 0]));
     const counted = (role: PlanFocusRole) => counts.set(role, counts.get(role)! + 1);
@@ -341,12 +336,89 @@ export function focusBodyItems(
     for (const key of family.all) {
         if (!index.byKey.has(key) && placed(key)) counted(focusRoleOf(family, focus, key)!);
     }
+    return { byRole, counts, otherRows };
+}
+
+/**
+ * The rows a links focus gathers, in the order its body stands them (#1680's
+ * review): upstream, the focused row, linked, downstream, each role's in stream
+ * order — the rows its family's lanes are planned over, rule `r` above row `r`
+ * (`shared/links/lanes.ts`).
+ *
+ * @param index - The row index
+ * @param focus - The focused row
+ * @param family - Its family ({@link deriveLinkFamily})
+ * @returns The gathered rows' keys, top to bottom
+ */
+export function focusGatheredKeys(index: PlanRowIndex, focus: RowKey, family: LinkFamily): RowKey[] {
+    const { byRole } = gather(index, focus, family, () => false);
+    return PLAN_FOCUS_ROLES.flatMap((role) => byRole.get(role)!.map((v) => v.row.key));
+}
+
+/** No rule opened for lanes. */
+const NO_LANES: ReadonlyMap<number, number> = new Map();
+
+/**
+ * A links focus's body (#1680's review): its family gathered under one band
+ * per role — upstream, the focused row, linked (only where a row is both),
+ * downstream — each 26px, in the open group band's look, its rows under it in
+ * stream order at one level, wherever they sit and however their sections are
+ * folded; then ONE band every other row folds into, which opens in place.
+ *
+ * @remarks
+ * A role with no rows keeps its band, which says so — the Linked band alone
+ * stands only for a family that has one. A gathered row says the rows it nests
+ * under on its sub line, which tells two rows of one name apart, and opens
+ * nothing: its subtree is the other rows'. Pinned rows draw above the body, and
+ * a row under one draws nowhere — neither is gathered. A role's band counts its
+ * family's rows wherever the canvas draws them: the rows under it, a pinned row
+ * of the family, and a row the canvas does not hold but has placed — one of a
+ * paged source's evicted windows — whose links end at the others' band while
+ * it is folded, where that row is. The others' band counts every other data row
+ * the canvas holds, folded or not; opened, it holds the body's own items for
+ * them — their groups, the unloaded runs of a paged source and its failed
+ * windows among them — as they draw with no focus.
+ *
+ * A rule the family's lanes or one-row captions take (`shared/links/lanes.ts`)
+ * opens into a band of their tracks: the role's band, where the rule lies
+ * between it and its first row, else a lane band of its own between the two
+ * rows.
+ *
+ * @param index - The row index
+ * @param focus - The focused row
+ * @param family - Its family ({@link deriveLinkFamily})
+ * @param others - Whether the others' band is open, and the items it holds when it is
+ * @param placed - Whether the canvas has placed a row it does not hold (a paged source's evicted window's); none, inline
+ * @param lanes - The rules opened for lanes, by the place of the row below each among {@link focusGatheredKeys}, and each one's tracks' height; none, inline
+ * @returns The body's items
+ */
+export function focusBodyItems(
+    index: PlanRowIndex,
+    focus: RowKey,
+    family: LinkFamily,
+    others: { readonly open: boolean; readonly items: readonly PlanBodyItem[] },
+    placed: (key: RowKey) => boolean = () => false,
+    lanes: ReadonlyMap<number, number> = NO_LANES,
+): PlanBodyItem[] {
+    const { byRole, counts, otherRows } = gather(index, focus, family, placed);
     const out: PlanBodyItem[] = [];
+    // Each gathered row's place among them, in the order focusGatheredKeys gives.
+    let at = 0;
     for (const role of PLAN_FOCUS_ROLES) {
         const count = counts.get(role)!;
         if (role === "linked" && count === 0) continue;
         out.push({ kind: "focus", band: { role, count, open: true } });
-        for (const row of byRole.get(role)!) out.push({ kind: "row", row });
+        for (const row of byRole.get(role)!) {
+            const px = lanes.get(at);
+            if (px !== undefined) {
+                const last = out[out.length - 1]!;
+                // The rule above a role's first row is the role's band: the tracks stand in it.
+                if (last.kind === "focus") out[out.length - 1] = { kind: "focus", band: { ...last.band, lanes: { rule: at, px } } };
+                else out.push({ kind: "lanes", lanes: { rule: at, px, above: row.row.key } });
+            }
+            out.push({ kind: "row", row });
+            at += 1;
+        }
     }
     out.push({ kind: "focus", band: { role: "others", count: otherRows, open: others.open } });
     if (others.open) appendAll(out, others.items);
