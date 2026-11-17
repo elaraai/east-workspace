@@ -477,19 +477,23 @@ test("a nested series index: of what the page's runs of a node hold, what the wi
     const inTime = e3.index(lines.indexes.lines_in_time);
     const held = heldOf(inTime, LINES);
     const ik = held.ik.fields;
-    type Path = ValueTypeOf<typeof RecordNestedPathType>;
+    type Place = ValueTypeOf<typeof RecordNestedPathType>;
     type Run = ValueTypeOf<typeof ik.run>;
     type Level = ValueTypeOf<typeof ik.level>;
     type Filed = (typeof held.entries)[number];
+    const printPlace = printFor(ik.collection);
     const printPath = printFor(ik.path);
     const printRun = printFor(ik.run);
     const printLevel = printFor(ik.level);
     const printTile = printFor(ik.tile);
-    /** A path as the index's key holds one, from its names: what the page's reader prints a place and a node by. */
-    const pathOf = (names: readonly string[]): Path => names.reduceRight<Path>((rest, key) => variant("step", { key, rest }), variant("end", null));
+    /** A collection's place as the index's key holds one, from its field names: what the page's reader prints a place by. */
+    const placeOf = (names: readonly string[]): Place => names.reduceRight<Place>((rest, key) => variant("step", { key, rest }), variant("end", null));
+    /** A node's path as the index's key holds one (#1540): its units' keys, each an id of the index's under the units' case. */
+    const pathOf = (units: readonly string[]) =>
+        units.reduceRight<unknown>((rest, key) => variant("step", { key: variant("units", key), rest }), variant("end", null)) as ValueTypeOf<typeof ik.path>;
     /** The page's search of one run of a node at a level, over a run of its tiles (`plan/root/nested.ts`). */
     const pageRun = (place: readonly string[], row: string, path: readonly string[], run: Run, level: Level["type"], from: Date, to: Date): Query => {
-        const leading = [printPath(pathOf(place)), printString(row), printPath(pathOf(path)), printRun(run), printLevel(variant(level, null))];
+        const leading = [printPlace(placeOf(place)), printString(row), printPath(pathOf(path)), printRun(run), printLevel(variant(level, null))];
         return variant("range", { from: [...leading, printTile(from)], to: [...leading, printTile(to)] });
     };
     /** An entry's job, out of its value: the item of the units' jobs. */
@@ -500,22 +504,24 @@ test("a nested series index: of what the page's runs of a node hold, what the wi
     /** An entry's item's id, or the keys down to the node holding it with its id. */
     const idOf = ([entry]: Filed): string => {
         if (entry.ik.item.type !== "id") assert.fail(`an entry of a node's own items names its item by its id, and this one by its ${entry.ik.item.type}`);
-        return entry.ik.item.value;
+        // The job's id, out of its collection's case of the index's ids.
+        return (entry.ik.item.value as { readonly value: string }).value;
     };
-    const underOf = ([entry]: Filed): ValueTypeOf<typeof NestedUnderType> => {
+    const UnderType = NestedUnderType(lines.indexes.lines_in_time);
+    const underOf = ([entry]: Filed): ValueTypeOf<typeof UnderType> => {
         if (entry.ik.item.type !== "under") assert.fail(`an entry of a subtree names its item by the node holding it, and this one by its ${entry.ik.item.type}`);
         return entry.ik.item.value;
     };
 
-    const Beneath = DictType(NestedUnderType, JobRow);
+    const Beneath = DictType(UnderType, JobRow);
     const MonthTotals = DictType(DateTimeType, RecordNestedTotalsType);
     const Weeks = DictType(DateTimeType, FloatType);
     const itemsOf = East.compile(East.function([inTime.type, StringType, StringType, DateTimeType, DateTimeType], JobsType, ($, entries, line, unit, from, to) =>
-        inTime.read(entries).items({ collection: ["units", "jobs"], row: line, path: [unit], from, to }).collect($)), []);
+        inTime.read(entries).items({ collection: ["units", "jobs"], row: line, path: [variant("units", unit)], from, to }).collect($)), []);
     const beneathOf = East.compile(East.function([inTime.type, StringType, DateTimeType, DateTimeType], Beneath, ($, entries, line, from, to) =>
         inTime.read(entries).subtree({ collection: ["units", "jobs"], row: line, from, to }).collect($)), []);
     const monthsOf = East.compile(East.function([inTime.type, StringType, StringType, DateTimeType, DateTimeType], MonthTotals, ($, entries, line, unit, from, to) =>
-        inTime.read(entries).totals({ collection: ["units", "load"], row: line, path: [unit], from, to }).collect($)), []);
+        inTime.read(entries).totals({ collection: ["units", "load"], row: line, path: [variant("units", unit)], from, to }).collect($)), []);
     const weeksOf = East.compile(East.function([inTime.type, StringType, DateTimeType, DateTimeType], Weeks, ($, entries, line, from, to) =>
         inTime.read(entries).subtotals({ collection: ["units", "load"], row: line, rollup: "sum", from, to }).collect($)), []);
 
@@ -552,7 +558,7 @@ test("a nested series index: of what the page's runs of a node hold, what the wi
             // The jobs beneath the line, each named by the unit holding it and its id
             const cells = levelRuns("week", w.from, w.to).flatMap((run) =>
                 searched(held, pageRun(["units", "jobs"], line, [], variant("subtree", null), run.level, run.from, run.to)));
-            const beneath = new SortedMap<ValueTypeOf<typeof NestedUnderType>, Job>(undefined, compareFor(NestedUnderType));
+            const beneath = new SortedMap<ValueTypeOf<typeof UnderType>, Job>(undefined, compareFor(UnderType));
             for (const filed of cells) {
                 if (overlaps(jobOf(filed), w.from, w.to)) beneath.set(underOf(filed), jobOf(filed));
             }

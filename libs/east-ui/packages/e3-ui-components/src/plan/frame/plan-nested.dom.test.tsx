@@ -441,7 +441,8 @@ describe("a parent's subtotals are e3's (#1438)", () => {
         const deeper = (from: readonly string[]) => from[2]!.includes("rest=.step");
         expect(searches.filter(deeper)).toEqual([]);
         expect(searches.filter((from) => from[3]!.startsWith(".subtotals") && from[1] === '"L-101"').map((from) => from[2])).toEqual([
-            '.step (key="101.1", rest=.end)', '.step (key="101.2", rest=.end)',
+            // A measure's key is held under the measures' case of the index's ids (#1540).
+            '.step (key=.measures "101.1", rest=.end)', '.step (key=.measures "101.2", rest=.end)',
         ]);
         const tops = [["101.1"], ["101.2"]];
         const paged = tops.flatMap((path) => drawnCells(container, path));
@@ -583,7 +584,7 @@ describe("a span parent's bands are its subtree's runs, as e3 files them under i
         const { container } = await h.mount(assembliesPaged(true));
         await settle();
         const searches = assemblySearches();
-        const under = searches.filter((from) => from[1] === '"A-101"' && from[2] === '.step (key="P101.1", rest=.end)' && from[3] === ".subtree");
+        const under = searches.filter((from) => from[1] === '"A-101"' && from[2] === '.step (key=.parts "P101.1", rest=.end)' && from[3] === ".subtree");
         expect(under.map((from) => from[4])).toEqual([".week", ".month", ".quarter", ".year"]);
         // Only the top parts show: nothing of a part beneath one is searched.
         expect(searches.filter((from) => from[2]!.includes("rest=.step"))).toEqual([]);

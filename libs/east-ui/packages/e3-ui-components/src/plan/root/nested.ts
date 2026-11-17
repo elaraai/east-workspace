@@ -60,7 +60,7 @@ import {
 } from "@elaraai/east";
 import type { SeekQueryType } from "@elaraai/east-ui";
 import { levelRuns, summaryRun, tileNext, type RecordTile } from "@elaraai/east-ui/internal";
-import { nestedSpanName } from "@elaraai/e3-types";
+import { nestedIdCase, nestedSpanName } from "@elaraai/e3-types";
 import { Plan, PlanNestedShadingType, SCHEDULE_EVENT_CAP, type PlanNestedType } from "@elaraai/e3-ui/internal";
 import { useSliceReactivity, useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { snapshotOf, windowedSourceOf } from "@elaraai/east-ui-components/internal";
@@ -163,8 +163,14 @@ export function createNestedViewStore(): PlanNestedViewStore {
 
 /** The `.east` literals a search of the nested series index names its bounds in, made once for a binding. */
 interface Literals {
-    /** A place's or a node's path: its names, as the key's paths print. */
-    path(names: readonly string[]): string;
+    /** A collection's place: its field names, as the key's place prints. */
+    place(names: readonly string[]): string;
+    /**
+     * A node's path, as the key's path prints (#1540): the child rows' keys from the row down, each read from its text
+     * at its own type and held under the case of the rows it is a key of, along the collection's place; `undefined`
+     * for a key's text its type cannot read, or a path longer than the place has child rows for.
+     */
+    node(place: readonly string[], keys: readonly string[]): string | undefined;
     /** A row's key's leaves, from its id's text; `undefined` for text the key's type cannot read. */
     row(id: string): readonly string[] | undefined;
     /** A run of a node's entries. */
@@ -183,9 +189,35 @@ interface Literals {
     update(value: unknown, patch: unknown): unknown;
 }
 
-/** A path in the index's key, `end` or a `step` and the rest, from its names. */
-function pathValue(names: readonly string[]): unknown {
-    return names.reduceRight<unknown>((rest, key) => variant("step", { key, rest }), variant("end", null));
+/** A path in the index's key, `end` or a `step` and the rest, from its steps' keys. */
+function pathValue(keys: readonly unknown[]): unknown {
+    return keys.reduceRight<unknown>((rest, key) => variant("step", { key, rest }), variant("end", null));
+}
+
+/**
+ * The child rows' keys from a row down to a node, each as the index's id (#1540): read from its text at the type its
+ * rows are keyed by — a String as it is, any other as East prints it — and held under its rows' case of the index's
+ * ids. The rows on the way to a collection are its place's fields but the last, each one's case its place so far; a
+ * path longer than those is a tree's, whose rows are keyed as the rows listing them are, under the same case.
+ *
+ * @param ids - The index's ids: each collection of child rows and of items, by its case, and its key type
+ * @param place - The collection's place: its field names from the row down
+ * @param keys - The keys' texts, from the row down
+ * @returns The ids; `undefined` for a text its type cannot read, or keys where the place has no child rows
+ */
+function nodeIds(ids: Readonly<Record<string, EastType>>, place: readonly string[], keys: readonly string[]): unknown[] | undefined {
+    const cases = place.slice(0, -1).map((_, i) => nestedIdCase(place.slice(0, i + 1)));
+    const out: unknown[] = [];
+    for (const [i, text] of keys.entries()) {
+        const idCase = cases[Math.min(i, cases.length - 1)];
+        const type = idCase === undefined ? undefined : ids[idCase];
+        if (idCase === undefined || type === undefined) return undefined;
+        if (type.type === "String") { out.push(variant(idCase, text)); continue; }
+        const read = parseFor(type)(text);
+        if (!read.success) return undefined;
+        out.push(variant(idCase, read.value));
+    }
+    return out;
 }
 
 /** A value's leaves as a search's bounds flatten them: a struct's fields in order, recursed; any other value printed. */
@@ -206,7 +238,11 @@ function literals(binding: IndexedBindingRead): Literals {
     let made = literalsOf.get(nested.entry);
     if (made !== undefined) return made;
     const fields = (nested.entry.fields.ik as StructType).fields as Record<string, EastType>;
+    const printPlace = printFor(fields["collection"]!);
     const printPath = printFor(fields["path"]!);
+    // The index's ids, off its key's path: a step's key is one of them.
+    const ids = (fields["path"] as { readonly node: { readonly cases: { readonly step: StructType } } }).node.cases.step.fields["key"] as
+        EastType & { readonly cases: Readonly<Record<string, EastType>> };
     const printRun = printFor(fields["run"]!);
     const printLevel = printFor(fields["level"]!);
     const printTile = printFor(fields["tile"]!);
@@ -216,7 +252,11 @@ function literals(binding: IndexedBindingRead): Literals {
     const printKey = printFor(nested.entry.fields.ik);
     const apply = applyFor(nested.entry.fields.value) as (value: unknown, patch: unknown) => unknown;
     made = {
-        path: (names) => printPath(pathValue(names) as never),
+        place: (names) => printPlace(pathValue(names) as never),
+        node: (place, keys) => {
+            const steps = nodeIds(ids.cases, place, keys);
+            return steps === undefined ? undefined : printPath(pathValue(steps) as never);
+        },
         row: (id) => {
             if (parseKey === undefined) return keyLeaves(id);
             const read = parseKey(id);
@@ -229,7 +269,7 @@ function literals(binding: IndexedBindingRead): Literals {
         key: (ik) => printKey(ik as never),
         prefixOf: (ik) => {
             const k = ik as { readonly collection: unknown; readonly row: unknown; readonly path: unknown; readonly run: unknown; readonly level: unknown };
-            return [printPath(k.collection as never), ...keyLeaves(k.row), printPath(k.path as never), printRun(k.run as never), printLevel(k.level as never)].join("\u0001");
+            return [printPlace(k.collection as never), ...keyLeaves(k.row), printPath(k.path as never), printRun(k.run as never), printLevel(k.level as never)].join("\u0001");
         },
         update: apply,
     };
@@ -336,11 +376,14 @@ function wantedCells(args: PlanNestedArgs, lit: Literals, capped: ReadonlySet<st
     const level = subtotalLevel(resolution, tile);
     const subtotalRun = level === undefined ? undefined : summaryRun(level, range.from, range.to);
     const totalsRun = summary === undefined ? undefined : summaryRun(summary, range.from, range.to);
-    const places = seam.uses.map((use) => lit.path(use.place));
+    const places = seam.uses.map((use) => lit.place(use.place));
     const out = new Map<string, Cell>();
     const add = (kind: Cell["kind"], use: number, row: PlanRowValue, leaves: readonly string[], keys: readonly string[], run: unknown, at: RecordTile,
         from: Date, to: Date) => {
-        const leading = [places[use]!, ...leaves, lit.path(keys), lit.run(run), lit.level(at)];
+        // The node, by its keys along the collection's place: one whose keys the index cannot read holds nothing to read.
+        const node = lit.node(seam.uses[use]!.place, keys);
+        if (node === undefined) return;
+        const leading = [places[use]!, ...leaves, node, lit.run(run), lit.level(at)];
         const prefix = leading.join("\u0001");
         if (!out.has(prefix)) out.set(prefix, { prefix, leading, from, to, kind, place: places[use]!, row, use });
     };
@@ -838,7 +881,7 @@ class NestedCellsReader {
         const notices: PlanNestedNotice[] = [];
         if (summary === undefined && capped.size > 0) {
             for (const use of args.seam.uses) {
-                const place = lit.path(use.place);
+                const place = lit.place(use.place);
                 if (!capped.has(place) || notices.some((n) => samePlace(n.place, use.place))) continue;
                 notices.push({ place: use.place, items: items.get(place) ?? 0 });
                 const rows = shading.get(use.series) ?? new SortedMap<string, Shade[]>([], compareString);
@@ -1015,7 +1058,7 @@ function spanOf(binding: IndexedBindingRead, places: readonly (readonly string[]
     if (places.length === 0) return undefined;
     const name = nestedSpanName(binding.nested!.index);
     const lit = literals(binding);
-    const found = binding.batches.seekAll(name, places.map((place) => variant("fields", { values: [lit.path(place)], prefix: none })));
+    const found = binding.batches.seekAll(name, places.map((place) => variant("fields", { values: [lit.place(place)], prefix: none })));
     if (found.type !== "some") return SPAN_READING;
     // Each collection's months, in the index's order, as a read of runs asks: ascending and disjoint.
     const held = found.value.map((range, i) => ({ range, key: placeKey(places[i]!) }))
