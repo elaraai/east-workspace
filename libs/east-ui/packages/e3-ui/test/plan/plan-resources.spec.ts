@@ -22,10 +22,12 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, RecursiveType, StringType, StructType, VariantType,
-    decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, variant, type ValueTypeOf,
+    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType, VariantType,
+    decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, variant, type BlockBuilder, type EastType, type ValueTypeOf,
 } from "@elaraai/east";
-import { Plan } from "@elaraai/e3-ui/internal";
+import { Schedule } from "@elaraai/e3-ui";
+import { Plan, PlanPayloadType } from "@elaraai/e3-ui/internal";
+import { recordHandle } from "../record-handles.js";
 import { entry, ids, labels, parents, readings, rowsOf, sameIds, sameLabels, sameParents } from "./plan-rows.fixtures.js";
 
 const W27 = new Date("2026-06-29T00:00:00Z");
@@ -465,3 +467,115 @@ export function planKindsTypeChecks(): void {
     // @ts-expect-error — "name" holds a String
     Plan.series.kinds(Resource, "name", {});
 }
+
+// ── An event kind's child: the rows beneath its resource (#1541, U1) ────────
+
+const Half = VariantType({ am: NullType, pm: NullType });
+const Task = StructType({ title: StringType, day: DateTimeType, press: StringType, kind: OptionType(StringType), half: Half });
+const Tasks = DictType(StringType, Task);
+const DAY = new Date("2026-06-30T00:00:00Z");
+const TASKS: ValueTypeOf<typeof Tasks> = new Map([
+    ["T-1", { title: "Ink", day: DAY, press: "P03", kind: some("ink"), half: variant("am", null) }],
+    ["T-2", { title: "Wash", day: DAY, press: "P03", kind: some("wash"), half: variant("pm", null) }],
+    ["T-3", { title: "Ink again", day: DAY, press: "P03", kind: some("ink"), half: variant("pm", null) }],
+    // On a press that has no such row beneath it, and on no row beneath its press.
+    ["T-4", { title: "Stray", day: DAY, press: "P04", kind: some("ink"), half: variant("am", null) }],
+    ["T-5", { title: "Unplaced", day: DAY, press: "P03", kind: none, half: variant("am", null) }],
+]);
+const tasksRecord = recordHandle(Tasks, TASKS, "tasks");
+/** The presses, each with its kinds of task beneath it. */
+const pressCase = (more: object = {}) => ({ title: "Presses", label: (press: { name: unknown }) => press.name, children: Plan.children("kinds", [kindRows()]), ...more });
+
+/** A Plan of the machines with the tasks, a kind landing on the rows beneath its press; `kind` and `press` say otherwise. */
+function tasksPayload($: BlockBuilder<EastType>, kind: object = {}, press: object = pressCase()) {
+    return Plan.Payload({
+        axis, data: $.const(MACHINES, Machines),
+        series: [Plan.series.kinds(Machine, "what", { press, folder: { title: "Folders", label: (folder: { name: unknown }) => folder.name } } as never)],
+        events: {
+            task: Schedule.events($.let(tasksRecord()) as never, {
+                name: "Task", icon: "list-check", title: "title", at: "day", draw: "buckets",
+                resource: { field: "press", of: "press" }, child: { field: "kind", of: "kinds" }, lane: "half", ...kind,
+            } as never),
+        },
+    } as never);
+}
+
+/** What that Plan throws as it is built; `""` when it builds. */
+function tasksRefusal(kind: object = {}, press: object = pressCase()): string {
+    try {
+        East.function([], NullType, ($) => { tasksPayload($ as never, kind, press); });
+        return "";
+    } catch (e) {
+        return e instanceof Error ? e.message : String(e);
+    }
+}
+
+describe("an event kind's `child`: its events on the rows beneath its resource (#1541, U1)", () => {
+    const payload = East.compile(East.function([], PlanPayloadType, ($) => tasksPayload($ as never)), [])();
+    const printRef = printFor(Schedule.Types.EventRef);
+    const sameKeys = equalFor(ArrayType(StringType));
+    const refs = (...keys: string[]) => keys.map((key) => printRef({ kind: "task", key }));
+
+    /** The canvas's rows with the tasks joined in, every row read whole. */
+    function placedRows() {
+        if (payload.seam.type !== "some") assert.fail("expected the event kinds' seam");
+        const rows = payload.plan.rows;
+        if (rows.type !== "inline") assert.fail("expected the rows read whole");
+        const placed = payload.seam.value.placed(W27, new Date("2026-07-06T00:00:00Z"), new Map(), [], new Map());
+        if (placed.type !== "some") assert.fail("expected the tasks read");
+        return payload.seam.value.place(rows.value, placed.value, new Map(), [], true).flatMap((block) => block.rows);
+    }
+    /** A row's tiles and lanes, by its id. */
+    function tilesOn(id: ValueTypeOf<typeof Plan.Types.RowId>) {
+        const row = placedRows().find((one) => sameIds([one.id], [id]));
+        if (row === undefined || row.kind.type !== "buckets") assert.fail(`no row of tiles ${printFor(Plan.Types.RowId)(id)}`);
+        return { keys: row.kind.value.events.map((tile) => tile.key), lanes: row.kind.value.lanes.map((lane) => lane.key), tiles: row.kind.value.events };
+    }
+
+    test("the kind lands on the series its `child` names, a step beneath its resource's, and never on the resource's own", () => {
+        const landing = (key: string) => payload.landings.find((one) => one.key === key)!;
+        assert.ok(sameKeys(landing("kinds").kinds, ["task"]));
+        assert.ok(sameKeys(landing("kinds").draws.map((draw) => draw.type), ["buckets"]));
+        assert.ok(equalFor(OptionType(StringType))(landing("kinds").under, some("press")));
+        assert.ok(sameKeys(landing("press").kinds, []));
+        assert.equal(landing("press").draws.length, 0);
+        assert.equal(landing("press").under.type, "none");
+        assert.ok(equalFor(OptionType(StructType({ field: StringType, of: StringType })))(payload.events[0]!.child, some({ field: "kind", of: "kinds" })));
+    });
+
+    test("each task draws on its press's row of its kind, by the press's key and the kind's together; a press's own row draws none", () => {
+        assert.ok(sameKeys(tilesOn(entry("kinds", "P03", "ink")).keys, refs("T-1", "T-3")));
+        assert.ok(sameKeys(tilesOn(entry("kinds", "P03", "wash")).keys, refs("T-2")));
+        const press = placedRows().find((one) => sameIds([one.id], [entry("press", "P03")]))!;
+        assert.notEqual(press.kind.type, "buckets");
+    });
+
+    test("a variant `lane` draws a lane for every case, empty or not, by name, each tile in its case's", () => {
+        const ink = tilesOn(entry("kinds", "P03", "ink"));
+        assert.ok(sameKeys(ink.lanes, ["am", "pm"]));
+        assert.ok(equalFor(ArrayType(OptionType(StringType)))(ink.tiles.map((tile) => tile.lane), [some("am"), some("pm")]));
+        // Blanket wash has a task in the afternoon alone, and both its lanes.
+        assert.ok(sameKeys(tilesOn(entry("kinds", "P03", "wash")).lanes, ["am", "pm"]));
+    });
+
+    test("a task on a press with no such row beneath it, or whose field holds none, is on no row: its kind's Unassigned row draws it", () => {
+        assert.ok(sameKeys(tilesOn(entry("task.unassigned", "buckets")).keys, refs("T-4", "T-5")));
+    });
+
+    test("the Plan holds `child` to its series at build, naming the kind", () => {
+        assert.equal(tasksRefusal(), "");
+        assert.match(tasksRefusal({ child: { field: "kind", of: "tasks" } }),
+            /^Plan: events\.task's child names "tasks", and no resources series or kinds case has that key \(folder, press, kinds\) — `child\.of` names a resources series among the `children` of the series its resource names$/);
+        assert.match(tasksRefusal({ child: { field: "kind", of: "folder" } }),
+            /^Plan: events\.task's child names "folder", whose rows stand beneath no resources series — `child\.of` names a resources series among the `children` of the series its resource names \(press\)$/);
+        assert.match(tasksRefusal({ child: { field: "day", of: "kinds" } }),
+            /^Plan: events\.task's child field "day" holds \.DateTime, the key of a row of "kinds" — and those rows are keyed by \.String$/);
+    });
+
+    test("a kind landing on a series that draws no row of its own is refused, unless its `child` names the rows beneath (#1541, U2)", () => {
+        const undrawn = pressCase({ row: false, label: undefined });
+        assert.equal(tasksRefusal({}, undrawn), "");
+        assert.match(tasksRefusal({ child: undefined }, undrawn),
+            /^Plan: events\.task lands on the rows of "press", and that series draws no row of its own \(row: false\) — give the kind `child`, the rows beneath each it lands on, or draw the series' rows$/);
+    });
+});

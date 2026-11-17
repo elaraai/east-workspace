@@ -169,7 +169,7 @@ describe("Schedule.events — Plan's options (PB5)", () => {
             state: variant("proposed", variant("added", null)),
             quantity: some({ value: 40000, unit: some("sheets"), format: some(SHEETS_FORMAT), text: none }),
             lane: none,
-            locked: false,
+            locked: false, child: none,
         }));
     });
 

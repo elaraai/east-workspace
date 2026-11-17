@@ -160,6 +160,11 @@ type ResourceShape<T> = ResourceShapeOf<Unwrapped<T>>;
 /** A String field of the row: an event's title, or the lane its tile sits in. */
 export type ScheduleStringField<R extends StructType> = FieldsOf<R, StringType>;
 
+/** A field the lane a tile sits in is read from: a String field, or a variant field whose cases hold no value, a lane a case. */
+export type ScheduleLaneField<R extends StructType> = ScheduleStringField<R> | {
+    [F in FieldName<R>]: R["fields"][F] extends VariantType<infer C> ? (IsOption<C> extends true ? never : [C[keyof C]] extends [NullType] ? F : never) : never
+}[FieldName<R>];
+
 /** A DateTime field of the row, or an Option of one: an event's start or end. */
 export type ScheduleInstantField<R extends StructType> = FieldsOf<R, DateTimeType | OptionType<DateTimeType>>;
 
@@ -370,8 +375,18 @@ export interface ScheduleEventsBase<K extends EastType, R extends StructType, F 
     state?: ScheduleStateField<R>;
     /** Plan: the Float field a bar prints and a parent's rollup sums, unit by unit. */
     quantity?: ScheduleQuantity<R>;
-    /** Plan: the String field naming the lane a tile sits in (AM, PM). */
-    lane?: ScheduleStringField<R>;
+    /**
+     * Plan: the field naming the lane a tile sits in (AM, PM) — a String field, or a variant field whose cases hold
+     * no value (#1541, U1). A variant's lanes are its cases, every one drawn, empty or not, in the order the landing
+     * series' `lanes` lists them, then by name; a String's are the lanes its series lists, then any other an event names.
+     */
+    lane?: ScheduleLaneField<R>;
+    /**
+     * Plan: the row beneath its resource an event is on, one step down (#1541, U1). `of` names a resources series among
+     * the resource's `children`, and `field` holds that row's key in the series' own key type, or an Option of it. The
+     * kind's events land on those rows, never on the resource's own; one whose field holds none is on no row.
+     */
+    child?: { field: FieldName<R>; of: string };
     /** Whether two events of the kind on one resource at once are a conflict (`"warn"`, the default) or run in parallel (`"allow"`). */
     overlaps?: ScheduleOverlapsLiteral;
     /** The Roster: the String field naming a duty's shift, a key of its `shifts`. The Roster requires it. */
@@ -504,6 +519,14 @@ export interface ScheduleEventKind<K extends EastType, R extends EastType> {
     readonly titled: boolean;
     /** The resource kinds its events may be on, by slot name: `resource.of`'s. */
     readonly takes: readonly string[];
+    /**
+     * Plan: the rows beneath its resource its events land on (#1541, U1) — the field holding the row's key, the
+     * resources series those rows are of, and the key's type, the field's own with its Option off; `undefined` for a
+     * kind landing on its resource's own rows.
+     */
+    readonly child: { readonly field: string; readonly of: string; readonly type: EastType } | undefined;
+    /** Plan: a variant `lane`'s cases, by name (#1541, U1): a lane each, drawn empty or not; `undefined` for a String lane, or none. */
+    readonly laneCases: readonly string[] | undefined;
     /** Plan: how it draws — bars, tiles, chips or marks; a resource draws a row for each way its kinds draw (#1192). */
     readonly draw: PlanDrawLiteral;
     /** The builder's Slice source its templates list names, whose shown keys filter its templates (#1343); `undefined` for none. */
@@ -646,6 +669,7 @@ interface AnyConfig {
     state?: string;
     quantity?: { field: string; unit?: string; format?: unknown };
     lane?: string;
+    child?: { field: string; of: string };
     overlaps?: string;
     inspector?: unknown;
     shift?: string;
@@ -873,6 +897,20 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         return checkKeyField(field, type, of, { where, prop: "resource", noun: "resource" });
     })();
     const takes = resource === undefined ? [] : keyFieldSlots(resource);
+    // Plan's: the row beneath its resource an event is on (#1541, U1) — a key of a resources series among the resource's
+    // children, which the Plan holds the field to, knowing the series.
+    const child = config.child === undefined ? undefined : (() => {
+        const given = config.child as { field?: unknown; of?: unknown };
+        if (typeof given.field !== "string" || typeof given.of !== "string") {
+            throw new Error(`${where}: \`child\` is { field, of } — the field holding the key of a row beneath the event's resource, and the resources series those rows are of, by its key`);
+        }
+        if (resource === undefined) throw new Error(`${where}: \`child\` is a row beneath the event's resource — give \`resource\` too`);
+        if (given.field === resource.field) {
+            throw new Error(`${where}: \`child.field\` and \`resource.field\` both name "${given.field}" — the row beneath a resource has a key of its own`);
+        }
+        const type = fieldType("child.field", given.field);
+        return { field: given.field, of: given.of, type: optionOf(type) ?? type, optional: optionOf(type) !== undefined };
+    })();
 
     // The status: a variant, a Status per case.
     let statusCases: string[] | undefined;
@@ -906,7 +944,17 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
     };
     const stateField = role("state", config.state, EventStateType, "an EventStateType field, the lifecycle an event wears");
     const quantityField = role("quantity.field", config.quantity === undefined ? undefined : config.quantity.field, FloatType, "a Float field, the quantity a bar prints");
-    const laneField = role("lane", config.lane, StringType, "a String field, the lane a tile sits in");
+    // The lane: a String field, or a variant whose cases hold no value, a lane a case (#1541, U1).
+    const laneField = config.lane;
+    const laneCases = laneField === undefined ? undefined : (() => {
+        const held = fieldType("lane", laneField);
+        if (isTypeEqual(held, StringType)) return undefined;
+        const cases = held.type === "Variant" && optionOf(held) === undefined ? Object.entries(held.cases as Record<string, EastType>) : undefined;
+        if (cases === undefined || cases.some(([, holds]) => holds.type !== "Null")) {
+            throw new Error(`${where}: \`lane\` names a String field, or a variant whose cases hold no value, the lane a tile sits in — "${laneField}" holds ${typeText(held)}`);
+        }
+        return cases.map(([name]) => name);
+    })();
     // The builders' roles (#1367, `Builder Interfaces Spec.md` §4.1), each a field of the row, checked as Plan's are. A
     // kind is the Roster's duties or the Allocation's bins, never both.
     const given = (roles: readonly string[]) => roles.filter((r) => (config as unknown as Readonly<Record<string, unknown>>)[r] !== undefined);
@@ -1923,6 +1971,8 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         icon: config.icon,
         titled: config.title !== undefined,
         takes,
+        child: child === undefined ? undefined : { field: child.field, of: child.of, type: child.type },
+        laneCases,
         draw: draw as PlanDrawLiteral,
         templatesSource,
         templatesList: config.templates === undefined ? "none" : SCHEDULE_TEMPLATES in config.templates ? "record" : "code",
@@ -2163,6 +2213,9 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 const parts = kindParts(once, slot, part, formSpecs, SCHEDULE_EVENT_CAP, false, made);
                 const quantity = config.quantity;
                 const format = quantity?.format === undefined ? undefined : East.value(quantity.format as SubtypeExprOrValue<TickFormatType>, TickFormatType);
+                // A child row's key as its row's path ends in it: a String key as it is, any other as East prints it.
+                const childSegment = (key: ExprType<EastType>): ExprType<StringType> =>
+                    (child !== undefined && child.type.type === "String" ? key as unknown as ExprType<StringType> : East.print(key));
                 // One event as Plan draws it: what every view draws, with its roles read from their fields.
                 const planItemOf = once(East.function([EntryRowType], PlanEventItemType, ($, entry) => {
                     const make = $.const(parts.itemOf);
@@ -2179,9 +2232,18 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                             format: format === undefined ? none : some(format),
                             text: none,
                         }),
-                        lane: laneField === undefined ? none : some(fieldOf(row, laneField)),
+                        // A variant's lane is its case, by name.
+                        lane: laneField === undefined ? none
+                            : some(laneCases === undefined ? fieldOf(row, laneField) : (fieldOf(row, laneField) as unknown as { getTag(): ExprType<StringType> }).getTag()),
                         // The app's own lock on it (#1541, U9), read with the event: none where the kind gives no rule.
                         locked: held === undefined ? false : held(row, entry.key),
+                        // The row beneath its resource it is on (#1541, U1): that row's key, as its row's path ends in it.
+                        child: child === undefined ? none
+                            : !child.optional ? some(childSegment(fieldOf(row, child.field)))
+                                : (fieldOf(row, child.field) as unknown as ExprType<OptionType<EastType>>).match({
+                                    some: (_$2, key) => East.value(some(childSegment(key)), OptionType(StringType)),
+                                    none: (_$2) => East.value(none, OptionType(StringType)),
+                                }),
                     } as never, PlanEventItemType);
                 })) as unknown as ExprType<FunctionType<[EastType], EastType>>;
                 // One event by its id, the drafts in place, as Plan draws it, and its events and its backlog as Plan draws
@@ -2195,6 +2257,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                     instant: instantKind,
                     overlaps: variant(overlaps, null),
                     roles: { state: name(stateField), quantity: name(quantityField), lane: name(laneField) },
+                    child: child === undefined ? none : some({ field: child.field, of: child.of }),
                     planItems: plan.items,
                     planUnscheduled: plan.unscheduled,
                     planEvent: plan.event,

@@ -1399,3 +1399,21 @@ Each wire changed under this rule, with the kind it is.
   decode under the other: packages are re-exported, and the dataflow computes
   each UI task's output again under the new type. A UI task's output is not
   stored state, so no repository upgrade step ships with it.
+- **A Plan's events land a step beneath their resource (#1541, U1)** —
+  package-borne. An event as the Plan draws it (`PlanEventItemType`) gains
+  `child`, last: the key of the row beneath its resource it is on, as that
+  row's path ends in it (a String key as it is, any other as East prints it),
+  none for a kind with no `child` and for an event whose field holds none. An
+  event kind (`PlanEventKindType`) gains `child`: the field holding that key
+  and the resources series its rows are of, none for a kind landing on its
+  resource's own rows. A landing series (`PlanLandingType`) gains `under`,
+  last: the landing series its rows stand beneath, none for one beneath none;
+  its `kinds` and `draws` count a kind with a `child` on the series its child
+  names, never on its resource's. An event's `lane` is a variant field's
+  case, by name, where the kind's `lane` names a variant. The events a window
+  files (`PlanEventPlacedType`) keep their type: a series beneath a resource
+  files them under the resource's key and the child's, as East prints the two
+  together. A UI value encoded under either type does not decode under the
+  other: packages are re-exported, and the dataflow computes each UI task's
+  output again under the new type. A UI task's output is not stored state, so
+  no repository upgrade step ships with it.
