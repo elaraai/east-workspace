@@ -24,6 +24,7 @@ import {
 } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { DataflowExecutionStateType, PackageObjectType } from '@elaraai/e3-types';
+import { acquireForDeploy } from '../../deploy-lock.js';
 import { DataflowAbortedError, DataflowSupersededError } from '../../errors.js';
 import { inputsHash } from '../../executions.js';
 import { MockTaskRunner } from '../../execution/MockTaskRunner.js';
@@ -232,6 +233,56 @@ describe('LocalOrchestrator', () => {
     assert.equal(stored?.failed, 0n, 'no task failed for it');
     assert.equal((await storage.refs.dataflowRunGetLatest('repo', 'ws'))?.status.type, 'cancelled', 'its record ended as its state did');
     assert.ok(await released(storage), 'its locks are released');
+  });
+
+  it('writes a run\'s cancelled end though the write of it failed: the store holds the run cancelled for why it stopped, and each event once', async (t) => {
+    const { storage, tasks } = await deploy(t, 'chain', chain());
+
+    /** A store briefly down as a run's end is first written: that write fails. */
+    class FlakyStore extends InMemoryStateStore {
+      failed = 0;
+      override async update(state: DataflowExecutionState): Promise<StateWriteOutcome> {
+        if (state.status === 'cancelled' && this.failed === 0) {
+          this.failed++;
+          throw new Error('the state store is briefly down');
+        }
+        return super.update(state);
+      }
+    }
+    const store = new FlakyStore();
+    const orchestrator = new LocalOrchestrator(store);
+    const runner = new MockTaskRunner();
+    // `first` runs until the run stops it
+    let firstRunning!: () => void;
+    const running = new Promise<void>((resolve) => { firstRunning = resolve; });
+    runner.setResult(tasks.get('first')!, async () => {
+      const signal = runner.getCalls().at(-1)!.options!.signal!;
+      firstRunning();
+      await new Promise((resolve) => signal.addEventListener('abort', resolve, { once: true }));
+      return { state: 'error', cached: false, error: 'cancelled: e3 stopped the runner because the run was aborted', cancelled: true };
+    });
+    const handle = await orchestrator.start(storage, 'repo', 'ws', { runner });
+    const waited = orchestrator.wait(handle);
+    waited.catch(() => undefined);
+    await running;
+
+    // A deploy announces itself: the run stops for it, and the first write of its end fails
+    const deploying = await acquireForDeploy(storage, 'repo', 'ws');
+    try {
+      await assert.rejects(waited, (err: unknown) => err instanceof DataflowAbortedError && err.reason === 'a deploy of ws started');
+      assert.equal(store.failed, 1, 'the first write of the run\'s end failed');
+      const stored = await store.read('repo', 'ws', handle.id);
+      assert.equal(stored?.status, 'cancelled', 'the store holds the run cancelled');
+      assert.deepEqual(stored?.error, some('a deploy of ws started'), 'for why it stopped');
+      const events = await store.getEventsSince('repo', 'ws', handle.id, 0);
+      const seqs = events.map((event) => event.value.seq);
+      assert.ok(equalFor(ArrayType(IntegerType))(seqs, Array.from({ length: seqs.length }, (_, i) => BigInt(i + 1))),
+        `each event once, in order: ${printFor(ArrayType(IntegerType))(seqs)}`);
+      assert.equal(events.filter((event) => event.type === 'execution_cancelled').length, 1, 'the run was cancelled once');
+      assert.equal((await storage.refs.dataflowRunGetLatest('repo', 'ws'))?.status.type, 'cancelled');
+    } finally {
+      await deploying.release();
+    }
   });
 
   it('stops a run another process moved on at its next write, writing and launching nothing more, and failing no task', async (t) => {

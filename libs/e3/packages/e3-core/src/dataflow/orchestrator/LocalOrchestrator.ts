@@ -191,12 +191,19 @@ function takeWrite(state: DataflowExecutionState): DataflowExecutionState {
  * having ended, or `refused`, another process having moved it on — the writer
  * writes nothing more: every later write answers that outcome unwritten, and
  * `onStop` hears it once.
+ *
+ * A write that fails — the store briefly down — fails alone, and the next one
+ * still goes, carrying the events the failed one did not write before its own:
+ * the store appends a run's events by their numbers, so none is lost, and none
+ * kept twice.
  */
 class RunWriter {
   /** Settles once every write made so far has landed, or failed. */
   private tail: Promise<unknown> = Promise.resolve();
   /** The outcome that stopped the writer, once a write was not applied. */
   private stopped: 'dropped' | 'refused' | null = null;
+  /** The events the writes that failed carried, which the next write carries. */
+  private unwritten: ExecutionEvent[] = [];
 
   /**
    * @param store - The store the run's state is kept in
@@ -216,7 +223,16 @@ class RunWriter {
    */
   write(state: DataflowExecutionState): Promise<StateWriteOutcome> {
     const snapshot = takeWrite(state);
-    return this.enqueue(() => this.store.update(snapshot));
+    return this.enqueue(async () => {
+      const write = this.unwritten.length === 0 ? snapshot : { ...snapshot, events: [...this.unwritten, ...snapshot.events] };
+      this.unwritten = [];
+      try {
+        return await this.store.update(write);
+      } catch (err) {
+        this.unwritten = write.events;
+        throw err;
+      }
+    });
   }
 
   /**
@@ -1496,14 +1512,23 @@ export class LocalOrchestrator implements DataflowOrchestrator {
    * pending — the run's abort stops them — and the run cancelled, written whole
    * as the run's last word, since nothing written after it is taken. Under the
    * mutex, so no completion is half applied in what is written.
+   *
+   * @remarks
+   * The run has ended once the write has landed. A write that fails leaves it
+   * to the next call — the loop's own, once what it launched has settled —
+   * which writes the run as it was cancelled, for the reason given first: a
+   * run whose end was never written would read running for good to whatever
+   * polls it.
    */
   private async endCancelled(execution: RunningExecution, reason: string): Promise<void> {
     await execution.mutex.runExclusive(async () => {
       if (execution.ended) return;
-      execution.ended = true;
-      stepYield(execution.state);
-      stepCancel(execution.state, reason);
+      if (execution.state.status !== 'cancelled') {
+        stepYield(execution.state);
+        stepCancel(execution.state, reason);
+      }
       await execution.writer?.write(execution.state);
+      execution.ended = true;
     });
   }
 
