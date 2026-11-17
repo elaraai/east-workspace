@@ -306,6 +306,8 @@ export {
   recordHead,
   recordDraftMutation,
   recordLayDraft,
+  externalSources,
+  externalWriteRefusal,
   encodeMutationArgs,
   decodeMutationArgs,
   withSharedWorkspaceLock,
@@ -375,11 +377,14 @@ export {
   type CollectionSource,
 } from './store-collection.js';
 
-// The write path a mutation delta takes: only the segments it touched
+// The write path a mutation delta takes: only the segments it touched, and
+// only the sources of a composite record its writer may write
 export {
   applyDelta,
   summarizeDelta,
   DeltaConflictError,
+  ExternalEntryError,
+  type ApplyDeltaOptions,
   type DeltaArmSummary,
 } from './record-apply.js';
 
@@ -613,6 +618,7 @@ export {
   callRead,
   callDraftsEnd,
   callDraftsRead,
+  callEndRead,
   draftedInputs,
   NO_CALL_DRAFTS,
   type CallDrafts,

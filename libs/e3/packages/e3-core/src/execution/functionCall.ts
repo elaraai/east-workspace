@@ -75,7 +75,7 @@ import type { FunctionCallEnd, StorageBackend } from '../storage/interfaces.js';
 import { uuidv7, uuidv7Timestamp } from '../uuid.js';
 import { workspaceGetPackage } from '../workspaces.js';
 import {
-  NO_CALL_DRAFTS, callDraftsRead, callRead, checkCallDrafts, draftedInputs, keptCallArgs, keptCallDrafts, layAndStage, storeCallDrafts,
+  NO_CALL_DRAFTS, callDraftsRead, callEndRead, callRead, checkCallDrafts, draftedInputs, keptCallArgs, keptCallDrafts, layAndStage, storeCallDrafts,
   type CallDrafts, type CallStaged,
 } from './functionDrafts.js';
 import type { DetachedResult, TaskRunner } from './interfaces.js';
@@ -680,9 +680,12 @@ export interface FunctionCallRun {
  *    `timed_out`, its `draftEnd` naming the draft, the first line of its
  *    stderr saying so and the mutation's own stderr after it; or `conflict`,
  *    naming the draft by its place and the refusal's words. Such a call names
- *    its inputs as its start pinned them. A call whose timeout ends once its
- *    drafts are laid ends `timed_out`, its `draftEnd` `laid` and its first
- *    line saying so, and its function does not run.
+ *    its inputs as its start pinned them. A draft that writes an entry of a
+ *    composite record's external source ends the call `invalid`, as the Save
+ *    is refused, and its result names nothing read, as every `invalid` result
+ *    does. A call whose timeout ends once its drafts are laid ends
+ *    `timed_out`, its `draftEnd` `laid` and its first line saying so, and its
+ *    function does not run.
  * 2. **Its function runs** on `runner` with `runDetached`: its inputs, then its
  *    arguments, each staged as the stored object it is — an input that is an
  *    index of a record as the index's manifest in the state the input names —
@@ -851,7 +854,7 @@ export async function functionCallRun(
   if ('unrun' in ran) {
     // A laying stops at the run's own signal alone, which is not aborted
     if (unrun === null) return { job: await end(variant('lost', { message: 'the laying of the call\'s drafts was stopped' }), streams), result: null };
-    return { job: await end(unrun.outcome, streams, unrun.draftEnd), result: { outcome: unrun.outcome, ...streams, ...read, draftEnd: unrun.draftEnd } };
+    return { job: await end(unrun.outcome, streams, unrun.draftEnd), result: { outcome: unrun.outcome, ...streams, ...callEndRead(unrun, read), draftEnd: unrun.draftEnd } };
   }
   // Its function ran, so no draft ended it, whatever its stderr says
   const { result } = ran;

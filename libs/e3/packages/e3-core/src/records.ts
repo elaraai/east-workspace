@@ -50,9 +50,10 @@ import {
   type RecordIndexObject,
   type RecordIndexPlan,
   type RecordSignature,
+  type RecordSource,
   type Structure,
 } from '@elaraai/e3-types';
-import { DeltaConflictError, SummaryIntegrityError, applyDelta, applyDeltaEntries, type DeltaEntry } from './record-apply.js';
+import { DeltaConflictError, ExternalEntryError, SummaryIntegrityError, applyDelta, applyDeltaEntries, type DeltaEntry } from './record-apply.js';
 import { readManifest, readRecordStateObject } from './dataset-open.js';
 import { storedDatasetValue } from './dataset-adopt.js';
 import { manifestCutElsewhere } from './store-collection.js';
@@ -497,6 +498,40 @@ export interface ResolvedRecord {
   /** The migration chain the deployed package declares, in order: each
    *  step's name and MigrationObject hash. */
   migrations: ReadonlyArray<{ name: string; migration: string }>;
+  /** A composite record's sources, by name, as the deployed package declares
+   *  them: a solution source as `mutations`, an external one naming its load
+   *  object. None for a record that has no sources. */
+  sources: Map<string, RecordSource>;
+}
+
+/**
+ * The external sources of a record, by name: those a load writes, and no
+ * mutation.
+ *
+ * @param record - The record's sources, as {@link resolveRecord} finds them
+ * @returns Their names, sorted; none for a record that has no sources
+ */
+export function externalSources(record: Pick<ResolvedRecord, 'sources'>): string[] {
+  return [...record.sources].filter(([, source]) => source.type === 'load').map(([name]) => name).sort();
+}
+
+/**
+ * Why a write of a composite record that names an entry of a source it may
+ * not write is refused, in the words every door refuses it with: a Save, the
+ * patch door, and a call's draft.
+ *
+ * @param mutationName - The mutation that wrote it
+ * @param entry - The entry's key, as East prints it, and the source it is of
+ * @returns The refusal
+ *
+ * @example
+ * ```ts
+ * externalWriteRefusal('patch', { printed: '.erp "SO-1001"', source: 'erp' });
+ * // mutation 'patch' writes .erp "SO-1001", an entry of source 'erp', which only its load writes
+ * ```
+ */
+export function externalWriteRefusal(mutationName: string, entry: { readonly printed: string; readonly source: string }): string {
+  return `mutation '${mutationName}' writes ${entry.printed}, an entry of source '${entry.source}', which only its load writes`;
 }
 
 /**
@@ -771,6 +806,7 @@ export async function recordOfPackage(
     mutations: new Map(recObj.mutations),
     indexes: new Map(recObj.indexes),
     migrations: recObj.migrations.map((step) => ({ ...step })),
+    sources: new Map(recObj.sources),
   };
 }
 
@@ -778,7 +814,7 @@ export async function recordOfPackage(
  * A record's mutation by its name, checked as every write of the record checks
  * it before anything runs: the record declares it, the write passes as many
  * arguments as it takes, and it is no whole-state write of a record with
- * indexes.
+ * indexes or with sources.
  *
  * @remarks
  * What a Save resolves its mutation with ({@link recordMutate}) and what a
@@ -798,7 +834,7 @@ export async function recordOfPackage(
 async function resolveMutation(
   storage: StorageBackend,
   repo: string,
-  record: Pick<ResolvedRecord, 'mutations' | 'indexes'>,
+  record: Pick<ResolvedRecord, 'mutations' | 'indexes' | 'sources'>,
   recordName: string,
   mutationName: string,
   argCount: number,
@@ -814,6 +850,12 @@ async function resolveMutation(
   // that does not came from a package that mixes the two.
   if (mutation.programIr === '' && record.indexes.size > 0) {
     return { invalid: `mutation '${mutationName}' writes record '${recordName}' whole, and the record has indexes: re-export its package` };
+  }
+  // Nor is a whole state held to the sources its mutation may write: a
+  // composite is a Dict, whose every mutation writes a delta, so this too is
+  // a package that mixes two builds, and it could write an external entry.
+  if (mutation.programIr === '' && record.sources.size > 0) {
+    return { invalid: `mutation '${mutationName}' writes record '${recordName}' whole, and the record has sources: re-export its package` };
   }
   return { hash, mutation };
 }
@@ -1013,6 +1055,8 @@ export async function recordMutate(
           : await writeDelta(storage, runner, repo, mutObj, state, args, run, program);
         if ('failure' in write) return write.failure;
         if ('conflictDetail' in write) return { kind: 'conflict', attempts: attempt, detail: write.conflictDetail };
+        // An entry of a source the mutation may not write: nothing is written, and no retry answers it
+        if ('external' in write) return { kind: 'invalid', message: externalWriteRefusal(mutationName, write.external) };
 
         const prevCommit = existing.ref.value.versions.get(resolved.selfKeypath);
         const { stateHash: newStateHash, commitHash } = await storeCommit(storage, repo,
@@ -1125,7 +1169,10 @@ type MutationWrite =
   | { primary: string; indexes: Map<string, { manifest: string; index: string }>; delta?: string }
   | UnitFailure
   /** A delta op disagreed with the state it landed on — the key is in the text. */
-  | { conflictDetail: string };
+  | { conflictDetail: string }
+  /** The write names an entry of a source its mutation may not write: the
+   *  entry's key, as East prints it, and the source it is of. */
+  | { external: { printed: string; source: string } };
 
 /** How a program's run is bounded: the limits, and the caller's cancellation
  *  and verbosity. */
@@ -1185,6 +1232,12 @@ async function writeWholeState(
  * there is no user East to run. That is the interactive door — its cost is the
  * rows the edit touched, with no process anywhere.
  *
+ * A composite record's mutation names the sources it may write (its object's
+ * `cases`), and the apply holds the write to them on both paths: an op on an
+ * entry of any other source — an external one, which only its load writes —
+ * is refused as it is taken, and the write answers `external`. So a Save, the
+ * patch door and a draft's laying refuse one alike, by the one check.
+ *
  * `program` is the run's task object and arguments, stored, when the caller
  * stored them already ({@link storeProgram}).
  */
@@ -1204,6 +1257,8 @@ async function writeDelta(
   const patch = mutObj.form.type === 'patch' && state.indexes.size === 0 && args[0] !== undefined
     ? await patchDelta(storage, repo, state.primary, args[0])
     : null;
+  // The sources the mutation may write, for a composite record: none named for any other, which writes every key
+  const held = mutObj.cases.type === 'some' ? { cases: mutObj.cases.value } : {};
 
   // A program that found the write stale says so in the delta's first entry,
   // as the apply says so of an op that disagrees with the state: a caller
@@ -1216,7 +1271,7 @@ async function writeDelta(
       // The client's patch is the delta, held here: it is applied from the
       // entries in hand while it is stored, and never read back
       [written, deltaHash] = await bothSettled(
-        applyDeltaEntries(storage, repo, targets, heldEntries(patch)),
+        applyDeltaEntries(storage, repo, targets, heldEntries(patch), held),
         storeDelta(storage, repo, patch),
       );
     } else {
@@ -1224,10 +1279,11 @@ async function writeDelta(
       const ran = await runUnit(storage, runner, repo, taskHash!, [state.primary, ...argHashes], run);
       if ('failure' in ran) return ran;
       deltaHash = ran.output;
-      written = await applyDelta(storage, repo, targets, deltaHash);
+      written = await applyDelta(storage, repo, targets, deltaHash, held);
     }
   } catch (err) {
     if (err instanceof DeltaConflictError) return { conflictDetail: err.message };
+    if (err instanceof ExternalEntryError) return { external: { printed: err.printed, source: err.source } };
     // A summary that disagrees with its record (#1039) is no stale write, so no
     // retry answers it: the write fails, saying which total and how to rebuild it.
     if (err instanceof SummaryIntegrityError) return { failure: { kind: 'failed', exitCode: -1, stderr: err.message } };
@@ -1431,7 +1487,7 @@ export async function recordHead(
 export async function recordDraftMutation(
   storage: StorageBackend,
   repo: string,
-  record: Pick<ResolvedRecord, 'mutations' | 'indexes'>,
+  record: Pick<ResolvedRecord, 'mutations' | 'indexes' | 'sources'>,
   recordName: string,
   mutationName: string,
   args: readonly Uint8Array[],
@@ -1470,6 +1526,11 @@ export type RecordDraftLaid =
   /** A write disagreed with the state it was laid over: `detail` is the
    *  refusal's words, as a Save's conflict carries them. */
   | { kind: 'conflict'; detail: string }
+  /** The draft writes an entry of a source its mutation may not write, an
+   *  external one's, as a Save of it is refused `invalid`
+   *  ({@link externalWriteRefusal}): the entry's key, as East prints it, and
+   *  the source it is of. */
+  | { kind: 'external'; printed: string; source: string }
   /** The caller's signal stopped the laying. */
   | { kind: 'aborted' };
 
@@ -1546,6 +1607,7 @@ export async function recordLayDraft(
     throw new Error(`a draft's write ended ${failure.kind}, which no write's run does`);
   }
   if ('conflictDetail' in write) return { kind: 'conflict', detail: write.conflictDetail };
+  if ('external' in write) return { kind: 'external', ...write.external };
   return { kind: 'laid', state: { primary: write.primary, indexes: write.indexes } };
 }
 

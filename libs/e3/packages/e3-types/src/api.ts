@@ -1365,7 +1365,10 @@ export const InputReadType = StructType({
  *
  * - `success`: beast2-encoded result value; decode with the function's `outputType`
  * - `failed`: process exited non-zero (see stderr)
- * - `invalid`: signature/IR error; nothing ran
+ * - `invalid`: the call was refused, and its body did not run: a signature/IR
+ *   error, or a draft that writes an entry of a composite record's external
+ *   source, which only that source's load writes — refused in the words a Save
+ *   of the draft is, after the draft's own (`draft orders.patch (2 of 2): …`)
  * - `too_large`: result over `maxResultBytes`; deploy a task and read it with `datasetGet`
  * - `timed_out`: exceeded `timeoutMs` / the server's sync deadline guard
  * - `conflict`: a draft the call passed no longer fits its record, and the
@@ -1656,7 +1659,8 @@ export const SplitCallStatusType = VariantType({
  *   mutation failed before its body ran, which its `draftEnd` names
  * - `invalid`: it was refused before it ran: a wrong arity, a runner the
  *   caller may not name, an input with no value, a draft the function does not
- *   take or one its record's mutation does not
+ *   take or one its record's mutation does not; or, as its drafts were laid, a
+ *   draft that writes an entry of a composite record's external source
  * - `too_large`: its value was over its `maxResultBytes`, and was not kept
  * - `timed_out`: it ran past its timeout, and was stopped, its body or a
  *   draft's mutation before it
@@ -1743,7 +1747,8 @@ export const FunctionCallSummaryType = StructType({
  *   laid, the drafted state
  * @property drafts - The drafts it passed, in order; none for a call that
  *   passed none, and for one refused as it started, which keeps no argument
- *   either. Its result names the commit each drafted record stood at
+ *   either. A call a draft ended as it was laid keeps them all. Its result
+ *   names the commit each drafted record stood at
  * @property draftEnd - How its drafts ended it before its function ran
  *   ({@link FunctionDraftEndType}); `none` while it runs, and for a call they
  *   did not end
@@ -1843,7 +1848,9 @@ export const MutationCallRequestType = StructType({
  * The terminal result of a mutation call. Only `committed` wrote anything.
  *
  * - `committed`: the new commit + state hashes
- * - `invalid`: record/mutation lookup or arity error; nothing ran
+ * - `invalid`: record/mutation lookup or arity error, and nothing ran; or the
+ *   write names an entry of a composite record's external source, which only
+ *   that source's load writes: the message names the key and the source
  * - `failed`: the mutation's program failed (incl. a body's `$.error`; see stderr)
  * - `timed_out`: the program exceeded its time budget
  * - `conflict`: the compare-and-swap lost the race `attempts` times, or the
