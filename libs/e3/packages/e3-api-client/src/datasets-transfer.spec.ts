@@ -4,7 +4,8 @@
  */
 
 /**
- * Tests for the client half of the dataset transfer protocol.
+ * Tests for the client half of the dataset transfer protocol, and of the
+ * object upload that speaks it with no dataset.
  *
  * `datasetSetStream` (and `datasetSet` above the inline threshold) must speak
  * the transfer protocol to a server that plans parts and polls commits. These
@@ -15,7 +16,8 @@
  * range, the commit polled until it finishes, with how far it has got heard as
  * it goes, and every refusal surfaced. Given a `fetch`, every request of the
  * transfer goes through it — the parts' uploads among them — and none through
- * the global one.
+ * the global one. `objectUpload` speaks the protocol to a workspace's objects,
+ * and answers the bytes' hash.
  */
 
 import { describe, it, afterEach } from 'node:test';
@@ -28,7 +30,7 @@ import {
   TransferUploadResponseType,
   type IntakeFile,
 } from '@elaraai/e3-types';
-import { datasetSetStream, type DatasetTransferSource } from './datasets.js';
+import { datasetSetStream, objectUpload, type DatasetTransferSource } from './datasets.js';
 import { ApiError, type RetryOptions } from './http.js';
 import { refusal, success } from './test-helpers.js';
 
@@ -276,5 +278,54 @@ describe('datasetSetStream: the transfer protocol', () => {
       ['GET e3.test', 'GET e3.test', 'GET e3.test', 'POST e3.test', 'POST e3.test', 'PUT store.test', 'PUT store.test', 'PUT store.test'],
       'the init, each part\'s URL and upload, and the commit',
     );
+  });
+});
+
+describe('objectUpload: the transfer protocol with no dataset', () => {
+  const OBJECTS = '/api/repos/r/workspaces/ws/objects';
+
+  it('sends the bytes to the workspace\'s objects, its parts and commit beneath them, and answers their hash', async () => {
+    const parts = new Map<number, Uint8Array>();
+    const calls = fakeServer(({ method, url, body }) => {
+      const part = url.pathname.match(/^\/api\/repos\/r\/workspaces\/ws\/objects\/upload\/[^/]+\/parts\/(\d+)$/);
+      if (method === 'POST' && url.pathname === OBJECTS) {
+        return success(TransferUploadResponseType, variant('upload_parts', { id: ID, partBytes: 4n }));
+      }
+      if (method === 'GET' && part) {
+        return success(TransferPartResponseType, { url: `https://store.test/part/${part[1]}`, headers: new Map() });
+      }
+      if (method === 'PUT' && url.host === 'store.test') {
+        parts.set(Number(url.pathname.split('/').pop()), body!);
+        return new Response(null, { status: 200 });
+      }
+      if (method === 'POST' && url.pathname === `${OBJECTS}/upload/${ID}`) {
+        return success(TransferDoneResponseType, variant('completed', null));
+      }
+      return new Response(`unexpected ${method} ${url.href}`, { status: 500 });
+    });
+
+    const source = streamedSource(payload);
+    assert.equal(await objectUpload(BASE, 'r', 'ws', source, { token: null, retry: NO_WAIT }), source.hash);
+    assert.deepEqual([...parts.keys()].sort(), [1, 2, 3]);
+    assert.deepEqual([...parts.get(3)!], [...payload.subarray(8, 10)]);
+    const init = calls[0]!;
+    assert.equal(init.url.searchParams.get('protocol'), '3', 'the init names the protocol');
+    assert.equal(init.url.searchParams.get('release'), E3_RELEASE);
+    const commit = calls.find((c) => c.method === 'POST' && c.url.pathname === `${OBJECTS}/upload/${ID}`)!;
+    assert.equal(commit.url.searchParams.get('protocol'), '3', 'and so does the commit');
+  });
+
+  it('reads nothing when the repository holds the object already, and answers its hash', async () => {
+    const calls = fakeServer(() => success(TransferUploadResponseType, variant('completed', null)));
+    const source = streamedSource(payload);
+    assert.equal(await objectUpload(BASE, 'r', 'ws', source, { token: null, retry: NO_WAIT }), source.hash);
+    assert.deepEqual(source.reads, []);
+    assert.deepEqual(calls.map((call) => `${call.method} ${call.url.pathname}`), [`POST ${OBJECTS}`]);
+  });
+
+  it('raises a caller the host does not let upload', async () => {
+    fakeServer(() => refusal(TransferUploadResponseType, variant('permission_denied', { path: 'upload' })));
+    await assert.rejects(objectUpload(BASE, 'r', 'ws', streamedSource(payload), { token: null, retry: NO_WAIT }),
+      (err: unknown) => err instanceof ApiError && err.code === 'permission_denied');
   });
 });

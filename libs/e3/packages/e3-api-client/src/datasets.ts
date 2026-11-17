@@ -1460,14 +1460,8 @@ export interface DatasetTransferOptions {
 }
 
 /**
- * Set a large dataset using the transfer flow (init → upload → commit).
- *
- * @remarks
- * The init answers `completed` (the object is stored already) or
- * `upload_parts` (the parts the server planned, each sent to the URL and with
- * the headers it names for that part, a few at a time). The commit may answer
- * `processing` while the server verifies the bytes and takes them in, and is
- * polled until it finishes.
+ * Set a large dataset using the transfer flow (init → upload → commit), which
+ * the commit ends by writing the dataset's ref.
  */
 async function datasetSetTransfer(
   url: string,
@@ -1478,16 +1472,82 @@ async function datasetSetTransfer(
   options: RequestOptions,
   transfer: DatasetTransferOptions = {},
 ): Promise<void> {
-  const { hash } = source;
   const pathStr = path.map(p => encodeURIComponent(p.value)).join('/');
-  const repoEncoded = encodeURIComponent(repo);
-  const wsEncoded = encodeURIComponent(workspace);
-  const uploadPath = `/repos/${repoEncoded}/workspaces/${wsEncoded}/datasets/${pathStr}/upload`;
+  const uploadPath = `/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(workspace)}/datasets/${pathStr}/upload`;
+  return stagedTransfer(url, uploadPath, uploadPath, source, options, transfer);
+}
+
+/**
+ * Upload bytes to a workspace's repository as an object, naming it nowhere:
+ * a delivery a composite record's load is then given by its hash.
+ *
+ * @remarks
+ * The dataset upload's protocol with no dataset. The init dedups on the
+ * source's digest: an object the repository holds already costs one round
+ * trip and no bytes, and is re-referenced, so a sweep leaves it for the load
+ * that names it. Otherwise every part the server asks for is the source's
+ * range, sent a few at a time, and the commit checks the bytes against the
+ * digest and stores them as their object, writing no ref; a commit still
+ * `processing` is polled until it finishes. A file of many gigabytes is sent
+ * as streams of its ranges, so the client's memory is a buffer per part in
+ * flight rather than the file.
+ *
+ * @param url - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param workspace - The workspace the delivery is for: the host asks whether
+ *   the caller may load into it
+ * @param source - The bytes' size, digest and ranges
+ * @param options - Request options including auth token
+ * @returns The object's hash, the source's digest: what a load's request
+ *   names as its `delivery` ({@link workspaceRecordLoad})
+ * @throws {ApiError} `permission_denied` (`path` `upload`) for a caller the
+ *   host does not let upload, and other application-level errors
+ * @throws {AuthError} On 401 Unauthorized
+ * @throws {Error} When a part's upload fails, naming the part, or the commit
+ *   does, saying why: bytes that do not hash to the digest among them
+ */
+export async function objectUpload(
+  url: string,
+  repo: string,
+  workspace: string,
+  source: DatasetTransferSource,
+  options: RequestOptions,
+): Promise<string> {
+  const objects = `/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(workspace)}/objects`;
+  await stagedTransfer(url, objects, `${objects}/upload`, source, options);
+  return source.hash;
+}
+
+/**
+ * Send a source's bytes by the transfer protocol: an init at `initPath`, then
+ * the upload's parts and its commit at `uploadPath` and the id the init
+ * answers.
+ *
+ * @remarks
+ * The init answers `completed` (the object is stored already) or
+ * `upload_parts` (the parts the server planned, each sent to the URL and with
+ * the headers it names for that part, a few at a time). The commit may answer
+ * `processing` while the server verifies the bytes and takes them in, and is
+ * polled until it finishes.
+ *
+ * @param initPath - Where the upload begins, under `/api`
+ * @param uploadPath - Where an upload's parts and commit are, under `/api`,
+ *   its id after it
+ */
+async function stagedTransfer(
+  url: string,
+  initPath: string,
+  uploadPath: string,
+  source: DatasetTransferSource,
+  options: RequestOptions,
+  transfer: DatasetTransferOptions = {},
+): Promise<void> {
+  const { hash } = source;
   const protocol = `protocol=${TRANSFER_PROTOCOL_VERSION}&release=${encodeURIComponent(E3_RELEASE)}`;
 
   // 1. Init transfer (BEAST2 request/response)
   const encodeInit = encodeBeast2For(TransferUploadRequestType);
-  const initRes = await fetchWithAuth(`${url}/api${uploadPath}?${protocol}`, {
+  const initRes = await fetchWithAuth(`${url}/api${initPath}?${protocol}`, {
     method: 'POST',
     headers: {
       'Content-Type': BEAST2_CONTENT_TYPE,
@@ -1509,15 +1569,16 @@ async function datasetSetTransfer(
 
   const init = initResult.value;
 
-  // Dedup — object already exists, ref updated
+  // Dedup — the object already exists: a dataset's ref is updated, and an
+  // object's re-referenced
   if (init.type === 'completed') return;
 
   // 2. Upload to staging (no auth — the URLs may be presigned S3 URLs)
   await putParts(url, `${uploadPath}/${init.value.id}`, Number(init.value.partBytes), source, options);
 
-  // 3. Commit — server verifies hash + updates ref (BEAST2 response), and
-  //    answers `processing`, with how far it has got, while that is still
-  //    running
+  // 3. Commit — server verifies hash + stores the object, and a dataset's
+  //    updates its ref (BEAST2 response), and answers `processing`, with how
+  //    far it has got, while that is still running
   let done = await commitRequest(`${url}/api${uploadPath}/${init.value.id}?${protocol}`, 'POST', options);
   for (let wait = COMMIT_POLL_MIN_MS; done.type === 'processing'; wait = Math.min(wait * 2, COMMIT_POLL_MAX_MS)) {
     if (done.value.type === 'some') transfer.onCommitProgress?.(done.value.value);
