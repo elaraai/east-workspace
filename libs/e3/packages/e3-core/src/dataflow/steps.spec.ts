@@ -42,6 +42,7 @@ import * as root from '../index.js';
 import * as portable from '../portable.js';
 import type { DataflowExecutionState, InputWait, TaskState, Mutable } from './types.js';
 import { catchUpKey, dataflowRootsHeld, dataflowSnapshotTaken, recordCommitOrder, type DataflowGraph } from '../dataflow.js';
+import { sourceLoadSlots } from '../record-slots.js';
 import { createTestRepo, removeTestRepo, writableStrings } from '../test-helpers.js';
 import { LocalStorage } from '../storage/local/index.js';
 import { workspaceDeploy } from '../workspaces.js';
@@ -731,7 +732,7 @@ describe('stepDetectInputChanges', () => {
     await workspaceSetDataset(storage, testRepo, 'test-ws', a, 'one', StringType);
     await workspaceSetDataset(storage, testRepo, 'test-ws', b, 'two', StringType);
     const graph: DataflowGraph = {
-      tasks: [{ name: 'task-a', hash: 'hash-a', inputs: ['.a', '.b'], output: '.output', dependsOn: [] }],
+      tasks: [{ name: 'task-a', hash: 'hash-a', inputs: ['.a', '.b'], output: '.output', dependsOn: [], load: none }],
     };
     const state = makeState(graph, new Map([['task-a', makeTaskState('task-a', 'pending')]]), {
       repo: testRepo,
@@ -1026,8 +1027,55 @@ describe('stepTaskCommits', () => {
     });
   });
 
-  it('names the input a deferral is for, which its event records', () => {
+  it('names the root a deferral is for, which its event records', () => {
     assert.strictEqual(deferralPath({ kind: 'plain', input: '.rates', through: ['x', 'y'] }), '.rates');
+    assert.strictEqual(deferralPath({ kind: 'feed', record: '.records.orders', source: 'erp', input: '.rates' }), '.rates');
+    assert.strictEqual(deferralPath({ kind: 'carried', records: ['.records.orders', '.records.stock'], root: '.records.book' }), '.records.book');
+    assert.strictEqual(
+      deferralPath({ kind: 'forgotten', record: '.records.orders', source: 'erp', roots: ['.records.book', '.rates'] }), '.records.book',
+      'the first root its feed reads that another input names');
+  });
+
+  it('asks a load node as a run resumes: one whose record forgot its delivery loads again, and so does a failed one whose feed moved', async () => {
+    // A feed over the plain input, and the node that loads its output into the record
+    const loads: DataflowGraph = {
+      tasks: [
+        { name: 'feed', hash: 'hash-feed', inputs: ['.rates'], output: '.feed_out', dependsOn: [], load: none },
+        { name: 'orders.erp', hash: 'hash-load', inputs: ['.feed_out'], output: '.records.orders', dependsOn: ['feed'], load: some({ record: 'orders', source: 'erp' }) },
+      ],
+    };
+    /** A resumed run whose input stands at `rates`: the feed's result was made there, and the load's at r1 */
+    const resumed = (status: TaskState['status'], rates = 'r1'): DataflowExecutionState => {
+      const state = makeState(loads, new Map([
+        ['feed', makeCompleted('feed', 'feed-out')],
+        ['orders.erp', { ...makeCompleted('orders.erp', 'a-delivery'), status } as TaskState],
+      ]), { repo: testRepo, workspace: 'test-ws', executed: 2n });
+      state.versionVectors.set('.rates', new Map([['.rates', rates]]));
+      state.versionVectors.set('.feed_out', new Map([['.rates', rates]]));
+      state.versionVectors.set('orders.erp', new Map([['.rates', 'r1']]));
+      return state;
+    };
+    /** The record's ref, naming the execution whose delivery it holds */
+    const holds = (execution: string): Promise<void> => storage.datasets.write(testRepo, 'test-ws', 'records/orders', variant('value', {
+      hash: 'a-state', versions: new Map([['.records.orders', 'c1'], [sourceLoadSlots('erp').execution, execution]]),
+    }));
+
+    // The record names the execution the node completed with: nothing is due
+    await holds('inputs-orders.erp/execution-orders.erp');
+    assert.deepStrictEqual(await stepResumedTasksDue(storage, resumed('completed')), { due: [], events: [] });
+
+    // A rollback left the record naming another: the node loads again
+    await holds('inputs-orders.erp/an-earlier-execution');
+    const { due, events } = await stepResumedTasksDue(storage, resumed('completed'));
+    assert.deepStrictEqual(due, ['orders.erp']);
+    assert.ok(events[0]?.type === 'task_invalidated');
+    assert.strictEqual(events[0].value.reason, 'its record forgot its delivery: .records.orders');
+
+    // A load that failed, whose feed has landed anew since: back to pending, out of the failed count
+    const failed = resumed('failed', 'r2');
+    (failed as Mutable<DataflowExecutionState>).failed = 1n;
+    const again = await stepResumedTasksDue(storage, failed);
+    assert.deepStrictEqual([again.due, again.events.length, failed.tasks.get('orders.erp')!.status, failed.failed], [[], 1, 'pending', 0n]);
   });
 
   it('throws for a task the graph lacks, and is the step every entry exports', async () => {

@@ -680,14 +680,14 @@ export async function stepTaskCommits(
     const carried = names.filter((each) => each.carrier !== undefined);
     const distinct = carried.filter((each, at) => carried.findIndex((other) => sameVersion(other.version, each.version)) === at);
     if (distinct.length > 1) {
-      return { kind: 'deferred', conflictPath: root, reason: { kind: 'carried', records: [distinct[0]!.carrier!.record, distinct[1]!.carrier!.record], root } };
+      return { kind: 'deferred', reason: { kind: 'carried', records: [distinct[0]!.carrier!.record, distinct[1]!.carrier!.record], root } };
     }
     // The workspace's records are read only where two inputs disagree
     if (!agreed(names) && !(await dataflowRecords(storage, state)).has(root)) {
       // A fed record carries a value of the input another input has moved on from
       const fed = carried.find((each) => names.some((other) => other.carrier === undefined && !sameVersion(other.version, each.version)));
       if (fed !== undefined) {
-        return { kind: 'deferred', conflictPath: root, reason: { kind: 'feed', record: fed.carrier!.record, source: fed.carrier!.source, input: root } };
+        return { kind: 'deferred', reason: { kind: 'feed', record: fed.carrier!.record, source: fed.carrier!.source, input: root } };
       }
       const through = [...new Set(names.map((each) => each.through))];
       return {
@@ -743,24 +743,39 @@ function forgottenDeferral(graph: DataflowGraph, task: DataflowGraph['tasks'][nu
     : undefined;
   const record = unknown?.record ?? node?.output ?? roots[0]!;
   const source = unknown?.source ?? (node?.load.type === 'some' ? node.load.value.source : '');
-  return { kind: 'deferred', conflictPath: roots[0]!, reason: { kind: 'forgotten', record, source, roots } };
+  return { kind: 'deferred', reason: { kind: 'forgotten', record, source, roots } };
 }
 
 /**
- * The input a deferral names: what the run's `task_deferred` event records as
+ * The root a deferral names: what the run's `task_deferred` event records as
  * its conflict path, and what, with the reason's kind, tells one deferral of
  * a task from another.
  *
+ * @remarks
+ * A plain input read at two values, and one a fed record carries an earlier
+ * value of, is that input; two fed records that carry different versions of a
+ * root name the root; and a delivery its record forgot names the first root
+ * its feed reads that another input of the task names.
+ *
  * @param reason - Why the task is deferred
- * @returns The input's keypath
+ * @returns The root's keypath
  *
  * @example
  * ```ts
  * deferralPath({ kind: 'plain', input: '.inputs.rates', through: ['forecast', 'capacity'] }); // '.inputs.rates'
+ * deferralPath({ kind: 'carried', records: ['.records.orders', '.records.stock'], root: '.records.erp_book' }); // '.records.erp_book'
  * ```
  */
 export function deferralPath(reason: DeferReason): string {
-  return reason.input;
+  switch (reason.kind) {
+    case 'plain':
+    case 'feed':
+      return reason.input;
+    case 'carried':
+      return reason.root;
+    case 'forgotten':
+      return reason.roots[0]!;
+  }
 }
 
 /**
@@ -924,19 +939,8 @@ export async function stepTasksDue(
       await loadForgotten(storage, state, task, taskState);
     if (read.length === 0 && !forgotten) continue;
 
-    if (taskState.status === 'completed') {
-      if (forgotten) {
-        events.push(taskDue(state, taskState, `its record forgot its delivery: ${task.output}`));
-        due.push(task.name);
-        continue;
-      }
-      if (!(await wouldReadOther(storage, state, task.name, resultVersionsKey(task)))) continue;
-      events.push(taskDue(state, taskState, `input changed: ${read.join(', ')}`));
-      due.push(task.name);
-    } else if (task.load.type === 'some' && taskState.status === 'failed') {
-      // A load's failure leaves its run going: it loads the feed's next output
-      if (await wouldReadOther(storage, state, task.name, resultVersionsKey(task))) events.push(loadDueAfterFailure(state, taskState));
-    } else if (taskState.status === 'deferred') {
+    if (await askDue(storage, state, task, taskState, forgotten, `input changed: ${read.join(', ')}`, { due, events })) continue;
+    if (taskState.status === 'deferred') {
       // Un-defer — it is decided again as it next launches
       taskState.status = 'pending';
     } else if (taskState.status === 'waiting' && !waitsOnDependency(state, graph, task.name)) {
@@ -991,7 +995,9 @@ export async function stepTaskDueAgain(
  * else would ask them. Each completed task is asked instead whether it would
  * now read other inputs than its result was made from, and one that would
  * goes back to pending as {@link stepTasksDue} leaves it: keeping its result,
- * counted a re-execution, `task_invalidated` emitted.
+ * counted a re-execution, `task_invalidated` emitted. A load node is asked as
+ * that step asks it: one whose record forgot its delivery loads again, and
+ * so does a failed one whose feed has moved.
  *
  * @param storage - Storage backend
  * @param state - The resumed run's state, to mutate
@@ -1008,12 +1014,55 @@ export async function stepResumedTasksDue(
   const events: ExecutionEvent[] = [];
   for (const task of getGraph(state).tasks) {
     const taskState = state.tasks.get(task.name) as Mutable<TaskState> | undefined;
-    if (taskState?.status !== 'completed') continue;
-    if (!(await wouldReadOther(storage, state, task.name, task.output))) continue;
-    events.push(taskDue(state, taskState, 'its inputs moved before the run resumed'));
-    due.push(task.name);
+    if (!taskState) continue;
+    const forgotten = taskState.status === 'completed' && await loadForgotten(storage, state, task, taskState);
+    await askDue(storage, state, task, taskState, forgotten, 'its inputs moved before the run resumed', { due, events });
   }
   return { due, events };
+}
+
+/**
+ * Asks a node that holds a result, or a load node that failed, whether it is
+ * due, and puts one that is back to pending.
+ *
+ * @remarks
+ * A completed node is due when it would now read other inputs than its
+ * result was made from, and a load node too when its record forgot the
+ * delivery it loaded. A failed load node goes back to pending, out of the
+ * failed count, once its feed has moved since the launch that failed: a
+ * load's failure leaves its run going, which loads the feed's next output.
+ *
+ * @param forgotten - Whether the node is a completed load node whose record
+ *   forgot its delivery ({@link loadForgotten})
+ * @param reason - Why a completed node that would read other inputs is due
+ * @param out - The tasks due that held a result, and the events emitted,
+ *   which it adds to
+ * @returns Whether the node was one to ask: completed, or a failed load node
+ */
+async function askDue(
+  storage: StorageBackend,
+  state: DataflowExecutionState,
+  task: DataflowGraph['tasks'][number],
+  taskState: Mutable<TaskState>,
+  forgotten: boolean,
+  reason: string,
+  out: { due: string[]; events: ExecutionEvent[] },
+): Promise<boolean> {
+  if (taskState.status === 'completed') {
+    if (forgotten) {
+      out.events.push(taskDue(state, taskState, `its record forgot its delivery: ${task.output}`));
+      out.due.push(task.name);
+    } else if (await wouldReadOther(storage, state, task.name, resultVersionsKey(task))) {
+      out.events.push(taskDue(state, taskState, reason));
+      out.due.push(task.name);
+    }
+    return true;
+  }
+  if (task.load.type === 'some' && taskState.status === 'failed') {
+    if (await wouldReadOther(storage, state, task.name, resultVersionsKey(task))) out.events.push(loadDueAfterFailure(state, taskState));
+    return true;
+  }
+  return false;
 }
 
 /**
