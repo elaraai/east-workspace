@@ -349,6 +349,7 @@ export {
   applyDelta,
   summarizeDelta,
   DeltaConflictError,
+  DeltaStoppedError,
   ExternalEntryError,
   type ApplyDeltaOptions,
   type DeltaArmSummary,

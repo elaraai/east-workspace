@@ -121,7 +121,19 @@ export class ExternalEntryError extends Error {
   }
 }
 
-/** What holds an apply to the entries it may write. */
+/**
+ * A read of a delta was stopped by its caller's signal, between two of the
+ * delta's segments: an apply of it wrote nothing that anything names, and a
+ * summary of it counted part. No failure of the delta, so never retried.
+ */
+export class DeltaStoppedError extends Error {
+  constructor() {
+    super('the read of the delta was stopped');
+    this.name = 'DeltaStoppedError';
+  }
+}
+
+/** What holds an apply to the entries it may write, and stops it. */
 export interface ApplyDeltaOptions {
   /**
    * The cases of the record's key the write may touch: a composite record's
@@ -131,6 +143,13 @@ export interface ApplyDeltaOptions {
    * when it committed: every key may be written.
    */
   readonly cases?: ReadonlySet<string>;
+  /**
+   * Stops the apply before it reads the delta's next segment: it then throws
+   * {@link DeltaStoppedError}. A delta of a few million ops is minutes of
+   * work, and what holds its record's workspace meanwhile — a load, which a
+   * deploy waits on — lets go within a segment's work of being asked.
+   */
+  readonly signal?: AbortSignal;
 }
 
 /** A summary's totals for one key, decoded. */
@@ -183,12 +202,14 @@ class DeltaCursor {
  * @param repo - Repository identifier
  * @param targets - target name -> the manifest hash it currently holds
  * @param deltaHash - the delta object's content hash
- * @param options - The cases of a composite record's key the write may touch
+ * @param options - The cases of a composite record's key the write may touch,
+ *   and a signal that stops the apply
  * @returns target name -> its new manifest hash, for the targets that changed
  * @throws {DeltaConflictError} When the delta says the write is stale, or an op
  *   disagrees with the state it lands on — never a silent clobber.
  * @throws {ExternalEntryError} When a `primary` op names a key of a case the
  *   write may not touch.
+ * @throws {DeltaStoppedError} When `options.signal` stopped it.
  * @throws {Error} When the delta names a target the record does not have.
  */
 export async function applyDelta(
@@ -198,7 +219,7 @@ export async function applyDelta(
   deltaHash: string,
   options: ApplyDeltaOptions = {},
 ): Promise<Map<string, string>> {
-  return applyDeltaEntries(storage, repo, targets, deltaEntries(storage, repo, deltaHash), options);
+  return applyDeltaEntries(storage, repo, targets, deltaEntries(storage, repo, deltaHash, options.signal), options);
 }
 
 /**
@@ -347,16 +368,25 @@ async function* inOrder(entries: Iterable<DeltaEntry> | AsyncIterable<DeltaEntry
  * A delta's key is `variant(target, key)` and variant values order by case
  * NAME, so every target's ops are one contiguous ascending run, in the order
  * the target's own segments are laid out.
+ *
+ * A signal stops the read before each segment is taken, with
+ * {@link DeltaStoppedError}: whatever reads the delta is stopped within one
+ * segment's work.
  */
 async function* deltaEntries(
   storage: StorageBackend,
   repo: string,
   deltaHash: string,
+  signal?: AbortSignal,
 ): AsyncGenerator<DeltaEntry> {
+  // Read afresh each time: a stop comes while the read awaits the store
+  const stopped = (): boolean => signal?.aborted === true;
+  if (stopped()) throw new DeltaStoppedError();
   const delta = await DatasetSegments.open(storage, repo, deltaHash);
   const decode = decodeBeast2For(delta.typeValue);
   // Its segments are read a few ahead of the one taken from (#1573)
   for await (const segment of readInOrder(delta.segmentCount, DELTA_SEGMENTS_AHEAD, (i) => delta.segment(i))) {
+    if (stopped()) throw new DeltaStoppedError();
     const entries: SortedMap<unknown, unknown> = decode(segment);
     for (const [key, op] of entries) {
       // Each entry is a target's: its key and its op are variants of the target's name.
@@ -387,15 +417,18 @@ export interface DeltaArmSummary {
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param deltaHash - the delta object's content hash
+ * @param options - `signal`: stops the read before the delta's next segment
  * @returns one summary per target the delta names, in canonical order
+ * @throws {DeltaStoppedError} When `options.signal` stopped it.
  */
 export async function summarizeDelta(
   storage: StorageBackend,
   repo: string,
   deltaHash: string,
+  options: { readonly signal?: AbortSignal } = {},
 ): Promise<DeltaArmSummary[]> {
   const summaries: DeltaArmSummary[] = [];
-  for await (const entry of deltaEntries(storage, repo, deltaHash)) {
+  for await (const entry of deltaEntries(storage, repo, deltaHash, options.signal)) {
     let summary = summaries.at(-1);
     if (summary === undefined || summary.target !== entry.target) {
       summary = { target: entry.target, insert: 0, update: 0, delete: 0, add: 0 };

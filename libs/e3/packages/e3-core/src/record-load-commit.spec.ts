@@ -361,6 +361,28 @@ describe('a load\'s commit', () => {
     assert.deepEqual(await chain(ws), ['plan', ...DEPLOYED], 'the save stands, and the load wrote nothing');
   });
 
+  it('R62 — a commit asked to stop while it applies its delta stops within a few of the delta\'s segments, and writes nothing: a load lets its workspace go for a deploy without applying a delivery of any size to its end', async () => {
+    const ws = await fresh();
+    // A delivery of many orders, whose delta is many segments
+    const ready = await prepared(ws, 'erp', await delivery(Array.from({ length: 40_000 }, (_, i): [string, OrderRow] =>
+      [`SO-${String(i).padStart(6, '0')}`, { customer: `C-${i % 97}`, qty: BigInt(i) }])));
+    const segments = await segmentsOf(ready.delta);
+    assert.ok(segments.size >= 12, `the delta is cut into many segments: ${segments.size}`);
+
+    // The stop comes as the first of the delta's segments is read: the apply reads no more than those read ahead of it
+    const stop = new AbortController();
+    const counted = counting(segments);
+    const stopping = overriding(counted.objects, {
+      read: (repo: string, hash: string) => {
+        if (segments.has(hash)) stop.abort();
+        return counted.objects.read(repo, hash);
+      },
+    });
+    assert.deepEqual(await commit(ws, 'erp', ready, { signal: stop.signal }, withStores(storage, { objects: stopping })), { kind: 'stopped' });
+    assert.ok(counted.reads() <= 6, `the commit read ${counted.reads()} of the delta's ${segments.size} segments`);
+    assert.deepEqual(await chain(ws), DEPLOYED, 'nothing committed');
+  });
+
   it('R92 — the commit\'s apply reads only the segments its delta\'s keys fall in, carrying every other over as stored', async () => {
     const ws = await fresh('1.2.0');
     const primary = (await readRecordState(storage, repoDir, (await ref(ws)).hash)).primary;
