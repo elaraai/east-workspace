@@ -93,6 +93,9 @@ import type { Mutable } from '../types.js';
  *  a set of inputs from a catch-up run of it over the same. */
 const sameInputs = equalFor(StringType);
 
+/** Whether two names are one: a repository's, or a workspace's. */
+const sameName = equalFor(StringType);
+
 /** The tasks and units the loop keeps in flight unless its caller sets a
  *  width. */
 const DEFAULT_LOOP_WIDTH = 4;
@@ -930,7 +933,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
    * process.
    */
   async wake(storage: StorageBackend, repo: string, workspace: string): Promise<boolean> {
-    const execution = [...this.executions.values()].find((each) => each.state.repo === repo && each.state.workspace === workspace);
+    const execution = [...this.executions.values()].find((each) => sameName(each.state.repo, repo) && sameName(each.state.workspace, workspace));
     // A run with a failed task launches nothing more, and ends once what is in
     // flight has settled: a change handed to it would never run
     const stopping = (run: RunningExecution): boolean =>

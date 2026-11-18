@@ -22,7 +22,7 @@
  * record.
  */
 
-import { variant, some, none } from '@elaraai/east';
+import { StringType, equalFor, variant, some, none } from '@elaraai/east';
 import { E3_RELEASE, dataflowForce, type StageUnit, type VersionVector, type Structure } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/interfaces.js';
 import type { UnitRequeue } from '../execution/interfaces.js';
@@ -66,6 +66,10 @@ import type {
   ExecutionEvent,
   Mutable,
 } from './types.js';
+
+/** Whether an input a task reads a root through is the root itself: the
+ *  root's keypath, where each other is a task's name. */
+const sameInput = equalFor(StringType);
 
 // =============================================================================
 // Initialization
@@ -566,7 +570,7 @@ export async function stepTaskCommits(
         return {
           kind: 'deferred',
           conflictPath: root,
-          reason: { kind: 'plain', input: root, through: [...through.filter((each) => each === root), ...through.filter((each) => each !== root)] },
+          reason: { kind: 'plain', input: root, through: [...through.filter((each) => sameInput(each, root)), ...through.filter((each) => !sameInput(each, root))] },
         };
       }
       version = await oldestHeld(storage, state, root, names.map((each) => each.version));
