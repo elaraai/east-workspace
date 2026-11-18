@@ -57,9 +57,10 @@ import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { boundRangeDomain, boundRangeHistogram, enableSlicePersistence } from "../../platform/slice";
 import { railAffordanceKinds } from "../rail-kinds.js";
-// Function-declaration import across the rail ↔ charts module cycle is safe
-// (hoisted; charts/spec imports SliceRailCluster from here the same way).
-import { tickFormatter, type TickFormat } from "../../charts/spec/index.js";
+// The tick format is a module of its own: the chart renderer imports this
+// rail, and the rail imports nothing that imports it back.
+import type { TickFormat } from "../../charts/spec/context.js";
+import { tickFormatter } from "../../charts/spec/tick-format.js";
 import { useFormatters } from "../../format/index.js";
 import { BrushStrip } from "../brush-strip.js";
 import { useSliceReactivity } from "../use-slice-reactivity";

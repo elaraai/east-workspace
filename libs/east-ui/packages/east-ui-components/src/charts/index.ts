@@ -9,4 +9,5 @@
  * is the standalone inline-trend renderer.
  */
 export { EastChakraSparkline, type EastChakraSparklineProps } from "./sparkline/index.js";
-export { EastVisxChart, type EastVisxChartProps, type ChartMark, type ChartMarkHandler } from "./spec/index.js";
+export { EastVisxChart, type EastVisxChartProps } from "./spec/index.js";
+export type { ChartMark, ChartMarkHandler } from "./spec/context.js";

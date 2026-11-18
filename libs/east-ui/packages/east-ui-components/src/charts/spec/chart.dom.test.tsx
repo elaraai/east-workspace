@@ -25,7 +25,8 @@ import { ChakraProvider } from "@chakra-ui/react";
 import { East, equalFor, variant, some, none, type ValueTypeOf } from "@elaraai/east";
 import { Chart } from "@elaraai/east-ui/internal";
 import { system } from "../../theme/index.js";
-import { EastVisxChart, type ChartMark } from "./index.js";
+import type { ChartMark } from "./context.js";
+import { EastVisxChart } from "./index.js";
 
 // jsdom lacks the ResizeObserver Chakra occasionally reaches for.
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
