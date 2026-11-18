@@ -30,6 +30,7 @@ import {
   stepTaskMergeCompleted,
   stepTaskCompleted,
   stepTaskFailed,
+  stepLoadFailed,
   stepTaskForced,
   stepTasksSkipped,
   stepTasksWaiting,
@@ -1076,6 +1077,62 @@ describe('stepTaskCommits', () => {
     (failed as Mutable<DataflowExecutionState>).failed = 1n;
     const again = await stepResumedTasksDue(storage, failed);
     assert.deepStrictEqual([again.due, again.events.length, failed.tasks.get('orders.erp')!.status, failed.failed], [[], 1, 'pending', 0n]);
+  });
+
+  it('counts a load node once that fails, is due again as its feed moves, and then loads: the result it held left the counts as it failed', async () => {
+    const loads: DataflowGraph = {
+      tasks: [
+        { name: 'feed', hash: 'hash-feed', inputs: ['.rates'], output: '.feed_out', dependsOn: [], load: none },
+        { name: 'orders.erp', hash: 'hash-load', inputs: ['.feed_out'], output: '.records.orders', dependsOn: ['feed'], load: some({ record: 'orders', source: 'erp' }) },
+      ],
+    };
+    // The node was answered from its record's slots, counted cached, and is in flight again on the feed's next output
+    const state = makeState(loads, new Map([
+      ['feed', makeCompleted('feed', 'feed-out')],
+      ['orders.erp', { ...makeCompleted('orders.erp', 'c1', true), status: 'in_progress' } as TaskState],
+    ]), { repo: testRepo, workspace: 'test-ws', executed: 1n, cached: 1n });
+    const counts = (): bigint[] => [state.executed, state.cached, state.failed];
+    state.versionVectors.set('.rates', new Map([['.rates', 'r2']]));
+    state.versionVectors.set('.feed_out', new Map([['.rates', 'r2']]));
+
+    stepLoadFailed(state, 'orders.erp', 'the ERP sent an order no book holds', undefined, 5, new Map([['.rates', 'r2']]));
+    assert.deepStrictEqual(counts(), [1n, 0n, 1n], 'failed: the result it held is counted no more');
+
+    // Its feed lands anew: due again, out of the failed count
+    state.versionVectors.set('.rates', new Map([['.rates', 'r3']]));
+    state.versionVectors.set('.feed_out', new Map([['.rates', 'r3']]));
+    assert.ok((await stepTaskDueAgain(storage, state, 'orders.erp'))?.type === 'task_invalidated');
+    assert.deepStrictEqual(counts(), [1n, 0n, 0n]);
+
+    stepTaskCompleted(state, 'orders.erp', 'c2', false, 5, { inputsHash: 'inputs', executionId: 'execution' }, new Map([['.rates', 'r3']]));
+    assert.deepStrictEqual(counts(), [2n, 0n, 0n], 'its landing counts it once: no count goes below what the run holds');
+  });
+
+  it('a load that fails has its record\'s readers decided again: one left waiting on it, and one deferred until it commits, unless another load holds it', () => {
+    const reads = (name: string, inputs: string[]) => ({ name, hash: `hash-${name}`, inputs, output: `.${name}_out`, dependsOn: [], load: none });
+    const loads: DataflowGraph = {
+      tasks: [
+        reads('forecast', ['.records.orders']),
+        reads('check', ['.records.orders', '.rates']),
+        reads('audit', ['.records.orders', '.records.stock']),
+        reads('other', ['.rates']),
+        { name: 'orders.erp', hash: 'hash-erp', inputs: ['.erp_rows'], output: '.records.orders', dependsOn: [], load: some({ record: 'orders', source: 'erp' }) },
+        { name: 'stock.wms', hash: 'hash-wms', inputs: ['.wms_rows'], output: '.records.stock', dependsOn: [], load: some({ record: 'stock', source: 'wms' }) },
+      ],
+    };
+    const state = makeState(loads, new Map<string, TaskState>([
+      ['forecast', makeTaskState('forecast', 'waiting')],
+      ['check', makeTaskState('check', 'deferred')],
+      ['audit', makeTaskState('audit', 'waiting')],
+      ['other', makeTaskState('other', 'waiting')],
+      ['orders.erp', makeTaskState('orders.erp', 'in_progress')],
+      ['stock.wms', makeTaskState('stock.wms', 'waiting')],
+    ]));
+
+    stepLoadFailed(state, 'orders.erp', 'the ERP sent an order no book holds', undefined, 5, new Map([['.erp_rows', 'e1']]));
+    const status = (name: string) => state.tasks.get(name)!.status;
+    assert.deepStrictEqual(['forecast', 'check', 'audit', 'other'].map(status), ['pending', 'pending', 'waiting', 'waiting'],
+      'forecast waited on the load, and check for its commit; audit reads a record whose load still waits; other reads neither record');
   });
 
   it('throws for a task the graph lacks, and is the step every entry exports', async () => {

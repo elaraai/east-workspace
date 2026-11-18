@@ -1067,13 +1067,17 @@ async function askDue(
 
 /**
  * Puts a failed load node back to pending, out of the failed count, to load
- * its feed's next output: its feed moved since the launch that failed.
+ * its feed's next output: its feed moved since the launch that failed. It
+ * holds no result now: the one it held was taken out of the counts as it
+ * failed ({@link uncountResult}), so its next landing counts it once.
  */
 function loadDueAfterFailure(state: DataflowExecutionState, taskState: Mutable<TaskState>): ExecutionEvent {
   const mutableState = state as Mutable<DataflowExecutionState>;
   taskState.status = 'pending';
   taskState.error = none;
   taskState.exitCode = none;
+  taskState.outputHash = none;
+  taskState.cached = none;
   mutableState.failed = state.failed - 1n;
   mutableState.reexecuted = state.reexecuted + 1n;
   mutableState.eventSeq = state.eventSeq + 1n;
@@ -1357,6 +1361,18 @@ function waitsOnDependency(state: DataflowExecutionState, graph: DataflowGraph, 
   const task = graph.tasks.find((each) => each.name === taskName);
   return task !== undefined &&
     (task.dependsOn.some((dep) => state.tasks.get(dep)?.status === 'waiting') || upstreamWaits(state, graph, task).length > 0);
+}
+
+/**
+ * Sends a task the loop set aside back to pending, to be decided again as it
+ * next launches: one deferred, and one left waiting, unless a task it reads
+ * or a load of a record it reads still waits, which decides it again as that
+ * one settles.
+ */
+function decideAgain(state: DataflowExecutionState, graph: DataflowGraph, taskName: string): void {
+  const taskState = state.tasks.get(taskName) as Mutable<TaskState> | undefined;
+  if (taskState?.status === 'deferred') taskState.status = 'pending';
+  else if (taskState?.status === 'waiting' && !waitsOnDependency(state, graph, taskName)) taskState.status = 'pending';
 }
 
 /** The nodes that read a record directly, a load node's record: what waits
@@ -1708,10 +1724,7 @@ export function stepTaskCompleted(
   // run. A load node's are its record's readers.
   const readers = new Set(task === undefined ? [] : readersOf(graph, task).map((reader) => reader.name));
   for (const dependent of graph.tasks) {
-    if (!dependent.dependsOn.includes(taskName) && !readers.has(dependent.name)) continue;
-    const ts = state.tasks.get(dependent.name) as Mutable<TaskState> | undefined;
-    if (ts?.status === 'deferred') ts.status = 'pending';
-    else if (ts?.status === 'waiting' && !waitsOnDependency(state, graph, dependent.name)) ts.status = 'pending';
+    if (dependent.dependsOn.includes(taskName) || readers.has(dependent.name)) decideAgain(state, graph, dependent.name);
   }
 
   // Find newly ready tasks
@@ -1827,6 +1840,11 @@ export function stepTaskFailed(
  * The versions it was launched with are kept for the node, so it runs again
  * once its feed has moved from them ({@link stepTasksDue}, {@link stepTaskDueAgain}).
  *
+ * Its record's readers that the loop set aside are decided again: a load that
+ * failed waits no longer, so one left waiting on it runs on the record as it
+ * stands, unless something else holds it; and one deferred until it commits
+ * is asked again what it reads ({@link stepTaskCommits}).
+ *
  * @param state - Execution state to mutate
  * @param taskName - The load node
  * @param error - Why it failed, as its runner or its commit said (optional)
@@ -1845,6 +1863,9 @@ export function stepLoadFailed(
 ): ExecutionEvent {
   const { event } = stepTaskFailed(state, taskName, error, exitCode, duration);
   state.versionVectors.set(taskName, new Map(versions));
+  const graph = getGraph(state);
+  const node = graph.tasks.find((each) => each.name === taskName);
+  for (const reader of node === undefined ? [] : readersOf(graph, node)) decideAgain(state, graph, reader.name);
   return event;
 }
 
