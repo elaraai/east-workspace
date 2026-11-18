@@ -96,6 +96,7 @@ import {
     type SnapGridBox, type SnapGridDrop, type SnapGridRowModel, type SnapGridTile,
 } from "./model.js";
 import type { SnapGridEditorCell, SnapGridEditorValue } from "./index.js";
+import { LEAST_HEIGHT, contentHeight, frameHeight } from "./natural.js";
 
 // A tile's and a design width's icons are Font Awesome names from the data;
 // register the free-solid set so they resolve by name (idempotent).
@@ -268,7 +269,8 @@ const SnapGridTileBox = memo(function SnapGridTileBox(p: TileProps) {
     const span = p.preview?.span ?? tile.span;
     const height = p.preview !== undefined && p.preview.height !== undefined ? p.preview.height : tile.height;
     const style = { "--snap-grid-span": String(span) } as CSSProperties;
-    const frameStyle: CSSProperties | undefined = height === null || height === undefined ? undefined : { height: `${height}px` };
+    // A stretched tile is as tall as its row: its height is the least it takes.
+    const held = frameHeight(height, cell.align.type === "stretch");
     const { onResizeStart, onRemove, onDuplicate, onEdit, onSelect } = p;
     return (
         <Box
@@ -289,7 +291,7 @@ const SnapGridTileBox = memo(function SnapGridTileBox(p: TileProps) {
             data-draggable={drag !== undefined ? "" : undefined}
             onClick={(e: ReactMouseEvent) => { e.stopPropagation(); onSelect(key); }}
         >
-            <Box css={styles.frame} style={frameStyle} data-frame={cell.frame ? "" : undefined}>
+            <Box css={styles.frame} style={held.style} data-frame={cell.frame ? "" : undefined} {...(held.least ? { [LEAST_HEIGHT]: "" } : {})}>
                 {p.renderContent !== undefined ? p.renderContent(cell)
                     : cell.content !== undefined ? <EastChakraComponent value={cell.content} storageKey={`${p.storageKey}.${cell.key}`} />
                         : null}
@@ -692,8 +694,6 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
     // go of one whose end was never heard, as Esc does, and as the canvas going does.
     const dropResize = useRef<(() => void) | undefined>(undefined);
     useEffect(() => () => dropResize.current?.(), []);
-    /** Each tile's content height, taken the last time it was auto — where a height drag returns it to auto. */
-    const naturals = useRef(new Map<string, number>());
     const onResizeStart = useCallback((e: ReactPointerEvent, key: string, kind: ResizeKind) => {
         if (e.button !== 0) return;
         e.stopPropagation();
@@ -710,8 +710,9 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
         // A height is in layout px: the pointer's travel through the zoom.
         const scaleY = frameEl.offsetHeight > 0 ? frameEl.getBoundingClientRect().height / frameEl.offsetHeight : 1;
         const h0 = frameEl.offsetHeight;
-        if (tile.height === undefined) naturals.current.set(key, h0);
-        const natural = naturals.current.get(key) ?? h0;
+        // Its content's own height — where a height drag stops, and returns it to its content's. Read with its height let
+        // go: the height it stands at would hold every shorter one off.
+        const natural = contentHeight(frameEl);
         const siblings = tilesIn(rowEl).filter((el) => el !== tileEl)
             .map((el) => (el.firstElementChild instanceof HTMLElement ? el.firstElementChild.offsetHeight : 0));
         const y0 = e.clientY;
@@ -754,16 +755,6 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
         };
     }, [resize, height]);
 
-    // Each auto tile's content height, kept fresh — what a height a pane asks
-    // for is held to, as a height drag is.
-    useEffect(() => {
-        for (const tile of tiles) {
-            if (tile.height !== undefined) continue;
-            const frame = tileEls.current.get(tile.key)?.firstElementChild;
-            if (frame instanceof HTMLElement && frame.offsetHeight > 0) naturals.current.set(tile.key, frame.offsetHeight);
-        }
-    });
-
     // ── A change a pane asks for (#996, #1672) — one gesture, then written back ─
     useEffect(() => {
         if (request === undefined || bound === undefined) return;
@@ -783,7 +774,8 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
                     // As a height drag: a least height floors it, else its content's
                     // height, where it returns to auto; never past the most.
                     const asked = change.value.type === "some" ? Number(change.value.value) : null;
-                    const natural = naturals.current.get(tile.key);
+                    const frame = tileEls.current.get(tile.key)?.firstElementChild;
+                    const natural = frame instanceof HTMLElement && frame.offsetHeight > 0 ? contentHeight(frame) : undefined;
                     const kept = asked === null ? null
                         : tile.minHeight !== undefined ? Math.max(tile.minHeight, Math.min(MAX_HEIGHT, asked))
                             : natural !== undefined && asked <= natural ? null

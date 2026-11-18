@@ -38,7 +38,7 @@ import { EditingReadinessType, EditingSessionFields } from "../../contracts/edit
  *
  * @property top - At the row's top
  * @property center - Centred in the row
- * @property stretch - As tall as the row
+ * @property stretch - As tall as the row: its `height` is then the least it takes
  */
 export const SnapGridAlignType = VariantType({
     top: NullType,
@@ -317,7 +317,7 @@ export const SnapGridReadyEntryType = StructType({ id: StringType, entry: BlobTy
  * @property key - The cell's identity
  * @property row - The key of the row it sits in
  * @property span - Its width, in columns of 12
- * @property height - Its height in px; `none` is its content's height
+ * @property height - Its height in px — the least it takes where it stretches (`align`), which is as tall as its row; `none` is its content's height
  * @property minHeight - The least height a height drag leaves it, in px; `none` stops it at its content's height
  * @property align - Where it sits in a taller row
  * @property frame - Drawn in a tile frame, or bare
