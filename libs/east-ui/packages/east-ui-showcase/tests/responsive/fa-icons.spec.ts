@@ -512,6 +512,9 @@ test.describe("a Chakra part's icon is Font Awesome's, in the box Chakra's own t
             await builder.evaluate((root) => { (root as HTMLElement).style.width = "1440px"; });
             await settled(page);
             await builder.locator("[data-snap-grid-tile]").first().click();
+            await settled(page);
+            // The inspector opens on what the tile holds (#1672): its height is on its Layout tab.
+            await builder.getByRole("tab", { name: "Layout" }).click();
             const height = page.locator(row).locator("[data-inspector-height]").first();
             await expect(height).toBeVisible();
             await settled(page);
