@@ -24,6 +24,7 @@ function pie(data: readonly [string, number, string?][], options: { top?: bigint
         format: none,
         caption: none,
         note: none,
+        legend: none,
     };
 }
 

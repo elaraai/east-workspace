@@ -14,7 +14,8 @@
  * placements hold content (#1669) — a text block and visuals over a source the
  * surface lists — and declares the one step that carries a workspace's pages
  * stored before a placement held content. A third holds a page of every form
- * a visual draws (#1671), over the quarter's orders.
+ * a visual draws (#1671), over the quarter's orders; a fourth, a page of the
+ * options a chart and a value take (#1672).
  */
 
 import {
@@ -718,6 +719,63 @@ export const studioVisuals = example({
                                 margin: { label: "Margin", format: "percent" },
                             },
                             range: "ordered_at", search: ["customer", "region"], split: ["region", "category"],
+                        }),
+                    }} />
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/** The Chart options page's placements: a pie whose legend names its slices alone, a donut with no legend, stacked columns with their legend hidden, and a summary whose revenue and margin are each printed as its field's format says and in a format of its own. */
+const chartOptionCells = [
+    { key: "c-names", row: "r1", span: 4n, height: some(240n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.pie({ slice: vis.group("category"), value: vis.sum("revenue"), legend: "names" })) },
+    { key: "c-alone", row: "r1", span: 4n, height: some(240n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.pie({ slice: vis.group("region"), value: vis.sum("revenue"), donut: true, legend: "hidden" })) },
+    { key: "c-columns", row: "r1", span: 4n, height: some(240n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.column({ x: vis.group("ordered_at", { bucket: "month" }), values: [vis.sum("revenue")], split: "region", stack: "stacked", legend: "hidden" })) },
+    { key: "c-formats", row: "r2", span: 12n, height: some(260n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.summary({
+        rows: [vis.group("region", { sort: "high" })],
+        values: [vis.sum("revenue"), vis.sum("revenue", { label: "Revenue, whole", format: "number" }), vis.mean("margin"), vis.mean("margin", { label: "Margin, as a number", format: "number" })],
+    })) },
+];
+
+/** The pages of the chart options' project: one page, Chart options, live as it was drafted. */
+export const studioChartOptionPages = e3.record("studio_chart_option_pages", Studio.Types.Pages, {
+    initial: new SortedMap<Key, Entry>([
+        [{ project: "Sales desk", page: "Chart options" }, variant("page", {
+            draft: { title: "Chart options", cells: chartOptionCells },
+            live: some({ version: 1n, page: { title: "Chart options", cells: chartOptionCells } }),
+        })],
+    ], compareFor(Studio.Types.Key)),
+    mutations: (mutation) => ({
+        // The record's one write.
+        patch: mutation.patch(),
+    }),
+});
+
+export const studioChartOptions = example({
+    keywords: [
+        "Studio", "Studio.Page", "Studio.visual", "visual", "chart", "options", "legend", "hidden", "names", "values", "no legend", "pie", "donut", "column",
+        "format", "value format", "number", "percent", "currency", "summary", "Studio.source", "Data.bind",
+    ],
+    description: "The options a chart and a value take, on a published page over the quarter's orders: a pie whose legend names its slices alone (`legend: \"names\"`), a donut with no legend (`\"hidden\"`) — a pie's legend shows each slice's value and share unless it says otherwise — stacked columns with their legend hidden (a chart draws its legend where it names more than one series, `\"auto\"`, or never, `\"hidden\"`), and a summary whose revenue and margin are each printed as its field's format says — a currency, a percentage — beside the same value as a plain number (`format: \"number\"`) — a value's `format` (`\"number\"`, `\"percent\"`, `{ currency: { code: \"AUD\" } }`) takes the place of its field's wherever its numbers are printed",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const pages = $.let(Data.bind(studioChartOptionPages));
+            const orders = $.let(Data.bind(studioOrders));
+            return (
+                <Studio.Page pages={pages.read()} components={[]} page={{ project: "Sales desk", page: "Chart options" }}
+                    sources={{
+                        orders: Studio.source(orders, {
+                            name: "Orders", icon: "receipt", description: "One row per order",
+                            fields: {
+                                ordered_at: { label: "Ordered" },
+                                region: { label: "Region" },
+                                category: { label: "Category" },
+                                customer: { label: "Customer" },
+                                revenue: { label: "Revenue", format: { currency: { code: "AUD" } } },
+                                units: { label: "Units" },
+                                margin: { label: "Margin", format: "percent" },
+                            },
                         }),
                     }} />
             );

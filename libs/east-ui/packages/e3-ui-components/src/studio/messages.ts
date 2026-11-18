@@ -288,6 +288,16 @@ export interface StudioMessages {
     betterName: (p: { better: "higher" | "lower" }) => string;
     /** A value's own label, in place of its name. */
     valueLabel: () => string;
+    /** How a value's numbers are shown — the value pill menu's select. */
+    format: () => string;
+    /** A format, as its segment says it — each short enough for four to stand side by side: as its field's, or one of its own. */
+    formatName: (p: { format: "auto" | "number" | "percent" | "currency" }) => string;
+    /** What Auto is, under the format's segments. */
+    formatHelp: () => string;
+    /** A currency format's code. */
+    currencyCode: () => string;
+    /** Why a currency's code is refused: it is three letters. */
+    currencyCodeNeeded: () => string;
     /** The axis a combo's value is drawn against — the value pill menu's segments. */
     axis: () => string;
     /** A side, as its segment says it. */
@@ -693,6 +703,11 @@ export const studioMessages: StudioMessages = {
     better: () => "Better",
     betterName: ({ better }) => (better === "higher" ? "Higher" : "Lower"),
     valueLabel: () => "Label",
+    format: () => "Format",
+    formatName: ({ format }) => (format === "auto" ? "Auto" : format === "number" ? "Number" : format === "percent" ? "Percent" : "Money"),
+    formatHelp: () => "Auto shows it as its field's format says.",
+    currencyCode: () => "Currency code",
+    currencyCodeNeeded: () => "A currency's code is three letters, as AUD",
     axis: () => "Axis",
     axisSide: ({ right }) => (right ? "Right" : "Left"),
     pillGoal: ({ goal }) => `goal ${goal}`,

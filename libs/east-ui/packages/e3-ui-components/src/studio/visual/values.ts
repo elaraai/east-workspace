@@ -8,7 +8,7 @@
  * visual's name, made from its wells — what its tile's eyebrow says when its
  * placement has no title (TIL-1); a value's name — its label, else one made
  * from its measure and its fields' labels — and the format its numbers take,
- * its field's; a change against a compare, coloured by which way is better
+ * its own or else its field's; a change against a compare, coloured by which way is better
  * (KPI-2); how a value stands to its goal; a number where room is short and
  * the unit said beside it; and a KPI's whole model, read from its answers,
  * its words made.
@@ -110,14 +110,16 @@ export function groupLabel(key: unknown, type: EastType, group: VisualGroup | un
 }
 
 /**
- * The format a value's field declares, as an axis takes it: a ratio's, what it
- * is of; none for a count.
+ * The format a value's numbers take, as an axis takes it: its own, where it
+ * has one; else the one its field declares — a ratio's, what it is of; none
+ * for a count.
  *
  * @param value - The value
  * @param source - The source its fields are of
- * @returns The field's format; `none` prints a plain number
+ * @returns The value's format, else its field's; `none` prints a plain number
  */
 export function valueFieldFormat(value: VisualValue, source: VisualSource): option<ValueFormat> {
+    if (value.format.type === "some") return value.format;
     const measure = value.measure;
     const id = measure.type === "ratio" ? measure.value.of : measure.type === "count" || measure.type === "distinct" ? undefined : measure.value;
     return (id === undefined ? undefined : source.fields.find((field) => field.id === id)?.format) ?? none;
@@ -365,8 +367,8 @@ export function visualMeta(view: VisualView, source: VisualSource, m: StudioMess
 }
 
 /**
- * The format a value's numbers take: its field's — a ratio's, what it is of;
- * none for a count, which is plain.
+ * The format a value's numbers take: its own, else its field's — a ratio's,
+ * what it is of; none for a count, which is plain.
  *
  * @param value - The value
  * @param source - The source its fields are of

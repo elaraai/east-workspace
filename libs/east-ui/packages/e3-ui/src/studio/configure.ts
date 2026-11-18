@@ -29,7 +29,9 @@ import { TimeResolutionType } from "@elaraai/east-ui";
 import {
     StudioChartType,
     StudioGroupType,
+    StudioLegendType,
     StudioMeasureType,
+    StudioPieLegendType,
     StudioSeriesChartType,
     StudioSortType,
     StudioTableType,
@@ -152,6 +154,7 @@ export const placedPill = East.function([StudioWellType, StudioFieldType], Studi
         period: variant("current", null),
         goal: none,
         better: variant("higher", null),
+        format: none,
     }, StudioValueType);
     return held.holds.match({
         value: (_$2) => East.value(variant("value", value), StudioPillType),
@@ -194,7 +197,7 @@ const groupOfId = East.function([StringType, ArrayType(StudioFieldType)], Studio
  * A chart's wells as the four series kinds hold them — what a change of chart
  * kind carries: a combo's columns then its lines as the values; a scatter's
  * point as the axis and its two values; a pie's slices as the axis and its
- * value.
+ * value. Its legend stays hidden where it was, and is drawn where it was.
  */
 const chartWells = East.function([StudioChartType], StudioSeriesChartType, (_$, chart) => chart.match({
     column: (_$2, series) => series,
@@ -206,14 +209,25 @@ const chartWells = East.function([StudioChartType], StudioSeriesChartType, (_$, 
         values: combo.columns.map((_$3, axis) => axis.value).concat(combo.lines.map((_$3, axis) => axis.value)),
         split: none,
         stack: combo.stack,
+        legend: combo.legend,
     }, StudioSeriesChartType),
     scatter: (_$2, scatter) => East.value({
         x: { field: scatter.point, bucket: none, sort: variant("natural", null), top: none },
         values: [scatter.x, scatter.y],
         split: scatter.split,
         stack: variant("none", null),
+        legend: scatter.legend,
     }, StudioSeriesChartType),
-    pie: (_$2, pie) => East.value({ x: pie.slice, values: [pie.value], split: none, stack: variant("none", null) }, StudioSeriesChartType),
+    pie: (_$2, pie) => East.value({
+        x: pie.slice,
+        values: [pie.value],
+        split: none,
+        stack: variant("none", null),
+        legend: pie.legend.hasTag("hidden").ifElse(
+            () => East.value(variant("hidden", null), StudioLegendType),
+            () => East.value(variant("auto", null), StudioLegendType),
+        ),
+    }, StudioSeriesChartType),
 }));
 
 /**
@@ -221,7 +235,8 @@ const chartWells = East.function([StudioChartType], StudioSeriesChartType, (_$, 
  * kinds keep them all, a line its stack too; a combo takes the values as its
  * columns, against the left axis; a scatter takes the axis's field as its
  * point and the first two values as its X and Y; a pie takes the axis as its
- * slices and the first value. `none` for a kind that is no chart.
+ * slices and the first value, its legend each slice's value and share unless
+ * the series' was hidden. `none` for a kind that is no chart.
  */
 const chartOfKind = East.function([StudioKindType, StudioSeriesChartType], OptionType(StudioChartType), (_$, kind, series) => kind.match({
     column: (_$2) => East.value(some(variant("column", series)), OptionType(StudioChartType)),
@@ -233,14 +248,24 @@ const chartOfKind = East.function([StudioKindType, StudioSeriesChartType], Optio
         columns: series.values.map((_$3, value) => ({ value, right: false })),
         lines: [],
         stack: series.stack,
+        legend: series.legend,
     })), OptionType(StudioChartType)),
     scatter: (_$2) => East.value(some(variant("scatter", {
         point: series.x.field,
         x: series.values.get(0n, (_$3) => COUNT),
         y: series.values.get(1n, (_$3) => COUNT),
         split: series.split,
+        legend: series.legend,
     })), OptionType(StudioChartType)),
-    pie: (_$2) => East.value(some(variant("pie", { slice: series.x, value: series.values.get(0n, (_$3) => COUNT), donut: false })), OptionType(StudioChartType)),
+    pie: (_$2) => East.value(some(variant("pie", {
+        slice: series.x,
+        value: series.values.get(0n, (_$3) => COUNT),
+        donut: false,
+        legend: series.legend.hasTag("hidden").ifElse(
+            () => East.value(variant("hidden", null), StudioPieLegendType),
+            () => East.value(variant("values", null), StudioPieLegendType),
+        ),
+    })), OptionType(StudioChartType)),
 }, (_$2) => East.value(none, OptionType(StudioChartType))));
 
 /** A table's wells in one shape: its groups, its values, and the fields a records table shows. */

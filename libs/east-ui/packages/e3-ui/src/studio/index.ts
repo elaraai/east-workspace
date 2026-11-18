@@ -86,10 +86,12 @@ export {
     StudioFollowType,
     StudioGroupType,
     StudioKpiType,
+    StudioLegendType,
     StudioListType,
     StudioMeasureType,
     StudioPeriodType,
     StudioPieChartType,
+    StudioPieLegendType,
     StudioScatterChartType,
     StudioSeriesChartType,
     StudioSlicerType,
@@ -131,6 +133,7 @@ export {
     type StudioSourceMeta,
     type StudioSourceRows,
 } from "./source.js";
+export { StudioFormatChoiceType, choiceFormat, editedFormatChoice, formatChoice, isCurrencyCode, type StudioFormatChoice } from "./format.js";
 export { StudioMigrations, cellContent, type StudioMigrationsNamespace } from "./migrations.js";
 export {
     StudioPage,

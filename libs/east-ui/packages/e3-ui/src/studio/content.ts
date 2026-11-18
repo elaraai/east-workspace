@@ -39,7 +39,7 @@ import {
     type ValueTypeOf,
 } from "@elaraai/east";
 import { TimeResolutionType, type TimeResolutionLiteral } from "@elaraai/east-ui";
-import { SliceAffordanceType, type SliceAffordanceLiteral } from "@elaraai/east-ui/internal";
+import { SliceAffordanceType, ValueFormatType, toValueFormat, type SliceAffordanceLiteral, type SliceFieldFormat } from "@elaraai/east-ui/internal";
 import { StudioKeyType } from "./key.js";
 import { sourceName } from "./source.js";
 
@@ -100,6 +100,7 @@ const StudioValueTypeImpl = StructType({
     period: StudioPeriodType,
     goal: OptionType(FloatType),
     better: StudioBetterType,
+    format: OptionType(ValueFormatType),
 });
 type StudioValueTypeImpl = typeof StudioValueTypeImpl;
 
@@ -123,6 +124,7 @@ export interface StudioValueType extends StudioValueTypeImpl {}
  * @property period - The period it is measured over
  * @property goal - A goal to draw against; `none` draws none
  * @property better - Which way is better
+ * @property format - How its numbers are shown; `none` shows them as its field's format says
  */
 export const StudioValueType: StudioValueType = StudioValueTypeImpl;
 
@@ -181,6 +183,29 @@ export const StudioStackType = VariantType({ none: NullType, stacked: NullType, 
 /** Type representing how a chart's series stack. */
 export type StudioStackType = typeof StudioStackType;
 
+/**
+ * Whether a chart draws its legend.
+ *
+ * @property auto - Where it has more than one series to name
+ * @property hidden - Never
+ */
+export const StudioLegendType = VariantType({ auto: NullType, hidden: NullType });
+
+/** Type representing whether a chart draws its legend. */
+export type StudioLegendType = typeof StudioLegendType;
+
+/**
+ * What a pie's legend shows.
+ *
+ * @property values - Each slice's name, its value and its share
+ * @property names - Each slice's name alone
+ * @property hidden - No legend: the pie alone
+ */
+export const StudioPieLegendType = VariantType({ values: NullType, names: NullType, hidden: NullType });
+
+/** Type representing what a pie's legend shows. */
+export type StudioPieLegendType = typeof StudioPieLegendType;
+
 // ============================================================================
 // Views
 // ============================================================================
@@ -208,12 +233,14 @@ export type StudioKpiType = typeof StudioKpiType;
  * @property values - The series: one a value, or one a value of `split`
  * @property split - A field to split the first value by; `none` draws each value as a series
  * @property stack - How the series stack
+ * @property legend - Whether it draws its legend
  */
 export const StudioSeriesChartType = StructType({
     x: StudioGroupType,
     values: ArrayType(StudioValueType),
     split: OptionType(StringType),
     stack: StudioStackType,
+    legend: StudioLegendType,
 });
 
 /** Type representing a chart of series along one axis. */
@@ -237,12 +264,14 @@ export type StudioAxisValueType = typeof StudioAxisValueType;
  * @property columns - The values drawn as columns
  * @property lines - The values drawn as lines
  * @property stack - How the columns stack
+ * @property legend - Whether it draws its legend
  */
 export const StudioComboChartType = StructType({
     x: StudioGroupType,
     columns: ArrayType(StudioAxisValueType),
     lines: ArrayType(StudioAxisValueType),
     stack: StudioStackType,
+    legend: StudioLegendType,
 });
 
 /** Type representing a combo chart. */
@@ -255,12 +284,14 @@ export type StudioComboChartType = typeof StudioComboChartType;
  * @property x - Its place along the axis
  * @property y - Its height
  * @property split - A field to colour the points by; `none` draws them alike
+ * @property legend - Whether it draws its legend
  */
 export const StudioScatterChartType = StructType({
     point: StringType,
     x: StudioValueType,
     y: StudioValueType,
     split: OptionType(StringType),
+    legend: StudioLegendType,
 });
 
 /** Type representing a scatter chart. */
@@ -272,8 +303,9 @@ export type StudioScatterChartType = typeof StudioScatterChartType;
  * @property slice - What a slice stands for
  * @property value - The value shared out
  * @property donut - Drawn as a ring, its total in the middle
+ * @property legend - What its legend shows
  */
-export const StudioPieChartType = StructType({ slice: StudioGroupType, value: StudioValueType, donut: BooleanType });
+export const StudioPieChartType = StructType({ slice: StudioGroupType, value: StudioValueType, donut: BooleanType, legend: StudioPieLegendType });
 
 /** Type representing a pie chart. */
 export type StudioPieChartType = typeof StudioPieChartType;
@@ -710,6 +742,8 @@ export interface StudioValueOptions {
     goal?: number;
     /** Which way is better; higher unless given. */
     better?: "higher" | "lower";
+    /** How its numbers are shown — `"number"`, `"percent"`, `{ currency: { code: "AUD" } }`; as its field's format says unless given. */
+    format?: SliceFieldFormat;
 }
 
 /** How a group is cut and ordered: each has a default. */
@@ -740,6 +774,7 @@ function valueOf(measure: ValueTypeOf<StudioMeasureType>, options: StudioValueOp
         period: variant(options.period ?? "current", null),
         goal: options.goal === undefined ? none : some(options.goal),
         better: variant(options.better ?? "higher", null),
+        format: options.format === undefined ? none : some(toValueFormat(options.format)),
     };
 }
 
@@ -788,13 +823,14 @@ function visualOf(source: string, view: StudioView, options: StudioVisualOptions
 
 /** A chart of series along one axis, as a view. */
 function seriesOf(kind: "column" | "bar" | "line" | "area", chart: {
-    x: StudioGroup; values: readonly StudioValue[]; split?: string; stack?: "none" | "stacked" | "percent";
+    x: StudioGroup; values: readonly StudioValue[]; split?: string; stack?: "none" | "stacked" | "percent"; legend?: "auto" | "hidden";
 }): StudioView {
     return variant("chart", variant(kind, {
         x: chart.x,
         values: [...chart.values],
         split: chart.split === undefined ? none : some(chart.split),
         stack: variant(chart.stack ?? "none", null),
+        legend: variant(chart.legend ?? "auto", null),
     }));
 }
 
@@ -859,20 +895,22 @@ export const StudioVisuals = {
     right: (value: StudioValue): StudioAxisValue => ({ value, right: true }),
     /** A combo chart: columns and lines on one axis, each made with `left` or `right` for the axis it reads against. */
     combo: (chart: {
-        x: StudioGroup; columns: readonly StudioAxisValue[]; lines: readonly StudioAxisValue[]; stack?: "none" | "stacked" | "percent";
+        x: StudioGroup; columns: readonly StudioAxisValue[]; lines: readonly StudioAxisValue[]; stack?: "none" | "stacked" | "percent"; legend?: "auto" | "hidden";
     }): StudioView => variant("chart", variant("combo", {
         x: chart.x,
         columns: [...chart.columns],
         lines: [...chart.lines],
         stack: variant(chart.stack ?? "none", null),
+        legend: variant(chart.legend ?? "auto", null),
     })),
     /** A scatter chart: a point for each value of a field, placed by two values. */
-    scatter: (chart: { point: string; x: StudioValue; y: StudioValue; split?: string }): StudioView => variant("chart", variant("scatter", {
+    scatter: (chart: { point: string; x: StudioValue; y: StudioValue; split?: string; legend?: "auto" | "hidden" }): StudioView => variant("chart", variant("scatter", {
         point: chart.point, x: chart.x, y: chart.y, split: chart.split === undefined ? none : some(chart.split),
+        legend: variant(chart.legend ?? "auto", null),
     })),
-    /** A pie chart, or a donut. */
-    pie: (chart: { slice: StudioGroup; value: StudioValue; donut?: boolean }): StudioView => variant("chart", variant("pie", {
-        slice: chart.slice, value: chart.value, donut: chart.donut ?? false,
+    /** A pie chart, or a donut: its legend each slice's value and share unless it shows their names alone, or is hidden. */
+    pie: (chart: { slice: StudioGroup; value: StudioValue; donut?: boolean; legend?: "values" | "names" | "hidden" }): StudioView => variant("chart", variant("pie", {
+        slice: chart.slice, value: chart.value, donut: chart.donut ?? false, legend: variant(chart.legend ?? "values", null),
     })),
     /** A table of the source's rows: the fields shown, and the one they are sorted by. */
     records: (table: { columns: readonly string[]; sort?: string; descending?: boolean }): StudioView => variant("table", variant("records", {

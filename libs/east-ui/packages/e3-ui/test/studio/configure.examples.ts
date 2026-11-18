@@ -28,7 +28,7 @@ export const studioPlacedPill = example({
     }),
     inputs: [],
     returns: variant("value", {
-        measure: variant("sum", "revenue"), label: none, period: variant("current", null), goal: none, better: variant("higher", null),
+        measure: variant("sum", "revenue"), label: none, period: variant("current", null), goal: none, better: variant("higher", null), format: none,
     }),
 });
 
@@ -66,6 +66,7 @@ export const studioKindOfView = example({
             values: [],
             split: none,
             stack: variant("none", null),
+            legend: variant("auto", null),
         })), StudioViewType);
         return kindOfView(view);
     }),
@@ -83,8 +84,9 @@ export const studioEmptyView = example({
     inputs: [],
     returns: variant("chart", variant("pie", {
         slice: { field: "", bucket: none, sort: variant("natural", null), top: none },
-        value: { measure: variant("count", null), label: none, period: variant("current", null), goal: none, better: variant("higher", null) },
+        value: { measure: variant("count", null), label: none, period: variant("current", null), goal: none, better: variant("higher", null), format: none },
         donut: false,
+        legend: variant("values", null),
     })),
 });
 
@@ -94,9 +96,10 @@ export const studioSwitchedView = example({
     fn: East.function([], StudioViewType, ($) => {
         const column = $.const(variant("chart", variant("column", {
             x: { field: "region", bucket: none, sort: variant("high", null), top: none },
-            values: [{ measure: variant("sum", "revenue"), label: none, period: variant("current", null), goal: none, better: variant("higher", null) }],
+            values: [{ measure: variant("sum", "revenue"), label: none, period: variant("current", null), goal: none, better: variant("higher", null), format: none }],
             split: some("channel"),
             stack: variant("stacked", null),
+            legend: variant("auto", null),
         })), StudioViewType);
         const line = $.const(variant("line", null), StudioKindType);
         return switchedView(column, line, []);
@@ -104,9 +107,10 @@ export const studioSwitchedView = example({
     inputs: [],
     returns: variant("chart", variant("line", {
         x: { field: "region", bucket: none, sort: variant("high", null), top: none },
-        values: [{ measure: variant("sum", "revenue"), label: none, period: variant("current", null), goal: none, better: variant("higher", null) }],
+        values: [{ measure: variant("sum", "revenue"), label: none, period: variant("current", null), goal: none, better: variant("higher", null), format: none }],
         split: some("channel"),
         stack: variant("stacked", null),
+        legend: variant("auto", null),
     })),
 });
 
@@ -127,7 +131,7 @@ export const studioMostUsedSource = example({
             },
         ], ArrayType(StudioSourceType));
         const count = $.const({
-            measure: variant("count", null), label: none, period: variant("current", null), goal: none, better: variant("higher", null),
+            measure: variant("count", null), label: none, period: variant("current", null), goal: none, better: variant("higher", null), format: none,
         }, Studio.Types.Value);
         const cells = $.const([
             {

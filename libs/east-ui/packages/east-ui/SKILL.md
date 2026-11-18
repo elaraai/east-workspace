@@ -153,7 +153,7 @@ Task → Which tag?
 │   │   ├─ Chart.Line / Chart.Column / Chart.Area / Chart.Scatter(rows, encoding, style?) — encoding { x, y } · { x, y, by } (split) · { x, columns: { Name: r => r.field } } (wide)
 │   │   ├─ Chart.Bar(rows, { x: numeric, y: category }, style?) — HORIZONTAL bars (Column is the vertical one); can't mix with vertical marks
 │   │   ├─ Chart.Band(rows, { x, low, high }, style?) — filled range (a confidence band)
-│   │   ├─ Chart.Pie(rows, { label, value }, { top?, total?, other?, donut?, format?, caption?, note? }) — shares of one total, largest first from twelve o'clock, the first `top` (4) then Other; the legend carries value and share, over its `note`; a donut's total stands over its `caption`; a chart of its own — no other layer, no axes
+│   │   ├─ Chart.Pie(rows, { label, value }, { top?, total?, other?, donut?, format?, caption?, note?, legend? }) — shares of one total, largest first from twelve o'clock, the first `top` (4) then Other; the legend carries value and share, over its `note` — or `legend: "names"` each slice's name alone, `"hidden"` none; a donut's total stands over its `caption`; a chart of its own — no other layer, no axes
 │   │   ├─ Chart.refLine({ y, label?, dash? }|{ x, label?, dash? }) — its label inside the plot at the line's start, over it · Chart.refBand({ y: [lo, hi], label? }|{ x: [lo, hi], label? }) · Chart.refDot({ x, y, label? })
 │   │   ├─ axis options x / y / y2: { label?, format?, domain?, scale?, numTicks?, tickValues? }
 │   │   └─ Chart.Series(slice, { x, value, mark? }) — a slice-bound layer

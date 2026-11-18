@@ -8,8 +8,10 @@
  *
  * - **A value's menu** (EDT-6): its aggregate — the measures its field may
  *   take (EDT-4, East's `fieldMeasures`), or a number per another number, a
- *   ratio — then its period, its goal, which way is better, and its own label;
- *   a combo's value, the axis it is drawn against.
+ *   ratio — then its period, its goal, which way is better, how its numbers
+ *   are shown — as its field's format says, or a format of its own, a
+ *   currency's code in a block under the choice — and its own label; a
+ *   combo's value, the axis it is drawn against.
  * - **A group's popover** (EDT-7): its bucket, for a date field; its order;
  *   and how many groups it keeps, the rest folding into Other.
  *
@@ -27,9 +29,9 @@ import { useCallback, useMemo, useState } from "react";
 import { Box, chakra, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName } from "@fortawesome/fontawesome-svg-core";
-import { StringType, equalFor, isValueOf, variant, type ValueTypeOf } from "@elaraai/east";
+import { StringType, StructType, equalFor, isValueOf, variant, type ValueTypeOf } from "@elaraai/east";
 import { Fields, type FieldSpecValue } from "@elaraai/east-ui/internal";
-import { Studio, pillFields } from "@elaraai/e3-ui/internal";
+import { Studio, StudioFormatChoiceType, choiceFormat, editedFormatChoice, formatChoice, pillFields } from "@elaraai/e3-ui/internal";
 import { FieldForm } from "@elaraai/east-ui-components";
 import { Chooser, type ChooserSection } from "@elaraai/east-ui-components/internal";
 
@@ -53,7 +55,18 @@ const BUCKETS = ["day", "week", "month", "quarter", "year"] as const;
 /** Every bucket a group may hold. */
 const UNITS = ["auto", "hour", ...BUCKETS] as const;
 /** The order a value's menu's form draws its fields in, after its aggregate. */
-const VALUE_ORDER = ["period", "goal", "better", "label"] as const;
+const VALUE_ORDER = ["period", "goal", "better", "format", "label"] as const;
+/**
+ * A value as its menu's form edits it: its fields, its format the choice the
+ * menu offers — as its field's a case of its own (e3-ui's `formatChoice`) —
+ * so the form draws it as it draws any choice, a currency's code in a block
+ * under it.
+ */
+const ValueFormType = StructType({ ...Studio.Types.Value.fields, format: StudioFormatChoiceType });
+/** A currency format's code until its field says one, or the reader does. */
+const DEFAULT_CURRENCY = "USD";
+/** A value's fields of more than three cases whose names are short enough for segments: its format's. */
+const VALUE_SHORT_NAMED = ["format"] as const;
 /** The order a group's popover's form draws its fields in. */
 const GROUP_ORDER = ["bucket", "sort", "top"] as const;
 /** A group's fields of more than three cases whose names are short enough for segments: a date's buckets. */
@@ -120,18 +133,39 @@ export function ValueMenu({ value, source, axis, onChange }: ValueMenuProps) {
         const chosen = measures.find((offered) => stringEqual(offered.type, id));
         if (chosen !== undefined && !stringEqual(chosen.type, measure.type)) onChange({ ...value, measure: chosen });
     };
-    const specs = useMemo(() => ordered(Fields.specs(Studio.Types.Value, {
+    const specs = useMemo(() => ordered(Fields.specs(ValueFormType, {
         label: Fields.text({ label: m.valueLabel() }),
         period: Fields.select({ label: m.period(), labels: { current: m.periodName({ period: "current" }), previous: m.periodName({ period: "previous" }), year_ago: m.periodName({ period: "year_ago" }) } }),
         goal: Fields.number({ label: m.goal() }),
         better: Fields.select({ label: m.better(), labels: { higher: m.betterName({ better: "higher" }), lower: m.betterName({ better: "lower" }) } }),
+        format: Fields.select({
+            label: m.format(), help: m.formatHelp(),
+            labels: {
+                auto: m.formatName({ format: "auto" }), number: m.formatName({ format: "number" }),
+                percent: m.formatName({ format: "percent" }), currency: m.formatName({ format: "currency" }),
+            },
+            cases: { currency: Fields.text({ label: m.currencyCode() }) },
+        }),
     }, ["measure"]), VALUE_ORDER), [m]);
+    // The value as the form edits it: its format the choice the menu offers.
+    const choice = useMemo(() => formatChoice(value.format), [value.format]);
+    const edited = useMemo(() => ({ ...value, format: choice }), [value, choice]);
+    // The currency its field's format declares: what a currency format of its own starts as.
+    const fieldCurrency = field !== undefined && field.format.type === "some" && field.format.value.type === "currency" ? field.format.value.value.code : DEFAULT_CURRENCY;
     const onForm = useCallback((path: readonly string[], next: unknown) => {
-        const edited = { ...value, [path[0] ?? ""]: next };
-        if (!isValueOf(edited, Studio.Types.Value)) return m.cannotSet({ label: path[0] ?? "" });
-        onChange(edited);
+        const name = path[0] ?? "";
+        if (stringEqual(name, "format")) {
+            // A case picked, or a currency's code — e3-ui's rule: a currency picked starts as its field's.
+            const result = editedFormatChoice(choice, path.slice(1), next, fieldCurrency);
+            if ("refused" in result) return result.refused === "code" ? m.currencyCodeNeeded() : m.cannotSet({ label: m.format() });
+            onChange({ ...value, format: choiceFormat(result.choice, value.format) });
+            return undefined;
+        }
+        const changed = { ...value, [name]: next };
+        if (!isValueOf(changed, Studio.Types.Value)) return m.cannotSet({ label: name });
+        onChange(changed);
         return undefined;
-    }, [value, onChange, m]);
+    }, [value, choice, fieldCurrency, onChange, m]);
     if (asking && of !== undefined) {
         const sections: ChooserSection[] = [{
             label: m.fieldGroup({ numbers: true }),
@@ -172,7 +206,7 @@ export function ValueMenu({ value, source, axis, onChange }: ValueMenuProps) {
                             onPick={(side) => axis.onRight(stringEqual(side, "right"))} />
                     </Box>
                 )}
-                <FieldForm specs={specs} value={value} renderControl={segControls(value)} onChange={onForm} />
+                <FieldForm specs={specs} value={edited} renderControl={segControls(edited, VALUE_SHORT_NAMED)} onChange={onForm} />
             </Box>
         </Box>
     );

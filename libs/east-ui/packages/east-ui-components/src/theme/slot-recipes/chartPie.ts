@@ -13,7 +13,10 @@
  * row (#1638). Under the rows, the legend's note in mono 10 `--ink-4`. A
  * donut's total is the 26px numeral, over its caption in mono 10 / 500
  * `--ink-4`. An entry a click reaches is a button, whose hover steps one paper
- * darker.
+ * darker. A legend of names alone is the swatch and the label. The pie's
+ * frame places the pie a whole number of pixels from its edges — beside its
+ * legend in the middle of its height, over one in the middle of its width,
+ * alone in the middle of both — so the recipe leaves it at the frame's start.
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
@@ -34,9 +37,11 @@ export const chartPieSlotRecipe = defineSlotRecipe({
             height: "100%",
             minWidth: "0",
         },
+        /* At the frame's start on both axes: the frame's own margins place it, in whole pixels. */
         plot: {
             flexShrink: "0",
             display: "block",
+            alignSelf: "flex-start",
         },
         /* A donut's total, in its centre: the 26px numeral, mono and tabular. */
         total: {
@@ -78,6 +83,8 @@ export const chartPieSlotRecipe = defineSlotRecipe({
                 _hover: { background: "bg.subtle" },
                 _focusVisible: { outline: "none", boxShadow: "focus" },
             },
+            // A legend of names alone: the swatch and the label.
+            "&[data-names]": { gridTemplateColumns: "10px minmax(0, 1fr)" },
         },
         swatch: {
             width: "10px",
@@ -116,7 +123,7 @@ export const chartPieSlotRecipe = defineSlotRecipe({
         /* Beside the pie where the chart is wide enough; under it where it is not. */
         layout: {
             side: { root: { flexDirection: "row" } },
-            below: { root: { flexDirection: "column", alignItems: "stretch" }, plot: { alignSelf: "center" } },
+            below: { root: { flexDirection: "column", alignItems: "stretch" } },
         },
     },
     defaultVariants: {

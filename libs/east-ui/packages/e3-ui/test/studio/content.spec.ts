@@ -49,14 +49,17 @@ const FORMS = [
 ] as const;
 
 describe("Studio.visual — a visual's parts, each with its defaults (#1669)", () => {
-    test("a value is its measure, measured over the page's range, higher the better, with no label and no goal unless given", () => {
-        assert.deepEqual(v.sum("revenue"), { measure: variant("sum", "revenue"), label: none, period: variant("current", null), goal: none, better: variant("higher", null) });
+    test("a value is its measure, measured over the page's range, higher the better, with no label, no goal and its field's format unless given", () => {
+        assert.deepEqual(v.sum("revenue"), { measure: variant("sum", "revenue"), label: none, period: variant("current", null), goal: none, better: variant("higher", null), format: none });
         assert.deepEqual(v.count().measure, variant("count", null));
         assert.deepEqual([v.mean("revenue").measure, v.min("revenue").measure, v.max("revenue").measure, v.distinct("customer").measure],
             [variant("mean", "revenue"), variant("min", "revenue"), variant("max", "revenue"), variant("distinct", "customer")]);
         assert.deepEqual(v.ratio("revenue", "units").measure, variant("ratio", { of: "revenue", per: "units" }));
         assert.deepEqual(v.sum("cost", { label: "Cost", period: "year_ago", goal: 5000, better: "lower" }),
-            { measure: variant("sum", "cost"), label: some("Cost"), period: variant("year_ago", null), goal: some(5000), better: variant("lower", null) });
+            { measure: variant("sum", "cost"), label: some("Cost"), period: variant("year_ago", null), goal: some(5000), better: variant("lower", null), format: none });
+        // A format of its own, written as a source's field writes one.
+        assert.deepEqual(v.sum("cost", { format: "compact" }).format, some(variant("compact", null)));
+        assert.deepEqual(v.sum("cost", { format: { currency: { code: "AUD" } } }).format, some(variant("currency", { code: "AUD", compact: false })));
     });
 
     test("a group is its field in its own order, every group kept, bucketed only when asked", () => {
@@ -65,16 +68,21 @@ describe("Studio.visual — a visual's parts, each with its defaults (#1669)", (
             { field: "ordered_at", bucket: some(variant("week", null)), sort: variant("high", null), top: some(5n) });
     });
 
-    test("each view fills what it is not given: no split, side by side, no compare or trend, a pie not a donut, no total, no heat, no bar, ascending", () => {
+    test("each view fills what it is not given: no split, side by side, its legend drawn, no compare or trend, a pie not a donut with its values in its legend, no total, no heat, no bar, ascending", () => {
         assert.deepEqual(v.column({ x: month, values: [revenue] }),
-            variant("chart", variant("column", { x: month, values: [revenue], split: none, stack: BESIDE })));
-        assert.deepEqual(v.area({ x: month, values: [revenue], split: "region", stack: "percent" }),
-            variant("chart", variant("area", { x: month, values: [revenue], split: some("region"), stack: variant("percent", null) })));
+            variant("chart", variant("column", { x: month, values: [revenue], split: none, stack: BESIDE, legend: variant("auto", null) })));
+        assert.deepEqual(v.area({ x: month, values: [revenue], split: "region", stack: "percent", legend: "hidden" }),
+            variant("chart", variant("area", { x: month, values: [revenue], split: some("region"), stack: variant("percent", null), legend: variant("hidden", null) })));
         assert.deepEqual(v.kpi({ value: revenue }), variant("kpi", { value: revenue, compare: none, trend: none }));
         assert.deepEqual(v.combo({ x: month, columns: [v.left(revenue)], lines: [v.right(v.count())] }), variant("chart", variant("combo", {
-            x: month, columns: [{ value: revenue, right: false }], lines: [{ value: v.count(), right: true }], stack: BESIDE,
+            x: month, columns: [{ value: revenue, right: false }], lines: [{ value: v.count(), right: true }], stack: BESIDE, legend: variant("auto", null),
         })));
-        assert.deepEqual(v.pie({ slice: v.group("region"), value: revenue }), variant("chart", variant("pie", { slice: v.group("region"), value: revenue, donut: false })));
+        assert.deepEqual(v.scatter({ point: "customer", x: revenue, y: v.sum("units") }),
+            variant("chart", variant("scatter", { point: "customer", x: revenue, y: v.sum("units"), split: none, legend: variant("auto", null) })));
+        assert.deepEqual(v.pie({ slice: v.group("region"), value: revenue }),
+            variant("chart", variant("pie", { slice: v.group("region"), value: revenue, donut: false, legend: variant("values", null) })));
+        assert.deepEqual(v.pie({ slice: v.group("region"), value: revenue, legend: "names" }),
+            variant("chart", variant("pie", { slice: v.group("region"), value: revenue, donut: false, legend: variant("names", null) })));
         assert.deepEqual(v.records({ columns: ["region"] }), variant("table", variant("records", { columns: ["region"], sort: none, descending: false })));
         assert.deepEqual(v.summary({ rows: [v.group("region")], values: [revenue] }),
             variant("table", variant("summary", { rows: [v.group("region")], values: [revenue], total: false })));

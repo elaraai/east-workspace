@@ -545,15 +545,33 @@ export const ChartSliceArrayType = ArrayType(ChartSliceType);
 export type ChartSliceArrayType = typeof ChartSliceArrayType;
 
 /**
+ * What a pie's legend shows.
+ *
+ * @property values - Each slice's name, its value and its share, and the pie's `note` under the rows
+ * @property names - Each slice's name alone
+ * @property hidden - No legend: the pie alone, each slice saying its name, its value and its share where the pointer rests
+ */
+export const ChartPieLegendType = VariantType({
+    values: NullType,
+    names:  NullType,
+    hidden: NullType,
+});
+export type ChartPieLegendType = typeof ChartPieLegendType;
+
+/** String-literal shorthand for {@link ChartPieLegendType}. */
+export type ChartPieLegendLiteral = "values" | "names" | "hidden";
+
+/**
  * A pie: shares of one total.
  *
  * @remarks
  * The renderer draws the slices largest first from twelve o'clock, the first
  * `top` of them and then one Other slice for the rest, with a 1.5 px gap of
  * the surface between slices. A slice carries no label: the legend beside the
- * pie carries each slice's value and its share, and a `note` under its rows.
- * A donut is a 26 px ring with the total in its centre, and a `caption` under
- * it. A slice of no positive value is not drawn.
+ * pie carries each slice's value and its share, and a `note` under its rows —
+ * or its names alone, or nothing, as `legend` says. A donut is a 26 px ring
+ * with the total in its centre, and a `caption` under it. A slice of no
+ * positive value is not drawn.
  *
  * @property data   - The slices, in any order
  * @property top    - How many slices are drawn before the rest fold into Other; `none` draws 4
@@ -563,6 +581,7 @@ export type ChartSliceArrayType = typeof ChartSliceArrayType;
  * @property format  - How a value prints in the legend and the centre; `none` prints a number
  * @property caption - What a donut's total is, under it in the centre (`units · total`); `none` draws none
  * @property note    - A line under the legend's rows, saying what the values are (`AUD · share of 3.84M`); `none` draws none
+ * @property legend  - What the legend shows ({@link ChartPieLegendType}); `none` shows each slice's value and share
  */
 export const ChartPieType = StructType({
     data:    ChartSliceArrayType,
@@ -573,6 +592,7 @@ export const ChartPieType = StructType({
     format:  OptionType(ChartTickFormatType),
     caption: OptionType(StringType),
     note:    OptionType(StringType),
+    legend:  OptionType(ChartPieLegendType),
 });
 export type ChartPieType = typeof ChartPieType;
 
