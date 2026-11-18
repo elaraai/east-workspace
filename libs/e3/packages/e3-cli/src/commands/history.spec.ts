@@ -15,16 +15,16 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { dirname, join } from 'node:path';
-import { none, some, type ValueTypeOf } from '@elaraai/east';
+import { DateTimeType, equalFor, none, parseFor, some, type ValueTypeOf } from '@elaraai/east';
 import e3 from '@elaraai/e3';
-import { LocalStorage, LocalTaskRunner, packageImport, recordLoad } from '@elaraai/e3-core';
+import { LocalStorage, LocalTaskRunner, OBJECT_CONCURRENCY, packageImport, recordHistory, recordLoad } from '@elaraai/e3-core';
 import {
   ErpDeliveryType, LEDGER_ORDERS, SourcedOrderType, createTempDir, createTestRepo, encodeInSegmentsOf, ledgerOrders, ledgerWorkspaces,
   removeTempDir, removeTestRepo,
 } from '@elaraai/e3-core/test';
 import type { RecordHistoryResult } from '@elaraai/e3-api-client';
 import { captured } from '../cli-test-helpers.js';
-import { historyCommand, remoteHistory, type HistoryPage } from './history.js';
+import { commitLine, historyCommand, loadsWords, remoteHistory, type HistoryPage } from './history.js';
 import { loadWords } from './load.js';
 
 type Commit = RecordHistoryResult['commits'][number];
@@ -160,6 +160,33 @@ describe('a load\'s commit in e3 history (R33)', () => {
       // Its delta, as a mutation's: the source's two orders inserted into the record, and into its index
       const changed = printed.slice(at + 1, at + 3).map((line) => line.trim().replace(/\s+/g, ' '));
       assert.deepEqual(changed.sort(), ['by_customer +2 ~0 -0', 'primary +2 ~0 -0']);
+
+      // A long chain's loads: their arguments are read a few at a time, and a commit whose arguments cannot be
+      // read is printed without its load's words
+      const [head] = await recordHistory(storage, repoDir, ws, 'orders', { limit: 1 });
+      assert.ok(head !== undefined && head.commit.args.type === 'some');
+      const args = await storage.objects.read(repoDir, head.commit.args.value);
+      const commits = Array.from({ length: 4 * OBJECT_CONCURRENCY }, (_, i) => ({ hash: `c${i}`, mutation: '$load:erp', args: `args-${i}` }));
+      let reading = 0;
+      let most = 0;
+      const words = await loadsWords([...commits, { hash: 'edit', mutation: 'edit', args: 'args-edit' }], async (hash) => {
+        most = Math.max(most, ++reading);
+        await new Promise((resolve) => { setImmediate(resolve); });
+        reading--;
+        if (hash === 'args-3') throw new Error('the object route refused it');
+        return args;
+      });
+      assert.equal(most, OBJECT_CONCURRENCY, 'no more at once than the objects a store is asked for together');
+      assert.deepEqual([words.size, words.has('c3'), words.has('edit')], [commits.length - 1, false, false]);
+      assert.match(words.get('c0') ?? '', /^delivery [0-9a-f]{12} as of 2026-11-02T03:00:00\.000: 2 set, 0 deleted, 0 unchanged$/);
     });
+  });
+
+  it('prints a commit\'s time as East prints a DateTime, which East reads back', () => {
+    const at = new Date('2026-11-02T03:00:12.000Z');
+    const line = commitLine({ hash: 'c'.repeat(64), mutation: 'edit', actor: 'cli:ada', at });
+    assert.equal(line, `${'c'.repeat(12)}  ${'edit'.padEnd(18)}  ${'cli:ada'.padEnd(16)}  2026-11-02T03:00:12.000`);
+    const read = parseFor(DateTimeType)(line.split('  ').at(-1)!);
+    assert.ok(read.success && equalFor(DateTimeType)(read.value, at), 'the time reads back as the commit\'s');
   });
 });
