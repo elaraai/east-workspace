@@ -410,7 +410,12 @@ which stops no launch, and `stepTasksDue` puts the node back once its feed
 moves; `stepTasksWaiting` names the waits a load adds (`InputWait`'s
 `package` and `upstream`); and `stepTaskCommits` reads a fed record's carried
 versions (`dataflowCarried`) and defers a task where nothing says which to
-read (`DeferReason`'s `forgotten`, `carried` and `feed`). The loop's contract
+read (`DeferReason`'s `forgotten`, `carried` and `feed`). Where the load such
+a deferral waits for cannot commit in the run, it answers `waiting` instead,
+naming the load, and the host leaves the task waiting (`stepTasksWaiting`) as
+it does for an input a task cannot read. A load's landing, answered,
+committed or failed, is a change to what tasks are decided on: a host that
+decides a task while one lands decides it again. The loop's contract
 suite pins a load's failure over every backend, and the `dataflow` and
 `records-load` suites of e3-api-tests a fed source's graph, its runs, its
 deploy's plan and a load into it refused.
