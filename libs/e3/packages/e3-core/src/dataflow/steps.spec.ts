@@ -19,6 +19,7 @@ import {
   checkDataflowStart,
   stepTasksDue,
   stepTaskDueAgain,
+  stepResumedTasksDue,
   stepTaskCommits,
   deferralPath,
   stepGetReady,
@@ -493,6 +494,27 @@ describe('stepTasksDue', () => {
   it('is the step every entry exports', () => {
     assert.strictEqual(root.stepTasksDue, stepTasksDue);
     assert.strictEqual(portable.stepTasksDue, stepTasksDue);
+  });
+
+  it('asks every completed task as a run resumes, whichever input moved: one that would read others is due, and no other is touched', async () => {
+    // The snapshot moved to v2 before the run yielded, and a was never asked
+    const state = run('v2', 'v1');
+    const { due, events } = await stepResumedTasksDue(unread, state);
+    assert.deepStrictEqual(due, ['a'], 'b reads a, whose result stands: it is asked once a lands');
+    assert.ok(events[0]?.type === 'task_invalidated');
+    assert.deepStrictEqual([events.length, events[0].value.task, events[0].value.reason], [1, 'a', 'its inputs moved before the run resumed']);
+    assert.deepStrictEqual([state.tasks.get('a')!.status, state.tasks.get('a')!.outputHash], ['pending', some('a-out')], 'a keeps its result');
+    assert.deepStrictEqual([state.executed, state.reexecuted], [2n, 1n]);
+
+    // A run whose results stand where they were made finds none due, and a task that is not completed is left
+    assert.deepStrictEqual(await stepResumedTasksDue(unread, run('v1', 'v1')), { due: [], events: [] });
+    for (const status of ['in_progress', 'failed', 'skipped', 'pending', 'ready', 'waiting'] as const) {
+      const other = run('v2', 'v1', status);
+      assert.deepStrictEqual((await stepResumedTasksDue(unread, other)).due, [], status);
+      assert.strictEqual(other.tasks.get('a')!.status, status);
+    }
+    assert.strictEqual(root.stepResumedTasksDue, stepResumedTasksDue);
+    assert.strictEqual(portable.stepResumedTasksDue, stepResumedTasksDue);
   });
 });
 

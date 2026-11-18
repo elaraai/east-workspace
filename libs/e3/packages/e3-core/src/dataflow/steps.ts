@@ -16,10 +16,10 @@
  * - Idempotent for retries
  *
  * Reactive step functions (stepDetectInputChanges, stepTasksDue,
- * stepTaskDueAgain, stepTaskCommits) make a run follow its inputs: every
- * result lands, a task whose inputs moved runs once more on the newest, and a
- * task that reads several results reads them all as of one commit of each
- * record.
+ * stepTaskDueAgain, stepResumedTasksDue, stepTaskCommits) make a run follow
+ * its inputs: every result lands, a task whose inputs moved runs once more on
+ * the newest, and a task that reads several results reads them all as of one
+ * commit of each record.
  */
 
 import { StringType, equalFor, variant, some, none } from '@elaraai/east';
@@ -753,6 +753,43 @@ export async function stepTaskDueAgain(
   if (!task || !taskState || taskState.status !== 'completed') return null;
   if (!(await wouldReadOther(storage, state, taskName, task.output))) return null;
   return taskDue(state, taskState, 'its inputs moved while it ran');
+}
+
+/**
+ * Ask each task that holds a result whether it is due, as a run resumed does
+ * before its first pass.
+ *
+ * @remarks
+ * A run asks a change's readers as it takes the change in, and which of them
+ * it had not yet asked when it yielded, or when its host died, is not written
+ * with its state. The change is in the snapshot the resumed run starts from,
+ * so no look finds it again ({@link stepDetectInputChanges}), and nothing
+ * else would ask them. Each completed task is asked instead whether it would
+ * now read other inputs than its result was made from, and one that would
+ * goes back to pending as {@link stepTasksDue} leaves it: keeping its result,
+ * counted a re-execution, `task_invalidated` emitted.
+ *
+ * @param storage - Storage backend
+ * @param state - The resumed run's state, to mutate
+ * @returns The tasks now due, and the events emitted
+ */
+export async function stepResumedTasksDue(
+  storage: StorageBackend,
+  state: DataflowExecutionState,
+): Promise<{
+  due: string[];
+  events: ExecutionEvent[];
+}> {
+  const due: string[] = [];
+  const events: ExecutionEvent[] = [];
+  for (const task of getGraph(state).tasks) {
+    const taskState = state.tasks.get(task.name) as Mutable<TaskState> | undefined;
+    if (taskState?.status !== 'completed') continue;
+    if (!(await wouldReadOther(storage, state, task.name, task.output))) continue;
+    events.push(taskDue(state, taskState, 'its inputs moved before the run resumed'));
+    due.push(task.name);
+  }
+  return { due, events };
 }
 
 /**

@@ -701,6 +701,7 @@ export {
   stepDetectInputChanges,
   stepTasksDue,
   stepTaskDueAgain,
+  stepResumedTasksDue,
   stepTaskCommits,
   deferralPath,
   type StepInitializeOptions,

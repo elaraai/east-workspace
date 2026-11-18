@@ -82,6 +82,7 @@ import {
   stepDetectInputChanges,
   stepTasksDue,
   stepTaskDueAgain,
+  stepResumedTasksDue,
   stepTaskCommits,
   deferralPath,
   stepGetRunSet,
@@ -1099,6 +1100,11 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         if ((execution.unasked.size > 0 || execution.lookFirst) && execution.wakes === 0 && !checkAborted()) {
           await execution.mutex.runExclusive(async () => {
             await this.handleInputChanges(storage, execution);
+            // What the run it resumes took in, and had not yet asked the
+            // readers of when it yielded or its host died, is in its
+            // snapshot, where no look finds it: every task that holds a
+            // result is asked
+            if (execution.lookFirst) this.tellDue(options, (await stepResumedTasksDue(storage, state)).events);
             await this.persistState(execution, state);
           });
           execution.lookFirst = false;
@@ -1724,7 +1730,11 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     options: OrchestratorStartOptions,
     changed: ReadonlyArray<{ path: string }>
   ): Promise<void> {
-    const { events } = await stepTasksDue(storage, state, changed);
+    this.tellDue(options, (await stepTasksDue(storage, state, changed)).events);
+  }
+
+  /** Tells the run's caller of each task an ask found due. */
+  private tellDue(options: OrchestratorStartOptions, events: readonly ExecutionEvent[]): void {
     for (const evt of events) {
       if (evt.type === 'task_invalidated') {
         options.onTaskInvalidated?.(evt.value.task, evt.value.reason);

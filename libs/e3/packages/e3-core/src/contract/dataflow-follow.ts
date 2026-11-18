@@ -1239,6 +1239,68 @@ export function dataflowFollowCases(setup: BackendSetup): void {
     assert.equal(await held(storage, repo, 'tasks/check/output'), made('check', c1.state, made('clean', c1.state)));
   });
 
+  it('asks each task that holds a result as it resumes: the readers a look left unasked when the run yielded are not lost with it', async (t) => {
+    const context = await setup(t);
+    const { repo } = context;
+    const paced = pacedStorage(context.storage);
+    const storage = paced.storage;
+    const tasks = await deployChecked(t, context);
+    const runner = gatedRunner(context.storage, repo, tasks);
+    const lines = new RunLines();
+    const stateStore = stateStoreOf(context);
+    const first = new LocalOrchestrator(stateStore);
+    let yielding = false;
+    const handle = await first.start(storage, repo, 'ws', { runner, shouldYield: () => yielding, ...lines.callbacks });
+
+    // clean and check land on the record as the run found it, and slow's
+    // input is edited while it runs
+    await runner.launched('slow');
+    await runner.launched('clean');
+    runner.release('clean');
+    await runner.launched('check');
+    runner.release('check');
+    await lines.said('[DONE] check');
+    await workspaceSetDataset(storage, repo, 'ws', inputPath('rates'), 2n, IntegerType);
+    const r2 = (await held(storage, repo, 'inputs/rates'))!;
+    assert.equal(await first.wake(storage, repo, 'ws'), true);
+
+    // slow lands and is due again: the run is part way through a pass,
+    // asking the cache for slow over the edit
+    const preparing = paced.hold('refs', 'executionListIds', (args) => args[1] === tasks.get('slow') && args[2] === inputsHash([r2]));
+    runner.release('slow');
+    await preparing.reached;
+    let c1: Awaited<ReturnType<typeof commitOrders>>;
+    try {
+      // An edit of the record commits, and the look its writer's start asks
+      // for fails once it has taken the edit in: check is asked first, which
+      // reads the store, and clean is never asked
+      c1 = await commitOrders(storage, repo, [['a', 1n]]);
+      const down = standIn(storage, {
+        refs: standIn(storage.refs, { workspaceRead: () => Promise.reject(new Error('the store went away')) }),
+      });
+      assert.equal(await first.wake(down, repo, 'ws'), false, 'a look that failed hands nothing over');
+      yielding = true;
+    } finally {
+      preparing.open();
+    }
+
+    // The run yields at the end of that pass, before it asks again: its
+    // state holds the edit, and clean as it landed before it
+    assert.equal((await first.wait(handle)).yielded, true);
+    const yielded = await stateStore.read(repo, 'ws', handle.id);
+    assert.deepEqual([yielded?.inputSnapshot.get('.records.orders'), yielded?.tasks.get('clean')?.status], [c1.commit, 'completed']);
+
+    // Another orchestrator takes the run up. No look finds the edit, which
+    // the snapshot holds: clean is asked as every task with a result is,
+    // runs on the edit, and check after it
+    const second = new LocalOrchestrator(stateStore);
+    const resumed = await second.resume(storage, repo, 'ws', handle.id, { runner });
+    for (const name of tasks.keys()) runner.pass(name);
+    for (const name of tasks.keys()) while (runner.holding(name) > 0) runner.release(name);
+    assert.equal((await second.wait(resumed)).success, true);
+    assert.equal(await held(storage, repo, 'tasks/check/output'), made('check', c1.state, made('clean', c1.state)));
+  });
+
   it('keeps a result that has landed though a read after it fails, run or answered by the cache: what the read was to ask is asked again, and the task is not failed', async (t) => {
     const context = await setup(t);
     const { repo } = context;
