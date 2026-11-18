@@ -42,7 +42,7 @@ import { VisualAnswersProvider } from "../query/visual/answers.js";
 import { useStudioMessages } from "./messages.js";
 import { studioEast } from "./studio-east.js";
 import { StudioText } from "./text.js";
-import { StudioVisualTile } from "./visual-tile.js";
+import { StudioVisualTile, type VisualEdit } from "./visual-tile.js";
 
 /** The renderer's payload, decoded. */
 type StudioPageValue = ValueTypeOf<typeof StudioPageComponent.schema>;
@@ -113,6 +113,8 @@ export interface StudioPlacementProps {
     storageKey: string;
     /** What names it: its own title, which a visual's tile carries over its body (TIL-1); `undefined` for none. */
     title?: string | undefined;
+    /** On the builder's canvas, what a visual's menu's Edit visual and Duplicate do (#1672); omitted on a page. */
+    edit?: VisualEdit | undefined;
 }
 
 /**
@@ -126,7 +128,7 @@ export interface StudioPlacementProps {
  * @param props - What it holds, the listed components and the listed sources' names
  * @returns The content
  */
-export function StudioPlacement({ content, listed: byKey, sources, storageKey, title }: StudioPlacementProps) {
+export function StudioPlacement({ content, listed: byKey, sources, storageKey, title, edit }: StudioPlacementProps) {
     const m = useStudioMessages();
     if (content.type === "text") return <StudioText text={content.value} />;
     if (content.type === "visual") {
@@ -137,7 +139,7 @@ export function StudioPlacement({ content, listed: byKey, sources, storageKey, t
                     title={m.noSource({ key: visual.source })} description={m.noSourceHint()} />
             );
         }
-        return <StudioVisualTile content={content} names={sources} storageKey={storageKey} title={title} />;
+        return <StudioVisualTile content={content} names={sources} storageKey={storageKey} title={title} edit={edit} />;
     }
     const key = content.value;
     const listed = byKey.get(key) ?? [];

@@ -6,7 +6,8 @@
 /**
  * A visual's tile (#1670, #1671): its eyebrow, which names it, says its meta
  * — what its body says of itself (`visual/meta.tsx`) — and holds its
- * menu — Show rows, its rows in the drawer, and Export CSV (TIL-2); its
+ * menu — Show rows, its rows in the drawer, and Export CSV (TIL-2), and on the
+ * builder's canvas Edit visual and Duplicate (#1672); its
  * programs printed, asked on e3, and its state drawn (`visual/states.tsx`) —
  * waiting, on the shared
  * loading clock; a well it needs empty; a field its source lacks; a value
@@ -23,7 +24,7 @@ import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { Box, Button, Menu as ChakraMenu } from "@chakra-ui/react";
 import { faEllipsis } from "@fortawesome/free-solid-svg-icons";
 import { none, some, variant, type ValueTypeOf } from "@elaraai/east";
-import type { StudioContentType } from "@elaraai/e3-ui/internal";
+import { kindEditor, type StudioContentType } from "@elaraai/e3-ui/internal";
 import { BannerView, ChipMenu, EmptyStateView, downloadFile, useFormatters } from "@elaraai/east-ui-components";
 import { DrawerContent, useLoadingReveal, useSlotStyles, type DrawerOpenInputValue } from "@elaraai/east-ui-components/internal";
 import { resultFileName } from "../query/results.js";
@@ -66,6 +67,14 @@ function problemOf(answer: Extract<VisualAnswer, { kind: "problem" }>, m: Studio
     return (outcome.type === "error" ? outcome.value[0]?.message : undefined) ?? m.answerStopped();
 }
 
+/** What a visual's menu does on the builder's canvas (#1672): its Edit visual and its Duplicate. */
+export interface VisualEdit {
+    /** Selects the placement and opens its Configure tab. */
+    onEdit: () => void;
+    /** Places a copy of it after it, selected. */
+    onDuplicate: () => void;
+}
+
 /** Props of {@link StudioVisualTile}. */
 export interface StudioVisualTileProps {
     /** The visual, as the placement holds it. */
@@ -76,6 +85,8 @@ export interface StudioVisualTileProps {
     storageKey: string;
     /** Its placement's own title; `undefined` names it by its wells. */
     title?: string | undefined;
+    /** On the builder's canvas, what its menu's Edit visual and Duplicate do; omitted on a page, whose menu has neither. */
+    edit?: VisualEdit | undefined;
 }
 
 /**
@@ -84,10 +95,10 @@ export interface StudioVisualTileProps {
  * view (`Column chart`) — with its meta and its menu at the end; then its
  * state, as its programs print and answer, which says the meta.
  *
- * @param props - The visual, the sources' names, where its parts keep their state, and its title
+ * @param props - The visual, the sources' names, where its parts keep their state, its title, and on the canvas its edits
  * @returns The tile's content
  */
-export function StudioVisualTile({ content, names, storageKey, title }: StudioVisualTileProps) {
+export function StudioVisualTile({ content, names, storageKey, title, edit }: StudioVisualTileProps) {
     const m = useStudioMessages();
     const styles = useSlotStyles("studioVisual");
     const east = studioEast();
@@ -106,8 +117,8 @@ export function StudioVisualTile({ content, names, storageKey, title }: StudioVi
                 <Box as="span" css={styles.name} data-studio-visual-name="">{name}</Box>
                 <Box css={styles.end}>
                     <Box as="span" css={styles.meta} data-studio-visual-meta="" ref={setMetaSlot} />
-                    {source !== undefined && read !== undefined && (
-                        <VisualMenu visual={visual} name={name} source={source} read={read} storageKey={storageKey} onFailed={setFailed} />
+                    {((source !== undefined && read !== undefined) || edit !== undefined) && (
+                        <VisualMenu visual={visual} name={name} source={source} read={read} storageKey={storageKey} onFailed={setFailed} edit={edit} />
                     )}
                 </Box>
             </Box>
@@ -117,7 +128,7 @@ export function StudioVisualTile({ content, names, storageKey, title }: StudioVi
                         actions={<Button size="xs" variant="outline" onClick={() => setFailed(undefined)}>{m.dismiss()}</Button>} />
                 )}
                 <TileMetaSlot value={metaSlot}>
-                    <VisualBody visual={visual} source={source} read={read} sourceName={sourceName} storageKey={storageKey} />
+                    <VisualBody visual={visual} source={source} read={read} sourceName={sourceName} storageKey={storageKey} onPick={edit?.onEdit} />
                 </TileMetaSlot>
             </Box>
         </Box>
@@ -130,29 +141,33 @@ interface VisualMenuProps {
     visual: Visual;
     /** Its name, as its eyebrow says it: the drawer's title and the file's. */
     name: string;
-    /** Its source, as the surface lists it. */
-    source: VisualSource;
-    /** Its source, as the printer reads it. */
-    read: PrintSource;
+    /** Its source, as the surface lists it; `undefined` while it lists none of its key, which has no rows to show. */
+    source: VisualSource | undefined;
+    /** Its source, as the printer reads it; `undefined` with none. */
+    read: PrintSource | undefined;
     /** Where its parts keep their state. */
     storageKey: string;
     /** Told why an export failed. */
     onFailed: (message: string | undefined) => void;
+    /** On the builder's canvas, its Edit visual and Duplicate. */
+    edit: VisualEdit | undefined;
 }
 
 /**
  * A visual's menu (TIL-2): Show rows — the rows under it, without its
  * grouping, a records table in the drawer, with Export CSV under them — and
- * Export CSV, the same rows, every one, as a file named after it.
+ * Export CSV, the same rows, every one, as a file named after it; on the
+ * builder's canvas, Edit visual and Duplicate after them (#1672).
  */
-function VisualMenu({ visual, name, source, read, storageKey, onFailed }: VisualMenuProps) {
+function VisualMenu({ visual, name, source, read, storageKey, onFailed, edit }: VisualMenuProps) {
     const m = useStudioMessages();
     const words = useQueryWords();
     const ask = useVisualAsk(visual.source);
     const [showing, setShowing] = useState(false);
-    const rows = useMemo(() => rowsVisual(visual, source, read), [visual, source, read]);
+    const rows = useMemo(() => (source === undefined || read === undefined ? undefined : rowsVisual(visual, source, read)), [visual, source, read]);
     // Every row, asked once through the page's answers, written as CSV.
     const exportRows = useCallback(async () => {
+        if (rows === undefined || read === undefined) return;
         const records = recordsOf(rows);
         const printed = printVisual(rows, read, NO_STATE, { offset: 0, size: "all" });
         if (records === undefined || printed.kind !== "asks") return;
@@ -186,11 +201,16 @@ function VisualMenu({ visual, name, source, read, storageKey, onFailed }: Visual
             <ChipMenu label={m.visualMenu()} icon={faEllipsis} bare data="data-studio-visual-menu" onSelect={(picked) => {
                 if (picked === "rows") setShowing(true);
                 else if (picked === "csv") void exportRows();
+                else if (picked === "edit") edit?.onEdit();
+                else if (picked === "duplicate") edit?.onDuplicate();
             }}>
-                <ChakraMenu.Item value="rows">{m.showRows()}</ChakraMenu.Item>
-                <ChakraMenu.Item value="csv">{m.exportCsv()}</ChakraMenu.Item>
+                {rows !== undefined && <ChakraMenu.Item value="rows">{m.showRows()}</ChakraMenu.Item>}
+                {rows !== undefined && <ChakraMenu.Item value="csv">{m.exportCsv()}</ChakraMenu.Item>}
+                {edit !== undefined && rows !== undefined && <ChakraMenu.Separator />}
+                {edit !== undefined && <ChakraMenu.Item value="edit">{m.editVisual()}</ChakraMenu.Item>}
+                {edit !== undefined && <ChakraMenu.Item value="duplicate">{m.duplicate()}</ChakraMenu.Item>}
             </ChipMenu>
-            {showing && (
+            {showing && rows !== undefined && source !== undefined && read !== undefined && (
                 <DrawerContent value={drawer} storageKey={`${storageKey}.rows`} open onClose={() => setShowing(false)}>
                     <RecordsVisual visual={rows} source={source} read={read} state={NO_STATE} storageKey={`${storageKey}.rows`} action={csv} />
                 </DrawerContent>
@@ -211,10 +231,12 @@ interface VisualBodyProps {
     sourceName: string;
     /** Where its parts keep their state. */
     storageKey: string;
+    /** Opens its fields, to pick another for one its source lacks: on the builder's canvas, its Configure tab; `undefined` on a published page. */
+    onPick: (() => void) | undefined;
 }
 
 /** A visual's body: its state, as its programs print and answer. */
-function VisualBody({ visual, source, read, sourceName, storageKey }: VisualBodyProps) {
+function VisualBody({ visual, source, read, sourceName, storageKey, onPick }: VisualBodyProps) {
     const m = useStudioMessages();
     const east = studioEast();
     const printed = useMemo(() => (read === undefined ? undefined : printVisual(visual, read, NO_STATE)), [visual, read]);
@@ -227,10 +249,17 @@ function VisualBody({ visual, source, read, sourceName, storageKey }: VisualBody
     switch (printed.kind) {
         case "none":
             return <>{named}<EmptyStateView icon={{ prefix: "fas", name: icon }} title={east.viewWords(visual.view)} /></>;
-        case "empty":
-            return <>{named}<WellsEmpty icon={icon} wells={printed.wells} /></>;
+        case "empty": {
+            // Each well it needs, by its kind's declaration: its label, and whether a value fills it (#1672).
+            const wells = kindEditor(visual.view)?.wells ?? [];
+            const needed = printed.wells.map((field) => {
+                const well = wells.find((w) => w.field === field);
+                return m.wellNeeded({ label: well?.label ?? field, value: well?.holds.type === "value" || well?.holds.type === "axis" });
+            });
+            return <>{named}<WellsEmpty icon={icon} needed={needed} /></>;
+        }
         case "missing":
-            return <><TileMeta>{m.metaNeedsField()}</TileMeta><FieldMissing source={sourceName} fields={printed.fields} /></>;
+            return <><TileMeta>{m.metaNeedsField()}</TileMeta><FieldMissing source={sourceName} fields={printed.fields} onPick={onPick} /></>;
         case "range":
             return <>{named}<EmptyStateView icon={{ prefix: "fas", name: "calendar" }} title={m.noRange({ source: sourceName })} description={m.noRangeHint()} /></>;
         case "window":

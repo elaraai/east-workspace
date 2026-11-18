@@ -25,8 +25,8 @@ import type { VisualView } from "./values.js";
 export interface WellsEmptyProps {
     /** The view's icon, by its Font Awesome name. */
     readonly icon: string;
-    /** The wells it needs filled, as its printer names them. */
-    readonly wells: readonly string[];
+    /** The wells it needs filled, each in its words — `A number in Values`. */
+    readonly needed: readonly string[];
 }
 
 /**
@@ -36,7 +36,7 @@ export interface WellsEmptyProps {
  * @param props - The view's icon and the wells it needs
  * @returns The state
  */
-export function WellsEmpty({ icon, wells }: WellsEmptyProps) {
+export function WellsEmpty({ icon, needed }: WellsEmptyProps) {
     const m = useStudioMessages();
     const styles = useSlotStyles("studioVisual");
     return (
@@ -49,10 +49,10 @@ export function WellsEmpty({ icon, wells }: WellsEmptyProps) {
                         <Box as="span" css={styles.checkMark} aria-hidden><FontAwesomeIcon icon={faCircleCheck} /></Box>
                         {m.sourcePicked()}
                     </Box>
-                    {wells.map((well) => (
+                    {needed.map((well) => (
                         <Box as="li" key={well} css={styles.check}>
                             <Box as="span" css={styles.checkMark} aria-hidden><FontAwesomeIcon icon={faCircle} /></Box>
-                            {m.wellNeeded({ well })}
+                            {well}
                         </Box>
                     ))}
                 </Box>

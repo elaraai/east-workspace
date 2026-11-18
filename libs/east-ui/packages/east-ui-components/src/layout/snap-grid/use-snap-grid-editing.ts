@@ -22,7 +22,7 @@
 
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
-    ArrayType, OptionType, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, none, some, variant,
+    ArrayType, OptionType, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, none, some, variant, type EastType,
 } from "@elaraai/east";
 import { EditingPlacementType } from "@elaraai/east-ui/internal";
 import { useEditSession, type EditingValue } from "../../editing/use-edit-session.js";
@@ -31,7 +31,7 @@ import type { EditSession, EditSessionBinding, EntryUpdate, EntryVersion, Origin
 import { kindOfIssue, wholeEntryReadiness } from "../../editing/draft.js";
 import type { HistoryAction } from "../../editing/HistoryBar.js";
 import {
-    heldSpan, landingOf, newRowKey, freshKey, placeTile, rowDrop, rowsOf,
+    MAX_TILES, SNAP_GRID_COLUMNS, heldSpan, landingOf, newRowKey, freshKey, placeTile, rowDrop, rowsOf,
     type SnapGridDrop, type SnapGridEdit, type SnapGridTile, type SnapGridWrite,
 } from "./model.js";
 import type { SnapGridEditorCell, SnapGridEditorValue } from "./index.js";
@@ -82,6 +82,22 @@ export interface SnapGridEditing {
     height(key: string, height: number | null, span?: number): boolean;
     /** Remove a tile. Stable. @returns Whether it was drafted */
     remove(key: string): boolean;
+    /**
+     * Set a field of a tile's entry, by name, to the value its bytes hold at the
+     * field's type — what it shows, edited (#1672). Never its identity or its
+     * place: its key, row, span, height and alignment are the other gestures',
+     * by their rules. Stable.
+     * @returns Whether it was drafted: not for a field the entry lacks, one of
+     *   those, bytes of a value of another type, or the value it holds
+     */
+    field(key: string, name: string, bytes: Uint8Array): boolean;
+    /**
+     * Copy a tile's entry under a fresh key, after it in its row while the row
+     * has room for it at its span — else in a new row after its row (#1672).
+     * Stable.
+     * @returns The copy's key, when it was drafted
+     */
+    duplicate(key: string): string | undefined;
     /** A history item action. Stable. */
     action(action: HistoryAction): void;
 }
@@ -112,6 +128,16 @@ export function useSnapGridEditing(value: SnapGridEditorValue, storageKey: strin
         };
     }, [editing.entryType]);
     const idOf = useCallback((row: Entry): string => row[fields.key] as string, [fields.key]);
+    // Each field of an entry a host may set, by name: how its value is read, and told from the one it holds (#1672) —
+    // every field but the identity and the place, which are the other gestures'.
+    const fieldCodecs = useMemo(() => {
+        const entry = fromEastTypeValue(editing.entryType);
+        const types: Record<string, EastType> = entry.type === "Struct" ? entry.fields : {};
+        const placed = new Set([fields.key, fields.row, fields.span,
+            ...(fields.height.type === "some" ? [fields.height.value] : []), ...(fields.align.type === "some" ? [fields.align.value] : [])]);
+        return new Map(Object.entries(types).filter(([name]) => !placed.has(name))
+            .map(([name, type]) => [name, { decode: decodeBeast2For(type), equal: equalFor(type) }] as const));
+    }, [editing.entryType, fields]);
 
     // ── The source's rows — the base every batch checks ─────────────────
     const rows = useMemo(
@@ -188,13 +214,14 @@ export function useSnapGridEditing(value: SnapGridEditorValue, storageKey: strin
      * Record a gesture as one transaction: every row it writes or removes,
      * the rows it places, and every row placed before whose place moved with
      * it — each stated after the row before it in the order the gesture
-     * leaves.
+     * leaves. `written` is a row the gesture writes whole, in place of the
+     * one drafted: a card's or a copy's new row, or a row with a field set.
      */
-    const record = (edit: SnapGridEdit, origin: Origin, label: string, removed?: string, added?: Entry, joins?: string): boolean => {
+    const record = (edit: SnapGridEdit, origin: Origin, label: string, removed?: string, written?: Entry, joins?: string): boolean => {
         if (observed === undefined || !session.writable) return false;
         session.observeBase(observed.base);
         const byId = new Map(drafted.map((row) => [idOf(row), row] as const));
-        if (added !== undefined) byId.set(idOf(added), added);
+        if (written !== undefined) byId.set(idOf(written), written);
         // The rows placed before: a draft stands elsewhere than its original.
         const placed = new Set(edit.placed);
         for (const [id, now] of session.entries) {
@@ -320,6 +347,53 @@ export function useSnapGridEditing(value: SnapGridEditorValue, storageKey: strin
             return record({ order: tiles.map((t) => t.id).filter((id) => id !== tile.id), writes: new Map(), placed: [] },
                 "remove", `Remove ${tile.label}`, tile.id);
         },
+        field(key: string, name: string, bytes: Uint8Array): boolean {
+            const tile = tiles.find((t) => t.key === key);
+            const held = fieldCodecs.get(name);
+            if (tile === undefined || held === undefined) return false;
+            const row = drafted.find((r) => idOf(r) === tile.id);
+            if (row === undefined) return false;
+            let value: unknown;
+            try { value = held.decode(bytes); }
+            catch (err) {
+                console.error(`[SnapGrid] the value asked for "${name}" could not be read:`, err);
+                return false;
+            }
+            if (held.equal(row[name], value)) return false;
+            return record({ order: tiles.map((t) => t.id), writes: new Map([[tile.id, {}]]), placed: [] },
+                "typed", `Edit ${tile.label}`, undefined, { ...row, [name]: value });
+        },
+        duplicate(key: string): string | undefined {
+            const tile = tiles.find((t) => t.key === key);
+            const row = tile === undefined ? undefined : drafted.find((r) => idOf(r) === tile.id);
+            if (tile === undefined || row === undefined) return undefined;
+            const rows = rowsOf(tiles);
+            const at = rows.findIndex((r) => r.tiles.some((t) => t.key === key));
+            const own = rows[at]!;
+            // After it in its row while the row has room for it at its span — nothing in the row narrows — else in a new
+            // row after its row.
+            const free = SNAP_GRID_COLUMNS - own.tiles.reduce((sum, t) => sum + t.span, 0);
+            const drop: SnapGridDrop = free >= tile.span && own.tiles.length < MAX_TILES
+                ? { kind: "join", row: at, pos: own.tiles.findIndex((t) => t.key === key) + 1 }
+                : { kind: "gap", at: at + 1 };
+            const rowKey = drop.kind === "join" ? rows[at]!.key : newRowKey(tiles);
+            const id = freshKey(tile.id, new Set(tiles.map((t) => t.id)));
+            const entry: Entry = { ...row, [fields.key]: id, [fields.row]: rowKey };
+            // Its tile is its own cell's: the key and the name the author maps it to.
+            let cell: SnapGridEditorCell | undefined;
+            try { cell = editing.derive(codec.encodeRows([entry]))[0]; }
+            catch (err) {
+                console.error("[SnapGrid] a copied tile could not be drawn:", err);
+                return undefined;
+            }
+            const copy: SnapGridTile = {
+                key: cell?.key ?? id, id, row: rowKey, span: tile.span, height: tile.height, minHeight: tile.minHeight,
+                label: cell?.label.type === "some" ? cell.label.value : tile.label,
+            };
+            const edit = placeTile(tiles, copy, drop);
+            edit.writes.set(id, { ...edit.writes.get(id), row: rowKey });
+            return record(edit, "insert", `Duplicate ${tile.label}`, undefined, entry) ? copy.key : undefined;
+        },
         action(action: HistoryAction): void {
             if (action === "apply") void session.apply();
             else if (action === "refresh") session.refresh();
@@ -336,6 +410,8 @@ export function useSnapGridEditing(value: SnapGridEditorValue, storageKey: strin
     const resize = useCallback((key: string, span: number, joins?: string) => current.current.resize(key, span, joins), []);
     const height = useCallback((key: string, h: number | null, span?: number) => current.current.height(key, h, span), []);
     const remove = useCallback((key: string) => current.current.remove(key), []);
+    const field = useCallback((key: string, name: string, bytes: Uint8Array) => current.current.field(key, name, bytes), []);
+    const duplicate = useCallback((key: string) => current.current.duplicate(key), []);
     const action = useCallback((a: HistoryAction) => current.current.action(a), []);
 
     // ── The rows the canvas draws, heard by the author (#996) ──────────
@@ -363,6 +439,6 @@ export function useSnapGridEditing(value: SnapGridEditorValue, storageKey: strin
         creates: editing.create.type === "some",
         heights: fields.height.type === "some",
         aligns: fields.align.type === "some",
-        move, rowTo, align, add, resize, height, remove, action,
+        move, rowTo, align, add, resize, height, remove, field, duplicate, action,
     };
 }

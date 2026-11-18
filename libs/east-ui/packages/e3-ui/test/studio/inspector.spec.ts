@@ -66,6 +66,8 @@ describeEast("The builder's inspector — what it shows of the selected placemen
         })));
         // B20: row 2 of 2; the 3 columns the row's other placement spans leave it 9 at most.
         $(Assert.equal(trend.layout, { span: 8n, most: 9n, row: 2n, rows: 2n, height: some(240n), align: variant("stretch", null) }));
+        // The placement itself, as the canvas draws it: what the Configure tab edits (#1672).
+        $(Assert.equal(trend.cell, cells.get(1n)));
         // A placement's own title names it; a component that reads nothing lists nothing, and has no description.
         const regions = $.let(inspectorSelection(listed, SOURCES, cells, some("c-regions")).unwrap("some"));
         $(Assert.equal(regions.name, "Regions"));

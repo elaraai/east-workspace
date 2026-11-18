@@ -6,7 +6,7 @@
 /**
  * The Studio's builder, measured in a real browser (#1000): one 44px toolbar
  * across its frame, over the palette's 264px pane under its 44px tab row, the
- * canvas column — whose selection bar is 44px — and the inspector's 300px
+ * canvas column — whose selection bar is 44px — and the inspector's 320px
  * pane; each pane collapses to a 44px rail and the column takes the room (B1,
  * B13, B15). The palette's cards sit 6px apart, each with a 30px icon tile
  * (B3). The toolbar folds by one ladder — the grid chip first, then the width
@@ -118,22 +118,24 @@ test.describe("Studio builder (#1000)", () => {
         await expect.poll(async () => (await box(builder, "[data-snap-grid-main]")).w).toBe(before + 220);
     });
 
-    test("B15: the inspector's pane is 300px after the canvas column; collapsed, it is a 44px rail and the column takes the room", async ({ page }) => {
+    test("B15: the inspector's pane is 320px after the canvas column, as the spec's builder draws it; collapsed, it is a 44px rail and the column takes the room", async ({ page }) => {
         const builder = await openBuilder(page);
-        await expect.poll(async () => (await box(builder, "[data-frame-slot='end']")).w).toBe(300);
+        await expect.poll(async () => (await box(builder, "[data-frame-slot='end']")).w).toBe(320);
         const before = (await box(builder, "[data-snap-grid-main]")).w;
 
         await builder.getByRole("button", { name: "Collapse Inspector" }).click();
         await expect.poll(async () => (await box(builder, "[data-frame-slot='end']")).w).toBe(44);
-        await expect.poll(async () => (await box(builder, "[data-snap-grid-main]")).w).toBe(before + 256);
+        await expect.poll(async () => (await box(builder, "[data-snap-grid-main]")).w).toBe(before + 276);
     });
 
     test("B3: the palette's cards sit 6px apart, each with a 30px icon tile", async ({ page }) => {
         const builder = await openBuilder(page);
         await expect.poll(() => builder.evaluate((root) => {
-            // The Display group's two cards: the KPI rail, then the breakdown bars.
-            const cards = [...root.querySelectorAll("[data-library^='studio.components'] [data-clickable]")]
-                .map((card) => card.getBoundingClientRect());
+            // The developers' first two cards, under the visuals an operator configures (#1672, BLD-1): the KPI rail, then the
+            // breakdown bars.
+            const every = [...root.querySelectorAll("[data-library^='studio.components'] [data-clickable]")];
+            const first = every.findIndex((card) => card.querySelector("svg[data-icon='gauge-high']") !== null);
+            const cards = every.slice(first, first + 2).map((card) => card.getBoundingClientRect());
             const tile = root.querySelector("[data-library^='studio.components'] svg[data-icon='gauge-high']")!
                 .parentElement!.getBoundingClientRect();
             return {
@@ -235,7 +237,7 @@ test.describe("Studio builder — its builder frame on a desktop (#1125 F3)", ()
         }).toEqual({
             modes: ["pinned", "pinned"], collapsed: [false, false],
             mainFromPalette: 0, inspectorFromMain: 0,
-            inSlots: [{ x: 0, y: 0, w: 264, h: expect.any(Number) }, { x: 0, y: 0, w: 300, h: expect.any(Number) }],
+            inSlots: [{ x: 0, y: 0, w: 264, h: expect.any(Number) }, { x: 0, y: 0, w: 320, h: expect.any(Number) }],
             scrim: null,
         });
     });
@@ -364,6 +366,8 @@ test.describe("Studio on a phone (`Studio Mobile Spec.md`)", () => {
         // The Inspector: its row a readout, Move starts placing; Height a view of its options, nothing floating.
         await frame.locator("[data-pane-tab='end']").click(); await settled(page);
         const inspector = frame.locator("[data-frame-drawer][data-open]");
+        // It opens on what the placement holds (#1672): its layout is its second tab.
+        await inspector.getByRole("tab", { name: "Layout" }).click(); await settled(page);
         await expect(inspector.locator("[data-inspector-row]")).toHaveText(/of/);
         await inspector.locator("[data-inspector-height]").click(); await settled(page);
         await expect(frame.locator('[data-frame-slot="overlay"] [data-inspector-heights] [role=option]').first()).toBeVisible();

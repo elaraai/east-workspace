@@ -65,6 +65,7 @@ import { sliceFrameSlotRecipe } from "./slot-recipes/sliceFrame.js";
 import { snapGridSlotRecipe } from "./slot-recipes/snapGrid.js";
 import { statusSlotRecipe } from "./slot-recipes/status.js";
 import { stepperSlotRecipe } from "./slot-recipes/stepper.js";
+import { studioInspectorSlotRecipe } from "./slot-recipes/studioInspector.js";
 import { studioLibrarySlotRecipe } from "./slot-recipes/studioLibrary.js";
 import { studioPhoneSlotRecipe } from "./slot-recipes/studioPhone.js";
 import { studioVisualSlotRecipe } from "./slot-recipes/studioVisual.js";
@@ -390,6 +391,9 @@ describe("the small boxes whose words are centred in them (#1638)", () => {
         ["a Query card's wire row", at(queryLibrarySlotRecipe.base, "wireRow"), "17px", "15px"],
         ["a phone Studio's button", at(studioPhoneSlotRecipe.base, "box"), "32px", "30px"],
         ["the Snap grid's chip", at(snapGridSlotRecipe.base, "chip"), "20px", "18px"],
+        ["the Snap grid's selected tile's badge", at(snapGridSlotRecipe.base, "tileBadge"), "18px", "18px"],
+        ["a Studio pill's aggregate", at(studioInspectorSlotRecipe.base, "pillAgg"), "22px", "22px"],
+        ["the Studio's fields' count", at(studioInspectorSlotRecipe.base, "count"), "16px", "16px"],
         ["the Snap grid's drag ghost", at(snapGridSlotRecipe.base, "ghost"), "32px", "30px"],
     ];
 

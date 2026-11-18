@@ -42,6 +42,14 @@ export interface SnapGridMessages extends EditingMessages {
     endZoneTarget: () => string;
     /** The selected tile's remove button. */
     remove: () => string;
+    /** The selected tile's duplicate button (#1672). */
+    duplicate: () => string;
+    /** The selected tile's edit button, where a host edits what it shows (#1672). */
+    edit: () => string;
+    /** The selected tile's badge: its name, and its span of the grid's columns — `Revenue by month · 8/12` (#1672, BLD-3); both numbers are formatted. */
+    tileBadge: (p: { label: string; span: string; of: string }) => string;
+    /** A tile duplicated. */
+    announceDuplicated: (p: { label: string }) => string;
     /** The right-edge handle. */
     spanHandle: () => string;
     /** The bottom-edge handle. */
@@ -164,6 +172,10 @@ export const snapGridMessages: SnapGridMessages = {
     endZoneDragging: () => "Drop between rows, beside a tile, or here",
     endZoneTarget: () => "Drop component here · snaps to a new 12-col row",
     remove: () => "Remove from page",
+    duplicate: () => "Duplicate",
+    edit: () => "Edit",
+    tileBadge: ({ label, span, of }) => `${label} · ${span}/${of}`,
+    announceDuplicated: ({ label }) => `Duplicated ${label}`,
     spanHandle: () => "Drag to change span",
     heightHandle: () => "Drag to change height",
     bothHandle: () => "Drag to change span and height",
