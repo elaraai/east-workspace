@@ -370,6 +370,9 @@ export const MapieClassifierShapResultType = StructType({
  *   conflate correlated features because it follows the tree's split paths.
  * - `interventional`: Uses background data to break feature correlations, giving
  *   causal "what if I changed this feature" explanations. Requires background samples.
+ *   SHAP's tree algorithm cannot read categorical splits, so over a model trained
+ *   with categorical features the values are KernelExplainer's, of the model's raw
+ *   output against the background: exact for up to 11 features, estimated beyond.
  */
 export const TreeExplainerConfigType = VariantType({
     /** Path-dependent mode: uses tree structure only (default SHAP behavior) */
@@ -399,10 +402,14 @@ export const TreeExplainerConfigType = VariantType({
  * - `path_dependent`: Uses tree split paths (fast, default SHAP behavior).
  *   Tells you how the tree *used* features.
  * - `interventional`: Uses background data to break feature correlations.
- *   Tells you how *changing* a feature would change the prediction.
+ *   Tells you how *changing* a feature would change the prediction. Over a
+ *   model trained with categorical features, a KernelExplainer of the model's
+ *   raw output against the background, since SHAP's tree algorithm cannot read
+ *   categorical splits.
  *
  * @param config - Variant with mode selection and model/background data
- * @returns SHAP TreeExplainer blob
+ * @returns SHAP TreeExplainer blob, or a KernelExplainer blob for `interventional`
+ *   over categorical features
  */
 export const shap_tree_explainer_create = East.platform(
     "shap_tree_explainer_create",
@@ -510,7 +517,9 @@ export const Shap = {
      * Two modes:
      * - `path_dependent`: Uses tree split paths. Tells you how the tree used features.
      * - `interventional`: Uses background data to break correlations. Tells you how
-     *   changing a feature would change the prediction.
+     *   changing a feature would change the prediction. Over a model trained with
+     *   categorical features it returns a KernelExplainer of the model's raw output
+     *   against the background: SHAP's tree algorithm cannot read categorical splits.
      *
      * @example
      * ```ts
