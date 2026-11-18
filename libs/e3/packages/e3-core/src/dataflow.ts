@@ -687,12 +687,16 @@ function rootsOf(state: DataflowExecutionState): RunRoots {
 }
 
 /**
- * Notes a snapshot the run takes of a root, in the order the run takes them:
- * what {@link recordCommitOrder} tells two commits of a record apart by.
+ * Notes the snapshots the run takes of its roots in one look, in the order
+ * the run takes them: what {@link recordCommitOrder} tells two commits of a
+ * record apart by.
  *
  * @remarks
- * Called before the run's state takes the snapshot, so the one it replaces
- * is numbered before it where the run's memory begins here.
+ * Called before the run's state takes the snapshots, so the ones they
+ * replace are numbered before them where the run's memory begins here. A
+ * look's snapshots are noted together, so what the run holds of older
+ * versions is let go by one read of the run's state, however many roots the
+ * look found changed.
  *
  * A run that follows people's edits takes a snapshot of every commit, for as
  * long as it lives, so each snapshot lets go of what the run's memory holds of
@@ -706,13 +710,17 @@ function rootsOf(state: DataflowExecutionState): RunRoots {
  * named no more.
  *
  * @param state - The run's state
- * @param path - The root's keypath
- * @param version - Its version in the snapshot: a record's commit
+ * @param taken - Each root's keypath, and its version in the snapshot: a
+ *   record's commit
  * @internal
  */
-export function dataflowSnapshotTaken(state: DataflowExecutionState, path: string, version: string): void {
+export function dataflowSnapshotTaken(
+  state: DataflowExecutionState,
+  taken: ReadonlyArray<{ readonly path: string; readonly version: string }>,
+): void {
+  if (taken.length === 0) return;
   const roots = rootsOf(state);
-  numberVersion(roots, path, version);
+  for (const each of taken) numberVersion(roots, each.path, each.version);
   letGoVersions(state, roots);
 }
 

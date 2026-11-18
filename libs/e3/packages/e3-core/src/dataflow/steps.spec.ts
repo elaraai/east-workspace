@@ -703,6 +703,42 @@ describe('stepDetectInputChanges', () => {
     assert.strictEqual(result1.changes[0]!.path, result2.changes[0]!.path);
     assert.strictEqual(result1.changes[0]!.newHash, result2.changes[0]!.newHash);
   });
+
+  it('lets go of older versions once for a look, however many inputs it finds changed', async () => {
+    const structure = writableStrings(['a', 'b', 'output']);
+    const a: TreePath = [variant('field', 'a')];
+    const b: TreePath = [variant('field', 'b')];
+    await createPackageWithTasks(
+      testRepo,
+      [{ name: 'task-a', command: ['echo'], inputs: [a, b], output: [variant('field', 'output')] }],
+      structure,
+    );
+    await workspaceDeploy(storage, testRepo, 'test-ws', 'test', '1.0.0');
+    await workspaceSetDataset(storage, testRepo, 'test-ws', a, 'one', StringType);
+    await workspaceSetDataset(storage, testRepo, 'test-ws', b, 'two', StringType);
+    const graph: DataflowGraph = {
+      tasks: [{ name: 'task-a', hash: 'hash-a', inputs: ['.a', '.b'], output: '.output', dependsOn: [] }],
+    };
+    const state = makeState(graph, new Map([['task-a', makeTaskState('task-a', 'pending')]]), {
+      repo: testRepo,
+      workspace: 'test-ws',
+      taskOutputPaths: ['.output'],
+    });
+    state.inputSnapshot.set('.a', 'a-before');
+    state.inputSnapshot.set('.b', 'b-before');
+
+    // Letting go reads every version vector of the run: each read is counted
+    let scans = 0;
+    const values = state.versionVectors.values.bind(state.versionVectors);
+    state.versionVectors.values = () => {
+      scans++;
+      return values();
+    };
+    const { changes } = await stepDetectInputChanges(storage, state, structure);
+    assert.deepStrictEqual(changes.map((change) => change.path), ['.a', '.b']);
+    assert.strictEqual(scans, 1, 'one read of the run\'s vectors for the look, not one for each changed input');
+    assert.deepStrictEqual(dataflowRootsHeld(state), { versions: 4, pairs: 0 }, 'each input\'s snapshot is numbered, before and after');
+  });
 });
 
 describe('stepTaskCommits', () => {
@@ -773,14 +809,14 @@ describe('stepTaskCommits', () => {
     const c2 = await commit(c1, 'edit');
     const state = run({ orders: c1, rates: 'r1' }, { orders: c2, rates: 'r1' });
     state.inputSnapshot.set('.records.orders', c1);
-    dataflowSnapshotTaken(state, '.records.orders', c2);
+    dataflowSnapshotTaken(state, [{ path: '.records.orders', version: c2 }]);
     assert.deepStrictEqual(await stepTaskCommits(storage, state, 'plan'), {
       kind: 'commits', versions: new Map([['.records.orders', c1], ['.rates', 'r1']]),
     });
     // Whichever input names the older
     const other = run({ orders: c2, rates: 'r1' }, { orders: c1, rates: 'r1' });
     other.inputSnapshot.set('.records.orders', c1);
-    dataflowSnapshotTaken(other, '.records.orders', c2);
+    dataflowSnapshotTaken(other, [{ path: '.records.orders', version: c2 }]);
     const at = await stepTaskCommits(storage, other, 'plan');
     assert.ok(at.kind === 'commits');
     assert.strictEqual(at.versions.get('.records.orders'), c1);
@@ -818,7 +854,7 @@ describe('stepTaskCommits', () => {
     state.inputSnapshot.set('.rates', 'r1');
     /** The run takes a snapshot of the record, as a look for changed inputs does */
     const take = (version: string): void => {
-      dataflowSnapshotTaken(state, '.records.orders', version);
+      dataflowSnapshotTaken(state, [{ path: '.records.orders', version }]);
       state.inputSnapshot.set('.records.orders', version);
       state.versionVectors.set('.records.orders', new Map([['.records.orders', version]]));
     };

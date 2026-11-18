@@ -482,9 +482,12 @@ export async function stepDetectInputChanges(
   const events: ExecutionEvent[] = [];
   const mutableState = state as Mutable<DataflowExecutionState>;
 
+  // The look's snapshots are numbered in the order the run takes them, before
+  // its state takes any, and older versions let go once for them all
+  dataflowSnapshotTaken(state, changes.map((change) => ({ path: change.path, version: change.newHash })));
+
   for (const change of changes) {
-    // Update input snapshot, numbered in the order the run takes them
-    dataflowSnapshotTaken(state, change.path, change.newHash);
+    // Update input snapshot
     state.inputSnapshot.set(change.path, change.newHash);
 
     // Update version vector for this input
