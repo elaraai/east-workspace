@@ -90,7 +90,8 @@ export {
     useQueryWords,
     type QueryMessagesProviderProps,
 } from './query/words.js';
-export { queryMessages, type QueryMessages } from './query/model/messages.js';
+export type { QueryMessages } from './query/model/messages.js';
+export { queryMessages } from './query/model/messages-en.js';
 export {
     QueryCallProvider,
     useQueryCall,

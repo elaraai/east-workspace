@@ -22,8 +22,10 @@ import { itemShape, scalarFieldsOf } from "../steps/print.js";
 import { singular, unwrapRecursive, type Shape } from "../steps/shape.js";
 import { isComplete, lastUnit, needsValue, type Condition, type Step, type StepQuery, type TestCondition } from "../steps/values.js";
 import type { ActionRef, InputRef, RemoveRef, SlotRef } from "./refs.js";
+import { problemWords } from "./problem-words.js";
+import { orderKind, stepWords } from "./step-words.js";
 import {
-    STEP_ICON, countWords, fieldLabels, human, isIdName, orderKind, plainKind, plural, problemWords, refLabel, rowsWords, shapeWords, stepWords, valueWords,
+    STEP_ICON, countWords, fieldLabels, human, isIdName, plainKind, plural, refLabel, rowsWords, shapeWords, valueWords,
     type QueryWords,
 } from "./words.js";
 

@@ -37,7 +37,8 @@ import { PIECE_SIZES, TreePathType, pieceSizesFor, type SplitCallRequest, type T
 import { formatters } from "@elaraai/east-ui-components";
 import { utcAt } from "../plan/plan.test-utils.js";
 import { createInMemoryQueryCall, createInMemorySplitCall } from "./in-memory-call.js";
-import { planBadge, planWords, queryWords } from "./model/words.js";
+import { planBadge, planWords } from "./model/plan-words.js";
+import { queryWords } from "./model/words.js";
 import { prepareQuery, queryResultOf, queryRoot, type QueryResult, type QueryRootEntry } from "./one-shot.js";
 import {
     PLAN_COSTS, draftPlan, planQuery, splitCallRequest, weighPlan, type PlanExplanation, type PlanOptions, type QueryPlan, type SourceWeight,

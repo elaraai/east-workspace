@@ -16,7 +16,9 @@
 import { DateTimeType, checkJq, lessFor } from "@elaraai/east";
 import type { Formatters } from "@elaraai/east-ui-components";
 import { outlineOf, type OutlineLine } from "./model/cards.js";
-import { describeQuery, problemWords, shapeWords, type QueryWords } from "./model/words.js";
+import { problemWords } from "./model/problem-words.js";
+import { describeQuery } from "./model/step-words.js";
+import { shapeWords, type QueryWords } from "./model/words.js";
 import type { QueryRoot } from "./one-shot.js";
 import { entriesQuery, rootRefusal, savedEntries, type SavedQuery } from "./session.js";
 import { checkSteps } from "./steps/check.js";

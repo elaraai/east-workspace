@@ -12,25 +12,26 @@
  * @packageDocumentation
  */
 
+export type { KindName, OneKind, QueryMessages, SlotKind, TotalName } from "./messages.js";
+export { queryMessages } from "./messages-en.js";
 export {
-    queryMessages,
-    type KindName, type OneKind, type QueryMessages, type SlotKind, type TotalName,
-} from "./messages.js";
-export {
-    DESCRIPTION_MAX, STEP_ICON,
-    adjectiveOf, conditionWords, countWords, dataNumber, describeQuery, fieldKind, fieldLabel, fieldLabels, fieldSummaryWords, human, isIdName, leafPath,
-    orderKind, parseErrorWords, plainKind, plural, problemWords, queryWords, refLabel, rowsWords, shapeWords, stepWords, valueWords,
-    type ProblemWords, type QueryWords, type SummaryLeaf,
+    STEP_ICON,
+    adjectiveOf, countWords, dataNumber, fieldKind, fieldLabel, fieldLabels, fieldSummaryWords, human, isIdName, leafPath,
+    plainKind, plural, queryWords, refLabel, rowsWords, shapeWords, valueWords,
+    type QueryWords, type SummaryLeaf,
 } from "./words.js";
+export { parseErrorWords, problemWords, type ProblemWords } from "./problem-words.js";
+export { DESCRIPTION_MAX, conditionWords, describeQuery, orderKind, stepWords } from "./step-words.js";
 export { sameSlot, type ActionRef, type InputKind, type InputRef, type RemoveRef, type SlotRef, type SlotValue } from "./refs.js";
 export {
     cardsFor, firstEmptySlot, outlineOf, sourceCard,
     type Card, type CardLine, type CardPart, type OutlineLine, type ProblemLine, type ShapeLine, type SourceCard,
 } from "./cards.js";
 export {
-    activeItem, applyAction, applyInput, applyRemove, applySlot, quickAddOptions, slotEmpty, slotHint, slotItems, slotLabel, slotPlaceholder, stepOptions,
-    type SavedOffer, type SlotContext, type SlotItem, type SlotResult, type StepOption,
+    activeItem, quickAddOptions, slotEmpty, slotHint, slotItems, slotLabel, slotPlaceholder, stepOptions,
+    type SavedOffer, type SlotContext, type SlotItem, type StepOption,
 } from "./slots.js";
+export { applyAction, applyInput, applyRemove, applySlot, type SlotResult } from "./slot-edits.js";
 export {
     SUMMARY_LIMITS, SummaryCache, leafOf, summaryAt, summaryNeeded,
     type Summary, type SummaryRequest, type SummaryResult, type SummaryRun,

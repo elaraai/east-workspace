@@ -18,7 +18,8 @@
 
 import { createContext, createElement, useContext, useMemo, type ReactNode } from "react";
 import { editingMessages, useFormatters, type EditingWords } from "@elaraai/east-ui-components";
-import { queryMessages, type QueryMessages } from "./model/messages.js";
+import { queryMessages } from "./model/messages-en.js";
+import type { QueryMessages } from "./model/messages.js";
 import { queryWords, type QueryWords } from "./model/words.js";
 
 const QueryMessagesContext = createContext<QueryMessages>(queryMessages);
