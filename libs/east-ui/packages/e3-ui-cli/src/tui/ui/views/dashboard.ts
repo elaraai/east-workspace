@@ -246,8 +246,11 @@ export function dashboardLines(model: DashboardModel, dctx: DashboardCtx, sel: n
         else if (i === model.recordsAt) out.push(sectionLine('RECORDS', '', width));
         else if (i === model.recordsAt + 1) out.push(tableLine(model.recordPlan, null, false, width, g));
         else {
-            const row = model.records[i - recordsFirst]!;
-            out.push(tableLine(model.recordPlan, { cells: { ...row.cells, lastCommit: lastCommitText(row.head, dctx) } }, i - recordsFirst === recordSel, width, g));
+            // A record's row, or a line of one of a composite record's sources under it
+            const at = model.recordLines[i - recordsFirst]!;
+            const row = model.records[at.record]!;
+            if (at.source !== null) out.push(row.sources[at.source]!);
+            else out.push(tableLine(model.recordPlan, { cells: { ...row.cells, lastCommit: lastCommitText(row.head, dctx) } }, at.record === recordSel, width, g));
         }
     }
     return out;

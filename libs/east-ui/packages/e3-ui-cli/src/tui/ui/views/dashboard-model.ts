@@ -27,10 +27,11 @@
 
 import { StringType, equalFor } from '@elaraai/east';
 import type { DataflowEvent, DeployProgress, LockStatus, RecordCommitInfo, WorkspaceStatusResult } from '@elaraai/e3-api-client';
-import type { DataflowGraphTask, DataflowLoad, WorkspaceState } from '@elaraai/e3-types';
+import type { DataflowGraphTask, DataflowLoad, RecordSourceInfo, WorkspaceState } from '@elaraai/e3-types';
+import { dottedPath } from '../../api.js';
 import type { Glyphs } from '../../render/glyphs.js';
 import { breakpoint, columnPlan, type Breakpoint, type ColumnSpec } from '../../render/layout.js';
-import { compareInstants, formatDuration, formatInt, formatSize, hashShort, padEnd, padStart } from '../../render/text.js';
+import { compareInstants, displayWidth, formatDuration, formatInt, formatSize, formatStamp, hashShort, padEnd, padStart } from '../../render/text.js';
 import type { Tone } from '../../render/theme.js';
 import type { DataState, ExecutionData, TuiState } from '../../state/actions.js';
 import { datasetEntries } from '../../model/catalogue.js';
@@ -397,6 +398,31 @@ export interface RecordRowModel {
     cells: TableRow['cells'];
     /** The record's newest commit, once read. */
     head: RecordCommitInfo | null;
+    /** A composite record's sources, a line each under its row; none for a plain record. */
+    sources: Line[];
+}
+
+/**
+ * What a composite record's source says of itself under the record's row:
+ * who writes it, what feeds it, and what it holds — `fed by
+ * .tasks.ingest.output · last delivery d41e09c2b7a3 · as of 2026-11-02
+ * 03:00:00`, `delivered by e3 load · waits for its first delivery`, or
+ * `written by its mutations`.
+ *
+ * @param source - The source, as the record's description answers it
+ * @param g - The glyph set
+ * @returns The words
+ */
+export function sourceWords(source: RecordSourceInfo, g: Glyphs): string {
+    if (!source.external) return 'written by its mutations';
+    const parts = [source.feed.type === 'some' ? `fed by ${dottedPath(source.feed.value)}` : 'delivered by e3 load'];
+    if (source.last.type === 'some') {
+        parts.push(`last delivery ${hashShort(source.last.value.delivery)}`);
+        if (source.last.value.asOf.type === 'some') parts.push(`as of ${formatStamp(source.last.value.asOf.value)}`);
+    } else {
+        parts.push(source.pending ? 'waits for its first delivery' : 'holds no delivery');
+    }
+    return parts.join(` ${g.sep} `);
 }
 
 /**
@@ -424,6 +450,8 @@ export interface RecordRowModel {
  * @property recordPlan - The records table's fitted column plan
  * @property records - The record rows
  * @property recordNames - The record names, in row order
+ * @property recordLines - The records table's lines under its header, in order: each record's row, then a line for each
+ *   source of a composite record, which no selection lands on
  * @property rows - The selectable rows in column order (failures, tasks and loads, inputs, records) with their line indices
  * @property total - Lines in the column
  * @property panelAt - The execution panel's first line
@@ -450,6 +478,7 @@ export interface DashboardModel {
     recordPlan: ColumnSpec[];
     records: RecordRowModel[];
     recordNames: string[];
+    recordLines: ReadonlyArray<{ record: number; source: number | null }>;
     rows: DashboardRow[];
     total: number;
     panelAt: number;
@@ -528,7 +557,7 @@ function buildModel(state: TuiState, ws: string, dctx: DashboardCtx, key: Dashbo
     const execution = key.execution;
     const empty: DashboardModel = {
         status, placeholder: [], counts: [], execution, live: false, done: 0, steps: 0, loads: 0, feed: [], latest: new Map(),
-        taskPlan: [], tasks: [], inputPlan: [], inputs: [], inputNames: [], recordPlan: [], records: [], recordNames: [],
+        taskPlan: [], tasks: [], inputPlan: [], inputs: [], inputNames: [], recordPlan: [], records: [], recordNames: [], recordLines: [],
         rows: [], total: 0, panelAt: 0, tasksAt: 0, inputsAt: 0, recordsAt: -1,
     };
     // While a deploy holds the workspace, the column is the deploy: what the
@@ -646,8 +675,12 @@ function buildModel(state: TuiState, ws: string, dctx: DashboardCtx, key: Dashbo
         const facts = key.records?.[name];
         const entry = entries.get(`.records.${name}`);
         const indexes = facts?.signature?.indexes.map(index => index.name) ?? null;
+        // A composite record's sources, a line each under its row, their words in a column
+        const declared = facts?.signature?.sources ?? [];
+        const named = declared.reduce((most, source) => Math.max(most, displayWidth(source.name)), 0) + 2;
         return {
             head: facts?.head ?? null,
+            sources: declared.map(source => [t('    '), d(padEnd(source.name, named)), d(sourceWords(source, g))]),
             cells: {
                 name,
                 rows: facts?.rows != null ? formatInt(facts.rows) : '—',
@@ -679,15 +712,21 @@ function buildModel(state: TuiState, ws: string, dctx: DashboardCtx, key: Dashbo
     line += Math.max(1, inputs.length);
     // A workspace without records has no RECORDS section at all.
     let recordsAt = -1;
+    const recordLines: Array<{ record: number; source: number | null }> = [];
     if (records.length > 0) {
         line += 1;
         recordsAt = line;
         line += 2;
-        recordNames.forEach((name, i) => rows.push({ kind: 'record', name, line: line + i }));
-        line += records.length;
+        // Each record's row, then its sources' lines, which no selection lands on
+        records.forEach((record, at) => {
+            rows.push({ kind: 'record', name: recordNames[at]!, line: line + recordLines.length });
+            recordLines.push({ record: at, source: null });
+            record.sources.forEach((_, source) => recordLines.push({ record: at, source }));
+        });
+        line += recordLines.length;
     }
     return {
         ...empty, counts, live, done, steps, loads, feed, latest, taskPlan, tasks, inputPlan, inputs, inputNames, recordPlan, records, recordNames,
-        rows, total: line, panelAt, tasksAt, inputsAt, recordsAt,
+        recordLines, rows, total: line, panelAt, tasksAt, inputsAt, recordsAt,
     };
 }

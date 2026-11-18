@@ -23,7 +23,7 @@ import { createStore } from '../../state/store.js';
 import { dashboardFixture } from '../../testing/fixtures.js';
 import { KEY, NOW, dashboardView, mountApp, type Mounted } from '../../testing/harness.js';
 import { dashboardLines } from './dashboard.js';
-import { accountedBar, dashboardModel, latestPerTask, liveRows, type DashboardCtx } from './dashboard-model.js';
+import { accountedBar, dashboardModel, latestPerTask, liveRows, sourceWords, type DashboardCtx } from './dashboard-model.js';
 import { UNICODE } from '../../render/glyphs.js';
 
 let mounted: Mounted | null = null;
@@ -438,7 +438,8 @@ describe('the dashboard', () => {
 
 describe('the dashboard over a run\'s loads (R77)', () => {
     const SPIN = '[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]';
-    const tall = { columns: 120, rows: 44 };
+    // Tall enough for the whole column: the tables, the orders' row and its sources' lines
+    const tall = { columns: 120, rows: 50 };
 
     /** The names of the tasks table's rows, in order. */
     const stepNames = (lines: string[]): string[] => {
@@ -466,8 +467,48 @@ describe('the dashboard over a run\'s loads (R77)', () => {
         // The panel lists a load's failure after the task's, with its logs to open as the task's has (ruling 41).
         assert.match(lines[9]!, /^ ▌  1m  ✗ failed      report\s+exit 2 · 0\.8s     ⏎ logs$/);
         assert.match(lines[10]!, /^   55s  ✗ failed      orders\.forecast\s+exit 3 · 0\.4s     ⏎ logs$/);
-        // The records table lists the record the loads write.
-        assert.ok(lines.some(line => /^  orders\s+1,240\s+1\.2 MB\s+—\s+—$/.test(line)), mounted.frame());
+        // The records table lists the record the loads write, and under its row each of its sources (ruling 39): who
+        // writes it, what feeds it, its last delivery and when that says its data is as of, or that it waits for one.
+        const at = lines.findIndex(line => /^  orders\s+1,240\s+1\.2 MB\s+—\s+—$/.test(line));
+        assert.ok(at >= 0, mounted.frame());
+        assert.deepEqual(lines.slice(at + 1, at + 4), [
+            '    erp       fed by .tasks.ingest.output · last delivery d41e09c2b7a3 · as of 2026-09-08 11:00:00',
+            '    forecast  fed by .inputs.calendar · waits for its first delivery',
+            '    own       written by its mutations',
+        ]);
+    });
+
+    test('a record\'s sources are lines of the records table that no selection lands on: the row after them is the next record\'s (ruling 39)', () => {
+        const store = createStore(initialState(tall, './demo-repo'));
+        store.dispatch({ type: 'view/root', view: dashboardView() });
+        for (const action of fixture({ loads: true })) store.dispatch(action);
+        // A plain record beside the orders, after them in the list
+        const datasets = store.getState().data.datasets['main']!;
+        store.dispatch({ type: 'data/datasets', ws: 'main', entries: [...datasets, entry('records.zones', overridesType, 2_048, 'rec-zones')] as never });
+        const state = store.getState();
+        const dctx = { g: UNICODE, now: NOW, columns: state.size.columns, bp: breakpoint(state.size), spinner: 0 };
+        const model = dashboardModel(state, 'main', dctx);
+
+        assert.deepEqual(model.recordLines, [
+            { record: 0, source: null }, { record: 0, source: 0 }, { record: 0, source: 1 }, { record: 0, source: 2 }, { record: 1, source: null },
+        ]);
+        const [orders, zones] = model.rows.filter(row => row.kind === 'record');
+        assert.deepEqual([orders?.name, zones?.name, (zones?.line ?? 0) - (orders?.line ?? 0)], ['orders', 'zones', 4]);
+        assert.equal(model.total, zones!.line + 1, 'the column ends with the last record\'s row');
+        // The line under the orders' row is a source's, and the selected record's row is the one drawn selected
+        const selected = model.rows.findIndex(row => row.kind === 'record' && row.name === 'zones');
+        const drawn = dashboardLines(model, dctx, selected, orders!.line, 5).map(line => line.map(span => span.text).join(''));
+        assert.match(drawn[0]!, /^ {2}orders\s/);
+        assert.match(drawn[1]!, /^ {4}erp\s+fed by \.tasks\.ingest\.output/);
+        assert.match(drawn[4]!, /^ ▌zones\s/);
+    });
+
+    test('a source `e3 load` delivers, and one that holds no delivery: the words say which', () => {
+        const feedless = { name: 'wms', key: toEastTypeValue(StringType), external: true, delivery: some(rowsType), feed: none, last: none, pending: true };
+        assert.equal(sourceWords(feedless as never, UNICODE), 'delivered by e3 load · waits for its first delivery');
+        assert.equal(sourceWords({ ...feedless, pending: false } as never, UNICODE), 'delivered by e3 load · holds no delivery');
+        assert.equal(sourceWords({ ...feedless, pending: false, last: some({ delivery: 'd41e09c2b7a3f001', commit: none, asOf: none }) } as never, UNICODE),
+            'delivered by e3 load · last delivery d41e09c2b7a3');
     });
 
     test('⏎ on a load\'s row opens the load\'s logs and runs, as a task\'s row opens the task, and ⏎ on its failure in the panel opens its logs (ruling 41)', async () => {
