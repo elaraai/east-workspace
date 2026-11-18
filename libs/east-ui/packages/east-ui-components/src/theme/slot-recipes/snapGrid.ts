@@ -44,7 +44,7 @@
  * selection bar over the grid panel. The toolbar's own items — the grid chip,
  * the saved time and the width readout — are the mock's toolbar markup; its
  * zoom is the shared `stepper` and its design widths the shared `seg` strip
- * (#996).
+ * (#996), each icon the strip's (`data-seg-icon`).
  *
  * @packageDocumentation
  */
@@ -102,7 +102,7 @@ export const snapGridSlotRecipe = defineSlotRecipe({
         "root", "grid", "row", "cell", "blankBand", "blankBody",
         "editor", "column",
         "selectionBar", "selectionIcon", "selectionName", "selectionMeta", "selectionEmpty", "selectionHint",
-        "chip", "saved", "readout", "divider", "widthIcon",
+        "chip", "saved", "readout", "divider",
         "viewport", "canvas", "ruler", "rulerMark", "bands", "band", "rows", "gap", "gapLine",
         "tile", "frame", "handle", "tileBadge", "tileBar", "tileAction", "insertBefore", "insertAfter", "rule", "badge", "edgeBefore", "edgeAfter", "guide",
         "endZone", "endZoneBox", "endZoneRest", "endZoneDragging", "endZoneTarget", "ghost",
@@ -209,8 +209,7 @@ export const snapGridSlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap",
         },
         // The toolbar's own items: the grid chip, the saved time, the width
-        // readout, the rule before the history, and a design width's icon in
-        // its segment.
+        // readout and the rule before the history.
         // The grid chip: a one-line box (#1638), 20 tall in its edge, its words on the 18px of room inside.
         chip: {
             ...MICRO_LABEL,
@@ -239,11 +238,6 @@ export const snapGridSlotRecipe = defineSlotRecipe({
             width: "1px",
             height: "18px",
             bg: "border.strong",
-        },
-        widthIcon: {
-            display: "inline-flex",
-            marginInlineEnd: "6px",
-            "&:last-child": { marginInlineEnd: "0" },
         },
         viewport: {
             flex: "1",

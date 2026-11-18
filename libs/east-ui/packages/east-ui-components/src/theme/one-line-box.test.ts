@@ -168,9 +168,20 @@ describe("a control of a toolbar's row that holds words", () => {
         expect(sized(at(chipRecipe.base, IN_TOOLBAR_ROW))).toEqual(["28px", "26px"]);
     });
 
-    test("a segment fills its strip's 26 of room in the row, its label on a line as tall", () => {
+    test("a segment fills its strip's 26 of room in the row, its label on a line as tall, and its icon an even glyph in it", () => {
         expect(at(segSlotRecipe.base, "root", IN_TOOLBAR_ROW).height).toBe("28px");
-        expect(at(segSlotRecipe.base, "item", IN_TOOLBAR_ROW)).toEqual({ paddingBlock: "0", lineHeight: "26px" });
+        expect(at(segSlotRecipe.base, "item", IN_TOOLBAR_ROW)).toEqual({ paddingBlock: "0", lineHeight: "26px", "& svg": { fontSize: "10px" } });
+    });
+
+    test("a segment centres what it holds, its icon an odd glyph on its odd 13px line outside a row, and holding its icon alone it is as tall as one holding words", () => {
+        const item = at(segSlotRecipe.base, "item");
+        expect([item.display, item.alignItems, item.justifyContent]).toEqual(["inline-flex", "center", "center"]);
+        expect([item.lineHeight, item.paddingBlock, item.minHeight]).toEqual(["13px", "5px", "23px"]);
+        expect(at(item, "& svg")).toEqual({ flex: "none", fontSize: "11px" });
+    });
+
+    test("the Studio preview's device icon is an even glyph in the even 26px of its device, out of the line's baseline", () => {
+        expect(at(studioPublishSlotRecipe.base, "deviceIcon")).toEqual({ display: "inline-flex", fontSize: "10px" });
     });
 
     test("a stepper is one at both sizes, in its 1px edge", () => {

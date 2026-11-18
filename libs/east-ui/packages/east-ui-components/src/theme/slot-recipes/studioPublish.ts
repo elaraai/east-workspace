@@ -17,7 +17,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
-import { oneLineBox } from "../one-line-box.js";
+import { centredLine, oneLineBox } from "../one-line-box.js";
 
 /** The bar's rules and its quiet ink, as the spec's secondary and faintest ink fall on the inverse ground. */
 const BAR_RULE = { base: "gray.600", _dark: "gray.400" } as const;
@@ -106,7 +106,9 @@ export const studioPublishSlotRecipe = defineSlotRecipe({
                 outlineOffset: "-2px",
             },
         },
-        deviceIcon: { fontSize: "9.5px" },
+        /* Its icon at its middle on whole pixels, as an icon button's: an even glyph in the even 26px, out of the line's
+           baseline. */
+        deviceIcon: { display: "inline-flex", fontSize: centredLine(26, 10) },
         /* The environment it publishes to. */
         env: {
             display: "inline-flex",
