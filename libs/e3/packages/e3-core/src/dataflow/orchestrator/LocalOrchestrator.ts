@@ -1190,7 +1190,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
           // Prepare task (resolve inputs at its versions, check cache)
           const landed = execution.landed;
           const prepared = await stepPrepareTask(storage, state, taskName, versions, {
-            landed: (task, inHash) => execution.caughtUp.get(`${task}@${inHash}`),
+            landed: (task, inHash) => execution.caughtUp.get(catchUpKey({ task, inputsHash: inHash })),
           });
 
           // Its status may have moved while it was prepared: a failure
@@ -1780,7 +1780,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
 
     // A task that waits to read this one over exactly these inputs reads the
     // result that landed
-    const key = `${taskName}@${completed.inputsHash}`;
+    const key = catchUpKey({ task: taskName, inputsHash: completed.inputsHash });
     if ([...execution.catchingUp.values()].some((waiting) => waiting.waits.has(key))) {
       execution.caughtUp.set(key, result.outputHash);
     }
