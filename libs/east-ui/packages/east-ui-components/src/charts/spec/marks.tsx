@@ -24,6 +24,7 @@ import {
     T, numberOfKey, sideOf, useCx, useScales, xKeyOf,
     type Anchor, type BandSeries, type Curve, type LayerStyle, type Point, type Series, type SeriesMark, type YScale,
 } from "./context.js";
+import { MARK_LABEL_GAP } from "./labels.js";
 import { stackBoundsOf } from "./stack.js";
 
 /** Resolve an optional curve variant to its visx curve fn (default monotoneX). */
@@ -251,30 +252,52 @@ export function RefAreaMark({ value }: { value: ValueTypeOf<typeof T.ReferenceAr
     );
 }
 
+/** A rule's label: the chart rules' in-chart annotation, mono 10px / 600. */
+const RULE_LABEL_SIZE = "10px";
+/** How far a rule's label stands from the plot's start, and over its line. */
+const RULE_LABEL_INSET = 4;
+
 export function RuleMark({ value }: { value: ValueTypeOf<typeof T.Rule> }): ReactNode {
     const { cxKey, y, innerW, innerH, horizontal, style } = useScales();
     const dash = getSomeorUndefined(value.dashArray);
     const stroke = style.color(value.stroke);
+    const label = getSomeorUndefined(value.label);
     // The `axis` arm names the DATA channel (`y` = a measure value, `x` = a
     // domain coordinate); in a horizontal frame (#249) the screen roles swap —
-    // a measure rule is vertical, a domain rule horizontal.
-    return match(value.axis, {
-        y: () => {
-            const pos = y(numberOfKey(value.at));
-            return horizontal
-                ? <Line from={{ x: pos, y: 0 }} to={{ x: pos, y: innerH }} stroke={stroke} strokeWidth={1} {...(dash ? { strokeDasharray: dash } : {})} />
-                : <Line from={{ x: 0, y: pos }} to={{ x: innerW, y: pos }} stroke={stroke} strokeWidth={1} {...(dash ? { strokeDasharray: dash } : {})} />;
-        },
-        x: () => {
-            const pos = cxKey(value.at);
-            return horizontal
+    // a measure rule is vertical, a domain rule horizontal. So the line runs
+    // across the plot for a measure in a vertical frame, and for a domain
+    // coordinate in a horizontal one.
+    const across = match(value.axis, { y: () => !horizontal, x: () => horizontal });
+    const pos = match(value.axis, { y: () => y(numberOfKey(value.at)), x: () => cxKey(value.at) });
+    return (
+        <>
+            {across
                 ? <Line from={{ x: 0, y: pos }} to={{ x: innerW, y: pos }} stroke={stroke} strokeWidth={1} {...(dash ? { strokeDasharray: dash } : {})} />
-                : <Line from={{ x: pos, y: 0 }} to={{ x: pos, y: innerH }} stroke={stroke} strokeWidth={1} {...(dash ? { strokeDasharray: dash } : {})} />;
-        },
-    });
+                : <Line from={{ x: pos, y: 0 }} to={{ x: pos, y: innerH }} stroke={stroke} strokeWidth={1} {...(dash ? { strokeDasharray: dash } : {})} />}
+            {/* Its label (the chart rules): inside the plot at the rule's start — over a line across it, after the top of one down it — in the rule's colour. */}
+            {label !== undefined && (
+                <text
+                    x={across ? RULE_LABEL_INSET : pos + RULE_LABEL_INSET} y={across ? pos - RULE_LABEL_INSET : RULE_LABEL_INSET}
+                    textAnchor="start" {...(across ? {} : { dominantBaseline: "hanging" })} data-chart-rule-label=""
+                    style={{ fontFamily: style.font, fontSize: RULE_LABEL_SIZE, fontWeight: 600, fill: stroke }}
+                >{label}</text>
+            )}
+        </>
+    );
 }
 export function TextMark({ value }: { value: ValueTypeOf<typeof T.Text> }): ReactNode {
-    const cx = useCx(); const { y, style } = useScales();
+    const cx = useCx(); const { y, cxKey, horizontal, style } = useScales();
     const fill = getSomeorUndefined(value.fill);
-    return <text x={cx(value.point)} y={y(value.point.value)} textAnchor={anchorFor(getSomeorUndefined(value.anchor))} fontWeight={getSomeorUndefined(value.fontWeight) ?? 500} style={{ fontFamily: style.font, fontSize: getSomeorUndefined(value.fontSize) !== undefined ? `${getSomeorUndefined(value.fontSize)}px` : style.labelSize, fill: fill ? style.color(fill) : style.labelColor }}>{value.text}</text>;
+    const anchor = anchorFor(getSomeorUndefined(value.anchor));
+    const css = { fontFamily: style.font, fontSize: getSomeorUndefined(value.fontSize) !== undefined ? `${getSomeorUndefined(value.fontSize)}px` : style.labelSize, fill: fill ? style.color(fill) : style.labelColor };
+    const weight = getSomeorUndefined(value.fontWeight) ?? 500;
+    if (horizontal) {
+        // #249 — a point's value runs along x and its coordinate is the y
+        // band: the label stands at the band's middle, clear of the value's
+        // end — after it, or before it when it is anchored at its end — as a
+        // bar's value does at the bar's end (the chart rules).
+        const clear = anchor === "start" ? MARK_LABEL_GAP : anchor === "end" ? -MARK_LABEL_GAP : 0;
+        return <text x={y(value.point.value) + clear} y={cxKey(xKeyOf(value.point.x))} dominantBaseline="central" textAnchor={anchor} fontWeight={weight} style={css}>{value.text}</text>;
+    }
+    return <text x={cx(value.point)} y={y(value.point.value)} textAnchor={anchor} fontWeight={weight} style={css}>{value.text}</text>;
 }

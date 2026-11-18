@@ -307,8 +307,8 @@ export const scatterBubble = example({
 
 /** Pie — shares of one total: the first slices, then Other; a donut with its total. */
 export const pieShares = example({
-    keywords: ["Chart", "Pie", "donut", "shares", "share", "total", "Other", "top", "slice", "legend", "percent"],
-    description: "Pie of revenue by region — largest first from twelve o'clock, the first four regions then Other, drawn as a donut with the total in its centre; the legend carries each slice's value and share, and the slices carry no labels",
+    keywords: ["Chart", "Pie", "donut", "shares", "share", "total", "Other", "top", "slice", "legend", "percent", "caption", "note"],
+    description: "Pie of revenue by region — largest first from twelve o'clock, the first four regions then Other, drawn as a donut with the total in its centre over a caption; the legend carries each slice's value and share over a note that says what they are, and the slices carry no labels",
     fn: East.function([], UIComponentType, ($) => {
         const rows = $.const([
             { region: "NSW", revenue: 420.0 }, { region: "VIC", revenue: 310.0 }, { region: "QLD", revenue: 260.0 },
@@ -316,7 +316,7 @@ export const pieShares = example({
         ], ArrayType(StructType({ region: StringType, revenue: FloatType })));
         return (
             <Box height="240px" width="100%">
-                <Chart layers={Chart.Pie(rows, { label: r => r.region, value: r => r.revenue }, { donut: true, format: Chart.format.currency({ code: "AUD", compact: true }) })} height={220} />
+                <Chart layers={Chart.Pie(rows, { label: r => r.region, value: r => r.revenue }, { donut: true, caption: "AUD · total", note: "AUD · share of revenue", format: Chart.format.currency({ code: "AUD", compact: true }) })} height={220} />
             </Box>
         );
     }),

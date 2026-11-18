@@ -4,8 +4,9 @@
  */
 
 /**
- * A pie's frame (#1671, CHT-7): the pie beside its legend, as `pie.ts` gives
- * its slices.
+ * A pie's frame (#1671, CHT-7), as its mock draws it: the pie beside its
+ * legend, as `pie.ts` gives its slices — a row a slice, then the legend's
+ * note; a donut's total in its centre, over its caption.
  *
  * @packageDocumentation
  */
@@ -17,7 +18,7 @@ import { Group } from "@visx/group";
 import { Pie } from "@visx/shape";
 import { useFormatters } from "../../format/index.js";
 import { getSomeorUndefined } from "../../utils";
-import type { ChartMark, ChartMarkHandler, ChartStyle } from "./context.js";
+import type { ChartMark, ChartMarkHandler, ChartNumberText, ChartStyle } from "./context.js";
 import { measuredFrame } from "./measured.js";
 import { pieSlicesOf, type PieSlice, type PieValue } from "./pie.js";
 import { tickFormatter } from "./tick-format.js";
@@ -25,8 +26,18 @@ import { tickFormatter } from "./tick-format.js";
 /** The narrowest a pie sits beside its legend; narrower, the legend goes under it. */
 const PIE_SIDE_MIN = 320;
 
-/** A legend row's height under a pie, as the recipe sets an entry. */
-const PIE_LEGEND_ROW = 20;
+/** A legend row's height, as the recipe sets an entry. */
+const PIE_LEGEND_ROW = 26;
+
+/** The legend's note under its rows: its 15px line and the 4px over it, as the recipe sets it. */
+const PIE_NOTE_LINE = 19;
+
+/** The most of its frame's height a pie beside its legend takes: 176 of the mock's 220. */
+const PIE_SIDE_SHARE = 0.8;
+
+/** A donut's total and its caption, about the centre: the total 6 over it, the caption 17 under. */
+const DONUT_TOTAL_Y = -6;
+const DONUT_CAPTION_Y = 17;
 
 /** A donut's ring, in px (CHT-7). */
 const DONUT_RING = 26;
@@ -45,20 +56,28 @@ function sliceMark(slice: PieSlice): ChartMark {
  * A pie's frame (#1671, CHT-7): the pie beside its legend — under it where
  * the chart is narrow — its slices as `pie.ts` gives them, largest first from
  * twelve o'clock with a 1.5 px gap of the surface between, no labels; a donut
- * a 26 px ring with the total in its centre. Each legend row carries the
- * slice's value and share. A slice and its legend row tell the host when
- * clicked.
+ * a 26 px ring with the total in its centre, over its caption. Each legend row
+ * carries the slice's value and share, the values on one scale where the host
+ * prints them; the legend's note says what they are. A slice and its legend
+ * row tell the host when clicked.
  */
-export function PieFrame({ pie, height, width, style, onMark }: { pie: PieValue; height: number; width: number | undefined; style: ChartStyle; onMark: ChartMarkHandler | undefined }): ReactNode {
+export function PieFrame({ pie, height, width, style, onMark, numberText }: { pie: PieValue; height: number; width: number | undefined; style: ChartStyle; onMark: ChartMarkHandler | undefined; numberText: ChartNumberText | undefined }): ReactNode {
     const words = useFormatters();
     const recipe = useSlotRecipe({ key: "chartPie" });
     const shown = useMemo(() => pieSlicesOf(pie, "Other"), [pie]);
-    const fmt = tickFormatter(getSomeorUndefined(pie.format), "linear", words.locale);
+    const format = getSomeorUndefined(pie.format);
+    const fmt = tickFormatter(format, "linear", words.locale);
+    // A value as the host prints it beside the largest it is read with, else through the pie's own format.
+    const said = (n: number, of: number) => (numberText !== undefined ? numberText(n, format, of) : fmt(n));
+    const largest = shown.slices.reduce((most, slice) => Math.max(most, slice.value), 0);
+    const note = getSomeorUndefined(pie.note);
+    const caption = getSomeorUndefined(pie.caption);
     const draw = (w: number, h: number) => {
         const layout = w >= PIE_SIDE_MIN ? "side" : "below";
         const styles = recipe({ layout });
-        const legendH = layout === "below" ? shown.slices.length * PIE_LEGEND_ROW : 0;
-        const diameter = Math.max(0, Math.floor(Math.min(layout === "side" ? w * 0.45 : w, h - legendH)));
+        const legendH = layout === "below" ? shown.slices.length * PIE_LEGEND_ROW + (note !== undefined ? PIE_NOTE_LINE : 0) : 0;
+        // An even number of pixels across, so its centre stands on a whole pixel.
+        const diameter = 2 * Math.floor(Math.max(0, Math.min(layout === "side" ? Math.min(w * 0.45, h * PIE_SIDE_SHARE) : w, h - legendH)) / 2);
         const outer = diameter / 2;
         const inner = pie.donut ? Math.max(0, outer - DONUT_RING) : 0;
         return (
@@ -73,7 +92,8 @@ export function PieFrame({ pie, height, width, style, onMark }: { pie: PieValue;
                                     {...(onMark !== undefined ? { cursor: "pointer", onClick: () => onMark(sliceMark(arc.data)) } : {})} />
                             ))}
                         </Pie>
-                        {pie.donut && <SvgText css={styles.total} textAnchor="middle" dominantBaseline="central">{fmt(shown.total)}</SvgText>}
+                        {pie.donut && <SvgText css={styles.total} y={caption !== undefined ? DONUT_TOTAL_Y : 0} textAnchor="middle" dominantBaseline="central" data-chart-pie-total="">{said(shown.total, shown.total)}</SvgText>}
+                        {pie.donut && caption !== undefined && <SvgText css={styles.caption} y={DONUT_CAPTION_Y} textAnchor="middle" dominantBaseline="central" data-chart-pie-caption="">{caption}</SvgText>}
                     </Group>
                 </Box>
                 <Box css={styles.legend} data-chart-pie-legend="">
@@ -82,10 +102,11 @@ export function PieFrame({ pie, height, width, style, onMark }: { pie: PieValue;
                             {...(onMark !== undefined ? { as: "button" as const, type: "button" as const, "data-clickable": "", onClick: () => onMark(sliceMark(s)) } : {})}>
                             <Box as="span" css={styles.swatch} background={style.color(s.color)} />
                             <Box as="span" css={styles.label}>{s.key}</Box>
-                            <Box as="span" css={styles.value}>{fmt(s.value)}</Box>
+                            <Box as="span" css={styles.value}>{said(s.value, largest)}</Box>
                             <Box as="span" css={styles.share}>{words.percent(s.share)}</Box>
                         </Box>
                     ))}
+                    {note !== undefined && <Box css={styles.note} data-chart-pie-note="">{note}</Box>}
                 </Box>
             </Box>
         );

@@ -12,7 +12,7 @@
  */
 
 import { formatters, formatPattern, parsePattern, tickFormatOf } from "../../format/index.js";
-import { instantOfKey, type ScaleKind, type TickFormat } from "./context.js";
+import { instantOfKey, type ChartNumberText, type ScaleKind, type TickFormat } from "./context.js";
 
 /** Format a Date against an East datetime format pattern — the shared
  *  format module's {@link formatPattern} (#850): East's own tokenizer and
@@ -63,4 +63,31 @@ export function tickFormatter(fmt: TickFormat | undefined, kind: ScaleKind, loca
     const spec = tickFormatOf(fmt);
     const dated = spec.type === "date" || spec.type === "time" || spec.type === "datetime";
     return v => f.value(dated ? instantOf(v).getTime() : Number(v), spec);
+}
+
+/**
+ * A measure's tick formatter: the host's printer where it gives one, else the
+ * axis's declared format ({@link tickFormatter}). A date is never the host's.
+ *
+ * @param printer - The host's printer, when the chart is given one
+ * @param fmt - The axis's declared format, when it has one
+ * @param of - The largest number on the axis: its domain's end
+ * @param locale - The BCP 47 locale the declared format prints in
+ * @returns The formatter
+ */
+export function measureFormatter(printer: ChartNumberText | undefined, fmt: TickFormat | undefined, of: number, locale?: string): (v: unknown) => string {
+    const dated = fmt !== undefined && (fmt.type === "date" || fmt.type === "time" || fmt.type === "datetime");
+    if (printer === undefined || dated) return tickFormatter(fmt, "linear", locale);
+    return v => printer(Number(v), fmt, of);
+}
+
+/**
+ * The largest number a scale's domain reaches, either way from zero: what a
+ * host's printer is given to keep an axis's ticks on one scale.
+ *
+ * @param scale - A measure's scale
+ * @returns The domain's end furthest from zero
+ */
+export function domainReach(scale: { domain: () => readonly unknown[] }): number {
+    return scale.domain().reduce<number>((reach, bound) => Math.max(reach, Math.abs(Number(bound))), 0);
 }

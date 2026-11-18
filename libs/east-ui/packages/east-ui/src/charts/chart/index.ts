@@ -712,13 +712,14 @@ export interface RefLineOptions {
     y?: SubtypeExprOrValue<FloatType>;
     /** Vertical line at this x position (literal or expression). */
     x?: CoordValue;
-    /** Optional caption. */
+    /** Its caption, drawn inside the plot at the line's start, over it, in the line's colour — `target 2.00M`. */
     label?: SubtypeExprOrValue<StringType>;
     /** SVG dash pattern; solid when omitted. */
     dash?: SubtypeExprOrValue<StringType>;
 }
 
-const REF_STROKE = "{colors.gray.500}";
+/** A reference line's colour: the chart rules' `--ink-3`. */
+const REF_STROKE = "fg.muted";
 
 /** Build a reference-line layer (a `rule` node). */
 function createRefLine(options: RefLineOptions): RefLayer {
@@ -728,6 +729,7 @@ function createRefLine(options: RefLineOptions): RefLayer {
         at: onY ? stringifyCoord(options.y!) : stringifyCoord(options.x ?? ""),
         stroke: REF_STROKE,
         dashArray: options.dash !== undefined ? some(options.dash) : none,
+        label: options.label !== undefined ? some(options.label) : none,
     }), ChartSpecType);
     return { kind: "ref", node, refKind: "line", refOptions: options };
 }
@@ -964,7 +966,8 @@ function createChartRoot(layers: ChartLayer | ChartLayer[], options?: ChartOptio
     // a horizontal bar chart; the category axis draws none.
     const grid = opts.grid !== false;
     const children: ChartSpecValue[] = [
-        ...(grid ? [horizontal ? chartGridColumns({ dashArray: "3 3" }) : chartGridRows({ dashArray: "3 3" })] : []),
+        // The chart rules: gridlines are solid — a dash is for what is not yet so.
+        ...(grid ? [horizontal ? chartGridColumns() : chartGridRows()] : []),
         ...markNodes,
         chartAxisBottom(compact({ label: opts.x?.label, numTicks: opts.x?.numTicks, tickValues: opts.x?.tickValues, hideTicks: opts.x?.hideTicks, hideLine: opts.x?.hideLine, domain: domainExpr(opts.x?.domain), tickFormat: opts.x?.format, tickStyle: opts.x?.tickStyle, titleStyle: opts.x?.titleStyle, titleGap: opts.x?.titleGap })),
         chartAxisLeft(compact({ label: opts.y?.label, numTicks: opts.y?.numTicks, tickValues: opts.y?.tickValues, hideTicks: opts.y?.hideTicks, hideLine: opts.y?.hideLine, domain: domainExpr(opts.y?.domain), tickFormat: opts.y?.format, tickStyle: opts.y?.tickStyle, titleStyle: opts.y?.titleStyle, titleGap: opts.y?.titleGap })),
@@ -1083,8 +1086,9 @@ export const Chart = {
      * The slices are drawn largest first from twelve o'clock: the first `top`
      * (4 by default), then one Other slice for the rest, in `--ink-5`, with a
      * 1.5 px gap of the surface between slices. Slices carry no labels: the
-     * legend carries each slice's value and share. A donut is a 26 px ring
-     * with the total in its centre. Colours follow the chart rules' series
+     * legend carries each slice's value and share, and a `note` under its
+     * rows. A donut is a 26 px ring with the total in its centre, over its
+     * `caption`. Colours follow the chart rules' series
      * order by rank — `--brand-d`, then teal, purple, blue, orange — unless
      * `colors` names a slice's. `total` is the whole the slices are shares
      * of when they are not all of it; Other holds what is past their sum.
@@ -1098,7 +1102,7 @@ export const Chart = {
     Pie: <Row extends EastType>(rows: ChartRows<Row>, encoding: PieEncoding<Row>, style?: PieStyle): PieLayer => createPie(rows, encoding, style),
     /** Slice-parameterized layer — one coloured series per active-breakdown value (see {@link createSliceSeries}). */
     Series: createSliceSeries,
-    /** Reference-line annotation layer. */
+    /** Reference-line annotation layer: a rule across the plot in `--ink-3`, its `label` inside the plot at its start, over it. */
     refLine: createRefLine,
     /** Reference-band annotation layer. */
     refBand: createRefBand,
