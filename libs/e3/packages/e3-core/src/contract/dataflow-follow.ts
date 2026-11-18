@@ -1402,10 +1402,20 @@ export function dataflowFollowCases(setup: BackendSetup): void {
     }
   });
 
-  it('launches no run of a task over the inputs a catch-up run of it is running over: the task waits for it, and the cache answers it', async (t) => {
+  it('launches no run of a task over the inputs a catch-up run of it is running over: the task waits for it, unprepared, and the cache answers it', async (t) => {
     const context = await setup(t);
-    const { storage, repo } = context;
+    const { repo } = context;
     const tasks = await deployTwoSided(t, context, { probe: true });
+    // Each ask of the execution cache, by task and inputs: preparing a task asks it once
+    const cacheAsks: Array<readonly [string, string]> = [];
+    const storage = standIn(context.storage, {
+      refs: standIn(context.storage.refs, {
+        executionListIds: (...args: Parameters<StorageBackend['refs']['executionListIds']>) => {
+          cacheAsks.push([args[1], args[2]]);
+          return context.storage.refs.executionListIds(...args);
+        },
+      }),
+    });
     const runner = gatedRunner(storage, repo, tasks);
     const lines = new RunLines();
     const orchestrator = new LocalOrchestrator(stateStoreOf(context));
@@ -1447,11 +1457,23 @@ export function dataflowFollowCases(setup: BackendSetup): void {
     await runner.launched('zz');
     assert.equal(runner.holding('right'), 1, 'right waits for its catch-up run: no run of it beside it');
 
+    // The loop makes a pass whenever something settles or a wake ends, and passes right by in each while its
+    // catch-up run is in flight: zz lands, the probe moves again, and right is not prepared again
+    const prepares = (): number => cacheAsks.filter(([task, inputs]) => task === tasks.get('right') && inputs === inputsHash([c1.state])).length;
+    const prepared = prepares();
+    runner.release('zz');
+    await lines.said('[DONE] zz', 2);
+    await workspaceSetDataset(storage, repo, 'ws', inputPath('probe'), 3n, IntegerType);
+    assert.equal(await orchestrator.wake(storage, repo, 'ws'), handle.id);
+    await runner.launched('zz');
+    assert.equal(prepares(), prepared, 'right waited unprepared through each pass');
+
     // The catch-up run lands, and right reads what it made from the cache: right ran once over those inputs
     runner.release('right');
     await lines.said('[DONE] right for both');
     await lines.said('[CACHED] right');
-    assert.equal((await storage.refs.executionListIds(repo, tasks.get('right')!, inputsHash([c1.state]))).length, 1);
+    assert.equal(prepares(), prepared + 1, 'prepared once more as the run settled, and answered');
+    assert.equal((await context.storage.refs.executionListIds(repo, tasks.get('right')!, inputsHash([c1.state]))).length, 1);
 
     for (const name of tasks.keys()) runner.pass(name);
     for (const name of tasks.keys()) while (runner.holding(name) > 0) runner.release(name);

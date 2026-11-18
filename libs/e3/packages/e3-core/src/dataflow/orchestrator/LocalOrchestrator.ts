@@ -399,7 +399,8 @@ interface RunningExecution {
   launches: Map<string, string>;
   /** The tasks that wait for catch-up runs: the versions each reads, which it
    *  is prepared at again once its runs have settled, and every run it has
-   *  waited for, by key */
+   *  waited for, by key. A run is one that makes a result the task reads, or
+   *  one of the task itself over the very inputs it would run on */
   catchingUp: Map<string, { versions: VersionVector; waits: Map<string, CatchUpRun> }>;
   /** The outputs of the runs a task that waits reads, by key: catch-up runs
    *  that landed, and a task's own run over exactly those inputs */
@@ -1301,11 +1302,21 @@ export class LocalOrchestrator implements DataflowOrchestrator {
 
           // A catch-up run of the task over these very inputs is in flight: its
           // execution lands in the cache, which answers the task once it has,
-          // so nothing runs twice over the same inputs. The task stays ready,
-          // and the loop waits on the run
+          // so nothing runs twice over the same inputs. The task stays ready
+          // and waits for the run as a task waits for one it reads: passed by
+          // unprepared, however many passes the run's units settle in, and
+          // prepared again at these versions once the run has settled
           const inHash = inputsHash(prepared.inputHashes);
           const catchingUpOver = catchUpKey({ task: taskName, inputsHash: inHash });
-          if (execution.runningTasks.has(catchingUpOver) || execution.splits.has(catchingUpOver)) continue;
+          if (execution.runningTasks.has(catchingUpOver) || execution.splits.has(catchingUpOver)) {
+            execution.catchingUp.set(taskName, {
+              versions,
+              waits: new Map([[catchingUpOver, {
+                task: taskName, taskHash: prepared.taskHash, inputHashes: prepared.inputHashes, inputsHash: inHash, versions,
+              }]]),
+            });
+            continue;
+          }
 
           // Mark as started (event added by step function), under the mutex
           // as every other change of the run's state is
@@ -1924,7 +1935,9 @@ export class LocalOrchestrator implements DataflowOrchestrator {
    * read it, which are prepared again; or, when it failed, each of them
    * fails, naming the run's task and the versions it ran at. A task another
    * path settled meanwhile — skipped for a failure upstream, left waiting, or
-   * failed — keeps what it was, and lets go of the runs it waited for.
+   * failed — keeps what it was, and lets go of the runs it waited for. So
+   * does the run's own task, which waited rather than run beside it: it reads
+   * nothing of the run, and is decided again.
    */
   private async completeCatchUp(execution: RunningExecution, run: CatchUpRun, forTask: string, outcome: TaskOutcome): Promise<void> {
     const { state, options } = execution;
@@ -1949,6 +1962,9 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       for (const [taskName, waiting] of [...execution.catchingUp]) {
         if (!waiting.waits.has(key)) continue;
         this.releaseCatchUps(execution, taskName);
+        // The run's own task waited rather than run beside it over the same
+        // inputs. It reads no result of the run: it is decided again
+        if (sameName(taskName, run.task)) continue;
         // Only a task still waiting to launch waits for this run: one settled
         // otherwise is counted, and told of, as it was settled
         const status = state.tasks.get(taskName)?.status;
