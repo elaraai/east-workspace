@@ -17,7 +17,7 @@ import { compactType } from '../../model/types.js';
 import { eventCell, taskStatusCell } from '../../model/status.js';
 import { registerListModel } from '../../model/index.js';
 import { registerViewHooks } from '../../controller.js';
-import { latestPerTask } from './dashboard.js';
+import { latestPerTask } from './dashboard-model.js';
 import { agoShort, displayWidth, formatDuration, formatInt, formatSize, hashMid, hashShort, hashTiny } from '../../render/text.js';
 import { isLogTab, taskTabsOf, type DatasetData, type TaskTab, type TuiState } from '../../state/actions.js';
 import { countLines } from '../../data/logs.js';

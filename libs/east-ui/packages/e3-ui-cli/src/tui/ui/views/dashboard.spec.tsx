@@ -21,7 +21,8 @@ import { initialState, type TuiState } from '../../state/actions.js';
 import { createStore } from '../../state/store.js';
 import { dashboardFixture } from '../../testing/fixtures.js';
 import { KEY, NOW, dashboardView, mountApp, type Mounted } from '../../testing/harness.js';
-import { accountedBar, dashboardLines, dashboardModel, latestPerTask, liveRows, type DashboardCtx } from './dashboard.js';
+import { dashboardLines } from './dashboard.js';
+import { accountedBar, dashboardModel, latestPerTask, liveRows, type DashboardCtx } from './dashboard-model.js';
 import { UNICODE } from '../../render/glyphs.js';
 
 let mounted: Mounted | null = null;
