@@ -309,6 +309,74 @@ describe('a source the dataflow loads', () => {
     assert.equal(await workspaceGetDataset(storage, repo, WS, FORECAST), 4n);
   });
 
+  it('a load its record\'s slots answer is asked, as it lands, whether its feed moved while it was prepared: it loads the feed\'s new value in the same run', async () => {
+    // The ERP has delivered SO-1, and its input holds the package's value again; two tasks beside have rows to run on
+    const setExtract = (orders: Orders) => workspaceSetDataset(storage, repo, WS, ERP_EXTRACT, book(orders), ErpDeliveryType);
+    await deployed({ feed: 'packaged', beside: true });
+    await deliverWms({ 'W-1': ['Cedar', 7n] });
+    await setExtract({ 'SO-1': ['Acme', 5n] });
+    await setRows(ERP_ROWS, { 'A-1': ['Ash', 1n] });
+    await setRows(WMS_ROWS, { 'B-1': ['Bay', 1n] });
+    const first = await run();
+    assert.equal(first.result.success, true, first.told);
+    await setExtract({ 'SO-0': ['Placeholder', 0n] });
+    await setRows(ERP_ROWS, { 'A-2': ['Ash', 2n] });
+    await setRows(WMS_ROWS, { 'B-2': ['Bay', 2n] });
+
+    // The run reads the feed's ref twice once the input is set: the look that finds it moved, under the run's lock,
+    // and then the load, as it is prepared. The load's read is held, after the store has answered it
+    const reached = gated<void>();
+    const allowed = gated<void>();
+    let readsUntilHeld = Infinity;
+    const datasets = overriding(storage.datasets, {
+      read: async (...args: Parameters<StorageBackend['datasets']['read']>) => {
+        const ref = await storage.datasets.read(...args);
+        if (args[2] === 'inputs/erp_extract' && --readsUntilHeld === 0) {
+          reached.open();
+          await allowed.opened;
+        }
+        return ref;
+      },
+    });
+    const gate = new GatedTaskRunner(runner, ['combine_erp', 'combine_wms']);
+    const running = start({ runner: gate, storage: withStores(storage, { datasets }) });
+    await Promise.all([gate.launched('combine_erp'), gate.launched('combine_wms')]);
+    await running.until('wait orders.erp: package .inputs.erp_extract');
+
+    // Someone sets the input to the delivery the record holds: a landing's look releases the load, whose read is held
+    await setExtract({ 'SO-1': ['Acme', 5n] });
+    readsUntilHeld = 2;
+    releaseAll(gate, 'combine_erp');
+    await reached.opened;
+    // The feed moves on, and another landing's look finds it: the load is about to launch, and is passed by
+    await setExtract({ 'SO-1': ['Acme', 5n], 'SO-2': ['Birch', 1n] });
+    releaseAll(gate, 'combine_wms');
+    await running.until('done combine_wms');
+    allowed.open();
+    const result = await running.done;
+    const { lines } = running;
+    const told = lines.join('\n');
+
+    assert.equal(result.success, true, told);
+    assert.ok(lines.includes('cached orders.erp'), `answered by the slots, from the feed as it read it\n${told}`);
+    assert.ok(lines.includes('due orders.erp: its inputs moved while it ran'), told);
+    assert.deepEqual((await loads()).filter((each) => each.startsWith('$load:erp')), ['$load:erp system:dataflow', '$load:erp system:dataflow'],
+      'the feed\'s new value is loaded in the same run');
+    assert.equal(await workspaceGetDataset(storage, repo, WS, FORECAST), 4n, 'P-1, W-1, SO-1 and SO-2');
+  });
+
+  it('a run\'s record names no fed record among its outputs: a load node writes a root, whose version the run\'s inputs hold', async () => {
+    await loadedOnce();
+    await save('P-2', 'Dane', 1n);
+    const { result, told } = await run();
+    assert.equal(result.success, true, told);
+
+    const record = await storage.refs.dataflowRunGetLatest(repo, WS);
+    assert.ok(record !== null && record.outputVersions.type === 'some', 'the run is recorded');
+    assert.deepEqual([...record.outputVersions.value.keys()].sort(), ['.tasks.combine_erp.output', '.tasks.forecast.output'], told);
+    assert.equal(record.inputVersions.get('.records.orders'), (await refOf('orders')).versions.get('.records.orders'), 'the record\'s head, with the save');
+  });
+
   it('R52 — a load whose feed has no value waits, and the record\'s readers wait with it on the load', async () => {
     await deployed();
     const { result, lines, told } = await run();

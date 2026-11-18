@@ -566,12 +566,19 @@ export function ledgerOrders(options: { readonly erp?: LedgerErpLoad; readonly o
  * loaded from `combine_wms`, a task that makes the warehouse's book from its
  * rows (`wms_rows`, an input with no value).
  *
- * @param options - `erp`'s feed, `wms`'s, and an order id whose delivery makes
- *   `erp`'s load fail, naming the order
+ * With `beside`, the package holds `combine_erp` and `combine_wms` whatever
+ * feeds the sources: two tasks, each over an input of its own, that a spec
+ * holds in flight beside a load neither feeds.
+ *
+ * @param options - `erp`'s feed, `wms`'s, an order id whose delivery makes
+ *   `erp`'s load fail, naming the order, and whether the two tasks are held
+ *   beside
  * @returns Each part, and the package of them (`fed`, at the version given,
  *   `1.0.0` when omitted)
  */
-export function fedOrders(options: { readonly feed?: 'task' | 'packaged'; readonly wms?: 'delivered' | 'fed'; readonly failsOn?: string } = {}) {
+export function fedOrders(options: {
+  readonly feed?: 'task' | 'packaged'; readonly wms?: 'delivered' | 'fed'; readonly failsOn?: string; readonly beside?: boolean;
+} = {}) {
   const erpRows = e3.input('erp_rows', ErpDeliveryType);
   const combineErp = e3.task('combine_erp', [erpRows], East.function([ErpDeliveryType], ErpDeliveryType, (_$, rows) => rows));
   const erpExtract = e3.input('erp_extract', ErpDeliveryType, variant('value', new Map([['SO-0', { customer: 'Placeholder', qty: 0n }]])));
@@ -600,7 +607,7 @@ export function fedOrders(options: { readonly feed?: 'task' | 'packaged'; readon
   const forecast = e3.task('forecast', [orders], East.function([orders.type], IntegerType, (_$, held) => held.size()));
   return {
     erpRows, combineErp, erpExtract, wmsRows, combineWms, orders, forecast,
-    pkg: (version = '1.0.0') => e3.package('fed', version, forecast),
+    pkg: (version = '1.0.0') => e3.package('fed', version, forecast, ...(options.beside === true ? [combineErp, combineWms] : [])),
   };
 }
 

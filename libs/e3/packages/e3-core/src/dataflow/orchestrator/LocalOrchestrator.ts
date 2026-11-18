@@ -437,7 +437,8 @@ interface RunningExecution {
    *  do not count: none of them lands a result */
   landed: number;
   /** How many times what a task is decided on has changed: a result landed
-   *  in the run's state, or a look took a changed input in. Counted in the
+   *  in the run's state — a load's among them, answered, committed or failed
+   *  — or a look took a changed input in. Counted in the
    *  tick the state moves, which is when the tasks deferred by then go back
    *  to pending. A task decided deferred while it moved is decided again: it
    *  was not yet deferred when they were, and what it would be deferred for
@@ -1307,7 +1308,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
           if (prepared.kind === 'answered') {
             hadSyncCompletion = true;
             await execution.mutex.runExclusive(async () => {
-              this.landLoadAnswer(execution, prepared, versions);
+              await this.landLoadAnswer(storage, execution, prepared, versions);
               await this.persistState(execution, state);
             });
             continue;
@@ -2247,11 +2248,16 @@ export class LocalOrchestrator implements DataflowOrchestrator {
    * Completes a load node its record's slots answer, under the mutex: the
    * record holds the delivery already, under the same load, so nothing
    * commits. Its output is the record's head, and its execution the one the
-   * slots name.
+   * slots name. It is then asked whether it is due again, as every result
+   * that lands is: its feed may have moved while it was prepared, which the
+   * look that found it passed the node by for, as one about to launch. An ask
+   * that fails leaves its inputs unasked, for the loop to ask before it goes
+   * on.
    */
-  private landLoadAnswer(execution: RunningExecution, prepared: PrepareLoadAnswered, versions: VersionVector): void {
+  private async landLoadAnswer(storage: StorageBackend, execution: RunningExecution, prepared: PrepareLoadAnswered, versions: VersionVector): Promise<void> {
     const { state, options } = execution;
     stepTaskCompleted(state, prepared.task, prepared.commit, true, 0, prepared.execution, versions);
+    execution.changed++;
     const existing = execution.taskExecutions.get(prepared.task);
     execution.taskExecutions.set(prepared.task, {
       ...prepared.execution,
@@ -2261,6 +2267,12 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       executionCount: (existing?.executionCount ?? 0n) + 1n,
     });
     options.onTaskComplete?.({ name: prepared.task, cached: true, state: 'success', duration: 0 });
+    try {
+      const again = await stepTaskDueAgain(storage, state, prepared.task);
+      if (again?.type === 'task_invalidated') options.onTaskInvalidated?.(prepared.task, again.value.reason);
+    } catch {
+      for (const input of this.nodeOf(state, prepared.task)?.inputs ?? []) execution.unasked.add(input);
+    }
   }
 
   /**
@@ -2420,6 +2432,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
           // leaves them naming the one that made what the record holds
           const completed = committed.kind === 'unchanged' ? committed.execution : made;
           stepTaskCompleted(state, name, committed.commit, outcome.cached, outcome.duration, completed, versions, outcome.peakBytes);
+          execution.changed++;
           const existing = execution.taskExecutions.get(name);
           execution.taskExecutions.set(name, {
             ...completed, taskHash: prepared.taskHash, cached: outcome.cached, outputVersions: new Map(versions),
@@ -2484,6 +2497,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
   ): Promise<void> {
     const { state, options } = execution;
     stepLoadFailed(state, name, error, outcome.exitCode, outcome.duration, versions);
+    execution.changed++;
     options.onTaskComplete?.({
       name, cached: false, state: outcome.exitCode !== undefined ? 'failed' : 'error', error, exitCode: outcome.exitCode, duration: outcome.duration,
     });
@@ -2505,6 +2519,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       if (execution.stoppedBy === 'refused') return;
       try {
         stepLoadFailed(state, name, error, undefined, 0, versions);
+        execution.changed++;
         await this.persistState(execution, state);
       } catch {
         // best-effort — the error above is what matters
@@ -2961,13 +2976,17 @@ export class LocalOrchestrator implements DataflowOrchestrator {
   }
 
   /**
-   * Build output versions map from completed task states.
+   * Build output versions map from completed task states: each task's
+   * output, at the result it holds. A load node is left out: the record it
+   * loads is a root, written by its other loads and by saves as well, whose
+   * version the run's `inputVersions` holds.
    */
   private buildOutputVersions(state: DataflowExecutionState): Map<string, string> {
     const outputVersions = new Map<string, string>();
     const graph = state.graph.type === 'some' ? state.graph.value : null;
     if (graph) {
       for (const task of graph.tasks) {
+        if (task.load.type === 'some') continue;
         const ts = state.tasks.get(task.name);
         if (ts && ts.outputHash.type === 'some') {
           outputVersions.set(task.output, ts.outputHash.value);
