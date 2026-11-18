@@ -27,7 +27,8 @@ import { memo, useMemo, useState } from "react";
 import { Box, chakra, useSlotRecipe } from "@chakra-ui/react";
 import type { SplitCallProgress, SplitCallReport } from "@elaraai/e3-types";
 import { SliceEditPopover } from "@elaraai/east-ui-components";
-import { planBadge, planWords, type QueryWords } from "./model/words.js";
+import { planBadge, planWords } from "./model/plan-words.js";
+import type { QueryWords } from "./model/words.js";
 import type { Styles } from "./parts.js";
 import type { QueryPlan } from "./plan.js";
 

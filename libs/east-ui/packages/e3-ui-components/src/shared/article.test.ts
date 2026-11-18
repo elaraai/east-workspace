@@ -12,7 +12,7 @@
 import { describe, expect, test } from "vitest";
 import { DEFAULT_FLOWCHART_NOUNS, flowchartMessagesOf } from "../flowchart/messages.js";
 import { planMessages } from "../plan/messages.js";
-import { queryMessages } from "../query/model/messages.js";
+import { queryMessages } from "../query/model/messages-en.js";
 import { schematicMessages } from "../schematic/messages.js";
 import { sheetMessages } from "../sheet/messages.js";
 import { withArticle } from "./article.js";
