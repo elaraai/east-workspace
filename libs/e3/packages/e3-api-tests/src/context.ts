@@ -84,7 +84,7 @@ export interface TestConfig {
 
   /**
    * Whether the server's start reaches a run in flight to hand it a start
-   * (default true): its orchestrator's `wake` answers true for a run of every
+   * (default true): its orchestrator's `wake` names the run for a run of every
    * task that is not stopping. The dataflow suite then expects a start that
    * names no filter and forces no task, made while a run is in flight,
    * answered `handed`.

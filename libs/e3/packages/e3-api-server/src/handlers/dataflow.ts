@@ -3,7 +3,7 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { IntegerType, NullType, OptionType, lessFor, some, none, variant } from '@elaraai/east';
+import { IntegerType, NullType, OptionType, StringType, equalFor, lessFor, some, none, variant } from '@elaraai/east';
 import { DATAFLOW_POLL_EVENTS_MAX, DataflowStartResultType } from '@elaraai/e3-types';
 import {
   dataflowGetGraph,
@@ -191,25 +191,31 @@ function convertWorkspaceStatus(result: CoreWorkspaceStatusResult): WorkspaceSta
   };
 }
 
+/** Whether two runs' ids name one run. */
+const sameRun = equalFor(StringType);
+
 /**
  * Hands a start to the run in flight on a workspace: the run looks for changed
  * inputs at once ({@link DataflowOrchestrator.wake}).
  *
  * @remarks
  * The cursor is read before the run is woken, so a poll from it is served
- * what the wake starts. A run asked to stop takes nothing in, and neither
- * does one the orchestrator cannot reach, or one that leaves tasks out. A
- * wake that fails is a start not handed over: its caller is refused as a
- * held workspace refuses it, and the run finds the change as its next task
- * ends.
+ * what the wake starts. The run woken is whichever is in flight as the wake
+ * arrives, which the orchestrator names: where the run read has ended since,
+ * and another begun, the cursor read is not that run's, and the answer is
+ * the run's start, so a poll is served every event of the run that took the
+ * start. A run asked to stop takes nothing in, and neither does one the
+ * orchestrator cannot reach, or one that leaves tasks out. A wake that fails
+ * is a start not handed over: its caller is refused as a held workspace
+ * refuses it, and the run finds the change as its next task ends.
  *
  * @param storage - Storage backend
  * @param orchestrator - The orchestrator that runs the repository's dataflows
  * @param repoPath - The repository's path
  * @param workspace - The workspace
  * @param run - The workspace's latest run, as its store summarises it
- * @returns The answer, `handed` with the run's cursor; `null` when no run
- *   took the start
+ * @returns The answer, `handed` with the cursor of the run that took the
+ *   start; `null` when no run took it
  */
 async function handToRun(
   storage: StorageBackend,
@@ -219,13 +225,14 @@ async function handToRun(
   run: ExecutionStateSummary | null,
 ): Promise<Response | null> {
   if (run === null || run.status !== 'running' || run.cancelRequested) return null;
-  let woken = false;
+  let woken: string | null = null;
   try {
     woken = await orchestrator.wake(storage, repoPath, workspace);
   } catch (error) {
     console.warn('Dataflow wake failed; the start is not handed to the run in flight:', error);
   }
-  return woken ? sendSuccessWithStatus(DataflowStartResultType, variant('handed', { since: run.lastSeq }), 202) : null;
+  if (woken === null) return null;
+  return sendSuccessWithStatus(DataflowStartResultType, variant('handed', { since: sameRun(woken, run.id) ? run.lastSeq : 0n }), 202);
 }
 
 /**

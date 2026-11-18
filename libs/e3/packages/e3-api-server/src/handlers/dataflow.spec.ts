@@ -136,7 +136,7 @@ describe('dataflow routes', () => {
         await stateStore.updateStatus(handle.repo, handle.workspace, handle.id, 'cancelled');
       },
       getEvents: async () => [],
-      wake: async () => false,
+      wake: async () => null,
     };
     const app = new Hono();
     app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(new InMemoryStorage(), () => 'test-repo', {
@@ -184,7 +184,7 @@ describe('dataflow routes', () => {
       getProgress: () => Promise.reject(new Error('not polled')),
       cancel: async () => {},
       getEvents: async () => [],
-      wake: async () => false,
+      wake: async () => null,
     };
     const app = new Hono();
     app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(new InMemoryStorage(), () => 'test-repo', {
@@ -219,7 +219,7 @@ describe('dataflow routes', () => {
       getProgress: () => Promise.reject(new Error('not polled')),
       cancel: async () => {},
       getEvents: async () => [],
-      wake: async () => false,
+      wake: async () => null,
     };
     const app = new Hono();
     app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(new InMemoryStorage(), () => 'test-repo', {
@@ -486,7 +486,7 @@ describe('a start while a run is in flight', () => {
    * @returns The start route's caller, and what the orchestrator and the
    *   host's runner attachment were asked
    */
-  async function inFlight(wake: () => Promise<boolean>, state: Partial<DataflowExecutionState> = {}): Promise<{
+  async function inFlight(wake: () => Promise<string | null>, state: Partial<DataflowExecutionState> = {}): Promise<{
     start(request?: { force?: boolean | string[]; filter?: string }): Promise<{ status: number; retryAfter: string | null; answer: ReturnType<typeof decodeStart> }>;
     asked: { starts: number; wakes: number; attachments: number };
     stateStore: InMemoryStateStore;
@@ -538,15 +538,24 @@ describe('a start while a run is in flight', () => {
   const locked = variant('error', variant('workspace_locked', { workspace: 'main', holder: variant('unknown', null) }));
 
   it('hands a start that names no filter and forces no task to the run: 202, `handed` with the run\'s last event, and no second run asked for nor a runner attached for one', async () => {
-    const { start, asked } = await inFlight(async () => true);
+    const { start, asked } = await inFlight(async () => 'run-1');
     const { status, answer } = await start();
     assert.equal(status, 202);
     assert.ok(sameStart(answer, variant('success', variant('handed', { since: 7n }))), `answered ${printStart(answer)}`);
     assert.deepEqual(asked, { starts: 0, wakes: 1, attachments: 0 });
   });
 
+  it('answers a start with the cursor of the run that took it: where the run it read of ended, and another was woken, that run\'s start', async () => {
+    // run-1 is the workspace's latest as the route reads it, seven events in; the run in flight as the wake arrives is another
+    const { start, asked } = await inFlight(async () => 'run-2');
+    const { status, answer } = await start();
+    assert.equal(status, 202);
+    assert.ok(sameStart(answer, variant('success', variant('handed', { since: 0n }))), `answered ${printStart(answer)}`);
+    assert.deepEqual(asked, { starts: 0, wakes: 1, attachments: 0 });
+  });
+
   it('refuses a start with a filter or a force as a held workspace is refused, and never wakes the run for one: each asks for a run of its own', async () => {
-    const { start, asked } = await inFlight(async () => true);
+    const { start, asked } = await inFlight(async () => 'run-1');
     for (const request of [{ filter: 'report' }, { force: true }, { force: ['report'] }]) {
       const { answer, retryAfter } = await start(request);
       assert.ok(sameStart(answer, locked), `${JSON.stringify(request)} is answered ${printStart(answer)}`);
@@ -556,7 +565,7 @@ describe('a start while a run is in flight', () => {
   });
 
   it('refuses a start the run does not take in — one its orchestrator cannot reach, or one that leaves tasks out — asking the run once', async () => {
-    const { start, asked } = await inFlight(async () => false);
+    const { start, asked } = await inFlight(async () => null);
     const { answer, retryAfter } = await start();
     assert.ok(sameStart(answer, locked), `answered ${printStart(answer)}`);
     assert.equal(retryAfter, null, 'the client backs off and asks again, as it does of any held workspace');
@@ -572,7 +581,7 @@ describe('a start while a run is in flight', () => {
   });
 
   it('wakes no run that is stopping: the start is refused with the wait a stopping run\'s refusal names', async () => {
-    const { start, asked, stateStore } = await inFlight(async () => true);
+    const { start, asked, stateStore } = await inFlight(async () => 'run-1');
     const stopping: ExecutionStateStore = {
       ...countingStore(stateStore).store,
       readLatestSummary: async (repo, workspace) => {
@@ -592,7 +601,7 @@ describe('a start while a run is in flight', () => {
         getEvents: async () => [],
         wake: async () => {
           asked.wakes++;
-          return true;
+          return 'run-1';
         },
       }),
       getStateStore: () => stopping,
@@ -622,7 +631,7 @@ describe('a start while a run is in flight', () => {
       getProgress: () => Promise.reject(new Error('not polled')),
       cancel: async () => {},
       getEvents: async () => [],
-      wake: async () => true,
+      wake: async () => 'run-2',
     };
     const app = new Hono();
     app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(new InMemoryStorage(), () => 'test-repo', {

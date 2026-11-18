@@ -293,11 +293,14 @@ again.
 workspace whole announces itself through the lock service.** A start that names no filter and
 forces no task, and finds a run in flight, is handed to that run by
 `DataflowOrchestrator.wake`: the run looks for changed inputs at once, and the
-route answers `handed` with the run's cursor. The shared `LocalOrchestrator`
+route answers `handed` with the run's cursor. `wake` answers the id of the run
+it woke, since the run in flight as the wake arrives need not be the one the
+route read of: the route answers with that run's cursor, its start where it
+is another run. The shared `LocalOrchestrator`
 wakes a run its own process holds. A host whose runs are held by other
 processes or instances implements `wake` to reach them, as it reaches one to
 cancel, and its loop takes the wake as the shared loop does: a look for input
-changes, then a launch of what became ready. Where `wake` answers false the
+changes, then a launch of what became ready. Where `wake` answers `null` the
 start is refused as a held workspace refuses it, and the run takes the change
 in as its next task ends, so nothing is lost. A deploy, a removal, a copy onto
 a workspace and an export of it each announce themselves by a lock of the

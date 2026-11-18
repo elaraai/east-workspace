@@ -278,24 +278,30 @@ export interface DataflowOrchestrator {
    * the start that follows the edit finds the run in flight.
    *
    * @remarks
-   * It answers whether a run took the wake: one this orchestrator can reach,
+   * It answers which run took the wake: one this orchestrator can reach,
    * that is not stopping, and that runs every task — a run started with a
    * filter leaves the edit's other readers out, so it takes none, and a run a
    * task of which has failed launches nothing more, so it takes none either. A run that
    * took it looks for changed inputs at once, and launches what became ready.
-   * Where it answers false nothing is lost: the start is refused, as a start
+   * Where it answers `null` nothing is lost: the start is refused, as a start
    * that finds a run in flight was before, and the run finds the edit as its
    * next task lands.
    *
+   * The run is named because the one in flight as the wake arrives need not
+   * be the one its caller read of: that one may have ended, and another
+   * begun, in between. A caller that answers with a run's cursor answers
+   * with the cursor of the run named.
+   *
    * An orchestrator whose runs are held by other processes or instances
-   * reaches them as it reaches them to cancel, or answers false.
+   * reaches them as it reaches them to cancel, or answers `null`.
    *
    * @param storage - Storage backend
    * @param repo - Repository identifier
    * @param workspace - Workspace name
-   * @returns Whether a run in flight took the wake
+   * @returns The id of the run in flight that took the wake, or `null` when
+   *   none did
    */
-  wake(storage: StorageBackend, repo: string, workspace: string): Promise<boolean>;
+  wake(storage: StorageBackend, repo: string, workspace: string): Promise<string | null>;
 
   /**
    * Wait for a dataflow execution to complete.

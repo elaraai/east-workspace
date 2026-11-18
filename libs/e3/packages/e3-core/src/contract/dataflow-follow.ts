@@ -399,7 +399,7 @@ async function decidingPlan(t: TestContext, context: BackendContext): Promise<{
   await lines.said('[DONE] capacity');
   await workspaceSetDataset(storage, repo, 'ws', inputPath('rates'), 2n, IntegerType);
   const r2 = (await held(storage, repo, 'inputs/rates'))!;
-  assert.equal(await orchestrator.wake(storage, repo, 'ws'), true);
+  assert.equal(await orchestrator.wake(storage, repo, 'ws'), handle.id);
   await runner.launched('capacity');
   runner.release('capacity');
   await lines.said('[DONE] capacity', 2);
@@ -439,7 +439,7 @@ export function dataflowFollowCases(setup: BackendSetup): void {
     // run: clean is idle, so it starts on the edit at once
     await workspaceSetDataset(storage, repo, 'ws', inputPath('sales'), 5n, IntegerType);
     const v2 = (await held(storage, repo, 'inputs/sales'))!;
-    assert.equal(await orchestrator.wake(storage, repo, 'ws'), true, 'the run took the wake');
+    assert.equal(await orchestrator.wake(storage, repo, 'ws'), handle.id, 'the run took the wake');
     assert.deepEqual((await runner.launched('clean')).inputHashes, [v2]);
 
     // clean's next result lands while forecast still runs on the one before:
@@ -484,7 +484,7 @@ export function dataflowFollowCases(setup: BackendSetup): void {
       '[DONE] report',
     ]);
     assert.equal(await held(storage, repo, 'tasks/report/output'), made('report', made('forecast', made('clean', v2))));
-    assert.equal(await orchestrator.wake(storage, repo, 'ws'), false, 'a run that has ended takes no wake');
+    assert.equal(await orchestrator.wake(storage, repo, 'ws'), null, 'a run that has ended takes no wake');
   });
 
   it('takes in an edit no start follows as its next task lands, and wakes no run started with a filter', async (t) => {
@@ -493,11 +493,11 @@ export function dataflowFollowCases(setup: BackendSetup): void {
     const tasks = await deployChain(t, context);
     const runner = gatedRunner(storage, repo, tasks);
     const orchestrator = new LocalOrchestrator(stateStoreOf(context));
-    assert.equal(await orchestrator.wake(storage, repo, 'ws'), false, 'no run is in flight');
+    assert.equal(await orchestrator.wake(storage, repo, 'ws'), null, 'no run is in flight');
 
     const filtered = await orchestrator.start(storage, repo, 'ws', { runner, filter: 'forecast' });
     await runner.launched('clean');
-    assert.equal(await orchestrator.wake(storage, repo, 'ws'), false, 'a filtered run leaves the edit\'s other readers out');
+    assert.equal(await orchestrator.wake(storage, repo, 'ws'), null, 'a filtered run leaves the edit\'s other readers out');
     runner.release('clean');
     await runner.launched('forecast');
     runner.release('forecast');
@@ -561,7 +561,7 @@ export function dataflowFollowCases(setup: BackendSetup): void {
     const handle = await orchestrator.start(storage, repo, 'ws', { runner, ...lines.callbacks });
     const edit = async (rows: ReadonlyArray<[string, bigint]>): Promise<{ commit: string; state: string }> => {
       const commit = await commitOrders(storage, repo, rows);
-      assert.equal(await orchestrator.wake(storage, repo, 'ws'), true);
+      assert.equal(await orchestrator.wake(storage, repo, 'ws'), handle.id);
       return commit;
     };
 
@@ -633,7 +633,7 @@ export function dataflowFollowCases(setup: BackendSetup): void {
     const handle = await orchestrator.start(storage, repo, 'ws', { runner, ...lines.callbacks });
     const edit = async (rows: ReadonlyArray<[string, bigint]>): Promise<{ commit: string; state: string }> => {
       const commit = await commitOrders(storage, repo, rows);
-      assert.equal(await orchestrator.wake(storage, repo, 'ws'), true);
+      assert.equal(await orchestrator.wake(storage, repo, 'ws'), handle.id);
       return commit;
     };
     // The readers, in the order the run takes its ready tasks
@@ -720,7 +720,7 @@ export function dataflowFollowCases(setup: BackendSetup): void {
     const handle = await orchestrator.start(storage, repo, 'ws', { runner, ...lines.callbacks });
     const edit = async (rows: ReadonlyArray<[string, bigint]>): Promise<{ commit: string; state: string }> => {
       const commit = await commitOrders(storage, repo, rows);
-      assert.equal(await orchestrator.wake(storage, repo, 'ws'), true);
+      assert.equal(await orchestrator.wake(storage, repo, 'ws'), handle.id);
       return commit;
     };
 
@@ -767,7 +767,7 @@ export function dataflowFollowCases(setup: BackendSetup): void {
     const handle = await orchestrator.start(storage, repo, 'ws', { runner, ...lines.callbacks });
     const edit = async (rows: ReadonlyArray<[string, bigint]>): Promise<{ commit: string; state: string }> => {
       const commit = await commitOrders(storage, repo, rows);
-      assert.equal(await orchestrator.wake(storage, repo, 'ws'), true);
+      assert.equal(await orchestrator.wake(storage, repo, 'ws'), handle.id);
       return commit;
     };
 
@@ -829,7 +829,7 @@ export function dataflowFollowCases(setup: BackendSetup): void {
     // value first, and lands
     await workspaceSetDataset(storage, repo, 'ws', inputPath('rates'), 2n, IntegerType);
     const r2 = (await held(storage, repo, 'inputs/rates'))!;
-    assert.equal(await orchestrator.wake(storage, repo, 'ws'), true);
+    assert.equal(await orchestrator.wake(storage, repo, 'ws'), handle.id);
     assert.deepEqual((await runner.launched('capacity')).inputHashes, [orders.state, r2]);
     runner.release('capacity');
     await lines.said('[DONE] capacity', 2);
@@ -1002,7 +1002,7 @@ export function dataflowFollowCases(setup: BackendSetup): void {
     runner.release('clean');
     await runner.launched('forecast');
     await workspaceSetDataset(storage, repo, 'ws', inputPath('sales'), 5n, IntegerType);
-    assert.equal(await orchestrator.wake(storage, repo, 'ws'), true);
+    assert.equal(await orchestrator.wake(storage, repo, 'ws'), handle.id);
     await runner.launched('clean');
 
     // A deploy stops the run: clean's first result stands, and both the stop and the run's record count it
@@ -1040,7 +1040,7 @@ export function dataflowFollowCases(setup: BackendSetup): void {
     await workspaceSetDataset(storage, repo, 'ws', inputPath('sales'), 9n, IntegerType);
     const v2 = (await held(storage, repo, 'inputs/sales'))!;
     yielding = true;
-    assert.equal(await first.wake(storage, repo, 'ws'), true);
+    assert.equal(await first.wake(storage, repo, 'ws'), handle.id);
     assert.equal((await first.wait(handle)).yielded, true);
 
     const yielded = await stateStore.read(repo, 'ws', handle.id);
@@ -1082,7 +1082,7 @@ export function dataflowFollowCases(setup: BackendSetup): void {
     const handle = await first.start(storage, repo, 'ws', { runner, ...lines.callbacks, shouldYield: () => yielding });
     const edit = async (count: number): Promise<{ commit: string; state: string }> => {
       const commit = await commitOrders(storage, repo, rows(count));
-      assert.equal(await first.wake(storage, repo, 'ws'), true);
+      assert.equal(await first.wake(storage, repo, 'ws'), handle.id);
       return commit;
     };
 
@@ -1158,7 +1158,7 @@ export function dataflowFollowCases(setup: BackendSetup): void {
     await runner.launched('slow');
     assert.deepEqual((await runner.launched('clean')).inputHashes, [c0.state]);
     const c1 = await commitOrders(context.storage, repo, [['a', 1n]]);
-    assert.equal(await orchestrator.wake(storage, repo, 'ws'), true);
+    assert.equal(await orchestrator.wake(storage, repo, 'ws'), handle.id);
     gone = c0.commit;
 
     // clean lands on c0 and runs again on c1. check reads the record directly at c1, and clean's result at c0, which
@@ -1227,7 +1227,7 @@ export function dataflowFollowCases(setup: BackendSetup): void {
     const down = standIn(storage, {
       refs: standIn(storage.refs, { workspaceRead: () => Promise.reject(new Error('the store went away')) }),
     });
-    assert.equal(await orchestrator.wake(down, repo, 'ws'), false, 'a look that failed hands nothing over');
+    assert.equal(await orchestrator.wake(down, repo, 'ws'), null, 'a look that failed hands nothing over');
 
     // The run asks again by itself, with no second wake: both run on the edit
     assert.deepEqual((await runner.launched('clean')).inputHashes, [c1.state]);
@@ -1262,7 +1262,7 @@ export function dataflowFollowCases(setup: BackendSetup): void {
     await lines.said('[DONE] check');
     await workspaceSetDataset(storage, repo, 'ws', inputPath('rates'), 2n, IntegerType);
     const r2 = (await held(storage, repo, 'inputs/rates'))!;
-    assert.equal(await first.wake(storage, repo, 'ws'), true);
+    assert.equal(await first.wake(storage, repo, 'ws'), handle.id);
 
     // slow lands and is due again: the run is part way through a pass,
     // asking the cache for slow over the edit
@@ -1278,7 +1278,7 @@ export function dataflowFollowCases(setup: BackendSetup): void {
       const down = standIn(storage, {
         refs: standIn(storage.refs, { workspaceRead: () => Promise.reject(new Error('the store went away')) }),
       });
-      assert.equal(await first.wake(down, repo, 'ws'), false, 'a look that failed hands nothing over');
+      assert.equal(await first.wake(down, repo, 'ws'), null, 'a look that failed hands nothing over');
       yielding = true;
     } finally {
       preparing.open();
@@ -1366,7 +1366,7 @@ export function dataflowFollowCases(setup: BackendSetup): void {
 
     // An edit of slow's input, and its writer's start: the run would never launch slow again
     await workspaceSetDataset(storage, repo, 'ws', inputPath('a'), 5n, IntegerType);
-    assert.equal(await orchestrator.wake(storage, repo, 'ws'), false, 'a run that launches nothing more takes no wake');
+    assert.equal(await orchestrator.wake(storage, repo, 'ws'), null, 'a run that launches nothing more takes no wake');
 
     runner.release('slow');
     const result = await orchestrator.wait(handle);
@@ -1384,13 +1384,13 @@ export function dataflowFollowCases(setup: BackendSetup): void {
     const waited = orchestrator.wait(handle);
     waited.catch(() => undefined);
     await runner.launched('clean');
-    assert.equal(await orchestrator.wake(storage, repo, 'ws'), true, 'the run in flight takes a wake');
+    assert.equal(await orchestrator.wake(storage, repo, 'ws'), handle.id, 'the run in flight takes a wake');
 
     // A deploy announces itself, and waits for the run to let the workspace go
     const intent = await storage.locks.acquire(repo, workspaceIntentLock('ws'), variant('deployment', null));
     assert.ok(intent !== null);
     try {
-      assert.equal(await orchestrator.wake(storage, repo, 'ws'), false, 'the run takes nothing in for a deploy that waits');
+      assert.equal(await orchestrator.wake(storage, repo, 'ws'), null, 'the run takes nothing in for a deploy that waits');
       await assert.rejects(orchestrator.start(storage, repo, 'ws', { runner }), (err: unknown) => {
         assert.ok(err instanceof WorkspaceLockError, `a WorkspaceLockError, not ${String(err)}`);
         assert.match(err.message, /^Workspace 'ws' is locked by a deploy/);
@@ -1412,7 +1412,7 @@ export function dataflowFollowCases(setup: BackendSetup): void {
     const handle = await orchestrator.start(storage, repo, 'ws', { runner, ...lines.callbacks });
     const edit = async (rows: ReadonlyArray<[string, bigint]>): Promise<{ commit: string; state: string }> => {
       const commit = await commitOrders(storage, repo, rows);
-      assert.equal(await orchestrator.wake(storage, repo, 'ws'), true);
+      assert.equal(await orchestrator.wake(storage, repo, 'ws'), handle.id);
       return commit;
     };
     await runner.launched('zz');
@@ -1443,7 +1443,7 @@ export function dataflowFollowCases(setup: BackendSetup): void {
     const c4 = await commitOrders(storage, repo, [['a', 1n]]);
     assert.equal(c4.state, c1.state);
     await workspaceSetDataset(storage, repo, 'ws', inputPath('probe'), 2n, IntegerType);
-    assert.equal(await orchestrator.wake(storage, repo, 'ws'), true);
+    assert.equal(await orchestrator.wake(storage, repo, 'ws'), handle.id);
     await runner.launched('zz');
     assert.equal(runner.holding('right'), 1, 'right waits for its catch-up run: no run of it beside it');
 
@@ -1471,7 +1471,7 @@ export function dataflowFollowCases(setup: BackendSetup): void {
     const handle = await orchestrator.start(storage, repo, 'ws', { runner, ...lines.callbacks });
     const edit = async (rows: ReadonlyArray<[string, bigint]>): Promise<{ commit: string; state: string }> => {
       const commit = await commitOrders(storage, repo, rows);
-      assert.equal(await orchestrator.wake(storage, repo, 'ws'), true);
+      assert.equal(await orchestrator.wake(storage, repo, 'ws'), handle.id);
       return commit;
     };
 
@@ -1501,7 +1501,7 @@ export function dataflowFollowCases(setup: BackendSetup): void {
     const asked = paced.hold('refs', 'executionListIds', (args) => args[1] === tasks.get('capacity') && args[2] === inputsHash([c1.state, rates]));
     try {
       await workspaceSetDataset(storage, repo, 'ws', inputPath('late'), 1n, IntegerType);
-      assert.equal(await orchestrator.wake(storage, repo, 'ws'), true);
+      assert.equal(await orchestrator.wake(storage, repo, 'ws'), handle.id);
       await asked.reached;
       runner.release('capacity');
       await lines.said('[DONE] capacity for plan');
@@ -1535,7 +1535,7 @@ export function dataflowFollowCases(setup: BackendSetup): void {
     const handle = await orchestrator.start(storage, repo, 'ws', { runner, ...lines.callbacks });
     const edit = async (rows: ReadonlyArray<[string, bigint]>): Promise<{ commit: string; state: string }> => {
       const commit = await commitOrders(storage, repo, rows);
-      assert.equal(await orchestrator.wake(storage, repo, 'ws'), true);
+      assert.equal(await orchestrator.wake(storage, repo, 'ws'), handle.id);
       return commit;
     };
 
@@ -1621,7 +1621,7 @@ export function dataflowFollowCases(setup: BackendSetup): void {
     // An edit commits: both run on c1, and forecast lands there first, so
     // budget is decided again, as of c0, where capacity's result still is
     const c1 = await commitOrders(storage, repo, [['a', 1n]]);
-    assert.equal(await orchestrator.wake(storage, repo, 'ws'), true);
+    assert.equal(await orchestrator.wake(storage, repo, 'ws'), handle.id);
     await runner.launched('forecast');
     await runner.launched('capacity');
     const preparing = paced.hold('refs', 'executionListIds', (args) => args[1] === tasks.get('forecast') && args[2] === inputsHash([c0.state, rates]));
@@ -1635,7 +1635,7 @@ export function dataflowFollowCases(setup: BackendSetup): void {
       runner.release('capacity');
       await lines.said('[DONE] capacity', 2);
       await workspaceSetDataset(storage, repo, 'ws', inputPath('late'), 1n, IntegerType);
-      assert.equal(await orchestrator.wake(storage, repo, 'ws'), true, 'the run takes the change in');
+      assert.equal(await orchestrator.wake(storage, repo, 'ws'), handle.id, 'the run takes the change in');
     } finally {
       preparing.open();
     }

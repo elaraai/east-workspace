@@ -942,14 +942,14 @@ export class LocalOrchestrator implements DataflowOrchestrator {
    * DataflowOrchestrator.wake: the run is one of this orchestrator's, in this
    * process.
    */
-  async wake(storage: StorageBackend, repo: string, workspace: string): Promise<boolean> {
+  async wake(storage: StorageBackend, repo: string, workspace: string): Promise<string | null> {
     const execution = [...this.executions.values()].find((each) => sameName(each.state.repo, repo) && sameName(each.state.workspace, workspace));
     // A run with a failed task launches nothing more, and ends once what is in
     // flight has settled: a change handed to it would never run
     const stopping = (run: RunningExecution): boolean =>
       run.closing || run.aborted || run.ended || run.yielded || run.hasFailure || run.abortController.signal.aborted;
     // A run started with a filter leaves the edit's other readers out
-    if (execution === undefined || stopping(execution) || execution.state.filter.type === 'some') return false;
+    if (execution === undefined || stopping(execution) || execution.state.filter.type === 'some') return null;
     // What takes the workspace whole stops the run within a second of its
     // intent: the run takes nothing in meanwhile, and the start is refused as
     // every start is while one waits, naming it. An intent that cannot be told
@@ -957,12 +957,12 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     try {
       if (await announcedIntent(storage, repo, workspace) !== null) {
         void this.probeIntent(storage, repo, execution);
-        return false;
+        return null;
       }
     } catch {
-      return false;
+      return null;
     }
-    if (stopping(execution)) return false;
+    if (stopping(execution)) return null;
     // Counted before the look starts, so the loop does not end the run under it
     execution.wakes++;
     try {
@@ -971,11 +971,11 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         await this.handleInputChanges(storage, execution);
         await this.persistState(execution, execution.state);
       });
-      return !stopping(execution);
+      return stopping(execution) ? null : execution.state.id;
     } catch {
       // The look failed, and is not handed over. What it found changed
       // before it failed is asked again by the loop, at once
-      return false;
+      return null;
     } finally {
       execution.wakes--;
       execution.moved++;

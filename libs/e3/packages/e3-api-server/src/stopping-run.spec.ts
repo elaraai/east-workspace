@@ -160,7 +160,7 @@ describe('a run that is stopping (#1286)', () => {
       getProgress: () => Promise.reject(new Error('not polled')),
       cancel: async () => {},
       getEvents: async () => [],
-      wake: async () => false,
+      wake: async () => null,
     };
     const start = async (store: ExecutionStateStore) => {
       const app = new Hono();
@@ -247,7 +247,7 @@ describe('a run that is stopping (#1286)', () => {
       getProgress: () => Promise.reject(new Error('not polled')),
       cancel: async () => {},
       getEvents: async () => [],
-      wake: async () => false,
+      wake: async () => null,
     };
     const app = new Hono();
     app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(starting, () => REPO, {
