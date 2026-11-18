@@ -24,6 +24,14 @@
  *    wash, a 10px caret; then its goal's square 6px bar with a 1 × 12 tick at
  *    its end, its trend 36 tall, and ONE line of annotation in mono 10
  *    `--ink-4` — each 8px under the last.
+ *  - T4 a chart is its mock (CHT-1 to CHT-7, TIL-5): a measure axis has three
+ *    ticks — a scatter's x four — in short numbers with no sign of a currency,
+ *    a gridline at each, and no title; a line draws no markers and a line or
+ *    an area over dates runs the plot's whole width; a bar chart of one value
+ *    says each at its bar's end, with no axis under them; a goal's label
+ *    stands inside the plot over its rule; a scatter says what its axes are
+ *    on a line over its plot; a pie's legend rows are 26 tall with 10 × 10
+ *    swatches over a note, and a donut's total stands over its caption.
  *
  * Every measurement is taken from the laid-out page, at rest.
  *
@@ -153,6 +161,79 @@ test.describe("Studio tiles, as designed (#1671)", () => {
             note: [true, "10px", "400", true],
             gaps: [8, 8, 8],
             words: 4,
+        });
+    });
+
+    test("T4: a chart is its mock — three short ticks with a gridline each and no titles, lines edge to edge with no markers, values at bar ends, a pie's rows over its note", async ({ page }) => {
+        const grid = await openVisuals(page, "light");
+        const read = await grid.evaluate((root) => {
+            const chart = (kind: string) => root.querySelector(`[data-studio-chart="${kind}"]`);
+            const texts = (el: Element | null, selector: string) => (el === null ? [] : [...el.querySelectorAll(selector)].map((t) => (t.textContent ?? "").trim()));
+            const out: Record<string, unknown> = {};
+            // Every chart with a measure axis: how many ticks it labels, whether any carries a currency's sign or a
+            // title is drawn, and whether a gridline stands at each tick.
+            for (const kind of ["column", "line", "area", "combo", "scatter"]) {
+                const el = chart(kind);
+                if (el === null) { out[kind] = "missing"; continue; }
+                const left = texts(el, ".visx-axis-left .visx-axis-tick text");
+                const right = texts(el, ".visx-axis-right .visx-axis-tick text");
+                const rows = el.querySelectorAll(".visx-rows line").length;
+                // A title is a text of the plot that is no tick, no rule's label and no mark's label.
+                const titles = [...el.querySelectorAll("svg > g > text")].filter((t) => !t.hasAttribute("data-chart-rule-label")).length;
+                out[kind] = {
+                    ticks: [left.length, right.length], rows, titles,
+                    signed: [...left, ...right].some((label) => /[$€£¥]|A\$/.test(label)),
+                    long: [...left, ...right].some((label) => label.length > 6),
+                };
+            }
+            // A scatter's x has four ticks, and its axes are said on a line over its plot.
+            const scatter = chart("scatter");
+            out.scatterX = texts(scatter, ".visx-axis-bottom .visx-axis-tick text").length;
+            out.scatterCaption = scatter?.querySelector("[data-studio-chart-caption]") !== null;
+            // A line and an area: no markers, and the mark runs the plot's whole width.
+            for (const kind of ["line", "area"]) {
+                const el = chart(kind);
+                const plot = el?.querySelector("clipPath rect");
+                const path = el?.querySelector("path.visx-linepath") as SVGPathElement | null;
+                if (el === null || plot === null || plot === undefined || path === null) { out[`${kind}Edge`] = "missing"; continue; }
+                const box = path.getBBox();
+                out[`${kind}Edge`] = { circles: el.querySelectorAll("circle").length, from: Math.round(box.x), to: Math.round(box.x + box.width) === Math.round(Number(plot.getAttribute("width"))) };
+            }
+            // A bar chart of one value: no axis under it, no grid, and a value after each bar's end.
+            const bar = chart("bar");
+            if (bar !== null) {
+                const bars = [...bar.querySelectorAll("rect.visx-bar")].map((b) => b.getBoundingClientRect());
+                const ends = [...bar.querySelectorAll("svg > g > text")].map((t) => t.getBoundingClientRect());
+                out.bar = {
+                    bottomAxis: bar.querySelectorAll(".visx-axis-bottom").length, grid: bar.querySelectorAll(".visx-columns line, .visx-rows line").length,
+                    ends: ends.length === bars.length && ends.every((end, i) => Math.round(end.left - bars[i]!.right) === 6),
+                    inside: ends.every((end) => end.right <= bar.getBoundingClientRect().right),
+                };
+            }
+            // A goal's label rides its rule: inside the plot, over the line.
+            const goal = root.querySelector("text[data-chart-rule-label]");
+            out.goal = goal === null ? "missing" : /^goal /.test(goal.textContent ?? "");
+            // A pie: rows 26 tall, 10 × 10 swatches, a note under them or a donut's caption under its total.
+            const pie = chart("pie");
+            if (pie !== null) {
+                const rows = [...pie.querySelectorAll("[data-chart-slice-entry]")];
+                const swatch = rows[0]?.firstElementChild?.getBoundingClientRect();
+                out.pie = {
+                    rows: [...new Set(rows.map((row) => row.getBoundingClientRect().height))],
+                    swatch: swatch === undefined ? [] : [swatch.width, swatch.height],
+                    said: pie.querySelector("[data-chart-pie-note], [data-chart-pie-caption]") !== null,
+                };
+            }
+            return out;
+        });
+        const axis = (right: number, rows = 3) => ({ ticks: [3, right], rows, titles: 0, signed: false, long: false });
+        expect(read).toEqual({
+            column: axis(0), line: axis(0), area: axis(0), combo: axis(3), scatter: axis(0),
+            scatterX: 4, scatterCaption: true,
+            lineEdge: { circles: 0, from: 0, to: true }, areaEdge: { circles: 0, from: 0, to: true },
+            bar: { bottomAxis: 0, grid: 0, ends: true, inside: true },
+            goal: true,
+            pie: { rows: [26], swatch: [10, 10], said: true },
         });
     });
 });

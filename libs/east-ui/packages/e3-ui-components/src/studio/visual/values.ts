@@ -123,8 +123,71 @@ export function valueFieldFormat(value: VisualValue, source: VisualSource): opti
     return (id === undefined ? undefined : source.fields.find((field) => field.id === id)?.format) ?? none;
 }
 
-/** A label as it reads mid-sentence: its first letter small, unless the label opens on a capital's run — `SKU`. */
-function midSentence(label: string): string {
+/**
+ * How much of the calendar an axis's date buckets span: what a short label
+ * may leave out.
+ *
+ * @property oneYear - Whether every bucket is of one year: a month is then `Apr`, a quarter `Q3`
+ * @property oneDay - Whether every bucket is of one day: an hour is then `14:00`
+ */
+export interface BucketSpan {
+    /** Whether every bucket is of one year. */
+    readonly oneYear: boolean;
+    /** Whether every bucket is of one day. */
+    readonly oneDay: boolean;
+}
+
+/**
+ * The span of an axis's date buckets.
+ *
+ * @param starts - Each bucket's first instant
+ * @param f - The locale's formatters
+ * @returns What its buckets share
+ */
+export function bucketSpan(starts: readonly Date[], f: Formatters): BucketSpan {
+    const same = (said: (d: Date) => string) => new Set(starts.map(said)).size <= 1;
+    return { oneYear: same(f.year), oneDay: same(f.date) };
+}
+
+/**
+ * A group's key as a chart's axis labels it (TIL-5): short, leaving out what
+ * every label of the axis shares — a month of one year `Apr`, of several
+ * `Apr 2026`; a quarter `Q3`; an hour of one day `14:00`; a day or a week
+ * `Jun 29`. Any other key as a table says it ({@link groupLabel}).
+ *
+ * @param key - The key, as the answer gave it: a bucket's period number
+ * @param type - The key's East type
+ * @param group - What it groups by
+ * @param span - What the axis's buckets share
+ * @param words - The words and formatters
+ * @param m - The Studio's words
+ * @returns The label
+ */
+export function axisLabel(key: unknown, type: EastType, group: VisualGroup, span: BucketSpan, words: QueryWords, m: StudioMessages): string {
+    if (group.bucket.type === "none") return groupLabel(key, type, group, words, m);
+    const unit = group.bucket.value.type;
+    const start = bucketStart(key as bigint, unit);
+    const f = words.formatters;
+    switch (unit) {
+        case "hour": return span.oneDay ? f.time(start) : f.dateTime(start);
+        case "day": case "week": return f.monthDay(start);
+        case "quarter": {
+            const quarter = Math.floor(start.getUTCMonth() / 3) + 1;
+            return span.oneYear ? m.quarterShort({ quarter }) : m.quarterOf({ quarter, year: f.year(start) });
+        }
+        case "year": return f.year(start);
+        case "month": case "auto": return span.oneYear ? f.month(start) : f.periodRange(start, start, "month");
+    }
+}
+
+/**
+ * A label as it reads mid-sentence: its first letter small, unless the label
+ * opens on a capital's run — `SKU`.
+ *
+ * @param label - The label
+ * @returns It, as it reads mid-sentence
+ */
+export function midSentence(label: string): string {
     const second = label[1];
     if (second === undefined || second !== second.toLowerCase()) return label;
     return label[0]!.toLowerCase() + label.slice(1);
@@ -352,11 +415,38 @@ export function unitLabel(value: VisualValue, source: VisualSource, m: StudioMes
     }
 }
 
+/** A currency's amount with its cents, and no sign of the currency: `10.00`, `1,284.50`. */
+const CENTS_FORMAT: TickFormatOpt = variant("number", { minimumFractionDigits: some(2n), maximumFractionDigits: some(2n), signDisplay: none });
+
 /**
- * A value's number where room is short — a tile's number, an axis tick, a
- * bar's end (KPI-1, TIL-5): three significant digits of its magnitude, with
- * no sign of a currency, whose code is said apart ({@link unitLabel}) —
- * `3.84M`, `612k`, `1,284`, `11.42`; a share or a date as its field prints it.
+ * A number of a declared format where room is short — a tile's number, an
+ * axis tick, a bar's end (KPI-1, TIL-5): with no sign of a currency, whose
+ * code is said apart ({@link unitLabel}).
+ *
+ * @param n - The number
+ * @param declared - The format its field or its axis declares; `undefined` for none
+ * @param f - The locale's formatters
+ * @param of - A number it is read beside, whose magnitude and decimals it takes — a goal beside its gap, an axis's end beside its ticks
+ * @param trim - Whether zeros that end its decimals are left off, as an axis's ticks read
+ * @returns The text
+ *
+ * @remarks
+ * - From ten thousand: three significant digits of its magnitude — `3.84M`,
+ *   `612k` — or, trimmed, `2.5M`, `25k`.
+ * - A currency's amount under ten thousand keeps its cents: `11.42`, `10.00`
+ *   — but not trimmed: an axis's ticks read `2,000`, `11.5`.
+ * - Any other number under ten thousand is as it is: `1,284`.
+ * - A share or a date is as its format prints it.
+ */
+export function shortNumber(n: number, declared: ValueFormat | undefined, f: Formatters, of?: number, trim = false): string {
+    if (declared !== undefined && declared.type !== "currency" && declared.type !== "number" && declared.type !== "compact") return f.value(n, tickFormatOf(declared));
+    if (declared?.type === "currency" && !trim && Math.abs(of ?? n) < 10_000) return f.value(n, CENTS_FORMAT);
+    return f.short(n, of, trim);
+}
+
+/**
+ * A value's number where room is short ({@link shortNumber}), in its field's
+ * format: `3.84M`, `612k`, `1,284`, `11.42`.
  *
  * @param n - The number
  * @param value - The value it is of
@@ -367,8 +457,7 @@ export function unitLabel(value: VisualValue, source: VisualSource, m: StudioMes
  */
 export function shortValue(n: number, value: VisualValue, source: VisualSource, f: Formatters, of?: number): string {
     const declared = valueFieldFormat(value, source);
-    const own = declared.type === "some" && declared.value.type !== "currency" && declared.value.type !== "number" && declared.value.type !== "compact";
-    return own ? f.value(n, tickFormatOf(declared.value)) : f.short(n, of);
+    return shortNumber(n, declared.type === "some" ? declared.value : undefined, f, of);
 }
 
 /**

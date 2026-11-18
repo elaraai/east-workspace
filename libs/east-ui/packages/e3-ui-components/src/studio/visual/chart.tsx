@@ -5,23 +5,24 @@
 
 /**
  * A chart visual's tile (#1671): its spec — {@link chartModel}'s, read from
- * its answers — drawn by east-ui-components' chart renderer, filling its tile;
- * and, when it holds fewer groups than its source has, a line that says how
- * many of how many (CHT-9). A click on a mark, a slice or a legend row tells
- * the tile (CHT-8).
+ * its answers — drawn by east-ui-components' chart renderer, filling its tile,
+ * its numbers printed short as every tile's are; over it, where its model has
+ * one, the line that says what its axes are; and, when it holds fewer groups
+ * than its source has, a line that says how many of how many (CHT-9). A click
+ * on a mark, a slice or a legend row tells the tile (CHT-8).
  *
  * @packageDocumentation
  */
 
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { Box } from "@chakra-ui/react";
-import { EastVisxChart, type ChartMarkHandler } from "@elaraai/east-ui-components";
+import { EastVisxChart, type ChartMarkHandler, type ChartNumberText } from "@elaraai/east-ui-components";
 import { useSlotStyles } from "@elaraai/east-ui-components/internal";
 import { useQueryWords } from "../../query/words.js";
 import { useStudioMessages } from "../messages.js";
 import { chartModel, type ChartView } from "./chart-spec.js";
 import { ShownNote } from "./notes.js";
-import type { VisualAsked } from "./values.js";
+import { shortNumber, type VisualAsked } from "./values.js";
 
 /** Props of {@link ChartVisual}: the chart, its answers and its source, and what a click tells. */
 export interface ChartVisualProps extends VisualAsked {
@@ -42,10 +43,14 @@ export function ChartVisual({ chart, asks, answers, source, onMark }: ChartVisua
     const words = useQueryWords();
     const styles = useSlotStyles("studioVisual");
     const model = useMemo(() => chartModel(chart, asks, answers, source, words, m), [chart, asks, answers, source, words, m]);
+    // A tile's numbers are short: an axis's ticks with no zeros ending their decimals, a pie's values each to three figures.
+    const trimmed = model?.numbers === "ticks";
+    const numberText = useCallback<ChartNumberText>((n, format, of) => shortNumber(n, format, words.formatters, of, trimmed), [words, trimmed]);
     if (model === undefined) return null;
     return (
         <Box css={styles.root} data-studio-chart={chart.type}>
-            <EastVisxChart value={model.spec} {...(onMark !== undefined ? { onMark } : {})} />
+            {model.caption !== undefined && <Box css={styles.caption} data-studio-chart-caption="">{model.caption}</Box>}
+            <EastVisxChart value={model.spec} numberText={numberText} {...(onMark !== undefined ? { onMark } : {})} />
             {model.shown !== undefined && <ShownNote shown={model.shown} />}
         </Box>
     );

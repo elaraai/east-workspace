@@ -932,7 +932,7 @@ describe("Chart renderer — what a tile asks of it: a host's numbers, lines on 
         const label = labels[0]!;
         // 4 in from the plot's start, 4 over the line at y(250) = 104.
         expect([Number(label.getAttribute("x")), Number(label.getAttribute("y")), label.getAttribute("text-anchor")]).toEqual([4, 100, "start"]);
-        expect([label.style.fontSize, label.style.fontWeight]).toEqual(["10px", "600"]);
+        expect([label.style.fontSize, label.style.fontWeight, label.style.fontVariantNumeric]).toEqual(["10px", "600", "tabular-nums"]);
         // In the rule's own colour: the line's stroke.
         const line = [...container.querySelectorAll("line.visx-line")].find((l) => l.getAttribute("stroke-dasharray") === "4 3")!;
         expect(label.style.fill).toBe(line.getAttribute("stroke"));
@@ -954,7 +954,7 @@ describe("Chart renderer — what a tile asks of it: a host's numbers, lines on 
             // After the bar's end, clear of it by 6; at the middle of the bar's 12px.
             expect(Number(text.getAttribute("x"))).toBeCloseTo(Number(bar.getAttribute("x")) + Number(bar.getAttribute("width")) + 6, 6);
             expect(Number(text.getAttribute("y"))).toBeCloseTo(Number(bar.getAttribute("y")) + 6, 6);
-            expect([text.getAttribute("text-anchor"), text.getAttribute("dominant-baseline")]).toEqual(["start", "central"]);
+            expect([text.getAttribute("text-anchor"), text.getAttribute("dominant-baseline"), text.style.fontVariantNumeric]).toEqual(["start", "central", "tabular-nums"]);
         }
         // The plot ends where the widest label still fits after it: five 6px glyphs (a 10px face), 6 clear and 2 spare, of
         // the 400 less the 50 before the plot.

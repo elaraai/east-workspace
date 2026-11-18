@@ -666,7 +666,7 @@ const visualCells = [
     visualCell("v-months", "r2", 6n, 240n, vis.of("orders", vis.column({ x: vis.group("ordered_at", { bucket: "month" }), values: [vis.sum("revenue")], split: "region", stack: "stacked" }))),
     visualCell("v-customers", "r2", 6n, 240n, vis.of("orders", vis.bar({ x: vis.group("customer", { sort: "high", top: 4n }), values: [vis.sum("revenue")] }))),
     visualCell("v-units", "r3", 4n, 220n, vis.of("orders", vis.line({ x: vis.group("ordered_at", { bucket: "week" }), values: [vis.sum("units")] }))),
-    visualCell("v-trend", "r3", 4n, 220n, vis.of("orders", vis.area({ x: vis.group("ordered_at", { bucket: "month" }), values: [vis.sum("revenue")] }))),
+    visualCell("v-trend", "r3", 4n, 220n, vis.of("orders", vis.area({ x: vis.group("ordered_at", { bucket: "month" }), values: [vis.sum("revenue", { goal: 8000 })] }))),
     visualCell("v-scatter", "r3", 4n, 220n, vis.of("orders", vis.scatter({ point: "customer", x: vis.sum("units"), y: vis.sum("revenue"), split: "region" }))),
     visualCell("v-combo", "r4", 6n, 240n, vis.of("orders", vis.combo({
         x: vis.group("region"), columns: [vis.left(vis.sum("revenue"))], lines: [vis.right(vis.mean("margin"))],

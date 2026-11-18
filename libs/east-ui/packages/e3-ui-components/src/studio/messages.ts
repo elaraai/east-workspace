@@ -130,8 +130,22 @@ export interface StudioMessages {
     goalGap: (p: { gap: string; over: boolean }) => string;
     /** How far a KPI is to its goal, beside its progress — `85% of goal 4.50M`. */
     goalShare: (p: { share: string; goal: string }) => string;
-    /** A chart's goal line's label — `Goal 450k`. */
+    /** A KPI's goal with no share to say of it — `Goal 0`. */
     goalOf: (p: { goal: string }) => string;
+    /** A chart's goal line's label, inside the plot over the line — `goal 450k`. */
+    goalLabel: (p: { goal: string }) => string;
+    /** The rest of a group past its first N, with how many it holds — `Other 41`; `n` is formatted. */
+    otherCount: (p: { n: string }) => string;
+    /** A combo's series read against its right axis, as the legend names it — `Revenue per unit · right`. */
+    rightAxis: (p: { name: string }) => string;
+    /** What a scatter's axes are, over its plot — `x units · y revenue per unit, AUD/unit`; each name mid-sentence, a unit where its value has one. */
+    scatterCaption: (p: { x: string; xUnit?: string | undefined; y: string; yUnit?: string | undefined }) => string;
+    /** Under a pie's legend, what its values are — `AUD · share of 3.84M`; with no unit, `share of 1,284`. */
+    pieNote: (p: { unit?: string | undefined; total: string }) => string;
+    /** Under a donut's total, what it is — `units · total`. */
+    pieCaption: (p: { unit: string }) => string;
+    /** A quarter on an axis whose buckets are all of one year — `Q3`. */
+    quarterShort: (p: { quarter: number }) => string;
     /** A visual's name made from its wells (TIL-1) — `Revenue by month`; `value` is its value's name, `by` what it groups by, mid-sentence. */
     visualName: (p: { value: string; by: string }) => string;
     /** A summary's two groups, in its name — `region and category`. */
@@ -435,6 +449,13 @@ export const studioMessages: StudioMessages = {
     goalGap: ({ gap, over }) => (over ? `${gap} over` : `${gap} to go`),
     goalShare: ({ share, goal }) => `${share} of goal ${goal}`,
     goalOf: ({ goal }) => `Goal ${goal}`,
+    goalLabel: ({ goal }) => `goal ${goal}`,
+    otherCount: ({ n }) => `Other ${n}`,
+    rightAxis: ({ name }) => `${name} · right`,
+    scatterCaption: ({ x, xUnit, y, yUnit }) => `x ${xUnit === undefined ? x : `${x}, ${xUnit}`} · y ${yUnit === undefined ? y : `${y}, ${yUnit}`}`,
+    pieNote: ({ unit, total }) => (unit === undefined ? `share of ${total}` : `${unit} · share of ${total}`),
+    pieCaption: ({ unit }) => `${unit} · total`,
+    quarterShort: ({ quarter }) => `Q${quarter}`,
     visualName: ({ value, by }) => `${value} by ${by}`,
     groupsBoth: ({ first, second }) => `${first} and ${second}`,
     groupsCross: ({ rows, columns }) => `${rows} · ${columns}`,

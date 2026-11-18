@@ -10,7 +10,8 @@
  *
  *  - C1 no axis label is cut off, and no two labels of one axis overlap: a
  *    chart gives its labels the room they need, whatever their length;
- *  - C2 an axis label is the mono face at weight 500, in the muted ink;
+ *  - C2 an axis label is the mono face at weight 500, in the muted ink — a
+ *    bar chart's categories the driver bars' own, weight 400 in the ink;
  *  - C3 the plot keeps the chart rules' margins — 24 above, 28 below (16 more
  *    under an axis that is titled), 24 after (44 with an axis there) — and at
  *    least 44 before, more when its labels need more;
@@ -57,7 +58,7 @@ test.describe("The chart rules, on the Studio's visuals (#1671)", () => {
         expect(bad).toEqual([]);
     });
 
-    test("C2: an axis label is the mono face at weight 500, in the muted ink", async ({ page }) => {
+    test("C2: an axis label is the mono face at weight 500, in the muted ink; a bar chart's categories weight 400 in the ink", async ({ page }) => {
         const grid = await openVisuals(page, "light");
         const bad = await grid.evaluate((root) => {
             const themed = (property: "color" | "fontFamily", token: string) => {
@@ -70,10 +71,14 @@ test.describe("The chart rules, on the Studio's visuals (#1671)", () => {
             };
             const mono = themed("fontFamily", "--chakra-fonts-mono");
             const ink = themed("color", "--chakra-colors-fg-subtle");
+            const full = themed("color", "--chakra-colors-fg");
             const out = new Set<string>();
             for (const label of root.querySelectorAll("[data-studio-chart] .visx-axis-tick text")) {
                 const look = getComputedStyle(label);
-                if (look.fontFamily !== mono || look.fontWeight !== "500" || look.fill !== ink) out.add(`${look.fontFamily.split(",")[0]} ${look.fontWeight} ${look.fill}`);
+                // The categories down a bar chart's side: the chart rules' driver bars set them mono 11 in the ink.
+                const category = label.closest("[data-studio-chart=bar] .visx-axis-left") !== null;
+                const [weight, color] = category ? ["400", full] : ["500", ink];
+                if (look.fontFamily !== mono || look.fontWeight !== weight || look.fill !== color) out.add(`${look.fontFamily.split(",")[0]} ${look.fontWeight} ${look.fill}`);
             }
             return [...out];
         });
