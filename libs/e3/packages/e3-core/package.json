@@ -17,11 +17,13 @@
     "./test": {
       "types": "./dist/src/test-helpers.d.ts",
       "default": "./dist/src/test-helpers.js"
-    }
+    },
+    "./tier/*": "./tier/*"
   },
   "files": [
     "dist/src",
     "!dist/src/**/*.spec.*",
+    "tier",
     "README.md",
     "LICENSE"
   ],

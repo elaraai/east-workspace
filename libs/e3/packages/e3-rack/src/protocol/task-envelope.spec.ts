@@ -24,8 +24,10 @@ it('reads a result\'s reason for the fields it knows, keeps a code of a later re
   assert.deepEqual(readRackReason({ code: 'outgrew-cap', capBytes: -1, peakBytes: 1.5 }), { code: 'outgrew-cap' });
   assert.deepEqual(readRackReason({ code: 'source-unreachable', ms: '120000' }), { code: 'source-unreachable' });
   assert.deepEqual(readRackReason({ code: 'guest-crashed', detail: 7, cause: 'its VM exited' }), { code: 'guest-crashed', cause: 'its VM exited' });
-  assert.deepEqual([...RACK_REASON_CODES].sort(), ['environment-failed', 'guest-crashed', 'input-transfer-failed', 'memory-limit-exceeded', 'outgrew-cap', 'output-transfer-failed',
-    'requeued-pressure', 'source-unreachable', 'task-error']);
+  assert.deepEqual([...RACK_REASON_CODES].sort(), ['environment-failed', 'guest-boot-failed', 'guest-crashed', 'input-transfer-failed', 'memory-limit-exceeded', 'no-room',
+    'outgrew-cap', 'output-transfer-failed', 'rack-failed', 'rack-stopping', 'requeued-pressure', 'source-unreachable', 'task-error', 'tier-image-failed', 'work-disk-full']);
+  // Each is a word a reason's reader keeps, and a code it does not know is kept as it is read
+  for (const code of [...RACK_REASON_CODES, 'a-later-release-s-word']) assert.deepEqual(readRackReason({ code, detail: 'why' }), { code, detail: 'why' });
 });
 
 it('says a reason as a run prints it: its code, and the words it carries', () => {

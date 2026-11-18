@@ -128,18 +128,26 @@ for (const failure of [
   { state: 'failed' as const, exitCode: -1, error: 'runner killed by signal', retry: false, expected: 'failed' },
   { state: 'failed' as const, exitCode: 7, error: 'task refused input', retry: true, expected: 'success' },
   { state: 'error' as const, exitCode: -1, error: 'timed out: e3 stopped the runner', retry: true, expected: 'error' },
+  // As it does where the rack names it the task's own failure
+  { state: 'error' as const, exitCode: -1, error: 'timed out: e3 stopped the runner after 5 min', reason: { code: 'task-error' }, retry: false, expected: 'error' },
+  // A failure the rack gives a reason of its own for is the rack's, whatever its words begin with
+  { state: 'error' as const, exitCode: -1, error: 'timed out: waiting for the guest to take its lease', reason: { code: 'guest-boot-failed', detail: 'no guest in 120 s' },
+    retry: false, expected: 'success' },
   // An infrastructure error that mentions a timeout is the rack's, not the task's time used up
   { state: 'error' as const, exitCode: -1, error: 'connect ETIMEDOUT 10.0.0.2:7331', retry: false, expected: 'success' },
   // A task's own failure is its verdict whatever its message mentions, unless the policy retries failures locally
   { state: 'failed' as const, exitCode: 1, error: 'fetch timed out after 30 s', retry: false, expected: 'failed' },
   { state: 'failed' as const, exitCode: 1, error: 'fetch timed out after 30 s', retry: true, expected: 'success' },
+  // A failure the rack gives a reason of its own for is the rack's, whatever its state: its work disk filled, so the task's process died
+  { state: 'failed' as const, exitCode: 1, error: 'No space left on device', reason: { code: 'work-disk-full', detail: 'the work disk is full' }, retry: false, expected: 'success' },
 ]) it(`classifies ${failure.error} (retry=${failure.retry}) as ${failure.expected}`, async () => {
   const f = await fixture(); const agent = await f.agent();
   const policy: RackPolicy = { ...f.policy, retryTaskFailuresLocally: failure.retry };
   const rack = await f.open({ policy });
   const running = rack.runner.execute(f.storage, f.hash, f.inputs, { taskName: 'length' });
   const grant = await agent.claim(); assert(grant);
-  await agent.complete(grant, { taskName: 'length', status: 'failed', state: failure.state, exitCode: failure.exitCode, error: failure.error });
+  await agent.complete(grant, { taskName: 'length', status: 'failed', state: failure.state, exitCode: failure.exitCode, error: failure.error,
+    ...('reason' in failure && { reason: failure.reason }) });
   const result = await running;
   assert.equal(result.state, failure.expected, result.error);
   if (result.state === 'success') {

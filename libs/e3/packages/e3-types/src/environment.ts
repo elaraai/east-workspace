@@ -19,7 +19,10 @@
  * content-addressed object store and transfer machinery.
  */
 
-import { ArrayType, OptionType, StringType, StructType, ValueTypeOf, VariantType } from '@elaraai/east';
+import {
+  ArrayType, OptionType, StringType, StructType, ValueTypeOf, VariantType, decodeBeast2For, isTypeValueEqual, readBeast2Type, toEastTypeValue,
+  type EastTypeValue,
+} from '@elaraai/east';
 
 /**
  * A Python (uv) project environment.
@@ -158,6 +161,52 @@ export type WorkspaceNodeEnvironmentType = typeof WorkspaceNodeEnvironmentType;
 export type WorkspaceNodeEnvironment = ValueTypeOf<typeof WorkspaceNodeEnvironmentType>;
 
 /**
+ * A Python **workspace-member** environment (a uv workspace).
+ *
+ * Where {@link PythonEnvironmentType} captures one self-contained project,
+ * whose locked dependencies are all its own, this captures members of a
+ * workspace: the workspace root's manifest and lock, which pin everything,
+ * and the code of exactly the members the environment is of and the local
+ * packages they depend on. Materialized by installing, from the root lock,
+ * the third-party dependencies of those members alone — what `uv export
+ * --frozen --no-default-groups --package <member>` lists — then the
+ * distributions `requires` names, then the members' own sdists. Nothing else
+ * the workspace root or another member depends on is installed, and none of
+ * a member's development groups.
+ *
+ * @remarks
+ * - `pyproject`: object hash of the workspace **root** `pyproject.toml` blob.
+ * - `lock`: object hash of the **root** `uv.lock` blob.
+ * - `subjects`: the members the environment is of, by the names the lock
+ *   gives them, sorted: a task's runner names one or more as its custom
+ *   platform packages.
+ * - `sdists`: the source distributions of the subjects and of every local
+ *   package they depend on, each with its original filename, sorted by it.
+ * - `requires`: the lock's registry distributions installed beside the
+ *   subjects' own dependencies, sorted: the runtime's (`elaraai-east-py`,
+ *   `elaraai-east-py-cli`) and those of the stock platform packages the
+ *   task's runner names (`elaraai-east-py-std`), which a workspace commonly
+ *   lists on its root alone. Each is named with the extras the workspace
+ *   declares it with (`elaraai-east-py-datascience[lightning]`), and
+ *   installed at the version the lock pins, with what it and those extras
+ *   depend on.
+ */
+export const WorkspacePythonEnvironmentType = StructType({
+  /** Object hash of the workspace root pyproject.toml blob */
+  pyproject: StringType,
+  /** Object hash of the root uv.lock blob */
+  lock: StringType,
+  /** The members the environment is of, by the lock's names, sorted */
+  subjects: ArrayType(StringType),
+  /** The closure's sdist blobs (original filename + object hash), sorted by filename */
+  sdists: ArrayType(StructType({ filename: StringType, hash: StringType })),
+  /** The lock's registry distributions installed beside the subjects' own, sorted */
+  requires: ArrayType(StringType),
+});
+export type WorkspacePythonEnvironmentType = typeof WorkspacePythonEnvironmentType;
+export type WorkspacePythonEnvironment = ValueTypeOf<typeof WorkspacePythonEnvironmentType>;
+
+/**
  * An execution environment specification.
  *
  * Stored beast2-encoded in the object store; the **environment hash** is the
@@ -165,14 +214,12 @@ export type WorkspaceNodeEnvironment = ValueTypeOf<typeof WorkspaceNodeEnvironme
  * (`none`) runs on the stock runtime image as today.
  *
  * @remarks
- * BEAST2 encodes a variant's tag as the index of its case in the
- * **alphabetically sorted** case list, so the case order is load-bearing: a
- * repo persists specs by that order, and reordering the cases in a later
- * edit would re-tag every case after the insertion point and mis-decode
- * already-stored specs. New cases must therefore be added so the sorted
- * order only grows at the end (`tools` and `workspace_node` sort after the
- * original three). The frozen-order guard test in `environment.spec.ts`
- * turns an accidental reorder into a red test.
+ * A spec is package-borne: an export writes it, at the type of the e3 that
+ * exported the package. It is read at this type alone
+ * ({@link decodeEnvironmentSpec}): a spec an earlier release wrote, of a type
+ * with other cases, is refused, and its package exported again
+ * (`docs/conventions/WIRE_MIGRATION.md`). So a case added here changes the
+ * bytes, and the hash, of every spec an export writes after it.
  */
 export const EnvironmentSpecType = VariantType({
   /** Python (uv) project environment */
@@ -185,9 +232,60 @@ export const EnvironmentSpecType = VariantType({
   tools: ToolsEnvironmentType,
   /** Node workspace-member environment (npm/pnpm workspaces) */
   workspace_node: WorkspaceNodeEnvironmentType,
+  /** Python workspace-member environment (a uv workspace) */
+  workspace_python: WorkspacePythonEnvironmentType,
 });
 export type EnvironmentSpecType = typeof EnvironmentSpecType;
 export type EnvironmentSpec = ValueTypeOf<typeof EnvironmentSpecType>;
+
+const ENVIRONMENT_SPEC_TYPE = toEastTypeValue(EnvironmentSpecType);
+const decodeSpec = decodeBeast2For(EnvironmentSpecType);
+
+/** The names of this release's cases of a spec. */
+const SPEC_CASES: ReadonlySet<string> = new Set(Object.keys(EnvironmentSpecType.cases));
+
+/**
+ * Decodes an environment's spec object, as this release writes it.
+ *
+ * @remarks
+ * Whatever reads a spec reads it here, so a spec of another type is refused in
+ * one set of words wherever it is read, by its type, before it is read. The
+ * spec's type grows by cases, so the refusal names the fix by its cases:
+ * - each a case this release names: an earlier SDK wrote it, of a type with
+ *   fewer cases, which would decode at this one still; its package is
+ *   exported again, as one whose file an older SDK stored raw is;
+ * - a case this release does not name: a later SDK wrote it, which this
+ *   release cannot read; e3 is upgraded to the release that exported it;
+ * - no variant at all, or no beast2: it is no spec.
+ *
+ * @param data - The object's bytes
+ * @param hash - The object's hash, which a refusal names
+ * @returns The spec
+ * @throws {Error} When the object is not a spec of this release's type, saying
+ *   which of the three it is
+ * @example
+ * ```ts
+ * const spec = decodeEnvironmentSpec(await storage.objects.read(repo, envHash), envHash);
+ * ```
+ */
+export function decodeEnvironmentSpec(data: Uint8Array, hash: string): EnvironmentSpec {
+  let type: EastTypeValue | null = null;
+  try {
+    type = readBeast2Type(data);
+  } catch {
+    // Not beast2 at all
+  }
+  if (type !== null && isTypeValueEqual(type, ENVIRONMENT_SPEC_TYPE)) return decodeSpec(data);
+  if (type === null || type.type !== 'Variant' || type.value.length === 0) {
+    throw new Error(`the object ${hash} is not an environment's spec`);
+  }
+  if (type.value.every(({ name }) => SPEC_CASES.has(name))) {
+    throw new Error(`the environment ${hash} was exported by an older e3 SDK — re-export its package with the current one`);
+  }
+  const unknown = type.value.map(({ name }) => name).filter((name) => !SPEC_CASES.has(name));
+  throw new Error(`the environment ${hash} was exported by a newer e3 SDK than this one, as its ${unknown.join(', ')} says — ` +
+    'upgrade e3 to the release that exported its package');
+}
 
 /**
  * Lists the object-store hashes an environment spec references.
@@ -215,5 +313,7 @@ export function environmentSpecObjectHashes(spec: EnvironmentSpec): string[] {
         ...(spec.value.config.type === 'some' ? [spec.value.config.value] : []),
         ...spec.value.members.map((m) => m.tarball),
       ];
+    case 'workspace_python':
+      return [spec.value.pyproject, spec.value.lock, ...spec.value.sdists.map((s) => s.hash)];
   }
 }

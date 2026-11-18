@@ -14,7 +14,7 @@ import { afterEach, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { lstat, mkdir, mkdtemp, readFile, readlink, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, readdir, readlink, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -22,14 +22,15 @@ import { BlobType, East, IntegerType, StringType, decodeBeast2For, encodeBeast2F
 import e3 from '@elaraai/e3';
 import { EnvironmentSpecType, TaskObjectType, decodeTaskObject } from '@elaraai/e3-types';
 import { Budget, LocalStorage, LocalTaskRunner, datasetWrite, environmentLayerPath, hostEnvironmentPlatform, inputsHash, packageImport, packageRead,
-  readEnvironmentManifest, repoInit, workspaceCreate, workspaceDeploy } from '@elaraai/e3-core';
+  readEnvironmentManifest, readTierManifest, repoInit, tierManifestDigest, workspaceCreate, workspaceDeploy } from '@elaraai/e3-core';
+import { tierManifestOf, uvOnPath } from '@elaraai/e3-core/test';
 import { RackHub, type RackHubOptions } from '../hub/hub.js';
 import { defaultHubConfig, saveHubConfig } from '../hub/config.js';
 import { HubClient } from '../client/hub-client.js';
 import { TestRackAgent, type TestRackAgentOptions } from '../testing/test-rack-agent.js';
 import { pinnedFetch } from '../tls/tls.js';
 import { DEFAULT_RACK_POLICY, setMode, setRule } from '../routing/policy.js';
-import { ENV_LAYER_MEDIA_TYPE, type EnvLayerManifest } from '../server/env-publication.js';
+import { ENV_LAYER_MEDIA_TYPE, envManifestKey, envManifestName, type EnvLayerManifest } from '../server/env-publication.js';
 import type { RackLeaseEvent } from '../protocol/task-envelope.js';
 import { E3_RACK_VERSION } from '../version.js';
 import { openRackRunner, type OpenRackRunnerOptions } from './rack-runner.js';
@@ -74,7 +75,7 @@ async function fixture(options: RackHubOptions = {}) {
     cleanup.push(() => rack.close());
     return rack;
   };
-  const agent = async (as: Pick<TestRackAgentOptions, 'report' | 'label'> = {}) => {
+  const agent = async (as: Pick<TestRackAgentOptions, 'report' | 'label' | 'overTier'> = {}) => {
     const mint = await client.enroll();
     const pin = mint.certificateSha256.type === 'some' ? mint.certificateSha256.value : undefined;
     const peer = await TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken, { certificateSha256: pin, ...as });
@@ -175,6 +176,72 @@ it('builds an environment\'s layers once for the rack\'s platform, leases the wo
     assert.deepEqual([rebuilt.layers, rebuilt.fresh], [2, 1], 'what its lock installs is the layer the repository kept');
     assert.match(describeRackSummary(rack.takeSummary())!, /^Rack summary: 3 tasks on test rack · .* · 0 ran locally$/);
   });
+
+it('builds an environment over the tier image a rack names, without what the image holds, and the rack composes it over that image and runs the work', {
+  skip: !posix ? NOT_ON_WINDOWS : uvOnPath() ? false : 'uv not on PATH',
+}, async () => {
+  const f = await fixture();
+  const platform = hostEnvironmentPlatform();
+  assert(platform !== null, 'this machine is one an environment is installed for');
+  const uv = (args: string[], cwd: string): void => { execFileSync('uv', args, { cwd, stdio: 'ignore' }); };
+
+  // A python environment of two dependencies and no package of its own
+  const project = join(f.home, 'python-project');
+  await mkdir(project);
+  await writeFile(join(project, 'pyproject.toml'), '[project]\nname = "e3-rack-tier-fixture"\nversion = "0.1.0"\nrequires-python = ">=3.11"\ndependencies = ["idna", "six"]\n');
+  uv(['lock'], project);
+  const lock = await readFile(join(project, 'uv.lock'), 'utf8');
+  const locked = (name: string): string => new RegExp(`name = "${name}"\\nversion = "([^"]+)"`).exec(lock)![1]!;
+  const stored = (bytes: Uint8Array): Promise<string> => f.storage.objects.write(f.repo, encodeFile(bytes));
+  const envHash = await f.storage.objects.write(f.repo, encodeBeast2For(EnvironmentSpecType)(variant('python', {
+    pyproject: await stored(await readFile(join(project, 'pyproject.toml'))), lock: await stored(Buffer.from(lock)), sdists: [],
+  })));
+
+  // The rack's image: a virtualenv of this machine's, which holds the idna
+  // the lock pins and no six, by the manifest its script writes
+  const tier = join(f.home, 'tier');
+  uv(['venv', tier], f.home);
+  uv(['pip', 'install', '--python', join(tier, 'bin', 'python'), `idna==${locked('idna')}`], f.home);
+  const text = tierManifestOf(join(tier, 'bin', 'python'));
+  const image = { digest: tierManifestDigest(Buffer.from(text)), manifest: readTierManifest(Buffer.from(text)) };
+
+  const agent = await f.agent({ overTier: text });
+  const rack = await f.open();
+  assert.deepEqual((await f.client.status()).capacity.racks.map((reported) => reported.tierManifests), [[{ tier: 'node', manifest: image.digest }]]);
+  const task = await f.declaring(envHash);
+  const running = rack.runner.execute(f.storage, task, f.inputs, { taskName: 'length' });
+  const grant = await agent.claim(); assert(grant);
+  const remote = await agent.execute(grant); assert.equal(remote.status, 'success', remote.error);
+  const result = await running; assert.equal(result.state, 'success', result.error ?? '');
+  assert(f.placements.some((placed) => placed.kind === 'placed' && placed.where === 'rack')); assert(!f.placements.some(ranLocally));
+
+  // Built over the image, once: its own six ships, the image's idna does
+  // not, and it carries no interpreter
+  assert.deepEqual(f.environments.map((event) => [event.kind, event.over]), [['building', 'node'], ['built', 'node']]);
+  const built = f.environments[1]!; assert(built.kind === 'built');
+  assert.deepEqual([built.layers, built.fresh, built.fromTier], [1, 1, 1], 'one layer of what its lock installs beyond the image');
+  const over = { tier: 'node', manifest: image.digest };
+  const kept = JSON.parse((await readEnvironmentManifest(f.repo, envManifestName(envManifestKey(envHash, E3_RACK_VERSION, platform, over))!))!) as EnvLayerManifest;
+  assert.deepEqual({ ...kept, layers: kept.layers.length }, { envHash, e3Version: E3_RACK_VERSION, baseImage: 'rack-tier:node', baseTier: 'node', layers: 1, over });
+  assert.equal(await readEnvironmentManifest(f.repo, envManifestName(envManifestKey(envHash, E3_RACK_VERSION, platform))!), null, 'no whole build was made');
+
+  // The rack composed it over its image: linked to the image's interpreter,
+  // it finds its own six and the image's idna
+  const composed = agent.composedAt(envHash);
+  assert.equal(await readlink(join(composed, '.venv', 'bin', 'python')), image.manifest.python.base);
+  assert.deepEqual((await readdir(composed)).sort(), ['.venv', 'pyproject.toml', 'uv.lock'], 'no interpreter of its own');
+  const found = execFileSync(join(composed, '.venv', 'bin', 'python'), ['-c', 'import idna, six; print(idna.__file__); print(six.__file__)'],
+    { encoding: 'utf8', cwd: tmpdir() }).trim().split('\n');
+  assert.equal(await realpath(found[0]!), await realpath(join(image.manifest.python.site, 'idna', '__init__.py')), 'the image\'s idna');
+  assert((await realpath(found[1]!)).startsWith(`${await realpath(composed)}/`), `its own six: ${found[1]!}`);
+
+  // A second run builds nothing: the repository keeps the layers built over the image
+  f.environments.length = 0;
+  const again = rack.runner.execute(f.storage, task, f.inputs, { taskName: 'length', force: true });
+  assert.equal((await agent.runOne())?.status, 'success');
+  assert.equal((await again).state, 'success');
+  assert.equal(f.environments.length, 0);
+});
 
 it('runs a call that declares an environment on a rack that composes environments, from the layers built for its platform, and returns a local call\'s value',
   { skip: posix ? false : NOT_ON_WINDOWS }, async () => {

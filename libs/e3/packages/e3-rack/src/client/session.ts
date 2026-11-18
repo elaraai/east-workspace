@@ -7,7 +7,7 @@ import { randomBytes } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import { IntegerType, compareFor, type ValueTypeOf } from '@elaraai/east';
-import { processOwner, type StorageBackend } from '@elaraai/e3-core';
+import { processOwner, readTierManifest, tierManifestDigest, type StorageBackend, type TierManifest } from '@elaraai/e3-core';
 import { E3_RACK_VERSION, HUB_PROTOCOL } from '../version.js';
 import { CreateLeaseResultType, HubAttemptType, type CapacitySnapshot, type CreateLease, type SessionEvent } from '../protocol/control.js';
 import type { RackLeaseResult } from '../protocol/task-envelope.js';
@@ -110,6 +110,8 @@ export class RackSession {
   private snapshot: CapacitySnapshot = { racks: [], queued: 0n, mine: { pending: 0n, claimed: 0n } };
   private readonly tee = new Map<string, Set<(stream: 'stdout' | 'stderr', data: string) => void>>();
   private loop?: Promise<void>;
+  /** The tier manifests asked of the hub, by digest: each asked once */
+  private readonly tiers = new Map<string, Promise<TierManifest | null>>();
   /** The refresh in flight, which the callers that ask meanwhile share */
   private refreshing?: Promise<CapacitySnapshot>;
   /** When the last refresh was answered, by this process's clock */
@@ -182,6 +184,40 @@ export class RackSession {
         this.refreshing = undefined;
       }
     })();
+  }
+
+  /**
+   * The manifest of a tier image a rack boots environments over, by the
+   * digest the rack's snapshot names: what an environment is built over.
+   *
+   * @remarks
+   * The hub answers the text a rack reported, which is checked here against
+   * the digest and read as a manifest. One the hub cannot give, or that is
+   * not the manifest its digest names, answers null, and the environment is
+   * built whole. A manifest is asked for once in a session; one that could
+   * not be had is asked for again.
+   *
+   * @param digest - The manifest's digest, `sha256:<hex>`
+   * @returns The manifest, or null
+   */
+  tierManifest(digest: string): Promise<TierManifest | null> {
+    let asked = this.tiers.get(digest);
+    if (asked === undefined) {
+      asked = (async () => {
+        if (this.lost || this.closing !== undefined) return null;
+        try {
+          const text = await this.client.tierManifest(digest);
+          if (text === null) return null;
+          const bytes = new TextEncoder().encode(text);
+          return tierManifestDigest(bytes) === digest ? readTierManifest(bytes) : null;
+        } catch {
+          return null;
+        }
+      })();
+      this.tiers.set(digest, asked);
+      void asked.then((manifest) => { if (manifest === null) this.tiers.delete(digest); });
+    }
+    return asked;
   }
 
   /**

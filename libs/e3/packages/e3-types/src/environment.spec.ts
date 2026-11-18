@@ -4,41 +4,48 @@
  */
 
 /**
- * Encode/decode contract for {@link EnvironmentSpecType}.
- *
- * BEAST2 encodes a variant's tag as the index of its case in the
- * alphabetically-sorted case list, so the case order is load-bearing: a repo
- * persists specs by that order, and a later code edit that inserts a case
- * before an existing one silently re-tags every later case and mis-decodes
- * already-stored specs. The frozen-order test pins the order so that mistake
- * is a red test; the round-trip tests pin the new cases.
+ * Encode/decode contract for {@link EnvironmentSpecType}: every case round
+ * trips through {@link decodeEnvironmentSpec}, which reads a spec at this
+ * release's type alone.
  */
 
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
-import { encodeBeast2For, decodeBeast2For, variant, some, none } from '@elaraai/east';
+import { StringType, VariantType, encodeBeast2For, variant, some, none } from '@elaraai/east';
 import {
   EnvironmentSpecType,
+  ImageEnvironmentType,
+  NodeEnvironmentType,
+  PythonEnvironmentType,
+  ToolsEnvironmentType,
+  WorkspaceNodeEnvironmentType,
+  decodeEnvironmentSpec,
   environmentSpecObjectHashes,
   type EnvironmentSpec,
 } from './environment.js';
 
 const encodeCurrent = encodeBeast2For(EnvironmentSpecType);
-const decodeCurrent = decodeBeast2For(EnvironmentSpecType);
+const decodeCurrent = (bytes: Uint8Array): EnvironmentSpec => decodeEnvironmentSpec(bytes, H('9'));
 
 const H = (c: string): string => c.repeat(64); // stand-in 64-hex object hash
 
-describe('EnvironmentSpecType frozen case order', () => {
-  it('is exactly [image, node, python, tools, workspace_node]', () => {
-    // BEAST2 tags are indices into this sorted list. A new case must be
-    // added so the order only grows at the end (or readers must migrate to
-    // name-based decoding first) — inserting before an existing case
-    // re-tags every later one and mis-decodes stored specs. This assertion
-    // turns that mistake into a red test.
-    assert.deepStrictEqual(
-      Object.keys((EnvironmentSpecType as unknown as { cases: Record<string, unknown> }).cases),
-      ['image', 'node', 'python', 'tools', 'workspace_node'],
-    );
+describe('decodeEnvironmentSpec', () => {
+  it('refuses a spec an earlier release exported, which decodes at this type, naming the re-export; a later release\'s, naming the upgrade; and what is no spec', () => {
+    // The type before its `workspace_python` case: its values decode at today's, and are refused by their type
+    const Earlier = VariantType({
+      python: PythonEnvironmentType, node: NodeEnvironmentType, image: ImageEnvironmentType, tools: ToolsEnvironmentType,
+      workspace_node: WorkspaceNodeEnvironmentType,
+    });
+    const tools = variant('tools', { files: [{ path: 'bin/my-runner', hash: H('1') }] });
+    assert.throws(() => decodeEnvironmentSpec(encodeBeast2For(Earlier)(tools), H('a')),
+      { message: `the environment ${H('a')} was exported by an older e3 SDK — re-export its package with the current one` });
+    // A later release's, with a case this one does not know: re-exporting with this one cannot help
+    const Later = VariantType({ ...EnvironmentSpecType.cases, conda: StringType });
+    assert.throws(() => decodeEnvironmentSpec(encodeBeast2For(Later)(tools), H('a')),
+      { message: `the environment ${H('a')} was exported by a newer e3 SDK than this one, as its conda says — upgrade e3 to the release that exported its package` });
+    for (const bytes of [encodeBeast2For(StringType)('not a spec'), new TextEncoder().encode('not beast2')]) {
+      assert.throws(() => decodeEnvironmentSpec(bytes, H('a')), { message: `the object ${H('a')} is not an environment's spec` });
+    }
   });
 });
 
@@ -51,6 +58,10 @@ describe('EnvironmentSpecType round-trips every case', () => {
     variant('workspace_node', {
       packageJson: H('2'), lock: H('3'), config: none, subject: 'packages/pricing',
       members: [{ path: 'packages/pricing', name: '@acme/pricing', tarball: H('4') }],
+    }),
+    variant('workspace_python', {
+      pyproject: H('5'), lock: H('6'), subjects: ['features'],
+      sdists: [{ filename: 'features-0.1.0.tar.gz', hash: H('7') }], requires: ['elaraai-east-py', 'elaraai-east-py-std'],
     }),
   ];
 
@@ -113,6 +124,16 @@ describe('environmentSpecObjectHashes', () => {
         members: [{ path: 'packages/x', name: '@acme/x', tarball: 't1' }, { path: 'packages/y', name: '@acme/y', tarball: 't2' }],
       })),
       ['p', 'l', 'cfg', 't1', 't2'],
+    );
+  });
+
+  it('lists a workspace_python\'s root manifest, lock and every sdist', () => {
+    assert.deepStrictEqual(
+      environmentSpecObjectHashes(variant('workspace_python', {
+        pyproject: 'p', lock: 'l', subjects: ['features', 'trainer'],
+        sdists: [{ filename: 'features-0.1.0.tar.gz', hash: 's1' }, { filename: 'trainer-0.1.0.tar.gz', hash: 's2' }], requires: [],
+      })),
+      ['p', 'l', 's1', 's2'],
     );
   });
 

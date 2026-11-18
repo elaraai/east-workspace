@@ -175,3 +175,52 @@ export async function unpackEnvironmentLayer(layer: Readable, root: string): Pro
   });
   await pipeline(layer, createGunzip(), extract);
 }
+
+/**
+ * Finishes an environment built over a tier, where it is composed over that
+ * tier: links its virtualenv's `python` to the tier's base interpreter.
+ *
+ * @remarks
+ * An environment built over a tier carries no interpreter, and no layer holds
+ * a link that leads out of the environment: so the agent that composes it
+ * makes the one link that does, once its layers are unpacked, to the
+ * interpreter of the tier it boots it over. The environment's `pyvenv.cfg`
+ * names that interpreter's directory as its `home`, written when it was
+ * built from the tier's manifest; one that names another was built over
+ * another tier, and is refused. Nothing is written through a link: the
+ * virtualenv's directories are real, as the layers' unpacking leaves them.
+ *
+ * @param envDir - The composed environment: `<root>/var/task/.e3-env`
+ * @param interpreter - The tier's base interpreter, as its manifest names it
+ *   (`python.base`): absolute, in the guest
+ * @throws {Error} When the interpreter is not an absolute path, the
+ *   virtualenv's directories are not real directories, or the environment
+ *   was built over another interpreter
+ *
+ * @example
+ * ```ts
+ * for (const file of layers) await unpackEnvironmentLayer(createReadStream(file), root);
+ * if (manifest.over !== undefined) await composeEnvironmentOverTier(path.join(root, ENVIRONMENT_LAYER_ROOT), tier.python.base);
+ * ```
+ */
+export async function composeEnvironmentOverTier(envDir: string, interpreter: string): Promise<void> {
+  if (!path.posix.isAbsolute(interpreter) || interpreter.includes('\\')) {
+    throw new Error(`environment layers: the tier's interpreter '${interpreter}' is not an absolute path`);
+  }
+  const venv = path.join(envDir, '.venv');
+  const bin = path.join(venv, 'bin');
+  for (const dir of [envDir, venv, bin]) {
+    const stat = await fs.lstat(dir).catch(() => null);
+    if (stat === null || !stat.isDirectory()) throw new Error(`environment layers: '${dir}' is not a directory of an environment built over a tier`);
+  }
+  const config = path.join(venv, 'pyvenv.cfg');
+  const written = await fs.lstat(config).catch(() => null);
+  const home = written !== null && written.isFile() ? /^home\s*=\s*(.*?)\s*$/m.exec(await fs.readFile(config, 'utf-8'))?.[1] : undefined;
+  if (home !== path.posix.dirname(interpreter)) {
+    throw new Error(`environment layers: the environment was built over an interpreter in '${home ?? 'no directory'}', not the tier's '${interpreter}'`);
+  }
+  const link = path.join(bin, 'python');
+  // What is at its path goes, a link itself and never what it names
+  await fs.rm(link, { recursive: true, force: true });
+  await fs.symlink(interpreter, link);
+}

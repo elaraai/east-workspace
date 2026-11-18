@@ -5,117 +5,37 @@
 
 import { afterEach, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { randomBytes, randomUUID, createHash } from 'node:crypto';
-import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { randomBytes, createHash } from 'node:crypto';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { setTimeout as delay } from 'node:timers/promises';
 import { East, IntegerType, OptionType, StringType, decodeBeast2For, encodeBeast2For, equalFor, none, some, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { decodeTaskObject } from '@elaraai/e3-types';
-import { LocalStorage, environmentLayerPath, environmentLayersDir, hostEnvironmentPlatform, inputsHash, packageImport, packageRead, processOwner, repoInit, uuidv7 } from '@elaraai/e3-core';
-import { RackHub, type RackHubOptions } from './hub.js';
-import { defaultHubConfig, loadHubCertificate, saveHubConfig, type HubConfig } from './config.js';
+import { hostEnvironmentPlatform, inputsHash, packageImport, packageRead, repoInit, uuidv7 } from '@elaraai/e3-core';
+import { RackHub } from './hub.js';
+import { defaultHubConfig } from './config.js';
 import { readHubLock } from './lock.js';
 import { socketRequest } from '../client/local-http.js';
-import { startSessionDataServer } from '../client/session-data-server.js';
 import { HUB_CONFIG_FILE, hubSocketPath } from '../paths.js';
-import { E3_RACK_VERSION, HUB_PROTOCOL } from '../version.js';
-import { ApproveRackType, AttachLeaseResultType, CancelLeaseResultType, CreateLeaseType, CreateLeaseResultType, EmptyType, HubAttemptType, HubConfigType,
-  HubEnrollResultType, HubEnrollType, HubStatusType, OpenSessionType, OpenSessionResultType, RemoveRackResultType, SessionPollType, SessionPollResultType } from '../protocol/control.js';
+import { E3_RACK_VERSION } from '../version.js';
+import { ApproveRackType, HubAttemptType, HubConfigType, HubEnrollResultType, HubEnrollType, HubStatusType, RemoveRackResultType } from '../protocol/control.js';
 import { RackRegistrationType, RackSecurityPolicyType } from '../protocol/registration.js';
 import { RackHeartbeatRequestType, RackHeartbeatResponseType } from '../protocol/rack-wire.js';
 import { sameLeaseRefs } from '../testing/lease-refs.js';
-import { RACK_CALL_VALUE_OBJECTS, RACK_LISTENER_IDLE_MS, RACK_PROTOCOL, RACK_TRANSFERS_AT_ONCE, readRackHello, readRackRefusal } from '../protocol/rack-json.js';
+import { RACK_CALL_VALUE_OBJECTS, RACK_LISTENER_IDLE_MS, RACK_PROTOCOL, RACK_TIER_MANIFESTS, RACK_TRANSFERS_AT_ONCE, readRackHello, readRackRefusal } from '../protocol/rack-json.js';
 import { TestRackAgent, type TestRackAgentOptions } from '../testing/test-rack-agent.js';
-import { SlowLink, type SlowLinkOptions } from '../testing/slow-link.js';
-import { certificateSha256, createHubCertificate, pinnedFetch } from '../tls/tls.js';
+import { certificateSha256, createHubCertificate } from '../tls/tls.js';
 import { writeStateFile } from '../state-file.js';
 import { taskClosure } from '../lease/closure.js';
-import { envManifestKey, envManifestName, type EnvLayerManifest } from '../server/env-publication.js';
-import type { RackLeaseEvent, RackLeaseResources } from '../protocol/task-envelope.js';
-import { detachedSpecToWire, splitUnitToWire } from '../runner-event.js';
+import { type RackLeaseEvent } from '../protocol/task-envelope.js';
+import { splitUnitToWire } from '../runner-event.js';
+import { closeAll, cleanup, fixture, event, call } from './hub.test-utils.js';
 
-const cleanup: Array<() => Promise<void>> = [];
-afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
-async function fixture(options: RackHubOptions = {}, port = 0, overrides: Partial<HubConfig> = {}) {
-  const home = await mkdtemp(join(tmpdir(), 'e3h-'));
-  cleanup.push(() => rm(home, { recursive: true, force: true }));
-  const config = { ...defaultHubConfig(), listen: some({ host: '127.0.0.1', port: BigInt(port) }), ...overrides };
-  await saveHubConfig(config, home);
-  const hub = new RackHub({ foreground: true, ...options, home });
-  assert(await hub.start());
-  cleanup.push(() => hub.stop());
-  // A TLS listener made its certificate as it bound, whether or not the bind succeeded.
-  const pin = config.tls ? certificateSha256((await loadHubCertificate(home)).certificatePem) : undefined;
-  const fetch = pin === undefined ? globalThis.fetch : pinnedFetch(pin);
-  const socket = hubSocketPath(home);
-  const status = () => socketRequest(socket, 'GET', '/v1/status', { responseType: HubStatusType });
-  const storage = new LocalStorage();
-  const repo = join(home, 'repo'); assert(repoInit(repo).success);
-  const session = async (repoPath = repo, version = E3_RACK_VERSION) => {
-    const dataToken = randomUUID();
-    const logs: string[] = [];
-    const data = await startSessionDataServer({ storage, repoPath, home, dataToken, onLog: (_id, _stream, text) => { logs.push(text); } });
-    const opened = await socketRequest(socket, 'POST', '/v1/sessions', { requestType: OpenSessionType, responseType: OpenSessionResultType, body: {
-      protocol: BigInt(HUB_PROTOCOL), e3Version: version, owner: await processOwner(), repoPath: await realpath(repoPath),
-      workspace: 'dev', label: 'test session', dataSocket: data.socketPath, dataToken,
-    } });
-    const path = `/v1/sessions/${opened.sessionId}`;
-    const close = async () => { await socketRequest(socket, 'DELETE', path, { responseType: EmptyType }).catch(() => {}); await data.close(); };
-    cleanup.push(close);
-    const create = (event: RackLeaseEvent) => socketRequest(socket, 'POST', `${path}/leases`, {
-      requestType: CreateLeaseType, body: { eventJson: JSON.stringify(event), tier: 'node', computeSize: 'large' }, responseType: CreateLeaseResultType,
-    });
-    let after = 0n;
-    const events = async () => {
-      const response = await socketRequest(socket, 'POST', `${path}/events`, {
-        requestType: SessionPollType, body: { after, waitMs: 0n }, responseType: SessionPollResultType,
-      });
-      after = response.events.at(-1)?.seq ?? after;
-      return response;
-    };
-    const cancel = (id: string) => socketRequest(socket, 'POST', `${path}/leases/${encodeURIComponent(id)}/cancel`, { responseType: CancelLeaseResultType });
-    return { ...opened, close, create, events, cancel, logs };
-  };
-  const agent = async (as: Pick<TestRackAgentOptions, 'report' | 'protocol' | 'capacity' | 'transfersAtOnce' | 'timings' | 'faults' | 'resources'> & { version?: string } = {}, origin?: string) => {
-    const mint = await socketRequest(socket, 'POST', '/v1/enroll', { requestType: HubEnrollType,
-      body: { label: none, ttlMinutes: none }, responseType: HubEnrollResultType });
-    assert.equal(mint.certificateSha256.type === 'some' ? mint.certificateSha256.value : undefined, pin);
-    const agent = await TestRackAgent.enroll(origin ?? mint.apiUrl, mint.enrollmentToken, { certificateSha256: pin, ...as });
-    cleanup.push(() => agent.close());
-    return agent;
-  };
-  /** A slow link to the hub's listener, and the origin an agent reaches the hub at through it. */
-  const link = async (faults: Omit<SlowLinkOptions, 'target'>) => {
-    const listener = (await status()).rackListener; assert(listener.type === 'up');
-    const url = new URL(listener.value.origin);
-    const link = await SlowLink.open({ target: { host: url.hostname, port: Number(url.port) }, ...faults });
-    cleanup.push(() => link.close());
-    return { link, origin: `${url.protocol}//${url.hostname}:${link.port}` };
-  };
-  /** Objects of random bytes in the session's repository, by hash. */
-  const objects = async (count: number, size: number) => {
-    const written = new Map<string, Buffer>();
-    for (let n = 0; n < count; n++) { const bytes = randomBytes(size); written.set(await storage.objects.write(repo, bytes), bytes); }
-    return written;
-  };
-  return { home, hub, socket, repo, storage, status, session, agent, link, objects, config, pin, fetch };
-}
-function event(input: string[] = [], resources?: RackLeaseResources): RackLeaseEvent {
-  return { version: 2, taskName: 'task', workspace: 'dev', closure: { hashes: input }, ...(resources !== undefined && { resources }),
-    runnerEvent: { mode: 'task', repo: 'replaced-by-hub', taskHash: 'a'.repeat(64), inputHashes: input, launchId: uuidv7(), timeoutMs: 30000 } };
-}
-/** A call of a program, by its hash, with one integer argument: its lease's event. */
-function call(program: string, argument: bigint): RackLeaseEvent {
-  return { version: 2, taskName: 'fn:double', workspace: 'dev', program, closure: { hashes: [program] },
-    resources: { kind: 'task', cores: 1, memoryBytes: 1024 ** 3, gpu: false },
-    runnerEvent: { mode: 'run-detached', repo: 'replaced-by-hub', launchId: uuidv7(), timeoutMs: 30000,
-      spec: detachedSpecToWire({ bodyIr: new Uint8Array(), args: [encodeBeast2For(IntegerType)(argument)],
-        runner: variant('east_node', { platforms: [], decode: variant('lazy', null) }), limits: { timeoutMs: 30000, maxResultBytes: 1024, maxLogBytes: 1024 } }) } };
-}
+afterEach(closeAll);
 
 it('owns one hub, shares a task across sessions and commits a real runner output before publishing completion', async () => {
   const f = await fixture();
@@ -191,13 +111,10 @@ it('takes over acknowledged uploads and cancels a shared lease only after its la
 it('attaches to identical work already queued without queuing, and queues nothing for work no session holds', async () => {
   const f = await fixture();
   const first = await f.session(); const second = await f.session();
-  const attach = (session: { sessionId: string }) => socketRequest(f.socket, 'POST', `/v1/sessions/${session.sessionId}/leases/attach`, {
-    requestType: CreateLeaseType, body: { eventJson: JSON.stringify(event()), tier: 'node', computeSize: 'large' }, responseType: AttachLeaseResultType,
-  });
-  assert.equal((await attach(second)).type, 'none');
+  assert.equal((await second.attach(event())).type, 'none');
   assert.equal((await f.status()).capacity.queued, 0n, 'an attach-only request queues nothing');
   const created = await first.create(event());
-  const attached = await attach(second);
+  const attached = await second.attach(event());
   assert(attached.type === 'some');
   assert.equal(attached.value.leaseId, created.leaseId); assert.equal(attached.value.attached, true);
   const status = await f.status();
@@ -217,10 +134,7 @@ it('leases each call as its own lease, attaches none to another, and publishes a
   const again = await second.create(call(program, 2n));
   assert.equal(again.attached, false);
   assert.equal(new Set([a.leaseId, b.leaseId, again.leaseId]).size, 3);
-  const attach = await socketRequest(f.socket, 'POST', `/v1/sessions/${second.sessionId}/leases/attach`, {
-    requestType: CreateLeaseType, body: { eventJson: JSON.stringify(call(program, 2n)), tier: 'node', computeSize: 'large' }, responseType: AttachLeaseResultType,
-  });
-  assert.equal(attach.type, 'none', 'a call joins no other, and an attach-only request of one queues nothing');
+  assert.equal((await second.attach(call(program, 2n))).type, 'none', 'a call joins no other, and an attach-only request of one queues nothing');
   assert.equal((await f.status()).capacity.queued, 3n);
 
   // One of them left in the queue, a rack claims it
@@ -392,7 +306,8 @@ it('says what it speaks to anyone who reaches its listener, what each rack repor
   const status = await f.status(); assert(status.rackListener.type === 'up');
   const hello = await f.fetch(`${status.rackListener.value.origin}/api/rack/hello`);
   assert.deepEqual(readRackHello(await hello.text()), { protocol: RACK_PROTOCOL, e3: E3_RACK_VERSION, limits: { transfersAtOnce: RACK_TRANSFERS_AT_ONCE },
-    features: [RACK_CALL_VALUE_OBJECTS] }, 'a session reads a call\'s value from the object its completion commits');
+    features: [RACK_CALL_VALUE_OBJECTS, RACK_TIER_MANIFESTS] },
+  'a session reads a call\'s value from the object its completion commits, and builds an environment over the tier image a rack reports');
 
   const agent = await f.agent({ report: { features: ['resources', 'environments'], target: 'x86_64-manylinux_2_28' } });
   const rack = async () => (await f.status()).capacity.racks[0]!;
@@ -727,51 +642,4 @@ it('grants a unit only to a rack that caps it: never to one that admits by its s
     runnerEvent: { mode: 'unit', repo: 'replaced-by-hub', taskHash: 'a'.repeat(64), launchId: uuidv7(), timeoutMs: 30000,
       unit: splitUnitToWire({ inputs: ['5'.repeat(64)], merge: null, own: false }) } };
   await assert.rejects(after.create(unsized), /names what it asks of a rack/);
-});
-
-it('leases work that names an environment only to a rack that composes environments for a platform its session keeps the layers for, and serves it the manifest built with the lease\'s own e3 release', async () => {
-  const f = await fixture({ leaseWindowMs: 40 });
-  const [release, platform] = ['9.9.9', 'x86_64-manylinux_2_28'];
-  const envHash = 'e'.repeat(64);
-  // What a launching machine keeps of an environment it built: a layer, and the manifests that name it, by release and platform.
-  const layer = Buffer.from('a layer of the environment, as its session keeps it');
-  const digest = `sha256:${createHash('sha256').update(layer).digest('hex')}`;
-  await mkdir(dirname(environmentLayerPath(f.repo, digest)), { recursive: true });
-  await writeFile(environmentLayerPath(f.repo, digest), layer);
-  const manifestOf = (e3Version: string): EnvLayerManifest => ({ envHash, e3Version, baseImage: 'rack-tier:node', baseTier: 'node',
-    layers: [{ digest, sizeBytes: layer.length, mediaType: 'application/vnd.oci.image.layer.v1.tar+gzip' }] });
-  await mkdir(join(environmentLayersDir(f.repo), 'manifests'), { recursive: true });
-  for (const built of [release, E3_RACK_VERSION]) {
-    await writeFile(join(environmentLayersDir(f.repo), 'manifests', envManifestName(envManifestKey(envHash, built, platform))!), JSON.stringify(manifestOf(built)));
-  }
-
-  const session = await f.session(f.repo, release);
-  await assert.rejects(session.create({ ...event(['1'.repeat(64)]), environment: 'not a hash' }), /Invalid environment/);
-  const lease = await session.create({ ...event(['1'.repeat(64)]), environment: envHash });
-  const version = `0.5.0+e3.${release}`;
-  // A rack that composes nothing, one that composes for another platform, and one that names a platform but not the feature.
-  const never = [
-    await f.agent({ version, report: { features: [] } }),
-    await f.agent({ version, report: { features: ['environments'], target: 'aarch64-apple-darwin' } }),
-    await f.agent({ version, report: { features: [], target: platform } }),
-  ];
-  for (const rack of never) assert.equal(await rack.claim(), null, 'never granted the lease');
-  const composing = await f.agent({ version, report: { features: ['environments'], target: platform } });
-  const grant = await composing.claim();
-  assert.equal(grant?.leaseId, lease.leaseId);
-
-  const { env } = await composing.storageRequest(grant!, { envManifest: some(envHash) });
-  assert(env.type === 'some');
-  assert.deepEqual(JSON.parse(env.value.manifestJson), manifestOf(release), 'the manifest built with the lease\'s release, not the hub\'s own');
-  assert.deepEqual(env.value.layers.map((served) => [served.digest, served.sizeBytes]), [[digest, BigInt(layer.length)]]);
-  const served = await f.fetch(env.value.layers[0]!.url);
-  assert.equal(served.status, 200);
-  assert.deepEqual(Buffer.from(await served.arrayBuffer()), layer);
-  await assert.rejects(composing.storageRequest(grant!, { envManifest: some('f'.repeat(64)) }), /HTTP 403 forbidden/);
-
-  // A lease that names an environment its session keeps no layers of is granted to no rack.
-  const other = await session.create({ ...event(['2'.repeat(64)]), environment: 'd'.repeat(64) });
-  await composing.complete(grant!, { taskName: 'task', status: 'failed' });
-  assert.equal(await composing.claim(), null);
-  assert.equal((await session.cancel(other.leaseId)).status, 'cancelled');
 });

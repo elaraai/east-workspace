@@ -11,8 +11,8 @@ import { Readable } from 'node:stream';
 import { setTimeout as delay } from 'node:timers/promises';
 import { BooleanType, decodeBeast2For, encodeBeast2For, none, some, variant, type EastType, type ValueTypeOf } from '@elaraai/east';
 import { BEAST2_CONTENT_TYPE } from '@elaraai/e3-types';
-import { ENVIRONMENT_LAYER_ROOT, LocalStorage, LocalTaskRunner, gcObjectReaders, hostEnvironmentPlatform, linkPrebuiltEnvironment, markReachable, repoInit,
-  taskExecute, taskExecuteUnit, unpackEnvironmentLayer } from '@elaraai/e3-core';
+import { ENVIRONMENT_LAYER_ROOT, LocalStorage, LocalTaskRunner, composeEnvironmentOverTier, gcObjectReaders, hostEnvironmentPlatform, linkPrebuiltEnvironment,
+  markReachable, readTierManifest, repoInit, taskExecute, taskExecuteUnit, tierManifestDigest, unpackEnvironmentLayer, type TierManifest } from '@elaraai/e3-core';
 import type { EnvLayerManifest } from '../server/env-publication.js';
 import { closureHashes } from '../lease/closure.js';
 import { decodeRunnerEvent, detachedSpecFromWire, splitUnitFromWire, type RunnerDetachedEvent } from '../runner-event.js';
@@ -22,7 +22,8 @@ import { RackCompleteRequestType, RackCompleteResponseType, RackEnrollRequestTyp
   RackExtendRequestType, RackHeartbeatRequestType, RackHeartbeatResponseType, RackLeaseGrantType, RackLeaseRequestType,
   RackLogsRequestType, RackStorageRequestType, RackStorageResponseType, type RackLeaseGrant, type RackLeaseRef,
   type RackLogChunk, type RackObjectCommit, type RackStorageRequest } from '../protocol/rack-wire.js';
-import { RACK_CALL_VALUE_OBJECTS, RACK_PROTOCOL, RACK_PROTOCOL_HEADER, RACK_TRANSFERS_AT_ONCE, RACK_WAITING_HEADER, readRackHello, readRackRefusal, readRackWaiting,
+import { RACK_CALL_VALUE_OBJECTS, RACK_ENVIRONMENTS_OVER_TIER, RACK_MANIFESTS_WANTED_HEADER, RACK_PROTOCOL, RACK_PROTOCOL_HEADER, RACK_TIER_MANIFESTS,
+  RACK_TRANSFERS_AT_ONCE, RACK_WAITING_HEADER, readRackHello, readRackManifestsWanted, readRackRefusal, readRackWaiting,
   type RackHello, type RackOffer, type RackReport, type RackResources, type RackWaiting } from '../protocol/rack-json.js';
 import { RACK_INLINE_VALUE_MAX, leaseReserve, readRackLeaseResources, type RackFunctionResult, type RackLeaseEvent, type RackLeaseResources, type RackLeaseResult,
   type RackTransferRetry } from '../protocol/task-envelope.js';
@@ -127,6 +128,20 @@ export interface TestRackAgentOptions {
    *  source's hello allows, and more to stand for an agent that does not hold
    *  itself to it. */
   transfersAtOnce?: number;
+  /**
+   * The manifest of the image the agent boots environments over, as the
+   * image's script wrote it (e3-core's `tier/tier-manifest.py`): this
+   * machine's own Python's, since the agent's guest is this machine. With it
+   * the agent says it composes environments built over a tier, names the
+   * manifest for every tier it runs, sends its text to a source that reads
+   * it, and composes such an environment by linking its interpreter to the
+   * manifest's.
+   */
+  overTier?: string;
+  /** Sends each tier manifest's text with every heartbeat, as an agent that
+   *  does not read which its source wants does
+   *  ({@link RACK_MANIFESTS_WANTED_HEADER}). */
+  manifestEveryHeartbeat?: boolean;
 }
 
 /**
@@ -143,7 +158,10 @@ export interface TestRackAgentOptions {
  * For a lease that names an environment it asks its source for the manifest
  * and its layers, checks each layer's digest and size, unpacks them, and runs
  * the work with the tree linked where e3-core looks for a built environment:
- * nothing is installed on it.
+ * nothing is installed on it. One built over a tier it composes only over
+ * the image whose manifest the layers name, which is its own
+ * ({@link TestRackAgentOptions.overTier}), and links to that image's
+ * interpreter.
  *
  * A call's lease runs e3-core's `runDetached` over its closure, and completes
  * with the call's outcome: its value inline up to {@link RACK_INLINE_VALUE_MAX},
@@ -179,6 +197,11 @@ export class TestRackAgent {
   readonly bookedMost = { leases: 0, cores: 0, memoryBytes: 0 };
   /** What the last idle poll said waits for room on this rack, if anything. */
   waitingFor: RackWaiting | undefined;
+  /** The report the last heartbeat carried. */
+  lastReport: RackReport | undefined;
+  /** The digests of the tier manifests whose text the next heartbeat carries:
+   *  every one, for the first; then those its source's last answer asked for. */
+  private manifestsWanted: 'all' | readonly string[] = 'all';
   private readonly storage = new LocalStorage();
   private token = '';
   private readonly abort = new AbortController();
@@ -190,6 +213,9 @@ export class TestRackAgent {
   private loop: Promise<void> | undefined;
   private loopError: unknown;
   private temporaryHome: string | undefined;
+  /** The image the agent boots environments over: its manifest, and the
+   *  manifest's digest. */
+  private readonly image: { digest: string; manifest: TierManifest } | undefined;
 
   /** Creates an unenrolled peer; enroll before starting its claim loop.
    * @param options - Transport, scratch directory, capacity and deterministic faults.
@@ -206,6 +232,10 @@ export class TestRackAgent {
     }
     if (options.transfersAtOnce !== undefined && (!Number.isSafeInteger(options.transfersAtOnce) || options.transfersAtOnce < 1)) throw new Error('Test rack transfers at once must be a positive integer');
     this.faults = options.faults ?? {};
+    if (options.overTier !== undefined) {
+      const bytes = new TextEncoder().encode(options.overTier);
+      this.image = { digest: tierManifestDigest(bytes), manifest: readTierManifest(bytes) };
+    }
   }
 
   /** Enrolls one protocol peer with an automatically cleaned temporary store. */
@@ -321,8 +351,14 @@ export class TestRackAgent {
     if (this.options.report !== undefined) return this.options.report;
     const all = this.options.resources;
     const target = hostEnvironmentPlatform();
-    return { features: [...(all === undefined ? [] : ['resources']), ...(target === null ? [] : ['environments'])],
-      ...(target !== null && { target }), ...(all !== undefined && { resources: all, free: this.free(all) }) };
+    // Every tier it runs is this machine: one image, whose manifest's text
+    // goes to a source that reads it
+    const image = target === null ? undefined : this.image;
+    const tier = image === undefined ? undefined
+      : { digest: image.digest, ...(this.sourceFeatures.includes(RACK_TIER_MANIFESTS) && { manifest: this.options.overTier! }) };
+    return { features: [...(all === undefined ? [] : ['resources']), ...(target === null ? [] : ['environments']), ...(tier === undefined ? [] : [RACK_ENVIRONMENTS_OVER_TIER])],
+      ...(target !== null && { target }), ...(tier !== undefined && { tiers: Object.fromEntries(this.tiers.map((name) => [name, tier])) }),
+      ...(all !== undefined && { resources: all, free: this.free(all) }) };
   }
 
   /** What a poll may be answered with: what is free of the agent's
@@ -338,10 +374,25 @@ export class TestRackAgent {
   /** What the agent has booked for a lease it holds, when it admits by its resources. */
   bookedFor(leaseId: string): RackLeaseResources | undefined { return this.booked.get(leaseId); }
 
+  /** What a heartbeat reports: what the agent is and has, with the text of
+   *  each tier manifest its source wants, and the digest alone of every other. */
+  private reportSent(): RackReport {
+    const report = this.report();
+    const wanted = this.manifestsWanted;
+    if (report.tiers === undefined || wanted === 'all' || this.options.manifestEveryHeartbeat === true) return report;
+    return { ...report, tiers: Object.fromEntries(Object.entries(report.tiers)
+      .map(([tier, said]) => [tier, wanted.includes(said.digest) ? said : { digest: said.digest }])) };
+  }
+
   /** Reports health and returns the leases the hub asks this agent to stop. */
   async heartbeat(runningLeases: RackLeaseRef[] = [...this.active.values()].filter((value) => !value.silent).map((value) => value.lease)): Promise<ValueTypeOf<typeof RackHeartbeatResponseType>> {
-    const response = await this.post('heartbeat', RackHeartbeatRequestType, { healthy: true, freeCapacity: BigInt(Math.max(0, this.capacity - Math.max(this.active.size, runningLeases.length))),
-      runningLeases, agentVersion: this.version, bootId: this.bootId, cacheBytes: 0n, report: JSON.stringify(this.report()) }, RackHeartbeatResponseType);
+    const report = this.reportSent();
+    const sent = await this.raw('heartbeat', RackHeartbeatRequestType, { healthy: true, freeCapacity: BigInt(Math.max(0, this.capacity - Math.max(this.active.size, runningLeases.length))),
+      runningLeases, agentVersion: this.version, bootId: this.bootId, cacheBytes: 0n, report: JSON.stringify(report) });
+    if (sent.status !== 200) throw await this.refused('heartbeat', sent);
+    this.lastReport = report;
+    this.manifestsWanted = readRackManifestsWanted(sent.headers.get(RACK_MANIFESTS_WANTED_HEADER));
+    const response = decodeBeast2For(RackHeartbeatResponseType)(new Uint8Array(await sent.arrayBuffer()));
     if (response.rotatedToken.type === 'some') this.token = response.rotatedToken.value;
     for (const lease of response.stop) this.active.get(lease.leaseId)?.stop.abort();
     return response;
@@ -544,13 +595,16 @@ export class TestRackAgent {
    * links it where e3-core looks for a built environment, so the lease's work
    * installs nothing. Each layer is checked against its digest and its size
    * before it is unpacked, and an environment composed for an earlier lease
-   * is used as it is.
+   * is used as it is. Layers built over a tier are composed only when the
+   * tier's image is the agent's own, by its manifest's digest, and the
+   * environment's interpreter is then linked to that image's.
    * @param lease - The lease that names the environment
    * @param envHash - The environment spec's hash
    * @param signal - Ends the transfers with the lease
    * @param of - The lease's transfers, which take note of each retry
-   * @throws {Error} When the source publishes no layers for it, or a layer is
-   *   not the bytes its manifest names
+   * @throws {Error} When the source publishes no layers for it, a layer is
+   *   not the bytes its manifest names, or the layers were built over an
+   *   image that is not the agent's
    */
   async compose(lease: RackLeaseRef, envHash: string, signal: AbortSignal = this.abort.signal, of?: Transfers): Promise<void> {
     const root = join(this.options.workDir, 'env', envHash);
@@ -562,7 +616,11 @@ export class TestRackAgent {
         return env.value;
       };
       const { manifestJson, layers } = await published();
-      if ((JSON.parse(manifestJson) as EnvLayerManifest).envHash !== envHash) throw new Error(`The source answered another environment's manifest for ${envHash}`);
+      const manifest = JSON.parse(manifestJson) as EnvLayerManifest;
+      if (manifest.envHash !== envHash) throw new Error(`The source answered another environment's manifest for ${envHash}`);
+      if (manifest.over !== undefined && manifest.over.manifest !== this.image?.digest) {
+        throw new Error(`The environment ${envHash} was built over an image of the tier '${manifest.over.tier}' that is not this rack's`);
+      }
       await rm(root, { recursive: true, force: true });
       await mkdir(root, { recursive: true });
       for (const layer of layers) {
@@ -573,6 +631,8 @@ export class TestRackAgent {
         }
         await unpackEnvironmentLayer(Readable.from([bytes]), root);
       }
+      // Built over the tier's image, it runs on the image's interpreter
+      if (manifest.over !== undefined) await composeEnvironmentOverTier(this.composedAt(envHash), this.image!.manifest.python.base);
       await writeFile(composed, '');
     }
     await linkPrebuiltEnvironment(this.repo, { hash: envHash, dir: this.composedAt(envHash) });

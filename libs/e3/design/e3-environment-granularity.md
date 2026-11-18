@@ -150,7 +150,7 @@ uv pip check --python .venv                                          # loud sati
 - `--frozen`: member directories need not exist (verified — no stubs).
 - `--all-packages --no-install-workspace`: union of all members' locked registry deps + default groups; skips every member incl. the root (superset of today's `--no-install-project`; verified the virtual scaffold root's own deps ARE installed — the runner-on-PATH story holds).
 - **`--no-install-local`** replaces the previously-designed per-sdist `--no-install-package` flags **and** fixes the reviewer-proven sibling hole (fixture `uvsib`: designer command fails `Distribution not found at: file:///tmp/uvsib-outside` on a clean machine; static command succeeds; `import subject` OK). Registry deps still flow through skipped locals, including edge extras and default dev-groups (verified §2). No name derivation, no per-spec flags.
-- **The pip step is fail-closed by construction (owner-review blocker fix):** `--no-deps` means the sdist install can never resolve anything from a registry, and `uv pip check` then verifies satisfiability loudly. This matters because a resolution-ON pip step was **demonstrated live** to silently install PyPI's real `common==0.1.2` when a local sdist was absent — reachable for old workspace-root specs (whose workspace lock exempts them from the P11 guard) and for any future closure-walk bug. With `--no-deps` + `check`, every such case is a loud `The package '<x>' requires '<y>', but it's not installed` instead of silent wrong code, for **all** spec vintages. (Verified: hazard reproduced, fix green on the full sequence — Appendix A.)
+- **The pip step is fail-closed by construction (owner-review blocker fix):** `--no-deps` means the sdist install can never resolve anything from a registry, and `uv pip check` then verifies satisfiability loudly. This matters because a resolution-ON pip step was **demonstrated live** to silently install PyPI's real `common==0.1.2` when a local sdist was absent — reachable for old workspace-root specs (whose workspace lock exempts them from the P11 guard) and for any future closure-walk bug. With `--no-deps` + `check`, every such case is a loud `The package '<x>' requires '<y>', but it's not installed` instead of silent wrong code, for **all** specs, whichever release wrote them. (Verified: hazard reproduced, fix green on the full sequence — Appendix A.)
 - The **P11 guard** is thereby demoted from load-bearing to UX: it turns the generic pip-check failure into a specific, actionable message for old GAP-2-broken specs. Workspace locks (`[manifest]` present) skip the guard — sibling locals are legitimately sdist-less, and the pip-check gate covers them regardless.
 - Sync **before** the pip step is load-bearing (sync prunes to its plan — verified it uninstalled a pre-installed sdist); comment it.
 - Old working standalone specs: identical outcome (superset flags are no-ops — verified).
@@ -162,6 +162,46 @@ uv pip check --python .venv                                          # loud sati
 - **Env contents are union-scoped in v1:** every member env installs the whole workspace's locked third-party set (`--all-packages`). Splitting packages scopes *re-runs*, not env size. A torch-heavy sibling bloats every env's build time/disk but never affects invalidation. Stated verbatim in scaffold README + docs. The `--package`-scoped alternative (needs a wire field) is **rejected for v1**, recorded in the decision record — revisit only if union bloat hurts in practice.
 - **"We capture what you locked":** no lock-freshness check beyond the membership gate (no `uv lock --check`, which can hit the network). A stale-but-consistent lock materializes exactly what was locked — same semantics as today's standalone envs; drift surfaces as loud import errors. (Contrast node, §3.2.4, where the package manager is provably *not* a loud oracle.)
 - Default dependency-groups (dev) of members remain installed (matches sync's default; leaner runtime envs rejected as a behavior change).
+
+> **Amended (#1654).** The first and the third positions above no longer hold
+> for a workspace's member. A member's environment is a `workspace_python`
+> spec, which names the members it is of (`subjects`) and the registry
+> distributions installed beside their own (`requires`: the runtime's, and
+> those of the stock platform packages the task's runner names). Its build
+> syncs the subjects' locked dependencies alone — `uv sync --frozen
+> --no-default-groups --package <member>`, what `uv export --frozen
+> --no-default-groups --package <member>` lists — and then installs `requires`
+> with a second frozen sync of the whole lock (`--all-packages --inexact`)
+> that leaves out every package but the required distributions, their extras
+> and what they depend on (`--no-install-package`, e3's `pythonLeftOut`). So
+> each is installed as the lock pins it and from where the lock pins it — an
+> explicit index of the workspace's among them, which a `uv pip install`
+> under the lock's pins, resolving again from a registry, never read — and no
+> local package is taken from a registry. A frozen sync reads the lock and no
+> member's manifest, so the build directory still holds the root's manifest
+> and lock alone. A torch-heavy sibling, or a heavy dependency the root lists,
+> is no longer in a member's environment.
+>
+> - **A member's development groups are not installed.** They are its tests'
+>   and its tools', and a member's environment is new with this change, so
+>   leaving them out changes no environment that existed.
+> - **A required distribution keeps the extras the workspace declares it
+>   with**, on its root or on any member
+>   (`elaraai-east-py-datascience[lightning]`). The union-scoped sync
+>   installed those; a member whose task names the platform, and does not
+>   list the distribution itself, still runs with them.
+> - **A local package a registry distribution depends on rides as an sdist.**
+>   A lock resolves a name the workspace holds to the workspace's package,
+>   from a registry package's dependencies too, so the capture walks the lock
+>   through registry packages to the local packages they reach: from the
+>   subjects, and from the required distributions. A required distribution
+>   the lock holds as a local archive (`path`) is refused, as P9 refuses a
+>   member's.
+> - A project that is its own root keeps the `python` spec, whose lock is all
+>   its own, and installs as it did, its development groups among it; a
+>   package exported before this keeps its `python` spec until it is exported
+>   again. The wire field the `--package` alternative needed is the new spec
+>   case, which sorts after `workspace_node`.
 
 #### 3.1.7 Error catalogue (single source of truth; all at export unless noted)
 

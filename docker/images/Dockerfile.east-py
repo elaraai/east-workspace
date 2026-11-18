@@ -62,5 +62,13 @@ RUN chmod +x /tmp/install-packages.sh && \
     /tmp/install-packages.sh --py-only && \
     rm /tmp/install-packages.sh
 
+# What this image holds, for an environment built over it: its tier manifest
+# (e3: environments built over their base tier). Written last, by the
+# interpreter the image's tasks run with, so it names everything installed.
+COPY libs/e3/packages/e3-core/tier/tier-manifest.py /tmp/tier-manifest.py
+RUN mkdir -p /opt/e3 && \
+    /opt/venv/bin/python /tmp/tier-manifest.py /opt/e3/tier-manifest.json && \
+    rm /tmp/tier-manifest.py
+
 # Default command
 CMD ["bash"]

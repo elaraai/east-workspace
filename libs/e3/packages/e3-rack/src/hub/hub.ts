@@ -13,7 +13,7 @@ import { Hono } from 'hono';
 import { createAdaptorServer } from '@hono/node-server';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import { IntegerType, StringType, compareFor, equalFor, none, some, variant, type ValueTypeOf } from '@elaraai/east';
-import { inputsHash, isObjectHash, isProcessAlive } from '@elaraai/e3-core';
+import { inputsHash, isObjectHash, isProcessAlive, readTierManifest, tierManifestDigest } from '@elaraai/e3-core';
 import { answer, decodeBody } from '../server/beast2.js';
 import { FileMachineIdentityStore } from '../identity/file-identity-store.js';
 import { generateEnrollmentToken } from '../identity/machine-identity.js';
@@ -22,14 +22,15 @@ import { InMemoryRackLeaseStore } from '../lease/in-memory-lease-store.js';
 import type { RackLeaseRecord } from '../lease/lease-store.js';
 import { StoreRackDispatch, bootPendingApproval, bundledE3Version, agentVersionAtLeast, DEFAULT_HEALTHY_WINDOW_MS } from '../server/dispatch.js';
 import { createRackRoutes, type RackLeaseSignal } from '../server/rack-routes.js';
-import { envManifestKey, type EnvIndexStore, type EnvLayerManifest } from '../server/env-publication.js';
+import { envManifestKey, envManifestName, type EnvIndexStore, type EnvLayerManifest } from '../server/env-publication.js';
 import { RackRegistrationType, RackSecurityPolicyType } from '../protocol/registration.js';
-import { RACK_LISTENER_IDLE_MS, RACK_PROTOCOL, type RackReport } from '../protocol/rack-json.js';
+import { RACK_ENVIRONMENTS_OVER_TIER, RACK_LISTENER_IDLE_MS, RACK_PROTOCOL, type RackReport } from '../protocol/rack-json.js';
 import { describeRackReason, isFunctionLease, isLeaseEventV2, leaseInputs, leaseReserve, leaseTaskHash, rackEverHolds, readRackLeaseResources, type RackLeaseEvent } from '../protocol/task-envelope.js';
 import { decodeRunnerEvent } from '../runner-event.js';
 import { ApproveRackType, AttachLeaseResultType, CancelLeaseResultType, CreateLeaseResultType, CreateLeaseType, EmptyType, HubConfigType,
   HubEnrollResultType, HubEnrollType, HubHelloType, HubOutcomeType, HubStatusType, OpenSessionResultType, OpenSessionType,
-  RemoveRackResultType, SessionPollResultType, SessionPollType, type CapacitySnapshot, type OpenSession, type SessionEvent } from '../protocol/control.js';
+  RemoveRackResultType, SessionPollResultType, SessionPollType, TierManifestRequestType, TierManifestResultType,
+  type CapacitySnapshot, type OpenSession, type SessionEvent } from '../protocol/control.js';
 import { closeSocketServer, RackHubError, REQUEST_BODY_TIMEOUT_MS, serveOnSocket } from '../client/local-http.js';
 import { rackHome, hubSocketPath } from '../paths.js';
 import { E3_RACK_VERSION, HUB_PROTOCOL } from '../version.js';
@@ -60,12 +61,28 @@ interface Subscription {
   owner: string;
   subscribers: Set<string>;
   claimants: Set<string>;
+  /** The keys of the manifests of the work's environment its sessions keep:
+   *  the builds a rack may be served, as each session said when it leased or
+   *  joined the work. */
+  envManifests: Set<string>;
   endedAt?: number;
 }
 const equalString = equalFor(StringType);
+const compareString = compareFor(StringType);
 const compareInteger = compareFor(IntegerType);
 /** How many of its last leases' ends a hub keeps for its status. */
 const LAST_OUTCOMES = 20;
+/** The most builds of its environment a lease names: one for each platform
+ *  and tier image of the racks its session saw. */
+const MOST_ENV_MANIFESTS = 64;
+/** The builds of an environment a session says it keeps, each a key of a
+ *  manifest of that environment's layers. */
+function envManifestsOf(keys: readonly string[], environment: string | undefined): string[] {
+  if (keys.length > MOST_ENV_MANIFESTS || keys.some((key) => environment === undefined || envManifestName(key)?.startsWith(`${environment}-`) !== true)) {
+    throw new Error('Invalid environment manifests: each names a build of the work\'s environment');
+  }
+  return [...keys];
+}
 const nonterminal = (lease: RackLeaseRecord) => lease.status === 'pending' || lease.status === 'claimed';
 const normalizedAddress = (address: string) => address.replace(/^::ffff:/, '');
 
@@ -98,8 +115,16 @@ export interface RackHubOptions {
  *
  * Work that declares an environment is leased to a rack that composes
  * environments, for whose platform the work's session keeps the
- * environment's layers. The hub keeps none: it asks the session, and serves
- * the layers through its data plane as it serves objects.
+ * environment's layers: its lease names the builds it keeps, and a session
+ * that joins the work adds those it keeps. The hub keeps no layer: it serves
+ * them from the session through its data plane, as it serves objects.
+ *
+ * A rack that composes environments built over a tier reports the manifest
+ * of each tier image it boots them over. The hub keeps what its racks last
+ * reported, tells a session which each rack names, and answers a manifest by
+ * its digest, so a session builds an environment over the image that will
+ * run it. Such a rack is served the layers built over its tier when the
+ * work's sessions keep them, and the whole environment's otherwise.
  * @example
  * const hub = new RackHub({ foreground: true });
  * if (await hub.start()) await hub.closed;
@@ -118,6 +143,18 @@ export class RackHub {
   private readonly reports = new Map<string, RackReport>();
   /** Why a rack cannot be used, by rack: it asked in another rack protocol. */
   private readonly problems = new Map<string, string>();
+  /** The text of each tier manifest a rack's last report names, by its
+   *  digest: checked against it, and read as a manifest, as it arrived. */
+  private readonly tierManifests = new Map<string, string>();
+  /** The texts refused of each tier manifest, by the digest it was reported
+   *  under: each by the digest of the text. The same text is refused again
+   *  with nothing said; one whose own digest it is was refused for its bytes,
+   *  which every rack that names it sends alike. */
+  private readonly refusedTierManifests = new Map<string, Set<string>>();
+  /** By rack, the digests it sent a text of that is not the bytes the digest
+   *  names: it is not asked for that text again, and another rack that names
+   *  the digest is. */
+  private readonly mismatchedTierManifests = new Map<string, Set<string>>();
   /** How the last leases ended, the latest first: what the status lists. */
   private readonly outcomes: Array<ValueTypeOf<typeof HubOutcomeType>> = [];
   private readonly mutations = new MutationQueue();
@@ -149,15 +186,92 @@ export class RackHub {
     get: async (envHash, e3Version) => {
       const { repo, leaseId } = this.coordinator.lease();
       const lease = await this.leases.get(repo, leaseId);
-      const target = lease?.claimedBy === undefined ? undefined : this.reports.get(lease.claimedBy)?.target;
-      if (target === undefined) return null;
-      const manifestKey = envManifestKey(envHash, e3Version, target);
-      const json = await this.bridge.readEnvManifest(manifestKey);
-      if (json === null) return null;
+      if (lease?.claimedBy === undefined || lease.event.environment !== envHash || (lease.event.e3Version ?? e3Version) !== e3Version) return null;
+      const manifestKey = await this.bridge.envManifestKeyOf(repo, leaseId, lease.claimedBy);
+      const json = manifestKey === null ? null : await this.bridge.readEnvManifest(manifestKey);
+      if (manifestKey === null || json === null) return null;
       const manifest = JSON.parse(json) as EnvLayerManifest;
       return { envHash, e3Version, baseImage: manifest.baseImage, baseTier: manifest.baseTier, manifestKey, layerCount: manifest.layers.length, publishedAtMs: 0 };
     },
   };
+
+  /**
+   * The keys of the manifests of a lease's environment a rack may be served,
+   * the first the one it is: of the builds the lease's sessions keep, for a
+   * rack that composes environments built over a tier and names the image of
+   * the lease's tier, the layers built over that image; then the whole
+   * environment's. None for a rack that composes no environment.
+   */
+  private envManifestKeys(rackId: string, lease: RackLeaseRecord): string[] {
+    const report = this.reports.get(rackId);
+    const environment = lease.event.environment;
+    const kept = this.subscriptions.get(lease.leaseId)?.envManifests;
+    if (environment === undefined || kept === undefined || report?.target === undefined || !report.features.includes('environments')) return [];
+    const release = lease.event.e3Version ?? '';
+    const tier = report.features.includes(RACK_ENVIRONMENTS_OVER_TIER) ? report.tiers?.[lease.tier] : undefined;
+    return [
+      ...(tier === undefined ? [] : [envManifestKey(environment, release, report.target, { tier: lease.tier, manifest: tier.digest })]),
+      envManifestKey(environment, release, report.target),
+    ].filter((key) => kept.has(key));
+  }
+
+  /**
+   * Takes in what a rack reports of itself: the report, and the text of each
+   * tier manifest it carries, kept by its digest once it is the manifest the
+   * digest names. A manifest no rack's last report names any more is let go.
+   * One that is refused is said once in the log: an agent that sends a
+   * manifest's text with each heartbeat sends it again, until it reports
+   * another.
+   *
+   * @returns The digests of the manifests the report names whose text is held
+   *   nowhere, sorted: what the rack is asked to send with its next heartbeat.
+   *   Not one whose own bytes were refused, which every rack would send
+   *   alike; nor one this rack sent a text of that is not the bytes the digest
+   *   names, which it would send again. Another rack that names that digest
+   *   is asked for it.
+   */
+  private reported(rackId: string, report: RackReport): string[] {
+    this.reports.set(rackId, report);
+    this.problems.delete(rackId);
+    for (const [tier, said] of Object.entries(report.tiers ?? {})) {
+      if (said.manifest === undefined || this.tierManifests.has(said.digest)) continue;
+      const bytes = new TextEncoder().encode(said.manifest);
+      const actual = tierManifestDigest(bytes);
+      // A text that is not the bytes its digest names says nothing of the
+      // manifest the digest names: its rack alone is not asked for it again
+      if (actual !== said.digest) this.mismatchedTierManifests.set(rackId, (this.mismatchedTierManifests.get(rackId) ?? new Set<string>()).add(said.digest));
+      const refused = this.refusedTierManifests.get(said.digest);
+      if (refused?.has(actual) === true) continue;
+      try {
+        if (actual !== said.digest) throw new Error('its text is not the bytes its digest names');
+        readTierManifest(bytes);
+        this.tierManifests.set(said.digest, said.manifest);
+      } catch (error) {
+        this.refusedTierManifests.set(said.digest, (refused ?? new Set<string>()).add(actual));
+        this.options.log?.(`rack ${rackId}: the manifest it reports of its tier '${tier}' was not kept: ${messageOf(error)}`);
+      }
+    }
+    this.forgetTierManifests();
+    // A manifest whose own bytes were refused: every rack that names it sends those
+    const unread = (digest: string): boolean => this.refusedTierManifests.get(digest)?.has(digest) === true;
+    const sentWrongly = this.mismatchedTierManifests.get(rackId);
+    return [...new Set(Object.values(report.tiers ?? {}).map((tier) => tier.digest))]
+      .filter((digest) => !this.tierManifests.has(digest) && !unread(digest) && sentWrongly?.has(digest) !== true).sort(compareString);
+  }
+
+  /** Lets go of each tier manifest no rack's last report names, of each
+   *  refusal of one, and of what a rack sent wrongly of one its last report
+   *  does not name. */
+  private forgetTierManifests(): void {
+    const named = new Set([...this.reports.values()].flatMap((report) => Object.values(report.tiers ?? {}).map((tier) => tier.digest)));
+    for (const digest of this.tierManifests.keys()) if (!named.has(digest)) this.tierManifests.delete(digest);
+    for (const digest of this.refusedTierManifests.keys()) if (!named.has(digest)) this.refusedTierManifests.delete(digest);
+    for (const [rackId, digests] of this.mismatchedTierManifests) {
+      const its = new Set(Object.values(this.reports.get(rackId)?.tiers ?? {}).map((tier) => tier.digest));
+      for (const digest of digests) if (!its.has(digest)) digests.delete(digest);
+      if (digests.size === 0) this.mismatchedTierManifests.delete(rackId);
+    }
+  }
 
   /** @param options - State home, idle policy, diagnostics and lifecycle clocks */
   constructor(private readonly options: RackHubOptions = {}) {
@@ -195,7 +309,7 @@ export class RackHub {
           });
         },
         advertiseOrigin: () => this.config.advertiseUrl.type === 'some' ? this.config.advertiseUrl.value : undefined,
-        target: (rackId) => this.reports.get(rackId)?.target });
+        envManifestKeys: (rackId, lease) => this.envManifestKeys(rackId, lease) });
       this.dispatch = new StoreRackDispatch(this.leases, this.registry, { coordinator: this.coordinator, now: this.now,
         visibilityMs: this.options.visibilityMs, endings: { stopped: this.bridge.attempts.stopped, writes: this.bridge } });
       // The rack listener binds before the control socket answers: a client
@@ -327,6 +441,8 @@ export class RackHub {
     const existing = existingId === undefined ? null : await this.leases.get(session.alias, existingId);
     if (existing !== null && nonterminal(existing)) {
       const sub = this.subscriptions.get(existing.leaseId)!;
+      // It built the work's layers for the racks it saw, in the same repository
+      for (const kept of envManifestsOf(request.envManifests, existing.event.environment)) sub.envManifests.add(kept);
       sub.subscribers.add(session.id);
       if (existing.status === 'claimed') this.emit(session, await this.claimedEvent(existing));
       return { leaseId: existing.leaseId, attached: true,
@@ -334,9 +450,10 @@ export class RackHub {
     }
     if (attachOnly) return null;
     if (this.subscriptions.size >= 16384) throw new RackHubError('capacity', 'Rack hub queue is full');
+    const envManifests = new Set(envManifestsOf(request.envManifests, event.environment));
     const lease = await this.dispatch.createLease(event, request.tier, request.computeSize);
     this.subscriptions.set(lease.leaseId, { repo: session.alias, id: lease.leaseId, ...(key !== undefined && { key }), version: session.registration.e3Version,
-      owner: session.id, subscribers: new Set([session.id]), claimants: new Set() });
+      owner: session.id, subscribers: new Set([session.id]), claimants: new Set(), envManifests });
     if (key !== undefined) this.dedupe.set(key, lease.leaseId);
     return { leaseId: lease.leaseId, attached: false, attempt: none };
   }
@@ -407,7 +524,12 @@ export class RackHub {
         reported: report !== undefined, features: [...(report?.features ?? [])], target: report?.target === undefined ? none : some(report.target),
         problem: problem === undefined ? none : some(problem),
         resources: all === undefined ? none : some({ cores: BigInt(all.cores), memoryBytes: BigInt(all.memoryBytes), gpus: BigInt(all.gpus) }),
-        free: free === undefined ? none : some(free) };
+        free: free === undefined ? none : some(free),
+        // The tiers it composes environments over, whose manifest's text is
+        // held: a session can ask for no other
+        tierManifests: report?.features.includes(RACK_ENVIRONMENTS_OVER_TIER) !== true ? []
+          : Object.entries(report.tiers ?? {}).filter(([, tier]) => this.tierManifests.has(tier.digest))
+            .map(([tier, said]) => ({ tier, manifest: said.digest })).sort((a, b) => compareString(a.tier, b.tier)) };
     }), queued: BigInt(active.filter((lease) => lease.status === 'pending').length), mine: { pending: BigInt(pending), claimed: BigInt(claimed) } };
   }
 
@@ -476,6 +598,12 @@ export class RackHub {
       racks: await this.registry.listRacks(), sessions: await Promise.all([...this.sessions.values()].map(async (session) => ({ sessionId: session.id, repoAlias: session.alias,
         workspace: session.registration.workspace, label: session.registration.label, e3Version: session.registration.e3Version,
         ...(await this.capacity(session.id)).mine }))), capacity: await this.capacity(), outcomes: [...this.outcomes] }));
+    // The text of a tier image's manifest, as a rack that boots the tier
+    // reported it: what a session builds an environment over
+    app.post('/v1/tier-manifests', async (c) => {
+      const text = this.tierManifests.get((await decodeBody(c, TierManifestRequestType)).digest);
+      return answer(TierManifestResultType, text === undefined ? none : some(text));
+    });
     app.get('/v1/config', () => answer(HubConfigType, this.config));
     app.post('/v1/config', async (c) => {
       const config = await decodeBody(c, HubConfigType);
@@ -520,6 +648,7 @@ export class RackHub {
       await this.identity.deleteRackTokens(id);
       this.reports.delete(id);
       this.problems.delete(id);
+      this.forgetTierManifests();
       for (const sub of this.subscriptions.values()) {
         const lease = this.backend.peek(sub.repo, sub.id);
         if (lease?.status === 'claimed' && lease.claimedBy === id) await this.lose(sub, 'rack deregistered');
@@ -570,9 +699,11 @@ export class RackHub {
       envIndex: this.envIndex, e3Version: E3_RACK_VERSION,
       // A session reads a call's value from the object its completion commits
       callValueObjects: true,
+      // A session builds an environment over the tier image a rack reports
+      tierManifests: true,
       onLeaseSignal: (signal) => this.signal(signal),
       // A heartbeat that was read is of this protocol: what was wrong is not.
-      onReport: (rackId, report) => { this.reports.set(rackId, report); this.problems.delete(rackId); },
+      onReport: (rackId, report) => this.reported(rackId, report),
       // Said once in the log, and for as long as it holds in the status.
       onIncompatible: (rackId, named) => {
         const problem = `speaks ${named === undefined ? 'a rack protocol from before it was named' : `rack protocol ${named}`}, not ${RACK_PROTOCOL}; update the rack`;
@@ -595,18 +726,10 @@ export class RackHub {
         const bundled = bundledE3Version(rack.agentVersion);
         if (bundled === null || !agentVersionAtLeast(bundled, sub.version)) return false;
         // Work that declares an environment is a rack's that composes
-        // environments, when its session keeps the layers built for that
+        // environments, when its sessions keep the layers built for that
         // rack's platform: another rack is never granted it.
-        const environment = lease.event.environment;
-        if (environment === undefined) return true;
-        const report = this.reports.get(rack.rackId);
-        if (report?.target === undefined || !report.features.includes('environments')) return false;
-        try {
-          return await this.bridge.readEnvManifestOf(lease.repo, lease.leaseId, envManifestKey(environment, sub.version, report.target)) !== null;
-        } catch (error) {
-          this.options.log?.(`rack lease ${lease.leaseId}: its environment's layers could not be asked for: ${messageOf(error)}`);
-          return false;
-        }
+        if (lease.event.environment === undefined) return true;
+        return await this.bridge.envManifestKeyOf(lease.repo, lease.leaseId, rack.rackId) !== null;
       },
     }));
     let server: Server | HttpsServer | undefined;

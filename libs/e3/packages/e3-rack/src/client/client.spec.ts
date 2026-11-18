@@ -79,7 +79,7 @@ async function fixture() {
   const storage = new LocalStorage();
   const session = await RackSession.open(client, { storage, repoPath: repo, workspace: 'dev', label: 'client test' });
   cleanup.push(() => session.close());
-  const request = { tier: 'node', computeSize: 'large', eventJson: JSON.stringify({ version: 2, workspace: 'dev', taskName: 'task', closure: { hashes: [] },
+  const request = { tier: 'node', computeSize: 'large', envManifests: [], eventJson: JSON.stringify({ version: 2, workspace: 'dev', taskName: 'task', closure: { hashes: [] },
     runnerEvent: { mode: 'task', taskHash: 'a'.repeat(64), repo: 'replaced', inputHashes: [], launchId: uuidv7(), timeoutMs: 30000 } }) };
   return { path, client, agent, repo, storage, session, request };
 }

@@ -3,22 +3,24 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { buildEnvironmentLayers, type StorageBackend } from '@elaraai/e3-core';
-import { ENV_LAYER_MEDIA_TYPE, envManifestKey, envManifestName, type EnvLayerManifest } from '../server/env-publication.js';
+import { buildEnvironmentLayers, environmentFitsTier, type StorageBackend, type TierManifest } from '@elaraai/e3-core';
+import { ENV_LAYER_MEDIA_TYPE, envManifestKey, envManifestName, type EnvLayerManifest, type EnvLayerOver } from '../server/env-publication.js';
 
 /**
  * What happens to an environment a run's work declares, before a rack is
  * leased the work:
  * - `building`: no layers are kept of it for the platform yet, and the
- *   launching machine installs it for the platform and packs it;
+ *   launching machine installs it for the platform and packs it: over the
+ *   tier `over` names, when it is built over one;
  * - `built`: it did, in `ms`: `layers` layers of `bytes` bytes in all, `fresh`
- *   of them new to the repository.
+ *   of them new to the repository; built over a tier, `fromTier` of its
+ *   distributions were left to the tier's image, which holds them.
  *
  * An environment whose layers the repository keeps already says nothing.
  */
 export type RackEnvironmentEvent =
-  | { kind: 'building'; envHash: string; platform: string }
-  | { kind: 'built'; envHash: string; platform: string; ms: number; layers: number; bytes: number; fresh: number };
+  | { kind: 'building'; envHash: string; platform: string; over?: string }
+  | { kind: 'built'; envHash: string; platform: string; ms: number; layers: number; bytes: number; fresh: number; over?: string; fromTier?: number };
 
 /** What an environment's layers are built for. */
 export interface EnvLayerTarget {
@@ -28,6 +30,13 @@ export interface EnvLayerTarget {
   tier: string;
   /** The e3 release the run's work is built with */
   e3Version: string;
+  /**
+   * The image of {@link tier} a rack boots the environment over, by its
+   * manifest and the manifest's digest: the layers are then built over it,
+   * when the environment fits it (e3-core's `environmentFitsTier`), and
+   * whole otherwise.
+   */
+  over?: { digest: string; manifest: TierManifest };
 }
 
 /**
@@ -42,15 +51,23 @@ export interface EnvLayerTarget {
  * release; a second run that needs it waits for the first. A repository that
  * keeps the manifest already builds nothing, and no event is told.
  *
+ * Given the image of the tier a rack boots it over, a python environment
+ * whose lock takes that image's Python is built over it: without an
+ * interpreter, and without each distribution the image holds the same. Its
+ * manifest says so (`over`), under a key of its own, and a rack composes it
+ * only over that image. Any other environment is built whole, as for a rack
+ * that names no image.
+ *
  * @param storage - The repository's storage, which holds the environment's
  *   spec and files
  * @param repo - Repository path
  * @param envHash - The environment spec's hash
- * @param target - The platform, the tier and the e3 release
+ * @param target - The platform, the tier, the e3 release, and the tier's
+ *   image when the rack names it
  * @param onEvent - Told a build starts, and what it came to
  * @param signal - Ends a wait for another build of the same layers: a run
  *   that is stopped stops waiting
- * @returns The manifest
+ * @returns The manifest: with `over`, when the layers were built over the tier
  * @throws {EnvironmentTargetRefused} For an environment no install makes for
  *   another platform, with its reason (e3-core)
  * @throws {Error} For a failed install
@@ -61,17 +78,23 @@ export async function publishEnvLayers(
   storage: StorageBackend, repo: string, envHash: string, target: EnvLayerTarget, onEvent?: (event: RackEnvironmentEvent) => void,
   signal?: AbortSignal,
 ): Promise<EnvLayerManifest> {
-  const name = envManifestName(envManifestKey(envHash, target.e3Version, target.platform));
+  // Over the tier's image only an environment that fits it: any other is
+  // built whole, once, under the key every rack of the platform shares
+  const tier = target.over !== undefined && await environmentFitsTier(storage, repo, envHash, target.over.manifest) ? target.over : undefined;
+  const over: EnvLayerOver | undefined = tier === undefined ? undefined : { tier: target.tier, manifest: tier.digest };
+  const name = envManifestName(envManifestKey(envHash, target.e3Version, target.platform, over));
   if (name === null) throw new Error(`No environment is published for the e3 release '${target.e3Version}' and the platform '${target.platform}'`);
-  const { manifest, built } = await buildEnvironmentLayers(storage, repo, envHash, { platform: target.platform }, name,
+  const said = { envHash, platform: target.platform, ...(over !== undefined && { over: over.tier }) };
+  const { manifest, built } = await buildEnvironmentLayers(storage, repo, envHash, { platform: target.platform, ...(tier !== undefined && { over: tier.manifest }) }, name,
     (layers): string => JSON.stringify({
       envHash, e3Version: target.e3Version, baseImage: `rack-tier:${target.tier}`, baseTier: target.tier,
       layers: layers.map((layer) => ({ digest: layer.digest, sizeBytes: layer.sizeBytes, mediaType: ENV_LAYER_MEDIA_TYPE })),
+      ...(over !== undefined && { over }),
     } satisfies EnvLayerManifest),
-    { onBuilding: () => onEvent?.({ kind: 'building', envHash, platform: target.platform }), ...(signal !== undefined && { signal }) });
+    { onBuilding: () => onEvent?.({ kind: 'building', ...said }), ...(signal !== undefined && { signal }) });
   if (built !== null) {
-    onEvent?.({ kind: 'built', envHash, platform: target.platform, ms: built.ms, layers: built.layers.length,
-      bytes: built.layers.reduce((sum, layer) => sum + layer.sizeBytes, 0), fresh: built.fresh });
+    onEvent?.({ kind: 'built', ...said, ms: built.ms, layers: built.layers.length,
+      bytes: built.layers.reduce((sum, layer) => sum + layer.sizeBytes, 0), fresh: built.fresh, ...(built.fromTier !== null && { fromTier: built.fromTier }) });
   }
   return JSON.parse(manifest) as EnvLayerManifest;
 }

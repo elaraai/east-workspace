@@ -9,3 +9,9 @@ libs/east-plugin/index.json          linguist-generated=true -diff
 libs/east-c/**/third_party/*.tar.gz  binary
 libs/east-c/**/third_party/*.tar.xz  binary
 libs/east-c/**/third_party/*.zip     binary
+
+# What @elaraai/e3-core ships as it is, for images built on Linux (the script
+# a tier image writes its manifest with, and what stands beside it). A Windows
+# checkout must not rewrite their line endings: a package packed from one
+# would ship a script whose first line names no interpreter.
+libs/e3/packages/e3-core/tier/**     text eol=lf

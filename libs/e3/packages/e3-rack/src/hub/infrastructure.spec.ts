@@ -82,6 +82,53 @@ it('publishes one whole hub lock and recovers a stale owner under simultaneous c
   }
 });
 
+/** A read's refusal as Windows makes it, of a file another handle is replacing or removing. */
+const refusal = (file: string) => Object.assign(new Error(`EPERM: operation not permitted, open '${file}'`), { code: 'EPERM' });
+
+it('elects one hub while reads of the claims are refused now and then, as Windows refuses a file being replaced or removed', async () => {
+  const path = await home();
+  // The second and the fifth read of each claim are refused, as a moment of its
+  // replacement or its removal is
+  const reads = new Map<string, number>();
+  let refused = 0;
+  const read = async (file: string): Promise<Uint8Array> => {
+    const n = (reads.get(file) ?? 0) + 1;
+    reads.set(file, n);
+    if (n === 2 || n === 5) { refused++; throw refusal(file); }
+    return readFile(file);
+  };
+  for (let round = 0; round < 3; round++) {
+    const acquired = await Promise.all(Array.from({ length: 12 }, () => acquireHubLock(path, { read })));
+    const winners = acquired.filter((lock) => lock !== null);
+    assert.equal(winners.length, 1);
+    await winners[0]!.release();
+  }
+  assert.ok(refused > 0, 'reads were refused');
+});
+
+it('waits for a live claim whose read is refused, and never chooses its ticket past it', async () => {
+  const path = await home();
+  const self = await processOwner();
+  const alive = async () => true;
+  const holder = await acquireHubLock(path, { owner: { ...self, pid: 200_000n }, alive });
+  assert.ok(holder !== null);
+  cleanup.push(() => holder.release());
+  // As though each contender below had read hub.lock before the holder wrote it
+  await rm(join(path, HUB_LOCK_FILE));
+  const held = join(path, `.hub-claim-${holder.record.ownerId}.beast2`);
+  // A contender that went on without the holder's claim would take its ticket and
+  // be elected beside it whenever its id came first: none is, however the ids fall
+  for (let contender = 1n; contender <= 6n; contender++) {
+    let refused = 0;
+    const read = async (file: string): Promise<Uint8Array> => {
+      if (file === held && refused < 2) { refused++; throw refusal(file); }
+      return readFile(file);
+    };
+    assert.equal(await acquireHubLock(path, { owner: { ...self, pid: 200_000n + contender }, alive, read }), null);
+    assert.equal(refused, 2, 'the holder\'s claim was refused, and read again');
+  }
+});
+
 it('asks after a contender\'s liveness once in a while during an election, never once per claim per poll', async () => {
   const path = await home();
   const self = await processOwner();

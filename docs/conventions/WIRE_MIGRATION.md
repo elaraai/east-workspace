@@ -1452,3 +1452,23 @@ Each wire changed under this rule, with the kind it is.
   other: packages are re-exported, and the dataflow computes each UI task's
   output again under the new type. A UI task's output is not stored state, so
   no repository upgrade step ships with it.
+- **e3-types' `EnvironmentSpecType` gains `workspace_python`, and every reader
+  refuses a spec an earlier SDK exported (#1654)** — package-borne. A
+  workspace member's environment names the member, so its build installs the
+  member's own dependencies and not its workspace's: `workspace_python`, the
+  root's manifest and lock, the members it is of (`subjects`), the sdists of
+  the local packages they reach, and the registry distributions it requires
+  beside them. The case sorts last, so the five before it keep their tags,
+  and a spec an earlier SDK exported decodes under the new type, since a
+  header whose variant holds the first cases of the asked type's reads as it.
+  But gc, which knows a spec by its current shape, would take such a spec for
+  a leaf and sweep the manifest, the lock and the sdists it names, and a later
+  build of its environment would fail on a missing object. So every reader of
+  a spec — a build, a package export's walk of its objects, the check that an
+  environment fits a rack's tier — reads it at exactly the current type
+  (e3-types' `decodeEnvironmentSpec`), and refuses another, naming the fix:
+  `the environment <hash> was exported by an older e3 SDK — re-export its
+  package with the current one`. A spec's bytes hold its type, so every
+  spec's bytes and hash change with the case, and each task of a re-exported
+  package that names an environment runs again. Packages are re-exported, so
+  no repository upgrade step ships.

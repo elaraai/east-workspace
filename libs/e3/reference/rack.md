@@ -71,7 +71,13 @@ x86_64-manylinux_2_28: building` then `[ENV] 3f9a2b1c0d4e built in 48 s: 4
 layers, 2.1 GB (1 new)`. No container runtime on either machine; nothing is
 compiled for the rack; a second run builds nothing, and a change to the
 project's code makes one small new layer. The layers are kept in the
-repository's `rack/env-layers`, which `e3 repo gc` sweeps. ❗ What cannot go
+repository's `rack/env-layers`, which `e3 repo gc` sweeps. On a rack that
+composes environments over its tier (`environments-over-tier`), a python
+environment is built over the tier's image, without an interpreter and
+without what the image holds the same (`[ENV] … over py-datascience: building`,
+`[ENV] … built in 41 s: 2 layers, 6.2 MB (2 new), 31 distributions from the
+tier`); one whose lock leaves out the image's Python is built whole, and so is
+one whose build over the image fails. ❗ What cannot go
 stays local, with its reason on the task's `[LOCAL]` line: `environment:tools`
 / `environment:image` (its kind), `environment:windows-host` (a Windows
 launching machine), `no-rack-for-environment:<tier>` (no rack composes them),
@@ -177,7 +183,7 @@ reach. A data URL lasts 15 minutes, which a transfer may use whole; an object is
 at most 5 GiB. The hub serves one rack eight transfers at once (one more is told
 to ask again), and reads an object from a byte on (`Range`), so a transfer a slow
 link cut short resumes; it keeps a rack's idle connection for 75 seconds.
-A hub and the e3 that calls it speak control protocol 4 exactly:
+A hub and the e3 that calls it speak control protocol 5 exactly:
 a hub an older e3 started is asked to exit once idle, and `e3 rack stop` with
 that e3 replaces it now. A rack's agent and its source speak rack protocol 3:
 an agent of another protocol is refused by name each time it asks, and

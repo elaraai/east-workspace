@@ -226,8 +226,13 @@ and the task runs anywhere, with no python or Node package where it runs. To
 add one, build it and list it under the name the app imports; e3 finds the
 member in the uv / npm workspace and exports it itself (the **e3** skill).
 
-**Build order / semantics.** Python members install the workspace's full locked
-third-party set (union-scoped); node members must be `tsc`-built before export
+**Build order / semantics.** A python member's environment installs the
+member's own locked dependencies, the runtime, and the stock platform packages
+its task's runner names, each with the extras the workspace declares it with —
+not what the workspace root or another member lists, nor the member's
+development groups, so a heavy dependency costs only the members that use it;
+node members must be
+`tsc`-built before export
 (the root `build` runs `--workspaces` first — both the `./platform` and the
 `./functions` entries are read from `dist/`); C tools must be `make`-built
 before `npm run start`. Add more packages later with the same flags — each new

@@ -56,6 +56,13 @@ it('prints a line when an environment\'s layers are built for a rack, and what t
     '  [ENV] 3f9a2b1c0d4e built in 48 s: 4 layers, 2.1 GB (1 new)');
   assert.equal(rackEnvironmentLine({ kind: 'built', envHash, platform: 'aarch64-apple-darwin', ms: 400, layers: 1, bytes: 2048, fresh: 0 }),
     '  [ENV] 3f9a2b1c0d4e built in 0 s: 1 layer, 2 KB (0 new)');
+  // Built over the tier image its rack boots it over
+  assert.equal(rackEnvironmentLine({ kind: 'building', envHash, platform: 'x86_64-manylinux_2_28', over: 'py-datascience' }),
+    '  [ENV] 3f9a2b1c0d4e for x86_64-manylinux_2_28 over py-datascience: building');
+  assert.equal(rackEnvironmentLine({ kind: 'built', envHash, platform: 'x86_64-manylinux_2_28', over: 'py-datascience', ms: 41_000, layers: 2, bytes: 6.2 * 1024 ** 2, fresh: 2, fromTier: 31 }),
+    '  [ENV] 3f9a2b1c0d4e built in 41 s: 2 layers, 6.2 MB (2 new), 31 distributions from the tier');
+  assert.equal(rackEnvironmentLine({ kind: 'built', envHash, platform: 'x86_64-manylinux_2_28', over: 'py', ms: 9_000, layers: 1, bytes: 1024, fresh: 1, fromTier: 1 }),
+    '  [ENV] 3f9a2b1c0d4e built in 9 s: 1 layer, 1 KB (1 new), 1 distribution from the tier');
 });
 
 it('prints nothing for work that was never a rack\'s, and of a unit only what went wrong on its rack', () => {

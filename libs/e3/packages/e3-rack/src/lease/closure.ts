@@ -26,7 +26,7 @@
 
 import { ArrayType, StringType, decodeBeast2For, encodeBeast2For } from '@elaraai/east';
 import { openDatasetObject, type DetachedArg, type SplitUnit, type StorageBackend } from '@elaraai/e3-core';
-import { EnvironmentSpecType, environmentSpecObjectHashes, type TaskObject } from '@elaraai/e3-types';
+import { decodeEnvironmentSpec, environmentSpecObjectHashes, type TaskObject } from '@elaraai/e3-types';
 import type { RackLeaseClosure } from '../protocol/task-envelope.js';
 
 /** The most hashes a lease's event carries inline: past it, the closure is an object. */
@@ -36,7 +36,6 @@ export const INLINE_CLOSURE_MAX = 512;
 const ClosureListType = ArrayType(StringType);
 const encodeList = encodeBeast2For(ClosureListType);
 const decodeList = decodeBeast2For(ClosureListType);
-const decodeEnvironmentSpec = decodeBeast2For(EnvironmentSpecType);
 
 /**
  * A closure object's bytes.
@@ -205,9 +204,10 @@ async function addValue(storage: StorageBackend, repo: string, hash: string, int
   }
 }
 
-/** An environment's spec and the files it names. */
+/** An environment's spec and the files it names: a spec of another type than
+ *  this release's is refused, as every reader refuses it. */
 async function addEnvironment(storage: StorageBackend, repo: string, hash: string, into: Set<string>): Promise<void> {
   into.add(hash);
-  const spec = decodeEnvironmentSpec(await storage.objects.read(repo, hash));
+  const spec = decodeEnvironmentSpec(await storage.objects.read(repo, hash), hash);
   for (const file of environmentSpecObjectHashes(spec)) into.add(file);
 }

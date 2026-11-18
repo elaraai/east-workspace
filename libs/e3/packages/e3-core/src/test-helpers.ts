@@ -9,9 +9,10 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   DateTimeType, StringType, carveBeast2, compareFor, encodeBeast2For, encodeBeast2FenceFor, encodeBeast2SegmentsFor, isVariant, openBeast2PagesFor,
   parseFor, printType, readBeast2Extents, readBeast2Type, segmentKeyTypeOf, toEastTypeValue, variant, type EastType, type EastTypeValue,
@@ -634,6 +635,42 @@ export function processTree(pid: number): number[] {
   const tree = [pid];
   for (let i = 0; i < tree.length; i++) tree.push(...(children.get(tree[i]!) ?? []));
   return tree;
+}
+
+/**
+ * Whether `uv` is on this machine's path: what a test that installs a python
+ * environment needs, and is skipped without.
+ *
+ * @returns Whether it is
+ */
+export function uvOnPath(): boolean {
+  return spawnSync('uv', ['--version'], { stdio: 'ignore' }).status === 0;
+}
+
+/** The script a runtime image writes its tier manifest with: a file of this
+ *  package (`tier/tier-manifest.py`), which these helpers, run from
+ *  `dist/src`, find in the repository and in an installed package alike. */
+const TIER_MANIFEST_SCRIPT = fileURLToPath(new URL('../../tier/tier-manifest.py', import.meta.url));
+
+/**
+ * The manifest of a tier whose interpreter is `python`, as a runtime image's
+ * build writes its own: what the image's script
+ * (`tier/tier-manifest.py`) writes when that interpreter runs it.
+ *
+ * @param python - The interpreter, a virtualenv's as an image's is
+ * @returns The manifest's text
+ * @throws {Error} When the script fails
+ */
+export function tierManifestOf(python: string): string {
+  const dir = createTempDir();
+  try {
+    const out = join(dir, 'tier-manifest.json');
+    const ran = spawnSync(python, [TIER_MANIFEST_SCRIPT, out], { encoding: 'utf8' });
+    if (ran.status !== 0) throw new Error(`the tier manifest was not written: ${ran.error?.message ?? ran.stderr}`);
+    return readFileSync(out, 'utf8');
+  } finally {
+    removeTempDir(dir);
+  }
 }
 
 /**

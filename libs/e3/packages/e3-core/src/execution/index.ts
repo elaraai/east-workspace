@@ -222,7 +222,7 @@ export { SegmentFetcher } from './segment-fetch.js';
 // built ahead of the call that declares it — an image's, a rack guest's —
 // with the link that has e3-core take it as built
 export {
-  materializeEnvironment, materializeEnvironmentFor, hostEnvironmentPlatform, EnvironmentTargetRefused,
+  materializeEnvironment, materializeEnvironmentFor, environmentFitsTier, hostEnvironmentPlatform, EnvironmentTargetRefused,
   decodeEnvironmentFile, nodeLockFilename,
   prebuiltEnvironment, linkPrebuiltEnvironment, PREBUILT_ENV_HASH_VAR, PREBUILT_ENV_DIR_VAR,
   type EnvironmentTarget, type EnvironmentTargetReason, type TargetEnvironment, type PrebuiltEnvironment,

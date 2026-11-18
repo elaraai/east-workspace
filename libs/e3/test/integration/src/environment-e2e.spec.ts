@@ -50,7 +50,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, symlinkSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, existsSync, readFileSync, readdirSync, writeFileSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -413,6 +413,23 @@ describe('execution environments e2e — scaffolded node platform travels with t
     });
 });
 
+/**
+ * The distributions installed in the python environments a repository has
+ * built, by the names of their `.dist-info` directories
+ * (`elaraai_east_py_std-1.0.0.dist-info`).
+ */
+function installedPythonDistributions(repo: string): string[] {
+  const envs = join(repo, 'envs');
+  if (!existsSync(envs)) return [];
+  return readdirSync(envs).flatMap((env) => {
+    const venv = join(envs, env, '.venv');
+    const libs = process.platform === 'win32' ? [join(venv, 'Lib')]
+      : existsSync(join(venv, 'lib')) ? readdirSync(join(venv, 'lib')).map((python) => join(venv, 'lib', python)) : [];
+    return libs.flatMap((lib) => existsSync(join(lib, 'site-packages'))
+      ? readdirSync(join(lib, 'site-packages')).filter((name) => name.endsWith('.dist-info')) : []);
+  });
+}
+
 describe('execution environments e2e — python multi-package scaffold, AUTO-derived environments', () => {
   const hasUv = toolAvailable('uv', ['--version']);
   // The scaffolded member's East functions are exported by e3 with the
@@ -477,6 +494,17 @@ describe('execution environments e2e — python multi-package scaffold, AUTO-der
 
       const output = await importDeployRun(testDir, zipPath, 'shop@1.0.0', 'priced', stdlibSearchDir(testDir));
       assert.match(output, /4(\.0*)?/, `expected mean of [2,4,6] = 4, got: ${output}`);
+      // The environment it ran from holds what the task runs with and no more
+      // (#1654): the member, the runtime, and the stock platform package its
+      // runner names. The scaffold's root lists the datascience package too,
+      // which no member here uses: it is not installed.
+      const installed = installedPythonDistributions(join(testDir, 'repo'));
+      for (const needed of ['pricing', 'elaraai_east_py', 'elaraai_east_py_cli', 'elaraai_east_py_std']) {
+        assert.ok(installed.some((name) => name.startsWith(`${needed}-`)), `${needed} is installed: ${installed.join(', ')}`);
+      }
+      for (const unused of ['elaraai_east_py_datascience', 'elaraai_east_py_io', 'forecasting']) {
+        assert.ok(!installed.some((name) => name.startsWith(`${unused}-`)), `${unused} is not installed: ${installed.join(', ')}`);
+      }
       const scaledOut = await runE3Command(['dataset', 'get', join(testDir, 'repo'), 'ws.scaled'], testDir);
       assert.strictEqual(scaledOut.exitCode, 0, `dataset get failed:\n${scaledOut.stderr}`);
       assert.match(scaledOut.stdout, /4[\s\S]*8[\s\S]*12/, `expected [2,4,6] scaled by 2 = [4,8,12], got: ${scaledOut.stdout}`);

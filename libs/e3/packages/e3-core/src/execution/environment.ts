@@ -28,7 +28,9 @@
  * packages, and nothing is compiled for it: a package with no wheel for it,
  * or a project package with native code, refuses the environment by name
  * ({@link EnvironmentTargetRefused}). A python environment then carries an
- * interpreter of its own, so it runs wherever its tree is put.
+ * interpreter of its own, so it runs wherever its tree is put; or it is built
+ * over the tier its rack boots it over, without the interpreter and without
+ * each distribution the tier's image holds the same (#1655).
  *
  * And an environment built ahead of the call that declares it is placed where
  * this module looks for one. A directory already at `<repo>/envs/<hash>` is
@@ -40,35 +42,38 @@
  * a call that declares that environment, its runner links `<repo>/envs/<hash>`
  * to the directory ({@link linkPrebuiltEnvironment}), and nothing is
  * installed.
+ *
+ * How the installs run is `environment-install.ts`'s, how each kind is built
+ * `environment-build.ts`'s, and what a build for another platform or over a
+ * tier does beside `environment-target.ts`'s; this module's exports name them.
  */
 
 import * as path from 'node:path';
-import { promises as fs, type Stats } from 'node:fs';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-import { gunzipSync } from 'node:zlib';
-import { Readable } from 'node:stream';
-import { extract as tarExtract } from 'tar-stream';
-import { BlobType, decodeBeast2For, isTypeValueEqual, readBeast2Type, toEastTypeValue } from '@elaraai/east';
-import { EnvironmentSpecType, type EnvironmentSpec } from '@elaraai/e3-types';
+import { promises as fs } from 'node:fs';
+import { decodeEnvironmentSpec, type EnvironmentSpec } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/index.js';
 import { withKeyedLock } from '../keyed-mutex.js';
 import { isObjectHash } from '../objects.js';
+import { pythonSatisfies, type TierManifest } from '../tier-manifest.js';
 import { getPidStartTime, processExited } from './processHelpers.js';
 import { checkProcessSettings, giveDirectory, type ProcessSettings } from './processExec.js';
+import { buildNode, buildPython, buildTools, buildWorkspaceNode, readFile } from './environment-build.js';
+import {
+  EnvironmentTargetRefused, targetPlatformOf, type EnvironmentTarget, type TargetEnvironment, type TargetParts,
+} from './environment-target.js';
 
-const execFileAsync = promisify(execFile);
-
-const decodeEnvironmentSpec = decodeBeast2For(EnvironmentSpecType);
-
-/** An environment's files are objects holding their bytes as beast2 Blobs. */
-const FILE_TYPE = toEastTypeValue(BlobType);
-const decodeFile = decodeBeast2For(BlobType);
+export { installShell } from './environment-install.js';
+export { decodeEnvironmentFile, nodeLockFilename } from './environment-build.js';
+export {
+  EnvironmentTargetRefused, hostEnvironmentPlatform, installedTree,
+  type EnvironmentTarget, type EnvironmentTargetReason, type InstalledEntry, type TargetEnvironment,
+} from './environment-target.js';
 
 /** The executable dir a materialized environment contributes to PATH. */
 function environmentBinDir(envDir: string, spec: EnvironmentSpec): string {
   switch (spec.type) {
     case 'python':
+    case 'workspace_python':
       return path.join(envDir, '.venv', process.platform === 'win32' ? 'Scripts' : 'bin');
     case 'node':
     case 'workspace_node':
@@ -81,790 +86,6 @@ function environmentBinDir(envDir: string, spec: EnvironmentSpec): string {
       throw new Error('image environments have no local bin dir');
   }
 }
-
-/** Runs an install in the build directory, as the settings say: from their
- *  environment, as is, and as their user and group. */
-async function run(command: string, args: string[], cwd: string, what: string, settings: ProcessSettings): Promise<void> {
-  try {
-    await execFileAsync(command, args, {
-      cwd,
-      // npm is npm.cmd on Windows; a shell resolves both.
-      shell: process.platform === 'win32',
-      maxBuffer: 16 * 1024 * 1024,
-      env: settings.env,
-      uid: settings.uid,
-      gid: settings.gid,
-    });
-  } catch (err) {
-    const stderr = (err as { stderr?: string }).stderr ?? String(err);
-    throw new Error(`environment materialization: ${what} ('${command} ${args.join(' ')}') failed:\n${stderr}`);
-  }
-}
-
-/**
- * Decodes the object an environment names for one of its files: the file's
- * bytes, which an export stores as a beast2 Blob.
- *
- * @remarks
- * Whatever reads an environment's files decodes them here, so a file an older
- * SDK stored raw is refused in one set of words wherever it is read.
- *
- * @param data - The object's bytes
- * @param hash - The object's hash, which a refusal names
- * @returns The file's bytes
- * @throws {Error} When the object is not a beast2 Blob: the raw file an older
- *   e3 SDK exported, whose package is re-exported
- */
-export function decodeEnvironmentFile(data: Uint8Array, hash: string): Uint8Array {
-  let isFile = false;
-  try {
-    isFile = isTypeValueEqual(readBeast2Type(data), FILE_TYPE);
-  } catch {
-    // Not beast2 at all
-  }
-  if (!isFile) {
-    throw new Error(`the environment file ${hash} was exported by an older e3 SDK — re-export its package with the current one`);
-  }
-  return decodeFile(data);
-}
-
-/** Reads a file an environment names (see {@link decodeEnvironmentFile}). */
-async function readFile(storage: StorageBackend, repo: string, hash: string): Promise<Buffer> {
-  return Buffer.from(decodeEnvironmentFile(await storage.objects.read(repo, hash), hash));
-}
-
-async function writeBlob(storage: StorageBackend, repo: string, hash: string, dest: string): Promise<void> {
-  await fs.writeFile(dest, await readFile(storage, repo, hash));
-}
-
-/**
- * The file a node environment's lockfile is written as: npm's, which is JSON,
- * or pnpm's, which is YAML.
- *
- * @remarks
- * An environment spec stores a lockfile's bytes and not its name, so the name
- * is told from the content.
- *
- * @param lock - The lockfile's bytes
- * @returns Its file name
- */
-export function nodeLockFilename(lock: Uint8Array): 'package-lock.json' | 'pnpm-lock.yaml' {
-  const head = new TextDecoder().decode(lock.subarray(0, 512)).trimStart();
-  return head.startsWith('{') ? 'package-lock.json' : 'pnpm-lock.yaml';
-}
-
-/**
- * What a sync of a python environment's locked third-party closure is asked,
- * for every platform: the whole closure but no first-party code.
- * `--no-install-workspace` skips every workspace member and the root,
- * `--no-install-local` skips any local/path source (a sibling member's dir
- * need not even exist on this machine). The project's own code comes from the
- * captured sdists. Superset of the old `--no-install-project` for a
- * single-project env (verified equivalent).
- */
-const SYNC = ['sync', '--frozen', '--all-packages', '--no-install-workspace', '--no-install-local'];
-
-/** Writes a python environment's manifest and lock into the build directory. */
-async function writePythonProject(
-  storage: StorageBackend, repo: string, spec: Extract<EnvironmentSpec, { type: 'python' }>, buildDir: string,
-): Promise<void> {
-  await writeBlob(storage, repo, spec.value.pyproject, path.join(buildDir, 'pyproject.toml'));
-  await writeBlob(storage, repo, spec.value.lock, path.join(buildDir, 'uv.lock'));
-}
-
-/** Writes a python environment's captured sdists under the build directory's
- *  `.sdists`, and answers their paths. */
-async function writeSdists(
-  storage: StorageBackend, repo: string, spec: Extract<EnvironmentSpec, { type: 'python' }>, buildDir: string,
-): Promise<string[]> {
-  const sdistDir = path.join(buildDir, '.sdists');
-  await fs.mkdir(sdistDir);
-  const files: string[] = [];
-  for (const sdist of spec.value.sdists) {
-    // Installers derive the package name from `name-version.tar.gz`;
-    // basename() guards against path segments in wire data.
-    const f = path.join(sdistDir, path.basename(sdist.filename));
-    await writeBlob(storage, repo, sdist.hash, f);
-    files.push(f);
-  }
-  return files;
-}
-
-/**
- * Builds a python environment in `buildDir`.
- *
- * @param platform - The platform it is installed for, when not this machine's:
- *   its dependencies are then the platform's wheels alone, copied, the
- *   project's packages are built to wheels here and must be pure, and it
- *   carries the platform's build of its Python
- * @returns The interpreter it carries and the project's own files, when a
- *   platform is given; else neither
- * @throws {EnvironmentTargetRefused} When a platform is given and a
- *   dependency has no wheel for it, or a project package builds native code
- */
-async function buildPython(
-  storage: StorageBackend, repo: string,
-  spec: Extract<EnvironmentSpec, { type: 'python' }>, buildDir: string, settings: ProcessSettings,
-  platform?: TargetPlatform,
-): Promise<TargetParts> {
-  await writePythonProject(storage, repo, spec, buildDir);
-  const venv = path.join(buildDir, '.venv');
-  // Relocatable: the venv is built in a temp sibling and atomically renamed
-  // into the cache path — absolute shebangs would break on rename.
-  await run('uv', ['venv', '--relocatable', '.venv'], buildDir, 'virtualenv creation', settings);
-  // For another platform, its wheels alone: nothing is built. Copied, since
-  // the tree is packed and sent, never linked into this machine's cache.
-  const forPlatform = platform === undefined ? [] : ['--python-platform', platform.name, '--no-build', '--link-mode=copy'];
-  try {
-    await run('uv', [...SYNC, ...forPlatform], buildDir, 'locked dependency sync', settings);
-  } catch (err) {
-    throw (platform === undefined ? null : unbuiltWheel(err, platform)) ?? err;
-  }
-  const before = platform === undefined ? undefined : await treeEntries(buildDir);
-  if (spec.value.sdists.length > 0) {
-    const sdists = await writeSdists(storage, repo, spec, buildDir);
-    // `--no-deps`: the project's install must NOT resolve anything from a
-    // registry — every dependency is already pinned and installed by the
-    // sync above (or is another captured sdist). Without it, a missing
-    // first-party dep would be silently satisfied by a same-named PyPI
-    // package (a stale-code hazard). `uv pip check` then verifies the
-    // environment is internally consistent and fails loudly otherwise, so
-    // an incomplete capture is a materialization error, never a silent
-    // wrong-code env.
-    if (platform === undefined) {
-      await run('uv', ['pip', 'install', '--python', venv, '--no-deps', ...sdists], buildDir, 'project sdist install', settings);
-    } else {
-      // Each of the project's packages is built to a wheel here, which runs
-      // on the platform only if it is pure: uv takes a wheel this machine
-      // built for one of its own kind, so its tags are read here.
-      const wheelDir = path.join(buildDir, '.wheels');
-      for (const sdist of sdists) {
-        await run('uv', ['build', '--wheel', '--python', venv, '--out-dir', wheelDir, sdist], buildDir, 'project wheel build', settings);
-      }
-      const wheels = (await fs.readdir(wheelDir)).filter((name) => name.endsWith('.whl')).sort();
-      for (const wheel of wheels) {
-        const { distribution, pure } = wheelOf(wheel);
-        if (!pure) {
-          throw new EnvironmentTargetRefused(`native-package:${distribution}`,
-            `environment materialization: ${distribution} builds native code (its wheel is ${wheel}), ` +
-            `and nothing is built for ${platform.name}`);
-        }
-      }
-      await run('uv', ['pip', 'install', '--python', venv, '--no-deps', ...forPlatform, ...wheels.map((wheel) => path.join(wheelDir, wheel))],
-        buildDir, 'project wheel install', settings);
-      await fs.rm(wheelDir, { recursive: true, force: true });
-      await fs.rm(path.join(buildDir, '.sdists'), { recursive: true, force: true });
-    }
-  }
-  const project = before === undefined ? [] : changedSince(before, await treeEntries(buildDir));
-  // For another platform, checked while the virtualenv's interpreter is still
-  // this machine's, which uv asks what it is.
-  await run('uv', ['pip', 'check', '--python', venv, ...(platform === undefined ? [] : ['--python-platform', platform.name])], buildDir,
-    'environment consistency check', settings);
-  return { interpreter: platform === undefined ? null : await carryInterpreter(buildDir, platform, settings), project };
-}
-
-/**
- * Builds a node environment in `buildDir`.
- *
- * @param platform - The platform it is installed for, when not this machine's:
- *   its dependencies are then the platform's, and the project's own packages
- *   must hold no native addon, which is looked at before anything is installed
- * @returns The project's own files, when a platform is given; else none
- * @throws {EnvironmentTargetRefused} When a platform is given and a project
- *   package holds a native addon, or the lock is pnpm's and this machine's
- *   pnpm installs for its own platform alone
- */
-async function buildNode(
-  storage: StorageBackend, repo: string,
-  spec: Extract<EnvironmentSpec, { type: 'node' }>, buildDir: string, settings: ProcessSettings,
-  platform?: TargetPlatform,
-): Promise<TargetParts> {
-  const tarballs: Buffer[] = [];
-  for (const hash of spec.value.tarballs) {
-    const tarball = await readFile(storage, repo, hash);
-    if (platform !== undefined) await refuseNativeAddon(tarball, null, platform);
-    tarballs.push(tarball);
-  }
-  await writeBlob(storage, repo, spec.value.packageJson, path.join(buildDir, 'package.json'));
-  const lockData = await readFile(storage, repo, spec.value.lock);
-  const lockName = nodeLockFilename(lockData);
-  await fs.writeFile(path.join(buildDir, lockName), lockData);
-  const forPlatform = platform?.node ?? [];
-  if (lockName === 'pnpm-lock.yaml') {
-    // pnpm takes the platform's flags from version 11. One that does not
-    // installs for its own platform, which is the platform's on a machine of
-    // its kind.
-    const away = platform !== undefined && !platform.host;
-    try {
-      await run('pnpm', ['install', '--frozen-lockfile', '--ignore-scripts', ...(away ? forPlatform : [])], buildDir,
-        'locked dependency install', settings);
-    } catch (err) {
-      if (away && /Unknown options?:/.test(err instanceof Error ? err.message : String(err))) {
-        throw new EnvironmentTargetRefused('pnpm',
-          `environment materialization: this machine's pnpm installs for its own platform alone, not for ${platform.name}`);
-      }
-      throw err;
-    }
-  } else {
-    await run('npm', ['ci', '--no-audit', '--no-fund', '--ignore-scripts', ...forPlatform], buildDir,
-      'locked dependency install', settings);
-  }
-  const before = platform === undefined ? undefined : await treeEntries(buildDir);
-  if (tarballs.length > 0) {
-    const packDir = path.join(buildDir, '.tarballs');
-    await fs.mkdir(packDir);
-    const files: string[] = [];
-    for (const [i, tarball] of tarballs.entries()) {
-      const f = path.join(packDir, `pack-${i}.tgz`);
-      await fs.writeFile(f, tarball);
-      files.push(f);
-    }
-    // --ignore-scripts, as every install here: a project's own packages
-    // arrive built — `npm pack` ran `prepack` at capture — and one that
-    // builds a native addon ships it prebuilt.
-    await run('npm', ['install', '--no-save', '--no-audit', '--no-fund', '--ignore-scripts', ...forPlatform, ...files], buildDir,
-      'project tarball install', settings);
-    // A tree for another platform is packed and sent: the tarballs are not of it.
-    if (platform !== undefined) await fs.rm(packDir, { recursive: true, force: true });
-  }
-  return { interpreter: null, project: before === undefined ? [] : changedSince(before, await treeEntries(buildDir)) };
-}
-
-/**
- * Resolve a `tools` spec's env-relative file path to an absolute path inside
- * `buildDir`, rejecting anything that could escape it.
- *
- * The `path` field is wire data (it rides in an imported bundle), so it is
- * validated defensively: it must be relative, use no `.`/`..`/empty
- * segments, and — after resolution — still live under `buildDir`. Backslash
- * separators are treated as separators too, so a Windows-style path in a
- * spec can't smuggle a segment past the POSIX split.
- *
- * @throws {Error} if the path is absolute, empty, or escapes the build dir
- */
-function resolveToolsPath(buildDir: string, relPath: string): string {
-  if (relPath.length === 0) {
-    throw new Error('tools file has an empty path');
-  }
-  if (path.isAbsolute(relPath) || /^[a-zA-Z]:/.test(relPath)) {
-    throw new Error(`tools file path must be relative, got '${relPath}'`);
-  }
-  const segments = relPath.split(/[/\\]/);
-  for (const seg of segments) {
-    if (seg === '' || seg === '.' || seg === '..') {
-      throw new Error(`tools file path '${relPath}' has an invalid segment '${seg}'`);
-    }
-  }
-  const dest = path.resolve(buildDir, ...segments);
-  const root = path.resolve(buildDir);
-  if (dest !== root && !dest.startsWith(root + path.sep)) {
-    throw new Error(`tools file path '${relPath}' escapes the environment directory`);
-  }
-  return dest;
-}
-
-async function buildTools(
-  storage: StorageBackend, repo: string,
-  spec: Extract<EnvironmentSpec, { type: 'tools' }>, buildDir: string,
-): Promise<void> {
-  for (const file of spec.value.files) {
-    const dest = resolveToolsPath(buildDir, file.path);
-    await fs.mkdir(path.dirname(dest), { recursive: true });
-    await writeBlob(storage, repo, file.hash, dest);
-    // Uniform executable mode: the spec stores no mode (an exec-bit-only
-    // change must not alter the env hash), so every captured file is made
-    // runnable. No-op on Windows, which has no POSIX exec bit.
-    if (process.platform !== 'win32') {
-      await fs.chmod(dest, 0o755);
-    }
-  }
-}
-
-/** Rejects a member path from a workspace_node spec that could escape the
- *  build dir (wire data). Returns the absolute member dir under buildDir. */
-function resolveMemberDir(buildDir: string, memberPath: string): string {
-  const segments = memberPath.split(/[/\\]/);
-  if (segments.length === 0 || path.isAbsolute(memberPath) || /^[a-zA-Z]:/.test(memberPath)) {
-    throw new Error(`workspace member path must be relative, got '${memberPath}'`);
-  }
-  for (const seg of segments) {
-    if (seg === '' || seg === '.' || seg === '..') {
-      throw new Error(`workspace member path '${memberPath}' has an invalid segment '${seg}'`);
-    }
-  }
-  const dest = path.resolve(buildDir, ...segments);
-  const root = path.resolve(buildDir);
-  if (!dest.startsWith(root + path.sep)) {
-    throw new Error(`workspace member path '${memberPath}' escapes the environment directory`);
-  }
-  return dest;
-}
-
-/**
- * Extracts an `npm pack` tarball (gzipped tar) into `destDir`, stripping the
- * leading `package/` directory every npm tarball carries.
- *
- * Entries are validated defensively (they ride in an imported bundle):
- * path traversal is rejected, and symlink/hardlink/other special entries are
- * refused (a workspace member must be plain files). File modes are floored
- * so an extracted file is at least readable/executable as npm would leave it.
- *
- * @throws {Error} on a traversal path, a link entry, or a malformed archive
- */
-async function extractMemberTarball(tarball: Buffer, destDir: string): Promise<void> {
-  const tarBytes = gunzipSync(tarball);
-  await new Promise<void>((resolve, reject) => {
-    const ex = tarExtract();
-    ex.on('entry', (header, stream, next) => {
-      void (async () => {
-        try {
-          if (header.type !== 'file' && header.type !== 'directory') {
-            throw new Error(`unsupported tar entry type '${header.type ?? 'unknown'}' in workspace member tarball`);
-          }
-          // Strip the leading `package/` segment npm pack adds.
-          const rel = header.name.replace(/^[^/]+\//, '');
-          if (rel === '') { stream.resume(); return next(); }
-          const segments = rel.split('/');
-          if (segments.some((s) => s === '..' || s === '')) {
-            throw new Error(`illegal path '${header.name}' in workspace member tarball`);
-          }
-          const dest = path.resolve(destDir, ...segments);
-          if (!dest.startsWith(path.resolve(destDir) + path.sep)) {
-            throw new Error(`path '${header.name}' escapes the member directory`);
-          }
-          if (header.type === 'directory') {
-            await fs.mkdir(dest, { recursive: true });
-            stream.resume();
-            return next();
-          }
-          await fs.mkdir(path.dirname(dest), { recursive: true });
-          const chunks: Buffer[] = [];
-          stream.on('data', (c: Buffer) => chunks.push(c));
-          stream.on('end', () => {
-            const mode = ((header.mode ?? 0) & 0o777) | 0o644;
-            fs.writeFile(dest, Buffer.concat(chunks), { mode }).then(() => next(), reject);
-          });
-          stream.on('error', reject);
-        } catch (err) {
-          reject(err instanceof Error ? err : new Error(String(err)));
-        }
-      })();
-    });
-    ex.on('error', reject);
-    ex.on('finish', resolve);
-    Readable.from(tarBytes).pipe(ex);
-  });
-}
-
-/**
- * On Windows, `npm ci` materializes workspace members as directory
- * *junctions* holding an **absolute** target under `buildDir`. After the
- * atomic rename of `buildDir` → `envDir` those junctions dangle. This
- * re-points every symlink/junction under `buildDir` whose target lies inside
- * `buildDir` to the equivalent path under the final `envDir`. No-op on POSIX
- * (npm uses relative symlinks there, which survive the rename).
- */
-async function retargetWindowsJunctions(buildDir: string, envDir: string): Promise<void> {
-  if (process.platform !== 'win32') return;
-  const buildRoot = path.resolve(buildDir);
-  const walk = async (dir: string): Promise<void> => {
-    let entries: import('node:fs').Dirent[];
-    try {
-      entries = await fs.readdir(dir, { withFileTypes: true });
-    } catch { return; }
-    for (const entry of entries) {
-      const full = path.join(dir, entry.name);
-      if (entry.isSymbolicLink()) {
-        let target: string;
-        try { target = await fs.readlink(full); } catch { continue; }
-        if (path.isAbsolute(target) && target.startsWith(buildRoot + path.sep)) {
-          const rebased = path.join(envDir, path.relative(buildRoot, target));
-          await fs.rm(full, { recursive: true, force: true });
-          await fs.symlink(rebased, full, 'junction');
-        }
-      } else if (entry.isDirectory()) {
-        await walk(full);
-      }
-    }
-  };
-  await walk(buildDir);
-}
-
-/**
- * Builds a workspace environment in `buildDir`, to be put at `envDir`.
- *
- * @param platform - The platform it is installed for, when not this machine's
- * @returns The members' own files, relative to the build directory, when a
- *   platform is given; else none
- * @throws {EnvironmentTargetRefused} When a platform is given and a member
- *   holds a native addon
- */
-async function buildWorkspaceNode(
-  storage: StorageBackend, repo: string,
-  spec: Extract<EnvironmentSpec, { type: 'workspace_node' }>, buildDir: string, envDir: string, settings: ProcessSettings,
-  platform?: TargetPlatform,
-): Promise<string[]> {
-  // v1 supports npm workspaces only; pnpm capture ships later.
-  const lockData = await readFile(storage, repo, spec.value.lock);
-  if (nodeLockFilename(lockData) !== 'package-lock.json') {
-    throw new Error('workspace_node: only npm workspaces are supported by the local runner yet');
-  }
-
-  // Root package.json with `workspaces` pinned to exactly the closure members
-  // (explicit paths, no globs) so npm ci links only them — non-closure
-  // members and their third-party deps are pruned.
-  const rootPkg = JSON.parse((await readFile(storage, repo, spec.value.packageJson)).toString('utf-8'));
-  rootPkg.workspaces = spec.value.members.map((m) => m.path);
-  await fs.writeFile(path.join(buildDir, 'package.json'), JSON.stringify(rootPkg, null, 2));
-  await fs.writeFile(path.join(buildDir, 'package-lock.json'), lockData);
-
-  // Materialize each member's packed code at its workspace path.
-  for (const member of spec.value.members) {
-    const memberDir = resolveMemberDir(buildDir, member.path);
-    await fs.mkdir(memberDir, { recursive: true });
-    const tarball = await readFile(storage, repo, member.tarball);
-    if (platform !== undefined) await refuseNativeAddon(tarball, member.name, platform);
-    await extractMemberTarball(tarball, memberDir);
-    const memberPkg = JSON.parse(await fs.readFile(path.join(memberDir, 'package.json'), 'utf-8'));
-    if (memberPkg.name !== member.name) {
-      throw new Error(`workspace member at '${member.path}' is '${memberPkg.name}', expected '${member.name}'`);
-    }
-  }
-  // The members' own files: everything here but the root manifest and lock,
-  // before the install adds what they depend on.
-  const members = platform === undefined ? []
-    : [...(await treeEntries(buildDir)).keys()].filter((file) => file !== 'package.json' && file !== 'package-lock.json');
-
-  // npm installs a dependency a member cannot share in that member's
-  // directory, as the user the install runs as.
-  await giveDirectories(buildDir, settings);
-
-  // Frozen install against the verbatim root lock. --ignore-scripts: member
-  // code arrives by extraction, already built (prepack ran at capture).
-  await run('npm', ['ci', '--no-audit', '--no-fund', '--ignore-scripts', ...(platform?.node ?? [])], buildDir,
-    'workspace install', settings);
-
-  await retargetWindowsJunctions(buildDir, envDir);
-
-  // Sanity: every member is present and resolvable — guards the silent
-  // "npm ci said up-to-date but installed nothing" class of failure.
-  for (const member of spec.value.members) {
-    const pkgJson = path.join(buildDir, ...member.path.split('/'), 'package.json');
-    const linked = path.join(buildDir, 'node_modules', ...member.name.split('/'));
-    if (!await pathExists(pkgJson) || !await pathExists(linked)) {
-      throw new Error(`materialized workspace is incomplete: member '${member.name}' missing after install`);
-    }
-  }
-  return members;
-}
-
-async function pathExists(p: string): Promise<boolean> {
-  try { await fs.access(p); return true; } catch { return false; }
-}
-
-/** Gives `dir` and every directory under it to the user and group the
- *  installs run as, so they can write in each; settings that name neither
- *  give nothing. */
-async function giveDirectories(dir: string, settings: ProcessSettings): Promise<void> {
-  if (settings.uid === undefined && settings.gid === undefined) return;
-  await giveDirectory(dir, settings);
-  for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
-    if (entry.isDirectory()) await giveDirectories(path.join(dir, entry.name), settings);
-  }
-}
-
-// =============================================================================
-// For another platform
-// =============================================================================
-
-/**
- * The platform an environment is installed for, when it is not installed to
- * run on this machine: a rack's, whose guest is another machine.
- */
-export interface EnvironmentTarget {
-  /**
-   * The platform, by the name uv gives it (its `--python-platform`): an
-   * `x86_64` or `aarch64` Linux with glibc (`x86_64-manylinux_2_28`,
-   * `aarch64-manylinux_2_17`, `x86_64-unknown-linux-gnu`), or macOS
-   * (`aarch64-apple-darwin`, `x86_64-apple-darwin`).
-   */
-  readonly platform: string;
-}
-
-/**
- * Why an environment is not installed for another platform:
- * - `tools`, `image`: its kind is files or an image of one platform;
- * - `windows-host`: this machine is Windows, where a built environment has
- *   another layout than the target's;
- * - `no-wheel:<package>`: a dependency has no wheel for the platform;
- * - `native-package:<package>`: one of the project's own packages holds
- *   native code, built for the platform it was captured on;
- * - `pnpm`: its lock is pnpm's, and this machine's pnpm installs for its own
- *   platform alone.
- */
-export type EnvironmentTargetReason =
-  | 'tools' | 'image' | 'windows-host' | 'pnpm'
-  | `no-wheel:${string}` | `native-package:${string}`;
-
-/**
- * An environment that cannot be installed for another platform, and why: no
- * failure of a build, but a thing no build does. Nothing is compiled for a
- * platform that is not this machine's.
- */
-export class EnvironmentTargetRefused extends Error {
-  /**
-   * @param reason - Why, as a caller reports it
-   * @param message - The same in words
-   */
-  constructor(readonly reason: EnvironmentTargetReason, message: string) {
-    super(message);
-    this.name = 'EnvironmentTargetRefused';
-  }
-}
-
-/** An environment installed for another platform. */
-export interface TargetEnvironment {
-  /** The directory it was installed in, absolute. */
-  readonly dir: string;
-  /** The directory of the interpreter it carries, relative to {@link dir};
-   *  `null` for an environment that carries none. */
-  readonly interpreter: string | null;
-  /** The files and links the project's own packages installed, relative to
-   *  {@link dir} with `/` between segments, sorted: what changes when the
-   *  project's code does. Everything else is what its lock names. */
-  readonly project: readonly string[];
-}
-
-/** A platform environments are installed for. */
-interface TargetPlatform {
-  /** uv's name for it. */
-  readonly name: string;
-  /** The interpreter build uv is asked for, after `cpython-<minor>-`. */
-  readonly python: string;
-  /** npm's and pnpm's flags for it. */
-  readonly node: readonly string[];
-  /** Whether this machine is of the platform. */
-  readonly host: boolean;
-}
-
-/** Where a python environment built for another platform keeps its
- *  interpreter, relative to its tree. */
-const CARRIED_INTERPRETER_DIR = '.python';
-
-/** This machine's glibc, as `[major, minor]`; `null` where it has none, or
- *  it cannot be told. Read once: Node writes a whole report to tell it. */
-let glibc: [number, number] | null | undefined;
-function glibcVersion(): [number, number] | null {
-  if (glibc === undefined) {
-    const report = process.report?.getReport() as { header?: { glibcVersionRuntime?: string } } | undefined;
-    const version = /^(\d+)\.(\d+)/.exec(report?.header?.glibcVersionRuntime ?? '');
-    glibc = version === null ? null : [Number(version[1]), Number(version[2])];
-  }
-  return glibc;
-}
-
-/**
- * This machine's own platform, as an {@link EnvironmentTarget} names one: what
- * an agent that runs environments on the machine it is on says it runs.
- *
- * @returns The platform, a glibc Linux's as the oldest of `manylinux_2_28` and
- *   `manylinux_2_17` it meets; `null` on Windows, a Linux without glibc, and a
- *   processor that is neither x86-64 nor arm64
- *
- * @example
- * ```ts
- * const target = hostEnvironmentPlatform(); // 'x86_64-manylinux_2_28'
- * ```
- */
-export function hostEnvironmentPlatform(): string | null {
-  const arch = process.arch === 'x64' ? 'x86_64' : process.arch === 'arm64' ? 'aarch64' : null;
-  if (arch === null) return null;
-  if (process.platform === 'darwin') return `${arch}-apple-darwin`;
-  if (process.platform !== 'linux') return null;
-  const version = glibcVersion();
-  if (version === null || version[0] < 2 || (version[0] === 2 && version[1] < 17)) return null;
-  return `${arch}-manylinux_${version[0] > 2 || version[1] >= 28 ? '2_28' : '2_17'}`;
-}
-
-/** Reads a platform's name (see {@link EnvironmentTarget.platform}). */
-function targetPlatformOf(platform: string): TargetPlatform {
-  const match = /^(x86_64|aarch64)-(?:(manylinux2014|manylinux_\d+_\d+|unknown-linux-gnu)|apple-darwin)$/.exec(platform);
-  if (match === null) {
-    throw new Error(`environment materialization: no environment is installed for the platform '${platform}': ` +
-      'an x86_64 or aarch64 Linux with glibc (as x86_64-manylinux_2_28) or macOS (as aarch64-apple-darwin) is');
-  }
-  const arch = match[1]!;
-  const cpu = arch === 'x86_64' ? 'x64' : 'arm64';
-  const linux = match[2] !== undefined;
-  return {
-    name: platform,
-    python: linux ? `linux-${arch}-gnu` : `macos-${arch}-none`,
-    node: linux ? ['--os=linux', `--cpu=${cpu}`, '--libc=glibc'] : ['--os=darwin', `--cpu=${cpu}`],
-    host: process.arch === cpu && (linux ? process.platform === 'linux' && glibcVersion() !== null : process.platform === 'darwin'),
-  };
-}
-
-/** One thing in an installed tree. */
-export interface InstalledEntry {
-  /** Its path, relative to the tree, with `/` between segments */
-  readonly rel: string;
-  /** What `lstat` says of it: a link is itself, never what it names */
-  readonly stat: Stats;
-}
-
-/**
- * Every file, directory and link under a tree an environment was installed
- * in, in no order. A link is not followed, so a directory it names is walked
- * only where it is.
- *
- * @internal
- * @param root - The tree
- * @returns Its entries
- */
-export async function installedTree(root: string): Promise<InstalledEntry[]> {
-  const into: InstalledEntry[] = [];
-  const walk = async (dir: string): Promise<void> => {
-    for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
-      const full = path.join(dir, entry.name);
-      into.push({ rel: path.relative(root, full).split(path.sep).join('/'), stat: await fs.lstat(full) });
-      if (entry.isDirectory()) await walk(full);
-    }
-  };
-  await walk(root);
-  return into;
-}
-
-/**
- * Every file and link under `root`, relative to it with `/` between segments,
- * each with what tells one written since from one left alone: its size, when
- * it was changed, and its inode.
- */
-async function treeEntries(root: string): Promise<Map<string, string>> {
-  return new Map((await installedTree(root)).filter(({ stat }) => !stat.isDirectory())
-    .map(({ rel, stat }) => [rel, `${stat.size}:${stat.mtimeMs}:${stat.ino}`]));
-}
-
-/** The files and links of `after` that `before` lacks, or holds otherwise. */
-function changedSince(before: ReadonlyMap<string, string>, after: ReadonlyMap<string, string>): string[] {
-  return [...after].filter(([file, state]) => before.get(file) !== state).map(([file]) => file);
-}
-
-/**
- * A wheel's distribution, and whether it runs on every platform, from its file
- * name: `{distribution}-{version}(-{build})?-{python}-{abi}-{platform}.whl`,
- * pure when its ABI tag is `none` and its platform tag `any`.
- */
-function wheelOf(filename: string): { distribution: string; pure: boolean } {
-  const parts = filename.replace(/\.whl$/, '').split('-');
-  if (parts.length < 5) throw new Error(`environment materialization: '${filename}' is not a wheel's file name`);
-  return { distribution: parts[0]!, pure: parts[parts.length - 2] === 'none' && parts[parts.length - 1] === 'any' };
-}
-
-/** The refusal a failed sync is, when uv says a dependency has no wheel for
- *  the platform; `null` for any other failure. */
-function unbuiltWheel(err: unknown, platform: TargetPlatform): EnvironmentTargetRefused | null {
-  const said = err instanceof Error ? err.message : String(err);
-  const match = /Distribution `([^`\s=]+)==[^`]*` can't be installed because it is marked as `--no-build` but has no binary distribution/.exec(said);
-  if (match === null) return null;
-  return new EnvironmentTargetRefused(`no-wheel:${match[1]!}`,
-    `environment materialization: ${match[1]!} has no wheel for ${platform.name}, and nothing is built for a platform that is not this machine's`);
-}
-
-/** What a project's packed package holds that matters to another platform:
- *  its name, and the first native addon in it. */
-function scanTarball(tarball: Buffer): Promise<{ name: string | null; addon: string | null }> {
-  return new Promise((resolve, reject) => {
-    const found: { name: string | null; addon: string | null } = { name: null, addon: null };
-    const ex = tarExtract();
-    ex.on('entry', (header, stream, next) => {
-      // Past the leading `package/` segment npm pack adds.
-      const rel = header.name.replace(/^[^/]+\//, '');
-      if (found.addon === null && rel.endsWith('.node')) found.addon = rel;
-      const chunks: Buffer[] = [];
-      stream.on('data', (chunk: Buffer) => { if (rel === 'package.json') chunks.push(chunk); });
-      stream.on('error', reject);
-      stream.on('end', () => {
-        if (rel === 'package.json') {
-          try {
-            const manifest = JSON.parse(Buffer.concat(chunks).toString('utf-8')) as { name?: unknown };
-            if (typeof manifest.name === 'string') found.name = manifest.name;
-          } catch {
-            // Not a manifest npm would install either: the install says so.
-          }
-        }
-        next();
-      });
-    });
-    ex.on('error', reject);
-    ex.on('finish', () => resolve(found));
-    Readable.from(gunzipSync(tarball)).pipe(ex);
-  });
-}
-
-/**
- * Refuses a project's packed package that holds a native addon: it was built
- * for the platform it was packed on, and no install here builds one.
- *
- * @param tarball - The package, as `npm pack` wrote it
- * @param name - The package's name, when its environment gives it
- * @param platform - The platform the environment is installed for
- * @throws {EnvironmentTargetRefused} When the package holds a `.node` file
- */
-async function refuseNativeAddon(tarball: Buffer, name: string | null, platform: TargetPlatform): Promise<void> {
-  const found = await scanTarball(tarball);
-  if (found.addon === null) return;
-  const named = name ?? found.name ?? 'a project package';
-  throw new EnvironmentTargetRefused(`native-package:${named}`,
-    `environment materialization: ${named} holds a native addon (${found.addon}), built for the platform it was packed on, ` +
-    `and nothing is built for ${platform.name}`);
-}
-
-/**
- * Gives a python environment built for another platform an interpreter of its
- * own: that platform's build of the Python its virtualenv was made with, kept
- * in the tree, and the virtualenv's `python` a relative link to it.
- *
- * @remarks
- * Python finds a virtualenv's interpreter through that link, wherever the
- * tree is put, so the `home` its `pyvenv.cfg` names is not read; it is set to
- * where the interpreter is beside the virtualenv, in place of a path of this
- * machine's. `--no-bin` keeps uv from linking the interpreter into the user's
- * own bin directory.
- *
- * @returns The interpreter's directory, relative to the tree
- */
-async function carryInterpreter(buildDir: string, platform: TargetPlatform, settings: ProcessSettings): Promise<string> {
-  const venv = path.join(buildDir, '.venv');
-  const config = await fs.readFile(path.join(venv, 'pyvenv.cfg'), 'utf-8');
-  const version = /^version_info\s*=\s*(\d+)\.(\d+)/m.exec(config);
-  if (version === null) throw new Error('environment materialization: the virtualenv names no Python version');
-  const minor = `${version[1]!}.${version[2]!}`;
-  const carried = path.join(buildDir, CARRIED_INTERPRETER_DIR);
-  await run('uv', ['python', 'install', '--no-bin', '--install-dir', carried, `cpython-${minor}-${platform.python}`],
-    buildDir, 'interpreter install', settings);
-  // Beside the interpreter uv leaves a link to it by its minor version, which
-  // names this machine's path, and files of its own: the interpreter alone
-  // is the environment's.
-  let installed: string | null = null;
-  for (const entry of await fs.readdir(carried, { withFileTypes: true })) {
-    if (entry.isDirectory() && entry.name.startsWith(`cpython-${minor}.`)) installed = entry.name;
-    else await fs.rm(path.join(carried, entry.name), { recursive: true, force: true });
-  }
-  const python = `python${minor}`;
-  if (installed === null || !await pathExists(path.join(carried, installed, 'bin', python))) {
-    throw new Error(`environment materialization: uv installed no ${python} for ${platform.name}`);
-  }
-  const link = path.join(venv, 'bin', 'python');
-  await fs.rm(link, { force: true });
-  await fs.symlink(path.posix.join('..', '..', CARRIED_INTERPRETER_DIR, installed, 'bin', python), link);
-  await fs.writeFile(path.join(venv, 'pyvenv.cfg'),
-    config.replace(/^home\s*=.*$/m, `home = ${path.posix.join('..', CARRIED_INTERPRETER_DIR, installed, 'bin')}`));
-  return CARRIED_INTERPRETER_DIR;
-}
-
-/** What a build for another platform made, beside its tree. */
-type TargetParts = Pick<TargetEnvironment, 'interpreter'> & { project: string[] };
 
 /** The mode bits a built environment's files lose when it is taken back: set
  *  user and group id, which a chown by root keeps on BSD, and writing by the
@@ -971,8 +192,7 @@ export async function materializeEnvironment(
   settings: ProcessSettings = {},
 ): Promise<string[]> {
   checkProcessSettings(settings);
-  const specData = await storage.objects.read(repo, envHash);
-  const spec = decodeEnvironmentSpec(Buffer.from(specData));
+  const spec = decodeEnvironmentSpec(await storage.objects.read(repo, envHash), envHash);
 
   if (spec.type === 'image') {
     throw new Error(
@@ -1014,6 +234,7 @@ export async function materializeEnvironment(
       await giveDirectory(buildDir, settings);
       switch (spec.type) {
         case 'python':
+        case 'workspace_python':
           await buildPython(storage, repo, spec, buildDir, settings);
           break;
         case 'node':
@@ -1058,6 +279,14 @@ export async function materializeEnvironment(
  * - a node or workspace environment's dependencies are the platform's, and
  *   the project's own packages must hold no native addon.
  *
+ * With `target.over`, a python environment is built over that tier instead:
+ * its virtualenv is of the tier's Python, what the tier's image holds the
+ * same is left to it, and it carries no interpreter. It runs once the agent
+ * that composes it over the tier has linked the tier's interpreter
+ * (`composeEnvironmentOverTier`). Every distribution is still installed here
+ * first, which is how one is told to be the tier's; builds over tiers of one
+ * Python that run together share that install.
+ *
  * The tree is not this machine's to run, and is not cached: its caller packs
  * it. It may be put anywhere, as the links in it are relative. Every install
  * runs as `settings` say, as a build for this machine does, and the tree is
@@ -1074,13 +303,16 @@ export async function materializeEnvironment(
  * @throws {EnvironmentTargetRefused} For an environment no install makes for
  *   another platform, with its reason; the directory is removed
  * @throws {Error} For a platform that is not one environments are installed
- *   for, a directory that is not empty, and a failed install, whose directory
- *   is removed
+ *   for, a directory that is not empty, an environment that does not fit the
+ *   tier it is asked to be built over ({@link environmentFitsTier}), and a
+ *   failed install, whose directory is removed
  *
  * @example
  * ```ts
  * const built = await materializeEnvironmentFor(storage, repo, envHash, { platform: 'x86_64-manylinux_2_28' }, scratch);
  * // built.interpreter === '.python'; built.project lists the project's own files
+ * const small = await materializeEnvironmentFor(storage, repo, envHash, { platform: 'x86_64-manylinux_2_28', over: tier }, scratch);
+ * // small.interpreter === null; small.fromTier counts what the tier's image holds for it
  * ```
  */
 export async function materializeEnvironmentFor(
@@ -1092,7 +324,7 @@ export async function materializeEnvironmentFor(
   settings: ProcessSettings = {},
 ): Promise<TargetEnvironment> {
   checkProcessSettings(settings);
-  const spec = decodeEnvironmentSpec(Buffer.from(await storage.objects.read(repo, envHash)));
+  const spec = decodeEnvironmentSpec(await storage.objects.read(repo, envHash), envHash);
   const named = `environment ${envHash.slice(0, 12)}`;
   if (spec.type === 'image') {
     throw new EnvironmentTargetRefused('image', `${named} is a container image (${spec.value.digest}), which no install makes for another platform`);
@@ -1105,6 +337,10 @@ export async function materializeEnvironmentFor(
       `${named} is not installed for ${target.platform} on Windows, where a built environment has another layout`);
   }
   const platform = targetPlatformOf(target.platform);
+  if (target.over !== undefined && !await fitsTier(storage, repo, spec, target.over)) {
+    throw new Error(`environment materialization: ${named} is not built over a tier of Python ${target.over.python.version}: ` +
+      'a python environment whose lock takes that Python is');
+  }
 
   const buildDir = path.resolve(dir);
   await fs.mkdir(buildDir, { recursive: true });
@@ -1117,21 +353,52 @@ export async function materializeEnvironmentFor(
     let parts: TargetParts;
     switch (spec.type) {
       case 'python':
-        parts = await buildPython(storage, repo, spec, buildDir, settings, platform);
+      case 'workspace_python':
+        parts = await buildPython(storage, repo, spec, buildDir, settings, platform, target.over === undefined ? undefined : { tier: target.over, envHash });
         break;
       case 'node':
         parts = await buildNode(storage, repo, spec, buildDir, settings, platform);
         break;
       case 'workspace_node':
-        parts = { interpreter: null, project: await buildWorkspaceNode(storage, repo, spec, buildDir, buildDir, settings, platform) };
+        parts = { interpreter: null, project: await buildWorkspaceNode(storage, repo, spec, buildDir, buildDir, settings, platform), fromTier: null };
         break;
     }
     if (settings.uid !== undefined || settings.gid !== undefined) await takeBack(buildDir);
-    return { dir: buildDir, interpreter: parts.interpreter, project: [...parts.project].sort() };
+    return { dir: buildDir, interpreter: parts.interpreter, project: [...parts.project].sort(), fromTier: parts.fromTier };
   } catch (err) {
     await fs.rm(buildDir, { recursive: true, force: true });
     throw err;
   }
+}
+
+/** Whether a decoded environment fits a tier ({@link environmentFitsTier}). */
+async function fitsTier(storage: StorageBackend, repo: string, spec: EnvironmentSpec, tier: TierManifest): Promise<boolean> {
+  if (spec.type !== 'python' && spec.type !== 'workspace_python') return false;
+  // The lock's own account of the Pythons it was resolved for
+  const lock = (await readFile(storage, repo, spec.value.lock)).toString('utf-8');
+  const requires = /^requires-python\s*=\s*"([^"]*)"/m.exec(lock)?.[1];
+  return requires !== undefined && pythonSatisfies(tier.python.version, requires);
+}
+
+/**
+ * Whether an environment can be built over a tier ({@link EnvironmentTarget.over}):
+ * a python environment whose lock takes the tier's Python. Any other is
+ * built whole, with an interpreter of its own.
+ *
+ * @param storage - Storage backend holding the spec and its files
+ * @param repo - Repository path
+ * @param envHash - Object hash of the beast2-encoded {@link EnvironmentSpec}
+ * @param tier - The tier's manifest
+ * @returns Whether it fits
+ *
+ * @example
+ * ```ts
+ * const over = await environmentFitsTier(storage, repo, envHash, tier) ? tier : undefined;
+ * const built = await materializeEnvironmentFor(storage, repo, envHash, { platform, ...(over !== undefined && { over }) }, scratch);
+ * ```
+ */
+export async function environmentFitsTier(storage: StorageBackend, repo: string, envHash: string, tier: TierManifest): Promise<boolean> {
+  return fitsTier(storage, repo, decodeEnvironmentSpec(await storage.objects.read(repo, envHash), envHash), tier);
 }
 
 // =============================================================================

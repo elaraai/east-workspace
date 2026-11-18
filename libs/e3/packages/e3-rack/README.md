@@ -301,6 +301,29 @@ the third-party packages are the same bytes, and the rack already has them.
 The layers are kept under the repository's `rack/env-layers`, and `e3 repo gc`
 removes those of an environment nothing uses any more.
 
+A rack whose agent composes environments **over its tier** needs far less of a
+python environment. Its tier's image already holds an interpreter and, for the
+datascience tier, torch and its CUDA libraries, and its agent reports what the
+image holds. This machine then builds the environment over that image: without
+an interpreter, and without each distribution the image holds the same, by its
+name, its version and the files it installed. It says so as it builds:
+
+```text
+  [ENV] 3f9a2b1c0d4e for x86_64-manylinux_2_28 over py-datascience: building
+  [ENV] 3f9a2b1c0d4e built in 41 s: 2 layers, 6.2 MB (2 new), 31 distributions from the tier
+```
+
+| The rack, the environment | What is built |
+| --- | --- |
+| The rack reports `environments-over-tier` and its tier's image; a python environment whose lock takes the image's Python | Over that image: what the image lacks, and the project's own code. |
+| The rack reports `environments` alone | Whole, as above. |
+| The environment pins another version of something the image holds | Its own ships, and is found first. |
+| The lock's `requires-python` leaves out the image's Python; a node environment | Whole. |
+| The rack's tier image changes | Built again over the new image, which is quick. |
+
+Every distribution is still downloaded here once, into uv's cache: that is
+how one is told to be the image's. It is neither packed nor sent.
+
 A task whose environment cannot go to a rack runs here, and says why on its
 `[LOCAL]` line; a build's own message is in the task's log (`e3 task logs`).
 
@@ -428,7 +451,8 @@ Rack summary: 1 task and 12 units on workshop · 1 waited for capacity (longest 
 | `reason.code` | Carries | Who sets it | The work |
 | --- | --- | --- | --- |
 | `input-transfer-failed`, `output-transfer-failed` | `attempts`, `cause` | The rack, after its five tries. | Runs locally; under `--rack-only`, is leased once more first. |
-| `guest-crashed` | `detail` | The rack. | Runs locally: a rack's fault never fails a run. |
+| `guest-crashed` | `detail` | The rack, when the guest ended without an outcome once it had its lease. | Runs locally: a rack's fault never fails a run. |
+| `guest-boot-failed`, `tier-image-failed`, `work-disk-full`, `no-room`, `rack-stopping`, `rack-failed` | `detail` | The rack: its VM did not boot; it could not make the tier's image; the work filled its disk; it had no room once the grant settled; it or its host is stopping; a cause of its own no other word names. | Runs locally. |
 | `environment-failed` | `detail` | The rack, when it could not compose the lease's environment from its layers. | Runs locally. |
 | `source-unreachable` | `ms` | The rack, whose source has not answered for two minutes; the launching machine, when the racks that run the work's tier are enrolled but not healthy. | Runs locally: at once, or under `--rack-only` once two minutes have passed with none healthy. |
 | `task-error` | | The rack: the task's own failure. | Its failure is its verdict, unless the policy retries failures locally. |
@@ -558,7 +582,7 @@ e3 rack stop                           # stop the shared hub
 
 Hub state lives under `~/.e3/rack` (override with `E3_RACK_HOME`). The rack
 listener is off until configured. A running hub and the e3 that calls it speak
-the same control protocol (4) exactly. A hub that an older e3 started is asked
+the same control protocol (5) exactly. A hub that an older e3 started is asked
 to exit once idle, and the run that found it runs locally this time; `e3 rack
 stop` with that e3, or ending its process, replaces it now. So every project
 that uses a rack from one machine runs the e3 release that machine's hub was
@@ -677,7 +701,7 @@ with a release:
 
 - **Hello.** `GET /api/rack/hello` answers anyone who reaches the listener,
   before any credential, in JSON: `{ "protocol": 3, "e3": "<release>",
-  "limits": { "transfersAtOnce": 8 }, "features": ["call-value-objects"] }`. An
+  "limits": { "transfersAtOnce": 8 }, "features": ["call-value-objects", "tier-manifests"] }`. An
   agent asks it before it spends an enrollment token. `features` names what the
   source takes beyond the protocol: a source from before it names none, and an
   entry a reader does not know, a word or of another form, is passed over.
@@ -738,6 +762,39 @@ over the tier's image for that lease alone, and names the tree to its guest in
 `E3_BAKED_ENV_HASH` and `E3_BAKED_ENV_DIR`; e3-core in the guest links the
 environment to it and installs nothing. An environment it cannot compose ends
 its lease with the reason `environment-failed`.
+
+An agent that composes environments **built over a tier** reports the feature
+`environments-over-tier` and, in `tiers`, each tier it boots them over: the
+digest of the tier image's manifest (`/opt/e3/tier-manifest.json`, which the
+image's build writes: `sha256:<hex>` of its bytes) and, to a source whose
+hello names `tier-manifests`, the manifest's text:
+
+```json
+{ "features": ["resources", "environments", "environments-over-tier"], "target": "x86_64-manylinux_2_28",
+  "tiers": { "py-datascience": { "digest": "sha256:c41d…", "manifest": "{\"distributions\":[…],\"namespaces\":[…],\"python\":{…},\"version\":1}\n" } } }
+```
+
+The text goes with the agent's first heartbeat to the source, and then only
+with the heartbeat after an answer whose `x-e3-rack-tier-manifests-wanted`
+header names its digest: a JSON array of the digests whose text the source
+holds none of (it started again). A text that is the bytes its digest names,
+and that the source still refused, is asked of no rack, since every rack's
+text of that digest is those bytes; a text that is not, of the rack that sent
+it alone. Every other heartbeat names the digest alone. An agent that does
+not read the header may send the text every time, as agents did before it.
+
+A source keeps a manifest whose text is the bytes its digest names, for as
+long as a rack reports it, and builds an environment over it. The manifest
+such an agent is then answered may say `over: { "tier", "manifest" }`: its
+layers hold no interpreter and nothing that image holds. The agent composes
+them only over the image whose manifest has that digest, and then links the
+environment's interpreter to the image's with e3-core's
+`composeEnvironmentOverTier(<tree>, manifest.python.base)`: no layer holds a
+link that leads out of the environment, so that one link is the agent's to
+make. An agent that reports the feature is still answered a whole environment
+when its source built one: for an environment that does not fit the image,
+and for one whose build over the image failed, which its source then builds
+whole for the platform.
 
 A lease says what it asks of a rack, in its event's `resources`: `{ "kind":
 "unit", "cores": 1, "memoryBytes": 3328599654, "reserveBytes": 2219066436,

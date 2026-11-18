@@ -320,6 +320,12 @@ to it (`prebuiltEnvironment`, `linkPrebuiltEnvironment`) and installs nothing.
 One it cannot compose ends its lease `environment-failed`, and the work runs
 locally.
 
+**Over a tier.** A rack that composes environments built over its tier says
+`environments-over-tier`, and reports the manifest of each tier image it
+boots them over. The launching machine then builds a python environment over
+that image, and the rack is served those layers: see
+[`e3-environment-over-tier.md`](e3-environment-over-tier.md).
+
 | The task | Reason on its `[LOCAL]` line |
 | --- | --- |
 | Declares a `tools` or an `image` environment | `environment:tools`, `environment:image` |
@@ -402,7 +408,8 @@ planning and final assembly stay local; both pieces and merge bodies delegate.
 A lease's result gives its `reason` when it did not succeed: a code and what
 it carries (`protocol/task-envelope.ts`: `outgrew-cap`, `memory-limit-exceeded`,
 `input-transfer-failed`, `output-transfer-failed`, `source-unreachable`,
-`guest-crashed`, `environment-failed`, `requeued-pressure`, `task-error`), read for the fields a build
+`guest-crashed`, `guest-boot-failed`, `tier-image-failed`, `environment-failed`, `work-disk-full`, `no-room`,
+`rack-stopping`, `rack-failed`, `requeued-pressure`, `task-error`), read for the fields a build
 knows, and a code it does not know is a rack's fault it cannot name. It also
 lists the tries of its transfers that were followed by another. The body places
 the work by the reason, a placement event carries it (`kind`, `detail`), a run

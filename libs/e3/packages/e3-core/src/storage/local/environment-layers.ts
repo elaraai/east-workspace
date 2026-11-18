@@ -15,7 +15,9 @@
  *   manifests/<name>.json  what names an environment's layers, for one
  *                          platform and e3 release; its name begins with the
  *                          environment's hash
- *   building/              a build's claim, and its scratch tree
+ *   building/              a build's claim, and its scratch tree, beside which
+ *                          the builds over tiers of one Python that run
+ *                          together keep the install they share
  * ```
  *
  * A layer is a gzip tar of part of the installed tree, its entries under
@@ -23,7 +25,7 @@
  *
  * | Layer | Holds | Changes when |
  * |---|---|---|
- * | interpreter | the interpreter the environment carries | its Python or the platform changes |
+ * | interpreter | the interpreter the environment carries; none for one built over a tier | its Python or the platform changes |
  * | packages, one per gigabyte | what the lock installs, in sorted order | the lock changes |
  * | project | what the project's own packages installed | the project's code changes |
  *
@@ -99,6 +101,9 @@ export interface PackedEnvironment {
 export interface EnvironmentLayerBuild extends PackedEnvironment {
   /** How long the install and the pack took, in ms */
   readonly ms: number;
+  /** How many distributions were left to the tier the environment was built
+   *  over; `null` for one built whole */
+  readonly fromTier: number | null;
 }
 
 /** How an environment's layers are built. */
@@ -428,7 +433,8 @@ async function claimBuild(claim: string, signal: AbortSignal | undefined, made: 
  * @param storage - Storage backend holding the environment's spec and files
  * @param repo - Repository path
  * @param envHash - Object hash of the environment's spec
- * @param target - The platform to install for
+ * @param target - The platform to install for, and the tier to build it over
+ *   when it is built over one
  * @param name - The manifest's name: `<envHash>-<key>.json`
  * @param manifestOf - What to keep as the manifest, given the layers
  * @param options - How the installs run, and who is told the build starts
@@ -478,7 +484,7 @@ export async function buildEnvironmentLayers(
       const manifest = manifestOf(packed.layers);
       // The layers, then the manifest that names them.
       await atomicWriteFile(manifestPath(repo, name), manifest);
-      return { manifest, built: { ...packed, ms: Date.now() - started } };
+      return { manifest, built: { ...packed, ms: Date.now() - started, fromTier: tree.fromTier } };
     } finally {
       await fs.rm(scratch, { recursive: true, force: true });
       await fs.rm(claim, { force: true });
@@ -512,13 +518,14 @@ export async function sweepEnvironmentLayers(repo: string, reachable: ReadonlySe
   };
   const list = (sub: string): Promise<string[]> => fs.readdir(path.join(dir, sub)).catch(() => [] as string[]);
 
-  // A build's claim and scratch tree, once its builder is gone: a claim that
-  // names none is a builder's that has not named itself yet, for a while
+  // A build's claim and scratch tree, and the install builds share beside
+  // it, once its builder is gone: a claim that names none is a builder's that
+  // has not named itself yet, for a while
   let building = false;
   const claims = await list('building');
   for (const entry of claims) {
     const file = path.join(dir, 'building', entry);
-    const tree = /\.tree-(\d+)-(\d+)$/.exec(entry);
+    const tree = /\.tree-(\d+)-(\d+)(?:\.install)?$/.exec(entry);
     const claim = entry.endsWith('.claim');
     const holder = tree ?? (claim ? /^(\d+) (\d+)\n$/.exec(await fs.readFile(file, 'utf8').catch(() => '')) : null);
     const lives = holder !== null ? !await processExited(Number(holder[1]), Number(holder[2]))

@@ -68,11 +68,13 @@ import {
   RackStorageResponseType,
   RackLogsRequestType,
   RACK_CALL_VALUE_OBJECTS,
+  RACK_TIER_MANIFESTS,
   RACK_PASS_OVER_MS,
   RACK_PROTOCOL,
   RACK_PROTOCOL_HEADER,
   RACK_TRANSFERS_AT_ONCE,
   RACK_WAITING_HEADER,
+  RACK_MANIFESTS_WANTED_HEADER,
   readRackOffer,
   readRackReport,
   type RackCompleteRequest,
@@ -153,8 +155,14 @@ export interface RackRouteOptions {
   /** How many leases of the queue a poll looks through for one its rack's
    *  offer holds (default 10). */
   claimLookahead?: number;
-  /** Told what a rack is and has, with each of its heartbeats. */
-  onReport?: (rackId: string, report: RackReport) => void | Promise<void>;
+  /**
+   * Told what a rack is and has, with each of its heartbeats. Answers the
+   * digests of the tier manifests the report names whose text the source
+   * holds none of, which the heartbeat's answer names
+   * ({@link RACK_MANIFESTS_WANTED_HEADER}): the rack sends their text with its
+   * next heartbeat, and the digest alone of every other.
+   */
+  onReport?: (rackId: string, report: RackReport) => readonly string[] | void | Promise<readonly string[] | void>;
   /** Told a rack asked in another protocol, or named none, and was refused:
    *  what its request named. */
   onIncompatible?: (rackId: string, protocol: string | undefined) => void | Promise<void>;
@@ -197,6 +205,13 @@ export interface RackRouteOptions {
    * agent sends one, and a value too large to carry inline runs elsewhere.
    */
   callValueObjects?: boolean;
+  /**
+   * Whether the source reads the manifests of the tiers a rack boots
+   * environments over, from the rack's report: its hello names
+   * {@link RACK_TIER_MANIFESTS}, and a rack sends it each manifest's text.
+   * Set it where {@link onReport} keeps them. Absent, no rack sends one.
+   */
+  tierManifests?: boolean;
   /**
    * Wakes a dataflow's parked run once a rack attempt's outcome is recorded
    * (#208): `wakeRun` over the run's pointer, which asks the deployment's
@@ -400,7 +415,7 @@ export function createRackRoutes(
     protocol: RACK_PROTOCOL,
     e3: e3Version ?? E3_RACK_VERSION,
     limits: { transfersAtOnce: options?.transfersAtOnce ?? RACK_TRANSFERS_AT_ONCE },
-    features: callValueObjects ? [RACK_CALL_VALUE_OBJECTS] : [],
+    features: [...(callValueObjects ? [RACK_CALL_VALUE_OBJECTS] : []), ...(options?.tierManifests === true ? [RACK_TIER_MANIFESTS] : [])],
   };
   app.get('/api/rack/hello', () => new Response(JSON.stringify(hello), { headers: { 'Content-Type': 'application/json' } }));
 
@@ -660,7 +675,7 @@ export function createRackRoutes(
         ? some(heartbeat.bootId) : current.approvedBootId,
     }));
     if (registration === null) return unauthorized('Rack is deregistered');
-    await options?.onReport?.(rackId, report);
+    const wanted = await options?.onReport?.(rackId, report);
     const { approvedBootId } = registration;
 
     // A lease is dead to this agent when it is terminal-for-someone-else:
@@ -699,7 +714,10 @@ export function createRackRoutes(
       }
     }
 
-    return answer(RackHeartbeatResponseType, { stop, rotatedToken, pendingApproval });
+    const response = answer(RackHeartbeatResponseType, { stop, rotatedToken, pendingApproval });
+    // The tier manifests whose text the rack sends with its next heartbeat
+    if (wanted !== undefined && wanted.length > 0) response.headers.set(RACK_MANIFESTS_WANTED_HEADER, JSON.stringify(wanted));
+    return response;
   });
 
   // Separate cancellation from health/rotation writes. This request stays

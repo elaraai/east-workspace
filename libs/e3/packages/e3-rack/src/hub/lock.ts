@@ -4,12 +4,12 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { readdir, readFile, unlink } from 'node:fs/promises';
+import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { DateTimeType, IntegerType, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, printFor, type ValueTypeOf } from '@elaraai/east';
 import { ExecutionOwnerType, type ExecutionOwner } from '@elaraai/e3-types';
-import { atomicWriteFile, isProcessAlive, processOwner } from '@elaraai/e3-core';
+import { atomicWriteFile, isProcessAlive, isTransientFsError, processOwner, readReplacedFile, unlinkWithRetry } from '@elaraai/e3-core';
 import { ensureRackHome, HUB_LOCK_FILE, hubSocketPath, rackHome } from '../paths.js';
 import { E3_RACK_VERSION, HUB_PROTOCOL } from '../version.js';
 
@@ -38,12 +38,14 @@ const PREFIX = '.hub-claim-';
  */
 const LIVENESS_TTL_MS = 1000;
 
-/** Test seams of {@link acquireHubLock}: a contender's identity and its liveness probe. */
+/** Test seams of {@link acquireHubLock}: a contender's identity, its liveness probe and how it reads a claim. */
 export interface AcquireHubLockOptions {
   /** The contender's process identity; this process's unless given, as a test racing contenders of distinct identities gives it. */
   owner?: ExecutionOwner;
   /** Whether a claimant's process is alive; e3-core's process liveness unless given. */
   alive?: (claimant: ExecutionOwner) => Promise<boolean>;
+  /** Reads a claim's file; e3-core's `readReplacedFile` unless given, as a test refusing reads as Windows does gives it. */
+  read?: (file: string) => Promise<Uint8Array>;
 }
 
 /** A held hub lock; its release removes only files belonging to this holder. */
@@ -54,8 +56,10 @@ export interface HeldHubLock {
   release(): Promise<void>;
 }
 
+/** Removes a file, if it is there. On Windows an unlink a reader's open
+ *  handle refuses a moment is tried again, as e3-core's are. */
 async function remove(file: string): Promise<void> {
-  await unlink(file).catch((err: NodeJS.ErrnoException) => { if (err.code !== 'ENOENT') throw err; });
+  await unlinkWithRetry(file).catch((err: NodeJS.ErrnoException) => { if (err.code !== 'ENOENT') throw err; });
 }
 
 /**
@@ -65,7 +69,8 @@ async function remove(file: string): Promise<void> {
  * @throws {Error} When a present lock is corrupt
  */
 export async function readHubLock(home = rackHome()): Promise<HubLock | null> {
-  try { return decodeLock(await readFile(join(home, HUB_LOCK_FILE))); } catch (err) {
+  // In its turn: a replacement of it by this process never meets the read
+  try { return decodeLock(await readReplacedFile(join(home, HUB_LOCK_FILE))); } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
     throw err;
   }
@@ -84,9 +89,10 @@ export async function readHubLock(home = rackHome()): Promise<HubLock | null> {
  * published whole once the election is won, and is never observed empty.
  *
  * @param home - Private rack home
- * @param options - Test seams: the contender's identity and its liveness probe
+ * @param options - Test seams: the contender's identity, its liveness probe and its reads
  * @returns Ownership, or null when another live contender/holder wins
- * @throws {Error} When a claim cannot be read or startup exceeds ten seconds
+ * @throws {Error} When a claim cannot be read — corrupt, or still refused once
+ *   startup has taken ten seconds — or startup exceeds ten seconds
  * @example
  * const lock = await acquireHubLock();
  * if (lock !== null) await lock.release();
@@ -95,6 +101,7 @@ export async function acquireHubLock(home = rackHome(), options: AcquireHubLockO
   ensureRackHome(home);
   const owner = options.owner ?? await processOwner();
   const probe = options.alive ?? ((claimant: ExecutionOwner) => isProcessAlive(Number(claimant.pid), Number(claimant.pidStartTime), claimant.bootId));
+  const read = options.read ?? readReplacedFile;
   // A claim of this process needs no asking; another claimant's answer holds
   // for LIVENESS_TTL_MS, so an election asks after each once in a while, not
   // once per claim per poll.
@@ -118,20 +125,31 @@ export async function acquireHubLock(home = rackHome(), options: AcquireHubLockO
   const file = join(home, `${PREFIX}${record.ownerId}.beast2`);
   const deadline = Date.now() + 10_000;
   let held = false;
+  // Every live claim. Windows refuses a moment to open a claim another handle
+  // is replacing or removing (e3-core's transient errors): the claims are read
+  // again until each reads or is gone, and an election never goes on without
+  // one, since a contender that chose its ticket past a live claim it could
+  // not read could be elected beside that claim's holder.
   const claims = async () => {
-    const result: Array<ValueTypeOf<typeof ClaimType>> = [];
-    for (const name of await readdir(home)) {
-      if (!name.startsWith(PREFIX) || !name.endsWith('.beast2')) continue;
-      const path = join(home, name);
-      let claim: ValueTypeOf<typeof ClaimType>;
-      try { claim = decodeClaim(await readFile(path)); } catch (err) {
-        if ((err as NodeJS.ErrnoException).code === 'ENOENT') continue;
-        throw err; // Whole atomic publications: corrupt is never evidence of death.
+    for (;;) {
+      const result: Array<ValueTypeOf<typeof ClaimType>> = [];
+      let refused: unknown;
+      for (const name of await readdir(home)) {
+        if (!name.startsWith(PREFIX) || !name.endsWith('.beast2')) continue;
+        const path = join(home, name);
+        let claim: ValueTypeOf<typeof ClaimType>;
+        try { claim = decodeClaim(await read(path)); } catch (err) {
+          if ((err as NodeJS.ErrnoException).code === 'ENOENT') continue;
+          if (isTransientFsError(err)) { refused = err; continue; }
+          throw err; // Whole atomic publications: corrupt is never evidence of death.
+        }
+        if (await alive(claim.owner)) result.push(claim);
+        else await remove(path);
       }
-      if (await alive(claim.owner)) result.push(claim);
-      else await remove(path);
+      if (refused === undefined) return result;
+      if (Date.now() >= deadline) throw refused;
+      await delay(20);
     }
-    return result;
   };
   try {
     await atomicWriteFile(file, encodeClaim({ owner: record, ticket: 0n }));
