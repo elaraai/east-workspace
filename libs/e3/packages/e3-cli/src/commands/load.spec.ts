@@ -122,6 +122,32 @@ describe('e3 load', () => {
       assert.deepEqual(printed.lives, ['Pieces 3/37', 'Pieces 37/37 (3 from the cache)', 'Pieces 37/37 (37 from the cache)']);
     });
 
+    it('says the intake is done only once the load has gone on from it: one refused, cancelled or stopped during it prints its line as it stood', () => {
+      const intake = (done: bigint): RecordLoadProgress =>
+        variant('intake', { path: 'inputs/delivery', step: variant('taking_in', { pieces: 10n, done }), bytes: done, total: 10n });
+      const stopped = 'a deploy of main started. The load goes on once the deploy is done…';
+      const said = (steps: RecordLoadProgress[]): string[] => {
+        const printed = recorder();
+        const lines = loadLines('orders.erp', printed);
+        for (const step of steps) lines.progress(step);
+        lines.end();
+        return printed.lines;
+      };
+
+      // It went on to its pieces, or straight to its commit: done
+      assert.deepEqual(said([intake(3n), intake(10n), pieces(1n, 1n)]), ['Taking the delivery in… done', 'Pieces 1/1']);
+      assert.deepEqual(said([intake(3n), variant('commit', null)]), ['Taking the delivery in… done']);
+      // The load ended during it, refused or cancelled: as it stood
+      assert.deepEqual(said([intake(3n)]), ['Taking the delivery in… 3/10 pieces']);
+      // A deploy stopped it, and its intake ran again once the deploy was done
+      assert.deepEqual(said([intake(3n), variant('stopped', stopped), intake(10n), pieces(1n, 1n)]), [
+        'Taking the delivery in… 3/10 pieces',
+        `Stopped: ${stopped}`,
+        'Taking the delivery in… done',
+        'Pieces 1/1',
+      ]);
+    });
+
     it('draws the line that counts up in place on a terminal alone, and clears it before the next line', () => {
       const written: string[] = [];
       const tty = terminalPrinter({ write: (chunk) => written.push(chunk), isTTY: true });

@@ -213,10 +213,11 @@ function intakeLive(intake: IntakeFile): string {
 
 /**
  * The lines a load prints as it reports its steps (§7.13): that it waits for
- * an earlier load of its source; `Taking the delivery in… done`; its pieces,
- * counting up in place on a terminal and printed once they settle, stop or
- * restart, with how many the cache answered; why it loads again; and what
- * stopped it.
+ * an earlier load of its source; `Taking the delivery in… done`, once the
+ * load has gone on from its intake, and the intake's line as it stood where
+ * the load was refused, cancelled or stopped during it; its pieces, counting
+ * up in place on a terminal and printed once they settle, stop or restart,
+ * with how many the cache answered; why it loads again; and what stopped it.
  *
  * @remarks
  * A step heard again as it was — a server's job is polled, and answers how
@@ -227,15 +228,16 @@ function intakeLive(intake: IntakeFile): string {
  * @returns The lines' listener
  */
 export function loadLines(name: string, printer: LoadPrinter): LoadLines {
-  // The line in flight, printed when the load goes on to another step
-  let open: { readonly kind: 'intake' | 'pieces'; readonly text: string } | null = null;
+  // The line in flight, printed when the load goes on to another step: as it
+  // stood, and, for a step the load went on from to the one after it, as done
+  let open: { readonly kind: 'intake' | 'pieces'; readonly text: string; readonly done?: string } | null = null;
   let last: RecordLoadProgress | null = null;
-  const settle = (): void => {
-    if (open !== null) printer.line(open.text);
+  const settle = (wentOn = false): void => {
+    if (open !== null) printer.line(wentOn && open.done !== undefined ? open.done : open.text);
     open = null;
   };
   const opening = (kind: 'intake' | 'pieces'): void => {
-    if (open !== null && open.kind !== kind) settle();
+    if (open !== null && open.kind !== kind) settle(true);
   };
   return {
     progress(step) {
@@ -246,11 +248,15 @@ export function loadLines(name: string, printer: LoadPrinter): LoadLines {
           settle();
           printer.line(`Waiting for an earlier load of ${name} to finish…`);
           return;
-        case 'intake':
+        case 'intake': {
           opening('intake');
-          open = { kind: 'intake', text: 'Taking the delivery in… done' };
-          printer.live(intakeLive(step.value));
+          // Done once the load goes on to its pieces or its commit: an intake
+          // refused, cancelled or stopped part way is printed as it stood
+          const text = intakeLive(step.value);
+          open = { kind: 'intake', text, done: 'Taking the delivery in… done' };
+          printer.live(text);
           return;
+        }
         case 'pieces':
           opening('pieces');
           open = { kind: 'pieces', text: piecesLine(step.value) };
@@ -266,11 +272,11 @@ export function loadLines(name: string, printer: LoadPrinter): LoadLines {
           return;
         case 'commit':
           // The answer's line follows it
-          settle();
+          settle(true);
           return;
       }
     },
-    end: settle,
+    end: () => settle(),
   };
 }
 
