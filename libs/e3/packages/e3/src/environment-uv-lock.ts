@@ -53,8 +53,21 @@ export interface UvLockPackage {
 /** A uv lock, for what a capture reads of it. */
 export interface UvLock {
   version?: number;
-  manifest?: { members?: string[] };
+  /** The workspace's own: its members, and the settings it was resolved
+   *  under that resolve a distribution otherwise than its dependents ask. */
+  manifest?: { members?: string[]; overrides?: Array<{ name: string; specifier?: string }>; excludes?: string[] };
   package?: UvLockPackage[];
+}
+
+/**
+ * Reads a lock's text.
+ *
+ * @throws {Error} When the lock is not of the version this reads
+ */
+function readUvLock(lockText: string): UvLock {
+  const lock = parseToml(lockText) as unknown as UvLock;
+  if (lock.version !== 1) throw new Error(`unsupported uv.lock version ${String(lock.version)}`);
+  return lock;
 }
 
 /** Canonicalize a path for identity comparison — realpath when it exists,
@@ -407,8 +420,7 @@ const LOCAL_SOURCE_KINDS = ['editable', 'directory', 'virtual', 'path'] as const
  * // uv sync --frozen --inexact --all-packages ... --no-install-package <each>
  */
 export function pythonLeftOut(lockText: string, requires: readonly string[]): string[] {
-  const lock = parseToml(lockText) as unknown as UvLock;
-  if (lock.version !== 1) throw new Error(`unsupported uv.lock version ${String(lock.version)}`);
+  const lock = readUvLock(lockText);
   // Each of every version a name is locked at, one for each platform it forks for
   const needed = new Set<string>();
   for (const { name } of lockWalk(lock, requires.map(requiredStart))) needed.add(name);
@@ -429,6 +441,34 @@ export function requiredStart(required: string): LockStart {
   const read = readRequiredDistribution(required);
   if (read === null) throw new Error(`the required distribution '${required}' is not a package's name`);
   return read;
+}
+
+/**
+ * The settings a workspace's lock was resolved under that resolve a
+ * distribution otherwise than a package depending on it asks: what its
+ * `override-dependencies` name, whose version may be one a dependent's
+ * requirement does not allow, and what its `exclude-dependencies` name, which
+ * nothing installs though a dependent requires it.
+ *
+ * @remarks
+ * The lock records both in its manifest, and a sync of it installs as they
+ * say. A check of what is installed against each distribution's own
+ * requirements, as `uv pip check` makes, knows neither, so an environment
+ * materialized from the lock is checked with them.
+ *
+ * @internal
+ * @param lockText - The lock, as `uv.lock` holds it
+ * @returns The distributions overridden, and those excluded, each by PEP 503
+ *   name, sorted
+ * @throws {Error} When the lock is not of the version this reads
+ * @example
+ * // Under `override-dependencies = ["shap>=0.51.0"]`
+ * pythonLockSettings(await readFile('uv.lock', 'utf8')); // { overrides: ['shap'], excludes: [] }
+ */
+export function pythonLockSettings(lockText: string): { overrides: string[]; excludes: string[] } {
+  const { manifest } = readUvLock(lockText);
+  const names = (named: readonly string[]): string[] => [...new Set(named.map(canonicalPythonName))].sort(byCodePoint);
+  return { overrides: names((manifest?.overrides ?? []).map((override) => override.name)), excludes: names(manifest?.excludes ?? []) };
 }
 
 /**

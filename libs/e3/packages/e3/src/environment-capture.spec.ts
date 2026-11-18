@@ -25,7 +25,8 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { decodeBeast2For } from '@elaraai/east';
 import { EnvironmentSpecType } from '@elaraai/e3-types';
-import { captureEnvironment, captureAutoEnvironment, canonicalPythonName, pythonLeftOut, pythonRequires, type BuiltSdists, type UvLock, type UvLockPackage } from './environment-capture.js';
+import { captureEnvironment, captureAutoEnvironment, canonicalPythonName, pythonLeftOut, pythonLockSettings, pythonRequires, type BuiltSdists, type UvLock,
+  type UvLockPackage } from './environment-capture.js';
 import { pythonClosure } from './environment-uv-lock.js';
 
 function toolAvailable(cmd: string): boolean {
@@ -212,6 +213,18 @@ describe('python closure capture (#278)', () => {
     assert.deepStrictEqual(pythonLeftOut(lock, []), ['extra-x', 'extra-y', 'forked', 'from-git', 'helper-dep', 'needed-a', 'own-only', 'with-extras']);
     assert.throws(() => pythonLeftOut(lock, ['needed-a[x']), /'needed-a\[x' is not a package's name/);
     assert.throws(() => pythonLeftOut('version = 2\n', []), /unsupported uv\.lock version 2/);
+  });
+
+  it('reads the settings a lock was resolved under that resolve a distribution otherwise than its dependents ask: what its workspace overrides, and what it excludes', () => {
+    // A lock's manifest as uv writes it
+    const lock = (manifest: string): string => ['version = 1', 'requires-python = ">=3.12"', '', manifest, '',
+      '[[package]]', 'name = "ws-root"', 'version = "0.1.0"', 'source = { virtual = "." }', ''].join('\n');
+    assert.deepStrictEqual(pythonLockSettings(lock('[manifest]\nmembers = ["trainer", "ws-root"]\n' +
+      'overrides = [{ name = "Shap", specifier = ">=0.51.0" }, { name = "numpy", specifier = "<3" }]\nexcludes = ["nvidia_nccl.cu12"]')),
+    { overrides: ['numpy', 'shap'], excludes: ['nvidia-nccl-cu12'] }, 'each by its PEP 503 name, sorted');
+    assert.deepStrictEqual(pythonLockSettings(lock('[manifest]\nmembers = ["trainer", "ws-root"]')), { overrides: [], excludes: [] }, 'a workspace that sets neither');
+    assert.deepStrictEqual(pythonLockSettings(lock('')), { overrides: [], excludes: [] }, 'a lock with no manifest');
+    assert.throws(() => pythonLockSettings('version = 2\n'), /unsupported uv\.lock version 2/);
   });
 
   it('walks a registry package as an install takes it: its dependencies and the extras asked of it, so a local archive only an extra nothing asks for names is no refusal', () => {

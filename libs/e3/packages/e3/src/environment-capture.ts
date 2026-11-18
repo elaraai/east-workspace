@@ -35,7 +35,7 @@ import { canonicalPath, canonicalPythonName, discoverPythonRoot, findUvLock, loc
   type UvLock } from './environment-uv-lock.js';
 import { discoverNodeRoot, findNpmRoot, npmClosure } from './environment-npm-lock.js';
 
-export { canonicalPythonName, pythonLeftOut, pythonMemberSources, pythonRequires, pythonWorkspaceMember, readRequiredDistribution,
+export { canonicalPythonName, pythonLeftOut, pythonLockSettings, pythonMemberSources, pythonRequires, pythonWorkspaceMember, readRequiredDistribution,
   type UvLock, type UvLockPackage } from './environment-uv-lock.js';
 export { nodeWorkspaceMember } from './environment-npm-lock.js';
 
