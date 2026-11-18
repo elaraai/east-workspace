@@ -68,12 +68,16 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:$PATH"
 
 # Python 3.12, as uv builds it, which the east-py packages need: the system's
-# is 3.11. Kept under /opt/python, which every user of the image reads.
-ENV UV_PYTHON_INSTALL_DIR="/opt/python"
-RUN uv python install 3.12
+# is 3.11. Kept under /opt/python, which every user of the image reads, and
+# linked as python3.12 on every user's PATH, where uv finds it for a
+# virtualenv of 3.12. /opt/python is where this install puts it, not uv's
+# setting: a Python uv fetches later, for an environment of another, goes
+# where it would for that user, which /opt/python, root's, is not.
+RUN UV_PYTHON_INSTALL_DIR=/opt/python uv python install 3.12 && \
+    ln -sf "$(UV_PYTHON_INSTALL_DIR=/opt/python uv python find --managed-python 3.12)" /usr/local/bin/python3.12
 
 # Create Python virtual environment, by that Python
-RUN "$(uv python find --managed-python 3.12)" -m venv /opt/venv
+RUN "$(UV_PYTHON_INSTALL_DIR=/opt/python uv python find --managed-python 3.12)" -m venv /opt/venv
 ENV VIRTUAL_ENV="/opt/venv"
 ENV PATH="/opt/venv/bin:$PATH"
 

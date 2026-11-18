@@ -49,10 +49,16 @@ runs() {
 # resolve the same torch). Its own tier manifest says what it holds, and the
 # pins it was installed under, its release's @elaraai/e3-core's, are in it.
 # Unpinned, an image installs `latest` under no pins, and there is nothing to
-# hold it to.
+# hold it to; and so does a release from before releases shipped pins, whose
+# image install-packages.sh builds under none, keeping none (it keeps the pins
+# of a release that ships them, or fails).
 holds_pins() {
     local image="$1"
     if [ -z "${EAST_RELEASE_VERSION:-}" ]; then
+        return 0
+    fi
+    if ! docker run --rm "$image" test -f /opt/e3/east-py-constraints.txt; then
+        echo "  holds no pins: its release's @elaraai/e3-core ships none"
         return 0
     fi
     echo "  holds its release's pins"
@@ -99,6 +105,10 @@ runs test-east-py-$$ python3 -c "import json; m = json.load(open('/opt/e3/tier-m
 # from it adds a package with uv, which installs into that virtualenv
 runs test-east-py-$$ python3 -c "import json; names = [d['name'] for d in json.load(open('/opt/e3/tier-manifest.json'))['distributions']]; assert 'pip' not in names, names"
 runs test-east-py-$$ uv pip install --dry-run six
+# uv finds the image's Python for a virtualenv of 3.12, and fetches none; a
+# Python it fetches for an environment of another goes where it would for the
+# user, not under /opt/python, which is root's
+runs test-east-py-$$ sh -c 'UV_PYTHON_DOWNLOADS=never uv venv -q --python 3.12 /tmp/v && test "$(uv python dir)" != /opt/python'
 holds_pins test-east-py-$$
 echo "[OK] Dockerfile.east-py (builds + east-py runs + tier manifest)"
 

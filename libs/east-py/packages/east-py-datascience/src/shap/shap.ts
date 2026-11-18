@@ -372,7 +372,10 @@ export const MapieClassifierShapResultType = StructType({
  *   causal "what if I changed this feature" explanations. Requires background samples.
  *   SHAP's tree algorithm cannot read categorical splits, so over a model trained
  *   with categorical features the values are KernelExplainer's, of the model's raw
- *   output against the background: exact for up to 11 features, estimated beyond.
+ *   output against the background (a seeded sample of 100 of its rows, when it
+ *   has more): every feature given its value, exact for up to 11 features,
+ *   estimated beyond, the same each run. Each row explained evaluates the model
+ *   `(2 × features + 2048)` times for each background row.
  */
 export const TreeExplainerConfigType = VariantType({
     /** Path-dependent mode: uses tree structure only (default SHAP behavior) */
@@ -421,7 +424,11 @@ export const shap_tree_explainer_create = East.platform(
  * Create a SHAP KernelExplainer for any model.
  *
  * Works with any model that has a predict method (NGBoost, GP, Torch, etc.).
- * Requires background data for computing expected values.
+ * Requires background data for computing expected values. Every feature is
+ * given its value: exactly for up to 11 features, and beyond from a seeded
+ * sample of coalitions, the same each run. Each row explained evaluates the
+ * model `(2 × features + 2048)` times for each background row, so a background
+ * of up to 100 rows keeps it quick.
  *
  * @param model - Any model blob
  * @param X_background - Background data for computing expected values
@@ -555,7 +562,9 @@ export const Shap = {
      * Create a SHAP KernelExplainer for any model.
      *
      * Works with any model (NGBoost, GP, Torch, etc.). Requires background
-     * data for computing expected values.
+     * data for computing expected values. Every feature is given its value,
+     * the same each run; each row explained evaluates the model
+     * `(2 × features + 2048)` times for each background row.
      *
      * @example
      * ```ts

@@ -79,13 +79,16 @@ describe('the check of what a python environment installed', () => {
     assert.strictEqual(lockExplainsCheck(`environment materialization: environment consistency check ('uv pip check --python .venv') failed:\n${said}\n`, settled), true,
       'as the build\'s error carries what uv said');
     assert.strictEqual(lockExplainsCheck(said.replace('`shared-lib<2`', '`Shared_Lib<2`'), settled), true, 'by the requirement\'s PEP 503 name');
+    // An override that installs nothing of a name, the idiom from before excludes:
+    // `left-lib ; sys_platform == 'never'`
+    assert.strictEqual(lockExplainsCheck(said, { overrides: ['left-lib', 'shared-lib'], excludes: [] }), true, 'an override that installs none of it');
   });
 
   it('fails one the settings do not name, a setting of the other kind, a count its lines do not make up, a line of another kind, and what is no account of incompatibilities', () => {
     for (const [settings, why] of [
       [{ overrides: ['shared-lib'], excludes: [] }, 'an exclude the lock does not name'],
       [{ overrides: [], excludes: ['left-lib'] }, 'an override the lock does not name'],
-      [{ overrides: ['left-lib'], excludes: ['shared-lib'] }, 'an override explains no missing distribution, and an exclude no other version'],
+      [{ overrides: ['left-lib'], excludes: ['shared-lib'] }, 'an exclude explains no other version installed'],
     ] as const) {
       assert.strictEqual(lockExplainsCheck(said, settings), false, why);
     }

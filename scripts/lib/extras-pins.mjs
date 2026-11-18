@@ -10,7 +10,7 @@
  * lock, and says where they part.
  */
 
-import { execFileSync } from 'node:child_process';
+import { canonicalName, lockedVersions, readToml } from './uv-lock.mjs';
 
 /**
  * The extras whose pins are held to a lock: for each package, the manifest,
@@ -24,22 +24,10 @@ export const PINNED_EXTRAS = [
   },
 ];
 
-/** A distribution's name as PEP 503 writes it. */
-function canonicalName(name) {
-  return name.toLowerCase().replace(/[-_.]+/g, '-');
-}
-
-/** Reads a manifest on its stdin as TOML, and writes its extras as JSON. */
-const READ_EXTRAS = [
-  'import json, sys, tomllib',
-  'manifest = tomllib.loads(sys.stdin.read())',
-  'json.dump(manifest.get("project", {}).get("optional-dependencies", {}), sys.stdout)',
-].join('\n');
-
 /**
  * The requirement strings of each extra of a `pyproject.toml`.
  *
- * The manifest is read as TOML by Python's `tomllib`, as
+ * The manifest is read as TOML by Python's `tomllib` ({@link readToml}), as
  * scripts/east-py-constraints.py reads one: what uv reads, this reads.
  *
  * @param pyproject - The manifest's text
@@ -48,42 +36,15 @@ const READ_EXTRAS = [
  *   `[project.optional-dependencies]` holds what is not an array of strings
  */
 export function extraRequirements(pyproject) {
-  let read;
-  try {
-    read = execFileSync('python3', ['-c', READ_EXTRAS], { input: pyproject, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
-  } catch (error) {
-    const said = typeof error.stderr === 'string' && error.stderr.trim() !== '' ? error.stderr.trim().split('\n').at(-1) : String(error);
-    throw new Error(`the manifest is not read as TOML: ${said}`);
-  }
+  const read = readToml(pyproject, 'json.dump(read.get("project", {}).get("optional-dependencies", {}), sys.stdout)', 'manifest');
   const extras = new Map();
-  for (const [name, requirements] of Object.entries(JSON.parse(read))) {
+  for (const [name, requirements] of Object.entries(read)) {
     if (!Array.isArray(requirements) || !requirements.every((requirement) => typeof requirement === 'string')) {
       throw new Error(`[project.optional-dependencies]: the extra '${name}' is not an array of strings`);
     }
     extras.set(name, requirements);
   }
   return extras;
-}
-
-/**
- * The versions a uv lock holds a package at.
- *
- * @param lock - The lock's text
- * @param name - The package
- * @returns Its versions, in the lock's order: more than one when the lock
- *   holds it at a version per platform
- */
-export function lockedVersions(lock, name) {
-  const wanted = canonicalName(name);
-  const versions = [];
-  for (const block of lock.split(/\n(?=\[\[package\]\])/)) {
-    if (!block.startsWith('[[package]]')) continue;
-    const named = block.match(/\nname\s*=\s*"([^"]+)"/)?.[1];
-    if (named === undefined || canonicalName(named) !== wanted) continue;
-    const version = block.match(/\nversion\s*=\s*"([^"]+)"/)?.[1];
-    if (version !== undefined) versions.push(version);
-  }
-  return versions;
 }
 
 /**

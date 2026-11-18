@@ -165,18 +165,24 @@ async function writePythonProject(
  * Whether a python environment's lock explains every incompatibility a failed
  * `uv pip check` of it found: each a distribution installed at another
  * version than a package depending on it asks, which the lock's workspace
- * overrides, or one not installed, which it excludes
+ * overrides, or one not installed, which it excludes or overrides away
  * ({@link pythonLockSettings}).
  *
  * @remarks
  * The check reads each installed distribution's own requirements, and knows
  * nothing of the settings the lock was resolved under: under an override of
  * `shap>=0.51.0`, econml's `shap<0.49.0` fails it, though the sync installed
- * the shap the lock holds. Any other incompatibility is the build's fault, a
- * local package the capture missed among them, and so is a line of any other
- * kind, and a count of incompatibilities that its lines do not make up.
+ * the shap the lock holds. An override may also install nothing of a name
+ * (`nvidia-nccl-cu12 ; sys_platform == 'never'`, the idiom from before
+ * excludes). Any other incompatibility is the build's fault, a local package
+ * the capture missed among them, and so is a line of any other kind, and a
+ * count of incompatibilities that its lines do not make up.
  *
- * @internal
+ * Every backend that builds an environment from its spec checks it with
+ * this, so a lock's settings pass alike wherever it is built; e3-core's spec
+ * runs the real `uv pip check`, so a uv that words its account otherwise
+ * fails there first.
+ *
  * @param said - What the failed check said, its error output among it
  * @param settings - The distributions the lock's workspace overrides and
  *   excludes, by PEP 503 name
@@ -193,7 +199,9 @@ export function lockExplainsCheck(said: string, settings: { readonly overrides: 
   return found.every((line) => {
     const read = /^The package `[^`]+` requires `([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)[^`]*`, but (?:(`[^`]+` is installed)|it's not installed)$/.exec(line);
     if (read === null) return false;
-    return (read[2] === undefined ? settings.excludes : settings.overrides).includes(canonicalPythonName(read[1]!));
+    const name = canonicalPythonName(read[1]!);
+    // Another version installed: an override's. None installed: an exclude's, or an override's that installs none.
+    return settings.overrides.includes(name) || (read[2] === undefined && settings.excludes.includes(name));
   });
 }
 

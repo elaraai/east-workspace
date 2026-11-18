@@ -5,8 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { lockedVersions } from '../lib/extras-pins.mjs';
-import { EAST_PY_PINS, EAST_PY_PINS_DIR } from '../set-python-version.mjs';
+import { canonicalName as canonical, lockPackages, lockedVersions } from '../lib/uv-lock.mjs';
+import { EAST_PY_PINS, EAST_PY_PINS_DIR, semverToPep440 } from '../set-python-version.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const script = path.join(repoRoot, 'scripts/east-py-constraints.py');
@@ -26,9 +26,6 @@ function write(from, ...flags) {
     fs.rmSync(out, { recursive: true, force: true });
   }
 }
-
-/** A distribution's name as PEP 503 writes it. */
-const canonical = (name) => name.toLowerCase().replace(/[-_.]+/g, '-');
 
 /**
  * What a constraints file pins: each pin by its name, version and marker, as
@@ -174,19 +171,20 @@ describe('the pins a release\'s east-py packages are installed under', { skip: h
     }
   });
 
-  it('writes for the release its lock is of, named as a tag names it or as PEP 440 does, and refuses another\'s', () => {
+  it('writes for the release its lock is of, named as PEP 440 writes it, as the bump names it, and refuses another\'s', () => {
     assert.equal(write(workspace, '--release', release).status, 0);
     const refused = write(workspace, '--release', '0.0.1');
     assert.equal(refused.status, 1);
-    assert.match(refused.stderr, new RegExp(`is release ${release.replaceAll('.', '\\.')}'s, not 0\\.0\\.1's: its pins are another release's`));
+    assert.match(refused.stderr, new RegExp(`is release ${release.replaceAll('.', '\\.')}'s, not 0\\.0\\.1's \\(--release names it as PEP 440 writes it, as the lock does\\): its pins are another release's`));
     assert.deepEqual(Object.values(refused.files), [null, null], 'nothing is written');
 
-    // A prerelease, as its tag names it: a copy of the lock at that version
+    // A prerelease: a copy of the lock at that version, named as the bump
+    // names it, by the one converter of a tag's version to PEP 440's
     const beta = copyOfRoot((manifest, locked) => ({ manifest,
       lock: locked.replaceAll(`version = "${release}"\nsource = { editable = `, 'version = "9.9.9b2"\nsource = { editable = ') }));
     try {
-      assert.equal(write(beta, '--release', '9.9.9-beta.2').status, 0, 'the tag\'s form');
-      assert.equal(write(beta, '--release', '9.9.9b2').status, 0, 'PEP 440\'s form');
+      assert.equal(write(beta, '--release', semverToPep440('9.9.9-beta.2')).status, 0, 'PEP 440\'s form, as the bump writes it');
+      assert.equal(write(beta, '--release', '9.9.9-beta.2').status, 1, 'not the tag\'s: nothing here converts it');
       assert.equal(write(beta, '--release', '9.9.9').status, 1, 'not the release it is a prerelease of');
     } finally {
       fs.rmSync(beta, { recursive: true, force: true });
@@ -260,7 +258,7 @@ describe('the east-py workspace\'s lock', () => {
     // it; an earlier xgboost asks for `nvidia-nccl-cu12`. Both are
     // `nvidia/nccl/lib/libnccl.so.2`, and with cu12's on top torch does not
     // import: `undefined symbol: ncclCommResume`.
-    const nccl = [...lock.matchAll(/^name = "(nvidia-nccl-[a-z0-9]+)"$/gm)].map((match) => match[1]);
+    const nccl = lockPackages(lock).map((locked) => canonical(locked.name)).filter((name) => name.startsWith('nvidia-nccl-'));
     assert.deepEqual([...new Set(nccl)], ['nvidia-nccl-cu13'], 'the one torch pins');
     assert.deepEqual(lockedVersions(lock, 'nvidia-nccl-cu13').length, 1);
     for (const version of lockedVersions(lock, 'xgboost')) {
@@ -277,21 +275,37 @@ describe('the image install script', { skip: process.platform === 'win32' ? 'an 
   /**
    * Runs the datascience layer's install with a `uv` and an `npm` that say
    * what they were asked. The npm serves `npm pack` of an @elaraai/e3-core
-   * whose pins are this checkout's, their first lines naming `published`;
-   * anything else it is asked fails.
+   * that ships the pin files `shipped`, this checkout's, their first lines
+   * naming `published`; anything else it is asked fails. The uv says a
+   * package it is asked to show is at `installed`, as an index spells the
+   * version it was asked for. The pins directory holds a base image's pins
+   * first when `base` is set.
    */
-  function run(version, { pinsDir = true, published = release, uv = true } = {}) {
+  function run(version, { pinsDir = true, published = release, installed = version, shipped = EAST_PY_PINS, base = false, uv = true } = {}) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'east-py-install-'));
     try {
       const bin = path.join(dir, 'bin');
       const tier = path.join(dir, 'e3-core', 'package', 'tier');
       fs.mkdirSync(bin);
       fs.mkdirSync(tier, { recursive: true });
-      for (const name of EAST_PY_PINS) {
+      fs.writeFileSync(path.join(dir, 'e3-core', 'package', 'package.json'), '{}\n');
+      for (const name of shipped) {
         const [, ...rest] = fs.readFileSync(path.join(kept, name), 'utf8').split('\n');
         fs.writeFileSync(path.join(tier, name), [`# The pins of release ${published} as published`, ...rest].join('\n'));
       }
-      if (uv) fs.writeFileSync(path.join(bin, 'uv'), `#!/bin/sh\nprintf '%s\\n' "$*" >> "${path.join(dir, 'uv-asked')}"\n`, { mode: 0o755 });
+      const keptPins = path.join(dir, 'pins');
+      if (base) {
+        fs.mkdirSync(keptPins);
+        for (const name of EAST_PY_PINS) fs.writeFileSync(path.join(keptPins, name), '# a base image\'s\n');
+      }
+      if (uv) {
+        fs.writeFileSync(path.join(bin, 'uv'), [
+          '#!/bin/sh',
+          `printf '%s\\n' "$*" >> "${path.join(dir, 'uv-asked')}"`,
+          `if [ "$1" = pip ] && [ "$2" = show ]; then printf 'Name: %s\\nVersion: %s\\n' "$3" '${installed}'; fi`,
+          '',
+        ].join('\n'), { mode: 0o755 });
+      }
       fs.writeFileSync(path.join(bin, 'npm'), [
         '#!/bin/sh',
         `printf '%s\\n' "$*" >> "${path.join(dir, 'npm-asked')}"`,
@@ -299,7 +313,6 @@ describe('the image install script', { skip: process.platform === 'win32' ? 'an 
         `exec tar -czf elaraai-e3-core.tgz -C "${path.join(dir, 'e3-core')}" package`,
         '',
       ].join('\n'), { mode: 0o755 });
-      const keptPins = path.join(dir, 'pins');
       // The tools the script runs, and no other: no uv of this machine's, nor its npm
       const tools = path.join(dir, 'tools');
       fs.mkdirSync(tools);
@@ -317,21 +330,46 @@ describe('the image install script', { skip: process.platform === 'win32' ? 'an 
     }
   }
 
-  it('installs a named release under the pins its published @elaraai/e3-core ships, and keeps them; and asks npm nothing else', () => {
+  /** What the script asks uv to install for the datascience layer, under the pins it keeps in `keptPins`. */
+  const pinned = (keptPins, version) => `pip install --constraint ${keptPins}/east-py-constraints.txt --override ${keptPins}/east-py-overrides.txt ` +
+    `elaraai-east-py-datascience[all]==${version}`;
+
+  it('installs a named release under the pins its published @elaraai/e3-core ships, holds them to the release uv installed, and keeps them; and asks npm nothing else', () => {
     const named = run(release);
     assert.equal(named.status, 0, named.stderr);
     assert.equal(named.npm.length, 1);
     assert.match(named.npm[0], new RegExp(`^pack --silent --cache \\S+ @elaraai/e3-core@${release.replaceAll('.', '\\.')}$`), 'the release\'s own e3-core');
-    assert.deepEqual(named.uv, [`pip install --constraint ${named.keptPins}/east-py-constraints.txt --override ${named.keptPins}/east-py-overrides.txt ` +
-      `elaraai-east-py-datascience[all]==${release}`]);
+    assert.deepEqual(named.uv, [pinned(named.keptPins, release), 'pip show elaraai-east-py-datascience']);
     assert.deepEqual(named.left, EAST_PY_PINS, 'and keeps them');
   });
 
-  it('refuses pins the published package says are another release\'s, and installs nothing', () => {
+  it('holds a prerelease named as its tag names it to the pins of the version uv installed, as PEP 440 writes it: nothing in the script spells it', () => {
+    const beta = run('9.9.9-beta.2', { published: '9.9.9b2', installed: '9.9.9b2' });
+    assert.equal(beta.status, 0, beta.stderr);
+    assert.deepEqual(beta.uv, [pinned(beta.keptPins, '9.9.9-beta.2'), 'pip show elaraai-east-py-datascience']);
+    const tagged = run('9.9.9-beta.2', { published: '9.9.9-beta.2', installed: '9.9.9b2' });
+    assert.equal(tagged.status, 1, 'pins named as the tag names the release are not as the bump writes them');
+  });
+
+  it('fails the build when the pins the published package ships are another release\'s than uv installed', () => {
     const other = run(release, { published: '0.0.1' });
     assert.equal(other.status, 1);
-    assert.match(other.stderr, new RegExp(`@elaraai/e3-core@${release.replaceAll('.', '\\.')}'s east-py-constraints\\.txt is not release ${release.replaceAll('.', '\\.')}'s`));
-    assert.deepEqual(other.uv, []);
+    assert.match(other.stderr, new RegExp(`@elaraai/e3-core@${release.replaceAll('.', '\\.')}'s east-py-constraints\\.txt is not release ${release.replaceAll('.', '\\.')}'s \\(${release.replaceAll('.', '\\.')}, as installed\\)`));
+  });
+
+  it('installs a release whose @elaraai/e3-core ships no pins, from before releases shipped them, under none, says so, and keeps none, a base image\'s included', () => {
+    const before = run(release, { shipped: [], base: true });
+    assert.equal(before.status, 0, before.stderr);
+    assert.match(before.stderr, new RegExp(`@elaraai/e3-core@${release.replaceAll('.', '\\.')} ships no python pins, as no release did before they were kept: its python packages are installed under none`));
+    assert.deepEqual(before.uv, [`pip install elaraai-east-py-datascience[all]==${release}`]);
+    assert.deepEqual(before.left, [], 'an image installed under no pins says it holds none');
+  });
+
+  it('refuses a published package that ships one of the two pin files, and installs nothing', () => {
+    const half = run(release, { shipped: [EAST_PY_PINS[0]] });
+    assert.equal(half.status, 1);
+    assert.match(half.stderr, /ships one of its two python pin files/);
+    assert.deepEqual(half.uv, []);
   });
 
   it('installs `latest` under no pins, and keeps none; and a named release with nowhere to keep pins as it is asked', () => {

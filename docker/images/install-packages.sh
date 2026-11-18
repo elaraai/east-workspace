@@ -14,7 +14,8 @@
 #   scripts/east-py-constraints.py at the release's version bump). They are
 #   fetched from npm, never taken from a checkout, whose pins are its lock's
 #   as it stands; an image then holds what its release was tested with.
-#   `latest` is installed under none, and keeps none.
+#   `latest` is installed under none, and keeps none; so is a release from
+#   before releases shipped pins, as it was built then, and the build says so.
 #
 # Flags (each selects one image's package set; default = the e3 everything image):
 #   --node-only    East's Node.js packages only (east-node image: no e3, no
@@ -183,26 +184,29 @@ if [ "$INSTALL_PYTHON" = true ] || [ "$INSTALL_DATASCIENCE" = true ]; then
     # the release's own, as its published @elaraai/e3-core ships them, and
     # name the release in their first line. `latest` is installed under none,
     # and keeps none, a base image's included, so no image says it holds pins
-    # it does not.
+    # it does not; and so is a release whose e3-core ships none, one from
+    # before releases shipped them, which is then built as it was.
     EAST_PY_PINS=()
     if [ -n "${EAST_PY_PINS_DIR:-}" ] && [ "$EAST_PY_VERSION" = "latest" ]; then
         rm -f "${EAST_PY_PINS_DIR}/east-py-constraints.txt" "${EAST_PY_PINS_DIR}/east-py-overrides.txt"
     elif [ -n "${EAST_PY_PINS_DIR:-}" ]; then
         FETCHED="$(mktemp -d)"
         ( cd "$FETCHED" && npm pack --silent --cache "$FETCHED/.npm" "@elaraai/e3-core@${EAST_PY_VERSION}" > /dev/null )
-        tar -xzf "$FETCHED"/*.tgz -C "$FETCHED" package/tier/east-py-constraints.txt package/tier/east-py-overrides.txt
-        mkdir -p "$EAST_PY_PINS_DIR"
-        cp "$FETCHED"/package/tier/east-py-constraints.txt "$FETCHED"/package/tier/east-py-overrides.txt "$EAST_PY_PINS_DIR"/
+        LISTED="$(tar -tzf "$FETCHED"/*.tgz)"
+        SHIPPED="$(printf '%s\n' "$LISTED" | grep -cxE 'package/tier/east-py-(constraints|overrides)\.txt' || true)"
+        if [ "$SHIPPED" = 0 ]; then
+            echo "@elaraai/e3-core@${EAST_PY_VERSION} ships no python pins, as no release did before they were kept: its python packages are installed under none" >&2
+            rm -f "${EAST_PY_PINS_DIR}/east-py-constraints.txt" "${EAST_PY_PINS_DIR}/east-py-overrides.txt"
+        elif [ "$SHIPPED" = 2 ]; then
+            tar -xzf "$FETCHED"/*.tgz -C "$FETCHED" package/tier/east-py-constraints.txt package/tier/east-py-overrides.txt
+            mkdir -p "$EAST_PY_PINS_DIR"
+            cp "$FETCHED"/package/tier/east-py-constraints.txt "$FETCHED"/package/tier/east-py-overrides.txt "$EAST_PY_PINS_DIR"/
+            EAST_PY_PINS=(--constraint "${EAST_PY_PINS_DIR}/east-py-constraints.txt" --override "${EAST_PY_PINS_DIR}/east-py-overrides.txt")
+        else
+            echo "@elaraai/e3-core@${EAST_PY_VERSION} ships one of its two python pin files" >&2
+            exit 1
+        fi
         rm -rf "$FETCHED"
-        # A release's version as PEP 440 writes it, which is how the pins name it
-        EAST_PY_RELEASE="$(printf '%s' "$EAST_PY_VERSION" | sed -E 's/-alpha\./a/; s/-beta\./b/; s/-rc\./rc/')"
-        for pins in east-py-constraints.txt east-py-overrides.txt; do
-            if ! head -n 1 "${EAST_PY_PINS_DIR}/${pins}" | grep -qF " of release ${EAST_PY_RELEASE} "; then
-                echo "@elaraai/e3-core@${EAST_PY_VERSION}'s ${pins} is not release ${EAST_PY_VERSION}'s" >&2
-                exit 1
-            fi
-        done
-        EAST_PY_PINS=(--constraint "${EAST_PY_PINS_DIR}/east-py-constraints.txt" --override "${EAST_PY_PINS_DIR}/east-py-overrides.txt")
     fi
     if [ "$INSTALL_PYTHON" = true ]; then
         PYTHON_INSTALLED=true
@@ -221,6 +225,25 @@ if [ "$INSTALL_PYTHON" = true ] || [ "$INSTALL_DATASCIENCE" = true ]; then
     if [ "$INSTALL_DATASCIENCE" = true ]; then
         DATASCIENCE_INSTALLED=true
         uv pip install "${EAST_PY_PINS[@]}" "elaraai-east-py-datascience[all]${EAST_PY_PIN}"
+    fi
+    # The pins name the release they are of as PEP 440 writes it, and are
+    # this release's, or the build fails: compared with the version uv
+    # installed, the index's own spelling of EAST_PY_VERSION, so nothing here
+    # spells a version that the release's bump (scripts/set-python-version.mjs)
+    # must agree with.
+    if [ ${#EAST_PY_PINS[@]} -gt 0 ]; then
+        if [ "$INSTALL_DATASCIENCE" = true ]; then RELEASED=elaraai-east-py-datascience; else RELEASED=elaraai-east-py; fi
+        EAST_PY_RELEASE="$(uv pip show "$RELEASED" | sed -n 's/^Version: //p')"
+        if [ -z "$EAST_PY_RELEASE" ]; then
+            echo "${RELEASED} is not installed: the pins cannot be held to its release" >&2
+            exit 1
+        fi
+        for pins in east-py-constraints.txt east-py-overrides.txt; do
+            if ! head -n 1 "${EAST_PY_PINS_DIR}/${pins}" | grep -qF " of release ${EAST_PY_RELEASE} "; then
+                echo "@elaraai/e3-core@${EAST_PY_VERSION}'s ${pins} is not release ${EAST_PY_VERSION}'s (${EAST_PY_RELEASE}, as installed)" >&2
+                exit 1
+            fi
+        done
     fi
 fi
 

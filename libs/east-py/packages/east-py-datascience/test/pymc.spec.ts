@@ -8,8 +8,12 @@
  */
 import { East, variant, ArrayType } from "@elaraai/east";
 import { describeEast, Assert } from "@elaraai/east-node-std";
-import { PyMC, PyMCLayerSpecType } from "@elaraai/east-py-datascience";
+import { PyMC, PyMCLayerSpecType, PyMCModelBlobType } from "@elaraai/east-py-datascience";
 import * as ex from "./pymc.examples.js";
+
+/** A pickle that names a module these libraries do not have, as a trace an
+ *  earlier release saved names arviz's InferenceData, which arviz 1.x removed. */
+const unreadable = new TextEncoder().encode("cno_such_module_of_east\nInferenceData\n.");
 
 describeEast("PyMC platform functions", (test) => {
 
@@ -323,6 +327,11 @@ describeEast("PyMC platform functions", (test) => {
         ]), predict_config));
 
         $(Assert.equal(predictions.rows(), 2n));
+    });
+
+    test("error: a model an earlier release saved, whose libraries this one no longer has, is to be trained again", $ => {
+        const model = $.let(variant('pymc_regression', { data: unreadable, n_features: 1n, n_targets: 1n, include_intercept: true }), PyMCModelBlobType);
+        $(Assert.throws(PyMC.diagnostics(model), /saved by an earlier release of east-py-datascience.*train it again with this release/));
     });
 
     test("error: shape mismatch", $ => {

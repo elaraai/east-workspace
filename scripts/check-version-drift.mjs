@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { EAST_PY_PINS, EAST_PY_PINS_DIR, semverToPep440 } from './set-python-version.mjs';
 import { PINNED_EXTRAS, extrasPinErrors } from './lib/extras-pins.mjs';
+import { lockPackages } from './lib/uv-lock.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
@@ -112,21 +113,20 @@ for (const rel of PYPROJECTS) {
 // track the canonical version too, else every `uv sync` rewrites the lock and
 // it ships stale. set-python-version.mjs re-locks on bump; this enforces it.
 const UV_LOCK = 'libs/east-py/uv.lock';
-const lockRaw = fs.readFileSync(path.join(repoRoot, UV_LOCK), 'utf8');
-let lockMembersChecked = 0;
-for (const block of lockRaw.split(/\n(?=\[\[package\]\])/)) {
-  if (!block.startsWith('[[package]]')) continue;
-  if (!/source\s*=\s*\{\s*editable\s*=/.test(block)) continue;
-  const name = block.match(/\nname\s*=\s*"([^"]+)"/)?.[1];
-  if (!name?.startsWith('elaraai-east-py')) continue;
-  const v = block.match(/\nversion\s*=\s*"([^"]+)"/)?.[1];
-  lockMembersChecked++;
-  if (v !== expectedPep440) {
-    errors.push(`${UV_LOCK} (${name}): ${v} ≠ ${expectedPep440} (PEP 440 of ${canonical})`);
+let lockMembers = [];
+try {
+  lockMembers = lockPackages(fs.readFileSync(path.join(repoRoot, UV_LOCK), 'utf8'))
+    .filter((locked) => locked.editable && typeof locked.name === 'string' && locked.name.startsWith('elaraai-east-py'));
+} catch (error) {
+  errors.push(`${UV_LOCK}: ${error instanceof Error ? error.message : String(error)}`);
+}
+for (const { name, version } of lockMembers) {
+  if (version !== expectedPep440) {
+    errors.push(`${UV_LOCK} (${name}): ${version} ≠ ${expectedPep440} (PEP 440 of ${canonical})`);
   }
 }
-if (lockMembersChecked === 0) {
-  errors.push(`${UV_LOCK}: found no editable east-py members to verify (parse failure?)`);
+if (lockMembers.length === 0) {
+  errors.push(`${UV_LOCK}: found no editable east-py members to verify`);
 }
 
 // The pins the release's python packages are installed under name the

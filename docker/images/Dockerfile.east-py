@@ -46,16 +46,20 @@ ENV PATH="/root/.local/bin:$PATH"
 
 # Python 3.12, as uv builds it, which the east-py packages need: the system's
 # is 3.11. Kept under /opt/python, which every user of the image reads; it
-# carries its own headers, for an extension that builds from source.
-ENV UV_PYTHON_INSTALL_DIR="/opt/python"
-RUN uv python install 3.12
+# carries its own headers, for an extension that builds from source. Linked
+# as python3.12 on every user's PATH, where uv finds it for a virtualenv of
+# 3.12. /opt/python is where this install puts it, not uv's setting: a Python
+# uv fetches later, for an environment of another, goes where it would for
+# that user, which /opt/python, root's, is not.
+RUN UV_PYTHON_INSTALL_DIR=/opt/python uv python install 3.12 && \
+    ln -sf "$(UV_PYTHON_INSTALL_DIR=/opt/python uv python find --managed-python 3.12)" /usr/local/bin/python3.12
 
 # The virtualenv the image's tasks run in, made by that Python, without pip:
 # it then holds what install-packages.sh installs into it with uv, under a
 # release's pins, and its tier manifest names nothing else. Made with pip, it
 # would also hold the pip and setuptools a Python seeds a virtualenv with,
 # which no package here needs, at versions the release's pins do not.
-RUN "$(uv python find --managed-python 3.12)" -m venv --without-pip /opt/venv
+RUN "$(UV_PYTHON_INSTALL_DIR=/opt/python uv python find --managed-python 3.12)" -m venv --without-pip /opt/venv
 ENV VIRTUAL_ENV="/opt/venv"
 ENV PATH="/opt/venv/bin:$PATH"
 

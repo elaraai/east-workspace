@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Exact @elaraai package version to bake (e.g. 1.0.5). Empty = resolve from the release channel. The python images install under the pins that release''s published @elaraai/e3-core ships, whatever ref this runs on.'
+        description: 'Exact @elaraai package version to bake (e.g. 1.0.5). Empty = resolve from the release channel. The python images install under the pins that release''s published @elaraai/e3-core ships, whatever ref this runs on, or under none for a release from before releases shipped them.'
         required: false
         type: string
       release_type:
@@ -34,9 +34,13 @@ jobs:
     name: Run tests
     runs-on: ubuntu-latest
     # The one version every image is built at: the build jobs take it from
-    # here, so each builds what this job tested
+    # here, so each builds what this job tested. Packages release in
+    # lockstep, so every package an image installs is at it. `pinned` is the
+    # version a tag or a dispatch names, which the images are tagged with too;
+    # empty for a dispatch that names none, built at its channel's.
     outputs:
       version: ${{ steps.pin.outputs.version }}
+      pinned: ${{ steps.pin.outputs.pinned }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -71,9 +75,12 @@ jobs:
         id: pin
         run: |
           if [[ "${{ github.ref_type }}" == "tag" ]]; then
-            VERSION="${GITHUB_REF_NAME#v}"
-          elif [[ -n "${{ inputs.version }}" ]]; then
-            VERSION="${{ inputs.version }}"
+            PINNED="${GITHUB_REF_NAME#v}"
+          else
+            PINNED="${{ inputs.version }}"
+          fi
+          if [[ -n "$PINNED" ]]; then
+            VERSION="$PINNED"
           else
             # @elaraai/east-c-cli is the npm proxy for the lockstep version
             if [[ "${{ inputs.release_type }}" == "beta" ]]; then
@@ -95,6 +102,8 @@ jobs:
             --pypi elaraai-east-py elaraai-east-py-std elaraai-east-py-io elaraai-east-py-cli elaraai-east-py-datascience
           echo "EAST_RELEASE_VERSION=${VERSION}" >> "$GITHUB_ENV"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "pinned=${PINNED}" >> "$GITHUB_OUTPUT"
+          echo "Every package at ${VERSION} (${PINNED:-the ${{ inputs.release_type || 'latest' }} channel's})"
 
       - name: Run tests (quick)
         run: bash docker/tests/test-docker-builds.sh
@@ -110,35 +119,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22.x
-          registry-url: 'https://registry.npmjs.org'
-
-      - name: Get package versions
-        id: versions
-        run: |
-          CHANNEL="${{ inputs.release_type || 'latest' }}"
-          echo "channel=${CHANNEL}" >> $GITHUB_OUTPUT
-
-          # Packages release in lockstep: every package is at the one version
-          # the test job resolved and tested. PINNED is the version a tag or a
-          # dispatch names, which the image is tagged with too.
-          if [[ "${{ github.ref_type }}" == "tag" ]]; then
-            PINNED="${GITHUB_REF_NAME#v}"
-          else
-            PINNED="${{ inputs.version }}"
-          fi
-          VERSION="${{ needs.test.outputs.version }}"
-          echo "pinned=${PINNED}" >> $GITHUB_OUTPUT
-          echo "east=${VERSION}" >> $GITHUB_OUTPUT
-          echo "east_node_std=${VERSION}" >> $GITHUB_OUTPUT
-          echo "east_node_io=${VERSION}" >> $GITHUB_OUTPUT
-          echo "east_node_cli=${VERSION}" >> $GITHUB_OUTPUT
-          echo "east_ui=${VERSION}" >> $GITHUB_OUTPUT
-          echo "Every package at ${VERSION} (${PINNED:-$CHANNEL})"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -158,8 +138,8 @@ jobs:
           images: ${{ env.REGISTRY }}/elaraai/east-node
           tags: |
             type=ref,event=tag
-            type=raw,value=${{ steps.versions.outputs.pinned }},enable=${{ steps.versions.outputs.pinned != '' }}
-            type=raw,value=${{ steps.versions.outputs.channel }},enable=true
+            type=raw,value=${{ needs.test.outputs.pinned }},enable=${{ needs.test.outputs.pinned != '' }}
+            type=raw,value=${{ inputs.release_type || 'latest' }},enable=true
             type=raw,value=latest,enable=${{ inputs.release_type == 'latest' || github.ref_type == 'tag' }}
             type=sha,prefix=
 
@@ -174,11 +154,11 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
-            EAST_VERSION=${{ steps.versions.outputs.east }}
-            EAST_NODE_STD_VERSION=${{ steps.versions.outputs.east_node_std }}
-            EAST_NODE_IO_VERSION=${{ steps.versions.outputs.east_node_io }}
-            EAST_NODE_CLI_VERSION=${{ steps.versions.outputs.east_node_cli }}
-            EAST_UI_VERSION=${{ steps.versions.outputs.east_ui }}
+            EAST_VERSION=${{ needs.test.outputs.version }}
+            EAST_NODE_STD_VERSION=${{ needs.test.outputs.version }}
+            EAST_NODE_IO_VERSION=${{ needs.test.outputs.version }}
+            EAST_NODE_CLI_VERSION=${{ needs.test.outputs.version }}
+            EAST_UI_VERSION=${{ needs.test.outputs.version }}
 
   build-e3:
     name: Build e3 (BSL + AGPL)
@@ -191,43 +171,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22.x
-          registry-url: 'https://registry.npmjs.org'
-
-      - name: Get package versions
-        id: versions
-        run: |
-          CHANNEL="${{ inputs.release_type || 'latest' }}"
-          echo "channel=${CHANNEL}" >> $GITHUB_OUTPUT
-
-          # Packages release in lockstep: every package is at the one version
-          # the test job resolved and tested. PINNED is the version a tag or a
-          # dispatch names, which the image is tagged with too.
-          if [[ "${{ github.ref_type }}" == "tag" ]]; then
-            PINNED="${GITHUB_REF_NAME#v}"
-          else
-            PINNED="${{ inputs.version }}"
-          fi
-          VERSION="${{ needs.test.outputs.version }}"
-          echo "pinned=${PINNED}" >> $GITHUB_OUTPUT
-          echo "east=${VERSION}" >> $GITHUB_OUTPUT
-          echo "east_node_std=${VERSION}" >> $GITHUB_OUTPUT
-          echo "east_node_io=${VERSION}" >> $GITHUB_OUTPUT
-          echo "east_node_cli=${VERSION}" >> $GITHUB_OUTPUT
-          echo "east_ui=${VERSION}" >> $GITHUB_OUTPUT
-          echo "e3=${VERSION}" >> $GITHUB_OUTPUT
-          echo "e3_types=${VERSION}" >> $GITHUB_OUTPUT
-          echo "e3_core=${VERSION}" >> $GITHUB_OUTPUT
-          echo "e3_cli=${VERSION}" >> $GITHUB_OUTPUT
-          echo "e3_api_client=${VERSION}" >> $GITHUB_OUTPUT
-          echo "e3_api_server=${VERSION}" >> $GITHUB_OUTPUT
-          echo "east_c_cli=${VERSION}" >> $GITHUB_OUTPUT
-          echo "east_py=${VERSION}" >> $GITHUB_OUTPUT
-          echo "Every package at ${VERSION} (${PINNED:-$CHANNEL})"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -247,8 +190,8 @@ jobs:
           images: ${{ env.REGISTRY }}/elaraai/e3
           tags: |
             type=ref,event=tag
-            type=raw,value=${{ steps.versions.outputs.pinned }},enable=${{ steps.versions.outputs.pinned != '' }}
-            type=raw,value=${{ steps.versions.outputs.channel }},enable=true
+            type=raw,value=${{ needs.test.outputs.pinned }},enable=${{ needs.test.outputs.pinned != '' }}
+            type=raw,value=${{ inputs.release_type || 'latest' }},enable=true
             type=raw,value=latest,enable=${{ inputs.release_type == 'latest' || github.ref_type == 'tag' }}
             type=sha,prefix=
 
@@ -263,19 +206,19 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
-            EAST_VERSION=${{ steps.versions.outputs.east }}
-            EAST_NODE_STD_VERSION=${{ steps.versions.outputs.east_node_std }}
-            EAST_NODE_IO_VERSION=${{ steps.versions.outputs.east_node_io }}
-            EAST_NODE_CLI_VERSION=${{ steps.versions.outputs.east_node_cli }}
-            EAST_UI_VERSION=${{ steps.versions.outputs.east_ui }}
-            E3_VERSION=${{ steps.versions.outputs.e3 }}
-            E3_TYPES_VERSION=${{ steps.versions.outputs.e3_types }}
-            E3_CORE_VERSION=${{ steps.versions.outputs.e3_core }}
-            E3_CLI_VERSION=${{ steps.versions.outputs.e3_cli }}
-            E3_API_CLIENT_VERSION=${{ steps.versions.outputs.e3_api_client }}
-            E3_API_SERVER_VERSION=${{ steps.versions.outputs.e3_api_server }}
-            EAST_C_CLI_VERSION=${{ steps.versions.outputs.east_c_cli }}
-            EAST_PY_VERSION=${{ steps.versions.outputs.east_py }}
+            EAST_VERSION=${{ needs.test.outputs.version }}
+            EAST_NODE_STD_VERSION=${{ needs.test.outputs.version }}
+            EAST_NODE_IO_VERSION=${{ needs.test.outputs.version }}
+            EAST_NODE_CLI_VERSION=${{ needs.test.outputs.version }}
+            EAST_UI_VERSION=${{ needs.test.outputs.version }}
+            E3_VERSION=${{ needs.test.outputs.version }}
+            E3_TYPES_VERSION=${{ needs.test.outputs.version }}
+            E3_CORE_VERSION=${{ needs.test.outputs.version }}
+            E3_CLI_VERSION=${{ needs.test.outputs.version }}
+            E3_API_CLIENT_VERSION=${{ needs.test.outputs.version }}
+            E3_API_SERVER_VERSION=${{ needs.test.outputs.version }}
+            EAST_C_CLI_VERSION=${{ needs.test.outputs.version }}
+            EAST_PY_VERSION=${{ needs.test.outputs.version }}
             EAST_PY_CACHEBUST=${{ github.run_id }}
 
   build-east-py:
@@ -285,37 +228,11 @@ jobs:
     permissions:
       contents: read
       packages: write
-    outputs:
-      version: ${{ steps.versions.outputs.version }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22.x
-          registry-url: 'https://registry.npmjs.org'
-
-      - name: Get package versions
-        id: versions
-        run: |
-          CHANNEL="${{ inputs.release_type || 'latest' }}"
-          echo "channel=${CHANNEL}" >> $GITHUB_OUTPUT
-
-          # Packages release in lockstep: every package is at the one version
-          # the test job resolved and tested. PINNED is the version a tag or a
-          # dispatch names, which the image is tagged with too.
-          if [[ "${{ github.ref_type }}" == "tag" ]]; then
-            PINNED="${GITHUB_REF_NAME#v}"
-          else
-            PINNED="${{ inputs.version }}"
-          fi
-          VERSION="${{ needs.test.outputs.version }}"
-          echo "pinned=${PINNED}" >> $GITHUB_OUTPUT
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "Lockstep version: ${VERSION}"
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -334,8 +251,8 @@ jobs:
           images: ${{ env.REGISTRY }}/elaraai/east-py
           tags: |
             type=ref,event=tag
-            type=raw,value=${{ steps.versions.outputs.pinned }},enable=${{ steps.versions.outputs.pinned != '' }}
-            type=raw,value=${{ steps.versions.outputs.channel }},enable=true
+            type=raw,value=${{ needs.test.outputs.pinned }},enable=${{ needs.test.outputs.pinned != '' }}
+            type=raw,value=${{ inputs.release_type || 'latest' }},enable=true
             type=raw,value=latest,enable=${{ inputs.release_type == 'latest' || github.ref_type == 'tag' }}
             type=sha,prefix=
 
@@ -350,13 +267,13 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
-            EAST_PY_VERSION=${{ steps.versions.outputs.version }}
+            EAST_PY_VERSION=${{ needs.test.outputs.version }}
             EAST_PY_CACHEBUST=${{ github.run_id }}
 
   build-east-py-datascience:
     name: Build east-py-datascience (BUSL, FROM east-py)
     # FROM-chained: consumes the east-py image this run just pushed.
-    needs: build-east-py
+    needs: [test, build-east-py]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -384,7 +301,7 @@ jobs:
           images: ${{ env.REGISTRY }}/elaraai/east-py-datascience
           tags: |
             type=ref,event=tag
-            type=raw,value=${{ needs.build-east-py.outputs.version }},enable=true
+            type=raw,value=${{ needs.test.outputs.version }},enable=true
             type=raw,value=${{ inputs.release_type || 'latest' }},enable=true
             type=raw,value=latest,enable=${{ inputs.release_type == 'latest' || github.ref_type == 'tag' }}
             type=sha,prefix=
@@ -400,7 +317,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
-            EAST_PY_VERSION=${{ needs.build-east-py.outputs.version }}
+            EAST_PY_VERSION=${{ needs.test.outputs.version }}
             EAST_PY_CACHEBUST=${{ github.run_id }}
 
   build-east-c:
@@ -415,30 +332,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22.x
-          registry-url: 'https://registry.npmjs.org'
-
-      - name: Get package versions
-        id: versions
-        run: |
-          CHANNEL="${{ inputs.release_type || 'latest' }}"
-          echo "channel=${CHANNEL}" >> $GITHUB_OUTPUT
-
-          # Packages release in lockstep: every package is at the one version
-          # the test job resolved and tested. PINNED is the version a tag or a
-          # dispatch names, which the image is tagged with too.
-          if [[ "${{ github.ref_type }}" == "tag" ]]; then
-            PINNED="${GITHUB_REF_NAME#v}"
-          else
-            PINNED="${{ inputs.version }}"
-          fi
-          VERSION="${{ needs.test.outputs.version }}"
-          echo "pinned=${PINNED}" >> $GITHUB_OUTPUT
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "Lockstep version: ${VERSION}"
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -457,8 +350,8 @@ jobs:
           images: ${{ env.REGISTRY }}/elaraai/east-c
           tags: |
             type=ref,event=tag
-            type=raw,value=${{ steps.versions.outputs.pinned }},enable=${{ steps.versions.outputs.pinned != '' }}
-            type=raw,value=${{ steps.versions.outputs.channel }},enable=true
+            type=raw,value=${{ needs.test.outputs.pinned }},enable=${{ needs.test.outputs.pinned != '' }}
+            type=raw,value=${{ inputs.release_type || 'latest' }},enable=true
             type=raw,value=latest,enable=${{ inputs.release_type == 'latest' || github.ref_type == 'tag' }}
             type=sha,prefix=
 
@@ -473,7 +366,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
-            EAST_C_CLI_VERSION=${{ steps.versions.outputs.version }}
+            EAST_C_CLI_VERSION=${{ needs.test.outputs.version }}
 
   images-complete:
     name: Verify complete tier set
@@ -482,13 +375,13 @@ jobs:
     # (envHash, e3Version) and assumes EVERY tier base exists at that version.
     # Verifies each image resolves anonymously (also catches a ghcr package
     # accidentally left Private — a private base 401s at FROM).
-    needs: [build-east-node, build-e3, build-east-py, build-east-py-datascience, build-east-c]
+    needs: [test, build-east-node, build-e3, build-east-py, build-east-py-datascience, build-east-c]
     if: ${{ github.event_name != 'pull_request' && (github.event.inputs.push != 'false') }}
     runs-on: ubuntu-latest
     steps:
       - name: Inspect all image manifests anonymously
         run: |
-          VERSION="${{ needs.build-east-py.outputs.version }}"
+          VERSION="${{ needs.test.outputs.version }}"
           echo "Verifying all five images at :${VERSION} (anonymous pulls)"
           docker logout ghcr.io 2>/dev/null || true
           FAILED=0

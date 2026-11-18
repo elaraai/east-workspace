@@ -85,9 +85,13 @@ def _as_category(col: Any, idx: int, func_name: str, n_cats: int | None, check: 
         return col.astype(int).astype("category")
     if check:
         _check_integer_codes(col, idx, func_name)
-    # Codes outside [0, n_cats) become NaN, which XGBoost handles natively.
-    values = [int(v) if pd.notna(v) else np.nan for v in col.values]
-    return pd.Categorical(values, categories=range(n_cats))
+    # Codes outside [0, n_cats) become NaN, which XGBoost handles natively:
+    # the code -1 is a categorical's missing value. Truncated toward zero, as
+    # int() takes a code, and the whole column at once: an explainer encodes
+    # hundreds of thousands of synthetic rows for each row it explains.
+    codes = np.trunc(col.to_numpy(dtype=np.float64))
+    inside = np.isfinite(codes) & (codes >= 0) & (codes < n_cats)
+    return pd.Categorical.from_codes(np.where(inside, codes, -1).astype(np.int64), categories=range(n_cats))
 
 
 def prepare_categorical(

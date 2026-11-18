@@ -20,14 +20,22 @@ Each module has its own optional Python dependencies to avoid installing unneces
 
 ```bash
 # Single extra
-pip install "east-py-datascience[scipy]"
+uv pip install "elaraai-east-py-datascience[scipy]"
 
 # Multiple extras
-pip install "east-py-datascience[scipy,sklearn,xgboost]"
+uv pip install "elaraai-east-py-datascience[scipy,sklearn,xgboost]"
 
-# All extras
-pip install "east-py-datascience[all]"
+# All extras, under the release's overrides (east-py-overrides.txt, below)
+uv pip install --override east-py-overrides.txt "elaraai-east-py-datascience[all]"
 ```
+
+**`all`, or `causal` with `shap`, takes the release's overrides, and so uv.**
+econml, which `causal` installs, asks for a shap before 0.49, and that shap
+cannot read the models of the xgboost the extras install (`could not convert
+string to float`). The release overrides it (`shap>=0.51.0`). pip takes no
+overrides: installed with pip, these extras resolve, and
+`Shap.treeExplainerCreate` fails on every XGBoost model. Any other extras
+install with pip as with uv.
 
 **Python 3.12 or later.** xgboost 3.4, whose NCCL library is the CUDA 13 one
 torch uses, needs it. Give your project's `requires-python` a floor of 3.12
@@ -83,7 +91,7 @@ shap that reads current xgboost models.
 
 When using a git dependency in `pyproject.toml`:
 ```toml
-"east-py-datascience[scipy] @ git+https://github.com/elaraai/east-workspace@main#subdirectory=libs/east-py/packages/east-py-datascience"
+"elaraai-east-py-datascience[scipy] @ git+https://github.com/elaraai/east-workspace@main#subdirectory=libs/east-py/packages/east-py-datascience"
 ```
 
 | Module | Extra | Python Packages |

@@ -8,6 +8,8 @@ Provides model-agnostic feature importance and explainability using SHAP values.
 Uses cloudpickle for explainer serialization.
 """
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 import numpy as np
 from east import some
@@ -29,6 +31,31 @@ from east_py_datascience.types import (
 )
 
 _check_shap_support = extra_guard("shap", "shap", "SHAP")
+
+#: The most rows of background a KernelExplainer this module chooses is given:
+#: shap's own advice, past which it warns of slow runs. Each row explained
+#: evaluates the model on ``(2 * features + 2048)`` coalitions of each row.
+KERNEL_BACKGROUND_ROWS = 100
+
+#: The seed of the coalitions a KernelExplainer samples, and of the sample of
+#: a background past :data:`KERNEL_BACKGROUND_ROWS`: an explanation is the
+#: same each run.
+KERNEL_SEED = 0
+
+
+@contextmanager
+def _seeded() -> Iterator[None]:
+    """numpy's global random state seeded with :data:`KERNEL_SEED` for the block, as it was after.
+
+    shap's KernelExplainer samples coalitions with numpy's global functions
+    and takes no seed of its own.
+    """
+    state = np.random.get_state()
+    np.random.seed(KERNEL_SEED)
+    try:
+        yield
+    finally:
+        np.random.set_state(state)
 
 
 # ============================================================================
@@ -138,8 +165,13 @@ def shap_tree_explainer_create(
               model trained with categorical features (an XGBoost model, or a
               MAPIE model over one) the values are KernelExplainer's: the
               model's raw margin, its categorical encoding replayed,
-              explained against the background - exact for up to 11
-              features, estimated beyond.
+              explained against the background (a seeded sample of
+              :data:`KERNEL_BACKGROUND_ROWS` of its rows, when it has more).
+              Every feature is given its value: exact for up to 11
+              features, estimated beyond from a seeded sample of
+              coalitions, the same each run. Each row explained evaluates
+              the model ``(2 * features + 2048)`` times for each background
+              row, so explaining many rows takes a while.
 
     Returns:
         ``ShapModelBlobType`` (``EastVariant``) with ``{data: Blob
@@ -173,13 +205,18 @@ def shap_tree_explainer_create(
         # it cannot explain categorical splits against a background, and shap
         # refuses it. KernelExplainer explains the same output, the model's
         # raw margin, with the training-time categorical encoding replayed,
-        # against the same background.
+        # against the same background: summarised past the rows it explains
+        # in reasonable time, as shap advises, by a seeded sample of real rows
+        # (a k-means centre is no category).
         explainer_tag = "shap_kernel_explainer"
+        background = config_value["background"].to_numpy()
+        if background.shape[0] > KERNEL_BACKGROUND_ROWS:
+            background = shap.sample(background, KERNEL_BACKGROUND_ROWS, random_state=KERNEL_SEED)
         try:
             with quiet_warnings():
                 explainer = shap.KernelExplainer(
                     _margin_fn(model, cat_indices, categorical_n, function_name),
-                    config_value["background"].to_numpy(),
+                    background,
                 )
         except Exception as e:
             raise RuntimeError(
@@ -354,8 +391,12 @@ def shap_kernel_explainer_create(
 
     Model-agnostic explainer that treats the model as a black box and
     approximates SHAP values via weighted linear regression over coalition
-    samples.  Slower than :func:`shap_tree_explainer_create` but
-    supports all model types in ``AnyModelBlobType``, including:
+    samples: every feature is given its value, exactly for up to 11
+    features, and beyond from a seeded sample of coalitions, the same each
+    run.  Slower than :func:`shap_tree_explainer_create` - each row explained
+    evaluates the model ``(2 * features + 2048)`` times for each background
+    row, so a background of up to :data:`KERNEL_BACKGROUND_ROWS` rows keeps it
+    quick - but supports all model types in ``AnyModelBlobType``, including:
 
     - XGBoost / LightGBM regressors and classifiers.
     - Torch MLP, NGBoost, Gaussian Process.
@@ -477,7 +518,14 @@ def shap_compute_values(
     try:
         # Suppress SHAP warnings
         with quiet_warnings():
-            shap_values = explainer.shap_values(X_np)
+            if explainer_blob.type == "shap_kernel_explainer":
+                # Every feature its value: shap's default selects ten by LARS
+                # and gives the rest exactly 0. Seeded, so the coalitions it
+                # samples past 11 features are the same each run.
+                with _seeded():
+                    shap_values = explainer.shap_values(X_np, l1_reg=False, silent=True)
+            else:
+                shap_values = explainer.shap_values(X_np)
     except Exception as e:
         raise RuntimeError(
             f"{function_name}: Failed to compute SHAP values - {e}"

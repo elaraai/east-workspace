@@ -3,7 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { PINNED_EXTRAS, extraRequirements, extrasPinErrors, lockedVersions } from '../lib/extras-pins.mjs';
+import { PINNED_EXTRAS, extraRequirements, extrasPinErrors } from '../lib/extras-pins.mjs';
+import { lockPackages, lockedVersions } from '../lib/uv-lock.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -48,6 +49,17 @@ describe('the exact pins an extra holds, against the lock', () => {
     assert.deepEqual(lockedVersions(held, 'numpy'), ['2.3.5', '2.4.4']);
     assert.deepEqual(lockedVersions(held, 'PyTorch_Lightning'), ['2.6.6']);
     assert.deepEqual(lockedVersions(held, 'absent'), []);
+  });
+
+  it('reads a lock as TOML, as uv does: a member by its editable source, a table laid out over several lines, and a lock that is not TOML refused', () => {
+    const laidOut = 'version = 1\n\n[[package]]\nname = "elaraai-east-py"\nversion = "1.0.5b1"\nsource = { editable = "packages/east-py" }\n\n' +
+      '[[package]]\nversion = "1.17.0"   # the version before the name\nname = "six"\n\n[package.source]\nregistry = "https://pypi.org/simple"\n';
+    assert.deepEqual(lockPackages(laidOut), [
+      { name: 'elaraai-east-py', version: '1.0.5b1', editable: true },
+      { name: 'six', version: '1.17.0', editable: false },
+    ]);
+    assert.deepEqual(lockedVersions(laidOut, 'six'), ['1.17.0']);
+    assert.throws(() => lockPackages('[[package]]\nname = "six'), /the lock is not read as TOML: /);
   });
 
   it('passes extras that pin each package exactly, the same in each, at the lock\'s version', () => {

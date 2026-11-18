@@ -30,12 +30,13 @@ reads: a frozen export reads no member's manifest.
 
     east-py-constraints.py <workspace> <out> [--release <version>]
 
-With `--release`, the lock must be that release's: another release's pins are
-refused. The release's version bump runs it (`scripts/set-python-version.mjs`),
-and nobody edits what it writes. The standard library and `uv` alone.
+With `--release`, the lock must be that release's, named as PEP 440 writes it,
+as the lock does: another release's pins are refused. The release's version
+bump runs it (`scripts/set-python-version.mjs`), whose `semverToPep440` is the
+one spelling of a release's version in PEP 440's form, and nobody edits what
+it writes. The standard library and `uv` alone.
 """
 
-import re
 import subprocess
 import sys
 import tomllib
@@ -56,14 +57,6 @@ EXPORT = [
 MEMBER = "elaraai-east-py"
 
 INSTALL = f"uv pip install --constraint {CONSTRAINTS} --override {OVERRIDES} ..."
-
-
-def pep440(version):
-    """A release's version as PEP 440 writes it: `1.2.3-beta.4` is `1.2.3b4`."""
-    parts = re.fullmatch(r"(\d+\.\d+\.\d+)-(alpha|beta|rc)\.(\d+)", version)
-    if parts is None:
-        return version
-    return parts.group(1) + {"alpha": "a", "beta": "b", "rc": "rc"}[parts.group(2)] + parts.group(3)
 
 
 def release_of(lock):
@@ -127,10 +120,11 @@ def main(argv):
         return 1
     with open(workspace / "uv.lock", "rb") as file:
         release = release_of(tomllib.load(file))
-    if asked is not None and pep440(asked) != release:
+    if asked is not None and asked != release:
         sys.stderr.write(
-            f"east-py-constraints: the lock at {workspace} is release {release}'s, not {asked}'s: "
-            "its pins are another release's. Build a release from its own tag.\n"
+            f"east-py-constraints: the lock at {workspace} is release {release}'s, not {asked}'s "
+            "(--release names it as PEP 440 writes it, as the lock does): its pins are another "
+            "release's. Build a release from its own tag.\n"
         )
         return 1
     # All are made before any is written: a failure leaves no file
