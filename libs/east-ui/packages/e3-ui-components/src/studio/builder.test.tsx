@@ -1373,6 +1373,19 @@ describe("<Studio.Builder> — what a placement holds (#1669)", () => {
         ]);
         expect(markOf(container.querySelector('[data-publish-change="configured"] [data-sign]'))).toBe("fas plus-minus");
     });
+
+    test("the publish preview's change list says a component by its name, never its key: one swapped for another names both", async () => {
+        // The Notes page, live with the KPI rail; its draft holds the revenue trend in its place.
+        const swapped: Entry = variant("page", {
+            draft: { title: "Notes", cells: [placed("n-kpi", "r1", 12n, Studio.visual.component("revenue_trend"))] },
+            live: some({ version: 1n, page: { title: "Notes", cells: [placed("n-kpi", "r1", 12n, Studio.visual.component("kpi_rail"))] } }),
+        });
+        await h.patch(ex.studioPages, withEntry(NOTES, swapped)(PAGES));
+        const { container } = await h.mount(notesBuilder, { storageKey: "studio-builder" });
+        await press("Preview");
+        expect([...container.querySelectorAll("[data-studio-publish] [data-publish-change]")].map((row) => [row.getAttribute("data-publish-change"), row.textContent]))
+            .toEqual([["configured", "Configured Revenue trendKPI rail → Revenue trend"]]);
+    });
 });
 
 describe("the conflicts example (studioConflicts)", () => {

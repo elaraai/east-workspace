@@ -22,6 +22,7 @@
 import {
     ArrayType,
     BooleanType,
+    DictType,
     East,
     FunctionType,
     IntegerType,
@@ -136,6 +137,17 @@ export const dataName = East.function([TreePathType], StringType, ($, path) => {
  */
 export const readNames = East.function([DataManifestType], ArrayType(StringType), (_$, reads) =>
     reads.paths.concat(reads.pages).map((_$2, path) => dataName(path)));
+
+/**
+ * Each listed component's name, by its key: what a placement of it is called
+ * wherever a placement's content is said in words. A key two components share
+ * keeps the first one's name.
+ */
+export const componentNames = East.function(
+    [ArrayType(StudioComponentType)],
+    DictType(StringType, StringType),
+    (_$, components) => components.toDict((_$2, component) => component.key, (_$2, component) => component.name, (_$2, first) => first),
+);
 
 /**
  * What the palette shows of a component — its `meta`. Only `name`,

@@ -121,6 +121,20 @@ export const sourceNames = East.function(
     (_$, sources) => sources.toDict((_$2, source) => source.key, (_$2, source) => source.name, (_$2, first) => first),
 );
 
+/**
+ * A source's name, by its key, among the listed sources' names
+ * ({@link sourceNames}): the name it is listed under, else its key — the
+ * surface lists no source of that key.
+ */
+export const sourceName = East.function(
+    [StringType, DictType(StringType, StringType)],
+    StringType,
+    (_$, key, sources) => sources.tryGet(key).match({
+        some: (_$2, name) => name,
+        none: (_$2) => key,
+    }),
+);
+
 // ============================================================================
 // Authoring
 // ============================================================================
@@ -235,18 +249,30 @@ function rowFieldsOf(type: EastType): Record<string, EastType> | undefined {
     return row.type === "Struct" ? row.fields as Record<string, EastType> : undefined;
 }
 
+/** The type of an optional field's value — an Option is the variant of exactly `none` and `some`; `undefined` for a field every row has. */
+function optionalValueOf(type: EastType): EastType | undefined {
+    const cases = type.type === "Variant" ? type.cases as Record<string, EastType> : undefined;
+    return cases !== undefined && Object.keys(cases).length === 2 && cases["none"] !== undefined ? cases["some"] : undefined;
+}
+
 /** A field's kind, from its East type: an optional field's is its value's. */
 function fieldKindOf(type: EastType): "date" | "text" | "number" | "boolean" | "other" {
-    // An Option is the variant of exactly `none` and `some`.
-    const cases = type.type === "Variant" ? type.cases as Record<string, EastType> : undefined;
-    const optional = cases !== undefined && Object.keys(cases).length === 2 && cases["none"] !== undefined && cases["some"] !== undefined;
-    switch (sliceFieldKind(optional ? cases["some"]! : type)) {
+    switch (sliceFieldKind(optionalValueOf(type) ?? type)) {
         case "datetime": return "date";
         case "string": return "text";
         case "integer": case "float": return "number";
         case "boolean": return "boolean";
         default: return "other";
     }
+}
+
+/** `nameWords`, compiled on first use: a field's default label is made as the surface is built, so the payload holds its text. */
+let namedInWords: ((name: string) => string) | undefined;
+
+/** A field's label where its source gives none: its name, in words. */
+function defaultLabel(id: string): string {
+    namedInWords ??= East.compile(nameWords, []);
+    return namedInWords(id);
 }
 
 /**
@@ -259,7 +285,8 @@ function fieldKindOf(type: EastType): "date" | "text" | "number" | "boolean" | "
  * @throws {Error} When a key is not a jq identifier; when a source's rows are
  *   not an Array of Structs or a Dict of Structs; when `fields`, `range`,
  *   `search` or `split` names a field its rows lack; and when `range` names a
- *   field that is no date — each naming the source
+ *   field that is no date, or a date some rows may lack — each naming the
+ *   source
  */
 export function studioSources(component: string, sources: Readonly<Record<string, StudioSourceDeclaration>> | undefined): ExprType<ArrayType<StudioSourceType>> {
     return East.value(Object.entries(sources ?? {}).map(([key, { handle, meta }]) => {
@@ -269,7 +296,8 @@ export function studioSources(component: string, sources: Readonly<Record<string
             throw new Error(`${component}: the source "${key}" reads ${printType(bound.type)} — a source's rows are an Array of Structs, or a Dict of Structs`);
         }
         const held = (field: string, what: string) => {
-            if (row[field] === undefined) {
+            // The row's own fields: never a name every object answers to.
+            if (!Object.hasOwn(row, field)) {
                 throw new Error(`${component}: the source "${key}" names ${what} "${field}", which its rows do not have — they have ${Object.keys(row).join(", ")}`);
             }
         };
@@ -279,8 +307,13 @@ export function studioSources(component: string, sources: Readonly<Record<string
         for (const field of meta.split ?? []) held(field, "the split field");
         if (meta.range !== undefined) {
             held(meta.range, "the range field");
-            if (fieldKindOf(row[meta.range]!) !== "date") {
+            const ranged = row[meta.range]!;
+            if (fieldKindOf(ranged) !== "date") {
                 throw new Error(`${component}: the source "${key}" names the range field "${meta.range}", which is no date — a page's range is over a date field`);
+            }
+            // The page's range narrows by this field's value, and a row with none would be in no range.
+            if (optionalValueOf(ranged) !== undefined) {
+                throw new Error(`${component}: the source "${key}" names the range field "${meta.range}", which is an optional date — a page's range is over a date every row has`);
             }
         }
         // The fields operators see: those given, in the order given, else every field of the row.
@@ -295,7 +328,7 @@ export function studioSources(component: string, sources: Readonly<Record<string
                 const config = configured[id];
                 return {
                     id,
-                    label: config?.label ?? nameWords(id),
+                    label: config?.label ?? defaultLabel(id),
                     kind: variant(fieldKindOf(row[id]!), null),
                     format: config?.format === undefined ? none : some(toValueFormat(config.format)),
                 };
