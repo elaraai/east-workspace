@@ -41,7 +41,7 @@ import type { ExecutionResult } from '../../execution/cache.js';
 import { SplitTask, isSplitTask, type ThrownUnit } from '../../execution/engine.js';
 import { WorkspaceLockError, DataflowAbortedError, DataflowError, DataflowSupersededError, checkName } from '../../errors.js';
 import { INTENT_PROBE_MS, acquireWorkspaceShared, announcedIntent, intentWords, workspaceLockRefusal } from '../../deploy-lock.js';
-import { catchUpKey, type TaskExecutionResult } from '../../dataflow.js';
+import { catchUpKey, graphNodes, type TaskExecutionResult } from '../../dataflow.js';
 import { inputsHash } from '../../executions.js';
 import { recordLoadCommit, recordLoadCounts, type RecordLoadCommitOutcome } from '../../record-load.js';
 import { uuidv7 } from '../../uuid.js';
@@ -1983,8 +1983,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       // Detect input changes after the result
       await this.handleInputChanges(storage, execution);
     } catch {
-      const graph = state.graph.type === 'some' ? state.graph.value : null;
-      for (const input of graph?.tasks.find((each) => sameName(each.name, taskName))?.inputs ?? []) execution.unasked.add(input);
+      for (const input of this.nodeOf(state, taskName)?.inputs ?? []) execution.unasked.add(input);
       execution.unasked.add(prepared.outputPath);
     }
   }
@@ -2257,7 +2256,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
 
   /** The node of the run's graph by its name: a task, or a load node. */
   private nodeOf(state: DataflowExecutionState, name: string): NonNullable<DataflowExecutionState['graph']['value']>['tasks'][number] | undefined {
-    return state.graph.type === 'some' ? state.graph.value.tasks.find((task) => task.name === name) : undefined;
+    return state.graph.type === 'some' ? graphNodes(state.graph.value).get(name) : undefined;
   }
 
   /** Whether a node of the run's graph is a load node: the load of a fed source. */

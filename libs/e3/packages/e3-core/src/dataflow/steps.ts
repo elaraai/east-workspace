@@ -41,9 +41,12 @@ import {
   dataflowSnapshotLooked,
   dataflowSnapshotTaken,
   dataflowCheckCache,
+  datasetReaders,
   feedRoots,
+  graphNodes,
   loadsOf,
   recordCommitOrder,
+  taskDependents,
   taskProducers,
   type ResolveInputsOptions,
 } from '../dataflow.js';
@@ -86,9 +89,6 @@ import type {
 /** Whether an input a task reads a root through is the root itself: the
  *  root's keypath, where each other is a task's name. */
 const sameInput = equalFor(StringType);
-
-/** Whether two task names are one. */
-const sameName = equalFor(StringType);
 
 // =============================================================================
 // Initialization
@@ -493,7 +493,7 @@ export function stepIsComplete(state: DataflowExecutionState): boolean {
       }
 
       // pending or ready — check if it can ever become ready
-      const task = getGraph(state).tasks.find(t => t.name === taskState.name);
+      const task = graphNodes(getGraph(state)).get(taskState.name);
       if (task) {
         const hasUnmetDeps = task.dependsOn.some(dep => {
           const depState = state.tasks.get(dep);
@@ -641,7 +641,7 @@ export async function stepTaskCommits(
   options: { hold?: boolean } = {},
 ): Promise<TaskCommits> {
   const graph = getGraph(state);
-  const task = graph.tasks.find(t => sameName(t.name, taskName));
+  const task = graphNodes(graph).get(taskName);
   if (!task) {
     throw new Error(`Task '${taskName}' not found in graph`);
   }
@@ -1080,7 +1080,7 @@ export async function stepTaskDueAgain(
   state: DataflowExecutionState,
   taskName: string
 ): Promise<ExecutionEvent | null> {
-  const task = getGraph(state).tasks.find(t => sameName(t.name, taskName));
+  const task = graphNodes(getGraph(state)).get(taskName);
   const taskState = state.tasks.get(taskName) as Mutable<TaskState> | undefined;
   if (!task || !taskState) return null;
   // A load node that failed runs again once its feed has moved since its launch
@@ -1284,7 +1284,7 @@ export async function stepPrepareTask(
   options: Pick<ResolveInputsOptions, 'landed'> = {}
 ): Promise<PrepareTaskResult | PrepareTaskWaiting | PrepareTaskBehind> {
   const graph = getGraph(state);
-  const task = graph.tasks.find(t => t.name === taskName);
+  const task = graphNodes(graph).get(taskName);
   if (!task) {
     throw new Error(`Task '${taskName}' not found in graph`);
   }
@@ -1375,7 +1375,7 @@ export async function stepPrepareLoad(
   options: PrepareLoadOptions = {}
 ): Promise<PrepareLoadResult | PrepareLoadAnswered | PrepareTaskWaiting | PrepareTaskBehind> {
   const graph = getGraph(state);
-  const node = graph.tasks.find((t) => t.name === taskName);
+  const node = graphNodes(graph).get(taskName);
   if (node?.load.type !== 'some') {
     throw new Error(`Load node '${taskName}' not found in graph`);
   }
@@ -1467,7 +1467,7 @@ export function waitingTasks(state: DataflowExecutionState): string[] {
  *  whose load nodes waits: it cannot run until that one has, however its own
  *  inputs stand, so it keeps waiting. */
 function waitsOnDependency(state: DataflowExecutionState, graph: DataflowGraph, taskName: string): boolean {
-  const task = graph.tasks.find((each) => each.name === taskName);
+  const task = graphNodes(graph).get(taskName);
   return task !== undefined &&
     (task.dependsOn.some((dep) => state.tasks.get(dep)?.status === 'waiting') || upstreamWaits(state, graph, task).length > 0);
 }
@@ -1488,7 +1488,7 @@ function decideAgain(state: DataflowExecutionState, graph: DataflowGraph, taskNa
  *  while the load waits, and is decided again once it runs. */
 function readersOf(graph: DataflowGraph, node: DataflowGraph['tasks'][number]): DataflowGraph['tasks'][number][] {
   if (node.load.type !== 'some') return [];
-  return graph.tasks.filter((each) => each.name !== node.name && each.inputs.includes(node.output));
+  return (datasetReaders(graph).get(node.output) ?? []).filter((each) => each.name !== node.name);
 }
 
 /**
@@ -1527,7 +1527,8 @@ export function stepTasksWaiting(
     throw new Error(`Task '${taskName}' not found in state`);
   }
   const graph = getGraph(state);
-  const byName = new Map(graph.tasks.map((each) => [each.name, each] as const));
+  const byName = graphNodes(graph);
+  const dependents = taskDependents(graph);
   const runSet = stepGetRunSet(state);
   const producerOf = taskProducers(graph);
   /** Whether a task waits with the one left waiting: one that has not run, in the filter's run set. */
@@ -1550,12 +1551,8 @@ export function stepTasksWaiting(
     const held: Array<{ name: string; wait: InputWait }> = [];
     if (node.load.type === 'some') {
       for (const reader of readersOf(graph, node)) held.push({ name: reader.name, wait: { input: node.output, kind: 'upstream', task: node.name } });
-    } else {
-      for (const dependent of graph.tasks) {
-        if (dependent.dependsOn.includes(node.name) && producerOf.get(node.output)?.name === node.name) {
-          held.push({ name: dependent.name, wait: { input: node.output, kind: 'unset' } });
-        }
-      }
+    } else if (producerOf.get(node.output)?.name === node.name) {
+      for (const dependent of dependents.get(node.name) ?? []) held.push({ name: dependent.name, wait: { input: node.output, kind: 'unset' } });
     }
     for (const { name, wait } of held) {
       if (!holds(name)) continue;
@@ -1823,7 +1820,7 @@ export function stepTaskCompleted(
   // The output's versions are those the task was launched with: a load
   // node's, its feed's, kept for the node alone, its record a root
   const graph = getGraph(state);
-  const task = graph.tasks.find(t => t.name === taskName);
+  const task = graphNodes(graph).get(taskName);
   if (task) {
     state.versionVectors.set(resultVersionsKey(task), new Map(versions));
   }
@@ -1831,10 +1828,8 @@ export function stepTaskCompleted(
   // Its deferred dependents are decided again, and so are its waiting ones
   // that wait on no other task: left waiting with this task, which has since
   // run. A load node's are its record's readers.
-  const readers = new Set(task === undefined ? [] : readersOf(graph, task).map((reader) => reader.name));
-  for (const dependent of graph.tasks) {
-    if (dependent.dependsOn.includes(taskName) || readers.has(dependent.name)) decideAgain(state, graph, dependent.name);
-  }
+  for (const dependent of taskDependents(graph).get(taskName) ?? []) decideAgain(state, graph, dependent.name);
+  for (const reader of task === undefined ? [] : readersOf(graph, task)) decideAgain(state, graph, reader.name);
 
   // Find newly ready tasks
   const newlyReady = stepGetReady(state);
@@ -1973,7 +1968,7 @@ export function stepLoadFailed(
   const { event } = stepTaskFailed(state, taskName, error, exitCode, duration);
   state.versionVectors.set(taskName, new Map(versions));
   const graph = getGraph(state);
-  const node = graph.tasks.find((each) => each.name === taskName);
+  const node = graphNodes(graph).get(taskName);
   for (const reader of node === undefined ? [] : readersOf(graph, node)) decideAgain(state, graph, reader.name);
   return event;
 }

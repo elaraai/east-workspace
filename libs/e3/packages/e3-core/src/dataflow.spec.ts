@@ -30,7 +30,10 @@ import {
   dataflowGetReadyTasks,
   dataflowGetDependentsToSkip,
   dataflowGetDependencyClosure,
+  datasetReaders,
+  graphNodes,
   loadsOf,
+  taskDependents,
   taskProducers,
   type DataflowGraph,
 } from './dataflow.js';
@@ -710,6 +713,14 @@ describe('dataflow', () => {
       assert.deepStrictEqual(graph.tasks.find((task) => task.name === 'forecast')!.load, none);
       assert.strictEqual(taskProducers(graph).has('.records.orders'), false, 'no task writes the record');
       assert.deepStrictEqual([...loadsOf(graph)].map(([record, nodes]) => [record, nodes.map((each) => each.name)]), [['.records.orders', ['orders.erp']]]);
+      // The graph's shape, built once: each node by name, a task's dependents, and a dataset's readers
+      const names = (nodes: ReadonlyMap<string, readonly { name: string }[]>) => [...nodes].map(([key, each]) => [key, each.map((node) => node.name)]);
+      assert.strictEqual(graphNodes(graph).get('orders.erp'), node);
+      assert.deepStrictEqual(names(taskDependents(graph)), [['combine_erp', ['orders.erp']]]);
+      assert.deepStrictEqual(names(datasetReaders(graph)), [
+        ['.inputs.erp_rows', ['combine_erp']], ['.records.orders', ['forecast']], ['.tasks.combine_erp.output', ['orders.erp']],
+      ]);
+      assert.ok(graphNodes(graph) === graphNodes(graph) && taskDependents(graph) === taskDependents(graph) && datasetReaders(graph) === datasetReaders(graph));
 
       // A run snapshots the record as a root
       const { state } = await stepInitialize(storage, testRepo, 'fed-ws', 'run-1');

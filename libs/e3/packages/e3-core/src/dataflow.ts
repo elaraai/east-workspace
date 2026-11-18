@@ -575,6 +575,84 @@ export function loadsOf(graph: DataflowGraph): ReadonlyMap<string, readonly Data
   return loads;
 }
 
+/** What a run asks of its graph's shape at every decision, built once for the graph. */
+interface GraphShape {
+  readonly byName: ReadonlyMap<string, DataflowGraph['tasks'][number]>;
+  readonly dependents: ReadonlyMap<string, readonly DataflowGraph['tasks'][number][]>;
+  readonly readers: ReadonlyMap<string, readonly DataflowGraph['tasks'][number][]>;
+}
+
+const shapes = new WeakMap<DataflowGraph, GraphShape>();
+
+/** A graph's shape, built in one pass over its nodes and kept with it. */
+function shapeOf(graph: DataflowGraph): GraphShape {
+  let shape = shapes.get(graph);
+  if (shape === undefined) {
+    const byName = new Map<string, DataflowGraph['tasks'][number]>();
+    const dependents = new Map<string, DataflowGraph['tasks'][number][]>();
+    const readers = new Map<string, DataflowGraph['tasks'][number][]>();
+    const listed = (lists: Map<string, DataflowGraph['tasks'][number][]>, key: string, node: DataflowGraph['tasks'][number]): void => {
+      const list = lists.get(key);
+      if (list === undefined) lists.set(key, [node]);
+      else list.push(node);
+    };
+    for (const node of graph.tasks) {
+      byName.set(node.name, node);
+      for (const dependency of new Set(node.dependsOn)) listed(dependents, dependency, node);
+      for (const input of new Set(node.inputs)) listed(readers, input, node);
+    }
+    shape = { byName, dependents, readers };
+    shapes.set(graph, shape);
+  }
+  return shape;
+}
+
+/**
+ * The nodes of a run's graph by name: its tasks and its load nodes.
+ *
+ * @remarks
+ * Built once for a graph and kept with it, as {@link taskProducers} is: a run
+ * asks for a node by its name for every node it prepares and every unit it
+ * launches.
+ *
+ * @param graph - The run's graph
+ * @returns Each node, by its name
+ */
+export function graphNodes(graph: DataflowGraph): ReadonlyMap<string, DataflowGraph['tasks'][number]> {
+  return shapeOf(graph).byName;
+}
+
+/**
+ * The nodes of a run's graph that depend on each task: what cannot run while
+ * the task has not, and is decided again as it settles.
+ *
+ * @remarks
+ * Built once for a graph and kept with it, as {@link taskProducers} is.
+ *
+ * @param graph - The run's graph
+ * @returns The nodes naming each task in their `dependsOn`, by the task's
+ *   name, in the graph's order; a task nothing depends on is not in it
+ */
+export function taskDependents(graph: DataflowGraph): ReadonlyMap<string, readonly DataflowGraph['tasks'][number][]> {
+  return shapeOf(graph).dependents;
+}
+
+/**
+ * The nodes of a run's graph that read each dataset directly: a record's
+ * readers, which wait while its load waits and are decided again as it
+ * settles.
+ *
+ * @remarks
+ * Built once for a graph and kept with it, as {@link taskProducers} is.
+ *
+ * @param graph - The run's graph
+ * @returns The nodes naming each dataset among their inputs, by the dataset's
+ *   keypath, in the graph's order; a dataset nothing reads is not in it
+ */
+export function datasetReaders(graph: DataflowGraph): ReadonlyMap<string, readonly DataflowGraph['tasks'][number][]> {
+  return shapeOf(graph).readers;
+}
+
 /**
  * Check if a task execution is cached for the given inputs.
  *
