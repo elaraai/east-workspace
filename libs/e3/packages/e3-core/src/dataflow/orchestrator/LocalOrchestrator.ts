@@ -1192,12 +1192,12 @@ export class LocalOrchestrator implements DataflowOrchestrator {
           // at, which it is prepared at again once they have settled, so it
           // never chases newer ones; or else its commits, as its inputs stand
           let versions: VersionVector;
+          const changed = execution.changed;
           const catchingUp = execution.catchingUp.get(taskName);
           if (catchingUp !== undefined) {
             if ([...catchingUp.waits.values()].some((run) => this.catchUpInFlight(execution, run))) continue;
             versions = catchingUp.versions;
           } else {
-            const changed = execution.changed;
             const at = await stepTaskCommits(storage, state, taskName);
             if (at.kind === 'deferred') {
               // Its status may have moved while its commits were read: a
@@ -1237,6 +1237,13 @@ export class LocalOrchestrator implements DataflowOrchestrator {
             hadSyncCompletion = true;
             this.releaseCatchUps(execution, taskName);
             await execution.mutex.runExclusive(async () => {
+              // A changed input was taken in since the task's versions were
+              // read, while it was prepared or while this waited its turn:
+              // the input it would wait on may be the one, and the look that
+              // found it passed the task by as one about to launch. It is
+              // decided again; one a failure settled meanwhile stays settled.
+              const settled = state.tasks.get(taskName)?.status;
+              if (execution.changed !== changed || (settled !== 'pending' && settled !== 'ready')) return;
               const { waiting } = stepTasksWaiting(state, taskName, prepared.unassigned);
               await this.persistState(execution, state);
               for (const each of waiting) options.onTaskWaiting?.(each.task, each.inputs);

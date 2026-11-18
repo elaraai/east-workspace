@@ -1596,4 +1596,58 @@ export function dataflowFollowCases(setup: BackendSetup): void {
     assert.equal((await orchestrator.wait(handle)).success, true);
     assert.deepEqual(lines.printed.filter((line) => line.startsWith('[CATCH-UP]')), []);
   });
+
+  it('decides a task again when the input it would wait on is set while it is prepared: a start handed to the run leaves no task waiting on what it set', async (t) => {
+    const context = await setup(t);
+    const { repo } = context;
+    const paced = pacedStorage(context.storage);
+    const storage = paced.storage;
+    const tasks = await deployCombined(t, context, 2, { late: true });
+    const runner = gatedRunner(context.storage, repo, tasks);
+    const lines = new RunLines();
+    const orchestrator = new LocalOrchestrator(stateStoreOf(context));
+    const c0 = await ordersHead(storage, repo);
+    const rates = (await held(storage, repo, 'inputs/rates'))!;
+    const handle = await orchestrator.start(storage, repo, 'ws', { runner, ...lines.callbacks });
+
+    // forecast and capacity land on c0: budget waits for its input late, and
+    // plan keeps the run in flight
+    await runner.launched('forecast');
+    await runner.launched('capacity');
+    runner.release('forecast');
+    runner.release('capacity');
+    await runner.launched('plan');
+
+    // An edit commits: both run on c1, and forecast lands there first, so
+    // budget is decided again, as of c0, where capacity's result still is
+    const c1 = await commitOrders(storage, repo, [['a', 1n]]);
+    assert.equal(await orchestrator.wake(storage, repo, 'ws'), true);
+    await runner.launched('forecast');
+    await runner.launched('capacity');
+    const preparing = paced.hold('refs', 'executionListIds', (args) => args[1] === tasks.get('forecast') && args[2] === inputsHash([c0.state, rates]));
+    runner.release('forecast');
+    await preparing.reached;
+    try {
+      // capacity lands on c1 while budget is prepared, so no result is left
+      // to land that budget reads. Someone then sets late and starts: the
+      // start is handed to the run, whose look takes late in and passes
+      // budget by, as a task about to launch
+      runner.release('capacity');
+      await lines.said('[DONE] capacity', 2);
+      await workspaceSetDataset(storage, repo, 'ws', inputPath('late'), 1n, IntegerType);
+      assert.equal(await orchestrator.wake(storage, repo, 'ws'), true, 'the run takes the change in');
+    } finally {
+      preparing.open();
+    }
+
+    // budget is not left waiting on the input the run took in, with nothing
+    // left to release it: it runs, and the run ends with every task on c1
+    const late = (await held(storage, repo, 'inputs/late'))!;
+    for (const name of tasks.keys()) runner.pass(name);
+    for (const name of tasks.keys()) while (runner.holding(name) > 0) runner.release(name);
+    const result = await orchestrator.wait(handle);
+    assert.deepEqual([result.success, result.waiting], [true, 0], 'no task waits');
+    assert.equal(await held(storage, repo, 'tasks/budget/output'),
+      made('budget', made('forecast', c1.state, rates), made('capacity', c1.state, rates), late));
+  });
 }
