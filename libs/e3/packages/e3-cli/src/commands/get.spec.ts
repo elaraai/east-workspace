@@ -13,7 +13,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DictType, IntegerType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, variant } from '@elaraai/east';
@@ -22,7 +22,7 @@ import {
   LocalStorage, LocalTaskRunner, packageImport, readDatasetWhole, workspaceCreate, workspaceDeploy, workspaceGetDatasetHash, workspaceSetDataset,
 } from '@elaraai/e3-core';
 import { createTempDir, createTestRepo, removeTempDir, removeTestRepo } from '@elaraai/e3-core/test';
-import { parseGetFormat } from './get.js';
+import { fileWrittenWhole, parseGetFormat } from './get.js';
 
 describe('parseGetFormat', () => {
   it('defaults to east when value is undefined', () => {
@@ -114,5 +114,45 @@ describe('e3 dataset get -f beast2', () => {
     const set = spawnSync(process.execPath, [CLI, 'dataset', 'set', repo, 'other.counts', '--from-file', file], { encoding: 'utf-8' });
     assert.equal(set.status, 0, set.stderr);
     assert.equal(await held('counts', 'other'), await held('counts'), 'the same value, stored as the same segments');
+  });
+
+  it('ruling 35 — -o writes the value to a file, whole, and nothing to the standard output: in any format, leaving no file beside it', async () => {
+    const out = join(dir, 'out');
+    mkdirSync(out);
+    const get = (input: string, format: string, name: string): string => {
+      const path = join(out, name);
+      const run = spawnSync(process.execPath, [CLI, 'dataset', 'get', repo, `main.${input}`, '-f', format, '-o', path]);
+      assert.equal(run.status, 0, run.stderr.toString());
+      assert.equal(run.stdout.length, 0, 'nothing is written to the standard output');
+      return path;
+    };
+    assert.deepEqual(new Uint8Array(readFileSync(get('counts', 'beast2', 'counts.beast2'))), written('counts'), 'the bytes the standard output is given');
+    assert.equal(readFileSync(get('total', 'east', 'total.east'), 'utf-8'), '7\n');
+    assert.equal(readFileSync(get('total', 'json', 'total.json'), 'utf-8'), '"7"\n');
+    assert.deepEqual(readdirSync(out).sort(), ['counts.beast2', 'total.east', 'total.json'], 'each file took its name once written');
+  });
+
+  it('ruling 35 — a file is written whole or not at all: one that starts over holds what came after alone, and one that fails leaves the file it replaces', async () => {
+    const path = join(dir, 'value.beast2');
+    writeFileSync(path, 'the file as it was');
+    const [first, again] = [Uint8Array.of(1, 2, 3), Uint8Array.of(4, 5)];
+
+    // The dataset moved once some bytes were written: the file starts over
+    await fileWrittenWhole(path, async (sink) => {
+      await sink.write(first);
+      assert.equal(readFileSync(path, 'utf-8'), 'the file as it was', 'the path keeps its file while the new one is written');
+      await sink.restart();
+      await sink.write(again);
+      await sink.write(again);
+    });
+    assert.deepEqual(new Uint8Array(readFileSync(path)), Uint8Array.of(4, 5, 4, 5));
+
+    // The read fails part way: nothing replaces the file, and no part of the value is left beside it
+    await assert.rejects(fileWrittenWhole(path, async (sink) => {
+      await sink.write(first);
+      throw new Error('the dataset moved, and moved again');
+    }), { message: 'the dataset moved, and moved again' });
+    assert.deepEqual(new Uint8Array(readFileSync(path)), Uint8Array.of(4, 5, 4, 5));
+    assert.deepEqual(readdirSync(dir).filter((name) => name.endsWith('.partial')), []);
   });
 });

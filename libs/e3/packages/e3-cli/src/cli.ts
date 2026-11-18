@@ -248,6 +248,7 @@ program
       .argument('[repo]', 'Repository path or URL (default: $E3_REPO or .)')
       .argument('<path>', 'Dataset path (<ws>.<name>)')
       .option('-f, --format <format>', 'Output format: east, json, beast2', 'east')
+      .option('-o, --output <path>', 'Write a file instead of the standard output, whole or not at all: beside the path first, then renamed into place')
       .action(withDefaultRepo(getCommand))
   )
   .addCommand(

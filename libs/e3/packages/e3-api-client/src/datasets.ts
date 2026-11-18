@@ -121,31 +121,93 @@ export async function datasetGet(
   path: TreePath,
   options: RequestOptions
 ): Promise<{ data: Uint8Array; hash: string; size: number }> {
+  let parts: Uint8Array[] = [];
+  const { hash, size } = await datasetGetInto(url, repo, workspace, path, options, {
+    write: (chunk) => { parts.push(chunk); },
+    restart: () => { parts = []; },
+  });
+  if (parts.length === 1) return { data: parts[0]!, hash, size };
+  const data = new Uint8Array(size);
+  let at = 0;
+  for (const part of parts) {
+    data.set(part, at);
+    at += part.length;
+  }
+  return { data, hash, size };
+}
+
+/**
+ * Where {@link datasetGetInto} puts a dataset's bytes: in order, and from the
+ * start again when the read starts over.
+ */
+export interface DatasetSink {
+  /** Takes the value's next bytes. */
+  write(chunk: Uint8Array): void | Promise<void>;
+  /** Forgets every byte it was given: the dataset moved while it was read,
+   *  and the read starts over from the content it holds now. */
+  restart(): void | Promise<void>;
+}
+
+/**
+ * Get a dataset value as raw BEAST2 bytes, written to a sink that can start
+ * over: a file written whole or not at all, say, where
+ * {@link datasetGetStream}'s chunks, once given, cannot be taken back.
+ *
+ * @remarks
+ * The value is read as {@link datasetGetStream} reads it, a chunk at a time,
+ * so the caller holds the segments in flight and never the value. A dataset
+ * that moves while it is read — before a byte is given, or part way — has the
+ * sink told to start over, and is read again from its new content, up to 3
+ * times in all. What the sink holds once this returns is the content of the
+ * hash returned, and nothing of an earlier one.
+ *
+ * @param url - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param workspace - Workspace name
+ * @param path - Path to the dataset (e.g., ['inputs', 'config'])
+ * @param options - Request options including auth token
+ * @param sink - Where the bytes go
+ * @returns The content hash the bytes written are, and their size
+ * @throws {DatasetHashMismatchError} When the dataset is still moving after
+ *   the restarts; its `currentHash` names the content it holds now
+ * @throws {ApiError} On application-level errors
+ * @throws {AuthError} On 401 Unauthorized
+ *
+ * @example
+ * ```ts
+ * const parts: Uint8Array[] = [];
+ * const { hash } = await datasetGetInto(url, 'repo', 'main', path, { token }, {
+ *   write: (chunk) => { parts.push(chunk); },
+ *   restart: () => { parts.length = 0; },
+ * });
+ * ```
+ */
+export async function datasetGetInto(
+  url: string,
+  repo: string,
+  workspace: string,
+  path: TreePath,
+  options: RequestOptions,
+  sink: DatasetSink,
+): Promise<{ hash: string; size: number }> {
   const restarts = { left: MOVED_RESTARTS };
   for (;;) {
     const { hash, chunks } = await openDataset(url, repo, workspace, path, options, restarts);
-    const parts: Uint8Array[] = [];
     let size = 0;
     try {
       for await (const chunk of chunks) {
-        parts.push(chunk);
+        await sink.write(chunk);
         size += chunk.length;
       }
     } catch (err) {
-      // The chunks raise a move once they have given bytes out; this read
+      // The chunks raise a move once they have given bytes out; the sink
       // holds those alone, so it starts over from the new content.
       if (!(err instanceof DatasetHashMismatchError) || restarts.left === 0) throw err;
       restarts.left--;
+      await sink.restart();
       continue;
     }
-    if (parts.length === 1) return { data: parts[0]!, hash, size };
-    const data = new Uint8Array(size);
-    let at = 0;
-    for (const part of parts) {
-      data.set(part, at);
-      at += part.length;
-    }
-    return { data, hash, size };
+    return { hash, size };
   }
 }
 
