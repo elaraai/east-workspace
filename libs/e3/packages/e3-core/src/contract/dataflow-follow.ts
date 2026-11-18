@@ -36,6 +36,7 @@ import { MockTaskRunner } from '../execution/MockTaskRunner.js';
 import { inputsHash } from '../executions.js';
 import { readTestPieceBytesFrom } from '../execution/pieces.js';
 import { packageImport } from '../package-files.js';
+import type { ExecutionStateStore } from '../dataflow/state-store/interfaces.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 import { datasetWrite, workspaceSetDataset } from '../trees.js';
 import { uuidv7 } from '../uuid.js';
@@ -359,6 +360,56 @@ async function commitOrders(storage: StorageBackend, repo: string, rows: Readonl
   }));
   await storage.datasets.write(repo, 'ws', 'records/orders', variant('value', { hash: state, versions: new Map([['.records.orders', commit]]) }));
   return { commit, state };
+}
+
+/**
+ * Brings a run over the combined package ({@link deployCombined}) to where it
+ * decides `plan`, whose inputs read the input `rates` at two values:
+ * `capacity` has landed on the input's new value and `forecast` on its old
+ * one, and `forecast` runs again on the new. Deciding a deferral reads whether
+ * `rates` is a record's from the store, and that read's answer is kept back
+ * until the case opens `deciding`.
+ *
+ * @returns The run, what it tells its caller, and what `plan` reads once
+ *   `forecast` has landed on the new value
+ */
+async function decidingPlan(t: TestContext, context: BackendContext): Promise<{
+  orchestrator: LocalOrchestrator;
+  handle: Awaited<ReturnType<LocalOrchestrator['start']>>;
+  runner: GatedTaskRunner;
+  lines: RunLines;
+  stateStore: ExecutionStateStore;
+  deciding: HeldCall;
+  agreed: string[];
+}> {
+  const { repo } = context;
+  const paced = pacedStorage(context.storage);
+  const storage = paced.storage;
+  const tasks = await deployCombined(t, context);
+  const runner = gatedRunner(context.storage, repo, tasks);
+  const lines = new RunLines();
+  const stateStore = stateStoreOf(context);
+  const orchestrator = new LocalOrchestrator(stateStore);
+  const orders = await ordersHead(storage, repo);
+  const handle = await orchestrator.start(storage, repo, 'ws', { runner, ...lines.callbacks });
+
+  await runner.launched('forecast');
+  await runner.launched('capacity');
+  runner.release('capacity');
+  await lines.said('[DONE] capacity');
+  await workspaceSetDataset(storage, repo, 'ws', inputPath('rates'), 2n, IntegerType);
+  const r2 = (await held(storage, repo, 'inputs/rates'))!;
+  assert.equal(await orchestrator.wake(storage, repo, 'ws'), true);
+  await runner.launched('capacity');
+  runner.release('capacity');
+  await lines.said('[DONE] capacity', 2);
+
+  // forecast lands, made from the old value, and runs again: plan is decided
+  const deciding = paced.hold('refs', 'workspaceRead', () => true);
+  runner.release('forecast');
+  await runner.launched('forecast');
+  await deciding.reached;
+  return { orchestrator, handle, runner, lines, stateStore, deciding, agreed: [made('forecast', orders.state, r2), made('capacity', orders.state, r2)] };
 }
 
 /**
@@ -799,6 +850,46 @@ export function dataflowFollowCases(setup: BackendSetup): void {
     assert.notEqual(r1, r2);
     const events = await stateStore.getEventsSince(repo, 'ws', handle.id, 0);
     assert.equal(events.filter((event) => event.type === 'task_deferred').length, 1, 'and recorded once');
+  });
+
+  it('decides a task again when a result it reads lands while its deferral is decided: none is deferred for a disagreement already gone', async (t) => {
+    const context = await setup(t);
+    const { orchestrator, handle, runner, lines, deciding, agreed } = await decidingPlan(t, context);
+    const ended = orchestrator.wait(handle);
+    ended.catch(() => undefined);
+
+    // forecast lands on the new value while plan is decided on the old: its
+    // inputs agree now, and nothing is left to land and un-defer it
+    try {
+      runner.release('forecast');
+      await lines.said('[DONE] forecast', 2);
+    } finally {
+      deciding.open();
+    }
+
+    // plan is decided again, and runs; a run that deferred it would end stuck
+    const launched = await Promise.race([runner.launched('plan'), ended.then(() => null)]);
+    assert.deepEqual(launched?.inputHashes, agreed);
+    runner.release('plan');
+    assert.equal((await ended).success, true);
+    assert.deepEqual(lines.lines.filter((line) => line.startsWith('[DEFER]')), [], 'plan was never deferred');
+  });
+
+  it('leaves a task skipped that a failure upstream skipped while its deferral was decided', async (t) => {
+    const context = await setup(t);
+    const { orchestrator, handle, runner, lines, stateStore, deciding } = await decidingPlan(t, context);
+
+    // forecast fails while plan is decided: plan is skipped, and stays so
+    try {
+      runner.fail('forecast', 'the model did not converge');
+      await lines.said('[SKIPPED] plan');
+    } finally {
+      deciding.open();
+    }
+    const result = await orchestrator.wait(handle);
+    assert.deepEqual([result.success, result.failed, result.skipped], [false, 1, 1]);
+    assert.equal((await stateStore.read(context.repo, 'ws', handle.id))?.tasks.get('plan')?.status, 'skipped');
+    assert.deepEqual(lines.lines.filter((line) => line.startsWith('[DEFER]')), [], 'plan was not deferred over its skip');
   });
 
   it('stops a run within about a second of a deploy announcing itself: its results stand, it says why, and the deploy takes the workspace', async (t) => {

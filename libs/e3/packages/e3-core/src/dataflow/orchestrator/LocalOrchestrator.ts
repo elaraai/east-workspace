@@ -422,6 +422,13 @@ interface RunningExecution {
    *  since a run it would wait for may be at hand now. A split task's units
    *  do not count: none of them lands a result */
   landed: number;
+  /** How many times what a task is decided on has changed: a result landed
+   *  in the run's state, or a look took a changed input in. Counted in the
+   *  tick the state moves, which is when the tasks deferred by then go back
+   *  to pending. A task decided deferred while it moved is decided again: it
+   *  was not yet deferred when they were, and what it would be deferred for
+   *  may be gone, with nothing left to land and un-defer it */
+  changed: number;
   /** The changed datasets whose readers have not been asked whether they are
    *  due: a look that failed once it had recorded a change leaves them here,
    *  and the next look asks them again, so no change is lost to it */
@@ -814,6 +821,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       wakes: 0,
       moved: 0,
       landed: 0,
+      changed: 0,
       unasked: new Set(),
       lookFirst: init.resumed,
       woken: deferred(),
@@ -1183,8 +1191,19 @@ export class LocalOrchestrator implements DataflowOrchestrator {
             if ([...catchingUp.waits.values()].some((run) => this.catchUpInFlight(execution, run))) continue;
             versions = catchingUp.versions;
           } else {
+            const changed = execution.changed;
             const at = await stepTaskCommits(storage, state, taskName);
             if (at.kind === 'deferred') {
+              // Its status may have moved while its commits were read: a
+              // failure skipped it, and it stays skipped
+              const decided = state.tasks.get(taskName)?.status;
+              if (decided !== 'pending' && decided !== 'ready') continue;
+              // A result landed, or a changed input was taken in, meanwhile:
+              // what it was decided on has moved, so it is decided again
+              if (execution.changed !== changed) {
+                hadSyncCompletion = true;
+                continue;
+              }
               this.deferTask(execution, taskName, at);
               continue;
             }
@@ -1681,6 +1700,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
   private async handleInputChanges(storage: StorageBackend, execution: RunningExecution): Promise<void> {
     const { state, options } = execution;
     const { changes, events: changeEvents } = await stepDetectInputChanges(storage, state, execution.structure);
+    if (changes.length > 0) execution.changed++;
     for (const change of changes) execution.unasked.add(change.path);
 
     // Notify via callbacks
@@ -1765,6 +1785,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
 
     const completed = { inputsHash: inputsHash(prepared.inputHashes), executionId: result.executionId };
     stepTaskCompleted(state, taskName, result.outputHash, result.cached, result.duration, completed, versions, result.peakBytes);
+    execution.changed++;
 
     // Track task execution for DataflowRun
     const existing = execution.taskExecutions.get(taskName);
