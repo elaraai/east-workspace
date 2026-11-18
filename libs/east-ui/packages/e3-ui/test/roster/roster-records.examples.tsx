@@ -3,12 +3,15 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/e3-ui */
-import { DateTimeType, DictType, East, SortedMap, StringType, compareFor, example, variant, type ValueTypeOf } from "@elaraai/east";
+import { BooleanType, DateTimeType, DictType, East, SetType, SortedMap, StringType, compareFor, example, variant, type ValueTypeOf } from "@elaraai/east";
 import { Box, Reactive, Slice, UIComponentType } from "@elaraai/east-ui";
 import { Data, Func, Record, Roster, Schedule } from "@elaraai/e3-ui";
-import * as e3 from "@elaraai/e3";
+import e3 from "@elaraai/e3";
 import { WarehouseDuty, WarehouseWeek, warehouseDuties, warehousePreviousStart, warehouseWeeks } from "./warehouse.js";
-import { rosterStaff as warehouseStaff, rosterActivities, rosterAgencies, rosterCover, rosterPositions, rosterShiftTimes, rosterStaffFit, rosterSuggestions, rosterTeams } from "./roster.examples.js";
+import {
+    rosterStaff as warehouseStaff, rosterActivities, rosterAgencies, rosterCover, rosterDutyRoles, rosterFitRead, rosterGreedyFit, rosterPersonOf, rosterPositions,
+    rosterShiftTimes, rosterSuggestions, rosterTeams,
+} from "./roster.examples.js";
 
 const stringOrder = compareFor(StringType);
 const WEEK = 7 * 86_400_000;
@@ -79,8 +82,65 @@ export const indexedRosterStaff = e3.record("indexed_roster_staff", warehouseSta
 });
 
 
+/**
+ * The indexed roster's fit, on e3 (#1624): the warehouse's greedy order over the 500 staff and the year's duties, each
+ * read through its own record's indexes — the holders of the need, and the week's duties, the Roster's unsaved duties
+ * among them. On a page scoped to some positions (#1621) — the leads' own — it asks about those positions' people
+ * alone: it reads the request's `scope`, each value as East prints it.
+ */
+export const indexedStaffFit = e3.function("indexed_roster_staff_fit", {
+    inputs: [
+        e3.index(indexedRosterDuties.indexes.indexed_roster_duties_by_time), indexedRosterDuties,
+        e3.index(indexedRosterStaff.indexes.staff_by_skill),
+        e3.index(indexedRosterStaff.indexes.staff_by_position),
+        e3.index(indexedRosterStaff.indexes.staff_by_trainer), indexedRosterStaff,
+        rosterShiftTimes, rosterTeams, rosterPositions, rosterActivities,
+    ],
+    // The Roster's unsaved duties are laid over them, and over their index
+    drafts: [indexedRosterDuties],
+    args: [Roster.Types.FitRequest],
+    output: Roster.Types.FitResult,
+}, ($, dutiesByTime, duties, bySkill, byPosition, byTrainer, staff, shiftRows, teamRows, positionRows, activityRows, request) => {
+    // The positions the page's scope holds its people to, if it holds them to any.
+    const scoped = $.let(false, BooleanType);
+    const held = $.let(new Set([]), SetType(StringType));
+    $.match(request.scope.tryGet("people"), { some: ($2, where) => {
+        $2.match(where.tryGet("position"), { some: ($3, choice) => {
+            $3.match(choice, { values: ($4, texts) => {
+                $4.assign(scoped, true);
+                $4.for(texts, ($5, text) => { $5(held.tryInsert(text.parse(StringType))); });
+            } });
+        } });
+    } });
+    // Whom to ask about: the holders of the need, each read through its index — of the scope's positions, on a scoped page.
+    const holders = $.let(new Set([]), SetType(StringType));
+    $.match(request.need, {
+        skill: ($2, skill) => { bySkill.of(skill).each($2, ($3, _carried, key) => { $3(holders.tryInsert(key)); }); },
+        trainers: ($2) => { byTrainer.of(true).each($2, ($3, _carried, key) => { $3(holders.tryInsert(key)); }); },
+        leads: ($2) => {
+            $2.for(positionRows, ($3, position, code) => {
+                $3.if(position.lead, ($4) => { byPosition.of(code).each($4, ($5, _carried, key) => { $5(holders.tryInsert(key)); }); });
+            });
+        },
+    });
+    const person = $.const(rosterPersonOf);
+    const people = $.let(new Map(), DictType(StringType, Roster.Types.Person));
+    $.for(holders, ($2, key) => {
+        const row = $2.const(staff.get(key));
+        $2.if(scoped.not().or(() => held.has(row.position)), ($3) => { $3(people.insert(key, person(row, key))); });
+    });
+    const roles = $.const(rosterDutyRoles);
+    const windowOf = $.const(Roster.window);
+    const span = $.const(windowOf(request.start));
+    const week = $.let(new Map(), DictType(StringType, Schedule.Types.RosterRoles));
+    dutiesByTime.overlapping({ from: span.from, to: span.to }).each($, ($2, _carried, key) => { $2(week.insert(key, roles(duties.get(key)))); });
+    const read = $.const(rosterFitRead);
+    const answer = $.const(Roster.answer);
+    return answer(request, read(people, week, shiftRows, teamRows, positionRows, activityRows), rosterGreedyFit);
+});
+
 export const rosterRecordIndexes = example({
-    description: "500 staff and a year of duties. The week's duties are read through the slice's duty source — an interval index over their times — and the rota's weeks by key, so no record is read whole; indexed staff narrowing keeps full-staff coverage and rules, and a Find fix asks the warehouse's greedy fit over every person, whatever the rail shows. Hidden duty edits Save by their own keys.",
+    description: "500 staff and a year of duties. The week's duties are read through the slice's duty source — an interval index over their times — and the rota's weeks by key, so no record is read whole; indexed staff narrowing keeps full-staff coverage and rules, and a Find fix asks the indexed roster's greedy fit, an e3.function that reads the holders of the need through the staff's indexes and the week's duties through their interval index, the Roster's unsaved duties laid over them (drafts), whatever the rail shows. Hidden duty edits Save by their own keys.",
     keywords: ["Roster", "Schedule.events", "Schedule.periods", "Slice", "Slice.bindRecords", "Roster.activities", "Func.bind", "fit", "Find", "records", "indexes", "interval", "paging", "history"], inputs: [],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const rota = $.let(Record.bind(indexedRosterDuties));
@@ -107,8 +167,9 @@ export const rosterRecordIndexes = example({
         const teams = $.let(Data.bind(rosterTeams));
         const roles = $.let(Data.bind(rosterPositions));
         const ideas = $.let(Data.bind(rosterSuggestions));
-        // The app's fit: a Find fix asks it who fits, over all 500 people, and the People tab shows its answer among what the rail shows.
-        const fit = $.let(Func.bind(rosterStaffFit));
+        // The app's fit: a Find fix asks it who fits — it reads the 500 staff's holders of the need for itself — and the People tab
+        // shows its answer among what the rail shows.
+        const fit = $.let(Func.bind(indexedStaffFit));
         return <Box width="100%" height="760px"><Roster id="rosterRecordIndexes" week={{ start: "sunday" }} slice={{ slice }} fit={fit} inspector
             view={{ layout: "shifts", period: "day", date: new Date("2028-03-09T00:00:00Z") }}
             events={{ duty: Schedule.events(rota, {

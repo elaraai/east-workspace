@@ -8,7 +8,7 @@
  * on the shared scale, plus factory-computed rollup bands, decision diamonds
  * and quantity ports. The §4.3 run-state truth table maps `EventStateType` to
  * the recipe `bar` slot's `data-state` axis; `status: warning` adds the
- * `.stuck` warn ring; a run ending past the window keeps its true geometry and
+ * status's ring (#1541: `data-tone`, and `data-ring` for an open one); a run ending past the window keeps its true geometry and
  * mask-fades (`data-runoff`) — never a fabricated end. Popovers and hover cards
  * resolve through the root's generalized resolvers: the canvas's one overlay
  * layer opens them from a bar's `data-run` or a diamond's `data-mark` (#816),
@@ -23,15 +23,20 @@
  * pointer drags it, or one of its two end handles, and Space picks it up for
  * the keyboard (`edit/`). An event kind's bar moves and resizes its event
  * (#1196), and wears the brand tint in a brand border while its drafts change
- * it (`data-draft`).
+ * it (`data-draft`). A locked bar (#1541, U9) leads with a lock and takes no
+ * move: no handle, no end handles, nothing for Space to pick up.
  */
 
 import { useMemo } from "react";
 import { Box } from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faLock } from "@fortawesome/free-solid-svg-icons";
 import { variant, type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/e3-ui/internal";
+import { getSomeorUndefined } from "@elaraai/east-ui-components";
 import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefValue } from "../context.js";
 import { decisionName, runName } from "../a11y.js";
+import { statusAttributes } from "../../shared/status.js";
 import { quantityText } from "../quantity.js";
 import { usePlanWords } from "../words.js";
 import { usePlanMovable } from "../edit/movable.js";
@@ -85,12 +90,12 @@ function RunBar({ run, left, width, runoff, rowKey, rowId, styles, ctx, move }: 
 }) {
     const scale = usePlanScale();
     const words = usePlanWords();
-    const movable = useMemo<PlanMovable | undefined>(() => (move !== undefined
+    // A locked run takes no move (#1541, U9).
+    const movable = useMemo<PlanMovable | undefined>(() => (move !== undefined && !run.locked
         ? { rowKey, key: run.key, label: run.label, kind: "run", span: { start: run.start, end: run.end }, items: move.items, resize: move.resize }
         : undefined), [move, rowKey, run]);
     const { handle, edges, carried } = usePlanMovable(movable);
     const stateKey = runStateKey(run.state);
-    const stuck = run.status.type === "some" && run.status.value.type === "warning";
     // ONE quantity (#824): its caption is its text, else its value
     // through its format, then its unit.
     const qty = run.quantity.type === "some" ? quantityText(run.quantity.value, words) : undefined;
@@ -114,7 +119,8 @@ function RunBar({ run, left, width, runoff, rowKey, rowId, styles, ctx, move }: 
             css={styles.bar}
             data-ctx={ctx === true ? "" : undefined}
             data-state={stateKey}
-            data-stuck={stuck ? "" : undefined}
+            // Its status (#1541): its tone's ring, and the open ring a tentative one draws as.
+            {...statusAttributes(getSomeorUndefined(run.status))}
             data-overlap={overlap ? "" : undefined}
             data-draft={drafted ? "" : undefined}
             data-conflict={conflict ? "" : undefined}
@@ -123,6 +129,7 @@ function RunBar({ run, left, width, runoff, rowKey, rowId, styles, ctx, move }: 
             data-fill={optimised !== undefined ? "own" : undefined}
             title={optimised?.provenance}
             data-runoff={runoff ? "" : undefined}
+            data-locked={run.locked ? "" : undefined}
             data-run={run.key}
             data-plan-frac={left.toFixed(4)}
             // Focusable: Enter opens its popover (#816), and the
@@ -138,6 +145,8 @@ function RunBar({ run, left, width, runoff, rowKey, rowId, styles, ctx, move }: 
             aria-pressed={select.selectable ? select.selected : undefined}
             onClick={select.onClick}
         >
+            {/* Its lock (#1541, U9), ahead of its label: whole, or not drawn. */}
+            {run.locked && <Box as="span" css={styles.lock} data-plan-lock="" aria-hidden="true"><FontAwesomeIcon icon={faLock} /></Box>}
             {/* Its label (`data-plan-label`): hidden below a letter and the ellipsis, its hover saying it (#1264). */}
             <Box as="span" css={styles.barLabel} data-plan-label="">{run.label}</Box>
             {qty !== undefined && <Box as="span" css={styles.barQty}>{qty}</Box>}

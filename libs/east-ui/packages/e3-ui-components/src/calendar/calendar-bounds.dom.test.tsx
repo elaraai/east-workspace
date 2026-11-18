@@ -14,7 +14,9 @@
  * field never invalid; its customer retyped, Save waits, the banner over its
  * form saying it in the hint's own words, the help line now an error and the
  * field invalid, the warning now the issue holding Save — which, pressed, gives
- * the field the keyboard too — and the block keeps its ring.
+ * the field the keyboard too — and the block keeps its ring. A job selected
+ * after another's Details were scrolled down shows from the pane's start
+ * (#1680's review).
  */
 
 import { expect, test } from "vitest";
@@ -94,4 +96,15 @@ test("a stored job's hours under their least: its block wears the warn ring, the
     await act(async () => { fireEvent.click(issues()); });
     await settle();
     expect(document.activeElement).toBe(within(hours()).getByRole("spinbutton"));
+});
+
+test("a job selected after another job's Details were scrolled down shows from the pane's start, its heading in view (#1680's review)", async () => {
+    const { container } = await h.mount(bounded);
+    await act(async () => { fireEvent.click(event(container, "job", "job2")); });
+    await settle();
+    const body = () => slot(container, "end").querySelector<HTMLElement>("[data-dock-body]")!;
+    body().scrollTop = 48;
+    await act(async () => { fireEvent.click(event(container, "job", "job3")); });
+    await settle();
+    expect([slot(container, "end").querySelector("[data-inspector-title]")?.textContent?.includes("stainless steel mounting plates"), body().scrollTop]).toEqual([true, 0]);
 });

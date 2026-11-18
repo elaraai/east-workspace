@@ -315,6 +315,32 @@ export const AREA_FNS = lazyBuilds({
       $.return(code.multiply(32n).add(level));
     });
   },
+  /**
+   * The Morton code of a finest-level cell: x's bits in the even places, y's
+   * in the odd. What a reader of a window names a cell by (`index-read.ts`).
+   *
+   * `(ix, iy) → Integer`, each index below `2^28`
+   *
+   * @remarks
+   * `areaCode` holds the same loop and is left as it is: its program is the
+   * one an index is built and maintained by, and a reader's rows are held to
+   * it by test.
+   */
+  get mortonCode() {
+    return East.function([IntegerType, IntegerType], IntegerType, ($, x, y) => {
+      const ix = $.let(x);
+      const iy = $.let(y);
+      const code = $.let(0n);
+      const bit = $.let(1n);
+      $.for(East.Array.range(0n, FINEST_LEVEL), ($) => {
+        $.assign(code, code.add(ix.remainder(2n).multiply(bit)).add(iy.remainder(2n).multiply(bit).multiply(2n)));
+        $.assign(ix, ix.divide(2n));
+        $.assign(iy, iy.divide(2n));
+        $.assign(bit, bit.multiply(4n));
+      });
+      return code;
+    });
+  },
   /** `(width, height) → the larger of their sizes`: a box's larger side. */
   get largerSide() {
     return East.function([FloatType, FloatType], FloatType, (_$, width, height) =>

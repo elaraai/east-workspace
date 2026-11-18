@@ -18,29 +18,31 @@
  * type `R` crosses the payload as beast2 bytes, as Schedule's kinds' rows do:
  * the app's `check` over bytes at `CheckContext(R)` — or, over a reference
  * record the slice's `reference` source reads (#1551), `CheckContext(R, P)`,
- * its rows crossing as bytes beside their type — its columns over bytes at
- * `R`, and the fit's binding checked against `FitRequest(R)`. The renderer
- * compiles the Allocation's functions over `R`, the bin kind's `rowType`, and
- * calls the fit, the app's `e3.function`, by name: it computes no fit of its own.
+ * its rows crossing as bytes beside their type — and its columns over bytes
+ * at `R`. The fit's and the optimiser's bindings are checked against their
+ * request and answer, neither of which carries a row (east-workspace#1622,
+ * #1624). The renderer compiles the Allocation's functions over `R`, the bin
+ * kind's `rowType`, and calls the fit, the app's `e3.function`, by name: it
+ * computes no fit of its own.
  *
  * @packageDocumentation
  */
 
 import {
-    ArrayType, BlobType, BooleanType, DateTimeType, East, Expr, FloatType, FunctionType, NullType, OptionType, StringType, StructType, VariantType,
+    ArrayType, BlobType, BooleanType, DateTimeType, DictType, East, Expr, FloatType, FunctionType, NullType, OptionType, StringType, StructType, VariantType,
     isTypeEqual, none, printType, some, variant,
     type EastType, type ExprType, type SubtypeExprOrValue, type ValueTypeOf,
 } from "@elaraai/east";
 import { EastUI, StatusTokenType, TimeStepType, type UIElement } from "@elaraai/east-ui";
 import { RecordSlicesChromeType, RowSourceType, type RecordSlicesChromeOptions } from "@elaraai/east-ui/internal";
-import { FuncBindingType, boundFuncSignature, type BoundFunc } from "../bind/func.js";
+import { FuncBindingType, type BoundDraftsFunc, type BoundFunc } from "../bind/func.js";
 import { scheduleCheck } from "../schedule/index.js";
 import type { ScheduleEventKind } from "../schedule/events.js";
 import type { SchedulePeriods } from "../schedule/periods.js";
 import { SCHEDULE_REFERENCE, ScheduleReferenceType, referenceCheckRefusal, referenceRowType, scheduleReference } from "../schedule/reference.js";
 import { SCHEDULE_DEF, type ScheduleResourceKind } from "../schedule/resources.js";
 import { ScheduleAllocationKindType, ScheduleAllocationNewBinType, SchedulePeriodsKindType } from "../schedule/types.js";
-import { optimiseBinding, type OptimiseContract } from "../utils/optimise.js";
+import { optimiseBinding, type OptimiseHandle } from "../utils/optimise.js";
 import { recordSources } from "../utils/record-sources.js";
 import { firstView, viewsProp, type ViewsProp } from "../utils/views.js";
 import {
@@ -277,15 +279,26 @@ export interface AllocationProps<R extends EastType = EastType, P extends EastTy
      * writing the week holding the day in view and every day of a published week read-only. Omitted, no Publish.
      */
     periods?: SchedulePeriods;
-    /** The fit: `Func.bind` of the app's `e3.function` from `Allocation.Types.FitRequest(R)` to `Allocation.Types.FitResult`. The board has no fit of its own. */
-    fit: BoundFunc<[T.AllocationFitRequestType<R>], T.AllocationFitResultType>;
     /**
-     * The app's optimiser (#1409): `Func.bind` of its `e3.function` from `Allocation.Types.OptimiseRequest(R)` — the day in view, the run
-     * number, the day's bins as drafted, every arrival and the board's context — to `Allocation.Types.OptimiseResult(R)`, the day's bins
-     * complete. The Elara eye in the toolbar calls it once per run; the result lands in the session as one edit, which one Undo
-     * reverts and Save commits with everything else. Omitted, no eye.
+     * The fit (east-workspace#1624): `Func.bind` of the app's `e3.function` from `Allocation.Types.FitRequest` — the plan day,
+     * the question and the page's scope, no row — to `Allocation.Types.FitResult`. The function reads the day's bins through
+     * the bins' record's indexes, and the arrivals and the resources from the app's own records; it lists in its `drafts` each
+     * record it reads that the board edits — the bins', and the periods' — and reads them with the board's unsaved edits laid
+     * over them. `Allocation.candidates`, `answer` and `lookahead` are the ready-made parts, over what the function read
+     * (`Allocation.Types.FitContext`). A resource, a bin or an arrival the answer does not name has no verdict. The board has
+     * no fit of its own, and checks the handle at build, naming what it asks and answers.
      */
-    optimise?: BoundFunc<[T.AllocationOptimiseRequestType<R>], T.AllocationOptimiseResultType<R>>;
+    fit: BoundFunc<[typeof T.AllocationFitRequestType], typeof T.AllocationFitResultType> | BoundDraftsFunc<[typeof T.AllocationFitRequestType], typeof T.AllocationFitResultType>;
+    /**
+     * The app's optimiser (#1409, east-workspace#1622): `Func.bind` of its `e3.function` from `Allocation.Types.OptimiseRequest` —
+     * the day in view, the run's number and the rail's narrowing, no row — to `Allocation.Types.OptimiseResult(D)`, a patch of the
+     * bins' record `D`. The function reads the day's bins through the record's indexes, and the arrivals and the resources from
+     * the app's own records; it lists in its `drafts` each record it reads that the board edits — the bins', and the periods'
+     * where it publishes them — and reads them with the board's unsaved edits laid over them. The Elara eye in the toolbar calls
+     * it once per run; its answer lands in the session as one edit, which one Undo reverts and Save commits with everything
+     * else. Omitted, no eye. The board checks the handle at build, naming what it asks and answers.
+     */
+    optimise?: OptimiseHandle;
     /**
      * The app's issues, after the built-in ones wherever issues show: an East function from `Allocation.Types.CheckContext(R)` to
      * `Array<Allocation.Types.Issue>` — or, beside the slice's `reference` source (#1551), from `Allocation.Types.CheckContext(R, P)`,
@@ -466,56 +479,65 @@ function overBytes<O extends EastType>(fn: unknown, asks: EastType, answers: O, 
 }
 
 /**
- * The fit's binding, checked: `Func.bind` of an `e3.function` from `Allocation.Types.FitRequest(R)` to `Allocation.Types.FitResult`.
+ * The fit's binding, checked (east-workspace#1624): `Func.bind` of an `e3.function` from `Allocation.Types.FitRequest` to
+ * `Allocation.Types.FitResult`, which lists in its `drafts` each record it reads that the board edits — the optimiser's check
+ * (`utils/optimise.ts`), in the fit's words.
  *
  * @param fit - What the app passed as `fit`
- * @param rowType - The bin kind's row type
- * @returns The binding's descriptor, which names the function
- * @throws {Error} When it is not a `Func.bind` handle, or its function asks or answers another type, naming it — a fit over
- *   another row type naming both row types
+ * @param edits - The records the board edits, each by its name in the deployed package ({@link allocationEdits})
+ * @returns The binding's descriptor, which names the function; evaluated, it fails where the function reads a record the
+ *   board edits and does not list it in `drafts`
+ * @throws {Error} When it is not a `Func.bind` handle, or its function asks or answers another type, naming it
+ * @internal
  */
-function fitBinding(fit: unknown, rowType: EastType): ExprType<typeof FuncBindingType> {
-    const signature = boundFuncSignature(fit);
-    if (signature === undefined) {
-        throw new Error("Allocation: `fit` is Func.bind of the app's e3.function from Allocation.Types.FitRequest(R) to Allocation.Types.FitResult, R the bins' row type");
-    }
-    const asked = signature.asks;
-    if (!isTypeEqual(asked, T.AllocationFitRequestTypeFor(rowType))) {
-        // A FitRequest over another row: its day's bins' row.
-        const plan = asked.type === "Struct" ? asked.fields["plan"] : undefined;
-        const bins = plan?.type === "Struct" ? plan.fields["bins"] : undefined;
-        const theirs = bins?.type === "Dict" && bins.value.type === "Struct" ? bins.value.fields["row"] : undefined;
-        throw new Error(theirs !== undefined && isTypeEqual(asked, T.AllocationFitRequestTypeFor(theirs))
-            ? `Allocation: \`fit\` is bound over bin rows ${printType(theirs)}, and the bin kind's rows are ${printType(rowType)} — bind a fit over Allocation.Types.FitRequest of the bins' row type`
-            : `Allocation: \`fit\` asks ${printType(asked)}, not Allocation.Types.FitRequest(${printType(rowType)})`);
-    }
-    if (!isTypeEqual(signature.answers, T.AllocationFitResultType)) {
-        throw new Error(`Allocation: \`fit\` answers ${printType(signature.answers)}, not Allocation.Types.FitResult`);
-    }
-    return (fit as ExprType<StructType<{ binding: typeof FuncBindingType }>>).binding;
+export function allocationFitBinding(fit: unknown, edits: readonly ExprType<StringType>[]): ExprType<typeof FuncBindingType> {
+    return optimiseBinding(fit, {
+        builder: "Allocation",
+        prop: {
+            name: "fit", asked: "the question and the page's scope", answers: "a verdict for each resource, bin or arrival the function considered",
+            unseen: "answer around",
+        },
+        request: T.AllocationFitRequestType, result: T.AllocationFitResultType,
+        signature: "from Allocation.Types.FitRequest to Allocation.Types.FitResult",
+        names: { request: "Allocation.Types.FitRequest", result: "Allocation.Types.FitResult" },
+        edits,
+    });
 }
 
 /**
- * What the Allocation holds `optimise` to (#1409): `Func.bind` of an `e3.function` from `Allocation.Types.OptimiseRequest(R)` to
- * `Allocation.Types.OptimiseResult(R)`, R the bins' row type — a request over another row named by its bins' row.
+ * The records the board edits, each by its name in the deployed package: the bins', and the periods' where it publishes —
+ * what a function it asks, its fit or its optimiser, lists in `drafts` where it reads one.
  *
- * @param rowType - The bin kind's row type
- * @returns The contract, for {@link optimiseBinding}
+ * @param kind - The bin kind
+ * @param periods - What it publishes, where it publishes
+ * @returns The records' names
+ * @internal
  */
-function allocationOptimiseContract(rowType: EastType): OptimiseContract {
-    const rows = printType(rowType);
-    return {
-        builder: "Allocation", request: T.AllocationOptimiseRequestTypeFor(rowType), result: T.AllocationOptimiseResultTypeFor(rowType),
-        signature: "from Allocation.Types.OptimiseRequest(R) to Allocation.Types.OptimiseResult(R), R the bins' row type",
-        names: { request: "Allocation.Types.OptimiseRequest", result: "Allocation.Types.OptimiseResult" },
-        rows: { request: rows, result: rows }, noun: { theirs: "bin rows", ours: "the bin kind's rows" }, of: "the bins' row type",
-        otherRows: (asked) => {
-            // An OptimiseRequest over another row: its bins' row.
-            const bins = asked.type === "Struct" ? asked.fields["bins"] : undefined;
-            const theirs = bins?.type === "Dict" ? bins.value : undefined;
-            return theirs !== undefined && isTypeEqual(asked, T.AllocationOptimiseRequestTypeFor(theirs)) ? printType(theirs) : undefined;
-        },
-    };
+export function allocationEdits(kind: ScheduleEventKind<EastType, EastType>, periods: SchedulePeriods | undefined): readonly ExprType<StringType>[] {
+    return [kind.record, ...(periods === undefined ? [] : [periods.record])];
+}
+
+/**
+ * The Allocation's `optimise` binding, checked (#1409, east-workspace#1622): `Func.bind` of an `e3.function` from
+ * `Allocation.Types.OptimiseRequest` to `Allocation.Types.OptimiseResult(D)` over the bins' record, which lists in its
+ * `drafts` each record it reads that the board edits.
+ *
+ * @param optimise - What the app passed as `optimise`
+ * @param bins - The bins' record type, `DictType(StringType, R)`
+ * @param edits - The records the board edits, each by its name in the deployed package ({@link allocationEdits})
+ * @returns The binding's descriptor, which names the function; evaluated, it fails where the function reads a record the
+ *   board edits and does not list it in `drafts`
+ * @throws {Error} When it is not a `Func.bind` handle, or its function asks or answers another type, naming it
+ * @internal
+ */
+export function allocationOptimiseBinding(optimise: unknown, bins: DictType<EastType, EastType>, edits: readonly ExprType<StringType>[]): ExprType<typeof FuncBindingType> {
+    const given = printType(bins);
+    return optimiseBinding(optimise, {
+        builder: "Allocation", request: T.AllocationOptimiseRequestType, result: T.AllocationOptimiseResultTypeFor(bins),
+        signature: `from Allocation.Types.OptimiseRequest to Allocation.Types.OptimiseResult(D), D the bins' record type — here ${given}`,
+        names: { request: "Allocation.Types.OptimiseRequest", result: `Allocation.Types.OptimiseResult(${given})` },
+        edits,
+    });
 }
 
 /**
@@ -532,9 +554,9 @@ function allocationOptimiseContract(rowType: EastType): OptimiseContract {
  *   `resources` holding other than the lanes' kind and the resources' kind, one read a window at a time, resources keyed
  *   by anything but String, or a resources kind with no `min` or `max`; `arrivals` that is not `Allocation.arrivals`, and
  *   its `values` returning another struct than the bin kind's own fields; `periods` that is not `Schedule.periods`; a
- *   `fit` that is not `Func.bind` of a function from `FitRequest(R)` to `FitResult`, one over another row type naming
- *   both; an `optimise` that is not `Func.bind` of a function from `OptimiseRequest(R)` to `OptimiseResult(R)`, one over
- *   another row type naming both (#1409); a `views` that lists nothing, names no layout, or leaves out `view.layout`; a `check` of another type; a library tab or a column key listed twice; a label that is empty; the Table's
+ *   `fit` that is not `Func.bind` of a function from `FitRequest` to `FitResult`, naming what it asks and answers
+ *   (east-workspace#1624); an `optimise` that is not `Func.bind` of a function from `OptimiseRequest` to `OptimiseResult(D)` over the bins'
+ *   record, naming what it asks and answers (#1409, east-workspace#1622); a `views` that lists nothing, names no layout, or leaves out `view.layout`; a `check` of another type; a library tab or a column key listed twice; a label that is empty; the Table's
  *   bands not starting at 0 and rising within the day; a bins', lanes' or resources' slot named `reference`, and a `check` that
  *   does not go with the slice's reference record (#1551) — a `reference` source and no check, a check over a reference the
  *   slice holds none of, one over the bins alone beside one, or one over another reference row type; and as `Schedule`'s checks, the bin kind's build
@@ -637,8 +659,11 @@ export function createAllocationPayload<R extends EastType, P extends EastType =
 
     // The app's functions over the bin row type.
     const rowType = kind.rowType as EastType;
-    const fit = fitBinding(props.fit, rowType);
-    const optimise = props.optimise === undefined ? undefined : optimiseBinding(props.optimise, allocationOptimiseContract(rowType));
+    // The fit and the optimiser, each held to the records the board edits: the bins', and the periods' (#1622, #1624) — a
+    // function that reads one lists it in `drafts`.
+    const edits = allocationEdits(kind as ScheduleEventKind<EastType, EastType>, periods);
+    const fit = allocationFitBinding(props.fit, edits);
+    const optimise = props.optimise === undefined ? undefined : allocationOptimiseBinding(props.optimise, DictType(kind.keyType, rowType), edits);
     // The check reads the slice's reference record beside the bins where it has one (#1551): CheckContext(R, P).
     const row = printType(rowType);
     const reference = referenceRowType(props.slice, "Allocation");
@@ -725,6 +750,66 @@ export function createAllocationPayload<R extends EastType, P extends EastType =
 }
 
 // ============================================================================
+// The context, from the app's own rows
+// ============================================================================
+
+/**
+ * What {@link allocationContext} builds the board's context from: the app's own rows, read where the context is wanted —
+ * an optimiser's or a fit's body, over the records it takes as inputs — through the declarations the board takes.
+ */
+export interface AllocationContextConfig {
+    /** The lanes' kind, its rows read whole: `Schedule.resources(rows, { name, icon, label, offset? })`. */
+    lanes: ScheduleResourceKind<EastType, EastType>;
+    /** The resources' kind, its rows read whole: `Schedule.resources(rows, { name, icon, label, min, max, … })`. */
+    resources: ScheduleResourceKind<EastType, EastType>;
+    /** Every arrival: `Allocation.arrivals(rows, { label, quantity, hold, … })`. */
+    arrivals: AllocationArrivals;
+    /** The slot spacing for every lane; an hour by default, as the board's. */
+    every?: SubtypeExprOrValue<TimeStepType>;
+    /** The built-in rules: whether a fit and the check warn under min; on by default, as the board's. */
+    rules?: { under?: SubtypeExprOrValue<BooleanType> };
+    /** The quantity's unit (`m³`); none by default. */
+    unit?: SubtypeExprOrValue<StringType>;
+}
+
+/**
+ * The board's context, from the app's own rows (east-workspace#1622): every lane, every resource and every arrival, the
+ * slot spacing, the rules and the unit — what `Allocation.fit`, `.candidates`, `.loads`, `.check` and `.slots` read
+ * beside a day. An optimiser is asked no context: it reads the records behind the board's lanes, resources and arrivals
+ * itself, and builds the context here where it reuses those functions, through the same declarations the board takes,
+ * so it reads them as the board does.
+ *
+ * @param config - The lanes', the resources' and the arrivals' declarations over the rows read, and the board's settings
+ * @returns The context, `Allocation.Types.Context`
+ * @throws {Error} When the arrivals are no `Allocation.arrivals` declaration, a kind is read a window at a time, or the
+ *   resources' kind gives no `min` or `max`, naming the fix
+ *
+ * @example
+ * ```ts
+ * // Inside an optimiser's body, over the yard's records it takes as inputs:
+ * const context = $.const(Allocation.context({
+ *     lanes: Schedule.resources(bays, { name: "Bays", icon: "warehouse", label: b => b.name, offset: b => b.offset }),
+ *     resources: Schedule.resources(kilns, { name: "Kilns", icon: "fire", label: k => k.name, min: k => k.min, max: k => k.max }),
+ *     arrivals: Allocation.arrivals(loads, { label: l => l.code, quantity: l => l.m3, hold: l => variant("days", l.dryingDays) }),
+ *     unit: "m³",
+ * }));
+ * ```
+ */
+function allocationContext(config: AllocationContextConfig): ExprType<typeof T.AllocationContextType> {
+    if (!isAllocationArrivals(config.arrivals)) {
+        throw new Error(`Allocation.context: \`arrivals\` is ${ARRIVALS} over the app's rows — every arrival the day may book`);
+    }
+    return East.value({
+        lanes: allocationLanesOf(config.lanes),
+        every: config.every ?? variant("hours", 1.0),
+        arrivals: allocationArrivalsOf(config.arrivals).toDict((_$, arrival) => arrival.key, (_$, arrival) => arrival),
+        resources: allocationResourcesOf(config.resources).toDict((_$, resource) => resource.key, (_$, resource) => resource),
+        rules: { under: config.rules?.under ?? true },
+        unit: config.unit ?? "",
+    } as never, T.AllocationContextType) as ExprType<typeof T.AllocationContextType>;
+}
+
+// ============================================================================
 // The namespace
 // ============================================================================
 
@@ -749,15 +834,17 @@ export interface AllocationNamespace {
     <R extends EastType, P extends EastType = never>(props: AllocationProps<R, P>): UIElement;
     /** Declares what the board books from, the arrivals, from the app's keyed rows. */
     arrivals: typeof allocationArrivals;
+    /** The board's context from the app's own rows, for a function that reads them itself: an optimiser's or a fit's (#1622). */
+    context: typeof allocationContext;
     /** The built-in rules, one verdict per candidate. */
     fit: typeof allocationFit;
     /** `loads(R)`: every resource's load on the plan day. */
     loads: typeof allocationLoads;
-    /** `candidates(R)`: a fit's candidates. */
+    /** A fit's candidates, over what its function read: `(request, context) → Array<Candidate>` (east-workspace#1624). */
     candidates: typeof allocationCandidates;
-    /** `answer(R)`: a fit's answer from a fit per candidate. */
+    /** A fit's answer from a fit per candidate: `(request, context, fit, basis) → FitResult` (east-workspace#1624). */
     answer: typeof allocationAnswer;
-    /** `lookahead(R)`: a greedy look-ahead over a fit. */
+    /** A greedy look-ahead over a fit: `(context, candidate, fit) → Fit` (east-workspace#1624). */
     lookahead: typeof allocationLookahead;
     /** `check(R)`: the built-in checks. */
     check: typeof allocationCheck;
@@ -775,7 +862,7 @@ export interface AllocationNamespace {
     lanes: (...args: never[]) => never;
     /** @deprecated Removed (#1371): the resources are a `Schedule.resources` kind under the slot the bin kind's `parts` name. */
     resources: (...args: never[]) => never;
-    /** The Allocation's East types; those over a day are constructors of the app's bin row type. */
+    /** The Allocation's East types; those over a day are constructors of the app's bin row type, and the optimiser's answer of the bins' record type. */
     Types: {
         Lane: typeof T.AllocationLaneType; Status: typeof T.AllocationStatusType;
         Bin: typeof T.AllocationBinTypeFor; Day: typeof T.AllocationDayTypeFor;
@@ -783,11 +870,16 @@ export interface AllocationNamespace {
         Arrival: typeof T.AllocationArrivalType; Resource: typeof T.AllocationResourceType; Rules: typeof T.AllocationRulesType;
         Context: typeof T.AllocationContextType; LoadState: typeof T.AllocationLoadStateType; Load: typeof T.AllocationLoadType;
         Candidate: typeof T.AllocationCandidateType; Refusal: typeof T.AllocationRefusalType; Fit: typeof T.AllocationFitType;
-        FitAsk: typeof T.AllocationFitAskType; FitRequest: typeof T.AllocationFitRequestTypeFor; FitResult: typeof T.AllocationFitResultType;
+        FitAsk: typeof T.AllocationFitAskType;
+        /** What the app's fit is asked (east-workspace#1624): the plan day, the question and the page's scope, and no row. */
+        FitRequest: typeof T.AllocationFitRequestType;
+        /** What a fit's function read, which the ready-made parts answer from (east-workspace#1624): the day's bins as their roles, the arrivals, the resources, the rules and the unit. */
+        FitContext: typeof T.AllocationFitContextType;
+        FitResult: typeof T.AllocationFitResultType;
         Fix: typeof T.AllocationFixType; IssueKind: typeof T.AllocationIssueKindType; Issue: typeof T.AllocationIssueType;
         CheckContext: typeof T.AllocationCheckContextTypeFor; SlotStatus: typeof T.AllocationSlotStatusType; Slot: typeof T.AllocationSlotType;
         Layout: typeof T.AllocationLayoutType;
-        OptimiseRequest: typeof T.AllocationOptimiseRequestTypeFor; OptimiseResult: typeof T.AllocationOptimiseResultTypeFor;
+        OptimiseRequest: typeof T.AllocationOptimiseRequestType; OptimiseResult: typeof T.AllocationOptimiseResultTypeFor;
         /** A reservation, a bin's roles but its arrival: what the bin kind's `values` gives its own fields from (#1526). */
         NewBin: typeof ScheduleAllocationNewBinType;
     };
@@ -804,7 +896,7 @@ export interface AllocationNamespace {
 export const Allocation: AllocationNamespace = Object.assign(
     <R extends EastType, P extends EastType = never>(props: AllocationProps<R, P>): UIElement => AllocationComponent.Root(createAllocationPayload(props)),
     {
-        arrivals: allocationArrivals, fit: allocationFit, loads: allocationLoads, candidates: allocationCandidates, answer: allocationAnswer,
+        arrivals: allocationArrivals, context: allocationContext, fit: allocationFit, loads: allocationLoads, candidates: allocationCandidates, answer: allocationAnswer,
         lookahead: allocationLookahead, check: allocationCheck, slots: allocationSlots,
         library: {
             arrivals: allocationArrivalsTab, resources: allocationResourcesTab,
@@ -820,10 +912,11 @@ export const Allocation: AllocationNamespace = Object.assign(
             Interval: T.AllocationIntervalType, Job: T.AllocationJobType, Detail: T.AllocationDetailType, Arrival: T.AllocationArrivalType,
             Resource: T.AllocationResourceType, Rules: T.AllocationRulesType, Context: T.AllocationContextType, LoadState: T.AllocationLoadStateType,
             Load: T.AllocationLoadType, Candidate: T.AllocationCandidateType, Refusal: T.AllocationRefusalType, Fit: T.AllocationFitType,
-            FitAsk: T.AllocationFitAskType, FitRequest: T.AllocationFitRequestTypeFor, FitResult: T.AllocationFitResultType, Fix: T.AllocationFixType,
+            FitAsk: T.AllocationFitAskType, FitRequest: T.AllocationFitRequestType, FitContext: T.AllocationFitContextType,
+            FitResult: T.AllocationFitResultType, Fix: T.AllocationFixType,
             IssueKind: T.AllocationIssueKindType, Issue: T.AllocationIssueType, CheckContext: T.AllocationCheckContextTypeFor,
             SlotStatus: T.AllocationSlotStatusType, Slot: T.AllocationSlotType, Layout: T.AllocationLayoutType,
-            OptimiseRequest: T.AllocationOptimiseRequestTypeFor, OptimiseResult: T.AllocationOptimiseResultTypeFor,
+            OptimiseRequest: T.AllocationOptimiseRequestType, OptimiseResult: T.AllocationOptimiseResultTypeFor,
             NewBin: ScheduleAllocationNewBinType,
         },
     },

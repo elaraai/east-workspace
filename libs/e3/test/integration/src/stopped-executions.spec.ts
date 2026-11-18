@@ -53,33 +53,13 @@ import {
   type TaskCompletedCallback,
 } from '@elaraai/e3-core';
 import { encodeInSegmentsOf } from '@elaraai/e3-core/test';
-import { createTestDir, processTree, removeTestDir, runE3Command, spawnE3Command, waitFor } from './helpers.js';
+import { createTestDir, exitsWithin, processTree, removeHeldTestDir, runE3Command, spawnE3Command, waitFor } from './helpers.js';
 
 const TableType = DictType(IntegerType, StringType);
 const CANCELLED_TASK = "cancelled: e3 stopped the task's units because the run was aborted";
 const CANCELLED_UNIT = 'cancelled: e3 stopped the runner because the run was aborted';
 /** Pieces of 64 to 1024 stored bytes: a piece a segment of the table. */
 const PIECES = { E3_TEST_PIECE_BYTES: '256' };
-
-/** Whether a process with this pid exists. */
-function alive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** Whether `pid` has exited within `ms` — a bounded liveness wait. */
-async function exitsWithin(pid: number, ms: number): Promise<boolean> {
-  const deadline = Date.now() + ms;
-  while (alive(pid)) {
-    if (Date.now() >= deadline) return false;
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  return true;
-}
 
 /** Whether `binary` resolves on PATH and answers `version`. */
 function onPath(binary: string): boolean {
@@ -148,8 +128,8 @@ describe('stopped executions', () => {
     }
   }
 
-  afterEach(() => {
-    removeTestDir(dir);
+  afterEach(async () => {
+    await removeHeldTestDir(dir, hold);
   });
 
   /** The task and its first piece are recorded cancelled, the task's log

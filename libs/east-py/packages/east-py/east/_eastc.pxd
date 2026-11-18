@@ -395,6 +395,9 @@ cdef extern from "east/values.h":
 
     # Frozen (task-input) brand — per union arm; false for kinds without it.
     bint east_value_frozen(const EastValue *v)
+    # Brands a value frozen as it is made — a decoder's call, and a host's for
+    # a range of a file it hands out read-only (#1616); never cleared.
+    void east_value_set_frozen(EastValue *v)
     # The uniform frozen-mutation message, identical across runtimes.
     const char *EAST_FROZEN_MUTATION_MSG
 
@@ -582,6 +585,9 @@ cdef extern from "east/serialization.h":
         size_t peak_weight
         size_t budget
     void east_beast2_pages_cache_stats(Beast2Pages *p, Beast2PagesCacheStats *out)
+    # What a pager's reads have cost: every segment decode, and every fence
+    # probed. A view's are counted on the pager it reads through.
+    void east_beast2_pages_stats(Beast2Pages *p, size_t *segments_decoded, size_t *fences_probed)
     EastValue *east_paged_hydrated(EastValue *v)
     bint east_paged_stats(EastValue *v, size_t *segments, size_t *segments_decoded,
                           size_t *fences_probed, cbool *hydrated)
@@ -593,6 +599,28 @@ cdef extern from "east/serialization.h":
     # decodes takes the name: a runner names its inputs "input N".
     void east_paged_set_label(EastValue *v, const char *label)
     EastType *east_beast2_pages_type(Beast2Pages *p)
+    # A key range of a paged collection (#1616). A range of a lazily opened
+    # Set or Dict is a view: a paged value that reads through its source's
+    # pager, its ends placed at the first read that needs them. `prepare`
+    # places them — the count entries above answer nothing for a view whose
+    # ends cannot be placed, so a caller that reads them asks here first; it
+    # is true at once for a pager that is no view. `pages_range` is the rows
+    # [lo, hi) between two bounds in the pager's own row numbering. A bound is
+    # a leading part of the key, its value and its type; `past` makes the end
+    # the first key past it, as a prefix's upper end is; NULL leaves it open.
+    EastValue *east_beast2_open_paged_range(EastValue *source, EastValue *from_,
+                                            EastType *from_type, bint from_past,
+                                            EastValue *to, EastType *to_type, bint to_past)
+    bint east_beast2_pages_prepare(Beast2Pages *p)
+    bint east_beast2_pages_range(Beast2Pages *p, EastValue *from_, EastType *from_type,
+                                 bint from_past, EastValue *to, EastType *to_type,
+                                 bint to_past, size_t *lo_out, size_t *hi_out)
+    # The rows between two bounds as one collection, frozen at every depth,
+    # read as a view reads them — what a host that keeps no lazily opened
+    # value reads a range by. `p` reads its own bytes.
+    EastValue *east_beast2_pages_range_rows(Beast2Pages *p, EastValue *from_,
+                                            EastType *from_type, bint from_past,
+                                            EastValue *to, EastType *to_type, bint to_past)
 
     # Segment manifests: a collection held as standalone segment blobs and a
     # manifest naming them, a manifest directory being the manifest's file
@@ -921,3 +949,19 @@ cdef extern from "east/type_of_type.h":
     EastSourceMap *east_source_map_new()
     void east_source_map_retain(EastSourceMap *sm)
     void east_source_map_release(EastSourceMap *sm)
+
+
+# ─── key_bound.h ────────────────────────────────────────────────────────
+
+cdef extern from "east/key_bound.h":
+    # A bound of a key range (#1616): which bound a refusal names.
+    ctypedef enum EastKeyBoundName:
+        EAST_KEY_BOUND_FROM
+        EAST_KEY_BOUND_TO
+        EAST_KEY_BOUND_PREFIX
+
+    # Why a bound's type is refused, in the words every runtime says, or NULL
+    # for one that is taken; the caller frees the string. A NULL bound_type is
+    # refused as no leading part of the key.
+    char *east_key_bound_refusal(EastKeyBoundName name, EastType *key_type, EastType *bound_type)
+

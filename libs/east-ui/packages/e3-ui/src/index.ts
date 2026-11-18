@@ -17,7 +17,7 @@
  *   (`Sheet.column.*`, `Sheet.register.*`, `Sheet.driver`, `Sheet.Types`).
  * - `<Record>` — the table for a system of records, with the record binding
  *   and its vocabulary on `Record` (`Record.bind`, `Record.onApply`,
- *   `Record.column.*`, `Record.register.*`, `Record.Types`).
+ *   `Record.toDraft`, `Record.column.*`, `Record.register.*`, `Record.Types`).
  * - `<Flowchart>` — the state-transition flowchart over the app's records:
  *   its states in ordered lanes, the transitions between them and the
  *   decisions that govern them, each record's fields mapped to its roles,
@@ -74,9 +74,13 @@ export {
     Func,
     FuncStatusType,
     FuncErrorType,
+    FuncDraftType,
+    FuncDraftedType,
     FuncBindingType,
     FuncBindHandleType,
+    FuncBindDraftsHandleType,
     type BoundFunc,
+    type BoundDraftsFunc,
     funcBindPlatformFn,
 } from './bind/func.js';
 export {
@@ -85,13 +89,15 @@ export {
     RecordBindingType,
     RecordBindHandleType,
     RecordOutcomeType,
+    RecordSaveTypeFor,
+    RecordToDraftResultType,
     type BoundRecord,
     type RecordApplyOptions,
     type RecordApplyInsideOptions,
     recordBindPlatformFn,
 } from './bind/record.js';
 // The Record: `<Record>`, the table for a system of records, and the record
-// binding beside it — `Record.bind`, `Record.onApply`, its columns, registers,
+// binding beside it — `Record.bind`, `Record.onApply`, `Record.toDraft`, its columns, registers,
 // hints, patches and types (`Record.column.*`, `Record.register.*`,
 // `Record.field`, `Record.patch`, `Record.Types`).
 export {
@@ -166,7 +172,8 @@ export { DataSourceType, type BoundSource } from './bind/sources.js';
 // `Plan.Types`), and its props.
 export {
     Plan, type PlanNamespace, type PlanProps, type PlanConfig, type PlanRowsItem, type PlanOverRows,
-    type PlanLibraryTab, type PlanLibraryTabConfig, type PlanNestedItemsOf,
+    type PlanLibraryTab, type PlanLibraryTabConfig, type PlanTabCreateConfig, type PlanNestedItemsOf,
+    type PlanLinkEnd, type PlanLinkQuantity, type PlanLinks, type PlanLinksConfig, type PlanLinksProp, type PlanLinksRecord,
 } from './plan/index.js';
 
 // The Sheet (#1179, #1216): the planning spreadsheet a solution mounts,
@@ -177,7 +184,8 @@ export {
 // `Sheet.field`, `Sheet.apply`, `Sheet.Types`), and its props.
 export {
     Sheet, type SheetNamespace, type SheetOptions, type SheetCommon, type SheetTemplates, type SheetTemplatesConfig, type SheetTemplatesProp,
-    type SheetLibraryTab, type SheetLibraryTabConfig, type SheetOptimiseRequestType, type SheetOptimiseResultType,
+    type SheetLibraryTab, type SheetLibraryTabConfig, type SheetEntryOptimiseRequestType, type SheetOptimiseOptions, type SheetOptimiseRequestType,
+    type SheetOptimiseResultType,
 } from './sheet/index.js';
 
 // The Flowchart (#1498): the state-transition flowchart a solution mounts,
@@ -237,13 +245,14 @@ export {
     type SchedulePeriods, type SchedulePeriodsConfig, type ScheduleQuantity, type ScheduleRecordHandle, type ScheduleResourceKind,
     type ScheduleResourcesConfig, type ScheduleTemplate, type ScheduleNewValues,
 } from './schedule/index.js';
-// The optimiser's request and answer over a Calendar's or a Plan's event kinds (#1409): the types `Calendar.Types` and
-// `Plan.Types` build them with, for an app that names them in its own code.
+// The optimiser's request and answer over a Calendar's or a Plan's event kinds (#1409, #1622): the types
+// `Calendar.Types` and `Plan.Types` carry, for an app that names them in its own code.
 export {
-    type ScheduleOptimiseRecordsOf, type ScheduleOptimiseRequestType, type ScheduleOptimiseResultType, type ScheduleOptimiseRows,
+    type ScheduleOptimiseRecords, type ScheduleOptimiseRequestType, type ScheduleOptimiseResultType,
 } from './schedule/optimise.js';
-// The handle a Calendar's, a Plan's or a Sheet's `optimise` takes (#1409): any `Func.bind` handle, checked at build.
-export { type OptimiseHandle } from './utils/optimise.js';
+// The handle every builder's `optimise` takes (#1409): any `Func.bind` handle, checked at build;
+// and a request's `slice`, each rail source's narrowing by the source's name (#1622).
+export { OptimisePeriodType, OptimiseSliceType, type OptimiseHandle } from './utils/optimise.js';
 
 // e3 `<Ontology>` tag + its types
 export { Ontology } from './runtime/ontology.js';
@@ -320,6 +329,7 @@ export type { RosterLibraryTab } from "./roster/library.js";
 // allocated to resources, over the app's own bins, lanes, resources, arrivals
 // and days, with the app's fit on e3.
 export {
-    Allocation, type AllocationNamespace, type AllocationProps, type AllocationColumn, type AllocationLibraryDeclaration, type AllocationNoun,
+    Allocation, type AllocationNamespace, type AllocationProps, type AllocationColumn, type AllocationContextConfig, type AllocationLibraryDeclaration,
+    type AllocationNoun,
 } from "./allocation/index.js";
 export type { AllocationArrivals, AllocationArrivalsConfig } from "./allocation/adapters.js";

@@ -44,6 +44,17 @@
 > the arity counts the arguments alone; the package route refuses a function
 > with inputs; and `Func.bind`'s `call` takes `argTypes`. A function is still
 > no node of the dataflow.
+> **Amended 2026-11-13 (#1619):** a function may list, in **`drafts`**, the
+> records a call may lay unsaved edits over — `e3.function(name, { inputs,
+> drafts, args, output }, body)` — and a call through a workspace may pass
+> drafts of them: mutation calls that are not committed, laid by a Save's first
+> half, read by the function, and never saved (§3.4). The function object and
+> its signature gain `drafts: Array<String>`, the call request `drafts`, the
+> result `drafts`, `draftEnd` (what of its drafts ended the call: #1680's
+> review) and the outcome `conflict`, and the kept call its drafts, its
+> `draftEnd` and the state `conflict` (hard cutovers, with a repository upgrade
+> step for the kept call: `docs/conventions/WIRE_MIGRATION.md`). Who may pass a draft is the
+> host's `DraftAccess`, which `createWorkspaceFunctionRoutes` takes (§7.1).
 > Audience: e3 maintainers + an implementing agent. This is the **local/shared**
 > spec (e3 monorepo). The AWS cloud implementation is specified in the companion
 > doc `e3-cloud/design/e3-functions-cloud.md`, which depends on the published
@@ -179,8 +190,13 @@ const pkg = e3.package("planning", "1.0.0", forecast /*, + inputs/tasks */);
 
 ```ts
 export interface FunctionDef<
-  Inputs extends readonly EastType[] = readonly EastType[],
+  Args extends readonly EastType[] = readonly EastType[],
   Output extends EastType = EastType,
+  // Whether it lists a record in `drafts` (§3.4), as its type says it: `false` for none,
+  // `true` for at least one, and `boolean` where its declaration does not say. A flag, and
+  // not the records' types, so a declaration file can write an exported definition's type.
+  // `out`: a definition that says is one that does not say, and never the reverse.
+  out Drafted extends boolean = boolean,
 > {
   readonly kind: 'function';
   readonly name: string;
@@ -189,6 +205,10 @@ export interface FunctionDef<
   // exactly as task.ts does for its function_ir (task.ts:62, :70 `as any`).
   readonly body: EastIR<any, any> | AsyncEastIR<any, any>; // fn.toIR() as any
   readonly inputs: readonly DatasetDef[]; // what a call reads from its workspace (§3.3); [] in this form
+  // the records a call may pass drafts of (§3.4): at least one where `Drafted` is `true`, none where it is `false`
+  readonly drafts: [Drafted] extends [true] ? readonly [RecordDef, ...RecordDef[]]
+    : [Drafted] extends [false] ? readonly []
+    : readonly RecordDef[];
   readonly argTypes: Args;       // the caller's arguments, after the inputs — converted to homoiconic values at export (§3.2)
   readonly outputType: Output;   // Expr.type(fn).output
   readonly runner: Runner;       // defaults to DEFAULT_RUNNER
@@ -318,6 +338,172 @@ Not in this change: a call split over a partitioned input (split calls cover
 that for one-shots); caching a result by its input hashes and arguments; a call
 longer than the host's sync deadline (long work stays a task).
 
+### 3.4 A call's drafts (#1619)
+
+A page holds edits nobody has saved: a builder's drags and typing, waiting for
+Save. A function reads the workspace as saved (§3.3), so it cannot see them: an
+optimiser asked to fill a week would plan around jobs the planner has just
+moved away. Sending the edited rows in the request works only while the page
+holds every row, and a row sent so is in no index.
+
+A Save already makes what is needed. Its first half runs the mutation over the
+record's state and maintains every index by the same programs, giving a
+complete new state; its second half stores the commit and moves the record to
+it. A call that passes **drafts** runs the first half, reads at the state it
+gives, and stops there.
+
+```ts
+// How many jobs a press holds. `drafts` says a call may lay unsaved edits over jobs.
+const jobsOn = e3.function('jobs_on', {
+  inputs: [jobs],
+  drafts: [jobs],
+  args: [StringType],
+  output: IntegerType,
+}, ($, jobs, press) => { … });
+```
+
+```bash
+e3 call . -w dev jobs_on '"P1"'                                   # as saved
+e3 call . -w dev jobs_on '"P1"' --draft jobs.move '"j2"' '"P1"'   # over an unsaved edit; nothing is saved
+```
+
+A draft is a mutation call that is not committed: `{ record, mutation, args }`
+(`FunctionDraftType`, beside `FunctionCallRequestType`), the arguments as a
+mutation call takes them. It is not what the SDK exports as `MutationDraft`,
+which is a mutation's declaration before `e3.record` builds it.
+
+- **Declared.** `drafts` lists records, each one an input of the function
+  reads. The SDK refuses, naming it, what is no record and a record none of
+  the inputs reads; a record listed twice is held once. The function object
+  and its signature hold the records' names (`drafts: Array<String>`). A task
+  takes no drafts. The definition's type says whether it lists any
+  (`FunctionDef`'s third type argument: `false` for a function that lists
+  none, `true` for one that lists a record), which e3-ui's `Func.bind` reads: a handle of a function that lists
+  a record takes the drafts as its call's last argument, and one of a function
+  that lists none has the call it had (#1620). A spec declared apart from its
+  call, under a `FunctionSpec` annotation, names the records it lists as the
+  annotation's fourth type argument
+  (`FunctionSpec<[typeof jobs], [], IntegerType, [typeof jobs]>`); annotated
+  without it, it may list none.
+- **The author's word.** Listing a record says the function is fit to run over
+  edits nobody saved: a function that sends a message or writes elsewhere
+  lists none.
+- **Checked as the call starts** (`checkCallDrafts`,
+  `e3-core/src/execution/functionDrafts.ts`). The start reads as a Save
+  does, under the workspace's shared lock (`withSharedWorkspaceLock`), so a
+  deploy cannot land between its reads: the function in the package the
+  workspace names by its hash (`workspaceFunctionResolve`, never the package a
+  name and version name now), each draft, and every input it pins. Each draft
+  is checked in the order passed, and the first one found wrong files the call
+  ended `invalid`, named `draft <record>.<mutation> (<n> of <total>)`: a
+  record the function does not list, a record with no state yet, an unknown
+  mutation, and arguments of the wrong number or type. So every `invalid` a
+  Save of the draft would give is given before anything runs. The same step
+  names everything the laying reads — each drafted record's state and the
+  commit it stands at, by one read however many drafts name it, and each
+  mutation's object — and a kept call stores each draft's arguments as the
+  tuple a commit names a mutation's by (`storeCallDrafts`), so the laying
+  reads the workspace no more.
+- **Laid as the call runs** (`layAndStage`), by the call's own job, which
+  every backend shares (`execution/functionCall.ts`), and by a call of a local
+  repository alike: the request that starts the call waits for none of it.
+  The drafted records' states are read side by side; the drafts run in the
+  order passed, each by the mutation's own program over the state the draft
+  before it left its record (`layCallDrafts`, `recordLayDraft`, the Save's
+  first half in `records.ts`), so every index of the record holds them, as it
+  would after the Save. A patch on a record with no index runs no program, as
+  in a Save. Each drafted record's last state is stored (`writeRecordState`),
+  side by side. No commit is stored and no ref is moved: the objects are named
+  by nothing but the call.
+- **Read at the drafted state.** The function's inputs of a drafted record are
+  read at the state its drafts left (`draftedInputs`); every other input is
+  read as stored, as in §3.3. A dataset argument naming a drafted record is
+  read as saved, at the state the drafts were laid over (`stageCall`), so a
+  function handed one reads the record before and after the edit. The
+  result's `inputs` name the drafted state's hash, and its `drafts` name each
+  drafted record once, in the order the drafts first name them, with the
+  commit it stood at as the call started (`FunctionDraftedType`): a caller
+  that holds another commit knows its edits were laid over newer saves.
+- **A draft the record refuses** ends the call as a Save of it would have
+  ended, and the body does not run (`callDraftsEnd`). `failed` and
+  `timed_out` name the draft in the result's `draftEnd` (`FunctionDraftEndType`'s
+  `draft`, a `FunctionDraftFailureType`: the record, the mutation, its place
+  among the call's and how it ended), which a caller reads
+  (`functionDraftEnded`, e3-types) and the kept call keeps. The first line of
+  stderr says it for people — `draft jobs.patch (2 of 3) failed`, `draft
+  jobs.patch (2 of 3) timed out` (`functionDraftEndLine`) — and the
+  mutation's own stderr follows it. No reader reads the line back: a
+  function's own stderr may begin the same way (#1680's review). A patch that no
+  longer fits the record, which changed under the edit, ends the call
+  `conflict`, carrying the record, the mutation, the draft's place among the
+  call's (`place` of `of`) and the refusal's words
+  (`FunctionDraftConflictType`); the kept call's state is `conflict` too. A
+  drafted call commits nothing, so it races no other write: the one conflict
+  it can meet is a write that disagrees with the state it is laid over.
+- **Limits.** None is added or changed. A draft carries none of its own: its
+  mutation runs for what is left of the call's timeout, keeping as much of a
+  failure's stderr as the call's log limit; the line that names the draft is
+  outside that limit. A draft still running, or yet to run, when the call's
+  timeout ends, ends the call `timed_out`, with the call's timeout; a call
+  whose timeout ends once its drafts are all laid ends `timed_out` too, its
+  `draftEnd` `laid`, with how many were, which `functionDraftsOutlasted`
+  reads, and its first line `drafts laid (3 of 3), and the call's timeout
+  ended before its function ran` (`functionDraftsLaidLine`), so a caller
+  tells the time its drafts took from a function that ran out of it.
+- **Kept.** The call the server keeps holds its drafts as it holds its
+  arguments (`FunctionCallType.drafts`, each `FunctionCallDraftType`: the
+  record, the mutation and the arguments' object), what of them ended it
+  (`FunctionCallType.draftEnd`, which its store writes as the call ends:
+  `FunctionCallEnd.draftEnd`), and each drafted record
+  once, with what laying its drafts reads and the commit it stood at
+  (`FunctionCallJobType.drafted`, each `FunctionCallDraftedType`), which the
+  result names. Each draft's mutation runs as a Save's does, an execution
+  recorded, logged and cached by its inputs; the record and what reads it stay
+  as they were for every reader, and whoever the host lets read the call sees
+  its drafts. Once the drafts are laid the call's inputs name the drafted
+  states
+  (`FunctionCallStore.pinInputs`), which nothing else names, so the call keeps
+  them alive: gc keeps what a kept call's inputs name
+  (`RepoStore.gcScanCallRoots`), and collects a drafted state once the call is
+  forgotten.
+- **Who may.** A caller may pass a draft only where they may commit its
+  mutation, and only the host knows whom its mutate route admits: the function
+  routes ask the host's `DraftAccess` for each draft, in order, before
+  anything is read or filed, and the first it refuses answers the request
+  `permission_denied` (`path` `draft <record>.<mutation>`). Every host gives
+  the rule, as it gives one-shot's `access`: one whose mutate route admits
+  each caller to every mutation gives `allowEveryDraft`, as the local server
+  and e3-web do.
+- **Through a kept call only.** A call through the package reads no workspace,
+  and a call a host runs within its own request keeps nothing to hold a
+  drafted state by: each answers a draft `invalid`, naming the route that
+  keeps a call, and reads and runs nothing (`executeFunction`,
+  `handlers/functions.ts`).
+- **A local repository** (`e3 call -w` with no server) keeps no call. Its call
+  runs in the CLI's process through `functionCallUnkept`, which resolves,
+  checks and pins under the same lock and lays and stages by the same
+  `layAndStage`, from the arguments in hand, the drafts and the function
+  sharing the one timeout a local call has, and answers the same result; the
+  drafted state's objects are named by nothing once it returns.
+- **The CLI.** `e3 call -w <ws> <fn> [args…] --draft <record>.<mutation>
+  [args…]`, repeatable and laid in order. A draft's arguments are read as `e3
+  mutate` reads them, against the mutation's types, and a draft ends where its
+  mutation's arguments do. `--draft` reads every word up to the next option,
+  so the call's own arguments are written first, or the drafts are ended with
+  `--`.
+- **Another backend** implements `FunctionCallStore.pinInputs` and
+  `FunctionCallStore.readStored` (the upgrade step reads a call in the form an
+  earlier release kept it), writes a call's `draftEnd` as its end gives it
+  (`callEnded` does for a store built on it), keeps what a kept call's inputs
+  name through its gc, and gives the routes its `draftAccess`
+  (`docs/conventions/E3_BACKEND_SEAMS.md`).
+
+Not in this change: drafts on a task (a task reads what is saved); keeping a
+drafted state for the next call (every call lays its drafts again — the
+objects are stored by their content, so only the work repeats); an index of a
+drafted record as an input, which is read at the drafted state once an index
+is an input; and what the binds and the builders do with drafts.
+
 ## 4. Package format change (e3-types)
 
 One new object type and one new map on `PackageObjectType`, parallel to `tasks`.
@@ -330,6 +516,9 @@ export const FunctionObjectType = StructType({
   /** The datasets a call reads from its workspace, passed before the
    *  arguments (#1514, §3.3). */
   inputs:     ArrayType(TreePathType),
+  /** The records a call may pass drafts of, by name: each one an input reads
+   *  (#1619, §3.4). */
+  drafts:     ArrayType(StringType),
   /** The caller's argument types — the IR's signature after the inputs,
    *  surfaced for arity/type validation and `describe` without decoding the
    *  whole IR. */
@@ -460,25 +649,49 @@ export const ExecuteResultType = StructType({
     invalid:   StructType({ diagnostics: ArrayType(DiagnosticType) }), // signature/IR error; nothing ran
     too_large: StructType({ bytes: IntegerType, limit: IntegerType }), // result over maxResultBytes
     timed_out: StructType({ ms: IntegerType }),            // exceeded timeoutMs / deadline guard
+    conflict:  FunctionDraftConflictType,                  // { record, mutation, place, of, message }: a draft no longer fits its record (#1619)
   }),
   stdout: StringType,
   stderr: StringType,
   stdoutTruncated: BooleanType,
   stderrTruncated: BooleanType,
   inputs: ArrayType(StructType({ path: TreePathType, hash: StringType })),   // what it read (#1031)
+  drafts: ArrayType(FunctionDraftedType),   // { record, commit }: each record it drafted, and where it stood (#1619)
+  draftEnd: OptionType(FunctionDraftEndType), // what of its drafts ended it before its function ran (#1619, #1680's review)
 }); // ValueTypeOf → ExecuteResult
 
-/** Named function call. Positional args, one beast2-encoded value per param. */
+/** A draft: a call of a record's mutation that is not committed (#1619, §3.4). */
+export const FunctionDraftType = StructType({
+  record:   StringType,
+  mutation: StringType,
+  args:     ArrayType(BlobType),        // as a mutation call takes them
+});
+
+/** A draft whose mutation ended a call: failed, or ran out of the call's time. */
+export const FunctionDraftFailureType = StructType({
+  record: StringType, mutation: StringType, place: IntegerType, of: IntegerType,
+  how: VariantType({ failed: NullType, timed_out: NullType }),
+});
+/** What of its drafts ended a call: a draft, or every draft laid as its timeout ended. */
+export const FunctionDraftEndType = VariantType({
+  draft: FunctionDraftFailureType,
+  laid:  StructType({ of: IntegerType }),
+});
+
+/** Named function call. Positional args, one per param: a beast2-encoded value,
+ *  or a dataset of the workspace (`CallArgType`). */
 export const FunctionCallRequestType = StructType({
-  args:   ArrayType(BlobType),
+  args:   ArrayType(CallArgType),
   runner: OptionType(RunnerType),       // optional override; a stock runtime, gated (§7.1)
   limits: OptionType(ExecuteLimitsType),
+  drafts: ArrayType(FunctionDraftType), // unsaved edits to lay, in order; [] for none (#1619)
 });
 
 /** A function signature, returned by `describe` so dynamic callers can encode args. */
 export const FunctionSignatureType = StructType({
   name:       StringType,
   inputs:     ArrayType(TreePathType),   // what a call reads from its workspace (#1514)
+  drafts:     ArrayType(StringType),     // the records a call may pass drafts of (#1619)
   argTypes:   ArrayType(EastTypeType),   // what the caller passes
   outputType: EastTypeType,
   runner:     RunnerType,
@@ -685,6 +898,17 @@ New files:
     gateway error. The function and one-shot routes share the limits, so both
     take it. `ceilings` lowers what a request may ask for, where a host's
     response limits are tighter than a server's.
+  - **`DraftAccess`** (#1619, §3.4) — `(c: Context, draft: FunctionDraft) =>
+    boolean | Promise<boolean>`, the workspace function routes' `draftAccess`:
+    whether the request's caller may pass this draft. A caller may pass one
+    only where they may commit its mutation, and only the host knows whom its
+    mutate route admits to which mutation, so a host that holds its callers to
+    some decides here by the rule it decides there. It is asked for each draft
+    a call passes, in the order passed, before the call is filed; the first it
+    refuses answers `permission_denied { path: "draft <record>.<mutation>" }`,
+    and nothing is filed or run. It is required, as one-shot's `access` is, so
+    every host decides: the local server and e3-web give `allowEveryDraft`,
+    since their mutate routes admit each caller to every mutation.
   - **The local server's** (#1103) are its own to set, with no gateway in
     front of it: `ServerConfig.calls` — `{ syncDeadlineMs?, ceilings? }` —
     or the CLI's `--call-deadline`, `--job-timeout` (`ceilings.timeoutMs`),
@@ -1282,6 +1506,51 @@ paths.
     - e3-ui `func.spec.ts` and e3-ui-components `func-runtime.spec.ts`:
       `Func.bind` of such a function gives a handle whose `call` takes the
       arguments alone, and its call on e3 sends them alone.
+
+18. **A call's drafts (#1619).**
+    - e3 `function.spec.ts`: `drafts` is written to the function object and
+      its signature; what is no record, and a record no input reads, are
+      refused, naming it; a record listed twice is held once.
+    - e3-core `execution/functionDrafts.spec.ts`, over a real runner and an
+      indexed record: a drafted insert, update and delete are read by the
+      function at the state a Save of them leaves, hash for hash, index and
+      all; several drafts of one record, and of two, run in order; each
+      refusal as the call starts, and each ending a draft gives (`failed`,
+      `timed_out` over a clock the spec sets, `conflict` where a Save changed
+      a row under the edit), with the body shown not to have run and the
+      `draftEnd` the call and its result name; no end named for a function
+      that ran and wrote a draft's line itself; a cancel
+      while a draft runs; the record's commit, history and dependents as they
+      were, and a Save racing the call landing with the call's read unmoved;
+      the drafted state kept through a collection for as long as the call is
+      kept, and gone after.
+    - e3-core contract suites, which every backend's stores run:
+      `functionCallStoreTests` (a running call's inputs pinned whole, which gc
+      keeps from then on; a call that has ended left as it is; how a call's
+      drafts ended it kept as its end names it; a call read in the form it was
+      stored) and `repositoryRecordTests` (the upgrade step rewrites every
+      call an earlier release kept).
+    - e3-types `function-draft.spec.ts`: the lines a call says its end in, and
+      the end read from `draftEnd` alone — none for a result whose stderr
+      begins with a draft's line and names no end.
+    - e3-api-server `handlers/functions.spec.ts`: the host's rule is asked for
+      each draft, in order, before anything is read; a refusal is
+      `permission_denied`, naming the draft, and nothing is filed or run; a
+      host with no rule admits every draft; a draft through the package is
+      `invalid`, and nothing is read or run.
+    - e3-api-tests `functionDraftTests`, on every server (the local server,
+      e3-web in Node and in Chromium, and a hosted e3 over its own
+      deployment): what a drafted call reads and names, held to a Save of the
+      same edit; nothing saved, for the caller and for another reader; drafts
+      in order over one record and two, and an input read as stored beside a
+      drafted one; the kept call's drafts and commits, and its drafted state
+      through a collection; each refusal and each ending, the `draftEnd` the
+      result and the kept call name among them; a reader who may not
+      commit the mutation refused the draft where the server refuses the Save.
+    - e3-cli `call.spec.ts`, e3-api-tests `cliTests` and integration
+      `function-call.spec.ts`: `--draft` read against its mutation, drafts in
+      order, the call's own arguments beside them, each refusal naming the
+      draft by its place, and how each ending is printed.
 
 ## 14. Open questions
 

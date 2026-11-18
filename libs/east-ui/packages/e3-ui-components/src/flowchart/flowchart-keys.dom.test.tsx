@@ -30,7 +30,9 @@
  * - **A key that would move while rows that may name it aren't held**
  *   (#1580): a step renamed while the rail's choices hide a move that may name
  *   it is refused, saying why, and records nothing; its choices cleared, the
- *   same rename moves the row, and the rows naming it with it. A Save on its
+ *   same rename moves the row, and the rows naming it with it. On a page whose
+ *   moves are scoped (#1621), the rename is refused in the page's words, hidden
+ *   or dimmed: no choice of the viewer's clears the scope. A Save on its
  *   way holds nothing back: a station renamed while the steps' Save is out
  *   moves, the step standing at it following, and is what is left to save.
  * - **A key of several parts, and a key stored apart from its fields**
@@ -54,7 +56,7 @@ import { editingMessages, getRegisteredPlatformImplementations } from "@elaraai/
 import { Data, Flowchart, Record } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/flowchart/flowchart";
 import * as fx from "@elaraai/e3-ui/fixtures/flowchart/flowchart-keys";
-import { slot } from "../e3-web-mount.test-utils.js";
+import { retypeNumber as typeNumber, slot } from "../e3-web-mount.test-utils.js";
 import { act, enabled, flowchartHarness, press, settle, type FlowchartTestProps } from "./flowchart.test-utils.js";
 import { measureLibrary } from "./library-measure.test-utils.js";
 import { DEFAULT_FLOWCHART_NOUNS, flowchartMessages, flowchartMessagesOf } from "./messages.js";
@@ -607,6 +609,39 @@ describe("a key that would move while rows that may name it aren't held (#1580)"
         ])));
     });
 
+    test("on a page whose moves are scoped to one note, Mix renamed is refused in the page's words — it holds only some moves — hidden or dimmed alike, and nothing is recorded: no choice of the viewer's clears the scope (#1621)", async () => {
+        const place = printFor(fx.StepPlace);
+        const said = m.gestureRefused({ refusal: "unheld", name: "Mix", by: "transitions", why: "scoped" });
+        expect(said).toBe("Mix isn't changed: this page holds only some transitions, and one it does not may name it — edit it where they are all held");
+        for (const narrowed of ["hide", "dim"] as const) {
+            const { container: c, unmount } = await h.mountFlowchart(($) => {
+                // The moves scoped to the note "Knead next": the page holds that move, and the rail offers no field.
+                const slice = $.let(Slice.bindRecords(`flowchart.placed.scoped.${narrowed}`, {
+                    transitions: { source: Data.bindPaged(fx.placedMoves, { indexes: ["flowchart_placed_moves_by_note"] }), scope: { note: ["Knead next"] } },
+                }));
+                const stepsBound = $.let(Record.bind(fx.placedSteps));
+                const movesBound = $.let(Record.bind(fx.placedMoves));
+                const moveEntries = $.let(Data.bindPaged(fx.placedMoves));
+                const stationsBound = $.let(Data.bind(fx.keyedStations));
+                return {
+                    slice: { slice },
+                    narrowed,
+                    states: Flowchart.states(stepsBound, { label: "name", lane: "station", key: (step) => ({ station: step.station, name: step.name }) }),
+                    transitions: Flowchart.transitions(movesBound, { from: "from", to: "to", entries: moveEntries }),
+                    lanes: Flowchart.lanes(stationsBound, { label: "label" }),
+                };
+            }, { storageKey: `flowchart-scoped-${narrowed}` });
+            await waitFor(() => expect(linkKeys(c), narrowed).toEqual(["1"]), { timeout: 10_000 });
+            await settle();
+            // Mix renamed Fold: refused, in the page's words, and Mix stays as it was.
+            await renameStep(c, place({ station: 2n, name: "Mix" }), "Fold");
+            expect(footer(c), narrowed).toBe(said);
+            expect([node(c, place({ station: 2n, name: "Mix" })) !== null, node(c, place({ station: 2n, name: "Fold" })), pending(c)], narrowed)
+                .toEqual([true, null, pendingText(0)]);
+            unmount();
+        }
+    });
+
     test("keyed by their labels, a station renamed while the steps' Save is on its way is taken as any other — a Save never stops the editing: the station moves under its new label and the step standing at it follows, drafted beside the Save's own change; the Save landed, the rename is what is left to save, and Save writes both", async () => {
         const stations = await h.read(fx.labelledStations), steps = await h.read(fx.labelledSteps);
         const c = await open(($) => {
@@ -652,19 +687,9 @@ describe("a key that would move while rows that may name it aren't held (#1580)"
  * with ⏎: a field holding no value yet, Not set, takes Set first.
  */
 async function retypeNumber(c: HTMLElement, key: string, text: string): Promise<void> {
-    const user = userEvent.setup();
     const set = field(c, key).querySelector<HTMLElement>("[data-field-set]");
     if (set !== null) await gesture(() => { fireEvent.click(set); });
-    const input = within(field(c, key)).getByRole("spinbutton");
-    await user.clear(input);
-    await settle();
-    for (const ch of text) {
-        await user.type(input, ch);
-        await settle();
-        await act(async () => { for (let i = 0; i < 3; i++) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve())); });
-    }
-    await user.type(input, "{Enter}");
-    await settle();
+    await typeNumber(within(field(c, key)).getByRole("spinbutton"), text);
 }
 
 /** Types a text field of Details' new text and commits it with ⏎. */

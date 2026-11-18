@@ -19,6 +19,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { centredLine } from "../one-line-box.js";
 
 export const matrixSlotRecipe = defineSlotRecipe({
     className: "elara-matrix",
@@ -97,7 +98,9 @@ export const matrixSlotRecipe = defineSlotRecipe({
             overflow: "hidden",
             background: "transparent",
         },
-        // One weighted slice. `fill` colours it; the in-bar label centres here.
+        // One weighted slice. `fill` colours it; the in-bar label centres here, on
+        // a whole line of 14px in the bar's 24px (#1638): the theme's line of 1.5
+        // is 15px, which the slice centred half a pixel under its edge.
         seg: {
             height: "100%",
             display: "flex",
@@ -105,6 +108,7 @@ export const matrixSlotRecipe = defineSlotRecipe({
             justifyContent: "center",
             fontFamily: "mono",
             fontSize: "10px",
+            lineHeight: centredLine(24, 14),
             fontWeight: "semibold",
             position: "relative",
             overflow: "hidden",

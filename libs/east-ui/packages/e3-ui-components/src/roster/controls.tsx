@@ -11,7 +11,7 @@ import { Fields } from "@elaraai/east-ui";
 import { FieldForm, SliceEditPopover, useFormatters } from "@elaraai/east-ui-components";
 import { Chooser, type ChooserSection } from "@elaraai/east-ui-components/internal";
 import {
-    activityChoices, compareString, DAY, duties, groupOf, groupSkills, patternProblem, patternSummary, requirementOf, type Assignment, type Person, type Place, type RosterStyles,
+    activityChoices, activityOf, compareString, DAY, groupOf, patternProblem, patternSummary, requirementOf, type Assignment, type Coverage, type Person, type Place, type RosterStyles,
     type RosterValue, type Slot, type Week,
 } from "./model.js";
 import type { RolesChange, RosterCommands, RosterSource } from "./actions.js";
@@ -33,7 +33,8 @@ const DUTY_FIELDS = Fields.specs(DutyForm, { position: Fields.reference({ of: "p
 /** A duty's own times (§5.5, rule 4). */
 const TimesForm = StructType({ start: DateTimeType, end: DateTimeType });
 const TIME_FIELDS = Fields.specs(TimesForm, {});
-const TARGET_FIELDS = Fields.specs(RosterRequirementType, { positions: Fields.number({ min: 0n, step: 1n }) }, ["hours"]);
+// The hours needed are the targets' own, read from the row, never edited here (#1678).
+const TARGET_FIELDS = Fields.specs(RosterRequirementType, { positions: Fields.number({ min: 0n, step: 1n }) }, ["hours", "needed"]);
 const Hours = StructType({ hours: FloatType });
 const HOUR_FIELDS = Fields.specs(Hours, { hours: Fields.number({ min: 0, step: 0.5, unit: "h" }) });
 const AddLine = StructType({ activity: OptionType(StringType), hours: FloatType });
@@ -213,12 +214,22 @@ export function AssignmentActions({ id, assignment, value, start, commands, styl
         <Button size="xs" variant="outline" disabled={locked} title={commands.locked} onClick={() => commands.remove(id)}>Remove</Button>
     </Box>{error !== undefined && !open && <Box role="alert" css={styles.error}>{error}</Box>}</>;
 }
-/** Targets use FieldForm for the headcount, every activity line, and adding a line: a target the week refuses put back, the reason under its field. */
-export function RequirementFields({ slot, week, held, value, commands, styles }: { slot: Slot; week: Week; held: Week; value: RosterValue; commands: RosterCommands; styles: RosterStyles }) {
+/**
+ * Targets use FieldForm for the headcount, every line its hours hold, and adding a line: a target the week refuses put
+ * back, the reason under its field. Its lines are its slot's coverage's, in their order (#1678) — another group's skill
+ * and a key that is no activity among them — so each line the coverage draws is edited and removed here.
+ */
+export function RequirementFields({ slot, week, held, value, coverage, commands, styles }: {
+    slot: Slot; week: Week; held: Week; value: RosterValue;
+    /** The slot's coverage over the week as drafted: the lines the form lists. */
+    coverage: Coverage;
+    commands: RosterCommands; styles: RosterStyles;
+}) {
     const target = requirementOf(week, slot);
     const baseline = held.requirements.get(slot);
-    // Every target line shows; a new one is one of the activities the slice shows (#1342).
-    const activities = [...groupSkills(value, slot.group), ...duties(value)];
+    // A line a key of its hours, as the coverage draws it: under its activity's label, a key that is no activity under
+    // itself. A new one is one of the activities the slice shows (#1342).
+    const lines = coverage.lines.map(({ skill }) => { const activity = activityOf(value, skill); return { key: skill, label: activity?.label ?? skill, code: activity?.code ?? skill }; });
     const choices = activityChoices(value, slot.group).filter(a => !target.hours.has(a.key));
     const [line, setLine] = useState<ValueTypeOf<typeof AddLine>>({ activity: none, hours: 8 });
     const editable = commands.availableOn(slot.day) && value.targets.type === "some";
@@ -227,7 +238,7 @@ export function RequirementFields({ slot, week, held, value, commands, styles }:
     };
     return <>
         <FieldForm specs={TARGET_FIELDS} value={target} baseline={baseline} readOnly={!editable} onChange={(_path, next) => commands.requirement(slot, { ...target, positions: next as bigint })} />
-        {activities.filter(a => target.hours.has(a.key)).map(a => <Box key={a.key} css={styles.paneFoot}>
+        {lines.map(a => <Box key={a.key} css={styles.paneFoot} data-roster-target-line={a.key}>
             <Box css={styles.title}>{a.label}</Box>
             <FieldForm specs={HOUR_FIELDS} value={{ hours: target.hours.get(a.key) }} baseline={baseline === undefined ? undefined : { hours: baseline.hours.get(a.key) }} readOnly={!editable}
                 onChange={(_path, next) => changeHours(a.key, next as number)} />

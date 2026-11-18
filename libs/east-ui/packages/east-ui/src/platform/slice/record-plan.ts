@@ -4,7 +4,7 @@
  */
 
 /** Query planning shared by authoring validation and the record Slice runtime. */
-import { none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { none, some, variant, type ValueTypeOf, type option } from "@elaraai/east";
 import type { SeekQueryType } from "../../contracts/source.js";
 import type { RecordSliceAreaType, RecordSliceChoiceType, RecordSliceIndexType } from "./record-types.js";
 import { intervalQueries } from "./record-interval.js";
@@ -14,6 +14,17 @@ import type { RecordOnPrinters } from "./record-on.js";
 type Choice = ValueTypeOf<RecordSliceChoiceType>;
 type Index = ValueTypeOf<RecordSliceIndexType>;
 type Area = ValueTypeOf<RecordSliceAreaType>;
+
+/**
+ * What a source's narrowing is planned over (#1621): the indexes its binding
+ * lists, and the scope its page holds — a record Slice's config has both.
+ */
+export interface RecordSlicePaths {
+    /** Available field paths. */
+    readonly indexes: readonly Index[];
+    /** The page's scope: each scoped field's exact values, which every narrowing of the source holds and no choice changes. */
+    readonly scope: ReadonlyMap<string, Choice>;
+}
 
 /**
  * The row fields a narrowing reads an index by, in order (#1432): its own —
@@ -34,6 +45,38 @@ export function recordIndexFields(index: Index): readonly string[] {
  */
 export function recordIndexGenerated(index: Index): boolean {
     return index.interval.type === "some" || index.area.type === "some" || index.series.type === "some" || index.summary.type === "some";
+}
+
+/**
+ * The index a scoped source's rows are read in their keys' order through
+ * (#1621) — what a builder's Search Records seeks the page's keys through, and
+ * what lists them: one on exactly the scope's fields, a plain index —
+ * `index.on`, or `index.key` over them — with none of e3's own parts beside
+ * them, so its key is the scope's values and then the row's primary key, and
+ * its rows run in their primary keys' order under each of the scope's values.
+ * @param indexes - Available paths.
+ * @param scoped - The scope's fields.
+ * @returns The first such listed index; `undefined` where none is listed, or the source has no scope.
+ */
+export function recordScopeSearchIndex(indexes: readonly Index[], scoped: readonly string[]): Index | undefined {
+    if (scoped.length === 0) return undefined;
+    return indexes.find(index => !recordIndexGenerated(index) && !index.entries && index.fields.length === scoped.length
+        && scoped.every(field => index.fields.includes(field)));
+}
+
+/**
+ * The area index a scoped source's window is read through (#1621): one led
+ * by exactly the scope's fields, so a read by area asks the scope's values
+ * with its cells, and reads no row beyond them. One led by no field, or by
+ * some of the scope's alone, reads rows the scope does not hold; one led by
+ * more reads nothing until the viewer chooses the rest.
+ * @param indexes - Available paths.
+ * @param scoped - The scope's fields.
+ * @returns The first such listed index; `undefined` where none is listed, or the source has no scope.
+ */
+export function recordScopeAreaIndex(indexes: readonly Index[], scoped: readonly string[]): Index | undefined {
+    if (scoped.length === 0) return undefined;
+    return indexes.find(index => index.area.type === "some" && index.fields.length === scoped.length && scoped.every(field => index.fields.includes(field)));
 }
 
 /**
@@ -61,15 +104,216 @@ export function recordPathWhere(indexes: readonly Index[], where: ReadonlyMap<st
     return new Map([...where].filter(([field]) => !weighing.has(field)));
 }
 
+/**
+ * The narrowing a read of a scoped source carries (#1621): the viewer's
+ * choices with the page's scope laid over them. A scoped field's clause is the
+ * scope's, whatever the choices hold of it.
+ * @param scope - The page's scope.
+ * @param choices - The viewer's choices.
+ * @returns The two together, the same map where the source has no scope.
+ */
+export function recordScopedWhere(scope: ReadonlyMap<string, Choice>, choices: Map<string, Choice>): Map<string, Choice>;
+export function recordScopedWhere(scope: ReadonlyMap<string, Choice>, choices: ReadonlyMap<string, Choice>): ReadonlyMap<string, Choice>;
+export function recordScopedWhere(scope: ReadonlyMap<string, Choice>, choices: ReadonlyMap<string, Choice>): ReadonlyMap<string, Choice> {
+    if (scope.size === 0) return choices;
+    const where = new Map(choices);
+    for (const [field, clause] of scope) where.set(field, clause);
+    return where;
+}
+
+/** Each narrowing's choices, by its scope and then by the narrowing: one answer for one narrowing, whoever asks. */
+const choicesOf = new WeakMap<ReadonlyMap<string, Choice>, WeakMap<ReadonlyMap<string, Choice>, Map<string, Choice>>>();
+
+/**
+ * The viewer's own choices of the narrowing a read carries (#1621): the
+ * narrowing without its scoped fields, which the page holds and the viewer
+ * neither made nor can clear. What the rail draws as chosen, and what a reader
+ * means by a source being narrowed.
+ * @param scope - The page's scope.
+ * @param where - The narrowing a read carries: the choices and the scope together.
+ * @returns Its choices: the same map where the source has no scope, and the same answer whenever the same narrowing is asked.
+ */
+export function recordChoicesOf(scope: ReadonlyMap<string, Choice>, where: Map<string, Choice>): Map<string, Choice>;
+export function recordChoicesOf(scope: ReadonlyMap<string, Choice>, where: ReadonlyMap<string, Choice>): ReadonlyMap<string, Choice>;
+export function recordChoicesOf(scope: ReadonlyMap<string, Choice>, where: ReadonlyMap<string, Choice>): ReadonlyMap<string, Choice> {
+    if (scope.size === 0) return where;
+    let known = choicesOf.get(scope);
+    if (known === undefined) { known = new WeakMap(); choicesOf.set(scope, known); }
+    let choices = known.get(where);
+    if (choices === undefined) {
+        choices = new Map([...where].filter(([field]) => !scope.has(field)));
+        known.set(where, choices);
+    }
+    return choices;
+}
+
+/**
+ * Whether a narrowing holds no row because its page's scope holds none
+ * (#1621): a scoped field whose list of values is empty. Only a list that is
+ * an East expression can be: one written in the code is refused empty, as a
+ * viewer's own choice of no values is.
+ * @param scope - The page's scope.
+ * @param where - The narrowing a read carries.
+ * @returns Whether a scoped field of it chooses no value.
+ */
+export function recordScopeEmpty(scope: ReadonlyMap<string, Choice>, where: ReadonlyMap<string, Choice>): boolean {
+    for (const field of scope.keys()) {
+        const clause = where.get(field);
+        if (clause?.type === "values" && clause.value.length === 0) return true;
+    }
+    return false;
+}
+
+/**
+ * A narrowing as a page whose scope holds a value of each scoped field plans
+ * it (#1621): each scoped field whose list is empty — an East expression's,
+ * as the page runs — holding one sample value in its place. An index is
+ * chosen by the kinds of the choices and how many values each holds, never by
+ * what they are, so what this is answered by ({@link recordPlanIndex}) is
+ * what the same choices are read by on a page whose scope holds a value: what
+ * a state the store keeps is checked against, however many values the scope
+ * holds as it is written.
+ * @param scope - The page's scope.
+ * @param where - The narrowing a read carries.
+ * @returns It, each empty scoped list one sample value; the same map where no scoped list is empty.
+ */
+export function recordScopeSampled(scope: ReadonlyMap<string, Choice>, where: ReadonlyMap<string, Choice>): ReadonlyMap<string, Choice> {
+    if (!recordScopeEmpty(scope, where)) return where;
+    const sampled = new Map(where);
+    for (const field of scope.keys()) {
+        const clause = where.get(field);
+        if (clause?.type === "values" && clause.value.length === 0) sampled.set(field, SAMPLES.values);
+    }
+    return sampled;
+}
+
+/**
+ * A record Slice's source as the scope's rules read it (#1621): its config,
+ * which holds its page's scope. A bound source's handle is one.
+ */
+export interface RecordSliceScopeHolder<W extends ReadonlyMap<string, Choice> = ReadonlyMap<string, Choice>> {
+    /** The source's config. */
+    readonly config: {
+        /** The page's scope: empty on a page that holds none. */
+        readonly scope: W;
+    };
+}
+
+/**
+ * A record Slice's source as its narrowing is read in its two parts (#1621):
+ * its page's scope, and the narrowing a read of it carries, which holds the
+ * viewer's choices under the scope. A bound source's handle is one.
+ */
+export interface RecordSliceNarrowed<W extends ReadonlyMap<string, Choice> = ReadonlyMap<string, Choice>> extends RecordSliceScopeHolder {
+    /** The source's state now: the narrowing a read of it carries. */
+    read(): { readonly where: W };
+}
+
+/**
+ * Whether a source's page holds a scope over it (#1621): the page then holds
+ * only the scope's rows of the record, whatever its viewer chooses, and no
+ * choice of theirs brings in another.
+ * @param slice - The source.
+ * @returns Whether its page scopes it.
+ */
+export function recordSliceScoped(slice: RecordSliceScopeHolder): boolean {
+    return slice.config.scope.size > 0;
+}
+
+/**
+ * The rows a source's page holds of its record, as the narrowing a read of
+ * them carries (#1621): its scope alone, with no choice of the viewer's —
+ * every row, on a page that holds no scope. What a reader takes for the
+ * source's whole: a count's total, the rows a dimmed narrowing draws as
+ * context, the rows a key is sought among.
+ * @param slice - The source.
+ * @returns That narrowing: the same map while the source's config is.
+ */
+export function recordSliceBase<W extends ReadonlyMap<string, Choice>>(slice: RecordSliceScopeHolder<W>): W {
+    return slice.config.scope;
+}
+
+/**
+ * The narrowing a read of a source carries for some choices of its viewer's
+ * (#1621): its page's scope laid over them ({@link recordScopedWhere}). What a
+ * reader asks the source with choices it holds itself — a saved view's — so
+ * they are read under the page they are asked on.
+ * @param slice - The source.
+ * @param choices - The viewer's choices.
+ * @returns The two together, the same map where the page holds no scope.
+ */
+export function recordSliceScopedWhere(slice: RecordSliceScopeHolder, choices: Map<string, Choice>): Map<string, Choice>;
+export function recordSliceScopedWhere(slice: RecordSliceScopeHolder, choices: ReadonlyMap<string, Choice>): ReadonlyMap<string, Choice>;
+export function recordSliceScopedWhere(slice: RecordSliceScopeHolder, choices: ReadonlyMap<string, Choice>): ReadonlyMap<string, Choice> {
+    return recordScopedWhere(slice.config.scope, choices);
+}
+
+/**
+ * The viewer's own choices of a narrowing read of a source (#1621): the
+ * narrowing without the fields its page scopes ({@link recordChoicesOf}).
+ * @param slice - The source.
+ * @param where - A narrowing a read of it carries: the choices and the scope together.
+ * @returns Its choices: the same map where the page holds no scope, and the same answer whenever the same narrowing is asked.
+ */
+export function recordSliceChoicesOf(slice: RecordSliceScopeHolder, where: Map<string, Choice>): Map<string, Choice>;
+export function recordSliceChoicesOf(slice: RecordSliceScopeHolder, where: ReadonlyMap<string, Choice>): ReadonlyMap<string, Choice>;
+export function recordSliceChoicesOf(slice: RecordSliceScopeHolder, where: ReadonlyMap<string, Choice>): ReadonlyMap<string, Choice> {
+    return recordChoicesOf(slice.config.scope, where);
+}
+
+/**
+ * The viewer's own choices of a source as it stands (#1621): the narrowing a
+ * read of it carries now, without the fields its page scopes. What the rail
+ * draws as chosen, what a Clear clears, and what a saved view keeps.
+ * @param slice - The source.
+ * @returns Its viewer's choices: the same answer while its narrowing is the same.
+ */
+export function recordSliceChoices(slice: RecordSliceNarrowed<Map<string, Choice>>): Map<string, Choice>;
+export function recordSliceChoices(slice: RecordSliceNarrowed): ReadonlyMap<string, Choice>;
+export function recordSliceChoices(slice: RecordSliceNarrowed): ReadonlyMap<string, Choice> {
+    return recordChoicesOf(slice.config.scope, slice.read().where);
+}
+
+/**
+ * Whether a choice of the viewer's narrows a source as it stands (#1621):
+ * what a reader means by the source being narrowed — a count that says
+ * `N of M`, a Clear to offer, rows a narrowing hides. Its page's scope is no
+ * choice: the rows it holds are the source's whole.
+ * @param slice - The source.
+ * @returns Whether its viewer has chosen anything of it.
+ */
+export function recordSliceChosen(slice: RecordSliceNarrowed): boolean {
+    return recordSliceChoices(slice).size > 0;
+}
+
 /** Bound the fan-out of a multi-choice path; never replace it with a row scan. */
 export const MAX_RECORD_SLICE_RUNS = 64;
+
+/** Why a narrowing is refused whose choices combine into more searches than one read makes ({@link MAX_RECORD_SLICE_RUNS}). */
+export const RECORD_SLICE_RUNS_REFUSAL = `This combination needs more than ${MAX_RECORD_SLICE_RUNS} searches; choose fewer values`;
+
+/**
+ * The prefixes the exact values of an index's next leading field extend: each
+ * prefix with each value after it, in order — so, field by field, every
+ * combination of the values a narrowing chooses of an index's leading fields,
+ * each one search of it. A fan-out is bounded, never turned into a row scan.
+ * @param prefixes - The prefixes of the fields before it: one empty prefix before the first.
+ * @param values - The field's values, each once.
+ * @returns The prefixes they extend; `undefined` where they would be more than {@link MAX_RECORD_SLICE_RUNS}.
+ */
+export function recordPrefixesExtended(prefixes: readonly (readonly string[])[], values: readonly string[]): string[][] | undefined {
+    if (prefixes.length * values.length > MAX_RECORD_SLICE_RUNS) return undefined;
+    return prefixes.flatMap(prefix => values.map(value => [...prefix, value]));
+}
 
 /** One supported index path and the disjoint key searches it needs. */
 export interface RecordSlicePlan {
     /** Source selector. */
     index: string;
-    /** No queries means the complete source, rather than an empty result. */
+    /** No queries means the complete source, rather than an empty result — save in a plan that is {@link RecordSlicePlan.empty}. */
     queries: ValueTypeOf<SeekQueryType>[];
+    /** A narrowing that holds no row (#1621), its page's scope holding none ({@link recordScopeEmpty}): it has no queries, and reads nothing. */
+    empty?: true;
 }
 
 /**
@@ -113,7 +357,42 @@ export function recordPathMatches(index: Index, where: ReadonlyMap<string, Choic
 }
 
 /**
- * Pick a supported path without executing or parsing its ranges.
+ * The fields a narrowing reads a range of where an interval index starts
+ * (#1432): a run is held where it overlaps such a range, which only an
+ * interval index from that field answers — a plain index on it holds a run by
+ * its start alone.
+ * @param indexes - Available paths.
+ * @param where - The narrowing.
+ * @returns The interval starts it ranges over.
+ */
+function rangedStarts(indexes: readonly Index[], where: ReadonlyMap<string, Choice>): ReadonlySet<string> {
+    return new Set(indexes.flatMap(index => index.interval.type === "some" && where.get(index.interval.value.from)?.type === "range" ? [index.interval.value.from] : []));
+}
+
+/** {@link recordPathAnswers}, the narrowing's ranged interval starts in hand. */
+function answers(index: Index, where: ReadonlyMap<string, Choice>, area: Area | undefined, starts: ReadonlySet<string>): boolean {
+    return recordPathMatches(index, where, area) && (starts.size === 0 || (index.interval.type === "some" && starts.has(index.interval.value.from)));
+}
+
+/**
+ * Whether one index answers a narrowing as the planner reads it
+ * ({@link recordPlanIndex}): it takes every clause ({@link recordPathMatches}),
+ * and where the narrowing ranges over a field an interval index starts from,
+ * it is an interval index from that field. What the rail asks of each index
+ * before offering a choice, so it offers none the planner cannot read.
+ * @param indexes - Available paths: whichever starts an interval decides what a range of its start reads.
+ * @param index - The index asked of.
+ * @param where - The narrowing, without its entries fields' picks.
+ * @param area - A read by area's clause, beside the narrowing.
+ * @returns Whether it answers the narrowing.
+ */
+export function recordPathAnswers(indexes: readonly Index[], index: Index, where: ReadonlyMap<string, Choice>, area?: Area): boolean {
+    return answers(index, where, area, rangedStarts(indexes, where));
+}
+
+/**
+ * Pick a supported path without executing or parsing its ranges: the first
+ * listed index that answers the narrowing ({@link recordPathAnswers}).
  * @param indexes - Available paths.
  * @param narrowing - Current narrowing; its entries fields' picks weigh, and no path reads them (#1522).
  * @param area - A read by area's clause, beside the narrowing.
@@ -121,9 +400,22 @@ export function recordPathMatches(index: Index, where: ReadonlyMap<string, Choic
  */
 export function recordPlanIndex(indexes: readonly Index[], narrowing: ReadonlyMap<string, Choice>, area?: Area): Index | undefined {
     const where = recordPathWhere(indexes, narrowing);
-    const overlaps = new Set(indexes.flatMap(index => index.interval.type === "some" && where.get(index.interval.value.from)?.type === "range" ? [index.interval.value.from] : []));
-    return indexes.find(index => recordPathMatches(index, where, area) && (overlaps.size === 0
-        || index.interval.type === "some" && overlaps.has(index.interval.value.from)));
+    const starts = rangedStarts(indexes, where);
+    return indexes.find(index => answers(index, where, area, starts));
+}
+
+/**
+ * How an area index boxes each row, as its declaration writes it: its `x` and
+ * `y` fields, its `width` and `height` where it has both, and where in the box
+ * it places the row — what a refusal names an area index to declare by.
+ * @param box - The box's fields: an area index's, or the roles a reader places its rows by.
+ * @param centre - Whether a row is placed by its box's centre, else by its corner.
+ * @returns The declaration's fields: `x: "…", y: "…", …, at: "…"`.
+ */
+export function recordAreaBoxText(box: { readonly x: string; readonly y: string; readonly width: option<string>; readonly height: option<string> },
+    centre: boolean): string {
+    const sides = box.width.type === "some" && box.height.type === "some" ? `, width: "${box.width.value}", height: "${box.height.value}"` : "";
+    return `x: "${box.x}", y: "${box.y}"${sides}, at: "${centre ? "centre" : "corner"}"`;
 }
 
 /**
@@ -197,10 +489,9 @@ export function planRecordSlice(indexes: readonly Index[], narrowing: ReadonlyMa
         if (choice.type !== "values") { tail = choice; break; }
         const values = [...new Set(choice.value)];
         if (values.length === 0) throw new Error(`Clear '${field}' instead of choosing no values`);
-        if (prefixes.length * values.length > MAX_RECORD_SLICE_RUNS) {
-            throw new Error(`This combination needs more than ${MAX_RECORD_SLICE_RUNS} searches; choose fewer values`);
-        }
-        prefixes = prefixes.flatMap(prefix => values.map(value => [...prefix, value]));
+        const extended = recordPrefixesExtended(prefixes, values);
+        if (extended === undefined) throw new Error(RECORD_SLICE_RUNS_REFUSAL);
+        prefixes = extended;
     }
     if (area !== undefined && index.area.type === "some") {
         const box = index.area.value;
@@ -214,9 +505,8 @@ export function planRecordSlice(indexes: readonly Index[], narrowing: ReadonlyMa
     if (index.interval.type === "some") {
         const interval = index.interval.value;
         const choice = where.get(interval.from);
-        if (choice?.type === "values" && prefixes.length * choice.value.length > MAX_RECORD_SLICE_RUNS) {
-            throw new Error(`This combination needs more than ${MAX_RECORD_SLICE_RUNS} searches; choose fewer values`);
-        }
+        // Each of the start's values is a search of each prefix, as a leading field's would be.
+        if (choice?.type === "values" && recordPrefixesExtended(prefixes, choice.value) === undefined) throw new Error(RECORD_SLICE_RUNS_REFUSAL);
         const on = onOf(index);
         return { index: index.name, queries: prefixes.flatMap(values => intervalQueries(values, choice, interval, on)) };
     }
@@ -250,22 +540,31 @@ const SAMPLES: Readonly<Record<"values" | "range" | "prefix", Choice>> = {
  * leading field of an interval index, and every Set field it fans out over —
  * less those the narrowing already chooses so, the index needing the fewest.
  * An index counts only where each of those is a field the rail offers, and
- * where the matcher ({@link recordPathMatches}) takes what it would then hold.
+ * where it answers what the narrowing would then hold as the planner reads it
+ * ({@link recordPathAnswers}): a range of a field an interval index starts
+ * from, through such an index alone.
  * `null` where no index takes that kind of choice on the field at all,
  * whatever else is chosen: a prefix of a field only an interval index leads,
  * whose leading fields take exact values alone, is one no field chosen first
  * makes possible. An entries field's picks need nothing chosen first, and it
  * takes exact values alone (#1522).
  *
- * @param indexes - Available field paths.
+ * A page's scope is part of every narrowing of its source (#1621): an index
+ * counts only where it takes every scoped field beside the field's choice, and
+ * each is chosen already — by the page, though the rail offers none of them. A
+ * scoped field itself takes no choice at all.
+ *
+ * @param paths - Available field paths, and the page's scope.
  * @param current - Current narrowing.
  * @param field - The field being chosen.
  * @param kind - The kind of its choice: exact values, a range or a prefix.
  * @param offered - The fields the rail offers: one it does not can never be chosen first.
  * @returns The fields still to choose, in their index's order — none where none is — or null.
  */
-export function recordChoiceNeeds(indexes: readonly Index[], current: ReadonlyMap<string, Choice>, field: string,
+export function recordChoiceNeeds(paths: RecordSlicePaths, current: ReadonlyMap<string, Choice>, field: string,
     kind: Choice["type"], offered: ReadonlySet<string>): string[] | null {
+    const { indexes, scope } = paths;
+    if (scope.has(field)) return null;
     if (recordEntriesFields(indexes).has(field)) return kind === "values" ? [] : null;
     let best: string[] | null = null;
     for (const index of indexes) {
@@ -275,11 +574,14 @@ export function recordChoiceNeeds(indexes: readonly Index[], current: ReadonlyMa
         // An interval index's leading fields, its `on` (#1432), are taken together whichever is chosen; another's, those before the field.
         const before = index.interval.type === "some" ? index.fields : fields.slice(0, at);
         const needed = [...new Set([...before, ...index.sets])].filter(name => name !== field);
-        if (needed.some(name => !offered.has(name))) continue;
+        if (needed.some(name => !offered.has(name) && !scope.has(name))) continue;
         const candidate = new Map<string, Choice>(needed.map(name => [name, SAMPLES.values]));
         candidate.set(field, SAMPLES[kind]);
-        if (!recordPathMatches(index, candidate)) continue;
+        // What the index must answer holds the page's scope too, wherever its fields stand on the path.
+        for (const name of scope.keys()) candidate.set(name, SAMPLES.values);
+        if (!recordPathAnswers(indexes, index, candidate)) continue;
         const missing = needed.filter(name => {
+            if (scope.has(name)) return false;
             const chosen = current.get(name);
             return chosen?.type !== "values" || (index.sets.has(name) && chosen.value.length !== 1);
         });
@@ -289,31 +591,39 @@ export function recordChoiceNeeds(indexes: readonly Index[], current: ReadonlyMa
 }
 
 /**
- * Keep the largest supported leading path after a choice changes. A new field
+ * Keep the largest supported leading path after a choice changes — one an
+ * index answers as the planner reads it ({@link recordPathAnswers}). A new field
  * that cannot follow replaces incompatible clauses; a trailing field with no
  * chosen prerequisites remains unavailable. Chrome uses the same result to
  * explain replacements before applying them. An entries field's picks stand
  * beside every other choice (#1522): a pick of it replaces none, and a choice
  * of another field keeps them.
- * @param indexes - Available field paths.
+ *
+ * A page's scope is part of every narrowing of its source (#1621): the next
+ * narrowing holds each scoped field's clause, whatever the choice, so a path
+ * that drops one is no path, and a cleared field leaves the scope standing. A
+ * scoped field itself is neither chosen nor cleared.
+ * @param paths - Available field paths, and the page's scope.
  * @param current - Current narrowing.
  * @param field - Field being changed or cleared.
  * @param choice - New choice, or undefined to clear the field.
- * @returns Supported next narrowing, or null when prerequisites are missing.
+ * @returns Supported next narrowing, the scope with it, or null when prerequisites are missing or the field is the scope's.
  */
-export function recordChoiceWhere(indexes: readonly Index[], current: ReadonlyMap<string, Choice>, field: string, choice: Choice | undefined): Map<string, Choice> | null {
+export function recordChoiceWhere(paths: RecordSlicePaths, current: ReadonlyMap<string, Choice>, field: string, choice: Choice | undefined): Map<string, Choice> | null {
+    const { indexes, scope } = paths;
+    if (scope.has(field)) return null;
     const weighing = recordEntriesFields(indexes);
     if (weighing.has(field)) {
         if (choice !== undefined && choice.type !== "values") return null;
-        const next = new Map(current);
+        const next = new Map(recordScopedWhere(scope, current));
         if (choice === undefined) next.delete(field);
         else next.set(field, choice);
         return next;
     }
-    const requested = new Map(recordPathWhere(indexes, current));
+    const requested = new Map(recordScopedWhere(scope, recordPathWhere(indexes, current)));
     if (choice === undefined) requested.delete(field);
     else requested.set(field, choice);
-    let best: Map<string, Choice> | null = choice === undefined ? new Map() : null;
+    let best: Map<string, Choice> | null = choice === undefined ? new Map(scope) : null;
     for (const index of indexes) {
         const candidate = new Map<string, Choice>();
         for (const name of recordIndexFields(index)) {
@@ -323,7 +633,8 @@ export function recordChoiceWhere(indexes: readonly Index[], current: ReadonlyMa
             if (clause.type !== "values") break;
         }
         if (choice !== undefined && !candidate.has(field)) continue;
-        if (recordPathMatches(index, candidate) && (best === null || candidate.size > best.size)) best = candidate;
+        if ([...scope.keys()].some(name => !candidate.has(name))) continue;
+        if (recordPathAnswers(indexes, index, candidate) && (best === null || candidate.size > best.size)) best = candidate;
     }
     // The entries fields' picks stand beside whatever path the narrowing keeps.
     if (best !== null) for (const [name, picked] of current) if (weighing.has(name)) best.set(name, picked);

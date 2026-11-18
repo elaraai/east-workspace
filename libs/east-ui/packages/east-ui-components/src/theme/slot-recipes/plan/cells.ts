@@ -15,10 +15,13 @@
 
 import type { SystemStyleObject } from "@chakra-ui/react";
 import { coarseHitArea } from "../../../style/hit-area.js";
-import { CONFLICT_RING, CONFLICT_RING_INSET, CONFLICT_RING_INSIDE_FOCUS } from "../../conflict-ring.js";
+import { centredLine } from "../../one-line-box.js";
+import { CONFLICT_RING_INSET, CONFLICT_RING_INSIDE_FOCUS } from "../../conflict-ring.js";
 import { fieldInRingedControl } from "../../field-chrome.js";
-import { lifecycleStates } from "./states.js";
-import { PLAN_OVERLAP_RING, planElementConflict, planElementDrafted, planElementFocus, planElementSelected } from "./focus.js";
+import { STATE_EDGE, lifecycleStates } from "./states.js";
+import { planElementConflicts, planElementOverlap, planElementStatus } from "./status.js";
+import { planElementDrafted, planElementFocus, planElementSelected } from "./focus.js";
+import { PLAN_LOCK_W, planLabelAfterLock } from "./elements.js";
 
 /**
  * The no-data hatch (#1039): a 45° rule in the ink at 7% across what no value shades — a heat cell, and the Calendar's
@@ -32,7 +35,7 @@ export const BOOKED_FILL = "{colors.brand.solid}";
 /** The slots this part styles. */
 export const cellsSlots = [
     "heatCell", "heatLabel", "weightBar", "segmentTrack", "segmentPart", "cellWash", "cell", "cellTiles",
-    "tile", "tileLabel", "tileMore", "laneLabel", "markerIcon", "cardChip", "cardChipIcon", "cardChipLabel", "tableCellText", "tableCellGroup", "tableCellPart", "tableCellDot", "tableCellMeasure",
+    "tile", "tileLabel", "tileMore", "markerIcon", "cardChip", "cardChipIcon", "cardChipLabel", "tableCellText", "tableCellGroup", "tableCellPart", "tableCellDot", "tableCellMeasure",
     "tableCellInput", "tableCellField", "tableCellFieldInput", "tableCellRefusal", "tableCellPopover",
 ] as const;
 
@@ -48,11 +51,27 @@ const wholeOrNone = {
     "&::before": { content: '""', height: "100%" },
 } satisfies SystemStyleObject;
 
+/** The inset ring a confirmed tile and a confirmed chip draw: 1px of the brand, which every ring round it keeps inside. */
+const CONFIRMED = "inset 0 0 0 1px {colors.brand.solid}";
+
+/**
+ * The line of a tile's words and of a chip's (#1638): the mark's height less
+ * 4px. The mark centres its line, so its words start half of what the line
+ * leaves under its edge — 2px, whatever border its state draws, which takes as
+ * much of the room above the line as below it — and a line 4px short lies
+ * inside the widest of those borders, 1.5px.
+ */
+const PLAN_TILE_LINE = "calc(var(--plan-tile-h) - 4px)";
+const PLAN_CHIP_LINE = "calc(var(--plan-chip-h) - 4px)";
+
 /** Their base styles — typed whole: the shared tap halo's style object is too wide to infer into them. */
 export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> = {
     // ── Heat rows (min-height 16, r2, 3px margins; depth is data-driven) ──
+    // A size container (#1638), as a bucket's cell is: its value's line is the
+    // cell's own height (`100cqh`), whatever its row's.
     heatCell: {
         position: "absolute",
+        containerType: "size",
         top: "var(--plan-heat-inset-h)",
         bottom: "var(--plan-heat-inset-h)",
         borderRadius: "2px",
@@ -93,10 +112,16 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
     },
     // A heat value (#949) — 10.5px, in the ink the design system pairs with
     // its cell's step: `--ink` on steps 1–3, `--paper` on 4–5 (charts.md ›
-    // Sequential ramp), at least 4.5:1 on that step in both themes.
+    // Sequential ramp), at least 4.5:1 on that step in both themes. Its line is
+    // its cell's own height (#1638). A cell is its row less 3px above and
+    // below, and a row draws a rule on the canvas and none in a phone's card:
+    // 25px in a canvas row, 26px in a card, 18px in a group's strip there. No
+    // one line is centred at a whole pixel in all three — the theme's 15.75px
+    // in none — and a line the cell's height has nothing to centre.
     heatLabel: {
         fontFamily: "mono",
         fontSize: "10.5px",
+        lineHeight: "100cqh",
         fontWeight: "semibold",
         fontVariantNumeric: "tabular-nums",
         whiteSpace: "nowrap",
@@ -132,12 +157,14 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         zIndex: 2,
         ...planElementFocus,
     },
+    // Its label's line is the track's own height (#1638), so nothing is centred at a fraction.
     segmentPart: {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
         fontFamily: "mono",
         fontSize: "9.5px",
+        lineHeight: "var(--plan-segment-h)",
         fontWeight: "semibold",
         color: "bg.surface",
         overflow: "hidden",
@@ -159,24 +186,28 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         },
         "&[data-fill='free']": { background: "color-mix(in srgb, {colors.fg} 5%, transparent)", color: "fg.muted" },
     },
-    // ── Bucket rows (K2) — the Planner `.pcell` grid, verbatim ──
-    // One washed sub-cell per bucket × lane; content (lane caption +
-    // chips) flows inline, left-aligned. A marker rings the CELL
-    // (`data-over`) and pins the corner status icon.
+    // ── Bucket rows (K2) — the Planner `.pcell` grid ──
+    // One washed sub-cell per bucket × lane; its chips flow inline,
+    // left-aligned. A lane's caption is its gutter line's, never a cell's
+    // (#1680's review). A marker rings the CELL (`data-over`) and pins the
+    // corner status icon.
     //
-    // EMPTY cells of an equal-bucket captionless lane do not mount (#616):
-    // their wash paints as ONE gradient band per lane (`cellWash` — the
-    // renderer sets the lane's top/height and the tile size), and real
-    // cells mount only where content, a caption or a marker exists,
-    // covering their gradient tile exactly.
+    // EMPTY cells of equal buckets do not mount (#616): their wash paints as
+    // ONE gradient band per lane (`cellWash` — the renderer sets the lane's
+    // top/height and the tile size), and real cells mount only where content
+    // or a marker exists, covering their gradient tile exactly.
     cellWash: {
         position: "absolute",
         left: 0,
         right: 0,
         pointerEvents: "none",
     },
+    //
+    // A size container (#1638), as a bar is: what it draws reads the cell's
+    // own height (`100cqh`), whatever share of the row its lane gives it.
     cell: {
         position: "absolute",
+        containerType: "size",
         background: "bg.panel",
         borderRadius: "2px",
         display: "flex",
@@ -194,10 +225,10 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         "&[data-over='success']": { boxShadow: "inset 0 0 0 1.5px {colors.status.pos}" },
         "&[data-over='neutral']": { boxShadow: "inset 0 0 0 1.5px {colors.fg.subtle}" },
     },
-    // A cell's tiles, in the room its lane caption leaves them (#1266): a
-    // tile's 20px floor, and how far it shrinks, are this box's, so a tile in
-    // a captioned lane never runs past its cell. As tall as the cell, so a
-    // tile stretched on the block axis fills its lane.
+    // A cell's tiles, in the room the cell gives them (#1266): a tile's 20px
+    // floor, and how far it shrinks, are this box's, so a tile never runs past
+    // its cell. As tall as the cell, so a tile stretched on the block axis
+    // fills its lane.
     cellTiles: {
         display: "flex",
         alignItems: "center",
@@ -237,15 +268,23 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         borderRadius: "3px",
         fontFamily: "mono",
         fontSize: "9.5px",
+        // Its line is its height less 4px (#1638): a whole line that leaves an even
+        // number of pixels over, so its words start 2px under its edge in every
+        // state — a border takes as much above the line as below it — and short
+        // enough to lie inside the widest border a state draws (a proposal's and
+        // a draft's 1.5px). A line the tile's own height stood past that border,
+        // and the tile's wrapping line then set the words down by the border.
+        lineHeight: PLAN_TILE_LINE,
         fontWeight: "semibold",
         overflow: "hidden",
         whiteSpace: "nowrap",
         boxSizing: "border-box",
         // 5px either side, or what the room leaves beside the widest ring a
         // state draws (a proposal's 1.5px, half the least a tile draws): a
-        // percentage here is of the tiles' box, the room.
+        // percentage here is of the tiles' box, the room. Less the border its
+        // state draws, which stands in it (`states.ts`).
         paddingBlock: 0,
-        paddingInline: "min(5px, calc(50% - var(--plan-tile-least-w) / 2))",
+        paddingInline: `max(0px, calc(min(5px, calc(50% - var(--plan-tile-least-w) / 2)) - ${STATE_EDGE}))`,
         // The strut: the line's height, and no width.
         "&::before": { content: '""', height: "100%" },
         // Its parts 4px apart — a margin, which the strut, being no element,
@@ -260,24 +299,19 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         // 2px radius, a proposal sits on the tint and its grip glyph dims.
         ...lifecycleStates({
             obs: { background: "brand.emphasized", color: "bg.surface" },
-            appr: { background: "bg.surface", color: "fg.default", boxShadow: "inset 0 0 0 1px {colors.brand.solid}" },
+            appr: { background: "bg.surface", color: "fg.default", boxShadow: CONFIRMED },
             marked: { borderRadius: "2px" },
             prop: { background: "{colors.brandTint}", "& svg": { opacity: 0.8 } },
             propRemoved: { background: "bg.surface", color: "fg.muted" },
         }),
         // An event its drafts changed (#1196): the tint in a brand border, in its state's place.
         ...planElementDrafted,
-        "&[data-tone='warning']": { boxShadow: "0 0 0 1.5px {colors.status.warn}" },
-        "&[data-tone='danger']":  { boxShadow: "0 0 0 1.5px {colors.status.neg}" },
-        "&[data-tone='success']": { boxShadow: "0 0 0 1.5px {colors.status.pos}" },
-        "&[data-tone='info']":    { boxShadow: "0 0 0 1.5px {colors.status.info}" },
-        // An event in an overlap pair (#1198): the warn ring, in a tone's
-        // place — a confirmed tile keeps its inset brand ring inside it, and a
-        // danger tone, the worse, keeps its own (the worst wins, as a cell's
-        // marker does, #615).
-        "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING },
-        "&[data-overlap][data-state='appr']": { boxShadow: `inset 0 0 0 1px {colors.brand.solid}, ${PLAN_OVERLAP_RING}` },
-        "&[data-overlap][data-tone='danger']": { boxShadow: "0 0 0 1.5px {colors.status.neg}" },
+        // Its status (#1541, U8): its tone's ring, and the open ring a tentative one draws as. A confirmed tile
+        // keeps its inset brand ring inside it.
+        ...planElementStatus(CONFIRMED),
+        // An event in an overlap pair (#1198): the warn ring, in its status's place — a danger status, the worse,
+        // keeps its own (the worst wins, as a cell's marker does, #615).
+        ...planElementOverlap(CONFIRMED),
         "&[data-pulse]": {
             animation: "elara-pulse 1.6s ease-in-out infinite",
             "@media (prefers-reduced-motion: reduce)": { animation: "none" },
@@ -294,6 +328,7 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         // it or a 20px floor would fight the 7px block.
         "&[data-ctx]": {
             height: "var(--plan-strip-mark-h)",
+            lineHeight: "var(--plan-strip-mark-h)",
             minWidth: 0,
             color: "transparent",
             padding: 0,
@@ -304,9 +339,8 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         },
         ...planElementSelected,
         ...planElementFocus,
-        ...planElementConflict,
-        // A confirmed tile keeps its inset brand ring inside the warn.
-        "&:is([data-conflict], [data-bounds])[data-state='appr']": { boxShadow: `inset 0 0 0 1px {colors.brand.solid}, ${CONFLICT_RING}` },
+        // A conflict's ring, last: a confirmed tile keeps its inset brand ring inside the warn, an open one its own.
+        ...planElementConflicts(CONFIRMED),
     },
     // A tile's label (`data-plan-label`) — a labelled tile's, or a resting
     // proposal's `plan`. Its own flex item, so a label wider than the tile
@@ -330,15 +364,14 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
     // the chip (`data-cramped`) it shrinks to the room and draws no count, its
     // name still saying what it holds. The stand-in a cell measures beside its
     // tiles is never seen. A cell with no room for one tile (`data-no-room`,
-    // #1276) draws the chip alone across the whole cell — its padding and its
-    // caption too — so what the cell holds is never unseen; its menu lists
-    // every tile.
+    // #1276) draws the chip alone across the whole cell — its padding too —
+    // so what the cell holds is never unseen; its menu lists every tile.
     //
     // On a coarse pointer its tap target is its cell, less the tiles in it
     // (#346's halo, held to the cell): the halo lies beneath the tiles in their
     // box's layer, so a tile beside the chip keeps its own taps, and the cell
     // clips it, so it never reaches another cell's tiles. It takes the box's
-    // empty room, the cell's padding and its caption.
+    // empty room and the cell's padding.
     tileMore: {
         position: "relative",
         display: "inline-flex",
@@ -353,6 +386,7 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         color: "fg.muted",
         fontFamily: "mono",
         fontSize: "9.5px",
+        lineHeight: "var(--plan-tile-h)",
         fontWeight: "semibold",
         whiteSpace: "nowrap",
         cursor: "pointer",
@@ -377,15 +411,6 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         // The halo (its `::before`, drawn on a coarse pointer alone) beneath the tiles.
         "&::before": { zIndex: -1 },
         ...planElementFocus,
-    },
-    // The per-cell lane caption (`.bl`) — printed at each cell's left.
-    laneLabel: {
-        fontFamily: "mono",
-        fontSize: "9.5px",
-        fontWeight: "semibold",
-        letterSpacing: "0.06em",
-        color: "fg.subtle",
-        flex: "none",
     },
     // Corner status icon of a marked cell (the Planner marker, verbatim).
     markerIcon: {
@@ -427,12 +452,16 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         borderRadius: "5px",
         fontFamily: "mono",
         fontSize: "10px",
+        // Its line is its height less 4px (#1638), as a tile's is: whole, 2px under
+        // its edge in every state, and inside the widest border a state draws.
+        lineHeight: PLAN_CHIP_LINE,
         fontWeight: "medium",
         whiteSpace: "nowrap",
         overflow: "hidden",
         boxSizing: "border-box",
         zIndex: 2,
-        padding: "0 9px",
+        // Less the border its state draws, which stands in it (`states.ts`).
+        padding: `0 calc(9px - ${STATE_EDGE})`,
         // The lifecycle axis (§4.3), shared (`states.ts`). The tint means
         // selected or dirty only (#949): a chip at rest is the ONE committed
         // fill, confirmed rests on paper in a solid brand ring, a proposal
@@ -440,18 +469,22 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         // warn ink.
         ...lifecycleStates({
             obs: { background: "brand.emphasized", color: "bg.surface" },
-            appr: { background: "bg.surface", color: "fg.default", boxShadow: "inset 0 0 0 1px {colors.brand.solid}" },
+            appr: { background: "bg.surface", color: "fg.default", boxShadow: CONFIRMED },
             prop: { background: "{colors.brandTint}" },
             propRemoved: { background: "bg.surface", color: "{colors.status.warn}" },
         }),
         // An event its drafts changed (#1196): the tint in a brand border, in its state's place.
         ...planElementDrafted,
-        // An event in an overlap pair (#1198): the warn ring — a confirmed
-        // chip keeps its inset brand ring inside it.
-        "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING },
-        "&[data-overlap][data-state='appr']": { boxShadow: `inset 0 0 0 1px {colors.brand.solid}, ${PLAN_OVERLAP_RING}` },
+        // Its status (#1541, U8): its tone's ring, and the open ring a tentative one draws as. A confirmed chip
+        // keeps its inset brand ring inside it.
+        ...planElementStatus(CONFIRMED),
+        // An event in an overlap pair (#1198): the warn ring, in its status's place.
+        ...planElementOverlap(CONFIRMED),
         // A chip that moves (#825) is picked up anywhere but its ends.
         "&[data-draggable]": { cursor: "grab" },
+        // Locked (#1541, U9): 6px either side, so the least chip the canvas draws (`--plan-chip-min-w`, 22px) holds
+        // its 8px lock whole. Before the strip's rule, which sets its own.
+        "&[data-locked]": { paddingInline: `calc(6px - ${STATE_EDGE})` },
         // ── R1 GEOMETRY SHRINKS (#591) ──
         // The mark already owns a position and a width on the axis, so it
         // keeps both and drops to 7px. Ink goes `transparent` rather than
@@ -460,6 +493,7 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         // (FA paints with `fill: currentColor`).
         "&[data-ctx]": {
             height: "var(--plan-strip-mark-h)",
+            lineHeight: "var(--plan-strip-mark-h)",
             color: "transparent",
             padding: "0 2px",
             gap: 0,
@@ -468,9 +502,8 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         },
         ...planElementSelected,
         ...planElementFocus,
-        ...planElementConflict,
-        // A confirmed chip keeps its inset brand ring inside the warn.
-        "&:is([data-conflict], [data-bounds])[data-state='appr']": { boxShadow: `inset 0 0 0 1px {colors.brand.solid}, ${CONFLICT_RING}` },
+        // A conflict's ring, last: a confirmed chip keeps its inset brand ring inside the warn, an open one its own.
+        ...planElementConflicts(CONFIRMED),
     },
     // A chip's icon (`data-plan-icon`) — Font Awesome's, 1.25em wide in the
     // chip's font; a chip narrower inside than that draws none, never a part
@@ -479,6 +512,8 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         display: "inline-flex",
         flex: "none",
         "@container (width < 1.25em)": { display: "none" },
+        // After a lock and the gap (#1541, U9): whole beside them, or not drawn.
+        "[data-locked] > &": { [`@container (width < calc(${PLAN_LOCK_W} + 4px + 1.25em))`]: { display: "none" } },
     },
     // A chip's label — whole, or ellipsized when it does not fit. Below a
     // letter and the ellipsis — in the chip's mono face each one `ch` wide,
@@ -492,6 +527,9 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         whiteSpace: "nowrap",
         "@container (width < 2ch)": { display: "none" },
         "[data-icon] > &": { "@container (width < calc(1.25em + 4px + 2ch))": { display: "none" } },
+        // After a lock and the gap too (#1541, U9), as a bar's label is — and after both where it has an icon.
+        ...planLabelAfterLock,
+        "[data-locked][data-icon] > &": { [`@container (width < calc(${PLAN_LOCK_W} + 4px + 1.25em + 4px + 2ch))`]: { display: "none" } },
     },
     // ── Table cells (K5) — mono numerals per bucket, CENTRED in their
     //    column as the ruler's ticks and the heat values are (#949); the
@@ -499,7 +537,10 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
     //    caption-styled numerals ──
     // A table cell: its bucket's column, the row's height, its numerals centred
     // in it together (`tableCellGroup`) — whole, or wrapped off its line and
-    // out of sight where the column is narrower than they are (#1269).
+    // out of sight where the column is narrower than they are (#1269). Their
+    // line is a whole 15px (#1638): the cell is its row less the rule, an odd
+    // height — 31px in a 32px row — so an odd line leaves a whole number of
+    // pixels over it, where the theme's 15.75px left a fraction.
     tableCellText: {
         position: "absolute",
         top: 0,
@@ -513,6 +554,7 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         overflow: "hidden",
         fontFamily: "mono",
         fontSize: "10.5px",
+        lineHeight: centredLine(31, 15),
         fontWeight: "medium",
         color: "fg.muted",
         whiteSpace: "nowrap",

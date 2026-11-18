@@ -4,7 +4,7 @@
  */
 
 import {
-    ArrayType, DictType, East, FloatType, IntegerType, OptionType, StringType, StructType, none, some, variant,
+    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, OptionType, StringType, StructType, none, some, variant,
     type EastType, type ExprType, type FunctionType,
 } from "@elaraai/east";
 import { scheduleNumberText } from "../schedule/words.js";
@@ -15,6 +15,34 @@ import {
 
 /** Rest before and after a duty, in hours. Infinity means no other duty of theirs on that side in this week. @internal */
 export const RosterRestType = StructType({ before: FloatType, after: FloatType, minimum: FloatType });
+
+/** A duty's own times: what the rest between duties is measured from. @internal */
+export const RosterSpanType = StructType({ start: DateTimeType, end: DateTimeType });
+
+/**
+ * The rest either side of a duty, among a person's other duties: the one
+ * measure of rest, which the page's check ({@link rosterRest}) and the
+ * ready-made fit (`Roster.fit`, east-workspace#1624) both call.
+ *
+ * @param start - The duty's start
+ * @param end - Its end
+ * @param others - The person's other duties' own times
+ * @returns The rest before it, after it, and the smaller of the two
+ * @remarks Before, from the end of the latest of the others to start at or before it; after, to the start of the earliest to start after it. Duties that overlap leave negative rest; with no other duty on a side the rest there is Infinity.
+ * @internal
+ */
+export const rosterRestBetween = East.function([DateTimeType, DateTimeType, ArrayType(RosterSpanType)], RosterRestType, ($, start, end, others) => {
+    const before = $.let(Infinity, FloatType);
+    const after = $.let(Infinity, FloatType);
+    $.for(others, ($2, other) => {
+        $2.if(East.lessEqual(other.start, start), ($3) => {
+            $3.assign(before, East.min(before, other.end.durationHours(start)));
+        }).else(($3) => {
+            $3.assign(after, East.min(after, end.durationHours(other.start)));
+        });
+    });
+    return { before, after, minimum: East.min(before, after) };
+});
 
 /**
  * Measures a duty's rest against the person's other duties of the week.
@@ -27,20 +55,17 @@ export const RosterRestType = StructType({ before: FloatType, after: FloatType, 
  */
 export function rosterRest<R extends EastType>(row: R) {
     return East.function([RosterAssignmentTypeFor(row as EastType), StringType, RosterWeekTypeFor(row as EastType), RosterContextType], RosterRestType, ($, assignment, id, week, _context) => {
-        const before = $.let(Infinity, FloatType);
-        const after = $.let(Infinity, FloatType);
+        const between = $.const(rosterRestBetween);
+        // The person's other duties of the week: an agency's request has none.
+        const others = $.let([], ArrayType(RosterSpanType));
         $.if(assignment.who.hasTag("person"), $ => {
             $.for(week.assignments, ($, other, key) => {
                 $.if(East.notEqual(key, id).and(() => East.equal(other.who, assignment.who)), $ => {
-                    $.if(East.lessEqual(other.start, assignment.start), $ => {
-                        $.assign(before, East.min(before, other.end.durationHours(assignment.start)));
-                    }).else($ => {
-                        $.assign(after, East.min(after, assignment.end.durationHours(other.start)));
-                    });
+                    $(others.pushLast({ start: other.start, end: other.end }));
                 });
             });
         });
-        return { before, after, minimum: East.min(before, after) };
+        return between(assignment.start, assignment.end, others);
     }) as unknown as ExprType<FunctionType<[RosterAssignmentTypeFor<R>, StringType, RosterWeekTypeFor<R>, RosterContextType], typeof RosterRestType>>;
 }
 
@@ -50,7 +75,7 @@ export function rosterRest<R extends EastType>(row: R) {
  * @typeParam R - The app's duty row type
  * @param row - The app's duty row type
  * @returns An East function `(week, context) → Array<Issue>`: issues in day, group and shift order, with actionable fixes — each day's duties in no group after its groups'
- * @remarks Pure East, shared by tasks and the renderer. Rest is confined to this week. Issues explain the roster; they do not automatically block Save or Publish. The pay's codes are the app's: its own `check` reads them (`CheckContext(R)`). Its words print hours as the fit's do (`scheduleNumberText`): `6 h rest`, `7.5 h unfilled`. A duty in no group (#1548) is checked as its person's — double booked, rest, a skill they don't hold, a person no longer in the staff — its issue in no slot, and its words naming its shift alone (`Night · on 2 shifts this day`); no group has a target, a lead or a trainer to check.
+ * @remarks Pure East, shared by tasks and the renderer. Rest is confined to this week. A slot's skill gap is any skill its target names hours of, its group's or another group's (#1678), as its coverage's line counts it. Issues explain the roster; they do not automatically block Save or Publish. The pay's codes are the app's: its own `check` reads them (`CheckContext(R)`). Its words print hours as the fit's do (`scheduleNumberText`): `6 h rest`, `7.5 h unfilled`. A duty in no group (#1548) is checked as its person's — double booked, rest, a skill they don't hold, a person no longer in the staff — its issue in no slot, and its words naming its shift alone (`Night · on 2 shifts this day`); no group has a target, a lead or a trainer to check.
  */
 export function rosterCheck<R extends EastType>(row: R) {
     const Row = row as EastType;
@@ -181,7 +206,9 @@ export function rosterCheck<R extends EastType>(row: R) {
                         $.if(context.rules.skill.and(() => East.greater(c.filled, 0n)), $ => {
                             $.for(c.lines, ($, line) => {
                                 $.if(East.greater(line.gap, 0.0), $ => {
-                                    $.for(skills, ($, skill) => {
+                                    // A skill the slot's target needs, its group's or another's (#1678), as its line counts it:
+                                    // only a skill's line has a gap.
+                                    $.for(context.activities, ($, skill) => {
                                         $.if(East.equal(skill.key, line.skill), $ => {
                                             $(issues.pushLast({ kind: variant("gap", null), tone: variant("warning", null),
                                                 title: East.str`${skill.label} · ${hoursText(line.gap)} h short`,

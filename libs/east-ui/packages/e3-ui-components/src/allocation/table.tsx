@@ -42,9 +42,9 @@ import { linkedQuantity, remainderOf, type AllocationCommands } from "./actions.
 import { useBinFocusTarget } from "./bin-focus.js";
 import { arrivalChoices, resourceChoices, type ChoiceWords } from "./choices.js";
 import { dropTarget, gripCoord, laneCoord, resourceCellCoord, type AllocationDrag, type Grip, type Target } from "./drag.js";
-import type { AllocationFit } from "./fit.js";
-import { bandLine, narrowBands, rowStatus, tableBands, tableRows, type TableBand, type TableRow } from "./table-rows.js";
-import { NarrowedEmpty } from "./narrowed.js";
+import { fitFailure, type AllocationFit } from "./fit.js";
+import { bandLine, narrowBands, ownsRow, rowStatus, tableBands, tableRows, type TableBand, type TableRow } from "./table-rows.js";
+import { NarrowedEmpty, type AllocationNarrowed } from "./narrowed.js";
 import { a, lower, one, useNouns } from "./nouns.js";
 import type { AllocationBinOp, AllocationOptimised } from "./optimise.js";
 import type { TimelineFollow } from "./timeline.js";
@@ -90,8 +90,8 @@ export interface TableProps {
     visibleLanes: option<Set<string>>;
     visibleResources: option<Set<string>>;
     visibleArrivals: option<Set<string>>;
-    /** Clears the narrowing, where nothing shows; `undefined` with no narrowing. */
-    clearFilters: (() => void) | undefined;
+    /** The sources a choice of the viewer's narrows, and its Clear filters, where nothing shows; `undefined` with no choice (#1621). */
+    narrowed: AllocationNarrowed | undefined;
     /** The arrival whose every bin the Library's Allocated card highlights (A10). */
     highlight: string | undefined;
     /** Books the picked arrival where a click lands, as its drop would (A11). */
@@ -263,11 +263,11 @@ export function AllocationTable(props: TableProps) {
         <Box as="span" data-align="end" title={nouns.quantity}>{nouns.quantity}</Box>
         {shown.map(c => <span key={c.key} title={c.label}>{c.label}</span>)}<span title={nouns.resource.one}>{nouns.resource.one}</span><span>Load</span><span>Status</span>
     </Box>;
-    // The narrowing's empty state only under a narrowing (#1398, CL13).
-    const narrowed = visibleLanes.type === "some" || visibleResources.type === "some" || visibleArrivals.type === "some";
+    // The narrowing's empty state only under a choice of the viewer's (#1398, CL13; a page's scope is none, #1621).
+    const { narrowed } = props;
     return <Box css={styles.table} style={vars} data-allocation-table="" data-allocation-drag={drag.grip?.kind} data-allocation-unread={unread ? read.state : undefined}>
         {/* Its rows as wide as the recipe's least width for its tracks: no cell past a row's edge. */}
-        {lines.length === 0 ? <>{head}{narrowed && <NarrowedEmpty styles={styles} clear={props.clearFilters} />}</> : <VirtualRows fillParent height={undefined} maxHeight={undefined} rootCss={styles.tablePane} minWidth="var(--allocation-table-least)" scrollElRef={pane}
+        {lines.length === 0 ? <>{head}{narrowed !== undefined && <NarrowedEmpty styles={styles} clear={narrowed.clear} />}</> : <VirtualRows fillParent height={undefined} maxHeight={undefined} rootCss={styles.tablePane} minWidth="var(--allocation-table-least)" scrollElRef={pane}
             headerZIndex={4} header={head} count={lines.length} getItemKey={getItemKey} sizes={sizes} measureRows={false}
             onAnchorChange={onAnchorChange} restoreAnchor={restore}
             renderRow={index => {
@@ -298,8 +298,7 @@ function selects(selection: Selection | undefined, row: TableRow, plan: Day, hig
     const shown = row.bin === undefined ? undefined : plan.bins.get(row.bin);
     if (highlight !== undefined && shown?.arrival.type === "some" && shown.arrival.value === highlight) return "row";
     if (selection === undefined) return undefined;
-    if (selection.type === "bin") return row.bin === selection.id ? "row" : undefined;
-    if (selection.type === "slot") return row.kind === "free" && row.lane === selection.lane && row.slotAt.getTime() === selection.at ? "row" : undefined;
+    if (selection.type === "bin" || selection.type === "slot") return ownsRow(selection, row) ? "row" : undefined;
     const bin = row.bin === undefined ? undefined : plan.bins.get(row.bin);
     return bin?.parts.has(selection.key) === true ? "resource" : undefined;
 }
@@ -624,11 +623,13 @@ export function ChoiceCell({ props, row, side, part, open, setOpen, words, trigg
     const { ask } = fit;
     useEffect(() => { if (open && question !== undefined) ask(question.ask, question.of); }, [open, question, ask]);
     const answer = question === undefined ? undefined : fit.answer(question.ask, question.of);
+    // None coming: the board's fit failed, or the record refused the day this question is asked of (rule 10).
+    const failure = question === undefined ? undefined : fitFailure(fit, question.ask, question.of);
     // `+ resource` offers the resources its bin is not on: each it is on is a part of its own (A71).
     const except = part === null && bin !== undefined ? new Set(bin.parts.keys()) : undefined;
     const sections: ChooserSection[] = !open ? [] : side === "arrival"
-        ? arrivalChoices({ plan, context, day, words, bin: row.bin, resource: current, answer, shown: props.visibleArrivals })
-        : resourceChoices({ context, words, binRow: row.kind === "bin", current: from, answer, shown: props.visibleResources, except });
+        ? arrivalChoices({ plan, context, day, words, bin: row.bin, resource: current, answer, failure, shown: props.visibleArrivals })
+        : resourceChoices({ context, words, binRow: row.kind === "bin", current: from, answer, failure, shown: props.visibleResources, except });
     const close = () => setOpen(undefined);
     const choose = (key: string) => {
         close();

@@ -17,7 +17,7 @@
  * @packageDocumentation
  */
 import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
-import { OptionType, StringType, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, isVariant, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { OptionType, StringType, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, isVariant, none, some, variant, type ValueTypeOf, type option } from "@elaraai/east";
 import { Sheet, SheetEditingType } from "@elaraai/e3-ui/internal";
 import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { fieldBreachIssue, getSomeorUndefined, useEditSession, type EntryKeys } from "@elaraai/east-ui-components";
@@ -142,6 +142,14 @@ export interface SheetEditingResult {
      * cells a rule reads (an action's summary) draws at once; `prior` while the draft is not complete.
      */
     project: (id: string, draft: unknown, prior: SheetRowValue | undefined) => SheetRowValue | undefined;
+    /**
+     * Several entries of the source's record read by their keys, as a Save's confirmation reads them (#1596) — what an
+     * optimiser's answer reads a row the sheet does not hold by, before its change lands (east-workspace#1622, rule 8).
+     * A tracked read: each entry, `none` for one the record does not hold, by its id; none while the read is on its way;
+     * `undefined` from a reader that reads none together. `undefined` for a source whose rows the sheet holds whole,
+     * which holds every row there is.
+     */
+    readByKeys: ((ids: readonly string[]) => option<ReadonlyMap<string, option<unknown>>> | undefined) | undefined;
     /** Editing is available now. */
     available: boolean;
     /** The session's version. */
@@ -480,5 +488,6 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         // The version tracks mutations to the session's maps.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [session, version, drafts, codecs, awaiting]);
-    return { session, layer, savedFrom, record, recordVersions, original, drafts, layerDrafts, shown, project: wireOf, available: available && !replacing && !retained, version };
+    return { session, layer, savedFrom, record, recordVersions, original, drafts, layerDrafts, shown, project: wireOf, readByKeys: pinned?.readCurrentAll,
+        available: available && !replacing && !retained, version };
 }

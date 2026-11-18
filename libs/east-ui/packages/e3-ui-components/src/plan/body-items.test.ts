@@ -9,8 +9,9 @@
  */
 
 /**
- * The canvas body's items (`body-items.ts`) — the links focus's elision (R1
- * at scale) and link graph, and where a failed window's band goes (#811).
+ * The canvas body's items (`body-items.ts`) — the bands a links focus gathers
+ * its family under and the link graph, and where a failed window's band goes
+ * (#811).
  *
  * (Split out of `model.test.ts` with the module it tests, #815.)
  */
@@ -18,73 +19,138 @@
 import { describe, test, expect } from "vitest";
 import { some, none, variant } from "@elaraai/east";
 import {
-    deriveLinkFamily, elideForFocus, indexRows, linkedRowKeys, placeFailures, firstDiagnosticItem, toCanvasRows,
-    type PlanBodyItem, type PlanLinkValue, type PlanRowValue, type PlanWindowFailure, type PlanWireRow, type VisibleRow,
+    bodyItemKey, deriveLinkFamily, focusBodyItems, focusGatheredKeys, focusGathers, focusRoleCounts, focusRoleOf, indexRows,
+    linkedRowKeys, placeFailures, firstDiagnosticItem, toCanvasRows,
+    type PlanBodyItem, type PlanLinkValue, type PlanWindowFailure, type PlanWireRow,
 } from "./model.js";
 import { rowId, rowKey, testKeyOf } from "./plan.test-utils.js";
 
-/** One WIRE row at a test key, optionally nested and with a status. */
-function wire(key: string, kind: unknown, opts?: { parent?: string; status?: string }): PlanWireRow {
+/** One WIRE row at a test key, optionally nested, pinned and with a status. */
+function wire(key: string, kind: unknown, opts?: { parent?: string; status?: string; pinned?: boolean }): PlanWireRow {
     return {
         id: rowId(key),
         parent: opts?.parent !== undefined ? some(rowId(opts.parent)) : none,
-        gutter: { label: key, id: false, sub: none, value: none, meta: none, stacked: false, swatches: [] },
+        gutter: { label: key.toUpperCase(), id: false, sub: none, value: none, meta: none, stacked: false, swatches: [] },
         kind,
-        collapsed: false, pinned: false, height: none,
+        collapsed: false, pinned: opts?.pinned === true, height: none,
         status: opts?.status !== undefined ? some(variant(opts.status, null)) : none,
         expand: none,
     } as unknown as PlanWireRow;
 }
 
-function visible(r: PlanRowValue, opts?: { collapsed?: boolean }): VisibleRow {
-    return { row: r, depth: 0, collapsed: opts?.collapsed === true };
-}
 const spanKind = variant("span", { runs: [], decisions: [], ports: [], rollup: none });
 const groupKind: PlanWireRow["kind"] = variant("group", { summary: variant("none", null) });
 
-describe("Plan links-focus elision (R1 at scale)", () => {
-    const focusOn = (key: string, family: string[]) =>
-        ({ kind: "links" as const, key: rowKey(key), family: new Set(family.map((k) => rowKey(k))) });
-    const words = (items: readonly PlanBodyItem[]) => items.map((i) => (i.kind === "row" ? testKeyOf(i.row.row.key)
-        : i.kind === "gap" ? `gap:${i.gap.rows}/${i.gap.groups}` : "band"));
-
-    test("a LONE unrelated data row stays a rail entry; a run coalesces to ONE gap", () => {
-        const rows = toCanvasRows(["f", "x", "a", "y1", "y2", "y3", "b"].map((k) => wire(k, spanKind)));
-        const items = elideForFocus(rows.map((r) => visible(r)), indexRows(rows), focusOn("f", ["a", "b"]));
-        expect(words(items)).toEqual(["f", "x", "a", "gap:3/0", "b"]);
-    });
-
-    test("a family-less group and its subtree join the gap; a group HOLDING family keeps its band", () => {
-        const rows = toCanvasRows([
-            wire("f", spanKind),
-            wire("g-empty", groupKind), wire("t1", spanKind, { parent: "g-empty" }), wire("t2", spanKind, { parent: "g-empty" }),
-            wire("g-fam", groupKind), wire("fam", spanKind, { parent: "g-fam" }),
-        ]);
-        const items = elideForFocus(rows.map((r) => visible(r)), indexRows(rows), focusOn("f", ["fam"]));
-        expect(words(items)).toEqual(["f", "gap:2/1", "g-fam", "fam"]);
-    });
-
-    test("a collapsed elided group counts its hidden subtree; the gap wears the worst hidden tone", () => {
-        const rows = toCanvasRows([
-            wire("f", spanKind),
-            wire("g", groupKind), wire("t1", spanKind, { parent: "g" }), wire("t2", spanKind, { parent: "g" }),
-            wire("w", spanKind, { status: "warning" }),
-            wire("d", spanKind, { status: "danger" }),
-            wire("fam", spanKind),
-        ]);
-        const index = indexRows(rows);
-        // The group is collapsed: only its band is visible; t1/t2 hide inside.
-        const vis = [visible(rows[0]!), visible(rows[1]!, { collapsed: true }),
-            visible(rows[4]!), visible(rows[5]!), visible(rows[6]!)];
-        const items = elideForFocus(vis, index, focusOn("f", ["fam"]));
-        expect(items).toHaveLength(3);
-        const gap = items[1]!;
-        expect(gap.kind).toBe("gap");
-        if (gap.kind === "gap") {
-            expect(gap.gap.rows).toBe(4);        // t1 + t2 (through the collapse) + w + d
-            expect(gap.gap.groups).toBe(1);
-            expect(gap.gap.tone).toBe("danger"); // pessimistic over warning
+describe("a links focus's body (#1680's review)", () => {
+    // A link names its ends by run ref — a row id and a run key.
+    const link = (from: string, to: string): PlanLinkValue => ({
+        key: `${from}-${to}`, from: { row: rowId(from), run: "a" }, to: { row: rowId(to), run: "b" }, quantity: none,
+    } as unknown as PlanLinkValue);
+    /** What a body says, item by item: a band's role and count (`+` open), a row's key with its depth and its path. */
+    const words = (items: readonly PlanBodyItem[]) => items.map((i) => {
+        switch (i.kind) {
+            case "focus": return `[${i.band.role} ${i.band.count}${i.band.open ? "+" : ""}]`;
+            case "row": return `${testKeyOf(i.row.row.key)}@${i.row.depth}${i.row.gathered !== undefined ? ` ${i.row.gathered.role}:${i.row.gathered.path.join("/")}` : ""}`;
+            default: return i.kind;
         }
+    });
+
+    // Hall 1 holds the focused row's upstream u and a row both ways, m; Hall 2 the downstream d and an unrelated x; y
+    // stands alone, and a pinned chart p is linked downstream of the focus.
+    const rows = toCanvasRows([
+        wire("p", spanKind, { pinned: true }),
+        wire("h1", groupKind), wire("u", spanKind, { parent: "h1" }), wire("m", spanKind, { parent: "h1" }),
+        wire("h2", groupKind), wire("f", spanKind, { parent: "h2" }), wire("d", spanKind, { parent: "h2" }), wire("x", spanKind, { parent: "h2" }),
+        wire("y", spanKind),
+    ]);
+    const index = indexRows(rows);
+    const links = [link("u", "f"), link("f", "m"), link("m", "f"), link("f", "d"), link("f", "p")];
+    const family = deriveLinkFamily(links, rowKey("f"));
+
+    test("each role's band stands over its rows, in their order, one level in, each saying what it nests under; every other row folds into one band, counted", () => {
+        const items = focusBodyItems(index, rowKey("f"), family, { open: false, items: [] });
+        expect(words(items)).toEqual([
+            "[upstream 1+]", "u@1 upstream:H1",
+            "[focused 1+]", "f@1 focused:H2",
+            "[linked 1+]", "m@1 linked:H1",
+            // d under the band; the pinned p, downstream too, counted with it where it draws, above the body.
+            "[downstream 2+]", "d@1 downstream:H2",
+            // x and y: the other data rows — the halls' bands not counted, the pinned row above the body not either.
+            "[others 2]",
+        ]);
+    });
+
+    test("a family row the canvas has placed but does not hold — a paged source's evicted window's — counts with its role; one it has never placed does not", () => {
+        // f → z and f → w: z sits in an evicted window, w the canvas has never seen.
+        const far = deriveLinkFamily([link("f", "d"), link("f", "z"), link("f", "w")], rowKey("f"));
+        const placed = (key: string) => key === rowKey("z");
+        const items = focusBodyItems(index, rowKey("f"), far, { open: false, items: [] }, placed);
+        expect(words(items)).toEqual([
+            "[upstream 0+]", "[focused 1+]", "f@1 focused:H2", "[downstream 2+]", "d@1 downstream:H2", "[others 4]",
+        ]);
+        // Inline, nothing is placed that the canvas does not hold: the rows under the band are the role's.
+        expect(words(focusBodyItems(index, rowKey("f"), far, { open: false, items: [] }))[3]).toBe("[downstream 1+]");
+    });
+
+    test("opened, the others' band holds the items it is handed, after it", () => {
+        const rest: PlanBodyItem[] = [{ kind: "band", band: { block: 0, at: "tail", from: 0, to: 9, px: 320 } }];
+        const items = focusBodyItems(index, rowKey("f"), family, { open: true, items: rest });
+        expect(words(items).slice(-2)).toEqual(["[others 2+]", "band"]);
+        expect(items[items.length - 1]).toBe(rest[0]);
+    });
+
+    test("a role with no rows keeps its band, saying none; the Linked band stands only where a row is both ways", () => {
+        const one = deriveLinkFamily([link("f", "d")], rowKey("f"));
+        expect(words(focusBodyItems(index, rowKey("f"), one, { open: false, items: [] }))).toEqual([
+            "[upstream 0+]", "[focused 1+]", "f@1 focused:H2", "[downstream 1+]", "d@1 downstream:H2", "[others 4]",
+        ]);
+    });
+
+    test("a row is gathered however its section is folded, and a row at the top says no path", () => {
+        // y, at the top, upstream of the focus; a row nested two deep says both its parents, outermost first.
+        const deep = toCanvasRows([
+            wire("s", groupKind), wire("g", groupKind, { parent: "s" }), wire("f", spanKind, { parent: "g" }), wire("y", spanKind),
+        ]);
+        const items = focusBodyItems(indexRows(deep), rowKey("f"), deriveLinkFamily([link("y", "f")], rowKey("f")), { open: false, items: [] });
+        expect(words(items)).toEqual(["[upstream 1+]", "y@1 upstream:", "[focused 1+]", "f@1 focused:S/G", "[downstream 0+]", "[others 0]"]);
+    });
+
+    test("a row's role: the focused row, linked both ways, else upstream or downstream; a row the focus does not gather has none", () => {
+        expect(["f", "u", "m", "d", "x"].map((k) => focusRoleOf(family, rowKey("f"), rowKey(k))))
+            .toEqual(["focused", "upstream", "linked", "downstream", undefined]);
+        const focus = { kind: "links" as const, key: rowKey("f"), links: { family, others: false } };
+        expect(["f", "u", "p", "x"].map((k) => focusGathers(focus, rowKey(k)))).toEqual([true, true, true, false]);
+        // No other focus gathers a row.
+        expect(focusGathers({ kind: "expand", key: rowKey("f") }, rowKey("f"))).toBe(false);
+    });
+
+    test("the rows it gathers, top to bottom, are the ones its lanes are planned over", () => {
+        expect(focusGatheredKeys(index, rowKey("f"), family).map(testKeyOf)).toEqual(["u", "f", "m", "d"]);
+    });
+
+    test("a rule its lanes take opens into a band of their tracks: the role's band where the rule lies above the role's first row, else a lane band of its own between the two rows", () => {
+        // u and x both upstream: rule 1 lies between them, rule 2 above f, under the Focused band.
+        const two = deriveLinkFamily([link("u", "f"), link("x", "f"), link("f", "d")], rowKey("f"));
+        expect(focusGatheredKeys(index, rowKey("f"), two).map(testKeyOf)).toEqual(["u", "x", "f", "d"]);
+        const items = focusBodyItems(index, rowKey("f"), two, { open: false, items: [] }, undefined, new Map([[1, 10], [2, 14]]));
+        expect(words(items)).toEqual([
+            "[upstream 2+]", "u@1 upstream:H1", "lanes", "x@1 upstream:H2",
+            "[focused 1+]", "f@1 focused:H2", "[downstream 1+]", "d@1 downstream:H2", "[others 2]",
+        ]);
+        const lane = items[2]!;
+        expect(lane.kind === "lanes" ? lane.lanes : undefined).toEqual({ rule: 1, px: 10, above: rowKey("x") });
+        expect(bodyItemKey(lane)).toBe(`n:${rowKey("x")}`);
+        const focused = items[4]!;
+        expect(focused.kind === "focus" ? focused.band.lanes : undefined).toEqual({ rule: 2, px: 14 });
+        // No rule opened: no lane band, and no band holds tracks.
+        const plain = focusBodyItems(index, rowKey("f"), two, { open: false, items: [] });
+        expect(plain.some((i) => i.kind === "lanes" || (i.kind === "focus" && i.band.lanes !== undefined))).toBe(false);
+    });
+
+    test("the caption counts each role band's rows; a body with no links focus counts none", () => {
+        expect(focusRoleCounts(focusBodyItems(index, rowKey("f"), family, { open: false, items: [] })))
+            .toEqual({ upstream: 1, linked: 1, downstream: 2 });
+        expect(focusRoleCounts([{ kind: "band", band: { block: 0, at: "head", from: 0, to: 9, px: 320 } }])).toBeUndefined();
     });
 });
 
@@ -110,7 +176,7 @@ describe("Plan link graph (R1)", () => {
         expect(sorted(fam.upstream)).toEqual(["a", "b"]);
         expect(sorted(fam.downstream)).toEqual(["c", "d"]);
         expect(fam.all.has(rowKey("x"))).toBe(false);
-        // A diamond back-edge lands a row in BOTH sets (the LINKED tag).
+        // A diamond back-edge lands a row in BOTH sets (gathered under the Linked band).
         const both = deriveLinkFamily([link("f", "m"), link("m", "f")], rowKey("f"));
         expect(both.upstream.has(rowKey("m"))).toBe(true);
         expect(both.downstream.has(rowKey("m"))).toBe(true);

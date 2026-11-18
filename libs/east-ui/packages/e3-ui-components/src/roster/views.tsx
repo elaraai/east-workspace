@@ -51,7 +51,7 @@ import type { PatternDay, RosterCommands } from "./actions.js";
 import type { RosterDutyOp, RosterOptimised } from "./optimise.js";
 import { barOf, demandOf, difference, differenceSaid, laneCup, laneMark, looseOf, signed, skillCup, skillMark, skillMet, stated, toneOf, type Demand, type DemandCup, type DemandFigures, type DemandLane, type DemandMark, type DemandSkill, type DemandWeek, type SkillFigures } from "./demand.js";
 import {
-    DAY, NO_GROUP, activityOf, compareSlot, costsOf, groupName, groupOf, groupSkills, hourText, issuesSaid, ownTimes, placeKey, placeOf, samePlace, sameSlot, shiftColor, shiftHoursText,
+    DAY, NO_GROUP, activityOf, compareDate, compareSlot, costsOf, groupName, groupOf, groupSkills, hourText, issuesSaid, ownTimes, placeKey, placeOf, samePlace, sameSlot, shiftColor, shiftHoursText,
     shiftLetter, shiftOf, slotKey, slotOfPlace, weekKey, weekNumber,
     type Assignment, type Coverage, type Issue, type Pay, type Person, type Place, type PlacedProposal, type RosterDomain, type RosterSpan, type RosterStyles,
     type RosterValue, type RosterView, type Selection, type Shift, type Slot, type Week, type WeekState,
@@ -170,6 +170,16 @@ interface ViewContext {
 }
 /** The views' selection, read by what it marks. */
 const SelectionContext = createContext<Selection | undefined>(undefined);
+
+/**
+ * Whether a week starts where a selection's week does — the selection holding its start as an epoch — by East's own
+ * ordering (#1650).
+ *
+ * @param week - The week's first day
+ * @param at - The selection's week's start; `undefined` for a selection naming none
+ * @returns Whether they are one
+ */
+const startsAt = (week: Date, at: number | undefined): boolean => at !== undefined && compareDate(week, new Date(at)) === 0;
 
 /**
  * Test-only draw probe: told of each People row and each person's day drawn, by key (#1398, CL9) — what "a row draws
@@ -529,7 +539,7 @@ function DayAssignments({ props, ctx, slot }: { props: RosterViewsProps; ctx: Vi
         <Box css={props.styles.chips}>{assignments(props, place).map(({ id, a, removed }) => <AssignmentChip key={id} id={id} assignment={a} removed={removed} ctx={ctx} />)}</Box>
         {props.proposals.filter(p => sameSlot(p.slot, slot) && (props.value.visiblePeople.type === "none" || props.value.visiblePeople.value.has(p.person))).map(p => <ProposalCard key={p.key} props={props} proposal={p} />)}
         {c.open > 0n && <Box css={props.styles.openPosition}>{String(c.open)} open position{c.open === 1n ? "" : "s"}</Box>}
-        <Box css={props.styles.dropStrip}><SlotActions props={props} slot={slot} />{!props.value.inspector && <RequirementAction slot={slot} week={props.week} held={props.held} value={props.value} commands={props.commands} styles={props.styles} />}</Box>
+        <Box css={props.styles.dropStrip}><SlotActions props={props} slot={slot} />{!props.value.inspector && <RequirementAction slot={slot} week={props.week} held={props.held} value={props.value} coverage={c} commands={props.commands} styles={props.styles} />}</Box>
     </DropSlot>;
 }
 /**
@@ -1105,7 +1115,7 @@ const PersonRow = memo(function PersonRow({ ctx, row, index, rows, days, duties,
     const stepped = person !== undefined && focus.key === person.key;
     useLayoutEffect(() => { if (stepped && name.current !== null) { name.current.focus({ preventScroll: true }); focus.done(); } }, [stepped, focus]);
     const picked = useContext(PersonWeekContext);
-    const weekSelected = person !== undefined && picked !== undefined && picked.key === person.key && picked.start === start.getTime();
+    const weekSelected = person !== undefined && picked !== undefined && picked.key === person.key && startsAt(start, picked.start);
     // A pattern hovering the row: what it would leave each day (P19), from the same plan a drop applies.
     const [previewKey, setPreviewKey] = useState<string>();
     const onPatternHover = useCallback((next: string) => setPreviewKey(next), []);
@@ -1713,7 +1723,7 @@ const MonthRow = memo(function MonthRow({ ctx, row, index, rows, weeks, indexes,
     useLayoutEffect(() => { if (stepped && name.current !== null) { name.current.focus({ preventScroll: true }); focus.done(); } }, [stepped, focus]);
     const picked = useContext(PersonWeekContext);
     const style = { "--roster-weeks": weeks.length } as CSSProperties;
-    const nameSelected = person !== undefined && picked !== undefined && picked.key === person.key && weeks.some(held => held.start.getTime() === picked.start);
+    const nameSelected = person !== undefined && picked !== undefined && picked.key === person.key && weeks.some(held => startsAt(held.start, picked.start));
     // The failure said once, across the first person's cells in view (CL11).
     const says = useRowsTop(top => ctx.read.state === "failed" && firstPersonInView(rows, top) === index);
     return <Box ref={measure} css={styles.monthRow} style={style} data-roster-person-row={key} data-density={value.settings.density.type} data-roster-unread={ctx.read.state !== "held" ? "" : undefined}>
@@ -1721,7 +1731,7 @@ const MonthRow = memo(function MonthRow({ ctx, row, index, rows, weeks, indexes,
         {says && ctx.read.state === "failed" ? <Box css={styles.readLine} data-roster-read-line=""><ReadFailure read={ctx.read} /></Box>
             : weeks.map((held, i) => <MonthCell key={held.start.getTime()} ctx={ctx} person={person} rowKey={key} held={held} letters={letters}
                 days={(person === undefined ? requestDays(indexes[i]!, row.group) : indexes[i]!.person.get(person.key)) ?? NO_DAYS}
-                selected={person !== undefined && picked !== undefined && picked.key === person.key && picked.start === held.start.getTime()} />)}
+                selected={person !== undefined && picked !== undefined && picked.key === person.key && startsAt(held.start, picked.start)} />)}
     </Box>;
 });
 /**
@@ -1827,7 +1837,7 @@ const LaneMark = memo(function LaneMark({ ctx, rowKey, group, lane, week, day, f
     const shift = lane.shift.key, start = week.getTime();
     const slot = useMemo(() => group === undefined ? undefined : { day: BigInt(day), group: group.key, shift }, [group, day, shift]);
     // A selection names its week, the one the views then show (`start`): its day's mark in that week alone is selected.
-    const selected = ctx.start.getTime() === start
+    const selected = compareDate(ctx.start, week) === 0
         && (slot !== undefined ? selectedSlot(selection, slot) : selection?.type === "shiftDay" && selection.shift === shift && selection.day === day);
     const mark = laneMark(f), cup = laneCup(f);
     const when = `${lane.shift.label} · ${format.weekdayDate(new Date(start + day * DAY))}${group === undefined ? "" : ` · ${group.label}`}`;
@@ -1984,7 +1994,7 @@ function MonthGrid({ props, ctx }: { props: RosterViewsProps; ctx: ViewContext }
     const header = <Box ref={head} css={props.styles.monthRow} style={style} data-roster-month-head="" data-density={props.value.settings.density.type}
         data-week-label={fit.label} data-day-letters={fit.letters ? undefined : "off"} data-day-numbers={fit.numbers ? undefined : "off"}>
         <Box css={props.styles.monthGutter}>People · Month</Box>
-        {weeks.map(held => <WeekColumnHead key={held.start.getTime()} ctx={ctx} week={held.start} current={held.start.getTime() === picked} />)}
+        {weeks.map(held => <WeekColumnHead key={held.start.getTime()} ctx={ctx} week={held.start} current={startsAt(held.start, picked)} />)}
     </Box>;
     const { onAnchor } = props;
     const save = useCallback((at: RowAnchor) => onAnchor?.({ people: at }), [onAnchor]);
@@ -2202,7 +2212,7 @@ function Agenda({ props, ctx }: { props: RosterViewsProps; ctx: ViewContext }) {
                 {props.value.settings.requirements && <CoverageView coverage={c} value={props.value} styles={props.styles} format={props.format} compact />}
                 {assignments(props, placeOf(slot)).map(({ id, a, removed }) => <AssignmentCard key={id} ctx={ctx} id={id} assignment={a} removed={removed} />)}
                 {props.proposals.filter(p => sameSlot(p.slot, slot) && (props.value.visiblePeople.type === "none" || props.value.visiblePeople.value.has(p.person))).map(p => <ProposalCard key={p.key} props={props} proposal={p} />)}
-                <SlotActions props={props} slot={slot} /><RequirementAction slot={slot} week={props.week} held={props.held} value={props.value} commands={props.commands} styles={props.styles} />
+                <SlotActions props={props} slot={slot} /><RequirementAction slot={slot} week={props.week} held={props.held} value={props.value} coverage={c} commands={props.commands} styles={props.styles} />
             </Box>; }))}
             {props.read.state === "held" && props.value.duty.roles.noGroup && props.value.shifts.map(shift => <NoGroupCard key={shift.key} props={props} ctx={ctx} day={day} shift={shift} />)}
         </Box>)}

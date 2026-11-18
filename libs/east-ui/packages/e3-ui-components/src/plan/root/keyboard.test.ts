@@ -10,14 +10,16 @@
 
 /**
  * The keyboard map as a model (#819): what every key does from every kind of
- * grid item — rows, sections, charts, rails, gap bands and the bands standing
- * for a paged source's unloaded runs — and how a move across a band waits for
- * its rows.
+ * grid item — rows, sections, charts, strips, a links focus's bands and the
+ * bands standing for a paged source's unloaded runs — and how a move across a
+ * band waits for its rows.
  */
 
 import { describe, test, expect } from "vitest";
 import { none, some, variant } from "@elaraai/east";
-import { indexRows, type PlanBodyItem, type PlanRowValue, type VisibleRow } from "../model.js";
+import {
+    indexRows, type LinkFamily, type PlanBodyItem, type PlanFocusBand, type PlanFocusCtx, type PlanFocusRole, type PlanRowValue, type VisibleRow,
+} from "../model.js";
 import { planNavItems, planNavKey, resolveNavIntent, type PlanNavItem } from "./keyboard.js";
 import { rowId } from "../plan.test-utils.js";
 
@@ -49,6 +51,13 @@ const INDEX = indexRows([G, P, C1, C2, K]);
 const vis = (r: PlanRowValue, depth: number, collapsed = false): PlanBodyItem =>
     ({ kind: "row", row: { row: r, depth, collapsed } as VisibleRow });
 
+/** A links focus's family that gathers nothing but the focused row. */
+const NO_FAMILY: LinkFamily = { upstream: new Set(), downstream: new Set(), all: new Set() };
+
+/** A row focus, as the canvas holds it — a links focus with no family. */
+const focusOf = (focus: { kind: "links" | "expand"; key: string }): PlanFocusCtx =>
+    (focus.kind === "links" ? { ...focus, links: { family: NO_FAMILY, others: false } } : focus);
+
 /** The grid as the keyboard sees it — every item 32px tall. */
 function items(body: PlanBodyItem[], opts: { chartsExpanded?: string[]; focus?: { kind: "links" | "expand"; key: string } } = {}): PlanNavItem[] {
     return planNavItems({
@@ -56,7 +65,7 @@ function items(body: PlanBodyItem[], opts: { chartsExpanded?: string[]; focus?: 
         items: body, heights: body.map(() => 32),
         index: INDEX,
         chartsExpanded: new Set(opts.chartsExpanded ?? []),
-        focusCtx: opts.focus !== undefined ? { ...opts.focus, family: new Set<string>() } : undefined,
+        focusCtx: opts.focus !== undefined ? focusOf(opts.focus) : undefined,
     });
 }
 
@@ -126,22 +135,55 @@ describe("rows (#819)", () => {
     });
 });
 
-describe("rails, strips and gap bands (#819)", () => {
-    test("a rail and a context strip return on Enter, and have no caret to toggle", () => {
-        const links = items(OPEN, { focus: { kind: "links", key: "c1" } });
-        expect(planNavKey(links, "r:c2", "Enter", 0)).toEqual({ t: "event", event: { t: "focus.clear" }, focus: "r:c2" });
-        expect(planNavKey(links, "r:P", " ", 0)).toEqual({ t: "none" });
+describe("strips and a links focus's bands (#819, #1680's review)", () => {
+    test("a context strip, and a pinned row a links focus does not gather, return on Enter, and have no caret to toggle", () => {
         const strips = items(OPEN, { focus: { kind: "expand", key: "c1" } });
         expect(planNavKey(strips, "r:k", "Enter", 0)).toEqual({ t: "event", event: { t: "focus.clear" }, focus: "r:k" });
+        expect(planNavKey(strips, "r:k", " ", 0)).toEqual({ t: "none" });
         // The focused row itself still selects.
         expect(planNavKey(strips, "r:c1", "Enter", 0))
             .toEqual({ t: "event", event: { t: "row.select", key: "c1" }, focus: "r:c1" });
+        // Pinned, above the body, the expandable chart strips under a links focus that does not gather it.
+        const pinned = planNavItems({
+            pinned: [{ row: { ...K, pinned: true }, depth: 0, collapsed: false }], pinnedHeights: [16],
+            items: [], heights: [], index: INDEX, chartsExpanded: new Set(), focusCtx: focusOf({ kind: "links", key: "c1" }),
+        });
+        expect(planNavKey(pinned, "r:k", "Enter", 0)).toEqual({ t: "event", event: { t: "focus.clear" }, focus: "r:k" });
+        expect(planNavKey(pinned, "r:k", " ", 0)).toEqual({ t: "none" });
     });
 
-    test("a gap band returns on Enter, and focus lands on the first row it stood for", () => {
-        const nav = items([vis(G, 0), { kind: "gap", gap: { key: "gap-P", first: "P", rows: 3, groups: 0, tone: undefined } }, vis(K, 0)]);
-        expect(planNavKey(nav, "g:gap-P", "Enter", 0)).toEqual({ t: "event", event: { t: "focus.clear" }, focus: "r:P" });
-        expect(planNavKey(nav, "g:gap-P", "ArrowDown", 0)).toEqual({ t: "focus", key: "r:k", align: "auto" });
+    test("a role's band is a heading; a row it gathers steps ← to it and opens nothing; the others' band opens and folds as a section does", () => {
+        const gathered = (r: PlanRowValue, role: PlanFocusRole): PlanBodyItem =>
+            ({ kind: "row", row: { row: r, depth: 1, collapsed: false, gathered: { role, path: ["G"] } } });
+        const band = (role: PlanFocusBand["role"], open = true): PlanBodyItem => ({ kind: "focus", band: { role, count: 1, open } });
+        const body = [band("upstream"), gathered(P, "upstream"), band("focused"), gathered(C1, "focused"), band("downstream"), band("others", false)];
+        const nav = items(body, { focus: { kind: "links", key: "c1" } });
+        expect(planNavKey(nav, "l:upstream", "Enter", 0)).toEqual({ t: "none" });
+        expect(planNavKey(nav, "l:upstream", " ", 0)).toEqual({ t: "none" });
+        expect(planNavKey(nav, "l:upstream", "ArrowDown", 0)).toEqual({ t: "focus", key: "r:P", align: "auto" });
+        // P nests c1 and c2, but gathered, it opens nothing: its subtree is the others'.
+        expect(planNavKey(nav, "r:P", "ArrowLeft", 0)).toEqual({ t: "focus", key: "l:upstream", align: "auto" });
+        expect(planNavKey(nav, "r:P", "ArrowRight", 0)).toEqual({ t: "none" });
+        expect(planNavKey(nav, "r:P", "Enter", 0)).toEqual({ t: "event", event: { t: "row.select", key: "P" }, focus: "r:P" });
+        // Folded, Enter, Space and → open the others' band; open, ← and Space fold it, and → goes nowhere.
+        for (const key of ["Enter", " ", "ArrowRight"]) {
+            expect(planNavKey(nav, "l:others", key, 0)).toEqual({ t: "event", event: { t: "focus.others" }, focus: "l:others" });
+        }
+        const open = items([...body.slice(0, -1), band("others")], { focus: { kind: "links", key: "c1" } });
+        for (const key of ["ArrowLeft", " "]) {
+            expect(planNavKey(open, "l:others", key, 0)).toEqual({ t: "event", event: { t: "focus.others" }, focus: "l:others" });
+        }
+        expect(planNavKey(open, "l:others", "ArrowRight", 0)).toEqual({ t: "none" });
+    });
+
+    test("a lane band is no item: ↓ steps over it, and the row above takes its height, so a page travels as far as the rows do (#1680's review)", () => {
+        const gathered = (r: PlanRowValue): PlanBodyItem =>
+            ({ kind: "row", row: { row: r, depth: 1, collapsed: false, gathered: { role: "upstream", path: [] } } });
+        const lane: PlanBodyItem = { kind: "lanes", lanes: { rule: 1, px: 12, above: K.key } };
+        const nav = items([gathered(P), lane, gathered(K)], { focus: { kind: "links", key: "P" } });
+        // Every item 32 tall in this grid: P takes the band's 32 with its own.
+        expect(nav.map((n) => [n.key, n.h])).toEqual([["r:P", 64], [`r:${K.key}`, 32]]);
+        expect(planNavKey(nav, "r:P", "ArrowDown", 0)).toEqual({ t: "focus", key: `r:${K.key}`, align: "auto" });
     });
 });
 

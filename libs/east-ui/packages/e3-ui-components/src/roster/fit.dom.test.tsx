@@ -13,15 +13,26 @@
  * on its way the fix reads `Finding…`, and a failure is a warning banner with
  * Retry (R4). The warehouse's example asks its greedy fit (R5). Whom a find
  * found, assigned, is a new duty of the app's `values` (#1526).
+ *
+ * The fit's contract (east-workspace#1624): a request is the question and the
+ * page's scope, and no row; the call carries the Roster's unsaved edits as
+ * drafts, which the function reads laid over the records and nothing saves; an
+ * answer names whom the function considered (rule 6); a record that refuses
+ * the edits fails the fit in its words (rule 9); a record that changed under
+ * them takes the optimiser's path (rule 12); and a question is asked again on
+ * a draft, on another page's save and on a change of what the page reads,
+ * never on a choice on the rail (rule 11).
  */
 import { describe, expect, test } from "vitest";
 import { fireEvent, render, waitFor, within } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
-import { StringType, none, printFor, variant } from "@elaraai/east";
+import { SortedMap, StringType, compareFor, none, printFor, variant } from "@elaraai/east";
 import { BannerView, editingMessages, system } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
+import { conflictCards } from "../e3-web-mount.test-utils.js";
+import { patchRecord } from "../e3-web.test-utils.js";
 import { readRosterSource } from "./identity.js";
-import { START, act, assignment, cell, drop, history, narrow, narrowing, open, rosterHarness, settle, slot, warehouseRoster, weekDuties, type Choice } from "./harness.test-utils.js";
+import { START, act, assignment, cell, drop, history, narrow, narrowing, open, rosterHarness, settle, slot, warehouseRoster, type Choice } from "./harness.test-utils.js";
 
 const h = rosterHarness();
 const text = printFor(StringType);
@@ -70,11 +81,14 @@ describe("a Find fix asks the app's fit, and the People tab shows its answer (R1
         await issues(c);
         await press(fix(c, LEAD_ISSUE));
         await waitFor(() => expect(found(c)).toEqual([["jquartz", "Dispatch · 14 h spare"]]));
-        // One question: the issue's need and slot, the week as drafted, and every person — the rail's narrowing notwithstanding.
+        // One question (#1624, rule 1): the issue's need and slot, the week's first day and the page's scope, here none — and
+        // no duty, no person and nothing of the configuration. The rail's narrowing is not sent.
         expect(h.fits.requests()).toHaveLength(1);
         const asked = h.fits.requests()[0]!;
-        expect([asked.need, asked.slot, asked.start]).toEqual([LEAD.need, LEAD.slot, START]);
-        expect([asked.context.people.size, asked.week.assignments.size]).toEqual([69, weekDuties(await h.read(ex.rosterDuties), START).size]);
+        expect(Object.keys(asked).sort()).toEqual(["need", "scope", "slot", "start"]);
+        expect([asked.need, asked.slot, asked.start, asked.scope.size]).toEqual([LEAD.need, LEAD.slot, START, 0]);
+        // Nothing is unsaved: the call carries no draft.
+        expect(h.fits.drafts()).toEqual([[]]);
         expect(tabs(c)[0]).toBe("People 1 of 69");
         // The card carries the reason, and its tooltip the whole of it, which a narrow card cuts.
         expect(card(c, "jquartz")!.getAttribute("title")).toBe("Dispatch · 14 h spare");
@@ -125,7 +139,9 @@ describe("a Find fix asks the app's fit, and the People tab shows its answer (R1
         // A. Alder's Thursday shift removed: a draft, and A. Alder off that day.
         await press(within(assignment(c, "s1")).getByRole("button", { name: "Remove A. Alder" }));
         await waitFor(() => expect(h.fits.requests()).toHaveLength(2));
-        expect(h.fits.requests()[1]!.week.assignments.has("s1")).toBe(false);
+        // The same question, and the unsaved removal as a draft of the duties' record: the function reads the week without it.
+        expect(h.fits.requests()[1]).toEqual(h.fits.requests()[0]);
+        expect(h.fits.drafts()[1]).toEqual([{ record: ex.rosterDuties.name, mutation: "patch" }]);
         // The answer the drafts before had is no verdict on these (F2): every person the rail shows, none with a reason, busy under the find's chip.
         expect(pane(c).getAttribute("aria-busy")).toBe("true");
         expect(tabs(c)[0]).toBe("People 69");
@@ -264,5 +280,162 @@ describe("whom a find found, assigned (#1526)", () => {
         const added = [...(await h.read(ex.rosterDuties))].filter(([key]) => !before.has(key))
             .map(([, duty]) => [duty.who, duty.team, duty.shift, duty.unpaidBreak, duty.agreed, duty.costCentre, duty.note]);
         expect(added).toEqual([[variant("staff", "jquartz"), "dispatch", "early", 30, none, "CC-DS", ""]]);
+    });
+});
+
+describe("the fit reads the Roster's unsaved edits as drafts, and nothing is saved (#1624)", () => {
+    const byKey = compareFor(StringType);
+    const commits = async () => (await h.history(ex.rosterDuties)).commits.map(commit => commit.mutation);
+    const removeAlder = async (c: HTMLElement) => { await press(within(assignment(c, "s1")).getByRole("button", { name: "Remove A. Alder" })); };
+    /** The duties as another page leaves them, committed as its Save — and this page told nothing of it. */
+    async function another(change: (duties: Map<string, NonNullable<ReturnType<Awaited<ReturnType<typeof h.read<typeof ex.rosterDuties.type>>>["get"]>>>) => void) {
+        const next = new Map(await h.read(ex.rosterDuties));
+        change(next);
+        await patchRecord(h.e3, h.workspace, ex.rosterDuties, new SortedMap([...next], byKey));
+    }
+
+    test("seen and not saved — a person given an unsaved duty on the slot's day is refused `Rostered`, and one whose duty that day was removed and not saved fits; the duties' record is as it was", async () => {
+        const { container: c } = await open(ex.rosterWarehouse);
+        const before = await commits();
+        await issues(c);
+        await press(fix(c, LEAD_ISSUE));
+        await waitFor(() => expect(found(c)).toEqual([["jquartz", "Dispatch · 14 h spare"]]));
+        // J. Quartz given a duty on Thursday, on Inbound's night shift, and not saved: the question is asked again of the new drafts.
+        await drop(card(c, "jquartz")!, cell(c, 4, "inbound", "night"));
+        await waitFor(() => expect(h.fits.answers()).toHaveLength(2));
+        await waitFor(() => expect(pane(c).querySelector("[data-library-empty]")?.textContent).toContain("No one found"));
+        const rostered = h.fits.answers()[1]!.people.get("jquartz");
+        expect(rostered?.type === "refused" ? [rostered.value.group, rostered.value.reason] : rostered).toEqual(["Rostered", "rostered on Inbound · Night"]);
+        expect(h.fits.drafts()).toEqual([[], [{ record: ex.rosterDuties.name, mutation: "patch" }]]);
+        // A. Alder's Thursday shift removed and not saved: A. Alder fits, off that day in the drafts alone.
+        await removeAlder(c);
+        await waitFor(() => expect(found(c)).toEqual([["aalder", "from Inbound · 14 h spare"]]));
+        // Nothing was saved: no commit was made, and the record holds what it held.
+        expect(await commits()).toEqual(before);
+        expect((await h.read(ex.rosterDuties)).has("s1")).toBe(true);
+    });
+
+    test("rule 6 — an answer that names fewer: a person it names no verdict for is not listed", async () => {
+        const { container: c } = await open(ex.rosterWarehouse);
+        await issues(c);
+        // A function that asks about fewer: its answer names every lead but J. Quartz.
+        const fewer = h.fits.answer((made) => ({ ...made, people: new SortedMap([...made.people].filter(([key]) => key !== "jquartz"), byKey) }));
+        await press(fix(c, LEAD_ISSUE));
+        await waitFor(() => expect(pane(c).querySelector("[data-library-empty]")?.textContent).toContain("No one found"));
+        expect([found(c), tabs(c)[0], card(c, "jquartz")]).toEqual([[], "People 0 of 69", undefined]);
+        fewer();
+    });
+
+    test("rule 9 — a roster whose record refuses every Save: with nothing unsaved the fit answers; with an unsaved edit the call ends as the Save would, and the fit fails in the record's words", async () => {
+        const { container: c } = await open(warehouseRoster({ locked: true }));
+        await issues(c);
+        await press(fix(c, LEAD_ISSUE));
+        await waitFor(() => expect(found(c)).toEqual([["jquartz", "Dispatch · 14 h spare"]]));
+        expect([h.fits.outcomes(ex.rosterLockedFit.name), h.fits.drafts(ex.rosterLockedFit.name)]).toEqual([["success"], [[]]]);
+        // An unsaved removal: e3 lays it as the Save would write it, and the locked record refuses it — there is no state of the
+        // record with that edit to ask about.
+        await removeAlder(c);
+        const banner = await waitFor(() => { const el = failure(c); expect(el).toBeTruthy(); return el!; });
+        expect(banner.textContent).toContain("the roster is locked for the week");
+        expect(h.fits.drafts(ex.rosterLockedFit.name)[1]).toEqual([{ record: ex.rosterLockedDuties.name, mutation: "patch" }]);
+        expect(fix(c, LEAD_ISSUE)!.textContent).toBe("Find a lead");
+    });
+
+    test("rule 12 — a record that changed under the edits, nothing to choose: the call ends `conflict`, the Roster takes the other page's save in, and the question is asked again by itself and answered", async () => {
+        const { container: c } = await open(ex.rosterWarehouse);
+        await issues(c);
+        await removeAlder(c);
+        // Another page removes the same duty: this page's draft of it no longer fits the record.
+        await another(duties => { duties.delete("s1"); });
+        await press(fix(c, LEAD_ISSUE));
+        await waitFor(() => expect(found(c)).toEqual([["aalder", "from Inbound · 14 h spare"], ["jquartz", "Dispatch · 14 h spare"]]), { timeout: 15_000 });
+        // Two calls for the one find: the first over a draft of the record as the Roster held it, refused; the second with no
+        // draft left to send — the other page's save is the Roster's edit.
+        expect([h.fits.outcomes(), h.fits.drafts().map(drafts => drafts.length)]).toEqual([["conflict", "success"], [1, 0]]);
+        expect([failure(c), c.querySelector('[data-session-banner="conflicts"]')]).toEqual([undefined, null]);
+    });
+
+    test("rule 12 — a conflict to choose: the fit fails in the refused Save's words until the person chooses; chosen, the question is asked again and answered", async () => {
+        const { container: c } = await open(ex.rosterWarehouse);
+        await issues(c);
+        await removeAlder(c);
+        // Another page moves the duty the Roster removed: a conflict for the person to choose.
+        await another(duties => { const duty = duties.get("s1")!; duties.set("s1", { ...duty, note: "Covering the dock" }); });
+        await press(fix(c, LEAD_ISSUE));
+        const banner = await waitFor(() => { const el = failure(c); expect(el).toBeTruthy(); return el!; }, { timeout: 15_000 });
+        expect(banner.textContent).toContain(`${editingMessages.bannerConflicts({ n: 1, count: "1" })}.`);
+        expect(h.fits.outcomes()).toEqual(["conflict"]);
+        await waitFor(() => expect(c.querySelector('[data-session-banner="conflicts"]')).not.toBeNull());
+        // Chosen — the removal kept — the drafts change, and the find is asked again of them.
+        const [conflict] = await conflictCards(c);
+        await act(async () => { fireEvent.click(conflict!.radio("draft")); });
+        await settle();
+        await waitFor(() => expect(found(c)).toEqual([["aalder", "from Inbound · 14 h spare"], ["jquartz", "Dispatch · 14 h spare"]]), { timeout: 15_000 });
+        expect([h.fits.outcomes(), failure(c)]).toEqual([["conflict", "success"], undefined]);
+    });
+
+    test("rule 11 — asked again on a save by another page and on a change of what the page reads; a choice on the rail asks nothing again", async () => {
+        const { container: c, store } = await open(ex.rosterWarehouse);
+        await issues(c);
+        await press(fix(c, LEAD_ISSUE));
+        await waitFor(() => expect(found(c)).toEqual([["jquartz", "Dispatch · 14 h spare"]]));
+        expect(h.fits.calls()).toBe(1);
+        // A choice on the rail: the tab lists the fit among what the rail shows, and nothing is asked.
+        await narrow(store, "rosterWarehouse", "people", values("team", [text("inbound")]));
+        await waitFor(() => expect(pane(c).querySelector("[data-library-empty]")?.textContent).toContain("No one found"));
+        await narrow(store, "rosterWarehouse", "people", new Map());
+        await waitFor(() => expect(found(c)).toEqual([["jquartz", "Dispatch · 14 h spare"]]));
+        expect(h.fits.calls()).toBe(1);
+        // Another page's save of the duties: A. Alder's Thursday shift removed, which the page hears of and reads.
+        const duties = new Map(await h.read(ex.rosterDuties));
+        duties.delete("s1");
+        await h.patch(ex.rosterDuties, new SortedMap([...duties], byKey));
+        await waitFor(() => expect(found(c)).toEqual([["aalder", "from Inbound · 14 h spare"], ["jquartz", "Dispatch · 14 h spare"]]), { timeout: 15_000 });
+        const afterSave = h.fits.calls();
+        expect(afterSave).toBeGreaterThan(1);
+        // A change of what the page reads: J. Quartz's contract cut, in the staff's record.
+        const staff = await h.read(ex.rosterStaff);
+        staff.set("jquartz", { ...staff.get("jquartz")!, contract: 30 });
+        await h.patch(ex.rosterStaff, staff);
+        await waitFor(() => expect(found(c)).toEqual([["aalder", "from Inbound · 14 h spare"], ["jquartz", "Dispatch · 6 h spare"]]), { timeout: 15_000 });
+        expect(h.fits.calls()).toBeGreaterThan(afterSave);
+    });
+
+    test("counted — a second ask over the same drafts and the same saved state runs no mutation's program: the function's alone", async () => {
+        // The duties as no other test leaves them — a note on one duty — so nothing this test asks is in e3's execution cache
+        // before it asks: the cache is the repository's, which every test's workspace shares.
+        const duties = new Map(await h.read(ex.rosterDuties));
+        duties.set("s2", { ...duties.get("s2")!, note: "Counted" });
+        await h.patch(ex.rosterDuties, new SortedMap([...duties], byKey));
+        const { container: c } = await open(ex.rosterWarehouse);
+        await issues(c);
+        /**
+         * How many units e3 runs for the call a click starts, each let go as it is held, until the call has its answer.
+         * Nothing settles while e3's units are held, so the click is fired alone.
+         */
+        const unitsFor = async (target: Element | null | undefined) => {
+            expect(target).toBeTruthy();
+            const units = h.e3.holdUnits();
+            const before = h.fits.outcomes().length;
+            await act(async () => { fireEvent.click(target!); });
+            let ran = 0;
+            for (let waited = 0; h.fits.outcomes().length === before && waited < 4_000; waited++) {
+                if (units.held > 0) { await act(async () => { await units.releaseOne(); }); ran++; }
+                else await act(async () => { await new Promise<void>(resolve => { setTimeout(resolve, 5); }); });
+            }
+            units.release();
+            await settle();
+            return ran;
+        };
+        // Nothing unsaved: the call lays nothing, and e3 runs the function's program alone.
+        const plain = await unitsFor(fix(c, LEAD_ISSUE));
+        await waitFor(() => expect(found(c)).toEqual([["jquartz", "Dispatch · 14 h spare"]]));
+        // An unsaved removal: the same question's call lays the draft first — the write a Save runs, without its commit.
+        const first = await unitsFor(within(assignment(c, "s1")).getByRole("button", { name: "Remove A. Alder" }));
+        await waitFor(() => expect(found(c)).toEqual([["aalder", "from Inbound · 14 h spare"], ["jquartz", "Dispatch · 14 h spare"]]));
+        // Another question over the same drafts and the same saved state: the laying is served from e3's execution cache.
+        const second = await unitsFor(fix(c, TRAINER_ISSUE));
+        expect([plain > 0, first > plain, second]).toEqual([true, true, plain]);
+        expect(h.fits.drafts().map(drafts => drafts.length)).toEqual([0, 1, 1]);
     });
 });

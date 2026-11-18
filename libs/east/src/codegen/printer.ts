@@ -149,8 +149,8 @@ const RESERVED = new Set([
   "some", "none", "SortedSet", "SortedMap", "compareFor", ...TYPE_IMPORTS,
 ]);
 const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
-/** A template slot: an argument, a type parameter, the RegExp or the CSV options. */
-const SLOT = /\{(R|C|T\d+|\d+)\}/g;
+/** A template slot: an argument, a type parameter, the RegExp, the CSV options or a range's bounds. */
+const SLOT = /\{(R|C|B|T\d+|\d+)\}/g;
 /** A template head that is a method on a slot: `{0}.map`. */
 const METHOD_HEAD = /^\{(\d+)\}\.([A-Za-z_]\w*)$/;
 
@@ -1399,6 +1399,11 @@ class Printer {
       if (opts === null) return null;
       csv = opts;
     }
+    let bounds: Doc | null = null;
+    if (row.adapter === "range") {
+      bounds = this.rangeBounds(args[1], args[2], tps, scope, pre, depth);
+      if (bounds === null) return null;
+    }
     // The slot a method template calls on: its receiver, wherever the IR has
     // it (`{1}.durationMilliseconds({0})` calls on the second argument).
     const call = parseCallTemplate(row.template);
@@ -1407,6 +1412,7 @@ class Printer {
     args.forEach((arg, i) => {
       if (row.adapter === "regex" && (i === 1 || i === 2)) { texts.push(""); return; }
       if (row.adapter === "csv" && i === args.length - 1) { texts.push(""); return; }
+      if (row.adapter === "range" && (i === 1 || i === 2)) { texts.push(""); return; }
       if (callbacks.has(i) && arg.type === "Function") {
         const fp = arg.value;
         texts.push(this.callbackExpr(fp.body, [...fp.parameters], scope, pre));
@@ -1425,9 +1431,11 @@ class Printer {
     });
     let template = row.template;
     if (csv === "") template = template.replace(", {C}", "").replace("{C}", "");
+    if (bounds === "") template = template.replace("{B}", "");
     const slot = (name: string): Doc => {
       if (name === "R") return regex ?? "";
       if (name === "C") return csv ?? "";
+      if (name === "B") return bounds ?? "";
       if (name.startsWith("T")) {
         const t = tps[Number(name.slice(1))];
         if (t === undefined) throw new Unprintable(`${p.builtin}: type parameter ${name.slice(1)} missing`);
@@ -1473,6 +1481,34 @@ class Printer {
       entries.push(`${objectKey(f.name)}: ${js}`);
     }
     return entries.length === 0 ? "" : `{ ${entries.join(", ")} }`;
+  }
+
+  /**
+   * A key range's two ends as the object the surface takes (#1616) — `{ from:
+   * …, to: … }`, an end left out where it is `none`, and nothing at all when
+   * both are — or `null` when an end is not what the surface builds: a `none`
+   * typed as the key, or a `some(bound)` typed as its bound. The ends' types
+   * are the builtin's last two type parameters, after the key's (and the
+   * value's, for a Dict). A bound is typed by the surface, the key's type cut
+   * short, so a construction prints bare.
+   */
+  rangeBounds(from: Node | undefined, to: Node | undefined, tps: EastTypeValue[], scope: Scope, pre: Doc[], depth: number): Doc | null {
+    const key = tps[0];
+    const entries: Doc[] = [];
+    for (const [name, end, type] of [["from", from, tps[tps.length - 2]], ["to", to, tps[tps.length - 1]]] as const) {
+      if (end === undefined || end.type !== "Variant" || key === undefined || type === undefined) return null;
+      if (end.value.case === "none" && isNullValue(end.value.value)) {
+        // The surface types an end left out as the key, whatever its other end.
+        if (!isTypeValueEqual(type, key)) return null;
+        continue;
+      }
+      if (end.value.case !== "some") return null;
+      const bound = end.value.value as Node;
+      // The surface types an end as its bound: a bound of another type would rebuild at its own.
+      if (!isTypeValueEqual(bound.value.type as EastTypeValue, type)) return null;
+      entries.push([name, ": ", this.valueDoc(bound, scope, pre, depth, true)]);
+    }
+    return entries.length === 0 ? "" : hug(bracket("{", entries, "}", " "));
   }
 
   /** A literal-only IR subtree as a JavaScript value, or `null`. */

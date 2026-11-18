@@ -12,6 +12,8 @@
  * started day with no bins says so once, after its read (#1398). The day is the
  * page's own (#1398): another page keeping a view moves neither it nor the
  * window it writes into its source, and a reload opens on the view kept last.
+ * A bin selected after another's Details were scrolled down shows from the
+ * inspector's start (#1680's review).
  */
 import { describe, expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
@@ -358,6 +360,17 @@ describe("the board takes and keeps the keyboard (as the Calendar's does, retest
             await act(async () => { fireEvent.keyDown(document.activeElement ?? document.body, { key: k, ...held }); }); await settle();
             expect([bin() !== null, document.activeElement === board(container)], `${k} ${JSON.stringify(held)}`).toEqual([booked, true]);
         }
+    });
+});
+
+describe("the inspector's Details (#1680's review)", () => {
+    test("a bin selected after another bin's Details were scrolled down shows from the pane's start, its heading in view", async () => {
+        const { container } = await h.mount(ex.allocationKilnYard);
+        await press(container.querySelector<HTMLElement>('[data-allocation-card="3101"]')!);
+        const body = () => slot(container, "end").querySelector<HTMLElement>("[data-dock-body]")!;
+        body().scrollTop = 48;
+        await press(container.querySelector<HTMLElement>('[data-allocation-card="3113"]')!);
+        expect([slot(container, "end").querySelector("[data-inspector-kind]")?.textContent?.includes("3113"), body().scrollTop]).toEqual([true, 0]);
     });
 });
 

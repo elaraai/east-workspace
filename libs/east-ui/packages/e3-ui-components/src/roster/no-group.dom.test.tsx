@@ -11,12 +11,16 @@
  * back out, writing `none`, each one edit that Undo reverts and Save commits
  * through the duties' patch door. In People each stands on its person's row,
  * its tile saying No group, and the inspector's Group field offers the groups
- * and No group. The eye's run sends them as they stand and lands its
- * placements as one edit; below 480px of main a No group card stands for each
- * of the day's shifts holding duties in none.
+ * and No group. The eye's run asks the week and sends no duty — the function
+ * reads them, the page's unsaved edits laid over them (east-workspace#1622) —
+ * and lands its placements as one edit; an unsaved target and an unsaved duty
+ * go with the call as drafts of their two records, and the function plans
+ * over both; below 480px of main a No group card stands for each of the day's
+ * shifts holding duties in none.
  */
 import { describe, expect, test } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { OptionType, StringType, equalFor, none, printFor, some } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
 import { Roster } from "@elaraai/e3-ui/internal";
@@ -25,11 +29,15 @@ import { fitCalls } from "../shared/func/fit-calls.test-utils.js";
 import { act, assignment, cell, drop, history, press, rosterHarness, settle, slot, width } from "./harness.test-utils.js";
 
 const h = rosterHarness();
-const calls = fitCalls(h, { request: Roster.Types.OptimiseRequest(ex.NoGroupDuty), result: Roster.Types.OptimiseResult(ex.NoGroupDuty) });
+const calls = fitCalls(h, { request: Roster.Types.OptimiseRequest(), result: Roster.Types.OptimiseResult(ex.NoGroupDuties) });
 /** The second step's optimiser, by its `e3.function` name. */
 const RUN = "rota_place_shifts";
+/** The week the example opens on: its Monday. */
+const MONDAY = new Date("2028-03-06T00:00:00Z");
 const sameTeam = equalFor(OptionType(StringType));
 const placeText = printFor(Roster.Types.Place);
+/** A group's slot — its day of the week, from zero, its group and its shift — as a requirement's cell names it. */
+const slotText = printFor(Roster.Types.Slot);
 const toolbar = (c: HTMLElement) => within(slot(c, "toolbar"));
 /**
  * A shift's day's cell in the No group band, by day.
@@ -125,12 +133,16 @@ describe("a duty in no group yet (#1548)", () => {
         await waitFor(async () => expect(sameTeam((await teams()).get("wed-w-05")!, some("inbound"))).toBe(true));
     });
 
-    test("the eye runs the second step over the week as it stands, every duty sent in no group; the answer lands as one edit — each placed in a team, Lea's Wednesday late, which no team needs, left in the band — which one Undo reverts and Save commits", async () => {
+    test("the eye runs the second step over the week, asking the week and sending no duty: the function reads every one in no group; the answer lands as one edit — each placed in a team, Lea's Wednesday late, which no team needs, left in the band — which one Undo reverts and Save commits", async () => {
         const { container: c } = await h.mount(ex.rosterNoGroup);
         const deployed = await commits();
         await optimised(c);
         const asked = calls.requests(RUN)[0]!;
-        expect([asked.duties.size, [...asked.duties.values()].every(duty => sameTeam(duty.team, none))]).toEqual([28, true]);
+        // The request names the week and carries no row; the answer is a patch of the duties the function placed, each read in none.
+        expect(Object.keys(asked).sort()).toEqual(["from", "period", "run", "slice", "to"]);
+        expect([asked.from.getTime(), asked.to.getTime(), asked.period.type]).toEqual([MONDAY.getTime(), MONDAY.getTime() + 7 * 86_400_000, "week"]);
+        const answered = calls.answers(RUN)[0]!.duties;
+        expect([answered.type, answered.type === "patch" ? answered.value.size : 0]).toEqual(["patch", 27]);
         expect([count(c, "No group Wed Late, 1 duty").textContent, count(c, "No group Mon Early, 0 duties").textContent]).toEqual(["1", "0"]);
         await press(history(c, editingMessages.undo()));
         expect(count(c, "No group Mon Early, 3 duties").textContent).toBe("3");
@@ -141,6 +153,46 @@ describe("a duty in no group yet (#1548)", () => {
         expect([sameTeam(held.get("wed-w-05")!, none), sameTeam(held.get("thu-w-05")!, some("dispatch")), sameTeam(held.get("mon-w-01")!, some("inbound"))])
             .toEqual([true, true, true]);
         expect([...held.values()].filter(team => sameTeam(team, none))).toHaveLength(1);
+    });
+
+    test("two records' drafts in one call — a target raised and a duty placed, neither saved, go with the run as drafts of the targets' record and the duties': the function reads both, placing the duty the week's saved targets leave in the band and leaving the placed one where it is; Save writes each record", async () => {
+        const { container: c } = await h.mount(ex.rosterNoGroup);
+        const user = userEvent.setup();
+        const cover = async () => (await h.history(ex.noGroupCover)).commits.map(commit => commit.mutation);
+        const deployed = [await commits(), await cover()];
+        // Sam's Monday late placed in Inbound by hand — not his own team — and not saved.
+        await press(toolbar(c).getByRole("radio", { name: "Day" }));
+        await drop(assignment(c, "mon-w-04"), cell(c, 0, "inbound", "late"));
+        await press(toolbar(c).getByRole("radio", { name: "Week" }));
+        // Wednesday's late in Inbound needs one; raised to two, and not saved.
+        const requirement = [...slot(c, "main").querySelectorAll<HTMLElement>("[data-roster-requirement]")]
+            .find(el => el.getAttribute("data-roster-requirement") === slotText({ day: 2n, group: "inbound", shift: "late" }));
+        await press(requirement ?? null);
+        const heads = within(slot(c, "end")).getByRole("spinbutton", { name: "Positions" });
+        await user.clear(heads); await settle();
+        await user.type(heads, "2"); await settle();
+        await user.keyboard("{Enter}"); await settle();
+        // The target's cell opened its day: back to the week, which the run is asked of.
+        await press(toolbar(c).getByRole("radio", { name: "Week" }));
+        expect([await commits(), await cover()]).toEqual(deployed);
+        await optimised(c);
+        expect(calls.requests(RUN)[0]!.period.type).toBe("week");
+        // One call, two drafts: the duties' and the targets', each a call of its record's patch door.
+        expect(calls.drafts(RUN)).toEqual([[{ record: ex.noGroupDuties.name, mutation: "patch" }, { record: ex.noGroupCover.name, mutation: "patch" }]]);
+        // The function read the target as raised — Lea's Wednesday late has a place in Inbound, and no duty is left in the band —
+        // and the duty as placed: Sam's Monday late is none of its answer.
+        const answered = calls.answers(RUN)[0]!.duties;
+        const placed = answered.type === "patch" ? answered.value : new Map<string, never>();
+        expect([placed.has("wed-w-05"), placed.has("mon-w-04"), placed.size]).toEqual([true, false, 27]);
+        expect(count(c, "No group Wed Late, 0 duties").textContent).toBe("0");
+        // Nothing was written by the call; Save commits each record's edits through its own door.
+        expect([await commits(), await cover()]).toEqual(deployed);
+        await press(history(c, editingMessages.apply()));
+        await waitFor(async () => expect([await commits(), await cover()]).toEqual([["patch", ...deployed[0]!], ["patch", ...deployed[1]!]]), { timeout: 10_000 });
+        const held = await teams();
+        expect([sameTeam(held.get("wed-w-05")!, some("inbound")), sameTeam(held.get("mon-w-04")!, some("inbound")), [...held.values()].filter(team => sameTeam(team, none)).length])
+            .toEqual([true, true, 0]);
+        expect((await h.read(ex.noGroupCover)).get("wed-inbound-late")!.heads).toBe(2n);
     });
 
     test("below 480px of main, a No group card stands for each of the day's shifts holding duties in none, saying its hours; once they are placed, none", async () => {

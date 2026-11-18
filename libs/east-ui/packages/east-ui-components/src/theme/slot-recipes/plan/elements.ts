@@ -16,18 +16,36 @@
 
 import type { SystemStyleObject } from "@chakra-ui/react";
 import { fontAwesomeSize } from "../../icon-size.js";
+import { centredLine } from "../../one-line-box.js";
 import { moveGhostBase } from "../time/move-ghost.js";
 import { timeResizeEdge } from "../time/resize.js";
 import { CONFLICT_RING } from "../../conflict-ring.js";
-import { lifecycleStates } from "./states.js";
+import { STATE_EDGE, lifecycleStates } from "./states.js";
+import {
+    PLAN_STATUS_COLOR, PLAN_STATUS_OPEN_RING, PLAN_STATUS_RING, planElementConflicts, planElementOverlap, planElementStatus, planStatusTones,
+} from "./status.js";
 import { PLAN_DRAFT_HALO, PLAN_OVERLAP_RING, planElementConflict, planElementDrafted, planElementFocus, planElementSelected } from "./focus.js";
 
 /** The slots this part styles. */
 export const elementsSlots = [
-    "bar", "barLabel", "barQty", "rollBand", "rollBandLabel", "port", "diamond", "chartMarks", "chartRefBand", "chartTickLeft", "chartTickRight", "refLabel",
-    "chartReadout", "chartReadoutValue", "milestoneDot", "exceptionTri", "markIcon", "markLabel",
+    "bar", "barLabel", "barQty", "rollBand", "rollBandLabel", "port", "diamond", "chartMarks", "chartRefBand", "plotTicks", "chartTickLeft", "chartTickRight", "refLabel",
+    "chartReadout", "chartReadoutValue", "milestoneDot", "exceptionTri", "markIcon", "markLabel", "markLabelText", "lock", "markLock",
     "moveEdge", "moveGhost", "moveGhostLabel", "moveGhostSpan",
 ] as const;
+
+/**
+ * A lock's square (#1541, U9): Font Awesome's lock, 8px, in a bar or a chip — even, as a bar's 20px (16px dense) and
+ * a chip's 18px are, so it centres on whole pixels; a tile's icons are 8px too.
+ */
+export const PLAN_LOCK_W = "8px";
+
+/**
+ * A label after a lock and the gap (#1541, U9), a bar's and a chip's: a letter
+ * and the ellipsis beside them, or not drawn at all (#1264).
+ */
+export const planLabelAfterLock = {
+    "[data-locked] > &": { [`@container (width < calc(${PLAN_LOCK_W} + 4px + 2ch))`]: { display: "none" } },
+} satisfies SystemStyleObject;
 
 /** An element that moves (#825) is picked up where it sits. */
 const grab = { "&[data-draggable]": { cursor: "grab" } } satisfies SystemStyleObject;
@@ -35,6 +53,32 @@ const grab = { "&[data-draggable]": { cursor: "grab" } } satisfies SystemStyleOb
 /** Hide text below one whole mono glyph plus an ellipsis. Quantities follow
  * the label: removing only the label promotes a clipped quantity into its line. */
 const hideShortText = { "@container (width < 2ch)": { display: "none" } } satisfies SystemStyleObject;
+
+/** The inset ring a confirmed bar draws: 1.5px of the brand, which every ring round it keeps inside. */
+const BAR_CONFIRMED = "inset 0 0 0 1.5px {colors.brand.solid}";
+
+/** A diamond's edge, in the custom property its status's tone sets: the brand, with none. The recipe's own property,
+ *  so not a `--plan-…` name, which is the canvas's geometry. */
+const DIAMOND_EDGE = "inset 0 0 0 1.5px var(--diamond-edge)";
+
+/**
+ * A chart row's axis tick's line (#1638): an even 14px. A tick stands with its middle on the whole pixel its value is
+ * drawn at, so half its line is above that pixel: half of the theme's 14.25px is a fraction, and the page painted the
+ * figure a row higher or lower by where it stood the row.
+ */
+const TICK_LINE = "14px";
+
+/** A chart row's axis tick, either side: mono 9.5 in the label ink, one line, its middle on its value's pixel. */
+const chartTick = {
+    position: "absolute",
+    fontFamily: "mono",
+    fontSize: "9.5px",
+    lineHeight: TICK_LINE,
+    color: "fg.subtle",
+    whiteSpace: "nowrap",
+    transform: "translateY(-50%)",
+    pointerEvents: "none",
+} satisfies SystemStyleObject;
 
 /** Their base styles. */
 export const elementsBase = {
@@ -64,7 +108,8 @@ export const elementsBase = {
         alignContent: "flex-start",
         columnGap: "4px",
         rowGap: 0,
-        padding: "0 7px",
+        // Less the border its state draws, which stands in it (`states.ts`).
+        padding: `0 calc(7px - ${STATE_EDGE})`,
         fontFamily: "mono",
         fontSize: "11px",
         fontWeight: "semibold",
@@ -79,23 +124,25 @@ export const elementsBase = {
         // its removal on nothing.
         ...lifecycleStates({
             obs: { background: "brand.emphasized", color: "bg.surface" },
-            appr: { background: "bg.surface", color: "fg.default", boxShadow: "inset 0 0 0 1.5px {colors.brand.solid}" },
+            appr: { background: "bg.surface", color: "fg.default", boxShadow: BAR_CONFIRMED },
             prop: { background: "{colors.brandTint}" },
             propRemoved: { background: "transparent", color: "fg.muted" },
         }),
         // An event its drafts changed (#1196): the tint in a brand border, in its state's place.
         ...planElementDrafted,
-        // over-dwell / flagged — the warn ring rides any state.
-        "&[data-stuck]": { boxShadow: "0 0 0 1.5px {colors.status.warn}" },
-        // An event in an overlap pair (#1198) — the same warn ring; a
-        // confirmed bar keeps its inset brand ring inside it.
-        "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING },
-        "&[data-overlap][data-state='appr']": { boxShadow: `inset 0 0 0 1.5px {colors.brand.solid}, ${PLAN_OVERLAP_RING}` },
+        // Its status (#1541, U8): its tone's ring, which rides any state — a warning's is the over-dwell ring — and
+        // the open ring a tentative one draws as. A confirmed bar keeps its inset brand ring inside it.
+        ...planElementStatus(BAR_CONFIRMED),
+        // An event in an overlap pair (#1198) — the warn ring, in its status's place.
+        ...planElementOverlap(BAR_CONFIRMED),
         // runs past the window — mask-fade right, never a fabricated end.
         "&[data-runoff]": {
             maskImage: "linear-gradient(to right, black 84%, transparent 99%)",
         },
         ...grab,
+        // Locked (#1541, U9): 4px either side, so the least bar the canvas draws (`--plan-bar-min-w`, 18px) holds its
+        // 8px lock whole. Before the strip's rule, which sets its own.
+        "&[data-locked]": { paddingInline: `calc(4px - ${STATE_EDGE})` },
         // ── R1 GEOMETRY SHRINKS (#591) ──
         // The mark already owns a position and a width on the axis, so it
         // keeps both and drops to 7px. Ink goes `transparent` rather than
@@ -112,9 +159,8 @@ export const elementsBase = {
         },
         ...planElementSelected,
         ...planElementFocus,
-        ...planElementConflict,
-        // A confirmed bar keeps its inset brand ring inside the warn.
-        "&:is([data-conflict], [data-bounds])[data-state='appr']": { boxShadow: `inset 0 0 0 1.5px {colors.brand.solid}, ${CONFLICT_RING}` },
+        // A conflict's ring, last: a confirmed bar keeps its inset brand ring inside the warn, an open one its own.
+        ...planElementConflicts(BAR_CONFIRMED),
     },
     // A span's label — whole, or ellipsized when it alone does not fit, its
     // line the bar's inside height (#1258). Below a letter and the ellipsis
@@ -130,6 +176,7 @@ export const elementsBase = {
         textOverflow: "ellipsis",
         whiteSpace: "nowrap",
         ...hideShortText,
+        ...planLabelAfterLock,
     },
     // A span's quantity — the label's own weight (#949: one weight per span).
     // It never shrinks: when it does not fit beside the label it wraps out of
@@ -217,27 +264,34 @@ export const elementsBase = {
         top: "50%",
         borderRadius: "1px",
         background: "bg.surface",
-        boxShadow: "inset 0 0 0 1.5px {colors.brand.solid}, 0 0 0 2px {colors.bg.surface}",
+        // Its edge and an applied one's fill are one colour: the brand, or its status's tone (#1541).
+        "--diamond-edge": "{colors.brand.solid}",
+        boxShadow: `${DIAMOND_EDGE}, 0 0 0 2px {colors.bg.surface}`,
         zIndex: 4,
-        "&[data-applied]": { background: "{colors.brand.solid}" },
+        "&[data-applied]": { background: "var(--diamond-edge)" },
         // An EVENT-ROW decision mark (K7 — the diamond carries `data-mark`)
         // is the canvas's mark diamond, the §8 sheet's "◇/◆ 11px rotate-45
         // r1" — a link meets its corners (#1258); a span row's decision
         // diamond on a run transition stays the 9px above.
         "&[data-mark]": { width: "var(--plan-mark-diamond-w)", height: "var(--plan-mark-diamond-w)" },
+        // Its status (#1541, U8): the diamond's edge, and an applied one's fill, in the tone's colour, under every ring
+        // round it; a tentative one draws open, applied or not.
+        ...planStatusTones,
+        "&[data-tone]": { "--diamond-edge": PLAN_STATUS_COLOR },
+        "&[data-tone][data-ring]": { background: "bg.surface" },
         // ── R3 SHAPE KEEPS ITS SILHOUETTE, LOSES ITS SIZE (#591) ──
         // Milestone / decision / exception are told apart BY OUTLINE, so
         // the outline is the payload: shrink it, never make it
         // transparent — that would erase the row's whole meaning.
         "&[data-ctx]": { width: "6px", height: "6px", borderRadius: 0},
         // An event's decision mark its drafts changed (#1196): the tint's ring round its own.
-        "&[data-draft]": { boxShadow: `inset 0 0 0 1.5px {colors.brand.solid}, ${PLAN_DRAFT_HALO}` },
+        "&[data-draft]": { boxShadow: `${DIAMOND_EDGE}, ${PLAN_DRAFT_HALO}` },
         ...grab,
         ...planElementSelected,
         ...planElementFocus,
         // A conflict not yet chosen, or a number outside its field's bounds: the warn ring round its own brand edge, which
         // is its outline; over the bar it sits on still, as the other marks' rings are over theirs.
-        "&:is([data-conflict], [data-bounds])": { boxShadow: `inset 0 0 0 1.5px {colors.brand.solid}, ${CONFLICT_RING}` },
+        "&:is([data-conflict], [data-bounds])": { boxShadow: `${DIAMOND_EDGE}, ${CONFLICT_RING}` },
     },
     // ── Chart rows — the marks, axis ticks + ref labels ──
     // A chart row's marks (#949): the svg fills the plot, and every mark's
@@ -293,37 +347,21 @@ export const elementsBase = {
         pointerEvents: "none",
         background: "color-mix(in srgb, {colors.fg} 4%, transparent)",
     },
-    chartTickLeft: {
+    // A chart's left-axis ticks stand inside the plot's left edge, as its
+    // right-axis ticks stand inside its right edge (#1680's review) — never in
+    // the gutter, where the values are. This box is the plot's, on a canvas row
+    // and on a narrow card alike, and each tick starts 3px in from its left
+    // edge (`chartTickLeft`), mirroring a right tick's 3px from its right: a
+    // tick of any width lies inside the plot, where one set against a narrow
+    // box's end ran out of it into the gutter.
+    plotTicks: {
         position: "absolute",
-        right: "4px",
-        fontFamily: "mono",
-        fontSize: "9.5px",
-        color: "fg.subtle",
-        transform: "translateY(-50%)",
+        inset: 0,
         pointerEvents: "none",
-        // A row's controls are always shown, at its gutter line's end
-        // (`rowControls`, #1258) — where the ticks sit. The ticks step left
-        // of them, so the axis stays legible (#591): the cell's 12px padding,
-        // the 24px buttons and a 4px gap.
-        "[data-plan-controls='1'] &": { right: "40px" },
-        "[data-plan-controls='2'] &": { right: "64px" },
-        // An automatic maximum stays on the heading line at every chart height,
-        // with real flex space so it cannot collide with the title or controls.
-        "&[data-compact]": {
-            position: "static", transform: "none", marginInlineStart: "auto", paddingInlineStart: "8px",
-            textStyle: "mono.xs", fontWeight: "normal", letterSpacing: "normal", textTransform: "none", flexShrink: 0,
-        },
+        zIndex: 5,
     },
-    chartTickRight: {
-        position: "absolute",
-        right: "3px",
-        fontFamily: "mono",
-        fontSize: "9.5px",
-        color: "fg.subtle",
-        transform: "translateY(-50%)",
-        pointerEvents: "none",
-        zIndex: 4,
-    },
+    chartTickLeft: { ...chartTick, left: "3px" },
+    chartTickRight: { ...chartTick, right: "3px", zIndex: 4 },
     refLabel: {
         position: "absolute",
         fontFamily: "mono",
@@ -387,10 +425,19 @@ export const elementsBase = {
         "&[data-draft]": { boxShadow: PLAN_DRAFT_HALO },
         // An event in an overlap pair (#1198): the warn ring, round the dot.
         "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING },
+        // Its status (#1541, U8): the dot in the tone's colour; a tentative one an open dot, its ring inside its
+        // edge, which the drafted halo and the overlap ring draw round.
+        ...planStatusTones,
+        "&[data-tone]": { background: PLAN_STATUS_COLOR },
+        "&[data-tone][data-ring]": { background: "transparent", boxShadow: PLAN_STATUS_OPEN_RING },
+        "&[data-tone][data-ring][data-draft]": { boxShadow: `${PLAN_STATUS_OPEN_RING}, ${PLAN_DRAFT_HALO}` },
+        "&[data-tone][data-ring][data-overlap]": { boxShadow: `${PLAN_STATUS_OPEN_RING}, ${PLAN_OVERLAP_RING}` },
         ...grab,
         ...planElementSelected,
         ...planElementFocus,
         ...planElementConflict,
+        // An open dot keeps its ring inside the warn.
+        "&[data-tone][data-ring]:is([data-conflict], [data-bounds])": { boxShadow: `${PLAN_STATUS_OPEN_RING}, ${CONFLICT_RING}` },
     },
     // An exception's triangle draws no overlap ring: it is the warn mark
     // already, and a ring round a border-drawn triangle is its square box —
@@ -419,6 +466,10 @@ export const elementsBase = {
             borderRightWidth: "3.5px",
             borderBottomWidth: "6px",
         },
+        // Its status (#1541, U8): the triangle in the tone's colour. A border-drawn triangle has no inside to open,
+        // so a tentative one draws as any other.
+        ...planStatusTones,
+        "&[data-tone]": { borderBottomColor: PLAN_STATUS_COLOR },
         ...grab,
         ...planElementSelected,
         ...planElementFocus,
@@ -442,6 +493,12 @@ export const elementsBase = {
         color: "{colors.brand.solid}",
         zIndex: 3,
         "&[data-kind='exception']": { color: "{colors.status.warn}" },
+        // Its status (#1541, U8): the icon in the tone's colour, in its kind's place; a tentative one in the tone's
+        // ring, round its box — a solid glyph has no open form — which a drafted halo, an overlap's ring and a
+        // conflict's, each after it and as strong, take the place of.
+        ...planStatusTones,
+        "&[data-tone]": { color: PLAN_STATUS_COLOR },
+        "&[data-ring]:where([data-tone])": { borderRadius: "full", boxShadow: PLAN_STATUS_RING },
         // ── R4 ICONS (#591) ──
         // A K7 override swaps a mark's default geometry for the host's own
         // 12px FA icon. At strip size a detailed glyph is an unreadable
@@ -459,16 +516,60 @@ export const elementsBase = {
         ...planElementFocus,
         ...planElementConflict,
     },
+    // A mark's label, its middle on the middle of its row's plot (#1638): the plot is the row less its rule, an odd
+    // height — 31px in a 32px row — so an odd 15px line starts a whole number of pixels under the row's edge. Its box
+    // is the room its mark leaves it, as wide as the renderer sets it (K7, #1680's review): a container, so its text
+    // reads that room in the label's own font.
     markLabel: {
         position: "absolute",
         top: "50%",
         transform: "translateY(-50%)",
+        containerType: "inline-size",
         fontFamily: "mono",
         fontSize: "9.5px",
+        lineHeight: centredLine(31, 15),
         fontWeight: "semibold",
         letterSpacing: "0.06em",
         color: "fg.muted",
         whiteSpace: "nowrap",
+        zIndex: 3,
+        pointerEvents: "none",
+        "&[data-ctx]": { display: "none" },
+    },
+    // Its words — whole, or ellipsized when the room is short of them; below a letter and the ellipsis not drawn at
+    // all, never a sliver of a glyph, as a bar's label (#1264).
+    markLabelText: {
+        display: "block",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        ...hideShortText,
+    },
+    // ── Locks (#1541, U9) ──
+    // What a bar or a chip its `locked` holds where it is leads with: Font
+    // Awesome's lock in the element's own ink, an 8px square. An element
+    // narrower inside than it draws none, never a part of it (#1264). In a
+    // bar, whose one line is the bar's inside height, its box is that line's.
+    lock: {
+        display: "inline-flex",
+        alignItems: "center",
+        flex: "none",
+        fontSize: PLAN_LOCK_W,
+        "--fa-width": "1em",
+        opacity: 0.72,
+        [`@container (width < ${PLAN_LOCK_W})`]: { display: "none" },
+        "[data-run] > &": { height: "100cqh" },
+        "[data-ctx] > &": { display: "none" },
+    },
+    // A locked mark's lock: beside its glyph, where its label would start —
+    // the label then starts after it. A strip draws none, as it draws no label.
+    markLock: {
+        position: "absolute",
+        top: "50%",
+        transform: "translateY(-50%)",
+        ...fontAwesomeSize("8px"),
+        display: "flex",
+        color: "fg.muted",
         zIndex: 3,
         pointerEvents: "none",
         "&[data-ctx]": { display: "none" },

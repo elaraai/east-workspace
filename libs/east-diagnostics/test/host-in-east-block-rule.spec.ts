@@ -4,6 +4,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { join } from "node:path";
 import { analyze, analyzeProgram, analyzeTsx } from "./harness.js";
 
 const PRELUDE = `import { East, Expr, IntegerType, FloatType, StringType, BooleanType, ArrayType, DictType, StructType, variant, some, none } from "@elaraai/east";\n`;
@@ -184,6 +185,110 @@ export const f = fn(($) => kinds.Case.open());
     paths: { "@elaraai/fake-ui": ["./fake-ui.ts"], "@proj/kinds": ["./kinds.ts"] },
   }).filter((d) => d.ruleName === RULE);
   assert.equal(hits.length, 0);
+});
+
+// ── A11: library-declared builders of statements, handed the block builder ─
+test("silent on a library's builder of statements that is handed the block builder (A11 — an e3 index's read)", () => {
+  // The shape of `e3.index(def).read(entries).events({…}).each($, …)`: `read`
+  // gives an Expr with the index's readers on it (A9), `events` is a method on
+  // that Expr (A2), and `each` — whose result is no Expr, a statement having
+  // none — is library API handed `$` (A11).
+  const files = {
+    "/proj/fake-e3.ts": `export interface KindExpr { readonly __kind: true }
+export interface BlockBuilder<T> { let(v: unknown): KindExpr }
+export interface Read { each($: BlockBuilder<null>, body: ($: BlockBuilder<null>, row: KindExpr) => void): void }
+export interface EntriesExpr extends KindExpr { events(window: object): Read }
+export const e3 = {
+  index(_def: object) {
+    return { read: (_entries: KindExpr): EntriesExpr => ({ __kind: true, events: () => ({ each() {} }) }) };
+  },
+};
+export function fn(cb: ($: BlockBuilder<null>, entries: KindExpr) => KindExpr): KindExpr { return cb(null as never, null as never); }
+`,
+    "/proj/indexes.ts": `import { e3 } from "@elaraai/fake-e3";
+export const byPress = e3.index({});
+`,
+    "/proj/main.ts": `import { fn } from "@elaraai/fake-e3";
+import { byPress } from "@proj/indexes";
+export const f = fn(($, entries) => {
+  byPress.read(entries).events({ key: "P1" }).each($, ($, row) => { $.let(row); });
+  return $.let(1);
+});
+`,
+  };
+  const hits = analyzeProgram(files, "/proj/main.ts", {
+    baseUrl: "/proj",
+    paths: { "@elaraai/fake-e3": ["./fake-e3.ts"], "@proj/indexes": ["./indexes.ts"] },
+  }).filter((d) => d.ruleName === RULE);
+  assert.equal(hits.length, 0);
+});
+
+test("still flags a member that is handed the block builder where its parameter is no block builder, however it is declared", () => {
+  // A declaration file of a package that is no East one: `inspect` takes
+  // anything, as `console.log` and `util.inspect` do, and `forEach` any
+  // collection. Handing either `$` makes neither a builder of East statements.
+  const files = {
+    "/proj/fake-east.ts": `export interface KindExpr { readonly __kind: true }
+export interface BlockBuilder<T> { let(v: unknown): KindExpr }
+export function fn(cb: ($: BlockBuilder<null>) => KindExpr): KindExpr { return cb(null as never); }
+`,
+    "/proj/vendor.d.ts": `export declare const vendor: {
+  inspect(...values: unknown[]): string;
+  forEach(items: unknown, each: (item: unknown) => void): void;
+};
+`,
+    "/proj/main.ts": `import { fn } from "@elaraai/fake-east";
+import { vendor } from "vendor";
+export const f = fn(($) => {
+  vendor.inspect($);
+  vendor.forEach($, () => {});
+  return $.let(1);
+});
+`,
+  };
+  const hits = analyzeProgram(files, "/proj/main.ts", {
+    baseUrl: "/proj",
+    paths: { "@elaraai/fake-east": ["./fake-east.ts"], "vendor": ["./vendor.d.ts"] },
+  }).filter((d) => d.ruleName === RULE);
+  assert.equal(hits.length, 2);
+});
+
+test("takes a member that declares a block builder parameter as East's by the package that declares it", () => {
+  // The same declaration, in a package that is no East one and in one that is:
+  // a declaration file is an East package's where its nearest package.json
+  // names it `@elaraai/…`, as this package's own does.
+  const declaration = `import type { BlockBuilder } from "@elaraai/fake-east";
+export declare const steps: { each($: BlockBuilder<null>, body: ($: BlockBuilder<null>) => void): void };
+`;
+  const program = (dts: string) => {
+    const files = {
+      "/proj/fake-east.ts": `export interface KindExpr { readonly __kind: true }
+export interface BlockBuilder<T> { let(v: unknown): KindExpr }
+export function fn(cb: ($: BlockBuilder<null>) => KindExpr): KindExpr { return cb(null as never); }
+`,
+      [dts]: declaration,
+      "/proj/main.ts": `import { fn } from "@elaraai/fake-east";
+import { steps } from "steps";
+export const f = fn(($) => {
+  steps.each($, ($) => { $.let(2); });
+  return $.let(1);
+});
+`,
+    };
+    return analyzeProgram(files, "/proj/main.ts", {
+      baseUrl: "/proj",
+      paths: { "@elaraai/fake-east": ["/proj/fake-east.ts"], "steps": [dts] },
+    }).filter((d) => d.ruleName === RULE);
+  };
+  assert.equal(program("/proj/steps.d.ts").length, 1, "a package that is no East one");
+  assert.equal(program(join(process.cwd(), "__east_diagnostics_steps__.d.ts")).length, 0, "an East package");
+});
+
+test("still flags a project's own helper that is handed the block builder", () => {
+  // Handing `$` to a TS macro authored in project source does not make it East:
+  // the macro is still an authoring-time expansion.
+  const src = `${PRELUDE}const each = (b: unknown, n: number): number => n;\nexport const f = East.function([], IntegerType, ($) => {\n  const lib = { each };\n  lib.each($, 1);\n  return $.const(1n, IntegerType);\n});\n`;
+  assert.equal(rule(src).length, 1);
 });
 
 // ── A10: literal constant folding ────────────────────────────────────────

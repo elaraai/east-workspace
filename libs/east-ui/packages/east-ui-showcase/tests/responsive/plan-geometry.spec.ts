@@ -5,11 +5,13 @@
 
 /**
  * The Plan's geometry, measured in a real browser (#817): every body item —
- * row, group band, rail, gap band — renders at exactly the height the model
- * laid it out at (`rowHeight`, which each item carries as `data-plan-h`), for
- * every row kind the Plan examples draw, at each density, with chart rows at
- * rest and expanded, and under both row focuses (R1 rails and gap bands, R2
- * context strips and the grown focal row).
+ * row, group band, a links focus's band — renders at exactly the height the
+ * model laid it out at (`rowHeight`, which each item carries as `data-plan-h`),
+ * for every row kind the Plan examples draw, at each density, with chart rows
+ * at rest and expanded, and under both row focuses (R1 the role bands, the
+ * rows they gather, the band every other row folds into, open and folded, and
+ * the pinned rows' strips, #1680's review; R2 context strips and the grown
+ * focal row).
  *
  * The model and the recipe read ONE geometry table — the model directly, the
  * recipe through the CSS variables the canvas writes — so a mismatch here
@@ -26,8 +28,9 @@
 import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
 import { settled } from "./settle";
-import { PLAN_EVENT_EXAMPLES, PLAN_EXAMPLES, openExample, planBox, rowId, rowSel, sizeBox } from "./plan-page";
+import { PLAN_EVENT_EXAMPLES, PLAN_EXAMPLES, linkKey, openExample, planBox, rowId, rowSel, sizeBox } from "./plan-page";
 import { cutNumbers, cutText, rulerFaults } from "./plan-text";
+import { printWorksBars } from "./plan-builder-page";
 
 /** The Plan examples, between them every row kind, group strips, pinned
  *  rows, number and ordinal axes, rows folded to a coarser resolution and a
@@ -41,7 +44,7 @@ async function mismatches(entry: Locator): Promise<string[]> {
         const rendered = el.getBoundingClientRect().height;
         if (Math.abs(model - rendered) <= 0.5) return [];
         const name = el.getAttribute("data-plan-row") ?? el.getAttribute("data-plan-group")
-            ?? el.getAttribute("data-plan-rail") ?? `gap ${el.getAttribute("data-plan-gap")}`;
+            ?? el.getAttribute("data-plan-item") ?? el.tagName;
         return [`${name}: model ${model}px, rendered ${rendered}px`];
     }));
 }
@@ -58,20 +61,26 @@ const KINDS = ["buckets", "cards", "chart", "events", "heat", "span", "table"];
 /**
  * Each link that does not leave its source's END or enter its destination's
  * START as the element draws (#1258) — a bar, a chip, a mark's glyph or the
- * cell a tile sits in. Its band starts on the source's right edge at its
- * middle, or — no room before the plot's end — lifts off its top or bottom edge
- * within its last 7px; its head's tip meets the destination's left edge at its
- * middle, or — no room after the plot's start — drops onto its top or bottom
- * edge within its first 10px; each on the plot's edge where the element lies
- * past the window. An end out of view meets the view's edge in a stub instead,
- * which this leaves to the view's checks. A link names its ends on its hit
- * path, each a row's id and an element's key.
+ * cell a tile sits in — at its port (#1680's review, ruled 17 Nov 2026). Its
+ * band leaves the source's right edge level, or — no room before the plot's
+ * end — lifts off its top or bottom edge within its last 7px; its head's tip
+ * meets the destination's left edge level, or — no room after the plot's start
+ * — drops onto its top or bottom edge within its first 10px; each on the plot's
+ * edge where the element lies past the window. A level end meets its element at
+ * its port: a lone link on its centre line, and links sharing an end each at
+ * their own, stacked about the centre line 2px clear of one another — a link
+ * taking its weight where it leaves, its head's width where it enters — ordered
+ * by where their other ends lie, topmost first; a lifted or dropped link keeps
+ * its place in the stack. An end out of view meets the view's edge in a stub
+ * instead, which takes no port and is left to the view's checks. A link names
+ * its ends on its hit path, each a row's id and an element's key.
  */
 const ribbonEnds = (root: Element): string[] => {
     const svg = root.querySelector("[data-plan-ribbons] svg")!.getBoundingClientRect();
     const nums = (d: string) => d.split(/[\sMLAZ]+/).filter((t) => t !== "").map(Number);
     const near = (a: number, b: number) => Math.abs(a - b) <= 0.6;
     const within = (v: number, lo: number, hi: number) => v >= lo - 0.6 && v <= hi + 0.6;
+    const middle = (r: DOMRect) => (r.top + r.bottom) / 2;
     const out: string[] = [];
     /** The element an end names, as it draws. */
     const elementOf = (rowKey: string | null, key: string | null): Element | null => {
@@ -81,34 +90,76 @@ const ribbonEnds = (root: Element): string[] => {
         return keyed("[data-run]", "data-run") ?? keyed("[data-chip]", "data-chip")
             ?? keyed("[data-mark][role='button']", "data-mark") ?? keyed("[data-event]", "data-event")?.closest("[data-plan-cell]") ?? null;
     };
+    const plot = root.querySelector("[data-plan-row] [data-plan-plot]")!.getBoundingClientRect();
+    const onPlot = (x: number) => Math.min(plot.right, Math.max(plot.left, x));
+    /** A link's end at an element: where it meets it down the page when level, what it takes of the end, and where its
+     *  other end lies — none out of view. */
+    interface Port { name: string; order: number; level: boolean; y: number; size: number; other: number | undefined }
+    /** The ends in view at each element's end and start. */
+    const ends = { exit: new Map<Element, Port[]>(), entry: new Map<Element, Port[]>() };
+    const add = (side: keyof typeof ends, el: Element, port: Port) => ends[side].set(el, [...(ends[side].get(el) ?? []), port]);
     for (const g of root.querySelectorAll("[data-plan-link]")) {
         const hit = g.querySelector("[data-link]")!;
         const name = `link ${hit.getAttribute("data-link-key")}`;
+        const order = Number(g.getAttribute("data-plan-link"));
+        const weight = Number(g.querySelector("[data-plan-ribbon-band]")!.getAttribute("stroke-width"));
         const heads = g.querySelectorAll("[data-plan-ribbon-head]");
         const toOff = heads[0]!.hasAttribute("data-plan-stub");
         const fromOff = heads[1]?.hasAttribute("data-plan-stub") ?? false;
         const srcEl = elementOf(hit.getAttribute("data-link-from"), hit.getAttribute("data-link-from-run"));
         const dstEl = elementOf(hit.getAttribute("data-link-to"), hit.getAttribute("data-link-to-run"));
         if ((!fromOff && srcEl === null) || (!toOff && dstEl === null)) { out.push(`${name}: an element it joins is not drawn`); continue; }
-        const plot = root.querySelector("[data-plan-row] [data-plan-plot]")!.getBoundingClientRect();
-        const onPlot = (x: number) => Math.min(plot.right, Math.max(plot.left, x));
         if (!fromOff) {
             const src = srcEl!.getBoundingClientRect();
-            const p0 = g.querySelector<SVGPathElement>("[data-plan-ribbon-band]")!.getPointAtLength(0);
+            const band = g.querySelector<SVGPathElement>("[data-plan-ribbon-band]")!;
+            const p0 = band.getPointAtLength(0);
             const [x0, y0] = [svg.left + p0.x, svg.top + p0.y];
             const end = onPlot(src.right);
-            const level = near(x0, end) && near(y0, (src.top + src.bottom) / 2);
-            const lifted = within(x0, Math.max(onPlot(src.left), end - 7), end) && (near(y0, src.top) || near(y0, src.bottom));
-            if (!level && !lifted) out.push(`${name} leaves at (${x0.toFixed(1)}, ${y0.toFixed(1)}), not its source's end (${end.toFixed(1)}, ${((src.top + src.bottom) / 2).toFixed(1)})`);
+            // Its first run: across, leaving the end level; up or down, lifting off an edge.
+            const first = nums(band.getAttribute("d")!);
+            const lifts = Math.abs(first[2]! - first[0]!) < 0.05;
+            const lifted = lifts && within(x0, Math.max(onPlot(src.left), end - 7), end) && (near(y0, src.top) || near(y0, src.bottom));
+            if (lifts ? !lifted : !near(x0, end)) out.push(`${name} leaves at (${x0.toFixed(1)}, ${y0.toFixed(1)}), not its source's end (${end.toFixed(1)}, ${middle(src).toFixed(1)})`);
+            else add("exit", srcEl!, { name, order, level: !lifts, y: y0, size: weight, other: toOff ? undefined : middle(dstEl!.getBoundingClientRect()) });
         }
         if (!toOff) {
             const dst = dstEl!.getBoundingClientRect();
-            const tip = nums(heads[0]!.getAttribute("d")!).slice(2, 4);
-            const [tx, ty] = [svg.left + tip[0]!, svg.top + tip[1]!];
+            const head = nums(heads[0]!.getAttribute("d")!);
+            const [tx, ty] = [svg.left + head[2]!, svg.top + head[3]!];
             const start = onPlot(dst.left);
-            const level = near(tx, start) && near(ty, (dst.top + dst.bottom) / 2);
-            const dropped = within(tx, start, Math.min(start + 10, onPlot(dst.right))) && (near(ty, dst.top) || near(ty, dst.bottom));
-            if (!level && !dropped) out.push(`${name} enters at (${tx.toFixed(1)}, ${ty.toFixed(1)}), not its destination's start (${start.toFixed(1)}, ${((dst.top + dst.bottom) / 2).toFixed(1)})`);
+            // Its head: pointing across, entering level; pointing up or down, dropping onto an edge.
+            const drops = Math.abs(head[1]! - head[5]!) < 0.05;
+            const dropped = drops && within(tx, start, Math.min(start + 10, onPlot(dst.right))) && (near(ty, dst.top) || near(ty, dst.bottom));
+            if (drops ? !dropped : !near(tx, start)) out.push(`${name} enters at (${tx.toFixed(1)}, ${ty.toFixed(1)}), not its destination's start (${start.toFixed(1)}, ${middle(dst).toFixed(1)})`);
+            else add("entry", dstEl!, { name, order, level: !drops, y: ty, size: Math.max(8, 2 * weight), other: fromOff ? undefined : middle(srcEl!.getBoundingClientRect()) });
+        }
+    }
+    // Each level end at its port: the stack its end's links make, about the element's centre line.
+    for (const [side, at] of Object.entries(ends)) {
+        for (const [el, ports] of at) {
+            const centre = middle(el.getBoundingClientRect());
+            const tall = ports.reduce((sum, p) => sum + p.size, 0) + 2 * (ports.length - 1);
+            // Their order where every other end is in view: topmost first, the drawing order where two lie level.
+            const known = ports.every((p) => p.other !== undefined);
+            const ordered = known ? [...ports].sort((a, b) => Math.round((a.other! - b.other!) * 10) || a.order - b.order) : ports;
+            let y = centre - tall / 2;
+            for (const p of ordered) {
+                const want = y + p.size / 2;
+                y += p.size + 2;
+                if (!p.level) continue;
+                if (known ? !near(p.y, want) : Math.abs(p.y - centre) > (tall - p.size) / 2 + 0.6) {
+                    out.push(`${p.name} meets its ${side === "exit" ? "source's end" : "destination's start"} at ${p.y.toFixed(1)}, `
+                        + `not its port${known ? ` ${want.toFixed(1)}` : ""} of ${ports.length} about ${centre.toFixed(1)}`);
+                }
+            }
+            // Where an end's other ends are not all in view, its ports at least lie apart.
+            if (!known) {
+                const level = ports.filter((p) => p.level).sort((a, b) => a.y - b.y);
+                for (let i = 1; i < level.length; i++) {
+                    const [a, b] = [level[i - 1]!, level[i]!];
+                    if (b.y - a.y < (a.size + b.size) / 2 + 2 - 0.6) out.push(`${a.name} and ${b.name} share their port at ${a.y.toFixed(1)}`);
+                }
+            }
         }
     }
     return out;
@@ -144,6 +195,74 @@ const outsidePlot = (root: Element): string[] => {
         if (Math.abs(left - plot.left) > 0.5 || Math.abs(right - plot.right) > 0.5) out.push(`clipped to ${left}–${right}, the plot is ${plot.left}–${plot.right}`);
     }
     return out;
+};
+
+/**
+ * Every bar label in view under a links focus, and whether the links stand back from it (#1680's review): each lies
+ * inside a box the layer's mask cuts out of the links — the model's box, its glyphs and its bar's padding, held against
+ * the text as drawn. Returns how many labels there are, and each one left uncut.
+ */
+const labelsUncut = (root: Element): { labels: number; uncut: string[] } => {
+    const svg = root.querySelector<SVGSVGElement>("[data-plan-ribbons] svg");
+    if (svg === null) return { labels: 0, uncut: ["no links layer"] };
+    const origin = svg.getBoundingClientRect();
+    const cuts = [...svg.querySelectorAll("[data-plan-standback] > rect")].map((r) => ({
+        x: Number(r.getAttribute("x")), y: Number(r.getAttribute("y")), w: Number(r.getAttribute("width")), h: Number(r.getAttribute("height")),
+    }));
+    const uncut: string[] = [];
+    let labels = 0;
+    for (const label of root.querySelectorAll<HTMLElement>("[data-virtual-extent] [data-run] > [data-plan-label]")) {
+        const b = label.getBoundingClientRect();
+        // What of it its plot cell shows: a run past the window mounts at its true place for a pan, clipped from view.
+        const cell = label.closest("[data-plan-plot]")!.getBoundingClientRect();
+        const [left, right] = [Math.max(b.left, cell.left), Math.min(b.right, cell.right)];
+        if (right - left <= 0.5 || b.height <= 0) continue;
+        labels += 1;
+        const [x0, x1, y0, y1] = [left - origin.left, right - origin.left, b.top - origin.top, b.bottom - origin.top];
+        if (!cuts.some((c) => c.x - 0.5 <= x0 && x1 <= c.x + c.w + 0.5 && c.y - 0.5 <= y0 && y1 <= c.y + c.h + 0.5)) {
+            uncut.push(`${label.closest("[data-plan-row]")?.getAttribute("data-plan-row")} ${label.textContent}`);
+        }
+    }
+    return { labels, uncut };
+};
+
+/**
+ * Every loopback's lane, and each bar it runs across (#1680's review): a lane runs on a rule or in a band of tracks,
+ * never across a row's bar. A lane is its stroke's longest level run at neither end's height, read along the drawn
+ * path; a crossing is a bar of a row, the link's own ends' or another's, whose box the lane's line passes through.
+ */
+const lanesOnBars = (root: Element): { loops: number; crossings: string[] } => {
+    const bars = [...root.querySelectorAll("[data-plan-row] [data-run]")].map((el) => ({
+        what: `${el.closest("[data-plan-row]")!.getAttribute("data-plan-row")} ${el.getAttribute("data-run")}`, box: el.getBoundingClientRect(),
+    }));
+    const crossings: string[] = [];
+    let loops = 0;
+    for (const g of root.querySelectorAll('[data-plan-link][data-plan-route="loop"]')) {
+        const path = g.querySelector<SVGPathElement>("[data-plan-ribbon-band]");
+        const ctm = path?.getScreenCTM();
+        if (path === null || path === undefined || ctm === null || ctm === undefined) continue;
+        loops += 1;
+        const total = path.getTotalLength();
+        const points: DOMPoint[] = [];
+        for (let s = 0; s <= total; s += 0.5) points.push(new DOMPoint(path.getPointAtLength(s).x, path.getPointAtLength(s).y).matrixTransform(ctm));
+        const first = points[0]!.y;
+        const last = points[points.length - 1]!.y;
+        let lane: { y: number; x0: number; x1: number } | undefined;
+        for (let i = 0; i < points.length;) {
+            let j = i;
+            while (j + 1 < points.length && Math.abs(points[j + 1]!.y - points[i]!.y) < 0.05) j += 1;
+            const [x0, x1] = [Math.min(points[i]!.x, points[j]!.x), Math.max(points[i]!.x, points[j]!.x)];
+            const y = points[i]!.y;
+            if (Math.abs(y - first) > 1 && Math.abs(y - last) > 1 && (lane === undefined || x1 - x0 > lane.x1 - lane.x0)) lane = { y, x0, x1 };
+            i = j + 1;
+        }
+        if (lane === undefined) continue;
+        const key = g.querySelector("[data-link]")?.getAttribute("data-link-key") ?? "?";
+        for (const bar of bars) {
+            if (bar.box.top < lane.y && lane.y < bar.box.bottom && bar.box.left < lane.x1 && bar.box.right > lane.x0) crossings.push(`${key} over ${bar.what}`);
+        }
+    }
+    return { loops, crossings };
 };
 
 /**
@@ -248,10 +367,13 @@ const rowControlsLaidOut = (root: Element): string[] => {
         if (Math.abs(end - b.right) > 0.5) out.push(`${row}: its controls end ${(end - b.right).toFixed(1)}px short of its gutter line's end`);
         const l = line.getBoundingClientRect();
         if (Math.abs((b.top + b.bottom) / 2 - (l.top + l.bottom) / 2) > 0.5) out.push(`${row}: its controls are off its line`);
-        for (const part of ["label", "right"]) {
+        // Its name — its label and meta — its value and its status, each in its own cell before them (#1680's review).
+        for (const part of ["title", "label", "value"]) {
             const before = line.querySelector(`[data-plan-gutter='${part}']`);
             if (before !== null && before.getBoundingClientRect().right > b.left + 0.5) out.push(`${row}: its ${part} runs under its controls`);
         }
+        const dot = line.querySelector(":scope > [data-tone]");
+        if (dot !== null && dot.getBoundingClientRect().right > b.left + 0.5) out.push(`${row}: its status runs under its controls`);
         for (const btn of box.querySelectorAll("[data-plan-control]")) {
             const r = btn.getBoundingClientRect();
             if (Math.abs(r.width - 24) > 0.5 || Math.abs(r.height - 24) > 0.5) out.push(`${row}: a control ${r.width}×${r.height}, want 24×24`);
@@ -262,27 +384,38 @@ const rowControlsLaidOut = (root: Element): string[] => {
 };
 
 /**
- * How each links-focus tag draws (#1277), by its row: `whole`; `ellipsized`,
- * a letter and the ellipsis at least inside its padding; or `hidden`, wrapped
- * off its line, out of sight — by #1264's rule. Anything else is said in words.
+ * A links focus as its body draws it (#1680's review), top to bottom: each
+ * band by its role, its height and what it says — its caption, then its count
+ * or the word for none — and each row by its id, its height and its second
+ * line, which a row the focus gathers from inside a section begins with the
+ * section's name; then the pinned rows the focus does not gather, each a strip
+ * by its id and height, with the value and the status it keeps.
  */
-const tagStates = (root: Element): { row: string; state: string }[] => [...root.querySelectorAll("[data-plan-gutter='named']")].map((line) => {
-    const row = line.closest("[data-plan-row]")!.getAttribute("data-plan-row")!;
-    const tag = line.querySelector<HTMLElement>(":scope > [data-plan-focustag]")!;
-    if (tag.getBoundingClientRect().top >= line.getBoundingClientRect().bottom - 0.5) return { row, state: "hidden" };
-    if (tag.scrollWidth <= tag.clientWidth) return { row, state: "whole" };
-    const cs = getComputedStyle(tag);
-    const probe = document.body.appendChild(document.createElement("span"));
-    probe.style.cssText = `position: fixed; visibility: hidden; white-space: pre; font: ${cs.font}; letter-spacing: ${cs.letterSpacing}`;
-    probe.textContent = "00";
-    const twoCh = probe.getBoundingClientRect().width;
-    probe.remove();
-    const inside = tag.clientWidth - Number.parseFloat(cs.paddingLeft) - Number.parseFloat(cs.paddingRight);
-    return { row, state: inside + 0.5 >= twoCh ? "ellipsized" : `cut to ${inside.toFixed(1)}px, under a letter and the ellipsis (${twoCh.toFixed(1)}px)` };
-});
-
-/** The ways #1264's rule lets a tag draw. */
-const TAG_DRAWN = ["whole", "ellipsized", "hidden"];
+const focusBody = (root: Element) => {
+    const top = (el: Element) => el.getBoundingClientRect().top;
+    const text = (el: Element | null) => (el === null ? null : (el.textContent ?? "").trim());
+    const h = (el: Element) => el.getBoundingClientRect().height;
+    return {
+        body: [...root.querySelectorAll("[data-virtual-extent] [data-plan-item]")].sort((x, y) => top(x) - top(y)).map((el) => {
+            const band = el.getAttribute("data-plan-focusband");
+            if (band !== null) {
+                const said = [text(el.querySelector("[data-plan-gutter='label']")), text(el.querySelector("[data-plan-gutter='meta'], [data-plan-focusnone]"))];
+                return `${band} ${h(el)} · ${said.filter((s) => s !== null).join(" ")}`;
+            }
+            return `${el.getAttribute("data-plan-row") ?? el.getAttribute("data-plan-item")} ${h(el)} · ${text(el.querySelector("[data-plan-gutter='sub']")) ?? "—"}`;
+        }),
+        strips: [...root.querySelectorAll("[data-plan-row][data-ctx]")].map((el) => {
+            const value = el.querySelector("[data-plan-gutter='value']");
+            const dot = el.querySelector("[data-tone]");
+            return {
+                row: el.getAttribute("data-plan-row"),
+                h: h(el),
+                value: value === null || getComputedStyle(value).display === "none" ? null : text(value),
+                dot: dot === null || getComputedStyle(dot).display === "none" ? null : `${dot.getBoundingClientRect().width}px`,
+            };
+        }),
+    };
+};
 
 /** The row kinds among the entry's measured rows. */
 async function kindsMeasured(entry: Locator): Promise<string[]> {
@@ -305,11 +438,12 @@ test.describe("Plan geometry (#817)", { tag: "@desktop" }, () => {
         const entry = await openExample(page, "planMeasures");
         const spark = entry.locator(rowSel("spark", "spark"));
         const rest = Number(await spark.getAttribute("data-plan-h"));
-        // The expandable spark's gutter is its toggle.
-        await spark.locator("> :first-child").click();
+        // The expandable spark's expand control is its toggle: a caret only folds (#1680's review).
+        const toggle = spark.locator('[data-plan-control="expand"]');
+        await toggle.click();
         await expect(spark).not.toHaveAttribute("data-plan-h", String(rest));
         await expect.poll(() => mismatches(entry), "expanded").toEqual([]);
-        await spark.locator("> :first-child").click();
+        await toggle.click();
         await expect(spark).toHaveAttribute("data-plan-h", String(rest));
         await expect.poll(() => mismatches(entry), "at rest").toEqual([]);
     });
@@ -326,9 +460,10 @@ test.describe("Plan geometry (#817)", { tag: "@desktop" }, () => {
         const chart = entry.locator('[data-plan-kind="chart"]');
         // The widened canvas overflows the pane on both sides, so the gutter
         // lies outside the pane's clip and a pointer there lands on the
-        // controls beside it — the toggle is dispatched to the gutter itself.
-        // (Layout boxes, which is all this measures, are not clipped.)
-        const toggleChart = () => chart.locator("> :first-child").dispatchEvent("click");
+        // controls beside it — the click is dispatched to the chart's expand
+        // control itself, its toggle (#1680's review). (Layout boxes, which is
+        // all this measures, are not clipped.)
+        const toggleChart = () => chart.locator('[data-plan-control="expand"]').dispatchEvent("click");
         // A one-line span row — the shared row, which density sets.
         const spanRow = entry.locator(rowSel("press", "p04"));
         const rowAt: Record<string, number> = {};
@@ -338,7 +473,7 @@ test.describe("Plan geometry (#817)", { tag: "@desktop" }, () => {
             await expect.poll(() => kindsMeasured(entry), density).toEqual(KINDS);
             await expect.poll(() => mismatches(entry), density).toEqual([]);
             rowAt[density] = Number(await spanRow.getAttribute("data-plan-h"));
-            // The spark's gutter is its toggle: the chart expanded, then back.
+            // The spark's expand control is its toggle: the chart expanded, then back.
             const rest = await chart.getAttribute("data-plan-h") ?? "";
             await toggleChart();
             await expect(chart).not.toHaveAttribute("data-plan-h", rest);
@@ -353,12 +488,20 @@ test.describe("Plan geometry (#817)", { tag: "@desktop" }, () => {
         expect(rowAt.CONDENSED).toBe(rowAt.COMFORTABLE);
     });
 
-    test("row focus holds — rails and gap bands (R1), context strips and the grown focal row (R2)", async ({ page }) => {
+    test("row focus holds — the role bands, the rows they gather, the band the others fold into, open and folded, and the pinned rows' strips (R1), context strips and the grown focal row (R2)", async ({ page }) => {
+        // Wide enough that a strip's tile has the room for its two parts beside the 240px gutter (#1680's review): at
+        // 1440px a week's cell leaves its tiles 10.8px, short of a grip and its word.
+        await page.setViewportSize({ width: 1920, height: 900 });
         const entry = await openExample(page, "planTargetState");
         await entry.locator('[data-plan-control="links"]').first().click();
-        // Rails and gap bands are measured items too — they carry the model's height.
-        await expect(entry.locator("[data-plan-rail][data-plan-h], [data-plan-gap][data-plan-h]").first()).toBeVisible();
+        // A links focus's bands are measured items too — they carry the model's height (#1680's review).
+        await expect(entry.locator("[data-plan-focusband][data-plan-h]").first()).toBeVisible();
         await expect.poll(() => mismatches(entry), "R1").toEqual([]);
+        // Opened, the band the others fold into holds them as the canvas lays them out, each at its model height.
+        const others = entry.locator('[data-plan-focusband="others"]');
+        await others.click();
+        await expect(others).toHaveAttribute("aria-expanded", "true");
+        await expect.poll(() => mismatches(entry), "R1, the others open").toEqual([]);
         await entry.locator("[data-plan-focusback]").click();
         await entry.locator('[data-plan-control="expand"]').first().click();
         await expect(entry.locator("[data-plan-row][data-ctx][data-plan-h]").first()).toBeVisible();
@@ -401,16 +544,35 @@ test.describe("Plan links focus (#818, #1258)", { tag: "@desktop" }, () => {
      *  window (dlv's run starts where the window ends). H1-P03's one link, its
      *  family's largest, leaves a run that abuts the next and enters one that
      *  abuts the last. planEventLinks is every case at once (`EVENT_ROUTES`
-     *  below), on a bounded canvas: at rest the two links between rows below its
-     *  view draw nothing. */
+     *  below), on a bounded canvas: its focus gathers ten rows under its role
+     *  bands (#1680's review), 484px in a 271px view, so at rest the six links
+     *  between rows below its view draw nothing. */
     const FOCUSES = [
-        { label: "planTargetState (H1-P09's family)", name: "planTargetState", file: PLAN_EXAMPLES, row: rowSel("detail", "H1-P09"), weights: [2, 4, 8, 4, 2, 8], slots: 1 },
-        { label: "planTargetState (H1-P03's transfer)", name: "planTargetState", file: PLAN_EXAMPLES, row: rowSel("presses", "Hall 1", "H1-P03"), weights: [8], slots: 0 },
+        // The heaviest weighs 6 (ruled 17 Nov 2026, over §15's 8).
+        { label: "planTargetState (H1-P09's family)", name: "planTargetState", file: PLAN_EXAMPLES, row: rowSel("detail", "H1-P09"), weights: [2, 4, 6, 4, 2, 6], slots: 1 },
+        { label: "planTargetState (H1-P03's transfer)", name: "planTargetState", file: PLAN_EXAMPLES, row: rowSel("presses", "Hall 1", "H1-P03"), weights: [6], slots: 0 },
         {
-            label: "planEventLinks", name: "planEventLinks", file: PLAN_EVENT_EXAMPLES, row: rowSel("presses.span", "Hall A", "a1"),
-            weights: [1.5, 2, 2, 8, 4, 8, 2, 4, 2, 2, 4, 4, 4, 2, 4], slots: 2,
+            label: "planEventLinks", name: "planEventLinks", file: PLAN_EVENT_EXAMPLES, row: rowSel("presses", "a1"),
+            // Its flows draw in their record's order, by key (#1541, U10): those in view at rest, the card first, the
+            // plates' — which carry no quantity — fifth.
+            weights: [2, 2, 6, 4, 1.5, 2, 2, 2, 4, 6, 2], slots: 1,
         },
     ] as const;
+
+    /** H1-P09's links focus as its body draws it ({@link focusBody}): its one upstream row; itself, its hall on its sub
+     *  line; the two contract presses both ways, each saying Contract A, which tells Contract A's H1-P03 from Hall 1's;
+     *  the delivery; and the 29 other data rows folded. The pinned on-time KPI is a 16 strip that keeps its value and its
+     *  8px status. */
+    const FOCUS_BODY: ReturnType<typeof focusBody> = {
+        body: [
+            "upstream 26 · Upstream 1", `${rowId("flavours", "H1-P07")} 32 · —`,
+            "focused 26 · Focused", `${rowId("detail", "H1-P09")} 42 · Hall 1`,
+            "linked 26 · Linked 2", `${rowId("rollup", "Contract A", "H1-P03")} 42 · Contract A`, `${rowId("rollup", "Contract A", "H2-P11")} 42 · Contract A`,
+            "downstream 26 · Downstream 1", `${rowId("delivery", "dlv")} 32 · —`,
+            "others 26 · Other rows 29",
+        ],
+        strips: [{ row: rowId("ontime", "ontime"), h: 16, value: "94.2%", dot: "8px" }],
+    };
     /** The desktop project's width, and a laptop's. */
     const WIDTHS = [1280, 1024] as const;
 
@@ -450,41 +612,66 @@ test.describe("Plan links focus (#818, #1258)", { tag: "@desktop" }, () => {
         });
     }
 
-    /** planEventLinks' links by key, and the figure each draws at rest: every case of the grammar once. The two
-     *  links between rows below the view (`folded`, `books`) draw nothing; four reach a row below it in a stub. */
+    test("a loopback's lane runs on a rule or in a band of tracks, never across a row's bar (#1680's review)", async ({ page }) => {
+        for (const focus of FOCUSES) await test.step(focus.label, async () => {
+            const entry = await focusLinks(page, focus, WIDTHS[0]);
+            const { loops, crossings } = await entry.evaluate(lanesOnBars);
+            expect(crossings).toEqual([]);
+            // H1-P09's family holds the loopback from H2-P11 back to H1-P09, past Contract A's H1-P03.
+            if (focus === FOCUSES[0]) expect(loops).toBeGreaterThan(0);
+        });
+    });
+
+    test("the links stand back from every bar label in view: each lies inside a box the layer cuts out of the links (#1680's review)", async ({ page }) => {
+        for (const focus of FOCUSES) await test.step(focus.label, async () => {
+            const entry = await focusLinks(page, focus, WIDTHS[0]);
+            const { labels, uncut } = await entry.evaluate(labelsUncut);
+            expect(uncut).toEqual([]);
+            expect(labels).toBeGreaterThan(0);
+        });
+    });
+
+    /** A flow's link on the canvas: planEventLinks' links are rows of one link kind, `flow` (#1541, U10). */
+    const flow = (key: string): string => linkKey("flow", key);
+    /** Each flow's figure, by its link's key on the canvas. */
+    const flows = (routes: Readonly<Record<string, string>>): Record<string, string> =>
+        Object.fromEntries(Object.entries(routes).map(([key, route]) => [flow(key), route]));
+
+    /** planEventLinks' flows by their rows' keys, and the figure each draws at rest, its focus's ten rows gathered under
+     *  their role bands (#1680's review): the six links between rows below the view draw nothing, and seven reach a
+     *  row below it in a stub. */
     const EVENT_ROUTES_AT_REST = {
-        plates: "s", covers: "s", card: "s", inserts: "loop", "report-covers": "loop", "seed-prints": "loop",
-        tags: "feed", pads: "runoff", proofs: "loop", "proof-sheets": "s", tickets: "s",
-        sections: "stub", "sections-more": "stub", posters: "stub", "book-blocks": "stub",
+        card: "stub", covers: "s", inserts: "stub", pads: "runoff", plates: "s", posters: "stub", "proof-sheets": "s",
+        proofs: "stub", "report-covers": "stub", "seed-prints": "stub", tags: "feed",
     };
-    /** …and scrolled to the end, the paper stock's rows under the events (#1259): the plates and the tags draw
-     *  nothing, and five leave a row above the view in a stub. */
+    /** …and scrolled to the end, the band the other rows fold into under them, the rules its loopbacks and its pads'
+     *  caption take opened into bands of their tracks (#1680's review): the plates, the tags, the covers, the pads and
+     *  the proof sheets draw nothing — both ends above the view — and six leave a row above it in a stub. */
     const EVENT_ROUTES_AT_THE_END = {
-        covers: "stub", card: "stub", inserts: "stub", "report-covers": "loop", "seed-prints": "loop",
-        pads: "runoff", proofs: "loop", "proof-sheets": "stub", tickets: "s", sections: "s", "sections-more": "s",
-        folded: "s", books: "s", posters: "stub", "book-blocks": "loop",
+        "book-blocks": "loop", books: "s", card: "stub", folded: "loop", inserts: "stub", posters: "stub", proofs: "stub",
+        "report-covers": "stub", sections: "s", "sections-more": "s", "seed-prints": "stub", tickets: "s",
     };
 
     test("planEventLinks: every case its own link — each draws its figure at rest and scrolled to the end, meeting its elements as they draw; scrolled between, the posters' link crosses the view as a band; the night run is entered from above; the layer lies in the rows' own stacking context", async ({ page }) => {
         const entry = await focusLinks(page, FOCUSES[2], 1280);
         const routes = () => entry.evaluate((root) => Object.fromEntries([...root.querySelectorAll("[data-plan-link]")].map((g) =>
             [g.querySelector("[data-link]")!.getAttribute("data-link-key"), g.getAttribute("data-plan-route")])));
-        await expect.poll(routes).toEqual(EVENT_ROUTES_AT_REST);
-        // The night run starts at the window's start: its link drops onto it, its head pointing down onto the bar.
-        const proofsHead = () => entry.evaluate((root) => {
-            const g = root.querySelector('[data-link-key="proofs"]')!.closest("[data-plan-link]")!;
-            const n = g.querySelector("[data-plan-ribbon-head]")!.getAttribute("d")!.split(/[\sMLZ]+/).filter((t) => t !== "").map(Number);
-            return n[1] === n[5] && n[3]! > n[1]! ? "down" : "level";
-        });
-        expect(await proofsHead()).toBe("down");
+        await expect.poll(routes).toEqual(flows(EVENT_ROUTES_AT_REST));
         const frame = entry.locator('[data-virtual-rows="bounded"]');
         await frame.evaluate((el) => { el.scrollTop = el.scrollHeight; });
-        await expect.poll(routes).toEqual(EVENT_ROUTES_AT_THE_END);
+        await expect.poll(routes).toEqual(flows(EVENT_ROUTES_AT_THE_END));
         await expect.poll(() => entry.evaluate(ribbonEnds)).toEqual([]);
         await expect.poll(() => entry.evaluate(outsidePlot)).toEqual([]);
-        // Between: the shop posters' press above the view and the dispatch bay below it.
-        await frame.evaluate((el) => { el.scrollTop = 80; });
-        await expect.poll(async () => (await routes())["posters"]).toBe("band");
+        // The night run starts at the window's start: its link drops onto it, its head pointing down onto the bar.
+        const proofsHead = () => entry.evaluate((root, key) => {
+            const g = [...root.querySelectorAll("[data-link-key]")].find((el) => el.getAttribute("data-link-key") === key)!.closest("[data-plan-link]")!;
+            const n = g.querySelector("[data-plan-ribbon-head]")!.getAttribute("d")!.split(/[\sMLZ]+/).filter((t) => t !== "").map(Number);
+            return n[1] === n[5] && n[3]! > n[1]! ? "down" : "level";
+        }, flow("proofs"));
+        expect(await proofsHead()).toBe("down");
+        // Between: a1, the focused press, above the view and the dispatch bay below it — the shop posters' link between them.
+        await frame.evaluate((el) => { el.scrollTop = 140; });
+        await expect.poll(async () => (await routes())[flow("posters")]).toBe("band");
         await expect.poll(() => entry.evaluate(outsidePlot)).toEqual([]);
         // In the rows' translated column, the layer sorts with what they draw: the row controls and the now line over it.
         expect(await entry.evaluate((root) => {
@@ -502,7 +689,102 @@ test.describe("Plan links focus (#818, #1258)", { tag: "@desktop" }, () => {
         await expect.poll(() => entry.evaluate(outsidePlot)).toEqual([]);
     });
 
-    test("planTargetState: the focus band is 32 tall, its link and caption 20 in from its ends; each family row's Tag is 20 tall and the focused row has none; a lone unrelated row is an 11 rail and each run of hidden rows one 22 gap band", async ({ page }) => {
+    test("planEventLinks: a flow clicked is selected — in the ink, its heads with it, its caption outlined, its × a 16px target whole inside the plot; the × removes it, and Undo brings it back (#1541, U10)", async ({ page }) => {
+        const entry = await focusLinks(page, FOCUSES[2], 1280);
+        const drawn = FOCUSES[2].weights.length;
+        // A link takes the pointer along its line alone: the click is given to its hit path, not to its box's middle.
+        const hit = (key: string) => entry.locator(`[data-link][data-link-key=${JSON.stringify(flow(key))}]`);
+        await hit("covers").dispatchEvent("click");
+        const look = () => entry.evaluate((root, key) => {
+            const group = [...root.querySelectorAll("[data-link]")].find((el) => el.getAttribute("data-link-key") === key)?.closest("[data-plan-link]");
+            if (group === null || group === undefined) return "not drawn";
+            const other = [...root.querySelectorAll("[data-plan-link]")].find((g) => g !== group)!;
+            const band = (g: Element) => getComputedStyle(g.querySelector("[data-plan-ribbon-band]")!).stroke;
+            // Its caption is drawn over every link, in a group of its own, by the link's place in the layer.
+            const label = root.querySelector(`[data-plan-ribbon-label="${group.getAttribute("data-plan-link")}"]`);
+            if (label === null) return "no caption";
+            const knockout = getComputedStyle(label.querySelector("[data-plan-ribbon-knockout]")!);
+            const plot = root.querySelector("[data-plan-row] [data-plan-plot]")!.getBoundingClientRect();
+            const button = root.querySelector("[data-plan-ribbon-unlink] button");
+            const box = button?.getBoundingClientRect();
+            return {
+                selected: group.hasAttribute("data-selected") && label.hasAttribute("data-selected"),
+                links: root.querySelectorAll("[data-plan-link][data-selected]").length,
+                // The ink: another colour than a link at rest, its heads and its caption's outline the same.
+                ink: band(group) !== band(other),
+                heads: getComputedStyle(group.querySelector("[data-plan-ribbon-head]")!).fill === band(group),
+                outline: [knockout.stroke === band(group), knockout.strokeWidth],
+                remove: button === null || box === undefined ? null
+                    : { width: box.width, height: box.height, inside: box.left >= plot.left - 0.5 && box.right <= plot.right + 0.5, says: button.getAttribute("aria-label") },
+            };
+        }, flow("covers"));
+        await expect.poll(look).toEqual({
+            selected: true, links: 1, ink: true, heads: true, outline: [true, "1px"],
+            remove: { width: 16, height: 16, inside: true, says: "Remove flow" },
+        });
+        await expect.poll(() => entry.evaluate(outsidePlot)).toEqual([]);
+        // Its × removes it: a draft, which the toolbar's Undo takes back.
+        await entry.locator("[data-plan-ribbon-unlink] button").click();
+        await expect(hit("covers")).toHaveCount(0);
+        await expect(entry.locator("[data-plan-link][data-selected]")).toHaveCount(0);
+        await entry.locator("[data-builder-frame]").first().getByRole("button", { name: "Undo", exact: true }).click();
+        await expect(entry.locator("[data-plan-ribbons] [data-plan-link]")).toHaveCount(drawn);
+        await expect(hit("covers")).toHaveCount(1);
+    });
+
+    test("planEventLinks: with Connect held, a drag from a job to another draws its line out of the job's end and into the other's start, inside the plot; the drop draws the flow, which Undo takes back (#1541, U10)", async ({ page }) => {
+        await page.setViewportSize({ width: 1280, height: 800 });
+        const entry = await openExample(page, "planEventLinks", PLAN_EVENT_EXAMPLES);
+        const frame = entry.locator("[data-builder-frame]").first();
+        // The tools show while the flows are bound with their patch door: Select until the viewer picks.
+        const tools = frame.getByRole("radiogroup", { name: "Tools" });
+        await expect(tools.getByRole("radio", { name: "Select" })).toHaveAttribute("aria-checked", "true");
+        await tools.getByRole("radio", { name: "Connect" }).click();
+        await expect(tools.getByRole("radio", { name: "Connect" })).toHaveAttribute("aria-checked", "true");
+        const keys = { from: linkKey("job", "J-2001"), onto: linkKey("job", "J-2005") };
+        const bar = (row: string, key: string) => entry.locator(`${row} [data-run=${JSON.stringify(key)}]`);
+        const from = (await bar(rowSel("presses", "a1"), keys.from).boundingBox())!;
+        const onto = (await bar(rowSel("presses", "a2"), keys.onto).boundingBox())!;
+        // A press on Catalogue covers, carried past the drag's threshold and onto Menu cards, a row below and later.
+        await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(from.x + from.width / 2 + 8, from.y + from.height / 2, { steps: 2 });
+        await page.mouse.move(onto.x + onto.width / 2, onto.y + onto.height / 2, { steps: 6 });
+        const line = () => entry.evaluate((root, { from, onto }) => {
+            const layer = root.querySelector("[data-plan-connect]");
+            const band = layer?.querySelector<SVGPathElement>("[data-plan-link-preview] [data-plan-ribbon-band]");
+            const head = layer?.querySelector<SVGGraphicsElement>("[data-plan-link-preview] [data-plan-ribbon-head]");
+            if (layer === null || layer === undefined || band === null || band === undefined || head === null || head === undefined) return "no line";
+            const boxOf = (key: string) => root.querySelector(`[data-run=${JSON.stringify(key)}]`)!.getBoundingClientRect();
+            const source = boxOf(from), target = boxOf(onto);
+            const plot = root.querySelector("[data-plan-row] [data-plan-plot]")!.getBoundingClientRect();
+            const start = band.getPointAtLength(0).matrixTransform(band.getScreenCTM()!);
+            const tip = head.getBoundingClientRect();
+            const box = band.getBoundingClientRect();
+            const near = (a: number, b: number) => Math.abs(a - b) <= 1.5;
+            return {
+                snapped: layer.getAttribute("data-plan-connect"),
+                // Out of the job's end, within its height; into the other's start, within its height.
+                leaves: near(start.x, source.right) && start.y >= source.top && start.y <= source.bottom,
+                arrives: near(tip.right, target.left) && tip.top >= target.top - 0.5 && tip.bottom <= target.bottom + 0.5,
+                inside: box.left >= plot.left - 0.5 && box.right <= plot.right + 0.5,
+                inked: getComputedStyle(band).stroke !== "none" && Number.parseFloat(getComputedStyle(band).strokeWidth) === 3,
+            };
+        }, keys);
+        await expect.poll(line).toEqual({ snapped: "snapped", leaves: true, arrives: true, inside: true, inked: true });
+        // The ghost names the link it would draw.
+        await expect(page.locator("[data-drag-caption]")).toHaveText("Flow · Catalogue covers → Menu cards");
+        await page.mouse.up();
+        await expect(entry.locator("[data-plan-connect] [data-plan-link-preview]")).toHaveCount(0);
+        // The flow is a draft, and the job is where it was: Undo takes the flow back, and nothing else stands to undo.
+        await expect(bar(rowSel("presses", "a1"), keys.from)).toHaveCount(1);
+        const undo = frame.getByRole("button", { name: "Undo", exact: true });
+        await expect(undo).toBeEnabled();
+        await undo.click();
+        await expect(undo).toBeDisabled();
+    });
+
+    test("planTargetState: the focus band is 32 tall, its link and caption 20 in from its ends, its caption counting each role's rows; the family stands under its role bands, 26 tall — upstream, the focused row, the rows linked both ways, downstream — a row from inside a section saying the section on its second line, two lines tall; every other row folds into one band, which counts them, and a pinned row the focus does not gather is a 16 strip keeping its value and its status (#1680's review)", async ({ page }) => {
         const entry = await focusLinks(page, FOCUSES[0], 1280);
         const read = await entry.evaluate((root) => {
             const band = root.querySelector("[data-plan-focusbar]")!;
@@ -516,49 +798,16 @@ test.describe("Plan links focus (#818, #1258)", { tag: "@desktop" }, () => {
                 back: back.textContent,
                 caption: caption.textContent,
                 capitals: getComputedStyle(caption).textTransform,
-                tags: [...root.querySelectorAll("[data-plan-focustag]")].map((t) => ({
-                    row: t.closest("[data-plan-row]")!.getAttribute("data-plan-row"),
-                    word: t.textContent,
-                    h: t.getBoundingClientRect().height,
-                })),
-                rails: [...root.querySelectorAll("[data-plan-rail]")].map((r) => r.getBoundingClientRect().height),
-                gaps: [...root.querySelectorAll("[data-plan-gap]")].map((g) => {
-                    const cell = g.querySelector("[role='gridcell']")!;
-                    return {
-                        h: g.getBoundingClientRect().height,
-                        // The count beside the ⋯ icon (its svg is hidden too).
-                        count: cell.querySelector("span[aria-hidden='true']")?.textContent,
-                        heard: cell.lastElementChild?.textContent,
-                    };
-                }),
             };
         });
         expect(read).toEqual({
             h: 32, backIn: 20, captionIn: 20,
             back: "← All rows",
-            caption: "Links · H1-P09 · 3 upstream · 3 downstream",
+            // H1-P03 and H2-P11 are both upstream and downstream of H1-P09: linked.
+            caption: "Links · H1-P09 · 1 upstream · 2 linked · 1 downstream",
             capitals: "uppercase",
-            tags: [
-                { row: rowId("flavours", "H1-P07"), word: "Upstream", h: 20 },
-                { row: rowId("rollup", "Contract A", "H1-P03"), word: "Linked", h: 20 },
-                { row: rowId("rollup", "Contract A", "H2-P11"), word: "Linked", h: 20 },
-                { row: rowId("delivery", "dlv"), word: "Downstream", h: 20 },
-            ],
-            // A lone unrelated row: the KPI, each van, Contract A between its two family presses, each crew, the
-            // milestones and the delivered sheets.
-            rails: [11, 11, 11, 11, 11, 11, 11, 11],
-            // Each run of hidden rows, in order: the local and the regional vans' section headers, each alone and its
-            // group counted; the halls' strips and their members; the contracts' section header; Contract B and its
-            // press; the folded quality section; the relief pool's header; the finishers' three views of two
-            // machines; and the planned works.
-            gaps: [
-                { h: 22, count: "1", heard: "1 hidden group" }, { h: 22, count: "1", heard: "1 hidden group" },
-                { h: 22, count: "10", heard: "10 hidden rows" }, { h: 22, count: "1", heard: "1 hidden group" },
-                { h: 22, count: "2", heard: "2 hidden rows" }, { h: 22, count: "1", heard: "1 hidden row" },
-                { h: 22, count: "1", heard: "1 hidden group" }, { h: 22, count: "6", heard: "6 hidden rows" },
-                { h: 22, count: "3", heard: "3 hidden rows" },
-            ],
         });
+        expect(await entry.evaluate(focusBody)).toEqual(FOCUS_BODY);
     });
 
     test("planTargetState: a link takes the pointer along its band — lit, it is drawn over the others with its casing and haloes the two runs it joins 4 outside them, and its caption is the canvas's tooltip", async ({ page }) => {
@@ -599,20 +848,19 @@ test.describe("Plan links focus (#818, #1258)", { tag: "@desktop" }, () => {
         await expect(g).not.toHaveAttribute("data-lit", "");
     });
 
-    test("planTargetState: in H1-P03's transfer focus at the Plan's default gutter, every family row's controls end inside its gutter cell after its label, value and status, and its tag is whole, ellipsized after a whole letter or off its line — H1-P04's, with no room for a letter, off it, its word said on hover (#1277)", async ({ page }) => {
+    test("planTargetState: in H1-P03's transfer focus at the Plan's default gutter, every gathered row's controls end inside its gutter cell after its label, value and status, and each press says its hall first on its second line, whole (#1277, #1680's review)", async ({ page }) => {
         const entry = await focusLinks(page, FOCUSES[1], 1280);
         await expect.poll(() => entry.evaluate(rowControlsLaidOut)).toEqual([]);
-        const states = () => entry.evaluate(tagStates);
-        await expect.poll(async () => (await states()).filter((t) => !TAG_DRAWN.includes(t.state))).toEqual([]);
-        expect((await states()).find((t) => t.row === rowId("presses", "Hall 1", "H1-P04"))?.state).toBe("hidden");
-        await entry.locator(`${rowSel("presses", "Hall 1", "H1-P04")} [data-plan-gutter='named']`).hover();
-        await expect(page.locator('[data-plan-overlay="tooltip"]')).toHaveText("Downstream");
+        for (const press of ["H1-P03", "H1-P04"]) {
+            const sub = entry.locator(`${rowSel("presses", "Hall 1", press)} [data-plan-gutter='sub']`);
+            await expect(sub, press).toHaveText(/^Hall 1( · |$)/);
+            expect(await sub.evaluate((el) => el.scrollWidth <= el.clientWidth), `${press}'s second line whole`).toBe(true);
+        }
     });
 
-    test("planTargetState: in H1-P09's links focus at the Plan's default gutter, H1-P07's controls end inside its line with its value shown and its label whole — its tag gives its room up first, whole, ellipsized after a whole letter or off its line (#1277)", async ({ page }) => {
+    test("planTargetState: in H1-P09's links focus at the Plan's default gutter, H1-P07's controls end inside its line with its value shown and its label whole (#1277)", async ({ page }) => {
         const entry = await focusLinks(page, FOCUSES[0], 1280);
         await expect.poll(() => entry.evaluate(rowControlsLaidOut)).toEqual([]);
-        await expect.poll(async () => (await entry.evaluate(tagStates)).filter((t) => !TAG_DRAWN.includes(t.state))).toEqual([]);
         const row = entry.locator(rowSel("flavours", "H1-P07"));
         const read = () => row.evaluate((el) => {
             const line = el.querySelector("[data-plan-gutter='name']")!.getBoundingClientRect();
@@ -728,7 +976,7 @@ test.describe("Plan element text (#1258, #1264, #1266, #1269)", { tag: "@desktop
             const host = entry.locator("[data-plan-frame]").first().locator("xpath=..");
             await host.evaluate(el => { (el as HTMLElement).style.width = "1440px"; });
             await settled(page);
-            await entry.locator(`${rowSel("presses.span", "Hall A", "a1")} [data-run]`, { hasText: "Spring catalogue" }).click();
+            await printWorksBars(entry, "a1", "Spring catalogue").click();
             for (const width of [1440, 1280]) await test.step(`${width}px`, async () => {
                 await page.setViewportSize({ width, height: 900 });
                 await host.evaluate((el, w) => { (el as HTMLElement).style.width = `${w}px`; }, width);
@@ -768,6 +1016,91 @@ test.describe("Plan element text (#1258, #1264, #1266, #1269)", { tag: "@desktop
         await expect.poll(() => entry.evaluate(rulerFaults)).toEqual([]);
     });
 
+    test("planPrintWorks: a mark's label runs no further than the next mark on its row, and a mark before the window shows none of its words in it (#1680's review)", async ({ page }) => {
+        await page.setViewportSize({ width: 1440, height: 1400 });
+        const entry = await openExample(page, "planPrintWorks", PLAN_EVENT_EXAMPLES);
+        /** Each events row's labels its plot shows, and those that run over the next mark or stand for a mark before the window. */
+        const markLabelFaults = (root: Element): { labels: number; faults: string[] } => {
+            const faults: string[] = [];
+            let labels = 0;
+            for (const plot of root.querySelectorAll<HTMLElement>("[data-plan-plot]")) {
+                const cell = plot.getBoundingClientRect();
+                const centres = [...plot.querySelectorAll<HTMLElement>("[data-mark][role='button']")].map((g) => {
+                    const b = g.getBoundingClientRect();
+                    return { left: b.left, centre: (b.left + b.right) / 2 };
+                });
+                for (const label of plot.querySelectorAll<HTMLElement>("[data-mark]:not([role='button'])")) {
+                    const b = label.getBoundingClientRect();
+                    // What of it the plot cell shows: a mark past the window mounts at its true place for a pan, clipped from view.
+                    if (Math.min(b.right, cell.right) - Math.max(b.left, cell.left) <= 0.5 || b.height <= 0) continue;
+                    labels += 1;
+                    const glyph = plot.querySelector<HTMLElement>(`[role='button'][data-mark="${CSS.escape(label.getAttribute("data-mark") ?? "")}"]`);
+                    if (glyph === null) { faults.push(`${label.textContent}: no mark`); continue; }
+                    const g = glyph.getBoundingClientRect();
+                    const centre = (g.left + g.right) / 2;
+                    if (centre < cell.left - 0.5) faults.push(`${label.textContent}: shown in the window, its mark ${Math.round(cell.left - centre)}px before it`);
+                    const next = centres.filter((c) => c.centre > centre + 0.5).sort((a, c) => a.centre - c.centre)[0];
+                    if (next !== undefined && b.right > next.left + 0.5) faults.push(`${label.textContent}: runs ${Math.round(b.right - next.left)}px over the next mark`);
+                }
+            }
+            return { labels, faults };
+        };
+        // As it opens: the platesetter's plates three days apart, the presses' stops.
+        const opened = await entry.evaluate(markLabelFaults);
+        expect(opened.labels, "the labels in view").toBeGreaterThan(5);
+        expect.soft(opened.faults, "as it opens").toEqual([]);
+        // Thirteen days on, a day a press: the Handbook plates' mark two days before the window, where a pan would slide
+        // it in from — mounted, out of view.
+        await entry.locator("[data-plan-row]").first().click();
+        for (let step = 0; step < 13; step++) await page.keyboard.press("]");
+        await settled(page);
+        await expect(entry.locator("[data-frame-slot='toolbar'] [data-time-trigger]").first()).toHaveAttribute("title", /^Oct 18\s–\sNov 14, 2026$/);
+        expect.soft((await entry.evaluate(markLabelFaults)).faults, "thirteen days on").toEqual([]);
+    });
+
+    /** The elements a state's border is drawn on, each where it is laid out at a width its cell sets: a bar, a tile, a chip. */
+    const STATE_EDGES: readonly { name: string; file: string; sel: string; narrow: boolean }[] = [
+        { name: "planPrintWorks", file: PLAN_EVENT_EXAMPLES, sel: "[data-plan-plot] [data-run]", narrow: false },
+        // Its tiles fold at four weeks: five days lays them out, each as wide as its cell.
+        { name: "planPressTasks", file: PLAN_EVENT_EXAMPLES, sel: "[data-plan-plot] [data-event]", narrow: true },
+        { name: "planPrintWorks", file: PLAN_EVENT_EXAMPLES, sel: "[data-plan-plot] [data-chip]", narrow: false },
+    ];
+    for (const { name, file, sel, narrow } of STATE_EDGES) {
+        test(`${name}: a drafted or proposed ${sel} leaves its words the room a resting one of its width does — the border its state draws stands in its padding (#1680's review)`, async ({ page }) => {
+            await page.setViewportSize({ width: 1440, height: 1200 });
+            const entry = await openExample(page, name, file);
+            if (narrow) {
+                await entry.locator("[data-slot='horizon'] [data-brush-handle='hi']").focus();
+                for (let i = 0; i < 2; i++) await page.keyboard.press("Shift+ArrowLeft");
+                for (let i = 0; i < 3; i++) await page.keyboard.press("ArrowLeft");
+                await settled(page);
+            }
+            const { checked, shrunk } = await entry.evaluate((root, sel) => {
+                /** The room inside an element's padding: what its words have. */
+                const room = (el: HTMLElement) => {
+                    const cs = getComputedStyle(el);
+                    return el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+                };
+                const resting = [...root.querySelectorAll<HTMLElement>(sel)].filter((el) => el.getBoundingClientRect().width > 0
+                    && !el.hasAttribute("data-draft") && ["obs", "appr"].includes(el.getAttribute("data-state") ?? "")).slice(0, 12);
+                const out: string[] = [];
+                for (const el of resting) {
+                    const rest = room(el);
+                    const state = el.getAttribute("data-state")!;
+                    el.setAttribute("data-draft", "");
+                    if (room(el) < rest - 0.01) out.push(`drafted: ${rest.toFixed(1)} → ${room(el).toFixed(1)}`);
+                    el.removeAttribute("data-draft");
+                    el.setAttribute("data-state", "prop");
+                    if (room(el) < rest - 0.01) out.push(`proposed: ${rest.toFixed(1)} → ${room(el).toFixed(1)}`);
+                    el.setAttribute("data-state", state);
+                }
+                return { checked: resting.length, shrunk: out };
+            }, sel);
+            expect(checked, "the resting elements measured").toBeGreaterThan(0);
+            expect(shrunk).toEqual([]);
+        });
+    }
+
     /** Each element set either side of a width its text turns at (#1264) — the examples draw few such widths. In
      *  the mono faces a letter and the ellipsis take 2ch: 11.4px at a band's 9.5px, which has no padding, and 12px
      *  at a chip's 10px, inside its 9px padding either side; a chip's icon takes 1.25em, 12.5px, and its gap 4px.
@@ -799,21 +1132,23 @@ test.describe("Plan element text (#1258, #1264, #1266, #1269)", { tag: "@desktop
     }
 
     /** Each planTargetState tile set either side of a room its parts turn at (#1266): the room its cell leaves it set,
-     *  which the tile shrinks to. A tile sets its parts at 9.5px inside its 5px padding either side — a proposal's
-     *  dashed ring a 1px border more — 4px apart, each icon 8px tall at its own width: a proposal's grip 5px, the
-     *  truck 10px; a letter and the ellipsis take 2ch, 11.4px. So the MIXED tile, which fills its cell, draws its
-     *  label from 21.4px of room and whole from 38.5px; a proposal's grip from 17px, and its "plan" beside it from
-     *  32.4px — 28.4px were its parts not 4px apart; the regional van's truck from 22px. What a tile draws sits on its
-     *  line, centred along it and on its height, and the tile is never wider than its room. */
+     *  which the tile shrinks to. A tile sets its parts at 9.5px inside its 5px padding either side, 4px apart, each
+     *  icon 8px tall at its own width: a proposal's grip 5px, the truck 10px; a letter and the ellipsis take 2ch,
+     *  11.4px. A proposal's dashed ring stands in that padding (#1680's review): its 1.5px ring draws 1px at the
+     *  suite's 1x, so its parts have 4.5px either side. So the MIXED tile, which fills its cell, draws its label from
+     *  21.4px of room and whole from 38.5px; a proposal's grip from 14px, and its "plan" beside it from 30px as drawn —
+     *  4px less were its parts not 4px apart; the regional van's truck from 18px. Each room here stands 2px clear of
+     *  a turn. What a tile draws sits on its line, centred along it and on its height, and the tile is never wider
+     *  than its room. */
     const TILE_TURNS: readonly { key: string; room: number; label: boolean | null; icon: boolean | null }[] = [
         { key: "m4", room: 20, label: false, icon: null },
         { key: "m4", room: 24, label: true, icon: null },
         { key: "m4", room: 46, label: true, icon: null },
-        { key: "a5", room: 16, label: false, icon: false },
+        { key: "a5", room: 12, label: false, icon: false },
         { key: "a5", room: 20, label: false, icon: true },
-        { key: "a5", room: 30, label: false, icon: true },
+        { key: "a5", room: 28, label: false, icon: true },
         { key: "a5", room: 36, label: true, icon: true },
-        { key: "m5", room: 20, label: null, icon: false },
+        { key: "m5", room: 16, label: null, icon: false },
         { key: "m5", room: 24, label: null, icon: true },
     ];
 
@@ -823,7 +1158,7 @@ test.describe("Plan element text (#1258, #1264, #1266, #1269)", { tag: "@desktop
             for (const turn of TILE_TURNS.filter(turn => turn.key === key)) await test.step(`${turn.room}px`, async () => {
             const tile = entry.locator(`[data-plan-row] [data-event=${JSON.stringify(turn.key)}]:not([data-ctx])`);
             await expect(tile).toHaveCount(1);
-            // The cell as wide as its padding and caption, and the room asked for.
+            // The cell as wide as its padding, and the room asked for.
             await tile.evaluate((el, room) => {
                 const cell = el.closest<HTMLElement>("[data-plan-cell]")!;
                 const extra = cell.getBoundingClientRect().width - el.closest("[data-plan-cell-tiles]")!.getBoundingClientRect().width;
@@ -1052,7 +1387,7 @@ const VAN1 = rowId("vans", "van1");
 /** Van 1's Aug 24 cell, which holds two tiles: a ✓ (a7) and a resting proposal (a8). */
 const VAN1_CELL = `:is([data-plan-row=${JSON.stringify(VAN1)}], [data-plan-card=${JSON.stringify(VAN1)}]) [data-plan-cell]:has([data-event='a7'])`;
 
-/** Sets a cell's tiles' room: the cell as wide as its padding and caption, and the room asked for. */
+/** Sets a cell's tiles' room: the cell as wide as its padding, and the room asked for. */
 async function setCellRoom(cell: Locator, room: number): Promise<void> {
     await cell.evaluate((el: HTMLElement, r) => {
         const extra = el.getBoundingClientRect().width - el.querySelector("[data-plan-cell-tiles]")!.getBoundingClientRect().width;
@@ -1263,7 +1598,8 @@ test.describe("Plan bucket cells' +n (#1267)", { tag: "@desktop" }, () => {
         const cell = entry.locator(VAN1_CELL);
         const chip = cell.locator("[data-tile-more]");
         await expect(chip).toHaveText("+2");
-        await expect(chip).toHaveAttribute("aria-label", "2 more events, Week of Aug 24, 2026");
+        // Its two events, neither drawn: two events, none more than another (#1680's review).
+        await expect(chip).toHaveAttribute("aria-label", "2 events, Week of Aug 24, 2026");
         await chip.click();
         const items = page.locator("[data-tile-more-menu]").getByRole("menuitem");
         await expect(items).toHaveText(["Event, Week of Aug 24, 2026, confirmed", "Event, Week of Aug 24, 2026, recommended"]);
@@ -1272,12 +1608,16 @@ test.describe("Plan bucket cells' +n (#1267)", { tag: "@desktop" }, () => {
         await expect(entry.locator(rowSel("vans", "van1"))).toHaveAttribute("data-selected", "");
         await expect(chip).toBeFocused();
         await settled(page);
-        expect([...new Set((await stopCellPaint(cell)).map((p) => p.sig))]).toEqual(["|+2"]);
+        // One fold painted throughout — the chip alone, as wide as the room lets it be beside the 240px gutter (cramped
+        // where the room is narrower than it) — and never the tile alone.
+        const painted = [...new Set((await stopCellPaint(cell)).map((p) => p.sig))];
+        expect(painted).toHaveLength(1);
+        expect(painted[0]).toMatch(/^\|\+2!?$/);
     });
 });
 
 /** A cell at its floor — 12px, its padding — in planTargetState: Van 1's first week (its ✓, a0), or Van 2's PM lane in
- *  its fourth (the truck, m5, captioned "PM", which opens a popover). */
+ *  its fourth (the truck, m5, which opens a popover; the lane's caption is the row's gutter's, #1680's review). */
 const floorCell = (key: string) => `[data-plan-row] [data-plan-cell]:has([data-event=${JSON.stringify(key)}])`;
 
 /** Narrows a cell to its 12px floor. */
@@ -1305,10 +1645,10 @@ const floorDrawn = (cell: Element) => {
 /**
  * A cell with no room for one whole tile (#1276, the user's ruling "Fold into
  * +n"): at its 12px floor its padding leaves the tiles nothing, so it draws no
- * tile and shows its `+n` alone, across the whole cell — its padding and its
- * caption too — its menu listing every tile, a pick doing what the tile's
- * click does. A popover the pick opens hangs from the chip, the tile having no
- * box.
+ * tile and shows its `+n` alone, across the whole cell — its padding too — its
+ * menu listing every tile, a pick doing what the tile's click does, and its
+ * name saying its lane where it has one. A popover the pick opens hangs from
+ * the chip, the tile having no box.
  */
 test.describe("Plan bucket cells with no room for a tile (#1276)", { tag: "@desktop" }, () => {
 
@@ -1318,7 +1658,8 @@ test.describe("Plan bucket cells with no room for a tile (#1276)", { tag: "@desk
         const cell = entry.locator(floorCell("a0"));
         await expect.poll(() => cell.evaluate(floorDrawn)).toEqual({
             shown: [],
-            chip: { words: "+1", label: "1 more event, Week of Jun 29, 2026", count: false, spans: true, inside: true },
+            // The cell's one event: one event, never one more (#1680's review).
+            chip: { words: "+1", label: "1 event, Week of Jun 29, 2026", count: false, spans: true, inside: true },
         });
         await expect.poll(() => entry.evaluate(cutText)).toEqual([]);
         await cell.locator("[data-tile-more]").click();
@@ -1330,13 +1671,13 @@ test.describe("Plan bucket cells with no room for a tile (#1276)", { tag: "@desk
         await expect.poll(() => cell.evaluate(floorDrawn)).toMatchObject({ shown: [] });
     });
 
-    test("planTargetState: a captioned cell at its floor draws its +1 across the cell, over its caption; a pick opens the tile's popover, hung from the chip, and it stays open", async ({ page }) => {
+    test("planTargetState: a lane's cell at its floor draws its +1 across the cell, its name saying the lane; a pick opens the tile's popover, hung from the chip, and it stays open", async ({ page }) => {
         const entry = await openExample(page, "planTargetState");
         await toFloor(page, "m5");
         const cell = entry.locator(floorCell("m5"));
         await expect.poll(() => cell.evaluate(floorDrawn)).toEqual({
             shown: [],
-            chip: { words: "+1", label: "1 more event, Week of Jul 20, 2026, PM", count: false, spans: true, inside: true },
+            chip: { words: "+1", label: "1 event, Week of Jul 20, 2026, PM", count: false, spans: true, inside: true },
         });
         const chip = cell.locator("[data-tile-more]");
         await chip.click();
@@ -1451,7 +1792,7 @@ test.describe("Plan row controls (#1258)", { tag: "@desktop" }, () => {
         await expect.poll(() => entry.evaluate(rowControlsLaidOut)).toEqual([]);
     });
 
-    test("planTargetState: an expanded chart row's control stays on its gutter's first line, and the chart's ticks step left of it", async ({ page }) => {
+    test("planTargetState: an expanded chart row's control stays on its gutter's first line, and the chart's ticks lie inside its plot, clear of the gutter", async ({ page }) => {
         const entry = await openExample(page, "planTargetState");
         const chart = entry.locator(rowSel("ontime", "ontime"));
         const control = chart.locator('[data-plan-control="expand"]');
@@ -1463,16 +1804,17 @@ test.describe("Plan row controls (#1258)", { tag: "@desktop" }, () => {
             const box = row.querySelector("[data-plan-control]")!.parentElement!;
             const p = box.getBoundingClientRect();
             const line = box.closest("[data-plan-gutter='name']")!.getBoundingClientRect();
+            const plot = row.querySelector("[data-plan-plot]")!.getBoundingClientRect();
             const ticks = [...row.querySelectorAll("[data-plan-tickpx]")].map((t) => t.getBoundingClientRect());
             return {
                 opacity: getComputedStyle(box).opacity,
                 onLine: Math.abs((p.top + p.bottom) / 2 - (line.top + line.bottom) / 2) <= 0.5,
                 ticks: ticks.length,
-                // Each tick ends 4 or more left of the controls.
-                clear: ticks.every((t) => t.right <= p.left - 3.5),
+                // Each tick inside the plot's left edge, where the gutter's value never sits (#1680's review).
+                inPlot: ticks.every((t) => t.left >= plot.left - 0.5 && t.right <= plot.right + 0.5 && t.top >= plot.top - 0.5 && t.bottom <= plot.bottom + 0.5),
             };
         });
-        await expect.poll(read).toEqual({ opacity: "1", onLine: true, ticks: 2, clear: true });
+        await expect.poll(read).toEqual({ opacity: "1", onLine: true, ticks: 2, inPlot: true });
         await expect.poll(() => entry.evaluate(rowControlsLaidOut)).toEqual([]);
     });
 });
@@ -1786,8 +2128,10 @@ test.describe("planNestedAll's rows (#1438)", { tag: "@desktop" }, () => {
     });
 
     test("zooming, panning and moving the window add no style rules once each has been drawn: a place is written inline, never into a class", async ({ page }) => {
-        // Wide enough that the toolbar shows every zoom, rather than folding them into a menu.
-        await page.setViewportSize({ width: 1440, height: 900 });
+        // Wide enough that the toolbar shows every zoom, rather than folding them into a menu, at every zoom: the date
+        // navigator names the window's first month to its last at a month or a quarter, which takes more of the row than
+        // its first alone (#1680's review).
+        await page.setViewportSize({ width: 1680, height: 900 });
         const entry = await openExample(page, "planNestedAll", NESTED_EXAMPLES);
         /** Every style rule the page's emotion sheet holds, those nested in its layers counted. */
         const rules = () => page.evaluate(() => {

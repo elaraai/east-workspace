@@ -16,6 +16,7 @@
  */
 import { defineSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { coarseHitArea } from "../../style/hit-area.js";
+import { centredLine } from "../one-line-box.js";
 
 /**
  * What a rail's item the fit cut takes: out of the flow and unseen, but still
@@ -103,21 +104,40 @@ const LINE_FORM = {
     whiteSpace: "nowrap",
 } satisfies SystemStyleObject;
 
+/** The room a 28px rail has for a line of words, under the 1px rule at its top. */
+const RAIL_ROOM = 27;
+
+/** The height of the footer's voice's line: a whole, odd 15px, centred in the rail's odd room (#1638). */
+const VOICE_LINE = 15;
+
+/**
+ * The line a 28px rail's words stand on (#1638): the footer's voice's 15px, centred in the 27px under the rail's rule —
+ * the shared rail's items, and a builder's own rail beside them (the Sheet's footer), so their words start where the
+ * loading line's do.
+ */
+export const RAIL_LINE = centredLine(RAIL_ROOM, VOICE_LINE);
+
 /**
  * How far the rail's foot is below Retry's (#1398): Retry stands on the 28px
- * rail's centre line, its 16px line (28 − 1 − 16) / 2 = 5.5px above the foot,
+ * rail's centre line, its 15px line (28 − 1 − 15) / 2 = 6px above the foot,
  * the 1px its top rule takes aside. The rail sits at its frame's foot, and the
  * frame clips what passes its edge, so Retry's 44px tap target on a touch
  * screen — `coarseHitArea`'s halo, the touch-target rule's (#346) — rises from
  * there, all of it inside the frame: Retry keeps its size, and the rail its
  * height.
  */
-const RETRY_FOOT = 5.5;
+const RETRY_FOOT = (RAIL_ROOM - VOICE_LINE) / 2;
 
 /**
  * The footer's voice (the design's `.ff`): mono 10.5 `--ink-3`, tabular, on a
- * 16px line. The loading line speaks in it, and so does the "…" that ends a
+ * 15px line. The loading line speaks in it, and so does the "…" that ends a
  * cut legend — a rail sets no voice of its own, each of its items its own.
+ *
+ * Its line is the rail's other items' (#1638): the rail centres each in the
+ * 27px under its rule, and the design's 16px line leaves an odd pixel over, so
+ * the words started half a pixel under the rule and the page painted them a
+ * row higher or lower by where it stood the rail. On 15px they start 6px under
+ * it, where the legend's do.
  */
 const FOOTER_VOICE = {
     fontFamily: "mono",
@@ -126,7 +146,7 @@ const FOOTER_VOICE = {
     fontVariantNumeric: "tabular-nums",
     letterSpacing: "normal",
     textTransform: "none",
-    lineHeight: "16px",
+    lineHeight: RAIL_LINE,
     color: "fg.muted",
 } satisfies SystemStyleObject;
 
@@ -158,10 +178,14 @@ const FOOTER_VOICE = {
  *   - form: one form in the measure, laid out as the line lays it.
  *   - more: the "…" that ends a legend the fit cut, in the line's voice;
  *     unseen while none is.
+ *   - notice: a Save's notice (#1344) — the rows it moved out of the view, or
+ *     the view read again — in the line's voice, never the page's own type;
+ *     failed (`data-failed`), its words the danger ink, then `·` and the
+ *     line's Retry.
  */
 export const builderFooterLineSlotRecipe = defineSlotRecipe({
     className: "elara-builder-footer-line",
-    slots: ["root", "dot", "text", "strong", "short", "sep", "aside", "retry", "reason", "measure", "form", "more"],
+    slots: ["root", "dot", "text", "strong", "short", "sep", "aside", "retry", "reason", "measure", "form", "more", "notice"],
     base: {
         root: {
             ...LINE_FORM,
@@ -252,6 +276,12 @@ export const builderFooterLineSlotRecipe = defineSlotRecipe({
             ...FOOTER_VOICE,
             flex: "none",
             "&[data-footer-cut]": FOOTER_CUT,
+        },
+        notice: {
+            ...LINE_FORM,
+            ...FOOTER_VOICE,
+            flex: "none",
+            "&[data-failed]": { color: "fg.danger" },
         },
     },
 });

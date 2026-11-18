@@ -105,6 +105,24 @@ describe("Shared time navigation", () => {
         // A day still reads its number, its mark out of its flow.
         expect(popup().querySelector(`[data-time-day="${Date.UTC(2028, 1, 3)}"]`)!.textContent).toBe("3");
     });
+    test.each([
+        ["day", Date.UTC(2028, 1, 27, 23), "Jan 31 – Feb 27", "Jan 31"],
+        ["week", Date.UTC(2028, 2, 26, 23), "W5 – W12", "W5"],
+        ["month", Date.UTC(2029, 0, 30), "Jan 2028 – Jan 2029", "Jan 2028"],
+        ["quarter", Date.UTC(2028, 5, 30), "Jan – Jun 2028", "Jan 2028"],
+        ["year", Date.UTC(2037, 11, 31), "2028 – 2037", "2028"],
+    ] as const)("a window of several periods: the short label names its first %s to its last, as the range label names the range (#1680's review)", (period, end, spans, one) => {
+        const label = (props: Partial<TimeNavigatorProps>) => {
+            const { container, unmount } = mount({ period, compact: true, rangeLabel: "The range", ...props });
+            const text = [container.querySelector("[data-time-label]")!.textContent, container.querySelector("[data-time-trigger]")!.getAttribute("title")];
+            unmount();
+            return text;
+        };
+        expect(label({ end })).toEqual([spans, "The range"]);
+        // A window of one period — or a host that names none — names that period.
+        expect(label({ end: JAN31 + 3_600_000 })).toEqual([one, "The range"]);
+        expect(label({})).toEqual([one, "The range"]);
+    });
     test("compact navigation keeps Today and only requests the currently browsed weeks", async () => {
         const onWeeks = vi.fn<(dates: readonly Date[]) => void>();
         const { container, onChange, unmount } = mount({ compact: true, initialPanel: "week", onWeeks });

@@ -7,7 +7,9 @@
 import { DateTimeType, compareFor, encodeBeast2For, fromEastTypeValue, none, some, variant, type StructType } from "@elaraai/east";
 import type { Origin } from "@elaraai/east-ui-components";
 import type { ScheduleChange, ScheduleEditing } from "../shared/schedule/editing.js";
+import { scheduleCellId } from "../shared/schedule/cells.js";
 import { durationMinutes } from "../shared/schedule/due.js";
+import { fieldChange } from "../shared/schedule/records.js";
 import { lowerWord } from "../shared/schedule/words.js";
 import {
     QUARTER, resourceKey, type CalendarItem, type CalendarKind, type CalendarRef, type CalendarResource, type CalendarRow, type CalendarTemplate, type CalendarValue,
@@ -51,8 +53,9 @@ export function initialPlacement(source: CalendarSource, day: Date): CalendarPla
 
 /**
  * The paged resource kind's resources the frame holds (#1424), as a creation with no resource may land on one: the rows
- * of the windows held, in the kind's order, and the resources among them whose events are read, which alone can be said
- * to be free — every one where the kind's events are read over the window (`known` undefined).
+ * of the windows held, in the kind's order, and the resources among them whose events are read, by their slot and key
+ * (`scheduleCellId`), which alone can be said to be free — every one where the kind's events are read over the window
+ * (`known` undefined).
  */
 export interface CalendarPagedRows {
     readonly rows: readonly CalendarRow[];
@@ -72,6 +75,7 @@ export function calendarCommands(value: CalendarValue, editing: ScheduleEditing,
     const validate = (source: CalendarSource, at: CalendarPlacement): string | undefined => {
         const { kind } = source;
         if (!editing.available(kind.key)) return `${kind.name} is not ready to edit`;
+        // How long it lasts, in milliseconds: a duration's arithmetic, never an ordering of East DateTimes (#1650).
         if (!Number.isFinite(at.start.getTime()) || !Number.isFinite(at.end.getTime()) || at.end.getTime() - at.start.getTime() < QUARTER) return "An event must last at least 15 minutes";
         if (at.resource.type === "some") {
             const ref = at.resource.value;
@@ -196,11 +200,9 @@ export function calendarCommands(value: CalendarValue, editing: ScheduleEditing,
         },
         field(item, path, next) {
             const kind = kindOf(item); if (kind === undefined) return;
-            const spec = kind.fields.find(field => field.path.length === path.length && field.path.every((part, i) => part === path[i]));
-            const rowType = fromEastTypeValue(kind.editing.entryType) as StructType;
-            const type = spec?.type ?? (path.length === 1 ? rowType.fields[path[0]!] : undefined);
-            if (type === undefined) return;
-            editing.record([{ kind: item.kind, id: item.key, gesture: variant("field", { path: [...path], value: encodeBeast2For(type)(next as never) }) }], "typed", `Edit ${item.title}`);
+            // The form's edit as its kind writes it: the one rule every builder's inspector shares (`fieldChange`).
+            const change = fieldChange(kind, item.key, path, next);
+            if (change !== undefined) editing.record([change], "typed", `Edit ${item.title}`);
         },
         patch(items, fields) {
             const changes = items.flatMap(item => fields.map(field => ({ kind: item.kind, id: item.key,
@@ -230,7 +232,8 @@ export function firstResource(value: CalendarValue, kind: CalendarKind, at: Pick
         : resource.rows.map(row => ({ kind: resource.key, key: row.key })));
     // A row is free when no event read is on it then — a paged kind's only where its events are read. The rows busy then
     // are found in one pass over the events, never the events walked again for each row (#1594).
-    const known = (resource: CalendarResource) => resource.kind !== pagedKind || paged.known === undefined || paged.known.has(resource.key);
+    const known = (resource: CalendarResource) => resource.kind !== pagedKind || paged.known === undefined
+        || paged.known.has(scheduleCellId(resource.kind, resource.key));
     const busy = new Set<string>();
     for (const item of items) {
         if (item.resource.type === "some" && item.start.type === "some" && item.end.type === "some"

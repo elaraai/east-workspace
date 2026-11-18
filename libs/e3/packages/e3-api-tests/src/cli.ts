@@ -10,6 +10,8 @@
  */
 
 import { spawn } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import type { TestContext as NodeTestContext } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -104,6 +106,37 @@ export async function runE3Command(
     } else {
       child.stdin.end();
     }
+  });
+}
+
+/**
+ * Removes a workspace a test makes on a server, with the CLI, once the test
+ * ends, however it ends.
+ *
+ * @remarks
+ * A test context given a repository of the host's own removes none of its
+ * workspaces, so a test that makes one removes it here, not as its last
+ * statement, which a failed assertion before it would skip. Node runs a
+ * test's `after` hooks in the order they were added, so this runs after the
+ * context's own cleanup, which removes a repository the context made and the
+ * test's directory with it: it runs from the system's temporary directory,
+ * and a removal of a workspace already gone is answered and left.
+ *
+ * @param t - The test
+ * @param remoteUrl - The repository's URL
+ * @param wsName - The workspace
+ * @param env - The variables the CLI authenticates with, read as the removal runs
+ *
+ * @example
+ * ```ts
+ * const wsName = `call-ws-${Date.now()}`;
+ * removeWorkspaceAfter(t, remoteUrl, wsName, getCredentialsEnv);
+ * await runE3Command(['workspace', 'create', remoteUrl, wsName], workDir, { env: getCredentialsEnv() });
+ * ```
+ */
+export function removeWorkspaceAfter(t: NodeTestContext, remoteUrl: string, wsName: string, env: () => Record<string, string>): void {
+  t.after(async () => {
+    await runE3Command(['workspace', 'remove', remoteUrl, wsName], tmpdir(), { env: env() });
   });
 }
 

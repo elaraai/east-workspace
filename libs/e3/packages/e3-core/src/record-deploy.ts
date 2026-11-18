@@ -317,7 +317,7 @@ export async function runRecordMigrations(
         kind: TASK_OBJECT_KIND,
         body: variant('east', { program: object.form.type === 'value' ? object.bodyIr : object.programIr }),
         runner: object.runner,
-        inputs: [{ path: [], partition: object.form.type === 'value' ? none : some({ by: [] }) }],
+        inputs: [{ path: [], index: none, partition: object.form.type === 'value' ? none : some({ by: [] }) }],
         output: { path: [], kind: stepOutput(object) },
         role: variant('data', null),
         environment: none,

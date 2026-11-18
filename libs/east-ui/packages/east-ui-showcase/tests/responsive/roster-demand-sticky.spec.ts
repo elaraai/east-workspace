@@ -7,7 +7,9 @@
  * against the real in-page e3. Deep in a band's people, by week and by month, the band, its eyebrow and its lanes stand
  * under the header, each under the one above it, and the next band pushes them out together (A6.1); past half of main
  * an open lane's skill rows scroll with the people while the band, the eyebrow and the lanes stay, the stuck block no
- * taller than half of main (A6.2). A drag over the stuck block lands on none of the rows it covers, and what the
+ * taller than half of main (A6.2). A lane toggled while the head sticks shows or hides its own skill rows alone
+ * (#1684): what stuck sticks still, what went by stays by, and no lane above it moves. A drag over the stuck block
+ * lands on none of the rows it covers, and what the
  * keyboard reaches under it — a Shift+Tab onto a covered row, a keyboard drag's step to one — is brought out from
  * under it.
  */
@@ -202,6 +204,92 @@ for (const theme of LAYOUT_THEMES) {
             expect(shown?.stuck ?? false, `${skill.name} scrolls`).toBe(false);
             if (shown !== undefined) expect(shown.bottom, `${skill.name} went by`).toBeLessThanOrEqual(deep.top + 0.5);
         }
+    });
+
+    test(`a lane toggled while its band's head sticks shows or hides its own skill rows alone: the others keep what they showed, and no lane above it moves (#1684) (${theme}) @desktop`, async ({ page }) => {
+        await page.setViewportSize({ width: 1920, height: 1080 });
+        const { rows } = await open(page, theme);
+        await rest(page, rows, 0);
+        const first = firstGroup(await viewOf(rows));
+        const lanes = headOf(await viewOf(rows), first).filter(row => row.kind === "lane").map(row => row.name);
+        expect(lanes.length, "the band's lanes").toBeGreaterThanOrEqual(3);
+        const [early, late, night] = lanes as [string, string, string];
+        const lane = (name: string) => rows.locator(`[data-roster-lane='${name}'] [data-roster-lane-head]`);
+        const toggle = async (name: string, open: boolean) => {
+            await lane(name).click();
+            await settled(page);
+            await expect(lane(name), `${name} ${open ? "open" : "closed"}`).toHaveAttribute("aria-expanded", String(open));
+        };
+        // Every lane opened at the list's top, once: the head whole, each skill row under its lane with its height.
+        for (const name of lanes) if (await lane(name).getAttribute("aria-expanded") !== "true") await toggle(name, true);
+        let owner = "";
+        const whole = headOf(await viewOf(rows), first).map((row) => { if (row.kind === "lane") owner = row.name; return { ...row, lane: row.kind === "skill" ? owner : "" }; });
+        for (const name of lanes) await toggle(name, false);
+        const half = (await viewOf(rows)).height / 2;
+        const head = (open: readonly string[]) => whole.filter(row => row.kind !== "skill" || open.includes(row.lane));
+        expect(heightOf(head([late])), "the head with one lane open, in half of main").toBeLessThanOrEqual(half);
+        expect(heightOf(head([early, late])), "the head with two lanes open, past half of main").toBeGreaterThan(half);
+        // Deep in the band's people, its whole head's height from its last row: no head these steps hold is pushed out by
+        // the next band, and every skill row that goes by is above the view.
+        const deep = async () => {
+            const at = await placeOf(page, rows, `row:requests:${first}`) - heightOf(whole);
+            const view = await viewOf(rows);
+            expect(at - (heightOf(whole) + view.header - view.top), "the view past the head's every row").toBeGreaterThan(0);
+            await rest(page, rows, at);
+        };
+        /** The head as it stands: the rows `stuck` names stick, stacked under the header; the skill rows of the lanes `by` names went by. */
+        const holds = async (stuck: readonly string[], by: readonly string[]) => {
+            const view = await viewOf(rows);
+            stacks(view, head(stuck));
+            for (const skill of whole.filter(row => by.includes(row.lane))) {
+                const shown = view.rows.find(row => row.name === skill.name);
+                expect(shown?.stuck ?? false, `${skill.name} scrolls`).toBe(false);
+                if (shown !== undefined) expect(shown.bottom, `${skill.name} went by`).toBeLessThanOrEqual(view.top + 0.5);
+            }
+        };
+
+        await test.step("every lane closed as the view comes in: a lane opened sticks its skill rows under it, the lanes above it where they were", async () => {
+            await deep();
+            await holds([], []);
+            await toggle(late, true);
+            await holds([late], []);
+            // Its skill rows and the late lane's past half of main together: the late lane's stay, and the early lane's stick
+            // under it.
+            await toggle(early, true);
+            await holds([early, late], []);
+            await toggle(early, false);
+            await holds([late], []);
+        });
+
+        await test.step("the skill rows that went by as the view came in stay by: a lane opened sticks its own, and one closed shows no other's", async () => {
+            await rest(page, rows, 0);
+            await toggle(late, false);
+            await toggle(early, true);
+            await toggle(night, true);
+            expect(heightOf(head([early, night])), "the head as the view comes in, past half of main").toBeGreaterThan(half);
+            await deep();
+            await holds([], [early, night]);
+            await toggle(late, true);
+            await holds([late], [early, night]);
+            await toggle(early, false);
+            await holds([late], [night]);
+            // In half of main again, the night lane's skill rows stay by: closing the late lane opens nothing.
+            await toggle(late, false);
+            expect(heightOf(head([night])), "the head now, in half of main").toBeLessThanOrEqual(half);
+            await holds([], [night]);
+        });
+
+        await test.step("back at the list's top, a lane's skill rows show under it", async () => {
+            await rest(page, rows, 0);
+            await toggle(night, false);
+            await toggle(early, true);
+            const view = await viewOf(rows);
+            for (const skill of whole.filter(row => row.lane === early)) {
+                const shown = view.rows.find(row => row.name === skill.name);
+                expect(shown !== undefined && shown.top >= view.header - 0.5 && shown.bottom <= view.top + view.height + 0.5, `${skill.name} in view`).toBe(true);
+            }
+            await toggle(early, false);
+        });
     });
 
     test(`arrowed down the People grid, the row the keyboard moves to ends above main's horizontal scrollbar, inside its view (#1595) (${theme}) @desktop`, async ({ page }) => {

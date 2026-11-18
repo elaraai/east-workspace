@@ -49,6 +49,7 @@ import type { ValueTypeOf } from "@elaraai/east";
 import type { RecordSlicesChromeType } from "@elaraai/east-ui/internal";
 import { HOST_RANK, useRecordSlicesToolbarItems } from "@elaraai/east-ui-components/internal";
 import { useKeySearchToolbarItem, type KeySearchSource, type ToolbarItem } from "@elaraai/east-ui-components";
+import type { LinkChoice } from "../shared/held-tools.js";
 import { Seg, SegMenu } from "../shared/schedule/segments.js";
 import { ZoomStrip, type ZoomRange } from "../shared/schedule/zoom.js";
 import type { SchematicWords } from "./messages.js";
@@ -78,12 +79,7 @@ const TOOL_ICONS: { readonly [T in SchematicTool]: IconDefinition } = {
 };
 
 /** One link kind Connect may draw. */
-export interface SchematicLinkChoice {
-    /** Its slot. */
-    readonly key: string;
-    /** Its name (`Fibre run`). */
-    readonly name: string;
-}
+export type SchematicLinkChoice = LinkChoice;
 
 /** What the Schematic's toolbar items show and drive. */
 export interface SchematicToolbarProps {
@@ -103,8 +99,8 @@ export interface SchematicToolbarProps {
     readonly links: readonly SchematicLinkChoice[];
     /** Picks a tool, or the link kind Connect draws. */
     readonly onTools: (next: SchematicToolsState) => void;
-    /** Find's source, over the item kinds' keys. */
-    readonly find: KeySearchSource;
+    /** Find's source, over the item kinds' keys (`find.ts`); `undefined` with no item kind, which the payload never holds. */
+    readonly find: KeySearchSource | undefined;
     /** Zooms about the canvas's middle by a factor. */
     readonly onZoom: (factor: number) => void;
     /** Where the zoom stands: at Fit Zoom out takes no press, and at the zoom's limit Zoom in takes none (#1393). */

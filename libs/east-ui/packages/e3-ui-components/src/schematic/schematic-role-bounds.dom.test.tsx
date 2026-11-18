@@ -16,13 +16,12 @@
 
 import { expect, test } from "vitest";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { East } from "@elaraai/east";
 import { Fields, Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import { editingMessages } from "@elaraai/east-ui-components";
 import { Record, Schematic } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/schematic/schematic";
-import { e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
+import { e3Harness, retypeNumber as typeNumber, settle, slot } from "../e3-web-mount.test-utils.js";
 import { card, fitted, layOutCanvas, near, tap } from "./schematic.test-utils.js";
 import "./index.js";
 
@@ -72,17 +71,7 @@ const issues = (c: HTMLElement) => [...panel(c).querySelectorAll("[data-inspecto
 
 /** Types a coordinate of the selected rack's position, a key at a time — the shared input writes back on a frame — and commits it with ⏎. */
 async function retype(c: HTMLElement, key: string, text: string): Promise<void> {
-    const user = userEvent.setup();
-    const input = within(position(c, key)).getByRole("spinbutton");
-    await user.clear(input);
-    await settle();
-    for (const ch of text) {
-        await user.type(input, ch);
-        await settle();
-        await act(async () => { for (let i = 0; i < 3; i++) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve())); });
-    }
-    await user.type(input, "{Enter}");
-    await settle();
+    await typeNumber(within(position(c, key)).getByRole("spinbutton"), text);
 }
 
 test("a stored rack's centre past its most: Details says it under its position and it holds no Save — another rack's move saves; A05's y retyped, Save waits and Issues says it among what blocks (#1585)", async () => {

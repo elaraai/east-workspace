@@ -57,6 +57,27 @@ export interface OptimiseMessages {
     failDetail: () => string;
     /** Its line when the builder refused the answer (#1553), `reason` its words naming what the answer would change — `Elara's answer changes … Nothing changed.` */
     refusedDetail: (p: { reason: string }) => string;
+    /**
+     * Why an answer is refused, where it changes a row outside the period it was asked of (east-workspace#1622, rule 11) —
+     * `Elara's answer changes Reprint 12, outside Oct 5 – 9.`; `row` the builder's name for the row.
+     */
+    refusedOutside: (p: { row: string; period: string }) => string;
+    /**
+     * Why an answer is refused, where it changes a row whose own edit is still incomplete (rule 11): the function read
+     * the row as saved — `Elara's answer changes row 4, whose edit is not finished.`
+     */
+    refusedIncomplete: (p: { row: string }) => string;
+    /**
+     * Why an answer is refused, where it changes or removes a row the app's own rule holds where it is (#1541, U9) —
+     * `Elara's answer changes Reprint 12, which is locked.`; `row` the builder's name for the row.
+     */
+    refusedLocked: (p: { row: string }) => string;
+    /**
+     * Why a run ends where a record changed under the page's edits and a conflict waits to be chosen (rule 12): the
+     * refused Save's words, as the banner's sentence — `2 of your changes conflict with newer changes.`; `conflicts`
+     * the editing session's own words for them.
+     */
+    refusedConflicts: (p: { conflicts: string }) => string;
     /** The history step's label — `Elara run #7`; `run` arrives formatted. */
     step: (p: { run: string }) => string;
     /** An entry the run added, on hover — `Added by Elara · run #7`. */
@@ -93,6 +114,10 @@ export const optimiseMessages: OptimiseMessages = {
     fail: ({ period }) => `Couldn't optimise ${period}`,
     failDetail: () => "Nothing changed. Run it again from the eye.",
     refusedDetail: ({ reason }) => `${reason} Nothing changed.`,
+    refusedOutside: ({ row, period }) => `Elara's answer changes ${row}, outside ${period}.`,
+    refusedIncomplete: ({ row }) => `Elara's answer changes ${row}, whose edit is not finished.`,
+    refusedLocked: ({ row }) => `Elara's answer changes ${row}, which is locked.`,
+    refusedConflicts: ({ conflicts }) => `${conflicts}.`,
     step: ({ run }) => `Elara run #${run}`,
     entryAdded: ({ run }) => `Added by Elara · run #${run}`,
     entryChanged: ({ previous, run }) => `Was ${previous} · Elara run #${run}`,

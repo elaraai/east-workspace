@@ -8,7 +8,7 @@
  * item's and its banners', every editable collection's (`EditingMessages`) —
  * what Search Records' line says of a person the rail's narrowing hides
  * (the shared hidden pick's words, `HiddenWords`), and why it refuses an
- * optimiser's answer at the week's edges (#1553). The app's nouns — a
+ * optimiser's answer that changes what a gesture could not (#1553). The app's nouns — a
  * shift's, a group's, a person's — are the payload's. English is the default;
  * the frame hands it to its parts as its words' `m`, as the Calendar's does.
  *
@@ -19,8 +19,8 @@ import { editingMessages, type EditingMessages, type Formatters } from "@elaraai
 import { hiddenByText, type HiddenWords } from "../shared/schedule/words.js";
 
 /**
- * Why the Roster refuses an answer of an optimiser that takes the week's edges (#1553): the banner's line, before its
- * `Nothing changed.` — each naming the duty as the landing does (`optimise.ts`' `rosterDutyName`), `unit` the period the
+ * Why the Roster refuses an optimiser's answer that changes what a gesture could not (#1553, east-workspace#1622, rule 11):
+ * the banner's line, before its `Nothing changed.` — each naming the duty as the landing does (`optimise.ts`' `rosterDutyName`), `unit` the period the
  * Roster publishes by.
  */
 export interface RosterOptimiseWords {
@@ -28,10 +28,8 @@ export interface RosterOptimiseWords {
     optimiseFixed: (p: { duty: string; removes: boolean; unit: "week" | "day" }) => string;
     /** It puts a duty in a period that takes no edit — `Elara's answer puts N. Ochre · Sun Mar 12 Night · Inbound in a week not available to edit.` */
     optimiseClosed: (p: { duty: string; unit: "week" | "day" }) => string;
-    /** It puts a duty beyond the week and the weeks either side, whose periods the Roster has not read — `Elara's answer puts a duty starting Mon, Mar 27, 2028 beyond the weeks either side.` */
+    /** It puts a duty beyond the weeks the Roster holds, whose periods it has not read — `Elara's answer puts a duty starting Mon, Mar 27, 2028 beyond the weeks either side.` */
     optimiseBeyond: (p: { duty: string }) => string;
-    /** It gives one key among both the week's duties and its edges — `Elara's answer gives N. Ochre · Sat Mar 4 Night · Inbound twice, among the week's duties and its edges.` */
-    optimiseTwice: (p: { duty: string }) => string;
 }
 
 /** The Roster's message table. */
@@ -48,7 +46,6 @@ export const rosterMessages: RosterMessages = {
     optimiseFixed: ({ duty, removes, unit }) => `Elara's answer ${removes ? "removes" : "changes"} ${duty}, ${closedPeriod(unit)}.`,
     optimiseClosed: ({ duty, unit }) => `Elara's answer puts ${duty} ${closedPeriod(unit)}.`,
     optimiseBeyond: ({ duty }) => `Elara's answer puts ${duty} beyond the weeks either side.`,
-    optimiseTwice: ({ duty }) => `Elara's answer gives ${duty} twice, among the week's duties and its edges.`,
 };
 
 /** The words the Roster speaks: its message table, and its locale's formatters. */

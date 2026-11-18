@@ -203,7 +203,7 @@ function elementKeysOf(rows: readonly PlanRowValue[]): Set<string> {
 const INERT: EditingValue = {
     sourceId: "plan:no-editing", entryType: toEastTypeValue(NullType), idField: none,
     draftType: toEastTypeValue(NullType), children: none, keyType: none, snapshot: none,
-    readEntry: () => none, onPatch: none, onApply: none,
+    readEntry: () => none, onPatch: none, onApply: none, toDraft: none,
 };
 
 /** Whether two paged sources derive the same rows — the paging driver's test (#809). */
@@ -553,7 +553,10 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
     // ── The marks ────────────────────────────────────────────────────────
     // A row of a drafted entry that the draft added or changed: its entry's
     // rows derived from the draft, against the same from the source's entry.
-    const marks = useMemo((): ReadonlyMap<RowKey, PlanDraftMark> => {
+    // Derived as a tracked read: an entry's rows are the series that show, which
+    // the Series tab's pick holds as state — a series switched on since a draft
+    // was made draws its changed rows marked, the root unmoved.
+    const readMarks = useCallback((): ReadonlyMap<RowKey, PlanDraftMark> => {
         if (editing === undefined || codec === undefined || drafts.drafts.size === 0) return NO_MARKS;
         const readiness = session.readiness;
         const out = new Map<RowKey, PlanDraftMark>();
@@ -583,6 +586,8 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
         // The session's readiness moves under its version.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [editing, codec, drafts, session, version]);
+    const { result: marksRead } = useTrackedEvaluation(readMarks);
+    const marks = marksRead.ok ? marksRead.value : NO_MARKS;
 
     // ── A source moving under the drafts (#1438) ─────────────────────────
     // Over rows read whole by key beside their nested series index, another planner's change of what no draft changed

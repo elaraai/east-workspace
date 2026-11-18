@@ -26,6 +26,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { centredLine } from "../one-line-box.js";
 import { wholeOrNone } from "../../style/whole-or-none.js";
 
 export const valueTreeSlotRecipe = defineSlotRecipe({
@@ -51,8 +52,12 @@ export const valueTreeSlotRecipe = defineSlotRecipe({
             /* FIXED height, not min: the renderer virtualizes rows at exact
              * 32px multiples without per-row measurement (#533) — a row that
              * grew would overlap its neighbour. Inline editors are capped to
-             * 26px below, so every row's content fits. */
+             * 26px below, so every row's content fits. Its words stand on one
+             * whole line of 20px, centred in the 26px inside its padding
+             * (#1638): the body's 1.5 gave a 13px face 19.5px and a 12.5px one
+             * 18.75px, each a fraction of a pixel under the row's edge. */
             height: "32px",
+            lineHeight: centredLine(26, 20),
             _hover: { background: "bg.subtle" },
             /* Transient search-jump highlight (#520). */
             "&[data-match]": { background: "bg.brand.subtle" },
@@ -235,10 +240,12 @@ export const valueTreeSlotRecipe = defineSlotRecipe({
             borderColor: "border.subtle",
             background: "bg.surface",
         },
+        /* Its words on a whole line of 18px, centred in its 22px (#1638). */
         toolbarBtn: {
             display: "inline-flex",
             alignItems: "center",
             fontSize: "{fontSizes.body.sm}",
+            lineHeight: centredLine(22, 18),
             color: "fg.subtle",
             borderRadius: "{radii.sm}",
             paddingX: "{spacing.2}",

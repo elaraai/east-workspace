@@ -89,7 +89,9 @@ export {
 
 export {
   listPackageFunctions,
+  listFunctionsOf,
   describePackageFunction,
+  describeFunctionOf,
   callFunctionSync,
   startSplitCall,
   getSplitCallStatus,
@@ -106,7 +108,10 @@ export {
   listFunctionCalls,
   getFunctionCall,
   type CallAdmit,
+  type DraftAdmit,
   type FunctionCallFilingOptions,
+  type FunctionDraftsOptions,
+  type StartOneShotCallOptions,
   type StartFunctionCallOptions,
   type CallFunctionInWorkspaceOptions,
   type FunctionCallStatusOptions,

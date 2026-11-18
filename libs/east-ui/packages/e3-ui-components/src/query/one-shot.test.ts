@@ -132,7 +132,7 @@ function stderrOf(call: PreparedQuery): string {
     throw new Error("the call's body raises no error");
 }
 
-/** What e3 returns for a call that ran: each dataset argument pinned at its hash, in argument order. */
+/** What e3 returns for a call that ran: each dataset argument pinned at its hash, in argument order, no record drafted, and no draft that ended it. */
 function executed(call: PreparedQuery, outcome: ExecuteResult["outcome"], stderr = ""): ExecuteResult {
     return {
         outcome,
@@ -142,8 +142,10 @@ function executed(call: PreparedQuery, outcome: ExecuteResult["outcome"], stderr
         stderrTruncated: false,
         inputs: call.request.args.map(arg => {
             const { name } = datasetOf(arg);
-            return { path: pathOf(name), hash: hashOf(name) };
+            return { path: pathOf(name), index: none, hash: hashOf(name) };
         }),
+        drafts: [],
+        draftEnd: none,
     };
 }
 
@@ -156,6 +158,8 @@ function invalid(message: string): ExecuteResult {
         stdoutTruncated: false,
         stderrTruncated: false,
         inputs: [],
+        drafts: [],
+        draftEnd: none,
     };
 }
 
@@ -492,5 +496,9 @@ describe("C3: every outcome of a call", () => {
         const other = prepared(".orders | length");
         expect(() => queryResultOf(call, executed(other, variant("success", { value: run(other) })))).toThrow(new Error(
             "queryResultOf: the call's argument 0 read .inputs.orders, which is not the data source the query reads there"));
+        // A query's call lays no draft, so one that ended in a draft's conflict is not this call's either.
+        const conflict = variant("conflict", { record: "jobs", mutation: "patch", place: 1n, of: 1n, message: "the row at \"j1\" changed under the edit" });
+        expect(() => queryResultOf(call, executed(call, conflict))).toThrow(new Error(
+            "queryResultOf: the call ended in a conflict laying a draft of jobs, and a query's call lays none: the result is not this call's"));
     });
 });

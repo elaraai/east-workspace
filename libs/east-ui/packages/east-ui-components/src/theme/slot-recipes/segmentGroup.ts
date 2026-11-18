@@ -110,7 +110,14 @@ export const segmentGroupSlotRecipe = defineSlotRecipe({
             fontSize: "11.5px",
             fontWeight: "semibold",
             letterSpacing: "{letterSpacings.wider}",
-            lineHeight: "1.2",
+            /* A whole, even line (#1638): a segment stands an even number of
+             * pixels tall at every size, and its one line of words is centred
+             * in it, so an even line leaves a whole number of pixels above the
+             * words. A line of 1.2 of an 11px face is 13.2px, which starts
+             * them at a fraction of a pixel under the segment's edge, and the
+             * page then paints them a row higher or lower by where it stands
+             * the segment. Each size sets its own. */
+            lineHeight: "14px",
             color: "inherit",
             whiteSpace: "nowrap",
         },
@@ -163,10 +170,10 @@ export const segmentGroupSlotRecipe = defineSlotRecipe({
             },
         },
         size: {
-            xs: { item: { paddingX: "{spacing.2}", paddingY: "1px" }, itemText: { fontSize: "10px" } },
-            sm: { item: { paddingX: "{spacing.2}", paddingY: "{spacing.1}" }, itemText: { fontSize: "11px" } },
-            md: { item: { paddingX: "{spacing.3}", paddingY: "{spacing.2}" }, itemText: { fontSize: "11.5px" } },
-            lg: { item: { paddingX: "{spacing.4}", paddingY: "{spacing.3}" }, itemText: { fontSize: "12.5px" } },
+            xs: { item: { paddingX: "{spacing.2}", paddingY: "1px" }, itemText: { fontSize: "10px", lineHeight: "12px" } },
+            sm: { item: { paddingX: "{spacing.2}", paddingY: "{spacing.1}" }, itemText: { fontSize: "11px", lineHeight: "14px" } },
+            md: { item: { paddingX: "{spacing.3}", paddingY: "{spacing.2}" }, itemText: { fontSize: "11.5px", lineHeight: "14px" } },
+            lg: { item: { paddingX: "{spacing.4}", paddingY: "{spacing.3}" }, itemText: { fontSize: "12.5px", lineHeight: "16px" } },
         },
     },
     defaultVariants: {

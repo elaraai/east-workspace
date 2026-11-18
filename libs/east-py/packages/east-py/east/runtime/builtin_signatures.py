@@ -41,6 +41,7 @@ from east.types.types import (
     FloatType,
     IntegerType,
     MatrixType,
+    OptionType,
     RefType,
     SetType,
     StringType,
@@ -246,6 +247,10 @@ _SIGNATURES: dict[str, Any] = {
     "SetIsSubset": lambda K: [SetType(K), SetType(K)],
     "SetIsDisjoint": lambda K: [SetType(K), SetType(K)],
     "SetCopy": lambda K: [SetType(K)],
+    # A key range (#1616): a bound's type is the key's cut short, a type
+    # parameter the call carries; a range's end left out is `none`.
+    "SetRange": lambda K, F, T: [SetType(K), OptionType(F), OptionType(T)],
+    "SetPrefix": lambda K, P: [SetType(K), P],
     "SetForEach": lambda K, T2: [SetType(K), FN],
     "SetMap": lambda K, T2: [SetType(K), FN],
     "SetFilter": lambda K: [SetType(K), FN],
@@ -285,6 +290,8 @@ _SIGNATURES: dict[str, Any] = {
     "DictGetKeys": lambda K, V: [DictType(K, V), SetType(K), FN],
     "DictForEach": lambda K, V, T2: [DictType(K, V), FN],
     "DictCopy": lambda K, V: [DictType(K, V)],
+    "DictRange": lambda K, V, F, T: [DictType(K, V), OptionType(F), OptionType(T)],
+    "DictPrefix": lambda K, V, P: [DictType(K, V), P],
     "DictMap": lambda K, V, V2: [DictType(K, V), FN],
     "DictFilter": lambda K, V: [DictType(K, V), FN],
     "DictFilterMap": lambda K, V, V2: [DictType(K, V), FN],

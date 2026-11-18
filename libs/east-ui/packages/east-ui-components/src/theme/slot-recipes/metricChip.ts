@@ -6,7 +6,9 @@
 /**
  * MetricChip slot recipe — the design system's DeltaPill: a compact mono
  * chip on the sunken paper, its border clear, the tone carried by the text
- * alone.
+ * alone. At the comfortable density it is 34px in its edge: a whole 14px
+ * line between 9px of padding (#1638), where a 9.75px padding about a 12.5px
+ * line started its words at a fraction of a pixel under the edge.
  *
  * @packageDocumentation
  */
@@ -61,7 +63,7 @@ export const metricChipSlotRecipe = defineSlotRecipe({
                 label: { fontSize: "9.5px" },
             },
             comfortable: {
-                root: { fontSize: "12.5px", lineHeight: "1", paddingX: "15px", paddingY: "9.75px", gap: "7px" },
+                root: { fontSize: "12.5px", lineHeight: "14px", paddingX: "15px", paddingY: "9px", gap: "7px" },
                 label: { fontSize: "11px" },
             },
         },

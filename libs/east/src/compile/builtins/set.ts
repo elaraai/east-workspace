@@ -13,6 +13,7 @@ import type { Location, SourceMap } from "../../location.js";
 import type { PlatformFunction } from "../../platform.js";
 import { printFor } from "../../serialization/east.js";
 import type { EastTypeValue } from "../../type_of_type.js";
+import { keyPrefix, keyRange } from "./key_range.js";
 import { buildTree, treeOrder } from "./tree.js";
 
 /** The builtins for Sets. @internal */
@@ -112,6 +113,11 @@ export const set_builtins = {
   SetSymDiff: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue) => (s1: SortedSet<any>, s2: SortedSet<any>) => s1.symmetricDifference(s2),
   SetIsSubset: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue) => (s1: SortedSet<any>, s2: SortedSet<any>) => s1.isSubsetOf(s2),
   SetIsDisjoint: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue) => (s1: SortedSet<any>, s2: SortedSet<any>) => s1.isDisjointFrom(s2),
+  // A key range (#1616): the elements from the first at or past `from` up to the first at or
+  // past `to`, found by a search down the tree and never by a walk. A new set, never frozen.
+  SetRange: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], K: EastTypeValue, F: EastTypeValue, T: EastTypeValue) => keyRange(loc_id, source_map, K, F, T),
+  // The elements equal to the prefix on every field it gives: from the first at it up to the first past it.
+  SetPrefix: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], K: EastTypeValue, P: EastTypeValue) => keyPrefix(loc_id, source_map, K, P),
   SetCopy: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], K: EastTypeValue) => {
     const compare = compareFor(K);
     return (s: SortedSet<any>) => {

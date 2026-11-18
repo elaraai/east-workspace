@@ -33,19 +33,21 @@
  * On a row whose series declares a move's fields (#825) a tile moves to
  * another bucket, or another row of its item type; it has one instant, so no
  * end to drag. An event kind's tile moves its event (#1196), and wears the
- * brand tint in a brand border while its drafts change it (`data-draft`).
+ * brand tint in a brand border while its drafts change it (`data-draft`). A
+ * locked tile (#1541, U9) leads with a lock and takes no move.
  */
 
 import { useContext, useMemo, type ReactNode } from "react";
 import { Box, useChakraContext } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
-    faCheck, faCircle, faCircleCheck, faCircleInfo, faCircleXmark, faGripVertical, faTriangleExclamation,
+    faCheck, faCircle, faCircleCheck, faCircleInfo, faCircleXmark, faGripVertical, faLock, faTriangleExclamation,
     type IconDefinition,
 } from "@fortawesome/free-solid-svg-icons";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-svg-core";
 import { variant, type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/e3-ui/internal";
+import { getSomeorUndefined } from "@elaraai/east-ui-components";
 import { resolveColor } from "@elaraai/east-ui-components/internal";
 import { usePlanDispatch, usePlanScale, type PlanElementRefValue } from "../context.js";
 import { runStateKey, type PlanRowMove } from "./SpanRow.js";
@@ -55,11 +57,13 @@ import { PlanDraftedContext, usePlanElementBounded, usePlanElementConflicted, us
 import { usePlanElementOp } from "./element-optimise.js";
 import { BucketCell, type BucketCellTile } from "./BucketCell.js";
 import { usePlanMovable } from "../edit/movable.js";
+import { laneBand } from "./lanes.js";
 import type { PlanMovable } from "../edit/store.js";
 import type { PlanBucket } from "../scale.js";
 import type { PlanInstantValue } from "../instant.js";
 import { appendAll } from "../reductions.js";
 import { tileName } from "../a11y.js";
+import { statusAttributes } from "../../shared/status.js";
 import type { PlanRowId } from "../model.js";
 import { usePlanWords } from "../words.js";
 import { PLAN_CELL_INSET } from "../geometry.js";
@@ -123,8 +127,9 @@ function EventChip({ ev, styles, rowKey, rowId, ctx, bucket, lane, move, folded 
     const optimised = drafted ? op : undefined;
     const label = ev.label.type === "some" ? ev.label.value : undefined;
     // A tile has one instant — its extent is that instant twice.
-    const movable = useMemo<PlanMovable | undefined>(() => (move !== undefined
-        ? { rowKey, key: ev.key, label: label ?? ev.key, kind: "tile", span: { start: ev.at, end: ev.at }, items: move.items, resize: false }
+    // A locked tile takes no move (#1541, U9).
+    const movable = useMemo<PlanMovable | undefined>(() => (move !== undefined && !ev.locked
+        ? { rowKey, key: ev.key, label: label ?? ev.key, kind: "tile", span: { start: ev.at, end: ev.at }, items: move.items, resize: false, lane: getSomeorUndefined(ev.lane) }
         : undefined), [move, rowKey, ev, label]);
     const { handle, carried } = usePlanMovable(movable);
     const icon = ev.icon.type === "some" ? ev.icon.value : undefined;
@@ -146,7 +151,8 @@ function EventChip({ ev, styles, rowKey, rowId, ctx, bucket, lane, move, folded 
             aria-label={tileName(ev, bucket, lane, scale, words)}
             data-ctx={ctx === true ? "" : undefined}
             data-state={stateKey}
-            data-tone={ev.tone.type === "some" ? ev.tone.value.type : undefined}
+            // Its status (#1541): its tone's ring, and the open ring a tentative one draws as.
+            {...statusAttributes(getSomeorUndefined(ev.status))}
             data-overlap={overlap ? "" : undefined}
             data-draft={drafted ? "" : undefined}
             data-conflict={conflict ? "" : undefined}
@@ -155,6 +161,7 @@ function EventChip({ ev, styles, rowKey, rowId, ctx, bucket, lane, move, folded 
             data-fill={optimised !== undefined ? "own" : undefined}
             title={optimised?.provenance}
             data-folded={folded ? "" : undefined}
+            data-locked={ev.locked ? "" : undefined}
             data-pulse={ev.animation.type === "some" && ev.animation.value.type === "pulse" ? "" : undefined}
             flex={hFill ? "1" : undefined}
             // Stretch is a style PROP and outranks the recipe: in a strip
@@ -172,6 +179,8 @@ function EventChip({ ev, styles, rowKey, rowId, ctx, bucket, lane, move, folded 
             aria-pressed={select.selectable ? select.selected : undefined}
             onClick={select.onClick}
         >
+            {/* Its lock (#1541, U9), its first part: the last a tile short of room gives up. */}
+            {ev.locked && <FontAwesomeIcon icon={faLock} data-plan-lock="" />}
             {icon !== undefined && <FontAwesomeIcon icon={[icon.prefix as IconPrefix, icon.name as IconName]} data-plan-icon="" />}
             {label !== undefined ? <Box as="span" css={styles.tileLabel} data-plan-label="">{label}</Box>
                 : icon !== undefined ? null
@@ -268,15 +277,16 @@ export function BucketsRow({ rowKey, rowId, kind, styles, ctx, move }: BucketsRo
     const cellX = (b: PlanBucket) => (
         { left: `calc(${b.x0 * 100}% + ${PLAN_CELL_INSET}px)`, width: `calc(${(b.x1 - b.x0) * 100}% - ${2 * PLAN_CELL_INSET}px)` }
     );
-    const laneY = (li: number, span: number = 1) => ({
-        top: `calc(${(li / laneCount) * 100}% + ${PLAN_CELL_INSET}px)`,
-        height: `calc(${(span / laneCount) * 100}% - ${2 * PLAN_CELL_INSET}px)`,
-    });
+    const laneY = (li: number, span: number = 1) => {
+        const band = laneBand(li, laneCount, span);
+        return { top: `calc(${band.top * 100}% + ${PLAN_CELL_INSET}px)`, height: `calc(${band.height * 100}% - ${2 * PLAN_CELL_INSET}px)` };
+    };
 
     const renderCell = (b: PlanBucket, li: number | undefined, events: BucketEventValue[], span: number = 1) => {
         const bi = b.index;
         const cellKey = `${bi}:${li ?? "full"}`;
         const marker = worstMarker(li !== undefined ? cellMarkers.get(`${bi}:${li}`) ?? [] : bucketMarkers(bi));
+        // The lane's caption is said by the cell's chip and its tiles' names; its gutter line draws it (#1680's review).
         const lane = li !== undefined ? lanes[li] : undefined;
         const caption = lane !== undefined && lane.label.type === "some" ? lane.label.value : undefined;
         // Each tile drawn folded or not, and named for the chip's menu as a reader hears it (#819).
@@ -291,17 +301,16 @@ export function BucketsRow({ rowKey, rowId, kind, styles, ctx, move }: BucketsRo
                 ),
             };
         });
-        // What sizes the tiles: each one's key, label, icon and state, and whether a draft changed it.
+        // What sizes the tiles: each one's key, label, icon, state and lock, and whether a draft changed it.
         const signature = events.map((ev) => [
             ev.key, ev.label.type === "some" ? ev.label.value : "", ev.icon.type === "some" ? ev.icon.value.name : "",
-            runStateKey(ev.state), drafted.has(ev.key) ? "draft" : "",
+            runStateKey(ev.state), drafted.has(ev.key) ? "draft" : "", ev.locked ? "locked" : "",
         ].join("\u0000")).join("\u0001");
         return (
             <Box as="span" key={`c${cellKey}`} display="contents">
                 <BucketCell styles={styles} rowKey={rowKey} cellKey={cellKey}
                     place={{ ...cellX(b), ...laneY(li ?? 0, li === undefined ? laneCount : span) }}
                     over={marker !== undefined ? marker.status.type : undefined}
-                    caption={caption !== undefined && ctx !== true ? <Box css={styles.laneLabel}>{caption}</Box> : null}
                     tiles={tiles}
                     marker={marker !== undefined ? (
                         <Box css={styles.markerIcon} data-status={marker.status.type}
@@ -322,21 +331,16 @@ export function BucketsRow({ rowKey, rowId, kind, styles, ctx, move }: BucketsRo
     // ── Occupied-only mounting (#616) ─────────────────────────────────────
     // A cell per bucket × lane is O(buckets × lanes) DOM whether or not
     // anything is in it — 500 hour buckets used to mount 500+ divs per row.
-    // For an EQUAL-bucKET lane with no caption, the empty-cell wash paints as
-    // ONE gradient band (`cellWash`) and real cells mount only where content,
-    // a caption or a marker exists. A captioned lane prints its caption in
-    // every cell (the Planner `.bl`), and unequal buckets (month / quarter,
-    // low counts) keep the full grid — both fall back to mounting all.
+    // For EQUAL buckets the empty-cell wash paints as ONE gradient band per
+    // lane (`cellWash`) and real cells mount only where content or a marker
+    // exists — a lane's caption is its gutter line's (#1680's review), never a
+    // cell's. Unequal buckets (month / quarter, low counts) keep the full grid.
     const n = scale.buckets.length;
     const w0 = n > 0 ? scale.buckets[0]!.x1 - scale.buckets[0]!.x0 : 0;
     const uniform = n > 1 && scale.buckets.every((b) => Math.abs((b.x1 - b.x0) - w0) < 1e-9);
-    const laneCaptioned = (li: number): boolean => {
-        const lane = lanes[li];
-        return lane !== undefined && lane.label.type === "some";
-    };
     const cells: ReactNode[] = [];
     for (let li = 0; li < laneCount; li++) {
-        if (uniform && !laneCaptioned(li)) {
+        if (uniform) {
             cells.push(
                 <Box key={`wash-${li}`} css={styles.cellWash} data-plan-cellwash={li}
                     style={{
@@ -364,7 +368,7 @@ export function BucketsRow({ rowKey, rowId, kind, styles, ctx, move }: BucketsRo
         for (let li = 0; li < laneCount; li++) {
             const events = cellEvents.get(`${bi}:${li}`) ?? [];
             const occupied = events.length > 0 || (cellMarkers.get(`${bi}:${li}`)?.length ?? 0) > 0;
-            if (!occupied && (occupiedOnly || (uniform && !laneCaptioned(li)))) continue;
+            if (!occupied && (occupiedOnly || uniform)) continue;
             cells.push(renderCell(b, li, events));
         }
     };

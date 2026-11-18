@@ -5,6 +5,7 @@
 import sorted_btree from "sorted-btree";
 import { defaultKeyCompare } from "../string_order.js";
 import { builtinIterator } from "./iterators.js";
+import { copyRange, type KeyTest } from "./range.js";
 
 // Deal with CJS default import. Node's ESM interop hands back the whole
 // `module.exports`, so the class is under `.default`; Vite/vitest (and other
@@ -26,6 +27,7 @@ type BTree<K, T> = sorted_btree.default<K, T>;
  * - Maintains entries in sorted order by key based on a comparison function
  * - Supports {@link minKey} and {@link maxKey} for accessing key extrema
  * - Provides range-based iteration starting from any key
+ * - Gives the entries between two bounds as a new map ({@link range}), found by a search
  * - Respects frozen state and throws errors on modification attempts
  * - Includes static {@link groupBy} method for aggregation operations
  * - {@link getOrInsert} and {@link getOrInsertComputed} find a key by the comparison function, as every lookup does
@@ -244,6 +246,34 @@ export class SortedMap<K, T> implements Map<K, T> {
             }
         })(this.btree);
         return builtinIterator(gen) as MapIterator<[K, T]>;
+    }
+
+    /**
+     * Returns the entries between two bounds as a new map.
+     *
+     * @param from - A test that is false, then true, over the keys in order: the first key it holds for is the first kept. Left out, the map's first key is
+     * @param to - A test of the same kind: the first key it holds for, and every key after it, is left out. Left out, the entries run to the map's last
+     * @returns A new {@link SortedMap} with this map's comparison, holding the values this map holds for the keys kept
+     *
+     * @remarks
+     * A bound of a key range is a key's first fields, which is no key the map can be asked for, so each
+     * bound is given as the test "is this key at or past it?" (`keyAtOrPast`, for an East key).
+     *
+     * The ends are found by a search down the tree and the entries between them are walked: neither
+     * the tests nor the map's comparison is called for an entry outside the range. The new map is not
+     * frozen, whatever this one is, and nothing of this one is changed.
+     *
+     * @example
+     * ```ts
+     * const squares = new SortedMap<number, number>([[1, 1], [2, 4], [3, 9], [4, 16]]);
+     * const middle = squares.range((key) => key >= 2, (key) => key >= 4);
+     * // Map { 2 => 4, 3 => 9 }
+     * ```
+     */
+    range(from?: KeyTest<K>, to?: KeyTest<K>): SortedMap<K, T> {
+        const result = new SortedMap<K, T>(undefined, this.btree._compare);
+        copyRange(this.btree, result.btree, from, to);
+        return result;
     }
 
     /**

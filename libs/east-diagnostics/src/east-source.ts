@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import type * as ts from "typescript";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { TsModule } from "./types.js";
 
@@ -155,6 +155,36 @@ function packageDirOf(p: string): string | undefined {
   }
   pkgDirCache.set(start, result);
   return result;
+}
+
+const pkgNameCache = new Map<string, string | undefined>();
+
+/** The name of the package a file belongs to — its nearest `package.json`'s
+ * `name` — or undefined where there is none, or it cannot be read. Cached per
+ * package directory. */
+function packageNameOf(fileName: string): string | undefined {
+  const dir = packageDirOf(fileName);
+  if (dir === undefined) return undefined;
+  if (pkgNameCache.has(dir)) return pkgNameCache.get(dir);
+  let name: string | undefined;
+  try {
+    const manifest: unknown = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+    const declared = typeof manifest === "object" && manifest !== null ? (manifest as { readonly name?: unknown }).name : undefined;
+    if (typeof declared === "string") name = declared;
+  } catch {
+    name = undefined;
+  }
+  pkgNameCache.set(dir, name);
+  return name;
+}
+
+/** Is `fileName` a file of an `@elaraai/*` package — one whose nearest
+ * `package.json` names it so? How a DECLARATION is told to be East's own,
+ * wherever the package is installed: under `node_modules`, or, in a workspace,
+ * at the real path its symlink resolves to. Conservative (not East's) where the
+ * filesystem can't be consulted. */
+export function inEastPackage(fileName: string): boolean {
+  return packageNameOf(fileName)?.startsWith("@elaraai/") === true;
 }
 
 /** Does a relative `../src`-style import specifier resolve WITHIN the importing

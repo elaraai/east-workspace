@@ -37,6 +37,28 @@ const outlineOffset = (styles: Styles, selector: string): unknown => (styles[sel
 /** A pattern for a box shadow list that starts with these shadows. */
 const startingWith = (shadows: string): RegExp => new RegExp(`^${shadows.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}, `);
 
+/**
+ * How strong a rule's selector is past its slot's class, as CSS weighs it: an attribute test each, `:is(…)` its
+ * strongest argument, and `:where(…)` nothing.
+ *
+ * @param selector - The rule's selector, `&` its slot
+ * @returns Its weight
+ */
+function weight(selector: string): number {
+    let total = 0;
+    for (let i = 0; i < selector.length; i++) {
+        const group = selector.startsWith(":where(", i) ? "where" : selector.startsWith(":is(", i) ? "is" : undefined;
+        if (group !== undefined) {
+            const start = selector.indexOf("(", i) + 1;
+            let depth = 1, end = start;
+            for (; depth > 0; end++) depth += selector[end] === "(" ? 1 : selector[end] === ")" ? -1 : 0;
+            if (group === "is") total += Math.max(...selector.slice(start, end - 1).split(",").map((part) => weight(part.trim())));
+            i = end - 1;
+        } else if (selector[i] === "[") total++;
+    }
+    return total;
+}
+
 describe("the conflict ring", () => {
     test("is the optimiser's highlight in the warn colour: 1px at the part's edge and a soft glow, outside it or inside it", () => {
         const glow = "color-mix(in oklch, {colors.status.warn} 45%, transparent)";
@@ -81,7 +103,39 @@ describe("the conflict ring", () => {
         for (const [name, edge] of [["bar", "1.5px"], ["tile", "1px"], ["cardChip", "1px"]] as const) {
             expect(shadow(slot(planSlotRecipe, name), "&:is([data-conflict], [data-bounds])[data-state='appr']"), name).toBe(`inset 0 0 0 ${edge} {colors.brand.solid}, ${CONFLICT_RING}`);
         }
-        expect(shadow(slot(planSlotRecipe, "diamond"), "&:is([data-conflict], [data-bounds])")).toBe(`inset 0 0 0 1.5px {colors.brand.solid}, ${CONFLICT_RING}`);
+        // A diamond's edge is one property: the brand, or its status's tone (#1541), inside the warn either way.
+        expect(slot(planSlotRecipe, "diamond")["--diamond-edge"]).toBe("{colors.brand.solid}");
+        expect(shadow(slot(planSlotRecipe, "diamond"), "&:is([data-conflict], [data-bounds])")).toBe(`inset 0 0 0 1.5px var(--diamond-edge), ${CONFLICT_RING}`);
+    });
+
+    test("on a Plan item its status's ring gives way to it, and an item its status draws open keeps its own ring inside it (#1541)", () => {
+        const open = "inset 0 0 0 1.5px var(--status-ink)";
+        for (const name of ["bar", "tile", "cardChip"]) {
+            const box = slot(planSlotRecipe, name);
+            expect(shadow(box, "&:is([data-conflict], [data-bounds])[data-ring]:where([data-tone]:not([data-draft]))"), name).toBe(`${open}, ${CONFLICT_RING}`);
+            // Each ring a box wears is written after the one it takes the place of, and is as strong: its status's, an
+            // overlap's — a danger status's own in an overlap pair — then the conflict's: plain, on a confirmed box, on an
+            // open one.
+            const keys = Object.keys(box);
+            const rings = [
+                "&[data-tone]", "&[data-overlap]", "&[data-overlap][data-state='appr']", "&[data-overlap][data-ring]:where([data-tone]:not([data-draft]))",
+                "&[data-overlap]:where([data-tone='danger'])", "&[data-overlap][data-state='appr']:where([data-tone='danger'])",
+                "&[data-overlap][data-ring]:where([data-tone='danger']:not([data-draft]))",
+                "&:is([data-conflict], [data-bounds])", "&:is([data-conflict], [data-bounds])[data-state='appr']",
+                "&:is([data-conflict], [data-bounds])[data-ring]:where([data-tone]:not([data-draft]))",
+            ];
+            const order = rings.map((key) => keys.indexOf(key));
+            expect(order.every((at) => at >= 0), name).toBe(true);
+            expect(order, name).toEqual([...order].sort((a, b) => a - b));
+            // No rule of an overlap outweighs the conflict's it stands before: a danger status in an overlap pair holding a
+            // conflict wears the conflict's ring, on a plain, a confirmed or an open box.
+            expect(rings.map(weight), name).toEqual([1, 1, 2, 2, 1, 2, 2, 1, 2, 2]);
+        }
+        // The danger keeps its ring in an overlap pair — inside a confirmed box's too.
+        const bar = slot(planSlotRecipe, "bar");
+        expect(shadow(bar, "&[data-overlap]:where([data-tone='danger'])")).toBe("0 0 0 1.5px var(--status-ink)");
+        expect(shadow(bar, "&[data-overlap][data-state='appr']:where([data-tone='danger'])")).toBe("inset 0 0 0 1.5px {colors.brand.solid}, 0 0 0 1.5px var(--status-ink)");
+        expect(shadow(slot(planSlotRecipe, "milestoneDot"), "&[data-tone][data-ring]:is([data-conflict], [data-bounds])")).toBe(`${open}, ${CONFLICT_RING}`);
     });
 
     test("a bin holding a conflict rises over the link layer when hovered or selected, as any bin does", () => {

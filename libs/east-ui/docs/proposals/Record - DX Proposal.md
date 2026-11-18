@@ -22,7 +22,7 @@ References: the Sheet's authoring layer in e3-ui (`packages/e3-ui/src/sheet/` �
     }}
     columnGroups={[{ label: "Core", columnKeys: ["intake"] }]}
     inspector
-    onApply={Record.onApply(people, { keyed: true })}
+    record={people}
 />
 ```
 
@@ -43,7 +43,7 @@ The payload holds the Sheet's root (`SheetRootType`), built by the very code `<S
 **Its rows**, as the Sheet takes them:
 
 - `record` is a record bound with its patch mutation, `Record.bind(record)`. Its entries are the rows, in key order, and each row's id is its key's text. `window={Data.bindPaged(record)}` reads a large one a window at a time.
-- The `rows` source of `slice` (`Slice.bindRecords`) gives its record's rows, paged from it, with the narrowing drawn over them as the lens. Edits commit through `onApply={Record.onApply(record, { keyed: true })}`.
+- The `rows` source of `slice` (`Slice.bindRecords`) gives its record's rows, paged from it, with the narrowing drawn over them as the lens. The Record is handed the record beside the rail, `record={Record.bind(record)}`, and edits commit through it; without it the Record is read only.
 
 ## 2. The author's API
 
@@ -55,7 +55,7 @@ A sketch: proposed names, not code that compiles today.
 |---|---|---|
 | `record` · `window` | `Record.bind(record)`; `Data.bindPaged(record)` | The rows: the record's entries (§1) |
 | `slice` | `{ slice: Slice.bindRecords(key, { rows, … }) }` | The rail on the toolbar (search, filters, presets, the summary) and, with a `rows` source, the rows |
-| `onApply` | `Record.onApply(record, { keyed: true })` | With `slice`: the Apply that commits each batch through the record's patch door |
+| `record` beside `slice` | `Record.bind(record)` | With a `rows` source: the record that source pages, which each batch commits through, by key. Without it the Record is read only. `onApply` is not taken (east-workspace#1622) |
 | `columns` | `{ field: Record.column.*(R, …) }` | The columns, in order, keyed by the row's fields. An `age` column alone is keyed by a name of its own (§2.4) |
 | `columnGroups` | `[{ label, columnKeys }]` | The Table's column-group row: each group a run of adjacent columns under one label; `""` draws no label and no rule. The inspector's sections follow them |
 | `registers` | `{ name: Record.register.members(…) }` | The registers the `reference`, `enum`, `set`, `person` and `cycle` columns name. A member is typed by its label, its key or an alias, and kept by its key (§2.8) |
@@ -449,7 +449,7 @@ const skills = East.function([], UIComponentType, (_$) => (
                         { label: "Advanced", columnKeys: ["auditing", "training", "planning"] },
                     ]}
                     inspector
-                    onApply={Record.onApply(people, { keyed: true })}
+                    record={people}
                     name="skills"
                 />
             </Box>

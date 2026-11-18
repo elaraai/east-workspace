@@ -202,7 +202,8 @@ export interface E3UnitHold {
  * - `lost`: e3 answers the request — a mutation commits — but its answer never arrives, and the fetch fails as a network does;
  * - `untagged`: e3 answers, and its answer arrives without the headers that tag it — its `ETag`, and the content hash it
  *   names (`X-Content-SHA256`) — as through a proxy that drops them;
- * - an {@link E3Alteration}: e3 answers, and its answer's body arrives as the alteration makes it from e3's;
+ * - an {@link E3Alteration}: e3 answers, and its answer's body arrives as the alteration makes it from e3's — late, where the
+ *   test holds the request's answers ({@link TestE3.holdAnswers});
  * - an {@link E3Refusal}: the request never reaches e3, and the fetch answers as e3 answers a write it refuses.
  */
 export type E3Failure =
@@ -762,6 +763,9 @@ function testE3Over(web: WebE3, units: HeldUnits, packageRef: string): TestE3 {
                     const body = failure.alter(new Uint8Array(await answered.arrayBuffer()), entry);
                     const headers = new Headers(answered.headers);
                     headers.delete("Content-Length");
+                    // e3 has answered: an altered answer the test holds is slow on its way back, as any answer is.
+                    const slow = answerHolds.find((candidate) => candidate.live && candidate.match(entry));
+                    if (slow !== undefined) await parkOn(slow, request.signal);
                     return await kept(entry, new Response(body, { status: answered.status, statusText: answered.statusText, headers }));
                 }
                 if ("refuse" in failure) {

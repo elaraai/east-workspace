@@ -17,7 +17,6 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
@@ -33,21 +32,15 @@ import { stageRunUnit } from './units.js';
 import { datasetWrite } from '../trees.js';
 import { packageRead } from '../packages.js';
 import { packageImport } from '../package-files.js';
-import { createTempDir, createTestRepo, removeTempDir, removeTestRepo } from '../test-helpers.js';
+import { createTempDir, createTestRepo, removeTempDir, removeTestRepo, stockRuntimesOnPath } from '../test-helpers.js';
 import { LocalStorage } from '../storage/local/index.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 
 const EAST_NODE: Runner = { runtime: 'east-node', platforms: ['@elaraai/east-node-std'] };
 
-/** Whether an `east-py` CLI resolves on PATH — the e3 CI workflow installs
+/** Whether an `east-py` CLI answers on PATH — the e3 CI workflow installs
  *  it (uv tool) on every leg; locally the east-py case skips when absent. */
-const eastPyAvailable = (() => {
-  const probe = spawnSync('east-py', ['version'], {
-    stdio: 'ignore',
-    shell: process.platform === 'win32',
-  });
-  return probe.status === 0;
-})();
+const eastPyAvailable = stockRuntimesOnPath().includes('east-py');
 
 describe('a task body run through exec', () => {
   let repo: string;

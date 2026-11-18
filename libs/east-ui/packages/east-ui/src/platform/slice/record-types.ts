@@ -58,6 +58,9 @@ export type RecordSliceReadType = typeof RecordSliceReadType;
 
 /**
  * Persistable record narrowing. Resolution changes presentation only.
+ * @remarks What the store keeps is the viewer's own choices. What a Slice's
+ * `read` answers is the narrowing every read of its source carries: those
+ * choices and, on a scoped source, the page's scope with them (#1621).
  * @property where - Current field choices.
  * @property preset - Selected preset, if any.
  * @property resolution - Shared presentation resolution; never changes row count.
@@ -172,10 +175,15 @@ export type RecordSliceIndexType = typeof RecordSliceIndexType;
  * @property range - The field the range pill and a Plan's axis share.
  * @property search - Fields offered for prefix search.
  * @property presets - Named supported narrowings.
+ * @property scope - The page's scope (#1621): each scoped field's exact values, as `.east` literals. Every read of the
+ *   source carries it beside the viewer's choices, the rail offers no control of a scoped field, and nothing the viewer
+ *   does clears it. A field whose list is empty — one that was an East expression — reads no rows. A config an earlier
+ *   release wrote holds none, and does not decode under this type (docs/conventions/WIRE_MIGRATION.md).
  */
 export const RecordSliceConfigType = StructType({
     fields: ArrayType(RecordSliceFieldType), indexes: ArrayType(RecordSliceIndexType),
     range: OptionType(StringType), search: ArrayType(StringType), presets: ArrayType(RecordSlicePresetType),
+    scope: RecordSliceWhereType,
 });
 export type RecordSliceConfigType = typeof RecordSliceConfigType;
 
@@ -202,17 +210,21 @@ export type RecordSliceDomainType = typeof RecordSliceDomainType;
  * Record controls' non-generic handle, safe to embed in component IR.
  * @remarks The typed authoring handle adds data; chrome keeps only this shape.
  * @property key - Store identity.
- * @property config - Controls and supported paths.
- * @property read - Read tracked narrowing state.
- * @property write - Replace state after validating its complete path.
- * @property choose - Choose canonical values for a field; empty clears it.
+ * @property config - Controls and supported paths, and the page's scope.
+ * @property read - Read tracked narrowing state: the narrowing every read of the source carries, the viewer's choices and
+ *   the page's scope together (#1621).
+ * @property write - Replace state after validating its complete path. A scoped field's clause is the page's: the state is
+ *   kept without it, and one that holds another clause for it is refused.
+ * @property choose - Choose canonical values for a field; empty clears it. A scoped field takes none.
  * @property range - Set a half-open range, with canonical endpoints.
  * @property prefix - Set a String prefix.
- * @property clear - Clear one field and any dependent trailing choices.
- * @property clearAll - Clear the narrowing.
+ * @property clear - Clear one field and any dependent trailing choices; never a scoped field.
+ * @property clearAll - Clear the viewer's choices; the page's scope stays.
  * @property count - Exact narrowed count; none while pending.
- * @property countWhere - Exact count of a read — a saved narrowing, and a read by area's clause — without changing current state.
- * @property total - Exact primary-row count; none while pending.
+ * @property countWhere - Exact count of a read — a saved narrowing, and a read by area's clause — without changing current
+ *   state. The read is counted as given: one that is to hold the page's scope names it, as the narrowing `read` answers does.
+ * @property total - Exact count of the rows the source holds, what a narrowed count is out of: the record's primary rows,
+ *   or on a scoped source the rows its page's scope holds (#1621); none while pending.
  * @property domain - Inclusive numeric/date extent, ignoring that field's range; none while pending or empty.
  * @property values - Known values, each with its exact count under the other fields' choices, the chosen marked.
  * @property suggest - At most eight distinct String values with exact counts.
@@ -267,25 +279,40 @@ export type RecordSliceBindType = typeof RecordSliceBindType;
  * `source` is the binding the Slice narrows (#1438): what a builder reading
  * the narrowed rows' nested series index reads through — its cells, its
  * maintenance and its fill of a page — the record's, whatever the narrowing.
+ * `scoped` names the fields the page's scope holds (#1621), each a field of a
+ * Struct whose values say nothing: the names are known where the page is
+ * built, though the scope's values are the page's to give when it runs, so a
+ * builder that writes a new row's scoped fields adds code for those fields
+ * alone, and none over a source with no scope. `pageBase` pages the rows the
+ * page holds of the source, whatever the viewer chooses (#1621): the record's
+ * own, in its order, or on a scoped page the scope's, through the index on
+ * exactly its fields, in their keys' order under each of its values — a
+ * Sheet's rows over the source, which its key search seeks.
  * @typeParam C - The collection type one narrowed window serves.
  * @typeParam M - Each index's metadata, as the binding's type holds it.
  * @typeParam N - The binding's nested part, as its type holds it.
  * @typeParam S - The binding's type.
+ * @typeParam X - The scoped fields, a Struct with a Null field named for each.
  * @param collection - Window type.
  * @param indexes - Each index's metadata type.
  * @param nested - The nested part's type.
  * @param source - The binding's type.
+ * @param scoped - The scoped fields' type.
  * @returns The typed record Slice handle.
  */
-export function RecordSliceHandleType<C extends EastType | string, M extends EastType | string, N extends EastType | string, S extends EastType | string>(
-    collection: C, indexes: M, nested: N, source: S,
+export function RecordSliceHandleType<C extends EastType | string, M extends EastType | string, N extends EastType | string, S extends EastType | string,
+    X extends EastType | string>(
+    collection: C, indexes: M, nested: N, source: S, scoped: X,
 ) {
     return StructType({ ...RecordSliceBindType.fields, data: LiveSourceType(collection),
         /** Read a captured narrowing — and a read by area's clause — without replacing the shared controls' state. */
         pageWhere: FunctionType([RecordSliceReadType, IntegerType, IntegerType], OptionType(collection)),
+        /** Read a window of the rows the page holds of the source: the record's own, or the scope's, in their keys' order under each of its values. */
+        pageBase: FunctionType([IntegerType, IntegerType], OptionType(collection)),
         indexes,
         nested,
         source,
+        scoped,
     });
 }
 
@@ -341,8 +368,8 @@ export function RecordSlicesHandleType<S extends Record<string, EastType>>(sourc
 }
 
 /** New record-arm bind; local slice_bind remains byte-for-byte unchanged. @internal */
-export const recordSliceBindPlatform = East.genericPlatform("slice_bind_record", ["S", "C", "M", "N"],
-    [StringType, "S", RecordSliceConfigType, RecordSliceStateType], RecordSliceHandleType("C", "M", "N", "S"), { optional: true });
+export const recordSliceBindPlatform = East.genericPlatform("slice_bind_record", ["S", "C", "M", "N", "X"],
+    [StringType, "S", RecordSliceConfigType, RecordSliceStateType], RecordSliceHandleType("C", "M", "N", "S", "X"), { optional: true });
 
 const descriptor = [StringType, "S", RecordSliceConfigType, RecordSliceStateType] as const;
 function op<const A extends readonly (EastType | string)[], O extends EastType | string>(name: string, args: A, output: O) {
@@ -374,6 +401,7 @@ export const RecordSlicePrimitives = {
     togglePreset: op("toggle_preset", [StringType], NullType),
     setResolution: op("set_resolution", [OptionType(TimeResolutionType)], NullType),
     pageWhere: op("page_where", [RecordSliceReadType, IntegerType, IntegerType], OptionType("C")),
+    pageBase: op("page_base", [IntegerType, IntegerType], OptionType("C")),
     dataPage: op("data_page", [IntegerType, IntegerType], OptionType("C")),
     dataSeek: op("data_seek", [SeekQueryType], OptionType(SeekRangeType)),
     dataQuery: op("data_query", [], StringType),

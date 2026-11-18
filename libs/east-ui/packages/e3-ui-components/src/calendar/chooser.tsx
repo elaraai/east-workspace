@@ -21,24 +21,44 @@
  *
  * It leaves out what the kind's source of the slice hides, as the Calendar's
  * other Choosers leave out what the rail hides (ruled 27 Oct 2026): which of
- * each page it lists the source's choices hold is asked of e3 — one request a
+ * each page it lists the viewer's choices hold is asked of e3 — one request a
  * page, the membership read the hidden pick reads (`recordSliceWithinAt`) —
  * and the rest are dropped, but the resource the field holds, an event's own,
  * which stays offered whatever the choices hide. A step onto a resource they
- * hide picks nothing. It searches the kind whole by key, as it always has, so
- * its count is the kind's.
+ * hide picks nothing. With no page scope it searches the kind whole by key, as
+ * it always has, so its count is the kind's. On a page whose source holds a
+ * scope (#1621) it searches and lists the rows the page holds alone — every
+ * read carries the scope — through the source's own key search
+ * (`recordSliceKeySearch`), which places a key's matches among them a block
+ * for each of the scope's values, the box's list the blocks one after another
+ * (`stretchesAt`), and their windows the page's rows (`entries`); its count is
+ * the scope's matches.
  *
  * @packageDocumentation
  */
 
-import { createContext, useCallback, useContext, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useRef, type ReactNode } from "react";
 import { Box } from "@chakra-ui/react";
-import { StringType, equalFor, toEastTypeValue, type EastTypeValue, type ValueTypeOf } from "@elaraai/east";
+import { StringType, equalFor, printFor, toEastTypeValue, type EastTypeValue, type ValueTypeOf } from "@elaraai/east";
 import type { FieldSpecValue } from "@elaraai/east-ui";
-import type { DatasetKeyMatchRange, DatasetKeyQuery, RecordSliceBindType } from "@elaraai/east-ui/internal";
+import {
+    RecordSliceWhereType, recordSliceBase, recordSliceChosen, recordSliceScoped, toSeekQuery,
+    type DatasetKeyMatchRange, type DatasetKeyQuery, type RecordSliceBindType,
+} from "@elaraai/east-ui/internal";
 import { DatasetKeySearch, useSliceReactivity, useTrackedEvaluation } from "@elaraai/east-ui-components";
-import { awaitTracked, recordSliceWithinAt, toSeekQuery } from "@elaraai/east-ui-components/internal";
+import { awaitTracked, recordSliceBaseWithinAt, recordSliceWithinAt } from "@elaraai/east-ui-components/internal";
+import { useMoves } from "../shared/schedule/hidden.js";
+import { foundRange, recordMatchBlocks, stretchesAt, type MatchBlock } from "../shared/schedule/search-records.js";
 import type { CalendarPagedValue } from "./pages.js";
+
+const printWhere = printFor(RecordSliceWhereType);
+
+/** A stretch of the box's list, read from one window of the rows it lists: its first row there, how many, and its first line. */
+interface ListedStretch {
+    readonly from: bigint;
+    readonly n: number;
+    readonly at: number;
+}
 
 /** A resource's key is a String: what the box parses a typed key as. */
 const KEY_TYPE: EastTypeValue = toEastTypeValue(StringType);
@@ -78,33 +98,58 @@ export function PagedChooser({ chooser, chosen, onPick, readOnly = false }: {
     const { paged, noun, nameOf, part } = chooser;
     // The source's choices, followed as they move: the box lists its lines again by them.
     const moved = useSliceReactivity(part?.key);
+    // On a scoped page (#1621), the latest find's blocks of matches among the rows the page holds: what its list reads.
+    const scoped = part !== undefined && recordSliceScoped(part);
+    // The box asks its query again as the page's scope moves — another press's page — its matches that page's rows.
+    const requery = useMoves([part === undefined ? "" : printWhere(recordSliceBase(part))]);
+    const blocks = useRef<readonly MatchBlock[]>([]);
+    const finds = useRef(0);
     const find = useCallback(async (query: DatasetKeyQuery): Promise<DatasetKeyMatchRange> => {
+        if (part !== undefined && recordSliceScoped(part)) {
+            const mine = ++finds.current;
+            const runs = await recordMatchBlocks(part, query);
+            if (mine === finds.current) blocks.current = runs;
+            return foundRange(runs);
+        }
         if (paged.seek.type !== "some") return { found: false, row: 0, count: 0 };
         const seek = paged.seek.value;
         const at = await awaitTracked(() => seek(toSeekQuery(query)));
         return { found: at.found, row: Number(at.row), count: Number(at.count) };
-    }, [paged]);
+    }, [paged, part]);
     /**
-     * Which of the kind's own resources `[row, row + limit)`, in their key order — its source's record's own rows — the
-     * source's choices hold, asked of e3 over that page in one request; `undefined` while the source chooses nothing.
+     * Where the box's lines `[row, row + limit)` are read from: on a scoped page, each block's stretch of the rows the page
+     * holds; else the kind's own resources there, in their key order.
      */
-    const heldAt = useCallback(async (row: number, limit: number): Promise<readonly boolean[] | undefined> => {
-        const where = part?.read().where;
-        if (part === undefined || where === undefined || where.size === 0) return undefined;
-        return awaitTracked(() => recordSliceWithinAt(part, where, BigInt(row), BigInt(limit)));
-    }, [part]);
+    const stretches = useCallback((row: number, limit: number): ListedStretch[] => (scoped
+        ? stretchesAt(blocks.current, row, limit).map(({ run, offset, n, at }) => ({ from: run.start + BigInt(offset), n, at }))
+        : [{ from: BigInt(row), n: limit, at: row }]), [scoped]);
+    /**
+     * Which of the rows `[from, from + n)` the Chooser lists the viewer's choices hold — the kind's own resources in their key
+     * order, or on a scoped page the rows it holds — asked of e3 over them in one request; `undefined` while the viewer
+     * chooses nothing, the page's scope no choice.
+     */
+    const heldAt = useCallback(async (from: bigint, n: number): Promise<readonly boolean[] | undefined> => {
+        if (part === undefined || !recordSliceChosen(part)) return undefined;
+        const where = part.read().where;
+        return awaitTracked(() => (scoped ? recordSliceBaseWithinAt(part, where, from, BigInt(n)) : recordSliceWithinAt(part, where, from, BigInt(n))));
+    }, [part, scoped]);
     /** Whether the Chooser offers a resource: one the source's choices hold, or the field's own. */
     const offered = useCallback((key: string, held: boolean | undefined) => held !== false || (chosen !== undefined && keyEqual(key, chosen)), [chosen]);
     const listRange = useCallback(async (row: number, limit: number) => {
-        const [rows, held] = await Promise.all([awaitTracked(() => paged.entries(BigInt(row), BigInt(limit))), heldAt(row, limit)]);
-        return rows.flatMap((r, i) => offered(r.key, held?.[i])
-            ? [{ row: row + i, label: r.meta.type === "some" ? `${r.label} · ${r.meta.value}` : r.label, text: r.label }] : []);
-    }, [paged, heldAt, offered]);
+        const read = await Promise.all(stretches(row, limit).map(async ({ from, n, at }) => {
+            const [rows, held] = await Promise.all([awaitTracked(() => paged.entries(from, BigInt(n))), heldAt(from, n)]);
+            return rows.flatMap((r, i) => offered(r.key, held?.[i])
+                ? [{ row: at + i, label: r.meta.type === "some" ? `${r.label} · ${r.meta.value}` : r.label, text: r.label }] : []);
+        }));
+        return read.flat();
+    }, [paged, stretches, heldAt, offered]);
     const jump = useCallback((row: number) => {
-        void Promise.all([awaitTracked(() => paged.entries(BigInt(row), 1n)), heldAt(row, 1)])
+        const [stretch] = stretches(row, 1);
+        if (stretch === undefined) return;
+        void Promise.all([awaitTracked(() => paged.entries(stretch.from, 1n)), heldAt(stretch.from, 1)])
             .then(([[picked], held]) => { if (picked !== undefined && offered(picked.key, held?.[0])) onPick(picked.key); })
             .catch((error: unknown) => { console.error("[Calendar] the resource picked could not be read:", error); });
-    }, [paged, heldAt, offered, onPick]);
+    }, [paged, stretches, heldAt, offered, onPick]);
     // The resource the field holds, named by a window the frame holds, else by its own row read by its key (retest C6).
     const held = chosen === undefined ? undefined : nameOf(chosen);
     const readName = useCallback((): string | undefined => {
@@ -116,7 +161,7 @@ export function PagedChooser({ chooser, chosen, onPick, readOnly = false }: {
     const name = chosen === undefined ? chooser.unassigned : held ?? (read.ok ? read.value : undefined) ?? chosen;
     if (readOnly) return <Box data-calendar-chooser="" data-readonly="">{name}</Box>;
     return <Box data-calendar-chooser="">
-        <DatasetKeySearch keyType={KEY_TYPE} label={name} onFind={find} onListRange={listRange} onJump={jump} browseQuery={BROWSE} relist={moved}
+        <DatasetKeySearch keyType={KEY_TYPE} label={name} onFind={find} onListRange={listRange} onJump={jump} browseQuery={BROWSE} relist={moved} requery={requery}
             noMatchesText={`No ${noun} with that key. Search by a key's start.`} />
     </Box>;
 }

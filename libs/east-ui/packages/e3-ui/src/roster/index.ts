@@ -20,7 +20,9 @@
  * do: the app's `pay` and `check` over bytes at `PayRequest(R)` and
  * `CheckContext(R)` — or, over a reference record the slice's `reference`
  * source reads (#1551), `CheckContext(R, P)`, its rows crossing as bytes beside
- * their type — and the fit's binding checked against `FitRequest(R)`.
+ * their type. The fit's and the optimiser's bindings are checked against their
+ * request and answer, neither of which carries a row (east-workspace#1622,
+ * #1624).
  * The renderer compiles the Roster's functions over `R`, the duty kind's
  * `rowType`.
  *
@@ -28,20 +30,20 @@
  */
 
 import {
-    ArrayType, BlobType, BooleanType, DateTimeType, East, Expr, FunctionType, NullType, OptionType, SetType, StringType, StructType, VariantType,
+    ArrayType, BlobType, BooleanType, DateTimeType, DictType, East, Expr, FunctionType, NullType, OptionType, SetType, StringType, StructType, VariantType,
     isTypeEqual, none, printType, some, variant,
     type EastType, type ExprType, type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { EastUI, type UIElement } from "@elaraai/east-ui";
 import { RecordSlicesChromeType, RowSourceType, type RecordSlicesChromeOptions } from "@elaraai/east-ui/internal";
-import { FuncBindingType, boundFuncSignature, type BoundFunc } from "../bind/func.js";
+import { FuncBindingType, boundFuncSignature, type BoundDraftsFunc, type BoundFunc } from "../bind/func.js";
 import { scheduleCheck } from "../schedule/index.js";
 import type { ScheduleEventKind } from "../schedule/events.js";
 import { ScheduleAuthorTabType, buildScheduleTab } from "../schedule/library.js";
 import type { SchedulePeriods } from "../schedule/periods.js";
 import type { ScheduleResourceKind } from "../schedule/resources.js";
 import { ScheduleClockType, SchedulePeriodsKindType, ScheduleRosterKindType, ScheduleRosterNewDutyType } from "../schedule/types.js";
-import { optimiseBinding, type OptimiseContract } from "../utils/optimise.js";
+import { OptimisePeriodType, optimiseBinding, type OptimiseHandle } from "../utils/optimise.js";
 import { SCHEDULE_REFERENCE, ScheduleReferenceType, referenceCheckRefusal, referenceRowType, scheduleReference } from "../schedule/reference.js";
 import { recordSources } from "../utils/record-sources.js";
 import { firstView, literalViews, viewsProp, type ViewsProp } from "../utils/views.js";
@@ -53,7 +55,7 @@ import {
     type RosterGroups, type RosterListKind, type RosterPatterns, type RosterPositions, type RosterProposals, type RosterShifts,
 } from "./lists.js";
 import { rosterCheck, rosterRest } from "./rules.js";
-import { rosterSlotOf } from "./times.js";
+import { rosterSlotOf, rosterWindow } from "./times.js";
 import { isRosterTargets, rosterTargets, type RosterTargets } from "./targets.js";
 import * as T from "./types.js";
 
@@ -107,7 +109,7 @@ export const RosterVocabularyType = StructType({
  * and the form its function takes, which the tag reads from its type.
  *
  * @property binding - The binding, which names the function
- * @property edges - Whether it takes the duties at the week's edges: from `Roster.Types.OptimiseRequest(R, { edges: true })` to `Roster.Types.OptimiseResult(R, { edges: true })`
+ * @property edges - Whether it may change the duties at the week's edges: asked `Roster.Types.OptimiseRequest({ edges: true })`, with the keys of those it must leave
  */
 export const RosterOptimiseBindingType = StructType({ binding: FuncBindingType, edges: BooleanType });
 /** Type representing {@link RosterOptimiseBindingType}. */
@@ -131,7 +133,7 @@ export type RosterOptimiseBindingType = typeof RosterOptimiseBindingType;
  * @property currency - How costs print
  * @property check - The app's issues, from a `CheckContext(R)` as bytes — or, with `reference`, a `CheckContext(R, P)`
  * @property reference - The reference record the app's check reads (#1551): its rows in a window, through the slice's `reference` source, as bytes beside their type; `none` without one
- * @property fit - The app's fit, by its `e3.function`'s name: who fits a Find fix's need; `none`, no Find fix is offered (#1334)
+ * @property fit - The app's fit, by its `e3.function`'s name and the records it lists in `drafts` (#1334, east-workspace#1624): who fits a Find fix's need, asked with the Roster's unsaved edits of those records as drafts; `none`, no Find fix is offered
  * @property optimise - The app's optimiser, by its `e3.function`'s name, and whether it takes the duties at the week's edges (#1553): what the Elara eye calls over the week in view, its result one edit of the session; `none`, no eye (#1409)
  * @property library - The library's tabs, in order
  * @property inspector - Whether the inspector pane shows
@@ -185,7 +187,7 @@ export const RosterComponent = EastUI.component("Roster", RosterPayloadType, { o
 
 /**
  * The Roster's own words for who is on it (#1516): every one optional, an omitted one today's. A fit's reason is the fit's
- * own, which runs on e3: `Roster.fit(R, { notALead })`.
+ * own, which runs on e3: `Roster.fit({ notALead })`.
  */
 export interface RosterVocabulary {
     /** People and hours that are not agency: "Permanent" (legend, inspector, coverage bar). */
@@ -273,25 +275,34 @@ export interface RosterProps<R extends EastType = EastType, P extends EastType =
     check?: SubtypeExprOrValue<FunctionType<[T.RosterCheckContextTypeFor<R>], ArrayType<typeof T.RosterIssueType>>>
         | SubtypeExprOrValue<FunctionType<[T.RosterReferenceCheckContextTypeFor<R, P>], ArrayType<typeof T.RosterIssueType>>>;
     /**
-     * The app's fit: `Func.bind` of its `e3.function` from `Roster.Types.FitRequest(R)` to `Roster.Types.FitResult`. A Find fix (find a
-     * lead, a trainer, skilled staff) asks it who fits the issue's need on its slot, over the complete staff, and the People tab
-     * shows its fits best first, each with its reason. `Roster.fit(R)` is the ready-made rule, `Roster.answer(R)` maps a rule over
-     * every person. Omitted, no Find fix is offered; `Roster.check(R)` still reports the issue.
+     * The app's fit (#1334, east-workspace#1624): `Func.bind` of its `e3.function` from `Roster.Types.FitRequest` — the need, the
+     * slot, the week's first day and the page's scope, no row — to `Roster.Types.FitResult`. A Find fix (find a lead, a trainer,
+     * skilled staff) asks it who fits the issue's need on its slot, and the People tab shows its fits best first, each with its
+     * reason, among what the rail shows; a person the answer does not name is not listed. The function reads the week's duties
+     * through the duty record's indexes (over `Roster.window`), the people it asks about and the configuration from the app's own
+     * records; it lists in its `drafts` each record it reads that the Roster edits — the duties', the targets' and the periods' —
+     * and reads them with the Roster's unsaved edits laid over them. `Roster.fit()` is the ready-made rule over one person
+     * against the week (`Roster.Types.Candidate`), and `Roster.answer` maps a rule over every person of what the function read
+     * (`Roster.Types.FitContext`). Omitted, no Find fix is offered; `Roster.check(R)` still reports the issue. The Roster checks
+     * the handle at build, naming what it asks and answers.
      */
-    fit?: BoundFunc<[T.RosterFitRequestTypeFor<R>], T.RosterFitResultType>;
+    fit?: BoundFunc<[typeof T.RosterFitRequestType], typeof T.RosterFitResultType> | BoundDraftsFunc<[typeof T.RosterFitRequestType], typeof T.RosterFitResultType>;
     /**
-     * The app's optimiser (#1409): `Func.bind` of its `e3.function` from `Roster.Types.OptimiseRequest(R)` — the week in view, the run
-     * number, the week's duties as drafted, its targets by slot and `Roster.Types.Context` — to `Roster.Types.OptimiseResult(R)`, the
-     * week's duties complete. The Elara eye in the toolbar calls it once per run; the result lands in the session as one edit, which
-     * one Undo reverts and Save commits with everything else. Omitted, no eye.
+     * The app's optimiser (#1409, east-workspace#1622): `Func.bind` of its `e3.function` from `Roster.Types.OptimiseRequest()` —
+     * the week in view, the run's number and the rail's narrowing, no row — to `Roster.Types.OptimiseResult(D)`, a patch of the
+     * duties' record `D`. The function reads the duties through the record's indexes and the targets, the staff and the
+     * configuration from the app's own records; it lists in its `drafts` each record it reads that the Roster edits — the duties,
+     * the targets and the periods — and reads them with the Roster's unsaved edits laid over them. The Elara eye in the toolbar
+     * calls it once per run; its answer lands in the session as one edit, which one Undo reverts and Save commits with
+     * everything else. Omitted, no eye.
      *
-     * One from `Roster.Types.OptimiseRequest(R, { edges: true })` to `Roster.Types.OptimiseResult(R, { edges: true })` also sees and
-     * plans the duties at the week's edges (#1553) — the window's duties the Roster places in another week, as drafted, and which of
-     * them are fixed — and its answer can change, remove or add them, in the run's one step; one that changes or removes a fixed duty,
-     * or puts one in a week that takes no edit, is refused, naming it. The Roster reads which form it takes from its type.
+     * One from `Roster.Types.OptimiseRequest({ edges: true })` may change the duties at the week's edges (#1553): its request
+     * carries `fixed`, the keys of those its answer must leave as they are, and its one patch can change, remove or add a duty
+     * at an edge, in the run's one step; one that changes or removes a fixed duty, or puts one in a week that takes no edit, is
+     * refused, naming it. The Roster reads which form it takes from its type, and checks the handle at build, naming what it
+     * asks and answers.
      */
-    optimise?: BoundFunc<[T.RosterOptimiseRequestTypeFor<R>], T.RosterOptimiseResultTypeFor<R>>
-        | BoundFunc<[T.RosterOptimiseEdgesRequestTypeFor<R>], T.RosterOptimiseEdgesResultTypeFor<R>>;
+    optimise?: OptimiseHandle;
     /**
      * The narrowing: one `Slice.bindRecords`, a source per record it narrows — the duty kind's slot (its interval index from the
      * start to the end, its `range` the start field, which the Roster's navigation writes), `targets`, `people` and `activities`,
@@ -473,72 +484,106 @@ function overBytes<O extends EastType>(fn: unknown, asks: EastType, answers: O, 
 }
 
 /**
- * The fit's binding, checked: `Func.bind` of an `e3.function` from `Roster.Types.FitRequest(R)` to `Roster.Types.FitResult`.
+ * The fit's binding, checked (#1334, east-workspace#1624): `Func.bind` of an `e3.function` from `Roster.Types.FitRequest` to
+ * `Roster.Types.FitResult`, which lists in its `drafts` each record it reads that the Roster edits — the optimiser's check
+ * (`utils/optimise.ts`), in the fit's words.
  *
  * @param fit - What the app passed as `fit`
- * @param rowType - The duty kind's row type
- * @returns The binding's descriptor, which names the function
+ * @param edits - The records the Roster edits, each by its name in the deployed package: the duties', the targets' and the periods'
+ * @returns The binding's descriptor, which names the function; evaluated, it fails where the function reads a record the
+ *   Roster edits and does not list it in `drafts`
  * @throws {Error} When it is not a `Func.bind` handle, or its function asks or answers another type, naming it
+ * @internal
  */
-function fitBinding(fit: unknown, rowType: EastType): ExprType<typeof FuncBindingType> {
-    const signature = boundFuncSignature(fit);
-    if (signature === undefined) {
-        throw new Error("Roster: `fit` is Func.bind of the app's e3.function from Roster.Types.FitRequest(R) to Roster.Types.FitResult, R the duties' row type");
-    }
-    const asked = signature.asks;
-    if (!isTypeEqual(asked, T.RosterFitRequestTypeFor(rowType))) {
-        // A FitRequest over another row: its week's duties' row.
-        const week = asked.type === "Struct" ? asked.fields["week"] : undefined;
-        const duties = week?.type === "Struct" ? week.fields["assignments"] : undefined;
-        const theirs = duties?.type === "Dict" && duties.value.type === "Struct" ? duties.value.fields["row"] : undefined;
-        throw new Error(theirs !== undefined && isTypeEqual(asked, T.RosterFitRequestTypeFor(theirs))
-            ? `Roster: \`fit\` is bound over duty rows ${printType(theirs)}, and the duty kind's rows are ${printType(rowType)} — bind a fit over Roster.Types.FitRequest of the duties' row type`
-            : `Roster: \`fit\` asks ${printType(asked)}, not Roster.Types.FitRequest(${printType(rowType)})`);
-    }
-    if (!isTypeEqual(signature.answers, T.RosterFitResultType)) {
-        throw new Error(`Roster: \`fit\` answers ${printType(signature.answers)}, not Roster.Types.FitResult`);
-    }
-    return (fit as ExprType<StructType<{ binding: typeof FuncBindingType }>>).binding;
+export function rosterFitBinding(fit: unknown, edits: readonly ExprType<StringType>[]): ExprType<typeof FuncBindingType> {
+    return optimiseBinding(fit, {
+        builder: "Roster",
+        prop: { name: "fit", asked: "the question and the page's scope", answers: "a verdict for each person the function considered", unseen: "answer around" },
+        request: T.RosterFitRequestType, result: T.RosterFitResultType,
+        signature: "from Roster.Types.FitRequest to Roster.Types.FitResult",
+        names: { request: "Roster.Types.FitRequest", result: "Roster.Types.FitResult" },
+        edits,
+    });
 }
 
 /**
- * Which form the app's optimiser takes (#1553), from its function's type: one asking a request with the edges takes the
- * edges, whatever its rows — so a refusal of one bound over other rows names the edges' form.
+ * Which form the app's optimiser takes (#1553), from its function's type: one asked the keys it must leave, `fixed`, may
+ * change the duties at the week's edges.
  *
  * @param optimise - What the app passed as `optimise`
- * @returns Whether it takes the duties at the week's edges; `false` for anything else, which the contract refuses or takes
+ * @returns Whether it takes the duties at the week's edges; `false` for anything else, which the check refuses or takes
  */
 function takesEdges(optimise: unknown): boolean {
-    const asked = boundFuncSignature(optimise)?.asks;
-    return asked?.type === "Struct" && asked.fields["edges"] !== undefined && asked.fields["fixed"] !== undefined;
+    // An optimiser's call passes the Roster's unsaved edits as drafts: a handle of a function that lists them is read as any other
+    const asked = boundFuncSignature(optimise, "Roster", "optimise", { drafts: true })?.asks;
+    return asked?.type === "Struct" && asked.fields["fixed"] !== undefined;
 }
 
 /**
- * What the Roster holds `optimise` to (#1409): `Func.bind` of an `e3.function` from `Roster.Types.OptimiseRequest(R)` to
- * `Roster.Types.OptimiseResult(R)`, R the duties' row type, or from and to them given `{ edges: true }` (#1553) — a request over
- * another row named by its duties' row.
+ * The Roster's `optimise` binding, checked (#1409, east-workspace#1622): `Func.bind` of an `e3.function` from
+ * `Roster.Types.OptimiseRequest()` — or, given `{ edges: true }` (#1553), `Roster.Types.OptimiseRequest({ edges: true })` — to
+ * `Roster.Types.OptimiseResult(D)` over the duties' record, which lists in its `drafts` each record it reads that the Roster
+ * edits: the duties', the targets' and the periods'.
  *
- * @param rowType - The duty kind's row type
+ * @param optimise - What the app passed as `optimise`
+ * @param duties - The duties' record type, `DictType(K, R)`
  * @param edges - Whether the function takes the duties at the week's edges ({@link takesEdges})
- * @returns The contract, for {@link optimiseBinding}
+ * @param edits - The records the Roster edits, each by its name in the deployed package: the duties', the targets' and the periods'
+ * @returns The binding's descriptor, which names the function; evaluated, it fails where the function reads a record the
+ *   Roster edits and does not list it in `drafts`
+ * @throws {Error} When it is not a `Func.bind` handle, or its function asks or answers another type, naming it
  */
-function rosterOptimiseContract(rowType: EastType, edges: boolean): OptimiseContract {
-    const rows = printType(rowType);
-    const requestOf = (row: EastType): EastType => edges ? T.RosterOptimiseRequestTypeFor(row, { edges: true }) : T.RosterOptimiseRequestTypeFor(row);
-    return {
-        builder: "Roster", request: requestOf(rowType),
-        result: edges ? T.RosterOptimiseResultTypeFor(rowType, { edges: true }) : T.RosterOptimiseResultTypeFor(rowType),
-        signature: "from Roster.Types.OptimiseRequest(R) to Roster.Types.OptimiseResult(R), or from and to both given { edges: true }, R the duties' row type",
-        names: { request: "Roster.Types.OptimiseRequest", result: "Roster.Types.OptimiseResult" },
-        rows: { request: rows, result: rows }, ...(edges ? { options: ", { edges: true }" } : {}),
-        noun: { theirs: "duty rows", ours: "the duty kind's rows" }, of: edges ? "the duties' row type, given { edges: true }" : "the duties' row type",
-        otherRows: (asked) => {
-            // An OptimiseRequest over another row: its duties' row.
-            const duties = asked.type === "Struct" ? asked.fields["duties"] : undefined;
-            const theirs = duties?.type === "Dict" ? duties.value : undefined;
-            return theirs !== undefined && isTypeEqual(asked, requestOf(theirs)) ? printType(theirs) : undefined;
+function rosterOptimiseBinding(
+    optimise: unknown, duties: DictType<EastType, EastType>, edges: boolean, edits: readonly ExprType<StringType>[],
+): ExprType<typeof FuncBindingType> {
+    const record = printType(duties);
+    return optimiseBinding(optimise, {
+        builder: "Roster",
+        request: edges ? T.RosterOptimiseRequestTypeFor({ edges: true }) : T.RosterOptimiseRequestTypeFor(),
+        result: T.RosterOptimiseResultTypeFor(duties),
+        signature: `from Roster.Types.OptimiseRequest() to Roster.Types.OptimiseResult(D), or from Roster.Types.OptimiseRequest({ edges: true }), D the duties' record type — here ${record}`,
+        names: {
+            request: edges ? "Roster.Types.OptimiseRequest({ edges: true })" : "Roster.Types.OptimiseRequest()",
+            result: `Roster.Types.OptimiseResult(${record})`,
         },
-    };
+        edits,
+    });
+}
+
+/**
+ * The Roster's optimiser as its payload carries it (#1553, east-workspace#1622): its binding, held to the duties' record
+ * and to the records the Roster edits — the duties', and the targets' and the periods' where it has them — and whether it
+ * takes the duties at the week's edges, which the tag reads from its function's type.
+ *
+ * @param optimise - What the app passed as `optimise`
+ * @param kind - The duty kind
+ * @param edits - The records the Roster edits ({@link rosterEdits})
+ * @returns The binding — evaluated, it fails where the function reads a record the Roster edits and does not list it in
+ *   `drafts` — and whether it takes the edges
+ * @throws {Error} When it is not a `Func.bind` handle, or its function asks or answers another type, naming it
+ * @internal
+ */
+export function rosterOptimise(
+    optimise: unknown, kind: ScheduleEventKind<EastType, EastType>, edits: readonly ExprType<StringType>[],
+): { binding: ExprType<typeof FuncBindingType>; edges: boolean } {
+    const edges = takesEdges(optimise);
+    return { binding: rosterOptimiseBinding(optimise, DictType(kind.keyType, kind.rowType), edges, edits), edges };
+}
+
+/**
+ * The records the Roster edits, each by its name in the deployed package: the duties', and the targets' and the periods'
+ * where it has them — what a function it asks, its optimiser or its fit, lists in `drafts` where it reads one.
+ *
+ * @param kind - The duty kind
+ * @param targets - The app's targets, where the Roster has them
+ * @param periods - What it publishes, where it publishes
+ * @returns The records' names
+ * @internal
+ */
+export function rosterEdits(
+    kind: ScheduleEventKind<EastType, EastType>, targets: RosterTargets | undefined, periods: SchedulePeriods | undefined,
+): readonly ExprType<StringType>[] {
+    return [kind.record, ...(targets === undefined ? [] : [targets.record]), ...(periods === undefined ? [] : [periods.record])];
 }
 
 /**
@@ -553,8 +598,9 @@ function rosterOptimiseContract(rowType: EastType, edges: boolean): OptimiseCont
  *   Roster values rather than its declaration; `events` holding other than one kind, or `resources` other than `people`
  *   and `agencies`; a duty kind whose resource names no `people`, or a resource kind read a window at a time; a `people`
  *   kind with no `group`; `positions` beside a duty kind with no `position` role; `pay` without `currency`; a `pay`, a
- *   `check` or a `fit` over another type, or an `optimise` that is not `Func.bind` of a function from `OptimiseRequest(R)` to
- *   `OptimiseResult(R)` (#1409); a library tab listed twice; a `view.period` its layout does not take, naming each
+ *   or a `check` over another type; a `fit` that is not `Func.bind` of a function from `FitRequest` to `FitResult`
+ *   (east-workspace#1624), or an `optimise` that is not `Func.bind` of a function from `OptimiseRequest()` (or
+ *   `OptimiseRequest({ edges: true })`) to `OptimiseResult(D)` over the duties' record (#1409, east-workspace#1622); a library tab listed twice; a `view.period` its layout does not take, naming each
  *   layout's periods; a `views` that lists nothing, names no layout, or leaves out `view.layout`; a `viewPeriods` that lists nothing, names no period, leaves out `view.period` or leaves a layout offered no period; `Roster.library.patterns()` without `patterns`; a `tileTimes` other than `"always"` or
  *   `"different"`, or a `letters` that is no boolean (#1406); a duty kind whose slot is `reference`, and a `check` that does not
  *   go with the slice's reference record (#1551) — a `reference` source and no check, a check over a reference the slice holds
@@ -676,9 +722,12 @@ export function createRosterPayload<R extends EastType, P extends EastType = nev
     const check = props.check === undefined ? undefined : overBytes(props.check,
         reference === undefined ? T.RosterCheckContextTypeFor(rowType) : T.RosterCheckContextTypeFor(rowType, reference), ArrayType(T.RosterIssueType),
         `Roster: \`check\` is an East function from Roster.Types.CheckContext(${checked}) to Array<Roster.Types.Issue>`);
-    const fit = props.fit === undefined ? undefined : fitBinding(props.fit, rowType);
-    const edges = takesEdges(props.optimise);
-    const optimise = props.optimise === undefined ? undefined : { binding: optimiseBinding(props.optimise, rosterOptimiseContract(rowType, edges)), edges };
+    // The fit and the optimiser, each held to the records the Roster edits: the duties', the targets' and the periods'
+    // (#1622, #1624) — a function that reads one lists it in `drafts`.
+    const edits = rosterEdits(kind as ScheduleEventKind<EastType, EastType>, props.targets, props.periods);
+    const fit = props.fit === undefined ? undefined : rosterFitBinding(props.fit, edits);
+    const optimise = props.optimise === undefined ? undefined
+        : rosterOptimise(props.optimise, kind as ScheduleEventKind<EastType, EastType>, edits);
 
     // The narrowing: a source per record it narrows, named after what it narrows.
     const library = props.library ?? [];
@@ -794,10 +843,12 @@ export interface RosterNamespace {
     coverage: typeof rosterCoverage;
     /** `check(R)`: computes the built-in warnings without a browser. */
     check: typeof rosterCheck;
-    /** `fit(R)`: the ready-made fit, one person's verdict for a Find fix's need on its slot. */
+    /** `fit(words?)`: the ready-made fit, one candidate's verdict for a Find fix's need on its slot (east-workspace#1624). */
     fit: typeof rosterFit;
-    /** `answer(R)`: a fit's answer from a rule per person. */
+    /** A fit's answer from what its function read and a rule per person: `(request, context, fit) → FitResult` (east-workspace#1624). */
     answer: typeof rosterAnswer;
+    /** The window a week's duties are read over, from its first day: the week and the twelve hours either side (east-workspace#1624). */
+    window: typeof rosterWindow;
     /** `weekHours(R)`: computes each person's total hours. */
     weekHours: typeof rosterWeekHours;
     /** `rest(R)`: computes the rest before and after a duty. */
@@ -817,10 +868,18 @@ export interface RosterNamespace {
         Activity: T.RosterActivityType; Skill: T.RosterSkillType; Group: T.RosterGroupType; Shift: T.RosterShiftType; Position: T.RosterPositionType;
         Agency: T.RosterAgencyType; Person: T.RosterPersonType; Rules: T.RosterRulesType; Context: T.RosterContextType;
         CoverageLine: T.RosterCoverageLineType; Coverage: T.RosterCoverageType; Proposal: T.RosterProposalType; Fix: T.RosterFixType;
-        Issue: T.RosterIssueType; CheckContext: typeof T.RosterCheckContextTypeFor; Need: T.RosterNeedType; FitRequest: typeof T.RosterFitRequestTypeFor;
+        Issue: T.RosterIssueType; CheckContext: typeof T.RosterCheckContextTypeFor; Need: T.RosterNeedType;
+        /** What the app's fit is asked (east-workspace#1624): the need, the slot, the week's first day and the page's scope, and no row. */
+        FitRequest: T.RosterFitRequestType;
+        /** What a fit's function read, which `Roster.answer` answers from (east-workspace#1624): the people, the week's duties as their roles, the configuration. */
+        FitContext: T.RosterFitContextType;
+        /** One person against the week, which a fit's rule is asked about (east-workspace#1624). */
+        Candidate: T.RosterCandidateType;
         FitResult: T.RosterFitResultType; Fit: T.RosterFitType; Refusal: T.RosterRefusalType; PayRequest: typeof T.RosterPayRequestTypeFor;
         Pay: T.RosterPayType; Layout: typeof RosterLayoutType; Period: typeof RosterPeriodType; Pattern: T.RosterPatternType;
         TileTimes: typeof RosterTileTimesType; OptimiseRequest: typeof T.RosterOptimiseRequestTypeFor; OptimiseResult: typeof T.RosterOptimiseResultTypeFor;
+        /** A request's `period` (#1622): the period the Roster shows — `day`, `week` or `month` — `from` and `to` its start and end. */
+        OptimisePeriod: typeof OptimisePeriodType;
         /** A new duty, its roles and the pattern whose day made it: what the duty kind's `values` gives its own fields from (#1526). */
         NewDuty: typeof ScheduleRosterNewDutyType;
         /** A new target, its roles: what `Roster.targets`' `values` gives its own fields from (#1526). */
@@ -841,7 +900,7 @@ export const Roster: RosterNamespace = Object.assign(
     {
         shifts: rosterShifts, groups: rosterGroups, positions: rosterPositions, activities: rosterActivities, proposals: rosterProposals,
         patterns: rosterPatterns,
-        targets: rosterTargets, coverage: rosterCoverage, check: rosterCheck, fit: rosterFit, answer: rosterAnswer,
+        targets: rosterTargets, coverage: rosterCoverage, check: rosterCheck, fit: rosterFit, answer: rosterAnswer, window: rosterWindow,
         weekHours: rosterWeekHours, rest: rosterRest, slotOf: rosterSlotOf,
         library: { people: rosterPeopleTab, activities: rosterActivitiesTab, patterns: rosterPatternsTab, tab: rosterLibraryTab },
         people: removed("Roster.people is gone — the people are resources={{ people: Schedule.resources(staff.read(), { name, icon, label, group, … }) }}"),
@@ -852,10 +911,11 @@ export const Roster: RosterNamespace = Object.assign(
             Activity: T.RosterActivityType, Skill: T.RosterSkillType, Group: T.RosterGroupType, Shift: T.RosterShiftType, Position: T.RosterPositionType,
             Agency: T.RosterAgencyType, Person: T.RosterPersonType, Rules: T.RosterRulesType, Context: T.RosterContextType,
             CoverageLine: T.RosterCoverageLineType, Coverage: T.RosterCoverageType, Proposal: T.RosterProposalType, Fix: T.RosterFixType,
-            Issue: T.RosterIssueType, CheckContext: T.RosterCheckContextTypeFor, Need: T.RosterNeedType, FitRequest: T.RosterFitRequestTypeFor,
-            FitResult: T.RosterFitResultType, Fit: T.RosterFitType, Refusal: T.RosterRefusalType, PayRequest: T.RosterPayRequestTypeFor,
+            Issue: T.RosterIssueType, CheckContext: T.RosterCheckContextTypeFor, Need: T.RosterNeedType, FitRequest: T.RosterFitRequestType,
+            FitContext: T.RosterFitContextType, Candidate: T.RosterCandidateType, FitResult: T.RosterFitResultType, Fit: T.RosterFitType, Refusal: T.RosterRefusalType, PayRequest: T.RosterPayRequestTypeFor,
             Pay: T.RosterPayType, Layout: RosterLayoutType, Period: RosterPeriodType, Pattern: T.RosterPatternType,
             TileTimes: RosterTileTimesType, OptimiseRequest: T.RosterOptimiseRequestTypeFor, OptimiseResult: T.RosterOptimiseResultTypeFor,
+            OptimisePeriod: OptimisePeriodType,
             NewDuty: ScheduleRosterNewDutyType, NewTarget: T.RosterTargetRolesType,
         },
     },

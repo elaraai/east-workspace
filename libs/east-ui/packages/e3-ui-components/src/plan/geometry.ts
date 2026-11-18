@@ -9,7 +9,7 @@
  *
  * The model computes row heights from it (`rowHeight`, the virtualizer's sizes
  * and the paging ledger's window heights), and the canvas writes it once, on
- * its body, as CSS variables (`--plan-row-h`, `--plan-rail-h`, …) that the
+ * its body, as CSS variables (`--plan-row-h`, `--plan-strip-h`, …) that the
  * recipe reads wherever it draws one of these heights. The ledger's "band px
  * == rendered px" invariant rests on the two agreeing; before this they were
  * three hand-kept copies (model constants, recipe pixels, inline heights).
@@ -28,6 +28,13 @@
  * and a link meets either where it draws (#1258).
  */
 export const PLAN_CELL_INSET = 2;
+
+/**
+ * The one CSS variable the canvas writes on its body beside the table: the
+ * gutter's width (#1680's review), which the rows' template and the gutter's
+ * rule read. It is the viewer's to drag, so no density's table holds it.
+ */
+export const PLAN_GUTTER_VAR = "--plan-gutter-w";
 
 /** Every row and slot height the canvas lays out from, and the widths its elements draw at, in px. */
 export interface PlanGeometry {
@@ -53,11 +60,8 @@ export interface PlanGeometry {
     heatInset: number;
     /** A heat cell's minimum height. */
     heatCellMin: number;
-    /** A links-focus rail — a lone unrelated row, collapsed (R1). */
-    rail: number;
-    /** A links-focus gap band — a run of unrelated rows (R1). */
-    gap: number;
-    /** An expand-focus context strip — an unfocused row, compressed (R2). */
+    /** A context strip — an expand focus's unfocused row, compressed (R2), and a pinned row a links focus does not
+     *  gather (R1, #1680's review). A links focus's own bands are a group band's height. */
     strip: number;
     /** A mark inside a context strip. */
     stripMark: number;
@@ -122,6 +126,17 @@ export interface PlanGeometry {
     markTriangleWidth: number;
     /** The box an event mark's icon fits in, across and down. */
     markIconWidth: number;
+    // ── A bar's label (#1680's review): the links stand back from it and the room its bar pads it with ──
+    /** A bar's padding either side, which its label starts in from. */
+    barPadWidth: number;
+    /** A locked bar's padding either side. */
+    barPadLockedWidth: number;
+    /** The gap between a bar's lock, its label and its quantity. */
+    barGapWidth: number;
+    /** A bar's lock, across. */
+    lockWidth: number;
+    /** One glyph of a bar's label — its mono face at the bar's size draws every glyph this wide (`1ch`). */
+    barGlyphWidth: number;
 }
 
 const DEFAULT: PlanGeometry = {
@@ -130,7 +145,7 @@ const DEFAULT: PlanGeometry = {
     chartSpark: 32, chartExpanded: 88,
     // A heat row is a single-line row like any other (#949).
     heatRow: 32, heatInset: 3, heatCellMin: 16,
-    rail: 11, gap: 22, strip: 16, stripMark: 7,
+    strip: 16, stripMark: 7,
     tableLine: 11, tablePad: 6,
     laneCell: 22, laneGap: 2, lanePad: 3,
     bar: 20, rollBar: 12,
@@ -144,6 +159,8 @@ const DEFAULT: PlanGeometry = {
     // way to its room, down to its two 1.5px rings (3).
     barMinWidth: 18, chipMinWidth: 22, cellMinWidth: 12, tileMinWidth: 20, tileLeastWidth: 3,
     markDotWidth: 10, markDiamondWidth: 11, markTriangleWidth: 10, markIconWidth: 12,
+    // A bar's label: Chivo Mono at the bar's 11px draws every glyph 7 across (measured in the showcase, #1680's review).
+    barPadWidth: 7, barPadLockedWidth: 4, barGapWidth: 4, lockWidth: 8, barGlyphWidth: 7,
 };
 
 /** The two densities' tables. Dense tightens the shared row — the heat row

@@ -48,8 +48,8 @@ import { act, el, entry, madeFrom, planHarness, rowAt, settle, slot } from "./ha
 const h = planHarness();
 /** The jobs' record, as its dataset's requests name it. */
 const JOBS = `records.${ex.planPrintJobs.name}`;
-/** Press A1's bars. */
-const A1 = entry("presses.span", "Hall A", "a1");
+/** Press A1's own row, which its bars draw on: a resource of the works' halls (#1541). */
+const A1 = entry("presses", "1-presses-a", "a1");
 /** A job's bar on Press A1. */
 const bar = (c: HTMLElement, key: string) => c.querySelector<HTMLElement>(`${rowAt(A1)} ${el("data-run", "job", key)}`);
 /** The inspector pane, and one of its gesture buttons. */

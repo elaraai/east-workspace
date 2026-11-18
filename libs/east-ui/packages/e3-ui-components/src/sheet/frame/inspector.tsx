@@ -77,6 +77,7 @@ import {
     type FieldOption,
 } from "@elaraai/east-ui-components";
 import { FrameDrawer, useSlotStyles } from "@elaraai/east-ui-components/internal";
+import { breachTone } from "../../shared/bounds.js";
 import { useSheetInspect, type SheetCellEditorAt, type SheetInspect, type SheetInspectPlace, type SheetInspectTarget, type SheetInspectWrite, type SheetSelected } from "../index.js";
 import { formatTime, splitTimeToken, todayUtc, withTime } from "../parse/date.js";
 import { NULL_CELL, cellText, indexRegisters, takesClear, type SheetColumnMeta } from "../model.js";
@@ -647,6 +648,18 @@ export function issuesByField(issues: readonly TargetIssue[]): ReadonlyMap<strin
 }
 
 /**
+ * The tone a form says a bound a target's row breaks in (#1585), as `breachTone` says it from the issues holding Save:
+ * a field still missing, or one refused, makes it an error; a stored row's number outside its bounds, a warning, holds
+ * none. What Details, a phone's Details and its cell editor say a breach in — the Record's Details too.
+ *
+ * @param issues - The target's issues ({@link targetIssues})
+ * @returns `"error"` while one holds Save; `"warn"` otherwise
+ */
+export function targetBreachTone(issues: readonly TargetIssue[]): "warn" | "error" {
+    return breachTone(issues.filter((issue) => issue.kind !== "warning"));
+}
+
+/**
  * The author's own Details for a complete row (SB58): what their function returns for the row as bytes, its edit
  * written back as one transaction — every field its columns write through them at once, a field with none on the
  * draft. `undefined` for a band, for a row still missing a field or holding one unreadable, for a pane with no Details
@@ -711,7 +724,7 @@ function TargetView(props: TargetProps) {
     const band = target.kind === "band";
     const issues = targetIssues(target, inspect, form, words);
     // A bound the row breaks (#1585), said in the tone its Save stands in: as stored it warns; its change held, an error.
-    const breaches = issues.some((issue) => issue.kind !== "warning") ? "error" : "warn";
+    const breaches = targetBreachTone(issues);
     const isNew = target.baseline === undefined && target.value !== undefined;
     const idField = getSomeorUndefined(value.sheet.editing.idField);
     // Its id: a line's own where it has one (beside loose rows), else its entry's.
@@ -1081,7 +1094,7 @@ function CellEditorField({ value, words, hidden, styles, bar, inspect, target, f
     const writable = inspect.writable;
     const dirty = useDirty(spec, edit.formValue, edit.baseline);
     // A bound the row breaks (#1585), said in the tone its Save stands in, as Details says it.
-    const breaches = targetIssues(target, inspect, form, words).some((issue) => issue.kind !== "warning") ? "error" : "warn";
+    const breaches = targetBreachTone(targetIssues(target, inspect, form, words));
     if (touchKind(inspect, at.r, at.columnKey, spec) !== undefined) {
         return <TouchControl inspect={inspect} words={words} bar={bar} r={at.r} columnKey={at.columnKey} spec={spec} header={header} dirty={dirty} joins={joins}
             breaches={breaches} />;

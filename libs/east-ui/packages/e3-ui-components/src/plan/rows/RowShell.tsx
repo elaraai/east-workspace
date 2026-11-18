@@ -8,8 +8,9 @@
  * one two-column grid — the fixed gutter cell and a plot of `n` buckets — so
  * every kind aligns by construction. The shell renders the gutter identity
  * vocabulary (name / id / sub / value / meta / swatches / status dot / caret,
- * 30px-per-level indent), the plot's bucket grid lines, and the shared
- * now / cursor hairlines; the kind renderer supplies the plot content.
+ * one grid of fixed cells, an 8px indent per level), the plot's bucket grid
+ * lines, and the shared now / cursor hairlines; the kind renderer supplies the
+ * plot content.
  *
  * It is also a treegrid ROW (#819): `role="row"` at its level, selected and
  * expanded as it is, its gutter the `rowheader` and its plot a `gridcell`,
@@ -17,36 +18,48 @@
  */
 
 import { useCallback, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from "react";
+import { variant } from "@elaraai/east";
 import { Box, useChakraContext } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCaretDown, faLink, faUpRightAndDownLeftFromCenter } from "@fortawesome/free-solid-svg-icons";
 import {
     getSomeorUndefined, useDropCell, useDragLayerOptional, type CellCoord, type DragEventValue, type DragPayload, type DropCellOptions,
-    type DropVeto,
 } from "@elaraai/east-ui-components";
 import { proposeAt, spanFracs, unitsBetween } from "../../shared/time/drag.js";
 import { NowLine } from "../../shared/time/now-line.js";
 import { slotOfEnd, slotOfInstant } from "../../shared/time/slot.js";
-import { toPlanSlot } from "../slot.js";
+import { fromPlanSlot, toPlanSlot } from "../slot.js";
 import { spanWords } from "../edit/movable.js";
 import { usePlanEdit, type PlanProposal } from "../edit/store.js";
-import { holdsKey } from "../edit/use-carry.js";
+import { holdsKey, movedCandidate } from "../edit/use-carry.js";
+import { itemCandidate, itemRef, type PlanCandidateGesture, type PlanVeto } from "../edit/candidate.js";
 import type { PlanEventDrop } from "../edit/event-drag.js";
 import { LoadingWash, resolveColor } from "@elaraai/east-ui-components/internal";
 import { usePlanCursor, usePlanDispatch, usePlanGeometry, usePlanScale } from "../context.js";
 import { rowItemKey, type PlanRowValue } from "../model.js";
 import { statusText } from "../a11y.js";
 import { usePlanWords } from "../words.js";
-import type { PlanFocusTagWord } from "../messages.js";
 import type { PlanGridRow } from "../root/grid.js";
 import type { PlanDraftMark } from "../use-plan-editing.js";
 import { PLAN_EVENT_ELEMENT_SELECTOR } from "./element-select.js";
+import { laneBand, laneIndexAt, type LaneBand } from "./lanes.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
-/** Indent per nesting level (px) — a caret (14px) and its gap (6px), so a
- *  member's name starts exactly where its group's label text does (#949). */
-export const INDENT_PX = 20;
+/** Indent per nesting level (px, #1680's review): a row that folds has its
+ *  caret's cell, a leaf none, so a leaf's name starts at its level's indent. */
+export const INDENT_PX = 8;
+
+/** A laned row's lane, as its gutter line draws it (#1680's review): its caption, and where it sits down the row. */
+export interface PlanGutterLane {
+    /** Its caption; `undefined` for a lane that has none. */
+    readonly caption: string | undefined;
+    /** Its band, as fractions of the row's height. */
+    readonly band: LaneBand;
+}
+
+/** A row with no lanes. */
+const NO_LANES: readonly { readonly key: string }[] = [];
 
 /**
  * The plot's bucket-column separators, O(1) DOM per row (#616).
@@ -102,10 +115,10 @@ export interface PlanRowDrop {
     libraries: ReadonlySet<string>;
     /** Whether `data`'s session takes a gesture now (#880): its rows take moves, and cards. */
     data: boolean;
-    /** The canvas's veto over its IR `canDrop` (`useIRCanDrop`), asked of the
-     *  candidate event the drag's CURRENT bucket would produce — its duplicate
-     *  flag included. */
-    canDrop?: DropVeto | undefined;
+    /** The Plan's veto over what a drop would do (`canDrop`, #1541 U7), asked of
+     *  what the drag's CURRENT bucket would make of it on one of `data`'s rows —
+     *  its duplicate flag included — its refusal's words the ghost's. */
+    canDrop?: PlanVeto | undefined;
     /** The event kinds' drag and drop (#1196): what lands on their rows, its verdict and the ghost's words. */
     events?: PlanEventDrop | undefined;
 }
@@ -113,7 +126,7 @@ export interface PlanRowDrop {
 export interface RowShellProps {
     row: PlanRowValue;
     styles: Styles;
-    /** Grid template (`"168px 1fr"`) — one source for every band. */
+    /** Grid template (`"var(--plan-gutter-w) 1fr"`, the canvas's) — one source for every band. */
     gridTemplate: string;
     /** Row height (px) — fixed per kind (`model.rowHeight`). */
     height: number;
@@ -122,22 +135,24 @@ export interface RowShellProps {
     selected: boolean;
     /** The caret state for nesting parents (undefined ⇒ no caret). */
     caret?: { collapsed: boolean } | undefined;
-    /** Caret click (subtree collapse / chart spark↔expanded toggle). The
-     *  WHOLE gutter cell is the click target (the group-strip convention —
+    /** Caret click: the subtree's fold — a caret only folds (#1680's review).
+     *  The WHOLE gutter cell is the click target (the group-strip convention —
      *  a 14px caret is not a tree affordance); the plot keeps selection. */
     onCaretClick?: (() => void) | undefined;
     /** Table-row emphasis (K5: header wash / footer 2px top rule). */
     emphasis?: "header" | "footer" | undefined;
-    /** Extra content overlaid on the gutter cell (chart left-axis ticks). */
-    gutterOverlay?: ReactNode;
     /** Suppress the bucket grid lines (rows drawing their own canvas). */
     noGrid?: boolean;
     /** Row-scoped focus controls (R1 links / R2 expand) — 24px ghost buttons
-     *  at the end of the gutter line, after its value and status, always
-     *  shown, a pressed one in the brand tint (`Plan links.html`, #1258). */
+     *  in the gutter line's two control slots, links then expand, always
+     *  shown, a pressed one in the brand tint (`Plan links.html`, #1258). An
+     *  expandable chart's spark ↔ chart is its expand control's (#1680's review). */
     controls?: ReadonlyArray<{ kind: "links" | "expand"; active: boolean; onClick: () => void }> | undefined;
-    /** The links-focus family tag (R1) — shown in the canvas's words. */
-    focusTag?: PlanFocusTagWord | undefined;
+    /** A laned row's lanes (#1680's review): a gutter line each, the lane's height, its caption in the value cell. */
+    lanes?: readonly PlanGutterLane[] | undefined;
+    /** The labels of the rows it nests under, outermost first, where a links focus gathers it (#1680's review): its sub
+     *  line says them, then its own sub — which tells two rows of one name apart. */
+    path?: readonly string[] | undefined;
     /** The expand render's axis treatment inside this row (R2; default keep). */
     axisMode?: "dim" | "off" | undefined;
     /** R2 (#591) — the focused row's developer render, mounted INSIDE this
@@ -154,6 +169,9 @@ export interface RowShellProps {
      *  scroll position and the status dot survive, and the strip itself is
      *  the return click target. */
     ctx?: boolean | undefined;
+    /** A strip that keeps its value and its status dot in their cells — a pinned row a links focus does not gather
+     *  (#1680's review). */
+    keep?: boolean | undefined;
     /** DnD drop registration for this row's plot. Absent ⇒ the row registers
      *  no cell, so it is never a destination and never lights up. */
     drop?: PlanRowDrop | undefined;
@@ -179,8 +197,8 @@ export interface RowShellProps {
 /** One canvas body row — gutter + plot on the shared template. */
 export function RowShell({
     row, styles, gridTemplate, height, depth, selected,
-    caret, onCaretClick, emphasis, gutterOverlay, noGrid,
-    controls, focusTag, axisMode, ctx, drop, draft, children,
+    caret, onCaretClick, emphasis, noGrid,
+    controls, lanes: gutterLanes, path, axisMode, ctx, keep, drop, draft, children,
     expandBody, expandGutter, bandHeight, grid, expandedState, groupEnd, unread,
 }: RowShellProps) {
     const scale = usePlanScale();
@@ -194,12 +212,15 @@ export function RowShell({
     // own the styling (`&[data-ctx]` in the recipe) — this only says which
     // elements are in a strip.
     const ctxAttr = ctx === true ? "" : undefined;
+    const keepAttr = ctx === true && keep === true ? "" : undefined;
     // The row is EXPANDED when it carries a render. Everything the expanded
     // state changes — the tint, the top-aligned tall gutter, the banded plot —
     // keys off this one flag.
     const expanded = expandBody !== undefined;
     const expandedAttr = expanded ? "" : undefined;
-    const sub = gutter.sub.type === "some" ? gutter.sub.value : undefined;
+    const own = gutter.sub.type === "some" ? gutter.sub.value : undefined;
+    // A gathered row's sub line: what it nests under, then its own sub (#1680's review).
+    const sub = path !== undefined && path.length > 0 ? words.m.focusPath({ path, sub: own }) : own;
     const meta = gutter.meta.type === "some" ? gutter.meta.value : undefined;
     const value = gutter.value.type === "some" ? gutter.value.value : undefined;
     const isId = gutter.id;
@@ -252,40 +273,69 @@ export function RowShell({
         const rect = plotElRef.current?.getBoundingClientRect();
         return rect !== undefined && rect.width > 0 ? Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)) : 0;
     }, []);
-    /** Where a moved element lands on this row, with the pointer at `clientX` — told to the store, with the units it moved by. */
-    const landing = useCallback((clientX: number) => {
+    // The lanes an event kind's tiles sit in on this row (#1541, U1): a drop lands in the one the pointer is over.
+    const lanes = eventTarget !== undefined && row.kind.type === "buckets" ? row.kind.value.lanes : NO_LANES;
+    /** The lane of this row a pointer is in, and its place among the row's; none on a row with no lanes, and for a drag the keyboard carries. */
+    const laneAt = useCallback((clientY: number, keyboard: boolean): { readonly key: string; readonly index: number } | undefined => {
+        const rect = plotElRef.current?.getBoundingClientRect();
+        const index = keyboard || rect === undefined || rect.height <= 0 ? undefined : laneIndexAt((clientY - rect.top) / rect.height, lanes.length);
+        return index === undefined ? undefined : { key: lanes[index]!.key, index };
+    }, [lanes]);
+    /** Where a moved element lands on this row, with the pointer at `clientX`, in `lane` — told to the store, with the units it moved by. */
+    const landing = useCallback((clientX: number, lane: string | undefined) => {
         const grab = store?.grab;
         if (store === undefined || grab === null || grab === undefined) return undefined;
         const frac = fracAt(clientX);
         const span = proposeAt(scale, grab.movable.span, grab.mode, grab.grabFrac, frac, store.shift);
-        store.propose({ rowKey: row.key, span, units: unitsBetween(scale, grab.grabFrac, frac, store.shift), fine: store.shift });
+        store.propose({ rowKey: row.key, span, units: unitsBetween(scale, grab.grabFrac, frac, store.shift), fine: store.shift, lane });
         return { grab, span };
     }, [store, scale, fracAt, row.key]);
-    /** The event element under a point in this row's plot, by its key — where an author's card lands (#1196, PB63). */
-    const eventAt = useCallback((clientX: number, clientY: number): string | undefined => {
+    /** The event element under a point in this row's plot — where an author's card lands (#1196, PB63), and Connect's line ends (#1541, U10). */
+    const eventNodeAt = useCallback((clientX: number, clientY: number): Element | undefined => {
         const hit = document.elementFromPoint(clientX, clientY)?.closest(PLAN_EVENT_ELEMENT_SELECTOR);
-        if (hit === null || hit === undefined || plotElRef.current?.contains(hit) !== true) return undefined;
-        return hit.getAttribute("data-run") ?? hit.getAttribute("data-event") ?? hit.getAttribute("data-chip") ?? hit.getAttribute("data-mark") ?? undefined;
+        return hit === null || hit === undefined || plotElRef.current?.contains(hit) !== true ? undefined : hit;
     }, []);
-    const resolveCoord = useCallback((clientX: number, clientY: number, payload: DragPayload): CellCoord => {
+    /** The event element under a point in this row's plot, by its key. */
+    const eventAt = useCallback((clientX: number, clientY: number): string | undefined => {
+        const hit = eventNodeAt(clientX, clientY);
+        if (hit === undefined) return undefined;
+        return hit.getAttribute("data-run") ?? hit.getAttribute("data-event") ?? hit.getAttribute("data-chip") ?? hit.getAttribute("data-mark") ?? undefined;
+    }, [eventNodeAt]);
+    const resolveCoord = useCallback((clientX: number, clientY: number, payload: DragPayload, keyboard: boolean): CellCoord => {
         const surface = drop?.surface ?? "";
+        // The bucket under the pointer, by the shared frac→bucket resolver (#617): the exact right edge closes into the
+        // last bucket; a truncated axis's uncovered remainder is NO bucket (#618) — the slot stays empty and `dropVeto`
+        // refuses it, so a drop past the truncation point can never land at a wrong instant.
+        const slotHere = (): string => {
+            const bi = scale.bucketAtFrac(fracAt(clientX));
+            const bucket = bi >= 0 ? scale.buckets[bi] : undefined;
+            return bucket !== undefined ? toPlanSlot(bucket.start) : "";
+        };
+        // Connect held (#1541, U10): an element's drag ends at the event under the pointer, and moves nothing — the
+        // coordinate names that event, at the bucket the pointer is in.
+        if (payload.kind !== "item" && eventTarget !== undefined && events?.connecting === true) {
+            const slot = slotHere();
+            const event = eventAt(clientX, clientY);
+            // The draft line follows the pointer wherever the drag rests on the row, and snaps to the event the link may
+            // end at: told here, where every step of the pointer is resolved, landing or not.
+            const grab = store?.grab;
+            const lands = grab !== null && grab !== undefined && events.connect(grab.movable, event).allowed;
+            store?.drawTo({ x: clientX, y: clientY, onto: lands ? eventNodeAt(clientX, clientY) : undefined });
+            return event !== undefined ? { surface, row: row.key, slot, event } : { surface, row: row.key, slot };
+        }
         if (payload.kind !== "item") {
-            const at = landing(clientX);
+            const at = landing(clientX, laneAt(clientY, keyboard)?.key);
             if (at === undefined) return { surface, row: row.key, slot: "" };
             const slot = at.grab.mode === "end" ? slotOfEnd(scale, at.span.end) : slotOfInstant(scale, at.span.start);
             return { surface, row: row.key, slot };
         }
-        // The shared frac→bucket resolver (#617): the exact right edge closes
-        // into the last bucket; a truncated axis's uncovered remainder is NO
-        // bucket (#618) — the slot stays empty and `dropVeto` refuses it, so a
-        // drop past the truncation point can never land at a wrong instant.
-        const bi = scale.bucketAtFrac(fracAt(clientX));
-        const bucket = bi >= 0 ? scale.buckets[bi] : undefined;
-        const slot = bucket !== undefined ? toPlanSlot(bucket.start) : "";
+        // A card rests in the lane the pointer is over (#1541, U1): what the event kinds judge it by, and land it in.
+        if (store !== undefined && eventTarget !== undefined) store.cardLane = { row: row.key, lane: laneAt(clientY, keyboard)?.key };
+        const slot = slotHere();
         // An author's card lands on the event under the pointer (#1196): the coordinate names it.
         const event = eventTarget !== undefined && events?.landsOnEvent(payload.from.library) === true ? eventAt(clientX, clientY) : undefined;
         return event !== undefined ? { surface, row: row.key, slot, event } : { surface, row: row.key, slot };
-    }, [scale, drop?.surface, row.key, landing, fracAt, eventTarget, events, eventAt]);
+    }, [scale, drop?.surface, row.key, landing, laneAt, fracAt, eventTarget, events, eventAt, eventNodeAt, store]);
     /** The landing the store holds for this row, when the drag rests on it — what the event kinds judge an element by. */
     const landingHere = useCallback((): PlanProposal | undefined => {
         const proposal = store?.proposal;
@@ -325,6 +375,37 @@ export function RowShell({
         () => (drop !== undefined ? { surface: drop.surface, row: row.key, slot: firstSlot } : null),
         [drop, row.key, firstSlot],
     );
+    /** Why the Plan's `canDrop` refuses a card landing on this row of `data`'s, at a slot — on an item, where it lands on one. */
+    const cardRefusal = useCallback((from: { readonly library: string; readonly key: string }, slot: string, onto: string | undefined, duplicate: boolean): string | undefined =>
+        drop?.canDrop?.refusal(itemCandidate(
+            variant("add", { duplicate }) as PlanCandidateGesture, row.id.value.series, variant("card", { library: from.library, key: from.key }),
+            { row: row.id, start: slot === "" ? undefined : fromPlanSlot(scale.kind, slot) },
+            onto === undefined ? undefined : itemRef(row.key, onto))),
+    [drop, row, scale]);
+    /**
+     * Why the Plan's `canDrop` refuses what a drag event would do on this row of `data`'s (#1541, U7); `undefined` where it
+     * lands. A moved element is asked where the drag holds it here — or, before it rests here, where the event's bucket
+     * would put it, by the buckets between its press and that bucket, as a pointer there would.
+     */
+    const dataRefusal = useCallback((candidate: DragEventValue): string | undefined => {
+        const veto = drop?.canDrop;
+        if (veto === undefined) return undefined;
+        if (candidate.type === "add") {
+            const into = candidate.value.into;
+            return cardRefusal(candidate.value.from, into.slot, getSomeorUndefined(into.event), candidate.value.duplicate);
+        }
+        const grab = store?.grab;
+        if (grab === null || grab === undefined) return undefined;
+        let to = landingHere();
+        if (to === undefined) {
+            const slot = candidate.type === "move" ? candidate.value.to.slot : candidate.type === "resize" ? candidate.value.event.slot : "";
+            const bucket = scale.buckets.find((b) => toPlanSlot(b.start) === slot);
+            if (bucket === undefined) return undefined;
+            to = { rowKey: row.key, span: proposeAt(scale, grab.movable.span, grab.mode, grab.grabFrac, (bucket.x0 + bucket.x1) / 2, false) };
+        }
+        const moved = movedCandidate(grab.movable, to);
+        return moved === undefined ? undefined : veto.refusal(moved);
+    }, [drop, store, landingHere, scale, row.key, cardRefusal]);
     const dropVeto = useCallback((candidate: DragEventValue): boolean => {
         if (drop === undefined) return true;
         // No bucket under the drag (past a truncated axis's coverage), or a
@@ -334,6 +415,12 @@ export function RowShell({
             : candidate.type === "move" ? candidate.value.to.slot
                 : candidate.type === "resize" ? candidate.value.event.slot : "-";
         if (slot === "") return false;
+        // Connect held (#1541, U10): the event kinds judge the link the drag would draw to the event it rests on.
+        if (eventTarget !== undefined && events?.connecting === true && candidate.type === "move") {
+            const grab = store?.grab;
+            return grab !== null && grab !== undefined && events.isEvent(grab.movable)
+                && events.connect(grab.movable, getSomeorUndefined(candidate.value.to.event)).allowed;
+        }
         // A row's items keep their keys unique (#825): an element from another
         // row lands here only when none of this row's elements has its key.
         if (candidate.type === "move" && candidate.value.from.row !== row.key
@@ -350,16 +437,29 @@ export function RowShell({
             if (grab === null || grab === undefined || !events.isEvent(grab.movable)) return false;
             return events.element(row, grab.movable, landingHere()).allowed;
         }
-        return drop.canDrop?.(candidate) ?? true;
-    }, [drop, row, eventTarget, events, store, landingHere]);
-    /** What the ghost says while the drag rests here (#1187): on an event kind's row, what lands where, or why not (#1196). */
-    const caption = useCallback((coord: CellCoord, payload: DragPayload): string | undefined => {
-        if (eventTarget === undefined || events === undefined) return undefined;
+        return dataRefusal(candidate) === undefined;
+    }, [drop, row, eventTarget, events, store, landingHere, dataRefusal]);
+    /**
+     * What the ghost says while the drag rests here (#1187): on an event kind's row, what lands where, or why not
+     * (#1196); on one of `data`'s, why the Plan's `canDrop` refuses it (#1541, U7).
+     */
+    const caption = useCallback((coord: CellCoord, payload: DragPayload, _allowed?: boolean, duplicate = false): string | undefined => {
+        if (eventTarget === undefined || events === undefined) {
+            if (drop?.canDrop === undefined) return undefined;
+            // A card is asked as the verdict asks it: a copy where Alt is held.
+            if (payload.kind === "item") return cardRefusal(payload.from, coord.slot, coord.event, duplicate);
+            const grab = store?.grab;
+            const to = landingHere();
+            const moved = grab === null || grab === undefined || to === undefined ? undefined : movedCandidate(grab.movable, to);
+            return moved === undefined ? undefined : drop.canDrop.refusal(moved);
+        }
         if (payload.kind === "item") return events.card(row, payload.from, coord.slot, coord.event).caption;
         const grab = store?.grab;
         if (grab === null || grab === undefined || !events.isEvent(grab.movable)) return undefined;
+        // Connect held (#1541, U10): the link it would draw to the event under the pointer, or why not.
+        if (events.connecting) return events.connect(grab.movable, coord.event).caption;
         return events.element(row, grab.movable, landingHere()).caption;
-    }, [eventTarget, events, row, store, landingHere]);
+    }, [eventTarget, events, row, store, landingHere, drop, cardRefusal]);
 
     // ── The landing band ──────────────────────────────────────────────────
     // While a card is over this row, show WHERE it would come to rest. The
@@ -377,12 +477,34 @@ export function RowShell({
     const dragActive = useDragLayerOptional()?.active === true;
     const previewRef = useRef<HTMLDivElement | null>(null);
     const previewTextRef = useRef<HTMLSpanElement | null>(null);
-    const positionPreview = useCallback((clientX: number, clientY: number, payload: DragPayload) => {
+    /** The band's height on a row with lanes (#1541, U1): the lane a drop lands in, or — none named — the whole row. */
+    const bandIn = useCallback((el: HTMLElement, lane: number | undefined) => {
+        if (lanes.length === 0) return;
+        const band = lane === undefined ? laneBand(0, lanes.length, lanes.length) : laneBand(lane, lanes.length);
+        el.style.top = `${band.top * 100}%`;
+        el.style.height = `${band.height * 100}%`;
+    }, [lanes]);
+    const positionPreview = useCallback((clientX: number, clientY: number, payload: DragPayload, keyboard: boolean) => {
         const el = previewRef.current;
         if (el === null) return;
+        // An author's card lands on an event, and Connect on one: neither in a lane.
+        const lane = payload.kind === "item" && events?.landsOnEvent(payload.from.library) === true ? undefined : laneAt(clientY, keyboard);
+        bandIn(el, events?.connecting === true ? undefined : lane?.index);
+        if (payload.kind !== "item" && eventTarget !== undefined && events?.connecting === true) {
+            // Connect held (#1541, U10): the band spans the event the link would end at — none under the pointer, it
+            // stays where it was, on a cell the verdict leaves inactive.
+            const grab = store?.grab;
+            const span = grab === null || grab === undefined ? undefined : events.connect(grab.movable, eventAt(clientX, clientY)).span;
+            if (previewTextRef.current !== null) previewTextRef.current.textContent = "";
+            if (span === undefined) return;
+            const { left, right } = spanFracs(scale, span);
+            el.style.left = `${left * 100}%`;
+            el.style.width = `${(right - left) * 100}%`;
+            return;
+        }
         if (payload.kind !== "item") {
             // A moved element: the extent it would take, labelled with it.
-            const at = landing(clientX);
+            const at = landing(clientX, lane?.key);
             if (at === undefined || edit === null) return;
             const { left, right } = spanFracs(scale, at.span);
             el.style.left = `${left * 100}%`;
@@ -410,7 +532,7 @@ export function RowShell({
         }
         el.style.left = `${bucket.x0 * 100}%`;
         el.style.width = `${(bucket.x1 - bucket.x0) * 100}%`;
-    }, [scale, landing, fracAt, edit, words, eventTarget, events, eventAt, row]);
+    }, [scale, landing, laneAt, bandIn, fracAt, edit, words, eventTarget, events, eventAt, row, store]);
 
     // A keyboard drag rests at bucket centres, the announcements name the row
     // and its bucket — or, for a moved element, the span it would take — in
@@ -451,8 +573,10 @@ export function RowShell({
         const { left, right } = spanFracs(scale, carry.to.span);
         el.style.left = `${left * 100}%`;
         el.style.width = `${(right - left) * 100}%`;
+        // A keyboard carry names no lane: the band is the row's.
+        bandIn(el, undefined);
         if (previewTextRef.current !== null) previewTextRef.current.textContent = spanWords(scale, carry.movable, carry.to.span, words);
-    }, [carry, scale, words]);
+    }, [carry, scale, words, bandIn]);
     const dropRef = useDropCell(dropCoord, false, dropVeto, resolveCoord, dropOptions);
     // One ref doing two jobs: the layer's registration, and the rect
     // `resolveCoord` measures the pointer against.
@@ -460,6 +584,58 @@ export function RowShell({
         plotElRef.current = el;
         dropRef(el);
     }, [dropRef]);
+
+    // ── The gutter line (§3; #1680's review) ──────────────────────────────
+    // One grid with fixed slots: the caret's cell on a row that folds — a leaf
+    // has none, its name at its level's indent (`data-leaf`) — the name — the
+    // label, then the meta inline — the value, the status dot, and the two
+    // control slots, links then expand, on every row. So every value, dot and
+    // control stands at one x, down the canvas; only the name gives way.
+    const control = (kind: "links" | "expand"): ReactNode => {
+        const c = controls?.find((one) => one.kind === kind);
+        if (c === undefined) return <Box as="span" />;
+        return (
+            <Box
+                as="button"
+                css={styles.rowControl}
+                tabIndex={-1}
+                data-plan-control={c.kind}
+                data-active={c.active ? "" : undefined}
+                aria-label={c.kind === "links" ? words.m.linksControl() : words.m.expandControl()}
+                aria-pressed={c.active}
+                onClick={(e: React.MouseEvent) => { e.stopPropagation(); c.onClick(); }}
+            >
+                <FontAwesomeIcon icon={c.kind === "links" ? faLink : faUpRightAndDownLeftFromCenter} />
+            </Box>
+        );
+    };
+    // The line's cells after the name's — each always there: the value, the status dot, and the controls. A strip drops
+    // its value and dot, but for a pinned row a links focus does not gather (`keep`).
+    const valueCell = <Box as="span" css={styles.gutterValue} data-ctx={ctxAttr} data-keep={keepAttr} data-plan-gutter="value">{value}</Box>;
+    // The dot's colour IS the status — its name says it (#819).
+    const dotCell = statusTone !== undefined
+        ? <Box as="span" css={styles.statusDot} data-tone={statusTone} data-ctx={ctxAttr} data-keep={keepAttr} role="img" aria-label={statusText(statusTone, words)} />
+        : <Box as="span" />;
+    // Row controls (R1/R2) — always shown (#1258), each named by the canvas's tooltip (`root/overlays.tsx`); a control
+    // click never selects or toggles the row. Out of the tab order: the row's Tab walk reaches them (#819).
+    const controlsCell = <Box css={styles.rowControls} data-ctx={ctxAttr}>{control("links")}{control("expand")}</Box>;
+    // A leaf folds nothing: no caret's cell, and its lines say so, for the grid without one.
+    const leafAttr = caret === undefined ? "" : undefined;
+    const caretCell = caret === undefined ? null : (
+        <Box as="span" css={styles.caret} data-collapsed={caret.collapsed ? "" : undefined}>
+            <FontAwesomeIcon icon={faCaretDown} />
+        </Box>
+    );
+    const nameCell = (
+        <Box as="span" css={styles.gutterNameCell} data-plan-gutter="title">
+            <Box as="span" css={styles.gutterLabel} data-plan-gutter="label">{gutter.label}</Box>
+            {meta !== undefined && <Box as="span" css={styles.gutterMeta} data-ctx={ctxAttr} data-plan-gutter="meta">{meta}</Box>}
+        </Box>
+    );
+    // A laned row (#1680's review): a gutter line per lane, the lane's height, its caption in the value cell — the
+    // name's on the first, the sub on the second — in place of a caption in every cell.
+    const laned = gutterLanes !== undefined && gutterLanes.length > 1 && ctx !== true && !expanded
+        && gutterLanes.some((lane) => lane.caption !== undefined) ? gutterLanes : undefined;
 
     return (
         <Box
@@ -499,70 +675,39 @@ export function RowShell({
                 css={styles.gutterCell}
                 role="rowheader"
                 data-expanded={expandedAttr}
-                // How many controls its line ends in — a chart's ticks step
-                // left of them (#1258).
-                data-plan-controls={controls !== undefined && controls.length > 0 ? String(controls.length) : undefined}
                 style={{ paddingLeft: `${12 + depth * INDENT_PX}px` }}
                 onClick={onCaretClick !== undefined && ctx !== true
                     ? (e: React.MouseEvent) => { e.stopPropagation(); onCaretClick(); }
                     : undefined}
             >
-                <Box css={styles.gutterName} data-id={isId ? "" : undefined} data-ctx={ctxAttr} data-plan-gutter="name"
-                    data-collapsible={caret !== undefined && ctx !== true ? "" : undefined}>
-                    {caret !== undefined && (
-                        <Box as="span" css={styles.caret} data-collapsed={caret.collapsed ? "" : undefined}>
-                            <FontAwesomeIcon icon={faCaretDown} />
+                {laned !== undefined ? laned.map((lane, i) => (
+                    // A lane's line, laid over the cell where its cells sit: the name's line first, the sub on the
+                    // second, and each lane's caption in its value cell — the first's, where it has none, the row's value.
+                    <Box key={i} css={styles.gutterLane} data-ctx={ctxAttr} data-leaf={leafAttr} data-plan-gutter={i === 0 ? "name" : "lane"}
+                        style={{ left: `${12 + depth * INDENT_PX}px`, top: `${lane.band.top * 100}%`, height: `${lane.band.height * 100}%` }}>
+                        {i === 0 ? caretCell : caret !== undefined && <Box as="span" />}
+                        {i === 0 ? nameCell : (
+                            <Box as="span" css={styles.gutterNameCell}>
+                                {i === 1 && sub !== undefined && <Box as="span" css={styles.gutterMeta} data-plan-gutter="sub">{sub}</Box>}
+                            </Box>
+                        )}
+                        {i === 0 && lane.caption === undefined ? valueCell
+                            : <Box as="span" css={styles.gutterLaneCaption} data-plan-lane={i}>{lane.caption}</Box>}
+                        {i === 0 ? dotCell : <Box as="span" />}
+                        {i === 0 ? controlsCell : <Box as="span" />}
+                    </Box>
+                )) : (
+                    <>
+                        <Box css={styles.gutterName} data-id={isId ? "" : undefined} data-ctx={ctxAttr} data-leaf={leafAttr} data-plan-gutter="name">
+                            {caretCell}
+                            {nameCell}
+                            {valueCell}
+                            {dotCell}
+                            {controlsCell}
                         </Box>
-                    )}
-                    {/* The links-focus family tag (R1) — settles in after the
-                        gather choreography — on its own line with the label,
-                        where it gives its room up first (#1277). */}
-                    {focusTag !== undefined ? (
-                        <Box css={styles.gutterNamed} data-plan-gutter="named">
-                            <Box as="span" css={styles.gutterLabel} data-plan-gutter="label">{gutter.label}</Box>
-                            <Box as="span" css={styles.focusTag} data-plan-focustag={focusTag}>{words.m.focusTag({ tag: focusTag })}</Box>
-                        </Box>
-                    ) : <Box as="span" css={styles.gutterLabel} data-plan-gutter="label">{gutter.label}</Box>}
-                    {/* §3 gutter anatomy: meta (an `.of` parent's aggregate
-                        tag), then value right-aligned, status dot rightmost —
-                        inline after the flex spacer so the label truncates. */}
-                    {(meta !== undefined || value !== undefined || statusTone !== undefined) && (
-                        <Box css={styles.gutterRight} data-plan-gutter="right">
-                            {meta !== undefined && <Box as="span" css={styles.gutterMeta} data-ctx={ctxAttr} data-plan-gutter="meta">{meta}</Box>}
-                            {value !== undefined && <Box as="span" css={styles.gutterValue} data-ctx={ctxAttr} data-plan-gutter="value">{value}</Box>}
-                            {/* The dot's colour IS the status — its name says it (#819). */}
-                            {statusTone !== undefined && <Box as="span" css={styles.statusDot} data-tone={statusTone}
-                                data-ctx={ctxAttr} role="img" aria-label={statusText(statusTone, words)} />}
-                        </Box>
-                    )}
-                    {/* A compact chart's maximum is a normal trailing value; taller charts keep positioned axis ticks. */}
-                    {gutterOverlay}
-                    {/* Row controls (R1/R2) — at the line's end, always shown
-                        (#1258), each named by the canvas's tooltip
-                        (`root/overlays.tsx`); a control click never selects or
-                        toggles the row. Out of the tab order: the row's Tab
-                        walk reaches them (#819). */}
-                    {controls !== undefined && controls.length > 0 && (
-                        <Box css={styles.rowControls} data-ctx={ctxAttr}>
-                            {controls.map((c) => (
-                                <Box
-                                    key={c.kind}
-                                    as="button"
-                                    css={styles.rowControl}
-                                    tabIndex={-1}
-                                    data-plan-control={c.kind}
-                                    data-active={c.active ? "" : undefined}
-                                    aria-label={c.kind === "links" ? words.m.linksControl() : words.m.expandControl()}
-                                    aria-pressed={c.active}
-                                    onClick={(e: React.MouseEvent) => { e.stopPropagation(); c.onClick(); }}
-                                >
-                                    <FontAwesomeIcon icon={c.kind === "links" ? faLink : faUpRightAndDownLeftFromCenter} />
-                                </Box>
-                            ))}
-                        </Box>
-                    )}
-                </Box>
-                {sub !== undefined && <Box css={styles.gutterSub} data-ctx={ctxAttr} data-plan-gutter="sub">{sub}</Box>}
+                        {sub !== undefined && <Box css={styles.gutterSub} data-ctx={ctxAttr} data-leaf={leafAttr} data-plan-gutter="sub">{sub}</Box>}
+                    </>
+                )}
                 {gutter.swatches.length > 0 && (
                     <Box display="flex" gap="7px" marginTop="1px">
                         {gutter.swatches.map((s, i) => (

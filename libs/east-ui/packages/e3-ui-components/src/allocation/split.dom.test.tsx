@@ -290,8 +290,14 @@ describe("links (A72, A71)", () => {
         await press(card(c, "3201"));
         const links = [...c.querySelectorAll("[data-allocation-links] [data-plan-link]")].map(g => [g.querySelector("[data-link]")!.getAttribute("data-allocation-link"),
             Number(g.querySelector("[data-plan-ribbon-band]")!.getAttribute("stroke-width"))] as const);
-        // K-601's family: the split bin's part there, 20 m³, the family's largest, and its other part, 6 m³ on K-208, a third of it at most.
-        expect(links).toEqual([["3201|K-601", 8], ["3201|K-208", 2]]);
+        // K-601's family: the split bin's part there, 20 m³, the family's largest — the heaviest, 6 (ruled 17 Nov 2026 over §15's 8) —
+        // and its other part, 6 m³ on K-208, a third of it at most.
+        expect(links).toEqual([["3201|K-601", 6], ["3201|K-208", 2]]);
+        // Its two parts leave its card from two ports stacked about its middle, 2 apart edge to edge (#1680's review): a 6 and a
+        // 2, so their centres stand half of each and the gap apart — 3 + 2 + 1. Neither leaves on the other.
+        const starts = [...c.querySelectorAll("[data-allocation-links] [data-plan-link] [data-plan-ribbon-band]")]
+            .map(band => Number(/^M\s*[\d.-]+\s+([\d.-]+)/.exec(band.getAttribute("d")!)![1]));
+        expect(Math.abs(starts[0]! - starts[1]!)).toBeCloseTo(6 / 2 + 2 + 2 / 2, 1);
     });
 
     test("A71, A73 — dragging a link moves its part alone: the fit asked for its 6 m³", async () => {

@@ -61,17 +61,22 @@ export { createExecutionRoutes, type DataflowSeams, type RunnerBudget } from './
 // Objects by hash
 export { createObjectRoutes } from './routes/objects.js';
 
-// Functions and one-shot, under the grant the host's access gives each caller
+// Functions and one-shot, under the grant the host's access gives each caller,
+// and the drafts a function's call passes, by the callers its draft access
+// admits to each
 export {
   createPackageFunctionRoutes,
   createWorkspaceFunctionRoutes,
   createOneShotRoutes,
   oneShotAccessByRoles,
+  allowEveryDraft,
   DEFAULT_CALL_WINDOW_MS,
   type GetRunner,
   type OneShotAccess,
+  type DraftAccess,
   type OneShotRoutesOptions,
   type FunctionRoutesOptions,
+  type WorkspaceFunctionRoutesOptions,
 } from './routes/functions.js';
 
 // A workspace's kept calls: polled, cancelled, listed and read whole, by the

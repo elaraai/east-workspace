@@ -45,9 +45,13 @@ export {
     Func,
     FuncStatusType,
     FuncErrorType,
+    FuncDraftType,
+    FuncDraftedType,
     FuncBindingType,
     FuncBindHandleType,
+    FuncBindDraftsHandleType,
     type BoundFunc,
+    type BoundDraftsFunc,
     funcBindPlatformFn,
     FuncBindPrimitives,
 } from './bind/func.js';
@@ -57,6 +61,8 @@ export {
     RecordBindingType,
     RecordBindHandleType,
     RecordOutcomeType,
+    RecordSaveTypeFor,
+    RecordToDraftResultType,
     type BoundRecord,
     type RecordApplyOptions,
     type RecordApplyInsideOptions,
@@ -89,11 +95,14 @@ export { recordSources, sliceSourceNames, tabSource, templatesSource, type Recor
 // A kind over the app's own record (#1386, #1500): what the Schematic's kinds and the Flowchart's share — its reads, its
 // accessors and its record's side, each at the record's key type, its keys on the wire as their text (#1549).
 export {
-    KindSideFields, accessorRole, kindWholeRows, readOf, recordSide, rowsReadOf, storedRows,
-    type KindAccessor, type KindBinding, type KindRowsRead, type RecordSide,
+    KindSideFields, accessorRole, kindBinding, kindWholeRows, readOf, recordSide, rowsReadOf, storedRows,
+    type KindAccessor, type KindBinding, type KindBindingWords, type KindRowsRead, type RecordSide,
 } from './utils/record-kind.js';
-// The `optimise` binding's check every builder's tag makes (#1409): `Func.bind` of a function from the builder's request to its answer.
-export { optimiseBinding, type OptimiseContract, type OptimiseHandle } from './utils/optimise.js';
+// The `optimise` binding's check every builder's tag makes (#1409): `Func.bind` of a function from the builder's request to its answer;
+// and what an answer does to a record, key by key, which every builder lands it through (#1622).
+export {
+    OptimisePeriodType, OptimiseSliceType, optimiseBinding, optimiseChangesFor, optimisedRecordType, type OptimiseContract, type OptimiseHandle,
+} from './utils/optimise.js';
 
 // The Studio (#787): its components' factories and carriers, the payloads the
 // renderers take, and the East the renderers call. `Studio` here is the
@@ -218,8 +227,15 @@ export {
     PlanComponent,
     PlanPayloadType,
     PlanSettingsType,
-    PlanEventBlocksType,
-    PlanEventCanDropType,
+    PlanCanConnectType,
+    PlanCanDropType,
+    PlanCandidateType,
+    PlanConnectCandidateType,
+    PlanItemRefType,
+    PlanLinkEndsType,
+    PlanLinkEntryType,
+    PlanLinkKindType,
+    PlanLinkRolesType,
     createPlanPayload,
     createPlanRoot,
     buildPlanRoot,
@@ -289,6 +305,14 @@ export {
     type PlanGroupSeriesConfig,
     type PlanSectionSeriesConfig,
     type PlanViewsSeriesConfig,
+    type PlanResourcesSeriesConfig,
+    type PlanLanding,
+    type PlanKindsCase,
+    type PlanKindsCaseOptions,
+    type PlanKindsCases,
+    type PlanCaseAccessor,
+    type PlanVariantField,
+    type PlanVariantCases,
     type PlanEditOf,
     type PlanSpanReads,
     type PlanHeatReads,
@@ -334,15 +358,13 @@ export {
     type PlanNestedRefusals,
     type PlanNestedChecked,
 } from './plan/index.js';
-// The resources' rows a Plan of event kinds draws over a window (#1192): the
-// `blocks` seam its payload carries, made inside the payload's assembly, and
-// the drafts it reads, by kind, and the resources the rail shows (#1344); a
-// paged resource kind's rows, a window of its resources at a time, with the
-// events placed on them (#1199); and what a reader read of a kind by its
-// series index's cells, and the resources' shading past the budget (#1039).
+// How a Plan's event kinds' events join its rows (#1192, #1541): the seam its
+// payload carries, made inside the payload's assembly, the series they land on,
+// the drafts it reads, by kind, and what a reader read of a kind by its series
+// index's cells, and the resources' shading past the budget (#1039).
 export {
-    createEventBlocks, createEventPaged, eventDrawsOf, PlanEventDraftsType, PlanEventPagedType, PlanEventPlacedType, PlanEventReadsType,
-    PlanEventShadeType, PlanEventShadingType, PlanEventShownType,
+    createEventSeam, eventDrawsOf, landingsOnWire, PlanEventDraftsType, PlanEventPlacedType, PlanEventReadsType, PlanEventSeamType,
+    PlanEventShadeType, PlanEventShadingType, PlanLandingType,
 } from './plan/event-rows.js';
 // What a Plan over paged rows reads of their nested series index (#1438): the
 // seam on its root, what each series reads of the index, and the rows'
@@ -356,14 +378,17 @@ export { nestedPartOf, planNestedIndex } from './plan/nested-checks.js';
 // cards, the Series tab's lines and what hiding each hides, and the ids a
 // viewer's hidden set holds.
 export {
+    PlanAuthorTabType,
     PlanLibraryCardType,
     PlanLibraryHidesType,
     PlanLibraryRowsItemType,
     PlanLibrarySeriesType,
     PlanLibraryTabType,
+    PlanTabCreateType,
     planHideId,
     type PlanLibraryTab,
     type PlanLibraryTabConfig,
+    type PlanTabCreateConfig,
 } from './plan/library.js';
 
 // The Sheet (#1179, #1216): `<Sheet>` with its namespace, the payload the
@@ -464,9 +489,10 @@ export {
     type SheetLibraryTabConfig,
 } from './sheet/library.js';
 export { SheetFieldType, SheetFormType, SheetFormsType, buildForms } from './sheet/fields.js';
-// The optimiser's request and answer over a sheet's rows (#1409), and the check of the sheet's `optimise`.
+// The optimiser's request and answer over the rows a sheet saves (#1409, #1622), and the check of the sheet's `optimise`.
 export {
-    SheetOptimiseRequestTypeFor, SheetOptimiseResultTypeFor, sheetOptimiseBinding, type SheetOptimiseRequestType, type SheetOptimiseResultType,
+    SheetOptimiseBindingType, SheetOptimiseRequestTypeFor, SheetOptimiseResultTypeFor, sheetOptimiseBinding,
+    type SheetEntryOptimiseRequestType, type SheetOptimiseOptions, type SheetOptimiseRequestType, type SheetOptimiseResultType,
 } from './sheet/optimise.js';
 // The Flowchart (#1498): `<Flowchart>` with its namespace, the payload the
 // renderer takes through the `Flowchart` carrier — its kinds over the app's
@@ -684,6 +710,7 @@ export {
 } from './schedule/events.js';
 // What a builder publishes (#1367): the app's record of periods, its status a field of the app's.
 export { schedulePeriods, type SchedulePeriods, type SchedulePeriodsConfig } from './schedule/periods.js';
+export { SCHEDULE_PATCH_DOOR } from './schedule/session.js';
 export {
     SCHEDULE_DEF, scheduleResources, type ScheduleResourceAccessor, type ScheduleResourceAccessors, type ScheduleResourceKind,
     type ScheduleResourcesConfig,
@@ -695,24 +722,27 @@ export { scheduleNumberText } from './schedule/words.js';
 // through its day index and its backlog index — the Calendar's and Plan's —
 // and one entry of a record read by its key, through its own entries.
 export {
-    SCHEDULE_INDEX_PAGE, ScheduleKeyReadType, checkEntries, checkIndexWindow, joinRefusal, scheduleBacklogWindow, scheduleDayWindow,
+    SCHEDULE_INDEX_PAGE, ScheduleKeyReadType, checkEntries, checkIndexWindow, joinRefusal, optionOf, scheduleBacklogWindow, scheduleDayWindow,
     scheduleEntryByKey, scheduleLastKey, type ScheduleWindowProp,
 } from './schedule/window.js';
 export { SchedulePatchTypeFor, schedulePatch, type SchedulePatchInput, type SchedulePatchOf } from './schedule/patch.js';
 // A row's fields written by their paths (#1390), through a variant's case too (#1549): the setters an inspector's edit
 // of a Schedule kind's field and an author's card on a Schematic entity write through.
 export { fieldSetters, type FieldSetter } from './schedule/fields.js';
+// A new row's values where a template may give them: what every kind's `create` starts its row from.
+export { templateValues } from './schedule/templates.js';
 // The most events a builder reads and draws of one kind over what it reads at once (#1039): a kind's window through its
 // source is counted first and read only within it; past it, its rows shade from its summary or are hatched.
 export { SCHEDULE_EVENT_CAP } from './schedule/record-window.js';
 // A builder's reference record (#1551): its slice's `reference` source, which the Roster and the Allocation window as their
 // own kind's and read for their check alone, its rows carried as bytes beside their type.
 export { SCHEDULE_REFERENCE, ScheduleReferenceType } from './schedule/reference.js';
-// The optimiser's request and answer over a builder's kinds (#1409): what a Calendar's and a Plan's `optimise` is held to,
-// and the records by slot a run's request type is built from.
+// The optimiser's request and answer over a builder's kinds (#1409, east-workspace#1622): what a Calendar's and a Plan's
+// `optimise` is held to — the window in view and the rail's narrowing in, a patch of each event kind's record out — and
+// the records by slot a run's answer is built over.
 export {
-    ScheduleOptimiseRequestTypeFor, ScheduleOptimiseResultTypeFor, scheduleOptimiseBinding, scheduleOptimiseRows,
-    type ScheduleOptimiseRecordsOf, type ScheduleOptimiseRecordsType, type ScheduleOptimiseRequestType, type ScheduleOptimiseResultType, type ScheduleOptimiseRows,
+    ScheduleOptimiseRequestType, ScheduleOptimiseResultTypeFor, scheduleOptimiseBinding, scheduleOptimiseRecords,
+    type ScheduleOptimiseRecords, type ScheduleOptimiseResultType,
 } from './schedule/optimise.js';
 export {
     Ontology,

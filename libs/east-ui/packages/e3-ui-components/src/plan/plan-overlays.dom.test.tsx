@@ -520,7 +520,7 @@ describe("a cut label says itself in the tooltip (#1264, #1266)", () => {
 
     test("a chip's label and a rollup band's caption say themselves the same way", async () => {
         const chip = (key: string, from: number, to: number) => ({
-            key, from: t(week(from)), to: t(week(to)), label: `Shift ${key}`, state: variant("confirmed", null), icon: none,
+            key, from: t(week(from)), to: t(week(to)), label: `Shift ${key}`, state: variant("confirmed", null), status: none, icon: none,
         });
         const parent = planRow("hall", variant("span", { runs: [], decisions: [], ports: [], rollup: some(variant("union", null)) }));
         const { container } = renderPlan(planRoot([
@@ -546,7 +546,7 @@ describe("a cut label says itself in the tooltip (#1264, #1266)", () => {
     test("a tile's label says itself the same way (#1266) — a labelled tile's ellipsized, a proposal's `plan` moved off its line; a label whole on its line says nothing", async () => {
         const tile = (key: string, at: number, label: string | undefined, state: unknown) => ({
             key, at: t(week(at)), lane: none, label: label !== undefined ? some(label) : none, icon: none, state,
-            tone: none, color: none, colorPalette: none, stretch: none, content: none, animation: none,
+            status: none, color: none, colorPalette: none, stretch: none, content: none, animation: none,
         });
         const { container } = renderPlan(planRoot([planRow("van", variant("buckets", {
             lanes: [], markers: [],

@@ -10,15 +10,20 @@
  * The Plan's adapter to the shared cells' reader (#1039), worked out with no
  * read: the buckets a range is cut into at the canvas's resolution, and where
  * the canvas reports its paged rows in view — at rest, the rows its view
- * shows, or the span standing while it shows only rows not read. What the
- * reader wants and decides is the shared reader's
- * (`shared/schedule/cells.test.ts`).
+ * shows, or the span standing while it shows only rows not read; and the
+ * resources a window's rows are read by, a row beneath a resource by the one
+ * it stands beneath (#1541, U1). What the reader wants and decides is the
+ * shared reader's (`shared/schedule/cells.test.ts`).
  */
 
 import { describe, test, expect, vi } from "vitest";
+import { none, some, variant } from "@elaraai/east";
+import type { PlanWireBlock } from "../model.js";
 import { utcAt } from "../plan.test-utils.js";
+import { entry } from "../row-id.test-utils.js";
 import { planScale, type PlanScale } from "../scale.js";
-import { bucketsOver, cellSpanOf, createCellSpanStore, shownCellSpan } from "./cells.js";
+import { bucketsOver, cellSpanOf, createCellSpanStore, keptLinkEnds, landingKeysOf, shownCellSpan } from "./cells.js";
+import { readPathOf, readResourceOf, type PlanLandingValue } from "./landings.js";
 
 const day = (text: string) => new Date(`${text}T00:00:00Z`);
 
@@ -81,5 +86,83 @@ describe("where the canvas reports its rows in view (#1039)", () => {
         store.set(undefined);
         expect(heard).toHaveBeenCalledTimes(3);
         expect(store.get()).toBeUndefined();
+    });
+});
+
+describe("the resources a window's rows are read by (#1541, U1)", () => {
+    /** The presses, and the kinds of task beneath each: a kind's `child` lands on the kinds' rows. */
+    const presses: PlanLandingValue = { key: "press", name: "Presses", draws: [variant("buckets", null)], kinds: [], series: ["temperature"], top: true, under: none };
+    const kinds: PlanLandingValue = { key: "kinds", name: "Tasks", draws: [variant("buckets", null)], kinds: ["task"], series: [], top: false, under: some("press") };
+    const landings = [presses, kinds];
+    /** A window's rows, each by its id alone: what the reader reads of them. */
+    const block = (...ids: ReturnType<typeof entry>[]): PlanWireBlock[] => [{ rows: ids.map((id) => ({ id })) } as never];
+
+    test("a landing row is read by its own resource, and a row beneath a resource by the one it stands beneath", () => {
+        expect(readResourceOf(presses, ["P03"])).toEqual({ slot: "press", key: "P03" });
+        expect(readResourceOf(kinds, ["P03", ".ink_fill"])).toEqual({ slot: "press", key: "P03" });
+        // A path too short to hold the resource names none.
+        expect(readResourceOf(kinds, [".ink_fill"])).toBeUndefined();
+        // Rows by key, each under its parent: the press, a kind of task beneath it, a heat row of the kind's own and a row
+        // a step beneath that.
+        const rows = new Map([
+            ["press", { id: entry("press", "P03"), parent: none }],
+            ["kind", { id: entry("kinds", "P03", ".ink_fill"), parent: some("press") }],
+            ["kind-heat", { id: entry("kind-heat", "P03", ".ink_fill"), parent: some("kind") }],
+            ["kind-part", { id: entry("kind-parts", "P03", ".ink_fill", "nozzle"), parent: some("kind-heat") }],
+            ["temperature", { id: entry("temperature", "P03"), parent: some("press") }],
+        ]);
+        const pathOf = (key: string) => readPathOf(rows.get(key)!, landings, (k) => rows.get(k));
+        expect(pathOf("press")).toEqual(["P03"]);
+        expect(pathOf("kind")).toEqual(["P03"]);
+        // Any row beneath a row a step beneath the press is read by the press too: a series of the kind's own, and a row
+        // a further step down (#1660's review).
+        expect(pathOf("kind-heat")).toEqual(["P03"]);
+        expect(pathOf("kind-part")).toEqual(["P03"]);
+        // A row of no landing beneath the press — a series of its own — keeps its path, which ends in the press's key.
+        expect(pathOf("temperature")).toEqual(["P03"]);
+    });
+
+    test("a resource's own row and the rows beneath it name it once, in the order the rows draw them", () => {
+        expect(landingKeysOf(block(
+            entry("folder", "F1"),
+            entry("press", "P03"), entry("temperature", "P03"), entry("kinds", "P03", ".blanket_wash"), entry("kinds", "P03", ".ink_fill"),
+            entry("press", "P04"), entry("kinds", "P04", ".blanket_wash"),
+        ), landings)).toEqual([{ slot: "press", key: "P03" }, { slot: "press", key: "P04" }]);
+    });
+
+    test("a page that draws no row of a resource's own names it by the rows beneath it", () => {
+        expect(landingKeysOf(block(
+            entry("temperature", "P03"), entry("kinds", "P03", ".blanket_wash"), entry("kinds", "P03", ".ink_fill"), entry("kinds", "P03", ".plate_check"),
+        ), landings)).toEqual([{ slot: "press", key: "P03" }]);
+    });
+});
+
+describe("the events the canvas's links name at their ends, as the cells' reader holds them (#1541, U10)", () => {
+    /** A link between two events, as a link kind's row joins them: each end at no path, its run the event's key. */
+    const link = (from: readonly [kind: string, key: string], to: readonly [kind: string, key: string]) => ({
+        from: { row: entry(from[0]), run: from[1] }, to: { row: entry(to[0]), run: to[1] },
+    });
+    /** Some links, as the canvas hands them over. */
+    const links = (...made: ReturnType<typeof link>[]) => made as unknown as Parameters<typeof keptLinkEnds>[1];
+    const KINDS = ["job", "binding", "delivery"];
+
+    test("each kind's events named at an end, in the links' order, and none for a kind no link names", () => {
+        const ends = keptLinkEnds(undefined, links(link(["job", "J-1"], ["binding", "B-1"]), link(["binding", "B-1"], ["delivery", "D-1"])), KINDS);
+        expect([...ends]).toEqual([["job", ["J-1"]], ["binding", ["B-1", "B-1"]], ["delivery", ["D-1"]]]);
+    });
+
+    test("links made anew over the same ends are the ends held, the same object: the reader reads nothing again", () => {
+        const first = keptLinkEnds(undefined, links(link(["job", "J-1"], ["binding", "B-1"])), KINDS);
+        expect(keptLinkEnds(first, links(link(["job", "J-1"], ["binding", "B-1"])), KINDS)).toBe(first);
+    });
+
+    test("a link drawn to another event moves its kind's ends alone: every other kind's list is the one held", () => {
+        const first = keptLinkEnds(undefined, links(link(["job", "J-1"], ["binding", "B-1"])), KINDS);
+        const next = keptLinkEnds(first, links(link(["job", "J-1"], ["binding", "B-1"]), link(["binding", "B-1"], ["delivery", "D-1"])), KINDS);
+        expect(next).not.toBe(first);
+        expect(next.get("job")).toBe(first.get("job"));
+        expect(next.get("delivery")).toEqual(["D-1"]);
+        // And a kind taken away moves them too.
+        expect(keptLinkEnds(next, links(), ["job"])).not.toBe(next);
     });
 });

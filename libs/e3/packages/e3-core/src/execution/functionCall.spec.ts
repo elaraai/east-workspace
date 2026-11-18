@@ -17,7 +17,7 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
-import { East, IntegerType, OptionType, StringType, encodeBeast2For, encodeEastIR, equalFor, none, some, variant } from '@elaraai/east';
+import { East, IntegerType, OptionType, SortedMap, StringType, encodeBeast2For, encodeEastIR, equalFor, none, some, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import {
   ExecuteResultType, decodeFunctionObject, type FunctionCallJob, type FunctionCallRequest, type OneShotRequest, type RunnerValue,
@@ -26,8 +26,8 @@ import { packageImport } from '../package-files.js';
 import { workspaceDeploy } from '../workspaces.js';
 import { workspaceGetDatasetHash } from '../trees.js';
 import { InMemoryStorage } from '../storage/in-memory/InMemoryStorage.js';
-import { createTempDir, removeTempDir } from '../test-helpers.js';
-import { InvalidNameError, PermissionDeniedError } from '../errors.js';
+import { createTempDir, gated, ran, removeTempDir } from '../test-helpers.js';
+import { InvalidNameError, PermissionDeniedError, WorkspaceLockError } from '../errors.js';
 import { isUuidv7, uuidv7Generator } from '../uuid.js';
 import { MockTaskRunner } from './MockTaskRunner.js';
 import type { DetachedResult, DetachedRunOptions, DetachedSpec } from './interfaces.js';
@@ -39,6 +39,7 @@ import {
   functionCallStart,
   functionCallStatus,
   oneShotCallStart,
+  workspaceFunctionResolve,
   type FunctionCallLifetimes,
   type OneShotCallStartOptions,
 } from './functionCall.js';
@@ -63,20 +64,23 @@ const sameCaller = equalFor(OptionType(StringType));
 
 /** A call of value arguments, each one's bytes. */
 function request(args: Uint8Array[]): FunctionCallRequest {
-  return { args: args.map((arg) => variant('value', arg)), runner: none, limits: none };
+  return { args: args.map((arg) => variant('value', arg)), runner: none, limits: none, drafts: [] };
 }
 
-/** A runner's end, its value and its log tails. */
-function ran(result: Partial<DetachedResult> & Pick<DetachedResult, 'kind'>): DetachedResult {
-  return { stdout: 'out\n', stderr: 'err\n', stdoutTruncated: false, stderrTruncated: false, ...result } as DetachedResult;
-}
-
-/** A runner whose run lasts until its signal aborts: a call its cancel stops. */
+/** A runner whose run says it has started, and lasts until its signal aborts:
+ *  a call its cancel stops. */
 class HeldRunner extends MockTaskRunner {
+  /** Opened once the call's function is handed to the runner. */
+  readonly running = gated<void>();
+
   override runDetached(spec: DetachedSpec, options?: DetachedRunOptions): Promise<DetachedResult> {
     void super.runDetached(spec, options);
+    this.running.open();
     return new Promise((resolve) => {
-      options?.signal?.addEventListener('abort', () => resolve(ran({ kind: 'failed', exitCode: 137 })), { once: true });
+      const stopped = (): void => resolve(ran({ kind: 'failed', exitCode: 137 }));
+      // As a real runner does, one handed a signal already aborted ends at once
+      if (options?.signal?.aborted === true) stopped();
+      else options?.signal?.addEventListener('abort', stopped, { once: true });
     });
   }
 }
@@ -156,6 +160,76 @@ describe('functionCall', () => {
     assert.ok(status.type === 'completed' && status.value.outcome.type === 'invalid');
   });
 
+  it('calls the function of the package the workspace names by its hash, whatever an import of the same version holds since', async () => {
+    const deployed = await workspaceFunctionResolve(storage, REPO, WS, 'twice');
+    assert.deepEqual([deployed.ref.name, deployed.ref.version], ['calls', '1.0.0']);
+    // The same name and version imported again, not deployed: a package that
+    // holds no function
+    const zip = join(dir, 'again.zip');
+    await e3.export(e3.package('calls', '1.0.0'), zip);
+    const again = await packageImport(storage, REPO, zip);
+    assert.notEqual(again.packageHash, deployed.ref.hash, 'the version names another package now');
+
+    const resolved = await workspaceFunctionResolve(storage, REPO, WS, 'twice');
+    assert.equal(resolved.ref.hash, deployed.ref.hash, 'the package the workspace names by its hash');
+    assert.equal(resolved.hash, deployed.hash, 'and its function');
+    assert.equal((await start('twice', [encodeInt(1n)])).functionObject, deployed.hash, 'a call runs the deployed function');
+    assert.equal((await start('scaled', [encodeInt(3n)])).call.state.type, 'running', 'though the package the version names now holds none');
+  });
+
+  it('refuses a call\'s start while a deploy holds the workspace, as a Save is refused then, and files nothing', async () => {
+    const held = await storage.locks.acquire(REPO, WS, variant('deployment', null));
+    assert.ok(held !== null, 'the workspace is free to hold');
+    try {
+      await assert.rejects(start('scaled', [encodeInt(3n)]), WorkspaceLockError);
+    } finally {
+      await held.release();
+    }
+    assert.equal((await storage.calls.list(REPO, WS, { limit: 10 })).calls.length, 0, 'no call is filed');
+    assert.equal((await start('scaled', [encodeInt(3n)])).call.state.type, 'running', 'once it is let go, the call starts');
+  });
+
+  it('refuses a draft passed to a function that lists no record a call may draft: filed invalid, and nothing runs', async () => {
+    // What a call's drafts do where its function takes them: functionDrafts.spec.ts
+    const drafted: FunctionCallRequest = { ...request([encodeInt(3n)]), drafts: [{ record: 'jobs', mutation: 'patch', args: [] }] };
+    const job = await functionCallStart(storage, REPO, WS, 'scaled', drafted, { caller: 'ada@example.com', lifetimes: LIFETIMES, now });
+    if (job.call.state.type !== 'invalid') assert.fail(`filed ${job.call.state.type}`);
+    assert.equal(job.call.state.value.diagnostics[0]!.message, 'draft jobs.patch (1 of 1): the function lists no record a call may draft');
+    assert.equal(job.call.inputs.length + job.call.drafts.length, 0, 'it read nothing, and keeps no draft');
+    assert.equal((await functionCallRun(storage, runner, REPO, WS, job.call.id, { now })).result, null);
+    assert.equal(runner.getDetachedCalls().length, 0);
+  });
+
+  it('names in a result each record its call drafted once, in the order its drafts first name them, and none for a call refused', async () => {
+    const filed = await start('twice', [encodeInt(1n)]);
+    const hash = (digit: string): string => digit.repeat(64);
+    const drafts: FunctionCallJob['call']['drafts'] = [
+      { record: 'presses', mutation: 'patch', args: some(hash('1')) },
+      { record: 'jobs', mutation: 'clear', args: none },
+      { record: 'presses', mutation: 'patch', args: some(hash('2')) },
+    ];
+    // Each record once, in the order the drafts first name it, with the
+    // commit it stood at as the call started
+    const drafted: FunctionCallJob['drafted'] = [
+      { record: 'presses', path: [variant('field', 'records'), variant('field', 'presses')], base: hash('c'), commit: hash('a'), mutations: new SortedMap([['patch', hash('e')]]) },
+      { record: 'jobs', path: [variant('field', 'records'), variant('field', 'jobs')], base: hash('d'), commit: hash('b'), mutations: new SortedMap([['clear', hash('f')]]) },
+    ];
+    const ended = (state: FunctionCallJob['call']['state']): FunctionCallJob => ({ ...filed, call: { ...filed.call, drafts, state }, drafted });
+    const sameDrafts = equalFor(ExecuteResultType.fields.drafts);
+
+    const conflict = await functionCallStatus(storage, REPO, ended(variant('conflict', {
+      record: 'presses', mutation: 'patch', place: 3n, of: 3n, message: 'the row changed under the edit',
+    })));
+    if (conflict.type !== 'completed' || conflict.value.outcome.type !== 'conflict') assert.fail(`the status is ${conflict.type}`);
+    assert.equal(conflict.value.outcome.value.message, 'the row changed under the edit');
+    assert.ok(sameDrafts(conflict.value.drafts, [{ record: 'presses', commit: hash('a') }, { record: 'jobs', commit: hash('b') }]));
+
+    const failed = await functionCallStatus(storage, REPO, ended(variant('failed', { exitCode: 1n })));
+    assert.ok(failed.type === 'completed' && sameDrafts(failed.value.drafts, conflict.value.drafts), 'whatever its end');
+    const refused = await functionCallStatus(storage, REPO, ended(variant('invalid', { diagnostics: [] })));
+    assert.ok(refused.type === 'completed' && refused.value.drafts.length === 0, 'a call refused laid none');
+  });
+
   it('runs a call on its inputs and arguments as stored objects, stores its value, and keeps it as long as a success', async () => {
     runner.setDetachedResult(ran({ kind: 'success', value: encodeInt(30n) }));
     const filed = await start('scaled', [encodeInt(3n)]);
@@ -205,6 +279,8 @@ describe('functionCall', () => {
     const held = new HeldRunner();
     const filed = await start('twice', [encodeInt(1n)]);
     const running = functionCallRun(storage, held, REPO, WS, filed.call.id, { now, watchMs: 10 });
+    // Asked to stop once its function runs, wherever the run's own reads fall
+    await held.running.opened;
     await storage.calls.requestCancel(REPO, WS, filed.call.id, { by: none, at: new Date(T) });
     const { job } = await running;
     assert.equal(job?.call.state.type, 'cancelled');
@@ -217,10 +293,12 @@ describe('functionCall', () => {
     const cancel = new AbortController();
     // A watch that would not look again before the test ends
     const running = functionCallRun(storage, held, REPO, WS, filed.call.id, { now, watchMs: 60_000, cancel: cancel.signal });
+    await held.running.opened;
     await storage.calls.requestCancel(REPO, WS, filed.call.id, { by: some('grace@example.com'), at: new Date(T) });
     cancel.abort();
     const { job } = await running;
     assert.equal(job?.call.state.type, 'cancelled');
+    assert.equal(held.getDetachedCalls().length, 1, 'it ran, and was stopped');
   });
 
   it('records a call lost once a read finds it running past its deadline and a grace, on the clock its store keeps, and leaves one within the grace', async () => {

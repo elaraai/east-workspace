@@ -40,8 +40,13 @@ import {
 } from "@elaraai/east-ui-components";
 import { LoadingReveal, formatDatePattern, keptRead, useSlotStyles } from "@elaraai/east-ui-components/internal";
 import { rowBreaches } from "../shared/bounds.js";
+import { PLAIN_FUNC_BINDING } from "../shared/func/use-func-call.js";
 import { useOptimise } from "../shared/func/use-optimise.js";
+import { optimiseLandedCounts } from "../shared/func/optimise-diff.js";
+import { NO_OPTIMISE_ROWS } from "../shared/func/optimise-rows.js";
 import { useOptimiseParts } from "../shared/func/optimise-parts.js";
+import { scheduleOptimiseSessions } from "../shared/func/optimise-sessions.js";
+import { optimiseSlice } from "../shared/func/optimise-slice.js";
 import { periodLoading, periodLoadingLine, periodRead, retryPeriod } from "../shared/loading.js";
 import { FieldAskProvider, useFieldAsks } from "../shared/schedule/field-ask.js";
 import { useHiddenPick } from "../shared/schedule/hidden-pick.js";
@@ -67,11 +72,11 @@ import { binCode } from "./inspector-model.js";
 import { useAllocationLibrary, type Pick, type ResourceFind } from "./library.js";
 import { allocationMessages, type AllocationWords } from "./messages.js";
 import {
-    DAY, NARROW_WIDTH, NO_PERIOD, allocationContext, allocationDomain, allocationReferenceCheckEncoder, allocationWords, byWeek, compareDate, compareFloat, compareString, configError, dayKey, dayStart,
+    DAY, NARROW_WIDTH, NO_PERIOD, allocationContext, allocationDomain, allocationReferenceCheckEncoder, allocationWords, byWeek, compareDate, compareFloat, compareString, configError, dayKey, dayStart, rolesOf,
     editableStatus, focusOf, periodSpan, placeDrafted, placeStored, started, statusText, type AllocationStyles, type AllocationValue, type Bin, type Day, type DraftedBin,
     type Issue, type PlacedPeriod, type Selection, type StoredBin,
 } from "./model.js";
-import { narrowingPart, narrowingText, useNarrowed } from "./narrowed.js";
+import { allocationNarrowed, narrowingPart, narrowingText, useNarrowed } from "./narrowed.js";
 import { NounsContext, a, lower, one, other } from "./nouns.js";
 import {
     allocationOptimiseRequest, allocationOptimiseTypes, landAllocationOptimise, lockAllocationCommands,
@@ -101,6 +106,8 @@ const NO_STORED: ReadonlyMap<string, StoredBin> = new Map();
 const NO_BIN_DRAFTS: ReadonlyMap<string, DraftedBin | undefined> = new Map();
 const NO_PERIOD_DRAFTS: ReadonlyMap<string, Uint8Array | undefined> = new Map();
 const NO_ISSUES: Issue[] = [];
+/** A board that takes no edit holds no draft: the one object its fit's answers are kept for. */
+const NO_FIT_DRAFTS: object = {};
 const keyEqual = equalFor(StringType);
 const sameIssues = equalFor(ArrayType(AllocationIssueType));
 /** The Table's view has rested nowhere yet. */
@@ -212,7 +219,10 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     const arrivalsSource = useSourceShown(arrivalsShown, narrowingPart(value, "arrivals"));
     const resourcesSource = useSourceShown(resourcesShown, narrowingPart(value, "resources"));
     const narrowingLoading = narrowing.some(n => n.loading), narrowingFailed = narrowing.some(n => n.error !== undefined);
-    const clearFilters = value.slice.type === "some" ? value.slice.value.slice.clearAll : undefined;
+    // The sources a choice of the viewer's narrows, which an empty board's Clear filters clears (#1621: a page's scope is no choice).
+    const lanesChosen = lanesShown.chosen, resourcesChosen = resourcesShown.chosen, arrivalsChosen = arrivalsShown.chosen;
+    const narrowed = useMemo(() => allocationNarrowed(value, { lanes: lanesChosen, resources: resourcesChosen, arrivals: arrivalsChosen }),
+        [value, lanesChosen, resourcesChosen, arrivalsChosen]);
     const root = useRef<HTMLDivElement>(null), main = useRef<HTMLDivElement>(null);
     // The frame's panes, as the board's own controls open them: a bin's Chooser, the issues chip's Issues, Find a fit's Resources.
     const panes = useRef<BuilderFramePanes>(null);
@@ -264,8 +274,8 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
             focus: setBinFocus,
         },
     });
-    const finder = useAllocationFind({ value, domain, part: binsPart, words, hidden: hiddenBins, onPick: (bin: FoundBin) => {
-        hiddenPick.pick(hiddenBins.of(bin), bin.key, () => { window.setView({ ...window.view, date: dayStart(bin.at).getTime() }); });
+    const finder = useAllocationFind({ value, domain, part: binsPart, words, hidden: hiddenBins, onPick: (bin: FoundBin, hidden) => {
+        hiddenPick.pick(hidden, bin.key, () => { window.setView({ ...window.view, date: dayStart(bin.at).getTime() }); });
     } });
     const search = useMemo(() => (finder === undefined ? undefined : hiddenPick.search(finder)), [finder, hiddenPick]);
     // The bin given the keyboard waits for its element only while it is the one selected (`useBinFocusTarget`), and until
@@ -347,39 +357,57 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     const retained = stale || narrowingLoading || narrowingFailed;
     // Commands update what is selected without changing the panes or their tabs.
     const unlocked = allocationCommands({ value, domain, day, plan, held, period, heldPeriod, read: stored, editing, ready: current && !publishing, retained }, select, publish);
-    // The app's optimiser (#1409, #1420): one run over the day in view, its result landed on the day's bins as one edit,
-    // and what it left on them until Apply — the landing and the highlight over the whole frame.
+    // The app's optimiser (#1409, #1420, east-workspace#1622): one run over the day in view — asked the day and the rail's
+    // narrowing, the board's unsaved edits sent as drafts — its answer's patch landed on the bins as one edit, and what it
+    // left on them until Apply — the landing and the highlight over the whole frame.
     const landing = useLanding(root);
     const landingStyles = useLandingStyles();
     const optimiseTypes = useMemo(() => allocationOptimiseTypes(domain.rowType), [domain]);
     const [optimised, setOptimised] = useState<AllocationOptimised | undefined>(undefined);
     const landAfter = useRef<(run: number) => void>(() => undefined);
-    const latestRun = useRef({ plan, context, editing, optimised });
-    latestRun.current = { plan, context, editing, optimised };
+    // Whether the day takes edits: its period's status, stored and drafted (rule 11).
+    const dayOpen = editableStatus(heldPeriod.status) && editableStatus(period.status);
+    const latestRun = useRef({ plan, context, editing, optimised, dayWords, current, dayOpen });
+    latestRun.current = { plan, context, editing, optimised, dayWords, current, dayOpen };
+    // Each record's session, by the record it edits — the bins' and the periods': what the run takes its drafts from, and
+    // waits on before its answer lands.
+    const optimiseSessions = useMemo(() => {
+        const records = new Map([[value.bin.kind.key, value.bin.kind.editing.sourceId] as const,
+            ...(value.periods.type === "some" ? [[PERIODS, value.periods.value.editing.sourceId] as const] : [])]);
+        return scheduleOptimiseSessions(() => latestRun.current.editing?.schedule, kind => records.get(kind), words);
+    }, [value, words]);
     const run = useOptimise<AllocationOptimiseRequest, AllocationOptimiseResult>({
         name: value.optimise.type === "some" ? value.optimise.value.name : null,
+        binding: value.optimise.type === "some" ? value.optimise.value : PLAIN_FUNC_BINDING,
+        // The day's read moves it too: an answer waits for the day, as the page holds it, before it lands.
+        sessions: optimiseSessions, settleKey: `${editing?.schedule.version ?? 0}\u0000${current ? "read" : "reading"}`,
+        // The bins an answer touches that the page does not hold, read by their keys before it lands (rule 8).
+        rowsByKey: editing?.schedule.rowsByKey ?? NO_OPTIMISE_ROWS,
         requestType: optimiseTypes.request, resultType: optimiseTypes.result, scope: dayId, storageKey: key,
-        onLanded: (result, request, n) => {
+        onLanded: (result, request, n, read) => {
             const now = latestRun.current;
             if (now.editing === undefined) return undefined;
+            // The day not read yet: neither its bins nor whether it takes edits is known, and the answer waits for it (rule 11).
+            if (!now.current) return { waiting: true };
             const runText = format.number(n);
-            const landed = landAllocationOptimise({ value, domain, editing: now.editing, request, result, label: optimiseMessages.step({ run: runText }), runText,
-                plan: now.plan, context: now.context, before: now.optimised });
-            if (landed === undefined) return undefined;
-            // A run that changed nothing leaves what earlier runs left (R10).
-            if (landed.optimised !== undefined) { setOptimised(landed.optimised); landAfter.current(n); }
-            return landed.counts;
+            const schedule = now.editing.schedule;
+            const landed = landAllocationOptimise({ value, domain, types: optimiseTypes, editing: now.editing,
+                held: (kind, id) => schedule.row(kind, id) ?? read(kind, id), request, result, label: optimiseMessages.step({ run: runText }),
+                runText, period: now.dayWords, plan: now.plan, context: now.context, before: now.optimised, open: now.dayOpen, unit, m: words.m });
+            // Bins the page does not hold are read by their keys, and the answer lands once they are (rule 8).
+            return optimiseLandedCounts(landed, (left) => { setOptimised(left); landAfter.current(n); });
         },
     });
     // While a run is out (R2) the day takes no gesture: every command refused, the drags off, the history locked.
     const locked = run.running;
     const commands = locked ? lockAllocationCommands(unlocked) : unlocked;
     // The eye is listed only where the day can be optimised (ruled 25 Oct 2026): never read only, never over a published
-    // day; while the day's reads are in flight it waits, disabled, in its place.
+    // day; while a Publish is under way it waits, disabled, in its place. It waits on none of the day's reads: the
+    // function reads the bins itself, and its answer lands on what the page holds then.
     const optimiseParts = useOptimiseParts<AllocationOptimiseRequest>({
         run, landing, period: dayWords,
-        readOnly: value.settings.readOnly || editing === undefined || (current && (!editableStatus(heldPeriod.status) || !editableStatus(period.status))), busy: !unlocked.available,
-        request: n => allocationOptimiseRequest(day, latestRun.current.plan, value.arrivals, latestRun.current.context, n), landKey: plan,
+        readOnly: value.settings.readOnly || editing === undefined || (current && (!editableStatus(heldPeriod.status) || !editableStatus(period.status))), busy: publishing,
+        request: n => allocationOptimiseRequest(day, optimiseSlice(value.slice.type === "some" ? value.slice.value : undefined), n), landKey: plan,
     });
     landAfter.current = optimiseParts.landAfter;
     // What a run left on the bins goes with the drafts (R17): once nothing is pending — Save, Discard — nothing is
@@ -389,11 +417,13 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     useEffect(() => {
         if (pendingSteps === 0 && editing?.history.redoOrigin !== "optimise") setOptimised(undefined);
     }, [pendingSteps, editing?.schedule.version, editing]);
-    // The app's fit (§12): every verdict a drag or a pick shows is its answer.
-    const fit = useAllocationFit(value, domain, day, plan, context);
+    // The app's fit (§12, east-workspace#1624): every verdict a drag or a pick shows is its answer — asked the day, the
+    // question and the page's scope, the board's unsaved edits sent as drafts.
+    const fit = useAllocationFit(value, domain, day, plan, context, { sessions: optimiseSessions, drafts: editing?.schedule.drafts ?? NO_FIT_DRAFTS });
     const { ask: askFit } = fit;
-    // The day without a reservation, one per reservation for these drafts: what a fill asks the fit of (A38).
-    // The drafts are the cache's key: new drafts, a new cache.
+    // The day without a reservation, one per reservation for these drafts: what a fill asks the fit of (A38). Each derived
+    // day goes to the fit as one more draft of the bins' record, laid after the pending Save (rule 10): its change from
+    // the drafts, so each of its bins holds the row the record would. The drafts are the cache's key: new drafts, a new cache.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     const withouts = useMemo(() => new Map<string, Day>(), [plan]);
     const without = (bin: string) => {
@@ -429,9 +459,12 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
         let derived: Day | undefined;
         if (held.bins.has(bin) && !plan.bins.has(bin)) {
             derived = domain.copyDay(reservation === undefined ? plan : without(reservation));
-            const back = domain.copyDay(held).bins.get(bin)!;
-            back.parts.clear();
-            derived.bins.set(bin, back);
+            // The bin as it was saved, unlinked: its row written with no parts, as unlinking it writes it — the row the
+            // fit's function reads of the bins' record.
+            const was = held.bins.get(bin)!;
+            const bytes = value.bin.write(domain.encodeRow(was.row), { ...rolesOf(was), parts: new SortedMap<string, number>([], compareString) });
+            const back = domain.binOf(value.bin.read(bytes), domain.decodeRow(bytes), day);
+            if (back.type === "some") derived.bins.set(bin, back.value);
         }
         restorings.set(at, derived);
         return derived;
@@ -447,6 +480,14 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     // The picked card's grip: its fits show as a drag's do, and its click books as its drop would (A11).
     const pickGrip: LibraryGrip | undefined = pick?.kind === "arrival" || pick?.kind === "removed" ? pick : undefined;
     const drag = useAllocationDrag(key, commands.canEdit() && !narrow, scene, setRefusal, pickGrip);
+    // A resource the board names on its own that the narrowing leaves out — its focus, the fit it ranks first — says why
+    // (#1621): beyond the page's scope, or hidden by the filters; e3 is asked which as the board names it.
+    const resourcesLeft = resourcesShown.keys;
+    const leftOut = useCallback((resource: string | undefined): resource is string =>
+        resource !== undefined && resourcesLeft.type === "some" && !resourcesLeft.value.has(resource), [resourcesLeft]);
+    const bestFit = drag.ranks[0];
+    const { askResources, whyResource } = hiddenBins;
+    useEffect(() => { askResources([focus, bestFit].filter(leftOut)); }, [focus, bestFit, leftOut, askResources]);
     // A verdict a click ran (A11, A53): its refusal shown as a drop's is, else its command.
     const runVerdict = useCallback((verdict: Verdict) => {
         if (verdict.pending) return;
@@ -668,7 +709,7 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
         where: historyWhere, onAction, onPickerWeeks: setPickerWeeks,
         status: value.periods.type === "some" ? statusText(heldPeriod) : undefined, published: heldPeriod.status.type === "published", unread: !current, publishing, picker: data.picker,
         optimise: optimiseParts.toolbarItem, optimiseEntry: optimiseParts.entry, locked, issuesFlash: landing.lit && optimised !== undefined,
-        focus: focus === undefined ? undefined : { resource: context.resources.get(focus)!, load: loads.get(focus)!, hidden: resourcesShown.keys.type === "some" && !resourcesShown.keys.value.has(focus) },
+        focus: focus === undefined ? undefined : { resource: context.resources.get(focus)!, load: loads.get(focus)!, hidden: leftOut(focus) ? whyResource(focus) : undefined },
         onClearFocus: () => { setSelection(undefined); setLink(undefined); setChooser(undefined); }, nouns, search });
     const readOnly = value.settings.readOnly || (current && !editableStatus(heldPeriod.status));
     const notStarted = current && plan.bins.size === 0 && (value.periods.type === "none" || !started(period));
@@ -741,18 +782,19 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
                         sameBin={domain.sameBin} conflicted={conflicted} bounded={bounded} loads={loads} lines={lines} slots={slots} layout={window.view.layout} surface={drag.surface}
                         selection={selection} select={inspect} follow={follow} editable={commands.canEdit()} commands={commands} fit={fit}
                         without={without} reserving={reserving} visibleLanes={lanesShown.keys} visibleResources={resourcesShown.keys}
-                        visibleArrivals={arrivalsShown.keys} clearFilters={clearFilters} read={read} optimised={optimised} lit={landing.lit}
+                        visibleArrivals={arrivalsShown.keys} narrowed={narrowed} read={read} optimised={optimised} lit={landing.lit}
                         bookOnto={(arrival, resource) => { setRefusal(undefined); bookOnto(scene, { kind: "arrival", arrival }, resource); }} />
                     : window.view.layout === "timeline" ? <AllocationTimeline value={value} context={context} styles={styles} format={format} day={day} plan={plan}
                         held={held} sameBin={domain.sameBin} conflicted={conflicted} bounded={bounded} loads={loads} slots={slots} issues={issues} visible={resourcesShown.keys} visibleLanes={lanesShown.keys}
                         visibleArrivals={arrivalsShown.keys} read={read} empty={empty} optimised={optimised} lit={landing.lit}
-                        clearFilters={clearFilters} selection={selection} focus={focus} highlight={highlight} picked={pickGrip !== undefined} book={bookPicked}
+                        narrowed={narrowed} selection={selection} focus={focus} highlight={highlight} picked={pickGrip !== undefined} book={bookPicked}
                         editable={commands.canEdit()} select={inspect} choose={id => { inspect({ type: "bin", id }); setChooser(id); panes.current?.reveal("end"); }} follow={follow}
-                        link={link} selectLink={selectLink} unlink={(bin, resource) => commands.unlink(bin, resource)} drag={drag} candidates={domain.candidates} />
+                        link={link} selectLink={selectLink} unlink={(bin, resource) => commands.unlink(bin, resource)} drag={drag} candidates={domain.candidates}
+                        whyResource={whyResource} />
                     : <AllocationTable value={value} domain={domain} context={context} styles={styles} format={format} day={day} plan={plan} held={held}
                         sameBin={domain.sameBin} conflicted={conflicted} bounded={bounded} loads={loads} slots={slots} selection={selection} editable={commands.canEdit()} select={inspect} follow={follow}
                         drag={drag} commands={commands} fit={fit} without={without} reserving={reserving} highlight={highlight} book={bookPicked} read={read}
-                        visibleLanes={lanesShown.keys} visibleResources={resourcesShown.keys} visibleArrivals={arrivalsShown.keys} clearFilters={clearFilters}
+                        visibleLanes={lanesShown.keys} visibleResources={resourcesShown.keys} visibleArrivals={arrivalsShown.keys} narrowed={narrowed}
                         anchor={anchor.table} onAnchor={onTableAnchor} narrowing={tableNarrowing} optimised={optimised} lit={landing.lit} />}
             </Box>
         </BuilderFrame>

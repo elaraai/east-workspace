@@ -14,6 +14,7 @@
  * `rowheader`.
  */
 
+import type { ReactNode } from "react";
 import { Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCaretDown } from "@fortawesome/free-solid-svg-icons";
@@ -54,6 +55,24 @@ export function groupStrip(kind: GroupKindValue, derived: HeatCellsValue | undef
     return arm;
 }
 
+/**
+ * A band's plot cell: what the band draws over the plot, then the now line
+ * across it. A group's band and a links focus's band (#1680's review) draw
+ * their plots through it.
+ *
+ * @param props.styles - The Plan's slot styles
+ * @param props.children - What the band draws in its plot, if anything
+ */
+export function BandPlot({ styles, children }: { styles: Styles; children?: ReactNode }) {
+    const scale = usePlanScale();
+    return (
+        <Box css={styles.plot} role="gridcell" data-plan-band-plot>
+            {children}
+            {scale.nowFrac !== undefined && <NowLine styles={styles} at={scale.nowFrac} data-plan-now />}
+        </Box>
+    );
+}
+
 export interface GroupRowProps {
     row: PlanRowValue;
     kind: GroupKindValue;
@@ -89,7 +108,6 @@ export interface GroupRowProps {
 
 /** One group band — full-width strip on the shared template. */
 export function GroupRow({ row, kind, styles, gridTemplate, height, depth, collapsed, strip, memberCount, partial, diagnostic, grid, groupEnd }: GroupRowProps) {
-    const scale = usePlanScale();
     const dispatch = usePlanDispatch();
     const words = usePlanWords();
     // A declared meta line wins; otherwise the derived member count stands in — a short bar while it covers only the
@@ -124,24 +142,23 @@ export function GroupRow({ row, kind, styles, gridTemplate, height, depth, colla
             data-plan-partial={partial === true ? "" : undefined}
             onClick={() => dispatch({ t: "group.toggle", key: row.key })}
         >
-            <Box css={styles.groupName} role="rowheader" style={{ paddingLeft: `${12 + depth * INDENT_PX}px` }}>
+            {/* Open, the band's name spans the whole row — caret · caption · meta · value · dot, left to right — over
+                its empty plot; collapsed, it is the rows' gutter grid, its caption, meta and value over the name and value
+                cells, its dot in the dot cell, beside the strip (#1680's review). Value then dot, as on rows. */}
+            <Box css={styles.groupName} role="rowheader" data-open={collapsed ? undefined : ""} style={{ paddingLeft: `${12 + depth * INDENT_PX}px` }}>
                 <Box as="span" css={styles.caret} data-collapsed={collapsed ? "" : undefined}>
                     <FontAwesomeIcon icon={faCaretDown} />
                 </Box>
-                <Box as="span" css={styles.gutterLabel} data-plan-gutter="label">{row.gutter.label}</Box>
-                {/* The mock's `.grow` anatomy: meta / dot / value cluster
-                    pushed to the gutter's RIGHT edge by the flex spacer —
-                    never inline beside the name. */}
-                {(meta !== undefined || value !== undefined || statusTone !== undefined) && (
-                    <Box css={styles.gutterRight}>
-                        {meta !== undefined && <Box as="span" css={styles.groupMeta} data-plan-gutter="meta">{meta}</Box>}
-                        {statusTone !== undefined && <Box as="span" css={styles.statusDot} data-tone={statusTone}
-                            role="img" aria-label={statusText(statusTone, words)} />}
-                        {value !== undefined && <Box as="span" css={styles.gutterValue} data-plan-gutter="value">{value}</Box>}
-                    </Box>
-                )}
+                <Box as="span" data-plan-gutter="title">
+                    <Box as="span" css={styles.gutterLabel} data-plan-gutter="label">{row.gutter.label}</Box>
+                    {meta !== undefined && <Box as="span" css={styles.groupMeta} data-plan-gutter="meta">{meta}</Box>}
+                    {value !== undefined && <Box as="span" css={styles.gutterValue} data-plan-gutter="value">{value}</Box>}
+                </Box>
+                {statusTone !== undefined
+                    ? <Box as="span" css={styles.statusDot} data-tone={statusTone} role="img" aria-label={statusText(statusTone, words)} />
+                    : <Box as="span" />}
             </Box>
-            <Box css={styles.plot} role="gridcell">
+            <BandPlot styles={styles}>
                 {diagnostic !== undefined && <RowDiagnostic diagnostic={diagnostic} styles={styles} />}
                 {summary !== undefined && (
                     <PlanPartBoundary part={{ kind: "group", label: row.gutter.label }} resetKey={summary} styles={styles}>
@@ -153,8 +170,7 @@ export function GroupRow({ row, kind, styles, gridTemplate, height, depth, colla
                             onCellClick={() => dispatch({ t: "group.toggle", key: row.key })} />
                     </PlanPartBoundary>
                 )}
-                {scale.nowFrac !== undefined && <NowLine styles={styles} at={scale.nowFrac} data-plan-now />}
-            </Box>
+            </BandPlot>
         </Box>
     );
 }

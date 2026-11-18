@@ -14,19 +14,20 @@
  */
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { ArrayType, DictType, East, FloatType, StringType, StructType } from "@elaraai/east";
+import { ArrayType, DictType, East, FloatType, StringType, StructType, printType, variant, type ExprType, type ValueTypeOf } from "@elaraai/east";
 import { Assert, TestImpl, describeEast } from "@elaraai/east-node-std";
 import * as EastUI from "@elaraai/east-ui";
 import { Slice } from "@elaraai/east-ui";
 import e3 from "@elaraai/e3";
 import { Data, Roster, Schedule } from "@elaraai/e3-ui";
-import { Func, Record, RosterPayloadType, createRosterPayload, type RosterProps } from "@elaraai/e3-ui/internal";
-import { WarehouseDuty } from "./warehouse.js";
+import { Func, FuncBindingType, Record, RosterPayloadType, createRosterPayload, rosterEdits, rosterFitBinding, type RosterProps } from "@elaraai/e3-ui/internal";
+import { refusingPlatform } from "../refusing-platform.js";
+import { WarehouseCover, WarehouseDuty } from "./warehouse.js";
 import * as ex from "./roster.examples.js";
 
 describeEast("Roster — inline bound examples", test => {
     Assert.examples(test, { rosterWarehouse: ex.rosterWarehouse, rosterMobile: ex.rosterMobile, rosterPeople: ex.rosterPeople,
-        rosterPeopleMonth: ex.rosterPeopleMonth, rosterPeopleNoBands: ex.rosterPeopleNoBands, rosterWorkRequirement: ex.rosterWorkRequirement,
+        rosterPeopleMonth: ex.rosterPeopleMonth, rosterPeopleNoBands: ex.rosterPeopleNoBands, rosterWorkRequirement: ex.rosterWorkRequirement, rosterHoursNeeded: ex.rosterHoursNeeded,
         rosterWeek: ex.rosterWeek, rosterWindowed: ex.rosterWindowed, rosterMinimal: ex.rosterMinimal, rosterViews: ex.rosterViews, rosterVocabulary: ex.rosterVocabulary, rosterPublished: ex.rosterPublished, rosterDaily: ex.rosterDaily,
         rosterCustomInspector: ex.rosterCustomInspector, rosterConflicts: ex.rosterConflicts, rosterNoGroup: ex.rosterNoGroup, rosterRota: ex.rosterRota });
 }, { platformFns: TestImpl });
@@ -177,18 +178,68 @@ describe("the app's pay, check and fit, over the duties' row type", () => {
         assert.throws(() => payload(() => ({ check: otherRow as never })), /Roster: `check` is an East function from Roster\.Types\.CheckContext\(\.Struct/);
     });
 
-    test("`fit` is Func.bind of an e3.function from FitRequest(R) to FitResult, refused naming the row it is bound over", () => {
+    test("`fit` is Func.bind of an e3.function from FitRequest to FitResult, refused naming what it asks or answers (#1624)", () => {
+        // The warehouse's fit lists the duties it reads in `drafts`: the Roster passes them, and takes the handle.
         assert.doesNotThrow(() => payload(() => ({ fit: Func.bind(ex.rosterStaffFit) })));
-        const Other = StructType({ person: StringType, start: Schedule.Types.Clock });
-        const otherRow = e3.function("spec_other_row", East.function([Roster.Types.FitRequest(Other)], Roster.Types.FitResult, (_$, req) => ({
+        // One that asks for the week itself, as a request once carried it: refused, naming what it asks.
+        const AsksWeek = StructType({ need: Roster.Types.Need, slot: Roster.Types.Slot, week: Roster.Types.Week(WarehouseDuty) });
+        const asksWeek = e3.function("spec_asks_week", East.function([AsksWeek], Roster.Types.FitResult, (_$, req) => ({
             need: req.need, slot: req.slot, people: new Map(),
         })));
-        assert.throws(() => payload(() => ({ fit: Func.bind(otherRow) as never })),
-            /Roster: `fit` is bound over duty rows \.Struct.*and the duty kind's rows are \.Struct.* — bind a fit over Roster\.Types\.FitRequest of the duties' row type/);
-        const answersText = e3.function("spec_answers_text", East.function([Roster.Types.FitRequest(WarehouseDuty)], StringType, () => "nobody"));
-        assert.throws(() => payload(() => ({ fit: Func.bind(answersText) as never })), /Roster: `fit` answers \.String, not Roster\.Types\.FitResult/);
-        assert.throws(() => payload(() => ({ fit: East.value("roster_staff_fit") as never })),
-            /Roster: `fit` is Func\.bind of the app's e3\.function from Roster\.Types\.FitRequest\(R\) to Roster\.Types\.FitResult/);
+        assert.throws(() => payload(() => ({ fit: Func.bind(asksWeek) as never })), {
+            message: `Roster: \`fit\` asks ${printType(AsksWeek)}, not Roster.Types.FitRequest — ` +
+                "a request carries the question and the page's scope, and no row: the function reads what it needs from the workspace",
+        });
+        const answersText = e3.function("spec_answers_text", East.function([Roster.Types.FitRequest], StringType, () => "nobody"));
+        assert.throws(() => payload(() => ({ fit: Func.bind(answersText) as never })), {
+            message: "Roster: `fit` answers .String, not Roster.Types.FitResult — a verdict for each person the function considered",
+        });
+        assert.throws(() => payload(() => ({ fit: East.value("roster_staff_fit") as never })), {
+            message: "Roster: `fit` is Func.bind of the app's e3.function from Roster.Types.FitRequest to Roster.Types.FitResult — " +
+                "the question and the page's scope in, a verdict for each person the function considered out",
+        });
+    });
+
+    test("a `fit` that reads a record the Roster edits lists it in `drafts`: one that does not fails the page as it is evaluated, naming the record (#1624, rule 4)", () => {
+        /** The fit's binding as the tag holds it, evaluated: over the duties, and the targets and the weeks where the Roster has them. */
+        const evaluated = (def: unknown, withTargets: boolean, withPeriods: boolean): ValueTypeOf<typeof FuncBindingType> =>
+            East.compile(East.function([], FuncBindingType, ($) => {
+                const rota = $.let(Record.bind(ex.rosterDuties));
+                const cover = $.let(Record.bind(ex.rosterCover));
+                const weeks = $.let(Record.bind(ex.rosterWeeks));
+                const fit = $.let(Func.bind(def as never));
+                const kind = Schedule.events(rota, {
+                    name: "Duty", icon: "user-clock", start: "start", end: "end", resource: { field: "who", of: { staff: "people", agency: "agencies" } },
+                    shift: "shift", group: "team",
+                });
+                const targets = withTargets ? Roster.targets(cover, { day: "day", group: "team", shift: "shift", positions: "heads", hours: "hours" }) : undefined;
+                const periods = withPeriods ? Schedule.periods(weeks, { every: "week", status: { field: "state", draft: "open", published: "issued" } }) : undefined;
+                return rosterFitBinding(fit, rosterEdits(kind as never, targets, periods));
+            }), refusingPlatform)();
+        // The warehouse's fit reads the duties, by their index and by key, and lists them: its binding names both.
+        const held = evaluated(ex.rosterStaffFit, true, true);
+        assert.deepEqual([held.name, held.drafts, held.reads.includes("roster_duties")], ["roster_staff_fit", ["roster_duties"], true]);
+        const answer = { need: variant("leads", null), slot: { day: 0n, group: "", shift: "" }, people: new Map() };
+        // One that reads the duties and lists no draft would answer around the planner's unsaved duties.
+        const undrafted = e3.function("spec_fit_duties_undrafted", { inputs: [ex.rosterDuties], args: [Roster.Types.FitRequest], output: Roster.Types.FitResult }, () => answer);
+        assert.throws(() => evaluated(undrafted, false, false), (error: Error) => error.message.includes(
+            "Roster: `fit` is the function 'spec_fit_duties_undrafted', which reads the record 'roster_duties' that the Roster edits " +
+            "and does not list it in `drafts` — it would answer around edits it cannot see: list it, drafts: [roster_duties], beside the function's inputs"));
+        // By an index of it, the same.
+        const byIndex = e3.function("spec_fit_duties_by_index", {
+            inputs: [e3.index(ex.rosterDuties.indexes.roster_duties_by_time)], args: [Roster.Types.FitRequest], output: Roster.Types.FitResult,
+        }, () => answer);
+        assert.throws(() => evaluated(byIndex, false, false), (error: Error) => error.message.includes("which reads the record 'roster_duties' that the Roster edits"));
+        // The targets and the weeks are the Roster's to edit where it has them: a function that reads one lists it.
+        const readsCover = e3.function("spec_fit_reads_cover", { inputs: [ex.rosterCover], args: [Roster.Types.FitRequest], output: Roster.Types.FitResult }, () => answer);
+        assert.throws(() => evaluated(readsCover, true, false), (error: Error) => error.message.includes("which reads the record 'roster_cover' that the Roster edits"));
+        assert.doesNotThrow(() => evaluated(readsCover, false, false));
+        const readsWeeks = e3.function("spec_fit_reads_weeks", { inputs: [ex.rosterWeeks], args: [Roster.Types.FitRequest], output: Roster.Types.FitResult }, () => answer);
+        assert.throws(() => evaluated(readsWeeks, false, true), (error: Error) => error.message.includes("which reads the record 'roster_rota_weeks' that the Roster edits"));
+        assert.doesNotThrow(() => evaluated(readsWeeks, false, false));
+        // One that reads no record the Roster edits lists none: the staff are not the Roster's to edit.
+        const readsStaff = e3.function("spec_fit_reads_staff", { inputs: [ex.rosterStaff], args: [Roster.Types.FitRequest], output: Roster.Types.FitResult }, () => answer);
+        assert.doesNotThrow(() => evaluated(readsStaff, true, true));
     });
 });
 
@@ -313,12 +364,12 @@ describe("the People layout's periods, its patterns and its display props (#1406
 
 describe("Roster.targets", () => {
     const Cover = StructType({ day: Schedule.Types.Clock, team: StringType });
+    const targets = (config: object, record: unknown = ex.rosterCover) => payload(() => {
+        const def = record as typeof ex.rosterCover;
+        return { targets: Roster.targets(Record.bind(def, ["patch"]) as never, config as never) };
+    });
+    const roles = { day: "day", group: "team", shift: "shift", positions: "heads", hours: "hours" };
     test("refuses a role naming a field of another type, two roles naming one field, and a record not keyed by String", () => {
-        const targets = (config: object, record: unknown = ex.rosterCover) => payload(() => {
-            const def = record as typeof ex.rosterCover;
-            return { targets: Roster.targets(Record.bind(def, ["patch"]) as never, config as never) };
-        });
-        const roles = { day: "day", group: "team", shift: "shift", positions: "heads", hours: "hours" };
         assert.doesNotThrow(() => targets(roles));
         assert.throws(() => targets({ ...roles, positions: "team" }), /Roster\.targets: `positions` names an Integer field, the positions to fill — "team" holds \.String/);
         assert.throws(() => targets({ ...roles, day: "nope" }), /Roster\.targets: `day` names "nope", a field the row does not have/);
@@ -328,5 +379,19 @@ describe("Roster.targets", () => {
         // Read by key beside the slice's `targets` source alone.
         assert.throws(() => targets({ ...roles, entries: Data.bindPaged(ex.rosterCover) }),
             /Roster\.targets: `entries` reads one target by its key beside the Roster's slice's `targets` source/);
+    });
+
+    test("takes `needed`, the slot's hours needed of its row and its shift's nominal hours, and refuses one of another type, naming it (#1678)", () => {
+        type Row = ExprType<typeof WarehouseCover>;
+        type Hours = ExprType<typeof FloatType>;
+        assert.doesNotThrow(() => targets({ ...roles, needed: (row: Row, shiftHours: Hours) => row.heads.toFloat().multiply(shiftHours) }));
+        assert.throws(() => targets({ ...roles, needed: (row: Row) => row.heads }), {
+            message: "Roster.targets: `needed` returns the slot's hours needed, a Float, from the target's row and its shift's nominal hours — " +
+                "and this one returns .Integer: (row, shiftHours) => row.heads.toFloat().multiply(shiftHours)",
+        });
+        assert.throws(() => targets({ ...roles, needed: 8 }), {
+            message: "Roster.targets: `needed` is a function of the target's row and its shift's nominal hours, returning the slot's hours needed as a Float — " +
+                "(row, shiftHours) => row.heads.toFloat().multiply(shiftHours)",
+        });
     });
 });

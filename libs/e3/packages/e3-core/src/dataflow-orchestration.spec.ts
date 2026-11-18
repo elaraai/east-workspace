@@ -113,7 +113,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
         kind: TASK_OBJECT_KIND,
         body: variant('command', { commandIr: commandIrHash }),
         runner: variant('custom', { command: [] }),
-        inputs: t.inputs.map((path) => ({ path, partition: none })),
+        inputs: t.inputs.map((path) => ({ path, index: none, partition: none })),
         output: { path: t.output, kind: variant('value', null) },
         role: variant('data', null),
         environment: none,

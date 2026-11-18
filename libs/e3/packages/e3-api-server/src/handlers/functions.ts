@@ -29,7 +29,6 @@ import {
   detachedToExecuteResult,
   functionRunnerRefusal,
   invalidExecuteResult,
-  pinCallArguments,
   resolveExecuteLimits,
   resolveJobLimits,
   splitCallInvalid,
@@ -38,7 +37,7 @@ import {
   splitCallResult,
 } from '@elaraai/e3-core/portable';
 import type { DetachedArg, ExecuteCeilings, OneShotGrant, SplitCallJob, SplitCallStore, StorageBackend, TaskRunner } from '@elaraai/e3-core/portable';
-import { type FunctionObject, type RunnerValue, decodeFunctionObject, pathToString } from '@elaraai/e3-types';
+import { type FunctionObject, type PackageObject, type RunnerValue, decodeFunctionObject, inputLabel, pathToString } from '@elaraai/e3-types';
 import { sendSuccess, sendError } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
 import {
@@ -48,6 +47,7 @@ import {
   SplitCallStatusType,
   type ExecuteResult,
   type FunctionCallRequest,
+  type FunctionSignature,
   type SplitCallRequest,
   type SplitCallStatus,
 } from '../types.js';
@@ -75,25 +75,29 @@ async function resolveFunction(
   return decodeFunctionObject(await storage.objects.read(repoPath, fnHash));
 }
 
+/** A function's signature, as list and describe answer it: what its object
+ *  says of it, under its name. */
+function signatureOf(name: string, fnObj: FunctionObject): FunctionSignature {
+  return {
+    name,
+    inputs: fnObj.inputs,
+    drafts: fnObj.drafts,
+    argTypes: fnObj.argTypes,
+    outputType: fnObj.outputType,
+    runner: fnObj.runner,
+  };
+}
+
 /**
- * The arguments a named call hands its runner: the function's inputs, each
- * pinned by its hash in the workspace, then each value as its bytes and each
- * dataset argument pinned the same way, with what the call read. A call with
- * no workspace — through the package route — has none to read an input or a
- * dataset from, and is `invalid`.
+ * The arguments a call through the package hands its runner: each value as
+ * its bytes. The call has no workspace to read from, so a function that reads
+ * inputs, and a dataset argument, are `invalid`, each saying where to call the
+ * function instead.
  */
-async function callArguments(
-  storage: StorageBackend,
-  repoPath: string,
-  workspace: string | null,
-  fnName: string,
-  fnObj: FunctionObject,
-  args: FunctionCallRequest['args'],
-): Promise<{ args: DetachedArg[]; inputs: ExecuteResult['inputs'] } | ExecuteResult> {
-  if (workspace !== null) return pinCallArguments(storage, repoPath, workspace, args, { inputs: fnObj.inputs });
+function callArguments(fnName: string, fnObj: FunctionObject, args: FunctionCallRequest['args']): DetachedArg[] | ExecuteResult {
   if (fnObj.inputs.length > 0) {
     return invalidExecuteResult(
-      `'${fnName}' reads ${fnObj.inputs.map((path) => pathToString(path)).join(', ')} from the workspace it is called through, `
+      `'${fnName}' reads ${fnObj.inputs.map((input) => inputLabel(input)).join(', ')} from the workspace it is called through, `
       + `and a call through the package has none: call it through a workspace it is deployed to, at …/workspaces/<ws>/functions/${fnName}`
     );
   }
@@ -107,14 +111,19 @@ async function callArguments(
     }
     values.push(arg.value);
   }
-  return { args: values, inputs: [] };
+  return values;
 }
 
 /**
- * Execute a resolved named function: arity check → the caller's runner, when
- * it names one → its arguments, a dataset pinned in the workspace → read
- * bodyIr → runDetached. Never throws for execution outcomes — only for
- * storage/infra errors, and a runner the caller's grant does not allow.
+ * Execute a resolved named function through the package: arity check → no
+ * draft → the caller's runner, when it names one → its arguments, each a
+ * value → read bodyIr → runDetached. Never throws for execution outcomes —
+ * only for storage/infra errors, and a runner the caller's grant does not
+ * allow.
+ *
+ * A draft is refused `invalid`: a draft is laid over a record of a workspace,
+ * in a state the call the workspace keeps holds for as long as it is kept, and
+ * a call through the package reads no workspace and keeps nothing.
  */
 async function executeFunction(
   storage: StorageBackend,
@@ -123,7 +132,6 @@ async function executeFunction(
   fnName: string,
   fnObj: FunctionObject,
   req: FunctionCallRequest,
-  workspace: string | null,
   syncDeadlineMs: number | undefined,
   ceilings: ExecuteCeilings | undefined,
   grant: OneShotGrant,
@@ -138,12 +146,18 @@ async function executeFunction(
       `Expected ${fnObj.argTypes.length} argument(s), got ${req.args.length}`
     );
   }
+  if (req.drafts.length > 0) {
+    return invalidExecuteResult(
+      `The call passes ${req.drafts.length} draft(s), and a call through the package reads no workspace to lay one over: `
+      + `start it as a call a workspace keeps, at …/workspaces/<ws>/functions/${fnName}`
+    );
+  }
   if (req.runner.type === 'some') {
     const refusal = functionRunnerRefusal(fnObj.runner, req.runner.value, grant);
     if (refusal !== null) return invalidExecuteResult(refusal);
   }
-  const pinned = await callArguments(storage, repoPath, workspace, fnName, fnObj, req.args);
-  if (!('args' in pinned)) return pinned;
+  const args = callArguments(fnName, fnObj, req.args);
+  if (!Array.isArray(args)) return args;
 
   const bodyIr = await storage.objects.read(repoPath, fnObj.bodyIr);
   const runnerValue: RunnerValue = req.runner.type === 'some' ? req.runner.value : fnObj.runner;
@@ -155,16 +169,15 @@ async function executeFunction(
   const result = await runner.runDetached(
     {
       bodyIr,
-      args: pinned.args,
+      args,
       runner: runnerValue,
       limits,
       environment: fnObj.environment.type === 'some' ? fnObj.environment.value : undefined,
     },
     { signal, storage, verbose }
   );
-  // The result names each input and dataset argument the call read, at its
-  // pinned hash
-  return detachedToExecuteResult(result, pinned.inputs);
+  // A call through the package read nothing of a workspace
+  return detachedToExecuteResult(result, []);
 }
 
 // =============================================================================
@@ -172,7 +185,8 @@ async function executeFunction(
 // =============================================================================
 
 /**
- * List a package's functions with their signatures.
+ * List a package's functions with their signatures, the package named by its
+ * name and version: the package route's.
  */
 export async function listPackageFunctions(
   storage: StorageBackend,
@@ -181,17 +195,33 @@ export async function listPackageFunctions(
   version: string
 ): Promise<Response> {
   try {
-    const pkg = await packageRead(storage, repoPath, pkgName, version);
-    const signatures = [];
+    return await listFunctionsOf(storage, repoPath, await packageRead(storage, repoPath, pkgName, version));
+  } catch (err) {
+    return sendError(ArrayType(FunctionSignatureType), errorToVariant(err));
+  }
+}
+
+/**
+ * List the functions of a package in hand with their signatures: what the
+ * workspace routes answer for the package a workspace names by its hash, which
+ * a call through it runs, whatever a name and a version name now.
+ *
+ * @param storage - Storage backend
+ * @param repoPath - The repository
+ * @param pkg - The package, decoded
+ * @returns The response: each function's signature
+ *
+ * @example
+ * ```ts
+ * const { hash } = await workspaceGetPackage(storage, repoPath, 'production');
+ * return listFunctionsOf(storage, repoPath, await packageObjectRead(storage, repoPath, hash));
+ * ```
+ */
+export async function listFunctionsOf(storage: StorageBackend, repoPath: string, pkg: PackageObject): Promise<Response> {
+  try {
+    const signatures: FunctionSignature[] = [];
     for (const [name, fnHash] of pkg.functions) {
-      const fnObj = decodeFunctionObject(await storage.objects.read(repoPath, fnHash));
-      signatures.push({
-        name,
-        inputs: fnObj.inputs,
-        argTypes: fnObj.argTypes,
-        outputType: fnObj.outputType,
-        runner: fnObj.runner,
-      });
+      signatures.push(signatureOf(name, decodeFunctionObject(await storage.objects.read(repoPath, fnHash))));
     }
     return sendSuccess(ArrayType(FunctionSignatureType), signatures);
   } catch (err) {
@@ -200,7 +230,8 @@ export async function listPackageFunctions(
 }
 
 /**
- * Describe a single function (signature) so dynamic callers can encode args.
+ * Describe a single function (signature) so dynamic callers can encode args,
+ * the package named by its name and version: the package route's.
  */
 export async function describePackageFunction(
   storage: StorageBackend,
@@ -211,13 +242,32 @@ export async function describePackageFunction(
 ): Promise<Response> {
   try {
     const fnObj = await resolveFunction(storage, repoPath, pkgName, version, fnName);
-    return sendSuccess(FunctionSignatureType, {
-      name: fnName,
-      inputs: fnObj.inputs,
-      argTypes: fnObj.argTypes,
-      outputType: fnObj.outputType,
-      runner: fnObj.runner,
-    });
+    return sendSuccess(FunctionSignatureType, signatureOf(fnName, fnObj));
+  } catch (err) {
+    return sendError(FunctionSignatureType, errorToVariant(err));
+  }
+}
+
+/**
+ * Describe a function of a package in hand: what the workspace routes answer
+ * for the package a workspace names by its hash ({@link listFunctionsOf}).
+ *
+ * @param storage - Storage backend
+ * @param repoPath - The repository
+ * @param pkg - The package, decoded
+ * @param fnName - The function
+ * @returns The response: its signature; or `task_not_found`, naming it
+ *
+ * @example
+ * ```ts
+ * return describeFunctionOf(storage, repoPath, await packageObjectRead(storage, repoPath, hash), 'jobs_on');
+ * ```
+ */
+export async function describeFunctionOf(storage: StorageBackend, repoPath: string, pkg: PackageObject, fnName: string): Promise<Response> {
+  try {
+    const fnHash = pkg.functions.get(fnName);
+    if (fnHash === undefined) throw new TaskNotFoundError(`function '${fnName}'`);
+    return sendSuccess(FunctionSignatureType, signatureOf(fnName, decodeFunctionObject(await storage.objects.read(repoPath, fnHash))));
   } catch (err) {
     return sendError(FunctionSignatureType, errorToVariant(err));
   }
@@ -228,9 +278,11 @@ export async function describePackageFunction(
  * 200 ExecuteResult. The call's limits are held to the host's ceilings, and its
  * timeout under the host's sync deadline too, so the caller gets a structured
  * `timed_out` instead of a transport cut. It runs within the request, on
- * `runner`, and keeps nothing: the package route's. A call through a
- * workspace's routes is kept, and runs where the host runs calls
- * (`callFunctionInWorkspace`).
+ * `runner`, and keeps nothing: the package route's, and that alone. A call
+ * through a workspace is kept, and runs where the host runs calls
+ * (`callFunctionInWorkspace`), its function the one the workspace's deployed
+ * package holds. A call that passes a draft is `invalid`, and nothing runs:
+ * only a call a workspace keeps lays one.
  *
  * @remarks
  * A call that names no runner runs the function on its own, whatever the
@@ -238,13 +290,10 @@ export async function describePackageFunction(
  * (`invalid`), and a platform package the function's own runner does not
  * load unless the grant is `any` (`permission_denied`, `path` `runner`).
  *
- * The function's inputs come first among its parameters: through a workspace
- * each is read as stored at launch, pinned by its hash and named in the
- * result's `inputs`; an unassigned one is `invalid`, naming its path. The
- * caller passes the arguments alone, each a value or a dataset of the
- * workspace, pinned the same way. A call with no workspace, the package
- * route's, has none to read from: a function with inputs, and a dataset
- * argument, are `invalid`, and nothing runs.
+ * The caller passes the arguments, each a value. The call has no workspace to
+ * read from: a function that reads inputs, and a dataset argument, are
+ * `invalid`, each saying where to call the function instead, and nothing
+ * runs.
  *
  * @param storage - Storage backend
  * @param repoPath - The repository
@@ -259,10 +308,6 @@ export async function describePackageFunction(
  * @param grant - The caller's one-shot grant, which decides whether its call
  *   may give the function a platform package the function does not load:
  *   only `any` may (default `platform_free`)
- * @param workspace - The workspace the call runs in, whose datasets its
- *   arguments may name, for a host that calls a workspace's function within
- *   its request and keeps nothing; `null`, the default, for the package
- *   route's, which has none
  * @param ceilings - The most the call may ask for (default: a server's, a
  *   10-minute timeout, a 1 MiB result and 256 KiB of logs)
  * @returns The call's result, or the error that stopped it
@@ -278,12 +323,11 @@ export async function callFunctionSync(
   verbose?: boolean,
   syncDeadlineMs?: number,
   grant: OneShotGrant = 'platform_free',
-  workspace: string | null = null,
   ceilings?: ExecuteCeilings,
 ): Promise<Response> {
   try {
     const fnObj = await resolveFunction(storage, repoPath, pkgName, version, fnName);
-    const result = await executeFunction(storage, repoPath, runner, fnName, fnObj, req, workspace, syncDeadlineMs, ceilings, grant, undefined, verbose);
+    const result = await executeFunction(storage, repoPath, runner, fnName, fnObj, req, syncDeadlineMs, ceilings, grant, undefined, verbose);
     return sendSuccess(ExecuteResultType, result);
   } catch (err) {
     return sendError(ExecuteResultType, errorToVariant(err));
@@ -379,7 +423,7 @@ export async function startSplitCall(
         maxResultBytes: BigInt(launched.limits.maxResultBytes),
         maxLogBytes: BigInt(launched.limits.maxLogBytes),
       },
-      read: launched.read,
+      read: [...launched.read],
       status: variant('processing', none),
     });
     await splitCallStore.execute(id, repo);

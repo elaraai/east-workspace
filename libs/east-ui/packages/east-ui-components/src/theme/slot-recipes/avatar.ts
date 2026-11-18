@@ -10,7 +10,11 @@
  * initials in `fg.strong` (`--ink-2`). `brand` variant flips to a
  * `brand.solid` fill with `brand.contrast` initials (spec `.mx-avatar` for
  * matrix grid). With no name, the fallback draws the person — Font Awesome's
- * solid `user` (#1263) — in the square Chakra's own icon took.
+ * solid `user` (#1263) — in the square Chakra's own icon took. The avatar is
+ * a size container, and its initials' line the height inside its edge
+ * (`100cqh`, #1638): at any size, with a ring or none, they start a whole
+ * number of pixels under the edge, where a line of the face's own height left
+ * half a pixel in an odd room.
  *
  * @packageDocumentation
  */
@@ -26,6 +30,7 @@ export const avatarSlotRecipe = defineSlotRecipe({
              * is the default palette, and Chakra's `solid` / `outline` fill
              * and ring from it. A `colorPalette` prop still selects another. */
             colorPalette: "gray",
+            containerType: "size",
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
@@ -48,6 +53,7 @@ export const avatarSlotRecipe = defineSlotRecipe({
             justifyContent: "center",
             width: "100%",
             height: "100%",
+            lineHeight: "100cqh",
             /* The person (#1263) in the square Chakra's own icon took: 1.2em
              * of the fallback's font each way — its font the height, and
              * `--fa-width` the width. */

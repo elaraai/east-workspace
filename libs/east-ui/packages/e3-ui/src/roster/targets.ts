@@ -14,6 +14,11 @@
  *   midnight), `group` and `shift` Strings, `positions` an Integer, `hours` a
  *   `Dict<String, Float>`. An edit writes only those fields; every other field
  *   of the row reads back as it was.
+ * - **Hours needed.** The app's own (#1678): `needed`, an East function of
+ *   the row — drafts in place — and its shift's nominal hours. It is read,
+ *   never written: an edit of the positions or the hours reads it again from
+ *   the edited row. Without it, the sum of the row's `hours`. It is the slot's
+ *   `Requirement.needed`, which `Roster.coverage` reads.
  * - **New rows.** A slot with no row has no target. A target edit on such a
  *   slot inserts one, keyed by a key the Roster mints, its unmapped fields the
  *   targets' `values` of its roles (#1526) — or, without them, their type's
@@ -36,6 +41,7 @@ import {
     some, toEastTypeValue, type EastType, type ExprType, type FunctionType, type SubtypeExprOrValue,
 } from "@elaraai/east";
 import type { UIComponentType } from "@elaraai/east-ui";
+import { scheduleAccessor } from "../schedule/accessor.js";
 import type { ScheduleAtField, ScheduleDictFloatField, ScheduleIntegerField, ScheduleRecordHandle, ScheduleStringField } from "../schedule/events.js";
 import { scheduleRecordWindow, type ScheduleKindPart } from "../schedule/record-window.js";
 import { scheduleRecordSession } from "../schedule/session.js";
@@ -60,6 +66,12 @@ export interface RosterTargetsConfig<R extends StructType> {
     positions: ScheduleIntegerField<R>;
     /** The `Dict<String, Float>` field holding the hours each activity needs, by its key. */
     hours: ScheduleDictFloatField<R>;
+    /**
+     * The slot's hours needed (#1678): an East function of the target's row — drafts in place — and its shift's nominal
+     * hours (`Roster.shifts`' `hours`), returning a Float. Read, never written: an edit of the positions or the hours
+     * reads it again from the edited row. Omitted, the sum of the row's `hours`.
+     */
+    needed?: (row: ExprType<R>, shiftHours: ExprType<FloatType>) => SubtypeExprOrValue<FloatType>;
     /**
      * A new target's own fields — the row's fields no role maps — from its roles (`Roster.Types.NewTarget`): the slot
      * and what the planner set it to ask (#1526). Held at build to those fields, a field missing or extra refused, naming
@@ -88,6 +100,11 @@ export interface RosterTargets {
     /** The target's row type. */
     readonly rowType: StructType;
     /**
+     * The record's name in the deployed package, as its binding carries it: the Roster edits it, so an optimiser that
+     * reads it lists it in its `drafts` (east-workspace#1622).
+     */
+    readonly record: ExprType<StringType>;
+    /**
      * The targets on the wire.
      *
      * @param part - The Roster's slice's `targets` source, bound in its payload, when the slice has one
@@ -103,6 +120,35 @@ function fieldOf(row: unknown, name: string): ExprType<EastType> {
 }
 
 /**
+ * A target's hours needed, reified once (#1678): the app's `needed` of the row and its shift's nominal hours, or —
+ * without it — the sum of the row's `hours`.
+ *
+ * @param rowType - The target's row type
+ * @param hours - The field its `hours` role names
+ * @param given - The app's `needed`; `undefined`, none
+ * @param where - The declaration, as a refusal names it
+ * @returns The East function `(row, shiftHours) → Float`
+ * @throws {Error} When `needed` is no function, or is not one of the row and a Float returning a Float, naming it
+ */
+function targetsNeeded(rowType: EastType, hours: string, given: unknown, where: string): ExprType<FunctionType<[EastType, FloatType], FloatType>> {
+    if (given === undefined) {
+        return East.function([rowType, FloatType], FloatType, ($, row, _shiftHours) => {
+            const sum = $.let(0.0, FloatType);
+            $.for(fieldOf(row, hours) as ExprType<DictType<StringType, FloatType>>, ($2, needs) => { $2.assign(sum, sum.add(needs)); });
+            return sum;
+        }) as ExprType<FunctionType<[EastType, FloatType], FloatType>>;
+    }
+    const example = "(row, shiftHours) => row.heads.toFloat().multiply(shiftHours)";
+    if (typeof given !== "function") {
+        throw new Error(`${where}: \`needed\` is a function of the target's row and its shift's nominal hours, returning the slot's hours needed as a Float — ${example}`);
+    }
+    // The shared accessor's reification, the shift's nominal hours in its key's place.
+    return scheduleAccessor(rowType, FloatType, FloatType, given as (row: ExprType<EastType>, shiftHours: ExprType<EastType>) => SubtypeExprOrValue<FloatType>,
+        (returns) => `${where}: \`needed\` returns the slot's hours needed, a Float, from the target's row and its shift's nominal hours — ` +
+            `and this one returns ${returns}: ${example}`) as unknown as ExprType<FunctionType<[EastType, FloatType], FloatType>>;
+}
+
+/**
  * Declares the app's targets (see the module docs).
  *
  * @typeParam R - The app's target row type
@@ -110,10 +156,10 @@ function fieldOf(row: unknown, name: string): ExprType<EastType> {
  * @param config - The fields its roles name, the app's own form, and its read by key
  * @returns The targets, for the Roster's `targets`
  * @throws {Error} Naming the option: a record not bound with its patch mutation, not keyed by String, or whose rows are no
- *   structs; a role naming a field the row lacks, or a field of another type; two roles naming one field; a `values`
- *   giving other fields than the ones no role maps, or one of another type, naming it; `entries` that is not a paged
- *   read of the record's own entries; and an `inspector` that is no East function `(row, update) => UIComponentType`
- *   over the row
+ *   structs; a role naming a field the row lacks, or a field of another type; two roles naming one field; a `needed` that
+ *   is no function of the row and a Float returning a Float; a `values` giving other fields than the ones no role maps,
+ *   or one of another type, naming it; `entries` that is not a paged read of the record's own entries; and an
+ *   `inspector` that is no East function `(row, update) => UIComponentType` over the row
  * @example
  * ```tsx
  * import { DateTimeType, DictType, FloatType, IntegerType, StringType, StructType } from "@elaraai/east";
@@ -128,14 +174,18 @@ function fieldOf(row: unknown, name: string): ExprType<EastType> {
  *     }),
  * });
  *
- * // Inside the Roster's Reactive body: a target per slot, over the app's own rows.
- * const targets = Roster.targets(Record.bind(cover), { day: "day", group: "team", shift: "shift", positions: "heads", hours: "hours" });
+ * // Inside the Roster's Reactive body: a target per slot, over the app's own rows — each slot needing its heads' shifts
+ * // in hours, whatever part of them its skill hours name.
+ * const targets = Roster.targets(Record.bind(cover), {
+ *     day: "day", group: "team", shift: "shift", positions: "heads", hours: "hours",
+ *     needed: (row, shiftHours) => row.heads.toFloat().multiply(shiftHours),
+ * });
  * ```
  */
 export function rosterTargets<R extends StructType>(record: ScheduleRecordHandle<StringType, R>, config: RosterTargetsConfig<R>): RosterTargets {
     const where = "Roster.targets";
     const c = config as unknown as {
-        day: string; group: string; shift: string; positions: string; hours: string; values?: unknown; inspector?: unknown; entries?: unknown;
+        day: string; group: string; shift: string; positions: string; hours: string; needed?: unknown; values?: unknown; inspector?: unknown; entries?: unknown;
     };
     const handleType = Expr.type(record as unknown as Expr) as EastType;
     const read = handleType.type === "Struct" ? (handleType.fields as Record<string, EastType>)["read"] : undefined;
@@ -172,6 +222,8 @@ export function rosterTargets<R extends StructType>(record: ScheduleRecordHandle
         if (prior !== undefined) throw new Error(`${where}: \`${prior}\` and \`${prop}\` both name "${name}" — the Roster writes each of its roles into a field of its own`);
         named.set(name, prop);
     }
+    // The slot's hours needed (#1678): the app's, of the row and its shift's nominal hours, or the sum of the row's hours.
+    const neededOf = targetsNeeded(rowType, hours, c.needed, where);
     // A new target's own fields, the ones no role maps (#1526): the targets' `values` of its roles.
     const own = StructType(Object.entries(fields).filter(([name]) => !named.has(name)));
     const valuesOf = scheduleNewValues(RosterTargetRolesType, rowType, own, c.values, where);
@@ -185,6 +237,7 @@ export function rosterTargets<R extends StructType>(record: ScheduleRecordHandle
     return {
         [ROSTER_TARGETS]: true,
         rowType,
+        record: session.name,
         build(part?: ScheduleKindPart): ExprType<RosterTargetsKindType> {
             if (part === undefined && entries !== undefined) {
                 throw new Error(`${where}: \`entries\` reads one target by its key beside the Roster's slice's \`targets\` source, which reads the week's — ` +
@@ -245,6 +298,11 @@ export function rosterTargets<R extends StructType>(record: ScheduleRecordHandle
                 const of = $.const(rolesOf);
                 return of(bytes.decodeBeast(rowType, "v2") as never);
             });
+            // A drafted row's hours needed, from its bytes and its shift's nominal hours (#1678).
+            const readNeeded = East.function([BlobType, FloatType], FloatType, ($, bytes, shiftHours) => {
+                const of = $.const(neededOf);
+                return of(bytes.decodeBeast(rowType, "v2") as never, shiftHours);
+            });
             const write = East.function([BlobType, Roles], BlobType, ($, bytes, roles) => {
                 const row = $.const(bytes.decodeBeast(rowType, "v2"));
                 return East.Blob.encodeBeast(rowWith(row as ExprType<EastType>, roles), "v2");
@@ -267,6 +325,7 @@ export function rosterTargets<R extends StructType>(record: ScheduleRecordHandle
                 entries: seam,
                 rows,
                 read: readRoles,
+                needed: readNeeded,
                 write,
                 create,
                 history: session.history,

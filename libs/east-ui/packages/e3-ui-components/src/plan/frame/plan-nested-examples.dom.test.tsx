@@ -7,8 +7,9 @@
  * The nested series example (#1439), on e3 itself: `planNestedAll` mounts as
  * a surface mounts it, its rows read through the record's indexes and its
  * collections through the nested series index a cell at a time, its Plan built
- * with no refusal and every row drawn; its series picked, each switched off
- * and on from the library's Series tab; each series kind switched off to start
+ * with no refusal and every row drawn; its series picked, each — a series
+ * nested in another among them — switched off and on alone from the library's
+ * Series tab (#1541, U3); each series kind switched off to start
  * — a chart, events, cards and buckets — drawing, once switched on, what the
  * index holds of each works; and a crew's hours typed into a week, the works'
  * sum above moving at once, and saved: one commit, read back whole, nothing
@@ -48,20 +49,34 @@ function drawn(c: HTMLElement) {
     };
 }
 
-/** Every series of planNestedAll, as the Series tab lists them. */
-const SERIES = ["Jobs", "Load", "Crew hours", "Parts", "Load line", "Alarms", "Job chips", "Alarm tiles"] as const;
+/**
+ * Every series of planNestedAll, as the Series tab lists them, by the section each stands in (#1680's review): the
+ * section, then its series, each before the series nested in it (U3).
+ */
+const SECTIONS = {
+    "Jobs": ["Jobs", "Runs and alarms"],
+    "Load": ["Load", "Heat strip"],
+    "Crew hours": ["Crew hours", "Table", "Crew"],
+    "Parts": ["Parts", "Tree", "Part"],
+    "Load line": ["Load line", "Line"],
+    "Alarms": ["Alarms", "Marks"],
+    "Job chips": ["Job chips", "Chips"],
+    "Alarm tiles": ["Alarm tiles", "Tiles"],
+} as const;
+const SERIES = Object.values(SECTIONS).flat();
 
-/** planNestedAll mounted with one series shown alone, from the library's Series tab: its works' rows at the top. */
-async function alone(title: (typeof SERIES)[number]) {
+/** planNestedAll mounted with one section shown alone, from the library's Series tab: its works' rows at the top. */
+async function alone(section: keyof typeof SECTIONS) {
     const { container: c } = await h.mount(ex.planNestedAll);
     await settle();
     const pane = slot(c, "start")!;
     fireEvent.click([...pane.querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent?.startsWith("Series "))!);
     await settle();
     const panel = () => pane.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!;
+    const shown: readonly string[] = SECTIONS[section];
     for (const name of SERIES) {
         const toggle = () => [...panel().querySelectorAll<HTMLElement>("button[aria-pressed]")].find((b) => b.getAttribute("aria-label") === `Toggle ${name}`)!;
-        if ((toggle().getAttribute("aria-pressed") === "true") === (name === title)) continue;
+        if ((toggle().getAttribute("aria-pressed") === "true") === shown.includes(name)) continue;
         fireEvent.click(toggle());
         await settle();
     }
@@ -95,10 +110,6 @@ const inWindow = (at: Date) => order(at, FROM) >= 0 && order(at, TO) < 0;
 /** The keys a row's elements draw, by the attribute naming them. */
 const keysOf = (c: HTMLElement, row: string, attribute: string) =>
     [...c.querySelectorAll<HTMLElement>(`${row} [${attribute}]`)].map((el) => el.getAttribute(attribute)!);
-
-/** The kinds of request a record was read with, through its nested series index or not. */
-const kindsOf = (dataset: string, index?: string) => h.requests().filter((request) => request.dataset === dataset
-    && (index === undefined || (request.query.get("index") ?? undefined) === index)).map((request) => request.kind);
 
 /**
  * planNestedAll mounted with Jobs and Load switched off and every works unfolded, and the first crew's first week of
@@ -148,8 +159,8 @@ describe("the nested series example on e3 (#1439)", () => {
         expect(refused).toEqual([]);
         expect(rows).toBeGreaterThan(0);
         const dataset = pathText(ex.planWorks.path as TreePath);
-        expect(kindsOf(dataset)).toContain("page");
-        expect(kindsOf(dataset, ex.planWorks.indexes.plan_works_in_time.name)).toContain("runs");
+        expect(h.readKinds(dataset)).toContain("page");
+        expect(h.readKinds(dataset, ex.planWorks.indexes.plan_works_in_time.name)).toContain("runs");
         // Nothing read whole, nor a row by its key: no gesture asked for one.
         expect(h.requests("rows", dataset)).toEqual([]);
         expect(h.requests("read", dataset)).toEqual([]);
@@ -165,8 +176,11 @@ describe("the nested series example on e3 (#1439)", () => {
         const panel = () => pane.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!;
         const lines = () => [...panel().querySelectorAll<HTMLElement>("[data-slot='pickPanel'] button[aria-pressed]")]
             .map((line) => [line.getAttribute("aria-label")!.replace(/^Toggle /, ""), line.getAttribute("aria-pressed") === "true"]);
-        expect(lines()).toEqual([["Jobs", true], ["Load", true], ["Crew hours", true], ["Parts", true],
-            ["Load line", false], ["Alarms", false], ["Job chips", false], ["Alarm tiles", false]]);
+        // Each section, then its series: a section off to start holds its series, on, until it is switched on.
+        expect(lines()).toEqual([["Jobs", true], ["Runs and alarms", true], ["Load", true], ["Heat strip", true],
+            ["Crew hours", true], ["Table", true], ["Crew", true], ["Parts", true], ["Tree", true], ["Part", true],
+            ["Load line", false], ["Line", true], ["Alarms", false], ["Marks", true], ["Job chips", false], ["Chips", true],
+            ["Alarm tiles", false], ["Tiles", true]]);
         const jobs = () => slot(c, "main")!.querySelector(rowAt(entry("works", "W-10001")));
         expect(jobs()).not.toBeNull();
         const toggle = async (name: string) => {
@@ -185,20 +199,24 @@ describe("the nested series example on e3 (#1439)", () => {
         const first = await h.mount(ex.planNestedAll);
         await settle();
         const tab = await series(first.container);
-        // The load as a line alone, its rows at the top: the alarms, chips and tiles stay off, as they start.
-        for (const name of ["Jobs", "Load", "Crew hours", "Parts", "Load line"]) await tab.toggle(name);
+        // The load as a line alone, its rows at the top: the sections above it switched off, each series nested in
+        // another switched off alone, and the alarms, chips and tiles staying off, as they start.
+        for (const name of ["Jobs", "Load", "Crew hours", "Crew", "Parts", "Part", "Load line"]) await tab.toggle(name);
         first.unmount();
 
         // A reload: a new page's store, holding the pick as the program sets it, and the browser's storage kept.
         StateRuntime.initializeStore(new UIStore());
         const { container: c } = await h.mount(ex.planNestedAll);
         await settle();
-        expect((await series(c)).lines()).toEqual([["Jobs", false], ["Load", false], ["Crew hours", false], ["Parts", false],
-            ["Load line", true], ["Alarms", false], ["Job chips", false], ["Alarm tiles", false]]);
+        expect((await series(c)).lines()).toEqual([["Jobs", false], ["Runs and alarms", true], ["Load", false], ["Heat strip", true],
+            ["Crew hours", false], ["Table", true], ["Crew", false], ["Parts", false], ["Tree", true], ["Part", false],
+            ["Load line", true], ["Line", true], ["Alarms", false], ["Marks", true], ["Job chips", false], ["Chips", true],
+            ["Alarm tiles", false], ["Tiles", true]]);
         expect(slot(c, "main")!.querySelector(rowAt(entry("works", "W-10001")))).toBeNull();
         await waitFor(() => expect(slot(c, "main")!.querySelector(rowAt(entry("load-line", "W-10001")))).not.toBeNull());
-        // Kept under the pick's own key.
-        expect(new Set(JSON.parse(localStorage.getItem(keptName("pick.ex.planNestedAll.series"))!))).toEqual(new Set(["works", "load", "crews", "assembly", "alarm-marks", "job-chips", "alarm-tiles"]));
+        // Kept under the Plan's id.
+        expect(new Set(JSON.parse(localStorage.getItem(keptName("pick.plan.planNestedAll.pick"))!)))
+            .toEqual(new Set(["jobs", "loads", "crew-hours", "crew", "parts-tree", "parts", "alarms", "job-cards", "alarm-buckets"]));
     });
 
     test("planNestedAll: with every series switched off, the strip still spans what they hold", async () => {
@@ -208,7 +226,8 @@ describe("the nested series example on e3 (#1439)", () => {
         await waitFor(() => expect(caption()).toBeDefined());
         const spanned = caption();
         const tab = await series(c);
-        for (const name of ["Jobs", "Load", "Crew hours", "Parts"]) await tab.toggle(name);
+        // Every line switched off: each section, and each series in one.
+        for (const [name, on] of tab.lines()) if (on) await tab.toggle(String(name));
         expect(tab.lines().filter(([, on]) => on)).toEqual([]);
         // The horizon as it was — not the window and as much again either side. (Its bars are measured in the browser:
         // jsdom lays the strip out at no width.)
@@ -276,6 +295,20 @@ describe("the nested series example on e3 (#1439)", () => {
         await waitFor(() => expect(printed(cellOf("W-10001", "C-10001-1"))).toBe("500"));
     });
 
+    test("planNestedAll: a crew's hours drafted while Crew hours is switched off wear the draft's mark once it is switched back on", async () => {
+        // Typed, and Crew hours switched off before Enter: the draft is made while the series is off.
+        const { c } = await typedCrewHours({ enter: false });
+        const tab = await series(c);
+        await tab.toggle("Crew hours");
+        await waitFor(() => expect(slot(c, "footer")!.querySelector('[data-plan-count="pending"]')?.textContent).toBe("1 pending"));
+        // Back on, its rows show the change the draft made, and are marked so — the draft has not moved since.
+        await tab.toggle("Crew hours");
+        await act(async () => { c.querySelector<HTMLElement>('[data-virtual-rows="bounded"]')!.scrollTo({ top: 0 }); });
+        await settle();
+        const crew = () => c.querySelector<HTMLElement>(rowAt(entry("crew", "W-10001", "C-10001-1")));
+        await waitFor(() => expect(crew()?.hasAttribute("data-draft")).toBe(true));
+    });
+
     test("planNestedAll: a crew's week typed here and otherwise by another planner is a conflict named by its works and its crew, and its Go to focuses the week's cell", async () => {
         const { c, cellOf, week } = await typedCrewHours();
         // Another planner types 700 into the same week of the same crew.
@@ -288,7 +321,8 @@ describe("the nested series example on e3 (#1439)", () => {
         await h.commit(ex.planWorks, new SortedMap([...works].map(([key, w]) => [key, key === "W-10001" ? { ...w, crews } : w] as const), compareFor(StringType)));
         const [card, ...more] = await conflictCards(c);
         expect(more).toEqual([]);
-        expect(card!.item).toBe("Works 10001 / Crew 1");
+        // Named by where it stands: the section its works' crews stand in, the works, the crew.
+        expect(card!.item).toBe("Crew hours / Works 10001 / Crew 1");
         // The crew's week wears the warn ring while the conflict waits; the works' sum above it does not.
         expect([cellOf("W-10001", "C-10001-1")!.hasAttribute("data-conflict"), cellOf("W-10001")!.hasAttribute("data-conflict")]).toEqual([true, false]);
         await act(async () => { fireEvent.click(card!.goTo()); });

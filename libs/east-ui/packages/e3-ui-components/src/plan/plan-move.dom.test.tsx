@@ -154,6 +154,36 @@ describe("the pointer moves a run, a chip and a tile (#825)", () => {
     });
 });
 
+describe("an item its map locks (#1541, U9)", () => {
+    test("a run, a chip and a tile whose maps say `locked` draw a lock, say so by name, and take no move by pointer or keyboard; the others move as before", async () => {
+        const seed = new Map(SEED);
+        seed.set("m1", { ...SEED.get("m1")!, jobs: new Map([["j1", { label: "J1", start: W(28), end: W(30) }], ["j2", { label: "J2", start: W(32), end: W(33) }]]) });
+        const canvas = await mountMoves({ seed, locked: true });
+        const c = canvas.container;
+        const y = layOutPlots(c);
+        for (const [series, key] of [["jobs", "j1"], ["shifts", "s1"], ["slots", "t1"]] as const) {
+            const el = elementOf(c, series, "m1", key)!;
+            expect([key, el.hasAttribute("data-locked"), el.querySelector("[data-plan-lock]") !== null, el.hasAttribute("data-draggable"), el.querySelector("[data-plan-edge]")])
+                .toEqual([key, true, true, false, null]);
+            expect(el.getAttribute("aria-label")).toMatch(/, locked$/);
+        }
+        // Dragged a week on, each stays; Space picks none of them up.
+        await dragTo(elementOf(c, "jobs", "m1", "j1")!, { x: xAt(28), y: y("jobs", "m1") }, { x: xAt(29), y: y("jobs", "m1") });
+        await dragTo(elementOf(c, "shifts", "m1", "s1")!, { x: xAt(27), y: y("shifts", "m1") }, { x: xAt(28), y: y("shifts", "m1") });
+        await dragTo(elementOf(c, "slots", "m1", "t1")!, { x: xAt(29), y: y("slots", "m1") }, { x: xAt(31), y: y("slots", "m1") });
+        elementOf(c, "jobs", "m1", "j1")!.focus();
+        await keyOn({ key: " " });
+        await keyOn({ key: "ArrowRight" });
+        await keyOn({ key: " " });
+        expect(gestures(canvas)).toEqual([]);
+        // J2, which no map locks, has no lock and moves a week on.
+        const free = elementOf(c, "jobs", "m1", "j2")!;
+        expect([free.hasAttribute("data-locked"), free.querySelector("[data-plan-lock]"), free.hasAttribute("data-draggable")]).toEqual([false, null, true]);
+        await dragTo(free, { x: xAt(32), y: y("jobs", "m1") }, { x: xAt(33), y: y("jobs", "m1") });
+        expect(gestures(canvas)).toEqual([["move", "Move J2"]]);
+    });
+});
+
 describe("a move reaches the rows of its item type (#825)", () => {
     test("onto another press: the job leaves one entry and joins the other, as ONE gesture over both", async () => {
         const canvas = await mountMoves();
@@ -292,9 +322,10 @@ describe("a move is a draft of the session (#825)", () => {
         const letGo = await carry(elementOf(c, "jobs", "m1", "j1")!, { x: xAt(28), y: y("jobs", "m1") }, { x: xAt(29), y: y("jobs", "m2") });
         expect(plotOf(c, "jobs", "m2").hasAttribute("data-drop-invalid")).toBe(true);
         expect(plotOf(c, "jobs", "m2").hasAttribute("data-drop-active")).toBe(false);
-        expect(announced()).toBe("M2, Jul 13, 2026 – Jul 27, 2026 does not take J1.");
+        // Said with the check's words, resting there and let go (#1680's review).
+        expect(announced()).toBe("M2, Jul 13, 2026 – Jul 27, 2026 does not take J1: Press 2 takes no moved job.");
         await letGo();
-        expect(announced()).toBe("J1 was not dropped.");
+        expect(announced()).toBe("J1 was not dropped: Press 2 takes no moved job.");
         expect(canvas.patches).toEqual([]);
         expect(keysOf(c, "jobs", "m1")).toEqual(["j1"]);
         // The same press's backlog takes it.
@@ -395,11 +426,11 @@ describe("the keyboard moves an element (#825)", () => {
         elementOf(c, "jobs", "m1", "j1")!.focus();
         await keyOn({ key: " " });
         await keyOn({ key: "ArrowDown" });
-        expect(carrySaid(c)).toBe("J1 cannot be dropped on M2, Jul 6, 2026 – Jul 20, 2026");
+        expect(carrySaid(c)).toBe("J1 cannot be dropped on M2, Jul 6, 2026 – Jul 20, 2026 — Press 2 takes no moved job");
         expect(plotOf(c, "jobs", "m2").hasAttribute("data-drop-invalid")).toBe(true);
         await keyOn({ key: " " });
         expect(canvas.patches).toEqual([]);
-        expect(carrySaid(c)).toBe("J1 cannot be dropped on M2, Jul 6, 2026 – Jul 20, 2026");
+        expect(carrySaid(c)).toBe("J1 cannot be dropped on M2, Jul 6, 2026 – Jul 20, 2026 — Press 2 takes no moved job");
         await keyOn({ key: "Escape" });
         // A tile: Shift moves no end, the arrows move it.
         const tile = elementOf(c, "slots", "m1", "t1")!;

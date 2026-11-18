@@ -11,12 +11,11 @@
  */
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
-import { execFileSync } from 'node:child_process';
 import { statSync, writeFileSync } from 'node:fs';
 import assert from 'node:assert';
 import { join, dirname } from 'node:path';
 import { DateTimeType, East, EastTypeValueType, IntegerType, NullType, PatchType, SortedMap, StringType, compareFor, encodeBeast2For, decodeBeast2For, isTypeValueEqual, printFor, readBeast2Type, sha256Hex, toEastTypeValue, ArrayType, BlobType, DictType, StructType, none, variant, type EastTypeValue, type PatchTypeOf, type ValueTypeOf } from '@elaraai/east';
-import e3, { type MutationBuilder, type PartRunner } from '@elaraai/e3';
+import e3, { type MutationBuilder } from '@elaraai/e3';
 import {
   RecordCommitType, RecordIndexObjectType, RecordStateType, TaskObjectType, decodeCollectionManifest, decodePackageObject, isCollectionManifestType,
 } from '@elaraai/e3-types';
@@ -34,7 +33,7 @@ import { workspaceGetDataset, workspaceGetDatasetStatus, workspaceSetDataset } f
 import { packageExport, packageImport } from './package-files.js';
 import { workspaceCreate, workspaceGetPackage } from './workspaces.js';
 import { workspaceDeploy, workspaceExport } from './workspace-files.js';
-import { createTestRepo, removeTestRepo, createTempDir, removeTempDir } from './test-helpers.js';
+import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, stockRunners, withEnv } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import { objectPath } from './storage/local/localHelpers.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
@@ -42,17 +41,6 @@ import { MockTaskRunner, type MockTaskResult } from './execution/MockTaskRunner.
 import { inputsHash } from './executions.js';
 import { uuidv7 } from './uuid.js';
 import type { MutationOutcome, StorageBackend, TaskExecuteOptions, TaskResult, TaskRunner } from './index.js';
-
-/** Whether a runtime's CLI answers on PATH — the multi-runtime suites skip
- *  rather than fail on a developer machine without it. */
-function onPath(command: string, args: string[]): boolean {
-  try {
-    execFileSync(command, args, { stdio: 'ignore', shell: process.platform === 'win32' });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 const encodeInt = encodeBeast2For(IntegerType);
 const decodeInt = decodeBeast2For(IntegerType);
@@ -79,23 +67,6 @@ function runnerReturning(
       return { ...result, executionId: result.executionId ?? uuidv7() };
     },
   } as unknown as TaskRunner;
-}
-
-/** Runs `fn` with the given env vars set (undefined = unset), restoring after. */
-async function withEnv<T>(vars: Record<string, string | undefined>, fn: () => Promise<T>): Promise<T> {
-  const prev = Object.keys(vars).map((k) => [k, process.env[k]] as const);
-  for (const [k, v] of Object.entries(vars)) {
-    if (v === undefined) delete process.env[k];
-    else process.env[k] = v;
-  }
-  try {
-    return await fn();
-  } finally {
-    for (const [k, v] of prev) {
-      if (v === undefined) delete process.env[k];
-      else process.env[k] = v;
-    }
-  }
 }
 
 /** What a store was asked during a call: an object write's start and end,
@@ -1853,7 +1824,7 @@ describe('record indexes', () => {
 
   it('rebuilds an index after a sweep', async () => {
     // The sweep read from the other end: what survives it has to be enough to
-    // run a rebuild, which is the one thing every index of every vintage must
+    // run a rebuild, which is the one thing every index, however old, must
     // stay able to do.
     await recordMutate(storage, realRunner, repo, ws, 'plans', 'seed', [], { actor: 'cli:test' });
     const built = (await state()).indexes.get('by_status')!.manifest;
@@ -2284,15 +2255,8 @@ describe('the mutation delta — cross-runtime parity', () => {
   // executions.
   let realRunner: TaskRunner;
 
-  /** The runtimes to compare, minus any that is not installed. */
-  const runtimes: Array<{ ws: string; runner: PartRunner }> = [
-    { ws: 'node', runner: { runner: { runtime: 'east-node', platforms: ['@elaraai/east-node-std'] } } },
-    ...(onPath('east-c', ['version']) ? [{ ws: 'c', runner: { runner: { runtime: 'east-c' as const, platforms: [] } } }] : []),
-    ...(onPath('east-py', ['version']) ? [{ ws: 'py', runner: { runner: { runtime: 'east-py' as const, platforms: [] } } }] : []),
-  ];
-  const missing = runtimes.length < 2
-    ? `needs east-c or east-py on PATH beside east-node; have ${runtimes.map((r) => r.ws).join(', ')}`
-    : false;
+  /** The runtimes to compare — east-node, and east-c and east-py where installed — and why their parity skips with fewer than two. */
+  const { runtimes, missing } = stockRunners();
 
   beforeEach(async () => {
     repo = createTestRepo();

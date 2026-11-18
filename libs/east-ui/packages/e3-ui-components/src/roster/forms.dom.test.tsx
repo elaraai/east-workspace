@@ -12,6 +12,7 @@ import * as ex from "@elaraai/e3-ui/examples/roster/roster";
 import {
     act, assignment, at, card, cell, drop, libraryCard, narrow, open, press, rosterHarness, settle, slot, START, weekDuties, width, type Choice,
 } from "./harness.test-utils.js";
+import { slotKey } from "./model.js";
 const h = rosterHarness();
 const save = async (c: HTMLElement) => press(within(slot(c, 'toolbar')).getByRole('button', { name: 'Save' }));
 // Zag writes numeric text on animation frames. Let the host echo settle
@@ -73,6 +74,25 @@ describe('Roster shared and custom forms', () => {
         await save(container);
         const added = [...(await h.read(ex.rosterCover))].filter(([key]) => !cover.has(key)).map(([, row]) => [row.team, row.shift, row.heads, row.basis]);
         expect(added).toEqual([['inbound', 'early', 12n, 'planner']]);
+    });
+    test("a slot's hours needed are the targets' own (#1678): Thursday's Dispatch early needs its seven heads' 56 hours, its lines naming 32 of them — Inbound's Unloading among them — and its heads edited read them again before Save", async () => {
+        const { container } = await h.mount(ex.rosterHoursNeeded); const user = userEvent.setup();
+        const key = slotKey({ day: 4n, group: 'dispatch', shift: 'early' });
+        await press([...slot(container, 'main').querySelectorAll('[data-roster-requirement]')].find(el => el.getAttribute('data-roster-requirement') === key));
+        const end = () => slot(container, 'end');
+        const needed = () => [...end().querySelectorAll('[role="img"]')].map(el => el.getAttribute('aria-label')).find(label => label?.includes(' hours rostered of '));
+        expect(needed()).toMatch(/ of 56 needed$/);
+        // Its group's skills, then Inbound's: each under its own label.
+        expect([...end().querySelectorAll('[data-roster-coverage-line]')].map(line => line.getAttribute('title')?.split(' · ')[0])).toEqual(['Packing', 'Loading', 'Unloading']);
+        // Its form lists every line its hours hold, as its coverage does: Inbound's Unloading too, under its own label, its
+        // hours there to edit or remove.
+        const lines = [...end().querySelectorAll('[data-roster-target-line]')];
+        expect(lines.map(line => [line.getAttribute('data-roster-target-line'), line.firstElementChild?.textContent])).toEqual([['pack', 'Packing'], ['load', 'Loading'], ['unload', 'Unloading']]);
+        await typeNumber(user, within(end()).getByRole('spinbutton', { name: 'Positions' }), '8');
+        await user.keyboard('{Enter}'); await settle();
+        // Eight heads' shifts, read again from the target as drafted: nothing saved.
+        expect(needed()).toMatch(/ of 64 needed$/);
+        expect((await h.read(ex.rosterCoverNeeded)).get('2028-03-09-dispatch-early')!.heads).toBe(7n);
     });
     test("the app's check holds Save while a duty has no cost centre, and Save writes the one its form gives", async () => {
         const { container } = await h.mount(ex.rosterWarehouse); const user = userEvent.setup();

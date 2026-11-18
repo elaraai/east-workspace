@@ -12,9 +12,14 @@
  * @packageDocumentation
  */
 
-import { some } from '@elaraai/east';
 import { decodeFunctionCallJob, encodeFunctionCallJob, type FunctionCallCancel, type FunctionCallJob } from '@elaraai/e3-types';
 import {
+  applyCallTransition,
+  callCancelAsked,
+  callEnded,
+  callExpired,
+  callInputsPinned,
+  callListed,
   checkId,
   checkName,
   checkPageLimit,
@@ -22,6 +27,7 @@ import {
   type FunctionCallListOptions,
   type FunctionCallListPage,
   type FunctionCallStore,
+  type StoredFunctionCall,
 } from '@elaraai/e3-core/portable';
 import type { RecordKey, RecordsAdapter, RecordsTransaction } from './adapters.js';
 import { recordKeys } from './record-keys.js';
@@ -49,12 +55,12 @@ function decoded(data: Uint8Array): FunctionCallJob | null {
  * @remarks
  * A call's id is a UUIDv7, so its workspace's keys scan in the order its calls
  * started, and a list reads them from the latest. Each write of a call is a
- * transaction that reads it, so its end and a request to cancel it land one
- * after the other, whichever tab makes them: the first end stands. A call past
- * its `expiresAt` is gone for every read, which deletes it as it passes, and
- * gc's sweep deletes every one ({@link sweepExpired}). A workspace's removal
- * takes its calls in its own transaction, and a repository's removal every
- * call it keeps.
+ * transaction that reads it, so its end, a request to cancel it and the pin of
+ * its inputs land one after the other, whichever tab makes them: the first
+ * end stands. A call past its `expiresAt` is gone for every read, which
+ * deletes it as it passes, and gc's sweep deletes every one
+ * ({@link sweepExpired}). A workspace's removal takes its calls in its own
+ * transaction, and a repository's removal every call it keeps.
  */
 export class WebFunctionCallStore implements FunctionCallStore {
   /**
@@ -77,43 +83,26 @@ export class WebFunctionCallStore implements FunctionCallStore {
     const data = await this.records.get(key);
     if (data === null) return null;
     const job = decodeFunctionCallJob(data);
-    if (!this.expired(job)) return job;
+    if (!callExpired(job, this.now())) return job;
     await this.forget([key]);
     return null;
   }
 
   async end(repo: string, workspace: string, id: string, end: FunctionCallEnd): Promise<FunctionCallJob | null> {
-    const key = this.key(repo, workspace, id);
-    return this.records.transact(async (tx) => {
-      const job = await this.live(tx, key);
-      if (job === null || job.call.state.type !== 'running') return job;
-      const ended: FunctionCallJob = {
-        ...job,
-        call: {
-          ...job.call,
-          state: end.state,
-          endedAt: some(end.endedAt),
-          expiresAt: end.expiresAt,
-          stdout: end.stdout,
-          stderr: end.stderr,
-          stdoutTruncated: end.stdoutTruncated,
-          stderrTruncated: end.stderrTruncated,
-        },
-      };
-      tx.put(key, encodeFunctionCallJob(ended));
-      return ended;
-    });
+    return this.transition(this.key(repo, workspace, id), (job) => callEnded(job, end));
   }
 
   async requestCancel(repo: string, workspace: string, id: string, cancel: FunctionCallCancel): Promise<FunctionCallJob | null> {
-    const key = this.key(repo, workspace, id);
-    return this.records.transact(async (tx) => {
-      const job = await this.live(tx, key);
-      if (job === null || job.call.state.type !== 'running' || job.cancel.type === 'some') return job;
-      const asked: FunctionCallJob = { ...job, cancel: some(cancel) };
-      tx.put(key, encodeFunctionCallJob(asked));
-      return asked;
-    });
+    return this.transition(this.key(repo, workspace, id), (job) => callCancelAsked(job, cancel));
+  }
+
+  async pinInputs(repo: string, workspace: string, id: string, inputs: FunctionCallJob['call']['inputs']): Promise<FunctionCallJob | null> {
+    return this.transition(this.key(repo, workspace, id), (job) => callInputsPinned(job, inputs));
+  }
+
+  /** One of the call's transitions, applied in a transaction that reads the call and writes what it leaves. */
+  private transition(key: RecordKey, next: (job: FunctionCallJob) => FunctionCallJob | undefined): Promise<FunctionCallJob | null> {
+    return this.records.transact(async (tx) => applyCallTransition(await this.live(tx, key), next, (moved) => { tx.put(key, encodeFunctionCallJob(moved)); }));
   }
 
   /** Reads the workspace's calls from the latest, a page of records at a
@@ -132,13 +121,11 @@ export class WebFunctionCallStore implements FunctionCallStore {
         // A record that does not decode keeps no call a reader can be shown
         const job = decoded(value);
         if (job === null) continue;
-        if (this.expired(job)) {
+        if (callExpired(job, this.now())) {
           expired.push(key);
           continue;
         }
-        // A function's calls: a one-shot names none
-        if (options.function !== undefined && !(job.call.function.type === 'some' && job.call.function.value === options.function)) continue;
-        if (options.state !== undefined && job.call.state.type !== options.state) continue;
+        if (!callListed(job, options)) continue;
         calls.push(job);
         if (calls.length >= options.limit) {
           // A full page names the next while records are left before its last
@@ -151,6 +138,30 @@ export class WebFunctionCallStore implements FunctionCallStore {
     }
     if (expired.length > 0) await this.forget(expired);
     return next === undefined ? { calls } : { calls, next };
+  }
+
+  /** Every call record of the repository, a page of records at a time: each
+   *  read as it is, and written over in a transaction of its own. */
+  async readStored(repo: string): Promise<StoredFunctionCall[]> {
+    const prefix = recordKeys.kind(repo, 'call');
+    const stored: StoredFunctionCall[] = [];
+    let after: RecordKey | undefined;
+    for (;;) {
+      const entries = await this.records.scan(prefix, { limit: SWEEP_PAGE, ...(after !== undefined && { after }) });
+      for (const { key } of entries) {
+        stored.push({
+          workspace: key[3]!,
+          id: key[4]!,
+          read: () => this.records.get(key),
+          replace: (bytes) => this.records.transact((tx) => {
+            tx.put(key, bytes);
+            return Promise.resolve();
+          }),
+        });
+      }
+      if (entries.length < SWEEP_PAGE) return stored;
+      after = entries[entries.length - 1]!.key;
+    }
   }
 
   /**
@@ -169,7 +180,7 @@ export class WebFunctionCallStore implements FunctionCallStore {
       const entries = await this.records.scan(prefix, { limit: SWEEP_PAGE, ...(after !== undefined && { after }) });
       const expired = entries.filter(({ value }) => {
         const job = decoded(value);
-        return job !== null && this.expired(job);
+        return job !== null && callExpired(job, this.now());
       }).map(({ key }) => key);
       count += expired.length;
       if (!dryRun && expired.length > 0) await this.forget(expired);
@@ -197,7 +208,7 @@ export class WebFunctionCallStore implements FunctionCallStore {
     const data = await tx.get(key);
     if (data === null) return null;
     const job = decodeFunctionCallJob(data);
-    if (!this.expired(job)) return job;
+    if (!callExpired(job, this.now())) return job;
     tx.delete(key);
     return null;
   }
@@ -209,12 +220,9 @@ export class WebFunctionCallStore implements FunctionCallStore {
       for (const key of keys) {
         const data = await tx.get(key);
         const job = data === null ? null : decoded(data);
-        if (job !== null && this.expired(job)) tx.delete(key);
+        if (job !== null && callExpired(job, this.now())) tx.delete(key);
       }
     });
   }
 
-  private expired(job: FunctionCallJob): boolean {
-    return job.call.expiresAt.getTime() <= this.now();
-  }
 }

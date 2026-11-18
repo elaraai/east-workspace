@@ -11,20 +11,21 @@
  * inspector (PB60, #1197) and the Calendar's kind unchanged with Plan's
  * options present run in e3-ui-components on e3 itself
  * (`test/schedule-plan-kinds.spec.ts`), over the print works' records in
- * Schedule's records (`schedule.examples.tsx`). Here: a resource kind's
- * groups, nesting, gutter, fold, rollup, measures and a paged read of its
- * resources (#1199), over rows in hand; each refusal at build, the removed
- * `review` among them (#1260); and each mistyped name failing to compile.
+ * Schedule's records (`schedule.examples.tsx`). Here: the options only a
+ * Plan read of a resource kind, refused by name now that a Plan's rows are its
+ * resources (#1541), and a paged read of its resources (#1424), over rows in
+ * hand; each refusal at build, the removed `review` among them (#1260); and
+ * each mistyped name failing to compile.
  */
 
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
-    DictType, East, FloatType, FunctionType, NullType, OptionType, SortedMap, StringType, StructType, compareFor, equalFor, none, some, variant, type ValueTypeOf,
+    DictType, East, FloatType, FunctionType, NullType, SortedMap, StringType, StructType, compareFor, equalFor, none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
-import { StatusValueType, UIComponentType } from "@elaraai/east-ui";
+import { UIComponentType } from "@elaraai/east-ui";
 import { Text } from "@elaraai/east-ui/internal";
-import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
+import { Data, Record, Schedule } from "@elaraai/e3-ui/internal";
 import e3 from "@elaraai/e3";
 import * as sx from "./schedule.examples.js";
 
@@ -45,7 +46,6 @@ const PRESSES = new SortedMap<string, Press>([
     ["pb", { name: "Press B", hall: "Hall 1", sheets_per_hour: 9000 }],
     ["pc", { name: "Press C", hall: "Hall 2", sheets_per_hour: 15000 }],
 ], compareFor(StringType));
-const CREWS = new SortedMap([["c1", { name: "Crew 1", hall: "Hall 1" }]], compareFor(StringType));
 
 // Never read: what a paged read of the resources, and an index over them, are refused or built over.
 const pressesRecord = e3.record("plan_spec_presses", Presses, {
@@ -70,77 +70,53 @@ const stopInspector = East.function([StopType, FunctionType([StopType], NullType
 // Schedule.resources — Plan's options
 // ============================================================================
 
-describe("Schedule.resources — Plan's options (PB5)", () => {
-    const planRowEqual = equalFor(Schedule.Types.PlanResourceRow);
-    const status = (s: "success") => some(variant(s, null));
+describe("Schedule.resources — the options only a Plan read, refused by name (#1541)", () => {
+    /** What declaring the presses with `options` throws inside a block; `""` when it builds. */
+    function refusal(options: object): string {
+        try {
+            East.function([], NullType, ($) => {
+                const rows = $.const(PRESSES, Presses);
+                Schedule.resources(rows, { name: "Presses", icon: "print", label: (p: { name: unknown }) => p.name, ...options } as never);
+            });
+            return "";
+        } catch (e) {
+            return e instanceof Error ? e.message : String(e);
+        }
+    }
 
-    test("resolves each resource's group, the resource it nests under, its gutter and its fold, and the kind's rollup", () => {
-        const presses = East.compile(East.function([], Schedule.Types.PlanResources, ($) => {
-            const rows = $.const(PRESSES, Presses);
-            return Schedule.resources(rows, {
-                name: "Presses", icon: "print",
-                label: (p) => p.name, group: (p) => p.hall,
-                parent: (_p, key) => key.equal("pb").ifElse(() => East.value(some("pa"), OptionType(StringType)), () => East.value(none, OptionType(StringType))),
-                sub: (p) => some(p.name), value: (_p, key) => some(key),
-                status: (p) => p.sheets_per_hour.greater(10000.0).ifElse(
-                    () => East.value(some(variant("success", null)), OptionType(StatusValueType)),
-                    () => East.value(none, OptionType(StatusValueType))),
-                collapsed: (p) => p.hall.equal("Hall 1"),
-                rollup: "sum",
-            }).buildPlan("presses");
-        }), [])();
-        assert.equal(presses.key, "presses");
-        assert.equal(presses.rollup.type, "sum");
-        assert.deepEqual(presses.measures, []);
-        const [pa, pb, pc] = presses.rows;
-        assert.ok(planRowEqual(pa!, { key: "pa", label: "Press A", meta: none, group: some("Hall 1"), parent: none, sub: some("Press A"), value: some("pa"), status: status("success"), collapsed: true }));
-        assert.ok(planRowEqual(pb!, { key: "pb", label: "Press B", meta: none, group: some("Hall 1"), parent: some("pa"), sub: some("Press B"), value: some("pb"), status: none, collapsed: true }));
-        assert.ok(planRowEqual(pc!, { key: "pc", label: "Press C", meta: none, group: some("Hall 2"), parent: none, sub: some("Press C"), value: some("pc"), status: status("success"), collapsed: false }));
+    test("each names where a Plan takes it now: on the resources series that lays out its rows", () => {
+        const refused = (prop: string, there: string) => `Schedule.resources: "Presses": \`${prop}\` was the Plan's, and a Plan takes no resource kinds now ` +
+            `(#1541) — its rows are its resources: lay them out with Plan.series.resources(Row, { key, title, label, … }), which takes ${there}`;
+        assert.equal(refusal({ parent: () => none }), refused("parent", "a tree of them, `children`"));
+        assert.equal(refusal({ sub: (p: { name: unknown }) => some(p.name) }), refused("sub", "`sub`"));
+        assert.equal(refusal({ value: () => none }), refused("value", "`value`"));
+        assert.equal(refusal({ status: () => none }), refused("status", "`status`"));
+        assert.equal(refusal({ rollup: "sum" }), refused("rollup", "`rollup`"));
+        assert.equal(refusal({ collapsed: true }), refused("collapsed", "`collapsed`"));
+        assert.equal(refusal({ measures: [] }), refused("measures", "`series`, the read-only rows under each resource"));
+        // What the builders over the app's own records read stands.
+        assert.equal(refusal({ meta: (p: { hall: unknown }) => some(p.hall), group: (p: { hall: unknown }) => p.hall }), "");
     });
 
-    test("with none of them: no group, no parent, an empty gutter, unfolded, and a union rollup; `collapsed: true` folds every row", () => {
-        const build = (collapsed: boolean | undefined) => East.compile(East.function([], Schedule.Types.PlanResources, ($) => {
-            const rows = $.const(CREWS, Crews);
-            return Schedule.resources(rows, { name: "Crews", icon: "user-group", label: (c) => c.name, ...(collapsed === undefined ? {} : { collapsed }) }).buildPlan("crews");
-        }), [])();
-        const crews = build(undefined);
-        assert.equal(crews.rollup.type, "union");
-        assert.ok(planRowEqual(crews.rows[0]!, { key: "c1", label: "Crew 1", meta: none, group: none, parent: none, sub: none, value: none, status: none, collapsed: false }));
-        assert.equal(build(true).rows[0]!.collapsed, true);
-    });
-
-    test("the Calendar's kind is unchanged with them present", () => {
-        const build = (withPlan: boolean) => East.compile(East.function([], Schedule.Types.Resources, ($) => {
+    test("the Calendar's kind is unchanged with a group present", () => {
+        const build = (grouped: boolean) => East.compile(East.function([], Schedule.Types.Resources, ($) => {
             const rows = $.const(PRESSES, Presses);
-            return (withPlan
-                ? Schedule.resources(rows, { name: "Presses", icon: "print", label: (p) => p.name, meta: (p) => some(p.hall), group: (p) => p.hall, collapsed: true, rollup: "byStatus" })
+            return (grouped
+                ? Schedule.resources(rows, { name: "Presses", icon: "print", label: (p) => p.name, meta: (p) => some(p.hall), group: (p) => p.hall })
                 : Schedule.resources(rows, { name: "Presses", icon: "print", label: (p) => p.name, meta: (p) => some(p.hall) })).build("presses");
         }), [])();
         assert.ok(equalFor(Schedule.Types.Resources)(build(false), build(true)));
     });
 
-    test("keeps its measures in order; a paged read of its resources pages it, and a Dict reads them whole (#1199)", () => {
+    test("a paged read of its resources pages it, and a Dict reads them whole (#1424)", () => {
         East.function([], NullType, ($) => {
             const rows = $.const(PRESSES, Presses);
-            const util = Plan.series.heat(PressType, { key: "util", title: "Utilisation", label: () => "Utilisation", cells: () => Plan.heatCells([], { min: 0, max: 100, warnAt: 95 }) });
-            const output = Plan.series.table(PressType, { key: "output", title: "Output", label: () => "Output" });
-            const trend = Plan.series.chart(PressType, { key: "trend", title: "Trend", label: () => "Trend", layers: () => [] });
             const pages = $.let(Data.bindPaged(pressesRecord));
-            const presses = Schedule.resources(pages, { name: "Presses", icon: "print", label: (p) => p.name, measures: [util, output, trend] });
-            assert.equal(presses.measures.length, 3);
-            [util, output, trend].forEach((series, i) => { assert.equal(presses.measures[i], series, `measures[${i}] as declared`); });
+            const presses = Schedule.resources(pages, { name: "Presses", icon: "print", label: (p) => p.name });
             assert.ok(presses.window !== undefined && presses.source === undefined, "paged: its window, and no whole read");
             const whole = Schedule.resources(rows, { name: "Presses", icon: "print", label: (p) => p.name });
             assert.ok(whole.window === undefined && whole.source !== undefined, "whole: its rows, and no window");
         });
-        // On the wire, the measures' keys in order: each lays its row out at its resource's path (#1197).
-        const built = East.compile(East.function([], Schedule.Types.PlanResources, ($) => {
-            const rows = $.const(PRESSES, Presses);
-            const util = Plan.series.heat(PressType, { key: "util", title: "Utilisation", label: () => "Utilisation", cells: () => Plan.heatCells([], { min: 0, max: 100, warnAt: 95 }) });
-            const output = Plan.series.table(PressType, { key: "output", title: "Output", label: () => "Output" });
-            return Schedule.resources(rows, { name: "Presses", icon: "print", label: (p) => p.name, measures: [util, output] }).buildPlan("presses");
-        }), [])();
-        assert.deepEqual(built.measures, ["util", "output"]);
     });
 });
 
@@ -175,7 +151,21 @@ describe("Schedule.events — Plan's options refused at build (PB6)", () => {
     test("a `state`, `quantity` or `lane` field of another type", () => {
         assert.throws(() => kindOver(jobsRecord, { ...times, state: "stock" }), /`state` names an EventStateType field, the lifecycle an event wears — "stock" holds \.Variant/);
         assert.throws(() => kindOver(jobsRecord, { ...times, quantity: { field: "title" } }), /`quantity\.field` names a Float field, the quantity a bar prints — "title" holds \.String/);
-        assert.throws(() => kindOver(jobsRecord, { ...times, lane: "sheets" }), /`lane` names a String field, the lane a tile sits in — "sheets" holds \.Float/);
+        assert.throws(() => kindOver(jobsRecord, { ...times, lane: "sheets" }), /`lane` names a String field, or a variant whose cases hold no value, the lane a tile sits in — "sheets" holds \.Float/);
+        // A variant of bare cases is a lane a case (#1541, U1); one whose cases hold values names no lane.
+        assert.doesNotThrow(() => kindOver(stopsRecord, { at: "at", lane: "kind" }));
+        assert.throws(() => kindOver(jobsRecord, { ...times, lane: "state" }), /`lane` names a String field, or a variant whose cases hold no value, the lane a tile sits in — "state" holds \.Variant/);
+    });
+
+    test("a `child` that is no { field, of }, has no `resource` to stand beneath, names the resource's own field, or a field the row lacks (#1541, U1)", () => {
+        const on = { ...times, resource: { field: "press", of: "presses" } };
+        assert.doesNotThrow(() => kindOver(jobsRecord, { ...on, child: { field: "customer", of: "kinds" } }));
+        assert.throws(() => kindOver(jobsRecord, { ...on, child: "customer" }),
+            /`child` is \{ field, of \} — the field holding the key of a row beneath the event's resource, and the resources series those rows are of, by its key/);
+        assert.throws(() => kindOver(jobsRecord, { ...times, child: { field: "customer", of: "kinds" } }), /`child` is a row beneath the event's resource — give `resource` too/);
+        assert.throws(() => kindOver(jobsRecord, { ...on, child: { field: "press", of: "kinds" } }),
+            /`child\.field` and `resource\.field` both name "press" — the row beneath a resource has a key of its own/);
+        assert.throws(() => kindOver(jobsRecord, { ...on, child: { field: "nope", of: "kinds" } }), /`child\.field` names "nope", a field the row does not have/);
     });
 
     test("a `review`, which is removed (#1260), whatever it names", () => {
@@ -201,38 +191,7 @@ describe("Schedule.events — Plan's options refused at build (PB6)", () => {
     });
 });
 
-describe("Schedule.resources — Plan's options refused at build (PB7)", () => {
-    /** Declare a resource kind over `data` with `options` inside a block. */
-    function resourcesOver(data: unknown, type: unknown, options: (block: { let: (v: unknown) => unknown }) => object): void {
-        East.function([], NullType, ($) => {
-            const rows = $.const(data as never, type as never);
-            Schedule.resources(rows as never, { name: "Presses", icon: "print", label: (p: { name: unknown }) => p.name, ...options($ as never) } as never);
-        });
-    }
-    const heat = (key: string, rowType: typeof PressType = PressType) =>
-        Plan.series.heat(rowType, { key, title: "Utilisation", label: () => "Utilisation", cells: () => Plan.heatCells([], { min: 0, max: 100, warnAt: 95 }) });
-
-    test("a `rollup` that is not a way to roll up", () => {
-        assert.throws(() => resourcesOver(PRESSES, Presses, () => ({ rollup: "average" })), /`rollup` is "union", "byStatus" or "sum" — and it is "average"/);
-    });
-
-    test("a measure that is not a heat, table or chart series, nests, is not written in place, is over other rows, or repeats a key", () => {
-        assert.throws(() => resourcesOver(PRESSES, Presses, () => ({ measures: [
-            Plan.series.span(PressType, { key: "runs", title: "Runs", label: () => "Runs", runs: () => [] }),
-        ] })), /measures\[0\] is a span "Runs" series — a measure is a heat, table or chart series over the resources' rows/);
-        assert.throws(() => resourcesOver(PRESSES, Presses, () => ({ measures: [
-            Plan.series.heat(PressType, { key: "util", title: "Utilisation", label: () => "Utilisation",
-                // A resource's own rows have no Dict of themselves to name, so the tree is given the way a host's own code could.
-                cells: () => Plan.heatCells([], { min: 0, max: 100, warnAt: 95 }), children: (() => East.value(new SortedMap<string, Press>([], compareFor(StringType)), Presses)) as never }),
-        ] })), /measures\[0\], heat "Utilisation", declares `children` — a measure is one row under each resource/);
-        assert.throws(() => resourcesOver(PRESSES, Presses, ($) => ({ measures: [$.let(heat("util"))] })),
-            /measures\[0\] is a Plan\.series\.heat, table or chart written in place — a series bound or stored elsewhere cannot be laid out under each resource/);
-        assert.throws(() => resourcesOver(PRESSES, Presses, () => ({ measures: [heat("crew_util", CrewType as never)] })),
-            /measures\[0\] is a series over the resources' rows — Plan\.series\.heat "crew_util": the series is built over one entry type and applied to entries of another/);
-        assert.throws(() => resourcesOver(PRESSES, Presses, () => ({ measures: [heat("util"), heat("util")] })),
-            /measures\[1\], heat "Utilisation", repeats the key "util" — a measure row's id is its series' key and its resource's path/);
-    });
-
+describe("Schedule.resources — a paged read refused at build (#1199)", () => {
     test("`window`, which is gone, refused naming the paged form; and an index's window for the resources (#1199)", () => {
         assert.throws(() => East.function([], NullType, ($) => {
             const rows = $.const(PRESSES, Presses);
@@ -303,13 +262,11 @@ export function planScheduleTypeChecks(): void {
     Schedule.events(stops, { name: "Stop", icon: "i", title: "title", at: "at", templates: [{ key: "p", name: "P", duration: variant("hours", 1), values: { title: "P", press: "pa", kind: variant("plate_change", null) } }] });
     // @ts-expect-error — `group` is a String, and a press's speed is a Float
     Schedule.resources(presses, { name: "Presses", icon: "print", label: (p) => p.name, group: (p) => p.sheets_per_hour });
-    // @ts-expect-error — `status` is an Option of a status value
-    Schedule.resources(presses, { name: "Presses", icon: "print", label: (p) => p.name, status: (p) => some(p.name) });
-    // @ts-expect-error — `rollup` is "union", "byStatus" or "sum"
-    Schedule.resources(presses, { name: "Presses", icon: "print", label: (p) => p.name, rollup: "average" });
+    // @ts-expect-error — `status` was the Plan's (#1541): a resource kind takes none, a Plan.series.resources does
+    Schedule.resources(presses, { name: "Presses", icon: "print", label: (p) => p.name, status: () => none });
     // A paged read of the resources compiles in their place (#1199), its rows typed from its page.
     const pages = Data.bindPaged(pressesRecord);
-    Schedule.resources(pages, { name: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) });
+    Schedule.resources(pages, { name: "Presses", icon: "print", label: (p) => p.name, meta: (p) => some(p.hall) });
     // @ts-expect-error — `window` is gone (#1199): a kind pages when its resources are a paged read
     Schedule.resources(presses, { name: "Presses", icon: "print", label: (p) => p.name, window: pages });
 }

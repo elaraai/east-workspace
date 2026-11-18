@@ -220,7 +220,8 @@ test("a loose task's grip moves it between the entries — over a package, to th
     restOn(entryRow(container, "handover"), "bottom");
     expect(caption()).toEqual({ text: "A line stays in a package", refused: true });
     await release("bottom");
-    expect(announced()).toBe("Line 2 of Kitchen doors was not dropped.");
+    // Said with its reason, as the ghost says it (#1680's review).
+    expect(announced()).toBe("Line 2 of Kitchen doors was not dropped: A line stays in a package.");
     expect(linesOf(container, "doors")).toHaveLength(2);
     // Two moves, one Save: the entries in their new order, the package's tasks with it.
     await history(container, "Save");

@@ -248,6 +248,8 @@ component is not automatically a correct reference for every shared behavior.
 | Author-bound Slice and window | `src/plan/root/sources.ts`, `src/plan/root/window.ts`, `src/plan/shell/Toolbar.tsx`; e3-ui's `slicePlanChrome`, `planWindows` and `planPrintWorks` examples |
 | Drafts, validation, Save, retry, undo/redo | Shared `EditSession`, `EditHistory`, `historyToolbarItem` and `SessionBanners`; `src/shared/schedule/editing.ts` where the domain is event records; `src/shared/schedule/records.ts` for a builder over the app's own records (a minted key, a window kept at its revision, Publish after Save) |
 | Library cards/search/tabs and inspector fields | Shared Library, Fields and FieldForm; existing builder integrations |
+| Search Records: a builder's toolbar key search over its records | `src/shared/schedule/search-records.ts` (`useSearchRecords`: one engine that seeks, lists and picks, its rules held in `search-records.test.ts`); a builder's `find.ts` — the Sheet's `use-jumps.ts` — names its sources, what a found row reads as, its line's words and what a pick does |
+| A page's scope (#1621): the rows a page holds, the viewer's choices among them, whether a builder holds a kind whole | east-ui's `platform/slice/record-plan.ts` (`recordSliceBase`, `recordSliceScoped`, `recordSliceChoices`, `recordSliceChoicesOf`, `recordSliceChosen`, `recordSliceScopedWhere`, held in `record-needs.spec.ts`); `src/shared/schedule/unheld.ts` (`sourceUnheld`) and `words.ts` (`unheldByScopeText`, `dimmedWords`), each with its test. A renderer never reads a source's `config.scope` |
 | Drag targets, keyboard drag, ghosts and cancellation | `east-ui-components/src/dnd/` |
 | A part's own pointers, off the drag layer: a canvas that pans and pinches, a lane drawn on, a drag a part draws itself | `east-ui-components/src/pointer/` (`useSurfaceGestures`, `followPointer`, `./internal`); below, "A part's own pointers"; the Schematic's canvas, `src/schematic/canvas/CLAUDE.md` invariants 33 and 34 |
 | Typography, icons and visual states | `east-ui-components/src/theme/text-styles.ts`, slot recipes, `theme/icon-size.ts` |
@@ -361,7 +363,7 @@ the first leading, and the date navigator, the horizon brush, the keys and the
 resolution write each of them (`writePlanWindow`); a source that holds none
 takes it unless that would replace a choice of its own
 (`recordSliceWindowFits`). The canvas's rows never follow the dates: the
-`rows` source and each resource kind's hold no window (`planRowSources`), so a
+`rows` source holds no window (`PLAN_ROW_SOURCES`), so a
 pan reads no row and the rows in view stay where they are; a canvas whose
 slice has no source holding the window holds its own (`PlanWindowHold`), which
 the same controls move, the brush's horizon the axis's stated window and the
@@ -376,12 +378,11 @@ zooms with it (#1438, `zoomedWindow`): as many buckets of the new resolution
 as it showed of the old, about the same middle, inside the span of what its
 series read where it reads a nested series index (`PlanWindowHold.span`), so
 the year shows the works' ten years. The
-Plan reads its event kinds' rows, counts and backlog, the selected events and
-what its eye's request waits on in components of their own
-(`PlanEventsReader`, `PlanKindsReader`, `PlanSelectionReader`,
-`PlanOptimiseReader`). An event kind placed on a paged resource kind, whose
-source lists a series and a summary index (#1039) — the only form the Plan
-takes there — is read a cell at a time by the shared schedule reader
+Plan reads its event kinds' rows, counts and backlog and the selected events
+in components of their own (`PlanEventsReader`, `PlanKindsReader`,
+`PlanSelectionReader`). An event kind over rows read a page at a time (#1541),
+whose source lists a series and a summary index (#1039) — the only form the
+Plan takes there — is read a cell at a time by the shared schedule reader
 (`shared/schedule/cells.ts`' `useScheduleCells`, which holds no Plan type, so
 the Calendar reads through it next) through the Plan's adapter (`root/cells.ts`'
 `usePlanCells`: the payload's paged seam, its links, its rows' ids and the span
@@ -420,14 +421,14 @@ are — and one line names what it does not count (`Print jobs and Press check
 hours not counted: too many to draw at this resolution`). A kind hidden in the
 Series tab is in none of these figures, read by its cells or counted, and
 nothing says so (`frame/hidden.ts`' `hides`); its backlog is the Backlog
-tab's still. A selected row of the paged kind whose cells the reader does not
+tab's still. A selected resource's row, over paged rows, whose cells the reader does not
 hold — scrolled out of the blocks read, or before the first read lands: not
 in the reader's `drawn` — draws its facts as the shared placeholders
 (`PlaceholderShape`), never 0, until they land, and the counts wait for a
 kind's cells to land once before they count its hours. The selected events of
-a kind given cells are read again as its cells move. A
-paged resource kind its source narrows (#1344) pages that source's
-narrowed rows themselves, in its index's order: the canvas's source over the
+a kind given cells are read again as its cells move. Rows
+read a page at a time that the `rows` source narrows (#1344) are paged from
+that source's narrowed rows themselves, in its index's order: the canvas's source over the
 payload's `paged` is a live one, so a choice is a new result, the last view
 standing in, retained, until its first window lands; the frame follows no such
 source (`planFollowedSources`), so none of its keys is scanned; and the span
@@ -437,11 +438,13 @@ with one popup and normal keyboard focus return. Never copy another control
 family into a builder.
 
 Trace every choice to the source. Plan pages its `rows` source and reads each
-event kind through its own (#1344), the Sheet draws its `rows` source's
-narrowing over the record's rows as the lens (#1349: e3 places the narrowing's
-rows from the index, `recordSlicePlace`, and the lens reads the segments that
-hold them near the view, a page and one `recordSliceWithinAt` each, never a
-segment with no match) and the Flowchart reads its states and
+event kind through its own (#1344), the Sheet draws its viewer's narrowing
+over the rows its page holds — the record's, or on a scoped page the scope's
+alone, numbered 1 to N (#1621) — as the lens (#1349: e3 places the narrowing's
+rows among them from the index, `recordSliceBasePlace`, and the lens reads the
+segments that hold them near the view, a page and one
+`recordSliceBaseWithinAt` each, never a segment with no match) and the
+Flowchart reads its states and
 transitions complete through their sources (#1502), Calendar event kinds read its interval queries, the
 Roster and the Allocation read their period's events through their kind's
 source, the period their navigation writes into it
@@ -461,6 +464,24 @@ events by key`, each builder's message table (`messages.ts`) — and, where
 nothing matches, where a bin's key is, or to search by an event's key. It
 lists the rows a query finds wherever they are — read through the source by their place, never only what is
 drawn.
+
+One engine does it for every builder (`shared/schedule/search-records.ts`'
+`useSearchRecords`, its rules held in `search-records.test.ts`, on e3): it
+seeks each source — through e3 in its record, a block of matches for each
+value of a page's scope (#1621), a host's paged source by its own `seek`, or
+among rows held whole, by their keys at their key type — lists the matches as
+one list, a row keeping its place, asks which of a list's rows the narrowing
+hides through each source's hidden pick, and hands the builder the latest
+pick alone: a newer pick, a new query or a clear leaves one on its way
+behind, and a query asked again leaves it standing. A pick reads its row
+again, but a row nothing can hide — a paged source's, or one of a source with
+no hidden pick — goes to a builder that takes places by its place at once,
+with nothing read (`pickPlace`, `onPickPlace`: the Sheet's, whose window is
+read where it goes). A box the builder names as another (`resetKey`) starts
+again, the last one's pick left behind. Each builder's `find.ts` — the
+Sheet's `use-jumps.ts` — names its sources, what a found row reads as, its
+line's words and what a pick does, and keeps nothing else: a rule of seeking,
+listing or picking goes in the engine, with its test.
 
 A row the rail's narrowing hides is one shared behaviour, the hidden pick
 (`shared/schedule/hidden.ts`, `hidden-pick.tsx`), in every builder's Search
@@ -487,13 +508,22 @@ write of the rail like a chip's (`clearHidden`); a clear that throws is said
 where the builder says a gesture's error, the keyboard left where it is — then
 goes to the row as the builder goes, and, once the narrowing they leave draws
 it, selects it where the builder selects it only then and hands it the
-keyboard (`usePickHandOff`). Each source's pick is read in a component of its
+keyboard (`usePickHandOff`). A row its source's page's scope does not hold
+(#1621) — a run's crew member of another press's, a draft that left the scope
+— is hidden by no choice and brought by none (`hiddenByScope`): its line says
+what it stands on is not on this page (`notOnPageText`, the noun the
+builder's own: the Calendar's resource kind, the Allocation's lane, arrival
+or resource), names no filter, and a pick clears nothing of that source.
+Each source's pick is read in a component of its
 own, in order (`HideSources`), over the one chain every builder reads its
 sources by (`each-source.tsx`, which `FollowSources` reads over too). A
 builder supplies only its own:
 
 - **The Sheet**: its `rows` source, read through its lens at the lens's
   revision (`useHidden`); the lens's jump lands the row at its row number.
+  Its box is its snapshot's: it starts afresh with each narrowing and each
+  revision of the rows (#1345). Go to issue asks the engine where its key is
+  (`useSeekPlace`), leaving the box as it is.
 - **The Allocation**: what hides a bin is what hides its row in the layout
   shown (`allocation/hidden.ts` over `table-rows.ts`' `rowHiding`) — on the
   Table its lane, its arrival or every resource it has parts on, on the
@@ -518,11 +548,12 @@ builder supplies only its own:
   lines are listed again as the layout comes to lay resources out or leaves
   off, and a pick steps to the event's period and selects it. The time grids,
   the month and the agenda narrow no event by its resource, and name none.
-- **The Plan**: the source of the rows it pages, its `rows` source or a paged
-  resource kind's (`plan/find.ts`, #1513): the box seeks and
-  lists the whole record as the binding reads it with no narrowing — by key
-  where it joins its rows, a lean binding by its default index — a line naming
-  what hides a row; a
+- **The Plan**: the source of the rows it pages, its `rows` source
+  (`plan/find.ts`, #1513): the box seeks and
+  lists the rows the page holds of the record — the record's own, or, on a
+  page whose source holds a scope, the scope's alone (#1621) — as the binding
+  reads them with no choice of the viewer's — by key where it joins its rows,
+  a lean binding by its default index — a line naming what hides a row; a
   pick asks e3 where the row stands among the narrowing's rows, from the row's
   index keys and, among rows sharing one, by halves (`recordSlicePosition`), and
   clears what hides it first where the narrowing holds none of it. The canvas
@@ -962,35 +993,46 @@ period, and Delete on what the keyboard is on — an event, a duty or a
 proposal, a bin — hands it to the board as it goes, never the page's body,
 where the Undo that brings it back goes unheard (retest C4).
 
-The Plan's Elara eye waits, disabled, for what a run's request carries — every
-event kind's events in the window, its backlog and each event's row — read in a
-component of its own (`optimise.ts`' `PlanOptimiseReader`, a tracked read of
-`planOptimiseReady`), which hears each land and hands the canvas whether the
-request can be made only as that moves: over a kind read a window at a time,
-each search landing re-runs that reader alone, never the canvas (#1343). Each
-event's row is held among the rows the canvas reads over its range
-(`eventReadRange`, which covers the window) and in the backlog beside them,
-which a kind's `planRows` reads at once — the record's own Dict, by key, the
-drafts in place — so the eye waits for that read, every kind's in one pass,
-and reads no row by its key: whatever the number of events in the window, it
-asks e3 for windows alone, where a row read by its key would be a key search
-and a one-row page an event, for rows those windows hold already. A click
-reads it once a kind, decoded as a `SortedMap` by the East key, and finds each
-event's row there, so its work grows with the events plus the rows, never
-their product. Its result lands the same way: the landing reads each kind it
-changes as its events stood before the run once — the window's and the
-backlog's, the drafts in place, as the request was built from them
-(`windowEvents`) — by the East key in a `SortedMap` (`eventsBefore`), and
-finds there what each changed event was, for its provenance's `Was …` and
-whether the backlog moved: one read a kind, never one a change (#1409). A
-rows' window that fails leaves the eye disabled, asking
-nothing again, and is said on the footer's line in the words of the kinds
-whose own events it could not read — `Couldn't read print job events` — with
-Retry, which asks those kinds' records again at once (`retryPeriod`), never as
-the toolbar's chip; once the retried read lands the eye can be used (#1398).
-The eye
-stays disabled over a window no request carries whole: a kind past the cap
-over it, or one read by its cells, whose events no run was shown (#1409, R24).
+A builder's Elara eye waits on nothing the page reads (east-workspace#1622,
+rule 6): a run's request carries the period in view, the run's number and the
+rail's narrowing, and no row, and the call carries each session's pending Save
+as a draft of its record — the function reads what it needs on e3, with the
+drafts laid over. So the Plan's eye is on over a kind read a cell at a time
+and over one past the cap of events in the window, as over any other. The
+answer is a patch of each record the builder edits, and every builder lands
+it through the same parts (`shared/func/`): `use-optimise.ts` runs the call,
+reads each record the function lists in `drafts` again before the answer
+lands, and takes a `conflict` down the refused Save's path;
+`optimise-sessions.ts` reads a builder's sessions by their records' names;
+`optimise-diff.ts` lands a patch key by key on the rows the page holds, over
+e3-ui's `optimiseChangesFor`; and `optimise-rows.ts` reads, by their keys,
+the rows an answer touches that the page does not hold — each record's in
+one read, never a key search a row. Each builder's own `optimise.ts` makes
+its request, says what a change is on its surface and what it refuses: a row
+the viewer may not change, one whose own edit is not finished, and one
+outside the period the run was asked of. What each changed row was before
+the run — its provenance's `Was …`, and on the Plan whether the backlog
+moved — is read from the row the answer landed on.
+
+A builder's fit is asked the same way (east-workspace#1624): the Roster's Find
+fix and the Allocation's board send the question and the page's scope
+(`optimise-slice.ts`' `fitScope`: each rail source's scope, never the viewer's
+choices), and no row, and the call carries each session's pending Save as a
+draft — the sessions an optimiser's run asks (`optimise-sessions.ts`).
+`use-fit.ts` keeps each answer by its question, the plan it was asked of and
+the context — what the page reads, and the sessions' drafts by identity
+(`ScheduleEditing.drafts`) — so a draft, another page's save and a change of
+what the page reads each ask again, and a choice on the rail asks nothing. A
+plan a builder derives from its drafts — the Allocation's day without a
+reservation, with a probe reservation, with a removed bin back on it — goes as
+one more draft of the record, laid after the pending Save: its change from the
+drafts, made by `patch-draft.ts` as a draft of the session's patch door
+(e3-ui's `SCHEDULE_PATCH_DOOR`), so a derived bin holds the row the record
+would, its roles written into it. A question waits while a session cannot hand
+its edits over; a record that refuses them fails the fit in its words; and a
+call that ends `conflict` takes the optimiser's path — `conflict.ts`, the one
+copy both call. A subject an answer names no verdict for has none: the People
+tab does not list it, a drop on it is refused, and a Chooser leaves it out.
 
 BuilderFrame collapsing its panes does not supply the main area's mobile UX.
 Define narrow content using the available **main-panel width**, as Plan does;
@@ -2364,7 +2406,7 @@ be"): Rows its own count, as the rail counts it, and Measures the chart rows
 it makes — its count times what each entry makes across the paged blocks,
 beside the chart rows of the blocks no entry makes — where every entry makes as
 many, as each block says of its series (the IR's `charts`: a chart series' one,
-a views entry's chart members, a paged resource kind's chart measures the
+a views entry's chart members, a resource's chart series the
 viewer shows), and `not counted`, as the Plan's event counts say theirs, where
 a `match` or children decide it by entry; `…` while the source has not counted
 itself or a new narrowing's rows are read (`plan-narrow.dom.test.tsx`). The
@@ -2607,7 +2649,7 @@ Allocation's Table keeps the line its view rested on so too, once the
 narrowing's rows are in (`useRowAnchor`'s `narrowing`: the board's narrowing as
 text, the bins' own choices and its lanes', resources' and arrivals'). A
 bounded Plan keeps the row at the top of its view across a new narrowing of its
-paged rows — the `rows` source's or a paged resource kind's (#1344) — by its key
+paged rows, the `rows` source's (#1344), by its key
 and the px into it where the new rows' first windows draw it, and else starts
 at the top, telling the paging driver nothing of where the view rested
 meanwhile; it seeks none, a narrowing's searches running in its index's order. The

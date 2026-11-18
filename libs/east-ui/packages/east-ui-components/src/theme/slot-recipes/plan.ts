@@ -16,16 +16,18 @@
  * `plan/focus.ts` (#819), and the now line from the time part every canvas
  * that marks now shares (`time/now.ts`, #1148).
  *
- * Every height the model also computes — rows, rails, gap bands, strips and
- * their marks, bars, tiles, chips, the chrome bands — is read from the
- * canvas's geometry variables (`--plan-row-h`, `--plan-rail-h`, …), which the
+ * Every height the model also computes — rows, group bands and the bands a
+ * links focus gathers under, strips and their marks, bars, tiles, chips, the
+ * chrome bands — is read from the canvas's geometry variables
+ * (`--plan-row-h`, `--plan-strip-h`, …), which the
  * canvas writes once from the ONE geometry table (e3-ui-components'
  * `plan/geometry.ts`, where the Plan renders since #1177) that `rowHeight`
  * computes from. Density is geometry, so the recipe has no density variant.
  *
  * Run-state styling is the §4.3 truth table, driven by the `data-state`
  * attribute (obs / appr / prop / propRemoved / estimated / rejected) +
- * `data-stuck` / `data-runoff` — one attribute axis instead of a recipe
+ * `data-runoff`, and an item's status by its `data-tone` / `data-ring`
+ * (`plan/status.ts`, #1541) — one attribute axis instead of a recipe
  * variant, so a row renders marks of MIXED states from one resolved recipe
  * call.
  *

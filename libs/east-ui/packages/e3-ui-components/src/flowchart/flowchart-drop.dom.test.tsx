@@ -439,7 +439,8 @@ describe("a state's card dropped on a lane (R14)", () => {
         expect(container.querySelector(MARKS)).toBeNull();
         await release(at);
         expect(stateKeys(container)).toEqual(shown);
-        expect(announced()).toBe("Exception desk was not dropped.");
+        // Said with the ghost's words (#1680's review).
+        expect(announced()).toBe("Exception desk was not dropped: States are read only.");
         await enter(cardOf(container, "desk"));
         expect([stateKeys(container), footerMessage(container)]).toEqual([shown, "States are read only"]);
         // A transition's card on a transition: no wash, and the transition keeps its kind — planned, solid.
@@ -449,7 +450,7 @@ describe("a state's card dropped on a lane (R14)", () => {
         expect(caption()).toEqual({ text: "Transitions are read only", refused: true });
         expect(container.querySelector(MARKS)).toBeNull();
         await release(at);
-        expect(announced()).toBe("Observed reroute was not dropped.");
+        expect(announced()).toBe("Observed reroute was not dropped: Transitions are read only.");
         expect(lineOf(container, "l1").hasAttribute("stroke-dasharray")).toBe(false);
     });
 });

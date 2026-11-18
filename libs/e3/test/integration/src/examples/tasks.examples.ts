@@ -3,7 +3,7 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { East, ArrayType, FloatType, IntegerType, StringType, StructType, DictType, variant } from '@elaraai/east';
+import { East, ArrayType, FloatType, IntegerType, NullType, StringType, StructType, DictType, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { example } from './example.js';
 
@@ -84,11 +84,49 @@ export const customTask = example({
   },
 });
 
+// ---
+// e3.function
+// ---
+
 export const namedFunction = example({
   keywords: ['e3', 'function', 'rpc', 'call', 'e3 call', 'named function'],
   description: 'A named function, called by name with arguments (`e3 call <repo> -w <ws> greet \'"Ada"\'`): not in the dataflow; a server keeps a call through a workspace for its lifetime',
   fn: () => {
     const greet = e3.function('greet', East.function([StringType], StringType, ($, n) => East.str`Hello, ${n}!`));
     return e3.package('hello', '1.0.0', greet);
+  },
+});
+
+export const functionDrafts = example({
+  keywords: ['e3', 'function', 'drafts', 'draft', 'unsaved edits', 'record', 'mutation', 'what-if', 'e3 call', '--draft', 'nothing saved'],
+  description: 'A function that reads a record with a caller\'s unsaved edits laid over it: `drafts` lists the records a call may draft, each draft a mutation call that is not committed (`e3 call <repo> -w <ws> jobs_on \'"P1"\' --draft jobs.move \'"j2"\' \'"P1"\'`), and nothing is saved',
+  fn: () => {
+    const JobType = StructType({ press: StringType, hours: IntegerType });
+    const JobsType = DictType(StringType, JobType);
+    const jobs = e3.record('jobs', JobsType, {
+      initial: new Map([['j1', { press: 'P1', hours: 2n }], ['j2', { press: 'P2', hours: 3n }]]),
+      mutations: (mutation) => ({
+        move: mutation.edit(East.function([JobsType, StringType, StringType, e3.mutation.editType(JobsType)], NullType,
+          ($, state, id, press, edit) => { $(edit.set(id, { press, hours: state.get(id).hours })); })),
+        patch: mutation.patch(),   // what a page's Save sends, and so what it drafts
+      }),
+    });
+    // `drafts` lists records among `inputs`. A call that passes drafts of one runs them in order as a
+    // Save would — each over the state the one before it left — and the body reads the record at the
+    // state that leaves. No commit is stored, the record does not move, and no task reruns. Listing a
+    // record is the author's word that the body is fit to run over edits nobody saved: a function
+    // that sends a message or writes elsewhere lists none.
+    const jobsOn = e3.function('jobs_on', { inputs: [jobs], drafts: [jobs], args: [StringType], output: IntegerType },
+      ($, jobs, press) => {
+        const count = $.let(0n);
+        $.for(jobs, ($, job) => {
+          $.if(East.equal(job.press, press), ($) => { $.assign(count, count.add(1n)); });
+        });
+        return count;
+      });
+    // The result names the drafted state it read (`inputs`) and the commit the record stood at
+    // (`drafts`). A draft the record refuses ends the call as its Save would: `failed`, or `conflict`
+    // when the record changed under the edit, and the body does not run.
+    return e3.package('pressroom', '1.0.0', jobsOn);
   },
 });

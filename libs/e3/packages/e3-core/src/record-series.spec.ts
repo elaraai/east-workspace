@@ -26,12 +26,11 @@
  */
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
-import { accessSync, constants } from 'node:fs';
 import assert from 'node:assert';
-import { delimiter, join, dirname } from 'node:path';
+import { join, dirname } from 'node:path';
 import {
   DateTimeType, DictType, East, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap, SortedSet, StringType,
-  StructType, compareFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, none, parseFor, some, type ValueTypeOf,
+  StructType, compareFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, none, some, type ValueTypeOf,
 } from '@elaraai/east';
 import { RecordSummaryTotalsType } from '@elaraai/e3-types';
 import e3, { type PartRunner } from '@elaraai/e3';
@@ -41,40 +40,10 @@ import { summarizeDelta } from './record-apply.js';
 import { packageImport } from './package-files.js';
 import { workspaceCreate } from './workspaces.js';
 import { workspaceDeploy } from './workspace-files.js';
-import { createTestRepo, removeTestRepo, createTempDir, removeTempDir } from './test-helpers.js';
+import { at, createTestRepo, removeTestRepo, createTempDir, removeTempDir, stockRunners, seededStream, withEnv } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
 import type { StorageBackend, TaskRunner } from './index.js';
-
-/** Whether a runtime's CLI is on PATH: an executable of its name in one of PATH's directories. */
-function onPath(command: string): boolean {
-  const names = process.platform === 'win32' ? [`${command}.cmd`, `${command}.exe`] : [command];
-  return (process.env.PATH ?? '').split(delimiter).filter((dir) => dir !== '').some((dir) => names.some((name) => {
-    try {
-      accessSync(join(dir, name), constants.X_OK);
-      return true;
-    } catch {
-      return false;
-    }
-  }));
-}
-
-/** Runs `fn` with the given env vars set (undefined = unset), restoring after. */
-async function withEnv<T>(vars: Record<string, string | undefined>, fn: () => Promise<T>): Promise<T> {
-  const prev = Object.keys(vars).map((k) => [k, process.env[k]] as const);
-  for (const [k, v] of Object.entries(vars)) {
-    if (v === undefined) delete process.env[k];
-    else process.env[k] = v;
-  }
-  try {
-    return await fn();
-  } finally {
-    for (const [k, v] of prev) {
-      if (v === undefined) delete process.env[k];
-      else process.env[k] = v;
-    }
-  }
-}
 
 /** A print job: the press it runs on, the crews on it, its state, and when it runs, or not yet. */
 const JobRow = StructType({
@@ -91,13 +60,6 @@ const sameInteger = equalFor(IntegerType);
 const DAY = 86_400_000n;
 const HOUR = 3_600_000n;
 
-const readInstant = parseFor(DateTimeType);
-/** An instant written as East prints one, read by East's parser. */
-function at(text: string): ValueTypeOf<typeof DateTimeType> {
-  const read = readInstant(text);
-  if (!read.success) throw new Error(`'${text}' is not an instant East reads`);
-  return read.value;
-}
 /** The instant `ms` milliseconds from the epoch, made by East. */
 const instant = East.compile(East.function([IntegerType], DateTimeType, (_$, ms) => East.DateTime.fromEpochMilliseconds(ms)), []);
 /** An instant's milliseconds from the epoch, read by East. */
@@ -142,18 +104,6 @@ function declared(runner?: RunnerConfig) {
 const DECLARED = declared();
 const INDEXES = Object.values(DECLARED.indexes);
 
-/** A seeded stream of numbers in [0, 1) (mulberry32): the same rows on every run. */
-function stream(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6D2B79F5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
 /** A job: on one of seven presses, crewed by none, one or two, and scheduled from `start` to `end`, or not yet. */
 function job(n: number, start: bigint | undefined, end: bigint | undefined): Job {
   return {
@@ -182,7 +132,7 @@ const EDGES = [
  * before they start, and some not yet scheduled.
  */
 function seeded(): Jobs {
-  const next = stream(1433);
+  const next = seededStream(1433);
   const rows = new SortedMap<string, Job>(undefined, keyOrder);
   for (let n = 0; n < 1_000; n++) {
     const jitter = BigInt(Math.floor(next() * 96)) * HOUR / 4n;
@@ -248,15 +198,8 @@ describe('the series and summary indexes on the real runners', () => {
   let storage: StorageBackend;
   let realRunner: TaskRunner;
 
-  /** The runtimes to compare, minus any that is not installed. */
-  const runtimes: Array<{ ws: string; runner: RunnerConfig }> = [
-    { ws: 'node', runner: { runner: { runtime: 'east-node', platforms: ['@elaraai/east-node-std'] } } },
-    ...(onPath('east-c') ? [{ ws: 'c', runner: { runner: { runtime: 'east-c' as const, platforms: [] } } }] : []),
-    ...(onPath('east-py') ? [{ ws: 'py', runner: { runner: { runtime: 'east-py' as const, platforms: [] } } }] : []),
-  ];
-  const missing = runtimes.length < 2
-    ? `needs east-c or east-py on PATH beside east-node; have ${runtimes.map((r) => r.ws).join(', ')}`
-    : false;
+  /** The runtimes to compare — east-node, and east-c and east-py where installed — and why their parity skips with fewer than two. */
+  const { runtimes, missing } = stockRunners();
 
   beforeEach(async () => {
     repo = createTestRepo();
@@ -389,7 +332,7 @@ describe('the series and summary indexes on the real runners', () => {
   it('builds the indexes split into pieces as one unit builds them — a summary\'s pieces summed — hash for hash, on each runtime', async () => {
     // Enough jobs to span segments, cut into pieces small enough that a press's
     // week is in several: the merge adds their totals.
-    const next = stream(6000);
+    const next = seededStream(6000);
     const rows = new SortedMap<string, Job>(undefined, keyOrder);
     for (let n = 0; n < 6_000; n++) {
       const start = OCT_5 + BigInt(Math.floor((next() - 0.5) * 120)) * DAY + BigInt(Math.floor(next() * 24)) * HOUR;

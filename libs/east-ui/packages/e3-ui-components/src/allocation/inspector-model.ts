@@ -17,8 +17,8 @@
 import type { SortedMap, option } from "@elaraai/east";
 import { formatDatePattern } from "@elaraai/east-ui-components/internal";
 import { rankOf, type Grip, type LibraryGrip } from "./drag.js";
-import { compareDate, compareFloat, compareString, partsOf, type Bin, type Context, type Day, type Fit, type FitResult, type Issue, type Load,
-    type ResourceLine, type ResourceRow, type Slot, type TimeStep } from "./model.js";
+import { compareDate, compareFloat, compareString, partsOf, unavailableLine, type Bin, type Context, type Day, type Fit, type FitReading, type FitResult,
+    type Issue, type Load, type ResourceLine, type ResourceRow, type Slot, type TimeStep } from "./model.js";
 import { DEFAULT_NOUNS, a, counted, lower, one, other, type Noun, type Nouns } from "./nouns.js";
 import { countedIssues, issueParts } from "./toolbar.js";
 
@@ -341,6 +341,12 @@ export function bookOptions(args: { plan: Day; held: Day | undefined; context: C
 export function verdictLine(verdict: Fit | undefined): { line: string; warn: boolean; enabled: boolean } {
     if (verdict === undefined) return { line: CHECKING, warn: false, enabled: false };
     return verdict.type === "fits" ? { line: verdict.value.why, warn: false, enabled: true } : { line: `doesn’t fit · ${verdict.value.reason}`, warn: true, enabled: false };
+}
+
+/** A reading as a booking's line says it (A61): a verdict's line; pending, `checking fits…`; none coming, `fits unavailable · …` in warn and Book off (F3, rule 10). */
+export function readingLine(reading: FitReading): { line: string; warn: boolean; enabled: boolean } {
+    if (reading.state === "judged") return verdictLine(reading.verdict);
+    return reading.state === "pending" ? verdictLine(undefined) : { line: unavailableLine(reading.why), warn: true, enabled: false };
 }
 
 /** One fit a list ranks (A34, A59): its resource, its rank and the fit's reason. */

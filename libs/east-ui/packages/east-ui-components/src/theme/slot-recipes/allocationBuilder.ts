@@ -70,11 +70,12 @@
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { fontAwesomeSize } from "../icon-size.js";
+import { centredLine, oneLineBox } from "../one-line-box.js";
 import { CONFLICT_RING, conflictRing } from "../conflict-ring.js";
 import { builderFooter, builderFooterItem } from "./builder-footer.js";
 import { INSPECTOR_STATUS } from "./inspector.js";
 import { heldToolbarSlot, retainedColumn, retainedRow, widestToolbarSlot } from "./loading.js";
-import { linkRibbons } from "./links/ribbons.js";
+import { linkRibbons, linkSelectedInk } from "./links/ribbons.js";
 import { planElementConflict, planElementFocus, planRowFocus } from "./plan/focus.js";
 import { moveGhostBase, moveGhostSlots } from "./time/move-ghost.js";
 import { nowBase, nowSlots } from "./time/now.js";
@@ -126,6 +127,12 @@ const tableColumns = {
 const tableLeast = `max(900px, calc(${TRACK.time + TRACK.lane + TRACK.arrival + TRACK.units + TRACK.resource + TRACK.load + TRACK.status}px + var(--allocation-columns, 0) * ${TRACK.column}px))`;
 /** A Table cell's text: mono, one line, cut with an ellipsis. */
 const tableText = { fontFamily: "mono", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 } as const;
+/**
+ * The line of a Table chip's words and of a dashed placeholder's (#1638): a whole 16px, centred in the 26px inside the
+ * chip's edge. A chip holds words at three faces — its code's 11px, its quantity's 10.5px, its meta's 10px — and the
+ * theme's line of 1.5 gave each its own, 16.5px, 15.75px and 15px, two of them at a fraction of a pixel under the edge.
+ */
+const CHIP_LINE = centredLine(26, 16);
 /** A row's status word (A43): mono 10.5px 600 uppercase, tracked, ink-3 — its Status cell's and its narrow card's. */
 const statusWord = { fontSize: "label.md", fontWeight: "semibold", letterSpacing: "caps", textTransform: "uppercase", color: "fg.muted" } as const;
 
@@ -493,10 +500,7 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             // cards they cross — surfacing in the gaps between the lanes and in the channel — never over their words; a drag brings it back up.
             "&[data-under]": { zIndex: 1 },
             // The selected link, in the ink, at rest (A68); during a drag its caption keeps its outline alone.
-            "[data-allocation-timeline]:not([data-allocation-drag]) > &": {
-                "& [data-plan-link][data-selected] [data-plan-ribbon-band]": { stroke: "fg" },
-                "& [data-plan-link][data-selected] [data-plan-ribbon-head]": { fill: "fg" },
-            },
+            "[data-allocation-timeline]:not([data-allocation-drag]) > &": linkSelectedInk,
             // A caption takes the pointer as its line does, in the strong ink while lit; a grip, a hand to pick it up (A69).
             "& [data-plan-ribbon-label]": { pointerEvents: "auto", cursor: "pointer" },
             "& [data-plan-ribbon-label][data-allocation-grip]": { cursor: "grab", touchAction: "none" },
@@ -516,9 +520,9 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             ...linkRibbons, position: "absolute", left: 0, right: 0, top: "48px", zIndex: 5, overflow: "hidden", pointerEvents: "none",
             "[data-allocation-drag=link] > &, [data-allocation-drag=port] > &": { zIndex: 7 },
         },
-        // A ranked fit's badge, #1 #2 #3 before its name (A28).
+        // A ranked fit's badge, #1 #2 #3 before its name (A28): a one-line box, its figure on a line its own 16px.
         rank: {
-            display: "inline-flex", alignItems: "center", justifyContent: "center", flex: "none", minWidth: "16px", height: "16px", boxSizing: "border-box",
+            display: "inline-flex", alignItems: "center", justifyContent: "center", flex: "none", minWidth: "16px", ...oneLineBox(16, 0), boxSizing: "border-box",
             padding: "0 4px", borderRadius: "sm", background: "brand.solid",
             fontFamily: "mono", fontSize: "label.sm", fontWeight: "semibold", fontVariantNumeric: "tabular-nums", color: "bg.surface",
         },
@@ -535,7 +539,7 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
         },
         // A refusing run's label, over its rows at the plot's right; it steps aside while the pointer is in the run (A27).
         runLabel: {
-            position: "absolute", right: "22px", zIndex: 5, height: "20px", display: "inline-flex", alignItems: "center", gap: "8px", padding: "0 8px",
+            position: "absolute", right: "22px", zIndex: 5, ...oneLineBox(20), display: "inline-flex", alignItems: "center", gap: "8px", padding: "0 8px",
             boxSizing: "border-box", borderWidth: "1px", borderStyle: "solid", borderColor: "status.warn", borderRadius: "sm", background: "bg.surface",
             fontFamily: "mono", fontSize: "label.sm", fontWeight: "semibold", fontVariantNumeric: "tabular-nums", color: "fg.warning",
             whiteSpace: "nowrap", pointerEvents: "none",
@@ -545,7 +549,7 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
         runMeta: { fontWeight: "medium", color: "fg.muted" },
         // The fits marker at the pane's edge, 12px in from the plot's start: a drop on it goes to the #1 (A31).
         fitsMarker: {
-            position: "absolute", left: "calc(152px + 12px)", zIndex: 8, height: "28px", display: "inline-flex", alignItems: "center", gap: "8px",
+            position: "absolute", left: "calc(152px + 12px)", zIndex: 8, ...oneLineBox(28), display: "inline-flex", alignItems: "center", gap: "8px",
             padding: "0 12px", boxSizing: "border-box", borderWidth: "1px", borderStyle: "dashed", borderColor: "brand.solid", borderRadius: "md",
             background: "bg.surface", fontFamily: "mono", fontSize: "label.md", fontWeight: "semibold", fontVariantNumeric: "tabular-nums",
             color: "brandPressed", whiteSpace: "nowrap", pointerEvents: "auto",
@@ -561,8 +565,9 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             "--allocation-table-least": tableLeast,
         },
         tablePane: { flex: 1, minHeight: 0, minWidth: 0, overflow: "auto", overscrollBehavior: "contain" },
+        // A band's row count: a one-line box with no edge (#1638), its figure on a line its own 16px.
         bandCount: {
-            display: "inline-flex", alignItems: "center", height: "16px", padding: "0 4px", borderRadius: "sm", background: "bg.subtle",
+            display: "inline-flex", alignItems: "center", ...oneLineBox(16, 0), padding: "0 4px", borderRadius: "sm", background: "bg.subtle",
             fontFamily: "mono", fontSize: "label.sm", fontWeight: "semibold", fontVariantNumeric: "tabular-nums", color: "fg.strong",
         },
         // The column heads: 36px, mono 10px 600 uppercase, tracked, ink-4, over a rule.
@@ -615,7 +620,7 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
         },
         // A chip, 28px on the rule-strong border: a draft dashed in the brand on brand-tint; dragged, a dashed hole (A16).
         tableChip: {
-            flex: 1, minWidth: 0, height: "28px", boxSizing: "border-box", display: "flex", alignItems: "center", gap: "8px", padding: "0 4px 0 8px",
+            flex: 1, minWidth: 0, height: "28px", lineHeight: CHIP_LINE, boxSizing: "border-box", display: "flex", alignItems: "center", gap: "8px", padding: "0 4px 0 8px",
             borderWidth: "1px", borderStyle: "solid", borderColor: "border.strong", borderRadius: "sm", background: "bg.surface",
             "&[data-draggable]": { cursor: "grab", touchAction: "none" },
             "&[data-draft]": { borderStyle: "dashed", borderColor: "brand.solid", background: "brandTint" },
@@ -666,7 +671,7 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
         },
         // A dashed placeholder (A45): `no arrival`, `no resource`, italic ink-4; during a body's drag a free row's says what a drop does.
         tablePlaceholder: {
-            flex: 1, minWidth: 0, height: "28px", boxSizing: "border-box", display: "flex", alignItems: "center", gap: "8px", padding: "0 4px 0 8px",
+            flex: 1, minWidth: 0, height: "28px", lineHeight: CHIP_LINE, boxSizing: "border-box", display: "flex", alignItems: "center", gap: "8px", padding: "0 4px 0 8px",
             borderWidth: "1px", borderStyle: "dashed", borderColor: "border.strong", borderRadius: "sm", background: "transparent", textAlign: "left",
             fontFamily: "mono", fontSize: "label.md", fontWeight: "normal", fontStyle: "italic", color: "fg.subtle",
             "&:is(button)": { cursor: "pointer" },

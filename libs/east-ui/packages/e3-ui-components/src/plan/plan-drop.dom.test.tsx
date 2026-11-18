@@ -35,6 +35,7 @@ import { announced, layOut, pointAt, press, stubScrollIntoView, tick } from "@el
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import { rowSel, testKeyOf } from "./plan.test-utils.js";
 import { offering } from "../shared/schedule/keys.test-utils.js";
+import { stateApply } from "./state-apply.test-utils.js";
 import {
     JOBS, PHASES, Press, SEED, SURFACE,
     canvasHarness, dropCellOf, dropJob, history, jobsDrawn, marks, mountCanvas, releaseCanvases, settle,
@@ -69,9 +70,12 @@ const LANDS = { create: (drop: ExprType<typeof Plan.Types.Drop>) => ({ at: drop.
 /** Press 1 alone. */
 const ONE_PRESS = new Map([["p1", { label: "Press 1", jobs: new Map() }]]);
 
+/** The every-kind canvas's presses. */
+const KindPresses = DictType(StringType, KindPress);
+
 /** Press 1 as a row of every kind — the kinds holding discrete objects take a job (`edit: { create }`), the rest cannot. */
 const EVERY_KIND = East.function([], Plan.Types.Root, ($) => {
-    const presses = $.const(State.bind([DictType(StringType, KindPress)], "plan-880.every-kind", ONE_PRESS));
+    const presses = $.const(State.bind([KindPresses], "plan-880.every-kind", ONE_PRESS));
     return Plan.Root({
         axis: Plan.axis({ window: { min: W27, max: W39 }, resolution: "week" }),
         data: presses,
@@ -88,7 +92,7 @@ const EVERY_KIND = East.function([], Plan.Types.Root, ($) => {
             Plan.series.events(KindPress, { key: "events", title: "Events", label: (p) => p.label, edit: LANDS,
                 marks: Plan.items("jobs", { at: "at" }, () => ({ kind: "milestone" })) }),
         ],
-        editing: { onUpdate: presses.write },
+        editing: { onApply: stateApply(KindPresses, "plan-880.every-kind", presses) },
         id: SURFACE,
         sources: [JOBS],
     });
@@ -216,7 +220,8 @@ const HOLDING = new Map([["p1", { label: "Press 1", jobs: new Map([["job-1", { a
  * it, which no veto can see coming.
  */
 const KEYED = East.function([], Plan.Types.Root, ($) => {
-    const presses = $.const(State.bind([DictType(StringType, KeyedPress)], "plan-825.keyed", HOLDING));
+    const KeyedPresses = DictType(StringType, KeyedPress);
+    const presses = $.const(State.bind([KeyedPresses], "plan-825.keyed", HOLDING));
     return Plan.Root({
         axis: Plan.axis({ window: { min: W27, max: W39 }, resolution: "week" }),
         data: presses,
@@ -227,7 +232,7 @@ const KEYED = East.function([], Plan.Types.Root, ($) => {
                 edit: { create: (drop) => ({ at: some(drop.at.unwrap("time")) }) },
             }),
         ],
-        editing: { onUpdate: presses.write },
+        editing: { onApply: stateApply(KeyedPresses, "plan-825.keyed", presses) },
         id: SURFACE,
         sources: [JOBS],
     });

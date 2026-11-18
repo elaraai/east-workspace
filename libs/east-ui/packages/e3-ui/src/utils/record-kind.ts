@@ -32,21 +32,22 @@
  */
 
 import {
-    ArrayType, BlobType, BooleanType, DictType, East, EastTypeType, Expr, FunctionType, IntegerType, OptionType, StringType, StructType, TypeMismatchError,
-    isSubtype, isTypeEqual, none, some, toEastTypeValue, variant,
+    ArrayType, AsyncFunctionType, BlobType, BooleanType, DictType, East, EastTypeType, Expr, FunctionType, IntegerType, OptionType, PatchType, StringType,
+    StructType, TypeMismatchError, isSubtype, isTypeEqual, none, printType, some, toEastTypeValue, variant,
     type EastType, type ExprType, type NullType, type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { RecordCommitInfoType } from "@elaraai/e3-types";
 import type { UIComponentType } from "@elaraai/east-ui";
 import {
-    EditingReadinessType, EditingType, Fields, FieldSpecType, RecordSliceBindType, RecordSliceReadType, recordSliceReadPlatform,
+    EditingReadinessType, EditingType, Fields, FieldSpecType, RecordSliceBindType, RecordSliceReadType, recordSliceReadPlatform, resolveRowSource,
     type FieldHints, type RecordSliceConfigType, type RecordSliceStateType,
 } from "@elaraai/east-ui/internal";
+import { RecordOutcomeType } from "../bind/record.js";
 import { scheduleAccessor } from "../schedule/accessor.js";
-import { fieldOf, fieldSetters } from "../schedule/fields.js";
+import { checkKeyField, fieldOf, fieldSetters, keyFieldValue, type KeyField } from "../schedule/fields.js";
 import { scheduleEntriesSeam, scheduleRecordSession } from "../schedule/session.js";
 import { ScheduleEntriesType, ScheduleFieldWriteType, ScheduleReadyEntryType } from "../schedule/types.js";
-import { keyOfText, keyTextOf, optionOf, scheduleEntryByKey, scheduleLastKey, typeText } from "../schedule/window.js";
+import { checkEntries, keyOfText, keyTextOf, optionOf, scheduleEntryByKey, scheduleLastKey, typeText } from "../schedule/window.js";
 import { RowInspectorType, rowInspector } from "./row-inspector.js";
 
 // ============================================================================
@@ -108,6 +109,75 @@ export interface KindBinding {
 }
 
 /**
+ * How a builder's refusals of a kind's binding read: each builder names the
+ * forms it takes, and what its rows are, in its own words.
+ */
+export interface KindBindingWords {
+    /** What is refused that is no binding of the app's record of structs — `why` what was given, after it. */
+    readonly refuse: (why: string) => string;
+    /** For a kind read whole only: why a `Data.bindPaged` binding is refused. Left out, the kind may be read through a source. */
+    readonly whole?: string | undefined;
+    /** Why a paged read serving the record's indexes is refused. */
+    readonly indexes: string;
+    /** Why a paged read of an index's window is refused. */
+    readonly window: string;
+    /** The refusal of a record that holds no rows by key, each a struct — given what it holds. */
+    readonly rows: (holds: string) => string;
+    /** What a paged binding is named by, where it is checked to be the record's own entries. */
+    readonly paged: string;
+    /** The refusal of a `Record.bind` without its patch door. */
+    readonly door: string;
+}
+
+/**
+ * Tells a kind's binding by its handle's East struct (`bind/sources.ts`'
+ * rule): a `page` field is `Data.bindPaged`'s, a `mutate` field
+ * `Record.bind`'s — checked for its patch door — and any other `Data.bind`'s.
+ * The one check every builder's kinds run, each refusing in its own words.
+ *
+ * @param record - What the kind was given
+ * @param where - The kind, as a refusal names it
+ * @param words - The builder's words for each refusal
+ * @returns The binding
+ * @throws {Error} In the builder's words: anything but a binding of a record of structs; a paged binding for a kind
+ *   read whole, one serving the record's indexes or an index's window, or one naming no snapshot; and a `Record.bind`
+ *   without its patch door
+ */
+export function kindBinding(record: unknown, where: string, words: KindBindingWords): KindBinding {
+    const refuse = (why: string): never => { throw new Error(words.refuse(why)); };
+    if (!(record instanceof Expr)) return refuse("");
+    const type = Expr.type(record) as EastType;
+    const fields = type.type === "Struct" ? type.fields as Record<string, EastType> : undefined;
+    if (fields === undefined) return refuse(` — and this is ${printType(type)}`);
+    let form: KindBinding["form"];
+    let recordType: EastType;
+    if (fields["page"] !== undefined) {
+        if (words.whole !== undefined) return refuse(words.whole);
+        form = "paged";
+        if (fields["indexes"] !== undefined) return refuse(words.indexes);
+        const resolved = resolveRowSource(record, where);
+        if (resolved.kind !== "paged") return refuse(words.window);
+        recordType = resolved.collectionType;
+    } else {
+        form = fields["mutate"] !== undefined ? "record" : "data";
+        const read = fields["read"];
+        if (read === undefined || read.type !== "Function" || read.inputs.length !== 0 || fields["binding"] === undefined) return refuse("");
+        recordType = read.output as EastType;
+    }
+    if (recordType.type !== "Dict" || (recordType.value as EastType).type !== "Struct") throw new Error(words.rows(typeText(recordType)));
+    const rowType = recordType.value as StructType;
+    // A paged read of the record's own entries, at the snapshot every read of it is at, keyed as the record is.
+    if (form === "paged") checkEntries(record, recordType.key as EastType, rowType, words.paged);
+    if (form === "record") {
+        // The patch door: the record's mutation.patch(), the mutation named `patch` taking the record's patch.
+        const commit = fields["commit"];
+        const door = commit?.type === "Struct" ? (commit.fields as Record<string, EastType>)["patch"] : undefined;
+        if (door === undefined || !isTypeEqual(door, AsyncFunctionType([StringType, PatchType(recordType)], RecordOutcomeType))) throw new Error(words.door);
+    }
+    return { form, handle: record as ExprType<EastType>, keyType: recordType.key as EastType, rowType };
+}
+
+/**
  * An accessor of a row and its key, the key at the record's key type: what a
  * computed role is.
  *
@@ -152,19 +222,20 @@ export function kindWholeRows(handle: ExprType<EastType>, keyType: EastType, row
  * `none` while a search or a page is in flight.
  *
  * Through its source a kind reads what its narrowing holds and nothing else:
- * the source's choices, each as the rail holds it. Read with `every`, it reads
- * every row through its source instead, and never the narrowing, so a choice
- * reads none of its rows again: the renderer draws the rows the narrowing
- * leaves out as context, from the source's shown keys. An entry's row is its
- * `row` — the source joins it — or its `value`, for an index that carries the
- * whole row.
+ * the source's choices, each as the rail holds it, with its page's scope
+ * (#1621). Read with `every`, it reads every row through its source instead —
+ * every row its page's scope holds, which no choice changes, on a scoped page —
+ * and never the viewer's choices, so a choice reads none of its rows again: the
+ * renderer draws the rows the choices leave out as context, from the source's
+ * shown keys. An entry's row is its `row` — the source joins it — or its
+ * `value`, for an index that carries the whole row.
  *
  * @param part - The kind's source of the slice, bound once in the builder's payload (`recordSources(…).bind($)`)
  * @param source - The source's name
  * @param keyType - The kind's record's key type
  * @param rowType - The kind's record's row type
  * @param where - The kind, as a refusal names it
- * @param every - Whether it reads every row, the narrowing read nowhere: what the narrowing leaves out draws as context
+ * @param every - Whether it reads every row — every row its page's scope holds (#1621) — the viewer's choices read nowhere: what they leave out draws as context
  * @param remedy - How the refusal of a source over another record names the source to give
  * @returns `()` → the rows the narrowing holds — or every row — by key; `none` while a search or a page is in flight
  * @throws {Error} When the source narrows another record — its entries keyed or holding rows of other types — or reads
@@ -209,12 +280,13 @@ export function kindSourceRows(part: ExprType<StructType>, source: string, keyTy
         const pageWhere = $.const(bound.pageWhere);
         const id = $.const(bound.data.id);
         const revision = $.const(bound.data.revision);
-        // The read: no narrowing with `every` — every row, the source's state read nowhere, so a choice reads nothing
-        // again and the renderer dims what it leaves out — else the rail's, each of the source's choices. Never a
-        // read by area.
+        // The read: with `every`, the page's scope alone (#1621) — every row, on a page with none — the source's state
+        // read nowhere, so a choice reads nothing again and the renderer dims what it leaves out; else the rail's, each
+        // of the source's choices with the scope. Never a read by area.
         let taken: ExprType<typeof RecordSliceReadType>;
         if (every) {
-            taken = $.const({ where: new Map(), area: none }, RecordSliceReadType);
+            const config = $.const(bound.config);
+            taken = $.let({ where: config.scope, area: none }, RecordSliceReadType);
         } else {
             const read = $.const(bound.read);
             const state = $.const(read());
@@ -414,6 +486,95 @@ export function called<T extends EastType>(
     if (fn === undefined) return otherwise;
     const bound = $.const(fn) as (row: unknown, key: unknown) => ExprType<T>;
     return wrap(bound(row, key));
+}
+
+// ============================================================================
+// A link's ends
+// ============================================================================
+
+/** How a link kind's refusals name its ends: what an end joins, and what its `of` names. */
+export interface LinkEndWords {
+    /** The kind, as a refusal names it. */
+    readonly where: string;
+    /** What an end joins (`item`, `event`). */
+    readonly noun: string;
+    /** What an end's `of` names, with its article (`the item slot`, `the event kind`). */
+    readonly of: string;
+}
+
+/**
+ * A link kind's two ends, checked: each `{ field, of }`, its field holding the
+ * key of what the link joins — of one kind, or of a kind per case of a variant
+ * — and never an Option, a link having both its ends; and the two are two
+ * fields. What a Schematic's links and a Plan's link kinds both declare.
+ *
+ * @param rowType - The record's row type
+ * @param from - The kind's `from`
+ * @param to - Its `to`
+ * @param words - How the refusals name the ends
+ * @returns The two fields, checked
+ * @throws {Error} Naming the end: one that is no `{ field, of }`, a field the row lacks or one no key is held in
+ *   (`checkKeyField`), an Option, and both ends naming one field
+ */
+export function linkEndFields(rowType: StructType, from: unknown, to: unknown, words: LinkEndWords): { readonly from: KeyField; readonly to: KeyField } {
+    const { where, noun, of } = words;
+    const fields = rowType.fields as Record<string, EastType>;
+    const typeOf = fieldTypeOf(rowType, where);
+    const one = `${/^[aeiou]/.test(noun) ? "an" : "a"} ${noun}`;
+    const end = (prop: "from" | "to", given: unknown): KeyField => {
+        const config = given as { field?: unknown; of?: unknown } | null | undefined;
+        if (config === undefined || config === null || typeof config.field !== "string") {
+            throw new Error(`${where}: \`${prop}\` is { field, of } — the field holding ${one}'s key, and ${of} it holds keys of`);
+        }
+        const checked = checkKeyField(config.field, typeOf(`${prop}.field`, config.field), config.of, { where, prop, noun });
+        if (checked.optional) {
+            throw new Error(`${where}: a link has both its ends — \`${prop}.field\` names a field holding ${one}'s key, or a variant holding one per case, ` +
+                `never an Option — and "${config.field}" holds ${typeText(fields[config.field]!)}`);
+        }
+        return checked;
+    };
+    const ends = { from: end("from", from), to: end("to", to) };
+    if (ends.from.field === ends.to.field) throw new Error(`${where}: \`from\` and \`to\` both name "${ends.from.field}" — a link's ends are two fields`);
+    return ends;
+}
+
+/** A block a link's ends are written in: what binds a constant, declares a variable and matches an Option. */
+interface EndsBlock {
+    const: (value: unknown) => unknown;
+    let: (value: unknown, type?: EastType) => unknown;
+    match: (value: unknown, arms: object) => void;
+}
+
+/**
+ * A link's row with its ends written: each end from a reference to what it
+ * joins — its kind's slot and its key's text, read back at the end field's
+ * type — and every other field from `source`. `none` for an end of a kind its
+ * field holds no keys of, or a text no key of that kind prints as.
+ *
+ * @param rowType - The record's row type
+ * @param from - The `from` field, checked
+ * @param to - The `to` field, checked
+ * @returns `($, source, ends)` → the row's bytes, in the block given: `source` the row, or a card's values, the other fields are read from
+ */
+export function linkEndsWriter(rowType: StructType, from: KeyField, to: KeyField) {
+    const fields = rowType.fields as Record<string, EastType>;
+    const fromValue = keyFieldValue(from, fields[from.field]!);
+    const toValue = keyFieldValue(to, fields[to.field]!);
+    return ($: EndsBlock, source: unknown, ends: { readonly from: unknown; readonly to: unknown }): ExprType<OptionType<BlobType>> => {
+        const fromOf = $.const(fromValue) as (ref: unknown) => ExprType<OptionType<EastType>>;
+        const toOf = $.const(toValue) as (ref: unknown) => ExprType<OptionType<EastType>>;
+        const result = $.let(East.value(none, OptionType(BlobType)), OptionType(BlobType)) as ExprType<OptionType<BlobType>>;
+        $.match(fromOf(some(ends.from)), {
+            some: ($2: { match: (value: unknown, arms: object) => void }, f: ExprType<EastType>) => {
+                $2.match(toOf(some(ends.to)), {
+                    some: ($3: { assign: (target: unknown, value: unknown) => void }, t: ExprType<EastType>) => {
+                        $3.assign(result, East.value(some(East.Blob.encodeBeast(rowWith(rowType, source, { [from.field]: f, [to.field]: t }), "v2")), OptionType(BlobType)));
+                    },
+                });
+            },
+        });
+        return result;
+    };
 }
 
 // ============================================================================

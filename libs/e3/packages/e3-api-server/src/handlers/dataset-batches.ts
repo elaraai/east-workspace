@@ -21,7 +21,7 @@
 import {
   encodeBeast2For, fromEastTypeValue, isTypeValueEqual, none, parseFor, printType, some, type EastTypeValue, type option,
 } from '@elaraai/east';
-import { BEAST2_CONTENT_TYPE, datasetRowsType, type TreePath } from '@elaraai/e3-types';
+import { BEAST2_CONTENT_TYPE, datasetRowsType, treePathToRefPath, type TreePath } from '@elaraai/e3-types';
 import { workspaceGetDatasetStatus, type DatasetSegments, type StorageBackend } from '@elaraai/e3-core/portable';
 import { sendJsonError } from '../errors.js';
 import {
@@ -314,7 +314,7 @@ async function rowsOfRuns(
   const { key: keyType, value: rowType } = dataset.typeValue.value as { key: EastTypeValue; value: EastTypeValue };
 
   // The record the runs are positions in, pinned apart from the Dict: refused in its own words, so a client knows which moved.
-  const refPath = keysOf.path.map((segment) => segment.value).join('/');
+  const refPath = treePathToRefPath(keysOf.path);
   const status = await workspaceGetDatasetStatus(storage, repoPath, workspace, keysOf.path);
   const held = status.refType === 'unassigned' || status.refType === 'null' ? null : status.hash ?? null;
   if (held !== keysOf.hash) {

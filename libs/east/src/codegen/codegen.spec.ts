@@ -493,6 +493,81 @@ describe("codegen: toSource round trips the builder surface", () => {
     assert.equal(main.toIR().compile([])("xa/b"), fn.toIR().compile([])("xa/b"));
   });
 
+  test("a key range prints as the bounds the surface takes, an end left out where it is none, and a prefix as its fields (#1616)", async () => {
+    const Sheet = StructType({ press: StringType, day: DateTimeType, job: StringType });
+    const Sheets = DictType(Sheet, IntegerType);
+    const june1 = new Date("2026-06-01T00:00:00Z");
+    const fn = East.function([Sheets, SetType(StringType), StringType], IntegerType, ($, sheets, names, press) => {
+      const june = $.const(sheets.range({ from: { press: "P1", day: june1 }, to: { press } }));
+      const before = $.const(sheets.range({ to: { press: "P2" } }));
+      const all = $.const(sheets.range());
+      const ofDay = $.const(sheets.prefix({ press, day: june1 }));
+      const cut = $.const({ press: "P3" }, StructType({ press: StringType }));     // a bound held as a value of the key's type cut short
+      const fromCut = $.const(sheets.range({ from: cut }));
+      const few = $.const(names.range({ from: press, to: "d" }));
+      return june.size().add(before.size()).add(all.size()).add(ofDay.size()).add(fromCut.size()).add(few.size());
+    });
+    const source = toSource(fn, { importFrom: INDEX_URL, width: Infinity });
+    assert.match(source, /sheets\.range\(\{ from: \{ press: "P1", day: new Date\("2026-06-01T00:00:00\.000Z"\) \}, to: \{ press: press \} \}\)/, source);
+    assert.match(source, /sheets\.range\(\{ to: \{ press: "P2" \} \}\)/, source);
+    assert.match(source, /const all = \$\.const\(sheets\.range\(\)\);/, source);
+    assert.match(source, /sheets\.prefix\(\{ press: press, day: new Date\("2026-06-01T00:00:00\.000Z"\) \}\)/, source);
+    assert.match(source, /sheets\.range\(\{ from: cut \}\)/, source);
+    assert.match(source, /names\.range\(\{ from: press, to: "d" \}\)/, source);
+    assert.doesNotMatch(source, /East\.builtin\(/, source);
+    const main = await roundTrip(fn, "key range");
+    assert.equal(toSource(main.toIR().ir, { importFrom: INDEX_URL, width: Infinity }), source, "print → build → print is the identity");
+    const sheets = new SortedMap<{ press: string, day: Date, job: string }, bigint>(
+      ["P1", "P2", "P3"].flatMap(press => ["a", "b"].map((job): [{ press: string, day: Date, job: string }, bigint] => [{ press, day: june1, job }, 1n])),
+      compareFor(Sheet),
+    );
+    const names = new SortedSet(["ant", "bee", "cat", "dog"]);
+    assert.equal(main.toIR().compile([])(sheets, names, "P2"), fn.toIR().compile([])(sheets, names, "P2"));
+    assert.equal(fn.toIR().compile([])(sheets, names, "P2"), 2n + 2n + 6n + 2n + 2n + 3n);   // every name is past "P2", and three are before "d"
+  });
+
+  test("a key range whose end is not the option the surface builds prints raw, and rebuilds (#1616)", async () => {
+    const Names = SetType(StringType);
+    // An end held as a value: the surface writes a bound or leaves it out, and never passes an option.
+    const fn = East.function([Names, OptionType(StringType)], Names, ($, names, from) =>
+      East.builtin("SetRange", [StringType, StringType, StringType], [names, from, East.value(none, OptionType(StringType))], Names));
+    const source = toSource(fn, { importFrom: INDEX_URL, width: Infinity });
+    assert.match(source, /East\.builtin\("SetRange"/, source);
+    assert.doesNotMatch(source, /\.range\(/, source);
+    const main = await roundTrip(fn, "key range of an end held as a value");
+    assert.deepEqual([...main.toIR().compile([])(new SortedSet(["ant", "bee", "cat"]), some("b"))], ["bee", "cat"]);
+  });
+
+  test("a key range whose end left out is typed other than the key prints raw, and rebuilds as it was (#1616)", async () => {
+    const Sheet = StructType({ press: StringType, day: DateTimeType, job: StringType });
+    const Sheets = DictType(Sheet, IntegerType);
+    const Press = StructType({ press: StringType });
+    // The surface types an end it leaves out as the key: this `to` is typed as the `from` beside it.
+    const fn = East.function([Sheets], Sheets, ($, sheets) =>
+      East.builtin("DictRange", [Sheet, IntegerType, Press, Press], [sheets, East.value(some({ press: "P1" }), OptionType(Press)), East.value(none, OptionType(Press))], Sheets));
+    const source = toSource(fn, { importFrom: INDEX_URL, width: Infinity });
+    assert.match(source, /East\.builtin\("DictRange"/, source);
+    assert.doesNotMatch(source, /\.range\(/, source);
+    await roundTrip(fn, "key range of an end left out at a bound's type");
+  });
+
+  test("a bound written as an expression of a subtype of the key's type prints as its widening, and rebuilds (#1616)", async () => {
+    const Level = VariantType({ day: NullType, week: NullType });
+    const Runs = SetType(StructType({ level: Level, n: IntegerType }));
+    const fn = East.function([Runs], IntegerType, ($, runs) => {
+      // An untyped variant is a variant of its one case: the bound reads it as the key's.
+      const week = $.let(variant("week", null));
+      const ofWeek = $.const(runs.prefix({ level: week }));
+      const upTo = $.const(runs.range({ to: $.let({ level: variant("week", null), n: 2n }) }));
+      return ofWeek.size().add(upTo.size());
+    });
+    const source = toSource(fn, { importFrom: INDEX_URL, width: Infinity });
+    assert.match(source, /runs\.prefix\(\{ level: East\.as\(week, VariantType\(\{ day: NullType, week: NullType \}\)\) \}\)/, source);
+    assert.doesNotMatch(source, /East\.builtin\(/, source);
+    const main = await roundTrip(fn, "key range of a widened bound");
+    assert.equal(toSource(main.toIR().ir, { importFrom: INDEX_URL, width: Infinity }), source, "print → build → print is the identity");
+  });
+
   test("an option's none over a computed null, and a Float key of -0.0, print as they are and rebuild", async () => {
     const Opt = OptionType(IntegerType);
     const fn = East.function([Opt], IntegerType, ($, o) => {

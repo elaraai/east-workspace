@@ -266,9 +266,16 @@ test.describe("Plan drag and drop (#608, #1259)", () => {
         });
     }
 
-    for (const width of [1280, 1024] as const) {
+    /** What a dropped proposal's tile draws at each width, beside the 240px gutter (#1680's review): its week's cell
+     *  leaves it 21.8px at 1920px, 16.5px at 1280px and 14.5px at 1024px — each room for its grip, which takes 14px (5
+     *  wide inside its 5px padding, its dashed ring standing in that padding: 1px drawn at the suite's 1x, the padding
+     *  giving 1.5px), and none for its word, which takes 30px and wraps off its line (#1266). Where its grip has no room
+     *  it wraps off its line too: planTargetState's tile turns (plan-geometry.spec.ts). */
+    const DROPS = [{ width: 1920, grip: true }, { width: 1280, grip: true }, { width: 1024, grip: true }] as const;
+
+    for (const { width, grip } of DROPS) {
         for (const theme of ["light", "dark"] as const) {
-            test(`planRowDrop at ${width}px (${theme}): a van card dropped on an empty week of Van 1 makes a proposal tile inside its week's cell — its grip whole, its "plan" hidden or cut to a letter and the ellipsis, and said on hover — and no bar, chip, tile or band draws a partial glyph (#1266)`, async ({ page }) => {
+            test(`planRowDrop at ${width}px (${theme}): a van card dropped on an empty week of Van 1 makes a proposal tile inside its week's cell — its grip whole where the cell has room for it, else off its line; its "plan" hidden or cut to a letter and the ellipsis, and said on hover — and no bar, chip, tile or band draws a partial glyph (#1266)`, async ({ page }) => {
                 await page.setViewportSize({ width, height: 800 });
                 const entry = await open(page, theme, "Van 3");
                 const row = entry.locator(VAN1);
@@ -308,7 +315,7 @@ test.describe("Plan drag and drop (#608, #1259)", () => {
                         wordWhole: word !== null && on(word) === true && word.scrollWidth <= word.clientWidth,
                     };
                 });
-                await expect.poll(drawn).toEqual({ inCell: true, grip: true, wordWhole: false });
+                await expect.poll(drawn).toEqual({ inCell: true, grip, wordWhole: false });
                 await expect.poll(() => entry.evaluate(cutText)).toEqual([]);
                 await tile.hover();
                 await expect(page.locator('[data-plan-overlay="tooltip"]')).toHaveText("plan");

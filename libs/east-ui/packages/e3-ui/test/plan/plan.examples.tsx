@@ -28,7 +28,7 @@ import {
     type ValueTypeOf,
     type option,
 } from "@elaraai/east";
-import { DragEventType, Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from "@elaraai/east-ui";
+import { Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from "@elaraai/east-ui";
 import { Badge, Box, Button, Chart, Configurator, Format, HStack, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Text, VStack } from "@elaraai/east-ui";
 import { Data, Plan, Record } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
@@ -53,7 +53,7 @@ import e3 from "@elaraai/e3";
 // (#1178): the source is an `e3.input` or an `e3.record` declared beside the
 // example, its small literal default the dataset's initial value, bound in the
 // body with `Data.bind`; a record an editing session commits to is paged with
-// `Data.bindPaged` and written through its patch door (`Record.onApply`). A
+// `Data.bindPaged` and written through its patch door (the Plan's `record`). A
 // fixture made by a rule rather than written out — a slice's horizon, a
 // stress source — is made where data is made, by an `e3.task` over a count.
 // `State` holds only what the viewer owns: a configurator's axes, a pick, a
@@ -146,7 +146,7 @@ const TileLook = Plan.Types.BucketEvent.fields;
 /** A tile stored as it draws, under its id: its week, its lane and every channel of its look. */
 export const TargetTile = StructType({
     at: DateTimeType, lane: TileLook.lane, label: TileLook.label, icon: TileLook.icon, state: TileLook.state,
-    tone: TileLook.tone, color: TileLook.color, colorPalette: TileLook.colorPalette, stretch: TileLook.stretch,
+    status: TileLook.status, color: TileLook.color, colorPalette: TileLook.colorPalette, stretch: TileLook.stretch,
     content: TileLook.content, animation: TileLook.animation,
 });
 
@@ -257,26 +257,26 @@ export const planTargetOps = e3.input("plan_target_ops", DictType(StringType, Ta
       lanes: [{ key: "am", label: some("AM") }, { key: "pm", label: some("PM") }] }),
       tiles: new Map([
           ["m1", { at: new Date("2026-06-29T00:00:00Z"), lane: some("am"), label: none, icon: none, state: variant("confirmed", null),
-            tone: none, color: none, colorPalette: none, stretch: none, content: none, animation: none }],
+            status: none, color: none, colorPalette: none, stretch: none, content: none, animation: none }],
           ["m2", { at: new Date("2026-06-29T00:00:00Z"), lane: some("pm"), label: none, icon: none, state: variant("confirmed", null),
-            tone: some(variant("warning", null)), color: none, colorPalette: none, stretch: none, content: none, animation: none }],
+            status: some({ label: "Running late", tone: variant("warning", null), ring: false }), color: none, colorPalette: none, stretch: none, content: none, animation: none }],
           ["m3", { at: new Date("2026-07-06T00:00:00Z"), lane: some("am"), label: none, icon: none, state: variant("proposed", variant("recommended", null)),
-            tone: none, color: none, colorPalette: none, stretch: none, content: none, animation: some(variant("pulse", null)) }],
+            status: none, color: none, colorPalette: none, stretch: none, content: none, animation: some(variant("pulse", null)) }],
           ["m4", { at: new Date("2026-07-13T00:00:00Z"), lane: none, label: some("MIXED"), icon: none, state: variant("confirmed", null),
-            tone: none, color: none, colorPalette: none, stretch: some(variant("horizontal", null)),
+            status: none, color: none, colorPalette: none, stretch: some(variant("horizontal", null)),
             content: some({ horizontal: some(variant("center", null)), vertical: none }), animation: none }],
           ["m5", { at: new Date("2026-07-20T00:00:00Z"), lane: some("pm"), label: none,
             icon: some({ prefix: "fas", name: "truck", label: none, style: none }),
             state: variant("proposed", variant("recommended", null)),
-            tone: none, color: none, colorPalette: none, stretch: none, content: none, animation: none }],
+            status: none, color: none, colorPalette: none, stretch: none, content: none, animation: none }],
           ["m6", { at: new Date("2026-07-27T00:00:00Z"), lane: some("am"), label: some("PROOF"), icon: none, state: variant("estimated", null),
-            tone: none, color: none, colorPalette: none, stretch: none, content: none, animation: none }],
+            status: none, color: none, colorPalette: none, stretch: none, content: none, animation: none }],
           // The colour channels: `color` is a raw token override,
           // `colorPalette` recolours the whole lifecycle treatment.
           ["m7", { at: new Date("2026-08-03T00:00:00Z"), lane: some("am"), label: some("S-A"), icon: none, state: variant("confirmed", null),
-            tone: none, color: some("teal.solid"), colorPalette: none, stretch: none, content: none, animation: none }],
+            status: none, color: some("teal.solid"), colorPalette: none, stretch: none, content: none, animation: none }],
           ["m8", { at: new Date("2026-08-03T00:00:00Z"), lane: some("pm"), label: some("S-B"), icon: none, state: variant("confirmed", null),
-            tone: none, color: none, colorPalette: some(variant("brand", null)), stretch: none, content: none, animation: none }],
+            status: none, color: none, colorPalette: some(variant("brand", null)), stretch: none, content: none, animation: none }],
       ]),
       alerts: atInstants([[new Date("2026-07-13T00:00:00Z"), { status: variant("danger", null), message: "capacity breach" }]]) }],
     // ── The halls' presses and loads: each names its hall, and the data
@@ -332,9 +332,10 @@ export const planTargetOps = e3.input("plan_target_ops", DictType(StringType, Ta
           ["rem", { phase: "CUT", ticket: none, start: new Date("2026-08-10T00:00:00Z"), end: new Date("2026-08-24T00:00:00Z"), sheets: none, state: variant("proposed", variant("removed", null)), alert: none }],
           ["rej", { phase: "DECLINED", ticket: none, start: new Date("2026-08-31T00:00:00Z"), end: new Date("2026-09-14T00:00:00Z"), sheets: none, state: variant("rejected", null), alert: none }],
       ]) }],
-    // …sheets, an applied decision and a port on a two-line gutter, its
+    // …sheets, an applied decision and a port on a two-line gutter — its
+    // rate the value, as every press's is, and its hall the sub line — its
     // expand declaration dimming the axis behind the render…
-    ["H1-P09", { ...TARGET_EMPTY, hall: none, kind: variant("press", { series: "detail", rate: none, sub: some("12k sheets/h"), status: none,
+    ["H1-P09", { ...TARGET_EMPTY, hall: none, kind: variant("press", { series: "detail", rate: some(12.0), sub: some("Hall 1"), status: none,
       detail: some({ height: some("152px"), axis: variant("dim", null) }) }),
       jobs: new Map([
           ["a", { phase: "RUN", ticket: some("J-4624"), start: new Date("2026-06-29T00:00:00Z"), end: new Date("2026-07-27T00:00:00Z"), sheets: some(112.0), state: variant("actual", null), alert: none }],
@@ -447,8 +448,9 @@ export const planTargetOps = e3.input("plan_target_ops", DictType(StringType, Ta
  * - **Expand in place** on a row of every kind: each row declares it as data
  *   (`detail`), the root renders the plot (`expandRender`) and the gutter
  *   (`expandGutter`), and the unfocused rows collapse to strips.
- * - **The series are picked** (`Plan.pick`): the library's Series tab lists
- *   them, one hidden to start.
+ * - **The series are picked**: the library lists the Series tab
+ *   (`Plan.library.series()`), which lists each with its eye — the finishers'
+ *   three views each alone — and `hidden` names the one off to start.
  * - **A bound `ui` state** held by the host, its controls beside the frame: a
  *   picker brings a press into view, buttons fold and open the halls and
  *   expand the KPI, and a readout says what the state holds.
@@ -481,10 +483,10 @@ export const planTargetState = example({
         "estimated", "removed", "rejected", "proposal", "flavours", "stacked", "gutter", "two-line",
         "children", "Plan.children", "nested", "recursive", "RecursiveType", "groupToDicts", "grouping",
         "summaryAggregate", "collapsed", "member count", "heterogeneous",
-        "lane", "lanes", "AM", "PM", "tile", "marker", "tone", "color", "colorPalette", "stretch", "pulse", "icon",
+        "lane", "lanes", "AM", "PM", "tile", "marker", "status", "Plan.status", "color", "colorPalette", "stretch", "pulse", "icon",
         "lifecycle", "confirmed", "recommended", "same kind", "own entry", "duplicate",
         "one asset", "multiple views", "literal", "Plan.span", "series.rows", "kind factory", "chrome",
-        "pick", "Plan.pick", "library", "Plan.library.series", "Series tab", "hidden", "eye",
+        "pick", "picked", "library", "Plan.library.series", "Series tab", "hidden", "eye", "views member",
         "ui", "UiState", "Plan.uiState", "State.bind", "controlled", "selected", "fold", "open", "charts",
         "scroll to row", "external", "write back", "Select", "Button",
         "fill", "height", "bounded", "Box", "scroll", "virtual", "virtualization", "id",
@@ -547,7 +549,11 @@ export const planTargetState = example({
                     some: (_$2, t) => East.value(some(Plan.quantity(t, { unit: "k sheets", format: sheetsFormat })), OptionType(Plan.Types.Quantity)),
                     none: () => East.value(none, OptionType(Plan.Types.Quantity)),
                 }),
-                status: job.alert,
+                // Its status (#1541): the job's raw alert is a tone alone, and the map gives it its words.
+                status: job.alert.match({
+                    some: (_$2, tone) => East.value(some(Plan.status("Over dwell", tone)), OptionType(Plan.Types.Status)),
+                    none: () => East.value(none, OptionType(Plan.Types.Status)),
+                }),
             });
             // A shift's look: its hours print as the chip label, an ADDED
             // proposal wearing the `+` prefix — display derives from the
@@ -576,18 +582,18 @@ export const planTargetState = example({
             // series, top to bottom, a section titling the blocks beneath
             // it. Every one is picked (below), so the whole list is an East
             // value typed by the constructor. ──
-            const all = $.const([
+            const all = [
                 // The KPI, pinned under the ruler: its gutter opens the spark
                 // to the expanded chart, and it declares expand-in-place too,
                 // its plot keeping its value scale.
                 Plan.series.chart(TargetOpsRow, {
                     key: "ontime", title: "On-time",
-                    match: r => r.kind.hasTag("kpi"),
-                    label: r => r.kind.unwrap("kpi").name, id: true,
-                    pinned: r => r.kind.unwrap("kpi").pinned,
-                    value: r => some(r.kind.unwrap("kpi").headline),
+                    case: ["kind", "kpi"],
+                    label: (_r, _k, kpi) => kpi.name, id: true,
+                    pinned: (_r, _k, kpi) => kpi.pinned,
+                    value: (_r, _k, kpi) => some(kpi.headline),
                     status: _r => some(variant("warning", null)),
-                    expand: r => r.kind.unwrap("kpi").detail,
+                    expand: (_r, _k, kpi) => kpi.detail,
                     height: "spark", expandable: true,
                     left: { domain: [80, 110], tickValues: [80, 100] },
                     layers: [
@@ -599,9 +605,10 @@ export const planTargetState = example({
                     // Raw drops, each a resting tile at its week.
                     Plan.series.buckets(TargetOpsRow, {
                         key: "vans", title: "Vans",
-                        match: r => r.kind.hasTag("van").and(() => r.kind.unwrap("van").region.equal("local")),
-                        label: r => r.kind.unwrap("van").name,
-                        sub: r => r.kind.unwrap("van").sub,
+                        case: ["kind", "van"],
+                        match: (_r, _k, van) => van.region.equal("local"),
+                        label: (_r, _k, van) => van.name,
+                        sub: (_r, _k, van) => van.sub,
                         events: Plan.items("drops", { at: "at" }, (drop) => ({ state: drop.state })),
                         markers: Plan.values("alerts", (alert) => ({ message: alert.message, status: alert.status })),
                     }),
@@ -610,13 +617,14 @@ export const planTargetState = example({
                     // Tiles stored as they draw pass straight through, in their lanes.
                     Plan.series.buckets(TargetOpsRow, {
                         key: "regional", title: "Regional",
-                        match: r => r.kind.hasTag("van").and(() => r.kind.unwrap("van").region.equal("regional")),
-                        label: r => r.kind.unwrap("van").name,
-                        sub: r => r.kind.unwrap("van").sub,
-                        expand: r => r.kind.unwrap("van").detail,
-                        lanes: r => r.kind.unwrap("van").lanes,
+                        case: ["kind", "van"],
+                        match: (_r, _k, van) => van.region.equal("regional"),
+                        label: (_r, _k, van) => van.name,
+                        sub: (_r, _k, van) => van.sub,
+                        expand: (_r, _k, van) => van.detail,
+                        lanes: (_r, _k, van) => van.lanes,
                         events: Plan.items("tiles", { at: "at" }, (tile) => ({
-                            state: tile.state, lane: tile.lane, label: tile.label, icon: tile.icon, tone: tile.tone, color: tile.color,
+                            state: tile.state, lane: tile.lane, label: tile.label, icon: tile.icon, status: tile.status, color: tile.color,
                             colorPalette: tile.colorPalette, stretch: tile.stretch, content: tile.content, animation: tile.animation,
                         })),
                         markers: Plan.values("alerts", (alert) => ({ message: alert.message, status: alert.status })),
@@ -629,28 +637,28 @@ export const planTargetState = example({
                 // count; the host's state folds Hall 3.
                 Plan.series.group(TargetOpsRow, {
                     key: "halls", title: "Halls",
-                    match: r => r.kind.hasTag("hall"),
+                    case: ["kind", "hall"],
                     label: (_r, hall) => hall,
                     collapsed: (_r, hall) => hall.equal("Hall 2"),
                     summaryAggregate: "mean",
                     children: Plan.children("members", [
                         Plan.series.span(TargetOpsRow, {
                             key: "presses", title: "Presses",
-                            match: r => r.kind.hasTag("press"),
+                            case: ["kind", "press"],
                             label: (_r, k) => k, id: true,
-                            value: r => rateText(r.kind.unwrap("press").rate),
-                            status: r => r.kind.unwrap("press").status,
-                            expand: r => r.kind.unwrap("press").detail,
+                            value: (_r, _k, press) => rateText(press.rate),
+                            status: (_r, _k, press) => press.status,
+                            expand: (_r, _k, press) => press.detail,
                             runs: Plan.items("jobs", { from: "start", to: "end" }, jobLook),
                             decisions: Plan.items("decisions", { at: "at" }, (decision) => ({ applied: decision.applied })),
                             ports: Plan.values("ports", (port) => ({ label: some(port.label) })),
                         }),
                         Plan.series.heat(TargetOpsRow, {
                             key: "hall-load", title: "Hall load",
-                            match: r => r.kind.hasTag("load"),
-                            label: r => r.kind.unwrap("load").name,
-                            sub: r => some(r.kind.unwrap("load").sub),
-                            expand: r => r.kind.unwrap("load").detail,
+                            case: ["kind", "load"],
+                            label: (_r, _k, load) => load.name,
+                            sub: (_r, _k, load) => some(load.sub),
+                            expand: (_r, _k, load) => load.detail,
                             cells: Plan.heatCells(Plan.values("load", loadLook), { min: 0, max: 100, warnAt: 95 }),
                         }),
                     ]),
@@ -659,18 +667,21 @@ export const planTargetState = example({
                 // proposed cut, a declined run)…
                 Plan.series.span(TargetOpsRow, {
                     key: "flavours", title: "Flavours",
-                    match: r => r.kind.hasTag("press").and(() => r.kind.unwrap("press").series.equal("flavours")),
+                    case: ["kind", "press"],
+                    match: (_r, _k, press) => press.series.equal("flavours"),
                     label: (_r, k) => k, id: true,
-                    value: r => rateText(r.kind.unwrap("press").rate),
+                    value: (_r, _k, press) => rateText(press.rate),
                     runs: Plan.items("jobs", { from: "start", to: "end" }, jobLook),
                 }),
                 // …sheets, an applied decision and a port on a stacked two-line gutter…
                 Plan.series.span(TargetOpsRow, {
                     key: "detail", title: "Detail",
-                    match: r => r.kind.hasTag("press").and(() => r.kind.unwrap("press").series.equal("detail")),
+                    case: ["kind", "press"],
+                    match: (_r, _k, press) => press.series.equal("detail"),
                     label: (_r, k) => k, id: true, stacked: true,
-                    sub: r => r.kind.unwrap("press").sub,
-                    expand: r => r.kind.unwrap("press").detail,
+                    value: (_r, _k, press) => rateText(press.rate),
+                    sub: (_r, _k, press) => press.sub,
+                    expand: (_r, _k, press) => press.detail,
                     runs: Plan.items("jobs", { from: "start", to: "end" }, jobLook),
                     decisions: Plan.items("decisions", { at: "at" }, (decision) => ({ applied: decision.applied })),
                     ports: Plan.values("ports", (port) => ({ label: some(port.label) })),
@@ -680,7 +691,8 @@ export const planTargetState = example({
                 // runs up…
                 Plan.series.span(TargetOpsRow, {
                     key: "rollup", title: "Rollup",
-                    match: r => r.kind.hasTag("press").and(() => r.kind.unwrap("press").series.equal("rollup")),
+                    case: ["kind", "press"],
+                    match: (_r, _k, press) => press.series.equal("rollup"),
                     label: (_r, k) => k, id: true,
                     runs: Plan.items("jobs", { from: "start", to: "end" }, jobLook),
                     children: "presses", rollup: "union",
@@ -688,7 +700,8 @@ export const planTargetState = example({
                 // …a delivery whose run lands past the window…
                 Plan.series.span(TargetOpsRow, {
                     key: "delivery", title: "Deliveries",
-                    match: r => r.kind.hasTag("press").and(() => r.kind.unwrap("press").series.equal("delivery")),
+                    case: ["kind", "press"],
+                    match: (_r, _k, press) => press.series.equal("delivery"),
                     label: (_r, k) => k, id: true,
                     runs: Plan.items("jobs", { from: "start", to: "end" }, jobLook),
                 }),
@@ -696,7 +709,8 @@ export const planTargetState = example({
                 Plan.series.section(TargetOpsRow, { key: "contract-block", title: "Contracts", meta: "1 row" }, [
                     Plan.series.span(TargetOpsRow, {
                         key: "contracts", title: "Contracts",
-                        match: r => r.kind.hasTag("press").and(() => r.kind.unwrap("press").series.equal("contracts")),
+                        case: ["kind", "press"],
+                        match: (_r, _k, press) => press.series.equal("contracts"),
                         label: (_r, k) => k, id: true,
                         runs: Plan.items("jobs", { from: "start", to: "end" }, jobLook),
                         children: "presses", rollup: "byStatus",
@@ -708,53 +722,57 @@ export const planTargetState = example({
                 Plan.series.section(TargetOpsRow, { key: "quality-block", title: "Quality", meta: "1 row", value: "95%", status: "warning", collapsed: true, summaryAggregate: "mean" }, [
                     Plan.series.heat(TargetOpsRow, {
                         key: "quality", title: "Quality index", subtitle: "same kind, own entry",
-                        match: r => r.kind.hasTag("load"),
-                        label: r => r.kind.unwrap("load").name,
-                        sub: r => some(r.kind.unwrap("load").sub),
+                        case: ["kind", "load"],
+                        label: (_r, _k, load) => load.name,
+                        sub: (_r, _k, load) => some(load.sub),
                         cells: Plan.heatCells(Plan.values("load", loadLook), { min: 0, max: 100 }),
                     }),
                 ]),
                 // Chips derived from raw shifts on a two-line gutter…
                 Plan.series.cards(TargetOpsRow, {
                     key: "crews", title: "Crews",
-                    match: r => r.kind.hasTag("crew").and(() => r.kind.unwrap("crew").pool.not()),
-                    label: r => r.kind.unwrap("crew").name, stacked: true,
-                    sub: r => r.kind.unwrap("crew").sub,
-                    expand: r => r.kind.unwrap("crew").detail,
+                    case: ["kind", "crew"],
+                    match: (_r, _k, crew) => crew.pool.not(),
+                    label: (_r, _k, crew) => crew.name, stacked: true,
+                    sub: (_r, _k, crew) => crew.sub,
+                    expand: (_r, _k, crew) => crew.detail,
                     chips: Plan.items("shifts", { from: "from", to: "to" }, shiftLook),
                 }),
                 // …and chips stored as they draw, one with an icon.
                 Plan.series.section(TargetOpsRow, { key: "relief", title: "Relief pool", meta: "1 row" }, [
                     Plan.series.cards(TargetOpsRow, {
                         key: "pool", title: "Pool",
-                        match: r => r.kind.hasTag("crew").and(() => r.kind.unwrap("crew").pool),
-                        label: r => r.kind.unwrap("crew").name,
-                        value: r => r.kind.unwrap("crew").value,
+                        case: ["kind", "crew"],
+                        match: (_r, _k, crew) => crew.pool,
+                        label: (_r, _k, crew) => crew.name,
+                        value: (_r, _k, crew) => crew.value,
                         chips: Plan.items("chips", { from: "from", to: "to" }, (chip) => ({ label: chip.label, state: chip.state, icon: chip.icon })),
                     }),
                 ]),
                 Plan.series.events(TargetOpsRow, {
                     key: "milestones", title: "Milestones",
-                    match: r => r.kind.hasTag("stream").and(() => r.kind.unwrap("stream").cadence.hasTag("none")),
-                    label: r => r.kind.unwrap("stream").name, id: true,
+                    case: ["kind", "stream"],
+                    match: (_r, _k, stream) => stream.cadence.hasTag("none"),
+                    label: (_r, _k, stream) => stream.name, id: true,
                     value: r => some(East.print(r.marks.size())),
-                    expand: r => r.kind.unwrap("stream").detail,
+                    expand: (_r, _k, stream) => stream.detail,
                     marks: Plan.items("marks", { at: "at" }, (mark) => ({ kind: mark.kind, icon: mark.icon, label: mark.label })),
                 }),
                 Plan.series.section(TargetOpsRow, { key: "programs", title: "Programs", meta: "1 row" }, [
                     Plan.series.events(TargetOpsRow, {
                         key: "releases", title: "Releases",
-                        match: r => r.kind.hasTag("stream").and(() => r.kind.unwrap("stream").cadence.hasTag("some")),
-                        label: r => r.kind.unwrap("stream").name, id: true, stacked: true,
-                        sub: r => r.kind.unwrap("stream").cadence,
+                        case: ["kind", "stream"],
+                        match: (_r, _k, stream) => stream.cadence.hasTag("some"),
+                        label: (_r, _k, stream) => stream.name, id: true, stacked: true,
+                        sub: (_r, _k, stream) => stream.cadence,
                         marks: Plan.items("marks", { at: "at" }, (mark) => ({ kind: mark.kind, icon: mark.icon, label: mark.label })),
                     }),
                 ]),
                 Plan.series.table(TargetOpsRow, {
                     key: "delivered", title: "Delivered sheets",
-                    match: r => r.kind.hasTag("tally"),
-                    label: r => r.kind.unwrap("tally").name,
-                    expand: r => r.kind.unwrap("tally").detail,
+                    case: ["kind", "tally"],
+                    label: (_r, _k, tally) => tally.name,
+                    expand: (_r, _k, tally) => tally.detail,
                     cells: Plan.tableCells(Plan.values("delivered", (sheets) => ({ value: sheets }))),
                     format: whole,
                 }),
@@ -764,21 +782,21 @@ export const planTargetState = example({
                 // the machine; the gutter's sub-line names the view.
                 Plan.series.views(TargetOpsRow, {
                     key: "finishers", title: "Finishing", subtitle: "one machine, three views",
-                    match: r => r.kind.hasTag("finisher"),
+                    case: ["kind", "finisher"],
                 }, [
                     Plan.series.span(TargetOpsRow, {
                         key: "finisher-jobs", title: "Finisher jobs",
-                        label: r => r.kind.unwrap("finisher").name, id: true,
+                        case: ["kind", "finisher"], label: (_r, _k, finisher) => finisher.name, id: true,
                         runs: Plan.items("jobs", { from: "start", to: "end" }, jobLook),
                     }),
                     Plan.series.chart(TargetOpsRow, {
                         key: "finisher-util", title: "Finisher · utilisation",
-                        label: r => r.kind.unwrap("finisher").name, stacked: true, sub: _r => some("utilisation %"), height: "spark",
+                        case: ["kind", "finisher"], label: (_r, _k, finisher) => finisher.name, stacked: true, sub: _r => some("utilisation %"), height: "spark",
                         layers: [Plan.line(Plan.values("util", (pct) => ({ y: pct })))],
                     }),
                     Plan.series.table(TargetOpsRow, {
                         key: "finisher-sheets", title: "Finisher · sheets",
-                        label: r => r.kind.unwrap("finisher").name, stacked: true, sub: _r => some("sheets · plan Δ"),
+                        case: ["kind", "finisher"], label: (_r, _k, finisher) => finisher.name, stacked: true, sub: _r => some("sheets · plan Δ"),
                         cells: Plan.tableCells(Plan.values("sheets", (sheets) => ({ value: some(sheets) }))),
                         format: whole,
                     }),
@@ -798,12 +816,7 @@ export const planTargetState = example({
                         ],
                     }),
                 ]),
-            ], ArrayType(Plan.Types.Series(TargetOpsRow)));
-            // The series are PICKED: the library's Series tab lists every one
-            // by title, subtitle and kind, each with its eye, and the canvas
-            // shows those switched on, in this order. Which are off is the
-            // viewer's own state, persisted under its key; Programs starts off.
-            const shown = $.let(Plan.pick("ex.plan.target.pick", all, { hidden: ["programs"] }));
+            ];
             const axis = $.const(Plan.axis({
                 window: { min: week(27n), max: week(39n) },
                 resolution: "week", resolutions: ["month", "week", "day"], now: week(31n),
@@ -852,7 +865,7 @@ export const planTargetState = example({
                     ["van2", { a: "8 TILES · 2 LANES", b: "BREACH W29", fill: 0.6 }],
                     ["H1-P04", { a: "12k/h · FILL", b: "J-4624 · 112 k sheets · 74%", fill: 0.74 }],
                     ["h1-load", { a: "MEAN 73 · PEAK 96", b: "BREACH W33 · 1 wk", fill: 0.96 }],
-                    ["H1-P09", { a: "12k sheets/h · FILL", b: "J-4693 · 104 k sheets · 81%", fill: 0.81 }],
+                    ["H1-P09", { a: "12k/h · FILL", b: "J-4693 · 104 k sheets · 81%", fill: 0.81 }],
                     ["crewA", { a: "152h → 168h", b: "1 CUT · 2 PROPOSED", fill: 0.9 }],
                     ["milestones", { a: "5 MARKS", b: "1 EXCEPTION · W34", fill: 0.2 }],
                     ["delivered", { a: "NET 754 k sheets", b: "2 SHORT WEEKS", fill: 0.55 }],
@@ -1014,7 +1027,12 @@ export const planTargetState = example({
                                 }),
                             ]}
                             data={rows}
-                            pick={shown}
+                            // The series are PICKED, since the library lists the Series tab: it lists every one
+                            // by title, subtitle and kind, each with its eye — the finishers' three views each
+                            // alone — and the canvas shows those switched on, in this order. Which are off is the
+                            // viewer's own state, kept under the Plan's id; Programs starts off.
+                            series={all}
+                            hidden={["programs"]}
                             // The series, and the deliveries in the window: the
                             // tab follows the rail's `deliveries` source.
                             library={[
@@ -1105,7 +1123,7 @@ const fortnightsFromW27 = (readings: number[]): SortedMap<Date, number> => atIns
  */
 export const planVariantsOps = e3.input("plan_variants_ops", DictType(StringType, VariantsOpsRow), variant("value", new Map([
     ["util", { ...VARIANTS_EMPTY, series: "util", label: "Util %", sub: none, util: fortnightsFromW27([46.0, 58.0, 66.0, 72.0, 84.0, 96.0]) }],
-    ["p03", { ...VARIANTS_EMPTY, series: "press", label: "H1-P03", sub: some("12k sheets/h"),
+    ["p03", { ...VARIANTS_EMPTY, series: "press", label: "H1-P03", sub: some("Hall 1"),
       jobs: new Map([
           ["j4642", { label: "RUN · J-4642", start: new Date("2026-07-06T00:00:00Z"), end: new Date("2026-07-27T00:00:00Z"), state: variant("in-progress", null) }],
           ["j4663", { label: "RUN · J-4663", start: new Date("2026-08-03T00:00:00Z"), end: new Date("2026-08-24T00:00:00Z"), state: variant("proposed", variant("recommended", null)) }],
@@ -1988,13 +2006,13 @@ export const planDropCards = e3.input("plan_drop_cards", DictType(StringType, Dr
  *     admits only the matching FAMILY: a job goes on a press, a delivery on
  *     a van, a shift on a crew, a milestone on a stream. The `PALLET` card
  *     is of a family no row takes and is therefore refused everywhere — the ⊘
- *     stage on every row, which is what a card with nowhere to go should look
- *     like.
+ *     stage on every row, its ghost saying what the row takes, which is what
+ *     a card with nowhere to go should look like.
  *  3. **As a draft.** A drop is a gesture of the editing session: the entry is
  *     drafted with the new item in its list and its rows derived again —
  *     drawn at once with the pending mark, undone with ⌘Z — and Save writes
- *     every draft as ONE checked batch, one commit through the record's patch
- *     door (`Record.onApply`).
+ *     every draft as ONE checked batch, one commit through the patch door of
+ *     the record the Plan is given (`record`).
  *
  * A press's run moves along its press or onto another press and resizes by
  * either end: its runs' read names the jobs and the times a move writes
@@ -2025,13 +2043,13 @@ export const planRowDrop = example({
         "Plan", "library", "panel", "Plan.library.tab", "palette", "DnD", "drag", "drop", "canDrop",
         "edit", "items", "Plan.items", "Plan.values", "create", "minted id", "add", "target", "surface", "cell", "slot", "row kind", "selective", "veto",
         "invalid", "span", "buckets", "events", "cards", "chart", "heat", "table", "section", "row id", "row text",
-        "droppable", "inert", "bucket instant", "editing", "session", "onApply", "onPatch", "ready",
+        "droppable", "inert", "bucket instant", "editing", "session", "record", "save door", "onPatch", "ready",
         "Readiness", "Editing.Types.Readiness", "draft", "drafts", "transaction", "Save", "undo", "redo",
         "discard", "history", "pending", "Plan.Types.PatchEvent", "Reactive", "State", "re-derive", "#880",
         "move", "resize", "run", "key", "start", "end", "Shift", "snap", "cross-row", "Plan.Types.Move", "#825",
         "nested", "children", "Plan.children", "top-level entry", "rollup",
         "auto-scroll", "keyboard", "Space", "screen reader", "announcements", "#608", "footer", "#1259",
-        "Record", "Record.bind", "Record.onApply", "e3.record", "patch", "commit", "Data.bindPaged", "Data.bind",
+        "Record", "Record.bind", "e3.record", "patch", "commit", "Data.bindPaged", "Data.bind",
     ],
     description: "The Plan's editing session over an e3 record — cards dragged from the Plan's library panel land only on a series that declares `edit`, `canDrop` admits only the matching family, runs move and resize, a gesture on a hall's press drafts the hall, `ready` refuses a crowded press, and every gesture is a draft saved as one checked batch, one commit through the record's patch door",
     fn: East.function([], UIComponentType, (_$) => (
@@ -2069,22 +2087,29 @@ export const planRowDrop = example({
             ]), DictType(StringType, StringType));
 
             // ── The drop veto ────────────────────────────────────────────
-            // Consulted with the candidate event the pointer's CURRENT bucket
-            // would produce, so the ⊘ appears while dragging rather than after,
-            // and once more before the drop becomes a draft. A card is vetted
-            // by its family; a run moved or resized is the canvas's own, which
-            // lands only on a row of its item type, so the veto lets it through.
-            const canDrop = $.const(East.function([DragEventType], BooleanType, ($, event) => {
-                const yes = $.const(true, BooleanType);
-                return event.match({
-                    add: ($, add) => {
-                        const row = $.let(add.into.row);
-                        const card = $.let(add.from.key);
-                        return rowAccepts.has(row)
-                            .and(_$ => palette.has(card))
-                            .and(_$ => rowAccepts.get(row).equal(palette.get(card).family));
-                    },
-                }, _$ => yes);
+            // Asked what a drop would do (`Plan.Types.Candidate`) where the
+            // pointer's CURRENT bucket would put it, so the refusal shows on
+            // the ghost while dragging rather than after, and once more before
+            // the drop becomes a draft. A card is vetted by its family; a run
+            // moved or resized is the canvas's own, which lands only on a row
+            // of its item type, so the veto lets it through.
+            const canDrop = $.const(East.function([Plan.Types.Candidate], OptionType(StringType), ($, candidate) => {
+                const refusal = $.let(none, OptionType(StringType));
+                $.match(candidate.from, { card: ($, card) => {
+                    $.match(candidate.row, { some: ($, row) => {
+                        // The policy table is keyed by the text of a row's id.
+                        const at = $.let(East.print(row));
+                        const takes = $.let(rowAccepts.has(at)
+                            .and(_$ => palette.has(card.key))
+                            .and(_$ => rowAccepts.get(at).equal(palette.get(card.key).family)));
+                        $.if(takes.not(), ($) => {
+                            $.assign(refusal, some(rowAccepts.has(at).ifElse(
+                                _$ => East.str`This row takes a ${rowAccepts.get(at)}`,
+                                _$ => East.value("This row takes no card", StringType))));
+                        });
+                    } });
+                } });
+                return refusal;
             }));
 
             // ── The session ──────────────────────────────────────────────
@@ -2126,14 +2151,18 @@ export const planRowDrop = example({
                     // The palette — the Plan's own library panel, its cards
                     // grouped by family. A card drags onto the rows that take
                     // one; `canDrop` is the policy. A drop becomes a draft of
-                    // the session — without `editing` no card lands, since
+                    // the session — without `record` no card lands, since
                     // nothing could hold it.
                     library={[Plan.library.tab(palette, {
                         name: "Palette", icon: "palette",
                         label: c => c.name, meta: c => some(c.note), group: c => c.family,
                     })]}
                     canDrop={canDrop}
-                    editing={{ onApply: Record.onApply(record, { keyed: true }), onPatch, ready }}
+                    // The rows' save door: the record they are read from.
+                    // Save writes every draft through its patch mutation.
+                    record={record}
+                    onPatch={onPatch}
+                    ready={ready}
                     series={[
                         // INERT — a chart plots a derived series, so there
                         // is nothing a card could become here.
@@ -2704,5 +2733,150 @@ export const slicePlanChrome = example({
             }}</Reactive>
         );
     }),
+    inputs: [],
+});
+
+// ============================================================================
+// planStatuses — an item's status from its map (#1541, U8)
+// ============================================================================
+
+/** How a piece of work stands, as the works record it: the app's own status, which each series' map turns into the
+ *  words, the tone and the ring the Plan draws. */
+export const StatusStanding = VariantType({
+    blocked: NullType, done: NullType, late: NullType, noted: NullType, parked: NullType, tentative: NullType,
+});
+/** A job on the press, under its id: its window, its lifecycle and how it stands, where anything is to be said. */
+export const StatusJob = StructType({
+    title: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType, standing: OptionType(StatusStanding),
+});
+/** A delivery slot, under its id: its week. */
+export const StatusDrop = StructType({ at: DateTimeType, title: StringType, state: EventStateType, standing: OptionType(StatusStanding) });
+/** A crew's shift, under its id: the weeks it covers, and its hours as they print. */
+export const StatusShift = StructType({
+    from: DateTimeType, to: DateTimeType, hours: StringType, state: EventStateType, standing: OptionType(StatusStanding),
+});
+/** A check on the press, under its id: its instant. */
+export const StatusCheck = StructType({ at: DateTimeType, title: StringType, standing: OptionType(StatusStanding) });
+/** A press and what is planned on it: its jobs, its deliveries, its crew's shifts and its checks. */
+export const StatusPressRow = StructType({
+    name: StringType,
+    jobs: DictType(StringType, StatusJob), drops: DictType(StringType, StatusDrop),
+    shifts: DictType(StringType, StatusShift), checks: DictType(StringType, StatusCheck),
+});
+
+/** One press over seven weeks: in each week a job, a delivery, a shift and a check that stand the same way — the
+ *  first week's with nothing to say, then one of each standing. */
+export const planStatusPresses = e3.record("plan_status_presses", DictType(StringType, StatusPressRow), {
+    initial: new Map([
+        ["P03", {
+            name: "Press 3",
+            jobs: new Map([
+                ["j1", { title: "J-5101", start: new Date("2026-06-29T00:00:00Z"), end: new Date("2026-07-06T00:00:00Z"), state: variant("actual", null), standing: none }],
+                ["j2", { title: "J-5102", start: new Date("2026-07-06T00:00:00Z"), end: new Date("2026-07-13T00:00:00Z"), state: variant("actual", null), standing: some(variant("late", null)) }],
+                ["j3", { title: "J-5103", start: new Date("2026-07-13T00:00:00Z"), end: new Date("2026-07-20T00:00:00Z"), state: variant("confirmed", null), standing: some(variant("blocked", null)) }],
+                ["j4", { title: "J-5104", start: new Date("2026-07-20T00:00:00Z"), end: new Date("2026-07-27T00:00:00Z"), state: variant("confirmed", null), standing: some(variant("done", null)) }],
+                ["j5", { title: "J-5105", start: new Date("2026-07-27T00:00:00Z"), end: new Date("2026-08-03T00:00:00Z"), state: variant("confirmed", null), standing: some(variant("noted", null)) }],
+                ["j6", { title: "J-5106", start: new Date("2026-08-03T00:00:00Z"), end: new Date("2026-08-10T00:00:00Z"), state: variant("proposed", variant("recommended", null)), standing: some(variant("parked", null)) }],
+                ["j7", { title: "J-5107", start: new Date("2026-08-10T00:00:00Z"), end: new Date("2026-08-17T00:00:00Z"), state: variant("confirmed", null), standing: some(variant("tentative", null)) }],
+            ]),
+            drops: new Map([
+                ["d1", { at: new Date("2026-06-29T00:00:00Z"), title: "D-1", state: variant("actual", null), standing: none }],
+                ["d2", { at: new Date("2026-07-06T00:00:00Z"), title: "D-2", state: variant("actual", null), standing: some(variant("late", null)) }],
+                ["d3", { at: new Date("2026-07-13T00:00:00Z"), title: "D-3", state: variant("confirmed", null), standing: some(variant("blocked", null)) }],
+                ["d4", { at: new Date("2026-07-20T00:00:00Z"), title: "D-4", state: variant("confirmed", null), standing: some(variant("done", null)) }],
+                ["d5", { at: new Date("2026-07-27T00:00:00Z"), title: "D-5", state: variant("confirmed", null), standing: some(variant("noted", null)) }],
+                ["d6", { at: new Date("2026-08-03T00:00:00Z"), title: "D-6", state: variant("proposed", variant("recommended", null)), standing: some(variant("parked", null)) }],
+                ["d7", { at: new Date("2026-08-10T00:00:00Z"), title: "D-7", state: variant("confirmed", null), standing: some(variant("tentative", null)) }],
+            ]),
+            shifts: new Map([
+                ["s1", { from: new Date("2026-06-29T00:00:00Z"), to: new Date("2026-07-06T00:00:00Z"), hours: "80h", state: variant("confirmed", null), standing: none }],
+                ["s2", { from: new Date("2026-07-06T00:00:00Z"), to: new Date("2026-07-13T00:00:00Z"), hours: "64h", state: variant("confirmed", null), standing: some(variant("late", null)) }],
+                ["s3", { from: new Date("2026-07-13T00:00:00Z"), to: new Date("2026-07-20T00:00:00Z"), hours: "48h", state: variant("confirmed", null), standing: some(variant("blocked", null)) }],
+                ["s4", { from: new Date("2026-07-20T00:00:00Z"), to: new Date("2026-07-27T00:00:00Z"), hours: "80h", state: variant("confirmed", null), standing: some(variant("done", null)) }],
+                ["s5", { from: new Date("2026-07-27T00:00:00Z"), to: new Date("2026-08-03T00:00:00Z"), hours: "72h", state: variant("confirmed", null), standing: some(variant("noted", null)) }],
+                ["s6", { from: new Date("2026-08-03T00:00:00Z"), to: new Date("2026-08-10T00:00:00Z"), hours: "40h", state: variant("proposed", variant("recommended", null)), standing: some(variant("parked", null)) }],
+                ["s7", { from: new Date("2026-08-10T00:00:00Z"), to: new Date("2026-08-17T00:00:00Z"), hours: "80h", state: variant("confirmed", null), standing: some(variant("tentative", null)) }],
+            ]),
+            checks: new Map([
+                ["c1", { at: new Date("2026-06-29T00:00:00Z"), title: "PLATES", standing: none }],
+                ["c2", { at: new Date("2026-07-06T00:00:00Z"), title: "INK", standing: some(variant("late", null)) }],
+                ["c3", { at: new Date("2026-07-13T00:00:00Z"), title: "ROLLERS", standing: some(variant("blocked", null)) }],
+                ["c4", { at: new Date("2026-07-20T00:00:00Z"), title: "PROOF", standing: some(variant("done", null)) }],
+                ["c5", { at: new Date("2026-07-27T00:00:00Z"), title: "WASH", standing: some(variant("noted", null)) }],
+                ["c6", { at: new Date("2026-08-03T00:00:00Z"), title: "BLANKET", standing: some(variant("parked", null)) }],
+                ["c7", { at: new Date("2026-08-10T00:00:00Z"), title: "SERVICE", standing: some(variant("tentative", null)) }],
+            ]),
+        }],
+    ]),
+});
+
+/**
+ * An item's status from its map (#1541): `Plan.status(words, tone, { ring? })`,
+ * returned as `status` by the map of a run, a tile, a chip and a mark. The
+ * works record how each piece of work stands in their own words, and one
+ * function turns that into what the Plan draws: a ring in the tone's colour
+ * round a bar, a tile and a chip, a mark's dot in it, and a tentative one
+ * drawn open. An item with no status draws as its lifecycle alone.
+ */
+export const planStatuses = example({
+    keywords: [
+        "Plan", "Plan.status", "status", "tone", "ring", "open ring", "tentative", "success", "warning", "danger", "info",
+        "neutral", "run", "tile", "chip", "mark", "Plan.items", "span", "buckets", "cards", "events", "Data.bind", "bound",
+        "e3.record", "#1541",
+    ],
+    description: "An item's status from its map — a job, a delivery, a shift and a check each stand in the works' own words, and each series' map returns Plan.status(words, tone, { ring }) for it: a ring in the tone's colour round a bar, a tile and a chip, a mark's dot in it, and a tentative one drawn open",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const presses = $.let(Data.bind(planStatusPresses));
+            // How the works' own standing shows: its words, its tone, and the open ring a tentative one draws as.
+            const shown = $.const(East.function([OptionType(StatusStanding)], OptionType(Plan.Types.Status), (_$2, standing) => standing.match({
+                some: (_$3, stands) => East.value(some(stands.match({
+                    blocked: () => Plan.status("Blocked", "danger"),
+                    done: () => Plan.status("Done", "success"),
+                    late: () => Plan.status("Late", "warning"),
+                    noted: () => Plan.status("Noted", "info"),
+                    parked: () => Plan.status("Parked", "neutral"),
+                    tentative: () => Plan.status("Tentative", "warning", { ring: true }),
+                })), OptionType(Plan.Types.Status)),
+                none: () => East.value(none, OptionType(Plan.Types.Status)),
+            })));
+            return (
+                <Plan
+                    axis={Plan.axis({
+                        window: { min: new Date("2026-06-29T00:00:00Z"), max: new Date("2026-08-24T00:00:00Z") },
+                        resolution: "week", resolutions: ["week", "day"], now: new Date("2026-07-27T00:00:00Z"),
+                    })}
+                    data={presses}
+                    series={[
+                        Plan.series.span(StatusPressRow, {
+                            key: "jobs", title: "Jobs", label: (press) => press.name, sub: () => some("jobs"),
+                            runs: Plan.items("jobs", { from: "start", to: "end" }, (job) => ({
+                                label: job.title, state: job.state, status: shown(job.standing),
+                            })),
+                        }),
+                        Plan.series.buckets(StatusPressRow, {
+                            key: "drops", title: "Deliveries", label: () => "Deliveries",
+                            events: Plan.items("drops", { at: "at" }, (drop) => ({
+                                label: drop.title, state: drop.state, status: shown(drop.standing),
+                            })),
+                        }),
+                        Plan.series.cards(StatusPressRow, {
+                            key: "shifts", title: "Shifts", label: () => "Shifts",
+                            chips: Plan.items("shifts", { from: "from", to: "to" }, (shift) => ({
+                                label: shift.hours, state: shift.state, status: shown(shift.standing),
+                            })),
+                        }),
+                        Plan.series.events(StatusPressRow, {
+                            key: "checks", title: "Checks", label: () => "Checks",
+                            marks: Plan.items("checks", { at: "at" }, (check) => ({
+                                kind: "milestone", label: check.title, status: shown(check.standing),
+                            })),
+                        }),
+                    ]}
+                    footer={[{ text: "1 PRESS · 6 STATUSES" }]}
+                />
+            );
+        }}</Reactive>
+    )),
     inputs: [],
 });

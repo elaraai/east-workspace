@@ -140,12 +140,12 @@ export function useCanvasDrop({ value, drop, canvasRef, refById, inertKeys, size
         if (drop === undefined) return undefined;
         return {
             ...drop.options,
-            caption: (coord, payload, allowed) => {
+            caption: (coord, payload, allowed, duplicate) => {
                 const card = drop.cardOf(payload);
                 const at = readDropAt(coord.row);
                 const mark = card === undefined || at === undefined ? undefined : markOf(drop.plan(card, at));
                 setDropMark((was) => (markEqual(was, mark) ? was : mark));
-                return drop.options.caption(coord, payload, allowed);
+                return drop.options.caption(coord, payload, allowed, duplicate);
             },
             onLeave: () => setDropMark(undefined),
         };

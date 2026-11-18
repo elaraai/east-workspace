@@ -29,21 +29,18 @@ import { describe, test as hostTest } from "node:test";
 import assert from "node:assert/strict";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import {
-    ArrayType, BooleanType, DictType, East, FloatType, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap, StringType, StructType,
+    ArrayType, BooleanType, DictType, East, FloatType, IntegerType, NullType, OptionType, SetType, SortedMap, StringType, StructType,
     compareFor, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, isTypeEqual, none, printType, some, variant,
     type BlockBuilder, type EastType, type ExprType, type ValueTypeOf,
 } from "@elaraai/east";
 import { Slice, UIComponentType } from "@elaraai/east-ui";
 import { EditingReadinessType } from "@elaraai/east-ui/internal";
-import { DatasetStatusType, RecordCommitInfoType } from "@elaraai/e3-types";
 import * as E3UI from "@elaraai/e3-ui";
-import {
-    Data, DataBindHandleType, DataPagedHandleType, Flowchart as PublicFlowchart, Record, RecordBindHandleType, RecordErrorType, RecordMutateStatusType,
-    RecordOutcomeType,
-} from "@elaraai/e3-ui";
+import { Data, DataPagedHandleType, Flowchart as PublicFlowchart, Record } from "@elaraai/e3-ui";
 import * as E3UIInternal from "@elaraai/e3-ui/internal";
 import { Flowchart, FlowchartLibraryTabType, FlowchartPayloadType, buildFlowchartLibrary, flowchartKeys } from "@elaraai/e3-ui/internal";
 import * as ex from "./flowchart.examples.js";
+import { dataHandle, recordHandle } from "../record-handles.js";
 
 describeEast("Flowchart", (test) => {
     Assert.examples(test, {
@@ -84,44 +81,6 @@ const Stage = StructType({ label: StringType, seq: IntegerType });
 const QueuedRule = StructType({ name: StringType, queue: ArrayType(StringType) });
 const SetRule = StructType({ name: StringType, queue: SetType(StringType) });
 
-/** A `Record.bind` handle over a record of `type`, as `Record.bind` gives one: its read answers `value`, bound with its patch door when `patch`. */
-function recordHandle<T extends EastType>(type: T, value: ValueTypeOf<T>, name: string, patch = true) {
-    const handleType = RecordBindHandleType(type, patch ? { patch: [PatchType(type)] } : {});
-    return East.function([], handleType, (_$) => ({
-        read: East.function([], type, (_$2) => value as never),
-        status: East.function([], DatasetStatusType, (_$2) => variant("up-to-date", null)),
-        history: East.function([], OptionType(ArrayType(RecordCommitInfoType)), (_$2) => none),
-        mutate: {
-            pending: East.function([], BooleanType, (_$2) => false),
-            status: East.function([], RecordMutateStatusType, (_$2) => variant("idle", null)),
-            error: East.function([], OptionType(RecordErrorType), (_$2) => none),
-            cancel: East.function([], NullType, (_$2) => null),
-            ...(patch ? { patch: East.function([PatchType(type)], NullType, (_$2) => null) } : {}),
-        },
-        commit: patch
-            ? { patch: East.asyncFunction([StringType, PatchType(type)], RecordOutcomeType, (_$2) => variant("committed", { commitHash: "c", stateHash: "s" })) }
-            : {},
-        start: East.function([], NullType, (_$2) => null),
-        binding: { name, mutations: patch ? ["patch"] : [] },
-    }) as never);
-}
-
-/** A `Data.bind` handle over a record of `type`, as `Data.bind` gives one: its read answers `value`. */
-function dataHandle<T extends EastType>(type: T, value: ValueTypeOf<T>, name: string) {
-    return East.function([], DataBindHandleType(type), (_$) => ({
-        read: East.function([], type, (_$2) => value as never),
-        write: East.function([type], NullType, (_$2) => null),
-        writeAndStart: East.function([type], NullType, (_$2) => null),
-        start: East.function([], NullType, (_$2) => null),
-        source: East.function([], type, (_$2) => value as never),
-        pending: East.function([], BooleanType, (_$2) => false),
-        commit: East.function([], NullType, (_$2) => null),
-        discard: East.function([], NullType, (_$2) => null),
-        has: East.function([], BooleanType, (_$2) => true),
-        status: East.function([], DatasetStatusType, (_$2) => variant("up-to-date", null)),
-        binding: { source: [variant("field", "inputs"), variant("field", name)], patch: none, mode: variant("staged", null) },
-    }) as never);
-}
 
 const statesRecord = recordHandle(DictType(StringType, ex.DepotState), STATES, "states");
 const statesUnpatched = recordHandle(DictType(StringType, ex.DepotState), STATES, "states", false);

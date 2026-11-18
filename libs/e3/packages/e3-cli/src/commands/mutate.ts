@@ -34,15 +34,7 @@ import {
 import { actor, parseRepoLocation, formatError, exitError } from '../utils.js';
 import { encodeArg } from './call.js';
 import { commandBudget, refuseRemoteBudget, type BudgetFlags } from './budget.js';
-
-/** Split a `<record>.<mutation>` spec on its final dot. */
-function parseMutationSpec(spec: string): { record: string; mutation: string } {
-  const dot = spec.lastIndexOf('.');
-  if (dot <= 0 || dot === spec.length - 1) {
-    throw new Error(`Invalid mutation specifier '${spec}'. Expected '<record>.<mutation>'.`);
-  }
-  return { record: spec.slice(0, dot), mutation: spec.slice(dot + 1) };
-}
+import { arityRefusal, parseMutationSpec } from './mutation-spec.js';
 
 /**
  * Render a terminal mutation outcome. Both the local `MutationOutcome` and the
@@ -77,15 +69,10 @@ function renderOutcome(outcome: { kind: string; [field: string]: unknown }): voi
   exitError(`Unknown mutation outcome '${kind}'`);
 }
 
-/** Refuses the wrong number of arguments, saying what the one argument of a
- *  `patch` mutation is — the state's patch, which is the thing people reach
- *  for a row instead. */
+/** Refuses the wrong number of arguments ({@link arityRefusal}). */
 function checkArity(mutation: string, mut: { form: string; argTypes: unknown[] }, got: number): void {
-  if (got === mut.argTypes.length) return;
-  const what = mut.form === 'patch'
-    ? " — a patch mutation takes one argument, the record's patch (a .beast2/.json/.east file, or an .east literal)"
-    : '';
-  exitError(`Mutation '${mutation}' expects ${mut.argTypes.length} argument(s), got ${got}${what}`);
+  const refusal = arityRefusal(mutation, mut, got);
+  if (refusal !== null) exitError(refusal);
 }
 
 async function mutateLocal(repoPath: string, ws: string, record: string, mutation: string, rawArgs: string[], budget: Budget, verbose?: boolean): Promise<void> {

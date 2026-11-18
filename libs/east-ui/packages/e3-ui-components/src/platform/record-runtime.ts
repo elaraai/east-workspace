@@ -16,7 +16,10 @@
  * `read()` re-renders, and drops the history cache so the next `history()`
  * refetches. `commit.<name>` is the same write awaited, on the same channel:
  * it resolves to the server's outcome, and a conflict fetches the record and
- * its history again before it settles. The refresh is the workspace poll's,
+ * its history again before it settles. `draft.<name>` is the write not made:
+ * the call as a draft (`FuncDraftType`), its arguments the bytes a commit
+ * sends — it asks nothing of e3, the cache or the channel, and a bound
+ * function's call carries it. The refresh is the workspace poll's,
  * which fetches the content of the paths the manifest preloads and no other:
  * a record also bound with `Data.bindPaged` (#1199) is not among them, so it
  * is never fetched whole — its windows hear its new revision through the
@@ -60,7 +63,7 @@ import {
     type ValueTypeOf,
 } from "@elaraai/east";
 import { type PlatformFunction } from "@elaraai/east/internal";
-import { recordBindPlatformFn, RecordBindPrimitives, type RecordErrorType, type RecordOutcomeType } from "@elaraai/e3-ui/internal";
+import { recordBindPlatformFn, RecordBindPrimitives, type FuncDraftType, type RecordErrorType, type RecordOutcomeType } from "@elaraai/e3-ui/internal";
 import {
     workspaceRecordDescribe,
     workspaceRecordMutate,
@@ -153,6 +156,7 @@ export function createDefaultRecordApi(
 
 type RecordError = ValueTypeOf<RecordErrorType>;
 type RecordOutcome = ValueTypeOf<RecordOutcomeType>;
+type FuncDraft = ValueTypeOf<FuncDraftType>;
 type RecordMutateTag = "idle" | "running" | "committed" | "failed" | "cancelled";
 type CommitInfo = RecordCommitInfo;
 
@@ -171,6 +175,19 @@ function commitInfo(commit: RecordHistoryCommit): CommitInfo {
         at: commit.at,
         delta: commit.delta,
     };
+}
+
+/**
+ * A mutation's arguments as a write sends them: each as beast2 bytes at its
+ * declared type. One encoding for a commit and for a draft of it, so the two
+ * hold the same bytes.
+ *
+ * @param argTypes - The mutation's declared argument types, in order
+ * @returns The encoder, over the arguments in that order
+ */
+function mutationArgsEncoder(argTypes: readonly EastTypeValue[]): (args: readonly unknown[]) => Uint8Array[] {
+    const encoders = argTypes.map(type => encodeBeast2For(type));
+    return args => args.map((arg, i) => encoders[i]!(arg));
 }
 
 /** A handle's signature, recovered from the instantiated handle type. */
@@ -509,6 +526,42 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
         };
     }
 
+    /**
+     * Has the workspace read some records again, from now: a status poll
+     * started from here on finds the content the cache holds of each the
+     * record's, or reads its hash.
+     *
+     * @remarks
+     * What a bound function's call asks once it is answered
+     * (east-workspace#1622, rules 9 and 12): the call read each record at the
+     * commit it stood at, and a page that held an older one takes the newer
+     * saves in before it lands the answer — or, the call refused because a
+     * record moved under its drafts, before it hands them over again. A poll
+     * started after the answer reads the records no older than the call did,
+     * whatever commits those were: a record read whole names none
+     * ({@link RecordRuntime.settledOf}). One poll is started for them all, the
+     * workspace's own, after one mark: a poll reads every record, where a mark
+     * and a poll a record would queue a whole poll behind the last for each
+     * record after the first.
+     *
+     * @param names - The records' names
+     * @returns Settles once a poll started from here on has read every one of
+     *   them; at once for records the cache's polls do not read, or with no cache
+     */
+    readAgain(names: readonly string[]): Promise<void> {
+        const cache = this.cache;
+        const workspace = this.workspace;
+        if (cache === null || workspace === null) return Promise.resolve();
+        const mark = cache.pollMark(workspace);
+        const waits = names.flatMap((name) => {
+            const path = recordPath(name);
+            return [cache.confirmed(workspace, path, mark), cache.hashRead(workspace, path, mark)].filter((wait) => wait !== undefined);
+        });
+        if (waits.length === 0) return Promise.resolve();
+        void cache.refresh(workspace);
+        return Promise.all(waits).then(() => undefined);
+    }
+
     // ----- closure semantics -------------------------------------------------
 
     /**
@@ -547,7 +600,7 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
             }
             let result: MutationResult;
             try {
-                const encoded = args.map((arg, i) => encodeBeast2For(argTypes[i]!)(arg));
+                const encoded = mutationArgsEncoder(argTypes)(args);
                 result = await api.mutate(workspace, record, mutation,
                     idempotencyKey === undefined ? { args: encoded } : { args: encoded, idempotencyKey });
             } catch (err) {
@@ -717,6 +770,16 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
                     return runtime.runMutation(runtime.resolveWorkspace(), recordNameArg as string, mutationNameArg as string,
                         fields.map(f => f.type), fields.map(f => obj[f.name]), request === "" ? undefined : request);
                 }),
+            // The write not made: the call as a draft, its arguments as a commit sends them. It asks nothing of the
+            // workspace, the cache or the channel — no read, no launch, no status moved.
+            RecordBindPrimitives.draft.implement((argsStructType: EastTypeValue) => {
+                const fields = (argsStructType as { value: { name: string; type: EastTypeValue }[] }).value;
+                const encode = mutationArgsEncoder(fields.map(f => f.type)); // built once per type-resolution, not per draft
+                return (recordNameArg: unknown, mutationNameArg: unknown, argsStruct: unknown): FuncDraft => {
+                    const obj = argsStruct as Record<string, unknown>;
+                    return { record: recordNameArg as string, mutation: mutationNameArg as string, args: encode(fields.map(f => obj[f.name])) };
+                };
+            }),
         ];
     }
 
@@ -732,7 +795,7 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
         // mutations fix its signature, so the method IRs (incl. nested mutate.*)
         // are identical across renders; methods resolve cache/api/ws live.
         const fields = (handleType as { value: { name: string; type: EastTypeValue }[] }).value;
-        const key = [name, ...fields.flatMap(f => f.name === "mutate" || f.name === "commit"
+        const key = [name, ...fields.flatMap(f => f.name === "mutate" || f.name === "commit" || f.name === "draft"
             ? [f.name, ...(f.type.value as { name: string }[]).map(m => m.name)] : [])].join("\u0000");
         const cached = this.handleCache.get(key);
         if (cached) return cached;
@@ -750,6 +813,8 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
         // The awaited writes — built only for a handle type that has them, so a
         // UI exported before them binds as it was.
         const cfields = fields.find(f => f.name === "commit")?.type.value as { name: string; type: EastTypeValue }[] | undefined;
+        // The writes not made, as drafts: a handle has what its type names.
+        const dfields = fields.find(f => f.name === "draft")?.type.value as { name: string; type: EastTypeValue }[] | undefined;
 
         const nameExpr = East.value(name, StringType);
         const platform = this.buildPrimitives();
@@ -762,6 +827,7 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
             cancel: East.compile(East.function([], NullType, ($) => { $.return(P.mutateCancel(nameExpr)); }), platform),
         };
         const commit: Record<string, unknown> = {};
+        const draft: Record<string, unknown> = {};
         for (const [mutationName, argTypes] of sig.mutations) {
             const argTypesEast = argTypes.map(t => fromEastTypeValue(t));
             // Bundle the mutation's N args into one struct (platform fns are fixed-arity).
@@ -772,12 +838,20 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
                 args.forEach((a, i) => { obj[`arg${i}`] = a; });
                 $.return(P.mutate([ArgsStruct], nameExpr, mutationNameExpr, East.value(obj as never, ArgsStruct)));
             }), platform);
-            if (cfields === undefined) continue;
-            commit[mutationName] = East.compileAsync(East.asyncFunction([StringType, ...argTypesEast], fnOut(cfields, mutationName), ($, request, ...args) => {
-                const obj: Record<string, unknown> = {};
-                args.forEach((a, i) => { obj[`arg${i}`] = a; });
-                $.return(P.commit([ArgsStruct], nameExpr, mutationNameExpr, request as never, East.value(obj as never, ArgsStruct)));
-            }), platform);
+            if (cfields !== undefined) {
+                commit[mutationName] = East.compileAsync(East.asyncFunction([StringType, ...argTypesEast], fnOut(cfields, mutationName), ($, request, ...args) => {
+                    const obj: Record<string, unknown> = {};
+                    args.forEach((a, i) => { obj[`arg${i}`] = a; });
+                    $.return(P.commit([ArgsStruct], nameExpr, mutationNameExpr, request as never, East.value(obj as never, ArgsStruct)));
+                }), platform);
+            }
+            if (dfields !== undefined) {
+                draft[mutationName] = East.compile(East.function(argTypesEast, fnOut(dfields, mutationName), ($, ...args) => {
+                    const obj: Record<string, unknown> = {};
+                    args.forEach((a, i) => { obj[`arg${i}`] = a; });
+                    $.return(P.draft([ArgsStruct], nameExpr, mutationNameExpr, East.value(obj as never, ArgsStruct)));
+                }), platform);
+            }
         }
 
         const handle: Record<string, unknown> = {
@@ -786,6 +860,7 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
             history: East.compile(East.function([], historyRet, ($) => { $.return(P.history(nameExpr)); }), platform),
             mutate,
             ...(cfields !== undefined && { commit }),
+            ...(dfields !== undefined && { draft }),
             start: East.compile(East.function([], NullType, ($) => { $.return(P.start(nameExpr)); }), platform),
             binding: { name, mutations: [...sig.mutations.keys()] },
         };

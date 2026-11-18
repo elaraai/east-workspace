@@ -15,7 +15,7 @@ import { SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, no
 import { RecordSliceStateType } from "@elaraai/east-ui/internal";
 import { StateRuntime, UIStore, editingMessages } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
-import { act, allocationHarness, settle, slot, stubLinkGeometry, TUE_4 } from "./harness.test-utils.js";
+import { act, allocationHarness, kilnYard, settle, slot, stubLinkGeometry, TUE_4 } from "./harness.test-utils.js";
 
 const h = allocationHarness();
 const byString = compareFor(StringType);
@@ -157,6 +157,16 @@ describe("the resource rows", () => {
         expect(chip()).toBe("K-2091 bin · 35 m³ · hidden by Filters");
         // A resource narrowing hides no lane: every bin still has its card.
         expect(c.querySelectorAll("[data-allocation-card]")).toHaveLength(26);
+    });
+
+    test("A13 — on a page for one hall (#1621) the rows are the hall's kilns, and a focus on another hall's kiln is `not on this page`: no filter hides it", async () => {
+        const c = await open(kilnYard({ halls: ["Hall A"] }));
+        const order = () => [...c.querySelectorAll("[data-allocation-resource]")].map(r => r.getAttribute("data-allocation-resource"));
+        await waitFor(() => expect(order()).toEqual(["K-101", "K-102", "K-103", "K-104", "K-105", "K-106", "K-107", "K-108", "K-109", "K-110"]));
+        // LD-2201's bin is on K-209, of Hall B.
+        await press(card(c, "3101")!);
+        const chip = () => toolbar(c).getByTitle("The focus: its links are drawn · Esc returns to all").textContent;
+        await waitFor(() => expect(chip()).toBe("K-2091 bin · 35 m³ · not on this page"));
     });
 
     test("A19 — a row's line: its load, `· 2 d into next job` in warn-text, over max in neg-text, busy, or free", async () => {
@@ -326,12 +336,31 @@ describe("the focus's links (#1327)", () => {
         expect(c.querySelector("[data-allocation-links]")).toBeNull();
     });
 
-    test("A66 — each link is weighted by its share of the family's largest: K-304's 1 m³ bins at 4, its 2 m³ bins at 8", async () => {
+    test("A66 — each link is weighted by its share of the family's largest: K-304's 1 m³ bins at 4, its 2 m³ bins at 6 (the heaviest, ruled 17 Nov 2026 over §15's 8)", async () => {
         stubLinkGeometry();
         const c = await open(ex.allocationMinimal);
         await press(row(c, "K-304")!);
         const weights = Object.fromEntries(links(c).map(g => [g.querySelector("[data-link]")!.getAttribute("data-allocation-link"), g.querySelector("[data-plan-ribbon-band]")!.getAttribute("stroke-width")]));
-        expect(weights).toEqual({ "3106|K-304": "4", "3110|K-304": "4", "3112|K-304": "8", "3114|K-304": "8", "3121|K-304": "4" });
+        expect(weights).toEqual({ "3106|K-304": "4", "3110|K-304": "4", "3112|K-304": "6", "3114|K-304": "6", "3121|K-304": "4" });
+    });
+
+    test("five links into one resource row arrive at five ports stacked about its middle, 2 apart, each drawn apart (#1680's review)", async () => {
+        stubLinkGeometry();
+        const c = await open(ex.allocationMinimal);
+        await press(row(c, "K-304")!);
+        // Each head's tip, down the layer: the five arrive at five heights, none on another.
+        const tips = links(c).map(g => {
+            const nums = g.querySelector("[data-plan-ribbon-head]")!.getAttribute("d")!.trim().split(/[\sMLZ]+/).filter(s => s !== "").map(Number);
+            return nums[3]!;
+        });
+        expect(tips).toHaveLength(5);
+        // Heads 8 wide for the 4s and 12 for the 6s, stacked 2 apart edge to edge: each next tip 10 to 14 below the last.
+        const sorted = [...tips].sort((a, b) => a - b);
+        const gaps = sorted.slice(1).map((y, i) => y - sorted[i]!);
+        for (const gap of gaps) {
+            expect(gap).toBeGreaterThanOrEqual(10 - 1e-6);
+            expect(gap).toBeLessThanOrEqual(14 + 1e-6);
+        }
     });
 
     test("A67 — a link under the pointer lights, its bin card and its resource's load haloed; its line's label and tooltip name it", async () => {

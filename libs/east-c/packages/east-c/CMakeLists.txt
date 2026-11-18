@@ -7,6 +7,7 @@ set(EAST_C_SOURCES
     src/hashmap.c
     src/types.c
     src/values.c
+    src/key_bound.c
     src/value_slab.c
     src/ir.c
     src/ir_resolve.c
@@ -35,6 +36,7 @@ set(EAST_C_SOURCES
     src/builtins/matrix.c
     src/builtins/patch.c
     src/builtins/query.c
+    src/builtins/key_range.c
     src/builtins/tree.c
     src/serialization/json.c
     src/serialization/beast.c
@@ -550,6 +552,45 @@ add_test(NAME field_cache COMMAND test_field_cache)
 add_executable(test_value_compare tests/test_value_compare.c)
 target_link_libraries(test_value_compare east-c)
 add_test(NAME value_compare COMMAND test_value_compare)
+
+# A bound of a key range (#1616): the types that are a key's type cut short,
+# the words a bound of any other type is refused in — TypeScript's, to the
+# letter — and how a key stands to a bound, over the orders that are easy to
+# get wrong.
+add_executable(test_key_bound tests/test_key_bound.c)
+target_link_libraries(test_key_bound east-c)
+add_test(NAME key_bound COMMAND test_key_bound)
+
+# A key range of a Set and of a Dict (#1616): what a range holds against a walk
+# of the whole, across the size a tree takes over at; that it is a new
+# collection, never frozen; that it is found by a search — of the cache, or of
+# the tree itself when the collection has changed — counted in tests of a key
+# over 100,000 keys, never in time; and the range builtins' refusals, in
+# TypeScript's words.
+add_executable(test_key_range tests/test_key_range.c)
+target_link_libraries(test_key_range east-c)
+add_test(NAME key_range COMMAND test_key_range)
+
+# A key range of a lazily opened Set or Dict is a view the pager serves
+# (#1616, D4 and D5): what each read of one costs, in segments decoded on its
+# source's pager — a count, never a clock — its end segments through the cache
+# and the rest fresh; that it decodes its own rows alone into a collection that
+# is never frozen and leaves its source lazy; that it is exact against a walk
+# of the whole, the host's row range with it; and the refusals.
+add_executable(test_paged_range tests/test_paged_range.c)
+target_link_libraries(test_paged_range east-c)
+add_test(NAME paged_range COMMAND test_paged_range)
+
+# The same range read by a function's body (#1616, D4): each row of the
+# design's table run through the interpreter over a lazily opened input, with
+# the segments it decodes — a size, a keyed read, a loop; a range handed on,
+# which reads nothing; every other read, which decodes the range's own rows
+# and leaves the input lazy; a source that changes after a range is taken;
+# loops inside loops, and one whose segment the cache drops; and a range whose
+# ends cannot be placed, refused in a keyed read's words.
+add_executable(test_paged_range_body tests/test_paged_range_body.c)
+target_link_libraries(test_paged_range_body east-c)
+add_test(NAME paged_range_body COMMAND test_paged_range_body)
 
 # Array diff gate (#1425): an Array's diff trims the common start and end, and
 # searches the middle for a shortest edit script by Myers' algorithm, to a

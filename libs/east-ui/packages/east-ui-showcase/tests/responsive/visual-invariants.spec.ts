@@ -169,9 +169,10 @@ async function violations(entry: Locator): Promise<string[]> {
             if (want.tnum === true && !s.fontVariantNumeric.includes("tabular-nums")) bad.push(`${what} "${name(el)}": not tabular`);
         };
 
-        // ── 1–3 · One gutter voice ──
-        for (const el of body.querySelectorAll("[data-plan-row] [data-plan-gutter='name']:not([data-collapsible])")) {
-            type(el, "row name", { size: 11.5, weight: "600", mono: true, upper: false, color: T.ink, tnum: true });
+        // ── 1–3 · One gutter voice: every row's name, a collapsible row's and each of a laned row's lines too — mono
+        // 11 / 500, on the East scale (#1680's review) ──
+        for (const el of body.querySelectorAll("[data-plan-row] :is([data-plan-gutter='name'], [data-plan-gutter='lane'])")) {
+            type(el, "row name", { size: 11, weight: "500", mono: true, upper: false, color: T.ink, tnum: true });
         }
         for (const el of body.querySelectorAll("[data-plan-gutter='value']")) {
             type(el, "gutter value", { size: 11.5, weight: "600", mono: true, tnum: true });
@@ -193,8 +194,8 @@ async function violations(entry: Locator): Promise<string[]> {
             widths.forEach((w, i) => { if (w < 0.85 * widest) bad.push(`period ${i}: ${w.toFixed(1)}px beside ${widest.toFixed(1)}px`); });
         }
         // ── 5 · Label order and the 9.5px floor ──
-        // Sections, nested parents and expandable charts share the header caption.
-        for (const el of body.querySelectorAll("[data-plan-group] [role='rowheader'], [data-plan-gutter='name'][data-collapsible]")) {
+        // Group bands — sections among them — take the header caption; a collapsible row keeps the row's voice (#1680's review).
+        for (const el of body.querySelectorAll("[data-plan-group] [role='rowheader']")) {
             const s = cs(el);
             type(el, "group label", { size: 10, weight: "600", mono: true, upper: true, color: T.ink4 });
             if (Math.abs(px(s.letterSpacing) - 1.2) > 0.05) bad.push(`group label "${name(el)}": tracking ${s.letterSpacing}, want 0.12em`);
@@ -274,18 +275,19 @@ async function violations(entry: Locator): Promise<string[]> {
             let j = gi + 1;
             for (; j < rows.length && Number(rows[j]!.getAttribute("aria-level")) > level; j++) last = rows[j];
             if (last === undefined) return;
-            // A member's first mark — its caret when it is a parent itself, else
-            // its name — starts where the group's label text does: one level
-            // of indent is the caret and its gap, so a tree steps in by it. A
-            // caret turned to say its row is folded is read by its slot: its
-            // centre, which the turn keeps, less half its laid-out width.
+            // A member's line starts one level in from its group's: 8px (#1680's review). A row that folds has its
+            // caret's 14px cell and the line's 6px gap before its name; a leaf none, its name where its line starts.
             const first = rows[gi + 1]!;
-            const gl = g.querySelector("[data-plan-gutter='label']")?.getBoundingClientRect().left;
-            const mark = first.querySelector("[data-plan-gutter='name'] > :first-child");
-            const mr = mark?.getBoundingClientRect();
-            const ml = !(mark instanceof HTMLElement) || mr === undefined ? undefined
-                : cs(mark).transform === "none" ? mr.left : (mr.left + mr.right) / 2 - mark.offsetWidth / 2;
-            if (gl !== undefined && ml !== undefined && Math.abs(gl - ml) > 0.5) bad.push(`group "${name(g)}": member starts at ${ml.toFixed(1)}, label at ${gl.toFixed(1)}`);
+            const lineOf = (row: Element) => {
+                const head = row.querySelector("[role='rowheader']");
+                return head === null ? undefined : head.getBoundingClientRect().left + px(cs(head).paddingLeft);
+            };
+            const gs = lineOf(g);
+            const ms = lineOf(first);
+            if (gs !== undefined && ms !== undefined && Math.abs(ms - gs - 8) > 0.5) bad.push(`group "${name(g)}": its member's line ${(ms - gs).toFixed(1)}px in from its own, want 8`);
+            const ml = first.querySelector("[data-plan-gutter='title']")?.getBoundingClientRect().left;
+            const caret = first.querySelector("[role='rowheader'] [data-leaf]") === null ? 20 : 0;
+            if (ms !== undefined && ml !== undefined && Math.abs(ml - ms - caret) > 0.5) bad.push(`group "${name(g)}": its member's name ${(ml - ms).toFixed(1)}px past its line, want ${caret}`);
             // The group's end is marked — when its last member and what follows are both mounted.
             if (j < rows.length && cs(last).borderBottomColor !== T.strong) bad.push(`group "${name(g)}": its last member has no closing rule`);
         });
@@ -386,7 +388,7 @@ test.describe("Visual invariants — the Plan", () => {
             expect(read.summary).toBe("16 of 24 orders");
         });
 
-        test(`planTargetState (${theme}): a links focus inks as \`Plan links.html\` does — the muted ink over the paper casing, captions on paper knockouts, an end past the window in a slot dashed in the subtle ink; lit, the strong ink and its halo; its band, Tags, rails and pressed control in their tokens (#1258)`, async ({ page }) => {
+        test(`planTargetState (${theme}): a links focus inks as \`Plan links.html\` does — the muted ink over the paper casing, captions on paper knockouts, an end past the window in a slot dashed in the subtle ink; lit, the strong ink and its halo; its band, its role bands — a group band's paper and caption, the band the others fold into the only one with a hand — and its pressed control in their tokens (#1258, #1680's review)`, async ({ page }) => {
             const entry = await openExample(page, "planTargetState", PLAN_EXAMPLES, theme);
             await entry.locator(`${rowSel("detail", "H1-P09")} [data-plan-control="links"]`).click();
             await expect(entry.locator('[data-plan-linkslot="right"]')).toHaveCount(1);
@@ -397,8 +399,7 @@ test.describe("Visual invariants — the Plan", () => {
                 subtle: await tokenColour(page, "--chakra-colors-fg-subtle"),
                 paper: await tokenColour(page, "--chakra-colors-bg-surface"),
                 paper2: await tokenColour(page, "--chakra-colors-bg-canvas"),
-                paper3: await tokenColour(page, "--chakra-colors-bg-subtle"),
-                rule: await tokenColour(page, "--chakra-colors-border-subtle"),
+                panel: await tokenColour(page, "--chakra-colors-bg-panel"),
                 link: await tokenColour(page, "--chakra-colors-link"),
                 tint: await tokenColour(page, "--chakra-colors-brand-tint"),
                 pressed: await tokenColour(page, "--chakra-colors-brand-pressed"),
@@ -422,7 +423,13 @@ test.describe("Visual invariants — the Plan", () => {
                     focusBand: one("[data-plan-focusbar]", (s) => s.backgroundColor),
                     back: one("[data-plan-focusback]", (s) => `${s.color} ${s.fontSize} ${s.fontWeight}`),
                     focusCaption: one("[data-plan-focusbar] > :last-child", (s) => `${s.color} ${s.fontSize} ${s.fontWeight} ${s.textTransform} ${/mono/i.test(s.fontFamily) ? "mono" : s.fontFamily}`),
-                    tag: all("[data-plan-focustag]", (s) => `${s.backgroundColor} ${s.color} ${s.borderTopWidth} ${s.borderTopColor} ${s.borderTopLeftRadius} ${s.fontSize} ${s.fontWeight}`),
+                    // Each band, the one the others fold into apart: its paper, and its hand where a click opens it.
+                    roleBands: [...new Set([...root.querySelectorAll("[data-plan-focusband]")].map((el) => {
+                        const s = getComputedStyle(el);
+                        return `${el.getAttribute("data-plan-focusband") === "others" ? "others" : "role"} ${s.backgroundColor} ${s.cursor}`;
+                    }))].sort(),
+                    roleCaption: all("[data-plan-focusband] [data-plan-gutter='label']", (s) => `${s.color} ${s.fontSize} ${s.fontWeight} ${s.textTransform} ${/mono/i.test(s.fontFamily) ? "mono" : s.fontFamily}`),
+                    roleCount: all("[data-plan-focusband] [data-plan-gutter='meta']", (s) => `${s.color} ${s.fontSize} ${s.fontWeight} ${s.textTransform}`),
                     pressed: one("[data-plan-control='links'][aria-pressed='true']", (s) => `${s.backgroundColor} ${s.color}`),
                 };
             });
@@ -441,7 +448,11 @@ test.describe("Visual invariants — the Plan", () => {
                 focusBand: T.paper2,
                 back: `${T.link} 12.5px 500`,
                 focusCaption: `${T.subtle} 10px 600 uppercase mono`,
-                tag: [`${T.paper3} ${T.muted} 1px ${T.rule} 4px 10px 500`],
+                // A group band's paper; the band the others fold into opens on a click, a role's opens nothing.
+                roleBands: [`others ${T.panel} pointer`, `role ${T.panel} default`],
+                // A group band's caption, and the row metas' voice for its count.
+                roleCaption: [`${T.subtle} 10px 600 uppercase mono`],
+                roleCount: [`${T.subtle} 10px 400 none`],
                 pressed: `${T.tint} ${T.pressed}`,
             });
             // Lit: the pointer on a link's band.
@@ -458,12 +469,6 @@ test.describe("Visual invariants — the Plan", () => {
                 litBand: [T.strong], litHead: [T.strong],
                 halo: [`${T.strong} 1px none`],
             });
-            // A rail and a gap band, hovered, step to the third paper.
-            for (const sel of ["[data-plan-rail]", "[data-plan-gap]"]) {
-                const target = entry.locator(sel).first();
-                await target.hover();
-                await expect(target, sel).toHaveCSS("background-color", T.paper3);
-            }
         });
     }
 });
@@ -482,7 +487,7 @@ const NESTED_TABLES = ["tablePnl", "tableNumberFormats", "tableTree", "dataBindP
  *  the paged tree is bound, so it is e3-ui's (#849). */
 const TABLE_FILES: Readonly<Record<string, string>> = { dataBindPagedTable: "e3/bind/data/data" };
 
-/** One nesting level's indent (#954): the Plan's gutter step (#949) — a 14px caret and its 6px gap. */
+/** One nesting level's indent in a Table or a Matrix (#954): a 14px caret and its 6px gap. */
 const TREE_STEP = 20;
 
 /** A Table example's entry, at rest with its first header cell in view. */

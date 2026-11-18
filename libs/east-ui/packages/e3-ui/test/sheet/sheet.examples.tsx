@@ -676,7 +676,7 @@ const workshopRecommend = East.asyncPlatform(
  * and the order with no customer is the batch's issue.
  */
 export const sheetWorkshop = example({
-    keywords: ["Sheet", "BuilderFrame", "record", "Record", "Record.onApply", "group", "driver", "register", "members", "concat", "aliases", "meta", "parent", "Dict", "fold", "duplicate", "link", "multiple", "sides", "locks", "arity", "check", "exists", "uom", "Format", "templates", "Sheet.templates", "library", "Sheet.library", "Sheet.library.tab", "drop", "inspector", "fields", "Sheet.field", "readonly", "views", "RecordView", "slice", "Slice.bindRecords", "Data.bindPaged", "indexes", "search", "filter", "copilot", "fill", "provider", "derive", "history", "sequence", "default", "phrase", "capacity", "propose", "proposer", "suggest", "learned", "follower", "asyncFunction", "asyncPlatform", "ready", "newGroup", "newRow", "footer", "joinery"],
+    keywords: ["Sheet", "BuilderFrame", "record", "Record", "Record.bind", "group", "driver", "register", "members", "concat", "aliases", "meta", "parent", "Dict", "fold", "duplicate", "link", "multiple", "sides", "locks", "arity", "check", "exists", "uom", "Format", "templates", "Sheet.templates", "library", "Sheet.library", "Sheet.library.tab", "drop", "inspector", "fields", "Sheet.field", "readonly", "views", "RecordView", "slice", "Slice.bindRecords", "Data.bindPaged", "indexes", "search", "filter", "copilot", "fill", "provider", "derive", "history", "sequence", "default", "phrase", "capacity", "propose", "proposer", "suggest", "learned", "follower", "asyncFunction", "asyncPlatform", "ready", "newGroup", "newRow", "footer", "joinery"],
     description: "The flagship sheet — the workshop's orders as groups and their operations as lines; an activity driver giving units, durations and live halves; one work-centre register joined from a machines record (Dict), the bays (aliases) and the families (folded), its link grammar counting, locking, implying and checking machines; the copilot's fills (derive, history, sequence, default, phrase, capacity) and proposers (a pattern, a learned follower, an async model); an order check; one rail over the orders and the operation and order templates records, each its own source; a library of the templates, the statuses (dropped on an order to set its status) and the columns; an inspector pane showing every field; views kept per viewer; and a footer",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
@@ -686,7 +686,7 @@ export const sheetWorkshop = example({
             const operationTemplates = $.let(Data.bind(sheetWorkshopOperationTemplates));
             const orderTemplates     = $.let(Data.bind(sheetWorkshopOrderTemplates));
             // The orders read whole, for the footer's count: the sheet reads its rows through the rail's `rows` source,
-            // so `orders` is the patch door its Save commits through, never read whole.
+            // so `orders`, the record it is handed, is what its Save commits through, never read whole.
             const allOrders  = $.let(Data.bind(sheetWorkshopOrders));
             const views      = $.let(State.bind([ArrayType(Sheet.Types.RecordView)], "sheet.workshop.views", []));
             const statuses   = $.let([
@@ -979,7 +979,7 @@ export const sheetWorkshop = example({
                         newGroup={newGroup}
                         ready={{ group: readyOrder }}
                         views={views}
-                        onApply={Record.onApply(orders, { keyed: true })}
+                        record={orders}
                         footer={[{ text: East.str`${operations.size()} operations` }]}
                         name="workshop"
                     />

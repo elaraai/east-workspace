@@ -41,19 +41,34 @@ import { BufferWriter } from "./serialization/binary-utils.js";
 import { writeTypeSection } from "./serialization/beast2/v5/type-section.js";
 import { fnv1a64 } from "./serialization/beast2/shared.js";
 
-/** Deterministic PRNG state (mulberry32). The fuzz output is a cross-runtime
- * REPLAY corpus: east-c and east-py compliance and the eager-replay pins all
- * key on the generated suite names, so generation must reproduce byte-for-byte
+/**
+ * Makes a deterministic stream of numbers in [0, 1) (mulberry32): equal seeds
+ * give equal streams, on every run and in every process.
+ *
+ * @remarks
+ * The fuzz generator draws from one, which {@link seedFuzz} reseeds. A spec
+ * that makes its cases from a seed draws from its own, so its cases are the
+ * same on every run, and so is the IR a suite exports for the other runtimes.
+ *
+ * @param seed - the stream's seed; its low 32 bits are used
+ * @returns the stream: each call gives its next number
+ */
+export function randomStream(seed: number): () => number {
+  let state = seed | 0;
+  return () => {
+    state = (state + 0x6d2b79f5) | 0;
+    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** The fuzz generator's stream. The fuzz output is a cross-runtime REPLAY
+ * corpus: east-c and east-py compliance and the eager-replay pins all key on
+ * the generated suite names, so generation must reproduce byte-for-byte
  * across exports. Reseed with {@link seedFuzz}; mint a fresh corpus by bumping
  * the seed deliberately, never by reverting to `Math.random`. */
-let fuzzState = 0xea57 | 0;
-
-function random(): number {
-  fuzzState = (fuzzState + 0x6d2b79f5) | 0;
-  let t = Math.imul(fuzzState ^ (fuzzState >>> 15), 1 | fuzzState);
-  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-}
+let random = randomStream(0xea57);
 
 /**
  * Reseeds the fuzz generator's deterministic random stream.
@@ -64,7 +79,7 @@ function random(): number {
  * @param seed - the stream seed; equal seeds reproduce equal output
  */
 export function seedFuzz(seed: number): void {
-  fuzzState = seed | 0;
+  random = randomStream(seed);
 }
 
 /**

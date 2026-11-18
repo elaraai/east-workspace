@@ -9,7 +9,12 @@
  * Spec rule: status = dot + WORD, **never tinted background**. The wrapper
  * carries no chrome — just inline-flex + gap. The indicator is a bare 8 px
  * circle whose colour comes from the spec's muted hues, and the label is
- * rendered in mono uppercase via `caption.eyebrow`.
+ * rendered in mono uppercase via `caption.eyebrow`, on a whole line of 13px
+ * (#1638): a line of 1.2 of its 11px face is 13.2px, which a row centres at a
+ * fraction of a pixel under its edge, and the page then paints the word a row
+ * higher or lower by where it stands the row. A row an even number of pixels
+ * tall over its 1px rule has an odd room, where an odd line leaves a whole
+ * number of pixels over the word.
  *
  * Variant `status` aligns with the East UI IR's StatusType tags
  * (`success | warning | danger | info | neutral`) so the renderer can
@@ -54,7 +59,7 @@ export const statusSlotRecipe = defineSlotRecipe({
             letterSpacing: "0.1em",
             textTransform: "uppercase",
             color: "fg.muted",
-            lineHeight: "1.2",
+            lineHeight: "13px",
         },
     },
     variants: {

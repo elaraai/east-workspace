@@ -37,11 +37,11 @@ import { none, some, type OptionType, type StringType, type ValueTypeOf } from "
 import { Plan } from "@elaraai/e3-ui/internal";
 import type { PlanGrain, PlanUiState, RowKey } from "./plan-state.js";
 import type { PlanAxisKind } from "./instant.js";
-import { ancestorsOf } from "./row-tree.js";
 import { rowKeyOf } from "./row-key.js";
 import { derivePlan, type PlanDerived } from "./derive.js";
 import { PLAN_GEOMETRY, planGeometry } from "./geometry.js";
 import { appendAll } from "./reductions.js";
+import { focusGathers, type LinkFamily, type PlanGathered } from "./body-items.js";
 
 // The model's other halves, one import path for all of it (#815).
 export { forEachInstant, axisKindMismatches, type PlanAxisMismatch } from "./row-instants.js";
@@ -50,8 +50,10 @@ export {
     type DerivedBand, type HeatScale, type PlanRowDiagnostic, type PlanDerived, type PlanParentSubtotal, type PlanParentSubtotals,
 } from "./derive.js";
 export {
-    linkedRowKeys, bodyItemKey, rowItemKey, placeFailures, firstDiagnosticItem, elideForFocus, deriveLinkFamily,
-    type FocusGap, type PlanBand, type PlanWindowFailure, type PlanBodyItem, type LinkFamily,
+    linkedRowKeys, bodyItemKey, rowItemKey, placeFailures, firstDiagnosticItem, focusBandKey, focusBodyItems, focusGathers,
+    focusGatheredKeys, focusRoleCounts, focusRoleOf, deriveLinkFamily, PLAN_FOCUS_ROLES,
+    type PlanFocusBand, type PlanFocusRole, type PlanGathered, type PlanBand, type PlanWindowFailure, type PlanBodyItem,
+    type PlanLaneBand, type PlanLaneTracks, type LinkFamily,
 } from "./body-items.js";
 
 /** The decoded Plan root value. */
@@ -252,10 +254,13 @@ export function indexRows(rows: ReadonlyArray<PlanRowValue>): PlanRowIndex {
 /** One visible line of the canvas body. */
 export interface VisibleRow {
     row: PlanRowValue;
-    /** Nesting depth (drives the 30px/level gutter indent). */
+    /** Nesting depth (drives the 8px/level gutter indent). */
     depth: number;
     /** For group strips / nesting parents: whether the subtree is collapsed. */
     collapsed: boolean;
+    /** A row a links focus gathers under its role's band (#1680's review): its role, and the labels of the rows it
+     *  nests under, which its sub line says. Absent on every other line. */
+    gathered?: PlanGathered | undefined;
 }
 
 /**
@@ -276,22 +281,19 @@ export interface VisibleRow {
  *
  * Pinned rows are excluded here — they render above the virtualised body,
  * under the ruler (`pinnedRows`) — and so are their descendants.
+ *
+ * A links focus reveals nothing here: it gathers its rows under its role bands
+ * wherever they sit, folded or not, and its other rows keep their folds
+ * (`focusBodyItems`, #1680's review).
  */
 export function visibleRows(
     index: PlanRowIndex,
     /** The UI facts the rows follow — the grain and the collapsed set. */
     ui: Pick<PlanUiState, "grain" | "collapsed">,
-    /** Keys a links focus must reveal — a collapsed subtree CONTAINING one
-     *  auto-expands for the focus and restores on return (R1). */
-    reveal?: ReadonlySet<RowKey>,
 ): VisibleRow[] {
     const out: VisibleRow[] = [];
     const grain: PlanGrain = ui.grain;
     const isPinned = (row: PlanRowValue) => row.pinned;
-    // "Must this subtree stay open for the focus?" answered ONCE: the set of
-    // strict ANCESTORS of every revealed key, built by walking `parent`
-    // pointers upward — O(reveal × depth) (#616).
-    const revealAncestors = ancestorsOf(index, reveal);
     // The rows whose descendants are out of view: collapsed, pinned, or
     // themselves hidden.
     const closed = new Set<RowKey>();
@@ -307,8 +309,7 @@ export function visibleRows(
         const depth = index.depth.get(row.key);
         if (depth === undefined) continue;
         const isGroup = row.kind.type === "group";
-        const collapsed = (ui.collapsed.has(row.key) || (grain === "group" && isGroup && depth === 0))
-            && !revealAncestors.has(row.key);
+        const collapsed = ui.collapsed.has(row.key) || (grain === "group" && isGroup && depth === 0);
         out.push({ row, depth, collapsed });
         if (collapsed) closed.add(row.key);
     }
@@ -342,26 +343,22 @@ export const CHART_EXPANDED_H = PLAN_GEOMETRY.default.chartExpanded;
 export const HEAT_ROW_H = PLAN_GEOMETRY.default.heatRow;
 /** Two-line-gutter row minimum (the §8 sheet: row min-height 42px). */
 export const ROW_H_STACKED = PLAN_GEOMETRY.default.rowStacked;
-/** Links-focus rail height — a LONE unrelated row collapses, never removed (R1). */
-export const RAIL_H = PLAN_GEOMETRY.default.rail;
-/** Expand-focus CONTEXT STRIP height (R2) — an unfocused row compresses to
- *  this, keeping its marks on the shared axis at {@link STRIP_MARK_H}. Taller
- *  than the links rail on purpose: a rail only has to carry a status dot,
- *  a strip has to carry the row's actual marks. */
+/** CONTEXT STRIP height (R2) — an unfocused row of an expand focus compresses
+ *  to this, keeping its marks on the shared axis at {@link STRIP_MARK_H}; and a
+ *  pinned row a links focus does not gather, its name, value and dot kept in
+ *  their cells (#1680's review). */
 export const STRIP_H = PLAN_GEOMETRY.default.strip;
 /** The mark height inside a context strip — v2's "bars reduced to 7px marks". */
 export const STRIP_MARK_H = PLAN_GEOMETRY.default.stripMark;
-/** Links-focus gap-band height — a RUN of unrelated rows elides to one
- *  double-height band wearing the ⋯ icon (R1 at scale). */
-export const GAP_H = PLAN_GEOMETRY.default.gap;
 
-/** The row-focus height context (R1 rails / R2 strips) threaded to {@link rowHeight}. */
+/** The row focus (R1 links / R2 expand) threaded to {@link rowHeight} and the body. */
 export interface PlanFocusCtx {
     kind: "links" | "expand";
     /** The focused row. */
     key: RowKey;
-    /** Full-height family keys (links focus; the focused row is implied). */
-    family?: ReadonlySet<RowKey> | undefined;
+    /** A links focus (#1680's review): the focused row's family, which it gathers under its role bands, and whether
+     *  the band every other row folds into is open. */
+    links?: { readonly family: LinkFamily; readonly others: boolean } | undefined;
     /** R2 — the clamped developer-render height, in px.
      *
      *  The render lives INSIDE the focused row rather than beside it, because
@@ -399,7 +396,7 @@ export function pxOf(size: string): number | undefined {
  */
 export type RowKindHeight =
     | { t: "group"; strip: boolean }
-    | { t: "chart"; fixed: number | undefined; expanded: boolean; expandedPx: number | undefined }
+    | { t: "chart"; fixed: number | undefined; expanded: boolean; expandedPx: number | undefined; expandable: boolean }
     | { t: "heat" }
     | { t: "table"; lines: number }
     | { t: "buckets"; lanes: number }
@@ -449,6 +446,7 @@ export function heightFactsOf(row: PlanRowValue, derived?: PlanDerived): RowHeig
                 fixed: h.type === "fixed" ? pxOf(h.value) : undefined,
                 expanded: h.type === "expanded",
                 expandedPx: k.value.expandedHeight.type === "some" ? pxOf(k.value.expandedHeight.value) : undefined,
+                expandable: k.value.expandable,
             };
             break;
         }
@@ -476,7 +474,8 @@ export function heightFactsOf(row: PlanRowValue, derived?: PlanDerived): RowHeig
  * @param collapsed - Whether its subtree is collapsed
  * @param dense - Whether the canvas is dense
  * @param chartsExpanded - The chart rows the user expanded
- * @param focus - The row focus, when one is active (R1 rails / R2 strips)
+ * @param focus - An expand focus, when one is active (R2 strips); a links focus changes no body row's height here —
+ *   its gathered rows say their path on a second line (`rowHeight`), and its other rows draw as they are
  * @returns The height, px
  */
 export function factsHeight(
@@ -487,28 +486,25 @@ export function factsHeight(
     chartsExpanded: ReadonlySet<RowKey>,
     focus?: PlanFocusCtx,
 ): number {
-    // Row focus compresses the DATA rows it is not about; group bands always
+    // An expand focus compresses the DATA rows it is not about to 16px strips,
+    // where their marks survive at 7px on the same axis; group bands always
     // fall through to their wayfinding height, because a wall of strips is
-    // unreadable without the structure that says which rows they are
-    // ("collapse, never remove" — the rows stay mounted, in order, either way).
-    //
-    // A links focus rails unrelated rows to 11px (a status dot); an expand
-    // focus strips every other row to 16px, where its marks survive at 7px on
-    // the same axis. The FOCUSED row falls through to its normal kind height
-    // in both cases — R2 grows the canvas under the row, not the row itself.
+    // unreadable without the structure that says which rows they are. The
+    // FOCUSED row falls through to its normal kind height — R2 grows the canvas
+    // under the row, not the row itself.
     const g = planGeometry(dense);
-    if (focus !== undefined && f.kind.t !== "group") {
-        if (focus.kind === "links") {
-            const inFamily = key === focus.key || (focus.family?.has(key) ?? false);
-            if (!inFamily) return g.rail;
-        } else if (key !== focus.key) {
+    if (focus?.kind === "expand" && f.kind.t !== "group") {
+        if (key !== focus.key) {
             return g.strip;
-        } else if (focus.renderPx !== undefined && focus.renderPx > 0) {
+        } else if (focus.renderPx !== undefined) {
             // The FOCUSED row grows by its render — the row's own marks keep
             // their band at the top, the render fills the rest, and the gutter
             // spans both. Recursing with the focus dropped gets the row's
-            // natural kind height without duplicating the switch below.
-            return factsHeight(f, key, collapsed, dense, chartsExpanded, undefined) + focus.renderPx;
+            // natural kind height without duplicating the switch below — an
+            // expandable chart's expanded one, its expand control its toggle
+            // too (#1680's review).
+            const open = f.kind.t === "chart" ? chartsOpenFor(key, f.kind.expandable, chartsExpanded) : chartsExpanded;
+            return factsHeight(f, key, collapsed, dense, open, undefined) + focus.renderPx;
         }
     }
     if (f.explicit !== undefined) return f.explicit;
@@ -548,14 +544,33 @@ export function factsHeight(
 }
 
 /**
+ * The chart rows the focused row of an expand focus draws expanded (#1680's
+ * review): an expandable chart's spark ↔ chart is its expand control's, so its
+ * render open, it draws expanded in its band — the user's own expanded rows
+ * beside it.
+ *
+ * @param key - The focused row
+ * @param expandable - Whether its chart is expandable
+ * @param chartsExpanded - The chart rows the user expanded
+ * @returns The chart rows drawn expanded
+ */
+export function chartsOpenFor(key: RowKey, expandable: boolean, chartsExpanded: ReadonlySet<RowKey>): ReadonlySet<RowKey> {
+    return expandable && !chartsExpanded.has(key) ? new Set([...chartsExpanded, key]) : chartsExpanded;
+}
+
+/**
  * A visible row's pixel height — the virtualizer's size for it AND the height
  * it renders at (rows are fixed-height by kind), from the density's geometry
  * table ({@link planGeometry}).
  *
+ * A links focus (#1680's review) folds each pinned row it does not gather —
+ * above the body, where it cannot fold away — to a 16px strip, and a row it
+ * gathers says the rows it nests under on its sub line, so it takes two lines.
+ *
  * @param v - The visible row
  * @param dense - Whether the canvas is dense
  * @param chartsExpanded - The chart rows the user expanded
- * @param focus - The row focus, when one is active (R1 rails / R2 strips)
+ * @param focus - The row focus, when one is active (R1 links / R2 strips)
  * @param derived - The derived numbers, when available ({@link heightFactsOf})
  * @returns The height, px
  */
@@ -566,7 +581,12 @@ export function rowHeight(
     focus?: PlanFocusCtx,
     derived?: PlanDerived,
 ): number {
-    return factsHeight(heightFactsOf(v.row, derived), v.row.key, v.collapsed, dense, chartsExpanded, focus);
+    const facts = heightFactsOf(v.row, derived);
+    if (focus?.kind === "links" && v.row.pinned && facts.kind.t !== "group" && !focusGathers(focus, v.row.key)) {
+        return planGeometry(dense).strip;
+    }
+    const pathed = v.gathered !== undefined && v.gathered.path.length > 0;
+    return factsHeight(pathed ? { ...facts, twoLine: true } : facts, v.row.key, v.collapsed, dense, chartsExpanded, focus);
 }
 
 // ── Window skeletons — the heights of evicted rows (#823) ──────────────────
@@ -662,8 +682,9 @@ export function restUi(grain: PlanGrain): SkeletonUi {
  * @param ui - The UI state
  * @param dense - Whether the canvas is dense
  * @param focus - An expand focus, when one is active — its context strips
- *   (a links focus elides runs of rows across windows, which no window's
- *   height can say; its windows measure as though unfocused)
+ *   (a links focus gathers its rows out of every window into its role bands,
+ *   and draws its other rows as they are: its windows measure as though
+ *   unfocused)
  * @returns The height, px
  */
 export function skeletonHeight(sk: WindowSkeleton, ui: SkeletonUi, dense: boolean, focus?: PlanFocusCtx): number {

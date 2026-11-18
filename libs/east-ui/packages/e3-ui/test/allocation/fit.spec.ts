@@ -3,20 +3,34 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /**
- * The Allocation's pure functions and the yard's fit, held to the spec's worked
- * facts (`Allocation Spec.md` §0, §12.4), over the board's reading of the
- * yard's own bins (`Allocation.Types.Day(KilnBin)`, #1371). Every expected
+ * The Allocation's pure functions and the yard's fits, held to the spec's
+ * worked facts (`Allocation Spec.md` §0, §12.4). The page's functions — loads,
+ * checks and slots — read the board's reading of the yard's own bins
+ * (`Allocation.Types.Day(KilnBin)`, #1371). A fit's rules read what a function
+ * read (`Allocation.Types.FitContext`, east-workspace#1624): they are held to
+ * a context that holds what the page holds — the day's bins as their roles,
+ * the yard's loads and kilns — so their verdicts are the ones a request that
+ * carried the day gave. The yard's functions are run as e3 runs them: each
+ * over its own inputs, its bins' index built as e3 builds it, and a request
+ * that carries the day, the question and the scope, and no row. Every expected
  * figure and word is the mock's own functions' answer over the same yard.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { East, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, isTypeEqual, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import {
+    DictType, East, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, isTypeEqual, none, printFor, some, variant,
+    type EastIR, type EastType, type ValueTypeOf,
+} from "@elaraai/east";
 import { Assert, TestImpl, describeEast } from "@elaraai/east-node-std";
-import { Allocation } from "@elaraai/e3-ui";
+import { Allocation, Schedule } from "@elaraai/e3-ui";
 import { allocationResourceLine } from "@elaraai/e3-ui/internal";
-import { KilnBin, YardBin, YardPlan, yardDay, yardPlanDay } from "./kiln-yard.js";
+import { indexEntries } from "../index-entries.js";
+import {
+    Bay, Kiln, KilnBin, MinimalBin, TimberLoad, YardBin, YardPlan, yardArrivals, yardBayRows, yardBinRows, yardDay, yardKilns, yardMinimalBinRows, yardPlanDay,
+    yardSplitDay,
+} from "./kiln-yard.js";
 import { yardContext as context } from "./yard-context.js";
-import { bulkFitBody, yardFitBody } from "./allocation.examples.js";
+import { bulkFit, kilnBins, minimalBins, minimalFit, yardFit } from "./allocation.examples.js";
 import * as ex from "./fit.examples.js";
 
 describeEast("Allocation — pure functions", test => {
@@ -27,30 +41,76 @@ describeEast("Allocation — pure functions", test => {
     });
 }, { platformFns: TestImpl });
 
-const Request = Allocation.Types.FitRequest(KilnBin);
+type Request = ValueTypeOf<typeof Allocation.Types.FitRequest>;
+type Read = ValueTypeOf<typeof Allocation.Types.FitContext>;
+type Roles = ValueTypeOf<typeof Schedule.Types.AllocationRoles>;
 type Fit = ValueTypeOf<typeof Allocation.Types.Fit>;
 type Result = ValueTypeOf<typeof Allocation.Types.FitResult>;
+type Plan = ValueTypeOf<typeof YardPlan>;
 type Bin = ValueTypeOf<typeof YardBin>;
+type Row = ValueTypeOf<typeof KilnBin>;
+type MinimalRow = ValueTypeOf<typeof MinimalBin>;
 const byString = compareFor(StringType);
+const sameResult = equalFor(Allocation.Types.FitResult);
+const printResult = printFor(Allocation.Types.FitResult);
 
 // The plan day as a fresh decoded value, so a test may change it.
 const fresh = () => decodeBeast2For(YardPlan)(encodeBeast2For(YardPlan)(yardPlanDay));
+/** The yard's bins, every day's, as a fresh decoded value, so a test may change them. */
+const freshRows = () => decodeBeast2For(kilnBins.type)(encodeBeast2For(kilnBins.type)(yardBinRows));
 
-const builtIn = East.compile(East.function([Request], Allocation.Types.FitResult, ($, req) => {
-    const answer = $.const(Allocation.answer(KilnBin));
+/**
+ * What a fit's function reads of a day the page holds (#1624): its bins as their roles, with no row, and the context's
+ * loads, kilns, rules and unit.
+ */
+const readOf = (plan: Plan, cx = context): Read => ({
+    bins: new SortedMap<string, Roles>([...plan.bins].map(([id, bin]) => [id, {
+        at: bin.at, lane: bin.lane, arrival: bin.arrival, quantity: bin.quantity, parts: bin.parts, hold: bin.hold, kind: bin.kind,
+    }] as const), byString),
+    arrivals: cx.arrivals, resources: cx.resources, rules: cx.rules, unit: cx.unit,
+});
+/** The built-in rules over what a function read: `Allocation.answer` with `Allocation.fit`. */
+const builtInOver = East.compile(East.function([Allocation.Types.FitRequest, Allocation.Types.FitContext], Allocation.Types.FitResult, ($, request, read) => {
+    const answer = $.const(Allocation.answer);
     const rule = $.const(Allocation.fit);
-    return answer(req, rule, "ranked by load, kind and spare days");
+    return answer(request, read, rule, "ranked by load, kind and spare days");
 }), []);
-const yard = East.compile(yardFitBody, []);
-const bulk = East.compile(bulkFitBody, []);
+/** The built-in rules with the greedy look-ahead, over what a function read. */
+const aheadOver = East.compile(East.function([Allocation.Types.FitRequest, Allocation.Types.FitContext], Allocation.Types.FitResult, ($, request, read) => {
+    const answer = $.const(Allocation.answer);
+    const rule = $.const(Allocation.fit);
+    const ahead = $.const(Allocation.lookahead);
+    return answer(request, read, East.function([Allocation.Types.Candidate], Allocation.Types.Fit, (_$2, c) => ahead(read, c, rule)),
+        "ranked by load, kind and spare days, and what it leaves for the day's other loads");
+}), []);
+/** The built-in rules over a day the page holds, the plan day by default. */
+const builtIn = (request: Request, plan: Plan = fresh(), cx = context): Result => builtInOver(request, readOf(plan, cx));
+
+// The yard's fits, each its function's body over its own inputs, as e3 runs it: the bins' index, the bins, the kilns and the loads.
+const yardBody = (yardFit.body as EastIR<EastType[], EastType>).compile([]) as unknown as (...inputs: unknown[]) => Result;
+const bulkBody = (bulkFit.body as EastIR<EastType[], EastType>).compile([]) as unknown as (...inputs: unknown[]) => Result;
+const minimalBody = (minimalFit.body as EastIR<EastType[], EastType>).compile([]) as unknown as (...inputs: unknown[]) => Result;
+const byTime = (rows: ReadonlyMap<string, Row>) => indexEntries(kilnBins, kilnBins.indexes.kiln_bins_by_time, rows).entries;
+/** The yard's fit over the bins given — every day's, the day's read through their index — and the yard's kilns and loads. */
+const yard = (request: Request, rows: ReadonlyMap<string, Row> = yardBinRows): Result => yardBody(byTime(rows), rows, yardKilns, yardArrivals, request);
+const bulk = (request: Request, rows: ReadonlyMap<string, Row> = yardBinRows): Result => bulkBody(byTime(rows), rows, yardKilns, yardArrivals, request);
+/** The smallest board's fit over its own bins. */
+const minimal = (request: Request, rows: ReadonlyMap<string, MinimalRow> = yardMinimalBinRows): Result =>
+    minimalBody(indexEntries(minimalBins, minimalBins.indexes.kiln_minimal_bins_by_time, rows).entries, rows, yardKilns, yardArrivals, request);
 const loads = East.compile(Allocation.loads(KilnBin), []);
 const check = East.compile(Allocation.check(KilnBin), []);
 const slots = East.compile(Allocation.slots(KilnBin), []);
-const candidates = East.compile(Allocation.candidates(KilnBin), []);
+const candidates = East.compile(Allocation.candidates, []);
 
-const placeArrival = (code: string, plan = fresh()): ValueTypeOf<typeof Request> => ({
-    day: yardDay, plan, context, ask: variant("place", { subject: variant("arrival", code), quantity: context.arrivals.get(code)!.quantity }),
-});
+/** The question a board asks of a day: the day, what is asked and the page's scope, here none — and no row. */
+const asked = (ask: Request["ask"], day: Date = yardDay): Request => ({ day, ask, scope: new SortedMap([], byString) });
+const placeArrival = (code: string): Request => asked(variant("place", { subject: variant("arrival", code), quantity: context.arrivals.get(code)!.quantity }));
+const placeBin = (id: string, quantity: number): Request => asked(variant("place", { subject: variant("bin", id), quantity }));
+const takeOf = (resource: string): Request => asked(variant("take", { resource }));
+/** Holds an answer to the one expected, by East's own equality. */
+function sameAnswer(actual: Result, expected: Result, of: string): void {
+    assert.ok(sameResult(actual, expected), `${of}: ${printResult(actual)}, expected ${printResult(expected)}`);
+}
 /** A reservation in a lane slot, on the kilns given: no arrival, no quantity, no kind and no hold; its row's own fields their type's default. */
 const reservation = (lane: string, at: Date, parts: SortedMap<string, number>): Bin => ({
     lane, at, arrival: none, quantity: 0, kind: none, hold: variant("days", 0), parts,
@@ -106,7 +166,7 @@ test("§0 worked facts — LD-2231's refusals, each group's reason, with K-503 a
 });
 
 test("§0 worked facts — bin 3113 (LD-2210, 32 m³ on K-108) fits K-103 and K-601 besides its own; 30 kilns refuse it", () => {
-    const result = builtIn({ day: yardDay, plan: fresh(), context, ask: variant("place", { subject: variant("bin", "3113"), quantity: 32 }) });
+    const result = builtIn(placeBin("3113", 32));
     assert.deepEqual(ranked(result), [
         ["K-103", 1, "0 d spare to Tue 18 · leaves 32 m³ · takes 16–32", null],
         ["K-108", 0.92, "2 d spare to Thu 20 · leaves 32 m³ · takes 16–32", null],
@@ -241,21 +301,20 @@ test("§0 worked facts — the day's slots: 80 Table rows, 18 slots holding bins
 
 test("a take: a verdict for every bin on the resource, and one for reserving — refused full at its maximum", () => {
     const plan = fresh();
-    const ask = (resource: string): ValueTypeOf<typeof Request> => ({ day: yardDay, plan, context, ask: variant("take", { resource }) });
-    const k203 = builtIn(ask("K-203"));
+    const k203 = builtIn(takeOf("K-203"), plan);
     assert.equal(k203.bins.size, 26);
     assert.equal(k203.resources.size, 0);
     assert.equal(k203.reserve.type === "some" && k203.reserve.value.type, "fits");
     plan.bins.get("3105")!.quantity = 40;
     plan.bins.get("3105")!.parts.set("K-203", 40);
-    const full = builtIn(ask("K-203"));
+    const full = builtIn(takeOf("K-203"), plan);
     assert.ok(full.reserve.type === "some");
     assert.equal(refusal(full.reserve.value).reason, "full · 40 m³ · takes 20–40");
-    assert.equal(candidates(ask("K-203")).at(-1)!.reserve, true);
+    assert.equal(candidates(takeOf("K-203"), readOf(plan)).at(-1)!.reserve, true);
 });
 
 test("A48, A61 — a take: a verdict for booking each arrival the plan has not booked onto the resource, the one a place of it gives there", () => {
-    const take = (resource: string, plan = fresh()) => builtIn({ day: yardDay, plan, context, ask: variant("take", { resource }) });
+    const take = (resource: string, plan = fresh()) => builtIn(takeOf(resource), plan);
     // The six loads still to book, and no other: every one fits K-601, under its minimum.
     const k601 = take("K-601");
     assert.deepEqual([...k601.arrivals.keys()], ["LD-2231", "LD-2232", "LD-2233", "LD-2234", "LD-2235", "LD-2236"]);
@@ -278,10 +337,10 @@ test("A48, A61 — a take: a verdict for booking each arrival the plan has not b
 test("§12.3 rule 4 — a reservation placed is checked with no quantity and each resource's own hold, as a take reserves", () => {
     const plan = fresh();
     plan.bins.set("V1", reservation("B-1", new Date(Date.UTC(2027, 4, 11, 0, 15)), new SortedMap([], byString)));
-    const placed = builtIn({ day: yardDay, plan, context, ask: variant("place", { subject: variant("bin", "V1"), quantity: 0 }) });
+    const placed = builtIn(placeBin("V1", 0), plan);
     // Each resource's verdict is the one its take gives for reserving.
     for (const resource of ["K-101", "K-104", "K-207", "K-503", "K-601"]) {
-        const take = builtIn({ day: yardDay, plan, context, ask: variant("take", { resource }) });
+        const take = builtIn(takeOf(resource), plan);
         assert.ok(take.reserve.type === "some");
         assert.deepEqual(placed.resources.get(resource), take.reserve.value, resource);
     }
@@ -291,6 +350,82 @@ test("§12.3 rule 4 — a reservation placed is checked with no quantity and eac
 
 test("a type constructor returns the same East type for the same bin row type", () => {
     assert.ok(isTypeEqual(Allocation.Types.Day(KilnBin), Allocation.Types.Day(KilnBin)));
-    assert.ok(isTypeEqual(Allocation.Types.FitRequest(KilnBin).fields.plan, Allocation.Types.Day(KilnBin)));
     assert.equal(isTypeEqual(Allocation.Types.Day(KilnBin), Allocation.Types.Day(StringType)), false);
+});
+
+// ============================================================================
+// The fit's contract (east-workspace#1624)
+// ============================================================================
+
+test("#1624 rule 1 — a fit's request holds the day, the question and the scope alone, and takes no row type", () => {
+    assert.deepEqual(Object.keys(Allocation.Types.FitRequest.fields), ["day", "ask", "scope"]);
+    // The scope is typed as an optimiser's `slice` is (#1622): each rail source's fields by the source's name.
+    assert.ok(isTypeEqual(Allocation.Types.FitRequest.fields.scope, Allocation.Types.OptimiseRequest.fields.slice));
+    // What a function read holds no row either: the bins are their roles.
+    assert.ok(isTypeEqual(Allocation.Types.FitContext.fields.bins, DictType(StringType, Schedule.Types.AllocationRoles)));
+});
+
+test("#1624 — the yard's fit on e3 reads the day's bins through their index, and answers what the rules answer over the day the page holds", () => {
+    // The record holds three days' bins; the function reads the plan day's 26 through the interval index, and no other.
+    for (const request of [placeArrival("LD-2231"), placeArrival("LD-2236"), placeBin("3113", 32), takeOf("K-601"), takeOf("K-203")]) {
+        sameAnswer(yard(request), aheadOver(request, readOf(fresh())), printFor(Allocation.Types.FitAsk)(request.ask));
+    }
+    // Asked of another day, it reads that day's bins: Wed 12's three, split across kilns.
+    const split = yard(asked(variant("take", { resource: "K-110" }), yardSplitDay));
+    assert.deepEqual([...split.bins.keys()], ["3201", "3202", "3203"]);
+});
+
+test("#1624 — a bin the record does not hold yet, laid over it as a draft is: its part counts in its kiln's load, and a place of it is answered", () => {
+    // What e3 hands the body for a call with drafts: the record with the unsaved bin in it, and its index over that state.
+    const rows = freshRows();
+    const parts = new SortedMap([["K-107", 21]], byString);
+    rows.set("N1", { bay: "B-1", at: new Date(Date.UTC(2027, 4, 11, 0, 15)), load: some("LD-2231"), m3: 21, spec: some("MC12"), dryFor: variant("days", 8), kilns: parts,
+        specBooked: "MC12", specMeasured: "MC12", gradeBooked: "R", gradeMeasured: "R2", instruction: none });
+    // K-107 takes 12–24 m³: saved it is free and LD-2236's 11 m³ fits it; with the unsaved 21 m³ on it, those 11 m³ are 8 over its maximum.
+    assert.equal(yard(placeArrival("LD-2236")).resources.get("K-107")?.type, "fits");
+    assert.equal(refusal(yard(placeArrival("LD-2236"), rows).resources.get("K-107")).reason, "over max by 8 m³");
+    // The unsaved bin is a subject like any other, and its load is booked: a take offers it no more.
+    const placed = yard(placeBin("N1", 21), rows);
+    assert.equal(placed.resources.get("K-107")?.type, "fits");
+    assert.equal(yard(takeOf("K-601"), rows).arrivals.has("LD-2231"), false);
+    assert.equal(yard(takeOf("K-601")).arrivals.has("LD-2231"), true);
+});
+
+test("#1624 rule 2 — an answer covers the subjects the function considered: a context of one hall's kilns gives verdicts for those alone", () => {
+    const hallA = new SortedMap([...context.resources].filter(([, kiln]) => kiln.group.type === "some" && kiln.group.value === "Hall A"), byString);
+    const answer = builtInOver(placeArrival("LD-2231"), { ...readOf(fresh()), resources: hallA });
+    assert.deepEqual([...answer.resources.keys()], [...hallA.keys()]);
+    // Each is the verdict the whole yard's answer gives that kiln: a part on a kiln outside the context is on none.
+    const whole = builtIn(placeArrival("LD-2231"));
+    for (const [key, fit] of answer.resources) assert.deepEqual(fit, whole.resources.get(key), key);
+});
+
+test("#1624 rule 7 — the question's own subject: a place's bin or arrival, or a take's resource, not in the context fails the call", () => {
+    const read = readOf(fresh());
+    assert.throws(() => builtInOver(placeBin("nowhere", 8), read));
+    assert.throws(() => builtInOver(asked(variant("place", { subject: variant("arrival", "LD-0000"), quantity: 8 })), read));
+    assert.throws(() => builtInOver(takeOf("K-000"), read));
+    // And through the yard's function, as e3 runs it.
+    assert.throws(() => yard(placeBin("nowhere", 8)));
+});
+
+test("#1624 — the smallest board's fit reads as its page's kinds do: no kind, no group, a kiln's hold no time", () => {
+    // The page's reading of the same records, through the board's own adapters with the smallest board's accessors.
+    const contextOf = East.compile(East.function([DictType(StringType, Bay), DictType(StringType, TimberLoad), DictType(StringType, Kiln)], Allocation.Types.Context,
+        (_$, bays, loadRows, yardRows) => Allocation.context({
+            lanes: Schedule.resources(bays, { name: "Bays", icon: "warehouse", label: b => b.name, offset: b => b.offset }),
+            arrivals: Allocation.arrivals(loadRows, { label: l => l.code, quantity: l => l.m3, hold: l => variant("days", l.dryingDays) }),
+            resources: Schedule.resources(yardRows, { name: "Kilns", icon: "fire", label: k => k.name, min: k => k.min, max: k => k.max, jobs: k => k.charges }),
+            unit: "m³",
+        })), []);
+    const page = contextOf(yardBayRows, yardArrivals, yardKilns);
+    const read: Read = {
+        bins: new SortedMap<string, Roles>([...yardMinimalBinRows].map(([id, row]) => [id, {
+            at: row.at, lane: row.bay, arrival: row.load, quantity: row.m3, parts: row.kilns, hold: row.dryFor, kind: none,
+        }] as const), byString),
+        arrivals: page.arrivals, resources: page.resources, rules: page.rules, unit: page.unit,
+    };
+    for (const request of [placeArrival("LD-2231"), placeBin("3113", 32), takeOf("K-601")]) {
+        sameAnswer(minimal(request), builtInOver(request, read), printFor(Allocation.Types.FitAsk)(request.ask));
+    }
 });

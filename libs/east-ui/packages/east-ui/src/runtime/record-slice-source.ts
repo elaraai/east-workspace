@@ -349,18 +349,23 @@ export class RecordSliceSource<T> {
     /**
      * Find every selected range. Pending ranges produce no partial count;
      * failures retain their reason. A retry uses the provider's normal policy.
-     * @param plan - One path's exact queries, or its entire source.
+     * A plan that holds no row (#1621) has no range: nothing is asked of the
+     * source for it, and its runs are none.
+     * @param plan - One path's exact queries, its entire source, or nothing of it.
      * @returns Complete ranges, or none while pending.
      */
     resolve(plan: RecordSlicePlan): option<RecordSliceRuns> {
         const revision = this.current();
         if (revision === undefined) return none;
-        const key = `${plan.index}:${printQueries(plan.queries)}`;
+        // A printed list of queries opens with a bracket, so no plan's queries are kept under an empty plan's key.
+        const key = plan.empty === true ? `${plan.index}:empty` : `${plan.index}:${printQueries(plan.queries)}`;
         const hit = this.resolved.get(key);
         if (hit !== undefined) return some(hit);
         const ranges: Range[] = [];
         let pending = false;
-        if (plan.queries.length === 0) {
+        if (plan.empty === true) {
+            // No search is made, and no run found.
+        } else if (plan.queries.length === 0) {
             const total = this.reader.total(plan.index);
             if (total.type === "none") pending = true;
             else ranges.push({ found: total.value > 0n, row: 0n, count: total.value });
@@ -804,6 +809,12 @@ export class RecordSliceSource<T> {
         if (this.reader.placeAll === undefined) throw new Error("This record's binding cannot place a narrowing's rows");
         const resolved = this.resolve(plan);
         if (resolved.type === "none") return none;
+        if (plan.empty === true) {
+            // A narrowing that holds no row places none (#1621): the reader is asked only how many rows the record holds.
+            const records = this.reader.total(resolved.value.index);
+            if (this.movedFrom(resolved.value.revision) || records.type === "none") return none;
+            return some({ segments: [], placed: 0n, total: 0n, records: records.value, complete: true });
+        }
         const placement = this.reader.placeAll(resolved.value.index, resolved.value.runs);
         if (this.movedFrom(resolved.value.revision) || placement.type === "none") return none;
         if (placement.value.total !== resolved.value.total) throw new Error("The record's placement disagrees with its search bounds; refresh the view and retry");
@@ -829,6 +840,8 @@ export class RecordSliceSource<T> {
         const resolved = this.resolve(plan);
         if (resolved.type === "none") return none;
         if (entries.length === 0) return some([]);
+        // A narrowing that holds no row holds no entry (#1621): the reader is not asked.
+        if (plan.empty === true) return some(entries.map(() => false));
         if (entries.length <= MAX_RECORD_SLICE_BATCH) {
             // Entries that fit one read are handed on as they are, the same array whenever they are asked again, so a
             // reader keeping what it made of them by the array finds it.
@@ -868,6 +881,8 @@ export class RecordSliceSource<T> {
     seek(plan: RecordSlicePlan, query: Query): option<Range> {
         const resolved = this.resolve(plan);
         if (resolved.type === "none") return none;
+        // A narrowing that holds no row holds no key (#1621): nothing is searched.
+        if (plan.empty === true) return some({ found: false, row: 0n, count: 0n });
         const result = resolved.value;
         const searched = this.search(result.index, query);
         if (this.movedFrom(result.revision) || searched.type === "none") return none;

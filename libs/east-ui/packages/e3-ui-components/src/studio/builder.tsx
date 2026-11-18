@@ -240,6 +240,8 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
         onPatch: none,
         // Apply: the batch, one patch on the page through the record's patch write.
         onApply: some(variant("async", (bytes: Uint8Array) => east.save(handle, open, decodeBatch(bytes)))),
+        // A page's Save is the builder's own, over one entry of the pages record: it has no draft form.
+        toDraft: none,
         fields: { key: "key", row: "row", span: "span", height: some("height"), align: some("align") },
         derive: (bytes: Uint8Array) => decodeCells(bytes).map(cellView),
         // A component dropped from the palette: a placement at its span; the

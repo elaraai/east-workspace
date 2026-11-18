@@ -23,6 +23,7 @@ import {
 } from '@elaraai/e3-types';
 import { OBJECT_CONCURRENCY, TOUCH_BATCH, eachAtMost, readInOrder } from './concurrency.js';
 import { dataflowGetGraph } from './dataflow.js';
+import { inputObject } from './dataset-open.js';
 import { collectLeafPaths, keypathToRefPath, refPathToKeypath } from './dataset-refs.js';
 import {
   InvalidNameError, ObjectNotFoundError, PackageExistsError, WorkspaceBundleInvalidError, WorkspaceExistsError,
@@ -33,6 +34,7 @@ import { gcObjectReaders, markReachable, touchReachable } from './gc-graph.js';
 import { packageObjectRead } from './packages.js';
 import { withRunningWork } from './running-work.js';
 import type { StorageBackend } from './storage/interfaces.js';
+import { taskObjectRead } from './tasks.js';
 import { readStateOrThrow } from './workspaces.js';
 
 /**
@@ -190,14 +192,18 @@ async function headOf(storage: StorageBackend, repo: string, ws: string): Promis
 
   // Each task's latest attempt over its current inputs, kept where it made the
   // output the workspace holds: what the workspace's status reads it up to
-  // date by
+  // date by. An input that is an index of a record is the index's manifest,
+  // found in the record's state, as the dataflow keys the task's executions.
   const current: { taskHash: string; inputsHash: string; output: string }[] = [];
   for (const task of (await dataflowGetGraph(storage, repo, ws)).tasks) {
     const output = valueHash(datasets.get(keypathToRefPath(task.output)));
+    const declaredInputs = (await taskObjectRead(storage, repo, task.hash)).inputs;
     const inputs: string[] = [];
-    for (const keypath of task.inputs) {
+    for (const [at, keypath] of task.inputs.entries()) {
       const hash = valueHash(datasets.get(keypathToRefPath(keypath)));
-      if (hash !== null) inputs.push(hash);
+      const index = declaredInputs[at]?.index;
+      const object = hash === null ? null : await inputObject(storage, repo, hash, index?.type === 'some' ? index.value : null);
+      if (object !== null) inputs.push(object);
     }
     if (output === null || inputs.length !== task.inputs.length) continue;
     current.push({ taskHash: task.hash, inputsHash: inputsHash(inputs), output });

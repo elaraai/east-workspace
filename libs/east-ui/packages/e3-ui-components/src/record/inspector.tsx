@@ -54,7 +54,7 @@ import {
 } from "@elaraai/east-ui-components";
 import { FrameDrawer, formatDatePattern } from "@elaraai/east-ui-components/internal";
 import { useSheetEntries, useSheetInspect, type SheetInspect, type SheetInspectPlace, type SheetInspectTarget } from "../sheet/index.js";
-import { issuesByField, targetIssues, useAuthorDetails, useTargetForm, whatOf, type FormValue, type SheetInspectorDetailsProps } from "../sheet/frame/inspector.js";
+import { issuesByField, targetBreachTone, targetIssues, useAuthorDetails, useTargetForm, whatOf, type FormValue, type SheetInspectorDetailsProps } from "../sheet/frame/inspector.js";
 import { indexColumns, indexRegisters, markOf, type SheetColumnIndex } from "../sheet/model.js";
 import type { SheetWords } from "../sheet/words.js";
 import { ageOf, useRecordNow } from "./clock.js";
@@ -188,7 +188,7 @@ function RecordTarget({ value, pane, keys, words, hidden, noun, styles, inspect,
     const own = useAuthorDetails({ value, pane, inspect, target, form, struct: edit.struct });
     const issues = targetIssues(target, inspect, form, words);
     // A bound the row breaks (#1585), said in the tone its Save stands in: as stored it warns; its change held, an error.
-    const breaches = issues.some((issue) => issue.kind !== "warning") ? "error" : "warn";
+    const breaches = targetBreachTone(issues);
     const registers = useMemo(() => indexRegisters(value.sheet.registers), [value.sheet.registers]);
     const isNew = target.baseline === undefined && target.value !== undefined;
     const r = target.r;

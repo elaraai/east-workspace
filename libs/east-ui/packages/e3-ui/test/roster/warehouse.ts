@@ -1028,7 +1028,9 @@ export const warehouseSuggestions: SortedMap<string, ValueTypeOf<typeof Warehous
 /**
  * A seeded week as the Roster reads it from the duties and the targets: each
  * duty by its key, in its slot, with its hours — its length — and its row; each
- * target by its slot.
+ * target by its slot, its hours needed the sum of its activities' — the
+ * warehouse's targets give no `needed` of their own (#1678), and every hour
+ * here is whole, so the sum is the same in any order.
  */
 function rosterWeekOf(weekStart: Date, rows: readonly SeedRow[], targets: readonly Target[], status: ValueTypeOf<typeof Roster.Types.Status>): ValueTypeOf<typeof WarehouseRosterWeek> {
     return {
@@ -1043,7 +1045,8 @@ function rosterWeekOf(weekStart: Date, rows: readonly SeedRow[], targets: readon
             }] as const;
         }), stringOrder),
         requirements: new SortedMap(targets.map(([day, group, shift, positions, hours]) => [{ day: BigInt(day), group, shift },
-            { positions: BigInt(positions), hours: new SortedMap(Object.entries(hours), stringOrder) }] as const), compareFor(Roster.Types.Slot)),
+            { positions: BigInt(positions), hours: new SortedMap(Object.entries(hours), stringOrder), needed: Object.values(hours).reduce((sum, h) => sum + h, 0) }] as const),
+            compareFor(Roster.Types.Slot)),
         dismissed: new SortedSet([], stringOrder),
     };
 }

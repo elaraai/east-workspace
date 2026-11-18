@@ -23,6 +23,13 @@
  * cache by path. Declared signatures are validated against the deployed
  * package's function list before any call is sent.
  *
+ * A handle of a function that lists `drafts` takes them as its call's last
+ * argument (east-workspace#1620): unsaved edits of the records the function
+ * reads, sent with the call, which e3 lays over them and never saves. The
+ * channel keeps, with a call's result, the records that call drafted and the
+ * commit each stood at; a draft the record refuses ends the call as the Save
+ * of it would have ended, and the error names the draft.
+ *
  * State (registry, signature cache, tracking context) is encapsulated in
  * the {@link FuncRuntime} class. A process-global {@link defaultFuncRuntime}
  * powers the `FuncPlatform` export; tests construct their own runtime for
@@ -33,9 +40,11 @@
 
 import {
     East,
+    ArrayType,
     StructType,
     OptionType,
     BooleanType,
+    IntegerType,
     NullType,
     StringType,
     fromEastTypeValue,
@@ -44,14 +53,20 @@ import {
     type ValueTypeOf,
     encodeBeast2For,
     decodeBeast2For,
+    equalFor,
     isTypeValueEqual,
     none,
+    printFor,
     some,
     toEastTypeValue,
     variant,
 } from "@elaraai/east";
 import { type PlatformFunction } from "@elaraai/east/internal";
-import { funcBindPlatformFn, FuncBindPrimitives, FuncStatusType, FuncErrorType } from "@elaraai/e3-ui/internal";
+import {
+    funcBindPlatformFn, FuncBindPrimitives, FuncDraftType, FuncDraftedType, FuncStatusType, FuncErrorType,
+} from "@elaraai/e3-ui/internal";
+import { functionDraftEnded, functionDraftLabel, functionDraftsOutlasted } from "@elaraai/e3-types";
+import { runnerFailureOf } from "./runner-failure.js";
 import {
     workspaceFunctionList,
     workspaceFunctionCall,
@@ -71,11 +86,21 @@ import { TrackedChannelStore } from "./tracked-channel.js";
 // harness swaps in an in-memory implementation.
 // =============================================================================
 
+/** A draft, decoded: a call of a record's mutation that is not committed. */
+export type FuncDraft = ValueTypeOf<FuncDraftType>;
+
+/** A record a call drafted, decoded: its name and the commit it stood at. */
+export type FuncDrafted = ValueTypeOf<FuncDraftedType>;
+
 /** Request shape for {@link FunctionApi.call} — beast2-encoded positional
- *  args. Runner/limit overrides are deliberately not exposed (the deployed
- *  function's runner is authoritative). */
+ *  args, and the call's drafts. Runner/limit overrides are deliberately not
+ *  exposed (the deployed function's runner is authoritative). */
 export interface FunctionCallArgs {
     args: Uint8Array[];
+    /** The call's drafts: unsaved edits of records the function lists, which
+     *  the call lays over them and never saves. None, and the function reads
+     *  the workspace as saved. */
+    drafts: FuncDraft[];
 }
 
 /** Options for {@link FunctionApi.call}. */
@@ -137,6 +162,9 @@ export function createDefaultFunctionApi(
                 args: req.args.map(arg => variant("value", arg)),
                 runner: none,
                 limits: none,
+                // The unsaved edits the handle was called with: none, and the
+                // function reads the workspace as saved
+                drafts: req.drafts,
             }, getOptions(), {
                 // The call is started, and polled to its end; an abort asks the
                 // server to stop it
@@ -156,8 +184,38 @@ type FuncStatusTag = ValueTypeOf<FuncStatusType>["type"];
 
 /** A handle's signature, recovered from the instantiated handle type. */
 interface FuncHandleSignature {
+    /** The function's argument types: what its call takes before any drafts. */
     readonly inputs: EastTypeValue[];
     readonly output: EastTypeValue;
+    /** Whether the handle is of a function that lists `drafts`: its call takes
+     *  them after the arguments, and it has `drafted`. */
+    readonly drafts: boolean;
+}
+
+/** The function's own signature: what a call sends, and what it decodes. */
+type FuncCallSignature = Pick<FuncHandleSignature, "inputs" | "output">;
+
+/** A call's drafts, as a drafted handle's `call` takes them last. */
+const DraftsType = ArrayType(FuncDraftType);
+const DRAFTS_TYPE_VALUE = toEastTypeValue(DraftsType);
+
+/** An Integer a message names, as East prints it. */
+const printInteger = printFor(IntegerType);
+
+/** Two records' names, compared as East compares Strings. */
+const stringEqual = equalFor(StringType);
+
+/** The fields of an instantiated handle struct type. */
+function handleFields(handleType: EastTypeValue): { name: string; type: EastTypeValue }[] {
+    if (handleType.type !== "Struct") {
+        throw new Error(`Func.bind: handle type must be a Struct; got ${handleType.type}`);
+    }
+    return handleType.value as { name: string; type: EastTypeValue }[];
+}
+
+/** Whether a handle type is of a function that lists `drafts`: one that has `drafted`, whose `call` takes them last. */
+function takesDrafts(handleType: EastTypeValue): boolean {
+    return handleFields(handleType).some(f => f.name === "drafted");
 }
 
 /**
@@ -165,18 +223,23 @@ interface FuncHandleSignature {
  * from the `call` field's FunctionType, the output type from the `read`
  * field's `Option(Output)` return. The handle's shape IS the signature —
  * there are no duplicate signature arguments to drift out of sync.
+ *
+ * A handle has what its type names: one with `drafted` is of a function that
+ * lists `drafts`, and its `call`'s last input is the drafts, not an argument
+ * of the function.
  */
 export function signatureOfFuncHandleType(handleType: EastTypeValue): FuncHandleSignature {
-    if (handleType.type !== "Struct") {
-        throw new Error(`Func.bind: handle type must be a Struct; got ${handleType.type}`);
-    }
-    const fields = handleType.value as { name: string; type: EastTypeValue }[];
+    const fields = handleFields(handleType);
     const call = fields.find(f => f.name === "call")?.type;
     const read = fields.find(f => f.name === "read")?.type;
     if (call?.type !== "Function" || read?.type !== "Function") {
         throw new Error("Func.bind: handle type is missing its call/read closures");
     }
-    const inputs = (call.value as { inputs: EastTypeValue[] }).inputs;
+    const taken = (call.value as { inputs: EastTypeValue[] }).inputs;
+    const drafts = takesDrafts(handleType);
+    if (drafts && (taken.length === 0 || !isTypeValueEqual(taken[taken.length - 1]!, DRAFTS_TYPE_VALUE))) {
+        throw new Error("Func.bind: a handle with drafted() takes the drafts as its call's last argument, an Array of drafts");
+    }
     const readOut = (read.value as { output: EastTypeValue }).output;
     if (readOut.type !== "Variant") {
         throw new Error("Func.bind: read() must return Option(Output)");
@@ -185,17 +248,48 @@ export function signatureOfFuncHandleType(handleType: EastTypeValue): FuncHandle
     if (!some) {
         throw new Error("Func.bind: read() must return Option(Output)");
     }
-    return { inputs, output: some.type };
+    return { inputs: drafts ? taken.slice(0, -1) : taken, output: some.type, drafts };
 }
 
-/** Build a FuncError value from an ExecuteResult's non-success outcome. */
+/**
+ * Build a FuncError value from an ExecuteResult's non-success outcome.
+ *
+ * A draft that ended the call before the function ran is named by its place
+ * among the call's: by the outcome itself where the record refused it
+ * (`conflict`), by the result's `draftEnd` where its mutation failed or the
+ * call's time ran out (`functionDraftEnded` reads it, never the stderr, which
+ * a function's own output may begin the same way: #1680's review), and in the
+ * diagnostic where the call may not pass it (`invalid`). Where its mutation
+ * failed, the error carries the draft too: its place and what its record said
+ * of it, the message the mutation's program raised after the first line of
+ * the call's stderr, which names the draft. A call whose time ran out once its
+ * drafts were all laid says so (`functionDraftsOutlasted`), not that its
+ * function ran out of it.
+ */
 function errorOfExecuteResult(result: ExecuteResult): FuncError {
     const outcome = result.outcome;
+    const ended = functionDraftEnded(result);
+    const draft = ended === null ? null : functionDraftLabel(ended, Number(ended.place), Number(ended.of));
     switch (outcome.type) {
+        case "conflict": {
+            const refused = functionDraftLabel(outcome.value, Number(outcome.value.place), Number(outcome.value.of));
+            return {
+                kind: variant("conflict", outcome.value),
+                message: `${refused} no longer matches the record (${outcome.value.message}); re-read it and call again`,
+                stdout: result.stdout,
+                stderr: result.stderr,
+            };
+        }
         case "failed":
             return {
-                kind: variant("failed", { exitCode: outcome.value.exitCode }),
-                message: `runner exited with code ${outcome.value.exitCode}`,
+                kind: variant("failed", {
+                    exitCode: outcome.value.exitCode,
+                    // The draft whose mutation failed, and what its record said of it: what follows the line naming it.
+                    draft: ended === null ? none : some({ place: ended.place, refusal: draftWords(result.stderr) }),
+                }),
+                message: draft === null
+                    ? `runner exited with code ${printInteger(outcome.value.exitCode)}`
+                    : `${draft} failed with exit code ${printInteger(outcome.value.exitCode)}; the function did not run`,
                 stdout: result.stdout,
                 stderr: result.stderr,
             };
@@ -216,20 +310,67 @@ function errorOfExecuteResult(result: ExecuteResult): FuncError {
         case "too_large":
             return {
                 kind: variant("too_large", { bytes: outcome.value.bytes, limit: outcome.value.limit }),
-                message: `result too large (${outcome.value.bytes} bytes, limit ${outcome.value.limit})`,
+                message: `result too large (${printInteger(outcome.value.bytes)} bytes, limit ${printInteger(outcome.value.limit)})`,
                 stdout: result.stdout,
                 stderr: result.stderr,
             };
-        case "timed_out":
+        case "timed_out": {
+            const ms = printInteger(outcome.value.ms);
             return {
                 kind: variant("timed_out", { ms: outcome.value.ms }),
-                message: `call timed out after ${outcome.value.ms}ms`,
+                message: draft !== null
+                    ? `${draft} had not been laid when the call timed out after ${ms}ms; the function did not run`
+                    : functionDraftsOutlasted(result)
+                        ? `the call's drafts were laid, and its timeout of ${ms}ms ended before the function ran; the function did not run`
+                        : `call timed out after ${ms}ms`,
                 stdout: result.stdout,
                 stderr: result.stderr,
             };
+        }
         default:
             return transportError(`unexpected outcome "${outcome.type}"`);
     }
+}
+
+/**
+ * What a record said of a draft its mutation refused: the call's stderr after its first line, which names the draft
+ * — the message the mutation's program raised, without the places it was raised at, as a runner frames its failure;
+ * else what follows that line, trimmed.
+ *
+ * @param stderr - The call's stderr
+ * @returns The words; empty where there are none
+ */
+function draftWords(stderr: string): string {
+    const lineEnd = stderr.indexOf("\n");
+    const rest = lineEnd === -1 ? "" : stderr.slice(lineEnd + 1);
+    return (runnerFailureOf(rest)?.message ?? rest).trim();
+}
+
+/** The draft whose mutation ended a failed call, decoded: its place among the call's drafts, from 1, and what its record said of it. */
+export type FuncFailedDraft = ValueTypeOf<typeof FuncErrorType.fields.kind.cases.failed.fields.draft.cases.some>;
+
+/**
+ * The draft whose mutation failed as a call laid it, ending the call before its function ran (east-workspace#1619,
+ * rule 8), as the call's error carries it: its place among the call's drafts, and what its record said of it.
+ *
+ * @param error - A call's error, as {@link errorOfExecuteResult} makes it
+ * @returns The draft; `undefined` for a call that ended another way, and for a failed one no draft's mutation ended
+ */
+export function failedDraft(error: FuncError): FuncFailedDraft | undefined {
+    return error.kind.type === "failed" && error.kind.value.draft.type === "some" ? error.kind.value.draft.value : undefined;
+}
+
+/**
+ * What a record said of a draft it refused as a call laid it (east-workspace#1619, rule 8): the message its mutation's
+ * program raised, as the call's error carries it — the reason a Save of the same edit is refused for. What shows why
+ * a call ended says them in place of the call's own summary, which names the draft and no reason.
+ *
+ * @param error - A failed call's error, as {@link errorOfExecuteResult} makes it
+ * @returns The record's words; `undefined` for a call no draft's mutation failed, and for one that said nothing
+ */
+export function draftRefusal(error: FuncError): string | undefined {
+    const said = failedDraft(error)?.refusal;
+    return said === undefined || said.length === 0 ? undefined : said;
 }
 
 function transportError(message: string): FuncError {
@@ -253,6 +394,9 @@ interface FuncEntry {
     launchSeq: number;
     /** Decoded Output of the last `succeeded` call. */
     result?: unknown;
+    /** The records that call drafted, each with the commit it stood at as the
+     *  server laid its drafts: kept with `result`, which it answers for. */
+    drafted?: FuncDrafted[];
     /** Detail of the last `failed` call. */
     error?: FuncError;
     /** Stops the call in flight, while one is: a call that supersedes it, and
@@ -309,10 +453,12 @@ export class FuncRuntime extends TrackedChannelStore<FuncEntry> {
     // Signature lists are fetched once per workspace and cached.
     private signatureLists = new Map<string, Promise<FunctionSignature[]>>();
 
-    // Compiled-handle cache (issue #106 perf): buildHandle compiles 6 East.functions
-    // per bind, and binds re-run every reactive frame. The method IR is a pure
-    // function of the function name (which fixes the handle type), and the methods
-    // resolve workspace/api LIVE, so a cached handle still re-binds. Cleared on clear().
+    // Compiled-method cache (issue #106 perf): buildHandle compiles an East.function
+    // per method per bind, and binds re-run every reactive frame. The method IR is a
+    // pure function of the function's name (which fixes its signature), the records
+    // it lists and the handle's form, and the methods resolve workspace/api LIVE, so
+    // cached methods still re-bind; each bind is handed them with a binding of its
+    // own. Cleared on clear().
     private readonly handleCache = new Map<string, Record<string, unknown>>();
 
     protected createEntry(): FuncEntry {
@@ -395,7 +541,7 @@ export class FuncRuntime extends TrackedChannelStore<FuncEntry> {
 
     /** Validate a declared signature against the deployed list. Returns a
      *  FuncError when the name is unknown or the signature disagrees. */
-    private async validate(workspace: string, name: string, sig: FuncHandleSignature): Promise<FuncError | null> {
+    private async validate(workspace: string, name: string, sig: FuncCallSignature): Promise<FuncError | null> {
         let list: FunctionSignature[];
         try {
             list = await this.signatures(workspace);
@@ -432,7 +578,7 @@ export class FuncRuntime extends TrackedChannelStore<FuncEntry> {
 
     // ----- closure semantics -------------------------------------------------
 
-    private launch(workspace: string, name: string, sig: FuncHandleSignature, args: unknown[]): void {
+    private launch(workspace: string, name: string, sig: FuncCallSignature, args: unknown[], drafts: FuncDraft[]): void {
         const key = funcChannelKey(workspace, name);
         // The call this one supersedes is stopped on the server (latest-wins)
         const controller = new AbortController();
@@ -462,12 +608,24 @@ export class FuncRuntime extends TrackedChannelStore<FuncEntry> {
             let result: ExecuteResult;
             try {
                 const encoded = args.map((arg, i) => encodeBeast2For(sig.inputs[i]!)(arg));
-                result = await api.call(workspace, name, { args: encoded }, { signal: controller.signal });
+                result = await api.call(workspace, name, { args: encoded, drafts }, { signal: controller.signal });
             } catch (err) {
                 settle(e => {
                     e.status = "failed";
                     e.error = transportError(err instanceof Error ? err.message : String(err));
                 });
+                return;
+            }
+            // A host's FunctionApi that did not send the drafts ran the call over the workspace as saved: a
+            // result that names no draft of a record the call drafted is not the answer over the drafts, and
+            // is refused, never shown as that answer. A refused call, `invalid`, laid none and names none.
+            const unsent = result.outcome.type === "invalid"
+                ? undefined
+                : drafts.find(draft => !result.drafts.some(drafted => stringEqual(drafted.record, draft.record)));
+            if (unsent !== undefined) {
+                const message = `the call passed ${drafts.length} draft(s), and its result names no draft of record '${unsent.record}': ` +
+                    "the host's function API did not send them, and the function read the workspace as saved";
+                settle(e => { e.status = "failed"; e.error = transportError(message); });
                 return;
             }
             if (result.outcome.type === "success") {
@@ -481,7 +639,9 @@ export class FuncRuntime extends TrackedChannelStore<FuncEntry> {
                     });
                     return;
                 }
-                settle(e => { e.status = "succeeded"; e.result = decoded; delete e.error; });
+                // The result, and with it the records its call drafted
+                const drafted = result.drafts;
+                settle(e => { e.status = "succeeded"; e.result = decoded; e.drafted = drafted; delete e.error; });
             } else {
                 const error = errorOfExecuteResult(result);
                 settle(e => { e.status = "failed"; e.error = error; });
@@ -490,7 +650,7 @@ export class FuncRuntime extends TrackedChannelStore<FuncEntry> {
     }
 
     /**
-     * The 6 low-level primitives backing handle methods, bound to THIS runtime.
+     * The low-level primitives backing handle methods, bound to THIS runtime.
      * Registered globally (extension registry) and included by the scoped
      * platform (e3 `ui()` tasks) so a decoded handle re-binds to whatever runtime
      * resolves the primitives on the decode side. The host effects (launch /
@@ -513,19 +673,26 @@ export class FuncRuntime extends TrackedChannelStore<FuncEntry> {
         return [
             // call: recover per-arg input types from the ArgsStruct type-arg + the
             // values from the passed struct (field order), and the output type from O.
+            // The drafts are sent as the handle's call was given them.
             FuncBindPrimitives.call.implement((argsStructType: EastTypeValue, outputType: EastTypeValue) =>
-                (nameArg: unknown, argsStruct: unknown) => {
+                (nameArg: unknown, argsStruct: unknown, draftsArg: unknown) => {
                     const fields = (argsStructType as { value: { name: string; type: EastTypeValue }[] }).value;
                     const obj = argsStruct as Record<string, unknown>;
                     const inputs = fields.map(f => f.type);
                     const args = fields.map(f => obj[f.name]);
-                    runtime.launch(resolveWorkspace(), nameArg as string, { inputs, output: outputType }, args);
+                    runtime.launch(resolveWorkspace(), nameArg as string, { inputs, output: outputType }, args, [...draftsArg as FuncDraft[]]);
                     return null;
                 }),
             FuncBindPrimitives.read.implement((_outputType: EastTypeValue) => (nameArg: unknown) => {
                 const { key, entry } = channel(nameArg as string);
                 runtime.track(key);
                 return entry.result !== undefined ? some(entry.result) : none;
+            }),
+            // drafted: what the call that gave `read`'s result drafted; none before one has.
+            FuncBindPrimitives.drafted.implement((nameArg: unknown) => {
+                const { key, entry } = channel(nameArg as string);
+                runtime.track(key);
+                return [...entry.drafted ?? []];
             }),
             FuncBindPrimitives.status.implement((nameArg: unknown) => {
                 const { key, entry } = channel(nameArg as string);
@@ -558,12 +725,30 @@ export class FuncRuntime extends TrackedChannelStore<FuncEntry> {
      * thin IR-bearing `East.function`s over {@link buildPrimitives}, capturing
      * only the function name (and the signature types via type-args) — so the
      * handle is ordinary serializable East data (issue #106).
+     *
+     * A handle has what its type names: one whose type has `drafted` is of a
+     * function that lists `drafts`, and its `call` takes them last; any other
+     * has today's call, which sends none.
+     *
+     * @param handleType - The instantiated handle struct type
+     * @param name - The function's name in the deployed package
+     * @param drafts - The records the function lists in its `drafts`, by name:
+     *   what the handle's `binding` carries
+     * @param reads - The records the function reads, by name, which the
+     *   handle's `binding` carries too
+     * @returns The handle: the cached methods, and a binding of its own
      */
-    buildHandle(handleType: EastTypeValue, name: string): Record<string, unknown> {
-        // Compiled-handle cache (issue #106 perf): the name fixes the signature, so
-        // the 6 method IRs are identical across renders; methods resolve api/ws live.
-        const cached = this.handleCache.get(name);
-        if (cached) return cached;
+    buildHandle(handleType: EastTypeValue, name: string, drafts: readonly string[], reads: readonly string[]): Record<string, unknown> {
+        // Each bind is given a binding of its own: page code may change the Arrays it holds, and one
+        // shared by every cached handle would then name other records for every later bind
+        const binding = { name, drafts: [...drafts], reads: [...reads] };
+        // Compiled-handle cache (issue #106 perf): the function's name, the records it lists and reads
+        // and the handle's form fix the method IRs, which are identical across renders; methods resolve
+        // api/ws live. The key is plain text, read with no East value printed on a bind's per-frame path;
+        // no name e3 makes holds a NUL or is empty, and the empty part stands between the two lists.
+        const cacheKey = [takesDrafts(handleType) ? "drafts" : "plain", name, ...drafts, "", ...reads].join("\u0000");
+        const cached = this.handleCache.get(cacheKey);
+        if (cached) return { ...cached, binding };
 
         const sig = signatureOfFuncHandleType(handleType);
         const inputsEast = sig.inputs.map(t => fromEastTypeValue(t));
@@ -573,17 +758,26 @@ export class FuncRuntime extends TrackedChannelStore<FuncEntry> {
         const ArgsStruct = StructType(inputsEast.map((t, i): readonly [string, EastType] => [`arg${i}`, t]));
         const nameExpr = East.value(name, StringType);
         const platform = this.buildPrimitives();
-        const { call, read, status, error, pending, cancel } = FuncBindPrimitives;
+        const { call, read, drafted, status, error, pending, cancel } = FuncBindPrimitives;
 
-        const handle: Record<string, unknown> = {
-            call: East.compile(East.function(inputsEast, NullType, ($, ...args) => {
+        const methods: Record<string, unknown> = {
+            // A drafted handle's call takes its drafts after the arguments; any
+            // other sends none, and the function reads the workspace as saved.
+            call: East.compile(East.function(sig.drafts ? [...inputsEast, DraftsType] : inputsEast, NullType, ($, ...taken) => {
+                const args = sig.drafts ? taken.slice(0, -1) : taken;
                 const obj: Record<string, unknown> = {};
                 args.forEach((a, i) => { obj[`arg${i}`] = a; });
-                $.return(call([ArgsStruct, outputEast], nameExpr, East.value(obj as never, ArgsStruct)));
+                const sent = sig.drafts ? taken[taken.length - 1] : East.value([], DraftsType);
+                $.return(call([ArgsStruct, outputEast], nameExpr, East.value(obj as never, ArgsStruct), sent as never));
             }), platform),
             read: East.compile(East.function([], OptionType(outputEast), ($) => {
                 $.return(read([outputEast], nameExpr));
             }), platform),
+            ...(sig.drafts && {
+                drafted: East.compile(East.function([], ArrayType(FuncDraftedType), ($) => {
+                    $.return(drafted(nameExpr));
+                }), platform),
+            }),
             status: East.compile(East.function([], FuncStatusType, ($) => {
                 $.return(status(nameExpr));
             }), platform),
@@ -596,10 +790,9 @@ export class FuncRuntime extends TrackedChannelStore<FuncEntry> {
             cancel: East.compile(East.function([], NullType, ($) => {
                 $.return(cancel(nameExpr));
             }), platform),
-            binding: { name },
         };
-        this.handleCache.set(name, handle);
-        return handle;
+        this.handleCache.set(cacheKey, methods);
+        return { ...methods, binding };
     }
 
     // ----- platform building -------------------------------------------------
@@ -609,7 +802,7 @@ export class FuncRuntime extends TrackedChannelStore<FuncEntry> {
      *  for manifest scoping. */
     buildPlatform(allowed: ReadonlySet<string> | null): PlatformFunction {
         return funcBindPlatformFn.implement((handleType: EastTypeValue) =>
-            (nameArg: unknown) => {
+            (nameArg: unknown, draftsArg: unknown, readsArg: unknown) => {
                 const name = nameArg as string;
                 if (allowed && !allowed.has(name)) {
                     throw new Error(
@@ -617,7 +810,7 @@ export class FuncRuntime extends TrackedChannelStore<FuncEntry> {
                         `bind it in the task body so derivation records it`,
                     );
                 }
-                return this.buildHandle(handleType, name);
+                return this.buildHandle(handleType, name, draftsArg as string[], readsArg as string[]);
             },
         );
     }
@@ -687,7 +880,9 @@ export interface InMemoryFunctionDef {
 
 /**
  * Build an offline {@link FunctionApi} from local implementations — the
- * snapshot harness's stand-in for a deployed package.
+ * snapshot harness's stand-in for a deployed package. It reads no record, so
+ * it has none to lay a draft over: a call that passes one ends `invalid`,
+ * naming the draft, and a call that passes none runs.
  */
 export function createInMemoryFunctionApi(functions: InMemoryFunctionDef[]): FunctionApi {
     const defs = functions.map(def => ({
@@ -700,8 +895,10 @@ export function createInMemoryFunctionApi(functions: InMemoryFunctionDef[]): Fun
         async list() {
             return defs.map(def => ({
                 name: def.name,
-                // An offline function reads nothing of a workspace.
+                // An offline function reads nothing of a workspace, and so
+                // has no record a call could draft.
                 inputs: [],
+                drafts: [],
                 argTypes: def.argTypes,
                 outputType: def.outputType,
                 runner: variant("east_node", { platforms: [], decode: variant("lazy", null) }),
@@ -710,6 +907,22 @@ export function createInMemoryFunctionApi(functions: InMemoryFunctionDef[]): Fun
         async call(_workspace, fnName, req) {
             const def = defs.find(d => d.name === fnName);
             if (!def) throw new Error(`no in-memory function "${fnName}"`);
+            const first = req.drafts[0];
+            if (first !== undefined) {
+                return {
+                    outcome: variant("invalid", { diagnostics: [{
+                        message: `${functionDraftLabel(first, 1, req.drafts.length)}: an offline function reads no record, and takes no draft`,
+                        filename: none, line: none, column: none,
+                    }] }),
+                    stdout: "",
+                    stderr: "",
+                    stdoutTruncated: false,
+                    stderrTruncated: false,
+                    inputs: [],
+                    drafts: [],
+                    draftEnd: none,
+                } as ExecuteResult;
+            }
             const args = req.args.map((bytes, i) => decodeBeast2For(def.argTypes[i]!)(bytes));
             const value = await def.fn(...args);
             return {
@@ -718,8 +931,10 @@ export function createInMemoryFunctionApi(functions: InMemoryFunctionDef[]): Fun
                 stderr: "",
                 stdoutTruncated: false,
                 stderrTruncated: false,
-                // A call of values reads no dataset.
+                // A call of values reads no dataset, drafts no record, and is ended by none.
                 inputs: [],
+                drafts: [],
+                draftEnd: none,
             } as ExecuteResult;
         },
     };

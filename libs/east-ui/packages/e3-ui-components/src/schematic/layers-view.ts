@@ -29,12 +29,12 @@
  * @packageDocumentation
  */
 
-import { useCallback, useMemo, useSyncExternalStore } from "react";
 import {
-    BooleanType, DictType, OptionType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, some,
+    BooleanType, DictType, OptionType, SortedMap, StringType, StructType, compareFor, equalFor, none, some,
     type ValueTypeOf,
 } from "@elaraai/east";
-import { StateRuntime, getSomeorUndefined } from "@elaraai/east-ui-components";
+import { getSomeorUndefined } from "@elaraai/east-ui-components";
+import { storedCodec, useStoredValue } from "../shared/stored-value.js";
 import type { SchematicLayerValue } from "./canvas/layers.js";
 
 const stringEqual = equalFor(StringType);
@@ -59,8 +59,7 @@ export type SchematicLayerView = ValueTypeOf<typeof SchematicLayerViewType>;
 /** No choice yet: every layer as its author has it. */
 export const NO_LAYER_VIEW: SchematicLayerView = { shown: new SortedMap([], compareString), locked: new SortedMap([], compareString), isolated: none };
 
-const encodeView = encodeBeast2For(SchematicLayerViewType);
-const decodeView = decodeBeast2For(SchematicLayerViewType);
+const viewCodec = storedCodec(SchematicLayerViewType);
 
 /**
  * Whether a layer shows now: the isolated one alone while one is, else the
@@ -180,11 +179,6 @@ export function anyHidden(layers: readonly SchematicLayerValue[], view: Schemati
  * @returns What the store holds — no choice until the viewer makes one — and the write
  */
 export function useSchematicLayerView(key: string): [SchematicLayerView, (next: SchematicLayerView) => void] {
-    const store = StateRuntime.getStore();
-    const subscribe = useCallback((notify: () => void) => store.subscribe(key, notify), [store, key]);
-    const snapshot = useCallback(() => store.read(key), [store, key]);
-    const bytes = useSyncExternalStore(subscribe, snapshot);
-    const view = useMemo((): SchematicLayerView => (bytes === undefined ? NO_LAYER_VIEW : decodeView(bytes)), [bytes]);
-    const write = useCallback((next: SchematicLayerView) => { store.write(key, encodeView(next)); }, [store, key]);
-    return [view, write];
+    const [view, write] = useStoredValue(viewCodec, key);
+    return [view ?? NO_LAYER_VIEW, write];
 }

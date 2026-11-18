@@ -21,16 +21,18 @@ import {
     DateTimeType, EastTypeType, StringType, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, isVariant, none, parseFor, some, variant, type EastType,
     type EastTypeValue, type StructType, type ValueTypeOf, type option,
 } from "@elaraai/east";
-import type { ScheduleKindType, SchedulePeriodsKindType } from "@elaraai/e3-ui/internal";
+import type { FieldSpecValue } from "@elaraai/east-ui/internal";
+import { optionOf, type ScheduleFieldWriteType, type ScheduleKindType, type SchedulePeriodsKindType } from "@elaraai/e3-ui/internal";
 import type { EditHistory, EntryVersion } from "@elaraai/east-ui-components";
 import type { ScheduleChange, ScheduleEditingRecord, ScheduleEntryRef, ScheduleRowRead } from "./editing.js";
+import { keyReaderOf } from "../../platform/key-text.js";
+import { meetsWindow } from "./window.js";
 
 /** A builder's periods, as the payload carries them. */
 export type SchedulePeriodsValue = ValueTypeOf<typeof SchedulePeriodsKindType>;
 
 const stringEqual = equalFor(StringType);
 const sameTypeValue = equalFor(EastTypeType);
-const dateCompare = (a: Date, b: Date) => a.getTime() - b.getTime();
 const parseInstant = parseFor(DateTimeType);
 
 /** A record's rows, as bytes and back: a period's, a target's, by their row type. */
@@ -53,11 +55,116 @@ export function rowCodec(rowType: EastTypeValue): RowCodec {
     return codec;
 }
 
+/** One field written: its path, and its value as bytes at the field's type — what a kind's `write` and a record's `set` take. */
+export type ScheduleFieldWrite = ValueTypeOf<typeof ScheduleFieldWriteType>;
+
+/**
+ * A field of a form edited, as a record's `set` and an event kind's `write`
+ * take it: its path, and its value as bytes at the field's type — its form's
+ * spec's, else the row's own field's. What every builder's inspector turns a
+ * form's edit into.
+ *
+ * @param specs - The form's specs
+ * @param rowType - The record's row type
+ * @param path - The field's path
+ * @param next - Its new value
+ * @returns The write; `undefined` for a path no field is at
+ */
+export function fieldWrite(specs: readonly FieldSpecValue[], rowType: EastTypeValue, path: readonly string[], next: unknown): ScheduleFieldWrite | undefined {
+    const spec = specs.find(field => field.path.length === path.length && field.path.every((part, i) => stringEqual(part, path[i]!)));
+    const row = fromEastTypeValue(rowType) as StructType;
+    const type = spec !== undefined ? fromEastTypeValue(spec.type) as EastType : path.length === 1 ? row.fields[path[0]!] : undefined;
+    if (type === undefined) return undefined;
+    return { path: [...path], value: encodeBeast2For(type)(next as never) };
+}
+
+/**
+ * A key's text written into the field of a row that holds it (#1541, U1), as a kind's `write` takes a field: the
+ * field's own value for it — the key read back from its text at the field's type, a String as it is and any other as
+ * East prints it, and `some` of it where the field is an Option of one.
+ *
+ * @param rowType - The record's row type
+ * @param field - The field
+ * @param text - The key's text
+ * @returns The write; `undefined` for a field the row lacks, and for a text no key of the field's type prints as
+ */
+export function keyFieldWrite(rowType: EastTypeValue, field: string, text: string): ScheduleFieldWrite | undefined {
+    const codec = fieldCodec(rowType, field);
+    const key = codec?.key(text);
+    return codec === undefined || key === undefined ? undefined : { path: [field], value: codec.encode(key.value) };
+}
+
+/**
+ * A lane written into the field a kind's `lane` names (#1541, U1), as its `write` takes a field: a String field's
+ * text, or a variant field's case of that name, which holds no value.
+ *
+ * @param rowType - The record's row type
+ * @param field - The lane's field
+ * @param lane - The lane's key
+ * @returns The write; `undefined` for a field the row lacks, and for a variant with no such case
+ */
+export function laneFieldWrite(rowType: EastTypeValue, field: string, lane: string): ScheduleFieldWrite | undefined {
+    const codec = fieldCodec(rowType, field);
+    if (codec === undefined) return undefined;
+    const type = codec.type;
+    if (type.type === "String") return { path: [field], value: codec.encode(lane) };
+    if (type.type !== "Variant" || !Object.hasOwn(type.cases as Record<string, EastType>, lane)) return undefined;
+    return { path: [field], value: codec.encode(variant(lane, null)) };
+}
+
+/** A row type's field, as a gesture's write takes it: its type, its values' encoder, and its key's text read back. */
+interface FieldCodec {
+    readonly type: EastType;
+    readonly encode: (value: unknown) => Uint8Array;
+    /** A key's text read at the field's type — an Option's, at the type it holds, the value its `some`; `undefined` for a text no key prints as. */
+    readonly key: (text: string) => { readonly value: unknown } | undefined;
+}
+
+/** Each row type's fields' codecs: by the type value as it is passed, and by East's word on which row types are the same. */
+const fieldCodecs: { type: EastTypeValue; fields: Map<string, FieldCodec | undefined> }[] = [];
+const fieldCodecsSeen = new WeakMap<object, Map<string, FieldCodec | undefined>>();
+
+/**
+ * A row type's field's codec, made the first time a write names it: a drag names one at every step, and makes none
+ * again.
+ *
+ * @param rowType - The record's row type
+ * @param field - The field
+ * @returns Its codec; `undefined` for a field the row lacks
+ */
+function fieldCodec(rowType: EastTypeValue, field: string): FieldCodec | undefined {
+    let fields = fieldCodecsSeen.get(rowType);
+    if (fields === undefined) {
+        fields = fieldCodecs.find((c) => sameTypeValue(c.type, rowType))?.fields;
+        if (fields === undefined) {
+            fields = new Map();
+            fieldCodecs.push({ type: rowType, fields });
+        }
+        fieldCodecsSeen.set(rowType, fields);
+    }
+    if (fields.has(field)) return fields.get(field);
+    const type = (fromEastTypeValue(rowType) as StructType).fields[field] as EastType | undefined;
+    let codec: FieldCodec | undefined;
+    if (type !== undefined) {
+        const inner = optionOf(type);
+        const keyOf = keyReaderOf(inner ?? type);
+        codec = {
+            type,
+            encode: encodeBeast2For(type) as (value: unknown) => Uint8Array,
+            key: (text) => {
+                const value = keyOf(text);
+                return value === undefined ? undefined : { value: inner === undefined ? value : some(value) };
+            },
+        };
+    }
+    fields.set(field, codec);
+    return codec;
+}
+
 /**
  * A field of an event's row edited, as its kind writes it: the inspector's
- * form's edit of one of the fields no role of the builder's maps, its value as
- * bytes at the field's type — the kind's form's spec's, else the row's own
- * field's.
+ * form's edit of one of the fields no role of the builder's maps
+ * ({@link fieldWrite}).
  *
  * @param kind - The event kind: its form's specs and its row type
  * @param id - The event's key's text
@@ -67,11 +174,8 @@ export function rowCodec(rowType: EastTypeValue): RowCodec {
  */
 export function fieldChange(kind: Pick<ValueTypeOf<typeof ScheduleKindType>, "key" | "fields" | "editing">, id: string, path: readonly string[],
     next: unknown): ScheduleChange | undefined {
-    const spec = kind.fields.find(field => field.path.length === path.length && field.path.every((part, i) => stringEqual(part, path[i]!)));
-    const rowType = fromEastTypeValue(kind.editing.entryType) as StructType;
-    const type = spec !== undefined ? fromEastTypeValue(spec.type) as EastType : path.length === 1 ? rowType.fields[path[0]!] : undefined;
-    if (type === undefined) return undefined;
-    return { kind: kind.key, id, gesture: variant("field", { path: [...path], value: encodeBeast2For(type)(next as never) }) };
+    const write = fieldWrite(kind.fields, kind.editing.entryType, path, next);
+    return write === undefined ? undefined : { kind: kind.key, id, gesture: variant("field", write) };
 }
 
 /**
@@ -206,7 +310,7 @@ export function periodRowsRead(periods: SchedulePeriodsValue, from: Date, to: Da
     const rows = keptAtRevision(periods.entries, () => periods.rows(from, to));
     return key => {
         const at = parseInstant(key);
-        if (!at.success || dateCompare(at.value, from) < 0 || dateCompare(at.value, to) >= 0) return undefined;
+        if (!at.success || !meetsWindow(at.value, undefined, from, to)) return undefined;
         const got = rows();
         if (got.type !== "some") return none;
         const row = got.value.get(at.value);

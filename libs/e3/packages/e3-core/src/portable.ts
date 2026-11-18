@@ -68,9 +68,22 @@ export type {
   FunctionCallEnd,
   FunctionCallListOptions,
   FunctionCallListPage,
+  StoredFunctionCall,
   RepositoryUpgrade,
   StorageBackend,
 } from './storage/interfaces.js';
+
+// The transitions every function call store makes of a kept call, and the
+// rules its reads and lists keep: each a pure function the store applies in
+// one atomic step of its own (east-workspace#1554, #1619)
+export {
+  applyCallTransition,
+  callEnded,
+  callCancelAsked,
+  callInputsPinned,
+  callExpired,
+  callListed,
+} from './storage/function-call-transitions.js';
 
 // How a log store cuts a window of a log, as every one does: at the longest
 // prefix of its bytes that holds whole characters
@@ -273,9 +286,17 @@ export {
   recordIndexNames,
   appliedMigrations,
   resolveRecord,
+  recordOfPackage,
   recordLeafType,
+  recordHead,
+  recordDraftMutation,
+  recordLayDraft,
+  encodeMutationArgs,
+  decodeMutationArgs,
+  withSharedWorkspaceLock,
   RECORD_KEYS_REMEMBERED,
   type RecordRef,
+  type RecordDraftLaid,
   type RecordSystemCommitOptions,
   type RecordSystemCommitTarget,
   type RecordStateRefs,
@@ -324,6 +345,10 @@ export {
   readManifest,
   openDatasetObject,
   readDatasetWhole,
+  inputObject,
+  taskInputRead,
+  readRecordStateObject,
+  recordIndexManifests,
 } from './dataset-open.js';
 
 // The store's door: the one way a collection reaches the object store, from a
@@ -545,9 +570,11 @@ export {
   functionCallResult,
   functionCallSummary,
   functionCallInputs,
+  functionCallDrafted,
   functionCallLost,
   functionRunnerRefusal,
   handleProcessFunctionCall,
+  workspaceFunctionResolve,
   DEFAULT_FUNCTION_CALL_LIFETIMES,
   FUNCTION_CALL_GRACE_MS,
   type FunctionCallLifetimes,
@@ -556,7 +583,37 @@ export {
   type FunctionCallRunOptions,
   type FunctionCallRun,
   type ProcessFunctionCallDeps,
+  type WorkspaceFunction,
 } from './execution/functionCall.js';
+
+// A call's drafts: unsaved edits checked and named as the call starts, and
+// laid over the records its function reads as it runs (east-workspace#1619)
+export {
+  checkCallDrafts,
+  storeCallDrafts,
+  keptCallDrafts,
+  keptCallArgs,
+  layCallDrafts,
+  layAndStage,
+  stageCall,
+  callRead,
+  callDraftsEnd,
+  callDraftsRead,
+  draftedInputs,
+  NO_CALL_DRAFTS,
+  type CallDrafts,
+  type CallDraftsEnd,
+  type CallDraftsLaid,
+  type CallStaged,
+  type DraftedCall,
+  type LayAndStageOptions,
+  type LayCallDraftsOptions,
+  type StagedCallArg,
+} from './execution/functionDrafts.js';
+
+// A call no store keeps, run within the process that makes it: a local
+// repository's (`e3 call -w`)
+export { functionCallUnkept, type FunctionCallUnkeptOptions } from './execution/functionCallUnkept.js';
 
 // =============================================================================
 // Dataflow

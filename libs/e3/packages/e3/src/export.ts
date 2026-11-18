@@ -20,7 +20,7 @@ import { createHash } from 'node:crypto';
 import yazl from 'yazl';
 import { variant, some, none, BlobType, StringType, encodeBeast2For, encodeEastIR, EastIR, AsyncEastIR, printIdentifier, SortedMap, toEastTypeValue, linkImports, type EastType, type FunctionManifest, type LinkedImport } from '@elaraai/east';
 import type { Structure, PackageObject, DatasetRef, DatasetSourceWire, FunctionObject, MigrationObject, MutationObject, RecordIndexObject, RecordObject, TaskObject, TaskOutputKind } from '@elaraai/e3-types';
-import { E3_RELEASE, PackageObjectType, TASK_OBJECT_KIND, TaskObjectType, FunctionObjectType, MigrationObjectType, MutationObjectType, RecordIndexObjectType, RecordObjectType, encodeDatasetBlob, pathToString } from '@elaraai/e3-types';
+import { E3_RELEASE, PackageObjectType, TASK_OBJECT_KIND, TaskObjectType, FunctionObjectType, MigrationObjectType, MutationObjectType, RecordIndexObjectType, RecordObjectType, encodeDatasetBlob, pathToString, treePathToRefPath } from '@elaraai/e3-types';
 import { buildMutationProgram, builtIndex, hasKeyedDelta, indexBuildProgram, migrationProgram, summaryMergeProgram, summed } from './record-programs.js';
 import { readDatasetFileHeader } from './dataset-file.js';
 import type { AsyncIRBundle, IRBundle, PackageDef, PackageItem } from './types.js';
@@ -232,7 +232,7 @@ export async function export_<D extends Record<string, unknown>>(pkg: PackageDef
       const name = item.path[item.path.length - 1].value;
 
       // Build the ref path from tree path segments (e.g., "inputs/greeting")
-      const refPath = item.path.map(seg => seg.value).join('/');
+      const refPath = treePathToRefPath(item.path);
 
       // An input's initial value comes from its SOURCE variant; `default` is
       // the internal inline-value channel (record()'s initial state), which
@@ -309,9 +309,12 @@ export async function export_<D extends Record<string, unknown>>(pkg: PackageDef
         // customTask leaves TaskDef.runner undefined: its command is what
         // runs, so the runner is the custom runtime with an empty command.
         runner: item.runner ? runnerToVariant(item.runner) : variant('custom', { command: [] as string[] }),
+        // An index is read through its record's dataset, and named beside it.
         inputs: item.inputs.map((input) => input.kind === 'partition'
-          ? { path: input.dataset.path, partition: some({ by: [...input.by] }) }
-          : { path: input.path, partition: none }),
+          ? { path: input.dataset.path, index: none, partition: some({ by: [...input.by] }) }
+          : input.kind === 'index'
+            ? { path: input.record.path, index: some(input.index.name), partition: none }
+            : { path: input.path, index: none, partition: none }),
         output: { path: item.output.path, kind: outputKind },
         role: item.role,
         environment: resolveEnvironment(item.environment, item.runner, item.name),
@@ -337,7 +340,11 @@ export async function export_<D extends Record<string, unknown>>(pkg: PackageDef
     // the raw TS EastType definitions Expr.type yields.
     const fnObject: FunctionObject = {
       bodyIr: bodyIrHash,
-      inputs: fdef.inputs.map((input) => input.path),
+      inputs: fdef.inputs.map((input) => input.kind === 'index'
+        ? { path: input.record.path, index: some(input.index.name) }
+        : { path: input.path, index: none }),
+      // A record is named as a call's draft names it, and as `e3 mutate` does.
+      drafts: fdef.drafts.map((record) => record.name),
       argTypes: fdef.argTypes.map((t) => toEastTypeValue(t)),
       outputType: toEastTypeValue(fdef.outputType),
       runner: runnerToVariant(fdef.runner),
@@ -360,7 +367,7 @@ export async function export_<D extends Record<string, unknown>>(pkg: PackageDef
   const migrationEncoder = encodeBeast2For(MigrationObjectType);
   const recordEncoder = encodeBeast2For(RecordObjectType);
   for (const [rname, rdef] of Object.entries(pkg.records)) {
-    const recordRefPath = rdef.path.map(seg => seg.value).join('/');
+    const recordRefPath = treePathToRefPath(rdef.path);
 
     // A mutation ships its author body AND the program built from it: the
     // program is what runs, and it emits the delta the engine applies. A

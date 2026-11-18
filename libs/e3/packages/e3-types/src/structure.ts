@@ -133,6 +133,27 @@ export function pathToString(path: TreePath): string {
 }
 
 /**
+ * A dataset's ref path, as a store keys its ref and a package's data names
+ * it: its fields joined by `/`, unquoted.
+ *
+ * @remarks
+ * The one place e3 makes the key, which the authoring package's export, every
+ * store, every reader of a ref and everything that matches a path to a
+ * record's ref share.
+ *
+ * @param path - The dataset's path
+ * @returns Its ref path (e.g. `inputs/sales` for `.inputs.sales`)
+ *
+ * @example
+ * ```ts
+ * treePathToRefPath([variant('field', 'records'), variant('field', 'jobs')]); // 'records/jobs'
+ * ```
+ */
+export function treePathToRefPath(path: TreePath): string {
+  return path.map((segment) => segment.value).join('/');
+}
+
+/**
  * Result of parsing a path with structure validation.
  */
 export interface ParsePathResult {

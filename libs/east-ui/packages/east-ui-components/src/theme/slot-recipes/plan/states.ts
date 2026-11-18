@@ -14,8 +14,17 @@
  * A rollup band speaks a coarser dialect (a proposal and an estimate read the
  * same at 12px, and a band is never a removal), so it keeps its own looks.
  *
+ * A state that draws a border says how wide (`--state-edge`, the recipe's own
+ * property), and each element takes it off its inline padding: the border
+ * stands in the padding, never in its words' room, so a label that fits a
+ * resting element fits it in every state — a draft's too (`focus.ts`), where
+ * one that only just fitted went until it was saved (#1680's review).
+ *
  * @packageDocumentation
  */
+
+/** The border a state draws, which an element's inline padding gives up to it (see the module docs). */
+export const STATE_EDGE = "var(--state-edge, 0px)";
 
 import type { SystemStyleObject } from "@chakra-ui/react";
 
@@ -28,6 +37,7 @@ const SHARED: Record<Exclude<PlanLifecycleState, "obs" | "appr">, SystemStyleObj
     prop: {
         color: "brand.fg",
         borderWidth: "1.5px",
+        "--state-edge": "1.5px",
         borderStyle: "dashed",
         borderColor: "{colors.brand.solid}",
         fontStyle: "italic",
@@ -35,6 +45,7 @@ const SHARED: Record<Exclude<PlanLifecycleState, "obs" | "appr">, SystemStyleObj
     // proposed removal — warn-dashed, struck through.
     propRemoved: {
         borderWidth: "1.5px",
+        "--state-edge": "1.5px",
         borderStyle: "dashed",
         borderColor: "{colors.status.warn}",
         textDecoration: "line-through",
@@ -44,6 +55,7 @@ const SHARED: Record<Exclude<PlanLifecycleState, "obs" | "appr">, SystemStyleObj
         background: "transparent",
         color: "fg.subtle",
         borderWidth: "1px",
+        "--state-edge": "1px",
         borderStyle: "dashed",
         borderColor: "border.strong",
         fontStyle: "italic",
@@ -53,6 +65,7 @@ const SHARED: Record<Exclude<PlanLifecycleState, "obs" | "appr">, SystemStyleObj
         background: "transparent",
         color: "fg.subtle",
         borderWidth: "1px",
+        "--state-edge": "1px",
         borderStyle: "dashed",
         borderColor: "border.strong",
         textDecoration: "line-through",

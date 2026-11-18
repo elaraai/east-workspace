@@ -28,6 +28,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { oneLineBox } from "../one-line-box.js";
 import { INSPECTOR_SECTION, inspectorBase, inspectorSlots } from "./inspector.js";
 
 export const sheetInspectorSlotRecipe = defineSlotRecipe({
@@ -118,7 +119,8 @@ export const sheetInspectorSlotRecipe = defineSlotRecipe({
         },
         phoneName: { gridColumn: "1 / -1", fontFamily: "heading", fontSize: "title.md", fontWeight: 700, letterSpacing: "-0.01em", lineHeight: "1.25", color: "fg", overflowWrap: "anywhere" },
         phoneChip: {
-            gridRow: "3", gridColumn: "1", justifySelf: "start", marginTop: "4px", marginInlineEnd: "8px", height: "20px", display: "inline-flex", alignItems: "center", paddingX: "8px",
+            /* A one-line box with no edge (#1638): its words' line its own 20px, where 1.5 of its 10px face left half a pixel. */
+            gridRow: "3", gridColumn: "1", justifySelf: "start", marginTop: "4px", marginInlineEnd: "8px", ...oneLineBox(20, 0), display: "inline-flex", alignItems: "center", paddingX: "8px",
             boxSizing: "border-box", borderRadius: "sm", fontFamily: "mono", fontSize: "label.sm", fontWeight: 500,
             "&[data-state=pending]": { background: "brandTint", color: "brandPressed" },
             "&[data-state=new]": { background: "bg.subtle", color: "fg.strong" },

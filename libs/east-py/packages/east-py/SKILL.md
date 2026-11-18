@@ -175,7 +175,8 @@ Task → What do you need?
     │   ├─ Query one with jq → East.jq(value, "jq", T) runs now · evaluate_jq(program, value, input_type=T) · check_jq checks
     │   │   without running                                                    → "Queries — East.jq"
     │   ├─ A JSON contract another system validates against → json_schema_for · type_from_json_schema   → "A JSON contract"
-    │   ├─ A collection file larger than memory → write_beast2_file · open_beast2_file (a read-only East collection value) ·
+    │   ├─ A collection file larger than memory → write_beast2_file · open_beast2_file (a read-only East collection value;
+    │   │   f.range(from_=…, to=…) / f.prefix({…}) read the entries between two keys at the cost of the range) ·
     │   │   write_beast2_file_parallel · splice_beast2_files · Beast2ManifestWriter · open_beast2_pages_for  → "Beast2 streaming"
     │   ├─ Logic genuinely needs python (numpy, a model, a solver) → to_columns · from_columns · map_batches · update_many ·
     │   │   extend · to_numpy / to_torch                                                   → "Columnar escape hatches"
@@ -402,7 +403,12 @@ Read the one a task needs; each holds its sections whole.
 - **Task inputs arrive frozen**: mutating one raises `cannot mutate a frozen
   value (task inputs are immutable) — copy first`; `.copy()` gives a mutable
   value. Keyed gets and iteration on a paged input stay O(segment) through the
-  proxy, and frozen collections compare by value under `Is`. The same frozen
+  proxy, and frozen collections compare by value under `Is`. A key range of
+  one — `d.range(from_=…, to=…)`, `d.prefix({…})`, in a body or on the proxy —
+  still reads from the pager: its size reads at most one segment for each end
+  — the one before the first segment that starts at or past it — and none
+  between, iterating it reads its segments, and it is a collection of its own, which a
+  change decodes and changes without touching the input. The same frozen
   paged value comes from `blob.open_beast(T)` and from `fs_open_beast` in
   **east-py-std**; an input e3 stages as a manifest directory opens the same
   way, reading only the segment files a read lands in.

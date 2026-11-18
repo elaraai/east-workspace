@@ -193,10 +193,11 @@ const GESTURES = {
         else await entry.locator(SCROLLER).evaluate((el) => { el.scrollTop = 75 * 32; });
     },
     // A week on: at 1440 the canvas's `]` on a row, whichever form the toolbar's navigation is in; on a phone, the date
-    // navigator's popover's Next week.
+    // navigator's popover's Next week — the View its toolbar folds the navigator into, the window's weeks named whole
+    // (#1680's review).
     pan: async (page: Page, entry: Locator, narrow: boolean) => {
         if (narrow) {
-            await entry.getByRole("button", { name: "Choose plan dates" }).click();
+            await entry.locator("[data-frame-slot='toolbar']").getByRole("button", { name: "View", exact: true }).click();
             await page.getByRole("button", { name: "Next week", exact: true }).click();
             await page.keyboard.press("Escape");
         } else {
@@ -204,11 +205,12 @@ const GESTURES = {
             await page.keyboard.press("]");
         }
     },
-    // To a month: the toolbar's resolution, at 1440; on a phone, its chip's menu.
+    // To a month: the toolbar's resolution, at 1440; on a phone, the View's resolution, which the navigator holds there.
     zoom: async (page: Page, entry: Locator, narrow: boolean) => {
         if (narrow) {
-            await entry.getByRole("button", { name: "Resolution" }).click();
-            await page.getByRole("menuitem", { name: /^month$/i }).click();
+            await entry.locator("[data-frame-slot='toolbar']").getByRole("button", { name: "View", exact: true }).click();
+            await page.getByRole("radio", { name: /^month$/i }).click();
+            await page.keyboard.press("Escape");
         } else await entry.locator("[data-frame-slot='toolbar']").getByRole("radio", { name: /^month$/i }).click();
     },
 } as const;

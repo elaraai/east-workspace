@@ -21,7 +21,7 @@
 import {
   ArrayType, BooleanType, DateTimeType, DictType, EastTypeType, FloatType, FunctionType, IntegerType, NullType,
   OptionType, PatchType, RecursiveType, StringType, StructType, VariantType,
-  decodeBeast2For, dictPatchOpsType, setPatchOpsType, toEastTypeValue,
+  decodeBeast2For, dictPatchOpsType, setPatchOpsType, toEastTypeValue, variant,
   type EastType, type EastTypeValue, type PatchTypeOf, type ValueTypeOf,
 } from '@elaraai/east';
 import { RunnerType } from './runner.js';
@@ -242,14 +242,14 @@ export type RecordNestedRunType = typeof RecordNestedRunType;
 export type RecordNestedRun = ValueTypeOf<typeof RecordNestedRunType>;
 
 /**
- * A path in a nested series index's key (#1434): field names, or Dict keys,
- * from a row down — `end` for none, else one `step` and the rest. A key holds
- * no Array, which East may change in place, so a path is this list: it is
- * immutable, and it sorts as an Array of its names would, a path before every
- * path it leads (`[] < ["a"] < ["a", "b"] < ["b"]`).
+ * A collection's place in a nested series index's key (#1434): the field
+ * names from a row down to it — `end` for none, else one `step` and the rest.
+ * A key holds no Array, which East may change in place, so a place is this
+ * list: it is immutable, and it sorts as an Array of its names would, a place
+ * before every place it leads (`[] < ["a"] < ["a", "b"] < ["b"]`).
  *
  * @property end - No more names
- * @property step - One name, and the path after it
+ * @property step - One name, and the place after it
  */
 export const RecordNestedPathType = RecursiveType((self) => VariantType({
   end: NullType,
@@ -259,43 +259,116 @@ export type RecordNestedPathType = typeof RecordNestedPathType;
 export type RecordNestedPath = ValueTypeOf<typeof RecordNestedPathType>;
 
 /**
- * Which item a nested series index's entry is (#1434).
+ * The name a nested series index's key names a collection of child rows or of
+ * items by, among its ids (#1540): its place's field names, joined — `members`,
+ * `members.tasks`. A declared field's name holds no `.`, so no two places
+ * share one.
  *
+ * @param place - The collection's place: the field names from the row down to it, a recursive step adding none
+ * @returns Its case of the index's ids
+ */
+export function nestedIdCase(place: readonly string[]): string {
+  return place.join('.');
+}
+
+/**
+ * The case each step of a path down to a collection names its child rows' keys under (#1540): at each of its place's
+ * fields but the last, the place so far ({@link nestedIdCase}) — a tree's further steps under the last of them. What
+ * a reader is given a node's path in, and what reads one back, both ask here.
+ *
+ * @param place - The collection's place: the field names from the row down to it
+ * @returns Each step's case, from the row down; none for a collection of the row itself
+ */
+export function nestedPathCases(place: readonly string[]): string[] {
+  return place.slice(0, -1).map((_, i) => nestedIdCase(place.slice(0, i + 1)));
+}
+
+/**
+ * A path as a nested series index's key holds it (#1540): `step { key, rest }` from the first, `end` after the last —
+ * a collection's place by its field names ({@link RecordNestedPathType}), or a node's path by its ids.
+ *
+ * @param keys - The path's steps, from the row down
+ * @returns The path, as a key's value
+ */
+export function nestedPathValue(keys: readonly unknown[]): unknown {
+  return keys.reduceRight<unknown>((rest, key) => variant('step', { key, rest }), variant('end', null));
+}
+
+/**
+ * The ids a nested series index's key holds (#1540): a child row's key, on the
+ * way from a row down to a node, and an item's id — each in its own type, under
+ * the case of the collection it is a key of ({@link nestedIdCase}). An index of
+ * values alone has no id, and its variant no case.
+ *
+ * @param ids - Each collection of child rows or of items, by its case, and its Dict's key type
+ * @returns The ids' variant type
+ */
+export function NestedIdType(ids: Readonly<Record<string, EastType>>) {
+  return VariantType(ids);
+}
+
+/**
+ * The path in a nested series index's key (#1434, #1540): the child rows' keys
+ * from a row down to a node, each an id of the index's ({@link NestedIdType}) —
+ * `end` for the row itself, else one `step` and the rest. A key holds no
+ * Array, so a path is this list, which sorts as an Array of its ids would: a
+ * path before every path it leads.
+ *
+ * @param id - The index's ids
+ * @returns The path's type
+ */
+export function NestedPathType<I extends EastType>(id: I) {
+  return RecursiveType((self) => VariantType({
+    end: NullType,
+    step: StructType({ key: id, rest: self }),
+  }));
+}
+
+/**
+ * Which item a nested series index's entry is (#1434), given the path of its
+ * index ({@link NestedPathType}).
+ *
+ * @param id - The index's ids
+ * @param path - The index's path type, over those ids
+ * @returns The item's variant type
  * @property id - An item, by its id
  * @property at - A value, by its instant
- * @property under - A descendant's item filed under an ancestor: the Dict keys
- *   from the ancestor down to the node holding it, and its id
+ * @property under - A descendant's item filed under an ancestor: the child rows' keys from the ancestor down to the
+ *   node holding it, and its id
  * @property none - A total or a subtotal, of which a node has one a tile a run
  */
-export const RecordNestedItemType = VariantType({
-  id: StringType,
-  at: DateTimeType,
-  under: StructType({ path: RecordNestedPathType, id: StringType }),
-  none: NullType,
-});
-export type RecordNestedItemType = typeof RecordNestedItemType;
-export type RecordNestedItem = ValueTypeOf<typeof RecordNestedItemType>;
+export function NestedItemType<I extends EastType, P extends EastType>(id: I, path: P) {
+  return VariantType({
+    id,
+    at: DateTimeType,
+    under: StructType({ path, id }),
+    none: NullType,
+  });
+}
 
 /**
  * The key a nested series index files an entry under (#1434): its
  * collection, its row, the node it is about, its run, its level and tile, and
  * the item — in that order, so a node's run at one level is one contiguous
- * range across tiles.
+ * range across tiles. A child row's key and an item's id are held in their own
+ * types (#1540), never as text.
  *
  * @param rowKey - The record's key type
+ * @param id - The index's ids ({@link NestedIdType})
  * @returns The entry key's struct type
  * @property collection - The collection's place: the field names from the row down to it, a recursive step adding none
  * @property row - The record row's key
- * @property path - The Dict keys from the row down to the node the entry is about: `end` for the row itself
+ * @property path - The child rows' keys from the row down to the node the entry is about: `end` for the row itself
  * @property run - Which of the node's runs ({@link RecordNestedRunType})
  * @property level - The level the entry is filed at; a total's, the summary tile's
  * @property tile - The start of the level's tile
- * @property item - Which item ({@link RecordNestedItemType})
+ * @property item - Which item ({@link NestedItemType})
  */
-export function NestedEntryKeyType<K extends EastType>(rowKey: K) {
+export function NestedEntryKeyType<K extends EastType, I extends EastType>(rowKey: K, id: I) {
+  const path = NestedPathType(id);
   return StructType({
-    collection: RecordNestedPathType, row: rowKey, path: RecordNestedPathType,
-    run: RecordNestedRunType, level: RecordLevelType, tile: DateTimeType, item: RecordNestedItemType,
+    collection: RecordNestedPathType, row: rowKey, path,
+    run: RecordNestedRunType, level: RecordLevelType, tile: DateTimeType, item: NestedItemType(id, path),
   });
 }
 

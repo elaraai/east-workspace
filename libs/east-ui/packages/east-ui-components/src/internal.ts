@@ -53,12 +53,11 @@ export {
     DEFAULT_RESIDENCY, NO_RESIDENCY, advance, demandRange, isEmpty, leftRun, pin, residentWindows, step, travelOf, trim, unpinAll,
     type Residency, type ResidencyOptions, type Travel,
 } from "./collections/window-residency.js";
-export { toSeekQuery, type SeekQueryValue } from "./collections/key-search/seek-query.js";
 // A key search pick's hand-off of the keyboard to its host's view, once the match lands and the box has let it go (#1398).
 export { createPickHandOff, usePickHandOff, type PickHandOff, type PickingSource } from "./collections/key-search/hand-off.js";
 // Density, the drag grammar's IR veto, and its slot codecs.
 export { DensityProvider, useDensity } from "./contracts/density.js";
-export { useIRCanDrop, type CanDropFn } from "./dnd/ir-can-drop.js";
+export { keptDropCheck, useIRCanDrop, type CanDropFn } from "./dnd/ir-can-drop.js";
 // A part's own pointers (`src/pointer/`): the one rule a gesture in flight is held to, a surface's handlers over it, a drag
 // that follows the pointer that pressed, and the fingers a surface holds.
 export { makeGestures, pointerState, type GestureHost, type Gestures, type PointerRead, type PointerState } from "./pointer/gestures.js";
@@ -77,6 +76,12 @@ export {
     type DraftPresentation,
 } from "./editing/draft.js";
 export { DRAFT_ISSUE_TEXT, SESSION_TEXT, type EditHistoryWord } from "./editing/messages.js";
+// What a session is bound to from a collection's editing declaration, as every renderer binds one: its Save and that
+// Save's draft form among it (#1620).
+export { bindingOf } from "./editing/kept.js";
+// How many times in a row a session sends a refused Save again itself: what a builder's run hands its draft over again by,
+// after a call the source refused for the same reason (east-workspace#1622, rule 12).
+export { RESENDS as SAVE_RESENDS } from "./editing/session.js";
 export { type EditSource, type EditWindow } from "./editing/use-edit-session.js";
 export { entryLookup, editWindow, type CarriedEntry, type EntryLookup } from "./editing/carried.js";
 // When a host that draws what a Save landed lets it go (`EditSession.landed`): the one rule that tells rows read before a
@@ -86,6 +91,8 @@ export { readBeforeSave, readBeforeSaves, standingBeforeSave } from "./editing/l
 // The Slice: its bound range, the brush, the rail's toolbar items, and density.
 export { boundRangeDomain, boundRangeHistogram } from "./platform/slice/index.js";
 export { BrushStrip, type BrushBucket, type BrushStripProps, type BrushWords } from "./slice/brush-strip.js";
+// The span a brush's track covers: its data, and every window it holds with it — the Plan's horizon's (#1680's review).
+export { brushHorizon } from "./slice/brush-math.js";
 export { SliceDensityContext } from "./slice/density.js";
 export { railAffordanceKinds } from "./slice/rail-kinds.js";
 export { HOST_RANK, useSliceToolbarItems } from "./slice/rail/index.js";
@@ -109,11 +116,14 @@ export { recordSliceWindow, recordSliceDomain, recordSliceWindowFits, setRecordS
 // read at (#1039) — the Plan's events; a window of its record's own rows, by position — the Schematic's Find (#1404); and an
 // area index's cells, counted and read, the bounds of a density raster's searches and the entries of some of their runs,
 // and another record's rows under the keys the cells' and the runs' entries name — the Schematic's window and its details
-// (#1393); and a generated index's `on` printer, which those searches name its leading values with (#1432).
+// (#1393); and a generated index's `on` printer, which those searches name its leading values with (#1432); and where a
+// key lands among the rows a page holds of a source — the scope's, on a scoped page — those rows by their place, which of
+// them a narrowing holds, and where a narrowing's rows sit among them: every builder's Search Records, and the Sheet's rows
+// and its lens (#1621).
 export {
     recordSliceSeeded, recordSlicePlace, recordSliceWithin, recordSliceWithinAt, recordSliceSeek, recordSliceCellRuns, recordSliceCellEntries,
     recordSliceCellJoins, recordSliceContainsAll, recordSliceReadEntries, recordSliceRows, recordSliceRevision, recordSlicePage, recordSliceBounds, recordSliceRunEntries, recordSliceRunJoins,
-    recordSliceOnPrinter, recordSlicePosition,
+    recordSliceOnPrinter, recordSlicePosition, recordSliceKeySearch, recordSliceBasePage, recordSliceBaseWithinAt, recordSliceBasePlace,
 } from "./platform/slice/record.js";
 // The UI store, tracked reads, and the boundary a renderer's East calls run in.
 export { getStore, initializeStore, trackKey } from "./platform/state-runtime.js";

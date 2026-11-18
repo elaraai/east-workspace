@@ -38,11 +38,13 @@ function refusal(build: ($: BlockBuilder<NullType>) => unknown): string {
 
 const WINDOW = { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") };
 
-/** The presses, bound inside a block. */
-function pressesOf($: BlockBuilder<never>) {
-    const presses = $.let(Record.bind(ex.planPrintPresses, []));
-    return Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name });
+/** The presses, bound inside a block: the rows the jobs land on (#1541). */
+function pressRows($: BlockBuilder<never>) {
+    return $.let(Record.bind(ex.planPrintPresses, [])).read();
 }
+
+/** The presses' resources series: it lays out the rows the jobs land on. */
+const PRESSES = Plan.series.resources(ex.PrintPress, { key: "presses", title: "Presses", icon: "print", label: (p) => p.name });
 
 /** The jobs over the presses, bound inside a block, their unscheduled ones in the backlog. */
 function jobsOf($: BlockBuilder<never>) {
@@ -69,31 +71,40 @@ function customersOf($: BlockBuilder<never>, name = "Customers") {
 // ============================================================================
 
 describe("the Series tab (PB29)", () => {
-    test("the Series tab is a Plan's with anything a viewer can hide: `data`'s series when they are picked, and nothing else", () => {
+    test("the Series tab is a Plan's with anything a viewer can hide: `data`'s `series` are picked through it, a list or an East expression of one (#1541)", () => {
         const Row = StructType({ v: FloatType });
         const marks = Plan.series.events(Row, { key: "marks", title: "Marks", label: (_r, k) => k, marks: () => [] });
         assert.equal(refusal(($) => {
             const data = $.const(new Map([["a", { v: 1.0 }]]), DictType(StringType, Row));
             const all = $.const([marks], ArrayType(Plan.Types.Series(Row)));
-            const picked = $.let(Plan.pick("lib.pick", all));
-            return Plan.Payload({ axis: Plan.axis({ window: WINDOW, resolution: "day" }), data, pick: picked, library: [Plan.library.series()] });
+            return Plan.Payload({ axis: Plan.axis({ window: WINDOW, resolution: "day" }), data, series: all, library: [Plan.library.series()] });
         }), "");
-        assert.match(refusal(($) => {
+        assert.equal(refusal(($) => {
             const data = $.const(new Map([["a", { v: 1.0 }]]), DictType(StringType, Row));
             return Plan.Payload({ axis: Plan.axis({ window: WINDOW, resolution: "day" }), data, series: [marks], library: [Plan.library.series()] });
-        }), /^Plan: the library lists Plan\.library\.series\(\), and this Plan has nothing a viewer can hide — it lists event kinds, resource kinds and their measures, `rows`, and `data`'s series when they are picked \(`pick`\)$/);
+        }), "");
+        // A Plan with nothing to hide — no series, no kinds, no rows — has no Series tab.
+        assert.match(refusal(() => Plan.Payload({ axis: Plan.axis({ window: WINDOW, resolution: "day" }), rows: [], library: [Plan.library.series()] })),
+            /^Plan: the library lists Plan\.library\.series\(\), and this Plan has nothing a viewer can hide — it lists event kinds, `rows`, and `data`'s `series`$/);
     });
 
-    test("a pick matches its series' kinds once: its id, title, subtitle and icon, read by each of its derivations, call one identity, where each wrote its match out again", () => {
+    test("the tab's lines of a list known only as it runs match its series' kinds once: id, title, subtitle and icon call one identity; a list written in place is read as the Plan is built, with no match", () => {
         const Row = StructType({ v: FloatType });
         const marks = Plan.series.events(Row, { key: "marks", title: "Marks", label: (_r, k) => k, marks: () => [] });
         const kinds = Object.keys(Plan.Types.Series(Row).cases);
         const sameName = equalFor(StringType);
-        let matches = 0;
-        walkIR(East.function([], NullType, ($) => { $(Plan.pick("lib.pick", [marks])); }).toIR().ir, (node) => {
-            if (node.type === "Match" && kinds.every((kind) => node.value.cases.some((arm) => sameName(arm.case, kind)))) matches += 1;
-        });
-        assert.equal(matches, 1);
+        const matchesOf = (lines: ($: BlockBuilder<NullType>) => ReturnType<typeof Plan.pickItems>): number => {
+            let matches = 0;
+            walkIR(East.function([], NullType, ($) => { $.let(lines($)); }).toIR().ir, (node) => {
+                if (node.type === "Match" && kinds.every((kind) => node.value.cases.some((arm) => sameName(arm.case, kind)))) matches += 1;
+            });
+            return matches;
+        };
+        assert.equal(matchesOf(($) => {
+            const all = $.const([marks], ArrayType(Plan.Types.Series(Row)));
+            return Plan.pickItems(all);
+        }), 1);
+        assert.equal(matchesOf(() => Plan.pickItems([marks])), 0);
     });
 });
 
@@ -117,7 +128,7 @@ describe("an author's tab (PB62)", () => {
 describe("the library's refusals (PB61, PB62)", () => {
     const axis = Plan.axis({ window: WINDOW, resolution: "day" });
     const overJobs = ($: BlockBuilder<NullType>, library: readonly ReturnType<typeof Plan.library.events>[]) =>
-        Plan.Payload({ axis, resources: { presses: pressesOf($) }, events: { job: jobsOf($) }, library });
+        Plan.Payload({ axis, data: pressRows($), series: [PRESSES], events: { job: jobsOf($) }, library });
 
     test("a tab listed twice, the author's by its name", () => {
         assert.match(refusal(($) => overJobs($, [Plan.library.events(), Plan.library.series(), Plan.library.events()])),
@@ -136,7 +147,7 @@ describe("the library's refusals (PB61, PB62)", () => {
         assert.match(refusal(($) => {
             const rush = $.let(Record.bind(ex.planLinkJobs));
             return Plan.Payload({
-                axis, resources: { presses: pressesOf($) },
+                axis, data: pressRows($), series: [PRESSES],
                 events: {
                     job: jobsOf($),
                     rush: Schedule.events(rush, { name: "Rush job", icon: "bolt", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" } }),

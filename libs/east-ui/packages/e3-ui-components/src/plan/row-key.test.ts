@@ -8,10 +8,8 @@
  */
 
 import { describe, test, expect } from "vitest";
-import { variant } from "@elaraai/east";
-import { rowIdOfKey, rowKeyOf, type PlanRowId } from "./row-key.js";
-
-const entry = (series: string, ...path: string[]) => variant("entry", { series, path }) as PlanRowId;
+import { rowIdOfKey, rowKeyOf } from "./row-key.js";
+import { entry } from "./row-id.test-utils.js";
 
 describe("row keys", () => {
     test("a key is the id's .east text, and parses back to the id", () => {

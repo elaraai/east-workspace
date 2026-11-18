@@ -77,6 +77,32 @@ eight-source Calendar once held 350 MB a mount). An event kind reads its
 part's members inside its own functions. `test/utils/record-sources-captures.spec.ts`
 holds every example to it: no function captures the whole slice.
 
+A record's Save is held the same way (#1620). `Record.onApply` answers one
+East struct, the Save and its draft form (`RecordSaveTypeFor`), built in a
+block that binds the plan of the write and the record's doors once
+(`inWriteBlock`, `bind/record.ts`): the two call one plan, and neither holds
+the handle. A collection takes its `onApply` through east-ui's
+`withEditingSave`, which binds a Save once where the session is made and
+hands the collection its apply and its draft form; a plain function goes
+through as it is, with no draft form. Never read `.apply` or `.toDraft` off
+what an author passed: each read would write the Save out again.
+
+A builder's `optimise` is held to one contract (east-workspace#1622,
+`utils/optimise.ts`' `optimiseBinding`): `Func.bind` of an `e3.function` from
+the builder's request — the period in view, the run's number and the rail's
+narrowing, and no row — to a patch of each record the builder edits. The tag
+checks the handle's types where the page is built, naming what the function
+asks or answers; and, as the page is evaluated, that the function lists in
+`drafts` each record it reads that the builder edits (the binding's `reads`
+and `drafts`): a handle is a variable while a page is built, so a record is
+told by its name there. A builder is handed each record it edits, bound with
+`Record.bind`, and reads the record's name and its types from the handle,
+never from a Save handed in a record's place: a Sheet and a Record over a
+rail take `record` beside `slice`, and a Sheet over `data` takes no
+optimiser. Never add a row, or anything the page read or worked out, to a
+request: the function reads it on e3, with the page's unsaved edits laid over
+the records as drafts.
+
 A source's narrowing is read where its rows are read, never where the builder
 is built (#1354). The bind reads no state and returns one handle per binding,
 whatever its narrowing: its narrowed data is a live source
@@ -98,8 +124,11 @@ stays the mutation door a Save commits through.
 
 The Sheet (#1345) takes `slice={{ slice: Slice.bindRecords(key, { rows, … })
 }}`. Its `rows` source gives the record's rows, every one in the record's
-order, paged from it, edited through `onApply={Record.onApply(record, { keyed:
-true })}`, and its narrowing is drawn over them as the lens (#1349), a filtered
+order, paged from it, and its narrowing is drawn over them as the lens (#1349).
+The sheet is handed the record beside the rail, `record={Record.bind(record)}`,
+as every builder is handed the records it edits, and saves through it by key;
+`onApply` beside the `rows` source is refused, naming `record`
+(east-workspace#1622). The lens is a filtered
 spreadsheet: only the rows the narrowing keeps, one after another, each at its
 row number, e3 placing the narrowing's rows from the source's index alone and
 the renderer reading only the segments that hold them near the view. A sheet
@@ -124,21 +153,23 @@ with `Data.bind`, each card keyed by the record's key, so a list takes no
 
 The Plan (#1344) takes `slice={{ slice: Slice.bindRecords(key, { … }) }}`. Its
 `rows` source gives the canvas its rows, paged from it in its index's order —
-`data` is left out — edited through `editing.onApply` (`Record.onApply(record,
-{ keyed: true })`). A source named after an event kind's slot reads that kind's
+`data` is left out — saved through its record, `record={Record.bind(record)}`
+over a record declaring `mutation.patch()`, with `onPatch` and `ready` beside
+it (#1541); `editing` is refused, naming them. A source named after an event kind's slot reads that kind's
 events and its backlog through its interval index, as the Calendar's sources
-do; one named after a resource kind's slot narrows that kind's rows — of
-resources read whole and keyed by String, the rows and the bulk edit's Chooser
-its keys show; of a paged kind (`Schedule.resources(Data.bindPaged(record),
-…)`), the canvas's windows, paged from the narrowing's rows themselves in the
-source's index's order (`Data.bindPaged(record, { indexes })` over the kind's
-own record), never a window of every resource filtered by key, so a choice
-reads the narrowed resources in view and their cells alone
-(`planSeriesByHall`, `planRecordIndexes`, #1344). Every source holding a `range` of the axis's arm
+do. The Plan has no resource kinds (#1541): its rows are the resources — a
+`Plan.series.resources` series, or a case of a `Plan.series.kinds` block, is
+what an event kind's `resource.of` names — and `resources` is refused, naming
+them. So the `rows` source narrows the resources with the rows: the canvas's
+windows are paged from the narrowing's rows themselves in the source's index's
+order (`Data.bindPaged(record, { indexes })` over the rows' own record), never
+a window of every row filtered by key, so a choice reads the narrowed rows in
+view and their cells alone (`planSeriesByHall`, `planRecordIndexes`, #1344).
+Every source holding a `range` of the axis's arm
 — an event kind's, a tab's that lists what is in the dates on screen — holds
 the window with the others: the date navigator, the horizon brush, the keys
 and the resolution write each of them. The canvas's rows never follow the
-dates on screen: the `rows` source and a resource kind's take no `range` — the
+dates on screen: the `rows` source takes no `range` — the
 tag refuses one as the Plan is evaluated, naming the change — and a date field
 there is a field of the rail the viewer sets. A slice with no source holding
 the window leaves the canvas its own, which the same controls move, reading no
@@ -146,13 +177,13 @@ row; a reload opens on it, kept for the viewer as the canvas's folds are. Each
 templates list is `Schedule.templates(templates.read(), { …,
 source })` over a record bound with `Data.bind`, an instant kind's giving no
 `duration`, and each tab that names a `source` follows it. An event kind
-placed on a paged resource kind is read a cell at a time (#1039): its source,
-named after its slot, lists a series index and a summary index beside its
-interval index, and it shades from the summary zoomed out (`planWindows`,
+over rows read a page at a time is read a cell at a time (#1039, #1541): its
+source, named after its slot, lists a series index and a summary index beside
+its interval index, and it shades from the summary zoomed out (`planWindows`,
 `planRecordIndexes`); read any other way — no source, its record whole or the
 days in view through a day index, a source listing its interval index alone
-or a summary and no series, or placed beside another resource kind — it is
-refused, naming both declarations over the kind's own fields. Every other kind
+or a summary and no series — it is refused, naming both declarations over the
+kind's own fields. A kind over rows read whole
 is counted before one of its events is read — through its source's interval
 index; through its day index, by the days its events run on (an event once a
 day, so an upper bound, never their number: `countExact` false); or in
@@ -524,8 +555,8 @@ first step of a roster made in two steps (#1548): `none` is a duty in no group
 yet, its place (`Roster.Types.Place`) holding no slot (`Roster.slotOf`), drawn
 on its person's row in People and in Shifts' No group band, counted in its
 person's hours, contract and rest and in no group's targets; a drop in a
-group's slot writes `some(group)`, one back `none`, and the optimiser's request
-and answer carry it as it stands. Coverage, checks and the views read that week, and
+group's slot writes `some(group)`, one back `none`, and the optimiser reads
+and answers it as it stands. Coverage, checks and the views read that week, and
 each assignment carries its duty's own row, untouched, for the app's
 functions.
 
@@ -591,17 +622,29 @@ and each tag's own check).
 The examples are `rosterRota` and `allocationDeliveries`.
 
 The People tab has no filter of its own: leads, trainers, agency and skill are
-rail fields of the staff record (#1342). A Find fix asks the app's fit (#1334):
-`fit` is `Func.bind` of an `e3.function` from `Roster.Types.FitRequest(R)` to
-`Roster.Types.FitResult`, `R` the duty row type — the Allocation's contract —
-its issue's need and slot over the drafted week and the complete staff,
-whatever the rail shows. Its answer is a result in the People tab — the fits
-among what the rail shows, best first in the fit's order, each card with the
-fit's reason — with a chip that clears it; never a second search/filter
-implementation, and the renderer decides no one itself. Without `fit` no Find
-fix is offered. `Roster.fit(R)` (the need held, not rostered that day, rest
-kept; the slot's group, then spare contract hours) and `Roster.answer(R)` are
-the ready-made East parts. Keep the duty kind's own inspector and the targets'
+rail fields of the staff record (#1342). A Find fix asks the app's fit (#1334,
+east-workspace#1624): `fit` is `Func.bind` of an `e3.function` from
+`Roster.Types.FitRequest` to `Roster.Types.FitResult` — the Allocation's
+contract. A request is the question — the issue's need and slot, the week's
+first day — and the page's scope, and no row; the call carries the builder's
+unsaved edits as drafts, and the function reads what it needs from the
+workspace with them laid over it, whatever the rail shows. It lists in
+`drafts` each record it reads that the builder edits, held by the optimiser's
+check (`utils/optimise.ts`, `optimiseBinding` with the fit's words): one that
+does not is refused as the page is evaluated, naming the record. Its answer is
+a result in the People tab — the fits among what the rail shows, best first in
+the fit's order, each card with the fit's reason — with a chip that clears it;
+never a second search/filter implementation, and the renderer decides no one
+itself. Without `fit` no Find fix is offered. The ready-made East parts read
+what the function read, never a row, so none takes the row type: `Roster.fit()`
+(the need held, not rostered that day, rest kept; the slot's group, then spare
+contract hours) over a `Roster.Types.Candidate`, `Roster.answer` over a
+`Roster.Types.FitContext`, and `Roster.window`, the one window a week's duties
+are read over; the Allocation's are `Allocation.candidates`, `answer` and
+`lookahead` over an `Allocation.Types.FitContext`. A measure a page's function
+and a fit's rule share is one piece both call (`rosterPlaceOf`,
+`rosterRestBetween`, `allocationMatesOf`). Every example's fit reads its own
+builder's rows through an index of their record. Keep the duty kind's own inspector and the targets'
 own form on the same guarded commands as dragging and mobile forms; they
 cannot replace a duty's person or bypass published/read-only state. Pure
 coverage and rule functions live in e3-ui and are compiled once per duty row

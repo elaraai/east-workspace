@@ -8,9 +8,12 @@
  *
  * The full `@elaraai/e3` entry pulls in yazl (→ node `stream`/`events`/
  * `util`), which Vite externalizes and breaks in the browser. The example
- * files only need `e3.input(...)` / `e3.function(...)` + def types — but the
- * public `@elaraai/e3-ui` entry re-exports `ui()`, which imports `task`, so
- * the shim must carry `task` too for the bundle to resolve. All are pure.
+ * files only need `e3.input(...)` / `e3.function(...)` + def types — and
+ * `e3.index(...)`, an index of a record as a function's input, which every
+ * builder's optimiser example reads its rows through (east-workspace#1622) —
+ * but the public `@elaraai/e3-ui` entry re-exports `ui()`, which imports
+ * `task`, so the shim must carry `task` too for the bundle to resolve. All
+ * are pure.
  * The snapshot vite config aliases `@elaraai/e3` to this module (scoped to
  * the harness — the Node-side showcase emitter is unaffected).
  *
@@ -26,22 +29,25 @@ import { task } from '../../../../e3/packages/e3/src/task.ts';
 import { function_ } from '../../../../e3/packages/e3/src/function.ts';
 import { record } from '../../../../e3/packages/e3/src/record.ts';
 import { mutation } from '../../../../e3/packages/e3/src/mutation.ts';
+import { index } from '../../../../e3/packages/e3/src/index-input.ts';
 
-export { input, task, record, mutation };
+export { input, task, record, mutation, index };
 export { function_ };
 export type { DatasetDef, FunctionDef, RecordDef, MutationDef, RecordIndexDef } from '../../../../e3/packages/e3/src/types.ts';
 
 /** Default-export surface, matching `@elaraai/e3`'s `e3` object for the
- *  members the browser harness can support. `record` / `mutation` are pure
- *  (they reach `@elaraai/east` and `@elaraai/e3-types`, never a Node
- *  built-in), so the `Record.bind` examples and the examples that page a
- *  record through its indexes — declared in the record — bundle. */
+ *  members the browser harness can support. `record` / `mutation` / `index`
+ *  are pure (they reach `@elaraai/east` and `@elaraai/e3-types`, never a Node
+ *  built-in), so the `Record.bind` examples, the examples that page a record
+ *  through its indexes — declared in the record — and the functions that
+ *  take one of them as an input bundle. */
 const e3 = {
     input,
     task,
     function: function_,
     record,
     mutation,
+    index,
 } as const;
 
 export default e3;

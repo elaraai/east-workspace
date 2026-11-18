@@ -33,6 +33,7 @@
 
 import { expect, test, vi } from "vitest";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
+import { randomStream } from "@elaraai/east/internal";
 import * as ex from "@elaraai/e3-ui/examples/schematic/schematic";
 import { e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
 import { at, card, cameraOf, fitted, layOutCanvas, unsaved } from "./schematic.test-utils.js";
@@ -429,9 +430,9 @@ test("the window losing the page lets go of a Move in flight, recording nothing"
 test("after any run of fingers put down, moved, lifted, taken back, lost and never heard of again, one finger pans the drawing and zooms it by nothing", async () => {
     const { container } = await open();
     const canvas = canvasOf(container);
-    // A seeded run, the same each time it is run.
-    let seed = 20261112;
-    const random = (n: number) => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed % n; };
+    // A seeded run of East's stream, the same each time it is run.
+    const draw = randomStream(20261112);
+    const random = (n: number) => Math.floor(draw() * n);
     const point = () => ({ x: 40 + random(1000), y: 40 + random(460) });
     const ends = ["pointerUp", "pointerCancel", "lostPointerCapture", "never heard"] as const;
     let next = 100;

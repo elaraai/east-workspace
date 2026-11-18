@@ -4,10 +4,11 @@
  *
  * @vitest-environment jsdom
  *
- * The work orders Plan on e3 itself (`planRecordIndexes`, #1344, #1039): the
- * Sheet's 50,000 work orders a paged resource kind, narrowed through the
- * rail's `orders` source over their indexes, and their operations a record of
- * their own placed on them, read a cell at a time through their series index.
+ * The work orders Plan on e3 itself (`planRecordIndexes`, #1344, #1039,
+ * #1541): the Sheet's 50,000 work orders its rows, a resources series over the
+ * rail's `rows` source, narrowed over their indexes, and their operations a
+ * record of their own placed on them, read a cell at a time through their
+ * series index.
  * What each request asked is read from the harness's request log
  * (`h.requests`).
  *
@@ -46,7 +47,7 @@ import type { TreePath } from "@elaraai/e3-types";
 import { readsRow, type E3Request } from "../e3-web.test-utils.js";
 import { width } from "../e3-web-mount.test-utils.js";
 import { PLAN_GEOMETRY } from "./geometry.js";
-import { rowKeyOf } from "./model.js";
+import { rowIdOfKey, rowKeyOf } from "./model.js";
 import { carrySaid } from "./plan-move.test-utils.js";
 import { act, el, entry, planHarness, rowAt, settle, slot } from "./frame/harness.test-utils.js";
 
@@ -59,7 +60,7 @@ type Operation = ValueTypeOf<typeof ex.PlanOperation>;
 const FIRST = new Date("2026-10-01T00:00:00Z");
 const FORTNIGHT = new Date("2026-10-15T00:00:00Z");
 
-/** The rail's key: each source's state kept under `${KEY}.${source}`. */
+/** The rail's key: each source's state kept under `${KEY}.${source}`, the work orders' under its `rows` source's. */
 const KEY = "ex.planRecordIndexes";
 
 // ── The records, and what the Plan asks e3 of them ───────────────────────────
@@ -180,24 +181,29 @@ type State = ValueTypeOf<typeof RecordSliceStateType>;
  * @param statuses - The statuses chosen
  */
 async function chooseStatuses(statuses: readonly string[]) {
-    const was = decodeState(getStore().read(`${KEY}.orders`)!);
+    const was = decodeState(getStore().read(`${KEY}.rows`)!);
     const where: State["where"] = new SortedMap([...was.where], compareString);
     where.set("status", variant("values", statuses.map((status) => text(status))));
-    await act(async () => { getStore().write(`${KEY}.orders`, encodeState({ ...was, preset: none, where })); });
+    await act(async () => { getStore().write(`${KEY}.rows`, encodeState({ ...was, preset: none, where })); });
     await settle();
 }
 
 /** Every choice of the orders' source cleared, as the rail's Filters › Clear all leaves it: every work order. */
 async function clearFilters() {
-    const was = decodeState(getStore().read(`${KEY}.orders`)!);
-    await act(async () => { getStore().write(`${KEY}.orders`, encodeState({ ...was, preset: none, where: new SortedMap([], compareString) })); });
+    const was = decodeState(getStore().read(`${KEY}.rows`)!);
+    await act(async () => { getStore().write(`${KEY}.rows`, encodeState({ ...was, preset: none, where: new SortedMap([], compareString) })); });
     await settle();
 }
 
 // ── What the canvas draws ────────────────────────────────────────────────────
 
-/** A work order's row. */
-const orderRow = (key: string) => entry("orders.span", key);
+/** A work order's row: an entry of the canvas's `orders` series, the resources its operations land on (#1541). */
+const orderRow = (key: string) => entry("orders", key);
+/** Whether a row's id's text names a work order's row. */
+const isOrderRow = (key: string) => {
+    const id = rowIdOfKey(key);
+    return id !== undefined && stringEqual(id.value.series, "orders");
+};
 /** An operation's bar on its work order's row. */
 const bar = (c: HTMLElement, operation: string, order: string) => c.querySelector<HTMLElement>(`${rowAt(orderRow(order))} ${el("data-run", "operation", operation)}`);
 /** An element's name: its title, its times, its state. */
@@ -205,7 +211,7 @@ const named = (node: HTMLElement | null) => node?.getAttribute("aria-label") ?? 
 /** The work orders' rows the canvas has mounted, in order, each as its id's text. */
 const orderRows = (c: HTMLElement) => [...slot(c, "main")!.querySelectorAll<HTMLElement>("[data-plan-row]")]
     .map((row) => row.getAttribute("data-plan-row")!)
-    .filter((id) => id.includes("orders.span"));
+    .filter(isOrderRow);
 /** The ids' texts of some orders' rows, in order. */
 const rowsOf = (keys: readonly string[]) => keys.map((key) => rowKeyOf(orderRow(key)));
 /** The rail's summary of what its narrowings hide. */
@@ -312,7 +318,7 @@ afterEach(() => {
 // The work orders paged, their operations a cell at a time
 // ============================================================================
 
-describe("the work orders Plan: the orders a paged resource kind, their operations read a cell at a time", () => {
+describe("the work orders Plan: the orders its rows, read a window at a time, their operations read a cell at a time", () => {
     test("opens on the narrowing's work orders a window at a time — the window on screen and the two read ahead, through the status/due index — and the operations' cells of the first fifty orders over the tiles the canvas reads: never either record whole, nor a window of operations", async () => {
         const { container: c } = await h.mount(ex.planRecordIndexes);
         await settle();
@@ -602,10 +608,10 @@ describe("the work orders Plan: the orders a paged resource kind, their operatio
         // The rows land: the first of them in view takes the focus, and the keys go on from it in turn.
         await act(async () => { far.release(); });
         await settle();
-        await waitFor(() => expect(focusedAt(c)).toMatch(/orders\.span/), { timeout: 10_000 });
+        await waitFor(() => expect(isOrderRow(focusedAt(c))).toBe(true), { timeout: 10_000 });
         await settle();
         watch.stop();
-        const rowsTaken = watch.seen.filter((at, i, all) => (i === 0 || at !== all[i - 1]) && at.includes("orders.span"));
+        const rowsTaken = watch.seen.filter((at, i, all) => (i === 0 || at !== all[i - 1]) && isOrderRow(at));
         const first = ready.findIndex((order) => rowKeyOf(orderRow(order)) === rowsTaken[0]);
         expect(first).toBeGreaterThan(600);
         // A page is ten orders — 400px of view, rows of 42: down two pages and back one leaves it a page on.
@@ -613,7 +619,7 @@ describe("the work orders Plan: the orders a paged resource kind, their operatio
         expect(watch.seen).not.toContain("the page's body");
     });
 
-    test("at a phone's width the Rows tab's `N more rows` counts the source — the rows read and not shown yet and every one past them, never what has loaded — and a tap past the rows read reads the next window, its cards coming as it lands (#1398, ruled 27 Oct 2026)", async () => {
+    test("at a phone's width the Rows tab's `N more work orders` counts the source — the rows read and not shown yet and every one past them, never what has loaded — and a tap past the rows read reads the next window, its cards coming as it lands (#1398, ruled 27 Oct 2026)", async () => {
         // A phone's main: the canvas's body 390px wide, so the Plan draws its narrow list.
         const realRect = Element.prototype.getBoundingClientRect;
         vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
@@ -628,15 +634,16 @@ describe("the work orders Plan: the orders a paged resource kind, their operatio
         const ready = await ordersOf(["Ready"], FIRST, FORTNIGHT);
         const cards = () => c.querySelectorAll("[data-plan-card]").length;
         const more = () => c.querySelector<HTMLElement>('[data-plan-more="rows"]');
-        // The Rows tab counts the narrowing's 2,778 orders; the list shows eight, and says how many more the source holds.
+        // The Rows tab counts the narrowing's 2,778 orders; the list shows eight, and says how many more the source holds, in
+        // the Plan's word for its rows.
         await waitFor(() => expect(c.querySelector('[data-plan-tab="rows"] [data-plan-tabcount]')?.getAttribute("data-plan-tabcount")).toBe(String(ready.length)));
         expect(cards()).toBe(8);
-        expect(more()?.textContent).toBe(`${(ready.length - 8).toLocaleString("en-US")} more rows`);
+        expect(more()?.textContent).toBe(`${(ready.length - 8).toLocaleString("en-US")} more work orders`);
         // A tap: eight more cards, eight fewer to come.
         await act(async () => { fireEvent.click(more()!); });
         await settle();
         expect(cards()).toBe(16);
-        expect(more()?.textContent).toBe(`${(ready.length - 16).toLocaleString("en-US")} more rows`);
+        expect(more()?.textContent).toBe(`${(ready.length - 16).toLocaleString("en-US")} more work orders`);
         // Taps on, past the windows read: each one past them reads the next, and its cards come as it lands.
         for (let step = 0; step < 100 && cards() <= 600; step++) {
             await act(async () => { fireEvent.click(more()!); });
@@ -644,6 +651,6 @@ describe("the work orders Plan: the orders a paged resource kind, their operatio
         }
         expect(cards()).toBe(608);
         expect(c.querySelector(`[data-plan-card=${JSON.stringify(rowKeyOf(orderRow(ready[607]!)))}]`)).not.toBeNull();
-        expect(more()?.textContent).toBe(`${(ready.length - 608).toLocaleString("en-US")} more rows`);
+        expect(more()?.textContent).toBe(`${(ready.length - 608).toLocaleString("en-US")} more work orders`);
     });
 });

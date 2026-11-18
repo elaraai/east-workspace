@@ -12,17 +12,21 @@
  * slice's order, standing on the row of it the bin stands on there: its lane
  * in the lanes' source, its arrival in the arrivals', and the resource it is
  * shown on — its largest part — in the resources'. One hidden pick a source,
- * asked of the source's own record through its part.
+ * asked of the source's own record through its part. A resource the board
+ * names on its own — its focus, the fit it ranks first — that the resources'
+ * narrowing leaves out says why, as far as e3 has said (#1621): beyond the
+ * page's scope, or hidden by a choice of the viewer's.
  *
  * @packageDocumentation
  */
 
 import { useMemo } from "react";
 import type { option } from "@elaraai/east";
-import { askHiding, hiddenOf, useRelist, useSourceHidden, type RowHidden, type RowHiding, type SourceHidden } from "../shared/schedule/hidden.js";
+import { askHiding, hiddenWhy, useRelist, useSourceHidden, type HiddenWhy, type RowHiding, type SourceHidden } from "../shared/schedule/hidden.js";
 import type { FoundBin } from "./find.js";
 import type { AllocationValue } from "./model.js";
 import { narrowingPart, narrowingSlot, type NarrowedSource } from "./narrowed.js";
+import { one } from "./nouns.js";
 import { rowHiding } from "./table-rows.js";
 
 /**
@@ -38,25 +42,37 @@ export interface BinShown {
 /** The hidden pick over the bins Search Records finds. */
 export interface HiddenBins {
     /**
-     * What hides a bin on the board, as far as e3 has said: each source that does, in the slice's order.
+     * The sources that hide a bin as the board draws it, in the slice's order, each with the row of it the bin stands on
+     * there: what Search Records asks e3 of and words a bin's line by (`shared/schedule/search-records.ts`).
      *
      * @param bin - The bin, as Search Records found it
-     * @returns What hides it; `undefined` for a bin the narrowing shows
+     * @returns The sources; none for a bin the narrowing shows
      */
-    of(bin: FoundBin): readonly RowHidden[] | undefined;
+    hidingsOf(bin: FoundBin): readonly RowHiding[];
     /**
-     * Asks e3 which choices hide the bins a listing holds that the narrowing hides: each source's question of the rows
-     * they stand on, one request a question.
+     * Why a resource the board names on its own, which the resources' narrowing leaves out, is not shown, as far as e3 has
+     * said (`hiddenWhy`): beyond the page's scope, or hidden by a choice of the viewer's.
      *
-     * @param bins - The bins, as the box lists them
+     * @param resource - The resource, by its key
+     * @returns Why; `undefined` while e3 has not said, on a page whose resources hold a scope beside a choice
      */
-    ask(bins: readonly FoundBin[]): void;
+    whyResource(resource: string): HiddenWhy | undefined;
+    /**
+     * Asks e3 why some resources the board names, which the resources' narrowing leaves out, are not shown: each once at
+     * the record's revision and the narrowing.
+     *
+     * @param resources - The resources, by their keys
+     */
+    askResources(resources: readonly string[]): void;
     /** Moves as answers land and as what the narrowing shows moves: the box lists its lines again. */
     readonly relist: number;
 }
 
 /** The sources the rail narrows a bin by, in the board's order. */
 const SOURCES: readonly NarrowedSource[] = ["lanes", "resources", "arrivals"];
+
+/** The app's noun for the row of each source a bin stands on: what its line names where the source's page does not hold it (#1621). */
+const NOUN_OF = { lanes: "lane", resources: "resource", arrivals: "arrival" } as const satisfies Record<NarrowedSource, "lane" | "resource" | "arrival">;
 
 /**
  * The row of a source a bin stands on: its lane, its arrival — a reservation has none — or the resource it is shown on,
@@ -92,13 +108,11 @@ export function useHiddenBins(value: AllocationValue, shown: BinShown): HiddenBi
             const hides = rowHiding(bin.lane, { arrival: bin.arrival, parts: bin.parts }, shown.lanes, shown.resources, shown.arrivals);
             return order.flatMap(source => {
                 const pick = picks[source], row = rowOf(source, bin);
-                return hides[source] && pick.part !== undefined && row !== undefined ? [{ pick, id: row }] : [];
+                return hides[source] && pick.part !== undefined && row !== undefined ? [{ pick, id: row, what: one(value.labels[NOUN_OF[source]]) }] : [];
             });
         };
-        return {
-            of: (bin) => hiddenOf(hidingsOf(bin)),
-            ask: (bins) => askHiding(bins.flatMap(hidingsOf), true),
-            relist,
-        };
-    }, [lanes, resources, arrivals, order, shown, relist]);
+        const whyResource = (resource: string): HiddenWhy | undefined => hiddenWhy({ pick: resources, id: resource });
+        const askResources = (keys: readonly string[]): void => { if (keys.length > 0) askHiding(keys.map(id => ({ pick: resources, id })), true); };
+        return { hidingsOf, whyResource, askResources, relist };
+    }, [lanes, resources, arrivals, order, shown, relist, value.labels]);
 }

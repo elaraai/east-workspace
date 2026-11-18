@@ -4,10 +4,12 @@
  */
 
 import {
-    ArrayType, DictType, East, Expr, OptionType, StringType, isTypeEqual, none, printType, variant,
-    type EastType, type ExprType, type FunctionType, type StructType, type SubtypeExprOrValue,
+    ArrayType, DictType, East, Expr, OptionType, StringType, StructType, isTypeEqual, none, printType, variant,
+    type BlobType, type BlockBuilder, type EastType, type ExprType, type FunctionType, type SubtypeExprOrValue, type VariantType,
 } from "@elaraai/east";
+import { caseValueOf, holdsCase, variantCasesIn } from "../utils/cases.js";
 import { ScheduleClockType, ScheduleDurationType, ScheduleTemplateType } from "./types.js";
+import { keyTextOf } from "./window.js";
 
 /** Identifies a declaration of templates read from keyed data. */
 export const SCHEDULE_TEMPLATES: unique symbol = Symbol("Schedule.templates");
@@ -24,23 +26,33 @@ export interface ScheduleTemplates<V extends StructType> {
     readonly source: string | undefined;
     /** Whether each gives how long its event runs (`duration`): a span kind's templates do, an instant kind's do not (#1344). */
     readonly timed: boolean;
+    /** Whether each gives when its event starts on a whole day (`at`): a link kind's, whose links have no time, give none (#1541, U10). */
+    readonly startsAt: boolean;
 }
 
-/** Accessors describing one template record row. Each receives the row and its key. */
-export interface ScheduleTemplatesConfig<K extends EastType, R extends EastType, V extends StructType> {
+/**
+ * Accessors describing one template record row. Each receives the row and its key — and, over one case of the rows
+ * (`case`), the case's value after them.
+ *
+ * @typeParam K - The template record's key type
+ * @typeParam R - Its row type
+ * @typeParam V - The initial event values' struct type
+ * @typeParam C - What each accessor is handed after the row and its key: nothing, or the value of the case named
+ */
+export interface ScheduleTemplatesConfig<K extends EastType, R extends EastType, V extends StructType, C extends readonly unknown[] = []> {
     /** The template's name in the library. */
-    name: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<StringType>;
+    name: (row: ExprType<R>, key: ExprType<K>, ...value: C) => SubtypeExprOrValue<StringType>;
     /** Its optional library group. */
-    group?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<OptionType<StringType>>;
+    group?: (row: ExprType<R>, key: ExprType<K>, ...value: C) => SubtypeExprOrValue<OptionType<StringType>>;
     /** Its optional start time for a drop onto a whole day. */
-    at?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<OptionType<ScheduleClockType>>;
+    at?: (row: ExprType<R>, key: ExprType<K>, ...value: C) => SubtypeExprOrValue<OptionType<ScheduleClockType>>;
     /**
      * The length of an event made from this template: a span kind's templates give it, and an instant kind's
      * (`at`), whose events are one time, give none (#1344).
      */
-    duration?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<ScheduleDurationType>;
+    duration?: (row: ExprType<R>, key: ExprType<K>, ...value: C) => SubtypeExprOrValue<ScheduleDurationType>;
     /** Every initial event field except its start, end and resource. */
-    values: (row: ExprType<R>, key: ExprType<K>) => ExprType<V>;
+    values: (row: ExprType<R>, key: ExprType<K>, ...value: C) => ExprType<V>;
     /**
      * The builder's `Slice.bindRecords` source over these templates' record (`jobTemplates`): its shown keys filter
      * the Templates tab's cards, each template's key its record key. Omitted, every template shows (#1343).
@@ -48,10 +60,42 @@ export interface ScheduleTemplatesConfig<K extends EastType, R extends EastType,
     source?: string;
 }
 
+/** The cases of a variant field of a template row, by name; `never` where the row has no such field or it holds no variant. */
+export type ScheduleTemplateCases<R extends EastType, F extends string> =
+    R extends StructType<infer Fields> ? (F extends keyof Fields ? (Fields[F] extends VariantType<infer Cases> ? Cases : never) : never) : never;
+
+/**
+ * The templates of one event kind, over a record that holds every kind's (#1544): `case: [field, tag]` names a
+ * variant field of the rows and the kind's case of it. The templates are the rows holding that case, and each
+ * accessor is handed the case's value after the row and its key — so an app keeps its presets in one record, with one
+ * source on the rail, and each kind reads its own:
+ *
+ * ```ts
+ * // presets: Dict<String, { name, values: Variant<{ job: { title, sheets }, stop: { title, kind } }> }>
+ * Schedule.templates(presets.read(), { case: ["values", "job"], name: (preset) => preset.name, values: (_preset, _key, job) => job })
+ * ```
+ *
+ * @typeParam K - The template record's key type
+ * @typeParam R - Its row type
+ * @typeParam V - The initial event values' struct type
+ * @typeParam F - The variant field
+ * @typeParam T - The kind's case of it
+ */
+export interface ScheduleCaseTemplatesConfig<K extends EastType, R extends EastType, V extends StructType, F extends string, T extends string>
+    extends ScheduleTemplatesConfig<K, R, V, [value: ExprType<T extends keyof ScheduleTemplateCases<R, F> ? ScheduleTemplateCases<R, F>[T] & EastType : never>]> {
+    /** The variant field of the rows, and the kind's case of it: the rows holding it are the kind's templates. */
+    case: readonly [field: F, tag: T];
+}
+
 /**
  * Reads templates from keyed data, usually a bound record's read(). Each
  * accessor is reified once; the source's key identifies the template. Plan
  * and Calendar share this declaration and observe changes to its source.
+ *
+ * Over a record that holds every kind's templates, `case: [field, tag]` names
+ * the kind's case of a variant field of the rows: the rows holding it are the
+ * kind's templates, and each accessor is handed the case's value after the
+ * row and its key ({@link ScheduleCaseTemplatesConfig}).
  *
  * @typeParam K - The template record's key type
  * @typeParam R - Its row type
@@ -59,25 +103,92 @@ export interface ScheduleTemplatesConfig<K extends EastType, R extends EastType,
  * @param rows - The keyed template rows
  * @param config - The row accessors
  * @returns Templates whose values are checked against their event kind
- * @throws {Error} When the source is not a Dict or the values are not a struct
+ * @throws {Error} When the source is not a Dict, the values are not a struct, or `case` names a field that holds no
+ *   variant or a tag that is no case of it
  */
+export function scheduleTemplates<K extends EastType, R extends EastType, V extends StructType, const F extends string, const T extends string>(
+    rows: SubtypeExprOrValue<DictType<K, R>>, config: ScheduleCaseTemplatesConfig<K, R, V, F, T>,
+): ScheduleTemplates<V>;
 export function scheduleTemplates<K extends EastType, R extends EastType, V extends StructType>(
     rows: SubtypeExprOrValue<DictType<K, R>>, config: ScheduleTemplatesConfig<K, R, V>,
+): ScheduleTemplates<V>;
+export function scheduleTemplates<K extends EastType, R extends EastType, V extends StructType>(
+    rows: SubtypeExprOrValue<DictType<K, R>>, given: ScheduleTemplatesConfig<K, R, V> | ScheduleCaseTemplatesConfig<K, R, V, string, string>,
 ): ScheduleTemplates<V> {
-    const source = East.value(rows) as ExprType<DictType<K, R>>;
-    const type = Expr.type(source as unknown as Expr) as EastType;
+    const all = East.value(rows) as ExprType<DictType<K, R>>;
+    const type = Expr.type(all as unknown as Expr) as EastType;
     if (type.type !== "Dict") throw new Error("Schedule.templates: rows must be a Dict, usually a bound record's read()");
     const keyType = type.key as K;
     const rowType = type.value as R;
+    const { config, source } = templatesOfCase(all, rowType, given);
     const values = East.function([rowType, keyType], undefined, (_$, row, key) => config.values(row, key));
     const valuesType = (Expr.type(values as unknown as Expr) as FunctionType).output as V;
     if (valuesType.type !== "Struct") throw new Error("Schedule.templates: values must return a struct of initial event fields");
-    const keyText = keyType.type === "String"
-        ? East.function([StringType], StringType, (_$, key) => key)
-        : East.function([keyType], StringType, (_$, key) => East.print(key));
+    const describe = templateOf(rowType, keyType, config, values as unknown as TemplateValues<K, R>, keyTextOf(keyType) as unknown as KeyText<K>);
+    const items = source.toArray(($, row, key) => {
+        const describeRow = $.const(describe);
+        return describeRow(row as never, key as never);
+    });
+    return { [SCHEDULE_TEMPLATES]: true, valuesType, items, source: config.source, timed: config.duration !== undefined, startsAt: config.at !== undefined };
+}
+
+/**
+ * A declaration's rows and its accessors over a row and its key: its own, or — over one case of a variant field of the
+ * rows (`case`) — the rows holding the case, each accessor handed the case's value.
+ *
+ * @param rows - Every row of the templates' record
+ * @param rowType - Their type
+ * @param given - The declaration as written
+ * @returns The rows it lists, and its accessors over a row and its key
+ * @throws {Error} When `case` names a field that holds no variant, or a tag that is no case of it
+ */
+function templatesOfCase<K extends EastType, R extends EastType, V extends StructType>(
+    rows: ExprType<DictType<K, R>>, rowType: R, given: ScheduleTemplatesConfig<K, R, V> | ScheduleCaseTemplatesConfig<K, R, V, string, string>,
+): { config: ScheduleTemplatesConfig<K, R, V>; source: ExprType<DictType<K, R>> } {
+    if (!("case" in given) || given.case === undefined) return { config: given as ScheduleTemplatesConfig<K, R, V>, source: rows };
+    const [field, tag] = given.case;
+    const cases = variantCasesIn(rowType.type === "Struct" ? rowType.fields as Record<string, EastType> : undefined, field);
+    if (cases === undefined) {
+        throw new Error(`Schedule.templates: \`case\` names "${field}", which is no variant field of the rows — one record holds every kind's ` +
+            `templates in a variant field, a case for each kind: case: ["values", "job"]`);
+    }
+    if (!(tag in cases)) throw new Error(`Schedule.templates: "${tag}" is no case of "${field}" (${Object.keys(cases).join(", ")})`);
+    type Row = ExprType<R>;
+    type Key = ExprType<K>;
+    // Each accessor over the row and its key, handed the case's value.
+    const handed = <O>(fn: (row: Row, key: Key, value: ExprType<EastType>) => O) =>
+        (row: Row, key: Key): O => fn(row, key, caseValueOf(row as ExprType<EastType>, field, tag));
+    const over = given as unknown as ScheduleTemplatesConfig<K, R, V, [value: ExprType<EastType>]>;
+    const config: ScheduleTemplatesConfig<K, R, V> = {
+        name: handed(over.name),
+        values: handed(over.values),
+        ...(over.group !== undefined && { group: handed(over.group) }),
+        ...(over.at !== undefined && { at: handed(over.at) }),
+        ...(over.duration !== undefined && { duration: handed(over.duration) }),
+        ...(over.source !== undefined && { source: over.source }),
+    };
+    const source = (rows as unknown as { filter: (fn: (_$: unknown, row: Row) => unknown) => ExprType<DictType<K, R>> })
+        .filter((_$, row) => holdsCase(row as ExprType<EastType>, field, tag));
+    return { config, source };
+}
+
+/** A row's initial values, reified once: a function of the row and its key. */
+type TemplateValues<K extends EastType, R extends EastType> = ExprType<FunctionType<[R, K], EastType>>;
+
+/** A key as text, reified once ({@link keyTextOf}): a String key its own text, any other as East prints it. */
+type KeyText<K extends EastType> = ExprType<FunctionType<[K], StringType>>;
+
+/**
+ * One template of a keyed row, reified once: its accessors over the row and
+ * its key, its values encoded at their own type, and its key by `keyOf`.
+ */
+function templateOf<K extends EastType, R extends EastType>(
+    rowType: R, keyType: K, config: Pick<ScheduleTemplatesConfig<K, R, StructType>, "name" | "group" | "at" | "duration">,
+    values: TemplateValues<K, R>, keyOf: KeyText<K>,
+) {
     const duration = config.duration;
-    const describe = East.function([rowType, keyType], ScheduleTemplateType, ($, row, key) => {
-        const text = $.const(keyText as unknown as ExprType<FunctionType<[K], StringType>>);
+    return East.function([rowType, keyType], ScheduleTemplateType, ($, row, key) => {
+        const text = $.const(keyOf);
         const initial = $.const(values);
         return {
             key: text(key as never), name: config.name(row, key),
@@ -88,11 +199,130 @@ export function scheduleTemplates<K extends EastType, R extends EastType, V exte
             values: East.Blob.encodeBeast(initial(row as never, key as never), "v2"),
         };
     });
-    const items = source.toArray(($, row, key) => {
+}
+
+/**
+ * One card of a library tab and the template it makes an event from (#1541, U1).
+ *
+ * @property card - The card's key: its row's key as text
+ * @property template - The template the card's kind knows it by, its key the kind's own for it
+ */
+export const ScheduleCardTemplateType = StructType({ card: StringType, template: ScheduleTemplateType });
+
+/** Type representing {@link ScheduleCardTemplateType}. */
+export type ScheduleCardTemplateType = typeof ScheduleCardTemplateType;
+
+/** What a drop reads of a template: every part of it but its values, which stay with its kind, whose `write` makes the event. */
+const { values: _values, ...TEMPLATE_HEAD } = ScheduleTemplateType.fields;
+
+/**
+ * A template as a drop reads it: its key, its name, its group, when it starts
+ * on a whole day and how long its event runs — a template less its values.
+ */
+export const ScheduleTemplateHeadType = StructType(TEMPLATE_HEAD);
+
+/** Type representing {@link ScheduleTemplateHeadType}. */
+export type ScheduleTemplateHeadType = typeof ScheduleTemplateHeadType;
+
+/**
+ * One card of a library tab and what a drop reads of the template it makes an
+ * event from (#1541, U1), as the tab carries them: the template's values stay
+ * with its kind.
+ *
+ * @property card - The card's key: its row's key as text
+ * @property template - What a drop reads of the card's template
+ */
+export const ScheduleCardMadeType = StructType({ card: StringType, template: ScheduleTemplateHeadType });
+
+/** Type representing {@link ScheduleCardMadeType}. */
+export type ScheduleCardMadeType = typeof ScheduleCardMadeType;
+
+/**
+ * Some cards' templates as their tab carries them ({@link ScheduleCardMadeType}): each without its values.
+ *
+ * @param cards - The cards with their templates, bound once
+ * @returns Each card with what a drop reads of its template
+ */
+export function scheduleCardsMade(cards: ExprType<ArrayType<ScheduleCardTemplateType>>): ExprType<ArrayType<ScheduleCardMadeType>> {
+    const names = Object.keys(TEMPLATE_HEAD);
+    return cards.map((_$, one) => East.value({
+        card: one.card, template: East.struct(ScheduleTemplateHeadType, East.fields(one.template, names)),
+    }, ScheduleCardMadeType)) as ExprType<ArrayType<ScheduleCardMadeType>>;
+}
+
+/**
+ * The key a card's template stands under: its tab's name and its card's key,
+ * as East prints the two together, `(tab="Orders", card="O-1")` — so no two
+ * tabs' cards share one, however their names and their keys read run
+ * together.
+ */
+const CardTemplateKeyType = StructType({ tab: StringType, card: StringType });
+
+/** The accessors a library tab's `create` gives over one of its rows: what a card makes an event from. */
+export interface ScheduleCardTemplatesConfig<K extends EastType, R extends EastType> extends Pick<ScheduleTemplatesConfig<K, R, StructType>, "name" | "group" | "at" | "duration"> {
+    /** The new event's own fields: every field of its kind's row but its start, its end and its resource. */
+    values: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<EastType>;
+}
+
+/**
+ * The templates a library tab's cards make events of a kind from (#1541, U1):
+ * one per row, as `Schedule.templates` makes them, each under a key of the
+ * tab's own — its tab and its row's key, as East prints the pair — so no
+ * other tab's card stands under it, its values held to the kind's.
+ *
+ * @typeParam K - The rows' key type
+ * @typeParam R - Their row type
+ * @param rows - The tab's rows: a `Dict<K, R>` expression
+ * @param keyType - Their key type
+ * @param rowType - Their row type
+ * @param config - The accessors over a row
+ * @param valuesType - What the kind's templates give: its row less the fields a drop places
+ * @param tab - The tab's name, which is its own among the library's
+ * @param where - What a refusal names: the builder and the tab
+ * @returns Each card's key with its template
+ * @throws {Error} When `values` gives other than the kind's values
+ */
+export function scheduleCardTemplates<K extends EastType, R extends EastType>(
+    rows: ExprType<DictType<K, R>>, keyType: K, rowType: R, config: ScheduleCardTemplatesConfig<K, R>, valuesType: StructType, tab: string, where: string,
+): ExprType<ArrayType<ScheduleCardTemplateType>> {
+    let values: TemplateValues<K, R>;
+    try {
+        values = East.function([rowType, keyType], valuesType, (_$, row, key) =>
+            East.value(config.values(row, key) as SubtypeExprOrValue<StructType>, valuesType)) as unknown as TemplateValues<K, R>;
+    } catch (err) {
+        throw new Error(`${where}'s \`create.values\` gives the new event's own fields — every field of its kind's row but its start, its end and ` +
+            `its resource, ${printType(valuesType)} — and these are not: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    const text = keyTextOf(keyType) as unknown as KeyText<K>;
+    const keyOf = East.function([keyType], StringType, ($, key) => {
+        const own = $.const(text);
+        return East.print(East.value({ tab, card: own(key as never) }, CardTemplateKeyType));
+    }) as unknown as KeyText<K>;
+    const describe = templateOf(rowType, keyType, config, values, keyOf);
+    return rows.toArray(($, row, key) => {
         const describeRow = $.const(describe);
-        return describeRow(row as never, key as never);
-    });
-    return { [SCHEDULE_TEMPLATES]: true, valuesType, items, source: config.source, timed: duration !== undefined };
+        const own = $.const(text);
+        return East.value({ card: own(key as never), template: describeRow(row as never, key as never) }, ScheduleCardTemplateType);
+    }) as ExprType<ArrayType<ScheduleCardTemplateType>>;
+}
+
+/**
+ * A new row's values, where a template may give them: what every kind's `create` starts its row from, whichever
+ * builder the kind is of. The template's values are decoded at the values' type; a row made from no template takes
+ * what `otherwise` builds.
+ *
+ * @param values - The template's values as bytes; none for a row made from no template
+ * @param valuesType - The values' type: the row's fields less what the gesture places
+ * @param otherwise - What a row made from no template takes, built in the block it is given
+ * @returns The values
+ */
+export function templateValues(
+    values: ExprType<OptionType<BlobType>>, valuesType: StructType, otherwise: ($: BlockBuilder<EastType>) => ExprType<EastType>,
+): ExprType<EastType> {
+    return values.match({
+        some: (_$, bytes) => bytes.decodeBeast(valuesType, "v2") as ExprType<EastType>,
+        none: ($) => otherwise($ as never),
+    }) as ExprType<EastType>;
 }
 
 /** Checks a bound template's initial values against the fields its kind requires. */

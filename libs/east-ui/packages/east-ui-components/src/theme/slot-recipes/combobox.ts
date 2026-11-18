@@ -19,6 +19,7 @@
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { fieldChrome, fieldFocusRing, fieldInRingedControl, TOUCH_FONT_FLOOR } from "../field-chrome.js";
+import { centredLine } from "../one-line-box.js";
 import { IN_TOOLBAR_ROW, TOOLBAR_CONTROL_HEIGHT } from "../toolbar-row.js";
 import { coarseHitArea } from "../../style/hit-area.js";
 
@@ -51,8 +52,12 @@ export const comboboxSlotRecipe = defineSlotRecipe({
                 "& [data-scope='combobox'][data-part='input']": { paddingBlock: "0", _coarse: { paddingBlock: "7px" } },
             },
         },
+        /* Its words on a whole, even line of 16px (#1638), centred in the room inside the control's edge — 26px in a
+         * toolbar's row, 30px elsewhere, 42px on a touch screen, each even: the text style's 1.5 is 18.75px, centred
+         * at a fraction. */
         searchStatus: {
             textStyle: "body.sm",
+            lineHeight: centredLine([26, 30, 42], 16),
             color: "fg.muted",
             whiteSpace: "nowrap",
             paddingInline: "{spacing.1}",

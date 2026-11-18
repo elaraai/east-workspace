@@ -3,30 +3,43 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  * @vitest-environment jsdom
  *
- * Optimise in the Calendar (#1409, #1417; `Optimise Spec.md` §9) on e3: the
- * shop's optimiser is the example's own `e3.function`, called by name on e3
- * once per run. The eye shows only with an optimiser (R6); a click sends one
- * call over the window — every job in it and the backlog by key, the machines
- * beside them (R1, R24) — and while it is out the eye runs, the footer counts,
- * the history is locked and nothing drags (R2); the result lands as one edit
+ * Optimise in the Calendar (#1409, #1417, east-workspace#1622; `Optimise
+ * Spec.md` §9) on e3: the shop's optimiser is the example's own `e3.function`,
+ * called by name on e3 once per run. The eye shows only with an optimiser
+ * (R6); a click sends one call — the window, the kind of period it is, the
+ * run's number and the rail's narrowing, and no row (R1, R24): the function
+ * reads the jobs itself, the Calendar's unsaved edits laid over them as drafts
+ * — and while it is out the eye runs, the footer counts, the history is locked
+ * and nothing drags (R2); the answer's patch lands as one edit
  * (R7, R8): the backlog scheduled, each new event marked and named for the
  * run, the banner saying what changed, the Backlog count flashing — and one
  * Undo reverts it all, Redo replays the landing without the banner, Save
  * commits it with everything else (R9, R11). Stop and a period change ignore
  * a late answer (R3, R4); nothing to change and a failed call say so (R10).
+ * What it does with any answer — one that inserts, updates and deletes, one
+ * that replaces the whole Dict, one that moves a job out of the week, another
+ * page's save while the call is out, a key another page takes — is the
+ * builders' shared cases (`optimise-cases.test-utils.ts`), over the week's
+ * jobs. A job of the week the rail narrows out, which the Calendar holds none
+ * of, is read by its key before an answer that changes it lands (rule 8).
  */
 
 import { describe, expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
+import { DateTimeType, East, OptionType, StringType, diffFor, equalFor, none, printFor, some, variant } from "@elaraai/east";
+import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui/internal";
 import { editingMessages } from "@elaraai/east-ui-components";
+import { Calendar, Data, Func, Record } from "@elaraai/e3-ui";
 import * as ex from "@elaraai/e3-ui/examples/calendar/calendar";
 import * as opt from "@elaraai/e3-ui/examples/calendar/optimise";
 import { act, e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
+import { readsRow } from "../e3-web.test-utils.js";
 import { fitCalls } from "../shared/func/fit-calls.test-utils.js";
+import { optimiseCases } from "../shared/func/optimise-cases.test-utils.js";
 import "./index.js";
 
 const h = e3Harness({ "calendar/calendar": ex, "calendar/optimise": opt }, { main: "data-calendar-main" });
-const calls = fitCalls(h, { request: opt.CalendarOptimiseRequest, result: opt.CalendarOptimiseResult });
+const calls = fitCalls(h, { request: Calendar.Types.OptimiseRequest, result: opt.CalendarOptimiseResult });
 
 async function press(node: Element | null) { expect(node).toBeTruthy(); await act(async () => { fireEvent.click(node!); }); await settle(); }
 const eye = (c: HTMLElement) => c.querySelector<HTMLButtonElement>("[data-optimise-button]");
@@ -57,7 +70,7 @@ describe("the eye in the Calendar", () => {
         expect(items.indexOf("history") - items.indexOf("optimise")).toBe(1);
     });
 
-    test("R1, R2, R24 — one call over the window and its backlog, the machines beside them; the lock while it is out", async () => {
+    test("R1, R2, R24 — one call asking the window, its kind, the run's number and the rail's narrowing, and no row; the lock while it is out", async () => {
         const { container } = await h.mount(opt.calendarOptimise);
         const at = period(container);
         const hold = calls.hold();
@@ -71,8 +84,9 @@ describe("the eye in the Calendar", () => {
         expect(container.querySelector("[data-draggable]")).toBeNull();
         expect(calls.requests()).toHaveLength(1);
         const asked = calls.requests()[0]!;
-        expect([asked.run, asked.events.job.size, asked.resources.machines.size]).toEqual([1n, 10, 4]);
-        expect([...asked.events.job.keys()].filter(key => key.startsWith("backlog")).sort()).toEqual(["backlog1", "backlog2", "backlog3", "backlog4"]);
+        // The request names the period and carries no row: its fields are the window, its kind, the run and the narrowing.
+        expect(Object.keys(asked).sort()).toEqual(["from", "period", "run", "slice", "to"]);
+        expect([asked.run, asked.period.type, asked.slice.size]).toEqual([1n, "week", 0]);
         expect([asked.from.getTime(), asked.to.getTime()]).toEqual([new Date("2026-09-28T00:00:00Z").getTime(), new Date("2026-10-05T00:00:00Z").getTime()]);
         hold.release();
         await landed(container, 4);
@@ -142,7 +156,8 @@ describe("the eye in the Calendar", () => {
         const { container } = await h.mount(opt.calendarOptimise);
         await press(eye(container));
         await landed(container, 4);
-        // The drafts are the next run's input (O5): with every job scheduled, the optimiser changes nothing.
+        // The drafts are the next run's input (O5), sent with the call and laid over the jobs as the function reads them
+        // (east-workspace#1622): with every job scheduled there, the optimiser changes nothing.
         // The blink lasts 560ms, which a slow machine can spend before the banner is read: what it did is watched.
         let blinked = false;
         const watching = new MutationObserver(() => { blinked ||= eye(container)!.hasAttribute("data-blink"); });
@@ -160,4 +175,107 @@ describe("the eye in the Calendar", () => {
         expect([banner(container, "fail")!.querySelector("[role=alert]") !== null, added(container).length]).toEqual([true, 4]);
         restore();
     });
+});
+
+describe("the period a run is asked of (rule 1)", () => {
+    const instant = printFor(DateTimeType);
+    test("each view's request names the window in view and its kind: the week, the day and the month of the Calendar layout — a month's grid its whole weeks — a day on Resources whatever its period, and the Timeline's month itself", async () => {
+        const { container } = await h.mount(opt.calendarOptimise);
+        const view = (name: string) => press(toolbar(container).getByRole("radio", { name }));
+        /** A run's request from the view as it stands: its call held on its way, its question read, and the run stopped. */
+        const asked = async () => {
+            const hold = calls.hold();
+            await press(eye(container));
+            await hold.holding;
+            const request = calls.requests().at(-1)!;
+            await press(eye(container));
+            hold.release();
+            await settle();
+            return [request.period.type, instant(request.from), instant(request.to)];
+        };
+        // The week of Thu 1 Oct 2026, from its Monday.
+        expect(await asked()).toEqual(["week", "2026-09-28T00:00:00.000", "2026-10-05T00:00:00.000"]);
+        await view("Day");
+        expect(await asked()).toEqual(["day", "2026-10-01T00:00:00.000", "2026-10-02T00:00:00.000"]);
+        // The month's grid shows whole weeks, the days of September and November among them: the window is what it shows.
+        await view("Month");
+        expect(await asked()).toEqual(["month", "2026-09-28T00:00:00.000", "2026-11-02T00:00:00.000"]);
+        // Resources shows a day, whatever period the Calendar layout holds.
+        await view("Resources");
+        expect(await asked()).toEqual(["day", "2026-10-01T00:00:00.000", "2026-10-02T00:00:00.000"]);
+        // The Timeline shows the period itself: October.
+        await view("Timeline");
+        expect(await asked()).toEqual(["month", "2026-10-01T00:00:00.000", "2026-11-01T00:00:00.000"]);
+    });
+});
+
+/**
+ * The shop's jobs through a rail narrowed to the first press's, with the shop's optimiser: the Calendar reads the week's
+ * jobs on that press alone, and holds none of another machine's.
+ */
+const narrowed = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const machines = $.let(Record.bind(ex.calendarMachines, []));
+    const jobs = $.let(Record.bind(ex.calendarJobs, ["patch"]));
+    const entries = $.let(Data.bindPaged(ex.calendarJobs));
+    const slice = $.let(Slice.bindRecords("test.calendarOptimiseNarrowed", {
+        job: {
+            source: Data.bindPaged(ex.calendarJobs, { indexes: ["calendar_jobs_by_time", "calendar_jobs_by_machine_time"] }),
+            fields: { machine: { label: "Machine", hints: ["press1", "press2", "lathe1", "lathe2", null] }, start: { label: "Dates" } }, range: "start",
+            initial: { machine: ["press1"] },
+        },
+    }));
+    const optimise = $.let(Func.bind(opt.scheduleBacklog));
+    return Calendar({
+        view: { period: "week", date: new Date("2026-10-01T00:00:00Z") }, now: new Date("2026-10-01T10:15:00Z"), slice: { slice }, optimise,
+        resources: { machines: Calendar.resources(machines.read(), { name: "Machines", icon: "gears", label: (row) => row.name }) },
+        events: {
+            job: Calendar.events(jobs, {
+                name: "Production", icon: "industry", title: "title", start: "start", end: "end", resource: { field: "machine", of: "machines" }, entries,
+                backlog: { duration: (row) => variant("hours", row.hours), due: (row) => row.due },
+            }),
+        },
+    });
+}))) };
+
+describe("a job the Calendar does not hold (rule 8)", () => {
+    test("behind a rail narrowed to one machine, an answer that changes another machine's job of the week has it read by its key, then lands as one edit; the request carries the narrowing, and Save commits the change", async () => {
+        const { container } = await h.mount(narrowed);
+        await waitFor(() => expect(container.querySelector('[data-calendar-event]')).not.toBeNull(), { timeout: 10_000 });
+        // The pump housings, on the first lathe: no event of the board.
+        expect([...container.querySelectorAll("[data-calendar-event]")].some(el => el.textContent?.includes("Pump housings"))).toBe(false);
+        const text = printFor(StringType);
+        const before = await h.read(ex.calendarJobs);
+        const deployed = await commits();
+        const moved = { ...before.get("job2")!, start: some(new Date("2026-10-02T08:00:00Z")), end: some(new Date("2026-10-02T13:00:00Z")) };
+        calls.answer({ events: { job: diffFor(opt.CalendarJobs)(before, new Map([...before, ["job2", moved]])) } });
+        const read = h.requests("rows", `records.${ex.calendarJobs.name}`).length;
+        await press(eye(container));
+        await said(container, "done");
+        const asked = calls.requests()[0]!;
+        expect([...asked.slice.get("job")!].filter(([field]) => field === "machine").map(([field, by]) => [field, by.type, by.value])).toEqual([["machine", "values", [printFor(OptionType(StringType))(some("press1"))]]]);
+        // Read by its key, in one read, between the answer and its landing.
+        expect(h.requests("rows", `records.${ex.calendarJobs.name}`).slice(read).filter(request => readsRow(request, text("job2")))).toHaveLength(1);
+        expect(words(banner(container, "done")!)[1]).toBe("1 change: 1 changed. Undo or apply them like any edit.");
+        await press(history(container, editingMessages.apply()));
+        await waitFor(async () => expect(await commits()).toEqual(["patch", ...deployed]), { timeout: 10_000 });
+        expect(equalFor(ex.CalendarJob)((await h.read(ex.calendarJobs)).get("job2")!, moved)).toBe(true);
+    });
+});
+
+// The week in view, Mon 28 Sep – Sun 4 Oct 2026: its jobs, and one the optimiser adds.
+optimiseCases<typeof ex.CalendarJob>({
+    builder: "the Calendar", h,
+    mounted: async () => (await h.mount(opt.calendarOptimise)).container,
+    record: ex.calendarJobs,
+    answer: (patch) => { calls.answer({ events: { job: patch as never } }); },
+    add: ["elara-gear-blanks", {
+        title: "Gear blanks", start: some(new Date("2026-10-02T13:00:00Z")), end: some(new Date("2026-10-02T15:00:00Z")), machine: some("lathe1"),
+        status: variant("planned", null), hours: 2.0, customer: "Alder Works", due: none,
+    }],
+    // Bearing collars, an hour later on its lathe.
+    change: ["job4", (job) => ({ ...job, start: some(new Date("2026-10-02T10:00:00Z")), end: some(new Date("2026-10-02T13:00:00Z")) })],
+    remove: "job3",
+    other: ["job2", (job) => ({ ...job, customer: "Birch Engineering · north works" })],
+    // The Monday after the week in view.
+    outside: { to: (job) => ({ ...job, start: some(new Date("2026-10-12T09:00:00Z")), end: some(new Date("2026-10-12T12:00:00Z")) }), named: "Bearing collars" },
 });

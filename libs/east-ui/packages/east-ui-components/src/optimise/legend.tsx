@@ -5,10 +5,11 @@
 
 /**
  * The legend's `Elara change` (#1409; `Optimise Spec.md` §6, §8) — a 14 × 8
- * swatch of the dirty fill with the steady ring and glow, and the words — one
- * more unit of a builder's footer legend during the highlight, in the
- * builder's own legend style, cut whole as the rail's fit cuts its others
- * (`data-footer-unit`, `data-footer-cut`).
+ * swatch of the dirty fill with the steady ring and glow, and the words 8px
+ * on, as the design's legend item lays them out (the recipe's `legendItem`) —
+ * one more unit of a builder's footer legend during the highlight, in the
+ * builder's own legend style over that, cut whole as the rail's fit cuts its
+ * others (`data-footer-unit`, `data-footer-cut`).
  *
  * @packageDocumentation
  */
@@ -42,8 +43,10 @@ export interface OptimiseLegendItemProps {
 export function OptimiseLegendItem({ css, cut, messages = optimiseMessages }: OptimiseLegendItemProps) {
     const recipe = useSlotRecipe({ key: "optimise" });
     const styles = useMemo(() => recipe({}) as Styles, [recipe]);
+    // Its own layout first, whatever the footer gives it; the builder's legend style over it.
+    const own = css === undefined ? [] : Array.isArray(css) ? css : [css];
     return (
-        <Box as="span" css={css as SystemStyleObject | SystemStyleObject[] | undefined} data-footer-unit="" data-footer-cut={cut} data-optimise-legend="">
+        <Box as="span" css={[styles.legendItem, ...own] as SystemStyleObject[]} data-footer-unit="" data-footer-cut={cut} data-optimise-legend="">
             <Box as="span" css={styles.legendSwatch} aria-hidden="true" data-optimise-swatch="" />
             {messages.legend()}
         </Box>

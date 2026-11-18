@@ -4,8 +4,8 @@
  *
  * What a viewer hides in the library's Series tab (#1195, `Plan Builder
  * Spec.md` PB29), as the canvas reads it. The ids are the tab's
- * (`planHideId`): the event kinds, the resource kinds and their measures leave
- * the event kinds' rows through the `blocks` seam, and the Plan's own `rows`
+ * (`planHideId`): the event kinds leave the rows they land on through the
+ * seam that joins them in (#1541), and the Plan's own `rows`
  * leave the canvas here — a hand-built row and the rows under it by its key,
  * the one step of its id's path, and a `Plan.over` series' rows, its nested
  * series' with them, by the keys they carry. `data`'s series hide through

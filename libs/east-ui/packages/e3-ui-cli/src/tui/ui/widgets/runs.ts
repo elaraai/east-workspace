@@ -14,7 +14,7 @@
  * @packageDocumentation
  */
 
-import type { ExecutionListItem } from '@elaraai/e3-api-client';
+import type { ExecutionListItem, TaskDetails } from '@elaraai/e3-api-client';
 import { dottedPath } from '../../api.js';
 import { breakpoint, columnPlan } from '../../render/layout.js';
 import { compareInstants, formatDuration, formatSize, formatStamp, hashMid, hashTiny } from '../../render/text.js';
@@ -65,6 +65,19 @@ export function runRows(runs: readonly ExecutionListItem[], current: boolean, g:
 }
 
 /**
+ * The name the expanded run gives one of the task's inputs: its dataset's path,
+ * an input's by its bare name, and for an index of a record the index before
+ * it, so a task that reads a record and an index of it names the two apart.
+ *
+ * @param input - One of the task's inputs
+ * @returns `params`, `.tasks.features.output`, or `jobs_by_press of .records.jobs`
+ */
+export function runInputName(input: Pick<TaskDetails['inputs'][number], 'path' | 'index'>): string {
+    const name = dottedPath(input.path).replace(/^\.inputs\./, '');
+    return input.index.type === 'some' ? `${input.index.value} of ${name}` : name;
+}
+
+/**
  * Renders the Runs tab: the table, then the expanded run's input hashes.
  *
  * @param state - The store state
@@ -90,9 +103,8 @@ export function renderRuns(state: TuiState, ws: string, task: string, visible: n
         if (run !== undefined) {
             const inputs = state.data.taskDetails[ws]?.[task]?.inputs ?? [];
             const pairs = run.inputHashes.map((h, i) => {
-                const p = inputs[i]?.path;
-                const name = p === undefined ? `#${i + 1}` : dottedPath(p).replace(/^\.inputs\./, '').replace(/^\.tasks\./, '.tasks.');
-                return `${name} ${hashTiny(h)}`;
+                const input = inputs[i];
+                return `${input === undefined ? `#${i + 1}` : runInputName(input)} ${hashTiny(h)}`;
             });
             body.push([t(' ')]);
             body.push([t(' '), b(g.bullet, 'brand'), t(` ${hashMid(run.inputsHash)} = sha256 of the inputs (${pairs.join(', ')}) `), d(`${g.sep} ${g.enter} collapses`)]);

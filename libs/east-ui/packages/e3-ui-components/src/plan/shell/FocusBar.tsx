@@ -6,9 +6,10 @@
 /**
  * The row-focus header band (R1 links / R2 expand) — the `← All rows` link on
  * the left, the focus caption on the right, set in capitals (`Links · H1-P03 ·
- * 4 upstream · 6 downstream` / `EXPANDED · H4-P13`); it names the row by its
- * gutter label (`Plan links.html`, #1258). Returning: the link, esc, any rail
- * or gap band (R1), or the row's own control.
+ * 2 upstream · 1 linked · 3 downstream` / `EXPANDED · H4-P13`); it names the
+ * row by its gutter label (`Plan links.html`, #1258) and counts the rows each
+ * role band gathers (#1680's review). Returning: the link, esc, a strip, or the
+ * row's own control.
  */
 
 import { Box, chakra } from "@chakra-ui/react";
@@ -23,8 +24,8 @@ export interface FocusBarProps {
     focus: { kind: "links" | "expand"; key: string };
     /** The focused row's name — its gutter label, never its key (#822). */
     label: string;
-    /** Family sizes (links focus). */
-    counts?: { upstream: number; downstream: number } | undefined;
+    /** The rows each role band gathers (links focus): only upstream, both ways, only downstream. */
+    counts?: { upstream: number; linked: number; downstream: number } | undefined;
 }
 
 /** The focus header band — the return chip + the caption. */
@@ -35,6 +36,8 @@ export function FocusBar({ styles, focus, label, counts }: FocusBarProps) {
         ? words.m.focusLinks({
             label,
             upstream: counts !== undefined ? words.number(counts.upstream) : undefined,
+            // The rows linked both ways are counted only where there are some, as their band stands only then.
+            linked: counts !== undefined && counts.linked > 0 ? words.number(counts.linked) : undefined,
             downstream: counts !== undefined ? words.number(counts.downstream) : undefined,
         })
         : words.m.focusExpanded({ label });

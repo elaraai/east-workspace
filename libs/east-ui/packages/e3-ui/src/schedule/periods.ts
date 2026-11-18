@@ -94,6 +94,12 @@ export interface SchedulePeriods {
     /** The period's row type. */
     readonly rowType: StructType;
     /**
+     * The record the periods are, by its name in the deployed package, as its binding carries it (east-workspace#1622,
+     * east-workspace#1624): the builder edits it, so a function it asks — its fit, its optimiser — that reads the record
+     * lists it in `drafts`.
+     */
+    readonly record: ExprType<StringType>;
+    /**
      * The periods on the wire.
      *
      * @returns The periods, closed: their session, their reads, and each row's status written and read
@@ -236,6 +242,7 @@ export function schedulePeriods(record: unknown, input: unknown): SchedulePeriod
         [SCHEDULE_DEF]: "periods",
         every,
         rowType,
+        record: session.name,
         build(): ExprType<SchedulePeriodsKindType> {
             const { editing, entries: seam } = session.build();
             // The row with one field replaced, and every other as it was.

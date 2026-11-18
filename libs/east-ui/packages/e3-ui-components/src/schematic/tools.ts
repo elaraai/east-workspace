@@ -26,9 +26,9 @@
  * @packageDocumentation
  */
 
-import { useCallback, useMemo, useSyncExternalStore } from "react";
-import { NullType, OptionType, StringType, StructType, VariantType, decodeBeast2For, encodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
-import { StateRuntime } from "@elaraai/east-ui-components";
+import { NullType, OptionType, StringType, StructType, VariantType, type ValueTypeOf } from "@elaraai/east";
+import { useHeldTools, type HeldTools } from "../shared/held-tools.js";
+import { storedCodec } from "../shared/stored-value.js";
 
 /** A tool, as the UI store holds it. */
 export const SchematicToolType = VariantType({ select: NullType, zoom: NullType, marquee: NullType, connect: NullType, move: NullType });
@@ -42,16 +42,10 @@ export type SchematicTool = ValueTypeOf<typeof SchematicToolType>["type"];
 /** Every tool, in the toolbar's order. */
 export const SCHEMATIC_TOOLS: readonly SchematicTool[] = ["select", "zoom", "marquee", "connect", "move"];
 
-const encodeTools = encodeBeast2For(SchematicToolsType);
-const decodeTools = decodeBeast2For(SchematicToolsType);
+const toolsCodec = storedCodec(SchematicToolsType);
 
 /** What the viewer holds: the tool, and the link kind Connect draws. */
-export interface SchematicToolsState {
-    /** The tool held. */
-    readonly tool: SchematicTool;
-    /** The link kind Connect draws, by its slot. */
-    readonly link: string | undefined;
-}
+export type SchematicToolsState = HeldTools<SchematicTool>;
 
 /** What the Schematic offers: the link kinds Connect may draw, and whether Move moves anything. */
 export interface SchematicToolsOffered {
@@ -94,17 +88,5 @@ export function toolsInForce(held: SchematicToolsState, offered: SchematicToolsO
  * @returns What the store holds — Select and no link kind until the viewer picks — and the write that picks
  */
 export function useSchematicTools(key: string): [SchematicToolsState, (next: SchematicToolsState) => void] {
-    const store = StateRuntime.getStore();
-    const subscribe = useCallback((notify: () => void) => store.subscribe(key, notify), [store, key]);
-    const snapshot = useCallback(() => store.read(key), [store, key]);
-    const bytes = useSyncExternalStore(subscribe, snapshot);
-    const held = useMemo((): SchematicToolsState => {
-        if (bytes === undefined) return { tool: "select", link: undefined };
-        const decoded = decodeTools(bytes);
-        return { tool: decoded.tool.type, link: decoded.link.type === "some" ? decoded.link.value : undefined };
-    }, [bytes]);
-    const pick = useCallback((next: SchematicToolsState) => {
-        store.write(key, encodeTools({ tool: variant(next.tool, null), link: next.link === undefined ? none : some(next.link) }));
-    }, [store, key]);
-    return [held, pick];
+    return useHeldTools<SchematicTool>(toolsCodec, key, "select");
 }

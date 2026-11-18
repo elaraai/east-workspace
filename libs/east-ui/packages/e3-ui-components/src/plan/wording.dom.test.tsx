@@ -67,7 +67,8 @@ describe("a Plan's words", () => {
         expect(m.moreRows({ n: 1, count: "1" })).toBe("1 more press");
         expect(m.groupMeta({ n: 8, count: "8" })).toBe("8 presses");
         expect(m.allRows()).toBe("← All presses");
-        expect(m.hiddenRows({ n: 2, count: "2", what: "group" })).toBe("2 hidden halls");
+        // The band a links focus folds its other rows into (#1680's review).
+        expect(m.otherRows()).toBe("Other presses");
         // None given: the table above says everything, a host's translation included.
         const held = planMessagesIn({ ...planMessages, tabRows: () => "Zeilen" }, noWords);
         expect(held.tabRows()).toBe("Zeilen");

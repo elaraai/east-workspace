@@ -15,14 +15,19 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, OptionType, StringType, StructType, VariantType, none, some, variant,
+    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, OptionType, StringType, StructType, VariantType, none, printType, some, variant,
+    type ValueTypeOf,
 } from "@elaraai/east";
 import { Assert, TestImpl, describeEast } from "@elaraai/east-node-std";
 import * as EastUI from "@elaraai/east-ui";
 import { Slice, TimeStepType } from "@elaraai/east-ui";
 import e3 from "@elaraai/e3";
 import { Allocation, Data, Schedule } from "@elaraai/e3-ui";
-import { AllocationPayloadType, Func, Record, allocationBands, allocationLabels, createAllocationPayload, type AllocationProps } from "@elaraai/e3-ui/internal";
+import {
+    AllocationPayloadType, Func, FuncBindingType, Record, allocationBands, allocationEdits, allocationFitBinding, allocationLabels, createAllocationPayload,
+    type AllocationProps,
+} from "@elaraai/e3-ui/internal";
+import { refusingPlatform } from "../refusing-platform.js";
 import { Delivery, Kiln, KilnBin } from "./kiln-yard.js";
 import * as ex from "./allocation.examples.js";
 
@@ -220,25 +225,68 @@ describe("the bins, the lanes and the resources", () => {
     });
 });
 
-describe("the fit and the check, over the bins' row type", () => {
-    test("`fit` is Func.bind of an e3.function from FitRequest(R) to FitResult; one bound over another row type is refused, naming both", () => {
-        const Other = StructType({ grade: StringType });
-        const otherFit = e3.function("allocation_spec_other_bins", East.function([Allocation.Types.FitRequest(Other)], Allocation.Types.FitResult, ($, req) => {
-            const answer = $.const(Allocation.answer(Other));
-            const rule = $.const(Allocation.fit);
-            return answer(req, rule, "ranked");
-        }));
-        assert.throws(() => payload(() => ({ fit: Func.bind(otherFit) as never })),
-            /Allocation: `fit` is bound over bin rows \.Struct \[.*grade.*\], and the bin kind's rows are \.Struct \[.*specBooked.*\] — bind a fit over Allocation\.Types\.FitRequest of the bins' row type/);
-        const answersText = e3.function("allocation_spec_answers_text", East.function([Allocation.Types.FitRequest(KilnBin)], StringType, () => "nowhere"));
-        assert.throws(() => payload(() => ({ fit: Func.bind(answersText) as never })), /Allocation: `fit` answers \.String, not Allocation\.Types\.FitResult/);
-        const asksText = e3.function("allocation_spec_asks_text", East.function([StringType], Allocation.Types.FitResult, () => ({
-            ask: variant("take", { resource: "K-101" }), resources: new Map(), bins: new Map(), arrivals: new Map(), reserve: none, basis: "none",
-        })));
-        assert.throws(() => payload(() => ({ fit: Func.bind(asksText) as never })), /Allocation: `fit` asks \.String, not Allocation\.Types\.FitRequest\(\.Struct \[/);
-        const notBound = /Allocation: `fit` is Func\.bind of the app's e3\.function from Allocation\.Types\.FitRequest\(R\) to Allocation\.Types\.FitResult, R the bins' row type/;
+describe("the fit, asked the question and the scope, and the check, over the bins' row type", () => {
+    test("`fit` is Func.bind of an e3.function from FitRequest to FitResult, refused naming what it asks or answers (#1624)", () => {
+        // The yard's fit lists the bins it reads in `drafts`: the board passes them, and takes the handle.
+        assert.doesNotThrow(() => payload(() => ({ fit: Func.bind(ex.yardFit) })));
+        assert.doesNotThrow(() => payload(() => ({ fit: Func.bind(ex.bulkFit) })));
+        // One that asks for the day itself, as a request once carried it: refused, naming what it asks.
+        const AsksDay = StructType({ day: DateTimeType, plan: Allocation.Types.Day(KilnBin), ask: Allocation.Types.FitAsk });
+        const nothing = { resources: new Map(), bins: new Map(), arrivals: new Map(), reserve: none, basis: "none" };
+        const asksDay = e3.function("allocation_spec_asks_day", East.function([AsksDay], Allocation.Types.FitResult, (_$, req) => ({ ask: req.ask, ...nothing })));
+        assert.throws(() => payload(() => ({ fit: Func.bind(asksDay) as never })), {
+            message: `Allocation: \`fit\` asks ${printType(AsksDay)}, not Allocation.Types.FitRequest — ` +
+                "a request carries the question and the page's scope, and no row: the function reads what it needs from the workspace",
+        });
+        const answersText = e3.function("allocation_spec_answers_text", East.function([Allocation.Types.FitRequest], StringType, () => "nowhere"));
+        assert.throws(() => payload(() => ({ fit: Func.bind(answersText) as never })), {
+            message: "Allocation: `fit` answers .String, not Allocation.Types.FitResult — a verdict for each resource, bin or arrival the function considered",
+        });
+        const notBound = {
+            message: "Allocation: `fit` is Func.bind of the app's e3.function from Allocation.Types.FitRequest to Allocation.Types.FitResult — " +
+                "the question and the page's scope in, a verdict for each resource, bin or arrival the function considered out",
+        };
         assert.throws(() => payload(() => ({ fit: East.value("yard_fit") as never })), notBound);
         assert.throws(() => payload(() => ({ fit: undefined as never })), notBound);
+    });
+
+    test("a `fit` that reads a record the board edits lists it in `drafts`: one that does not fails the page as it is evaluated, naming the record (#1624, rule 4)", () => {
+        /** The fit's binding as the tag holds it, evaluated: over the bins, and the days where the board publishes. */
+        const evaluated = (def: unknown, withPeriods: boolean): ValueTypeOf<typeof FuncBindingType> =>
+            East.compile(East.function([], FuncBindingType, ($) => {
+                const bins = $.let(Record.bind(ex.kilnBins));
+                const days = $.let(Record.bind(ex.yardDays));
+                const fit = $.let(Func.bind(def as never));
+                const kind = Schedule.events(bins, {
+                    name: "Bin", icon: "box", at: "at", resource: { field: "bay", of: "bays" }, arrival: "load",
+                    quantity: { field: "m3", unit: "m³" }, parts: { field: "kilns", of: "kilns" }, hold: "dryFor", kind: "spec",
+                });
+                const periods = withPeriods ? Schedule.periods(days, { every: "day", status: { field: "state", draft: "draft", published: "issued" } }) : undefined;
+                return allocationFitBinding(fit, allocationEdits(kind as never, periods));
+            }), refusingPlatform)();
+        // The yard's fit reads the bins, by their index and by key, and lists them: its binding names both.
+        const held = evaluated(ex.yardFit, true);
+        assert.deepEqual([held.name, held.drafts, held.reads.includes("kiln_bins")], ["yard_fit", ["kiln_bins"], true]);
+        const answer = { ask: variant("take", { resource: "K-101" }), resources: new Map(), bins: new Map(), arrivals: new Map(), reserve: none, basis: "none" };
+        // One that reads the bins and lists no draft would answer around the planner's unsaved bins.
+        const undrafted = e3.function("allocation_spec_fit_undrafted", { inputs: [ex.kilnBins], args: [Allocation.Types.FitRequest], output: Allocation.Types.FitResult }, () => answer);
+        assert.throws(() => evaluated(undrafted, false), (error: Error) => error.message.includes(
+            "Allocation: `fit` is the function 'allocation_spec_fit_undrafted', which reads the record 'kiln_bins' that the Allocation edits " +
+            "and does not list it in `drafts` — it would answer around edits it cannot see: list it, drafts: [kiln_bins], beside the function's inputs"));
+        // By an index of it, the same.
+        const byIndex = e3.function("allocation_spec_fit_by_index", {
+            inputs: [e3.index(ex.kilnBins.indexes.kiln_bins_by_time)], args: [Allocation.Types.FitRequest], output: Allocation.Types.FitResult,
+        }, () => answer);
+        assert.throws(() => evaluated(byIndex, false), (error: Error) => error.message.includes("which reads the record 'kiln_bins' that the Allocation edits"));
+        // A fit over another record of bins reads none the board edits: it answers of bins the board does not show, and nothing refuses that here.
+        assert.doesNotThrow(() => evaluated(ex.yardHistoryFit, true));
+        // The days are the board's to edit where it publishes: a function that reads them lists them.
+        const readsDays = e3.function("allocation_spec_fit_reads_days", { inputs: [ex.yardDays], args: [Allocation.Types.FitRequest], output: Allocation.Types.FitResult }, () => answer);
+        assert.throws(() => evaluated(readsDays, true), (error: Error) => error.message.includes("which reads the record 'yard_days' that the Allocation edits"));
+        assert.doesNotThrow(() => evaluated(readsDays, false));
+        // One that reads no record the board edits lists none: the kilns and the loads are not the board's to edit.
+        const readsKilns = e3.function("allocation_spec_fit_reads_kilns", { inputs: [ex.kilns, ex.arrivals], args: [Allocation.Types.FitRequest], output: Allocation.Types.FitResult }, () => answer);
+        assert.doesNotThrow(() => evaluated(readsKilns, true));
     });
 
     test("`check` is an East function from CheckContext(R) to Array<Issue>", () => {

@@ -188,6 +188,12 @@ export interface SchematicData {
     readonly fits: ReadonlyMap<string, SchematicFit>;
     /** Whether a kind's box under `fit` is read: the camera waits for it before it flies. */
     readonly fitting: boolean;
+    /**
+     * Each kind read by area, by its slot: the keys of the far ends its settled read asked of — of the links and nets that
+     * touch its window, read by key and, dimmed on a scoped page, held to the scope (#1621) — what tells an end beyond the
+     * scope, which `held` leaves out, from one its read never asked of (`narrowing.ts`).
+     */
+    readonly asked: ReadonlyMap<string, ReadonlySet<string>>;
 }
 
 /** The box a kind read by area's narrowing's rows stand in under `fit`, and the narrowing it was read under. */
@@ -255,12 +261,26 @@ const NO_FAILED_AREAS: ReadonlyMap<string, readonly WorldBox[]> = new Map();
 /** No kind's box read under `fit`. */
 const NO_FITS: ReadonlyMap<string, SchematicFit> = new Map();
 
+/** No far end asked of. */
+const NO_ASKED: ReadonlyMap<string, ReadonlySet<string>> = new Map();
+const NO_KEYS: ReadonlySet<string> = new Set();
+
 /** The frame's data before its reader first reports: nothing drawn, a read in flight. */
 export const INITIAL_SCHEMATIC_DATA: SchematicData = {
     drawn: EMPTY_DRAWN, loading: true, reading: undefined, filtering: false, ready: false, error: undefined, failures: NO_FAILURES, rows: NO_ROWS, held: NO_HELD,
     unplaced: NO_UNPLACED, windows: NO_WINDOWS, revisions: NO_REVISIONS, density: NO_DENSITY, overview: NO_DENSITY, matched: NO_MATCHED, unread: NO_BOXES,
-    failedAreas: NO_FAILED_AREAS, fits: NO_FITS, fitting: false,
+    failedAreas: NO_FAILED_AREAS, fits: NO_FITS, fitting: false, asked: NO_ASKED,
 };
+
+/** Whether two kinds' far ends asked of are the same keys, kind by kind. */
+function sameAsked(a: ReadonlyMap<string, ReadonlySet<string>>, b: ReadonlyMap<string, ReadonlySet<string>>): boolean {
+    if (a.size !== b.size) return false;
+    for (const [slot, keys] of a) {
+        const other = b.get(slot);
+        if (other === undefined || other.size !== keys.size || [...keys].some((key) => !other.has(key))) return false;
+    }
+    return true;
+}
 
 /** Whether two kinds' boxes under `fit` say the same. */
 function sameFits(a: ReadonlyMap<string, SchematicFit>, b: ReadonlyMap<string, SchematicFit>): boolean {
@@ -630,6 +650,8 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
                 for (const entry of got.value.values()) wantFar([...entry.roles.sources, ...entry.roles.destinations]);
             }
         }
+        // What each kind read by area asked of as far ends: an end it holds none of beside them lies beyond its scope (#1621).
+        const asked = new Map<string, ReadonlySet<string>>([...byArea.keys()].map((slot) => [slot, far.get(slot) ?? NO_KEYS] as const));
 
         // Under `fit`, each kind read by area its narrowing narrows: the box the narrowing's rows stand in, by its area index's
         // counts over the drawing's extent (§10.3) — never what its window draws. One whose read fails is said as its kind's.
@@ -766,7 +788,7 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
         }
         return {
             held: { value, kinds, inputs, wheres, reaches, drawn } satisfies Held, loading, reading, narrowings, failures, windows, revisions, density, overview,
-            matched, unmade: areaReader.unmade, unread, failedAreas, drawable, fits, fitting,
+            matched, unmade: areaReader.unmade, unread, failedAreas, drawable, fits, fitting, asked,
         };
     }, [value, attempt, viewport, areaReader, makes]);
     const { result } = useTrackedEvaluation(read);
@@ -789,7 +811,7 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
         drawn: SchematicDrawn; failures: ReadonlyMap<string, string>; rows: ReadonlyMap<string, number>; held: SchematicHeldRows;
         unplaced: SchematicUnplacedRows; windows: SchematicWindowRows; density: ReadonlyMap<string, SchematicDensity>;
         overview: ReadonlyMap<string, SchematicDensity>; matched: ReadonlyMap<string, ReadonlySet<string>>;
-        failedAreas: ReadonlyMap<string, readonly WorldBox[]>; wheres: ReadonlyMap<string, Where>;
+        failedAreas: ReadonlyMap<string, readonly WorldBox[]>; wheres: ReadonlyMap<string, Where>; asked: ReadonlyMap<string, ReadonlySet<string>>;
     } | undefined>(undefined);
     if (result.ok) {
         const got = result.value;
@@ -801,7 +823,7 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
             if (was === undefined || !Object.is(was.drawn, got.held.drawn) || signatureOf(was.failures) !== signatureOf(got.failures)
                 || signatureOf(was.rows) !== signatureOf(rows) || !sameEntries(was.windows, got.windows) || !sameEntries(was.density, got.density)
                 || !sameEntries(was.overview, overview) || !sameEntries(was.matched, got.matched) || !sameAreas(was.failedAreas, got.failedAreas)
-                || !sameWheres(was.wheres, got.held.wheres)) {
+                || !sameWheres(was.wheres, got.held.wheres) || !sameAsked(was.asked, got.asked)) {
                 settled.current = {
                     drawn: got.held.drawn,
                     failures: was !== undefined && signatureOf(was.failures) === signatureOf(got.failures) ? was.failures : got.failures,
@@ -814,6 +836,7 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
                     matched: was !== undefined && sameEntries(was.matched, got.matched) ? was.matched : got.matched,
                     failedAreas: was !== undefined && sameAreas(was.failedAreas, got.failedAreas) ? was.failedAreas : got.failedAreas,
                     wheres: got.held.wheres,
+                    asked: was !== undefined && sameAsked(was.asked, got.asked) ? was.asked : got.asked,
                 };
             }
         }
@@ -854,7 +877,7 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
         : {
             drawn: last.drawn, loading, reading, filtering, ready: true, error, failures: last.failures, rows: last.rows, held: last.held,
             unplaced: last.unplaced, windows: last.windows, revisions, density: last.density, overview: last.overview, matched: last.matched,
-            unread, failedAreas: last.failedAreas, fits, fitting,
+            unread, failedAreas: last.failedAreas, fits, fitting, asked: last.asked,
         }),
     [last, loading, reading, filtering, error, revisions, unread, fits, fitting]);
 }

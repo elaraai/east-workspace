@@ -97,6 +97,20 @@ leave e3-ui's `Schedule`. The payload is a UI task's output, carried by its
 package: no repository upgrade step. See
 [Review removed (#1260)](#review-removed-1260) below.
 
+**#1541 gives the Plan one save door and one series list**: the rows save
+through `record`, the record they are read from, and `editing` goes;
+`series` is the list, `hidden` names the series off to start, and `pick` and
+`Plan.pick` go. The wire does not change, so no stored value re-emits. See
+[One save door, one series list (#1541)](#one-save-door-one-series-list-1541)
+below.
+
+**#1541 breaks the Plan wire for an item's status**, with its authoring API:
+a run, a tile, a chip and a mark each carry `status`, what
+`Plan.status(words, tone, { ring? })` builds, where a run carried a tone, a
+tile a `tone`, and a chip and a mark none. See
+[An item's status, from its map (#1541)](#an-items-status-from-its-map-1541)
+below. Stored `UIComponentType` values re-emit.
+
 The public API break alongside it: the `Gantt` / `Planner` / `AlignedStack`
 exports (tags, factories, `*.Types`) are gone from `@elaraai/east-ui` and
 `@elaraai/east-ui/internal`, as are `EastChakraGantt` / `EastChakraPlanner`
@@ -149,7 +163,7 @@ path.
 | `Plan.link({ from: "p03", to: "p04", … })` | `Plan.link({ from: Plan.ref("presses", "p03"), to: Plan.ref("presses", "p04"), … })` | `planTargetState` |
 | `{ key }` / a row key String in a callback | the `Plan.Types.RowId`: compare with `East.equal(ev.row, Plan.ref(…))`, or read the entry's key with `id.unwrap("entry").path.get(0n)` | `planTargetState` |
 | a drop's `into.row` equal to the data key | the id's text — key host tables by `East.print(Plan.ref(series, …path))` (an id is a variant, so it cannot be a `Dict` key itself), or read it back with `row.parse(Plan.Types.RowId)` | `planRowDrop` |
-| `Plan.pick(key, all, { data, hidden })` — per-series row counts | `Plan.pick(key, all, { hidden })` — the library lists series by title, subtitle and kind icon; a count means something only with every entry in hand | `planTargetState` |
+| `Plan.pick(key, all, { data, hidden })` — per-series row counts | `Plan.pick(key, all, { hidden })` — the library lists series by title, subtitle and kind icon; a count means something only with every entry in hand. Since #1541, `series` with `hidden` (below) | `planTargetState` |
 | fit-to-data — an axis with no `window` and no bound slice fitted itself to the rows (inline only) | state `axis.window`, or bind a slice whose range supplies it. Written in place, the canvas is refused at build; a bound or stored axis draws the `NO WINDOW` diagnostic. A slice-bound canvas with no stated window takes its window from the slice's range — the Plan's own brush then cannot clear it (other slice chrome still can). | `planTargetState`, `planNumberAxis` |
 | series keys unique per source; a repeat silently replaced rows (`LAST_WINS`) | series keys unique across the WHOLE series tree — a repeat is a build-time error naming both sites; a repeated run-time id (hand-built rows sharing a key) draws a `DUPLICATE ID` row diagnostic | — |
 | `data: Dict<String, R>` only | `Dict<K, R>` for any `K`; accessors receive `(entry, key: K)`; a series whose accessors read a non-String key declares `keyType` (and a bound list types itself `Plan.Types.Series(R, K)`) | — |
@@ -533,9 +547,9 @@ Plan.series.span(Press, {
   the proposed span, with the span printed in it. The ghost under the pointer
   carries the element's label and the span.
 - **The veto.** `canDrop` vets the candidate before it becomes a draft. The
-  candidate is a `DragEvent` `move` (the element's cell and the target cell)
-  or `resize` (the moved edge's slot). A refusal is announced, and no draft
-  is made.
+  candidate is a `Plan.Types.Candidate` (#1541): a `move`, the item and the
+  row and instants it would take, or a `resize`, by the end that moved. A
+  refusal is said on the ghost and announced, and no draft is made.
 - **Keyboard.** Focus an element and press Space to pick it up. Then:
   - ←/→ move it one bucket;
   - Shift+←/→ move its end, and Alt+←/→ its start;
@@ -753,12 +767,17 @@ rows may still map a collection in one; `edit` needs the named read.
   collection holds any for the row, its children's subtotal otherwise. A row
   with values in one position and none in another draws both.
 - **Refusals at build**, each in words naming the field: `Plan.items` over a
-  collection keyed by an instant; `Plan.values` over one keyed by `String` off
-  an ordinal axis; a read of a field that is no `Dict`; a read outside a
-  series; `edit` beside elements given as a function, or over a read of
-  values; a tree's `children` naming a field of another type than the row's;
-  a table's `edit` beside cells given as a function, or over a draw giving
-  another number than each value.
+  collection keyed by a DateTime, which is values over time; `Plan.values`
+  over one keyed by `String` off an ordinal axis; a read of a field that is
+  no `Dict`; a read outside a series; `edit` beside elements given as a
+  function, over a read of values, or over items keyed by another id than a
+  String, since a drop mints its id as text; a tree's `children` naming a
+  field of another type than the row's, or keyed by a DateTime; a table's
+  `edit` beside cells given as a function, or over a draw giving another
+  number than each value.
+- **Any id keys them (#1540).** Items and a tree's children are keyed by an
+  id of any type but a DateTime, as child rows are: a String's element key is
+  the id, any other's the id as East prints it.
 
 ## A cell at a time (#1438)
 
@@ -787,6 +806,584 @@ lean rows with the items of a cell read. A record Slice's handle
 
 A `Plan` value serialized before them does not decode against them; stored
 `UIComponentType` values re-emit. No author changes a line.
+
+## One save door, one series list (#1541)
+
+Before #1541 a Plan's rows were saved through an `editing` object taking a
+commit of the host's own (`onApply`), an adapter over rows held in page state
+(`onUpdate`), an observer and a check, and its series were picked through a
+handle the author bound beside the Plan (`Plan.pick`) and passed in place of
+`series`. Now the rows save through the record they are read from, and the
+series are one list the Plan picks from itself.
+
+The wire does not change: the root's `editing` and `pick` are what they were.
+
+### Removals and their replacements
+
+| Removed | Replacement | Example |
+|---|---|---|
+| `editing={{ onApply: Record.onApply(record, { keyed: true }) }}` | `record={Record.bind(record)}`: the record the rows are read from — `data`'s, or the `slice`'s `rows` source's — its record declaring `patch: mutation.patch()`. Save commits the drafts to it by key, as one checked batch | `planRowDrop`, `planNestedAll` |
+| `editing.onPatch`, `editing.ready` | the props `onPatch` and `ready`, each beside `record` | `planRowDrop` |
+| `editing.onUpdate`, and an `onApply` of the host's own | none: `record` is the Plan's one save door, so a Plan over data that is no record does not edit. Keep the rows in a record | `planRowDrop` |
+| `Plan.pick(key, all, { hidden })`, passed as `pick` | `series={all}` and `hidden={[…]}`, the keys off to start. Where `library` lists `Plan.library.series()` the Series tab switches each series on and off, kept under the Plan's `id`; without it nothing is bound, and `hidden` names the series the Plan does not draw | `planTargetState`, `planNestedAll` |
+
+Each is refused at build, naming its replacement: `editing` by each of its
+parts, `pick` by `series` and `hidden`. `Plan.pick` itself is gone, so a
+TypeScript build stops at it before the Plan is built: give the list it was
+given to `series`.
+
+### Behaviour that changed
+
+- **Every series is listed, a `views` as its members.** The Series tab lists
+  every series of the tree, each followed by the series nested in it — one
+  switched off takes them with it — and each member of a `views` and each
+  case of a `kinds` alone, since neither block draws a row of its own. A
+  member switched off takes its rows alone, and the entry's children nest
+  under the first member left, which carries the fold. With every member off
+  the entry draws no row, and none beneath one. A resources series or a case
+  switched off takes the events landing on its rows with it: they draw
+  nowhere, never on an Unassigned row.
+- **What `hidden` may name.** Any series of `series`, nested or not, or a
+  member of a `views` or a case of a `kinds`, by its key. A key naming no
+  series, or a `views` or a `kinds` block itself, is refused at build,
+  listing the keys it may name. A list known only as it runs (an East
+  expression) is listed whole, a series a line, and a key naming none of them
+  is ignored.
+- **The pick is the Plan's.** Its state is kept under `plan.<id>.pick`
+  (`plan.pick` with no `id`), and what the tab switches is kept for the viewer
+  under that key. A viewer's choice made through an earlier `Plan.pick` key is
+  not carried over.
+- **A draft draws as the canvas does.** The editing session makes a drafted
+  entry's rows with the same series left out. A gesture still writes the data
+  whichever series show.
+- **A canvas's series are written out once.** Every window, every window with
+  the drafts in place and every drafted entry is made by one function the root
+  holds, so a Plan's program no longer grows with the places its rows are made.
+
+### Renderer (`@elaraai/e3-ui-components`)
+
+Nothing changes: the tab's lines are the pick's items, as before.
+
+## An item's status, from its map (#1541)
+
+Before #1541 a run's map returned a tone alone as `status` (`"warning"` drew
+the over-dwell ring), a tile's returned one as `tone`, and a chip and a mark
+had no status. Now the map of any data series item — a run, a tile, a chip or
+a mark — returns `status: Plan.status(words, tone, { ring? })`: its words,
+its tone (success, warning, danger, info or neutral), and whether it draws as
+an open ring. It is what an event kind's status case gives an event
+(`Schedule.events`' `status: { field, cases }`, unchanged), and the same type:
+`Plan.Types.Status` is `Schedule.Types.Status`.
+
+### The wire
+
+- `Plan.Types.Run.status` is `Option<Plan.Types.Status>`
+  (`{ label, tone, ring }`), where it was an `Option` of a tone.
+- `Plan.Types.BucketEvent.tone` is gone, and `status`, the same `Option`,
+  stands in its place.
+- `Plan.Types.Chip` gains `status` after `state`, and `Plan.Types.EventMark`
+  after `kind`.
+
+A stored `UIComponentType` value re-emits (`WIRE_MIGRATION.md`).
+
+### Removals and their replacements
+
+| Removed | Replacement | Example |
+|---|---|---|
+| a run map's `status: "warning"` (a tone, or an `Option` of one) | `status: Plan.status("Over dwell", "warning")`; an `Option` of a status passes as it is | `planTargetState`, `planStatuses` |
+| a tile map's `tone: "warning"` | `status: Plan.status("Late", "warning")` | `planTargetState`, `planStatuses` |
+| `Plan.run({ status: "warning" })`, `Plan.event({ tone: "warning" })` | the same `status` | `planStatuses` |
+
+Each is refused at build, naming `Plan.status`: a bare tone given as
+`status`, or an `Option` of one, and a tile's `tone`.
+
+### Behaviour that changed
+
+- **Every tone draws.** A bar, a tile and a chip wear a 1.5px ring in the
+  tone's colour, just outside the box, whatever their lifecycle look. A bar
+  drew a warning's alone before, and a chip none. A mark draws its glyph in
+  the tone: a milestone's dot, a decision's diamond, an exception's triangle
+  and an icon.
+- **`ring: true` draws the item open.** A bar, a tile and a chip lose their
+  fill and wear the ring just inside their edge; a milestone's dot is an open
+  dot; a decision's diamond is open, applied or not; an icon wears the ring
+  round it. An exception's triangle has no inside to open and draws as any
+  other. An item its drafts changed keeps the drafted look.
+- **A danger outranks an overlap.** An item in an overlap pair wears the warn
+  ring in its status's place, but a danger status keeps its own, as a tile's
+  did.
+- **Its name says its words.** An item's accessible name ends in its status's
+  words (`…, actual, Over dwell`), where a run's and a tile's said the tone's
+  name (`…, actual, warning`).
+- **An event kind's chips take the warning ring.** An event whose status case
+  has the warning tone rings its bar and its tile, as before, and now its
+  chip; its mark is an exception, as before. A case of any other tone draws
+  nothing on the Plan, and a warning case with `ring: true` draws the ring,
+  not the open form: an event kind's events draw as they did.
+
+### Renderer (`@elaraai/e3-ui-components`)
+
+Each of the four elements sets `data-tone` and `data-ring` from its status
+(`shared/status.ts`), and the recipes draw them (`planElementStatus`,
+`planStatusTones`). A bar's `data-stuck` is gone: it is `data-tone="warning"`.
+`PlanMessages.tileName` takes `status` where it took `tone`, and `chipName`
+and `markName` gain it: a host's translation of those three takes the
+status's words.
+
+## The rows are the resources (#1541)
+
+Before #1541 a Plan drew its event kinds on resources it was handed beside its
+rows: a dataset per resource kind (`resources`, each
+`Schedule.resources(rows, { … })`), whose rows the Plan made apart from its
+own. Now the rows are the resources. An event kind lands on a series of the
+Plan's own rows — `Plan.series.resources(Row, { key, title, icon, label, … })`,
+or a case of `Plan.series.kinds(Row, field, cases)` — and its
+`resource: { field, of }` names that series by its key. The record the rows
+are read from, through `data` or the rail's `rows` source, holds the
+resources, and everything the Plan does with its rows — nesting, tables,
+paging through a nested series index, the editing session, the Series tab —
+it does with them.
+
+```tsx
+// Before: a resource kind beside the rows.
+<Plan axis={axis} resources={{ presses: Schedule.resources(presses.read(), { name: "Press", icon: "print", label: (p) => p.name }) }}
+  events={{ job: Schedule.events(jobs, { …, resource: { field: "press", of: "presses" } }) }} />
+
+// Now: the presses are the rows, and the jobs land on their series.
+<Plan axis={axis} data={presses.read()}
+  series={[Plan.series.resources(PrintPress, { key: "presses", title: "Presses", icon: "print", label: (p) => p.name })]}
+  events={{ job: Schedule.events(jobs, { …, resource: { field: "press", of: "presses" } }) }} />
+```
+
+### The wire
+
+The payload loses `resources` and `blocks`, its `paged` becomes a Boolean,
+and it gains `landings` and `seam`; the root gains `unnarrowed`; a series
+value gains the arms `resources` and `kinds` (`WIRE_MIGRATION.md`). A stored
+`UIComponentType` value re-emits.
+
+### Removals and their replacements
+
+| Removed | Replacement | Example |
+|---|---|---|
+| `resources={{ <slot>: Schedule.resources(rows, { … }) }}` | the rows themselves, `data` or the rail's `rows` source, and a resources series of them, its key what `of` names | `planEvents`, `planWording`, `planConflicts`, `planOptimise` |
+| a resource kind for each kind of row | one record of rows, and `Plan.series.kinds(Row, field, cases)`: a case for each case of the variant `field`, each a resources series' config or `false`, its key the case's name unless it gives `key` | `planPrintWorks`, `planEventLinks` |
+| `Schedule.resources`' `group` | a group row the resources nest in: `Plan.series.group` with `children` | `planPrintWorks` |
+| `Schedule.resources`' `parent`, `rollup` and `collapsed` | a tree: `children: "field"` with `rollup`, and `collapsed` | |
+| `Schedule.resources`' `sub`, `value` and `status` | the series' or the case's own | `planEventLinks` |
+| `Schedule.resources`' `measures: [series]` | the series' or the case's `series`, drawn beneath its row | `planPrintWorks` |
+| a paged resource kind | the rows paged (`data={Data.bindPaged(record)}`, or the rail's `rows` source), each event kind read a cell at a time through its own source of the rail | `planWindows`, `planOptimiseWindows` |
+| a rail source named after a resource kind | the rail's `rows` source | `planSeriesByHall`, `planRecordIndexes` |
+
+A Plan given `resources` is refused at build, naming the series that replace
+it. `Schedule.resources` keeps what the Calendar, the Roster and the
+Allocation read; the options only a Plan read are refused, each naming
+`Plan.series.resources`' own, and `Schedule.Types.PlanResources` and
+`Schedule.Types.PlanResourceRow` are gone.
+
+### Behaviour that changed
+
+- **What a kind lands on.** `of` names a resources series or a `kinds` case
+  by its key, or one for each case of a variant field
+  (`{ bay: "bay", van: "van" }`). A name that is neither is refused at
+  build, and so is a field that does not hold the series' key type, naming
+  the field and both types. A resource's key is a `String`; the rows beneath
+  a resource, which a kind's `child` lands on, are keyed by any type (*Rows
+  beneath a resource*, below), and so is an event kind's own record.
+- **How a resource's row draws.** It draws a row for each way the kinds
+  landing on it draw: the first on the row itself, each other a row after it,
+  labelled by its kinds' names. Then come its `series`, then its `children`, as
+  a resource kind's did. With no kind landing on it, it is the resource's own
+  empty lane.
+- **A series beneath a resource may leave out `label`**, in a resources
+  series' or a case's `series`: its row is named by the resource's. Anywhere
+  else a series with no `label` is refused at build, naming where it sits.
+- **The cases are exhaustive.** A `kinds` lists every case of its field,
+  `false` for one not drawn, so a case the variant gains fails to compile until
+  it is listed. Its callbacks are handed the case's value after the row and its
+  key: `(row, key, value)`.
+- **One case, on one series.** `case: [field, tag]` does the same for a
+  single series: a span, buckets, chart, heat, table, cards or events series,
+  a group, a `views` or a resources series. It draws the rows whose `field`
+  holds the case `tag`, and each of its functions of the row is handed the
+  case's value after the row and its key:
+  `Plan.series.chart(Row, { case: ["kind", "kpi"], label: (row, key, kpi) => kpi.name, … })`,
+  where a series wrote `match: (r) => r.kind.hasTag("kpi")` and
+  `r.kind.unwrap("kpi")` in each accessor. Its own `match` stays, for a test of
+  the case's value, which it is handed too. A member of a `views` is built
+  before the views are, so one that reads the value names the `case` itself.
+  A field that holds no variant, or a tag that is no case of it, fails to
+  compile, and is refused at build naming the field and its cases
+  (`planTargetState`).
+- **Every kind over paged rows is read a cell at a time**, through its source
+  of the rail, over the resources the rows in view hold. One with no source,
+  or whose source lists no series or no summary index, is refused at build,
+  naming the indexes to declare. Over rows read whole nothing changes: a kind
+  with no source is read whole within the cap, and an event on no resource
+  draws on the Unassigned row.
+- **The rail counts the `rows` source in the Plan's word for its rows**
+  (`vocabulary.rows`), and the footer's line names it so. A resource kind's
+  source was counted in its kind's name.
+- **A resource the page does not hold is still named.** Over rows read a page
+  at a time, and outside the rail's narrowing, the inspector, a bulk edit's
+  choices and the Backlog's cards name a resource by its row, read by its key.
+- **A paged canvas reads its rows again when the data they read moves.** A
+  new value of a dataset its rows read draws again. Before, it waited for the
+  paged source's revision to move.
+- **A series of a row that fails fails the Plan,** over rows read whole, until
+  the next good commit. A paged window's read, and an event kind's own, still
+  fail on the footer's line.
+- **`inspector` no longer needs `events`.** A Plan of rows alone is given its
+  pane too, where it was refused at build: a selected row shows its own
+  fields, as a resource's row does. Over a row, with or without event kinds,
+  the pane shows the refusals holding Save while `ready` refuses the entry
+  the row came from, each naming its field, as it does over an event's form.
+  With no event kinds, Nothing selected leaves out the hint about clicking an
+  event.
+
+### Renderer (`@elaraai/e3-ui-components`)
+
+The events join the canvas's rows through the payload's `seam` wherever the
+canvas makes them, a whole canvas, a page's window or a nested window:
+`placed` files the events read over a window, and `place` fills that window's
+landing rows with them. A kind's cells are read for the landing rows in view.
+A row of a landing's own series shows in the inspector as its resource. The
+refusals over a row are its canvas's to read (`PlanCanvasInspect.refusals`),
+from the session its rows save through, by the shared
+`sessionEntryRefusals`.
+
+## One `canDrop`, over what a drop would do (#1541)
+
+Before #1541 a Plan took one of two checks, told apart by its East type: a
+drag's, `Fn(DragEvent) → Boolean`, over `data`'s rows, and an event kind's,
+`Fn(Schedule.Types.Candidate) → Option<String>`. Now it takes one,
+`Fn(Plan.Types.Candidate) → Option<String>`, asked of every drop — an event
+kind's and one on `data`'s rows alike — where the drag rests and again before
+the drop becomes an unsaved edit. `some(message)` refuses it, and the message
+is what the ghost says; `none` lets it land.
+
+A candidate says:
+
+| Field | What it says |
+|---|---|
+| `gesture` | `add` (`duplicate`, an alt-drag copy), `move`, `remove` (to the trash, or back to its library) or `resize` (the end that moved) |
+| `into` | the event kind, by its slot, or the data series, by its key |
+| `from` | a `template` (its key), a library tab's `card`, a `backlog` event, an `event`, or a data series' `item` (`{ row, key }`, the row's id as text) |
+| `onto` | the event or the item it lands on, where it lands on one |
+| `row` | the row it would land on, a `Plan.Types.RowId`; `none` for a `remove` |
+| `lane` | the lane it would sit in, where its row has lanes |
+| `start`, `end` | its instants there, on the axis's arm; `none` for a `remove`, and `end` for a card whose item its series makes as it lands |
+
+For an event kind's drop, `row` is the resource's own row: the landing row of
+the series its kind lands on, whichever row beside it the kind draws on. So a
+check reads the series' key and the path's last step, the resource's key. On
+no resource it is the kind's Unassigned row.
+
+### The wire
+
+The root's `canDrop` changes type, and the payload loses its own
+(`WIRE_MIGRATION.md`). A stored `UIComponentType` value re-emits.
+
+### Removals and their replacements
+
+| Removed | Replacement |
+|---|---|
+| `canDrop={fn(DragEvent) => Boolean}` over `data`'s rows | `canDrop={fn(Plan.Types.Candidate) => Option<String>}`: `add.into.row` is `candidate.row`, typed (`East.print(row)` is the text a drag named it by); `add.from` is `candidate.from`'s `card`; a moved element is `candidate.from`'s `item`; answer `some(message)` to refuse |
+| `canDrop={fn(Schedule.Types.Candidate) => Option<String>}` | the same check over `Plan.Types.Candidate`: `kind` is `into`'s `kind`; `from`'s `backlog` and `event` name the event by its kind and key; `resource` is `row`; `start` and `end` are Options of the axis's instants |
+
+A check of either older type is refused at build, naming what it is rewritten
+against.
+
+### Behaviour that changed
+
+- A refusal on one of `data`'s rows says why on the ghost, as an event kind's
+  does, and a keyboard carry announces it.
+- An author's card landing on an event, and an event returned to the Backlog
+  tab, are asked of `canDrop` too.
+
+### Renderer (`@elaraai/e3-ui-components`)
+
+One module makes the candidate (`plan/edit/candidate.ts`), for an event kind's
+gesture and for one on a data series' row, and one veto asks it, its answers
+kept while the check is the same function.
+
+## A lock on one event or item (#1541)
+
+Before #1541 a whole event kind was editable or not, by its record's binding,
+and a whole data series by its `edit`. Now one event, or one item, can be held
+where it is by the application's own rule:
+
+```tsx
+job: Schedule.events(jobs, {
+    name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
+    resource: { field: "press", of: "presses" }, state: "state",
+    // A job under way is locked.
+    locked: (job, key) => job.state.hasTag("in-progress"),
+}),
+```
+
+and on a data series, in the item's map:
+
+```tsx
+runs: Plan.items("jobs", { from: "start", to: "end" }, (job, id) => ({ label: job.label, state: "confirmed", locked: job.shipped })),
+```
+
+A locked event or item:
+
+- draws with a lock, and its accessible name ends `locked`;
+- is not moved or resized, by the pointer or the keyboard, and takes no card;
+- is not removed: a drag to the Backlog tab, Delete and the Delete key leave it;
+- shows its form read only in the inspector, under a banner that says it is
+  locked; among several selected, the bulk edit, a shift, Duplicate and Delete
+  reach the others alone, and the pane says how many are locked;
+- is not changed by an optimiser's answer: an answer that changes or removes
+  it is refused whole, naming it.
+
+A drop that would change it is refused where the drag rests, the ghost saying
+`<its title> is locked`. A selection it is part of moves together or not at
+all, so it holds the others where they are.
+
+The rule is read with the event's drafts in place, so an unsaved change that
+makes an event locked locks it at once, and Undo takes that back.
+
+### The wire
+
+`Plan.Types` items gain `locked` (`WIRE_MIGRATION.md`). A stored
+`UIComponentType` value re-emits.
+
+### Renderer (`@elaraai/e3-ui-components`)
+
+One rule holds a locked event against every gesture: the Plan's event editing
+(`plan/edit/events.ts`) records nothing of a gesture that changes or removes
+one, whatever asked. What draws a locked event says why before a gesture
+gets there.
+
+## A library tab's cards make events (#1541)
+
+Before #1541 a card of an author's tab did one thing on an event kind's row:
+dropped on an event, it set what the tab's `drop` patch sets. A new event came
+only from a template of its kind, in the Events tab. Now a tab's cards can
+make events too, with `create`:
+
+```tsx
+Plan.library.tab(orders.read(), {
+    name: "Orders", icon: "inbox", label: (o) => o.title, group: (o) => o.customer,
+    // A card dropped on a press makes a job there, as a template does.
+    create: {
+        kind: "job",
+        duration: (o) => variant("hours", o.sheets.divide(8000.0)),
+        values: (o) => ({ title: o.title, customer: o.customer, sheets: o.sheets, state: variant("proposed", variant("added", null)), stock: variant("coated", null), due: none }),
+    },
+}),
+```
+
+| Field | What it says |
+|---|---|
+| `kind` | the event kind its cards make an event of, by its slot in `events` |
+| `duration` | how long the event runs: a span kind's cards give it, an instant kind's give none |
+| `at` | when it starts, where it is dropped on a whole day; left out, the day's start |
+| `values` | the new event's own fields: every field of the kind's row but its start, its end and its resource |
+
+A card lands as a template of the kind does: on a row the kind draws on, at
+the bucket under the pointer, the ghost saying what lands where, the Plan's
+`canDrop` asked with `from` the card. The new event's key is made from the
+card's. A tab may take `drop` beside `create`: over an event of the patch's
+kind a card sets what the patch sets, and anywhere else on a row of
+`create`'s kind it makes an event.
+
+The Plan refuses at build a `kind` it has no event kind for, a span kind's
+`create` with no `duration`, an instant kind's with one, and `values` that
+are not the kind's.
+
+### The wire
+
+A Plan's author's tab gains `create` (`WIRE_MIGRATION.md`). A stored
+`UIComponentType` value re-emits.
+
+### Renderer (`@elaraai/e3-ui-components`)
+
+One path makes an event from a template, a kind's own or a card's
+(`plan/edit/event-drag.ts`), and the kind's own `write` makes its row.
+
+## Links kept in a record (#1541)
+
+Before #1541 a Plan's links were a list built in code: `Plan.link` values,
+each end a run (`Plan.ref`) or an event (`Plan.eventRef`). Nothing on the
+canvas selected, changed or removed one. Now `links` also takes **link kinds**
+by slot, each a kind of link over the app's own record, as the Schematic's
+are:
+
+```tsx
+const flows = $.let(Record.bind(planLinkFlows));
+<Plan
+    …
+    links={{
+        flow: Plan.links(flows, {
+            name: "Flow", icon: "arrow-right-long",
+            from: { field: "from", of: { plate: "plate", job: "job", binding: "binding" } },
+            to: { field: "to", of: { job: "job", binding: "binding", delivery: "delivery" } },
+            quantity: { field: "sheets", unit: "k sheets" },
+        }),
+    }}
+/>
+```
+
+| Option | What it says |
+|---|---|
+| `name`, `icon` | the kind's name and its Font Awesome solid icon: in the inspector, the notices and the history |
+| `from`, `to` | each end, `{ field, of }`: the field holding the key of the event the link runs from, or to. With `of` an event kind's slot, the field holds a key of that kind, in the kind's own key type; with `of` a slot for each case, the field is a variant, each case holding a key of the kind it names |
+| `quantity` | `{ field, unit?, format? }`: what the link moves, a Float or an Option of one. It weighs the ribbon and prints its caption; a link holding none draws at the thinnest weight, with no caption |
+| `fields` | the inspector's form over the fields no end is (`Fields`); every such field unless given |
+| `templates` | its presets, a templates record's: `Schedule.templates(rows, { name, group?, values })`, `values` every field of a link but its two ends. The library's Events tab lists them under the kind's name; a click holds one, and a link Connect draws takes its values |
+| `key` | a new link's key, built from its row: for a record keyed by another type than String or Integer |
+
+A link kind's link is a row of the record, its key the link's identity. The
+record is bound whole, with `Record.bind` and its patch door to edit it or
+`Data.bind` to read it: a link has no times and its ends are keys, so the
+rail narrows no link kind. The binding reads the record whole; its links are
+decoded and drawn within the 10,000 an event kind's events are drawn under,
+and past it none is drawn, the frame saying how many the kind holds, and
+Connect draws none of it. A kind bound with `Data.bind` draws its links as a
+link built in code is drawn: none is selected.
+
+**Today's list stays.** `links={[Plan.link(…), …]}` is taken as it was, and a
+slot may hold a list beside the kinds.
+
+The Plan refuses at build, naming the option: a record that is not bound
+whole; an end that is no `{ field, of }`, a field its row lacks, an Option,
+or both ends naming one field; an `of` naming no event kind of the Plan,
+naming the kinds it has; an end whose field does not hold its event kind's
+key type, naming the field and both types; a quantity field that is neither
+a Float nor an Option of one; templates written as a list in the code,
+giving a time (`at` or `duration`) or a `source`, or whose `values` are not
+the link's fields but its ends; and
+a link kind under a slot an event kind has.
+
+`canConnect={fn(Plan.Types.ConnectCandidate) => Option<String>}` is the veto
+over a link the Connect tool would draw, on a Plan with a link kind: the
+candidate is the link kind's slot and the two events, each by its kind's slot
+and its key's text, and `some(message)` refuses it.
+
+### Behaviour that changed
+
+- **A link kind's links draw as a list's do**, in the links focus, from each
+  link's `from` event to its `to` event wherever they draw, in their
+  record's order. A far end the cells do not hold is read by its key.
+- **A link kind's link is keyed on the canvas by its kind's slot and its
+  row's key**, as East prints a reference (`(kind="flow", key="plates")`). A
+  host or a test that named a link by the key a list gave it names it so.
+- **A link kind's link selects.** A click on it selects it, Shift, Ctrl or
+  Cmd adding it to the selection or taking it out; selected, it draws in the
+  ink, its caption outlined. The Delete key removes it, as it removes a
+  selected event, and so does the × beside its caption, where it has one. A
+  link built in code selects nothing, as before.
+- **A selected link shows in the inspector:** its kind, the two events it
+  joins by their titles, what it moves, its form and Delete; several links,
+  how many, and Delete. Events selected with links show as the events they
+  are.
+- **Every change is a draft** of the link kind's record, a step of the Plan's
+  one history, saved through the record's patch door with the Plan's other
+  drafts.
+- **A kind holding more links than are read draws none**, and a notice says
+  how many it holds.
+- **Connect draws a link by hand.** While a link kind is bound with its patch
+  door, the toolbar has the Schematic's tools for the same job: Select, and
+  Connect. With Connect held, a drag from one event to another draws a link
+  of the kind in place of moving the event. A line runs from the event to
+  the pointer and into the start of an event the link may end at; the ghost
+  names the link (`Flow · Catalogue covers → Menu cards`), or says why not:
+  the kind's end holds no event of that kind (`Flow can't end at Catalogue
+  plates`), or `canConnect`'s message. The drop makes the link a draft,
+  selected, with its form in the inspector. With several link kinds
+  editable, a menu beside the tools picks the kind Connect draws. The tool
+  held is the viewer's, kept under the Plan's `id`. With Select held, the
+  canvas's gestures are as they were.
+- **An event kind a link kind's end names keeps the key made for a new
+  event** where another Save took the same key: the two are a conflict to
+  choose, as on a Schematic, where every other kind's new event goes on
+  under the next key its session makes. A drafted link may name the event by
+  that key.
+
+### The wire
+
+The Plan's payload gains `linkKinds` and `canConnect`, last
+(`WIRE_MIGRATION.md`). The canvas's own `links` hold the links built in
+code, as before. A stored `UIComponentType` value re-emits.
+
+### Renderer (`@elaraai/e3-ui-components`)
+
+A link kind's links join the canvas's own before anything reads them
+(`plan/links/kinds.ts`), their drafts in place by the rule every kind held
+whole shares (`shared/schedule/drafted-rows.ts`), so the links focus, the
+ribbons and a far end's read take them as they are. Each editable kind is a
+record of the Plan's shared editing, its session named by its slot.
+
+## Rows beneath a resource, and a kind landing on them (#1541)
+
+A resource's own child rows — the kinds of task a press takes, the bays of a
+hall — are rows of the Plan beneath it, and an event kind lands a step down,
+on the child row its event names.
+
+| What | How it is written | Example |
+|---|---|---|
+| a case's child rows | `children: Plan.children("kinds", [series…])` on a `Plan.series.kinds` case, drawn after the case's `series` | `planPressTasks` |
+| the same rows beneath every resource, from a list of the app's own | `Plan.children.of(() => kinds.read(), [series…])`: the rows a function of the row and its key returns, read with the row | `planPressKinds` |
+| a case whose own row is not drawn | `row: false` on the case: its `series` and its `children` stand where its row would | `planOnePress` |
+| a kind landing on a child row | `child: { field, of }` beside `resource`: `of` names a resources series among the resource's `children`, `field` the event's field holding the child row's key | `planPressTasks` |
+| a lane for each case of a variant | `lane: "half"`, a variant field: every case draws its lane, event or none, in the order the landing series' `lanes` lists them, or by case name | `planPressTasks` |
+
+- **Keys of any type.** A child row's Dict may be keyed by any type but a
+  DateTime, which is a values collection: a variant, a number, a String. A
+  resources series over it names the type (`keyType`), and a kind's `child`
+  field holds a value of it. Beside a nested series index the record declares
+  the rows, `index.nested.rows({ … })` — `rows({})` for rows that nest nothing
+  of their own — and e3 holds each key in its own type (e3's
+  `reference/record-indexes.md`).
+- **Where a kind with `child` lands.** Only on the rows `child.of` names: its
+  resource's own row draws none of its events and takes no drop of one. A
+  drop on a child row writes the resource's field, the child's and, where the
+  row has lanes, the lane's, as one draft. A carry by keyboard names no lane,
+  so it keeps the event's own.
+- **What is refused at build,** each in words naming the fix: a kind landing
+  on a `row: false` case with no `child`; a `child.of` that names no
+  resources series, or one not beneath the kind's resource, or one another
+  kind lands on as its resource; a `child` field of another type than the
+  rows' key; a series under `Plan.children.of` that declares `edit`, since a
+  list's rows are read only; and child rows keyed by a DateTime, which are
+  read with `Plan.values`.
+- **Read a page at a time,** a kind's events are read by its resource,
+  whichever of the resource's rows the view shows: a page that draws no row
+  of the resource's own reads them by the rows beneath it. A pinned row's
+  nested series are read wherever the view rests.
+- **Past the event cap,** a paged kind's shading is filed by its resource, as
+  its summary index files its events: each row beneath a resource draws its
+  resource's shading, which no index splits by the row beneath.
+- **One step beneath.** `child.of` names a series whose rows are the step
+  beneath each resource's: one nested further down, beneath another series'
+  rows, is refused at build, naming how many steps down it stands.
+
+The Plan's payload gains an event kind's `child` and a landing's `under`
+(`WIRE_MIGRATION.md`). A stored `UIComponentType` value re-emits.
+
+## One templates record for every kind (#1544)
+
+An app kept a templates record for each event kind, and a source of the rail
+for each. It may now keep one: a record whose rows hold a variant field with
+a case for each kind, and one source of the rail.
+
+| Before | Now | Example |
+|---|---|---|
+| a templates record a kind, `Schedule.templates(jobTemplates.read(), { name, values: (t) => t.values, source: "jobTemplates" })` | one record, each kind reading its case: `Schedule.templates(presets.read(), { case: ["values", "job"], name, values: (_preset, _key, job) => job, source: "templates" })` | `planPrintWorksRecords` |
+
+- `case: [field, tag]` is written as a series' `case` is: `field` a variant
+  field of the rows, `tag` the kind's case of it. The kind's templates are the
+  rows holding the case, and every accessor (`name`, `group`, `at`,
+  `duration`, `values`) is handed the case's value after the row and its key.
+- A field that holds no variant, or a tag that is no case of it, is refused at
+  build, naming the field and its cases.
+- A record a kind keeps for itself reads as before: `case` is left out.
+
+Nothing of the Plan's payload changes.
 
 ## Extracted contracts (do this first when migrating imports)
 
@@ -867,8 +1464,9 @@ Plan.series.buckets(Row, {
 })
 ```
 
-- `Planner.event` tiles → `Plan.event` (same `tone` / `color` /
-  `colorPalette` / `stretch` / `content` / `animation` channels);
+- `Planner.event` tiles → `Plan.event` (same `color` / `colorPalette` /
+  `stretch` / `content` / `animation` channels; its `tone` is a `status`,
+  `Plan.status(words, tone)`, since #1541);
   AM/PM buckets → `lanes`; `Planner.marker` → `Plan.marker`.
 - `popover` / `hovercard` move OFF the tile onto the root's generalized
   `popover` / `hover` resolvers over `Plan.Types.ElementRef`.
@@ -907,7 +1505,7 @@ Plan.series.buckets(Row, {
   arm — time: Z-less ISO (`add.into.slot.parse(DateTimeType)`); number: a
   decimal (`parse(FloatType)`); ordinal: the value — no composite `"5:pm"`
   keys; the receiving series decides the lane. Temporal vetoes ("no drops
-  left of now") are a `canDrop` predicate over the parsed slot.
+  left of now") are a `canDrop` check over the candidate's `start`.
 
 ### `<Planner.Span>` → `<Plan>` with a span series
 

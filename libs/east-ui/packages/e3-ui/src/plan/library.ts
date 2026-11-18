@@ -13,8 +13,7 @@
  *   they are due;
  * - `Plan.library.series()`: what the canvas shows that a viewer can hide,
  *   each with an eye — the resource kinds and their measures, the event
- *   kinds, `data`'s series when they are picked (`pick`), and the Plan's
- *   `rows`;
+ *   kinds, `data`'s `series`, and the Plan's `rows`;
  * - `Plan.library.tab(rows, { … })`: cards of the author's own.
  *
  * Left out, or empty, the Plan has no library pane.
@@ -29,25 +28,27 @@
  * `Schedule.patch` over one event kind's row type, whose type names that kind.
  * The patch crosses the closed payload as that kind's field writes — each
  * field it sets, its path and its value as bytes — which a drop writes through
- * the kind's own `write` (#1196).
+ * the kind's own `write` (#1196). Its `create` makes an event of a kind from a
+ * card dropped on a resource's row, as a template does (#1541, U1): each card
+ * a template its kind knows and lists nowhere, so the one function that makes
+ * a template's event makes a card's.
  *
  * @packageDocumentation
  */
 
 import {
-    ArrayType, DictType, East, NullType, StringType, StructType, VariantType, none,
+    ArrayType, DictType, East, NullType, OptionType, StringType, StructType, VariantType, none,
     some, variant,
     type EastType, type ExprType, type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { PickItemType } from "@elaraai/east-ui";
 import type { ScheduleEventKind } from "../schedule/events.js";
-import { ScheduleAuthorTabType, buildScheduleTab,
-    type ScheduleLibraryTabConfig as PlanLibraryTabConfig } from "../schedule/library.js";
-export { ScheduleLibraryCardType as PlanLibraryCardType, type ScheduleLibraryTabConfig as PlanLibraryTabConfig } from "../schedule/library.js";
-import type { ScheduleResourceKind } from "../schedule/resources.js";
+import { ScheduleAuthorTabType, buildScheduleTab, scheduleTabRows, type ScheduleLibraryTabConfig } from "../schedule/library.js";
+export { ScheduleLibraryCardType as PlanLibraryCardType } from "../schedule/library.js";
+import { ScheduleCardMadeType, ScheduleCardTemplateType, scheduleCardTemplates, scheduleCardsMade, type ScheduleCardTemplatesConfig } from "../schedule/templates.js";
+import { ScheduleTemplateType } from "../schedule/types.js";
 import { overSeries } from "./over.js";
 import { KIND_ICONS } from "./pick.js";
-import { planSeriesFacts } from "./series.js";
 import { PlanRowsCollectionType } from "./types.js";
 
 // ============================================================================
@@ -65,19 +66,16 @@ import { PlanRowsCollectionType } from "./types.js";
  */
 /**
  * The id the Series tab lists a thing by, and a viewer's hidden set holds it by
- * (PB29): one namespace per source, so no two collide — a resource kind and an
- * event kind by slot, a measure, a hand-built row and a `Plan.over` series by
- * key. `data`'s picked series are the pick's own, by their bare keys.
+ * (PB29): one namespace per source, so no two collide — an event kind by slot,
+ * a hand-built row and a `Plan.over` series by key. `data`'s series — the
+ * resources among them (#1541) — are the canvas's pick's own, by their bare
+ * keys.
  *
  * @internal
  */
 export const planHideId = {
-    /** A resource kind, by slot: hiding it hides its rows. */
-    resources: (slot: string): string => `resources.${slot}`,
     /** An event kind, by slot: hiding it hides its elements everywhere. */
     events: (slot: string): string => `events.${slot}`,
-    /** A measure, by key: hiding it hides its row under each resource. */
-    measures: (key: string): string => `measures.${key}`,
     /** A hand-built row, by key: hiding it hides it and the rows under it. */
     rows: (key: string): string => `rows.${key}`,
     /** A `Plan.over` series, by key: hiding it hides its rows and its nested series'. */
@@ -114,8 +112,9 @@ export type PlanLibraryRowsItemType = typeof PlanLibraryRowsItemType;
 
 /**
  * What the Series tab lists (PB29), each a pick item with its eye, in the
- * order the canvas draws them. `data`'s series, when they are picked, sit
- * between the two lists: they are the pick's own (the root's `pick`).
+ * order the canvas draws them. `data`'s series sit between the two lists:
+ * they are the canvas's pick's own (the root's `pick`, #1541), a `views` as
+ * its members.
  *
  * @property kinds - The resource kinds, each followed by its measures, then the event kinds
  * @property rows - The Plan's `rows`: a hand-built row by its key, each series of a `Plan.over` by its own
@@ -129,19 +128,48 @@ export const PlanLibrarySeriesType = StructType({
 export type PlanLibrarySeriesType = typeof PlanLibrarySeriesType;
 
 /**
+ * What an author's tab's cards make (#1541, U1): events of one kind, each
+ * card's from the template its kind knows it by.
+ *
+ * @property kind - The event kind, by its slot
+ * @property makes - Each card's key with what a drop reads of its template: its values stay with its kind, whose `write` makes the event
+ */
+export const PlanTabCreateType = StructType({
+    kind: StringType,
+    makes: ArrayType(ScheduleCardMadeType),
+});
+
+/** Type representing {@link PlanTabCreateType}. */
+export type PlanTabCreateType = typeof PlanTabCreateType;
+
+/**
+ * An author's tab on a Plan: the tab every builder's library takes, and what
+ * its cards make of an event kind when dropped on a resource's row.
+ *
+ * @property create - The events its cards make; none, its cards make none
+ */
+export const PlanAuthorTabType = StructType({
+    ...ScheduleAuthorTabType.fields,
+    create: OptionType(PlanTabCreateType),
+});
+
+/** Type representing {@link PlanAuthorTabType}. */
+export type PlanAuthorTabType = typeof PlanAuthorTabType;
+
+/**
  * One tab of the library pane on the wire, in the order `library` lists them.
  *
  * - `events` — every event kind's templates, read off the kinds;
  * - `backlog` — every event kind's unscheduled events, read off the kinds;
  * - `series` — what the canvas shows that a viewer can hide;
  * - `tab` — the author's own: its name, its icon, the event kind its cards
- *   land on, and its cards.
+ *   land on, its cards, and the events they make.
  */
 export const PlanLibraryTabType = VariantType({
     events: NullType,
     backlog: NullType,
     series: PlanLibrarySeriesType,
-    tab: ScheduleAuthorTabType,
+    tab: PlanAuthorTabType,
 });
 
 /** Type representing {@link PlanLibraryTabType}. */
@@ -152,13 +180,35 @@ export type PlanLibraryTabType = typeof PlanLibraryTabType;
 // ============================================================================
 
 /**
- * An author's tab: its name and icon, and the accessors over one of its rows —
- * its value and its key — as `Schedule.resources` takes them.
+ * What a card of an author's tab makes when dropped on a resource's row
+ * (#1541, U1): an event of a kind, as a template of that kind does.
+ *
+ * @typeParam K - The rows' key type
+ * @typeParam R - Their row type
+ */
+export interface PlanTabCreateConfig<K extends EastType, R extends EastType> extends Pick<ScheduleCardTemplatesConfig<K, R>, "at" | "duration" | "values"> {
+    /** The event kind its cards make an event of, by its slot in `events`. */
+    kind: string;
+}
+
+/**
+ * An author's tab on a Plan: every builder's tab, and `create`.
  *
  * @typeParam K - The rows' key type
  * @typeParam R - Their row type
  * @typeParam P - The patch `drop` returns: `Schedule.Types.Patch` of one event kind's row type
  */
+export interface PlanLibraryTabConfig<K extends EastType, R extends EastType, P extends EastType = EastType> extends ScheduleLibraryTabConfig<K, R, P> {
+    /**
+     * What a card dropped on a resource's row makes (#1541, U1): an event of `kind`, there, as a template of the kind
+     * does — as long as `duration` says (a span kind's; an instant kind's gives none), from `at` when dropped on a
+     * whole day, its own fields `values`: every field of the kind's row but its start, its end and its resource. A
+     * tab may take `drop` beside it: a card over an event of the patch's kind sets what the patch sets, and anywhere
+     * else on a row of `kind`'s it makes an event.
+     */
+    create?: PlanTabCreateConfig<K, R>;
+}
+
 /** One tab of the library pane — what each `Plan.library.*` call returns, and `library` lists. */
 export type PlanLibraryTab =
     | { readonly kind: "events" }
@@ -194,8 +244,10 @@ export function libraryBacklog(): PlanLibraryTab {
  * The library's Series tab — `Plan.library.series()`: what the canvas shows
  * that a viewer can hide, each with an eye (PB29). Hiding an event kind hides
  * its elements everywhere, a resource kind its rows, a measure or one of the
- * Plan's `rows` that row; `data`'s series show and hide through their `pick`.
- * What a viewer hides is kept for them.
+ * Plan's `rows` that row; each of `data`'s `series` its rows — a section or a
+ * group with its subtree, a `views` one member at a time — the Plan's `hidden`
+ * naming the ones off to start (#1541). What a viewer hides is kept for them,
+ * under the Plan's `id`.
  *
  * @returns The tab
  */
@@ -240,6 +292,7 @@ export function librarySeries(): PlanLibraryTab {
  *     due: OptionType(DateTimeType),
  * });
  * export const PrintCustomer = StructType({ name: StringType, district: StringType, trade: StringType });
+ * export const PrintOrder = StructType({ title: StringType, customer: StringType, sheets: FloatType });
  * export const planPrintPresses = e3.record("plan_print_presses", DictType(StringType, PrintPress), {
  *     initial: new Map([
  *         ["a1", { name: "Press A1", hall: "Hall A", sheets_per_hour: 12000.0 }],
@@ -284,6 +337,17 @@ export function librarySeries(): PlanLibraryTab {
  *         patch: mutation.patch(),
  *     }),
  * });
+ * export const planEventOrders = e3.record("plan_event_orders", DictType(StringType, PrintOrder), {
+ *     initial: new Map([
+ *         ["O-501", { title: "Market flyers", customer: "Orchard Street Market", sheets: 16000.0 }],
+ *         ["O-502", { title: "Season programme", customer: "Heathfield Theatre", sheets: 48000.0 }],
+ *         ["O-503", { title: "Trail maps", customer: "Kestrel Cycling Club", sheets: 24000.0 }],
+ *     ]),
+ *     mutations: (mutation) => ({
+ *         // The orders' patch door: the works takes its orders elsewhere, and a Plan reads them live.
+ *         patch: mutation.patch(),
+ *     }),
+ * });
  * export const planEventJobs = e3.record("plan_event_jobs", DictType(StringType, PrintJob), {
  *     initial: new Map([
  *         ["J-3001", { title: "Spring catalogue", start: some(new Date("2026-10-06T06:00:00Z")), end: some(new Date("2026-10-06T14:00:00Z")), press: some("a1"), state: variant("actual", null), sheets: 96000.0, customer: "Alder & Finch", stock: variant("coated", null), due: some(new Date("2026-10-08T00:00:00Z")) }],
@@ -299,6 +363,10 @@ export function librarySeries(): PlanLibraryTab {
  *         ["J-3011", { title: "Wall calendars", start: none, end: none, press: none, state: variant("estimated", null), sheets: 50000.0, customer: "Foxglove Gardens", stock: variant("coated", null), due: some(new Date("2026-10-23T00:00:00Z")) }],
  *         ["J-3012", { title: "Spare covers", start: none, end: none, press: none, state: variant("estimated", null), sheets: 8000.0, customer: "Meridian Monthly", stock: variant("board", null), due: none }],
  *     ]),
+ *     indexes: (index) => ({
+ *         // The jobs over their interval index: what the print works' optimiser reads the window's jobs and the backlog through (#1622).
+ *         plan_event_jobs_by_time: index.interval({ from: "start", to: "end" }),
+ *     }),
  *     mutations: (mutation) => ({
  *         // The smallest builder's jobs' patch door: its Save commits through it.
  *         patch: mutation.patch(),
@@ -310,6 +378,7 @@ export function librarySeries(): PlanLibraryTab {
  *         const presses = $.let(Record.bind(planPrintPresses, []));
  *         const jobs = $.let(Record.bind(planEventJobs));
  *         const customers = $.let(Record.bind(planPrintCustomers, []));
+ *         const orders = $.let(Record.bind(planEventOrders, []));
  *         const axis = $.let(Plan.axis({
  *             window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") },
  *             resolution: "day", now: new Date("2026-10-14T09:00:00Z"),
@@ -318,9 +387,9 @@ export function librarySeries(): PlanLibraryTab {
  *             <Plan
  *                 id="jobs"
  *                 axis={axis}
- *                 resources={{
- *                     presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: p => p.name }),
- *                 }}
+ *                 // The presses are its rows: each a landing row its jobs land on, by `press`.
+ *                 data={presses.read()}
+ *                 series={[Plan.series.resources(PrintPress, { key: "presses", title: "Presses", icon: "print", label: p => p.name })]}
  *                 events={{
  *                     job: Schedule.events(jobs, {
  *                         name: "Print job", icon: "file-lines",
@@ -338,6 +407,20 @@ export function librarySeries(): PlanLibraryTab {
  *                 }}
  *                 library={[
  *                     Plan.library.backlog(),
+ *                     // The orders to plan, by customer: a card dropped on a press makes a job there, as a
+ *                     // template would, running as long as its sheets take at 8,000 an hour.
+ *                     Plan.library.tab(orders.read(), {
+ *                         name: "Orders", icon: "inbox",
+ *                         label: o => o.title, group: o => o.customer,
+ *                         create: {
+ *                             kind: "job",
+ *                             duration: o => variant("hours", o.sheets.divide(8000.0)),
+ *                             values: o => ({
+ *                                 title: o.title, customer: o.customer, sheets: o.sheets,
+ *                                 state: variant("proposed", variant("added", null)), stock: variant("coated", null), due: none,
+ *                             }),
+ *                         },
+ *                     }),
  *                     // The customers, by district: a card dropped on a job sets its customer.
  *                     Plan.library.tab(customers.read(), {
  *                         name: "Customers", icon: "building",
@@ -364,7 +447,6 @@ export function libraryTab<K extends EastType, R extends EastType, P extends Eas
 // ============================================================================
 
 /** A resource kind, its types erased. */
-type AnyResourceKind = ScheduleResourceKind<EastType, EastType>;
 
 /** An event kind, its types erased. */
 type AnyEventKind = ScheduleEventKind<EastType, EastType>;
@@ -375,16 +457,19 @@ type AnyEventKind = ScheduleEventKind<EastType, EastType>;
  * @internal
  */
 export interface PlanLibraryContext {
-    /** The resource kinds, by slot, in order. */
-    readonly resources: readonly (readonly [string, AnyResourceKind])[];
     /** The event kinds, by slot, in order. */
     readonly events: readonly (readonly [string, AnyEventKind])[];
     /** The Plan's `rows`, when given. */
     readonly rows: readonly unknown[] | undefined;
-    /** Whether `data`'s series are picked (`pick`), so the Series tab lists them too. */
+    /** Whether the Plan has `data`'s `series`: the Series tab lists them too, through the canvas's pick (#1541). */
     readonly picked: boolean;
     /** The Plan's `Slice.bindRecords` sources, which an author's tab's `source` must be one of; none, a tab may name none (#1343, #1344). */
     readonly sources?: readonly string[] | undefined;
+    /**
+     * Holds a value once in the Plan's own block: what several parts of its payload read — a tab's cards' templates,
+     * its wire and its kind's `write` — is worked out once as the Plan is evaluated, never again at each read.
+     */
+    readonly bind: <T extends EastType>(value: ExprType<T>) => ExprType<T>;
 }
 
 /** How a tab names itself in a refusal. */
@@ -404,7 +489,7 @@ function item(id: string, title: string, subtitle: string | undefined, icon: str
     }, PickItemType);
 }
 
-/** The glyph a hand-built row's kind is listed with: its series kind's (`Plan.pick`'s). */
+/** The glyph a hand-built row's kind is listed with: its series kind's. */
 const ROW_ICONS = {
     group: KIND_ICONS.group,
     span: KIND_ICONS.span,
@@ -456,23 +541,14 @@ const handItems = East.function([PlanRowsCollectionType], ArrayType(PlanLibraryR
 });
 
 /**
- * The Series tab on the wire (PB29): the resource kinds, each followed by its
- * measures, then the event kinds; and the Plan's `rows`.
+ * The Series tab on the wire (PB29): the event kinds, and the Plan's `rows`.
+ * `data`'s series, the resources among them, are the canvas's pick's (#1541).
  *
  * @param ctx - What the library is built against
  * @returns The tab's wire value
  */
 function seriesTab(ctx: PlanLibraryContext): ExprType<PlanLibraryTabType> {
     const kinds: ExprType<PickItemType>[] = [];
-    for (const [slot, kind] of ctx.resources) {
-        kinds.push(item(planHideId.resources(slot), kind.name, undefined, kind.icon));
-        const collection = DictType(kind.keyType, kind.rowType);
-        kind.measures.forEach((measure, i) => {
-            // Checked when the kind was declared: a measure is a series written in place.
-            const facts = planSeriesFacts(measure, collection, `Plan: resources.${slot}.measures[${i}]`)!;
-            kinds.push(item(planHideId.measures(facts.key), facts.title, kind.name, KIND_ICONS[facts.arm]));
-        });
-    }
     for (const [slot, kind] of ctx.events) kinds.push(item(planHideId.events(slot), kind.name, undefined, kind.icon));
     const rows = (ctx.rows ?? []).map((one): ExprType<ArrayType<PlanLibraryRowsItemType>> => {
         const over = overSeries(one);
@@ -489,18 +565,70 @@ function seriesTab(ctx: PlanLibraryContext): ExprType<PlanLibraryTabType> {
     return East.value(variant("series", { kinds: East.value(kinds, ArrayType(PickItemType)), rows }), PlanLibraryTabType);
 }
 
+/** The library pane built: its tabs on the wire, and what its tabs' cards make of each event kind. */
+export interface PlanLibraryBuilt {
+    /** The tabs on the wire, in the order `library` lists them. */
+    readonly tabs: ExprType<ArrayType<PlanLibraryTabType>>;
+    /**
+     * The templates the tabs' cards make each event kind's events from (#1541, U1), by the kind's slot: what its
+     * `buildPlan` takes, so its own `write` makes a card's event. A kind no tab makes events of has none.
+     */
+    readonly made: ReadonlyMap<string, ExprType<ArrayType<ScheduleTemplateType>>>;
+}
+
+/**
+ * An author's tab's `create`, checked and reified (#1541, U1): each of its
+ * cards a template of the kind it names.
+ *
+ * @param tab - The tab
+ * @param ctx - What the library is built against
+ * @returns The kind's slot and each card's key with its template; `undefined` for a tab with no `create`
+ * @throws {Error} Naming the tab: a kind the Plan has not; a span kind's with no `duration`, or an instant kind's with one; `values` that are not the kind's
+ */
+function tabCreate(tab: Extract<PlanLibraryTab, { kind: "tab" }>, ctx: PlanLibraryContext): { slot: string; makes: ExprType<ArrayType<ScheduleCardTemplateType>> } | undefined {
+    const create = tab.config.create;
+    if (create === undefined) return undefined;
+    const where = `Plan: the "${tab.config.name}" tab`;
+    const kind = ctx.events.find(([slot]) => slot === create.kind)?.[1];
+    if (kind === undefined) {
+        const slots = ctx.events.map(([slot]) => slot).join(", ");
+        throw new Error(`${where}'s \`create\` makes events of "${create.kind}", and this Plan has no such event kind — \`kind\` names one of ` +
+            `\`events\` by its slot (${slots === "" ? "this Plan has no event kinds" : slots})`);
+    }
+    if (!kind.instant && create.duration === undefined) {
+        throw new Error(`${where}'s \`create\` gives how long the event a card makes runs — create: { kind: "${create.kind}", duration: (row) => ` +
+            'variant("hours", …), values }, as a template of the kind does');
+    }
+    if (kind.instant && create.duration !== undefined) {
+        throw new Error(`${where}'s \`create\` gives a \`duration\`, and "${create.kind}" is an instant kind, whose events are one time — leave it out`);
+    }
+    const { source, keyType, rowType } = scheduleTabRows(tab, where);
+    const group = tab.config.group;
+    const makes = scheduleCardTemplates(
+        source as unknown as ExprType<DictType<EastType, EastType>>, keyType, rowType,
+        {
+            name: tab.config.label,
+            ...(group === undefined ? {} : { group: (row, key) => some(group(row, key)) }),
+            ...(create.at === undefined ? {} : { at: create.at }),
+            ...(create.duration === undefined ? {} : { duration: create.duration }),
+            values: create.values,
+        },
+        kind.templateValues, tab.config.name, where);
+    return { slot: create.kind, makes };
+}
+
 /**
  * Builds the library pane on the wire (PB26, PB61, PB62): its tabs in the
  * order `library` lists them; none when it is left out.
  *
  * @param tabs - The tabs, each a `Plan.library.*` call
  * @param ctx - What the library is built against
- * @returns The tabs on the wire
+ * @returns The tabs on the wire, and what their cards make of each event kind
  * @throws {Error} Naming the tab: a tab listed twice (an author's tab by its name); the Events or Backlog tab on a Plan
  *   with no event kinds; the Series tab on a Plan with nothing a viewer can hide; and each of an author's tab's refusals
  * @internal
  */
-export function buildLibrary(tabs: readonly PlanLibraryTab[] | undefined, ctx: PlanLibraryContext): ExprType<ArrayType<PlanLibraryTabType>> {
+export function buildLibrary(tabs: readonly PlanLibraryTab[] | undefined, ctx: PlanLibraryContext): PlanLibraryBuilt {
     const seen = new Set<string>();
     for (const tab of tabs ?? []) {
         const id = tab.kind === "tab" ? `tab:${tab.config.name}` : tab.kind;
@@ -514,11 +642,13 @@ export function buildLibrary(tabs: readonly PlanLibraryTab[] | undefined, ctx: P
             throw new Error(`Plan: the library lists ${tabName(tab)}, and this Plan has no event kinds — ` +
                 `its ${tab.kind === "events" ? "templates" : "unscheduled events"} are its event kinds' (Schedule.events)`);
         }
-        if (tab.kind === "series" && ctx.resources.length === 0 && ctx.events.length === 0 && (ctx.rows ?? []).length === 0 && !ctx.picked) {
+        if (tab.kind === "series" && ctx.events.length === 0 && (ctx.rows ?? []).length === 0 && !ctx.picked) {
             throw new Error("Plan: the library lists Plan.library.series(), and this Plan has nothing a viewer can hide — it lists " +
-                "event kinds, resource kinds and their measures, `rows`, and `data`'s series when they are picked (`pick`)");
+                "event kinds, `rows`, and `data`'s `series`");
         }
     }
+    // Each kind's cards' templates, tab by tab, each tab's held once.
+    const cardsOf = new Map<string, ExprType<ArrayType<ScheduleCardTemplateType>>[]>();
     const wires = (tabs ?? []).map((tab): ExprType<PlanLibraryTabType> => {
         switch (tab.kind) {
             case "events":
@@ -526,9 +656,31 @@ export function buildLibrary(tabs: readonly PlanLibraryTab[] | undefined, ctx: P
                 return East.value(variant(tab.kind, null), PlanLibraryTabType);
             case "series":
                 return seriesTab(ctx);
-            case "tab":
-                return East.value(variant("tab", buildScheduleTab(tab, ctx.events, "Plan", ctx.sources ?? [])), PlanLibraryTabType);
+            case "tab": {
+                // Every builder's tab, then what its cards make: read once, its fields the Plan's tab's.
+                const shared = buildScheduleTab(tab, ctx.events, "Plan", ctx.sources ?? []);
+                const create = tabCreate(tab, ctx);
+                // Its cards' templates, worked out once: the tab carries what a drop reads of each, and its kind's `write`
+                // holds their values.
+                const cards = create === undefined ? undefined : ctx.bind(create.makes);
+                if (create !== undefined && cards !== undefined) cardsOf.set(create.slot, [...(cardsOf.get(create.slot) ?? []), cards]);
+                const whole = East.function([], PlanAuthorTabType, ($) => {
+                    const own = $.const(shared);
+                    return {
+                        name: own.name, icon: own.icon, drop: own.drop, cards: own.cards, source: own.source,
+                        create: create === undefined || cards === undefined ? East.value(none, OptionType(PlanTabCreateType))
+                            : some({ kind: create.slot, makes: scheduleCardsMade(cards) }),
+                    };
+                });
+                return East.value(variant("tab", whole()), PlanLibraryTabType);
+            }
         }
     });
-    return East.value(wires, ArrayType(PlanLibraryTabType));
+    // What each kind's `write` makes a card's event from: its tabs' cards' templates together, held once.
+    const made = new Map<string, ExprType<ArrayType<ScheduleTemplateType>>>();
+    for (const [slot, tabsCards] of cardsOf) {
+        const templates = tabsCards.map((cards) => cards.map((_$, one) => one.template) as ExprType<ArrayType<ScheduleTemplateType>>);
+        made.set(slot, ctx.bind(templates.reduce((all, more) => all.concat(more) as ExprType<ArrayType<ScheduleTemplateType>>)));
+    }
+    return { tabs: East.value(wires, ArrayType(PlanLibraryTabType)), made };
 }

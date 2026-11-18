@@ -18,7 +18,7 @@ import { join } from 'node:path';
 
 import type { TestContext } from '../context.js';
 import type { TestSetup } from '../setup.js';
-import { runE3Command } from '../cli.js';
+import { removeWorkspaceAfter, runE3Command } from '../cli.js';
 import { createPackageZip, createDiamondPackageZip } from '../fixtures.js';
 
 /**
@@ -88,6 +88,7 @@ export function transferTests(
 
           // 4. Verify on remote: deploy and execute
           const wsName = `verify-l2r-${Date.now()}`;
+          removeWorkspaceAfter(t, remoteUrl, wsName, getCredentialsEnv);
           result = await runE3Command(['workspace', 'create', remoteUrl, wsName], workDir, { env });
           assert.strictEqual(result.exitCode, 0, `Workspace create failed: ${result.stderr}`);
 
@@ -101,9 +102,6 @@ export function transferTests(
           result = await runE3Command(['dataset', 'get', remoteUrl, `${wsName}.compute`], workDir, { env });
           assert.strictEqual(result.exitCode, 0, `Get failed: ${result.stderr}`);
           assert.match(result.stdout, /20/);
-
-          // Cleanup
-          await runE3Command(['workspace', 'remove', remoteUrl, wsName], workDir, { env });
         } finally {
           cleanup();
         }
@@ -218,6 +216,7 @@ export function transferTests(
 
           // 7. Verify on remote: deploy and check preserved input value
           const remoteWsName = `verify-ws-l2r-${Date.now()}`;
+          removeWorkspaceAfter(t, remoteUrl, remoteWsName, getCredentialsEnv);
           result = await runE3Command(['workspace', 'create', remoteUrl, remoteWsName], workDir, { env });
           assert.strictEqual(result.exitCode, 0, `Remote workspace create failed: ${result.stderr}`);
 
@@ -236,9 +235,6 @@ export function transferTests(
           result = await runE3Command(['dataset', 'get', remoteUrl, `${remoteWsName}.compute`], workDir, { env });
           assert.strictEqual(result.exitCode, 0, `Get remote output failed: ${result.stderr}`);
           assert.match(result.stdout, /50/);
-
-          // Cleanup
-          await runE3Command(['workspace', 'remove', remoteUrl, remoteWsName], workDir, { env });
         } finally {
           cleanup();
         }
@@ -253,6 +249,7 @@ export function transferTests(
         const { path: localRepo, cleanup } = await createLocalTestRepo(ctx.tempDir);
         const exportZip = join(ctx.tempDir, `export-ws-remote-to-local-${Date.now()}.zip`);
         const wsName = `ws-export-remote-${Date.now()}`;
+        removeWorkspaceAfter(t, remoteUrl, wsName, getCredentialsEnv);
 
         try {
           // 1. Import package to remote repo
@@ -312,9 +309,6 @@ export function transferTests(
           result = await runE3Command(['dataset', 'get', localRepo, `${localWsName}.compute`], workDir);
           assert.strictEqual(result.exitCode, 0, `Get local output failed: ${result.stderr}`);
           assert.match(result.stdout, /60/); // 30 * 2 = 60
-
-          // Cleanup
-          await runE3Command(['workspace', 'remove', remoteUrl, wsName], workDir, { env });
         } finally {
           cleanup();
         }
@@ -382,6 +376,7 @@ export function transferTests(
 
           // 5. Verify on remote
           const wsRemote = `ws-remote-${Date.now()}`;
+          removeWorkspaceAfter(t, remoteUrl, wsRemote, getCredentialsEnv);
           result = await runE3Command(['workspace', 'create', remoteUrl, wsRemote], workDir, { env });
           assert.strictEqual(result.exitCode, 0);
 
@@ -426,9 +421,6 @@ export function transferTests(
           result = await runE3Command(['dataset', 'get', localRepo2, `${ws2}.merge`], workDir);
           assert.strictEqual(result.exitCode, 0);
           assert.match(result.stdout, /83/, 'Round-trip should preserve data integrity');
-
-          // Cleanup
-          await runE3Command(['workspace', 'remove', remoteUrl, wsRemote], workDir, { env });
         } finally {
           cleanup1();
           cleanup2();
@@ -536,6 +528,7 @@ export function transferTests(
 
           // 3. Use workspace import to remote
           const destWs = `ws-dest-remote-${Date.now()}`;
+          removeWorkspaceAfter(t, remoteUrl, destWs, getCredentialsEnv);
           result = await runE3Command(['workspace', 'deploy', remoteUrl, destWs, '--from-zip', exportZip], workDir, { env });
           assert.strictEqual(result.exitCode, 0, `Workspace import failed: stdout=${result.stdout}, stderr=${result.stderr}`);
           assert.match(result.stdout, /Imported ws-import-remote-snap@/);
@@ -550,9 +543,6 @@ export function transferTests(
           result = await runE3Command(['dataset', 'get', remoteUrl, `${destWs}.compute`], workDir, { env });
           assert.strictEqual(result.exitCode, 0, `Get remote output failed: ${result.stderr}`);
           assert.match(result.stdout, /20/);
-
-          // Cleanup
-          await runE3Command(['workspace', 'remove', remoteUrl, destWs], workDir, { env });
         } finally {
           cleanup();
         }

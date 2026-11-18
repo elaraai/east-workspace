@@ -24,6 +24,7 @@ import {
   type TreePath,
 } from '@elaraai/e3-types';
 import { OBJECT_CONCURRENCY, eachAtMost } from './concurrency.js';
+import { taskInputRead } from './dataset-open.js';
 import {
   executionGetOutput,
   inputsHash,
@@ -154,9 +155,10 @@ export interface DataflowResult {
   failed: number;
   /** Number of tasks skipped due to upstream failure */
   skipped: number;
-  /** Number of tasks left waiting on an unassigned input, and of their
-   *  dependents, which the run went on without: they run once the input is
-   *  assigned */
+  /** Number of tasks left waiting on an input they cannot read — an
+   *  unassigned one, or an index its record's state does not hold — and of
+   *  their dependents, which the run went on without: they run once it can be
+   *  read */
   waiting: number;
   /** Number of tasks re-executed due to input changes */
   reexecuted: number;
@@ -200,7 +202,8 @@ export interface DataflowOptions {
   onTaskInvalidated?: (taskName: string, reason: string) => void;
   /** Callback when a task is deferred due to inconsistent input versions */
   onTaskDeferred?: (taskName: string, conflictPath: string) => void;
-  /** Callback when a task is left waiting on an unassigned input, and for
+  /** Callback when a task is left waiting on an input it cannot read — an
+   *  unassigned one, or an index its record's state does not hold — and for
    *  each of its dependents, naming the inputs each waits on */
   onTaskWaiting?: (taskName: string, inputs: string[]) => void;
 }
@@ -569,13 +572,33 @@ export function dataflowGetDependentsToSkip(
 }
 
 /**
- * Resolve input hashes for a task from current workspace state.
+ * Resolve input hashes for a task from current workspace state: the object
+ * each input reads, which the task's execution is keyed by and its runner is
+ * handed.
+ *
+ * @remarks
+ * A dataset's object is the one its ref holds. An input that is an index of a
+ * record ({@link TaskObject}'s `inputs`) reads the index's manifest, found in
+ * the state the record's ref holds (`taskInputRead`): so a task that reads an
+ * index is decided again whenever its record changes, and runs again when the
+ * index it reads did, the execution cache serving it otherwise.
+ *
+ * Each dataset's ref is read once, however many of the task's inputs read it:
+ * the inputs of one record — the record, and any of its indexes — are of one
+ * state of it, so a body never meets an index entry for a row it reads
+ * otherwise.
+ *
+ * An input the task cannot read now is `null`, whichever way: a dataset with
+ * no value, or an index its record's state does not hold. The run leaves such
+ * a task waiting and goes on without it, the gc's history keeps no execution
+ * over its inputs, and its status says why it waits.
  *
  * @param storage - Storage backend
  * @param repo - Repository path
  * @param ws - Workspace name
  * @param task - Task info from the graph
- * @returns Array of hashes (null if input is unassigned)
+ * @returns Each input's object, in order; `null` for one the task cannot read
+ *   now
  */
 export async function dataflowResolveInputHashes(
   storage: StorageBackend,
@@ -584,16 +607,26 @@ export async function dataflowResolveInputHashes(
   task: DataflowGraph['tasks'][0]
 ): Promise<Array<string | null>> {
   const hashes: Array<string | null> = [];
+  // Which index each input reads is the task object's, read once and then
+  // from memory; the graph names each input by its dataset's path alone.
+  const { inputs } = await taskObjectRead(storage, repo, task.hash);
+  const held = new Map<string, string | null>();
 
-  for (const inputPathStr of task.inputs) {
-    const inputPath = parsePathString(inputPathStr);
-    const { refType, hash } = await workspaceGetDatasetHash(storage, repo, ws, inputPath);
-
-    if (refType === 'value' && hash !== null) {
-      hashes.push(hash);
-    } else {
-      hashes.push(null);
+  for (const [at, inputPathStr] of task.inputs.entries()) {
+    let hash = held.get(inputPathStr);
+    if (hash === undefined) {
+      const ref = await workspaceGetDatasetHash(storage, repo, ws, parsePathString(inputPathStr));
+      hash = ref.refType === 'value' ? ref.hash : null;
+      held.set(inputPathStr, hash);
     }
+    if (hash === null) {
+      hashes.push(null);
+      continue;
+    }
+    const index = inputs[at]?.index.type === 'some' ? inputs[at].index.value : null;
+    // An index its record's state does not hold: the task waits, as its status says
+    const read = await taskInputRead(storage, repo, inputPathStr, hash, index);
+    hashes.push('object' in read ? read.object : null);
   }
 
   return hashes;

@@ -33,6 +33,11 @@
  *   as a view over the whole frame, edge to edge; Esc closes it, the focus
  *   back on its tab; one at a time.
  *
+ * An icon a first-row control shows alone is drawn at the row's size — 16px,
+ * as Search's and the View's are, and Filters' at its 14, a segment's option
+ * at its own — never a chip's 10px (#1680's review: the dates' trigger and the
+ * Roster's and the Allocation's View drew theirs at 10).
+ *
  * Every word in it is whole or not there at all (3 Nov 2026) — cut by nothing,
  * over no other word, in its chrome against no control — at 324px too, as wide as a 390px phone gives it
  * in the showcase's card; a set Filters button's fill stands clear of its row;
@@ -241,6 +246,17 @@ function phoneFaults(entry: Locator, name: string): Promise<string[]> {
                 if (k.width > 0 && k.bottom > band + 0.5) faults.push(`${kept.hasAttribute("data-schematic-scale") ? "the scale" : "the minimap"} ${round(k.bottom - band)}px under the footer's band`);
             }
         }
+        // An icon a first-row control shows alone — the dates' trigger, a View chip's — is drawn as Search's and the View's
+        // are, 16px, and Filters' at its 14 (FR2): never the 10px a chip's icon is beside its words, nor a caret's. A
+        // segment's option keeps its own (the query's Table · Tree, QP2's 14).
+        for (const svg of slot("toolbar")?.querySelectorAll<SVGElement>("svg") ?? []) {
+            const control = svg.closest("button");
+            const r = svg.getBoundingClientRect();
+            if (control === null || r.width === 0 || (control.textContent ?? "").trim() !== "" || svg.getAttribute("data-icon") === "caret-down") continue;
+            if (control.closest("[role='group'], [role='radiogroup']") !== null) continue;
+            const want = svg.getAttribute("data-icon") === "filter" ? 14 : 16;
+            if (Math.abs(r.height - want) > 0.5) faults.push(`toolbar: ${control.getAttribute("aria-label") ?? svg.getAttribute("data-icon")}'s icon ${round(r.height)}px, want ${want}`);
+        }
         // The count line never goes blank while it has room for its first figures (review of #1481, finding 4): a
         // line short of room drops a noun before its figures, so it says `368 of 630` rather than nothing.
         for (const box of frame.querySelectorAll<HTMLElement>("[data-toolbar-count]")) {
@@ -256,6 +272,20 @@ function phoneFaults(entry: Locator, name: string): Promise<string[]> {
         // The query builder's Run stands 12 from the edge (QP1), and Studio's Publish (ST1).
         if (clear > (builder === "Query" || builder === "Studio" ? 12.5 : 8)) faults.push("the first row's controls short of its end");
         if (clear < 3.5) faults.push(`the first row's last control ${round(clear)}px from its end`);
+        // It pads nothing over its items, with a mouse as under a finger: they fill the band, and an open view's underline —
+        // the 2px at its tab's foot — shows over the band's rule, never wholly past its clip (#1646's review).
+        const band = slot("toolbar");
+        if (band !== null && getComputedStyle(band).display !== "none") {
+            const pad = getComputedStyle(band).paddingTop;
+            if (pad !== "0px") faults.push(`the first row padded ${pad} over its items`);
+            const clip = band.getBoundingClientRect().top + band.clientTop + band.clientHeight;
+            for (const open of band.querySelectorAll<HTMLElement>("[data-active]")) {
+                const look = getComputedStyle(open);
+                if (look.borderBottomWidth !== "2px" || look.borderBottomStyle === "none") continue;
+                const underline = open.getBoundingClientRect().bottom - 2;
+                if (underline > clip - 0.5) faults.push(`the open view's underline past the first row's clip, ${round(underline - clip)}px under it`);
+            }
+        }
         // A Filters button that is set: a 44px target, its fill clear of the row's edges.
         const set = frame.querySelector<HTMLElement>("[data-rail-phone][data-active]");
         if (set !== null) {
@@ -381,6 +411,9 @@ test("Sheet: narrowed, its Filters set, its tabs and its count stay whole beside
         await settled(page);
     }
     await expect(button).toHaveAttribute("data-active", "");
+    // The pointer off the page: it rests where it last pressed, in the Filters view, and a frame narrowed and brought to
+    // the window's middle can put a tab of the pane strip under it, whose hover draws the tab's ink.
+    await page.mouse.move(0, 0);
     for (const width of [390, 324, 294]) {
         await sizeBuilder(page, entry, ROOT, width);
         expect(await phoneFaults(entry, "Sheet"), `at ${width}px`).toEqual([]);

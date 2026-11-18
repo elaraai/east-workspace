@@ -25,7 +25,11 @@
  *   coarse pointer); while the window is narrower than its two zones, each
  *   zone sits beside its edge — outside it, or against the track's end just
  *   inside it, pushing the other along beside it — its tab drawn over it, so
- *   a press inside the window moves it and the two tabs never overlap;
+ *   a press inside the window moves it and the two tabs never overlap; a
+ *   wider window's edge at an end of the track has its zone, and its tab,
+ *   just inside it (#1680's review), so nothing of the strip lies past its
+ *   track — over the Plan's resource column's resize at its start — and a
+ *   press anywhere on a tab grabs its edge;
  * - the hover's Tooltip, 8 above the track over the bucket under the
  *   pointer: its bucket, then its count.
  *
@@ -42,8 +46,8 @@ import { Box, Portal, Tooltip, useSlotRecipe } from "@chakra-ui/react";
 import { useDrag } from "@use-gesture/react";
 import { useCoarsePointer, useContainerWidth } from "../contracts/adaptive.js";
 import {
-    BRUSH_HANDLE_COARSE_PX, BRUSH_HANDLE_PX, brushBars, brushBucketAt, brushCursor, brushDragWindow, brushHitTest, brushKey, brushNarrow, brushRelease,
-    brushZones, type BrushZone,
+    BRUSH_HANDLE_COARSE_PX, BRUSH_HANDLE_PX, brushBars, brushBucketAt, brushCursor, brushDragWindow, brushEndZones, brushHitTest, brushKey, brushNarrow,
+    brushRelease, brushZones, type BrushZone,
     type BrushBar, type BrushBucketSpan, type BrushDrag, type BrushKeyTarget,
 } from "./brush-math.js";
 
@@ -118,6 +122,12 @@ export interface BrushStripProps {
     step?: ((f: number, periods: number) => number) | undefined;
     /** A handle's value as words, its date on a time axis, for a reader; its place on the track when omitted. */
     valueText?: ((f: number) => string) | undefined;
+    /**
+     * The end handle's value as words, and the window's end: `valueText`'s when omitted. A host whose window ends
+     * exclusively, as a time axis's does, names the last instant inside it here — the day a date navigator names as
+     * its last, never the next.
+     */
+    endText?: ((f: number) => string) | undefined;
     /** The names the three stops are read by. */
     words?: BrushWords | undefined;
 }
@@ -168,7 +178,7 @@ function Handle({ styles, edge, at, zone, pressed, name, text, onKeyDown }: {
  * module doc for the visual contract; geometry decisions (draw vs slide vs
  * resize, click-through threshold, keys, bars) live in `brush-math.ts`.
  */
-export function BrushStrip({ buckets, window: win, nowFrac, height, barHeight, onCommit, onClear, onEnd, snapWindow, onPreview, step, valueText, words }: BrushStripProps) {
+export function BrushStrip({ buckets, window: win, nowFrac, height, barHeight, onCommit, onClear, onEnd, snapWindow, onPreview, step, valueText, endText, words }: BrushStripProps) {
     const styles = useSlotRecipe({ key: "brushStrip" })();
     const trackRef = useRef<HTMLDivElement | null>(null);
     const anchorRef = useRef<HTMLDivElement | null>(null);
@@ -179,6 +189,7 @@ export function BrushStrip({ buckets, window: win, nowFrac, height, barHeight, o
     const handlePx = coarse ? BRUSH_HANDLE_COARSE_PX : BRUSH_HANDLE_PX;
     const said = words ?? DEFAULT_WORDS;
     const text = valueText ?? defaultValueText;
+    const endWords = endText ?? text;
 
     // The pointer gesture rides `@use-gesture` (the GanttTask precedent) —
     // it owns capture, cancellation and listener cleanup, so a missed
@@ -263,10 +274,11 @@ export function BrushStrip({ buckets, window: win, nowFrac, height, barHeight, o
         : drag.mode === "resize-lo" ? (drag.current > drag.win.hi ? "hi" : "lo")
             : drag.mode === "resize-hi" ? (drag.current < drag.win.lo ? "lo" : "hi")
                 : undefined;
-    // Narrower than its two zones side by side, each zone lies beside its edge, its tab over it (brush-math's hit test).
+    // Narrower than its two zones side by side, each zone lies beside its edge, its tab over it; wider, an edge at an end
+    // of the track has its zone just inside it (brush-math's hit test): nothing of the strip lies past its track.
     const shownPx = shown !== undefined && trackPx > 0 ? { lo: shown.from * trackPx, hi: shown.to * trackPx } : undefined;
     const narrow = shownPx !== undefined && brushNarrow(shownPx, handlePx);
-    const zones = narrow ? brushZones(shownPx, trackPx, handlePx) : undefined;
+    const zones = shownPx === undefined ? undefined : narrow ? brushZones(shownPx, trackPx, handlePx) : brushEndZones(shownPx, trackPx, handlePx);
 
     const read = buckets?.(trackPx);
     const list = read === undefined || read === "loading" ? [] : read;
@@ -324,9 +336,9 @@ export function BrushStrip({ buckets, window: win, nowFrac, height, barHeight, o
                     <Box css={styles.window} data-brush-window="" style={{ left: `${shown.from * 100}%`, width: `${(shown.to - shown.from) * 100}%` }}
                         role="slider" tabIndex={0} aria-label={said.window} aria-orientation="horizontal"
                         aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(shown.from * 100)}
-                        aria-valuetext={`${text(shown.from)} – ${text(shown.to)}`}
+                        aria-valuetext={`${text(shown.from)} – ${endWords(shown.to)}`}
                         onKeyDown={keyOn("window")} />
-                    <Handle styles={styles} edge="hi" at={shown.to} zone={zones?.hi} pressed={pressed === "hi"} name={said.end} text={text(shown.to)}
+                    <Handle styles={styles} edge="hi" at={shown.to} zone={zones?.hi} pressed={pressed === "hi"} name={said.end} text={endWords(shown.to)}
                         onKeyDown={keyOn("hi")} />
                 </>
             )}

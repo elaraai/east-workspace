@@ -21,11 +21,11 @@ import {
 } from "@elaraai/east";
 import type { ColorTokenType } from "@elaraai/east-ui";
 import {
-    ROSTER_LAYOUT_PERIODS, RosterAssignmentTypeFor, RosterCheckContextTypeFor, RosterContextType, RosterCoverageType, RosterFitRequestTypeFor, RosterIssueType,
+    ROSTER_LAYOUT_PERIODS, RosterAssignmentTypeFor, RosterCheckContextTypeFor, RosterContextType, RosterCoverageType, RosterIssueType,
     RosterPayRequestTypeFor, RosterPayType, RosterPayloadType, RosterPlaceType, RosterRequirementType, RosterShiftType, RosterSlotType, RosterStatusType,
     RosterTargetRolesType,
     RosterWeekTypeFor, RosterWhoType, ScheduleRosterRolesType, rosterCheck, rosterCoverage, rosterDayOf, rosterMove, rosterNewDuty, rosterPlacement,
-    rosterShiftStart, rosterWeekHours,
+    rosterShiftStart, rosterSpanWindow, rosterWeekHours, rosterWindow,
 } from "@elaraai/e3-ui/internal";
 import type { Formatters } from "@elaraai/east-ui-components";
 import { DAY, weekStart } from "../shared/schedule/window.js";
@@ -311,13 +311,17 @@ let days: {
     spanWindow: (from: Date, to: Date) => { from: Date; to: Date };
 } | undefined;
 function rosterDays() {
-    days ??= {
-        window: East.compile(East.function([DateTimeType], SpanType, (_$, start) => ({ from: start.subtractHours(12n), to: start.addDays(7n).addHours(12n) })), []),
-        spanWindow: East.compile(East.function([DateTimeType, DateTimeType], SpanType, (_$, from, to) => ({ from: from.subtractHours(12n), to: to.addHours(12n) })), []),
+    if (days !== undefined) return days;
+    // How far a duty's start may stand from its shift's is e3-ui's, the one measure an app's fit reads the duties by too
+    // (east-workspace#1624): every window here is one of its.
+    const spanWindow = East.compile(rosterSpanWindow, []);
+    days = {
+        window: East.compile(rosterWindow, []),
+        spanWindow,
         week: East.compile(East.function([DateTimeType], SpanType, (_$, start) => ({ from: start, to: start.addDays(7n) })), []),
         before: East.compile(East.function([DateTimeType], DateTimeType, (_$, start) => start.subtractDays(7n)), []),
         moveTo: East.compile(East.function([DateTimeType, DateTimeType, DateTimeType], SpanType, (_$, from, to, at) => ({ from: at, to: at.addMilliseconds(from.durationMilliseconds(to)) })), []),
-        around: East.compile(East.function([DateTimeType], SpanType, (_$, at) => ({ from: at.subtractHours(12n), to: at.addHours(12n) })), []),
+        around: (at) => spanWindow(at, at),
         dayAt: East.compile(East.function([DateTimeType, IntegerType], DateTimeType, (_$, start, day) => start.addDays(day)), []),
         dayIndex: East.compile(East.function([DateTimeType, DateTimeType], IntegerType, (_$, start, day) => East.Float.roundHalf(start.durationDays(day))), []),
         shiftSpan: East.compile(East.function([DateTimeType, RosterShiftType], SpanType, ($, day, shift) => {
@@ -404,8 +408,6 @@ export interface RosterDomain {
     readonly encodeDuties: (duties: SortedMap<string, Assignment>) => Uint8Array;
     /** The app's check's question, as bytes. */
     readonly encodeCheckContext: (context: { start: Date; week: Week; context: Context; coverage: SortedMap<Slot, Coverage>; pay: Pay }) => Uint8Array;
-    /** The fit's question type at the duty row type: what the app's function takes. */
-    readonly fitRequestType: EastType;
 }
 
 const sameTypeValue = equalFor(EastTypeType);
@@ -437,7 +439,6 @@ export function rosterDomain(rowType: EastTypeValue): RosterDomain {
         encodePayRequest: encodeBeast2For(RosterPayRequestTypeFor(row)) as unknown as RosterDomain["encodePayRequest"],
         encodeDuties: encodeBeast2For(DictType(StringType, assignmentType)) as unknown as RosterDomain["encodeDuties"],
         encodeCheckContext: encodeBeast2For(RosterCheckContextTypeFor(row)) as unknown as RosterDomain["encodeCheckContext"],
-        fitRequestType: RosterFitRequestTypeFor(row),
     };
     domains.push({ type: rowType, domain });
     return domain;
@@ -566,29 +567,34 @@ export interface PlacedTargets {
 /**
  * The week's targets, a row per slot: the first row of a slot in key order
  * holds its target; a row of another day, group or shift than the Roster's is
- * no slot's.
+ * no slot's. A slot's hours needed are the targets' own (#1678), read from its
+ * row as drafted with its shift's nominal hours, so an edit of the row moves
+ * them before Save.
  *
  * @param stored - The targets the week's read gave, by key
  * @param drafts - Every drafted target of the session, by key: its bytes and roles, or `undefined` for one removed
  * @param start - The week's first day
- * @param value - The payload: its groups and shifts
- * @returns The week's requirements, and each slot's row
+ * @param value - The payload: its groups, its shifts and its targets
+ * @returns The week's requirements, and each slot's row; none for a Roster with no targets
  */
 export function placeTargets(stored: ReadonlyMap<string, StoredTarget>, drafts: ReadonlyMap<string, StoredTarget | undefined>, start: Date,
-    value: Pick<RosterPayload, "groups" | "shifts">): PlacedTargets {
-    const merged = new SortedMap<string, StoredTarget>([...stored].filter(([key]) => !drafts.has(key)), compareString);
-    for (const [key, draft] of drafts) if (draft !== undefined) merged.set(key, draft);
+    value: Pick<RosterPayload, "groups" | "shifts" | "targets">): PlacedTargets {
     const requirements = new SortedMap<Slot, Requirement>([], compareSlot);
     const rows = new SortedMap<Slot, { key: string; bytes: Uint8Array }>([], compareSlot);
+    if (value.targets.type !== "some") return { requirements, rows };
+    const kind = value.targets.value;
+    const merged = new SortedMap<string, StoredTarget>([...stored].filter(([key]) => !drafts.has(key)), compareString);
+    for (const [key, draft] of drafts) if (draft !== undefined) merged.set(key, draft);
     const end = weekSpan(start).to;
     for (const [key, target] of merged) {
         const { day, group, shift } = target.roles;
         if (compareDate(day, start) < 0 || compareDate(day, end) >= 0) continue;
-        if (!value.groups.some(g => g.key === group) || !value.shifts.some(s => s.key === shift)) continue;
+        const of = shiftOf(value, shift);
+        if (!value.groups.some(g => g.key === group) || of === undefined) continue;
         const slot: Slot = { day: rosterDays().dayIndex(start, day), group, shift };
         if (rows.has(slot)) continue;
         rows.set(slot, { key, bytes: target.bytes });
-        requirements.set(slot, { positions: target.roles.positions, hours: target.roles.hours });
+        requirements.set(slot, { positions: target.roles.positions, hours: target.roles.hours, needed: kind.needed(target.bytes, of.hours) });
     }
     return { requirements, rows };
 }
@@ -776,7 +782,8 @@ export const NO_PAY: WeekPay = { pay: new SortedMap([], compareString), failed: 
 export class RosterPayCache {
     private kept = new Map<string, Asked>();
     private context: Context | undefined;
-    private start: number | undefined;
+    /** The week the answers kept are of, by its first day: another week, by East's ordering, asks everyone again (#1650). */
+    private start: Date | undefined;
 
     /**
      * The week's pay.
@@ -789,7 +796,7 @@ export class RosterPayCache {
      * @returns Each duty's cost, and whose pay threw
      */
     run(domain: RosterDomain, pay: (bytes: Uint8Array) => Pay, week: Week, start: Date, context: Context): WeekPay {
-        if (!Object.is(context, this.context) || this.start !== start.getTime()) { this.kept.clear(); this.context = context; this.start = start.getTime(); }
+        if (!Object.is(context, this.context) || this.start === undefined || compareDate(this.start, start) !== 0) { this.kept.clear(); this.context = context; this.start = start; }
         const byWho = new SortedMap<string, { who: Who; duties: SortedMap<string, Assignment> }>([], compareString);
         for (const [key, duty] of week.assignments) {
             const id = whoKey(duty.who);
@@ -834,7 +841,8 @@ interface WorkedOut { readonly week: Week; readonly coverage: ReadonlyMap<Slot, 
  * they are. A new domain or context works out every week again.
  */
 export class RosterSpanCoverage {
-    private kept = new Map<number, WorkedOut>();
+    /** Each week's coverage as last worked out, by its first day, in East's order (#1650). */
+    private kept = new SortedMap<Date, WorkedOut>([], compareDate);
     private domain: RosterDomain | undefined;
     private context: Context | undefined;
 
@@ -850,13 +858,13 @@ export class RosterSpanCoverage {
     run(domain: RosterDomain, context: Context, weeks: readonly Pick<WeekState, "start" | "week">[],
         primary: { readonly start: Date; readonly coverage: ReadonlyMap<Slot, Coverage> }): readonly ReadonlyMap<Slot, Coverage>[] {
         if (!Object.is(domain, this.domain) || !Object.is(context, this.context)) { this.kept.clear(); this.domain = domain; this.context = context; }
-        const next = new Map<number, WorkedOut>();
+        const next = new SortedMap<Date, WorkedOut>([], compareDate);
         const made = weeks.map(({ start, week }) => {
-            const before = this.kept.get(start.getTime());
+            const before = this.kept.get(start);
             const coverage = compareDate(start, primary.start) === 0 ? primary.coverage
                 : before !== undefined && domain.sameWeek(before.week, week) ? before.coverage
                 : domain.coverage(week, context, NO_PAY.pay);
-            next.set(start.getTime(), { week, coverage });
+            next.set(start, { week, coverage });
             return coverage;
         });
         this.kept = next;
@@ -1055,7 +1063,7 @@ export function availableProposals(value: RosterValue, week: Week, start: Date, 
 }
 /** A slot's target: what the targets hold of it, or nothing — never staffing the record does not hold. */
 export function requirementOf(week: Week, slot: Slot): Requirement {
-    return week.requirements.get(slot) ?? { positions: 0n, hours: new SortedMap([], compareString) };
+    return week.requirements.get(slot) ?? { positions: 0n, hours: new SortedMap([], compareString), needed: 0 };
 }
 /** Whether two targets ask the same of a slot. */
 export function sameTarget(a: Requirement, b: Requirement): boolean { return sameRequirement(a, b); }

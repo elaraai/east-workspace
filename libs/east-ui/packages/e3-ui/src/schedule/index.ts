@@ -32,7 +32,9 @@
  * A builder takes its kinds by slot — `resources={{ people: … }}`,
  * `events={{ shift: … }}` — and checks them across slots
  * (`ScheduleInternal.check`) before it builds them under their slot names:
- * the Calendar with `build(slot)`, Plan's builder with `buildPlan(slot)`.
+ * the Calendar with `build(slot)`, Plan's builder an event kind with
+ * `buildPlan(slot)` — a Plan takes no resource kinds: its rows are its
+ * resources (#1541).
  *
  * @packageDocumentation
  */
@@ -46,7 +48,7 @@ import { SchedulePatchTypeFor, schedulePatch } from "./patch.js";
 import { schedulePeriods } from "./periods.js";
 import { SCHEDULE_DEF, scheduleResources, type ScheduleResourceKind } from "./resources.js";
 import {
-    PlanEventItemType, PlanEventKindType, PlanEventReadType, PlanEventRolesType, PlanResourceRowType, PlanResourcesType,
+    PlanEventItemType, PlanEventKindType, PlanEventReadType, PlanEventRolesType,
     ScheduleAllocationEntryType, ScheduleAllocationKindType, ScheduleAllocationRolesType, ScheduleCandidateType, ScheduleClockType,
     ScheduleDraftsType, ScheduleDurationType, ScheduleEventRefType, ScheduleFitType, ScheduleGestureType, ScheduleItemType, ScheduleKindType,
     ScheduleNewPeriodType, ScheduleOverlapsType, SchedulePeriodStatusType, SchedulePeriodsKindType, ScheduleReadyEntryType, ScheduleResourceRefType, ScheduleResourceRowType,
@@ -55,7 +57,7 @@ import {
 } from "./types.js";
 
 export * from "./types.js";
-export { scheduleTemplates, type ScheduleTemplates, type ScheduleTemplatesConfig } from "./templates.js";
+export { scheduleTemplates, type ScheduleCaseTemplatesConfig, type ScheduleTemplateCases, type ScheduleTemplates, type ScheduleTemplatesConfig } from "./templates.js";
 export {
     scheduleEvents,
     type ScheduleAtField, type ScheduleBacklog, type ScheduleCaseOf, type ScheduleDictFloatField, type ScheduleEventKind, type ScheduleEventsBase,
@@ -95,14 +97,9 @@ export function scheduleCheck(
             throw new Error(`${builder}: resources.${slot} is a resource kind — Schedule.resources(rows, { name, icon, label })`);
         }
     }
-    const kinds = Object.entries(events);
-    if (kinds.length === 0) {
-        throw new Error(`${builder}: \`events\` declares at least one event kind — Schedule.events(record, { … }) under its slot name`);
-    }
-    for (const [slot, kind] of kinds) {
-        if ((kind as { [SCHEDULE_DEF]?: string } | undefined)?.[SCHEDULE_DEF] !== "events") {
-            throw new Error(`${builder}: events.${slot} is an event kind — Schedule.events(record, { … })`);
-        }
+    // Each kind's own faults before where it lands: the refusal names the first change to make.
+    scheduleEventKindsCheck(events, builder);
+    for (const [slot, kind] of Object.entries(events)) {
         for (const taken of kind.takes) {
             const target = resources[taken];
             if (target === undefined) {
@@ -111,6 +108,26 @@ export function scheduleCheck(
             if (!isTypeEqual(target.keyType, StringType)) {
                 throw new Error(`${builder}: events.${slot}'s resource field holds String keys of resources.${taken}, which is keyed by ${printType(target.keyType)} — key the resources by String`);
             }
+        }
+    }
+}
+
+/**
+ * The check a builder makes of its event kinds alone: at least one, each a `Schedule.events` kind — {@link scheduleCheck}'s
+ * first, and the whole of a Plan's, which takes no resource kinds: its rows are its resources (#1541).
+ *
+ * @param events - The builder's event kinds, by slot
+ * @param builder - The builder, for the refusals (`Calendar.Builder`, `Plan`)
+ * @throws {Error} Naming the slot and the remedy: none at all, or one that is no `Schedule.events` kind
+ */
+export function scheduleEventKindsCheck(events: Readonly<Record<string, ScheduleEventKind<EastType, EastType>>>, builder: string): void {
+    const kinds = Object.entries(events);
+    if (kinds.length === 0) {
+        throw new Error(`${builder}: \`events\` declares at least one event kind — Schedule.events(record, { … }) under its slot name`);
+    }
+    for (const [slot, kind] of kinds) {
+        if ((kind as { [SCHEDULE_DEF]?: string } | undefined)?.[SCHEDULE_DEF] !== "events") {
+            throw new Error(`${builder}: events.${slot} is an event kind — Schedule.events(record, { … })`);
         }
     }
 }
@@ -177,6 +194,16 @@ export interface ScheduleNamespace {
         Refusal: typeof ScheduleRefusalType;
         /** A period's new row, its start: what the periods' `values` gives its own fields from (#1526). */
         NewPeriod: typeof ScheduleNewPeriodType;
+        /**
+         * A duty's roles, as the Roster reads them from the app's row (#1367): what an app's function makes of the duties it
+         * reads, for `Roster.Types.FitContext` (east-workspace#1624).
+         */
+        RosterRoles: typeof ScheduleRosterRolesType;
+        /**
+         * A bin's roles, as the Allocation reads them from the app's row (#1367): what an app's function makes of the bins it
+         * reads, for `Allocation.Types.FitContext` (east-workspace#1624).
+         */
+        AllocationRoles: typeof ScheduleAllocationRolesType;
     };
 }
 
@@ -205,6 +232,8 @@ export const Schedule: ScheduleNamespace = {
         Fit: ScheduleFitType,
         Refusal: ScheduleRefusalType,
         NewPeriod: ScheduleNewPeriodType,
+        RosterRoles: ScheduleRosterRolesType,
+        AllocationRoles: ScheduleAllocationRolesType,
     },
 };
 
@@ -245,18 +274,10 @@ export interface ScheduleInternalNamespace extends Omit<ScheduleNamespace, "Type
         PlanRead: typeof PlanEventReadType;
         /** The fields an event kind's roles read on a Plan. */
         PlanRoles: typeof PlanEventRolesType;
-        /** One resource kind as Plan's builder takes it. */
-        PlanResources: typeof PlanResourcesType;
-        /** One resource as Plan's builder takes it. */
-        PlanResourceRow: typeof PlanResourceRowType;
-        /** A duty's roles, as the Roster reads them from the app's row (#1367). */
-        RosterRoles: typeof ScheduleRosterRolesType;
         /** One stored duty: its roles and its row. */
         RosterEntry: typeof ScheduleRosterEntryType;
         /** One event kind as the Roster takes it. */
         RosterKind: typeof ScheduleRosterKindType;
-        /** A bin's roles, as the Allocation reads them from the app's row (#1367). */
-        AllocationRoles: typeof ScheduleAllocationRolesType;
         /** One stored bin: its roles and its row. */
         AllocationEntry: typeof ScheduleAllocationEntryType;
         /** One event kind as the Allocation takes it. */
@@ -291,12 +312,8 @@ export const ScheduleInternal: ScheduleInternalNamespace = {
         PlanItem: PlanEventItemType,
         PlanRead: PlanEventReadType,
         PlanRoles: PlanEventRolesType,
-        PlanResources: PlanResourcesType,
-        PlanResourceRow: PlanResourceRowType,
-        RosterRoles: ScheduleRosterRolesType,
         RosterEntry: ScheduleRosterEntryType,
         RosterKind: ScheduleRosterKindType,
-        AllocationRoles: ScheduleAllocationRolesType,
         AllocationEntry: ScheduleAllocationEntryType,
         AllocationKind: ScheduleAllocationKindType,
         PeriodStatus: SchedulePeriodStatusType,

@@ -17,10 +17,11 @@ import {
     StringType, StructType, VariantType,
 } from "@elaraai/east";
 import { RecordCommitInfoType } from "@elaraai/e3-types";
-import { EventStateType, StatusTokenType, StatusValueType, TimeStepType } from "@elaraai/east-ui";
+import { EventStateType, TimeStepType } from "@elaraai/east-ui";
 import { EditingReadinessType, EditingType, FieldSpecType } from "@elaraai/east-ui/internal";
-import { PlanDrawType, PlanQuantityType, PlanRollupType } from "../plan/types.js";
+import { PlanDrawType, PlanQuantityType } from "../plan/types.js";
 import { RowInspectorType } from "../utils/row-inspector.js";
+import { StatusLookType } from "../utils/status.js";
 
 // ============================================================================
 // What an author meets
@@ -50,13 +51,14 @@ export const ScheduleEventRefType = StructType({ kind: StringType, key: StringTy
 export type ScheduleEventRefType = typeof ScheduleEventRefType;
 
 /**
- * How one case of an event's status shows.
+ * How one case of an event's status shows: the builders' one status
+ * ({@link StatusLookType}), which a Plan item's `Plan.status` gives too.
  *
  * @property label - Its words
  * @property tone - Its tone: success, warning, danger, info or neutral
  * @property ring - Whether it draws as an open ring, as a tentative status does
  */
-export const ScheduleStatusType = StructType({ label: StringType, tone: StatusTokenType, ring: BooleanType });
+export const ScheduleStatusType = StatusLookType;
 
 /** Type representing {@link ScheduleStatusType}. */
 export type ScheduleStatusType = typeof ScheduleStatusType;
@@ -267,10 +269,10 @@ export const ScheduleDraftsType = DictType(StringType, BlobType);
 export type ScheduleDraftsType = typeof ScheduleDraftsType;
 
 /**
- * One drafted entry, as a kind's `ready` reads it.
+ * One entry as it stands, drafted or not, as a kind's `ready` and its `locked` read it.
  *
  * @property id - The entry's id: its key's text
- * @property entry - The drafted entry, as bytes at the record's entry type
+ * @property entry - The entry, as bytes at the record's entry type
  */
 export const ScheduleReadyEntryType = StructType({ id: StringType, entry: BlobType });
 
@@ -368,6 +370,9 @@ export const ScheduleRolesType = StructType({
  *   (#1039), it reads its backlog alone, never the window, those entries held beside it
  * @property write - Each gesture into its entry's new bytes; `none` for a gesture the kind refuses
  * @property ready - The author's check over drafted entries, one result each
+ * @property locked - The author's lock over entries (#1541, U9), one answer each: whether the kind's rule holds the
+ *   event where it is, over the row a gesture finds — which every builder's recorder asks before it changes or removes
+ *   one. None for a kind with no rule
  * @property editing - The shared session over the record: its entry and key types, and its patch door — its base the record's snapshot, or for a kind read a window at a time (#1199) its revision
  * @property entries - The record read by key, for a kind read a window at a time (#1199); `none` for a kind read whole
  * @property history - The record's commits, newest first
@@ -399,6 +404,7 @@ export const ScheduleKindType = StructType({
     unscheduled: FunctionType([DateTimeType, DateTimeType, ScheduleDraftsType, OptionType(BlobType)], OptionType(ArrayType(ScheduleItemType))),
     write: FunctionType([ArrayType(ScheduleWriteType)], ArrayType(OptionType(BlobType))),
     ready: OptionType(FunctionType([ArrayType(ScheduleReadyEntryType)], ArrayType(EditingReadinessType))),
+    locked: OptionType(FunctionType([ArrayType(ScheduleReadyEntryType)], ArrayType(BooleanType))),
     editing: EditingType,
     entries: OptionType(ScheduleEntriesType),
     history: FunctionType([], OptionType(ArrayType(RecordCommitInfoType))),
@@ -429,34 +435,18 @@ export const ScheduleResourceRowType = StructType({ key: StringType, label: Stri
 export type ScheduleResourceRowType = typeof ScheduleResourceRowType;
 
 /**
- * A resource kind's records read whole, for the app's optimiser (#1409): its
- * rows as bytes at `DictType(keyType, rowType)`, read as a run starts — what
- * the run's request carries of the kind beside the events, as context.
- */
-export const ScheduleResourceRecordsType = FunctionType([], BlobType);
-
-/** Type representing {@link ScheduleResourceRecordsType}. */
-export type ScheduleResourceRecordsType = typeof ScheduleResourceRecordsType;
-
-/**
  * One resource kind, its rows resolved.
  *
  * @property key - The kind's slot name
  * @property name - Its name
  * @property icon - Its Font Awesome icon
  * @property rows - Its resources, in key order
- * @property keyType - The kind's key type: what the app's optimiser is asked its rows by (#1409)
- * @property rowType - Its row type
- * @property records - Its records read whole, as a run's request carries them (#1409); `none` for a kind paged a window at a time, whose rows are never read whole — a run carries none of it
  */
 export const ScheduleResourcesType = StructType({
     key: StringType,
     name: StringType,
     icon: StringType,
     rows: ArrayType(ScheduleResourceRowType),
-    keyType: EastTypeType,
-    rowType: EastTypeType,
-    records: OptionType(ScheduleResourceRecordsType),
 });
 
 /** Type representing {@link ScheduleResourcesType}. */
@@ -472,13 +462,20 @@ export type ScheduleResourcesType = typeof ScheduleResourcesType;
  *
  * @property state - The lifecycle it wears, from its kind's `state` field; confirmed when the kind has none
  * @property quantity - Its kind's `quantity` field, with the kind's unit and format: what a bar prints and a parent's rollup sums
- * @property lane - The lane its tile sits in, from its kind's `lane` field
+ * @property lane - The lane its tile sits in, from its kind's `lane` field: a String field's text, or a variant field's case
+ * @property locked - Whether its kind's `locked` holds it where it is (#1541, U9): not moved, resized or removed, its
+ *   form read only, and an optimiser's answer that changes it refused; `false` for a kind with no such rule
+ * @property child - The row beneath its resource it is on (#1541, U1), from its kind's `child` field: that row's key as
+ *   its row's path ends in it — a String key as it is, any other as East prints it; `none` for a kind with no `child`,
+ *   and for an event whose field holds none
  */
 export const PlanEventItemType = StructType({
     ...ScheduleItemType.fields,
     state: EventStateType,
     quantity: OptionType(PlanQuantityType),
     lane: OptionType(StringType),
+    locked: BooleanType,
+    child: OptionType(StringType),
 });
 
 /** Type representing {@link PlanEventItemType}. */
@@ -502,7 +499,7 @@ export type PlanEventReadType = typeof PlanEventReadType;
  *
  * @property state - The `EventStateType` field
  * @property quantity - The `Float` quantity field
- * @property lane - The `String` lane field
+ * @property lane - The lane field: a String, or a variant a lane a case
  */
 export const PlanEventRolesType = StructType({
     state: OptionType(StringType),
@@ -514,6 +511,17 @@ export const PlanEventRolesType = StructType({
 export type PlanEventRolesType = typeof PlanEventRolesType;
 
 /**
+ * The rows beneath its resource an event kind lands on (#1541, U1): its `child`.
+ *
+ * @property field - The field holding the row's key, in the rows' series' own key type, or an Option of it
+ * @property of - The resources series those rows are of, by its key: one among the resource's `children`
+ */
+export const PlanEventChildType = StructType({ field: StringType, of: StringType });
+
+/** Type representing {@link PlanEventChildType}. */
+export type PlanEventChildType = typeof PlanEventChildType;
+
+/**
  * One event kind as Plan's builder takes it: the Calendar's closed kind
  * ({@link ScheduleKindType}), field for field — its cells' seams and its count
  * among them (#1039) — with how the kind draws and its roles, its events as
@@ -523,6 +531,7 @@ export type PlanEventRolesType = typeof PlanEventRolesType;
  * @property instant - Whether each of its events is one instant (`at`), its start and its end the same
  * @property overlaps - Whether two of its events on one resource at once are a conflict
  * @property roles - The fields its roles read
+ * @property child - The rows beneath its resource it lands on; `none`, it lands on its resource's own rows
  * @property planItems - Its events overlapping `[from, to)` as Plan draws them, as `items` reads them: the drafts in place, from the entries a reader read by its cells when it is given them, else over the window; `none` while a read is in flight
  * @property planUnscheduled - Its backlog as Plan draws it, as `unscheduled` reads it
  * @property planEvent - One event by its key's text, the drafts in place (#1197): as Plan draws it, and its row, as `event` reads it; `none` when there is no such event
@@ -535,6 +544,7 @@ export const PlanEventKindType = StructType({
     instant: BooleanType,
     overlaps: ScheduleOverlapsType,
     roles: PlanEventRolesType,
+    child: OptionType(PlanEventChildType),
     planItems: FunctionType([DateTimeType, DateTimeType, ScheduleDraftsType, OptionType(BlobType)], OptionType(ArrayType(PlanEventItemType))),
     planUnscheduled: FunctionType([DateTimeType, DateTimeType, ScheduleDraftsType, OptionType(BlobType)], OptionType(ArrayType(PlanEventItemType))),
     planEvent: FunctionType([StringType, ScheduleDraftsType, DateTimeType, DateTimeType, OptionType(OptionType(BlobType))], OptionType(PlanEventReadType)),
@@ -544,60 +554,6 @@ export const PlanEventKindType = StructType({
 
 /** Type representing {@link PlanEventKindType}. */
 export type PlanEventKindType = typeof PlanEventKindType;
-
-/**
- * One resource as Plan's builder takes it: what every view draws
- * ({@link ScheduleResourceRowType}), with where it sits and its gutter.
- *
- * @property group - The group strip it sits under (a hall); `none` when the kind has no `group`
- * @property parent - The key's text of the resource of its kind it nests under
- * @property sub - The gutter's sub line
- * @property value - The gutter's value slot
- * @property status - The gutter's status dot
- * @property collapsed - Whether it starts folded, when it has resources under it
- */
-export const PlanResourceRowType = StructType({
-    ...ScheduleResourceRowType.fields,
-    group: OptionType(StringType),
-    parent: OptionType(StringType),
-    sub: OptionType(StringType),
-    value: OptionType(StringType),
-    status: OptionType(StatusValueType),
-    collapsed: BooleanType,
-});
-
-/** Type representing {@link PlanResourceRowType}. */
-export type PlanResourceRowType = typeof PlanResourceRowType;
-
-/**
- * One resource kind as Plan's builder takes it, its rows resolved.
- *
- * @property key - The kind's slot name
- * @property name - Its name
- * @property icon - Its Font Awesome icon
- * @property rollup - How a parent's bands roll its children's events up
- * @property measures - Its measures' keys, in order: the rows under each of its resources, each at its resource's path (#1197)
- * @property rows - Its resources, in key order — none for a kind paged a window at a time (#1199)
- * @property byKey - A paged kind's resource by its key's text (#1199): its window's key search for the key, then a one-row page, as Plan's builder takes it — `none` while either is in flight, `some(none)` for a key the kind does not have; `none` for a kind whose rows are listed
- * @property keyType - The kind's key type: what the app's optimiser is asked its rows by (#1409)
- * @property rowType - Its row type
- * @property records - Its records read whole, as a run's request carries them (#1409); `none` for a kind paged a window at a time — a run carries none of it
- */
-export const PlanResourcesType = StructType({
-    key: StringType,
-    name: StringType,
-    icon: StringType,
-    rollup: PlanRollupType,
-    measures: ArrayType(StringType),
-    rows: ArrayType(PlanResourceRowType),
-    byKey: OptionType(FunctionType([StringType], OptionType(OptionType(PlanResourceRowType)))),
-    keyType: EastTypeType,
-    rowType: EastTypeType,
-    records: OptionType(ScheduleResourceRecordsType),
-});
-
-/** Type representing {@link PlanResourcesType}. */
-export type PlanResourcesType = typeof PlanResourcesType;
 
 // ============================================================================
 // The kinds as the builders over the app's own records take them (#1367)

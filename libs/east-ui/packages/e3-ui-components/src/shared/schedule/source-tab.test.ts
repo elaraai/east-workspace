@@ -14,6 +14,7 @@ import { describe, expect, test, vi } from "vitest";
 import { SortedSet, StringType, compareFor, none, some, type option } from "@elaraai/east";
 import { formatters } from "@elaraai/east-ui-components";
 import { sourceTab, sourcesTab, type SourceShown } from "./source-tab.js";
+import { shownWhole } from "./visibility.js";
 
 const words = formatters("en-US");
 const CARDS = [{ id: "a", label: "Alder" }, { id: "b", label: "Birch" }, { id: "c", label: "Cedar" }] as const;
@@ -53,6 +54,46 @@ describe("a source's tab (#1341)", () => {
 
     test("a source resolving, or whose read failed: its pane busy and its cards retained (#1398, CL8) — aria-disabled, never inert", () => {
         expect(tab(shown({ keys: keys("a"), busy: true })).pane).toEqual({ "aria-busy": true, "aria-disabled": true });
+    });
+});
+
+describe("a source its page scopes (#1621)", () => {
+    test("with no choice of the viewer's: the scope's cards, counted alone — never `2 of 3` — and no narrowing, no Clear filters", () => {
+        const clear = vi.fn();
+        const t = tab(shown({ keys: keys("a", "c"), chosen: false, held: some(2), clear }));
+        expect([t.cards.map(card => card.id), t.count, t.narrowing, t.empty]).toEqual([["a", "c"], 2, undefined, { title: "No trees" }]);
+    });
+
+    test("a scope that holds none of the cards: the tab's own plain words, and no Clear filters, which could not clear the scope", () => {
+        const t = tab(shown({ keys: keys(), chosen: false, held: some(0), clear: () => {} }));
+        expect([t.cards, t.count, t.narrowing, t.empty]).toEqual([[], 0, undefined, { title: "No trees" }]);
+    });
+
+    test("a choice of the viewer's beside the scope: counted out of the cards the scope holds, and its Clear filters offered", () => {
+        const clear = vi.fn();
+        const t = tab(shown({ keys: keys("c"), chosen: true, held: some(2), clear }));
+        expect([t.cards.map(card => card.id), t.count, t.narrowing?.emptied]).toEqual([["c"], "1 of 2", false]);
+        t.narrowing?.onClear?.();
+        expect(clear).toHaveBeenCalledTimes(1);
+        // While the scope's own count is read, the count waits on it.
+        expect(tab(shown({ keys: keys("c"), chosen: true, held: none, clear })).count).toBe("…");
+    });
+
+    test("a source counts once, however many of the tab's lists follow it: a scoped one as its page holds, any other as its cards, a card of none as itself", () => {
+        const scoped = shown({ keys: keys("a"), chosen: true, held: some(2), clear: () => {} });
+        // `a` shows, `b` is out of the choice, `c` follows no source: 2 of the scope's 2 and `c`.
+        const t = sourcesTab({ cards: CARDS, keyOf: card => card.id, sources: [scoped, scoped], sourceOf: card => card.id === "c" ? undefined : scoped, noun: "trees", words });
+        expect(t.count).toBe("2 of 3");
+        // Two lists that follow one source that narrows nothing — the Sheet's lists of a source it does not follow — count its cards once.
+        const narrowing = shown({ keys: keys("a"), clear: () => {} }), whole = shown({});
+        const both = sourcesTab({ cards: CARDS, keyOf: card => card.id, sources: [narrowing, whole, whole], sourceOf: card => card.id === "c" ? whole : narrowing, noun: "trees", words });
+        expect(both.count).toBe("2 of 3");
+    });
+});
+
+describe("what a count of a source's rows is out of (#1621)", () => {
+    test("the rows its page holds where a scope narrows it, none while that count is read, else every row", () => {
+        expect([shownWhole({ held: some(4) }, 40), shownWhole({ held: none }, 40), shownWhole({ held: undefined }, 40), shownWhole({}, 40)]).toEqual([4, undefined, 40, 40]);
     });
 });
 

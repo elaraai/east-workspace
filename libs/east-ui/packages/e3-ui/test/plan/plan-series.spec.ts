@@ -19,28 +19,19 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, OptionType, RecursiveType, SortedMap, StringType, StructType,
+    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, OptionType, RecursiveType, SortedMap, StringType, StructType,
     compareFor, equalFor, none, some, variant, type ExprType, type ValueTypeOf,
 } from "@elaraai/east";
 import { Chart, EventStateType, StatusValueType } from "@elaraai/east-ui";
 import { Plan, PlanReadsBrand, type PlanSeriesValue } from "@elaraai/e3-ui/internal";
+import { rowsOf, sameIds, sameParents, type Row as PlanRow } from "./plan-rows.fixtures.js";
 
 const day = (d: number, h = 0) => new Date(Date.UTC(2026, 9, d, h));
 /** Values at their instants — East keeps a Dict keyed by DateTime as a `SortedMap` in its order. */
 const atInstants = <V,>(entries: Iterable<[Date, V]>): SortedMap<Date, V> => new SortedMap(entries, compareFor(DateTimeType));
 const axis = Plan.axis({ window: { min: day(5), max: day(19) }, resolution: "day" });
 
-type Root = ValueTypeOf<typeof Plan.Types.Root>;
-type PlanRow = ValueTypeOf<typeof Plan.Types.Row>;
 const sameKinds = equalFor(ArrayType(Plan.Types.RowKind));
-const sameIds = equalFor(ArrayType(Plan.Types.RowId));
-const sameParents = equalFor(ArrayType(OptionType(Plan.Types.RowId)));
-
-/** The canvas's rows, every block's in order. */
-function rowsOf(root: Root): PlanRow[] {
-    if (root.rows.type !== "inline") throw new Error("expected an inline canvas");
-    return root.rows.value.flatMap((b) => b.rows);
-}
 
 // ── A row holding every kind of collection, each a Dict ─────────────────────
 
@@ -131,6 +122,48 @@ const markKind = East.function([BooleanType], Plan.Types.EventMarkKind, (_$, mil
 const HeatCellIn = Plan.Types.HeatCell;
 const RawCell = StructType({ at: DateTimeType, value: OptionType(FloatType) });
 const Point = StructType({ day: DateTimeType, pct: FloatType });
+
+describe("items and trees keyed by an id of any type but a DateTime (#1540, E1)", () => {
+    const Shift = StructType({ label: StringType, from: DateTimeType, to: DateTimeType });
+    const Crew = StructType({ name: StringType, shifts: DictType(IntegerType, Shift) });
+    const Crews = DictType(StringType, Crew);
+    const CREWS: ValueTypeOf<typeof Crews> = new Map([["c1", { name: "Crew 1", shifts: new SortedMap([
+        [1n, { label: "Early", from: day(5, 6), to: day(5, 14) }], [2n, { label: "Late", from: day(5, 14), to: day(5, 22) }],
+    ], compareFor(IntegerType)) }]]);
+
+    test("Plan.items over a collection keyed by an Integer draws each item, its element keyed by its id as East prints it", () => {
+        const crews: PlanSeriesValue<"time"> = Plan.series.cards(Crew, {
+            key: "crews", title: "Crews", label: (r) => r.name,
+            chips: Plan.items("shifts", { from: "from", to: "to" }, (shift) => ({ label: shift.label, state: variant("confirmed", null) })),
+        });
+        const rows = rowsOf(East.compile(East.function([], Plan.Types.Root, ($) => Plan.Root({ axis, data: $.const(CREWS, Crews), series: [crews] })), [])());
+        const cards = rows[0]!.kind;
+        if (cards.type !== "cards") throw new Error("expected a cards row");
+        assert.deepEqual(cards.value.chips.map((chip) => chip.key), ["1", "2"]);
+    });
+
+    test("a series that moves them takes a String id alone: a drop mints its id as text", () => {
+        assert.throws(() => Plan.series.cards(Crew, {
+            key: "crews", title: "Crews", label: (r) => r.name, edit: true as never,
+            chips: Plan.items("shifts", { from: "from", to: "to" }, (shift) => ({ label: shift.label, state: variant("confirmed", null) })),
+        }),
+            /^Error: Plan\.series\.cards "crews": edit moves "shifts"'s items, which are keyed by Integer — a series moves items keyed by an id a String/);
+    });
+
+    test("a tree whose children are keyed by an Integer draws each, its path the keys as East prints them", () => {
+        const Unit = RecursiveType((self) => StructType({ name: StringType, units: DictType(IntegerType, self) }));
+        const Units = DictType(StringType, Unit);
+        const UNITS = new Map([["u", { name: "Plant", units: new SortedMap([[7n, { name: "Line 7", units: new SortedMap([], compareFor(IntegerType)) }]], compareFor(IntegerType)) }]]);
+        const rows = rowsOf(East.compile(East.function([], Plan.Types.Root, ($) => Plan.Root({
+            axis, data: $.const(UNITS as never, Units),
+            series: [Plan.series.span(Unit, { key: "units", title: "Units", label: (u) => u.name, children: "units", runs: () => [] })],
+        })), [])());
+        assert.ok(sameIds(rows.map((r) => r.id), [
+            variant("entry", { series: "units", path: ["u"] }),
+            variant("entry", { series: "units", path: ["u", "7"] }),
+        ]));
+    });
+});
 
 describe("each kind's named read draws what its function form draws (#1436)", () => {
     test("span: runs from items over { from, to }, decisions over { at }, ports at their keys", () => {
@@ -450,7 +483,7 @@ describe("a read refuses what it cannot read, in its words (#1436)", () => {
     test("Plan.items over a collection keyed by an instant", () => refuses(() => Plan.series.span(Ops, {
         key: "presses", title: "Presses", label: (r) => r.name,
         runs: Plan.items("load" as never, { from: "start", to: "end" } as never, () => ({ label: "", state: "confirmed" })),
-    }), 'Plan.items: "load" is keyed by DateTime — things people drag are keyed by an id, a String: read values with Plan.values("load", draw)'));
+    }), 'Plan.items: "load" is keyed by a DateTime — things people drag are keyed by an id, and a Dict keyed by a DateTime is values over time: read them with Plan.values("load", draw)'));
 
     test("Plan.values over a collection keyed by String, off an ordinal axis", () => refuses(() => East.function([], Plan.Types.Root, ($) => Plan.Root({
         axis, data: $.const(OPS, OpsRows),

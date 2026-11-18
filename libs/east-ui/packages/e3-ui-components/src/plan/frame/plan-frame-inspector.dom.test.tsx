@@ -14,32 +14,42 @@
  * measures at the bucket a click on it named, or nothing — its edit controls
  * on, in one fieldset, as the event kinds take edits (#1194; what each does
  * is `plan-builder-editing.dom.test.tsx`'s), and over its form the refusals
- * holding Save while the app's `ready` refuses it (#1525). Each Plan is the
- * print works', or a test's own over its records, mounted through the
- * dispatcher under the record runtime a surface installs.
+ * holding Save while the app's `ready` refuses it (#1525). A Plan with no
+ * event kinds has its inspector too, and over a selected row the refusals of
+ * the entry it came from, in the session its rows save through (#1541, U5).
+ * Each Plan is the print works', or a test's own over its records, mounted
+ * through the dispatcher under the record runtime a surface installs.
  */
 
 import { describe, test, expect } from "vitest";
 import { fireEvent, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { East, none, some, variant, type ValueTypeOf } from "@elaraai/east";
-import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
+import { East, OptionType, StringType, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { Editing, Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import { editingMessages } from "@elaraai/east-ui-components";
 import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
-import { el, entry, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
+import * as rowDrop from "@elaraai/e3-ui/examples/plan/plan";
+import { carryRun } from "../plan-move.test-utils.js";
+import { retypeNumber } from "../../e3-web-mount.test-utils.js";
+import { boundFrame } from "../../sheet/frame.test-utils.js";
+import { el, elementKey, entry, planHarness, dropPressRow, ribbonWidth, rowAt, dropRunOf, settle, slot } from "./harness.test-utils.js";
+import { flowsPlan } from "./flows.test-utils.js";
 
-const h = planHarness();
+const h = planHarness({ "plan/plan-events": ex, "plan/plan": rowDrop });
 
 // ── The print works' rows and events ─────────────────────────────────────────
 
-/** Press A1's bars, its marks, and Crew 1's chips. */
-const A1 = entry("presses.span", "Hall A", "a1");
-const A1_MARKS = entry("presses.marks", "Hall A", "a1");
-const A2 = entry("presses.span", "Hall A", "a2");
-const C1 = entry("crews.cards", "Hall A", "c1");
-/** The dispatch bay's buckets. */
-const BAY = entry("bays.buckets", "bay");
+/**
+ * Press A1's landing row of bars and its row of marks beside it, Press A2's, and Crew 1's landing row of chips — each
+ * under its group of the works' record (#1541).
+ */
+const A1 = entry("presses", "1-presses-a", "a1");
+const A1_MARKS = entry("presses.marks", "1-presses-a", "a1");
+const A2 = entry("presses", "1-presses-a", "a2");
+const C1 = entry("crews", "3-crews-a", "c1");
+/** The dispatch bay's landing row of buckets. */
+const BAY = entry("bays", "7-dispatch", "bay");
 
 /** A job's bar on Press A1. */
 const job = (c: HTMLElement, key: string) => c.querySelector<HTMLElement>(`${rowAt(A1)} ${el("data-run", "job", key)}`)!;
@@ -124,11 +134,11 @@ describe("selecting events (#1197, the Calendar's B15)", () => {
         fireEvent.click(job(container, "J-1002"), { shiftKey: true });
         await settle();
         expect(selectedEvents(container)).toHaveLength(2);
-        // Another press's name.
-        fireEvent.click(container.querySelector(`${rowAt(A2)} [role="rowheader"]`)!);
+        // A crew's name — a row with nothing beneath it: a press's name folds its utilisation (#1541).
+        fireEvent.click(container.querySelector(`${rowAt(C1)} [role="rowheader"]`)!);
         await settle();
         expect(selectedEvents(container)).toEqual([]);
-        expect(selectedRow(container)).toBe(rowKey(container, A2));
+        expect(selectedRow(container)).toBe(rowKey(container, C1));
         // The same press's plot, beside its jobs.
         fireEvent.click(job(container, "J-1001"));
         await settle();
@@ -168,7 +178,7 @@ describe("selecting events (#1197, the Calendar's B15)", () => {
         jobs.set("J-1001", { ...jobs.get("J-1001")!, press: some("b3") });
         await h.commit(ex.planPrintJobs, jobs);
         expect(container.querySelector(`${rowAt(A1)} ${el("data-run", "job", "J-1001")}`)).toBeNull();
-        const moved = container.querySelector<HTMLElement>(`${rowAt(entry("presses.span", "Hall B", "b3"))} ${el("data-run", "job", "J-1001")}`)!;
+        const moved = container.querySelector<HTMLElement>(`${rowAt(entry("presses", "2-presses-b", "b3"))} ${el("data-run", "job", "J-1001")}`)!;
         expect(moved.getAttribute("aria-pressed")).toBe("true");
         expect(selectedEvents(container)).toEqual([key(moved)]);
     });
@@ -181,7 +191,9 @@ describe("selecting events (#1197, the Calendar's B15)", () => {
             const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
             return Plan({
                 axis,
-                resources: { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) },
+                // The presses are the canvas's rows, a landing row each (#1541).
+                data: presses.read(),
+                series: [Plan.series.resources(ex.PrintPress, { key: "presses", title: "Presses", icon: "print", label: (p) => p.name })],
                 events: { job: Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" } }) },
                 // Each paper stock's order, over the dataset: a run of the Plan's own.
                 rows: [Plan.over(stock, [Plan.series.span(ex.PrintStock, {
@@ -194,7 +206,7 @@ describe("selecting events (#1197, the Calendar's B15)", () => {
         await settle();
         const board = container.querySelector<HTMLElement>(`${rowAt(entry("orders", "board"))} [data-run="order"]`)!;
         expect(board.hasAttribute("aria-pressed")).toBe(false);
-        fireEvent.click(container.querySelector<HTMLElement>(`${rowAt(entry("presses.span", "a1"))} ${el("data-run", "job", "J-1001")}`)!);
+        fireEvent.click(container.querySelector<HTMLElement>(`${rowAt(entry("presses", "a1"))} ${el("data-run", "job", "J-1001")}`)!);
         await settle();
         fireEvent.click(board);
         await settle();
@@ -202,7 +214,7 @@ describe("selecting events (#1197, the Calendar's B15)", () => {
         expect(board.hasAttribute("data-selected")).toBe(false);
         expect(selectedRow(container)).toBe(rowKey(container, entry("orders", "board")));
         // Shift on it adds nothing either.
-        fireEvent.click(container.querySelector<HTMLElement>(`${rowAt(entry("presses.span", "a1"))} ${el("data-run", "job", "J-1001")}`)!);
+        fireEvent.click(container.querySelector<HTMLElement>(`${rowAt(entry("presses", "a1"))} ${el("data-run", "job", "J-1001")}`)!);
         await settle();
         fireEvent.click(board, { shiftKey: true });
         await settle();
@@ -251,7 +263,7 @@ describe("the inspector (#1197, PB38–PB41, PB60)", () => {
         expect(pane(container).querySelectorAll("li")).toHaveLength(3);
     });
 
-    test("one event: its kind, its title, when it runs, its facts and its kind's form, the fields its roles read left to their lines — every edit control on, in one fieldset (PB38, #1194)", async () => {
+    test("one event: its kind, its title, when it runs, its facts and its kind's form, the fields its state and lane read left to their lines, its quantity in the form — every edit control on, in one fieldset (PB38, #1194, #1680's review)", async () => {
         const { container } = await h.mount(ex.planPrintWorks);
         await settle();
         fireEvent.click(job(container, "J-1001"));
@@ -262,15 +274,17 @@ describe("the inspector (#1197, PB38–PB41, PB60)", () => {
         expect(head.querySelector("[data-inspector-title]")!.textContent).toBe("Spring catalogue");
         expect(head.querySelector("[data-inspector-when]")!.textContent).toBe("Mon, Oct 5, 2026 · 06:00–14:00");
         expect(head.querySelector('svg[data-icon="file-lines"]')).not.toBeNull();
-        expect(factNames(container, "[data-inspector-facts]")).toEqual(["resource", "start", "end", "state", "quantity"]);
-        expect(["resource", "start", "end", "state", "quantity"].map((name) => fact(container, name)))
-            .toEqual(["Press A1", "Oct 5, 2026, 06:00", "Oct 5, 2026, 14:00", "actual", "96,000 sheets"]);
+        expect(factNames(container, "[data-inspector-facts]")).toEqual(["resource", "start", "end", "state"]);
+        expect(["resource", "start", "end", "state"].map((name) => fact(container, name)))
+            .toEqual(["Press A1", "Oct 5, 2026, 06:00", "Oct 5, 2026, 14:00", "actual"]);
         // A Plan approves and rejects nothing (#1260): no verdict, no Approve or Reject.
         expect(pane(container).querySelector("[data-inspector-verdict]")).toBeNull();
-        // The kind's form: the customer, the stock and the due date — its state and sheets have their own lines.
+        // The kind's form: the customer, the stock, the sheets — its quantity, typed like any number — and the due date;
+        // its state has its own line.
         const form = pane(container).querySelector("[data-inspector-fields='form']")!;
-        expect([...form.querySelectorAll("[data-field]")].map((field) => field.getAttribute("data-field"))).toEqual(["customer", "stock", "due"]);
+        expect([...form.querySelectorAll("[data-field]")].map((field) => field.getAttribute("data-field"))).toEqual(["customer", "stock", "sheets", "due"]);
         expect(form.querySelector<HTMLInputElement>("[data-field='customer'] input")!.value).toBe("Alder & Finch");
+        expect(within(form.querySelector<HTMLElement>("[data-field='sheets']")!).getByRole("spinbutton").getAttribute("aria-valuenow")).toBe("96000");
         // Every edit control in the one fieldset, on: the job's kind takes edits (#1194).
         expect(edits(container).disabled).toBe(false);
         expect(edits(container).contains(form)).toBe(true);
@@ -323,7 +337,8 @@ describe("the inspector (#1197, PB38–PB41, PB60)", () => {
         try {
             const { container } = await h.mount(ex.planPrintWorks);
             await settle();
-            fireEvent.click(container.querySelector(`${rowAt(A1)} [role="rowheader"]`)!);
+            // Its marks' row's name selects it, naming no bucket: its own name folds the utilisation beneath it (#1541).
+            fireEvent.click(container.querySelector(`${rowAt(A1_MARKS)} [role="rowheader"]`)!);
             await settle();
             expect(showing(container)).toBe("row");
             expect(pane(container).querySelector("[data-inspector-kind]")!.textContent).toBe("Presses");
@@ -345,8 +360,8 @@ describe("the inspector (#1197, PB38–PB41, PB60)", () => {
             await settle();
             expect(pane(container).querySelector("[data-inspector-title]")!.textContent).toBe("Press A1");
             expect(fact(container, "measure:util")).toBe("50");
-            // So is its utilisation row, a measure: Tuesday 6 October's reading, 12.
-            fireEvent.click(container.querySelector(`${rowAt(entry("util", "Hall A", "a1"))} [data-plan-plot]`)!, { clientX: 15 });
+            // So is its utilisation row, a series beneath it: Tuesday 6 October's reading, 12.
+            fireEvent.click(container.querySelector(`${rowAt(entry("util", "1-presses-a", "a1"))} [data-plan-plot]`)!, { clientX: 15 });
             await settle();
             expect(pane(container).querySelector("[data-inspector-title]")!.textContent).toBe("Press A1");
             expect(["events", "hours"].map((name) => fact(container, name))).toEqual(["7", "33"]);
@@ -413,7 +428,7 @@ describe("the inspector (#1197, PB38–PB41, PB60)", () => {
         fireEvent.click(job(container, "J-1002"), { shiftKey: true });
         await settle();
         expect(detail()).toBe("2 events");
-        fireEvent.click(container.querySelector(`${rowAt(A2)} [role="rowheader"]`)!);
+        fireEvent.click(container.querySelector(`${rowAt(A2)} [data-plan-plot]`)!);
         await settle();
         expect(detail()).toBe("Press A2");
     });
@@ -425,7 +440,9 @@ describe("the inspector (#1197, PB38–PB41, PB60)", () => {
             const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
             return Plan({
                 axis,
-                resources: { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) },
+                // The presses are the canvas's rows, a landing row each (#1541).
+                data: presses.read(),
+                series: [Plan.series.resources(ex.PrintPress, { key: "presses", title: "Presses", icon: "print", label: (p) => p.name })],
                 events: {
                     job: Schedule.events(jobs, {
                         name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
@@ -484,6 +501,18 @@ describe("the inspector keeps the keyboard as a control goes with its view (#139
         expect(focused).not.toBe(document.body);
         expect(focused.closest("[data-plan-row]")?.getAttribute("data-plan-row")).toBe(rowKey(container, A1));
     });
+
+    test("a new selection's Details open at their head: the pane scrolled down a job's form, a stop selected shows from the pane's start (#1680's review)", async () => {
+        const { container } = await h.mount(ex.planPrintWorks);
+        await settle();
+        const body = () => pane(container).querySelector<HTMLElement>("[data-dock-body]")!;
+        fireEvent.click(job(container, "J-1001"));
+        await settle();
+        body().scrollTop = 48;
+        fireEvent.click(stop(container, "S-01"));
+        await settle();
+        expect([showing(container), body().scrollTop]).toEqual(["event", 0]);
+    });
 });
 
 // ============================================================================
@@ -539,5 +568,309 @@ describe("an event's refusals holding Save (#1525)", () => {
         expect(banner()).toBeNull();
         expect(ringed()).toEqual([]);
         expect(reasons()).toEqual([]);
+    });
+});
+
+// ============================================================================
+// A Plan of rows alone: its inspector, and a row's refusals holding Save (#1541, U5)
+// ============================================================================
+
+/** Monday of ISO week 27, 2026, and of week 39: the ops record's twelve weeks. */
+const W27 = new Date("2026-06-29T00:00:00Z");
+const W39 = new Date("2026-09-21T00:00:00Z");
+
+/**
+ * The ops record's presses as a Plan of rows alone (#1541, U5): no event kinds, its rows saved through `record`, its
+ * `ready` letting a press hold one job — a press holding more is refused, by name, on its `jobs` — and its inspector.
+ */
+const pressesOneJobEach = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const ops = $.let(Data.bindPaged(rowDrop.planDropOps));
+    const record = $.let(Record.bind(rowDrop.planDropOps));
+    const ready = $.const(East.function([rowDrop.DropOpsRow, StringType], Editing.Types.Readiness, ($2, row, _key) => {
+        $2.if(row.jobs.size().greater(1n), ($3) => {
+            $3.return(East.value(variant("invalid", [{
+                field: "jobs", message: East.str`${row.label} holds ${East.print(row.jobs.size())} jobs — at most 1`,
+            }]), Editing.Types.Readiness));
+        });
+        return East.value(variant("ready", null), Editing.Types.Readiness);
+    }));
+    const axis = $.const(Plan.axis({ window: { min: W27, max: W39 }, resolution: "week" }));
+    return Plan({
+        axis, data: ops, record, ready, inspector: true,
+        series: [Plan.series.span(rowDrop.DropOpsRow, {
+            key: "press", title: "Press jobs", match: (r) => r.series.equal("press"), label: (r) => r.label, id: true,
+            runs: Plan.items("jobs", { from: "start", to: "end" }, (job) => ({ label: job.label, state: job.state })),
+            edit: true,
+        })],
+        // Shorter than the frame `boundFrame` lays out: its rows mount, as the print works' do.
+        style: { height: "360px" },
+    });
+}))) };
+
+/** Selects a press's row by its name, as a click on its header does. */
+async function selectPress(c: HTMLElement, key: string) {
+    fireEvent.click(dropPressRow(c, key).querySelector('[role="rowheader"]')!);
+    await settle();
+}
+
+describe("a Plan of rows alone: its inspector, and a row's refusals holding Save (#1541, U5)", () => {
+    test("given `inspector` with no event kinds, it has its pane: nothing selected gives the two hints of rows, none of an event's; a row selected shows the row", async () => {
+        const restore = boundFrame(2000);
+        try {
+            const { container } = await h.mount(pressesOneJobEach, { drag: true });
+            await settle();
+            expect(pane(container).getAttribute("data-frame-slot")).toBe("end");
+            expect(showing(container)).toBe("none");
+            // No event to click: the hint of clicking one is left out.
+            expect([...pane(container).querySelectorAll("li")].map((hint) => hint.textContent))
+                .toEqual(["Click a row's plot to see the row and its measures at that bucket.", "Esc clears what is selected."]);
+            await selectPress(container, "p03");
+            expect(showing(container)).toBe("row");
+            expect(pane(container).querySelector("[data-inspector-kind]")!.textContent).toBe("Row");
+            expect(pane(container).querySelector("[data-inspector-title]")!.textContent).toBe("H1-P03");
+            // Nothing drafted: nothing refused.
+            expect(pane(container).querySelector("[data-inspector-refusals]")).toBeNull();
+        } finally {
+            restore();
+        }
+    });
+
+    test("a run carried onto a press that may hold one job: the press's row shows its refusal naming its field, the press it left none; Undo takes it away", async () => {
+        const restore = boundFrame(2000);
+        try {
+            const { container: c } = await h.mount(pressesOneJobEach, { drag: true });
+            await settle();
+            const banner = () => pane(c).querySelector("[data-inspector-refusals]");
+            const save = () => within(slot(c, "toolbar")!).getByRole("button", { name: editingMessages.apply() });
+            // J-4624 carried up from H1-P04 onto H1-P03 by the keyboard, its weeks as they were.
+            await carryRun(dropRunOf(c, "p04", "j4624")!, { key: "ArrowUp" });
+            expect(dropRunOf(c, "p03", "j4624")).not.toBeNull();
+            // H1-P03 holds two jobs now: `ready` refuses it, which holds Save.
+            expect(save()).toHaveProperty("disabled", true);
+            await selectPress(c, "p03");
+            expect(showing(c)).toBe("row");
+            expect(banner()!.textContent).toBe("Not saved yet" + "Jobs: H1-P03 holds 2 jobs — at most 1");
+            // H1-P04, which it left, is drafted too, and refused nothing.
+            await selectPress(c, "p04");
+            expect(pane(c).querySelector("[data-inspector-title]")!.textContent).toBe("H1-P04");
+            expect(banner()).toBeNull();
+            // Undo: the job goes back, and with it the refusal.
+            await selectPress(c, "p03");
+            expect(banner()).not.toBeNull();
+            fireEvent.click(within(slot(c, "toolbar")!).getByRole("button", { name: editingMessages.undo() }));
+            await settle();
+            expect(dropRunOf(c, "p03", "j4624")).toBeNull();
+            expect(showing(c)).toBe("row");
+            expect(banner()).toBeNull();
+        } finally {
+            restore();
+        }
+    });
+});
+
+describe("a link kind's link in the inspector (#1541, U10)", () => {
+    /** Example 16's Plan — the works' centres, their four event kinds and the flows between them — with its inspector. */
+    const flows = flowsPlan();
+    const hit = (c: HTMLElement, key: string) => [...c.querySelectorAll("[data-link]")].find((path) => path.getAttribute("data-link-key") === elementKey("flow", key));
+    const fact = (c: HTMLElement, name: string) => pane(c).querySelector(`[data-fact="${name}"]`)?.textContent ?? null;
+    const toolbar = (c: HTMLElement) => within(slot(c, "toolbar")!);
+
+    /** Picks a choice of Connect to…'s chooser, by its field and its words. Returns every choice it offered. */
+    async function connectTo(c: HTMLElement, key: string, option: string): Promise<(string | null)[]> {
+        const trigger = pane(c).querySelector<HTMLElement>(`[data-inspector-fields="connect"] [data-field="${key}"] [data-scope=select][data-part=trigger]`)!;
+        fireEvent.click(trigger);
+        await settle();
+        const listbox = document.getElementById(trigger.getAttribute("aria-controls")!)!;
+        const offered = within(listbox).getAllByRole("option").map((choice) => choice.textContent);
+        fireEvent.click(within(listbox).getByRole("option", { name: option }));
+        await settle();
+        return offered;
+    }
+    /** Selects Catalogue covers (J-2001), a job on Press A1. */
+    async function selectCovers(c: HTMLElement) {
+        fireEvent.click(c.querySelector(`${rowAt(entry("presses", "a1"))} ${el("data-run", "job", "J-2001")}`)!);
+        await settle();
+    }
+
+    test("an event's Connect to… draws a link without a drag: a choice among the events its kind's end takes draws it, a draft, selected; Undo takes it back", async () => {
+        const { container } = await h.mount(flows);
+        await settle();
+        await selectCovers(container);
+        expect(showing(container)).toBe("event");
+        const group = pane(container).querySelector('[data-inspector-fields="connect"]')!;
+        expect(group.getAttribute("aria-label")).toBe("Connect a flow");
+        // One link kind runs from a job: no choice of it is asked.
+        expect(group.querySelector('[data-field="kind"]')).toBeNull();
+        const offered = await connectTo(container, "to", "Price lists");
+        // The events the canvas draws that a flow may end at — jobs, bindery jobs, deliveries — but the job itself, and no plates.
+        expect(offered).toContain("Catalogue");
+        expect(offered).not.toContain("Catalogue covers");
+        expect(offered).not.toContain("Catalogue plates");
+        // The flow is drawn: a draft of the flows' record, selected, so the pane shows it.
+        expect(showing(container)).toBe("link");
+        expect(pane(container).querySelector("[data-inspector-title]")!.textContent).toBe("Catalogue covers → Price lists");
+        fireEvent.click(toolbar(container).getByRole("button", { name: editingMessages.undo() }));
+        await settle();
+        expect((toolbar(container).getByRole("button", { name: editingMessages.undo() }) as HTMLButtonElement).disabled).toBe(true);
+    });
+
+    test("Connect to… is held to the Plan's `canConnect` as a Connect drag is: refused, the field says why, and no link is drawn", async () => {
+        const vetoed = flowsPlan({ canConnect: () => East.function([Plan.Types.ConnectCandidate], OptionType(StringType), ($, candidate) => {
+            const said = $.let(none, OptionType(StringType));
+            $.if(candidate.to.key.equal("J-2004"), ($2) => { $2.assign(said, some("Price lists are already at the bindery")); });
+            return said;
+        }) });
+        const { container } = await h.mount(vetoed);
+        await settle();
+        await selectCovers(container);
+        await connectTo(container, "to", "Price lists");
+        expect(showing(container)).toBe("event");
+        expect(pane(container).querySelector('[data-inspector-fields="connect"]')!.textContent).toContain("Price lists are already at the bindery");
+        expect((toolbar(container).getByRole("button", { name: editingMessages.undo() }) as HTMLButtonElement).disabled).toBe(true);
+    });
+
+    test("one link shows its kind, the events it joins, what it moves and its form; an edit is a draft Undo takes back; Delete removes it", async () => {
+        const restore = ribbonWidth({ tall: true });
+        try {
+            const { container } = await h.mount(flows);
+            await settle();
+            fireEvent.click(container.querySelector(`${rowAt(entry("presses", "a1"))} [data-plan-control="links"]`)!);
+            await settle();
+            fireEvent.click(hit(container, "covers")!);
+            await settle();
+            expect(showing(container)).toBe("link");
+            // Its kind, and the two jobs it joins by their titles.
+            expect(pane(container).querySelector("[data-inspector-kind]")!.textContent).toBe("Flow");
+            expect(pane(container).querySelector("[data-inspector-title]")!.textContent).toBe("Catalogue covers → Catalogue");
+            expect([fact(container, "from"), fact(container, "to"), fact(container, "quantity")]).toEqual(["Catalogue covers", "Catalogue", "12 k sheets"]);
+            // Its form: the field no end is, its sheets.
+            const form = () => pane(container).querySelector<HTMLElement>("[data-inspector-fields='form']")!;
+            expect([...form().querySelectorAll("[data-field]")].map((field) => field.getAttribute("data-field"))).toEqual(["sheets"]);
+            // Its sheets typed: a draft of the flows' record — the link moves 30, and Save waits on it.
+            await retypeNumber(within(form().querySelector<HTMLElement>("[data-field='sheets']")!).getByRole("spinbutton"), "30");
+            expect(fact(container, "quantity")).toBe("30 k sheets");
+            expect(toolbar(container).getByRole("button", { name: editingMessages.apply() })).toHaveProperty("disabled", false);
+            // Undo takes it back.
+            fireEvent.click(toolbar(container).getByRole("button", { name: editingMessages.undo() }));
+            await settle();
+            expect(fact(container, "quantity")).toBe("12 k sheets");
+            // Delete removes the link, and leaves no link selected.
+            fireEvent.click(pane(container).querySelector('[data-inspector-action="delete"]')!);
+            await settle();
+            expect([hit(container, "covers"), showing(container) === "link"]).toEqual([undefined, false]);
+        } finally {
+            restore();
+        }
+    });
+
+    test("an event selected with a link shows as the event it is, and the pane's Delete removes both as one step, as the Delete key does", async () => {
+        const restore = ribbonWidth({ tall: true });
+        try {
+            const { container } = await h.mount(flows);
+            await settle();
+            fireEvent.click(container.querySelector(`${rowAt(entry("presses", "a1"))} [data-plan-control="links"]`)!);
+            await settle();
+            const job = () => container.querySelector(el("data-run", "job", "J-2001"));
+            fireEvent.click(hit(container, "plates")!);
+            await settle();
+            fireEvent.click(job()!, { shiftKey: true });
+            await settle();
+            // The pane shows the job: the link is selected on the canvas, drawn in the ink.
+            expect(showing(container)).toBe("event");
+            expect(pane(container).querySelector("[data-inspector-title]")!.textContent).toBe("Catalogue covers");
+            expect(hit(container, "plates")!.closest("[data-plan-link]")!.hasAttribute("data-selected")).toBe(true);
+            fireEvent.click(pane(container).querySelector('[data-inspector-action="delete"]')!);
+            await settle();
+            expect([job(), hit(container, "plates")]).toEqual([null, undefined]);
+            // One step: one Undo brings the job and the link back.
+            fireEvent.click(toolbar(container).getByRole("button", { name: editingMessages.undo() }));
+            await settle();
+            expect([job() !== null, hit(container, "plates") !== undefined]).toEqual([true, true]);
+        } finally {
+            restore();
+        }
+    });
+
+    test("a link's ×, the link selected beside an event, removes the link alone: the event stays selected, the pane showing it", async () => {
+        const restore = ribbonWidth({ tall: true });
+        try {
+            const { container } = await h.mount(flows);
+            await settle();
+            fireEvent.click(container.querySelector(`${rowAt(entry("presses", "a1"))} [data-plan-control="links"]`)!);
+            await settle();
+            const job = () => container.querySelector(el("data-run", "job", "J-2001"));
+            // The covers' flow, which has a caption, and the job it runs from: one link among the selection carries its ×.
+            fireEvent.click(hit(container, "covers")!);
+            await settle();
+            fireEvent.click(job()!, { shiftKey: true });
+            await settle();
+            fireEvent.click(container.querySelector<HTMLElement>("[data-plan-ribbon-unlink] button")!);
+            await settle();
+            expect(hit(container, "covers")).toBeUndefined();
+            expect([job()!.getAttribute("aria-pressed"), showing(container)]).toEqual(["true", "event"]);
+            expect(pane(container).querySelector("[data-inspector-title]")!.textContent).toBe("Catalogue covers");
+        } finally {
+            restore();
+        }
+    });
+
+    test("a link kind read only draws its links as links built in code are drawn: a click selects none, and Delete over an event selected beside one removes the event", async () => {
+        const restore = ribbonWidth({ tall: true });
+        try {
+            const { container } = await h.mount(flowsPlan({ readOnly: true }));
+            await settle();
+            fireEvent.click(container.querySelector(`${rowAt(entry("presses", "a1"))} [data-plan-control="links"]`)!);
+            await settle();
+            const group = () => hit(container, "plates")!.closest("[data-plan-link]")!;
+            // A click on the link selects nothing: no link, and no row in its place.
+            const before = showing(container);
+            fireEvent.click(hit(container, "plates")!);
+            await settle();
+            expect([group().hasAttribute("data-selected"), showing(container)]).toEqual([false, before]);
+            // An event selected, the link added to it by Shift: the link takes no selection, and the Delete key removes the event.
+            const job = () => container.querySelector(el("data-run", "job", "J-2001"));
+            fireEvent.click(job()!);
+            await settle();
+            fireEvent.click(hit(container, "plates")!, { shiftKey: true });
+            await settle();
+            expect(group().hasAttribute("data-selected")).toBe(false);
+            fireEvent.keyDown(job()!, { key: "Delete" });
+            await settle();
+            expect(job()).toBeNull();
+        } finally {
+            restore();
+        }
+    });
+
+    test("several links show how many, each by the events it joins, and Delete removes them all as one step", async () => {
+        const restore = ribbonWidth({ tall: true });
+        try {
+            const { container } = await h.mount(flows);
+            await settle();
+            fireEvent.click(container.querySelector(`${rowAt(entry("presses", "a1"))} [data-plan-control="links"]`)!);
+            await settle();
+            const drawn = () => container.querySelectorAll("[data-link]").length;
+            const all = drawn();
+            fireEvent.click(hit(container, "covers")!);
+            await settle();
+            fireEvent.click(hit(container, "plates")!, { shiftKey: true });
+            await settle();
+            expect(showing(container)).toBe("links");
+            // Both draw selected on the canvas, and neither carries a ×: that is one link's control.
+            expect(container.querySelectorAll("[data-plan-link][data-selected]")).toHaveLength(2);
+            expect(container.querySelector("[data-plan-ribbon-unlink]")).toBeNull();
+            expect(pane(container).querySelector("[data-inspector-several]")!.textContent).toBe("2 links");
+            expect([...pane(container).querySelectorAll("[data-inspector-link]")].map((line) => line.getAttribute("data-inspector-link")))
+                .toEqual([elementKey("flow", "covers"), elementKey("flow", "plates")]);
+            fireEvent.click(pane(container).querySelector('[data-inspector-action="delete"]')!);
+            await settle();
+            expect([hit(container, "covers"), hit(container, "plates"), drawn() < all]).toEqual([undefined, undefined, true]);
+            // One step: one Undo brings both back.
+            fireEvent.click(toolbar(container).getByRole("button", { name: editingMessages.undo() }));
+            await settle();
+            expect(drawn()).toBe(all);
+        } finally {
+            restore();
+        }
     });
 });

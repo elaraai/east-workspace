@@ -29,6 +29,9 @@
  *   it, so the target rises from there — a tap 21px or 29px above Retry's
  *   middle, at the rail's foot, or 21px either side of it, lands on it — at
  *   each width the touch screen's preview box holds.
+ * - A Save's notice — the rows it moved out of the view (#1344) — speaks in
+ *   the line's voice, never the page's own type: the shared notice every
+ *   builder's footer draws, held here in the Sheet's.
  *
  * Each builder is a test of its own, its area's workspace deployed as it
  * first shows (#1397). At 1440px every builder's line says its full text;
@@ -338,6 +341,36 @@ for (const theme of LAYOUT_THEMES) {
             await expect(line).toHaveAttribute("data-idle", "", { timeout: 30_000 });
         });
     }
+}
+
+/** A footer item's voice, as the page resolves it: its face, size, weight, tracking, case, line and ink. */
+function voiceOf(node: Locator): Promise<Readonly<Record<string, string>>> {
+    return node.evaluate((el) => {
+        const css = getComputedStyle(el);
+        return {
+            fontFamily: css.fontFamily, fontSize: css.fontSize, fontWeight: css.fontWeight, letterSpacing: css.letterSpacing,
+            textTransform: css.textTransform, lineHeight: css.lineHeight, color: css.color,
+        };
+    });
+}
+
+for (const theme of LAYOUT_THEMES) {
+    test(`a Save's notice in the footer — the rows it moved out of the view — speaks in the loading line's voice, never the page's own type (#1344) (${theme}) @desktop`, async ({ page }) => {
+        await page.setViewportSize(PAGE);
+        const reader = READERS[0]!;
+        const entry = await visitBuilder(page, reader.route, reader.root, theme);
+        await sizeBuilder(page, entry, reader.root, WIDTHS[0]);
+        // The rail opens on Ready: a row set to Scheduled and saved leaves the view.
+        await entry.locator('[data-slot="row"][data-row-id] [data-key="status"]').first().dblclick();
+        const editor = entry.locator('[data-slot="editorInput"]');
+        await editor.fill("Scheduled");
+        await editor.press("Enter");
+        await entry.getByRole("button", { name: "Save", exact: true }).first().click();
+        const rail = entry.locator(reader.rail).first();
+        const notice = rail.locator("[data-record-save-notice]");
+        await expect(notice).toHaveText("1 row left this view", { timeout: 30_000 });
+        expect(await voiceOf(notice), "the notice's voice").toEqual(await voiceOf(rail.locator(":scope > [data-footer-line]")));
+    });
 }
 
 test("in a phone's frame a failed read says so in the band laid over main's foot, main as tall as before the read, its Retry a 44px tap target by its halo, and a tap on it reads again (ruled 7 Nov 2026) @mobile", async ({ page }) => {

@@ -1044,6 +1044,9 @@ _ROWS: dict[str, Any] = {
     "SetIsSubset": lambda ev, n, a: a[0].is_subset_of(a[1]),
     "SetIsDisjoint": lambda ev, n, a: a[0].is_disjoint_from(a[1]),
     "SetCopy": lambda ev, n, a: a[0].copy(),
+    # a key range (#1616): each end an Option the keyword spells
+    "SetRange": lambda ev, n, a: a[0].range(**_range_ends(a[1], a[2])),
+    "SetPrefix": lambda ev, n, a: a[0].prefix(a[1]),
     "SetUnionInPlace": lambda ev, n, a: a[0].union_in_place(a[1]),
     "SetToArray": lambda ev, n, a: a[0].to_array(_cb(ev, a[1])),
     "SetToSet": lambda ev, n, a: a[0].to_set(_cb(ev, a[1]), out=child_type(_out(n)))
@@ -1091,6 +1094,8 @@ _ROWS: dict[str, Any] = {
     "DictDelete": lambda ev, n, a: a[0].delete(a[1]),
     "DictTryDelete": lambda ev, n, a: a[0].try_delete(a[1]),
     "DictCopy": lambda ev, n, a: a[0].copy(),
+    "DictRange": lambda ev, n, a: a[0].range(**_range_ends(a[1], a[2])),
+    "DictPrefix": lambda ev, n, a: a[0].prefix(a[1]),
     "DictKeys": lambda ev, n, a: a[0].keys(),
     "DictGetKeys": lambda ev, n, a: a[0].get_keys(a[1], _kv_user(ev, a[2], 1)),
     "DictMap": lambda ev, n, a: a[0].map(_cb(ev, a[1]), out=dict_child(_out(n), "value"))
@@ -1212,6 +1217,19 @@ _ROWS: dict[str, Any] = {
 
 def _unsup(reason: str) -> Any:
     raise _Unsupported(reason)
+
+
+def _range_ends(from_: Any, to: Any) -> dict[str, Any]:
+    """A range's two ends as the surface's keywords: ``some(x)`` is the
+    keyword with ``x``, ``none`` leaves it out. An end held as a traced
+    option has no keyword spelling."""
+    ends: dict[str, Any] = {}
+    for keyword, end in (("from_", from_), ("to", to)):
+        if isinstance(end, Expression):
+            _unsup("a range's end held as an option")
+        if end.type == "some":
+            ends[keyword] = end.value
+    return ends
 
 
 class _MissingArg:

@@ -25,8 +25,11 @@
  *
  * Renders only over a horizon of the AXIS's arm (#631): a `datetime` domain on
  * a time axis, a `float` / `integer` domain on a number axis. The horizon
- * spans every source's domain holding the window: the jobs' and the shifts'
- * together. A slice with no source holding the window leaves the canvas its
+ * spans every source's domain holding the window — the jobs' and the shifts'
+ * together — and the window shown and the axis's stated window with them: the
+ * data may fill a few days of the window, or none of it, and the strip still
+ * holds what the canvas shows and widens back out to the stated window. A
+ * slice with no source holding the window leaves the canvas its
  * own (#1344), and the horizon then spans the axis's stated window and the
  * window shown, with the window shown's length again either side — so the lens
  * never fills the strip and slides either way — and the strip moves the
@@ -40,9 +43,9 @@
 
 import { useCallback, useMemo, useRef } from "react";
 import { Box, chakra } from "@chakra-ui/react";
-import { BrushStrip, PlaceholderShape, recordSliceDomain, type BrushBucket } from "@elaraai/east-ui-components/internal";
+import { BrushStrip, PlaceholderShape, brushHorizon, recordSliceDomain, type BrushBucket } from "@elaraai/east-ui-components/internal";
 import { useContainerWidth, useSlicesReactivity, useTrackedEvaluation } from "@elaraai/east-ui-components";
-import { periodText } from "../../shared/time/scale.js";
+import { periodText, resolutionInterval } from "../../shared/time/scale.js";
 import { usePlanDispatch, usePlanGeometry, usePlanScale } from "../context.js";
 import type { PlanInstantValue } from "../instant.js";
 import type { PlanHorizonUnit } from "../messages.js";
@@ -68,7 +71,8 @@ export interface HorizonBrushProps {
     gridTemplate: string;
     /** The sources holding the window: the horizon spans their domains. None, the canvas holds its own window (#1344). */
     parts: readonly PlanWindowPart[];
-    /** The axis's stated window, `[from, to)` on its domain: beside the window shown, the horizon of a canvas holding its own. */
+    /** The axis's stated window, `[from, to)` on its domain: beside the window shown, in every horizon — the horizon of a canvas
+     *  holding its own, and taken into the sources' domains where they hold the window. */
     stated: readonly [number, number] | undefined;
     /** The span of what every series reads through the rows' nested series index (#1438, #1440), whichever are shown, or its read in
      *  flight: beside the window shown, the horizon of a canvas holding its own, in place of the stated window's; its months' counts —
@@ -190,19 +194,35 @@ export function HorizonBrush({ styles, gridTemplate, parts, stated, span: dataSp
     // piles into the final bar beside the one before it — and the caption
     // counts periods, not the gaps between them. The canvas's own horizon is
     // half-open: it ends at its end where that is a period's edge.
+    const statedFrom = stated?.[0];
+    const statedTo = stated?.[1];
     const extent = useMemo(() => {
         if (!fits || domain === undefined) return undefined;
         const first = scale.floor(scale.fromNumber(domain.min));
         const last = scale.floor(scale.fromNumber(domain.max));
         const end = own && scale.toNumber(last) >= domain.max ? last : scale.offset(last, 1);
-        const lo = scale.toNumber(first);
-        const hi = scale.toNumber(end);
+        let lo = scale.toNumber(first);
+        let hi = scale.toNumber(end);
+        // The sources' domain is where their data is, and the window shown and the stated window are the canvas's
+        // whatever the data holds: the horizon takes both in, each in whole periods, ending at its end where that is a
+        // period's edge. Without them the window clamped to the data's ends, a window past the data had no place on the
+        // strip at all, and no gesture could widen the window back out (#1680's review). The canvas's own horizon holds
+        // them already.
+        if (!own) {
+            const windows: (readonly [number, number])[] = [[shownFrom, shownTo]];
+            if (statedFrom !== undefined && statedTo !== undefined) windows.push([statedFrom, statedTo]);
+            const periodsOf = ([from, to]: readonly [number, number]): readonly [number, number] => {
+                const edge = scale.floor(scale.fromNumber(to));
+                return [scale.toNumber(scale.floor(scale.fromNumber(from))), scale.toNumber(edge) >= to ? scale.toNumber(edge) : scale.toNumber(scale.offset(edge, 1))];
+            };
+            ({ min: lo, end: hi } = brushHorizon({ min: lo, end: hi }, windows.map(periodsOf)));
+        }
         if (!(hi > lo)) return undefined;
         let periods = 0;
-        for (let t = first; scale.toNumber(t) < hi && periods <= MAX_PERIODS; t = scale.offset(t, 1)) periods += 1;
+        for (let t = scale.floor(scale.fromNumber(lo)); scale.toNumber(t) < hi && periods <= MAX_PERIODS; t = scale.offset(t, 1)) periods += 1;
         return { lo, hi, periods };
         // eslint-disable-next-line react-hooks/exhaustive-deps -- the domain's bounds are primitives; the object is new per read
-    }, [fits, domain?.min, domain?.max, own, scale]);
+    }, [fits, domain?.min, domain?.max, own, scale, shownFrom, shownTo, statedFrom, statedTo]);
     if (!own && !recordDomain.ok) return <Box css={styles.partError} role="alert">
         Could not load date span <chakra.button type="button" css={styles.windowRetry} onClick={() => { for (const { part } of parts) part.retry(); }}>Retry</chakra.button>
     </Box>;
@@ -251,9 +271,15 @@ export function HorizonBrush({ styles, gridTemplate, parts, stated, span: dataSp
     // finest period that keeps 4px a bar; a source's horizon has no counts yet, and draws the baseline alone.
     const density = own && scale.kind === "time" && read !== undefined ? horizonDensity(extent.lo, extent.hi, read.months, trackPx) : undefined;
     const buckets = density === undefined ? undefined : densityBuckets(density, words);
-    // A key moves the window a period of the resolution; a handle says its instant.
+    // A key moves the window a period of the resolution; a handle says its instant — the end handle, on a time axis, the
+    // last day inside the window, as the date navigator names it (`max − 1 ms`, its time too at the hour's resolution):
+    // the window ends exclusively, so its end's own instant is the next day's start.
     const step = (f: number, n: number): number => toFrac(scale.offset(fromFraction(f), n));
     const valueText = (f: number): string => scale.instantText(fromFraction(f));
+    const endText = scale.kind === "time" ? (f: number): string => {
+        const last = scale.toNumber(fromFraction(f)) - 1;
+        return scale.instantText(scale.fromNumber(scale.resolution === "hour" ? last : resolutionInterval("day").floor(new Date(last)).getTime()));
+    } : undefined;
     return (
         <Box css={styles.brushRow} style={{ gridTemplateColumns: gridTemplate }} data-slot="horizon">
             <Box css={styles.brushCaption}>
@@ -272,6 +298,7 @@ export function HorizonBrush({ styles, gridTemplate, parts, stated, span: dataSp
                     buckets={buckets === undefined ? undefined : () => buckets}
                     step={step}
                     valueText={valueText}
+                    endText={endText}
                     words={{ start: words.m.horizonStart(), end: words.m.horizonEnd(), window: words.m.horizonWindow() }}
                     window={winTo > winFrom ? { from: winFrom, to: winTo } : undefined}
                     nowFrac={nowFrac !== undefined && nowFrac >= 0 && nowFrac <= 1 ? nowFrac : undefined}

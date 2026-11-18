@@ -15,6 +15,7 @@
 import { Hono } from 'hono';
 import { checkName, type DataflowOrchestrator, type ExecutionStateStore, type TaskRunner } from '@elaraai/e3-core/portable';
 import {
+  allowEveryDraft,
   createDatasetRoutes,
   createExecutionRoutes,
   createObjectRoutes,
@@ -178,9 +179,13 @@ export function createWebApp(seams: WebAppSeams): WebApp {
   app.route('/api/repos/:repo/workspaces/:ws/datasets', createDatasetRoutes(storage, repositoryOf, transfer));
 
   // Tasks, functions and their kept calls, one-shot and its split calls, and
-  // records.
+  // records. The record routes admit each caller to every mutation, so each
+  // may pass a draft of any.
   app.route('/api/repos/:repo/workspaces/:ws/tasks', createTaskRoutes(storage, repositoryOf));
-  app.route('/api/repos/:repo/workspaces/:ws/functions', createWorkspaceFunctionRoutes(storage, repositoryOf, transfer, { access }));
+  app.route('/api/repos/:repo/workspaces/:ws/functions', createWorkspaceFunctionRoutes(storage, repositoryOf, transfer, {
+    access,
+    draftAccess: allowEveryDraft,
+  }));
   app.route('/api/repos/:repo/workspaces/:ws/calls', createWorkspaceCallRoutes(storage, repositoryOf, transfer));
   app.route('/api/repos/:repo/workspaces/:ws/one-shot', createOneShotRoutes(storage, repositoryOf, transfer, getRunner, { access }));
   app.route('/api/repos/:repo/workspaces/:ws/records', createWorkspaceRecordRoutes(storage, repositoryOf, getRunner));

@@ -105,7 +105,7 @@ function event(kind: string, key: string, from: string, to: string, press: strin
         kind, key, title: `${key} title`,
         start: some(utcAt(`2026-10-20T${from}:00`)), end: some(utcAt(`2026-10-20T${to}:00`)),
         resource: some({ kind: "presses", key: press }), status: none, minutes: 60n, due: none,
-        state: variant("confirmed", null), quantity: none, lane: none,
+        state: variant("confirmed", null), quantity: none, lane: none, locked: false, child: none,
     };
 }
 

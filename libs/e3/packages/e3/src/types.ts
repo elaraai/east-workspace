@@ -14,7 +14,7 @@
  * - **Task**: A transformation that reads input datasets and produces an output dataset
  */
 
-import type { ArrayType, AsyncEastIR, DictType, EastIR, EastType, FunctionType, NullType, SetType, ValueTypeOf, variant } from '@elaraai/east';
+import type { ArrayType, AsyncEastIR, DictType, EastIR, EastType, ExprType, FunctionType, NullType, SetType, ValueTypeOf, variant } from '@elaraai/east';
 
 /**
  * A function's IR bundle, whatever its signature — what a definition keeps,
@@ -29,6 +29,7 @@ import type { MigrationForm, MutationForm, RecordNestedDecl, TaskRole, TreePath 
 import type { DatasetSource } from './input.js';
 import type { Runner } from './runner.js';
 import type { EnvironmentDecl } from './environment.js';
+import type { IndexReadersOf } from './index-read.js';
 
 /**
  * A tree definition.
@@ -105,6 +106,50 @@ export interface PartitionDef<T extends EastType = EastType> {
    */
   readonly by: readonly string[];
 }
+
+/**
+ * An index of a record as an input of a task, a stream task or a function —
+ * what `e3.index` returns.
+ *
+ * The body is given the index's entries, a `Dict<{ ik, k }, P>` opened lazily
+ * and frozen as any input is: `ik` the index's key, `k` the row's, and `P` what
+ * the index carries. It reads them by key, by size, by a loop, and by `range`
+ * and `prefix`, each at the cost of the entries it reaches.
+ *
+ * @typeParam T - The East type of the index's entries, the body's parameter
+ * @typeParam D - The index, as `record.indexes.<name>` types it, which says its kind
+ */
+export interface IndexInputDef<T extends EastType = EastType, D extends RecordIndexDef = RecordIndexDef> {
+  readonly kind: 'index';
+  /** The index, as its record carries it by name. */
+  readonly index: D;
+  /** The record the index is over: the dataset the input is read through, at
+   *  the state it holds, and what `e3.package` collects for it. */
+  readonly record: RecordDef;
+  /** The type of the index's entries, as the record's state holds them:
+   *  `Dict<{ ik, k }, P>`. */
+  readonly type: T;
+  /**
+   * An expression of the index's entries with its kind's readers on it: its
+   * reads, each of the rows its words say, once (`IndexRead`). An
+   * `e3.function` with a spec and an `e3.streamTask` give the body its
+   * parameter so already; this gives the same over any other expression of
+   * the index's type, the parameter of a task's own function among them.
+   *
+   * @param entries - An expression of the index's entries: {@link type}
+   * @returns The same expression, still the entries, with the readers of the index's kind; one that carries them
+   *   already, as it is
+   * @throws {Error} When the expression is not of the index's entries' type, naming both, or carries the readers of
+   *   another index whose entries have the same type, naming that index
+   */
+  read(entries: ExprType<T>): ExprType<T> & IndexReadersOf<D>;
+}
+
+/**
+ * What a task or a function reads: a dataset, or an index of a record
+ * ({@link IndexInputDef}).
+ */
+export type InputDef = DatasetDef | IndexInputDef;
 
 /**
  * An output kind collecting elements in the order they are emitted — what
@@ -196,9 +241,10 @@ export interface TaskDef<TOutput extends EastType = EastType, Path extends TreeP
   readonly body:
     | { readonly kind: 'east'; readonly program: IRBundle | AsyncIRBundle }
     | { readonly kind: 'command'; readonly command: EastIR<[string[], string], string[]> };
-  /** The inputs, in the body's parameter order. A `streamTask`'s may include
-   *  datasets its work can be split over. */
-  readonly inputs: readonly (DatasetDef | PartitionDef)[];
+  /** The inputs, in the body's parameter order: each a dataset, or an index of
+   *  a record. A `streamTask`'s may include datasets its work can be split
+   *  over. */
+  readonly inputs: readonly (InputDef | PartitionDef)[];
   /** Output dataset this task writes to (at `.tasks.${name}.output`) */
   readonly output: DatasetDef<TOutput, Path>;
   /** The output kind a `streamTask` emits into. Absent when the body returns
@@ -226,16 +272,29 @@ export interface TaskDef<TOutput extends EastType = EastType, Path extends TreeP
  * Functions are named, typed callables stored in a package and invoked by
  * name with argument values (CLI / HTTP API). A function may read datasets
  * of the workspace it is called through — its {@link inputs}, as a task's
- * are declared — beside the arguments its caller passes. It is still no node
- * of the dataflow: it has no output, nothing reruns when an input changes,
- * and its result is returned inline to the caller, nothing persisted.
+ * are declared — beside the arguments its caller passes, and list the records
+ * among them a call may lay unsaved edits over, its {@link drafts}. It is
+ * still no node of the dataflow: it has no output, nothing reruns when an
+ * input changes, and its result is returned inline to the caller, nothing
+ * persisted.
  *
  * @typeParam Args - The East types of the arguments a caller passes
  * @typeParam Output - The East type of the return value
+ * @typeParam Drafted - Whether it lists a record in {@link drafts}, as its
+ *   type says it: `false` for none, `true` for at least one, and `boolean`
+ *   where its declaration does not say. What binds a function to a page reads
+ *   it, since a call of a function that lists a record takes drafts and a
+ *   call of one that lists none does not. It is a flag, and not the listed
+ *   records' types, so that the type of a definition a module exports is one
+ *   its declaration file can write: `FunctionDef<[StringType], IntegerType, true>`.
+ *   It is declared `out`: a definition that says is one that does not say,
+ *   and never the reverse, which TypeScript does not work out for itself
+ *   from a flag read only where {@link drafts} is typed by it
  */
 export interface FunctionDef<
   Args extends readonly EastType[] = readonly EastType[],
   Output extends EastType = EastType,
+  out Drafted extends boolean = boolean,
 > {
   readonly kind: 'function';
   /** Function name (unique within the package) */
@@ -243,9 +302,17 @@ export interface FunctionDef<
   /** The function, as its IR bundle: its parameters are the inputs' types,
    *  in {@link inputs} order, then the arguments'. */
   readonly body: IRBundle | AsyncIRBundle;
-  /** The datasets a call reads from the workspace it runs in, each pinned at
-   *  its hash when the call launches; empty for a function that reads none. */
-  readonly inputs: readonly DatasetDef[];
+  /** What a call reads from the workspace it runs in — each a dataset, or an
+   *  index of a record — each dataset pinned at its hash when the call
+   *  launches; empty for a function that reads none. */
+  readonly inputs: readonly InputDef[];
+  /** The records a call may pass drafts of — calls of a record's mutations
+   *  that are not committed, laid over it for that call alone — each once,
+   *  and each a record one of the {@link inputs} reads, itself or by an index
+   *  of it; empty for a function that takes none. */
+  readonly drafts: [Drafted] extends [true] ? readonly [RecordDef, ...RecordDef[]]
+    : [Drafted] extends [false] ? readonly []
+    : readonly RecordDef[];
   /** The types of the arguments a caller passes, after the inputs. */
   readonly argTypes: Args;
   /** Return type */
@@ -320,6 +387,11 @@ export interface RecordDef<
  * @typeParam IK - The index key an entry sorts under
  * @typeParam P - The covering projection's type (`NullType` when there is none)
  * @typeParam On - The row fields in index order, or undefined for a computed key
+ * @typeParam Carried - What its entries carry as its record builds it
+ *   (`builtIndex`): `P`, except that beside a nested series index or an
+ *   entries index of the record an index that carries nothing, or the row,
+ *   carries the lean row, typed as the row. What a body's parameter for the
+ *   index, and its readers' reads, are typed by
  */
 export interface RecordIndexDef<
   Name extends string = string,
@@ -327,6 +399,7 @@ export interface RecordIndexDef<
   IK extends EastType = EastType,
   P extends EastType = EastType,
   On extends readonly string[] | undefined = readonly string[] | undefined,
+  Carried extends EastType = P,
 > {
   readonly kind: 'recordIndex';
   /** Index name — unique on the record, and never `primary`, which names the
@@ -413,7 +486,7 @@ export interface RecordIndexDef<
   readonly entries?: {
     readonly field: string;
     readonly lean: { toIR(): unknown };
-    readonly rows: RecordIndexDef;
+    readonly rows: RecordIndexDef<string, T>;
   } | undefined;
   /** `(K, V) -> IK`, or `(K, V) -> Set<IK>` when {@link multi} — or, for a
    *  summary, `(K, V) -> Dict<IK, Totals>`, and for a nested series index or an
@@ -435,6 +508,10 @@ export interface RecordIndexDef<
   readonly keyType: IK;
   /** `P`; `NullType` when the index carries no value. */
   readonly valueType: P;
+  /** Its types that no property of it holds, for TypeScript alone: never set.
+   *  `carried` is what its entries carry as its record builds it, which its
+   *  own declaration cannot say: it turns on the record's other indexes. */
+  readonly types?: { readonly carried: Carried };
   /** Runtime the index's functions run on; defaults to DEFAULT_RECORD_RUNNER, east-c. */
   readonly runner: Runner;
 }

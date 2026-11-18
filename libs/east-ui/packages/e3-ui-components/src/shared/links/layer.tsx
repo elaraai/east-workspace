@@ -21,7 +21,8 @@
  *
  * What a host may add, unused unless it opts in: a SELECTED link, its caption
  * outlined, carrying a × in its own 16px target whose pointer-down is stopped
- * (never a drag) and whose click unlinks (A68); a link DRAG's preview — the
+ * (never a drag) and whose click unlinks (A68) — or several selected at once,
+ * each outlined and none with a × (#1541, U10); a link DRAG's preview — the
  * moved link faded to its `was` line, and the new line to the pointer (A69);
  * a GRIP on a link's line and its caption, the host's component drawn in their
  * place to spread its drag handle on them (`grip`, A69); thin GUIDES from the
@@ -33,7 +34,11 @@
  * rings the ends itself (`halo={false}`), as the Allocation rings its bin card
  * and its resource's load bar (A67). The preview and the guides follow the
  * pointer wherever it is, so the bounds' clip does not cut them: the host's box
- * does, and they draw over the captions.
+ * does, and they draw over the captions. And boxes the links stand back from
+ * (`standBack`, #1680's review): the labels of the elements under them, each
+ * with the room its element pads it with, as the host's model lays them out,
+ * cut out of every link's casing and ink — so a run-out, a turn or a lane
+ * passing a bar never hides its label. The captions are not cut.
  *
  * Its measures are the links' look's (`look.ts`), which the Schematic's
  * Canvas2D painter (`canvas.ts`, #1403) draws with too.
@@ -113,6 +118,9 @@ export interface LinkGripProps {
     render: (handle: LinkGripHandle) => ReactNode;
 }
 
+/** No link selected. */
+const NO_PICK: readonly number[] = [];
+
 /** What the layer draws. */
 export interface LinksLayerProps {
     /** The routed links, in drawing order. */
@@ -126,8 +134,11 @@ export interface LinksLayerProps {
     clip: { left: number; width: number };
     /** What the hit area of a link carries beyond its geometry: its attributes and its click. */
     hit: (ribbon: LinkRibbon) => SVGProps<SVGPathElement>;
-    /** The selected link (A68): its caption outlined, with a × that unlinks. */
-    selected?: number | undefined;
+    /**
+     * The selected link (A68): its caption outlined, with a × that unlinks — or the selected links, several at once
+     * (#1541, U10): each drawn selected, and none with a ×, which is one link's control.
+     */
+    selected?: number | readonly number[] | undefined;
     /** Unlinks a link: the selected caption's ×. */
     onUnlink?: ((id: number) => void) | undefined;
     /** The ×'s words for a link (`Unlink LD-2210 · Delete`). */
@@ -150,6 +161,20 @@ export interface LinksLayerProps {
     onLit?: ((id: number | null) => void) | undefined;
     /** Whether the layer rings a lit link's ends itself (true by default); a host that rings them passes false. */
     halo?: boolean | undefined;
+    /**
+     * The boxes the links stand back from (#1680's review), in the layer's coordinates — the labels of the elements under
+     * them, each with the room its element pads it with, as the host's model lays them out. Every link's casing and ink is
+     * cut out of them; the captions are not. Omitted, nothing is cut.
+     */
+    standBack?: readonly LinkBox[] | undefined;
+}
+
+/** A box in the layer's coordinates. */
+export interface LinkBox {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
 }
 
 /** The halo round an end a lit link joins — 1px, four outside it as it draws; in view only. */
@@ -162,10 +187,11 @@ function EndHalo({ end, side }: { end: RibbonEnd; side: "from" | "to" }) {
     );
 }
 
-/** A link's casing — the paper either side of its band and round its heads; it carries the link's tone, for a host that outlines one. */
-function Casing({ r }: { r: LinkRibbon }) {
+/** A link's casing — the paper either side of its band and round its heads; it carries the link's tone, for a host that
+ *  outlines one, and the mask that cuts what the links stand back from, when there is one. */
+function Casing({ r, mask }: { r: LinkRibbon; mask?: string | undefined }) {
     return (
-        <g data-plan-ribbon-casing={r.id} data-tone={r.tone}>
+        <g data-plan-ribbon-casing={r.id} data-tone={r.tone} mask={mask}>
             <path data-plan-casing="band" d={r.stroke} strokeWidth={r.width + 2 * CASING} />
             <path data-plan-casing="head" d={r.head} />
             {r.tail !== "" && <path data-plan-casing="head" d={r.tail} />}
@@ -204,7 +230,11 @@ function fitKnockouts(svg: SVGSVGElement | null, left: number, right: number): v
  */
 export function LinksLayer({
     ribbons, edgeSlots = [], width, height, clip, hit, selected, onUnlink, unlinkLabel, preview, guides = [], caption, grip: Grip, lights = true, onLit, halo = true,
+    standBack,
 }: LinksLayerProps): ReactNode {
+    // The selected links: each drawn selected; one alone carries its ×.
+    const picked = selected === undefined ? NO_PICK : typeof selected === "number" ? [selected] : selected;
+    const lone = picked.length === 1 ? picked[0] : undefined;
     // The link under the pointer — lit, drawn over the others, its ends haloed.
     const [lit, setLit] = useState<number | null>(null);
     // A lit link that is gone (the focus moved on) lights nothing, nor one while the layer lights nothing.
@@ -237,7 +267,11 @@ export function LinksLayer({
     }, []);
     // Nothing of the layer leaves the bounds: the routes keep inside them, and
     // the clip takes what a halo or a casing would carry over their edge.
-    const clipId = `plan-links-${useId().replace(/[^\w-]/g, "")}`;
+    const layerId = useId().replace(/[^\w-]/g, "");
+    const clipId = `plan-links-${layerId}`;
+    const maskId = `plan-links-standback-${layerId}`;
+    // Each link's casing and ink stand back from the boxes the host gives.
+    const cut = standBack !== undefined ? `url(#${maskId})` : undefined;
     if (ribbons.length === 0 && edgeSlots.length === 0 && preview?.line === undefined && guides.length === 0) return null;
     // The lit link last: its casing and ink over every other link's.
     const ordered = lit === null ? ribbons
@@ -252,7 +286,7 @@ export function LinksLayer({
     const captionOf = (r: LinkRibbon, handle: LinkGripHandle) => {
         const { title, ...takes } = caption?.(r) ?? {};
         return (
-            <g key={`label-${r.id}`} data-plan-ribbon-label={r.id} data-tone={r.tone} data-selected={selected === r.id ? "" : undefined}
+            <g key={`label-${r.id}`} data-plan-ribbon-label={r.id} data-tone={r.tone} data-selected={picked.includes(r.id) ? "" : undefined}
                 data-lit={caption !== undefined && lit === r.id ? "" : undefined}
                 {...(caption === undefined ? {} : {
                     ...takes, ...handle,
@@ -271,6 +305,16 @@ export function LinksLayer({
                 <clipPath id={clipId}>
                     <rect x={clip.left} y={0} width={Math.max(0, clip.width)} height={height} />
                 </clipPath>
+                {/* What the links stand back from: the layer kept, each box cut. A mask's white and black are its
+                    luminance — kept and cut — never a colour of the theme's. */}
+                {standBack !== undefined && (
+                    <mask id={maskId} data-plan-standback-mask="" maskUnits="userSpaceOnUse" x={0} y={0} width={width ?? 0} height={height}>
+                        <rect x={0} y={0} width={width ?? 0} height={height} fill="white" />
+                        <g data-plan-standback="" fill="black">
+                            {standBack.map((b, i) => <rect key={i} x={b.x} y={b.y} width={b.width} height={b.height} />)}
+                        </g>
+                    </mask>
+                )}
             </defs>
             <g data-plan-clip clipPath={`url(#${clipId})`}>
                 {/* An end past the window lands in a dashed slot as tall as its
@@ -283,13 +327,14 @@ export function LinksLayer({
                     );
                 })}
                 {/* Every link's casing, under every link's ink — the lit link's
-                    comes with it, over the rest. */}
-                {ordered.map((r) => (r.id === lit ? null : <Casing key={`casing-${r.id}`} r={r} />))}
+                    comes with it, over the rest — each standing back from the
+                    boxes it is given. */}
+                {ordered.map((r) => (r.id === lit ? null : <Casing key={`casing-${r.id}`} r={r} mask={cut} />))}
                 {ordered.map((r) => {
                     const isLit = lit === r.id;
                     return (
                         <g key={r.id} data-plan-link={r.id} data-plan-route={r.route} data-lit={isLit ? "" : undefined} data-tone={r.tone}
-                            data-selected={selected === r.id ? "" : undefined} data-was={preview?.was === r.id ? "" : undefined}>
+                            data-selected={picked.includes(r.id) ? "" : undefined} data-was={preview?.was === r.id ? "" : undefined} mask={cut}>
                             {isLit && <Casing r={r} />}
                             <path data-plan-ribbon-band d={r.stroke} strokeWidth={r.width} />
                             <path data-plan-ribbon-head d={r.head} data-plan-stub={r.to.off} />
@@ -331,7 +376,7 @@ export function LinksLayer({
             )}
             {/* The selected caption's × in its own target, just past its knockout: a control, not a link, so the
                 bounds' clip does not cut it where its caption sits by an edge. */}
-            {ribbons.map((r) => (selected === r.id && r.label !== undefined && onUnlink !== undefined ? (
+            {ribbons.map((r) => (lone === r.id && r.label !== undefined && onUnlink !== undefined ? (
                 <foreignObject key={`unlink-${r.id}`} data-plan-ribbon-unlink={r.id} x={r.lx} y={r.ly - KNOCKOUT_RISE - (UNLINK_SIZE - KNOCKOUT_H) / 2}
                     width={UNLINK_SIZE} height={UNLINK_SIZE}>
                     <chakra.button type="button" aria-label={unlinkLabel?.(r) ?? "Unlink"} title={unlinkLabel?.(r) ?? "Unlink"}

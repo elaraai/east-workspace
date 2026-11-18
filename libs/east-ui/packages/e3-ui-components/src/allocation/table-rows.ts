@@ -15,7 +15,7 @@
  */
 
 import { none, type option } from "@elaraai/east";
-import { dayKey, parseDay, type Day, type Slot } from "./model.js";
+import { compareDate, compareString, dayKey, parseDay, type Day, type Selection, type Slot } from "./model.js";
 import { DEFAULT_NOUNS, counted, lower, type Nouns } from "./nouns.js";
 
 /** What a row holds: nothing, a bin with an arrival, or a reservation. */
@@ -88,6 +88,20 @@ export function rowOfKey(key: string): { bin: string } | { lane: string; at: Dat
     const rest = key.slice("slot:".length), bar = rest.lastIndexOf("|");
     const at = bar < 0 ? undefined : parseDay(rest.slice(bar + 1));
     return at?.success === true ? { lane: rest.slice(0, bar), at: at.value } : undefined;
+}
+
+/**
+ * Whether a selection is a row's own (A44): its bin's, or — a free row — its slot's, by the lane and the slot's time,
+ * each through East's ordering (#1650): what the Table's row and the narrow layout's card are marked selected by.
+ *
+ * @param selection - The selection
+ * @param row - The row
+ * @returns Whether the selection is the row's own
+ */
+export function ownsRow(selection: Selection, row: TableRow): boolean {
+    if (selection.type === "bin") return row.bin !== undefined && compareString(row.bin, selection.id) === 0;
+    return selection.type === "slot" && row.kind === "free" && compareString(row.lane, selection.lane) === 0
+        && compareDate(row.slotAt, new Date(selection.at)) === 0;
 }
 
 /**

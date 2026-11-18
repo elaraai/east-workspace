@@ -9,12 +9,15 @@
  * COMPILED over a source the test holds. The same canvas
  * inline and paged, so a test states one behaviour and runs it on both:
  *
- * - inline, over a `State.bind` handle written through the `onUpdate`
- *   adapter — the host renders again with its latest value, as a `Reactive`
- *   would ({@link EditingCanvas.confirm});
+ * - inline, over a `State.bind` handle the canvas builder's `onApply` seam
+ *   commits to whole (`state-apply.test-utils.ts`) — the host renders again
+ *   with its latest value, as a `Reactive` would
+ *   ({@link EditingCanvas.confirm}). No page builds this arm: a Plan saves
+ *   through a record alone (#1541). It holds the session's protocol over a
+ *   source read whole and committed at once;
  * - paged, over a PINNED source — the only windowed kind a canvas edits —
  *   the presses' record on e3 itself (#1375), read with `Data.bindPaged` and
- *   saved with `Record.onApply` through its patch door: e3 commits each Save
+ *   saved through its patch door, as a Plan's `record` saves: e3 commits each Save
  *   as a new revision, which the source reads once the test lets the reads
  *   after it land ({@link EditingCanvas.confirm}). A file whose canvases are
  *   paged calls {@link canvasHarness} once, at its top.
@@ -26,8 +29,8 @@
 import { useMemo, type ReactNode } from "react";
 import { fireEvent, render, waitFor, within, type RenderResult } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
-import { BooleanType, East, StringType, decodeBeast2For, encodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
-import { DragEventType, Editing, State } from "@elaraai/east-ui/internal";
+import { East, OptionType, StringType, decodeBeast2For, encodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { Editing, State } from "@elaraai/east-ui/internal";
 import { Data, Plan, Record } from "@elaraai/e3-ui/internal";
 import * as records from "@elaraai/e3-ui/examples/plan/plan-records";
 import { system, getRegisteredPlatformImplementations, DragLayerProvider, useDragSourceItem } from "@elaraai/east-ui-components";
@@ -40,6 +43,7 @@ import { act } from "../test-runs.test-utils.js";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanEventRows } from "./root/events.js";
 import { rowKey, rowSel } from "./plan.test-utils.js";
+import { stateApply } from "./state-apply.test-utils.js";
 
 // ── The canvas's data ───────────────────────────────────────────────────────
 
@@ -104,10 +108,12 @@ const READY = East.function([Press, StringType], Editing.Types.Readiness, ($, pr
 
 /** A drop vetted by the canvas: a job lands on Press 1 alone. */
 const PRESS_1_ROW = rowKey("p1", PRESSES);
-const ONLY_PRESS_1 = East.function([DragEventType], BooleanType, ($, event) => {
-    const allowed = $.let(false);
-    $.match(event, { add: ($2, add) => { $2.assign(allowed, add.into.row.equal(PRESS_1_ROW)); } });
-    return allowed;
+const ONLY_PRESS_1 = East.function([Plan.Types.Candidate], OptionType(StringType), ($, candidate) => {
+    const said = $.let(some("A job lands on Press 1 alone"), OptionType(StringType));
+    $.match(candidate.gesture, { add: ($2) => {
+        $2.match(candidate.row, { some: ($3, row) => { $3.if(East.print(row).equal(PRESS_1_ROW), ($4) => { $4.assign(said, none); }); } });
+    } });
+    return said;
 });
 
 // ── The presses on e3 ───────────────────────────────────────────────────────
@@ -195,17 +201,16 @@ function compileCanvas(o: Resolved): () => PlanRootValue {
             const presses = $.const(State.bind([Presses], STATE_KEY, o.seed));
             return Plan.Root({
                 axis, data: presses, series, ...chrome,
-                ...(o.editing ? { editing: { onUpdate: presses.write, ...ready } } : {}),
+                ...(o.editing ? { editing: { onApply: stateApply(Presses, STATE_KEY, presses), ...ready } } : {}),
             });
         })
         : East.function([], Plan.Types.Root, ($) => {
             // The presses' record on e3: read a window at a time, pinned, and saved through its patch door.
             const presses = $.const(Record.bind(records.planPresses, ["patch"]));
             const source = $.const(Data.bindPaged(records.planPresses));
-            const onApply = $.const(Record.onApply(presses, { keyed: true }));
             return Plan.Root({
                 axis, data: source, series, ...chrome,
-                ...(o.editing ? { editing: { onApply, ...ready } } : {}),
+                ...(o.editing ? { editing: { record: presses, ...ready } } : {}),
             });
         });
     return East.compile(program, getRegisteredPlatformImplementations()) as () => PlanRootValue;

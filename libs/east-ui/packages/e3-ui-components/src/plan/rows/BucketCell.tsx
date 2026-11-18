@@ -4,8 +4,9 @@
  */
 
 /**
- * A bucket cell (#1267): its lane caption, its tiles and its marker — the
- * tiles folded to the room the caption leaves them, their own box's (#1266).
+ * A bucket cell (#1267): its tiles and its marker — the tiles folded to the
+ * room the cell gives them, their own box's (#1266). A lane's caption is its
+ * gutter line's, never the cell's (#1680's review).
  * A cell with more than one tile shows the tiles that fit, in their order and
  * each drawn whole, then a `+n` chip that counts the rest: a button whose
  * anchored menu lists them by name. A pick selects the tile, as its click does
@@ -76,8 +77,6 @@ export interface BucketCellProps {
     readonly place: Readonly<CSSProperties>;
     /** Its marker's status — the ring — when it has one. */
     readonly over: string | undefined;
-    /** Its lane caption, drawn first. */
-    readonly caption: ReactNode;
     /** Its tiles, in order. */
     readonly tiles: readonly BucketCellTile[];
     /** Its marker's corner icon, drawn last. */
@@ -103,11 +102,11 @@ const noSubscribe = () => () => undefined;
 /**
  * A bucket cell — see the module docs.
  *
- * @param props - The cell's place, its caption, tiles and marker, whether it folds, and its words
+ * @param props - The cell's place, its tiles and marker, whether it folds, and its words
  * @returns The cell
  */
 export function BucketCell(props: BucketCellProps) {
-    const { styles, rowKey, cellKey, place, over, caption, tiles, marker, folds, frac, bucket, lane, words, onClick, signature } = props;
+    const { styles, rowKey, cellKey, place, over, tiles, marker, folds, frac, bucket, lane, words, onClick, signature } = props;
     const geometry = usePlanGeometry();
     const boxRef = useRef<HTMLDivElement | null>(null);
     const chipRef = useRef<HTMLButtonElement | null>(null);
@@ -228,8 +227,7 @@ export function BucketCell(props: BucketCellProps) {
             style={place}
             onClick={onClick}
         >
-            {caption}
-            {/* The tiles, in the room the caption leaves them: a tile's floor is that room's (#1266). */}
+            {/* The tiles, in the room the cell gives them: a tile's floor is that room's (#1266). */}
             <Box ref={boxRef} css={styles.cellTiles} data-plan-cell-tiles=""
                 data-tile-measure={folds && measuring ? "" : undefined}>
                 {tiles.map((tile, i) => tile.draw(shown !== undefined && !shown.has(i)))}
@@ -248,7 +246,7 @@ export function BucketCell(props: BucketCellProps) {
                                 data-no-room={noRoom ? "" : undefined}
                                 // In the row's walk where the tiles it folds would be (#819).
                                 data-plan-frac={frac.toFixed(4)} tabIndex={-1}
-                                aria-label={words.m.tileMoreLabel({ n: folded.length, count: words.number(folded.length), bucket, lane })}
+                                aria-label={words.m.tileMoreLabel({ n: folded.length, count: words.number(folded.length), bucket, lane, every: folded.length === tiles.length })}
                                 onClick={stop}>
                                 <span data-tile-more-count="">{words.m.tileMore({ n: folded.length, count: words.number(folded.length) })}</span>
                             </chakra.button>

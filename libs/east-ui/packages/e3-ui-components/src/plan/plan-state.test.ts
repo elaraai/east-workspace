@@ -256,6 +256,20 @@ describe('planReducer', () => {
             const { state } = run(focused, { t: "grain.set", grain: "group" });
             expect(state.focus).toBeNull();
         });
+
+        it('a links focus opens the band its other rows fold into, and folds it again; another row\'s focus starts it folded; under no links focus it does nothing (#1680\'s review)', () => {
+            const on = run(init(), { t: "focus.links", key: "p214" }).state;
+            const open = run(on, { t: "focus.others" }).state;
+            expect(open.focus).toEqual({ kind: "links", key: "p214", others: true });
+            expect(run(open, { t: "focus.others" }).state.focus).toEqual({ kind: "links", key: "p214", others: false });
+            expect(run(open, { t: "focus.links", key: "p208" }).state.focus).toEqual({ kind: "links", key: "p208" });
+            // Esc returns, whatever the band.
+            expect(run(open, { t: "key", key: "esc" }).state.focus).toBeNull();
+            const expand = run(init(), { t: "focus.expand", key: "r1" }).state;
+            expect(planReducer(expand, { t: "focus.others" }).state).toBe(expand);
+            const idle = init();
+            expect(planReducer(idle, { t: "focus.others" }).state).toBe(idle);
+        });
     });
 
     // NO cursor state: the hover hairline + ruler chip are DOM chrome written
@@ -341,6 +355,17 @@ describe('planStoreReducer (#610)', () => {
             expect(out.ui.focus).toEqual({ kind: "expand", key: "r1" });
             expect(out.ui.chartsExpanded.has("c1")).toBe(true);
             expect(out.ui.collapsed.has("g1")).toBe(true);
+        });
+
+        it('a links focus keeps the band its other rows fold into open across a data commit (#1680\'s review)', () => {
+            let s = store0();
+            s = event(s, { t: "focus.links", key: "r1" });
+            s = event(s, { t: "focus.others" });
+            const out = act(s, {
+                t: "reconcile", complete: true, alive: keys("g1", "r1"),
+                declaredCollapsed: keys("g1"), declaredGrain: "resource",
+            });
+            expect(out.ui.focus).toEqual({ kind: "links", key: "r1", others: true });
         });
 
         it('drops selection / focus / collapse / chart entries for vanished rows', () => {

@@ -64,22 +64,26 @@
  */
 
 import {
-    ArrayType, AsyncFunctionType, BlobType, DictType, East, Expr, FloatType, OptionType, PatchType, SetType, StringType, StructType,
-    defaultValue, isImmutableType, isTypeEqual, none, printType, some, toEastTypeValue, variant,
+    ArrayType, BlobType, DictType, East, FloatType, OptionType, SetType, StringType, StructType,
+    defaultValue, isImmutableType, isTypeEqual, none, some, toEastTypeValue, variant,
     type EastType, type ExprType, type FunctionType, type ImmutableType, type SubtypeExprOrValue, type VariantType,
 } from "@elaraai/east";
-import { resolveRowSource, type FieldHints } from "@elaraai/east-ui/internal";
-import { RecordOutcomeType } from "../bind/record.js";
+import type { FieldHints } from "@elaraai/east-ui/internal";
 import type { ScheduleStatusCasesOf, ScheduleStatusField } from "../schedule/events.js";
-import { checkKeyField, fieldOf, keyFieldRef, keyFieldSlots, keyFieldValue, type FieldName, type FieldsOf, type KeyField } from "../schedule/fields.js";
+import {
+    fieldOf, keyFieldRef, keyFieldRole, keyFieldSlots,
+    type FieldName, type FieldsOf, type KeyEndField, type KeyEndOf, type KeyFieldRole,
+} from "../schedule/fields.js";
 import { scheduleNewValues, type ScheduleNewValues } from "../schedule/values.js";
 import { checkEntries, optionOf, typeText } from "../schedule/window.js";
 import {
-    accessorRole, called, checkMadeKeys, fieldTypeOf, keyBuilderOf, kindSourceRows, kindWholeRows, readOf, recordSide, roleField, rowWith, rowsReadOf,
+    accessorRole, called, checkMadeKeys, fieldTypeOf, keyBuilderOf, kindBinding, kindSourceRows, kindWholeRows, linkEndFields, linkEndsWriter, readOf, recordSide,
+    roleField, rowWith, rowsReadOf,
     storedRows, valuesTypeOf,
     type KindAccessor as Accessor, type KindBinding, type KindKeyBuilder, type KindRowInspector as RowInspector, type RecordSide,
 } from "../utils/record-kind.js";
 import { checkedSchematicTemplates, isSchematicTemplates, type SchematicTemplates } from "./templates.js";
+import { templateValues } from "../schedule/templates.js";
 import {
     SchematicDetailsEntryType, SchematicDetailsRolesType, SchematicKindDetailsType, SchematicEndsType, SchematicGeometryType, SchematicItemEntryType,
     SchematicItemKindType, SchematicItemType, SchematicLinkEntryType, SchematicLinkKindType, SchematicLinkStyleType, SchematicLinkType,
@@ -111,25 +115,19 @@ export type SchematicViaField<R extends StructType> = FieldsOf<R, ArrayType<Sche
  */
 export type SchematicMembersField<R extends StructType> = FieldsOf<R, SetType<ImmutableType> | ArrayType<ImmutableType>>;
 
-/** Whether a variant's cases are an Option's. */
-type IsOption<C> = "none" extends keyof C ? ("some" extends keyof C ? true : false) : false;
-
 /**
  * A field naming a link's end (#1549): a field of a type a Dict may be keyed
  * by, holding a key of one item slot, or a variant holding a key of the item
  * slot its case names — never an Option: a link has both its ends.
  */
-export type SchematicEndField<R extends StructType> = {
-    [F in FieldName<R>]: R["fields"][F] extends VariantType<infer C> ? (IsOption<C> extends true ? never : F)
-        : R["fields"][F] extends ImmutableType ? F : never
-}[FieldName<R>];
+export type SchematicEndField<R extends StructType> = KeyEndField<R>;
 
 /**
  * What a link's end's `of` takes (#1549): the item slot its field holds keys of — or, for a variant field, a slot per
  * case, each case holding a key of the slot it names. It decides the end's shape: a variant field naming one slot holds
  * that slot's keys whole.
  */
-export type SchematicEndOf<T> = T extends VariantType<infer C> ? string | { readonly [K in keyof C]: string } : string;
+export type SchematicEndOf<T> = KeyEndOf<T>;
 
 /** The status a variant field shows: the field, and a Status per case. */
 export interface SchematicStatusConfig<R extends StructType, SF extends string> {
@@ -174,47 +172,15 @@ const FORMS = "Record.bind(record), its record declaring patch: mutation.patch()
  *   window or one naming no snapshot, and a `Record.bind` without its patch door
  */
 function boundOf(record: unknown, where: string): KindBinding {
-    const refuse = (why: string): never => { throw new Error(`${where}: \`record\` is the app's record, bound — ${FORMS}${why}`); };
-    if (!(record instanceof Expr)) return refuse("");
-    const type = Expr.type(record) as EastType;
-    const fields = type.type === "Struct" ? type.fields as Record<string, EastType> : undefined;
-    if (fields === undefined) return refuse(` — and this is ${printType(type)}`);
-    let form: KindBinding["form"];
-    let recordType: EastType | undefined;
-    if (fields["page"] !== undefined) {
-        form = "paged";
-        if (fields["indexes"] !== undefined) {
-            return refuse(" — and this paged read serves the record's indexes: bind its own entries, Data.bindPaged(record), and name the indexed read " +
-                "as the kind's source of the slice");
-        }
-        const resolved = resolveRowSource(record, where);
-        if (resolved.kind !== "paged") {
-            return refuse(" — and this paged read serves an index's window: bind the record's own entries, Data.bindPaged(record)");
-        }
-        recordType = resolved.collectionType;
-    } else {
-        form = fields["mutate"] !== undefined ? "record" : "data";
-        const read = fields["read"];
-        if (read === undefined || read.type !== "Function" || read.inputs.length !== 0 || fields["binding"] === undefined) return refuse("");
-        recordType = read.output as EastType;
-    }
-    if (recordType.type !== "Dict" || (recordType.value as EastType).type !== "Struct") {
-        throw new Error(`${where}: a Schematic kind's record holds its entities by key, each a struct — and this one holds ${typeText(recordType)}`);
-    }
-    const rowType = recordType.value as StructType;
-    if (form === "paged") {
-        // A paged read of the record's own entries, at the snapshot every read of it is at, keyed as the record is.
-        checkEntries(record, recordType.key as EastType, rowType, `${where}: \`record\``);
-    }
-    if (form === "record") {
-        // The patch door: the record's mutation.patch(), the mutation named `patch` taking the record's patch.
-        const commit = fields["commit"];
-        const door = commit?.type === "Struct" ? (commit.fields as Record<string, EastType>)["patch"] : undefined;
-        if (door === undefined || !isTypeEqual(door, AsyncFunctionType([StringType, PatchType(recordType)], RecordOutcomeType))) {
-            throw new Error(`${where}: \`record\` is bound without its patch door — ${FORMS}`);
-        }
-    }
-    return { form, handle: record as ExprType<EastType>, keyType: recordType.key as EastType, rowType };
+    return kindBinding(record, where, {
+        refuse: (why) => `${where}: \`record\` is the app's record, bound — ${FORMS}${why}`,
+        indexes: " — and this paged read serves the record's indexes: bind its own entries, Data.bindPaged(record), and name the indexed read " +
+            "as the kind's source of the slice",
+        window: " — and this paged read serves an index's window: bind the record's own entries, Data.bindPaged(record)",
+        rows: (holds) => `${where}: a Schematic kind's record holds its entities by key, each a struct — and this one holds ${holds}`,
+        paged: `${where}: \`record\``,
+        door: `${where}: \`record\` is bound without its patch door — ${FORMS}`,
+    });
 }
 
 /**
@@ -740,10 +706,7 @@ export function schematicItems<R extends StructType, X extends SchematicPlaceFie
     // A new row at a position, every other field from a template's values, or its type's default.
     const blank = East.value(defaultValue(ValuesType) as never, ValuesType) as ExprType<EastType>;
     const create = East.function([OptionType(SchematicPointType), OptionType(BlobType)], OptionType(BlobType), ($, position, values) => {
-        const given = $.const(values.match({
-            some: (_$2, bytes) => bytes.decodeBeast(ValuesType, "v2") as ExprType<EastType>,
-            none: (_$2) => blank,
-        }) as ExprType<EastType>);
+        const given = $.const(templateValues(values, ValuesType, (_$2) => blank));
         return placed(given, position) as never;
     });
 
@@ -939,15 +902,7 @@ export function schematicZones<R extends StructType, K extends EastType = String
  * its field, and for each item slot it holds keys of, the key it holds, which
  * `<Schematic>` checks against that slot's key type.
  */
-export interface SchematicKeyRole {
-    /** The field. */
-    readonly field: string;
-    /**
-     * Each item slot it holds keys of, in order: the slot, the key's type — the field's own, a case's, or a side's
-     * element — and the case holding it, for an end with a slot per case.
-     */
-    readonly slots: readonly { readonly slot: string; readonly key: EastType; readonly case: string | undefined }[];
-}
+export type SchematicKeyRole = KeyFieldRole;
 
 /**
  * A link's end: the field holding the key of the item it joins, and the item
@@ -1080,29 +1035,10 @@ export function schematicLinks<R extends StructType, FF extends SchematicEndFiel
     const where = `Schematic.links: "${config.name}"`;
     const bound = boundOf(record, where);
     const rowType = bound.rowType;
-    const fields = rowType.fields as Record<string, EastType>;
-    const typeOf = fieldTypeOf(rowType, where);
     const entries = entriesOf(bound, config.entries, where);
     if (typeof config.icon !== "string") throw new Error(`${where}: \`icon\` is a Font Awesome solid icon's name`);
-    const end = (prop: "from" | "to", given: { field: string; of: unknown } | undefined): KeyField => {
-        if (given === undefined || typeof given.field !== "string") throw new Error(`${where}: \`${prop}\` is { field, of } — the field holding an item's key, and the item slot it holds keys of`);
-        const checked = checkKeyField(given.field, typeOf(`${prop}.field`, given.field), given.of, { where, prop, noun: "item" });
-        if (checked.optional) {
-            throw new Error(`${where}: a link has both its ends — \`${prop}.field\` names a field holding an item's key, or a variant holding one per case, ` +
-                `never an Option — and "${given.field}" holds ${typeText(fields[given.field]!)}`);
-        }
-        return checked;
-    };
-    const from = end("from", config.from as { field: string; of: unknown });
-    const to = end("to", config.to as { field: string; of: unknown });
-    if (from.field === to.field) throw new Error(`${where}: \`from\` and \`to\` both name "${from.field}" — a link's ends are two fields`);
-    // Each end as `<Schematic>` checks it against its slots' key types (#1549): the key it holds of each — the field's
-    // own, or its case's.
-    const roleOf = (checked: KeyField): SchematicKeyRole => ({
-        field: checked.field,
-        slots: checked.shape === "key" ? [{ slot: checked.of, key: checked.key, case: undefined }]
-            : checked.cases.map((c) => ({ slot: checked.of[c]!, key: checked.keys[c]!, case: c })),
-    });
+    // Its two ends, as every link kind over a record declares them (`linkEndFields`): each an item's key, or one per case.
+    const { from, to } = linkEndFields(rowType, config.from, config.to, { where, noun: "item", of: "the item slot" });
     const edge = edgeRoles(bound.keyType, rowType, where, config as never);
     const details = detailsOf(config.details, [], where, bound.keyType);
     const ValuesType = valuesTypeOf(rowType, [from.field, to.field]);
@@ -1115,8 +1051,6 @@ export function schematicLinks<R extends StructType, FF extends SchematicEndFiel
     checkMadeKeys(bound, keyBuilt, where, "links", "Connect makes one");
     const fromRef = keyFieldRef(from, rowType);
     const toRef = keyFieldRef(to, rowType);
-    const fromValue = keyFieldValue(from, fields[from.field]!);
-    const toValue = keyFieldValue(to, fields[to.field]!);
 
     const rolesOf = East.function([rowType, bound.keyType], SchematicLinkType, ($, row, key) => {
         const fromOf = $.const(fromRef);
@@ -1129,22 +1063,7 @@ export function schematicLinks<R extends StructType, FF extends SchematicEndFiel
     }) as unknown as ExprType<FunctionType<[EastType, EastType], EastType>>;
 
     // A row with its ends written from `ends`, every other field from `source`; `none` for an end of a slot the field holds no keys of.
-    const ended = ($: { const: (value: unknown) => unknown; let: (value: unknown, type?: EastType) => unknown; match: (value: unknown, arms: object) => void },
-        source: unknown, ends: ExprType<typeof SchematicEndsType>) => {
-        const fromOf = $.const(fromValue) as (ref: unknown) => ExprType<OptionType<EastType>>;
-        const toOf = $.const(toValue) as (ref: unknown) => ExprType<OptionType<EastType>>;
-        const result = $.let(East.value(none, OptionType(BlobType)), OptionType(BlobType)) as ExprType<OptionType<BlobType>> & { __assign?: never };
-        $.match(fromOf(some(ends.from)), {
-            some: ($2: { match: (value: unknown, arms: object) => void }, f: ExprType<EastType>) => {
-                $2.match(toOf(some(ends.to)), {
-                    some: ($3: { assign: (target: unknown, value: unknown) => void }, t: ExprType<EastType>) => {
-                        $3.assign(result, East.value(some(East.Blob.encodeBeast(rowWith(rowType, source, { [from.field]: f, [to.field]: t }), "v2")), OptionType(BlobType)));
-                    },
-                });
-            },
-        });
-        return result;
-    };
+    const ended = linkEndsWriter(rowType, from, to);
     const write = East.function([BlobType, SchematicEndsType], OptionType(BlobType), ($, bytes, ends) => {
         const row = $.const(bytes.decodeBeast(rowType, "v2"));
         return ended($ as never, row, ends) as never;
@@ -1153,14 +1072,11 @@ export function schematicLinks<R extends StructType, FF extends SchematicEndFiel
     // `values` of its ends, or its type's default.
     const blank = East.value(defaultValue(ValuesType) as never, ValuesType) as ExprType<EastType>;
     const create = East.function([SchematicEndsType, OptionType(BlobType)], OptionType(BlobType), ($, ends, values) => {
-        const given = $.const(values.match({
-            some: (_$2, bytes) => bytes.decodeBeast(ValuesType, "v2") as ExprType<EastType>,
-            none: ($2) => {
-                if (valuesOf === undefined) return blank;
-                const ownOf = $2.const(valuesOf);
-                return ownOf(ends as never) as ExprType<EastType>;
-            },
-        }) as ExprType<EastType>);
+        const given = $.const(templateValues(values, ValuesType, ($2) => {
+            if (valuesOf === undefined) return blank;
+            const ownOf = $2.const(valuesOf);
+            return ownOf(ends as never) as ExprType<EastType>;
+        }));
         return ended($ as never, given, ends) as never;
     });
 
@@ -1169,7 +1085,9 @@ export function schematicLinks<R extends StructType, FF extends SchematicEndFiel
         rowType,
         keyType: bound.keyType,
         name: config.name,
-        ends: { from: roleOf(from), to: roleOf(to) },
+        // Each end as `<Schematic>` checks it against its slots' key types (#1549): the key it holds of each — the
+        // field's own, or its case's.
+        ends: { from: keyFieldRole(from), to: keyFieldRole(to) },
         hasTemplates: templates !== undefined,
         templatesSource: templates?.source,
         build(slot, part, every = false) {
@@ -1388,14 +1306,11 @@ export function schematicNets<R extends StructType, SRC extends SchematicMembers
     // or its type's default.
     const blank = East.value(defaultValue(ValuesType) as never, ValuesType) as ExprType<EastType>;
     const create = East.function([SchematicSidesType, OptionType(BlobType)], OptionType(BlobType), ($, sidesOf, values) => {
-        const given = $.const(values.match({
-            some: (_$2, bytes) => bytes.decodeBeast(ValuesType, "v2") as ExprType<EastType>,
-            none: ($2) => {
-                if (valuesOf === undefined) return blank;
-                const ownOf = $2.const(valuesOf);
-                return ownOf(sidesOf as never) as ExprType<EastType>;
-            },
-        }) as ExprType<EastType>);
+        const given = $.const(templateValues(values, ValuesType, ($2) => {
+            if (valuesOf === undefined) return blank;
+            const ownOf = $2.const(valuesOf);
+            return ownOf(sidesOf as never) as ExprType<EastType>;
+        }));
         return sided($ as never, given, sidesOf) as never;
     });
 

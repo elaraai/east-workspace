@@ -244,9 +244,17 @@ export {
   recordIndexNames,
   appliedMigrations,
   resolveRecord,
+  recordOfPackage,
   recordLeafType,
+  recordHead,
+  recordDraftMutation,
+  recordLayDraft,
+  encodeMutationArgs,
+  decodeMutationArgs,
+  withSharedWorkspaceLock,
   RECORD_KEYS_REMEMBERED,
   type RecordRef,
+  type RecordDraftLaid,
   type RecordSystemCommitOptions,
   type RecordSystemCommitTarget,
   type RecordStateRefs,
@@ -280,6 +288,10 @@ export {
   readManifest,
   openDatasetObject,
   readDatasetWhole,
+  inputObject,
+  taskInputRead,
+  readRecordStateObject,
+  recordIndexManifests,
 } from './dataset-open.js';
 
 // The store's door: the one way a collection reaches the object store, from a

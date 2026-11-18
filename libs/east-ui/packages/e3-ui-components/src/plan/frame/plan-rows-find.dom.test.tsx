@@ -7,7 +7,8 @@
 
 /**
  * Search Records over the source of the rows a Plan pages (#1513), on e3 — the
- * works' `rows` source, and the work orders' paged resource kind's: the box finds
+ * works' `rows` source, and the work orders', read through their indexes, the
+ * resources their operations land on (#1541): the box finds
  * a row the rail hides, its line names the choices hiding it, and a pick clears
  * just those and goes to the row where the narrowing left holds it, in that
  * narrowing's index's order, its row taking the keyboard.
@@ -15,16 +16,18 @@
 
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
 import { fireEvent, waitFor } from "@testing-library/react";
-import { SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, none, printFor, variant, type ValueTypeOf } from "@elaraai/east";
-import { RecordSliceStateType } from "@elaraai/east-ui/internal";
+import { ArrayType, East, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, none, printFor, variant, type ValueTypeOf } from "@elaraai/east";
+import { Reactive, RecordSliceStateType, Slice, UIComponentType } from "@elaraai/east-ui/internal";
 import { getStore } from "@elaraai/east-ui-components/internal";
+import { Data, Plan } from "@elaraai/e3-ui/internal";
+import * as cs from "@elaraai/e3-ui/examples/calendar/calendar-scope";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-nested";
 import * as records from "@elaraai/e3-ui/examples/plan/plan-records";
 import * as sheet from "@elaraai/e3-ui/examples/sheet/sheet-records";
 import { boundFrame, frameScrolls } from "../../sheet/frame.test-utils.js";
 import { act, planHarness, settle, slot } from "./harness.test-utils.js";
 
-const h = planHarness({ "plan/plan-nested": ex, "plan/plan-records": records, "sheet/sheet-records": sheet });
+const h = planHarness({ "plan/plan-nested": ex, "plan/plan-records": records, "sheet/sheet-records": sheet, "calendar/calendar-scope": cs });
 const KEY = "ex.planNestedAll.rows";
 
 const decodeState = decodeBeast2For(RecordSliceStateType);
@@ -104,9 +107,47 @@ describe("Search Records over a Plan's rows source (#1513)", () => {
     });
 });
 
-describe("Search Records over a paged resource kind's source", () => {
-    /** The orders' source narrowing, as the rail holds it. */
-    const ordersNarrowing = () => [...decodeState(getStore().read("ex.planRecordIndexes.orders")!).where.keys()];
+/** The press runs' week. */
+const PRESS_WEEK = new Date("2026-10-01T00:00:00Z");
+/**
+ * Press 1's own page as a Plan over the press runs (#1621): its `rows` source the runs, scoped to the press and read
+ * through the index on exactly the press, whose key is the press — no field of the viewer's beside it.
+ */
+const pressRows = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const slice = $.let(Slice.bindRecords("spec.pressRows", {
+        rows: {
+            source: Data.bindPaged(cs.pressRuns, { indexes: ["press_runs_by_press", "press_runs_by_press_time"] }),
+            scope: { press: ["P-1"] }, label: "Runs", fields: {}, search: [],
+        },
+    }));
+    // Each run its own row's bar, where it is scheduled; an unscheduled run's from the week's start.
+    const series = $.const([Plan.series.span(cs.PressRun, {
+        key: "runs", title: "Runs", label: (r) => r.title, id: true,
+        runs: (r, k) => [Plan.run({
+            key: k, label: r.title, state: variant("confirmed", null),
+            start: r.start.match({ none: () => PRESS_WEEK, some: (_$, at) => at }), end: r.end.match({ none: () => PRESS_WEEK, some: (_$, at) => at }),
+        })],
+    })], ArrayType(Plan.Types.Series(cs.PressRun)));
+    const axis = $.const(Plan.axis({ window: { min: PRESS_WEEK, max: new Date("2026-10-08T00:00:00Z") }, resolution: "day" }));
+    return Plan({ axis, series, slice: { slice } });
+}))) };
+
+describe("Search Records over a scoped Plan's rows source (#1621)", () => {
+    test("lists the press's runs by their keys, which the query is asked of — never by the press the index they are read through names — and a pick puts the key in the box", async () => {
+        const { container: c } = await h.mount(pressRows);
+        await settle();
+        await paste(c, "r");
+        await waitFor(() => expect(lines(c)).toEqual(["r1", "r2", "r3", "r6", "r7"]), { timeout: 10_000 });
+        // Picked, the box holds the key: what its query is typed against, so typing on from it finds the run again.
+        fireEvent.keyDown(input(c), { key: "Enter" });
+        await settle();
+        await waitFor(() => expect(input(c).value).toBe("r1"));
+    });
+});
+
+describe("Search Records over the work orders' rows source, read through their indexes", () => {
+    /** The work orders' `rows` source's narrowing, as the rail holds it. */
+    const ordersNarrowing = () => [...decodeState(getStore().read("ex.planRecordIndexes.rows")!).where.keys()];
 
     test("finds an order the rail hides, names what hides it, and a pick clears that and goes to its row", async () => {
         const { container: c } = await h.mount(records.planRecordIndexes);

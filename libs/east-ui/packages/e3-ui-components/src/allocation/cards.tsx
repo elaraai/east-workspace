@@ -35,12 +35,12 @@ import { remainderOf, splitOf } from "./actions.js";
 import { useBinFocusTarget } from "./bin-focus.js";
 import { arrivalChoices, type ChoiceWords } from "./choices.js";
 import { binCode, matesOf, type InspectorWords, type Mate } from "./inspector-model.js";
-import { NarrowedEmpty } from "./narrowed.js";
+import { NarrowedEmpty, type AllocationNarrowed } from "./narrowed.js";
 import type { AllocationOptimised } from "./optimise.js";
 import { SplitPopover } from "./split.js";
 import { a, one, other, useNouns } from "./nouns.js";
 import { ChoiceCell, ChooserPopover, openKey, type ChoiceScene, type Open } from "./table.js";
-import { bandLine, narrowBands, rowStatus, tableBands, tableRows, type TableBand, type TableRow } from "./table-rows.js";
+import { bandLine, narrowBands, ownsRow, rowStatus, tableBands, tableRows, type TableBand, type TableRow } from "./table-rows.js";
 import type { TimelineFollow } from "./timeline.js";
 import {
     allocationWords, compareFloat, focusOf, partsOf, type AllocationStyles, type AllocationValue, type Bin, type Day, type FitAsk, type Load, type ResourceLine, type Selection, type Slot,
@@ -74,8 +74,8 @@ export interface CardsProps extends ChoiceScene {
     editable: boolean;
     /** The lanes the narrowing shows, by key; `none` for every one. */
     visibleLanes: option<Set<string>>;
-    /** Clears the narrowing, where nothing shows; `undefined` with no narrowing. */
-    clearFilters: (() => void) | undefined;
+    /** The sources a choice of the viewer's narrows, and its Clear filters, where nothing shows; `undefined` with no choice (#1621). */
+    narrowed: AllocationNarrowed | undefined;
     /** Books an arrival onto a resource at the day's first free slot (A36), as a drop on its row does. */
     bookOnto: (arrival: string, resource: string) => void;
     /**
@@ -153,8 +153,10 @@ function ResourceCards({ props, words }: { props: CardsProps; words: CardWords }
     // Selecting follows the selection (A12): the selected resource's card, or the card of the selected bin's resource.
     const focus = focusOf(props.selection, plan);
     const followed = focus === undefined ? -1 : keys.indexOf(focus);
-    // The narrowing's empty state only under a narrowing (#1398, CL13).
-    if (keys.length === 0) return <Box css={styles.cards} data-allocation-cards="timeline">{visibleResources.type === "some" && <NarrowedEmpty styles={styles} clear={props.clearFilters} />}</Box>;
+    // The narrowing's empty state only under a choice of the viewer's that narrows the resources (#1398, CL13): a page's
+    // scope that holds none leaves the cards empty, as a board with no resources does (#1621).
+    const { narrowed } = props;
+    if (keys.length === 0) return <Box css={styles.cards} data-allocation-cards="timeline">{narrowed?.resources === true && <NarrowedEmpty styles={styles} clear={narrowed.clear} />}</Box>;
     return <Box css={styles.cards} data-allocation-cards="timeline">
         <VirtualRows fillParent height={undefined} maxHeight={undefined} rootCss={styles.agenda} count={keys.length} getItemKey={getItemKey}
             estimateSize={() => 152} overscan={2} scrollToIndex={followed < 0 ? undefined : followed} scrollNonce={props.follow.nonce} scrollAlign="auto"
@@ -292,10 +294,10 @@ function RowCards({ props, words }: { props: CardsProps; words: CardWords }) {
     const board = allocationWords();
     // Selecting follows the selection (A12): the selected bin's or slot's card.
     const { selection } = props;
-    const followed = selection === undefined ? -1 : lines.findIndex(l => l.kind === "row" && ownRow(selection, l.row));
-    // The narrowing's empty state only under a narrowing (#1398, CL13).
-    const narrowed = visibleLanes.type === "some" || visibleResources.type === "some" || visibleArrivals.type === "some";
-    if (lines.length === 0) return <Box css={styles.cards} data-allocation-cards="table">{narrowed && <NarrowedEmpty styles={styles} clear={props.clearFilters} />}</Box>;
+    const followed = selection === undefined ? -1 : lines.findIndex(l => l.kind === "row" && ownsRow(selection, l.row));
+    // The narrowing's empty state only under a choice of the viewer's (#1398, CL13; a page's scope is none, #1621).
+    const { narrowed } = props;
+    if (lines.length === 0) return <Box css={styles.cards} data-allocation-cards="table">{narrowed !== undefined && <NarrowedEmpty styles={styles} clear={narrowed.clear} />}</Box>;
     return <Box css={styles.cards} data-allocation-cards="table">
         <VirtualRows fillParent height={undefined} maxHeight={undefined} rootCss={styles.agenda} count={lines.length} getItemKey={getItemKey}
             estimateSize={index => lines[index]!.kind === "band" ? 46 : 132} overscan={2} scrollToIndex={followed < 0 ? undefined : followed}
@@ -335,12 +337,6 @@ function UnreadRowCard({ styles, band, index, lines, read }: { styles: Allocatio
     </Box>;
 }
 
-/** Whether a selection is a row's own (A44): its bin, or its free slot. */
-function ownRow(selection: Selection, row: TableRow): boolean {
-    if (selection.type === "bin") return row.bin === selection.id;
-    return selection.type === "slot" && row.kind === "free" && row.lane === selection.lane && row.slotAt.getTime() === selection.at;
-}
-
 /**
  * A row's card: its lane and time, what it holds and its status, one button
  * that selects it; and its actions — a free slot's `Book…` and `Reserve…`, a
@@ -362,7 +358,7 @@ function RowCard({ props, words, row, open, setOpen }: { props: CardsProps; word
     const unallocated = parts.length > 0 && compareFloat(remainder, 0) > 0;
     const check = parts.some(part => { const l = props.lines.get(part.key); return l !== undefined && (l.over || l.overlap); });
     const status = rowStatus(row.kind, parts.length > 0, check, draft);
-    const selected = props.selection !== undefined && ownRow(props.selection, row);
+    const selected = props.selection !== undefined && ownsRow(props.selection, row);
     // A bin's card's head takes the keyboard a pick in Search Records gives the bin (#1398).
     const given = useBinFocusTarget<HTMLButtonElement>(row.bin);
     const lane = words.choice.lane(row.lane), time = formatDatePattern("HH:mm", row.at);

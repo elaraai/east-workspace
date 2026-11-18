@@ -72,6 +72,10 @@ export const rosterDays = e3.record("roster_rota_days", DictType(DateTimeType, W
 /** The cover targets, a row per slot: the week before's, this week's and the forecast's for the week after. */
 export const rosterCover = e3.record("roster_cover", DictType(StringType, WarehouseCover), {
     initial: warehouseCover,
+    indexes: (index) => ({
+        // The targets by their day: what the warehouse's optimiser reads a week of them through (#1622).
+        roster_cover_by_day: index.interval({ from: "day", to: "day" }),
+    }),
     mutations: (mutation) => ({
         patch: mutation.patch(),
     }),
@@ -143,23 +147,122 @@ export const rosterPatterns = e3.record("roster_week_patterns", DictType(StringT
 });
 
 
-/** The warehouse's fit's body: the ready-made rule, then a greedy order — the people off that day with the most spare contract hours first, whatever their group. */
-export const rosterStaffFitBody = East.function([Roster.Types.FitRequest(WarehouseDuty)], Roster.Types.FitResult, ($, req) => {
-    const answer = $.const(Roster.answer(WarehouseDuty));
-    const rule = $.const(Roster.fit(WarehouseDuty));
-    const weekHours = $.const(Roster.weekHours(WarehouseDuty));
-    // Every person's hours this week, once: what is left of each one's contract ranks them.
-    const hours = $.const(weekHours(req.week, req.context));
-    return answer(req, East.function([Roster.Types.FitRequest(WarehouseDuty), Roster.Types.Person], Roster.Types.Fit, ($2, request, person) => {
-        const verdict = $2.const(rule(request, person));
+/**
+ * A person as the Roster reads one: the reading the page's `people` kind declares, written once more for a function
+ * that reads the staff itself (#1624).
+ */
+export const rosterPersonOf = East.function([WarehousePerson, StringType], Roster.Types.Person, (_$, p, key) => ({
+    key, name: p.name, group: p.team, position: p.position, skills: p.skills, contract: p.contract,
+    agency: p.agency, trainer: p.trainer, trainee: p.trainee, usual: p.usual,
+}));
+/**
+ * A duty's roles as the Roster reads them: the reading the page's duty kind declares, written once more for a function
+ * that reads the duties itself (#1624) — who, as a person or an agency's request, and the hours it counts, its length
+ * less its unpaid break.
+ */
+export const rosterDutyRoles = East.function([WarehouseDuty], Schedule.Types.RosterRoles, (_$, d) => ({
+    start: d.start, end: d.end,
+    resource: some(d.who.match({
+        staff: (_$2, key) => East.value({ kind: "people", key }, Schedule.Types.ResourceRef),
+        agency: (_$2, key) => East.value({ kind: "agencies", key }, Schedule.Types.ResourceRef),
+    })),
+    shift: d.shift, group: some(d.team), position: some(d.role), activity: d.task,
+    hours: d.start.durationMinutes(d.end).subtract(d.unpaidBreak).divide(60.0),
+}));
+
+/**
+ * The warehouse's fit, on e3: who fits a Find fix's need on its slot — the ready-made rule, then a greedy order: the
+ * people off that day with the most spare contract hours first, whatever their group. It is asked the need, the slot and
+ * the week's first day, and no row. It reads the holders of the need through the staff's indexes, so nobody else is
+ * asked about; the week's duties through their interval index, over the window the Roster reads them over, the Roster's
+ * unsaved duties among them; and the shifts, the teams, the positions and the activities from the warehouse's own records.
+ */
+export const rosterStaffFit = e3.function("roster_staff_fit", {
+    inputs: [
+        e3.index(rosterDuties.indexes.roster_duties_by_time), rosterDuties,
+        e3.index(rosterStaff.indexes.roster_staff_by_skill),
+        e3.index(rosterStaff.indexes.roster_staff_by_position),
+        e3.index(rosterStaff.indexes.roster_staff_by_trainer), rosterStaff,
+        rosterShiftTimes, rosterTeams, rosterPositions, rosterActivities,
+    ],
+    // The Roster's unsaved duties are laid over them, and over their index
+    drafts: [rosterDuties],
+    args: [Roster.Types.FitRequest],
+    output: Roster.Types.FitResult,
+}, ($, dutiesByTime, duties, bySkill, byPosition, byTrainer, staff, shiftRows, teamRows, positionRows, activityRows, request) => {
+    // Whom to ask about: the holders of the need, each read through its index. Nobody sent the staff.
+    const person = $.const(rosterPersonOf);
+    const people = $.let(new Map(), DictType(StringType, Roster.Types.Person));
+    $.match(request.need, {
+        skill: ($2, skill) => {
+            bySkill.of(skill).each($2, ($3, _carried, key) => { $3(people.insert(key, person(staff.get(key), key))); });
+        },
+        trainers: ($2) => {
+            byTrainer.of(true).each($2, ($3, _carried, key) => { $3(people.insert(key, person(staff.get(key), key))); });
+        },
+        leads: ($2) => {
+            $2.for(positionRows, ($3, position, code) => {
+                $3.if(position.lead, ($4) => {
+                    byPosition.of(code).each($4, ($5, _carried, key) => { $5(people.insert(key, person(staff.get(key), key))); });
+                });
+            });
+        },
+    });
+    // The week's duties, over the window the Roster reads them over. The index carries no row: it gives each duty's key,
+    // and the record its row, both at the one drafted state.
+    const roles = $.const(rosterDutyRoles);
+    const windowOf = $.const(Roster.window);
+    const span = $.const(windowOf(request.start));
+    const week = $.let(new Map(), DictType(StringType, Schedule.Types.RosterRoles));
+    dutiesByTime.overlapping({ from: span.from, to: span.to }).each($, ($2, _carried, key) => { $2(week.insert(key, roles(duties.get(key)))); });
+    // The configuration, from the warehouse's own records.
+    const shifts = $.let([], ArrayType(Roster.Types.Shift));
+    $.for(shiftRows, ($2, s, key) => { $2(shifts.pushLast({ key, label: s.label, code: s.code, start: s.start, hours: s.hours, color: s.colour })); });
+    const groups = $.let([], ArrayType(Roster.Types.Group));
+    $.for(teamRows, ($2, t, key) => { $2(groups.pushLast({ key, label: t.label })); });
+    const positions = $.let([], ArrayType(Roster.Types.Position));
+    $.for(positionRows, ($2, p, key) => { $2(positions.pushLast({ key, label: p.label, code: p.code, lead: p.lead })); });
+    const activities = $.let([], ArrayType(Roster.Types.Skill));
+    $.for(activityRows, ($2, a, key) => { $2(activities.pushLast({ key, label: a.label, code: a.code, group: a.group })); });
+    const context = $.const({ people, duties: week, shifts, groups, positions, activities, rest: 10.0 }, Roster.Types.FitContext);
+    // The ready-made rule, then the warehouse's order: the most spare contract hours first, whatever the group.
+    const answer = $.const(Roster.answer);
+    const rule = $.const(Roster.fit());
+    return answer(request, context, East.function([Roster.Types.Candidate], Roster.Types.Fit, ($2, candidate) => {
+        const verdict = $2.const(rule(candidate));
         $2.match(verdict, { refused: ($3) => { $3.return(verdict); } });
         const fits = $2.const(verdict.unwrap("fits"));
-        return variant("fits", { score: person.contract.subtract(hours.get(person.key, () => 0.0)), why: fits.why, warn: fits.warn });
+        return variant("fits", { score: candidate.person.contract.subtract(candidate.hours), why: fits.why, warn: fits.warn });
     }));
 });
-// The warehouse's fit, on e3: who fits a Find fix's need on its slot.
-export const rosterStaffFit = e3.function("roster_staff_fit", rosterStaffFitBody);
 
+/**
+ * What a warehouse's fit read (#1624), from the people it asks about and the week's duties as their roles: the
+ * configuration from the warehouse's own records, in the Roster's types, and ten hours' rest. The warehouse's own fit
+ * above writes this out; its fits over other records call it.
+ */
+export const rosterFitRead = East.function([
+    DictType(StringType, Roster.Types.Person), DictType(StringType, Schedule.Types.RosterRoles),
+    DictType(StringType, WarehouseShift), DictType(StringType, WarehouseTeam), DictType(StringType, WarehousePosition), DictType(StringType, WarehouseActivity),
+], Roster.Types.FitContext, ($, people, week, shiftRows, teamRows, positionRows, activityRows) => {
+    const shifts = $.let([], ArrayType(Roster.Types.Shift));
+    $.for(shiftRows, ($2, s, key) => { $2(shifts.pushLast({ key, label: s.label, code: s.code, start: s.start, hours: s.hours, color: s.colour })); });
+    const groups = $.let([], ArrayType(Roster.Types.Group));
+    $.for(teamRows, ($2, t, key) => { $2(groups.pushLast({ key, label: t.label })); });
+    const positions = $.let([], ArrayType(Roster.Types.Position));
+    $.for(positionRows, ($2, p, key) => { $2(positions.pushLast({ key, label: p.label, code: p.code, lead: p.lead })); });
+    const activities = $.let([], ArrayType(Roster.Types.Skill));
+    $.for(activityRows, ($2, a, key) => { $2(activities.pushLast({ key, label: a.label, code: a.code, group: a.group })); });
+    return { people, duties: week, shifts, groups, positions, activities, rest: 10.0 };
+});
+/** The warehouse's order over the ready-made rule (#1624): the most spare contract hours first, whatever the group. */
+export const rosterGreedyFit = East.function([Roster.Types.Candidate], Roster.Types.Fit, ($, candidate) => {
+    const rule = $.const(Roster.fit());
+    const verdict = $.const(rule(candidate));
+    $.match(verdict, { refused: ($2) => { $2.return(verdict); } });
+    const fits = $.const(verdict.unwrap("fits"));
+    return variant("fits", { score: candidate.person.contract.subtract(candidate.hours), why: fits.why, warn: fits.warn });
+});
 
 /** The duties of a roster the warehouse has locked: the warehouse's own duties, which no Save changes. */
 export const rosterLockedDuties = e3.record("roster_locked_duties", DictType(StringType, WarehouseDuty), {
@@ -178,28 +281,92 @@ export const rosterLockedDuties = e3.record("roster_locked_duties", DictType(Str
 });
 
 /**
- * Another app's fit over the same staff: the warehouse's order — the most spare contract hours first, whatever
- * their group — and a warning on whoever the slot's shift would take past their contract.
+ * The warehouse's fit over the locked duties, on e3 (#1624): its greedy order, the week's duties read through that
+ * record's own index. A call that carries an unsaved duty of them ends as a Save of it would: the record refuses it.
  */
-export const rosterContractFitBody = East.function([Roster.Types.FitRequest(WarehouseDuty)], Roster.Types.FitResult, ($, req) => {
-    const answer = $.const(Roster.answer(WarehouseDuty));
-    const rule = $.const(Roster.fit(WarehouseDuty));
-    const weekHours = $.const(Roster.weekHours(WarehouseDuty));
-    const hours = $.const(weekHours(req.week, req.context));
+export const rosterLockedFit = e3.function("roster_locked_fit", {
+    inputs: [
+        e3.index(rosterLockedDuties.indexes.roster_locked_duties_by_time), rosterLockedDuties,
+        e3.index(rosterStaff.indexes.roster_staff_by_skill),
+        e3.index(rosterStaff.indexes.roster_staff_by_position),
+        e3.index(rosterStaff.indexes.roster_staff_by_trainer), rosterStaff,
+        rosterShiftTimes, rosterTeams, rosterPositions, rosterActivities,
+    ],
+    drafts: [rosterLockedDuties],
+    args: [Roster.Types.FitRequest],
+    output: Roster.Types.FitResult,
+}, ($, dutiesByTime, duties, bySkill, byPosition, byTrainer, staff, shiftRows, teamRows, positionRows, activityRows, request) => {
+    const person = $.const(rosterPersonOf);
+    const people = $.let(new Map(), DictType(StringType, Roster.Types.Person));
+    $.match(request.need, {
+        skill: ($2, skill) => {
+            bySkill.of(skill).each($2, ($3, _carried, key) => { $3(people.insert(key, person(staff.get(key), key))); });
+        },
+        trainers: ($2) => {
+            byTrainer.of(true).each($2, ($3, _carried, key) => { $3(people.insert(key, person(staff.get(key), key))); });
+        },
+        leads: ($2) => {
+            $2.for(positionRows, ($3, position, code) => {
+                $3.if(position.lead, ($4) => {
+                    byPosition.of(code).each($4, ($5, _carried, key) => { $5(people.insert(key, person(staff.get(key), key))); });
+                });
+            });
+        },
+    });
+    const roles = $.const(rosterDutyRoles);
+    const windowOf = $.const(Roster.window);
+    const span = $.const(windowOf(request.start));
+    const week = $.let(new Map(), DictType(StringType, Schedule.Types.RosterRoles));
+    dutiesByTime.overlapping({ from: span.from, to: span.to }).each($, ($2, _carried, key) => { $2(week.insert(key, roles(duties.get(key)))); });
+    const read = $.const(rosterFitRead);
+    const answer = $.const(Roster.answer);
+    return answer(request, read(people, week, shiftRows, teamRows, positionRows, activityRows), rosterGreedyFit);
+});
+
+/**
+ * Another app's fit over the same staff, on e3: the warehouse's order — the most spare contract hours first, whatever
+ * their group — and a warning on whoever the slot's shift would take past their contract. It asks about everyone: it
+ * reads the staff whole, and answers a verdict for every person; the week's duties come through their interval index,
+ * the Roster's unsaved duties among them.
+ */
+export const rosterContractFit = e3.function("roster_contract_fit", {
+    inputs: [e3.index(rosterDuties.indexes.roster_duties_by_time), rosterDuties, rosterStaff, rosterShiftTimes, rosterTeams, rosterPositions, rosterActivities],
+    // The Roster's unsaved duties are laid over them, and over their index
+    drafts: [rosterDuties],
+    args: [Roster.Types.FitRequest],
+    output: Roster.Types.FitResult,
+}, ($, dutiesByTime, duties, staff, shiftRows, teamRows, positionRows, activityRows, request) => {
+    // Everyone is asked about: the staff, whole.
+    const person = $.const(rosterPersonOf);
+    const people = $.let(new Map(), DictType(StringType, Roster.Types.Person));
+    $.for(staff, ($2, row, key) => { $2(people.insert(key, person(row, key))); });
+    const roles = $.const(rosterDutyRoles);
+    const windowOf = $.const(Roster.window);
+    const span = $.const(windowOf(request.start));
+    const week = $.let(new Map(), DictType(StringType, Schedule.Types.RosterRoles));
+    dutiesByTime.overlapping({ from: span.from, to: span.to }).each($, ($2, _carried, key) => { $2(week.insert(key, roles(duties.get(key)))); });
+    const shifts = $.let([], ArrayType(Roster.Types.Shift));
+    $.for(shiftRows, ($2, s, key) => { $2(shifts.pushLast({ key, label: s.label, code: s.code, start: s.start, hours: s.hours, color: s.colour })); });
+    const groups = $.let([], ArrayType(Roster.Types.Group));
+    $.for(teamRows, ($2, t, key) => { $2(groups.pushLast({ key, label: t.label })); });
+    const positions = $.let([], ArrayType(Roster.Types.Position));
+    $.for(positionRows, ($2, p, key) => { $2(positions.pushLast({ key, label: p.label, code: p.code, lead: p.lead })); });
+    const activities = $.let([], ArrayType(Roster.Types.Skill));
+    $.for(activityRows, ($2, a, key) => { $2(activities.pushLast({ key, label: a.label, code: a.code, group: a.group })); });
+    const context = $.const({ people, duties: week, shifts, groups, positions, activities, rest: 10.0 }, Roster.Types.FitContext);
     // What the slot's shift adds to a person's week.
-    const shifts = $.const(req.context.shifts.toDict((_$2, shift) => shift.key, (_$2, shift) => shift.hours));
-    const shift = $.const(shifts.get(req.slot.shift, () => 0.0));
-    return answer(req, East.function([Roster.Types.FitRequest(WarehouseDuty), Roster.Types.Person], Roster.Types.Fit, ($2, request, person) => {
-        const verdict = $2.const(rule(request, person));
+    const shift = $.const(shiftRows.has(request.slot.shift).ifElse(() => shiftRows.get(request.slot.shift).hours, () => 0.0));
+    const answer = $.const(Roster.answer);
+    const rule = $.const(Roster.fit());
+    return answer(request, context, East.function([Roster.Types.Candidate], Roster.Types.Fit, ($2, candidate) => {
+        const verdict = $2.const(rule(candidate));
         $2.match(verdict, { refused: ($3) => { $3.return(verdict); } });
         const fits = $2.const(verdict.unwrap("fits"));
-        const spare = $2.const(person.contract.subtract(hours.get(person.key, () => 0.0)));
+        const spare = $2.const(candidate.person.contract.subtract(candidate.hours));
         const warn = $2.const(East.less(spare, shift).ifElse(() => some("past contract"), () => none), OptionType(StringType));
         return variant("fits", { score: spare, why: fits.why, warn });
     }));
 });
-// Another app's fit, on e3.
-export const rosterContractFit = e3.function("roster_contract_fit", rosterContractFitBody);
 
 export const rosterWarehouse = example({
     inputs: [], description: "The mock warehouse roster over its own records: its duties, the weeks of its rota, its cover targets and suggestions, 69 staff and an agency, its shift times, teams, positions and activities. One Slice.bindRecords rail over the week's duties, the staff and the activities; the warehouse's pay in its own codes and its check over the pay; a new duty's own fields, a new target's basis and a new week's approver from the app's `values`; Publish; a Positions tab; the inspector; and the warehouse's greedy fit on e3, which a Find fix asks who fits.",
@@ -670,6 +837,62 @@ export const rosterWorkRequirement = example({
     }}</Reactive>),
 });
 
+/**
+ * The cover the hours-needed example reads (#1678): the warehouse's own, but for Thursday's Dispatch early, whose skill
+ * hours name Packing and Loading for part of its seven heads' shifts, and Inbound's Unloading among them.
+ */
+export const rosterCoverNeeded = e3.record("roster_cover_needed", DictType(StringType, WarehouseCover), {
+    initial: new SortedMap<string, ValueTypeOf<typeof WarehouseCover>>([...warehouseCover].map(([key, row]): [string, ValueTypeOf<typeof WarehouseCover>] =>
+        [key, key === "2028-03-09-dispatch-early" ? { ...row, hours: new SortedMap([["load", 8], ["pack", 16], ["unload", 8]], byName) } : row]), byName),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+
+export const rosterHoursNeeded = example({
+    inputs: [], description: "A slot's hours needed are the app's (#1678): `Roster.targets`' `needed`, a function of the target's row and its shift's nominal hours, here each slot's heads' shifts in hours — Thursday's Dispatch early needs its seven heads' 56 hours, though its skill hours name only 32 of them. Every key of a slot's hours has its line, its own group's skills and the duties first, then every other key in key order: Inbound's Unloading on Dispatch's slot draws under its own label, its holders counted among the slot's people. An edit of a target's heads or hours reads `needed` again before Save, and the People layout's work requirement, its lanes and its skill rows, sums what the coverage says.",
+    keywords: ["Roster", "Roster.targets", "needed", "hours needed", "targets", "cover", "coverage", "lines", "skills", "another group's skill", "work requirement", "Roster.coverage", "Schedule.events", "Schedule.resources", "Schedule.periods", "Roster.shifts", "Slice.bindRecords", "Data.bindPaged"],
+    fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
+        const rota = $.let(Record.bind(rosterDuties));
+        const entries = $.let(Data.bindPaged(rosterDuties));
+        const byTime = $.let(Data.bindPaged(rosterDuties, { indexes: ["roster_duties_by_time"] }));
+        const weeks = $.let(Record.bind(rosterWeeks));
+        const cover = $.let(Record.bind(rosterCoverNeeded));
+        const people = $.let(Data.bind(rosterStaff));
+        const acts = $.let(Data.bind(rosterActivities));
+        const slice = $.let(Slice.bindRecords("ex.rosterHoursNeeded", { duty: { source: byTime, range: "start" } }));
+        const firms = $.let(Data.bind(rosterAgencies));
+        const times = $.let(Data.bind(rosterShiftTimes));
+        const teams = $.let(Data.bind(rosterTeams));
+        const roles = $.let(Data.bind(rosterPositions));
+        return <Box width="100%" height="760px"><Roster id="rosterHoursNeeded" week={{ start: "sunday" }} slice={{ slice }} inspector
+            view={{ layout: "shifts", period: "day", date: new Date("2028-03-09T00:00:00Z") }}
+            events={{ duty: Schedule.events(rota, {
+                name: "Duty", icon: "user-clock", entries,
+                start: "start", end: "end", resource: { field: "who", of: { staff: "people", agency: "agencies" } },
+                shift: "shift", group: "team", position: "role", activity: "task",
+                hours: d => d.start.durationMinutes(d.end).subtract(d.unpaidBreak).divide(60.0),
+            }) }}
+            resources={{
+                people: Schedule.resources(people.read(), { name: "People", icon: "user", label: p => p.name, group: p => p.team,
+                    position: p => p.position, skills: p => p.skills, contract: p => p.contract, agency: p => p.agency,
+                    trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual }),
+                agencies: Schedule.resources(firms.read(), { name: "Agencies", icon: "building", label: a => a.name }),
+            }}
+            periods={Schedule.periods(weeks, { every: "week", status: { field: "state", draft: "open", published: "issued" }, dismissed: "dismissed" })}
+            // Each slot needs its heads' shifts in hours, whatever part of them its skill hours name.
+            targets={Roster.targets(cover, { day: "day", group: "team", shift: "shift", positions: "heads", hours: "hours",
+                needed: (row, shiftHours) => row.heads.toFloat().multiply(shiftHours) })}
+            shifts={Roster.shifts(times.read(), { label: s => s.label, code: s => s.code, start: s => s.start, hours: s => s.hours, order: s => s.order, color: s => s.colour })}
+            groups={Roster.groups(teams.read(), { label: t => t.label, order: t => t.order })}
+            positions={Roster.positions(roles.read(), { label: p => p.label, code: p => p.code, lead: p => p.lead, order: p => p.order })}
+            activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group, order: a => a.order })}
+            rules={{ rest: 10.0 }}
+            library={[Roster.library.people(), Roster.library.activities()]} />
+        </Box>;
+    }}</Reactive>),
+});
+
 export const rosterWeek = example({
     inputs: [], description: "Seven days of group-by-shift coverage over the warehouse's own records, opening any day for detailed staffing.",
     keywords: ["Roster", "Schedule.events", "Schedule.resources", "Schedule.periods", "Roster.targets", "Slice", "Slice.bindRecords", "Data.bindPaged", "BuilderFrame", "week", "Save", "Publish", "FieldForm"],
@@ -904,9 +1127,15 @@ noGroupWeek.forEach(([person, days]) => days.forEach((shift, day) => {
     const start = NO_GROUP_MONDAY + (day * 24 + (shift === "early" ? 6 : 14)) * NO_GROUP_HOUR;
     noGroupShifts.set(`${NO_GROUP_DAYS[day]}-${person}`, { person, start: new Date(start), end: new Date(start + 8 * NO_GROUP_HOUR), shift, team: none });
 }));
+/** The duties' record type: the duties by key. */
+export const NoGroupDuties = DictType(StringType, NoGroupDuty);
 /** The duties, every one in no team yet: the first step's week. */
-export const noGroupDuties = e3.record("rota_no_group_duties", DictType(StringType, NoGroupDuty), {
+export const noGroupDuties = e3.record("rota_no_group_duties", NoGroupDuties, {
     initial: noGroupShifts,
+    indexes: (index) => ({
+        // The duties by their times: what the second step reads the week's through.
+        rota_no_group_duties_by_time: index.interval({ from: "start", to: "end" }),
+    }),
     mutations: (mutation) => ({
         patch: mutation.patch(),
     }),
@@ -926,38 +1155,65 @@ export const noGroupCoverRows: Map<string, ValueTypeOf<typeof NoGroupCover>> = n
 ] as const)));
 export const noGroupCover = e3.record("rota_no_group_cover", DictType(StringType, NoGroupCover), {
     initial: noGroupCoverRows,
+    indexes: (index) => ({
+        // The targets by their day: what the second step reads the week's through.
+        rota_no_group_cover_by_day: index.interval({ from: "day", to: "day" }),
+    }),
     mutations: (mutation) => ({
         patch: mutation.patch(),
     }),
 });
 
-const NoGroupRequest = Roster.Types.OptimiseRequest(NoGroupDuty), NoGroupResult = Roster.Types.OptimiseResult(NoGroupDuty);
+/** A slot of the week: its day from the week's first, its team and its shift. */
+const NoGroupSlot = StructType({ day: IntegerType, group: StringType, shift: StringType });
 /**
- * The second step's optimiser: each duty in no team placed in one, against the targets, in two passes over the week as
- * drafted. First each goes to its person's own team, where that team's target has a head open on its day and shift; then
- * each still in none to the first team, in the teams' order, with one open. A duty no team needs stays in none, and every
- * duty already in a team stays where it is.
+ * The second step's optimiser, on e3: each duty in no team placed in one, against the targets, in two passes over the
+ * week as drafted. First each goes to its person's own team, where that team's target has a head open on its day and
+ * shift; then each still in none to the first team, in the teams' order, with one open. A duty no team needs stays in
+ * none, and every duty already in a team stays where it is. It reads the week's duties and targets through their interval
+ * indexes and each by its key, the Roster's unsaved edits of both laid over them, and each person's team and the teams
+ * from the app's own records. The answer is the duties it placed.
  */
-export const rosterPlaceShiftsBody = East.function([NoGroupRequest], NoGroupResult, ($, req) => {
+export const rotaPlaceShifts = e3.function("rota_place_shifts", {
+    inputs: [
+        e3.index(noGroupDuties.indexes.rota_no_group_duties_by_time), noGroupDuties,
+        e3.index(noGroupCover.indexes.rota_no_group_cover_by_day), noGroupCover,
+        noGroupWorkers, minimalTeams,
+    ],
+    // The Roster's unsaved edits of the duties and of the targets are laid over them, and over their indexes
+    drafts: [noGroupDuties, noGroupCover],
+    args: [Roster.Types.OptimiseRequest()],
+    output: Roster.Types.OptimiseResult(NoGroupDuties),
+}, ($, dutiesByTime, duties, coverByDay, cover, staff, teams, request) => {
     // Each slot's open heads: its target, less the duties in its team already.
-    const open = $.let(req.requirements.map(($2, need) => need.positions));
-    $.for(req.duties, ($2, duty) => {
+    const open = $.let(new Map(), DictType(NoGroupSlot, IntegerType));
+    coverByDay.overlapping({ from: request.from, to: request.to }).each($, ($2, _carried, key) => {
+        const target = $2.const(cover.get(key));
+        const slot = $2.const({ day: request.from.durationMilliseconds(target.day).divide(86_400_000n), group: target.team, shift: target.shift });
+        $2(open.insertOrUpdate(slot, target.heads, (_$3, held, more) => held.add(more)));
+    });
+    // The week's duties, as drafted.
+    const week = $.let(new Map(), NoGroupDuties);
+    dutiesByTime.overlapping({ from: request.from, to: request.to }).each($, ($2, _carried, key) => {
+        const duty = $2.const(duties.get(key));
+        $2.if(East.greaterEqual(duty.start, request.from), ($3) => { $3(week.insert(key, duty)); });
+    });
+    $.for(week, ($2, duty) => {
         $2.match(duty.team, { some: ($3, team) => {
-            const slot = $3.const({ day: req.from.durationMilliseconds(duty.start).divide(86_400_000n), group: team, shift: duty.shift });
+            const slot = $3.const({ day: request.from.durationMilliseconds(duty.start).divide(86_400_000n), group: team, shift: duty.shift });
             $3.if(open.has(slot), ($4) => { $4(open.update(slot, open.get(slot).subtract(1n))); });
         } });
     });
-    const placed = $.let(req.duties.map(($2, duty) => duty));
-    const home = $.const(req.context.people.map(($2, person) => person.group));
-    const teams = $.const(req.context.groups.map(($2, group) => group.key));
+    const placed = $.let(week.map(($2, duty) => duty));
+    const order = $.const(teams.toArray(($2, _team, key) => key));
     // The passes: a person's own team first, then any team.
     const ownTeamFirst = $.const([true, false], ArrayType(BooleanType));
     $.for(ownTeamFirst, ($2, own) => {
-        $2.for(req.duties, ($3, duty, key) => {
+        $2.for(week, ($3, duty, key) => {
             $3.match(placed.get(key).team, { none: ($4) => {
-                const day = $4.const(req.from.durationMilliseconds(duty.start).divide(86_400_000n));
-                const mine = $4.const(home.get(duty.person, () => ""));
-                const choices = $4.const(teams.filter(($5, team) => own.not().or(() => team.equal(mine))
+                const day = $4.const(request.from.durationMilliseconds(duty.start).divide(86_400_000n));
+                const mine = $4.const(staff.has(duty.person).ifElse(() => staff.get(duty.person).team, () => ""));
+                const choices = $4.const(order.filter(($5, team) => own.not().or(() => team.equal(mine))
                     .and(() => open.get({ day, group: team, shift: duty.shift }, () => 0n).greater(0n))));
                 $4.if(choices.size().greater(0n), ($5) => {
                     const slot = $5.const({ day, group: choices.get(0n), shift: duty.shift });
@@ -967,14 +1223,12 @@ export const rosterPlaceShiftsBody = East.function([NoGroupRequest], NoGroupResu
             } });
         });
     });
-    return { duties: placed };
+    return { duties: East.diff(week, placed) };
 });
-/** The second step on e3: the week's duties in, each in no team placed in one against the targets. */
-export const rotaPlaceShifts = e3.function("rota_place_shifts", rosterPlaceShiftsBody);
 
 export const rosterNoGroup = example({
-    inputs: [], description: "A roster made in two steps (#1548): the duty's team is an Option<String> field, `none` while it is in no group yet. The first step's week stands in no group — each person's shifts, Monday to Friday — listed under each shift in the No group band after the groups in Shifts, and on its person's row in People, its tile and the inspector saying No group; it counts in its person's hours, contract and rest, and in no group's targets. A drag from the band into a group's slot writes `some(team)`, and one back into the band `none`, each one edit. The Elara eye runs the second step, `optimise` over Roster.Types.OptimiseRequest(NoGroupDuty): each duty in no group to its person's own team where its target has a head open that day and shift, then the rest to any team with one, a duty no team needs left in none — one edit, which one Undo reverts and Save writes through the duties' patch door.",
-    keywords: ["Roster", "No group", "no group", "two steps", "Option", "OptionType", "group", "Schedule.events", "optimise", "OptimiseRequest", "OptimiseResult", "Func.bind", "e3.function", "Roster.targets", "place", "unplaced"],
+    inputs: [], description: "A roster made in two steps (#1548): the duty's team is an Option<String> field, `none` while it is in no group yet. The first step's week stands in no group — each person's shifts, Monday to Friday — listed under each shift in the No group band after the groups in Shifts, and on its person's row in People, its tile and the inspector saying No group; it counts in its person's hours, contract and rest, and in no group's targets. A drag from the band into a group's slot writes `some(team)`, and one back into the band `none`, each one edit. The Elara eye runs the second step, `optimise` from Roster.Types.OptimiseRequest() to Roster.Types.OptimiseResult(NoGroupDuties): the function reads the week's duties and targets through their interval indexes, the Roster's unsaved edits of both laid over them (drafts: [noGroupDuties, noGroupCover]), and places each duty in no group in its person's own team where its target has a head open that day and shift, then the rest in any team with one, a duty no team needs left in none — its patch one edit, which one Undo reverts and Save writes through the duties' patch door.",
+    keywords: ["Roster", "No group", "no group", "two steps", "Option", "OptionType", "group", "Schedule.events", "optimise", "OptimiseRequest", "OptimiseResult", "Func.bind", "e3.function", "e3.index", "drafts", "East.diff", "patch", "Roster.targets", "place", "unplaced"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const rota = $.let(Record.bind(noGroupDuties));
         const cover = $.let(Record.bind(noGroupCover));

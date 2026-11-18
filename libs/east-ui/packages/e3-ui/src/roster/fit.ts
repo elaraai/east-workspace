@@ -4,60 +4,39 @@
  */
 
 /**
- * The Roster's fit (#1334, `Allocation Spec.md` §13): who fits a Find fix's
- * need — a lead, a trainer, a holder of a skill — on its issue's slot. The
- * app's `e3.function` answers, bound to the Roster's `fit` with `Func.bind`,
- * the contract the Allocation's fit keeps; `Roster.fit(R)` is the ready-made
- * rule such a function may call, replace or build on, and `Roster.answer(R)`
- * maps a rule over every person. Each takes the app's duty row type, as the
- * request does (`Builder Interfaces Spec.md` §5.4). The renderer decides no
- * one itself.
+ * The Roster's fit (#1334, east-workspace#1624; `Allocation Spec.md` §13): who
+ * fits a Find fix's need — a lead, a trainer, a holder of a skill — on its
+ * issue's slot. The app's `e3.function` answers, bound to the Roster's `fit`
+ * with `Func.bind`, the contract the Allocation's fit keeps. It is asked the
+ * question and the page's scope, and sent no row: it reads the week's duties
+ * through their record's index, the Roster's unsaved edits laid over them, the
+ * people it asks about and the configuration, and makes of them a
+ * `Roster.Types.FitContext`. `Roster.fit()` is the ready-made rule such a
+ * function may call, replace or build on, over one person against the week
+ * (`Roster.Types.Candidate`); `Roster.answer` places the context's duties in
+ * the week as the page places them, and maps a rule over every person of the
+ * context. None reads a row of the app's. The renderer decides no one itself.
  *
  * @packageDocumentation
  */
 
-import {
-    East, FloatType, FunctionType, StringType, defaultValue, none, some, variant,
-    type EastType, type ExprType, type SubtypeExprOrValue,
-} from "@elaraai/east";
+import { DictType, East, FloatType, FunctionType, StringType, none, variant, type SubtypeExprOrValue } from "@elaraai/east";
 import { scheduleNumberText } from "../schedule/words.js";
-import { rosterRest } from "./rules.js";
-import { rosterShiftStart } from "./times.js";
-import {
-    RosterAssignmentTypeFor, RosterContextType, RosterFitRequestTypeFor, RosterFitResultType, RosterFitType, RosterPersonType, RosterWeekTypeFor,
-} from "./types.js";
+import { rosterRestBetween } from "./rules.js";
+import { rosterPlaceOf, rosterShiftStart } from "./times.js";
+import { RosterCandidateDutyType, RosterCandidateType, RosterFitContextType, RosterFitRequestType, RosterFitResultType, RosterFitType } from "./types.js";
 
 /** A week's hours: the slot's group's bonus, more than any spare hours of a week. */
 const WEEK_HOURS = 168.0;
 
-/**
- * One person's hours this week: each of their duties' hours — the hours
- * `Roster.weekHours` gives them.
- *
- * @typeParam R - The app's duty row type
- * @param row - The app's duty row type
- * @returns An East function `(week, context, key) → Float`: their hours
- * @internal
- */
-export function rosterPersonHours<R extends EastType>(row: R) {
-    return East.function([RosterWeekTypeFor(row as EastType), RosterContextType, StringType], FloatType, ($, week, _context, key) => {
-        const hours = $.let(0.0, FloatType);
-        $.for(week.assignments, ($2, a) => {
-            $2.match(a.who, { person: ($3, who) => {
-                $3.if(East.equal(who, key), ($4) => { $4.assign(hours, hours.add(a.hours)); });
-            } });
-        });
-        return hours;
-    }) as unknown as ExprType<FunctionType<[RosterWeekTypeFor<R>, RosterContextType, StringType], FloatType>>;
-}
+/** A person's duties of the week, by key: each where the Roster places it, and its roles. */
+const CandidateDutiesType = DictType(StringType, RosterCandidateDutyType);
 
 /**
  * The ready-made fit (§13): one person's verdict for a need on a slot.
  *
- * @typeParam R - The app's duty row type
- * @param row - The app's duty row type
  * @param words - The fit's words the app gives (#1516): `notALead`, in place of `not a lead` and `Not a lead`
- * @returns An East function `(request, person) → Fit`: their verdict
+ * @returns An East function `(candidate) → Fit`: their verdict
  *
  * @remarks
  * In order: a person who doesn't hold the need is refused — `Not a lead`
@@ -65,38 +44,45 @@ export function rosterPersonHours<R extends EastType>(row: R) {
  * Unloading`); one rostered that day is refused, `Rostered` (`rostered on
  * Inbound · Early`, or on a duty in no group yet `rostered on Early`), since
  * moving them would leave their own shift short; one
- * whose rest before or after the slot's shift falls under the rules' minimum is
- * refused, `Rest too short` (`6 h rest · minimum 10 h`, its measure the rest),
- * the shift run as a new duty would run it, from its start on the slot's day.
- * Otherwise they fit, the slot's group first, then spare contract hours: the
- * score is their spare hours this week — their contract less the hours of
- * their duties — and a week's 168 hours more in the slot's group. The reason
- * names their group and those hours (`Dispatch · 14 h spare`, `from Inbound ·
- * 2 h over contract`), and nothing warns.
+ * whose rest before or after the slot's shift falls under the candidate's
+ * `rest` is refused, `Rest too short` (`6 h rest · minimum 10 h`, its measure
+ * the rest), the shift run as a new duty would run it, from its start on the
+ * slot's day, against the candidate's duties. Otherwise
+ * they fit, the slot's group first, then spare contract hours: the score is
+ * their spare hours this week — their contract less the candidate's `hours` —
+ * and a week's 168 hours more in the slot's group. The reason names their
+ * group and those hours (`Dispatch · 14 h spare`, `from Inbound · 2 h over
+ * contract`), and nothing warns.
+ *
+ * @example
+ * ```ts
+ * // Inside an e3.function's body: the ready-made rule, then the app's own order.
+ * const answer = $.const(Roster.answer);
+ * const rule = $.const(Roster.fit());
+ * return answer(request, context, East.function([Roster.Types.Candidate], Roster.Types.Fit, ($2, candidate) => {
+ *     const verdict = $2.const(rule(candidate));
+ *     $2.match(verdict, { refused: ($3) => { $3.return(verdict); } });
+ *     const fits = $2.const(verdict.unwrap("fits"));
+ *     return variant("fits", { score: candidate.person.contract.subtract(candidate.hours), why: fits.why, warn: fits.warn });
+ * }));
+ * ```
  */
-export function rosterFit<R extends EastType>(row: R, words?: { notALead?: SubtypeExprOrValue<StringType> }) {
-    const Row = row as EastType;
-    const restFn = rosterRest(Row);
-    const hoursFn = rosterPersonHours(Row);
-    const Assignment = RosterAssignmentTypeFor(Row);
-    // A candidate duty's row: the row type's default, which no rule reads.
-    const blank = defaultValue(Row) as never;
-    return East.function([RosterFitRequestTypeFor(Row), RosterPersonType], RosterFitType, ($, request, person) => {
-        const restOf = $.const(restFn);
-        const hoursOf = $.const(hoursFn);
+export function rosterFit(words?: { notALead?: SubtypeExprOrValue<StringType> }) {
+    return East.function([RosterCandidateType], RosterFitType, ($, candidate) => {
+        const between = $.const(rosterRestBetween);
         const shiftStart = $.const(rosterShiftStart);
         const hoursText = $.const(scheduleNumberText);
-        const context = $.const(request.context);
-        const slot = $.const(request.slot);
-        const groups = $.const(context.groups.toDict((_$2, group) => group.key, (_$2, group) => group.label));
-        const labels = $.const(context.shifts.toDict((_$2, shift) => shift.key, (_$2, shift) => shift.label));
-        const shifts = $.const(context.shifts.toDict((_$2, shift) => shift.key, (_$2, shift) => shift));
+        const person = $.const(candidate.person);
+        const slot = $.const(candidate.slot);
+        const groups = $.const(candidate.groups.toDict((_$2, group) => group.key, (_$2, group) => group.label));
+        const labels = $.const(candidate.shifts.toDict((_$2, shift) => shift.key, (_$2, shift) => shift.label));
+        const shifts = $.const(candidate.shifts.toDict((_$2, shift) => shift.key, (_$2, shift) => shift));
         // The need held.
-        $.match(request.need, {
+        $.match(candidate.need, {
             leads: ($2) => {
-                const positions = $2.const(context.positions.filter((_$3, position) => East.equal(position.key, person.position)));
+                const positions = $2.const(candidate.positions.filter((_$3, position) => East.equal(position.key, person.position)));
                 $2.if(positions.some((_$3, position) => position.lead).not(), ($3) => {
-                    const word = $3.const(East.value(words?.notALead ?? "not a lead", StringType));
+                    const word = $3.const(words?.notALead ?? "not a lead", StringType);
                     const reason = $3.const(East.greater(positions.size(), 0n).ifElse(() => East.str`${positions.get(0n).label} · ${word}`, () => word));
                     $3.return(variant("refused", { group: words?.notALead ?? "Not a lead", reason, measure: variant("none", null) }));
                 });
@@ -108,15 +94,14 @@ export function rosterFit<R extends EastType>(row: R, words?: { notALead?: Subty
             },
             skill: ($2, key) => {
                 $2.if(person.skills.has(key).not(), ($3) => {
-                    const skills = $3.const(context.activities.filter((_$4, activity) => East.equal(activity.key, key)));
+                    const skills = $3.const(candidate.activities.filter((_$4, activity) => East.equal(activity.key, key)));
                     const label = $3.const(East.greater(skills.size(), 0n).ifElse(() => skills.get(0n).label, () => key));
                     $3.return(variant("refused", { group: "Not skilled", reason: East.str`doesn't hold ${label}`, measure: variant("none", null) }));
                 });
             },
         });
         // Not rostered that day: moving them would leave their own shift short.
-        const thatDay = $.const(request.week.assignments.filter((_$2, a) => East.equal(a.place.day, slot.day)
-            .and(() => a.who.match({ person: (_$3, key) => East.equal(key, person.key), request: (_$3, _agency) => false }))).toArray((_$2, a) => a));
+        const thatDay = $.const(candidate.duties.filter((_$2, duty) => East.equal(duty.place.day, slot.day)).toArray((_$2, duty) => duty));
         $.if(East.greater(thatDay.size(), 0n), ($2) => {
             const held = $2.const(thatDay.get(0n));
             // Its group's shift — or, for a duty in no group yet, its shift alone, which names no group the app's words don't (#1548).
@@ -127,21 +112,18 @@ export function rosterFit<R extends EastType>(row: R, words?: { notALead?: Subty
         // Rest kept, before and after the slot's shift, run as a new duty runs it.
         $.if(shifts.has(slot.shift), ($2) => {
             const shift = $2.const(shifts.get(slot.shift));
-            const start = $2.const(shiftStart(request.start.addDays(slot.day), shift));
-            const candidate = $2.const(East.value({
-                place: { day: slot.day, group: some(slot.group), shift: slot.shift }, who: variant("person", person.key), position: person.position, activity: none,
-                start, end: start.addHours(shift.hours), hours: shift.hours, row: blank,
-            } as never, Assignment));
-            const rest = $2.const(restOf(candidate as never, "", request.week, context));
-            $2.if(East.greater(context.rules.rest, 0.0).and(() => East.less(rest.minimum, context.rules.rest)), ($3) => {
+            const start = $2.const(shiftStart(candidate.start.addDays(slot.day), shift));
+            const others = $2.const(candidate.duties.toArray((_$3, duty) => ({ start: duty.roles.start, end: duty.roles.end })));
+            const rest = $2.const(between(start, start.addHours(shift.hours), others));
+            $2.if(East.greater(candidate.rest, 0.0).and(() => East.less(rest.minimum, candidate.rest)), ($3) => {
                 $3.return(variant("refused", {
-                    group: "Rest too short", reason: East.str`${hoursText(rest.minimum)} h rest · minimum ${hoursText(context.rules.rest)} h`,
+                    group: "Rest too short", reason: East.str`${hoursText(rest.minimum)} h rest · minimum ${hoursText(candidate.rest)} h`,
                     measure: variant("amount", { lead: "rest", value: rest.minimum }),
                 }));
             });
         });
         // It fits: the slot's group first, then spare contract hours.
-        const spare = $.const(person.contract.subtract(hoursOf(request.week, context, person.key)));
+        const spare = $.const(person.contract.subtract(candidate.hours));
         const home = $.const(East.equal(person.group, slot.group));
         const hours = $.const(East.greater(spare, 0.0).ifElse(
             () => East.str`${hoursText(spare)} h spare`,
@@ -151,20 +133,61 @@ export function rosterFit<R extends EastType>(row: R, words?: { notALead?: Subty
             why: home.ifElse(() => East.str`${groups.get(slot.group, () => slot.group)} · ${hours}`, () => East.str`from ${groups.get(person.group, () => person.group)} · ${hours}`),
             warn: none,
         });
-    }) as unknown as ExprType<FunctionType<[RosterFitRequestTypeFor<R>, RosterPersonType], RosterFitType>>;
+    });
 }
 
 /**
- * Answers the fit's question with a rule per person (§13).
+ * Answers the fit's question with a rule per person (§13, east-workspace#1624).
  *
- * @typeParam R - The app's duty row type
- * @param row - The app's duty row type
- * @returns An East function `(request, fit) → FitResult`: a verdict for every person of the context, by staff key, with the need and the slot it answers
+ * @param request - The question: the need, the slot and the week's first day
+ * @param context - What the function read: the people it asks about, the week's duties as their roles, the configuration
+ * @param fit - The rule, asked one candidate at a time
+ * @returns A verdict for every person of the context, by staff key, with the need and the slot it answers
+ *
+ * @remarks
+ * It places the context's duties in the week of the request's `start` once, as
+ * the page places them — a duty's day the UTC day whose shift start is nearest
+ * its own, one of another week, of a shift or a group not configured, or of no
+ * person left out — and makes each person's candidate: their duties of the
+ * week, each with its place, and the hours those count. For a context that
+ * holds what the page holds, its verdicts are the page's.
+ *
+ * @example
+ * ```ts
+ * const answer = $.const(Roster.answer);
+ * const context = $.const({ people, duties: week, shifts, groups, positions, activities, rest: 10.0 }, Roster.Types.FitContext);
+ * return answer(request, context, Roster.fit());
+ * ```
  */
-export function rosterAnswer<R extends EastType>(row: R) {
-    const Request = RosterFitRequestTypeFor(row as EastType);
-    return East.function([Request, FunctionType([Request, RosterPersonType], RosterFitType)], RosterFitResultType, (_$, request, fit) => ({
-        need: request.need, slot: request.slot,
-        people: request.context.people.map((_$2, person) => fit(request, person)),
-    })) as unknown as ExprType<FunctionType<[RosterFitRequestTypeFor<R>, FunctionType<[RosterFitRequestTypeFor<R>, RosterPersonType], RosterFitType>], RosterFitResultType>>;
-}
+export const rosterAnswer = East.function(
+    [RosterFitRequestType, RosterFitContextType, FunctionType([RosterCandidateType], RosterFitType)], RosterFitResultType,
+    ($, request, context, fit) => {
+        const placeOf = $.const(rosterPlaceOf);
+        // The context's duties placed in the week, once: each person's, by key, and the hours they count.
+        const byPerson = $.let(new Map(), DictType(StringType, CandidateDutiesType));
+        const hours = $.let(new Map(), DictType(StringType, FloatType));
+        $.for(context.duties, ($2, roles, key) => {
+            $2.match(roles.resource, {
+                some: ($3, ref) => {
+                    $3.if(East.equal(ref.kind, "people"), ($4) => {
+                        $4.match(placeOf(roles, request.start, context.shifts, context.groups), {
+                            placed: ($5, place) => {
+                                $5.if(byPerson.has(ref.key).not(), ($6) => { $6(byPerson.insert(ref.key, East.value(new Map(), CandidateDutiesType))); });
+                                $5(byPerson.get(ref.key).insert(key, { place, roles }));
+                                const held = $5.const(hours.get(ref.key, () => 0.0));
+                                $5(hours.insertOrUpdate(ref.key, held.add(roles.hours)));
+                            },
+                        });
+                    });
+                },
+            });
+        });
+        return {
+            need: request.need, slot: request.slot,
+            people: context.people.map((_$2, person, key) => fit({
+                need: request.need, slot: request.slot, start: request.start, person,
+                duties: byPerson.get(key, () => East.value(new Map(), CandidateDutiesType)), hours: hours.get(key, () => 0.0),
+                shifts: context.shifts, groups: context.groups, positions: context.positions, activities: context.activities, rest: context.rest,
+            })),
+        };
+    });

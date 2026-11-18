@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
     ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, OptionType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For,
-    equalFor, isTypeEqual, none, some, variant, type EastType, type ValueTypeOf,
+    equalFor, isTypeEqual, none, printFor, some, variant, type EastType, type ValueTypeOf,
 } from "@elaraai/east";
 import { Assert, TestImpl, describeEast } from "@elaraai/east-node-std";
 import { Roster } from "@elaraai/e3-ui";
@@ -14,8 +14,8 @@ import * as ex from "./domain.examples.js";
 
 describeEast("Roster — pure domain", test => {
     Assert.examples(test, { rosterCoverage: ex.rosterCoverage, rosterChecks: ex.rosterChecks, rosterWeeklyHours: ex.rosterWeeklyHours, rosterRest: ex.rosterRest,
-        rosterFitTrainer: ex.rosterFitTrainer, rosterAnswerLeads: ex.rosterAnswerLeads, rosterSlotOfPlaces: ex.rosterSlotOfPlaces,
-        rosterNoGroupHours: ex.rosterNoGroupHours });
+        rosterFitTrainer: ex.rosterFitTrainer, rosterAnswerLeads: ex.rosterAnswerLeads, rosterWeekWindow: ex.rosterWeekWindow,
+        rosterSlotOfPlaces: ex.rosterSlotOfPlaces, rosterNoGroupHours: ex.rosterNoGroupHours });
 }, { platformFns: TestImpl });
 
 type Week = ValueTypeOf<typeof ex.DomainWeek>;
@@ -59,10 +59,10 @@ test("the check's words print its hours as the fit's do: a whole number without 
     assert.equal(check(fresh(), half).find(i => i.flag.type === "some" && i.flag.value === "1 open")!.detail, "7.5 h unfilled · 3 of 4 positions");
     // Two open of two: the plural, and one asked of none filled, the singular.
     const empty = fresh(); empty.assignments.clear();
-    empty.requirements.set(ex.slot, { positions: 2n, hours: new Map() });
+    empty.requirements.set(ex.slot, { positions: 2n, hours: new Map(), needed: 0 });
     const two = check(empty, context).find(i => i.kind.type === "gap")!;
     assert.deepEqual([two.title, two.detail], ["2 open positions · Goods · Early", "16 h unfilled · 0 of 2 positions"]);
-    empty.requirements.set(ex.slot, { positions: 1n, hours: new Map() });
+    empty.requirements.set(ex.slot, { positions: 1n, hours: new Map(), needed: 0 });
     const one = check(empty, context).find(i => i.kind.type === "gap")!;
     assert.deepEqual([one.title, one.detail], ["1 open position · Goods · Early", "8 h unfilled · 0 of 1 position"]);
 });
@@ -117,6 +117,47 @@ test("the rest fix moves a duty to another shift of its day that keeps the rest,
 });
 
 // ============================================================================
+// A slot's hours needed are the app's, and every key of its hours has a line (#1678)
+// ============================================================================
+
+const printLines = printFor(ArrayType(Roster.Types.CoverageLine));
+
+test("a slot's hours needed are its target's own, whatever part of them its activities' hours name (#1678)", () => {
+    const week = fresh();
+    // Four heads on an eight-hour shift need 32 hours, of which Reach truck's 24 and General duties' 6 name 30.
+    week.requirements.set(ex.slot, { ...week.requirements.get(ex.slot)!, needed: 32 });
+    const c = coverage(week, context, pay).get(ex.slot)!;
+    assert.equal(c.hours.needed, 32);
+    assert.deepEqual(c.lines.map(line => line.needed), [24, 6]);
+});
+
+test("every key of a slot's target hours has its line: the group's skills, the duties, then every other key in key order — another group's skill counted as the group's own are, a key that is no activity as a duty is (#1678)", () => {
+    // Dispatch beside Goods, its one skill Loading, which the lead holds too.
+    const people = new Map(context.people); people.set("lead", { ...people.get("lead")!, skills: new Set(["reach", "load"]) });
+    const wider = { ...context, people, groups: [...context.groups, { key: "dispatch", label: "Dispatch" }],
+        activities: [...context.activities, { key: "load", label: "Loading", code: "LD", group: some("dispatch") }] };
+    const week = fresh();
+    week.requirements.set(ex.slot, { positions: 4n, needed: 48,
+        hours: new SortedMap([["reach", 24], ["general", 6], ["zeta", 4], ["load", 12], ["alpha", 2]], byString) });
+    const c = coverage(week, wider, pay).get(ex.slot)!;
+    assert.equal(printLines(c.lines), printLines([
+        { skill: "reach", needed: 24, holders: some(1n), capacity: some(8), gap: 16, assigned: 10 },
+        { skill: "general", needed: 6, holders: none, capacity: none, gap: 0, assigned: 8 },
+        { skill: "alpha", needed: 2, holders: none, capacity: none, gap: 0, assigned: 0 },
+        // Dispatch's skill on Goods' slot: its holder is the slot's lead, the shift's eight hours of capacity.
+        { skill: "load", needed: 12, holders: some(1n), capacity: some(8), gap: 4, assigned: 0 },
+        { skill: "zeta", needed: 4, holders: none, capacity: none, gap: 0, assigned: 0 },
+    ]));
+    // Without `needed` of their own the targets' hours needed are the sum of their hours: the lines add up to them.
+    assert.equal(c.lines.reduce((sum, line) => sum + line.needed, 0), c.hours.needed);
+    // The check says another group's skill short as it says the group's own; a key that is no activity has no gap.
+    const gaps = check(week, wider).filter(i => i.flag.type === "some" && i.flag.value === "skill gap");
+    assert.deepEqual(gaps.map(i => i.title), ["Reach truck · 16 h short", "Loading · 4 h short"]);
+    assert.ok(gaps[1]!.fix.type === "some" && gaps[1]!.fix.value.type === "find" && gaps[1]!.fix.value.value.type === "skill"
+        && gaps[1]!.fix.value.value.value === "load", "its Find asks who holds Loading");
+});
+
+// ============================================================================
 // A duty in no group yet (#1548)
 // ============================================================================
 
@@ -147,7 +188,7 @@ test("a duty in no group counts in its person's hours and in no slot's coverage,
 // The requests carry each duty's own row (B16)
 // ============================================================================
 
-test("the pay, the check and the fit are asked over the app's rows: each request carries every duty's own row (B16)", () => {
+test("the pay and the check are asked over the app's rows: each request carries every duty's own row (B16); the fit's carries none (#1624)", () => {
     const Request = Roster.Types.PayRequest(ex.DomainDuty);
     // The app's pay, reading its row: a cost per duty its note names.
     const notes = East.compile(East.function([Request], Roster.Types.Pay, ($, req) => req.duties.map(($2, duty) => {
@@ -176,16 +217,13 @@ test("the pay, the check and the fit are asked over the app's rows: each request
     const cx = decodeBeast2For(Context)(encodeBeast2For(Context)({ start: ex.start, week, context, coverage: coverage(week, context, pay), pay }));
     assert.deepEqual(checked(cx).map(i => [i.assignment, i.title]), [[some("a"), "in late, stays on"]]);
     assert.ok(equalFor(OptionType(Roster.Types.Slot))(checked(cx)[0]!.slot, some(ex.slot)), "the issue names the duty's slot");
-    // The fit's request carries the rows too.
-    const Fit = Roster.Types.FitRequest(ex.DomainDuty);
-    const noteOf = East.compile(East.function([Fit], StringType, (_$, req) => req.week.assignments.get("a").row.note), []);
-    const ask = decodeBeast2For(Fit)(encodeBeast2For(Fit)({ need: variant("leads", null), slot: ex.slot, start: ex.start, week, context, coverage: coverage(week, context, pay) }));
-    assert.equal(noteOf(ask), "in late, stays on");
+    // The fit's request carries the question and the scope, and no row: its function reads the duties itself.
+    assert.deepEqual(Object.keys(Roster.Types.FitRequest.fields), ["need", "slot", "start", "scope"]);
 });
 
 test("each type over a week is a constructor of the row type: the same row the same type, another row another", () => {
     const Other = Roster.Types.Assignment(IntegerType);
-    const makers: readonly ((row: EastType) => EastType)[] = [Roster.Types.Assignment, Roster.Types.Week, Roster.Types.PayRequest, Roster.Types.CheckContext, Roster.Types.FitRequest];
+    const makers: readonly ((row: EastType) => EastType)[] = [Roster.Types.Assignment, Roster.Types.Week, Roster.Types.PayRequest, Roster.Types.CheckContext];
     for (const make of makers) {
         assert.ok(isTypeEqual(make(ex.DomainDuty), make(ex.DomainDuty)), make.name);
         assert.ok(!isTypeEqual(make(ex.DomainDuty), make(IntegerType)), make.name);

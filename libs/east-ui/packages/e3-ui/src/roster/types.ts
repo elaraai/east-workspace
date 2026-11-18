@@ -16,13 +16,17 @@
 
 import {
     ArrayType, BlobType, BooleanType, DateTimeType, DictType, EastTypeType, FloatType, FunctionType, IntegerType, NullType,
-    OptionType, SetType, StringType, StructType, VariantType, type EastType,
+    OptionType, PatchType, SetType, StringType, StructType, VariantType, type EastType, type PatchTypeOf,
 } from "@elaraai/east";
 import { RecordCommitInfoType } from "@elaraai/e3-types";
 import { ColorTokenType, StatusTokenType } from "@elaraai/east-ui";
 import { EditingType } from "@elaraai/east-ui/internal";
 import { RowInspectorType } from "../utils/row-inspector.js";
-import { ScheduleClockType, ScheduleEntriesType, ScheduleFitType, SchedulePeriodStatusType, ScheduleRefusalType } from "../schedule/types.js";
+import {
+    ScheduleClockType, ScheduleEntriesType, ScheduleFitType, SchedulePeriodStatusType, ScheduleRefusalType, ScheduleRosterRolesType,
+} from "../schedule/types.js";
+import { ScheduleOptimiseRequestType } from "../schedule/optimise.js";
+import { OptimisePeriodType, OptimiseSliceType, optimisedRecordType } from "../utils/optimise.js";
 
 /**
  * One shift of one group on one day of the week.
@@ -74,11 +78,12 @@ export type RosterAssignmentTypeFor<R extends EastType> = ReturnType<typeof Rost
 
 /**
  * A slot's staffing and work targets.
- * @remarks A duty needs assigned hours, whereas a skill also has holder capacity.
+ * @remarks A duty needs assigned hours, whereas a skill also has holder capacity. The slot's hours needed are the app's to define (#1678): `needed` is what its coverage's `hours.needed` reads, its lines each the hours of one key of `hours`.
  * @property positions - Positions to fill
  * @property hours - Hours required by skill or duty key
+ * @property needed - The hours the slot needs: the targets' `needed` of its row and its shift's nominal hours, or the sum of `hours` where the targets give none
  */
-export const RosterRequirementType = StructType({ positions: IntegerType, hours: DictType(StringType, FloatType) });
+export const RosterRequirementType = StructType({ positions: IntegerType, hours: DictType(StringType, FloatType), needed: FloatType });
 export type RosterRequirementType = typeof RosterRequirementType;
 /** Targets keyed by the complete slot. @remarks Use East's comparator for these struct keys. */
 export const RosterRequirementsType = DictType(RosterSlotType, RosterRequirementType);
@@ -204,7 +209,7 @@ export const RosterPersonType = StructType({
 export type RosterPersonType = typeof RosterPersonType;
 /**
  * Built-in checks enabled for the roster.
- * @remarks Rest reads this week only; double booking is always reported.
+ * @remarks The page's rest check reads this week only; double booking is always reported.
  * @property rest - Minimum hours between duties; zero disables the rest check
  * @property lead - Check staffed slots for a lead
  * @property trainer - Check trainees have a trainer
@@ -230,9 +235,9 @@ export const RosterContextType = StructType({
 });
 export type RosterContextType = typeof RosterContextType;
 /**
- * Coverage for one required activity.
- * @remarks Duties have no holder count or capacity and no skill gap.
- * @property skill - Skill or duty key
+ * Coverage for one key of a slot's target hours: an activity, or another key the app gives (#1678).
+ * @remarks Duties have no holder count or capacity and no skill gap; nor has a key that is no activity, which counts as a duty does.
+ * @property skill - Skill or duty key, or another key of the target's hours
  * @property needed - Required hours
  * @property holders - Number of people holding the skill, or none for a duty
  * @property capacity - Nominal hours available from holders, or none for a duty
@@ -250,8 +255,8 @@ export type RosterCoverageLineType = typeof RosterCoverageLineType;
  * @property filled - Assignments including requests
  * @property open - Unfilled positions, at least zero
  * @property people - Named people assigned
- * @property hours - Permanent, agency, requested, needed and total rostered hours: each duty's hours
- * @property lines - Required skills in group order, then duties
+ * @property hours - Permanent, agency, requested and total rostered hours, each duty's hours; and the hours needed, its target's `needed`
+ * @property lines - A line for every key of its target's hours (#1678): the group's skills, then the duties, each in the activities' order; then every other key, in key order — another group's skill counted as the group's own are, a key that is no activity as a duty is
  * @property cost - The slot's pay: its duties' costs summed over every code; zero without `pay`
  * @property lead - A named person holds a lead position
  * @property trainer - A trainer is assigned
@@ -379,22 +384,75 @@ export type RosterRefusalType = typeof RosterRefusalType;
 export const RosterFitType = ScheduleFitType;
 export type RosterFitType = typeof RosterFitType;
 /**
- * One question to the app's fit (#1334): who fits a Find fix's need on its
- * issue's slot, over the drafted week.
+ * One question to the app's fit (#1334, east-workspace#1624): who fits a Find
+ * fix's need on its issue's slot. It carries the question and the page's
+ * scope, and no row: the call carries the Roster's unsaved edits as drafts,
+ * and the function reads what it needs from the workspace with them laid over
+ * — the week's duties through the duty record's index, the people it asks
+ * about, and the configuration from the app's own records.
  *
- * @typeParam R - The app's duty row type
- * @param row - The app's duty row type
- * @returns The request type over it
- * @remarks `need` what is looked for, `slot` the issue's, `start` the week's first day, `week` the drafted week, `context` the complete staff and configuration — every person, whatever the rail shows — and `coverage` the drafted week's.
+ * @property need - What is looked for
+ * @property slot - The issue's slot
+ * @property start - The week's first day, a UTC midnight
+ * @property scope - Each rail source's scope by the source's name (#1621): the narrowing the page holds and the viewer
+ *   cannot clear, typed as an optimiser's `slice` is, each field its exact values as East prints them; empty for a page
+ *   with no scope. The rail's own choices are never sent: a fit answers whatever the rail shows
  */
-export function RosterFitRequestTypeFor<R extends EastType>(row: R) {
-    return StructType({
-        need: RosterNeedType, slot: RosterSlotType, start: DateTimeType, week: RosterWeekTypeFor(row), context: RosterContextType,
-        coverage: DictType(RosterSlotType, RosterCoverageType),
-    });
-}
-/** Type representing {@link RosterFitRequestTypeFor}. */
-export type RosterFitRequestTypeFor<R extends EastType> = ReturnType<typeof RosterFitRequestTypeFor<R>>;
+export const RosterFitRequestType = StructType({ need: RosterNeedType, slot: RosterSlotType, start: DateTimeType, scope: OptimiseSliceType });
+/** Type representing {@link RosterFitRequestType}. */
+export type RosterFitRequestType = typeof RosterFitRequestType;
+/**
+ * What a fit's function read (east-workspace#1624): what `Roster.answer` answers from, which the function makes of the
+ * app's own records, in the Roster's types.
+ *
+ * @property people - The people it asks about, by staff key: every one gets a verdict
+ * @property duties - The week's duties by key, each its roles: those read over the week's window (`Roster.window`), the
+ *   Roster's unsaved edits among them
+ * @property shifts - The shifts
+ * @property groups - The groups
+ * @property positions - The positions; empty where the duties hold none
+ * @property activities - Every activity: each group's skills and the duties of no group
+ * @property rest - The hours of rest the rule holds between a person's duties; zero for none
+ */
+export const RosterFitContextType = StructType({
+    people: DictType(StringType, RosterPersonType), duties: DictType(StringType, ScheduleRosterRolesType),
+    shifts: ArrayType(RosterShiftType), groups: ArrayType(RosterGroupType), positions: ArrayType(RosterPositionType),
+    activities: ArrayType(RosterSkillType), rest: FloatType,
+});
+/** Type representing {@link RosterFitContextType}. */
+export type RosterFitContextType = typeof RosterFitContextType;
+/**
+ * One of a candidate's duties of the week (east-workspace#1624): where the Roster places it, and its roles.
+ *
+ * @property place - Its day, its shift and its group, none for a duty in no group yet
+ * @property roles - Its roles
+ */
+export const RosterCandidateDutyType = StructType({ place: RosterPlaceType, roles: ScheduleRosterRolesType });
+/** Type representing {@link RosterCandidateDutyType}. */
+export type RosterCandidateDutyType = typeof RosterCandidateDutyType;
+/**
+ * One person against the week (east-workspace#1624): what a fit's rule is asked about, one at a time.
+ *
+ * @property need - What is looked for
+ * @property slot - The slot it is looked for on
+ * @property start - The week's first day
+ * @property person - The person
+ * @property duties - That person's duties of the week by key, each where the Roster places it and its roles
+ * @property hours - What those duties count
+ * @property shifts - The shifts
+ * @property groups - The groups
+ * @property positions - The positions
+ * @property activities - Every activity
+ * @property rest - The hours of rest the rule holds; zero for none
+ */
+export const RosterCandidateType = StructType({
+    need: RosterNeedType, slot: RosterSlotType, start: DateTimeType, person: RosterPersonType,
+    duties: DictType(StringType, RosterCandidateDutyType), hours: FloatType,
+    shifts: ArrayType(RosterShiftType), groups: ArrayType(RosterGroupType), positions: ArrayType(RosterPositionType),
+    activities: ArrayType(RosterSkillType), rest: FloatType,
+});
+/** Type representing {@link RosterCandidateType}. */
+export type RosterCandidateType = typeof RosterCandidateType;
 /**
  * Where a duty sits, as the Roster reads it from its roles (§5.5, rules 1 and
  * 8): placed in the week, another week's, or a duty the Roster cannot place —
@@ -440,6 +498,7 @@ export type RosterTargetEntryType = typeof RosterTargetEntryType;
  * @property entries - The record read by key, when it is given `entries`; `none` for a record read whole
  * @property rows - The targets whose day falls in `[from, to)`, by key, each its roles and its row; `none` while a read is in flight
  * @property read - A drafted row's roles, from its bytes
+ * @property needed - A drafted row's hours needed (#1678), from its bytes and its shift's nominal hours: the targets' `needed`, or the sum of its `hours`
  * @property write - The row with its roles written, and every other field as it was
  * @property create - A new row from the roles, every other field its type's default
  * @property history - The record's commits, newest first
@@ -451,6 +510,7 @@ export const RosterTargetsKindType = StructType({
     entries: OptionType(ScheduleEntriesType),
     rows: FunctionType([DateTimeType, DateTimeType], OptionType(DictType(StringType, RosterTargetEntryType))),
     read: FunctionType([BlobType], RosterTargetRolesType),
+    needed: FunctionType([BlobType, FloatType], FloatType),
     write: FunctionType([BlobType, RosterTargetRolesType], BlobType),
     create: FunctionType([RosterTargetRolesType], BlobType),
     history: FunctionType([], OptionType(ArrayType(RecordCommitInfoType))),
@@ -463,92 +523,80 @@ export type RosterTargetsKindType = typeof RosterTargetsKindType;
  * matches each answer to the question it asked.
  * @property need - The need answered
  * @property slot - The slot answered
- * @property people - A verdict for every person, by staff key; the People tab shows the fits, best first
+ * @property people - A verdict for each person the function considered, by staff key (east-workspace#1624); the People tab
+ *   shows the fits, best first, among what the rail shows, and lists no one the answer does not name
  */
 export const RosterFitResultType = StructType({ need: RosterNeedType, slot: RosterSlotType, people: DictType(StringType, RosterFitType) });
 export type RosterFitResultType = typeof RosterFitResultType;
 /**
- * What an optimiser takes beyond the week (#1553): `{ edges: true }` gives its
- * request and its answer the duties at the week's edges — for a business whose
- * week runs by when its shifts end, say, where the night before the week is
- * the week's first shift.
+ * What an optimiser takes beyond the week (#1553): `{ edges: true }` lets its
+ * answer change the duties at the week's edges — for a business whose week
+ * runs by when its shifts end, say, where the night before the week is the
+ * week's first shift — and its request names the keys of those it must leave
+ * as they are.
  *
- * @property edges - The duties at the week's edges: in the request, the window's duties the Roster places in another week and which of them are fixed; in the answer, those duties as the optimiser leaves them
+ * @property edges - The duties at the week's edges: the request carries `fixed`, and the answer's one patch may change, remove or add a duty at an edge
  */
 export interface RosterOptimiseOptions {
     readonly edges: true;
 }
-/** Type representing {@link RosterOptimiseRequestTypeFor} over the week alone. */
-export type RosterOptimiseRequestTypeFor<R extends EastType> = StructType<{
-    from: DateTimeType; to: DateTimeType; run: IntegerType; duties: DictType<StringType, R>; requirements: RosterRequirementsType; context: RosterContextType;
-}>;
-/** Type representing {@link RosterOptimiseRequestTypeFor} given `{ edges: true }` (#1553): the week, and the duties at its edges. */
-export type RosterOptimiseEdgesRequestTypeFor<R extends EastType> = StructType<{
-    from: DateTimeType; to: DateTimeType; run: IntegerType; duties: DictType<StringType, R>; edges: DictType<StringType, R>; fixed: SetType<StringType>;
-    requirements: RosterRequirementsType; context: RosterContextType;
+/** Type representing {@link RosterOptimiseRequestTypeFor} over the week alone: Schedule's request, the window and the narrowing. */
+export type RosterOptimiseRequestType = ScheduleOptimiseRequestType;
+/** Type representing {@link RosterOptimiseRequestTypeFor} given `{ edges: true }` (#1553): the week's request, and the duties it must leave. */
+export type RosterOptimiseEdgesRequestType = StructType<{
+    from: DateTimeType; to: DateTimeType; period: OptimisePeriodType; run: IntegerType; slice: OptimiseSliceType; fixed: SetType<StringType>;
 }>;
 /**
- * One request to the app's optimiser (#1409, `Optimise Spec.md` §5.1): the
- * week in view and its duties, as drafted, for the optimiser to fill or
- * improve — the Elara eye's one call.
+ * One request to the app's optimiser (#1409, east-workspace#1622): the period
+ * the Roster shows and what kind it is, the run's number and the rail's
+ * narrowing — the Elara eye's one call. It carries no row: the function reads
+ * the duties through the duty record's indexes, the Roster's unsaved edits
+ * laid over them, and the targets, the staff and the configuration from the
+ * app's own records.
  *
- * @typeParam R - The app's duty row type
- * @param row - The app's duty row type
- * @returns The request type over it
- * @remarks `from` and `to` the week, half open; `run` the run's number, from 1 per Roster per browser; `duties` the week's duties by key, the app's own rows as the session holds them — the base with every unapplied draft in place, every row whatever the rail shows; `requirements` the week's targets by slot; `context` the complete staff and configuration — every person, shift, group, position and agency, and the rules.
+ * @returns The request type, Schedule's: `{ from, to, period, run, slice }`
+ * @remarks `from` and `to` the period the Roster shows, half open: the day in day view, the week in week view, the month in month view; `period` which of them it is (`day`, `week` or `month`); `run` the run's number, from 1 per Roster per browser; `slice` each rail source's narrowing by the source's name, the page's scope among it.
  */
-export function RosterOptimiseRequestTypeFor<R extends EastType>(row: R): RosterOptimiseRequestTypeFor<R>;
+export function RosterOptimiseRequestTypeFor(): RosterOptimiseRequestType;
 /**
- * One request to the app's optimiser that takes the duties at the week's
- * edges (#1553): the week's request, and beside its duties the duties the
- * window holds outside the week, as drafted, with the keys of those it must
- * leave as they are.
+ * One request to the app's optimiser that may change the duties at the week's
+ * edges (#1553): the week's request, and `fixed`, the keys of the duties at the
+ * edges its answer must leave as they are.
  *
- * @typeParam R - The app's duty row type
- * @param row - The app's duty row type
  * @param options - `{ edges: true }`
- * @returns The request type over it
- * @remarks As the week's request, and: `edges` every duty the window holds — the week and the twelve hours either side — that the Roster places in another week, by key, as the session holds it: drafts in place, one a draft removes absent; `fixed` the keys of those whose week takes no edit — published, or closed — or, where the periods are days, whose day takes none.
+ * @returns The request type: `{ from, to, period, run, slice, fixed }`
+ * @remarks `fixed` the keys of the duties the window holds — the period in view and the twelve hours either side — that the Roster places in another week and whose week takes no edit — published, or closed — or, where the periods are days, whose day takes none, or that fall in no week the Roster holds. It is the one thing the Roster still works out for the function.
  */
-export function RosterOptimiseRequestTypeFor<R extends EastType>(row: R, options: RosterOptimiseOptions): RosterOptimiseEdgesRequestTypeFor<R>;
-export function RosterOptimiseRequestTypeFor<R extends EastType>(row: R, options?: RosterOptimiseOptions): RosterOptimiseRequestTypeFor<R> | RosterOptimiseEdgesRequestTypeFor<R> {
-    const duties = DictType(StringType, row);
-    return options?.edges === true
-        ? StructType({ from: DateTimeType, to: DateTimeType, run: IntegerType, duties, edges: duties, fixed: SetType(StringType), requirements: RosterRequirementsType, context: RosterContextType })
-        : StructType({ from: DateTimeType, to: DateTimeType, run: IntegerType, duties, requirements: RosterRequirementsType, context: RosterContextType });
+export function RosterOptimiseRequestTypeFor(options: RosterOptimiseOptions): RosterOptimiseEdgesRequestType;
+export function RosterOptimiseRequestTypeFor(options?: RosterOptimiseOptions): RosterOptimiseRequestType | RosterOptimiseEdgesRequestType {
+    if (options === undefined) return ScheduleOptimiseRequestType;
+    if (typeof options !== "object" || options === null || options.edges !== true) {
+        throw new Error("Roster.Types.OptimiseRequest: takes nothing, or { edges: true } for an optimiser that may change the duties at the week's edges");
+    }
+    return StructType({ from: DateTimeType, to: DateTimeType, period: OptimisePeriodType, run: IntegerType, slice: OptimiseSliceType, fixed: SetType(StringType) });
 }
-/** Type representing {@link RosterOptimiseResultTypeFor} over the week alone. */
-export type RosterOptimiseResultTypeFor<R extends EastType> = StructType<{ duties: DictType<StringType, R> }>;
-/** Type representing {@link RosterOptimiseResultTypeFor} given `{ edges: true }` (#1553): the week's duties, and the duties at its edges. */
-export type RosterOptimiseEdgesResultTypeFor<R extends EastType> = StructType<{ duties: DictType<StringType, R>; edges: DictType<StringType, R> }>;
 /**
- * The app's optimiser's answer (#1409): the week's duties, complete, by key.
- * The Roster diffs it against the request by key — a key the request did not
- * hold is a duty added, one it held with another row a duty changed, one
- * missing a duty removed — and records the diff as one step of its history.
+ * An optimiser's answer over the duties' record `D` — what
+ * {@link RosterOptimiseResultTypeFor} constructs.
  *
- * @typeParam R - The app's duty row type
- * @param row - The app's duty row type
- * @returns The result type over it
- * @remarks A new duty's key is the optimiser's own; a result equal to the request records nothing.
+ * @typeParam D - The duties' record type
  */
-export function RosterOptimiseResultTypeFor<R extends EastType>(row: R): RosterOptimiseResultTypeFor<R>;
+export type RosterOptimiseResultType<D extends DictType<EastType, EastType> = DictType<EastType, EastType>> = StructType<{ duties: PatchTypeOf<D> }>;
 /**
- * The answer of an optimiser that takes the duties at the week's edges
- * (#1553): the week's duties, complete, and the edge duties as it leaves
- * them. The Roster diffs both against the request's duties and edges by key,
- * as one: an edge duty the answer leaves out is removed, one with another row
- * changed, and a key new to both a duty added, in whichever week its day
- * falls — every change in the run's one step.
+ * The app's optimiser's answer (#1409, east-workspace#1622): a patch of the
+ * duties' record — for each key, a duty inserted, deleted, or updated by a
+ * patch of its row. It is what `East.diff` gives of the duties before and
+ * after, and what a Save sends. One answer serves both forms: given
+ * `{ edges: true }`, its patch may change a duty at the week's edges too.
  *
- * @typeParam R - The app's duty row type
- * @param row - The app's duty row type
- * @param options - `{ edges: true }`
- * @returns The result type over it
- * @remarks A published week stays read only: an answer that changes or removes one of the request's `fixed` duties, puts a duty in a week that takes no edit (a day, where the periods are days) or beyond the weeks either side, or gives one key among both `duties` and `edges`, is refused, naming the duty, and changes nothing.
+ * @typeParam D - The duties' record type
+ * @param duties - The duties' record type, `DictType(StringType, Duty)`
+ * @returns `StructType({ duties })`
+ * @throws {Error} When given a type that is no Dict of duties by key
+ * @remarks A new duty's key is the optimiser's own. A published week stays read only: an answer that changes or removes one of the request's `fixed` duties, or a duty in a week that takes no edit (a day, where the periods are days), or puts one in a week beyond the weeks either side, is refused, naming the duty, and changes nothing.
  */
-export function RosterOptimiseResultTypeFor<R extends EastType>(row: R, options: RosterOptimiseOptions): RosterOptimiseEdgesResultTypeFor<R>;
-export function RosterOptimiseResultTypeFor<R extends EastType>(row: R, options?: RosterOptimiseOptions): RosterOptimiseResultTypeFor<R> | RosterOptimiseEdgesResultTypeFor<R> {
-    const duties = DictType(StringType, row);
-    return options?.edges === true ? StructType({ duties, edges: duties }) : StructType({ duties });
+export function RosterOptimiseResultTypeFor<D extends DictType<EastType, EastType>>(duties: D): RosterOptimiseResultType<D> {
+    const record = optimisedRecordType(duties as EastType, (given) =>
+        `Roster.Types.OptimiseResult: is given ${given} — it takes the duties' record type, a Dict of duties by key: DictType(StringType, Duty)`);
+    return StructType({ duties: PatchType(record) }) as unknown as RosterOptimiseResultType<D>;
 }

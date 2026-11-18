@@ -82,9 +82,12 @@ function hold(datasets: readonly InMemoryDataset[]): HeldDataset[] {
 /** The output streams of a call that said nothing. */
 const QUIET = { stdout: "", stdoutTruncated: false, stderrTruncated: false } as const;
 
+/** The records a query's call drafted, and what of its drafts ended it: none, since a one-shot lays no draft. */
+const UNDRAFTED: Pick<ExecuteResult, "drafts" | "draftEnd"> = { drafts: [], draftEnd: none };
+
 /** The `invalid` result e3 answers a call it refuses, before anything runs. */
 function invalid(message: string): ExecuteResult {
-    return { ...QUIET, outcome: variant("invalid", { diagnostics: [{ message, filename: none, line: none, column: none }] }), stderr: "", inputs: [] };
+    return { ...QUIET, outcome: variant("invalid", { diagnostics: [{ message, filename: none, line: none, column: none }] }), stderr: "", inputs: [], ...UNDRAFTED };
 }
 
 /** How e3 refuses a dataset argument with nothing at its path: as it refuses an unassigned dataset. */
@@ -102,14 +105,14 @@ function answer(type: EastType, value: unknown, limits: OneShotRequest["limits"]
     const bytes = encodeBeast2For(type)(value as never);
     const limit = maxResultBytes(limits);
     if (limit !== undefined && BigInt(bytes.length) > limit) {
-        return { ...QUIET, outcome: variant("too_large", { bytes: BigInt(bytes.length), limit }), stderr: "", inputs };
+        return { ...QUIET, outcome: variant("too_large", { bytes: BigInt(bytes.length), limit }), stderr: "", inputs, ...UNDRAFTED };
     }
-    return { ...QUIET, outcome: variant("success", { value: bytes }), stderr: "", inputs };
+    return { ...QUIET, outcome: variant("success", { value: bytes }), stderr: "", inputs, ...UNDRAFTED };
 }
 
 /** A body that raised an East error, failed as a runner's run fails: exit code 1, and `Error: <message>` with its places. */
 function raised(err: EastError, inputs: ExecuteResult["inputs"]): ExecuteResult {
-    return { ...QUIET, outcome: variant("failed", { exitCode: 1n }), stderr: `Error: ${err.toString()}\n`, inputs };
+    return { ...QUIET, outcome: variant("failed", { exitCode: 1n }), stderr: `Error: ${err.toString()}\n`, inputs, ...UNDRAFTED };
 }
 
 /**
@@ -153,7 +156,7 @@ export function createInMemoryQueryCall(datasets: readonly InMemoryDataset[]): Q
             }
             read.push(found);
         }
-        const inputs = read.map(d => ({ path: d.path, hash: d.hashOf() }));
+        const inputs = read.map(d => ({ path: d.path, index: none, hash: d.hashOf() }));
         const body = decodeEastIR(request.bodyIr);
         const type = fromEastTypeValue(body.ir.value.type);
         if (type.type !== "Function") throw new Error("createInMemoryQueryCall: a call's body is a function");
@@ -365,7 +368,7 @@ export function createInMemorySplitCall(datasets: readonly InMemoryDataset[], op
                 if (found === undefined) return unassigned(i, arg.value);
                 values.push(found.value);
                 weights.push(found.bytesOf());
-                inputs.push({ path: found.path, hash: found.hashOf() });
+                inputs.push({ path: found.path, index: none, hash: found.hashOf() });
             } else if (arg.type === "value") {
                 values.push(decodeBeast2(arg.value).value);
                 weights.push(arg.value.length);

@@ -43,7 +43,7 @@ import { workspaceCreate, workspaceGetPackage, type WorkspaceDeployOptions } fro
 import { workspaceDeploy } from './workspace-files.js';
 import { workspaceStatus } from './workspaceStatus.js';
 import { dataflowExecute } from './execution/local-orchestrator.js';
-import { createTestRepo, removeTestRepo, createTempDir, removeTempDir } from './test-helpers.js';
+import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, withEnv } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
 import type { StorageBackend, TaskRunner } from './index.js';
@@ -55,20 +55,6 @@ const PlansV2Type = DictType(StringType, RowV2Type);
 const plansPath: TreePath = [variant('field', 'records'), variant('field', 'plans')];
 const encodeInt = encodeBeast2For(IntegerType);
 const encodeStr = encodeBeast2For(StringType);
-
-/** Runs `fn` with the given env vars set, restoring them after. */
-async function withEnv<T>(vars: Record<string, string>, fn: () => Promise<T>): Promise<T> {
-  const prev = Object.keys(vars).map((k) => [k, process.env[k]] as const);
-  Object.assign(process.env, vars);
-  try {
-    return await fn();
-  } finally {
-    for (const [k, v] of prev) {
-      if (v === undefined) delete process.env[k];
-      else process.env[k] = v;
-    }
-  }
-}
 
 /** v1: rows of a title, and `seed(n)`, which writes rows p-0 … p-(n-1). */
 function v1(version = '1.0.0'): PackageDef<Record<string, unknown>> {

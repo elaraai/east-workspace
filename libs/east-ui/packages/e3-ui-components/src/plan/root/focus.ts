@@ -2,8 +2,8 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  *
- * Row focus (R1 links / R2 expand): the links family and the rows it reveals,
- * and the focused row's developer render with its height clamp.
+ * Row focus (R1 links / R2 expand): the links family it gathers, and the
+ * focused row's developer render with its height clamp.
  *
  * @packageDocumentation
  */
@@ -31,7 +31,7 @@ const EXPAND_FLOOR_PX = 88;
 export interface PlanFocus {
     /** The links focus's transitive family. */
     linkFamily: LinkFamily | undefined;
-    /** The rows a links focus keeps at full height (focus + family). */
+    /** The rows a links focus gathers (focus + family) — the ends its ribbons may join. */
     focusVisibleKeys: ReadonlySet<RowKey> | undefined;
     /** Which row is focused, and how — what the row roles need. */
     focusCtx: PlanFocusCtx | undefined;
@@ -42,22 +42,24 @@ export interface PlanFocus {
  *
  * @param focus - The active row focus
  * @param links - The decoded link graph
- * @returns The family, the rows it keeps, and the focus context
+ * @returns The family, the rows it gathers, and the focus context
  */
 export function usePlanFocus(focus: PlanUiView["focus"], links: readonly PlanLinkValue[]): PlanFocus {
+    const linkKey = focus?.kind === "links" ? focus.key : undefined;
+    // The family follows the focused row, never whether its others' band is open.
     const linkFamily = useMemo(
-        () => (focus?.kind === "links" ? deriveLinkFamily(links, focus.key) : undefined),
-        [focus, links],
+        () => (linkKey !== undefined ? deriveLinkFamily(links, linkKey) : undefined),
+        [linkKey, links],
     );
     const focusVisibleKeys = useMemo(
-        () => (focus !== null && linkFamily !== undefined ? new Set([...linkFamily.all, focus.key]) : undefined),
-        [focus, linkFamily],
+        () => (linkKey !== undefined && linkFamily !== undefined ? new Set([...linkFamily.all, linkKey]) : undefined),
+        [linkKey, linkFamily],
     );
     const focusCtx = useMemo<PlanFocusCtx | undefined>(() => {
         if (focus === null) return undefined;
-        return focus.kind === "links"
-            ? { kind: "links", key: focus.key, family: linkFamily?.all }
-            : { kind: "expand", key: focus.key };
+        return focus.kind === "links" && linkFamily !== undefined
+            ? { kind: "links", key: focus.key, links: { family: linkFamily, others: focus.others === true } }
+            : { kind: focus.kind, key: focus.key };
     }, [focus, linkFamily]);
     return { linkFamily, focusVisibleKeys, focusCtx };
 }
@@ -158,8 +160,9 @@ export function usePlanExpand(
         const want = declared ?? EXPAND_DEFAULT_PX;
         if (viewportPx === undefined) return want;
         // Everything the render must NOT push out: the strips, the focal row's
-        // own band, and the chrome pinned above them.
-        const bare = { kind: "expand" as const, key: expandKey };
+        // own band — an expandable chart's expanded one, a render of none —
+        // and the chrome pinned above them.
+        const bare = { kind: "expand" as const, key: expandKey, renderPx: 0 };
         const rowsPx = visible.reduce((sum, v) => sum + rowHeight(v, dense, chartsExpanded, bare, derived), 0);
         return Math.max(EXPAND_FLOOR_PX, Math.min(want, viewportPx - rowsPx - (headerPx ?? 0)));
     }, [expandDecl, expandKey, viewportPx, headerPx, visible, dense, chartsExpanded, derived]);

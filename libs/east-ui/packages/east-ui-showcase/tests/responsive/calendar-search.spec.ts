@@ -7,9 +7,12 @@
  * pick at 1440 — the frame's Inspector, on its rail for lack of room, opened
  * over main by the pick — brings its event into the part of main the viewer
  * sees: clear of the Inspector laid over it, and of the timeline's sticky
- * column of resources (the hand retest, 27 Oct 2026), in both themes.
+ * column of resources (the hand retest, 27 Oct 2026), in both themes. And the
+ * status a search shows, `1 match`, stands its words on whole pixels in the
+ * control's room (#1638, `box-words.ts`).
  */
 import { expect, type Locator, type Page } from "playwright/test";
+import { expectWholeBoxWords } from "./box-words";
 import { test } from "./kept-page";
 import { visitBuilder } from "./builder-page";
 
@@ -42,6 +45,8 @@ for (const theme of ["light", "dark"] as const) {
         const input = await searchInput(page, frame);
         await input.pressSequentially("W-0006");
         await expect.poll(() => lines(input), { timeout: 15_000 }).toEqual([expect.stringMatching(/^W-0006 · Menu cards/)]);
+        // Its status in the control's room, on a whole line (#1646's review).
+        await expectWholeBoxWords(input.locator("xpath=ancestor::*[@data-part='control'][1]"), "the key search's status");
         await input.press("Enter");
         const picked = frame.locator('[data-calendar-event][aria-pressed="true"]');
         await expect(picked).toHaveCount(1);

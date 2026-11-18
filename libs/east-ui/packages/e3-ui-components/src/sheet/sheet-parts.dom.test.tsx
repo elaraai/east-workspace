@@ -69,7 +69,7 @@ const narrowed = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(
     return Sheet({
         slice: { slice }, group: Sheet.group(ex.WorkshopOrder, "ops", { title: "name" }),
         columns: { activity: Sheet.column.text(ex.WorkshopOperation, { header: "Activity" }) },
-        views, onApply: Record.onApply(orders, { keyed: true }),
+        views, record: orders,
         // No column sets an operation's machines, nor a band cell an order's customer (#1536): the sheet adds neither.
         edits: { insertRows: false, insertGroups: false },
     });

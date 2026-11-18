@@ -36,7 +36,8 @@
 // view off the rows its tests read.
 import { expect, test, type Locator } from "playwright/test";
 import { editingMessages } from "@elaraai/east-ui-components/testing";
-import { PLAN_EXAMPLES, openExample, planBox, remount, rowSel, sizeBox, toolbarLadderFaults } from "./plan-page";
+import { PLAN_EXAMPLES, openExample, planBox, remount, sizeBox, toolbarLadderFaults } from "./plan-page";
+import { printWorksBars, printWorksPress } from "./plan-builder-page";
 import { settled } from "./settle";
 
 /** The event kinds' examples file (#1191). */
@@ -144,7 +145,7 @@ test.describe("the Plan's frame (#1193)", () => {
             .evaluateAll((items) => items.map((item) => item.getAttribute("data-toolbar-item")))).toEqual(isMobile ? ["overlaps"] : ["overlaps", "history"]);
         const chip = overlapping.locator("[data-builder-frame] > [data-frame-slot='toolbar'] [data-plan-overlaps]");
         await expect(chip).toHaveAccessibleName("1 overlap — select the first pair");
-        await expect(chip).toHaveText(await chip.getAttribute("data-plan-overlaps") === "short" ? "1" : "1 overlap");
+        await expectOneOverlap(chip);
     });
 
     test("a declared fill is the whole Plan's: the frame takes its host's height, and the canvas scrolls its own rows in main", async ({ page }) => {
@@ -300,7 +301,7 @@ test.describe("the Plan's Save on e3-web (#1194)", { tag: "@desktop" }, () => {
         // The inspector pinned open beside main (#1220), in a box wide enough for both panes.
         const open = async (entry: Locator) => {
             await sizeBox(page, planBox(entry), 1440);
-            await entry.locator(`${rowSel("presses.span", "Hall A", "a1")} [data-run]`, { hasText: "Spring catalogue" }).click();
+            await printWorksBars(entry, "a1", "Spring catalogue").click();
             await settled(page);
             const frame = entry.locator("[data-builder-frame]").first();
             return {
@@ -363,7 +364,7 @@ test.describe("the Plan's inspector (#1197)", { tag: "@desktop" }, () => {
                 // The bars it reads, drawn: the rows the rail narrows land after the example shows, and nothing on the
                 // page says they are on their way.
                 for (const title of ["Market posters", "Loyalty cards", "Timetables"]) {
-                    await expect(entry.locator(`${rowSel("presses.span", "Hall B", "b2")} [data-run]`, { hasText: title }).first()).toBeVisible();
+                    await expect(printWorksBars(entry, "b2", title).first()).toBeVisible();
                 }
                 const rings = await entry.evaluate((root, row) => {
                     // A shadow, and a colour, as this page resolves the tokens they are written in.
@@ -393,15 +394,15 @@ test.describe("the Plan's inspector (#1197)", { tag: "@desktop" }, () => {
                             ink: probe({ color: "var(--chakra-colors-fg-warning)" }, "color"),
                         },
                     };
-                }, rowSel("presses.span", "Hall B", "b2"));
+                }, printWorksPress("b2"));
                 expect(rings).toEqual({ ...rings, posters: rings.both, cards: rings.ring, timetables: "none", chip: rings.warn });
-                await expect(entry.locator(OVERLAPS_CHIP)).toHaveText("1 overlap");
+                await expectOneOverlap(entry.locator(OVERLAPS_CHIP));
             });
             await test.step(`planPrintWorks (${theme}): a selected job's bar wears a 1.5px ring in the brand just outside it, and the inspector shows the job, every line inside the pane`, async () => {
                 // A box wide enough for both panes beside main's 480px: the inspector pinned open, its lines laid out (#1220 —
                 // at the desktop project's own width the inspector rests on its rail, and a collapsed pane has nothing to measure).
                 await sizeBox(page, planBox(entry), 1440);
-                const bar = entry.locator(`${rowSel("presses.span", "Hall A", "a1")} [data-run]`, { hasText: "Spring catalogue" });
+                const bar = printWorksBars(entry, "a1", "Spring catalogue");
                 await bar.click();
                 await settled(page);
                 const ring = await bar.evaluate((el) => {
@@ -430,6 +431,11 @@ test.describe("the Plan's inspector (#1197)", { tag: "@desktop" }, () => {
 /** The overlaps chip in a Plan's toolbar. */
 const OVERLAPS_CHIP = "[data-builder-frame] > [data-frame-slot='toolbar'] [data-plan-overlaps]";
 
+/** The overlaps chip says one overlap: in its words, or — its row short of room — its count alone. */
+async function expectOneOverlap(chip: Locator): Promise<void> {
+    await expect(chip).toHaveText(await chip.getAttribute("data-plan-overlaps") === "short" ? "1" : "1 overlap");
+}
+
 test.describe("the Plan's overlaps (#1198)", { tag: "@desktop" }, () => {
 
     test("planPrintWorks, in a host 420px tall: the chip's click selects the pair and brings Press B2's row into the canvas's view", async ({ page }) => {
@@ -440,7 +446,7 @@ test.describe("the Plan's overlaps (#1198)", { tag: "@desktop" }, () => {
         });
         await expect(entry.locator("[data-plan-body][data-plan-bounded]")).toHaveCount(1);
         await settled(page);
-        const b2 = rowSel("presses.span", "Hall B", "b2");
+        const b2 = printWorksPress("b2");
         // Whether Press B2's row is drawn wholly inside the canvas's scroller.
         const inView = () => entry.evaluate((root, args) => {
             const scroller = root.querySelector<HTMLElement>(args.scroller)!.getBoundingClientRect();

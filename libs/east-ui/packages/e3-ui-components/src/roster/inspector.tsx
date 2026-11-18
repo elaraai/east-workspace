@@ -6,15 +6,18 @@ import { useCallback, useMemo } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck, faMinus } from "@fortawesome/free-solid-svg-icons";
 import { Box, Button, chakra, useSlotRecipe } from "@chakra-ui/react";
-import { StringType, equalFor, some } from "@elaraai/east";
+import { some } from "@elaraai/east";
 import { BannerView, EastChakraComponent, FieldForm, useTrackedEvaluation, type BuilderFrameDock, type EditIssue } from "@elaraai/east-ui-components";
 import { PlaceholderShape } from "@elaraai/east-ui-components/internal";
+import { breachTone } from "../shared/bounds.js";
 import { FOCUS_HOME_PROPS, useFocusHome } from "../shared/focus-home.js";
 import { useFieldAsk } from "../shared/schedule/field-ask.js";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
 import { madeFromValues } from "../shared/schedule/records.js";
-import { NO_REFUSED_FIELDS, refusedFields, type RefusedFields } from "../shared/schedule/refusals.js";
+import { drawnStatus } from "../shared/status.js";
+import { refusalsOfEntry, refusalsText, refusedFields, type RefusedFields } from "../shared/schedule/refusals.js";
 import { Seg } from "../shared/schedule/segments.js";
+import { shownWhole, type KeyVisibility } from "../shared/schedule/visibility.js";
 import { plural } from "../shared/schedule/words.js";
 import { AssignmentActions, AssignmentFields, GroupField, PlaceAction, RequirementFields, TimesFields, dutyForm, type DutyFormValue } from "./controls.js";
 import { CoverageView, ProposalCard, assignmentName, costed, dismissible, money, type RosterViewsProps } from "./views.js";
@@ -23,7 +26,7 @@ import type { RolesChange } from "./actions.js";
 import type { RosterFind } from "./fit.js";
 import {
     DAY, NO_GROUP, costsOf, dayOfSlot, dayStart, groupName, groupSkills, issueGoesTo, placeOf, requirementOf, samePlace, sameSlot, slotOfPlace, viewTotals, weekNumber,
-    type Assignment, type Issue, type Person, type PlacedDuties, type PlacedTargets, type RosterStyles, type Slot,
+    type Assignment, type Coverage, type Issue, type Person, type PlacedDuties, type PlacedTargets, type RosterStyles, type Slot,
 } from "./model.js";
 
 /** The Find fixes, as the inspector offers them (#1334): only with the app's fit, and reading `Finding…` while their find is asked. */
@@ -57,8 +60,9 @@ type Args = RosterViewsProps & {
     refusals: readonly RosterRefusal[];
     /** A refusal pressed: its duty shown on its day and selected. */
     onRefusal: (refusal: RosterRefusal) => void;
+    /** Whether a choice of the viewer's narrows who shows, and how many people the page holds (#1621): what the Summary counts out of. */
+    peopleShown: Pick<KeyVisibility, "chosen" | "held">;
 };
-const keyEqual = equalFor(StringType);
 function fixLabel(issue: Issue, props: Args) {
     if (issue.fix.type === "none") return "";
     const fix = issue.fix.value;
@@ -175,14 +179,14 @@ function OneAssignment({ props, id, assignment: a }: { props: Args; id: string; 
     const position = props.value.positions.find(p => p.key === a.position);
     // Its refusals holding Save (#1525): over its form, as the Calendar's banner shows an event's, each field named ringed
     // and saying the app's words for it under it.
-    const refusals = props.refusals.filter(r => keyEqual(r.kind, props.value.duty.kind.key) && keyEqual(r.issue.entry, id));
-    const refused = refusals.length === 0 ? NO_REFUSED_FIELDS : refusedFields(refusals.map(r => r.issue));
+    const refusals = refusalsOfEntry(props.refusals, props.value.duty.kind.key, id);
+    const refused = refusedFields(refusals.map(r => r.issue));
     // A bound its row breaks (#1585), said in the tone its Save stands in: as stored it warns; its change refused, holding
     // Save, it is an error.
-    const breaches = refusals.length > 0 ? "error" : "warn";
+    const breaches = breachTone(refusals);
     return <><ScheduleInspectorHead styles={props.styles} kind={{ name: `Duty · ${groupName(props.value, a.place.group)} · ${props.value.shifts.find(s => s.key === a.place.shift)?.label}`, icon: a.who.type === "request" ? "building" : "user" }} title={assignmentName(props.value, a)}
-        when={`${position === undefined ? "" : `${position.label} · `}${props.format.weekdayDate(dayOfSlot(props.start, a.place))}${person?.trainer ? " · trainer" : person?.trainee ? " · trainee" : ""}`} status={{ label: state, tone: { type: removed ? "warning" : "neutral" }, ring: changed }} pending={changed ? baseline === undefined ? "new" : "pending" : undefined} home />
-        {!removed && refusals.length > 0 && <Box css={props.styles.section} data-roster-refusals=""><BannerView status="warning" title="Not saved yet" description={refusals.map(r => r.text).join("; ")} /></Box>}
+        when={`${position === undefined ? "" : `${position.label} · `}${props.format.weekdayDate(dayOfSlot(props.start, a.place))}${person?.trainer ? " · trainer" : person?.trainee ? " · trainee" : ""}`} status={drawnStatus(state, removed ? "warning" : "neutral", changed)} pending={changed ? baseline === undefined ? "new" : "pending" : undefined} home />
+        {!removed && refusals.length > 0 && <Box css={props.styles.section} data-roster-refusals=""><BannerView status="warning" title="Not saved yet" description={refusalsText(refusals.map(r => r.issue), props.value.duty.kind.fields)} /></Box>}
         {!removed && <RosterIssues props={props} issues={props.issues.filter(issue => issue.assignment.type === "some" && issue.assignment.value === id)} />}
         {!removed && <Box css={props.styles.fields}>
             {/* Where the duty kind's group takes none (#1548): the groups and No group, a choice moving the duty there —
@@ -199,8 +203,11 @@ function OneAssignment({ props, id, assignment: a }: { props: Args; id: string; 
         <Box css={props.styles.section}><AssignmentActions id={id} assignment={a} removed={removed} value={props.value} start={props.start} commands={props.commands} styles={props.styles} /></Box>
     </>;
 }
-/** A slot's targets: the targets' own form where the app gives one, over the slot's row — or a new one — else the Roster's. */
-function Targets({ props, slot }: { props: Args; slot: Slot }) {
+/**
+ * A slot's targets: the targets' own form where the app gives one, over the slot's row — or a new one — else the
+ * Roster's, listing the lines its coverage draws.
+ */
+function Targets({ props, slot, coverage }: { props: Args; slot: Slot; coverage: Coverage }) {
     const kind = props.value.targets.type === "some" ? props.value.targets.value : undefined;
     const form = kind?.inspector.type === "some" ? kind.inspector.value : undefined;
     const target = requirementOf(props.week, slot);
@@ -215,18 +222,18 @@ function Targets({ props, slot }: { props: Args; slot: Slot }) {
     const { result } = useTrackedEvaluation(read);
     if (kind === undefined) return <Box css={props.styles.detail}>This roster has no targets.</Box>;
     return <>{result.ok && result.value !== undefined ? <chakra.fieldset disabled={!props.commands.availableOn(slot.day)}><EastChakraComponent value={result.value} storageKey={`${props.storageKey}.requirement`} /></chakra.fieldset>
-        : <RequirementFields value={props.value} week={props.week} held={props.held} slot={slot} commands={props.commands} styles={props.styles} />}
+        : <RequirementFields value={props.value} week={props.week} held={props.held} slot={slot} coverage={coverage} commands={props.commands} styles={props.styles} />}
         {!result.ok && <Box role="alert" css={props.styles.error}>The targets form could not be rendered.</Box>}</>;
 }
 function OneSlot({ props, slot }: { props: Args; slot: Slot }) {
     const c = props.coverage.get(slot); if (c === undefined) return <Box css={props.styles.empty} {...FOCUS_HOME_PROPS}>This shift is no longer configured.</Box>;
     const shift = props.value.shifts.find(s => s.key === slot.shift)!;
     return <><ScheduleInspectorHead styles={props.styles} kind={{ name: `Shift · ${props.value.groups.find(g => g.key === slot.group)?.label} · ${props.format.weekday(dayOfSlot(props.start, slot))}`, icon: "clock" }} title={shift.label}
-        when={`${c.filled} / ${c.positions} positions · ${props.format.number(c.hours.rostered)} of ${props.format.number(c.hours.needed)} h`} status={{ label: c.hours.rostered < c.hours.needed ? `${props.format.number(c.hours.needed - c.hours.rostered)} h short` : "Covered", tone: { type: c.hours.rostered < c.hours.needed ? "warning" : "success" }, ring: false }} home />
+        when={`${c.filled} / ${c.positions} positions · ${props.format.number(c.hours.rostered)} of ${props.format.number(c.hours.needed)} h`} status={drawnStatus(c.hours.rostered < c.hours.needed ? `${props.format.number(c.hours.needed - c.hours.rostered)} h short` : "Covered", c.hours.rostered < c.hours.needed ? "warning" : "success")} home />
         <RosterIssues props={props} issues={props.issues.filter(i => i.slot.type === "some" && sameSlot(i.slot.value, slot))} />
         <Box css={props.styles.section}><Box css={props.styles.sectionHead}>Coverage</Box><CoverageView coverage={c} value={props.value} styles={props.styles} format={props.format} />
             <Box css={props.styles.detail}>{props.value.vocabulary.permanent} · {props.value.vocabulary.agency} · Requested · Open · Needed</Box></Box>
-        <Box css={props.styles.fields}><Box css={props.styles.sectionHead}>Targets</Box><Targets props={props} slot={slot} /></Box>
+        <Box css={props.styles.fields}><Box css={props.styles.sectionHead}>Targets</Box><Targets props={props} slot={slot} coverage={c} /></Box>
         <Box css={props.styles.section}><Box css={props.styles.sectionHead}>Roster</Box><Box css={props.styles.detail}>{String(c.filled)} filled · {String(c.open)} open · {c.lead ? "Lead assigned" : "No lead"} · {c.trainer ? "Trainer assigned" : "No trainer"}</Box>
             {costed(props.value) && <Box css={props.styles.detail}>{money(props.format, props.value, c.cost, false)}</Box>}<PlaceAction label="Assign person" place={placeOf(slot)} value={props.value} start={props.start} commands={props.commands} styles={props.styles} /></Box>
     </>;
@@ -254,7 +261,7 @@ function ShiftDay({ props, shift: key, day }: { props: Args; shift: string; day:
     const { format, value, styles } = props;
     return <><ScheduleInspectorHead styles={styles} kind={{ name: `Shift · ${format.weekday(new Date(props.start.getTime() + day * DAY))}`, icon: "clock" }} title={shift.label}
         when={`${format.number(sum.filled)} / ${format.number(sum.positions)} positions · ${format.number(sum.hours.rostered)} of ${format.number(sum.hours.needed)} h`}
-        status={{ label: short > 0 ? `${format.number(short)} h short` : "Covered", tone: { type: short > 0 ? "warning" : "success" }, ring: false }} home />
+        status={drawnStatus(short > 0 ? `${format.number(short)} h short` : "Covered", short > 0 ? "warning" : "success")} home />
         <RosterIssues props={props} issues={props.issues.filter(i => i.slot.type === "some" && i.slot.value.shift === key && Number(i.slot.value.day) === day)} />
         <Box css={styles.section} data-roster-shift-day="across"><Box css={styles.sectionHead}>Across groups</Box><CoverageView coverage={sum} short={short} value={value} styles={styles} format={format} />
             <Box css={styles.detail}>{value.vocabulary.permanent} · {value.vocabulary.agency} · Requested · Open · Needed</Box></Box>
@@ -269,7 +276,10 @@ function Summary({ props }: { props: Args }) {
     const totals = viewTotals(props.coverage, props.view, props.day, props.week);
     const { days } = totals;
     const visible = props.value.visiblePeople;
-    const filtered = visible.type === "some" && props.value.people.some(person => !visible.value.has(person.key));
+    // Who shows, while a choice of the viewer's narrows them, out of the people the page holds (#1621): its scope is no
+    // choice, and the people it holds are the Roster's whole, never every person beyond it.
+    const whole = shownWhole(props.peopleShown, props.value.people.length);
+    const filtered = props.peopleShown.chosen && whole !== undefined && visible.type === "some" && visible.value.size < whole;
     // The view's duties' costs, by the app's codes: the Summary's cost line under its total.
     const shown = [...props.week.assignments].flatMap(([id, a]) => days === 7 || Number(a.place.day) === props.day ? [id] : []);
     const costs = costsOf(props.pay, shown);
@@ -284,7 +294,7 @@ function Summary({ props }: { props: Args }) {
         : props.view.period === "month" ? `Month · ${props.format.monthYear(dayStart(props.view.date))}` : `Week · ${props.format.range(props.start, new Date(props.start.getTime() + 6 * DAY))}`;
     return <><ScheduleInspectorHead styles={props.styles} kind={{ name: period, icon: "calendar-week" }} title="Roster" when={`${props.value.groups.length} groups · ${props.value.shifts.length} shifts`} home />
         <Box css={props.styles.summary}>{stats.filter(s => s.label !== "Cost" || costed(props.value)).map(stat => <Box key={stat.label} css={props.styles.stat}><Box css={props.styles.statLabel}>{stat.label}</Box><Box css={props.styles.statValue}>{stat.value}</Box><Box css={props.styles.detail}>{stat.sub}</Box></Box>)}</Box>
-        {filtered && visible.type === "some" && <Box css={props.styles.section}><Box css={props.styles.detail}>{props.format.number(visible.value.size)} of {props.format.number(props.value.people.length)} people visible · Coverage includes all staff</Box></Box>}
+        {filtered && visible.type === "some" && whole !== undefined && <Box css={props.styles.section}><Box css={props.styles.detail}>{props.format.number(visible.value.size)} of {props.format.number(whole)} people visible · Coverage includes all staff</Box></Box>}
         {props.proposals.length > 0 && <Box css={props.styles.section}><Box css={props.styles.sectionHead}>Proposals</Box>{props.proposals.map(proposal => <ProposalCard key={proposal.key} props={props} proposal={proposal} />)}</Box>}
         <Box css={props.styles.section}><Box css={props.styles.detail}>Select a person or shift to inspect its details.</Box><Box css={props.styles.detail}>Use the Library to assign people and activities.</Box><Box css={props.styles.detail}>Warnings help plan the week and do not prevent saving.</Box><Box css={props.styles.detail}>Save as you work; publish the week when it is ready.</Box></Box>
     </>;
@@ -325,8 +335,25 @@ function Details({ props }: { props: Args }) {
  * view drawn in its place (`../shared/focus-home.ts`), never on the page's body.
  */
 function DetailsTab({ props }: { props: Args }) {
-    const home = useFocusHome();
+    // The subject the Details show, shown from the pane's start (#1680's review).
+    const home = useFocusHome(subjectOf(props.selection));
     return <Box ref={home.ref} css={props.styles.root} onFocus={home.onFocus} onBlur={home.onBlur} data-roster-inspector="details"><Details props={props} /></Box>;
+}
+/**
+ * What the Details show, by the view {@link Details} draws for the selection: a slot's — its requirement's too, one view —
+ * a shift's day, a person's week, or the duty, the proposal, the person, the group or the shift by its key.
+ *
+ * @param selection - What is selected
+ * @returns Its subject; `null` for the Summary
+ */
+function subjectOf(selection: Args["selection"]): string | null {
+    if (selection === undefined) return null;
+    switch (selection.type) {
+        case "slot": case "requirement": return `slot:${Number(selection.slot.day)}:${selection.slot.group}:${selection.slot.shift}`;
+        case "shiftDay": return `shiftDay:${selection.shift}:${selection.day}`;
+        case "personWeek": return `personWeek:${selection.key}:${selection.start}`;
+        default: return `${selection.type}:${selection.key}`;
+    }
 }
 /** Inspector structure and headings reuse Plan's slots; no implementation paths appear in the UI. */
 export function useRosterInspector(args: Args): BuilderFrameDock | undefined {

@@ -17,6 +17,7 @@ import { package_ } from './package.js';
 import { customTask, partition, streamTask, task } from './task.js';
 import { output } from './output.js';
 import { function_ } from './function.js';
+import { index } from './index-input.js';
 import { input } from './input.js';
 import { mutation } from './mutation.js';
 import { record } from './record.js';
@@ -618,7 +619,7 @@ describe('the typed task object', () => {
 
     const shoutObject = tasks.get('shout')!;
     assert.strictEqual(shoutObject.kind, TASK_OBJECT_KIND);
-    assert.deepStrictEqual(shoutObject.inputs, [{ path: greeting.path, partition: none }]);
+    assert.deepStrictEqual(shoutObject.inputs, [{ path: greeting.path, index: none, partition: none }]);
     assert.deepStrictEqual(shoutObject.output, { path: shout.output.path, kind: variant('value', null) });
     assert.deepStrictEqual(shoutObject.role, variant('data', null));
     assert.deepStrictEqual(shoutObject.runner, variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }));
@@ -629,6 +630,31 @@ describe('the typed task object', () => {
     // The task's subtree holds its output and nothing else.
     const root = pkg.data.structure.value as Map<string, { value: Map<string, { value: Map<string, unknown> }> }>;
     assert.deepStrictEqual([...root.get('tasks')!.value.get('shout')!.value.keys()], ['output']);
+  });
+
+  it('writes the index an input reads by its name, beside its record\'s path, in a task\'s object and a function\'s', async () => {
+    const JobType = StructType({ press: StringType, title: StringType });
+    const jobs = record('jobs', DictType(StringType, JobType), {
+      initial: new Map(),
+      indexes: (index) => ({ jobs_by_press: index.on(['press']) }),
+    });
+    const byPress = index(jobs.indexes.jobs_by_press);
+    const watched = input('watched', StringType, variant('value', 'P1'));
+    const watchedJobs = task('watched_jobs', [byPress, jobs, watched],
+      East.function([byPress.type, DictType(StringType, JobType), StringType], IntegerType, ($, entries, _jobs, press) => entries.prefix({ ik: press }).size()));
+    const jobsOn = function_('jobs_on', { inputs: [jobs, byPress], args: [StringType], output: IntegerType },
+      ($, _jobs, entries, press) => entries.prefix({ ik: press }).size());
+    const { pkg, tasks, object } = await exported('index-inputs-pkg', watchedJobs, jobsOn);
+
+    assert.deepStrictEqual(tasks.get('watched_jobs')!.inputs, [
+      { path: jobs.path, index: some('jobs_by_press'), partition: none },
+      { path: jobs.path, index: none, partition: none },
+      { path: watched.path, index: none, partition: none },
+    ]);
+    assert.deepStrictEqual(decodeFunctionObject(object(pkg.functions.get('jobs_on')!)).inputs, [
+      { path: jobs.path, index: none },
+      { path: jobs.path, index: some('jobs_by_press') },
+    ]);
   });
 
   it('writes how a task\'s runner reads its inputs: lazily, unless the runner says whole', async () => {
@@ -658,8 +684,8 @@ describe('the typed task object', () => {
 
     const totalsObject = tasks.get('totals')!;
     assert.deepStrictEqual(totalsObject.inputs, [
-      { path: sales.path, partition: some({ by: ['sku'] }) },
-      { path: rates.path, partition: none },
+      { path: sales.path, index: none, partition: some({ by: ['sku'] }) },
+      { path: rates.path, index: none, partition: none },
     ]);
     const kind = totalsObject.output.kind;
     assert.strictEqual(kind.type, 'dict');

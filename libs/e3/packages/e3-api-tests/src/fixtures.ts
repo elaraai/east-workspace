@@ -195,6 +195,197 @@ export async function createFunctionPackageZip(
   return zipPath;
 }
 
+/** A row of the drafts fixture's record: the press a print job runs on, and its hours. */
+export const DraftJobRowType = StructType({ press: StringType, hours: IntegerType });
+/** The drafts fixture's record: print jobs by key. */
+export const DraftJobsType = DictType(StringType, DraftJobRowType);
+
+/**
+ * Create a package whose functions a call lays drafts over (#1619): unsaved
+ * edits of the records they read, which the call reads and nothing saves.
+ *
+ * Creates a package with:
+ * - Record: "jobs" (Dict<String, {press, hours}>, holding `j1` on P1 for 2
+ *   hours, `j2` on P2 for 3 and `j3` on P1 for 4), its index "by_press", so
+ *   each write of it runs a program that maintains the index, and its writes:
+ *   `patch`; `move` (edit, key, press) => that job on that press; and `refuse`
+ *   (reduce, why), which fails in East as it runs, with the message
+ *   "refused: <why>"
+ * - Record: "tally" (Integer, initial 0), and Mutation "add" (by) => state + by
+ * - Function: "jobs_on" - reads "jobs", lists it as a record a call may draft,
+ *   and is given a press: how many jobs it holds
+ * - Function: "hours" - reads "jobs" and "tally", and lists both: the jobs'
+ *   hours and the tally, summed
+ * - Function: "job_count" - reads "jobs", and lists no record: how many jobs
+ * - Function: "job_rows" - reads "jobs", and lists it: the rows, as it read
+ *   them
+ * - Function: "count_after" - reads "jobs", lists it, and is given a number of
+ *   milliseconds: it writes `counting the jobs` to its stdout as it starts,
+ *   sleeps them, and returns how many jobs it read. A call whose body's start
+ *   shows, and of a known length
+ * - Task: "job_total" - how many jobs: a dependent of "jobs", which a Save of
+ *   the record leaves to run again
+ *
+ * Every body is East, so every server runs them.
+ *
+ * @param tempDir - Directory to write the zip file
+ * @param name - Package name
+ * @param version - Package version
+ * @returns Path to the created zip file
+ */
+export async function createDraftsPackageZip(
+  tempDir: string,
+  name: string,
+  version: string
+): Promise<string> {
+  mkdirSync(tempDir, { recursive: true });
+
+  const jobs = e3.record('jobs', DraftJobsType, {
+    initial: new Map([
+      ['j1', { press: 'P1', hours: 2n }],
+      ['j2', { press: 'P2', hours: 3n }],
+      ['j3', { press: 'P1', hours: 4n }],
+    ]),
+    indexes: (index) => ({
+      by_press: index.on(['press']),
+    }),
+    mutations: (mutation) => ({
+      patch: mutation.patch(),
+      move: mutation.edit(East.function([DraftJobsType, StringType, StringType, e3.mutation.editType(DraftJobsType)], NullType,
+        ($, state, key, press, edit) => {
+          const row = $.let(state.get(key));
+          $(edit.set(key, { press, hours: row.hours }));
+        })),
+      refuse: mutation.reduce(East.function([DraftJobsType, StringType], DraftJobsType, ($, _state, why) => $.error(East.str`refused: ${why}`))),
+    }),
+  });
+  const tally = e3.record('tally', IntegerType, {
+    initial: 0n,
+    mutations: (mutation) => ({
+      add: mutation.reduce(East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by))),
+    }),
+  });
+  const jobsOn = e3.function('jobs_on', { inputs: [jobs], drafts: [jobs], args: [StringType], output: IntegerType }, ($, jobs, press) => {
+    const found = $.let(0n);
+    $.for(jobs, ($, job) => {
+      $.if(East.equal(job.press, press), ($) => {
+        $.assign(found, found.add(1n));
+      });
+    });
+    return found;
+  });
+  const hours = e3.function('hours', { inputs: [jobs, tally], drafts: [jobs, tally], args: [], output: IntegerType }, ($, jobs, tally) => {
+    const total = $.let(tally);
+    $.for(jobs, ($, job) => {
+      $.assign(total, total.add(job.hours));
+    });
+    return total;
+  });
+  const jobCount = e3.function('job_count', { inputs: [jobs], args: [], output: IntegerType }, ($, jobs) => jobs.size());
+  const jobRows = e3.function('job_rows', { inputs: [jobs], drafts: [jobs], args: [], output: DraftJobsType }, ($, jobs) => jobs);
+  const countAfter = e3.function('count_after', { inputs: [jobs], drafts: [jobs], args: [IntegerType], output: IntegerType, async: true }, ($, jobs, ms) => {
+    $(Console.log('counting the jobs'));
+    $(Time.sleep(ms));
+    return jobs.size();
+  });
+  const jobTotal = e3.task('job_total', [jobs], East.function([DraftJobsType], IntegerType, ($, rows) => rows.size()));
+  const pkg = e3.package(name, version, jobs, tally, jobsOn, hours, jobCount, jobRows, countAfter, jobTotal);
+
+  const zipPath = join(tempDir, `${name}-${version}.zip`);
+  await e3.export(pkg, zipPath);
+
+  return zipPath;
+}
+
+/**
+ * Create a package whose functions and tasks read a record through an index
+ * of it (#1617): `e3.index(record.indexes.<name>)` among their inputs.
+ *
+ * Creates a package with:
+ * - Record: "jobs" (Dict<String, {press, hours}>, holding `j1` on P1 for 2
+ *   hours, `j2` on P2 for 3 and `j3` on P1 for 4), its index "by_press", and
+ *   its writes: `patch`, and `move` (edit, key, press) => that job on that
+ *   press
+ * - Record: "backlog", of the same type and with its own index
+ *   "backlog_by_press", declared with no initial value: unassigned until its
+ *   first state is committed from outside
+ * - Input: "watched" (String, "P1"), the press the tasks count
+ * - Function: "jobs_on_press" - reads the index alone, lists "jobs" as a
+ *   record a call may draft, and is given a press: how many jobs it holds, the
+ *   size of the press's run of the index
+ * - Function: "hours_on_press" - reads the index and "jobs" beside it, and
+ *   lists "jobs": the hours of the press's jobs, each row read by the key its
+ *   index entry names
+ * - Function: "backlog_on_press" - reads the backlog's index
+ * - Task: "watched_jobs" - reads the index and "watched": how many jobs the
+ *   watched press holds
+ * - Task: "watched_backlog" - reads the backlog's index and "watched"
+ *
+ * Every body is East, so every server runs them.
+ *
+ * @param tempDir - Directory to write the zip file
+ * @param name - Package name
+ * @param version - Package version
+ * @returns Path to the created zip file
+ */
+export async function createIndexInputsPackageZip(
+  tempDir: string,
+  name: string,
+  version: string
+): Promise<string> {
+  mkdirSync(tempDir, { recursive: true });
+
+  const jobs = e3.record('jobs', DraftJobsType, {
+    initial: new Map([
+      ['j1', { press: 'P1', hours: 2n }],
+      ['j2', { press: 'P2', hours: 3n }],
+      ['j3', { press: 'P1', hours: 4n }],
+    ]),
+    indexes: (index) => ({
+      by_press: index.on(['press']),
+    }),
+    mutations: (mutation) => ({
+      patch: mutation.patch(),
+      move: mutation.edit(East.function([DraftJobsType, StringType, StringType, e3.mutation.editType(DraftJobsType)], NullType,
+        ($, state, key, press, edit) => {
+          const row = $.let(state.get(key));
+          $(edit.set(key, { press, hours: row.hours }));
+        })),
+    }),
+  });
+  const backlog = e3.record('backlog', DraftJobsType, {
+    indexes: (index) => ({
+      backlog_by_press: index.on(['press']),
+    }),
+  });
+  const watched = e3.input('watched', StringType, variant('value', 'P1'));
+
+  const byPress = e3.index(jobs.indexes.by_press);
+  const backlogByPress = e3.index(backlog.indexes.backlog_by_press);
+  const jobsOnPress = e3.function('jobs_on_press', { inputs: [byPress], drafts: [jobs], args: [StringType], output: IntegerType },
+    ($, jobsByPress, press) => jobsByPress.prefix({ ik: press }).size());
+  const hoursOnPress = e3.function('hours_on_press', { inputs: [byPress, jobs], drafts: [jobs], args: [StringType], output: IntegerType },
+    ($, jobsByPress, jobs, press) => {
+      const total = $.let(0n);
+      $.for(jobsByPress.prefix({ ik: press }), ($, _carried, key) => {
+        $.assign(total, total.add(jobs.get(key.k).hours));
+      });
+      return total;
+    });
+  const backlogOnPress = e3.function('backlog_on_press', { inputs: [backlogByPress], args: [StringType], output: IntegerType },
+    ($, entries, press) => entries.prefix({ ik: press }).size());
+  const watchedJobs = e3.task('watched_jobs', [byPress, watched],
+    East.function([byPress.type, StringType], IntegerType, ($, jobsByPress, press) => jobsByPress.prefix({ ik: press }).size()));
+  const watchedBacklog = e3.task('watched_backlog', [backlogByPress, watched],
+    East.function([backlogByPress.type, StringType], IntegerType, ($, entries, press) => entries.prefix({ ik: press }).size()));
+  const pkg = e3.package(name, version, jobsOnPress, hoursOnPress, backlogOnPress, watchedJobs, watchedBacklog);
+
+  const zipPath = join(tempDir, `${name}-${version}.zip`);
+  await e3.export(pkg, zipPath);
+
+  return zipPath;
+}
+
 /**
  * Create a package with a record + mutations for testing `e3.record`.
  *

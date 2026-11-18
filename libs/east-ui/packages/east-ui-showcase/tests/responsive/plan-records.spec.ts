@@ -11,7 +11,9 @@
  * listed (#1344): the window is the operations' source's, and a pan (`]`) and
  * a step of the date navigator each move it a day while the row at the top of
  * the view keeps its key and its place under the canvas's header, in every
- * frame. Read at the desktop width; a phone's canvas is its narrow list.
+ * frame. Read at the desktop width, in a box wide enough that the toolbar's
+ * ladder folds nothing of the date navigator; a phone's canvas is its narrow
+ * list.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test plan-records`.
@@ -19,7 +21,7 @@
 
 import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
-import { openExample } from "./plan-page";
+import { openExample, planBox, sizeBox } from "./plan-page";
 import { settled } from "./settle";
 
 /** The examples file of the Plans over the app's records, in the catalog. */
@@ -90,7 +92,10 @@ async function anchorOf(entry: Locator): Promise<number> {
 }
 
 test("planRecordIndexes: a pan and a step of the date navigator move the window a day, and the row at the top of the view keeps its key and its place in every frame — the dates never decide which rows are listed @desktop", async ({ page }) => {
+    // A box the toolbar holds whole in: its date navigator with its step buttons, which a narrower toolbar folds into its dates.
+    await page.setViewportSize({ width: 1920, height: 1080 });
     const entry = await openExample(page, "planRecordIndexes", RECORDS);
+    await sizeBox(page, planBox(entry), 1440);
     // Ten rows of 42px down and 13px into the next, so the top row is no row the window could land on first.
     await entry.locator(SCROLLER).evaluate((el) => { el.scrollTop = 10 * 42 + 13; });
     await settled(page);

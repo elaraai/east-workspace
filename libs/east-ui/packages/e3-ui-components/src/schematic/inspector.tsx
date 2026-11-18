@@ -134,31 +134,32 @@
 import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import {
-    ArrayType, FloatType, StringType, StructType, encodeBeast2For, equalFor, fromEastTypeValue, none, some,
-    type EastType, type StructType as EastStructType, type option,
+    ArrayType, FloatType, StringType, StructType, equalFor, none, some, type option,
 } from "@elaraai/east";
 import { Fields, type FieldSpecValue } from "@elaraai/east-ui/internal";
 import {
     EastChakraComponent, FieldForm, getSomeorUndefined, useTrackedEvaluation, type BuilderFrameDock, type FieldOption, type Origin,
 } from "@elaraai/east-ui-components";
 import { PlaceholderShape, type PlaceholderKind } from "@elaraai/east-ui-components/internal";
-import { FOCUS_HOME_PROPS, useFocusHome } from "../shared/focus-home.js";
+import { breachTone } from "../shared/bounds.js";
+import { FOCUS_HOME_PROPS, useFocusHome, viewSubject } from "../shared/focus-home.js";
 import { useFieldAsk } from "../shared/schedule/field-ask.js";
 import { KeySetButton, useKeyDraft } from "../shared/schedule/key-draft.js";
 import { keyFieldSpecs, kindKeys } from "../shared/schedule/kind-keys.js";
 import { askHiding, hiddenLine, hiddenOf, type RowHidden, type RowHiding, type SourceHiding } from "../shared/schedule/hidden.js";
 import type { HiddenPicks } from "../shared/schedule/hidden-pick.js";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
-import { draftedRow, rowCodec } from "../shared/schedule/records.js";
+import { draftedRow, fieldWrite, rowCodec } from "../shared/schedule/records.js";
 import { entryRefusals, refusedFields, type RefusedFields } from "../shared/schedule/refusals.js";
 import { kindPlural } from "../shared/schedule/words.js";
+import { sameDay } from "../shared/schedule/window.js";
 import { authorOf } from "../shared/records/author.js";
 import { entityId, refOfId, type DrawnItem, type DrawnLink, type DrawnNet, type DrawnZone, type SchematicDrawn, type SchematicRef } from "./canvas/drawn.js";
 import type { SchematicCounts, SchematicDrawingCount, SchematicSavedRecord, SchematicUncounted } from "./counts.js";
 import type { SchematicValue } from "./data.js";
 import {
     NO_SESSION, connectStep, deleteEdits, editKinds, joinedPairs, linkRefusal, placeholderRefusal, retargetEdits, vetoOfPairs,
-    type ConnectVetoOf, type DeleteSelection, type EditRefusal, type NetLeg, type SchematicEdit, type SchematicFieldWrite, type SchematicKeyRefusal,
+    type ConnectVetoOf, type DeleteSelection, type EditRefusal, type NetLeg, type SchematicEdit, type SchematicKeyRefusal,
 } from "./edits.js";
 import { detailsKey, type SchematicEditing } from "./editing.js";
 import { joinsOf, nameOfEntity, type SchematicDrawnEntity, type SchematicInspected, type SchematicUnplaced } from "./inspect.js";
@@ -492,24 +493,6 @@ function useOwnDetails(author: OwnDetails | undefined, bytes: Uint8Array | undef
     }, [author, bytes, update, what]);
 }
 
-/**
- * A field of a form edited, as its record's `set` takes it: its path, and its
- * value as bytes at the field's type — its spec's, else the row's own field's.
- *
- * @param specs - The form's specs
- * @param rowType - The row type
- * @param path - The field's path
- * @param next - Its new value
- * @returns The write; `undefined` for a path no field is at
- */
-function fieldWrite(specs: readonly FieldSpecValue[], rowType: RecordSide["rowType"], path: readonly string[], next: unknown): SchematicFieldWrite | undefined {
-    const spec = specs.find((field) => field.path.length === path.length && field.path.every((part, i) => stringEqual(part, path[i]!)));
-    const row = fromEastTypeValue(rowType) as EastStructType;
-    const type = spec !== undefined ? fromEastTypeValue(spec.type) as EastType : path.length === 1 ? row.fields[path[0]!] : undefined;
-    if (type === undefined) return undefined;
-    return { path: [...path], value: encodeBeast2For(type)(next as never) };
-}
-
 /** A refusal's words, as the canvas says them. */
 function refusalWords(refusal: EditRefusal, words: SchematicWords): string {
     switch (refusal.why) {
@@ -584,10 +567,12 @@ function rowsOf(rows: SchematicInspectedRows, ref: SchematicRef): { readonly row
  */
 const SchematicInspectorDetails = memo(function SchematicInspectorDetails(props: SchematicInspectorProps) {
     const styles = useSlotRecipe({ key: "schematicInspector" })() as Styles;
-    const home = useFocusHome();
+    const view = detailsView({ ...props, styles });
+    // A new subject is shown from the pane's start, its heading in view (#1680's review): its view's key names it.
+    const home = useFocusHome(viewSubject(view));
     return (
         <Box ref={home.ref} css={styles.home} onFocus={home.onFocus} onBlur={home.onBlur} data-inspector-home="">
-            {detailsView({ ...props, styles })}
+            {view}
         </Box>
     );
 });
@@ -671,7 +656,7 @@ function useSide(props: ViewProps, ref: SchematicRef, name: string, side: Record
     // Save stands in: as stored it warns; its change refused, it is an error. And each field a refusal names says the
     // refusal's words under it (ruled 13 Nov 2026): Details lists no issue, so the field says why it is named.
     const refusals = entryRefusals(editing.schedule.sessions, record, ref.key);
-    const breaches: "warn" | "error" = refusals.length > 0 ? "error" : "warn";
+    const breaches = breachTone(refusals);
     const issues = refusedFields(refusals);
     // The field an issue gone to names, from the toolbar or from Issues: it takes the keyboard, the inspector opened at
     // Details. A freshly selected entity's forms are placeholders until its rows are read — a drafted row's drawn at once —
@@ -1203,7 +1188,9 @@ function DrawingView({ styles, words, counts, records }: ViewProps) {
     }), [records]);
     const { result } = useTrackedEvaluation(read);
     const saved = result.ok ? result.value : [];
-    const today = words.date(new Date());
+    // Each save's time when it was made today, its date and time otherwise: its day by East's ordering (#1650), never by
+    // the words the formatter prints of it.
+    const now = new Date();
     // Each count, its label and its name as running text writes it: a number, a placeholder while it is read, or — no
     // read can say it — a line naming it and why (#1393).
     const sorts = [
@@ -1245,7 +1232,7 @@ function DrawingView({ styles, words, counts, records }: ViewProps) {
                 <Box css={styles.section}>
                     {saved.map((save) => (
                         <Box key={save.slot} css={styles.fact} data-inspector-saved={save.slot}>
-                            {m.inspectorSaved({ name: save.name, when: stringEqual(words.date(save.at), today) ? words.time(save.at) : words.dateTime(save.at), by: save.by })}
+                            {m.inspectorSaved({ name: save.name, when: sameDay(save.at, now) ? words.time(save.at) : words.dateTime(save.at), by: save.by })}
                         </Box>
                     ))}
                 </Box>

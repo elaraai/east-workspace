@@ -623,14 +623,25 @@ function leanOf(machine: Machine): Machine {
     };
 }
 
-/** A place, or a node's path, as a nested key holds it: its names, folded from the last. */
+/** A collection's place as a nested key holds it: its field names, folded from the last. */
 function pathOf(names: readonly string[]): RecordNestedPath {
     return names.reduceRight<RecordNestedPath>((rest, key) => variant("step", { key, rest }), variant("end", null));
 }
 
-/** A search over one run of a nested index at one level (#1433, #1434): its tiles from `from` to before `to`. */
-function nestedRange(collection: readonly string[], row: string, path: readonly string[], run: RecordNestedRun, level: RecordLevel["type"], from: Date, to: Date) {
-    const lead = [printPath(pathOf(collection)), printString(row), printPath(pathOf(path)), printRun(run), printLevel(variant(level, null))];
+/** The row itself, as a search names a node's path: no child row's key, which every index prints alike. */
+const ROW_ITSELF = printPath(pathOf([]));
+
+/**
+ * An assembly's parts' keys from it down to a part, as its nested key holds them (#1540): each an id of the index's,
+ * under the parts' case.
+ */
+function partsPath(parts: readonly string[]): unknown {
+    return parts.reduceRight<unknown>((rest, key) => variant("step", { key: variant("parts", key), rest }), variant("end", null));
+}
+
+/** A search over one run of a nested index at one level (#1433, #1434): its tiles from `from` to before `to`, the node by its path as the key prints it. */
+function nestedRange(collection: readonly string[], row: string, path: string, run: RecordNestedRun, level: RecordLevel["type"], from: Date, to: Date) {
+    const lead = [printPath(pathOf(collection)), printString(row), path, printRun(run), printLevel(variant(level, null))];
     return variant("range", { from: [...lead, printInstant(from)], to: [...lead, printInstant(to)] });
 }
 
@@ -665,7 +676,7 @@ test("the nested index's cells — a block of machines' jobs at a level, a ledge
     // Five machines' jobs in the week, a range a machine: each one's 8- and 30-hour jobs; its 40-day one is filed at the quarter.
     const block = ["M-000", "M-001", "M-002", "M-003", "M-004"];
     const found = await h.ready(() => reads.seekAll("machines_in_time",
-        block.map(row => nestedRange(["jobs"], row, [], variant("items", null), "week", WEEK, NEXT_WEEK))));
+        block.map(row => nestedRange(["jobs"], row, ROW_ITSELF, variant("items", null), "week", WEEK, NEXT_WEEK))));
     const entries = await h.ready(() => reads.runsAll("machines_in_time", found));
     const expected = block.flatMap(row => [...stored.get(row)!.jobs].filter(([id]) => !id.endsWith("-c")).map(([id, job]) => ({ row, id, job })));
     const entryEqual = equalFor(OptionType(nx.nestedMachines.indexes.machines_in_time.valueType));
@@ -687,7 +698,7 @@ test("the nested index's cells — a block of machines' jobs at a level, a ledge
     const SUM = variant("subtotals", { fold: variant("sum", null), aggregate: variant("sum", null) });
     const weeks = [WEEK, NEXT_WEEK];
     const sought = await h.ready(() => ledgerReads.seekAll("ledgers_in_time",
-        [nestedRange(["measures", "readings"], "L-1", [], SUM, "week", WEEK, new Date(NEXT_WEEK.getTime() + 7 * DAY_MS))]));
+        [nestedRange(["measures", "readings"], "L-1", ROW_ITSELF, SUM, "week", WEEK, new Date(NEXT_WEEK.getTime() + 7 * DAY_MS))]));
     const subtotals = await h.ready(() => ledgerReads.runsAll("ledgers_in_time", sought));
     const ledger = (await h.read(nx.nestedLedgers)).get("L-1")!;
     const sums = weeks.map(week => [...ledger.measures.values()].reduce((sum, measure) => sum + [...measure.readings]
@@ -702,10 +713,12 @@ test("the nested index's cells — a block of machines' jobs at a level, a ledge
     // A part's subtree: the jobs of the parts beneath the frame, each by its path below it.
     const assemblies = Data.bindPaged(nx.nestedAssemblies, { indexes: ["assemblies_by_name", "assemblies_in_time"] });
     const assemblyReads = recordSliceBatchesOf(East.compile(East.function([], Expr.type(assemblies), $ => $.return(assemblies)), platform(runtime))())!;
+    const assembliesKey = nx.nestedAssemblies.indexes.assemblies_in_time.keyType;
+    const printKey = printFor(assembliesKey);
+    const frame = printFor(assembliesKey.fields.path)(partsPath(["frame"]) as never);
     const beneath = await h.ready(() => assemblyReads.seekAll("assemblies_in_time",
-        [nestedRange(["parts", "jobs"], "A-1", ["frame"], variant("subtree", null), "week", WEEK, NEXT_WEEK)]));
+        [nestedRange(["parts", "jobs"], "A-1", frame, variant("subtree", null), "week", WEEK, NEXT_WEEK)]));
     const subtree = await h.ready(() => assemblyReads.runsAll("assemblies_in_time", beneath));
-    const printKey = printFor(nx.nestedAssemblies.indexes.assemblies_in_time.keyType);
     assert.deepEqual(subtree.map(entry => printKey(entry.ik.value as never)), [
         subtreeKey(["motor"], "wind"), subtreeKey(["motor", "rotor"], "turn"),
     ].map(key => printKey(key as never)), "the motor's job and the rotor's, under the frame, by their paths beneath it");
@@ -715,8 +728,8 @@ test("the nested index's cells — a block of machines' jobs at a level, a ledge
 /** An entry of the frame's subtree in the machines' week (#1434): a descendant's job, by its path beneath the frame. */
 function subtreeKey(beneath: readonly string[], id: string) {
     return {
-        collection: pathOf(["parts", "jobs"]), row: "A-1", path: pathOf(["frame"]), run: variant("subtree", null), level: variant("week", null), tile: WEEK,
-        item: variant("under", { path: pathOf(beneath), id }),
+        collection: pathOf(["parts", "jobs"]), row: "A-1", path: partsPath(["frame"]), run: variant("subtree", null), level: variant("week", null), tile: WEEK,
+        item: variant("under", { path: partsPath(beneath), id: variant("parts.jobs", id) }),
     };
 }
 
@@ -789,7 +802,7 @@ test("the binding fills a page's lean machines with the cells read of them: each
     assert.ok(handle.fill.type === "some", "a nested series index listed: its fill");
     const block = ["M-000", "M-001", "M-002"];
     const found = await h.ready(() => reads.seekAll("machines_in_time",
-        block.map(row => nestedRange(["jobs"], row, [], variant("items", null), "week", WEEK, NEXT_WEEK))));
+        block.map(row => nestedRange(["jobs"], row, ROW_ITSELF, variant("items", null), "week", WEEK, NEXT_WEEK))));
     const entries = await h.ready(() => reads.runsAll("machines_in_time", found));
     // The entries as a reader hands them to the fill: each one's key and value, as the index holds them.
     const index = machines.indexes.machines_in_time;

@@ -174,8 +174,12 @@ export interface NestedSeriesIndexSpec<T extends EastType = EastType> {
   value?: never;
 }
 
-/** A nested series index's entry key, at the record's key type (e3-types' `NestedEntryKeyType`). */
-export type NestedKeyOf<T extends EastType> = ReturnType<typeof NestedEntryKeyType<KeyOf<T>>>;
+/**
+ * A nested series index's entry key, at the record's key type (e3-types' `NestedEntryKeyType`). Its ids — a child
+ * row's key and an item's id, each in its own type under its collection's case (#1540) — are the index's own, read
+ * off its declaration as it is built: a reader of the index names them and is given them typed.
+ */
+export type NestedKeyOf<T extends EastType> = ReturnType<typeof NestedEntryKeyType<KeyOf<T>, EastType>>;
 
 /** A nested series index's entry value (e3-types' `NestedEntryType`), its items' variant nesting as `S` declares. */
 export type NestedValueOf<T extends EastType, S extends NestedSeriesIndexSpec<T>> =
@@ -329,14 +333,16 @@ export function plainDefinition(
  * lean rows beside it.
  *
  * @typeParam F - The field, as written
+ * @typeParam T - The owning record's state type, which types its lean rows
  */
-export interface EntriesOf<F extends string = string> {
+export interface EntriesOf<F extends string = string, T extends EastType = EastType> {
   /** The Dict field of the record's rows it files, entry by entry. */
   readonly field: F;
   /** The row with the field emptied, `(K, V) -> V`. */
   readonly lean: { toIR(): unknown };
-  /** Its lean rows: the record's rows by key, the field emptied — an index of the record's beside it, named by e3-types' `entriesRowsName`. */
-  readonly rows: RecordIndexDef;
+  /** Its lean rows: the record's rows by key, the field emptied — an index of the record's beside it, named by
+   *  e3-types' `entriesRowsName`, each row under its own key and carrying the row. */
+  readonly rows: RecordIndexDef<string, T, KeyOf<T>, RowOf<T>, undefined>;
 }
 
 /**

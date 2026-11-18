@@ -4,42 +4,37 @@
  */
 
 /**
- * Optimise in the Calendar (#1409, #1417; `Optimise Spec.md` §5.1, §9.5, R24):
- * the window in view and its backlog as the run's request — every event kind's
- * rows in the window and its backlog by slot and by key, as the session holds
- * them, drafts in place, and every resource kind's rows as context — and the
- * result landed on the calendar's events as one edit: the diff by key, kind
- * by kind, recorded as one step (`ScheduleEditing.record`, origin
- * `optimise`), and the operations the landing draws — an add on the canvas,
- * a change with a ghost where the event was, a remove — kept until Apply.
+ * Optimise in the Calendar (#1409, #1417, east-workspace#1622; `Optimise
+ * Spec.md` §5.1, §9.5, R24): the run's request — the window in view and what
+ * kind of period it is, the run's number and the rail's narrowing, and no row
+ * — and its answer, a patch of each event kind's record by slot, landed on the
+ * calendar's events as one edit: each key the patches touch, on the row the
+ * page holds, kind by kind, recorded as one step (`ScheduleEditing.record`,
+ * origin `optimise`), and the operations the landing draws — an add on the
+ * canvas, a change with a ghost where the event was, a remove — kept until
+ * Apply. An event the answer changes that the page does not hold is read by
+ * its key first (rule 8); one it changes outside the window it was asked of
+ * refuses the answer whole (rule 11).
  *
  * @packageDocumentation
  */
 
-import { DictType, SortedMap, StringType, compareFor, decodeBeast2For, fromEastTypeValue, type EastType } from "@elaraai/east";
-import { ScheduleOptimiseRequestTypeFor, ScheduleOptimiseResultTypeFor, scheduleOptimiseRows } from "@elaraai/e3-ui/internal";
-import { diffOptimiseRows, mergeOptimiseDiffs, opKey, optimiseIdOf, optimiseKeyOf, optimisePlacementOps, type OptimiseOp } from "../shared/func/optimise-diff.js";
-import type { OptimiseCounts } from "../shared/func/use-optimise.js";
+import { StringType, fromEastTypeValue, variant, type EastType, type ValueTypeOf, type option } from "@elaraai/east";
+import { ScheduleOptimiseRequestType, ScheduleOptimiseResultTypeFor, scheduleOptimiseRecords, type ScheduleOptimiseRecords } from "@elaraai/e3-ui/internal";
+import { opKey, recordOptimiseRun, type OptimiseLanded, type OptimiseOp } from "../shared/func/optimise-diff.js";
+import type { OptimiseSlice } from "../shared/func/optimise-slice.js";
+import type { OptimiseMissing, OptimiseRefused } from "../shared/func/use-optimise.js";
 import type { ScheduleEditing } from "../shared/schedule/editing.js";
-import { rowCodec } from "../shared/schedule/records.js";
+import { landOptimiseEvents } from "../shared/schedule/optimise-events.js";
 import type { CalendarCommands } from "./actions.js";
-import type { CalendarItem, CalendarKind, CalendarRange, CalendarValue } from "./model.js";
+import { viewPeriod, type CalendarItem, type CalendarKind, type CalendarRange, type CalendarValue, type CalendarView } from "./model.js";
 
-/** A kind's rows by key, as the request and the result carry them. */
-type Rows = SortedMap<unknown, unknown>;
+/** The run's request: the window, what kind of period it is, the run's number and the rail's narrowing. */
+export type CalendarOptimiseRequest = ValueTypeOf<typeof ScheduleOptimiseRequestType>;
 
-/** The run's request: the window, the run's number, each event kind's rows by slot, and each resource kind's. */
-export interface CalendarOptimiseRequest {
-    readonly from: Date;
-    readonly to: Date;
-    readonly run: bigint;
-    readonly events: Readonly<Record<string, Rows>>;
-    readonly resources: Readonly<Record<string, Rows>>;
-}
-
-/** The run's answer: each event kind's rows by slot, complete. */
+/** The run's answer: each event kind's patch of its record, by slot. */
 export interface CalendarOptimiseResult {
-    readonly events: Readonly<Record<string, Rows>>;
+    readonly events: Readonly<Record<string, unknown>>;
 }
 
 /** One operation a run left on an event, and the run that made it — its provenance's `run #n`. */
@@ -68,129 +63,94 @@ function typesOf(kind: { readonly editing: CalendarKind["editing"] }): { keyType
     };
 }
 
+/** What the bound optimiser is called with, as the tag held it to, and each event kind's record type by slot. */
+export interface CalendarOptimiseTypes {
+    readonly request: EastType;
+    readonly result: EastType;
+    /** Each event kind's record type, `Dict<K, R>`, by slot: what its patch is read by. */
+    readonly records: ScheduleOptimiseRecords;
+}
+
 /**
  * The request and result types over the Calendar's kinds: what the bound
  * optimiser is called with, as the tag held it to.
  *
  * @param value - The payload
- * @returns The request and result East types
+ * @returns The request and result East types, and each kind's record type
  */
-export function calendarOptimiseTypes(value: CalendarValue): { request: EastType; result: EastType } {
-    const events = scheduleOptimiseRows(value.events.map((kind) => [kind.key, typesOf(kind)] as const));
-    const resources = scheduleOptimiseRows(value.resources.map((kind) => [kind.key, { keyType: fromEastTypeValue(kind.keyType) as EastType, rowType: fromEastTypeValue(kind.rowType) as EastType }] as const));
-    return { request: ScheduleOptimiseRequestTypeFor(events, resources), result: ScheduleOptimiseResultTypeFor(events) };
+export function calendarOptimiseTypes(value: CalendarValue): CalendarOptimiseTypes {
+    const records = scheduleOptimiseRecords(value.events.map((kind) => [kind.key, typesOf(kind)] as const));
+    return { request: ScheduleOptimiseRequestType, result: ScheduleOptimiseResultTypeFor(records), records };
 }
 
 /**
- * The run's request (R1, R24, O3, O5): the window, the run's number, every
- * event kind's rows in the window and its backlog by key, as the session
- * holds them — base plus every unapplied draft, every row whatever the rail
- * shows — and every resource kind's rows, read whole.
+ * The run's request (R1, R24, O3; east-workspace#1622, rule 1): the window in
+ * view and the period it shows — a day on the resources layout, whatever its
+ * period — the run's number and the rail's narrowing. No row: the function
+ * reads the events it needs, the page's unsaved edits laid over them.
  *
- * @param value - The payload
- * @param editing - The editing: where each event's row is read, drafts in place
  * @param range - The window in view
- * @param items - The window's events, as read
- * @param backlog - The kinds' backlog, as read
+ * @param view - The view: its layout and its period
+ * @param slice - Each rail source's narrowing now
  * @param run - The run's number
  * @returns The request
  */
-export function calendarOptimiseRequest(value: CalendarValue, editing: ScheduleEditing, range: CalendarRange, items: readonly CalendarItem[],
-    backlog: readonly CalendarItem[], run: number): CalendarOptimiseRequest {
-    const events: Record<string, Rows> = {};
-    for (const kind of value.events) {
-        const { keyType } = typesOf(kind);
-        const key = optimiseKeyOf(keyType);
-        const decode = rowCodec(kind.editing.entryType);
-        const rows: Rows = new SortedMap([], compareFor(keyType) as (a: unknown, b: unknown) => number);
-        for (const item of [...items, ...backlog]) {
-            if (item.kind !== kind.key) continue;
-            const read = editing.read(kind.key, item.key);
-            const at = key(item.key);
-            if (read === undefined || at === undefined) continue;
-            rows.set(at, decode.decode(read.row));
-        }
-        events[kind.key] = rows;
-    }
-    const resources: Record<string, Rows> = {};
-    for (const kind of value.resources) {
-        const keyType = fromEastTypeValue(kind.keyType) as EastType;
-        const rowType = fromEastTypeValue(kind.rowType) as EastType;
-        const compare = compareFor(keyType) as (a: unknown, b: unknown) => number;
-        if (kind.records.type === "none") { resources[kind.key] = new SortedMap([], compare); continue; }
-        // The kind's records read whole, as the run starts: its rows by key, as the request carries them.
-        const decoded = decodeBeast2For(DictType(keyType, rowType))(kind.records.value()) as ReadonlyMap<unknown, unknown>;
-        resources[kind.key] = decoded instanceof SortedMap ? decoded : new SortedMap([...decoded], compare);
-    }
-    return { from: range.from, to: range.to, run: BigInt(run), events, resources };
+export function calendarOptimiseRequest(range: CalendarRange, view: Pick<CalendarView, "layout" | "period">, slice: OptimiseSlice, run: number): CalendarOptimiseRequest {
+    return { from: range.from, to: range.to, period: variant(viewPeriod(view), null), run: BigInt(run), slice };
 }
 
 /**
- * Where an event's day and place are told from, for a ghost: the event as it
- * stood before the run, among the window's events and the backlog.
- */
-function itemOf(kind: string, id: string, items: readonly CalendarItem[], backlog: readonly CalendarItem[]): CalendarItem | undefined {
-    return items.find((item) => item.kind === kind && item.key === id) ?? backlog.find((item) => item.kind === kind && item.key === id);
-}
-
-/**
- * The result landed (R7, R8, R10, §12): diffed against the request by key,
- * kind by kind, and recorded as one step of the history, origin `optimise`.
- * The operations the landing draws are told by place (§9.5): a backlog row
- * the result gives a time is an add on the canvas, a scheduled event it takes
- * back to the backlog a remove, a moved event a change with a ghost at its old
- * slot. A result that answers no rows for a kind the request asked is
- * invalid, and nothing is recorded. A result that changes nothing records
- * nothing and leaves what earlier runs left as it is (R10); one that does
- * lays its operations over theirs.
+ * The result landed (R7, R8, R10, §12; east-workspace#1622, rules 7, 8, 10,
+ * 11): each kind's patch landed key by key on the events the page holds, and
+ * recorded as one step of the history, origin `optimise`. The operations the
+ * landing draws are told by place (§9.5): a backlog row the answer gives a
+ * time is an add on the canvas, a scheduled event it takes back to the backlog
+ * a remove, a moved event a change with a ghost at its old slot. An answer
+ * with no patch for a kind, or one that does not fit the events the page
+ * holds, is invalid, and nothing is recorded. One that changes an event
+ * outside the window it was asked of — where the event stood, or where the
+ * answer puts it — is refused whole, naming the event. One that touches an
+ * event the page does not hold names it, to be read by its key
+ * (`landOptimiseEvents`, shared with the Plan). A result that changes nothing
+ * records nothing and leaves what earlier runs left as it is (R10); one that
+ * does lays its operations over theirs.
  *
  * @param value - The payload
+ * @param types - Each kind's record type by slot
  * @param editing - The editing the step is recorded in
+ * @param held - A row as the page holds it, read by its key where it holds none: what the answer lands on
  * @param request - The request the result answers
  * @param result - The result
  * @param label - The step's label — `Elara run #7`
- * @param items - The window's events as they stood before the run: where a ghost goes
- * @param backlog - The backlog as it stood before the run
+ * @param period - The window's words, which a refusal names
  * @param runText - The run's number, formatted, for the provenance
  * @param before - What earlier runs left on the events, still the session's drafts
- * @returns What the run counted, and what the runs have left on the events — unchanged by a run that changed nothing; `undefined` for an invalid result, or one the session would not take
+ * @returns What the run counted, and what the runs have left on the events — unchanged by a run that changed nothing;
+ *   the events to read first; a refusal, naming the event; `undefined` for an invalid result, or one the session would not take
  */
-export function landCalendarOptimise(value: CalendarValue, editing: ScheduleEditing, request: CalendarOptimiseRequest, result: CalendarOptimiseResult,
-    label: string, items: readonly CalendarItem[], backlog: readonly CalendarItem[], runText: string, before: CalendarOptimised | undefined,
-): { counts: OptimiseCounts; optimised: CalendarOptimised | undefined } | undefined {
-    const diffs = [];
-    let backlogChanged = false;
-    const previous = new Map<string, CalendarItem>();
-    for (const kind of value.events) {
-        const before = request.events[kind.key];
-        const after = result.events[kind.key];
-        if (before === undefined || after === undefined) return undefined;
-        const { keyType, rowType } = typesOf(kind);
-        const startField = kind.schedule.start;
-        const unscheduled = (row: unknown): boolean => {
-            const start = (row as Record<string, { type: string }>)[startField];
-            return start !== undefined && start.type === "none";
-        };
-        const diff = optimisePlacementOps(diffOptimiseRows(kind.key, rowType, optimiseIdOf(keyType), before as ReadonlyMap<unknown, unknown>, after as ReadonlyMap<unknown, unknown>),
-            (row) => !unscheduled(row));
-        diffs.push(diff);
+export function landCalendarOptimise(value: CalendarValue, types: CalendarOptimiseTypes, editing: ScheduleEditing,
+    held: (kind: string, id: string) => option<unknown> | undefined, request: CalendarOptimiseRequest,
+    result: CalendarOptimiseResult, label: string, period: string, runText: string, before: CalendarOptimised | undefined,
+): OptimiseLanded<CalendarOptimised> | OptimiseMissing | OptimiseRefused | undefined {
+    const landed = landOptimiseEvents<CalendarItem>({
+        kinds: value.events.map((kind) => kind.key), records: types.records, events: result.events, held,
+        eventOf: (kind, id, row) => editing.eventOf(kind, id, row)?.item, window: request, period,
+    });
+    if (landed === undefined || "missing" in landed || "refused" in landed) return landed;
+    const { diff, told, backlogChanged } = landed;
+    return recordOptimiseRun(diff, editing, label, () => {
+        // This run's operations over the earlier runs': an event it touched again is its, with where it stood before this
+        // run — a changed or a removed event's ghost's place.
+        const ops = new Map<string, CalendarOp>(before?.ops ?? []);
+        const previous = new Map<string, CalendarItem>(before?.previous ?? []);
         for (const [key, op] of diff.ops) {
-            const id = key.slice(kind.key.length + 1);
-            const was = itemOf(kind.key, id, items, backlog);
+            ops.set(key, { ...op, run: runText });
+            previous.delete(key);
+            const was = told.get(key)?.was;
             if (was !== undefined && op.op !== "add") previous.set(key, was);
-            if ((was !== undefined && was.start.type === "none") || ("row" in op && unscheduled(op.row))) backlogChanged = true;
         }
-    }
-    const merged = mergeOptimiseDiffs(diffs);
-    if (merged.changes.length === 0) return { counts: merged.counts, optimised: undefined };
-    if (!editing.record(merged.changes, "optimise", label)) return undefined;
-    // This run's operations over the earlier runs': an event it touched again is its, with where it stood before this run.
-    const ops = new Map<string, CalendarOp>(before?.ops ?? []);
-    for (const [key, op] of merged.ops) ops.set(key, { ...op, run: runText });
-    const kept = new Map<string, CalendarItem>(before?.previous ?? []);
-    for (const key of merged.ops.keys()) kept.delete(key);
-    for (const [key, was] of previous) kept.set(key, was);
-    return { counts: merged.counts, optimised: { ops, previous: kept, backlogChanged } };
+        return { ops, previous, backlogChanged };
+    });
 }
 
 /** The operation a run left on an event, if any, with the run that made it: what its block draws and its hover says. */

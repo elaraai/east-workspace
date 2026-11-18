@@ -13,7 +13,9 @@
  * `tone` is the strip's ink: `neutral` for a toolbar's control, `brand` for
  * the value a pane is editing. `size` is where it sits: `sm` in a toolbar
  * row, as tall as every control there (`toolbar-row.ts`, 28px, ruled 23 Oct
- * 2026), its type the row's; `md` in a pane's field rows.
+ * 2026), its type the row's; `md` in a pane's field rows. At either its value
+ * is set on the 26px of room inside the strip's edge, so it starts a whole
+ * number of pixels under it (#1636).
  *
  * On a coarse pointer each button keeps its size and takes a 44px tap target
  * from its halo (#346, #1229) — the value between them keeps the two apart.
@@ -35,7 +37,8 @@
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { coarseHitArea } from "../../style/hit-area.js";
-import { TOOLBAR_CONTROL_HEIGHT } from "../toolbar-row.js";
+import { oneLineBox } from "../one-line-box.js";
+import { TOOLBAR_CONTROL_HEIGHT, toolbarControlBox } from "../toolbar-row.js";
 
 export const stepperSlotRecipe = defineSlotRecipe({
     className: "elara-stepper",
@@ -99,12 +102,12 @@ export const stepperSlotRecipe = defineSlotRecipe({
         },
         size: {
             sm: {
-                root: { height: TOOLBAR_CONTROL_HEIGHT, fontSize: "11px" },
+                root: { ...toolbarControlBox(), fontSize: "11px" },
                 button: { width: TOOLBAR_CONTROL_HEIGHT },
                 value: { paddingX: "{spacing.2}" },
             },
             md: {
-                root: { height: "28px", fontSize: "12px" },
+                root: { ...oneLineBox(28), fontSize: "12px" },
                 button: { width: "28px" },
                 value: { paddingX: "10px" },
             },

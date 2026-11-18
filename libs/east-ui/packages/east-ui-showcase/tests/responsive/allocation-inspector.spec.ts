@@ -10,8 +10,11 @@
  * pane (A56–A59); a resource's banner (A62); the summary's counts (A63); the
  * Issues tab (A64); the drop list's rows under a pick (A34) and a refused
  * drop's note (A40) — the shared inspector's parts, measured in the page (§8).
+ * And the small boxes each opens — the resource field, the bins, the ranks, the
+ * issues' count — their words on whole pixels (#1638, `box-words.ts`).
  */
 import { expect, type Locator, type Page } from "playwright/test";
+import { expectWholeBoxWords } from "./box-words";
 import { test } from "./kept-page";
 import { open, size, token } from "./allocation-page";
 import { settled } from "./settle";
@@ -119,6 +122,8 @@ for (const theme of LAYOUT_THEMES) {
         expect(parts.alternative).toBeGreaterThanOrEqual(36);
         expect(parts.rank).toEqual([16, 16, paper3]);
         expect(await end.locator(":scope > *").first().evaluate(leaves)).toEqual([]);
+        // Its small boxes — the resource field, the bins, the ranks — their words on whole pixels (#1646's review).
+        await expectWholeBoxWords(body, "a bin's Details");
 
         // The field's Chooser, laid in the pane under it: its own border, the popover's sizes, nothing past the section.
         await body.locator("[data-allocation-resource-field]").click(); await settled(page);
@@ -178,6 +183,8 @@ for (const theme of LAYOUT_THEMES) {
         expect(tab).toMatchObject({ padding: "16px", gaps: [20], head: 16, count: [16, 16] });
         expect(tab.issue).toEqual({ border: `1px solid ${strong}`, padding: "8px 12px" });
         expect(await end.locator(":scope > *").first().evaluate(leaves)).toEqual([]);
+        // Each group's count, its words on whole pixels (#1646's review).
+        await expectWholeBoxWords(issues, "the Issues tab");
         // Collapsed: a 44px rail, its badge the count, its mark in warn.
         await end.getByRole("button", { name: "Collapse Inspector" }).click(); await settled(page);
         const rail = await end.evaluate((el) => {
@@ -216,6 +223,8 @@ for (const theme of LAYOUT_THEMES) {
             expect([row.border, row.rank, row.book]).toEqual([`1px dashed ${brand}`, [16, 16, brand], "Book"]);
         }
         expect(await end.locator(":scope > *").first().evaluate(leaves)).toEqual([]);
+        // Each row's rank, its words on whole pixels (#1646's review).
+        await expectWholeBoxWords(body, "a pick's drop list");
         await page.keyboard.press("Escape"); await settled(page);
         await expect(rows).toHaveCount(0);
         // A connector dropped on a resource that refuses it: nothing moves, and the reason is the note at the top of Details.

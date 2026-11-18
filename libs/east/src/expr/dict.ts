@@ -17,6 +17,7 @@ import type { SetExpr } from "./set.js";
 import type { FloatExpr } from "./float.js";
 import type { ArrayExpr } from "./array.js";
 import { none, some } from "../containers/variant.js";
+import { keyBoundAst, keyRangeEnds, type KeyPrefix, type KeyRangeBounds } from "./key_range.js";
 
 /**
  * Expression representing dictionary (key-value map) values and operations.
@@ -879,6 +880,115 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
       type_parameters: [this.key_type as EastType, this.value_type as EastType],
       arguments: [this[AstSymbol], keysAst, onMissingAst],
     }) as ExprType<DictType<K, T>>;
+  }
+
+  /**
+   * Returns the entries whose key lies between two bounds, as a new dictionary.
+   *
+   * A bound is a leading part of the key: the whole key or, for a struct key, its first fields
+   * in the key's order — `{ press: "P1" }`, `{ press: "P1", day }`. A key is at or past a bound
+   * when its first fields, compared in order, are greater than or equal to the bound's. The
+   * range holds the keys at or past `from` and before `to`.
+   *
+   * @param bounds - `from`, the bound the range starts at, and `to`, the bound it stops before; either left out is that end of the dictionary
+   * @returns A new DictExpr of the same type, holding the entries in the range
+   *
+   * @throws {Error} When the function is built with a bound that is no leading part of the key, naming the key's fields in order
+   *
+   * @remarks
+   * - `from` past `to` gives an empty dictionary, and both left out gives every entry.
+   * - The entries are found by a search, never by a walk of the dictionary: a range costs what
+   *   it holds. Over an input a runner opened lazily, each end reads at most one segment — the one
+   *   before the first segment that starts at or past it, which may hold none of the range — and
+   *   the segments between the ends are read once each.
+   * - The result is a new dictionary a body may change, whatever its source; the source is not
+   *   changed with it.
+   *
+   * @see {@link prefix} for the entries whose key begins with given fields
+   * @see {@link get} to read one key
+   *
+   * @example
+   * ```ts
+   * // Sheets printed, by press, day and job.
+   * const SheetsType = DictType(StructType({ press: StringType, day: DateTimeType, job: StringType }), IntegerType);
+   *
+   * const printedInJune = East.function([SheetsType], IntegerType, ($, sheets) => {
+   *   // Every entry of press P1 from 1 June up to, and not including, 1 July.
+   *   const june = $.let(sheets.range({
+   *     from: { press: "P1", day: new Date("2026-06-01T00:00:00Z") },
+   *     to: { press: "P1", day: new Date("2026-07-01T00:00:00Z") },
+   *   }));
+   *   $.return(june.sum());
+   * });
+   * const compiled = East.compile(printedInJune, []);
+   * compiled(new SortedMap([
+   *   [{ press: "P1", day: new Date("2026-05-31T00:00:00Z"), job: "J1" }, 400n],
+   *   [{ press: "P1", day: new Date("2026-06-01T00:00:00Z"), job: "J2" }, 250n],
+   *   [{ press: "P1", day: new Date("2026-06-30T00:00:00Z"), job: "J3" }, 100n],
+   *   [{ press: "P1", day: new Date("2026-07-01T00:00:00Z"), job: "J4" }, 900n],
+   *   [{ press: "P2", day: new Date("2026-06-10T00:00:00Z"), job: "J5" }, 700n],
+   * ], compareFor(SheetsType.key)));  // 350n
+   * ```
+   */
+  range(bounds: KeyRangeBounds<K> = {}): DictExpr<K, T> {
+    const { from, to } = keyRangeEnds(this.key_type as EastType, bounds);
+
+    return Expr.fromAst({
+      ast_type: "Builtin",
+      type: this[TypeSymbol],
+      loc_id: get_location_id(),
+      builtin: "DictRange",
+      type_parameters: [this.key_type as EastType, this.value_type as EastType, from.type, to.type],
+      arguments: [this[AstSymbol], from.ast, to.ast],
+    }) as DictExpr<K, T>;
+  }
+
+  /**
+   * Returns the entries whose key begins with the given fields, as a new dictionary.
+   *
+   * The prefix gives the first fields of a struct key, in the key's order, and the result holds
+   * the keys equal to it on every field it gives.
+   *
+   * @param fields - The key's first fields: `{ press: "P1" }`, or `{ press: "P1", day }`
+   * @returns A new DictExpr of the same type, holding the entries whose key begins with the fields
+   *
+   * @throws {Error} When the function is built with fields that are not the key's first, naming the key's fields in order, or on a key that is not a struct, naming `get` and `range`
+   *
+   * @remarks
+   * - A key that is not a struct has no prefix. A String key's starts-with is a range:
+   *   `range({ from: "ab", to: "ac" })`.
+   * - Found by a search, and a new dictionary, as {@link range}'s is.
+   *
+   * @see {@link range} for the entries between two bounds
+   *
+   * @example
+   * ```ts
+   * const SheetsType = DictType(StructType({ press: StringType, day: DateTimeType, job: StringType }), IntegerType);
+   *
+   * const printedBy = East.function([SheetsType, StringType], IntegerType, ($, sheets, press) => {
+   *   $.return(sheets.prefix({ press }).sum());
+   * });
+   * const compiled = East.compile(printedBy, []);
+   * const sheets = new SortedMap([
+   *   [{ press: "P1", day: new Date("2026-06-01T00:00:00Z"), job: "J2" }, 250n],
+   *   [{ press: "P1", day: new Date("2026-06-30T00:00:00Z"), job: "J3" }, 100n],
+   *   [{ press: "P2", day: new Date("2026-06-10T00:00:00Z"), job: "J5" }, 700n],
+   * ], compareFor(SheetsType.key));
+   * compiled(sheets, "P1");  // 350n
+   * compiled(sheets, "P3");  // 0n
+   * ```
+   */
+  prefix(fields: KeyPrefix<K>): DictExpr<K, T> {
+    const prefixAst = keyBoundAst("prefix", this.key_type as EastType, fields);
+
+    return Expr.fromAst({
+      ast_type: "Builtin",
+      type: this[TypeSymbol],
+      loc_id: get_location_id(),
+      builtin: "DictPrefix",
+      type_parameters: [this.key_type as EastType, this.value_type as EastType, prefixAst.type],
+      arguments: [this[AstSymbol], prefixAst],
+    }) as DictExpr<K, T>;
   }
 
   /**

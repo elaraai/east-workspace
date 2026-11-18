@@ -113,7 +113,7 @@
 
 import {
     East, SortedMap, compareFor, fromEastTypeValue, toEastTypeValue, type EastType, BooleanType, DictType, IntegerType, NullType, OptionType, StringType,
-    none, parseFor, some, type EastTypeValue, type option,
+    none, some, type EastTypeValue, type option,
 } from "@elaraai/east";
 import { type PlatformFunction, EastTypeType } from "@elaraai/east/internal";
 import { SeekQueryType, SeekRangeType } from "@elaraai/east-ui";
@@ -122,6 +122,7 @@ import { registerReactiveTracker, registerPlatformImplementation, registerRecord
 import { TreePathType, type TreePath } from "@elaraai/e3-types";
 
 import { datasetPathToString } from "./dataset-store.js";
+import { keyReaderOf } from "./key-text.js";
 import { IndexedPagedRuntime, indexedBindingOfSource, recordSliceBatchesOf } from "./indexed-paged.js";
 import { defaultRecordRuntime, recordOfPath } from "./record-runtime.js";
 import { toFindQuery } from "./find-query.js";
@@ -584,12 +585,7 @@ export type EntriesByKey = (ids: readonly string[]) => option<ReadonlyMap<string
  * @returns The reader
  */
 export function entriesByKeyOf(id: string, keyType: EastType, rowType: EastType): EntriesByKey {
-    const parse = keyType.type === "String" ? undefined : parseFor(keyType);
-    const keyOf = (text: string): unknown => {
-        if (parse === undefined) return text;
-        const read = parse(text);
-        return read.success ? read.value : undefined;
-    };
+    const keyOf = keyReaderOf(keyType);
     // Made once: a read by key keeps its printer of the key type by this value.
     const type = toEastTypeValue(DictType(keyType, rowType));
     const rowsOf = (keys: readonly unknown[]): option<readonly option<unknown>[]> | undefined => {

@@ -5,11 +5,13 @@
 
 /** Typed author callbacks behind a closed renderer transport. @packageDocumentation */
 import {
-    ArrayType, AsyncFunctionType, BlobType, DateTimeType, East, Expr, FunctionType, IntegerType,
+    ArrayType, BlobType, DateTimeType, East, Expr, FunctionType, IntegerType,
     NullType, OptionType, StringType, StructType, isTypeEqual, none, some, toEastTypeValue, variant,
     type DictType, type EastType, type ExprType, type SubtypeExprOrValue, type VariantType,
 } from "@elaraai/east";
-import { buildInlineApply, type ResolvedRowSource } from "@elaraai/east-ui/internal";
+import {
+    buildInlineApply, buildWireApply, buildWireObserver, buildWireToDraft, checkedEditingCallback, withEditingSave, type ResolvedRowSource,
+} from "@elaraai/east-ui/internal";
 import { SheetRowType, SheetPatchTypeFor, SheetReadyBatchType } from "./types.js";
 import { buildPatchCells, type SheetBridge } from "./bridge.js";
 import { SheetApplyResultType, SheetChangeSetTypeFor, SheetNewRowType, SheetNewGroupType, SheetReadinessType, SheetDraftTypeFor } from "./transactions.js";
@@ -48,17 +50,6 @@ export interface SheetUnsettableInput {
     label: SubtypeExprOrValue<StringType>;
 }
 
-/** Validate a behavior prop against its exact East signature. */
-function callback(value: unknown, input: EastType, output: EastType, name: string, allowAsync: boolean): ExprType<EastType> {
-    const fn = East.value(value as SubtypeExprOrValue<EastType>) as ExprType<EastType>;
-    const type = Expr.type(fn as Expr<EastType>) as EastType;
-    if ((type.type !== "Function" && !(allowAsync && type.type === "AsyncFunction")) ||
-        !("inputs" in type) || type.inputs.length !== 1 || type.inputs[0] !== input || type.output !== output) {
-        throw new Error(`Sheet: ${name} must be an East ${allowAsync ? "sync/async " : ""}function with this sheet's exact event and result types`);
-    }
-    return fn;
-}
-
 /**
  * Captures source identity, codecs and authoritative callbacks for one Sheet.
  * @internal
@@ -72,6 +63,23 @@ function callback(value: unknown, input: EastType, output: EastType, name: strin
  */
 export function buildSheetEditing(source: ResolvedRowSource, bridge: SheetBridge, idField: string | undefined, input: SheetEditingInput,
     rowOf: ExprType<FunctionType<[EastType, StringType], typeof SheetRowType>>, driverColumn?: string): ExprType<typeof SheetEditingType> {
+    // The Save handed over as a draft (#1620). What `Record.onApply` answered is the Save with its draft form: bound
+    // once where the session is made, its apply the sheet's Apply and its draft form the session's. A Save of the
+    // host's own is a function, and carries none.
+    const keyed = input.applyKeyed !== undefined;
+    return withEditingSave(keyed ? input.applyKeyed : input.onApply, SheetEditingType, (apply, draftForm) => sheetEditing(
+        source, bridge, idField, apply === undefined ? input : keyed ? { ...input, applyKeyed: apply } : { ...input, onApply: apply },
+        draftForm, rowOf, driverColumn));
+}
+
+/**
+ * {@link buildSheetEditing}, over an Apply that is a function of the batch.
+ *
+ * @param draftForm - The Apply's draft form, over the batch the Apply takes; `undefined` for a Save of the host's own
+ */
+function sheetEditing(source: ResolvedRowSource, bridge: SheetBridge, idField: string | undefined, input: SheetEditingInput,
+    draftForm: ExprType<EastType> | undefined, rowOf: ExprType<FunctionType<[EastType, StringType], typeof SheetRowType>>,
+    driverColumn?: string): ExprType<typeof SheetEditingType> {
     // A Dict source is keyed: a keyed paged source, or a record's whole Dict
     // read in key order (#1182) — the only inline Dict the root admits.
     const keyed = source.collectionType.type === "Dict";
@@ -116,7 +124,8 @@ export function buildSheetEditing(source: ResolvedRowSource, bridge: SheetBridge
     }
     const live = source.kind === "inline" ? source.live : undefined;
     const reader = live !== undefined ? live.read as ExprType<FunctionType<[], typeof rowsType>> : undefined;
-    const authorApply = input.onApply !== undefined ? callback(input.onApply, batchType, SheetApplyResultType, "onApply", true) : undefined;
+    const authorApply = input.onApply !== undefined ? checkedEditingCallback("Sheet", input.onApply, [batchType], SheetApplyResultType, "onApply", true,
+        "over this sheet's batch, Sheet.Types.ChangeSet(R), returning Sheet.Types.ApplyResult") : undefined;
     const sourceId = input.sourceId !== undefined ? East.value(input.sourceId as SubtypeExprOrValue<StringType>, StringType)
         : source.kind === "paged" ? source.source.id as ExprType<StringType>
         : reader !== undefined ? East.print(East.Blob.encodeBeast(reader, "v2"))
@@ -147,7 +156,8 @@ export function buildSheetEditing(source: ResolvedRowSource, bridge: SheetBridge
     });
     let onApply: ExprType<typeof SheetWireApplyType> | undefined;
     if (reader !== undefined && input.onUpdate !== undefined) {
-        const writer = callback(input.onUpdate, rowsType, NullType, "onUpdate", false);
+        const writer = checkedEditingCallback("Sheet", input.onUpdate, [rowsType], NullType, "onUpdate", false,
+            "over the whole Array<R> the batch leaves, returning Null");
         onApply = East.value(variant("sync", buildInlineApply(rowType, idField!, sourceId, reader, writer as ExprType<FunctionType>)), SheetWireApplyType);
     } else if (input.applyKeyed !== undefined) {
         // A record's Apply (#1182): the session's keyed batch, decoded at its
@@ -158,51 +168,25 @@ export function buildSheetEditing(source: ResolvedRowSource, bridge: SheetBridge
             || !isTypeEqual(type.inputs[0]!, wireBatchType) || !isTypeEqual(type.output, SheetApplyResultType)) {
             throw new Error("Sheet: a keyed Apply must be an East function over this sheet's keyed batch, ChangeSet(R, K), returning ApplyResult");
         }
-        if (type.type === "AsyncFunction") {
-            const fn = keyedApply as ExprType<AsyncFunctionType<[typeof wireBatchType], typeof SheetApplyResultType>>;
-            const wrap = East.asyncFunction([BlobType], SheetApplyResultType, ($, blob) => {
-                const apply = $.const(fn);
-                return apply(blob.decodeBeast(wireBatchType, "v2"));
-            });
-            onApply = East.value(variant("async", wrap), SheetWireApplyType);
-        } else {
-            const fn = keyedApply as ExprType<FunctionType<[typeof wireBatchType], typeof SheetApplyResultType>>;
-            const wrap = East.function([BlobType], SheetApplyResultType, ($, blob) => {
-                const apply = $.const(fn);
-                return apply(blob.decodeBeast(wireBatchType, "v2"));
-            });
-            onApply = East.value(variant("sync", wrap), SheetWireApplyType);
-        }
+        onApply = buildWireApply(wireBatchType, keyedApply);
     } else if (authorApply !== undefined) {
-        const async = (Expr.type(authorApply as Expr<EastType>) as EastType).type === "AsyncFunction";
-        if (async) {
-            const fn = authorApply as ExprType<AsyncFunctionType<[typeof batchType], typeof SheetApplyResultType>>;
-            const wrap = East.asyncFunction([BlobType], SheetApplyResultType, ($, blob) => {
-                const apply = $.const(fn);
-                if (toAuthorBatch === undefined) return apply(blob.decodeBeast(batchType, "v2"));
-                const restate = $.const(toAuthorBatch);
-                return apply(restate(blob.decodeBeast(wireBatchType, "v2")));
-            });
-            onApply = East.value(variant("async", wrap), SheetWireApplyType);
-        } else {
-            const fn = authorApply as ExprType<FunctionType<[typeof batchType], typeof SheetApplyResultType>>;
-            const wrap = East.function([BlobType], SheetApplyResultType, ($, blob) => {
-                const apply = $.const(fn);
-                if (toAuthorBatch === undefined) return apply(blob.decodeBeast(batchType, "v2"));
-                const restate = $.const(toAuthorBatch);
-                return apply(restate(blob.decodeBeast(wireBatchType, "v2")));
-            });
-            onApply = East.value(variant("sync", wrap), SheetWireApplyType);
-        }
+        // An author's Apply takes the Sheet's own batch: a keyed source's restated for it.
+        onApply = buildWireApply(wireBatchType, authorApply, toAuthorBatch);
     }
-    const authorPatch = input.onPatch !== undefined ? callback(input.onPatch, eventType, NullType, "onPatch", false) : undefined;
-    const onPatch = authorPatch !== undefined ? East.function([BlobType], NullType, ($, blob) => {
-        const observe = $.const(authorPatch as ExprType<FunctionType<[EastType], NullType>>);
-        $(observe(blob.decodeBeast(eventType, "v2")));
-    }) : undefined;
+    // The Save's draft form is over the batch its Apply takes: a record's keyed Apply the session's batch as it
+    // comes, an author's the Sheet's own, restated as it is for the Apply.
+    const keyedDraft = input.applyKeyed !== undefined ? draftForm : undefined;
+    const authorDraft = input.onApply !== undefined ? draftForm : undefined;
+    const toDraft = keyedDraft !== undefined ? buildWireToDraft(wireBatchType, keyedDraft)
+        : authorDraft !== undefined ? buildWireToDraft(wireBatchType, authorDraft, toAuthorBatch) : undefined;
+    const authorPatch = input.onPatch !== undefined ? checkedEditingCallback("Sheet", input.onPatch, [eventType], NullType, "onPatch", false,
+        "over this sheet's Sheet.Types.PatchEvent(R), returning Null") : undefined;
+    const onPatch = authorPatch !== undefined ? buildWireObserver(eventType, authorPatch) : undefined;
     if (input.newGroup !== undefined && bridge.group === undefined) throw new Error("Sheet: newGroup requires a group declaration");
-    const rowConstructor = input.newRow === undefined ? undefined : callback(input.newRow, SheetNewRowType, bridge.patchType, "newRow", false);
-    const groupConstructor = input.newGroup === undefined ? undefined : callback(input.newGroup, SheetNewGroupType, SheetPatchTypeFor(groupType), "newGroup", false);
+    const rowConstructor = input.newRow === undefined ? undefined : checkedEditingCallback("Sheet", input.newRow, [SheetNewRowType], bridge.patchType, "newRow",
+        false, "over Sheet.Types.NewRow, returning this sheet's row patch");
+    const groupConstructor = input.newGroup === undefined ? undefined : checkedEditingCallback("Sheet", input.newGroup, [SheetNewGroupType],
+        SheetPatchTypeFor(groupType), "newGroup", false, "over Sheet.Types.NewGroup, returning this sheet's group patch");
     const newRow = rowConstructor === undefined ? undefined : buildSheetSeed(SheetNewRowType, bridge.lineType,
         rowConstructor as ExprType<FunctionType<[StructType], StructType>>, bridge.seedCells);
     const newGroup = groupConstructor === undefined || bridge.group === undefined ? undefined : buildSheetSeed(SheetNewGroupType, groupType,
@@ -213,7 +197,8 @@ export function buildSheetEditing(source: ResolvedRowSource, bridge: SheetBridge
     // A group's check takes its DraftGroup; the renderer sends the entry's
     // draft — on a source with loose rows (#846), the group arm of it.
     const groupDraft = bridge.group?.loose === true && field !== undefined ? SheetDraftGroupTypeFor(groupType, field as never) : draftType;
-    const authorGroup = readyGroupExpr === undefined ? undefined : callback(readyGroupExpr, groupDraft, SheetReadinessType, "ready.group", false);
+    const authorGroup = readyGroupExpr === undefined ? undefined : checkedEditingCallback("Sheet", readyGroupExpr, [groupDraft], SheetReadinessType,
+        "ready.group", false, "over this sheet's group draft, returning Sheet.Types.Readiness");
     const readyGroup = authorGroup === undefined ? undefined : East.function([BlobType], SheetReadinessType, ($, blob) => {
         const check = $.const(authorGroup as ExprType<FunctionType<[EastType], typeof SheetReadinessType>>);
         if (groupDraft === draftType) return check(blob.decodeBeast(draftType, "v2"));
@@ -222,12 +207,8 @@ export function buildSheetEditing(source: ResolvedRowSource, bridge: SheetBridge
     });
     let readyRow: ExprType<FunctionType<[BlobType], ArrayType<typeof SheetReadinessType>>> | undefined;
     if (input.ready?.row !== undefined) {
-        const fn = East.value(input.ready.row as SubtypeExprOrValue<EastType>) as ExprType<EastType>;
-        const type = Expr.type(fn as Expr<EastType>) as EastType;
-        const rowDraft = SheetDraftTypeFor(bridge.lineType);
-        if (type.type !== "Function" || type.inputs.length !== 2 || type.inputs[0] !== rowDraft || type.inputs[1] !== bridge.ctxType || type.output !== SheetReadinessType) {
-            throw new Error("Sheet: ready.row must be an East function over this row's Draft and this sheet's DraftContext, returning Readiness");
-        }
+        const fn = checkedEditingCallback("Sheet", input.ready.row, [SheetDraftTypeFor(bridge.lineType), bridge.ctxType], SheetReadinessType,
+            "ready.row", false, "over this row's Draft and this sheet's DraftContext, returning Readiness");
         // One call per evaluation (#882): the batch's rows are built once, and
         // each check's result returns in the batch's order. A check that
         // throws fails its own row alone — the rest still report.
@@ -263,6 +244,7 @@ export function buildSheetEditing(source: ResolvedRowSource, bridge: SheetBridge
         keyType: keyType !== undefined ? some(toEastTypeValue(keyType)) : none,
         snapshot: source.kind === "inline" ? some(East.Blob.encodeBeast(source.rows, "v2")) : none,
         readEntry, decode, project, onApply: onApply !== undefined ? some(onApply) : none,
+        toDraft: toDraft !== undefined ? some(toDraft) : none,
         onPatch: onPatch !== undefined ? some(onPatch) : none,
     }, SheetEditingType);
 }

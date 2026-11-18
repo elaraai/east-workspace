@@ -44,7 +44,8 @@ import type { AllocationWindow } from "./window.js";
 import { DAY, allocationWords, byWeek, type AllocationStyles, type AllocationValue, type Day, type Issue, type Load, type ResourceRow } from "./model.js";
 import { counted, other, type Nouns } from "./nouns.js";
 import { PickerDot, PickerLegend, StatusWords } from "../shared/schedule/period-status.js";
-import { plural } from "../shared/schedule/words.js";
+import { notOnPageText, plural } from "../shared/schedule/words.js";
+import type { HiddenWhy } from "../shared/schedule/hidden.js";
 
 /** Table, then Timeline, as the mock orders them. */
 const LAYOUTS = [{ key: "table", label: "Table", icon: faTable }, { key: "timeline", label: "Timeline", icon: faChartGantt }] as const;
@@ -128,8 +129,11 @@ interface ToolbarArgs extends AllocationWindow {
     onConflict?: ((issue: EditIssue) => void) | undefined;
     onAction: (action: HistoryAction) => void;
     onPickerWeeks: (weeks: readonly Date[]) => void;
-    /** The focus (A13): its resource, its load, and whether the narrowing hides its row. */
-    focus: { resource: ResourceRow; load: Load; hidden: boolean } | undefined;
+    /**
+     * The focus (A13): its resource, its load, and why the narrowing leaves its row out, as far as e3 has said — the
+     * filters, or a page's scope that does not hold it (#1621); `undefined` while it is shown, or not yet known.
+     */
+    focus: { resource: ResourceRow; load: Load; hidden: HiddenWhy | undefined } | undefined;
     onClearFocus: () => void;
     /** The board's nouns: what the narrowing's summary counts each source in, and what heads each source's fields, folded. */
     nouns: Nouns;
@@ -215,11 +219,13 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
         {value.inspector && summary.count > 0 && <ChakraMenu.Item value="issues">{summary.label}</ChakraMenu.Item>}
         {heldPublish && <><ChakraMenu.Separator /><ChakraMenu.Item value="publish" disabled={!canPublish}>Publish</ChakraMenu.Item></>}
     </ChipMenu>;
-    // The focus chip (A13, A81): `K-203 · 3 bins · 31 m³`, `· hidden by Filters` when its row is narrowed out; × or Esc clears it.
+    // The focus chip (A13, A81): `K-203 · 3 bins · 31 m³`, `· hidden by Filters` when a choice narrows its row out, and
+    // `· not on this page` when the page's scope does not hold it (#1621) — no filter hides it; × or Esc clears it.
     function focusChip(compact: boolean) {
         if (focus === undefined) return null;
         const unit = value.bin.unit.type === "some" ? value.bin.unit.value : "";
-        const meta = `${counted(Number(focus.load.bins), value.labels.bin)} · ${allocationWords().quantity(focus.load.fill, unit)}${focus.hidden ? " · hidden by Filters" : ""}`;
+        const why = focus.hidden === "filters" ? " · hidden by Filters" : focus.hidden === "page" ? ` · ${notOnPageText([])}` : "";
+        const meta = `${counted(Number(focus.load.bins), value.labels.bin)} · ${allocationWords().quantity(focus.load.fill, unit)}${why}`;
         return <chakra.span css={chip({ tone: "brand" })} title="The focus: its links are drawn · Esc returns to all" data-allocation-focus=""
             aria-label={`Focus ${focus.resource.label}, ${meta}`}>
             <span data-chip-icon=""><FontAwesomeIcon icon={faLink} /></span>

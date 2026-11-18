@@ -82,12 +82,11 @@ export type PlanOverRows<K extends PlanAxisKindLiteral = never> = PlanKinded<Exp
  * @example
  * ```tsx
  * // .tsx file with the `@jsxImportSource @elaraai/e3-ui` pragma
- * import { DateTimeType, DictType, East, FloatType, NullType, OptionType, SortedMap, StringType, StructType, VariantType, compareFor, some, variant } from "@elaraai/east";
+ * import { DateTimeType, DictType, East, FloatType, NullType, OptionType, SortedMap, StringType, StructType, VariantType, compareFor, none, some, variant } from "@elaraai/east";
  * import { EventStateType, Format, Reactive, UIComponentType } from "@elaraai/east-ui";
  * import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui";
  * import e3 from "@elaraai/e3";
  *
- * export const PrintPress = StructType({ name: StringType, hall: StringType, sheets_per_hour: FloatType });
  * export const PrintJob = StructType({
  *     title: StringType,
  *     start: OptionType(DateTimeType),
@@ -100,27 +99,9 @@ export type PlanOverRows<K extends PlanAxisKindLiteral = never> = PlanKinded<Exp
  *     due: OptionType(DateTimeType),
  * });
  * export const PrintStock = StructType({ name: StringType, weekly: DictType(DateTimeType, FloatType) });
- * export const PrintCentre = StructType({ name: StringType });
  * export const PrintPlates = StructType({ title: StringType, at: DateTimeType, setter: StringType });
  * export const PrintBinding = StructType({ title: StringType, start: DateTimeType, end: DateTimeType, line: StringType, state: EventStateType });
  * export const PrintDelivery = StructType({ title: StringType, at: DateTimeType, bay: StringType });
- * export const planPrintPresses = e3.record("plan_print_presses", DictType(StringType, PrintPress), {
- *     initial: new Map([
- *         ["a1", { name: "Press A1", hall: "Hall A", sheets_per_hour: 12000.0 }],
- *         ["a2", { name: "Press A2", hall: "Hall A", sheets_per_hour: 10000.0 }],
- *         ["a3", { name: "Press A3", hall: "Hall A", sheets_per_hour: 8000.0 }],
- *         ["b1", { name: "Press B1", hall: "Hall B", sheets_per_hour: 15000.0 }],
- *         ["b2", { name: "Press B2", hall: "Hall B", sheets_per_hour: 12000.0 }],
- *         ["b3", { name: "Press B3", hall: "Hall B", sheets_per_hour: 6000.0 }],
- *     ]),
- *     indexes: (index) => ({
- *         plan_print_presses_by_hall: index.on(["hall"]),
- *     }),
- *     mutations: (mutation) => ({
- *         // The presses' patch door: the works edits its presses elsewhere, and a Plan reads them live.
- *         patch: mutation.patch(),
- *     }),
- * });
  * export const planLinkStock = e3.input("plan_link_stock", DictType(StringType, PrintStock), variant("value", new Map([
  *     ["board", { name: "Board", weekly: new SortedMap([
  *         [new Date("2026-10-05T00:00:00Z"), 40.0], [new Date("2026-10-12T00:00:00Z"), 22.0], [new Date("2026-10-19T00:00:00Z"), 31.0], [new Date("2026-10-26T00:00:00Z"), 18.0],
@@ -132,22 +113,6 @@ export type PlanOverRows<K extends PlanAxisKindLiteral = never> = PlanKinded<Exp
  *         [new Date("2026-10-05T00:00:00Z"), 300.0], [new Date("2026-10-12T00:00:00Z"), 260.0], [new Date("2026-10-19T00:00:00Z"), 280.0], [new Date("2026-10-26T00:00:00Z"), 240.0],
  *     ], compareFor(DateTimeType)) }],
  * ])));
- * export const planLinkSetters = e3.record("plan_link_setters", DictType(StringType, PrintCentre), {
- *     initial: new Map([
- *         ["ps", { name: "Platesetter" }],
- *     ]),
- * });
- * export const planLinkLines = e3.record("plan_link_lines", DictType(StringType, PrintCentre), {
- *     initial: new Map([
- *         ["fold", { name: "Folder" }],
- *         ["bind", { name: "Binder" }],
- *     ]),
- * });
- * export const planLinkBays = e3.record("plan_link_bays", DictType(StringType, PrintCentre), {
- *     initial: new Map([
- *         ["bay", { name: "Dispatch bay" }],
- *     ]),
- * });
  * export const planLinkPlates = e3.record("plan_link_plates", DictType(StringType, PrintPlates), {
  *     initial: new Map([
  *         ["P-01", { title: "Catalogue plates", at: new Date("2026-10-05T12:00:00Z"), setter: "ps" }],
@@ -156,6 +121,24 @@ export type PlanOverRows<K extends PlanAxisKindLiteral = never> = PlanKinded<Exp
  *         // The plates' patch door.
  *         patch: mutation.patch(),
  *     }),
+ * });
+ * export const PrintLinkCentre = StructType({
+ *     name: StringType,
+ *     what: VariantType({ setter: NullType, press: StructType({ hall: StringType }), line: NullType, bay: NullType }),
+ * });
+ * export const planLinkWorks = e3.record("plan_link_works", DictType(StringType, PrintLinkCentre), {
+ *     initial: new Map([
+ *         ["ps", { name: "Platesetter", what: variant("setter", null) }],
+ *         ["a1", { name: "Press A1", what: variant("press", { hall: "Hall A" }) }],
+ *         ["a2", { name: "Press A2", what: variant("press", { hall: "Hall A" }) }],
+ *         ["a3", { name: "Press A3", what: variant("press", { hall: "Hall A" }) }],
+ *         ["b1", { name: "Press B1", what: variant("press", { hall: "Hall B" }) }],
+ *         ["b2", { name: "Press B2", what: variant("press", { hall: "Hall B" }) }],
+ *         ["b3", { name: "Press B3", what: variant("press", { hall: "Hall B" }) }],
+ *         ["fold", { name: "Folder", what: variant("line", null) }],
+ *         ["bind", { name: "Binder", what: variant("line", null) }],
+ *         ["bay", { name: "Dispatch bay", what: variant("bay", null) }],
+ *     ]),
  * });
  * export const planLinkCaseJobs = e3.record("plan_link_case_jobs", DictType(StringType, PrintJob), {
  *     initial: new Map([
@@ -210,17 +193,44 @@ export type PlanOverRows<K extends PlanAxisKindLiteral = never> = PlanKinded<Exp
  *         patch: mutation.patch(),
  *     }),
  * });
- *
+ * export const PrintFlow = StructType({
+ *     from: VariantType({ plate: StringType, job: StringType, binding: StringType }),
+ *     to: VariantType({ job: StringType, binding: StringType, delivery: StringType }),
+ *     sheets: OptionType(FloatType),
+ * });
+ * export const planLinkFlows = e3.record("plan_link_flows", DictType(StringType, PrintFlow), {
+ *     initial: new Map([
+ *         ["plates", { from: variant("plate", "P-01"), to: variant("job", "J-2001"), sheets: none }],
+ *         ["covers", { from: variant("job", "J-2001"), to: variant("job", "J-2013"), sheets: some(12.0) }],
+ *         ["card", { from: variant("job", "J-2020"), to: variant("job", "J-2005"), sheets: some(30.0) }],
+ *         ["inserts", { from: variant("job", "J-2003"), to: variant("job", "J-2016"), sheets: some(96.0) }],
+ *         ["report-covers", { from: variant("job", "J-2022"), to: variant("job", "J-2009"), sheets: some(48.0) }],
+ *         ["seed-prints", { from: variant("job", "J-2014"), to: variant("job", "J-2017"), sheets: some(72.0) }],
+ *         ["tags", { from: variant("job", "J-2006"), to: variant("job", "J-2007"), sheets: some(20.0) }],
+ *         ["pads", { from: variant("job", "J-2010"), to: variant("job", "J-2011"), sheets: some(36.0) }],
+ *         ["proofs", { from: variant("job", "J-2008"), to: variant("job", "J-2015"), sheets: some(16.0) }],
+ *         ["proof-sheets", { from: variant("job", "J-2012"), to: variant("job", "J-2004"), sheets: some(8.0) }],
+ *         ["tickets", { from: variant("job", "J-2019"), to: variant("job", "J-2023"), sheets: some(60.0) }],
+ *         ["sections", { from: variant("job", "J-2021"), to: variant("binding", "B-01"), sheets: some(40.0) }],
+ *         ["sections-more", { from: variant("job", "J-2021"), to: variant("binding", "B-02"), sheets: some(44.0) }],
+ *         ["folded", { from: variant("binding", "B-02"), to: variant("binding", "B-03"), sheets: some(40.0) }],
+ *         ["books", { from: variant("binding", "B-03"), to: variant("delivery", "D-01"), sheets: some(36.0) }],
+ *         ["posters", { from: variant("job", "J-2002"), to: variant("delivery", "D-02"), sheets: some(24.0) }],
+ *         ["book-blocks", { from: variant("job", "J-2018"), to: variant("binding", "B-04"), sheets: some(54.0) }],
+ *     ]),
+ *     mutations: (mutation) => ({
+ *         // The flows' patch door: a flow drawn with the Connect tool, edited or removed saves through it.
+ *         patch: mutation.patch(),
+ *     }),
+ * });
  * const planEventLinks = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
- *         const setters = $.let(Record.bind(planLinkSetters, []));
- *         const presses = $.let(Record.bind(planPrintPresses, []));
- *         const lines = $.let(Record.bind(planLinkLines, []));
- *         const bays = $.let(Record.bind(planLinkBays, []));
+ *         const works = $.let(Record.bind(planLinkWorks, []));
  *         const plates = $.let(Record.bind(planLinkPlates));
  *         const jobs = $.let(Record.bind(planLinkCaseJobs));
  *         const bindings = $.let(Record.bind(planLinkBindings));
  *         const deliveries = $.let(Record.bind(planLinkDeliveries));
+ *         const flows = $.let(Record.bind(planLinkFlows));
  *         const stock = $.let(Data.bind(planLinkStock));
  *         const axis = $.let(Plan.axis({
  *             window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") },
@@ -229,12 +239,18 @@ export type PlanOverRows<K extends PlanAxisKindLiteral = never> = PlanKinded<Exp
  *         return (
  *             <Plan
  *                 axis={axis}
- *                 resources={{
- *                     setters: Schedule.resources(setters.read(), { name: "Plate room", icon: "layer-group", label: s => s.name }),
- *                     presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: p => p.name, group: p => p.hall }),
- *                     lines: Schedule.resources(lines.read(), { name: "Bindery", icon: "book", label: l => l.name }),
- *                     bays: Schedule.resources(bays.read(), { name: "Dispatch", icon: "warehouse", label: b => b.name }),
- *                 }}
+ *                 // The works' centres, one record of rows: each kind of centre a resources series of its own, in the
+ *                 // order the links run through them — plates, printing, binding, dispatch.
+ *                 data={works.read()}
+ *                 series={[
+ *                     Plan.series.resources(PrintLinkCentre, { key: "setters", title: "Plate room", icon: "layer-group", match: c => c.what.hasTag("setter"), label: c => c.name }),
+ *                     Plan.series.resources(PrintLinkCentre, {
+ *                         key: "presses", title: "Presses", icon: "print", match: c => c.what.hasTag("press"), label: c => c.name,
+ *                         sub: c => some(c.what.unwrap("press").hall),
+ *                     }),
+ *                     Plan.series.resources(PrintLinkCentre, { key: "lines", title: "Bindery", icon: "book", match: c => c.what.hasTag("line"), label: c => c.name }),
+ *                     Plan.series.resources(PrintLinkCentre, { key: "bays", title: "Dispatch", icon: "warehouse", match: c => c.what.hasTag("bay"), label: c => c.name }),
+ *                 ]}
  *                 events={{
  *                     plate: Schedule.events(plates, {
  *                         name: "Plates", icon: "clone",
@@ -268,27 +284,18 @@ export type PlanOverRows<K extends PlanAxisKindLiteral = never> = PlanKinded<Exp
  *                         }),
  *                     ]),
  *                 ]}
- *                 // Each quantity in thousands of sheets, its third of the family's largest setting the link's
- *                 // weight; the plates' link carries none.
- *                 links={[
- *                     Plan.link({ key: "plates", from: Plan.eventRef("plate", "P-01"), to: Plan.eventRef("job", "J-2001") }),
- *                     Plan.link({ key: "covers", from: Plan.eventRef("job", "J-2001"), to: Plan.eventRef("job", "J-2013"), quantity: Plan.quantity(12, { unit: "k sheets" }) }),
- *                     Plan.link({ key: "card", from: Plan.eventRef("job", "J-2020"), to: Plan.eventRef("job", "J-2005"), quantity: Plan.quantity(30, { unit: "k sheets" }) }),
- *                     Plan.link({ key: "inserts", from: Plan.eventRef("job", "J-2003"), to: Plan.eventRef("job", "J-2016"), quantity: Plan.quantity(96, { unit: "k sheets" }) }),
- *                     Plan.link({ key: "report-covers", from: Plan.eventRef("job", "J-2022"), to: Plan.eventRef("job", "J-2009"), quantity: Plan.quantity(48, { unit: "k sheets" }) }),
- *                     Plan.link({ key: "seed-prints", from: Plan.eventRef("job", "J-2014"), to: Plan.eventRef("job", "J-2017"), quantity: Plan.quantity(72, { unit: "k sheets" }) }),
- *                     Plan.link({ key: "tags", from: Plan.eventRef("job", "J-2006"), to: Plan.eventRef("job", "J-2007"), quantity: Plan.quantity(20, { unit: "k sheets" }) }),
- *                     Plan.link({ key: "pads", from: Plan.eventRef("job", "J-2010"), to: Plan.eventRef("job", "J-2011"), quantity: Plan.quantity(36, { unit: "k sheets" }) }),
- *                     Plan.link({ key: "proofs", from: Plan.eventRef("job", "J-2008"), to: Plan.eventRef("job", "J-2015"), quantity: Plan.quantity(16, { unit: "k sheets" }) }),
- *                     Plan.link({ key: "proof-sheets", from: Plan.eventRef("job", "J-2012"), to: Plan.eventRef("job", "J-2004"), quantity: Plan.quantity(8, { unit: "k sheets" }) }),
- *                     Plan.link({ key: "tickets", from: Plan.eventRef("job", "J-2019"), to: Plan.eventRef("job", "J-2023"), quantity: Plan.quantity(60, { unit: "k sheets" }) }),
- *                     Plan.link({ key: "sections", from: Plan.eventRef("job", "J-2021"), to: Plan.eventRef("binding", "B-01"), quantity: Plan.quantity(40, { unit: "k sheets" }) }),
- *                     Plan.link({ key: "sections-more", from: Plan.eventRef("job", "J-2021"), to: Plan.eventRef("binding", "B-02"), quantity: Plan.quantity(44, { unit: "k sheets" }) }),
- *                     Plan.link({ key: "folded", from: Plan.eventRef("binding", "B-02"), to: Plan.eventRef("binding", "B-03"), quantity: Plan.quantity(40, { unit: "k sheets" }) }),
- *                     Plan.link({ key: "books", from: Plan.eventRef("binding", "B-03"), to: Plan.eventRef("delivery", "D-01"), quantity: Plan.quantity(36, { unit: "k sheets" }) }),
- *                     Plan.link({ key: "posters", from: Plan.eventRef("job", "J-2002"), to: Plan.eventRef("delivery", "D-02"), quantity: Plan.quantity(24, { unit: "k sheets" }) }),
- *                     Plan.link({ key: "book-blocks", from: Plan.eventRef("job", "J-2018"), to: Plan.eventRef("binding", "B-04"), quantity: Plan.quantity(54, { unit: "k sheets" }) }),
- *                 ]}
+ *                 // The works' flows, one link kind over a record of its own (#1541, U10): each row a link, its ends
+ *                 // the keys of the events it joins — a case for each kind of event an end may name. Each quantity is
+ *                 // in thousands of sheets, its third of the family's largest setting the link's weight; the plates'
+ *                 // flow carries none. A flow is drawn with the Connect tool, and saved with the Plan's other drafts.
+ *                 links={{
+ *                     flow: Plan.links(flows, {
+ *                         name: "Flow", icon: "arrow-right-long",
+ *                         from: { field: "from", of: { plate: "plate", job: "job", binding: "binding" } },
+ *                         to: { field: "to", of: { job: "job", binding: "binding", delivery: "delivery" } },
+ *                         quantity: { field: "sheets", unit: "k sheets" },
+ *                     }),
+ *                 }}
  *                 style={{ height: "400px" }}
  *             />
  *         );

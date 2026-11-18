@@ -20,23 +20,12 @@ import {
 import { type EastTypeValue } from "../../../type_of_type.js";
 import { isTypeValueEqual } from "../../../type_value_equal.js";
 import { compareFor, equalFor } from "../../../comparison.js";
-import { randomType, randomValueFor, seedFuzz } from "../../../fuzz.js";
+import { randomStream, randomType, randomValueFor, seedFuzz } from "../../../fuzz.js";
 import { East, SortedMap, SortedSet, ref, variant } from "../../../index.js";
 import { encodeBeast2SegmentsFor, openBeast2LazyFor, Beast2Pages } from "../index.js";
 import { asTypeValue } from "./type-section.js";
 import { Beast2ProjectionAliasError } from "./codec.js";
 import { beast2PagedLoopStats, buildProjectedSegmentDecoder, loopProjectionType } from "./project.js";
-
-/** A deterministic stream of numbers in [0, 1) (mulberry32). */
-function stream(seed: number): () => number {
-  let state = seed | 0;
-  return () => {
-    state = (state + 0x6d2b79f5) | 0;
-    let t = Math.imul(state ^ (state >>> 15), 1 | state);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 type Field = { name: string; type: EastTypeValue };
 
@@ -119,7 +108,7 @@ function segmented(type: EastType, rows: unknown[], per: number): Uint8Array {
 describe("beast2 v5 projected decoding", () => {
   test("a segment decodes to the kept fields of its whole decode, at random types and projections", () => {
     seedFuzz(0x1112);
-    const draw = stream(0x1112);
+    const draw = randomStream(0x1112);
     let projected = 0;
     for (let n = 0; n < 150; n++) {
       const row = randomRow(draw);

@@ -48,6 +48,7 @@ import { datasetGetStatus, type DatasetFindQuery } from "@elaraai/e3-api-client"
 import { RecordLevelType, datasetRowsType, indexWindowType, type TreePath } from "@elaraai/e3-types";
 import * as ex from "@elaraai/e3-ui/examples/bind/data/data";
 import type { E3Request } from "../src/e3-web.test-utils.js";
+import { noise } from "../src/noise.test-utils.js";
 import {
     CUTS_BETWEEN_LOOKS,
     MAX_HELD_PLACEMENTS,
@@ -2212,24 +2213,3 @@ describe("PagedRuntime — a window a reader holds is never evicted under it", (
             `once its reader lets them go the runtime holds ${channels} channels, past the ${MAX_RETAINED_WINDOWS} windows it keeps and the total`);
     });
 });
-
-/**
- * A line of `width` letters no compressor shrinks: a xorshift stream over 64
- * letters, from its seed, so a page of such lines weighs what it holds.
- *
- * @param width - Its length
- * @param seed - Where its stream starts
- * @returns The line
- */
-function noise(width: number, seed: number): string {
-    const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-";
-    let state = (0x9e3779b9 ^ Math.imul(seed, 0x85ebca6b)) >>> 0;
-    const out: string[] = new Array(width);
-    for (let i = 0; i < width; i++) {
-        state ^= state << 13; state >>>= 0;
-        state ^= state >>> 17;
-        state ^= state << 5; state >>>= 0;
-        out[i] = letters[state & 63]!;
-    }
-    return out.join("");
-}

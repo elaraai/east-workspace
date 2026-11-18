@@ -15,6 +15,8 @@
  *   run began, nothing on screen moving;
  * - an input written through one binding re-renders every reader of it;
  * - a function's result comes back from a unit worker;
+ * - a function called over a draft reads the record with the unsaved edit
+ *   laid over it, and the record stays as saved;
  * - a record mutation commits, and every reader of the record follows;
  * - an edit staged against the e3 lives as long as the page, as the e3 does;
  * - a doc row the list mounts again shows its example at once, on every e3
@@ -203,6 +205,21 @@ test.describe("the showcase's e3, in the page (#849)", () => {
         const call = entryOf(page, file, "funcBindCall");
         await call.scrollIntoViewIfNeeded();
         await expect(statValue(call, "Forecast")).toHaveText(".some 1.05");
+    });
+
+    test("a function called over a draft reads the record with the unsaved edit laid over it, and the record stays as saved (#1620)", async ({ page }) => {
+        const file = "e3/bind/func/func";
+        // `funcBindDrafts` counts the jobs on a press. j1 and j2 are on P1 as
+        // deployed; its second button passes a draft that moves j3 beside
+        // them — a mutation's call, not committed.
+        const drafts = await openEntry(page, file, "funcBindDrafts");
+        await expect(statValue(drafts, "Jobs on P1")).toHaveText(".none");
+        await drafts.getByRole("button", { name: "With j3 moved to P1" }).click();
+        await expect(statValue(drafts, "Jobs on P1")).toHaveText(".some 3");
+        // The draft was laid for that call alone and nothing was saved: a call
+        // as saved counts the two jobs the record holds on P1.
+        await drafts.getByRole("button", { name: "As saved" }).click();
+        await expect(statValue(drafts, "Jobs on P1")).toHaveText(".some 2");
     });
 
     test("a record mutation commits, and every reader of the record follows — its value and its history", async ({ page }) => {

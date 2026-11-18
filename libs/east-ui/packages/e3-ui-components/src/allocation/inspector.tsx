@@ -65,25 +65,26 @@ import {
     type EditIssue, type FieldFormWords,
 } from "@elaraai/east-ui-components";
 import { Chooser, PlaceholderShape, formatDatePattern } from "@elaraai/east-ui-components/internal";
-import { FOCUS_HOME_PROPS, useFocusHome } from "../shared/focus-home.js";
+import { FOCUS_HOME_PROPS, useFocusHome, viewSubject } from "../shared/focus-home.js";
 import type { PeriodRead } from "../shared/loading.js";
 import { useFieldAsk } from "../shared/schedule/field-ask.js";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
-import { NO_REFUSED_FIELDS, refusedFields, type RefusedFields } from "../shared/schedule/refusals.js";
+import { NO_REFUSED_FIELDS, refusalsOfEntry, refusalsText, refusedFields, type RefusedFields } from "../shared/schedule/refusals.js";
+import { drawnStatus, type DrawnStatus } from "../shared/status.js";
 import { Seg } from "../shared/schedule/segments.js";
 import { linkedQuantity, remainderOf, splitOf, type AllocationCommands } from "./actions.js";
 import { resourceChoices } from "./choices.js";
 import { dropTarget, landing, placeAsk, rowCoord, type AllocationDrag, type Grip, type Refusal, type Target } from "./drag.js";
-import type { AllocationFit } from "./fit.js";
+import { fitFailure, type AllocationFit } from "./fit.js";
 import {
     CHECKING, alternativesOf, bannersOf, batchLine, binCode, binStatus, bookOptions, dropHeadOf, factsOf, fixLabel, groupLine, issueGroups, matesOf,
-    narrowingNote, rankedFits, reservationStatus, reserveOptions, resourceStatus, stepHelp, summaryHints, summaryLine, summaryStats, verdictLine, wasLine,
+    narrowingNote, rankedFits, readingLine, reservationStatus, reserveOptions, resourceStatus, stepHelp, summaryHints, summaryLine, summaryStats, verdictLine, wasLine,
     type BookOption, type InspectorBanner, type InspectorStatus, type InspectorWords, type ResourceAt,
 } from "./inspector-model.js";
 import type { AllocationMessages } from "./messages.js";
 import {
-    allocationWords, compareFloat, partsOf, type AllocationDomain, type AllocationValue, type Bin, type Context, type Day, type Issue, type Load,
-    type ResourceLine, type Selection, type Slot,
+    allocationWords, arrivalVerdict, compareFloat, partsOf, unavailableLine, type AllocationDomain, type AllocationValue, type Bin, type Context, type Day,
+    type Issue, type Load, type ResourceLine, type Selection, type Slot,
 } from "./model.js";
 import { a, one, other } from "./nouns.js";
 import { SplitPopover } from "./split.js";
@@ -209,11 +210,11 @@ interface BinRefusals {
  * event's — the fields they name, which its form rings, and the tone its forms say a bound it breaks in.
  */
 function refusalsOf(args: InspectorArgs, id: string): BinRefusals {
-    const own = args.refusals.filter(r => keyEqual(r.kind, args.value.bin.kind.key) && keyEqual(r.issue.entry, id));
+    const own = refusalsOfEntry(args.refusals, args.value.bin.kind.key, id).map(r => r.issue);
     if (own.length === 0) return { banners: [], fields: NO_REFUSED_FIELDS, breaches: "warn" };
     return {
-        banners: [{ status: "warning", title: "Not saved yet", text: own.map(r => r.text).join("; ") }],
-        fields: refusedFields(own.map(r => r.issue)),
+        banners: [{ status: "warning", title: "Not saved yet", text: refusalsText(own, args.value.bin.kind.fields) }],
+        fields: refusedFields(own),
         breaches: "error",
     };
 }
@@ -257,7 +258,9 @@ export function useAllocationInspector(args: InspectorArgs): BuilderFrameDock | 
 
 /** The Details tab, in a region that keeps the keyboard as a control goes with its view, on the heading of the view drawn in its place. */
 function DetailsTab(part: Part) {
-    const home = useFocusHome();
+    // The subject Details show, shown from the pane's start (#1680's review): the drop list while a drag or a pick is on,
+    // which leads them; else the key the selection's view is drawn under, none for the Summary.
+    const home = useFocusHome(part.args.drag.subject !== undefined ? "drop" : viewSubject(selected(part)));
     return <Box ref={home.ref} css={part.styles.root} onFocus={home.onFocus} onBlur={home.onBlur} data-allocation-inspector="details"><Details {...part} /></Box>;
 }
 
@@ -300,7 +303,7 @@ function resourcesAt(args: InspectorArgs, keys: readonly string[]): ResourceAt[]
 }
 
 /** A head's status, as the shared head draws it. */
-const statusOf = (status: InspectorStatus) => ({ label: status.word, tone: { type: status.tone }, ring: status.ring });
+const statusOf = (status: InspectorStatus): DrawnStatus => drawnStatus(status.word, status.tone, status.ring);
 
 /** The banners, each the shared banner in its section (A56, A62). */
 function Banners({ styles, banners }: { styles: Styles; banners: readonly InspectorBanner[] }) {
@@ -332,7 +335,7 @@ function DropList({ subject, dragging, ...part }: Part & { subject: Grip; draggi
         <Box css={styles.section} data-allocation-drop-list="">
             {fits.map(fit => <DropRow key={fit.key} {...part} target={{ kind: "resource", resource: fit.key }} rank={fit.rank} name={fit.name} why={fit.why} book={!dragging} />)}
             {head.fits && fits.length === 0 && <Box css={styles.absent} data-allocation-drop-none="">
-                {args.fit.error !== undefined ? "fits unavailable" : drag.answer === undefined ? CHECKING : `no ${one(words.nouns.resource)} has a gap that fits`}
+                {args.fit.error !== undefined || drag.unavailable !== undefined ? "fits unavailable" : drag.answer === undefined ? CHECKING : `no ${one(words.nouns.resource)} has a gap that fits`}
             </Box>}
             <Box css={styles.line} data-allocation-drop-hint="">{head.hint}</Box>
         </Box>
@@ -642,7 +645,7 @@ function AssignedTo({ id, bin, current, at, breaches, ...part }: Part & {
     const ask = useMemo(() => variant("place", { subject: variant("bin", id), quantity }), [id, quantity]);
     const { ask: asking } = fit;
     useEffect(() => { if (open) asking(ask); }, [open, ask, asking, args.plan]);
-    const sections = open ? resourceChoices({ context, words, binRow: true, current, answer: fit.answer(ask), shown: args.shown.resources }) : [];
+    const sections = open ? resourceChoices({ context, words, binRow: true, current, answer: fit.answer(ask), failure: fitFailure(fit, ask), shown: args.shown.resources }) : [];
     // Closed from its keys or by a choice, the Chooser gives the focus back to the field, as a popover gives it to its trigger:
     // the field drawn once it has closed, linked or not.
     const fieldRef = useRef<HTMLButtonElement>(null);
@@ -766,12 +769,14 @@ function SlotDetails({ lane, at, ...part }: Part & { lane: string; at: Date }) {
     const { ask: asking } = fit;
     useEffect(() => { asking(ask, of); }, [ask, of, asking]);
     const reserve = reserveOptions(fit.answer(ask, of), loads, context, shown.resources, words);
+    // None coming: the board's fit failed, said in its banner, or the record refused the day with the probe on it (rule 10).
+    const failure = fitFailure(fit, ask, of);
     const books = bookOptions({ plan, held, context, day, shown: shown.arrivals, words });
     const where = landing(slots, plan, lane, at, undefined);
     const run = (option: BookOption) => option.grip.kind === "arrival" ? commands.book(option.grip.arrival, lane, where, undefined) : commands.restore(option.grip.bin, lane, where, undefined);
     return <>
         <ScheduleInspectorHead styles={styles} kind={{ name: "Slot", icon: "clock" }} title={`${words.lane(lane)} · ${timeText(at)}`}
-            when={`${dayLong(day)} · no ${one(nouns.arrival)} · no ${one(nouns.resource)}`} status={{ label: "Free", tone: { type: "neutral" }, ring: false }} home />
+            when={`${dayLong(day)} · no ${one(nouns.arrival)} · no ${one(nouns.resource)}`} status={drawnStatus("Free", "neutral")} home />
         <Box css={styles.section} data-allocation-book="">
             <Box css={styles.sectionHead}>Book {a(nouns.arrival)}</Box>
             {books.length === 0 ? <Box css={styles.absent}>no {other(nouns.arrival)} to book</Box>
@@ -781,7 +786,7 @@ function SlotDetails({ lane, at, ...part }: Part & { lane: string; at: Date }) {
         </Box>
         <Box css={styles.section} data-allocation-reserve="">
             <Box css={styles.sectionHead}>Reserve {a(nouns.resource)}</Box>
-            {reserve === undefined ? <Box css={styles.absent}>{fit.error !== undefined ? "fits unavailable" : CHECKING}</Box>
+            {reserve === undefined ? <Box css={styles.absent}>{failure === undefined ? CHECKING : fit.error !== undefined ? "fits unavailable" : unavailableLine(failure)}</Box>
                 : reserve.length === 0 ? <Box css={styles.absent}>no {one(nouns.resource)} has a gap that fits</Box>
                     : reserve.map(o => <ListOption key={o.key} styles={styles} name={o.name} quantity={o.range} line={o.line} warn={false} testid={o.key}>
                         {editable ? <Button size="xs" variant="outline" disabled={args.retained} onClick={() => commands.reserve(lane, where, o.key)}>Reserve</Button> : <span />}
@@ -816,6 +821,7 @@ function ReservationDetails({ id, bin, ...part }: Part & { id: string; bin: Bin 
     const { ask: asking } = fit;
     useEffect(() => { if (ask !== undefined) asking(ask, of); }, [ask, of, asking]);
     const answer = ask === undefined ? undefined : fit.answer(ask, of);
+    const failure = ask === undefined ? undefined : fitFailure(fit, ask, of);
     const books = bookOptions({ plan, held, context, day, shown: shown.arrivals, words });
     // A committed bin the drafts removed is checked as its own drag into the reservation is: its own question, asked once the pane has rendered.
     const target: Target = { kind: "lane", lane: bin.lane, at: bin.at, card: id };
@@ -824,12 +830,20 @@ function ReservationDetails({ id, bin, ...part }: Part & { id: string; bin: Bin 
         // The bookings and the drafts are the questions.
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [plan, id]);
-    const lineOf = (o: BookOption) => {
+    // What the list says of an option; nothing for an arrival the landed answer names no verdict for, which it leaves out as
+    // the Table's Chooser does (rule 6).
+    const lineOf = (o: BookOption): { line: string; warn: boolean; enabled: boolean } | undefined => {
         if (resource === undefined) return { line: o.line, warn: o.warn, enabled: true };
-        if (o.grip.kind === "arrival") return verdictLine(answer?.arrivals.get(o.grip.arrival));
+        if (o.grip.kind === "arrival") {
+            const reading = arrivalVerdict(answer, failure, o.grip.arrival);
+            return reading === undefined ? undefined : readingLine(reading);
+        }
         const v = drag.peek(o.grip, target);
-        return v.pending ? verdictLine(undefined) : v.allowed ? { line: v.reason ?? o.line, warn: false, enabled: true } : { line: `doesn’t fit · ${v.reason ?? v.caption}`, warn: true, enabled: false };
+        if (v.pending) return verdictLine(undefined);
+        if (v.unavailable !== undefined) return { line: unavailableLine(v.unavailable), warn: true, enabled: false };
+        return v.allowed ? { line: v.reason ?? o.line, warn: false, enabled: true } : { line: `doesn’t fit · ${v.reason ?? v.caption}`, warn: true, enabled: false };
     };
+    const listed = books.flatMap((o) => { const said = lineOf(o); return said === undefined ? [] : [{ o, said }]; });
     const run = (o: BookOption) => o.grip.kind === "arrival" ? commands.fillWith(id, o.grip.arrival) : commands.restoreInto(o.grip.bin, id);
     const draft = committed !== undefined && !domain.sameBin(committed, bin);
     // Its key, printed, as a bin's is among its facts: what Search Records finds it by (#1398) — a new one's a draft, as its every field is.
@@ -870,10 +884,10 @@ function ReservationDetails({ id, bin, ...part }: Part & { id: string; bin: Bin 
         </Box>
         <Box css={styles.section} data-allocation-book="">
             <Box css={styles.sectionHead}>Book {a(nouns.arrival)}</Box>
-            {books.length === 0 ? <Box css={styles.absent}>no {other(nouns.arrival)} to book</Box>
-                : books.map(o => { const said = lineOf(o); return <ListOption key={o.key} styles={styles} name={o.code} quantity={o.quantity} line={said.line} warn={said.warn} testid={o.key}>
+            {listed.length === 0 ? <Box css={styles.absent}>no {other(nouns.arrival)} to book</Box>
+                : listed.map(({ o, said }) => <ListOption key={o.key} styles={styles} name={o.code} quantity={o.quantity} line={said.line} warn={said.warn} testid={o.key}>
                     {editable ? <Button size="xs" variant="outline" disabled={!said.enabled || args.retained} onClick={() => run(o)}>Book</Button> : <span />}
-                </ListOption>; })}
+                </ListOption>)}
             {name !== undefined && <Box css={styles.line}>Each {one(nouns.arrival)} is checked against {name}. Book is off when it doesn’t fit.</Box>}
         </Box>
         {draft && <Box css={styles.was} data-allocation-was="">

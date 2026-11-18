@@ -20,7 +20,9 @@
  *   Save, over the banner's Choose: its positioner took the pointer, so Choose
  *   needed a second press once the tooltip had gone.
  *
- * Every read is polled until it holds, on a page at rest.
+ * Every read is polled until it holds, on a page at rest. And the conflicts'
+ * count and their choices, which a conflict opens, stand their words on whole
+ * pixels (#1638, `box-words.ts`).
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test sheet-conflicts --project desktop`.
@@ -28,6 +30,7 @@
 
 import { expect, type Locator, type Page } from "playwright/test";
 import { editingMessages } from "@elaraai/east-ui-components/testing";
+import { expectWholeBoxWords } from "./box-words";
 import { test } from "./kept-page";
 import { settled } from "./settle";
 
@@ -124,9 +127,14 @@ test("a job removed here that someone else changed, taken back as theirs, comes 
 
     await entry.getByRole("button", { name: "Someone else saves" }).click();
     await expect(conflicts(entry)).toBeVisible();
+    await settled(page);
+    await expectWholeBoxWords(conflicts(entry), "the conflicts' count");
     await conflicts(entry).click();
     const body = page.locator("[data-conflicts-body]");
     await expect(body.locator("[data-conflict-card]")).toHaveCount(1);
+    await settled(page);
+    // A choice grows with its value's lines, two before Show all: read up to 64px.
+    await expectWholeBoxWords(body, "the conflicts' choices", 64);
     await body.locator("[data-conflict-card] [data-choice='source']").click();
     await page.keyboard.press("Escape");
     await settled(page);

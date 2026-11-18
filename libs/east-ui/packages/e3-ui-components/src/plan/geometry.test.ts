@@ -18,7 +18,7 @@
 import { describe, test, expect } from "vitest";
 import { none, variant } from "@elaraai/east";
 import { planSlotRecipe } from "@elaraai/east-ui-components/internal";
-import { PLAN_GEOMETRY, planGeometry, planGeometryStyle, planGeometryVar, type PlanGeometry } from "./geometry.js";
+import { PLAN_GEOMETRY, PLAN_GUTTER_VAR, planGeometry, planGeometryStyle, planGeometryVar, type PlanGeometry } from "./geometry.js";
 import { rowHeight, type PlanRowValue } from "./model.js";
 
 /** Every `var(--plan-…)` a style object reads, however deep. */
@@ -50,18 +50,24 @@ describe("the Plan geometry table (#817)", () => {
     });
 
     test("every geometry variable the recipe reads is one the canvas writes", () => {
-        const written = new Set(Object.keys(planGeometryStyle(PLAN_GEOMETRY.default)));
+        // The table's, and the gutter's width beside it (#1680's review), which its rule and the rows' template read.
+        const written = new Set([...Object.keys(planGeometryStyle(PLAN_GEOMETRY.default)), PLAN_GUTTER_VAR]);
         const read = varsIn(planSlotRecipe.base);
         expect(read.size).toBeGreaterThan(15);
         expect([...read].filter((name) => !written.has(name))).toEqual([]);
+        // The gutter's handle lies inside the gutter, its right edge the gutter's, under either pointer: never over the
+        // plot, whose cells keep their taps to their first pixel (#1680's review).
+        const handle = slot("gutterHandle");
+        const coarse = handle._coarse as Record<string, unknown>;
+        expect(handle.left).toBe(`calc(var(${PLAN_GUTTER_VAR}) - ${String(handle.width)})`);
+        expect(coarse.left).toBe(`calc(var(${PLAN_GUTTER_VAR}) - ${String(coarse.width)})`);
     });
 
     test("each height the model also computes is drawn from its variable, never a pixel literal", () => {
         // The rule under a row sits inside its height — its plot cell, where
         // the link ribbons centre on its bars, is the row less it (#818).
         expect(slot("row").borderBottomWidth).toBe(v("rule"));
-        expect(slot("rail").height).toBe(v("rail"));
-        expect(slot("focusGap").height).toBe(v("gap"));
+        // A group band — and a links focus's band, which wears its look (#1680's review).
         expect(slot("groupBand").minHeight).toBe(v("group"));
         expect(slot("toneCell").height).toBe(v("stripMark"));
         // A span bar — a parent's folded or open, what it rolls up its bands — and one in a strip (#1258).
@@ -104,6 +110,21 @@ describe("the Plan geometry table (#817)", () => {
         expect([slot("exceptionTri").borderLeftWidth, slot("exceptionTri").borderRightWidth, slot("exceptionTri").borderBottomWidth])
             .toEqual([half, half, v("markTriangle")]);
         expect([slot("markIcon").width, slot("markIcon").height]).toEqual([v("markIconWidth"), v("markIconWidth")]);
+    });
+
+    test("a bar's label is laid out from the table as the recipe draws it: its padding, a locked bar's, the gap after its lock, the lock, and two glyphs before it shows (#1680's review)", () => {
+        const g = PLAN_GEOMETRY.default;
+        const bar = slot("bar");
+        // The padding gives up a state's border (`--state-edge`), so the border and the padding are the table's width in
+        // every state, and a label the layout fits at rest fits a proposal's dashed bar too.
+        const lessEdge = (px: number) => `calc(${px}px - var(--state-edge, 0px))`;
+        expect(bar.padding).toBe(`0 ${lessEdge(g.barPadWidth)}`);
+        expect(bar.columnGap).toBe(`${g.barGapWidth}px`);
+        expect((bar["&[data-locked]"] as Record<string, unknown>).paddingInline).toBe(lessEdge(g.barPadLockedWidth));
+        expect(slot("lock").fontSize).toBe(`${g.lockWidth}px`);
+        expect(Object.keys(slot("barLabel")["[data-locked] > &"] as Record<string, unknown>))
+            .toEqual([`@container (width < calc(${g.lockWidth}px + ${g.barGapWidth}px + 2ch))`]);
+        expect(Object.keys(slot("barLabel")).filter((k) => k.startsWith("@container"))).toEqual(["@container (width < 2ch)"]);
     });
 
     test("density is geometry — the recipe carries no density variant", () => {

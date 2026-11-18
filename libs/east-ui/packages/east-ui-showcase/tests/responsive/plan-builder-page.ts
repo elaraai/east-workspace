@@ -5,18 +5,42 @@
 
 /**
  * The print works' Plan in the showcase (`planPrintWorks`, `Plan Builder
- * Spec.md` §3.3), for the specs that use it as a builder: opening it with its
- * library over main or pinned beside it, finding its panes and its cards, and
+ * Spec.md` §3.3): its presses' rows and their bars by the ids the canvas draws,
+ * for every spec that reads them (#1541); and for the specs that use it as a
+ * builder, opening it with its library over main or pinned beside it, finding its panes and its cards, and
  * a pointer picking up a card or an element and carrying it to the day it
  * lands on. Every box is the page's own, in client px.
  */
 
 import { expect, type Locator, type Page } from "playwright/test";
-import { PLAN_EVENT_EXAMPLES, openExample, planBox, rowSel, sizeBox } from "./plan-page";
+import { PLAN_EVENT_EXAMPLES, openExample, planBox, rowId, rowSel, sizeBox } from "./plan-page";
 import { settled } from "./settle";
 
+/** The print works' presses, each under the hall group it is drawn in (#1541): its rows are a record of groups. */
+const PRINT_WORKS_HALLS = { a1: "1-presses-a", a2: "1-presses-a", a3: "1-presses-a", b1: "2-presses-b", b2: "2-presses-b", b3: "2-presses-b" } as const;
+
+/** One of the print works' presses, by its key. */
+export type PrintWorksPress = keyof typeof PRINT_WORKS_HALLS;
+
+/**
+ * A press's row id in the print works, under its hall's group (#1541): of the presses' own series, or of one drawn
+ * beside it — its marks' (`presses.marks`), its utilisation's (`util`).
+ *
+ * @param press - The press's key
+ * @param series - The series whose row it is
+ * @returns The row's id, as the canvas prints it
+ */
+export const printWorksPressId = (press: PrintWorksPress, series = "presses"): string => rowId(series, PRINT_WORKS_HALLS[press], press);
+
+/** A press's row's element in the print works ({@link printWorksPressId}). */
+export const printWorksPress = (press: PrintWorksPress, series = "presses"): string => rowSel(series, PRINT_WORKS_HALLS[press], press);
+
+/** A press's bars in the print works — those of one job, given its title. */
+export const printWorksBars = (root: Locator, press: PrintWorksPress, title?: string): Locator =>
+    root.locator(`${printWorksPress(press)} [data-run]`, title === undefined ? undefined : { hasText: title });
+
 /** Press A1's bars. */
-export const PRESS_A1 = rowSel("presses.span", "Hall A", "a1");
+export const PRESS_A1 = printWorksPress("a1");
 
 /** The print works' window: four weeks from Monday 5 October 2026, a day a bucket. */
 export const PRINT_WORKS_DAYS = 28;
@@ -57,11 +81,12 @@ export function regionAt(page: Page, at: { x: number; y: number }): Promise<stri
  * clear of the page's edge bands: in a box 760px wide its library overlays
  * main, 1440px wide it is pinned beside it — opened from its rail when it
  * rests there. A box 1440px wide is drawn in a window wide enough to hold it
- * left of the page's own "On this page" column.
+ * left of the page's own "On this page" column. Given `name`, another builder
+ * of the event kinds' examples with a library, opened the same way.
  */
-export async function openPrintWorks(page: Page, placement: "overlay" | "pinned", theme: "light" | "dark" = "light"): Promise<Locator> {
+export async function openPrintWorks(page: Page, placement: "overlay" | "pinned", theme: "light" | "dark" = "light", name = "planPrintWorks"): Promise<Locator> {
     if (placement === "pinned") await page.setViewportSize({ width: 1920, height: 1080 });
-    const entry = await openExample(page, "planPrintWorks", PLAN_EVENT_EXAMPLES, theme);
+    const entry = await openExample(page, name, PLAN_EVENT_EXAMPLES, theme);
     await sizeBox(page, planBox(entry), placement === "overlay" ? 760 : 1440);
     await entry.locator("[data-plan-frame]").evaluate((frame) => {
         frame.scrollIntoView({ block: "start" });

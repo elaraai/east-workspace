@@ -12,7 +12,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { IntegerType, equalFor, printFor, toEastTypeValue, variant } from '@elaraai/east';
-import { TreePathType, parseKeypath, parsePath, pathToString, type Structure, type TreePath } from './structure.js';
+import { TreePathType, parseKeypath, parsePath, pathToString, treePathToRefPath, type Structure, type TreePath } from './structure.js';
 
 const equalPath = equalFor(TreePathType);
 const printPath = printFor(TreePathType);
@@ -41,6 +41,14 @@ describe('parseKeypath', () => {
     assert.throws(() => parseKeypath('inputs.x'), { message: "parseKeypath: unexpected character at position 0: 'i'" });
     assert.throws(() => parseKeypath('.inputs.'), { message: "parseKeypath: expected identifier after '.' at position 8" });
     assert.throws(() => parseKeypath('.inputs!'), { message: "parseKeypath: unexpected character at position 7: '!'" });
+  });
+});
+
+describe('treePathToRefPath', () => {
+  it('joins a path\'s fields by a slash, unquoted, as a store keys a dataset\'s ref', () => {
+    assert.equal(treePathToRefPath([variant('field', 'inputs'), variant('field', 'sales')]), 'inputs/sales');
+    assert.equal(treePathToRefPath([variant('field', 'records'), variant('field', 'my field')]), 'records/my field');
+    assert.equal(treePathToRefPath([]), '', 'the root\'s');
   });
 });
 

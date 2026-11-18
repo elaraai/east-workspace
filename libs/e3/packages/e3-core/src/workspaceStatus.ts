@@ -19,6 +19,7 @@ import {
   LockStateType,
   WorkspaceRecordType,
   pathToString,
+  treePathToRefPath,
   type DatasetRef,
   type ExecutionStatus,
   type StopReason,
@@ -28,6 +29,7 @@ import {
 } from '@elaraai/e3-types';
 import { inputsHash } from './executions.js';
 import { OBJECT_CONCURRENCY, eachAtMost } from './concurrency.js';
+import { taskInputRead } from './dataset-open.js';
 import {
   WorkspaceNotFoundError,
   WorkspaceNotDeployedError,
@@ -339,15 +341,22 @@ export async function workspaceStatus(
     const status = await checkInProgress(storage, runner, computedTasks[i]!.hash, running[i]!);
     if (status !== null) inProgress.set(computedTasks[i]!.name, status);
   });
+  // Each one's current inputs, a few tasks at a time: an index input reads its
+  // record's state, once per state and from memory after
+  const found = new Array<string | TaskStatus>(computedTasks.length);
+  await eachAtMost(computedTasks.map((_, i) => i), OBJECT_CONCURRENCY, async (i) => {
+    const node = computedTasks[i]!;
+    found[i] = inProgress.get(node.name) ?? await inputsOf(storage, repo, refs, node, outputToTask);
+  });
   const pending: Array<{ node: TaskNode; inHash: string }> = [];
-  for (const node of computedTasks) {
-    const found = inProgress.get(node.name) ?? inputsOf(refs, node, outputToTask);
-    if (typeof found === 'string') pending.push({ node, inHash: found });
+  computedTasks.forEach((node, i) => {
+    const current = found[i]!;
+    if (typeof current === 'string') pending.push({ node, inHash: current });
     else {
-      taskStatus.set(node.name, found);
+      taskStatus.set(node.name, current);
       taskIsStale.set(node.name, true);
     }
-  }
+  });
   const latest = await storage.refs.executionGetLatestMany(repo, pending.map(({ node, inHash }) => ({ taskHash: node.hash, inputsHash: inHash })));
   pending.forEach(({ node }, i) => {
     const { status, peakBytes, stopped } = statusOfLatest(refs, node, latest[i]!);
@@ -477,12 +486,7 @@ function collectDatasetPaths(
  * @returns Each ref there is, by its dataset path
  */
 function readRefs(storage: StorageBackend, repo: string, ws: string, paths: readonly TreePath[]): Promise<Map<string, DatasetRef>> {
-  return storage.datasets.readMany(repo, ws, [...new Set(paths.map(refPathOf))]);
-}
-
-/** A dataset's ref path, as its store keys it: `inputs/sales` for `.inputs.sales`. */
-function refPathOf(path: TreePath): string {
-  return path.map((segment) => segment.value).join('/');
+  return storage.datasets.readMany(repo, ws, [...new Set(paths.map(treePathToRefPath))]);
 }
 
 /**
@@ -490,7 +494,7 @@ function refPathOf(path: TreePath): string {
  * assigned, and its value's hash. A dataset with no ref is unassigned.
  */
 function refOf(refs: ReadonlyMap<string, DatasetRef>, path: TreePath): { refType: DatasetRef['type']; hash: string | null } {
-  const ref = refs.get(refPathOf(path));
+  const ref = refs.get(treePathToRefPath(path));
   if (ref === undefined || ref.type === 'unassigned') return { refType: 'unassigned', hash: null };
   if (ref.type === 'null') return { refType: 'null', hash: null };
   return { refType: 'value', hash: ref.value.hash };
@@ -500,13 +504,25 @@ function refOf(refs: ReadonlyMap<string, DatasetRef>, path: TreePath): { refType
  * A task's current inputs, from the refs read: the hash of them, when every
  * input is set; or else the status the task reads, waiting for the tasks
  * producing the unset ones, or for an external input to be set.
+ *
+ * An input that is an index of a record is the index's manifest, found in the
+ * state the record's ref holds, as the dataflow keys the task's executions
+ * (`taskInputRead`, which the run decides by too): a state is read once and
+ * then from memory, so a status polled over an unchanged record reads nothing
+ * more for it.
  */
-function inputsOf(refs: ReadonlyMap<string, DatasetRef>, node: TaskNode, outputToTask: Map<string, string>): string | TaskStatus {
+async function inputsOf(
+  storage: StorageBackend,
+  repo: string,
+  refs: ReadonlyMap<string, DatasetRef>,
+  node: TaskNode,
+  outputToTask: Map<string, string>,
+): Promise<string | TaskStatus> {
   const currentInputHashes: string[] = [];
   let hasUnsetInputs = false;
   const waitingOnTasks: string[] = [];
 
-  for (const inputPath of node.inputPaths) {
+  for (const [at, inputPath] of node.inputPaths.entries()) {
     const inputPathStr = pathToString(inputPath);
     const { refType, hash } = refOf(refs, inputPath);
 
@@ -522,7 +538,11 @@ function inputsOf(refs: ReadonlyMap<string, DatasetRef>, node: TaskNode, outputT
         return { type: 'waiting', reason: `Input '${inputPathStr}' is not set` };
       }
     } else {
-      currentInputHashes.push(hash);
+      const index = node.task.inputs[at]!.index;
+      // A state that holds no such index: the task waits until a deploy has built it
+      const read = await taskInputRead(storage, repo, inputPathStr, hash, index.type === 'some' ? index.value : null);
+      if ('waiting' in read) return { type: 'waiting', reason: read.waiting };
+      currentInputHashes.push(read.object);
     }
   }
 

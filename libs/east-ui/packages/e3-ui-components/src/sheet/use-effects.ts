@@ -17,7 +17,7 @@ import { focusKeySearch, getSomeorUndefined } from "@elaraai/east-ui-components"
 import { NULL_CELL, cellIsBlank, latencyOf, markOf, takesClear, type SheetBodyItem, type SheetColumnMeta } from "./model.js";
 import type { SheetCellRefusalWord } from "./messages.js";
 import { SHEET_PAGE_SIZE } from "./paging.js";
-import { writeNarrowing, writeSheetViews } from "./view-state.js";
+import { heldNarrowing, writeNarrowing, writeSheetViews } from "./view-state.js";
 import { parseCell } from "./parse/index.js";
 import { exportMatrix, layoutPaste, parseMatrix } from "./clipboard.js";
 import { isBlankRowId, type SheetEffect } from "./sheet-state.js";
@@ -417,9 +417,13 @@ export function useSheetEffects(sheetDecode: SheetDecode, sheetSession: SheetSes
                 }
                 case "slice.write": {
                     // The sheet's own write places the ring itself: the change detector must not move it.
-                    // Every source takes its narrowing, as a view saved it (#1345).
-                    expectedNarrowing.current = eff.state;
-                    if (chrome !== undefined) writeNarrowing(chrome, eff.state);
+                    // Every source takes its narrowing, as a view saved it (#1345) — as the rail holds it, a clause on a
+                    // field the page scopes the page's (#1621), so what the detector reads back is what was written.
+                    expectedNarrowing.current = chrome === undefined ? eff.state : heldNarrowing(chrome, eff.state);
+                    // Choices no index answers with the page's scope are refused, said in the footer as a failed gesture is.
+                    if (chrome !== undefined) {
+                        try { writeNarrowing(chrome, eff.state); } catch (error) { failed(error); }
+                    }
                     break;
                 }
                 case "focus.search": {

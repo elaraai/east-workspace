@@ -35,11 +35,13 @@
  *
  * In a toolbar's row a chip stands as tall as every control there, 28px
  * (`toolbar-row.ts`, ruled 23 Oct 2026): the rail's, the chip a row folds into,
- * a count; elsewhere it keeps its own height.
+ * a count; elsewhere it keeps its own height. There its words are set on the
+ * 26px of room inside its edge, so they start a whole number of pixels under
+ * it (#1636).
  */
 
 import { defineRecipe } from "@chakra-ui/react";
-import { IN_TOOLBAR_ROW, TOOLBAR_CONTROL_HEIGHT } from "../toolbar-row.js";
+import { IN_PHONE_FRAME, IN_TOOLBAR_ROW, PHONE_ICON_ALONE, toolbarControlBox } from "../toolbar-row.js";
 
 export const chipRecipe = defineRecipe({
     className: "elara-chip",
@@ -61,13 +63,17 @@ export const chipRecipe = defineRecipe({
          * (base-components › Toolbar & slice). */
         color: "fg.strong",
         whiteSpace: "nowrap",
-        lineHeight: "1",
+        /* The rail's line at its density (`--cr-lh`, #1638), a whole number of pixels; alone, the face's own. */
+        lineHeight: "var(--cr-lh, 1)",
         fontVariantNumeric: "tabular-nums",
         "& [data-chip-icon]": { fontSize: "10px" },
+        // A chip that shows its icon alone (`data-icon-alone`, a folded View): in a phone's first row, the 16 its icon-only
+        // neighbours draw theirs at (#1680's review); in a desktop's row, the rail chip's 10.
+        "&[data-icon-alone]": { [IN_PHONE_FRAME]: { "& [data-chip-icon]": PHONE_ICON_ALONE } },
         "& [data-chip-caret]": { fontSize: "8px", "--fa-width": "auto" },
         "& [data-chip-meta]": { color: "fg.muted" },
         "& [data-chip-remove]": { color: "link", cursor: "pointer", flexShrink: "0", fontSize: "0.8em", "--fa-width": "auto" },
-        [IN_TOOLBAR_ROW]: { height: TOOLBAR_CONTROL_HEIGHT },
+        [IN_TOOLBAR_ROW]: { ...toolbarControlBox() },
     },
     variants: {
         tone: {

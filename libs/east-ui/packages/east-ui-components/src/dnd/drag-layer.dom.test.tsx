@@ -853,6 +853,47 @@ describe("keyboard drags (#608)", () => {
         if (e.type === "add") { expect(e.value.into.row).toBe("two"); expect(e.value.into.slot).toBe("2"); }
     });
 
+    test("a continuous cell is told whether the keyboard carries the drag: its coordinate and its hover hear a pointer's rest apart from a keyboard's stop", async () => {
+        const events: DragEventValue[] = [];
+        const resolved: boolean[] = [];
+        const hovered: boolean[] = [];
+        function Row() {
+            const ref = useDropCell({ surface: "roster", row: "one", slot: "0" }, false, undefined,
+                (x, _y, _payload, keyboard) => { resolved.push(keyboard); return { surface: "roster", row: "one", slot: String(Math.floor((x - 200) / 50)) }; },
+                { stops: () => [225, 275], onHover: (_x, _y, _payload, keyboard) => { hovered.push(keyboard); } });
+            return <div ref={ref} data-testid="row-one" />;
+        }
+        const { getByTestId } = render(<DragLayerProvider>
+            <Target config={{ id: "roster", sources: ["people"], kinds: KINDS_ALL, onDrag: e => events.push(e) }} />
+            <Card library="people" itemKey="patel" /><Row />
+        </DragLayerProvider>);
+        const card = getByTestId("card-patel");
+        const row = getByTestId("row-one");
+        layOut(new Map([[card, { left: 0, top: 0, width: 80, height: 30 }], [row, { left: 200, top: 0, width: 100, height: 40 }]]));
+        // By pointer: every look at where the drag rests, and its drop, is a pointer's.
+        engage(card, null);
+        pointAt(row);
+        fireEvent.pointerMove(document, { pointerId: 1, clientX: 260, clientY: 10 });
+        fireEvent.pointerUp(document, { pointerId: 1, clientX: 260, clientY: 10 });
+        expect(sole(events).type).toBe("add");
+        expect(resolved.length).toBeGreaterThan(0);
+        expect(resolved.every((keyboard) => !keyboard)).toBe(true);
+        expect(hovered.length).toBeGreaterThan(0);
+        expect(hovered.every((keyboard) => !keyboard)).toBe(true);
+        // By keyboard: the same cell hears a keyboard's.
+        resolved.length = 0;
+        hovered.length = 0;
+        events.length = 0;
+        card.focus(); press("Space"); await tick(); press("ArrowRight");
+        expect(row.hasAttribute("data-drop-active")).toBe(true);
+        press("Space");
+        expect(sole(events).type).toBe("add");
+        expect(resolved.length).toBeGreaterThan(0);
+        expect(resolved.every((keyboard) => keyboard)).toBe(true);
+        expect(hovered.length).toBeGreaterThan(0);
+        expect(hovered.every((keyboard) => keyboard)).toBe(true);
+    });
+
     test("a tall event keeps its keyboard landing point when its ghost is compact", async () => {
         const events: DragEventValue[] = [];
         function Continuous() {
@@ -1148,6 +1189,28 @@ describe("the ghost's caption (#1187)", () => {
         expect(caption()).toBeNull();
     });
 
+    test("a cell that refuses the drag says why to a screen reader in its caption's words — resting over it, and dropped on it — and a drop its target takes in words of its own is said in them (#1680's review)", () => {
+        const refuseFri: DropVeto = (e) => !(e.type === "add" && e.value.into.slot === "fri");
+        const { getByTestId } = render(
+            <DragLayerProvider>
+                <Target config={{ id: "roster", sources: ["people"], kinds: KINDS_ALL, onDrag: () => ({ said: "patel linked to thu." }) }} />
+                <Card library="people" itemKey="patel" />
+                <CaptionCell row="patel" slot="thu" />
+                <CaptionCell row="patel" slot="fri" canDrop={refuseFri} />
+            </DragLayerProvider>,
+        );
+        engage(getByTestId("card-patel"), null);
+        restOver(getByTestId("cell-patel-fri"), 30);
+        expect(announced()).toBe("patel · fri does not take patel: fri is full.");
+        fireEvent.pointerUp(document, { pointerId: 1, clientX: 30, clientY: 10 });
+        expect(announced()).toBe("patel was not dropped: fri is full.");
+        // Taken, in the target's own words: what its drop did, never that it was dropped.
+        engage(getByTestId("card-patel"), null);
+        restOver(getByTestId("cell-patel-thu"), 20);
+        fireEvent.pointerUp(document, { pointerId: 1, clientX: 20, clientY: 10 });
+        expect(announced()).toBe("patel linked to thu.");
+    });
+
     test("a caption speaks of the coordinate the drag rests on — a continuous cell's, at the pointer — and goes when the drag is cancelled", () => {
         // One cell whose slot is the pointer's half: left or right.
         function HalfCell() {
@@ -1323,7 +1386,8 @@ describe("returns to a library (#1196)", () => {
         expect(backlog.hasAttribute("data-drop-invalid")).toBe(true);
         expect(backlog.hasAttribute("data-drop-active")).toBe(false);
         expect(caption()).toEqual({ text: "s2 → backlog: no backlog", refused: true });
-        expect(announced()).toBe("Return to backlog does not take s2.");
+        // Said with its reason, the caption's words (#1680's review).
+        expect(announced()).toBe("Return to backlog does not take s2: s2 → backlog: no backlog.");
         // Nothing of the surface's is thrown away: no trash zone.
         expect(document.querySelector("[data-drag-trash]")).toBeNull();
         // The library it takes cards from is no place its elements return to.
@@ -1336,7 +1400,7 @@ describe("returns to a library (#1196)", () => {
         pointAt(backlog);
         fireEvent.pointerUp(document, { pointerId: 1, clientX: 30, clientY: 30 });
         expect(events).toHaveLength(0);
-        expect(announced()).toBe("s2 was not dropped.");
+        expect(announced()).toBe("s2 was not dropped: s2 → backlog: no backlog.");
         // `s1` over the backlog: taken, said, and delivered as a return to its source, the library named.
         engage(getByTestId("chip-s1"), backlog);
         expect(backlog.hasAttribute("data-drop-active")).toBe(true);

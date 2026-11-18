@@ -19,6 +19,7 @@ import { Plan } from "@elaraai/e3-ui/internal";
 import { timeInstant, type PlanInstantValue } from "./instant.js";
 import { rowIdOfKey, rowKeyOf, type PlanRowId } from "./row-key.js";
 import { rowItemKey } from "./body-items.js";
+import { entry } from "./row-id.test-utils.js";
 import type { RowKey } from "./plan-state.js";
 import type { PlanWireBlock, PlanWireRow } from "./model.js";
 import type { PlanPagedSourceValue } from "./use-plan-paging.js";
@@ -63,7 +64,7 @@ export const rowIdEqual: (a: PlanRowId, b: PlanRowId) => boolean = equalFor(Plan
  * @returns `entry { series, path: [key] }`
  */
 export function rowId(key: string, series: string = TEST_SERIES): PlanRowId {
-    return variant("entry", { series, path: [key] }) as PlanRowId;
+    return entry(series, key);
 }
 
 /**

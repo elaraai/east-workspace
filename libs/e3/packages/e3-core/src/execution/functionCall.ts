@@ -9,17 +9,22 @@
  * for a lifetime once it ends (east-workspace#1554).
  *
  * A call is a record in the repository's call store (`StorageBackend.calls`):
- * - **Start** ({@link functionCallStart}): the function is resolved in the
- *   deployed package, the call is checked (its arity, a runner it names held to
- *   its caller's grant), its function's inputs and its dataset arguments are
+ * - **Start** ({@link functionCallStart}): under the workspace's shared lock,
+ *   the function is resolved in the package deployed to the workspace, by the
+ *   hash the workspace names it by ({@link workspaceFunctionResolve}), the call
+ *   is checked (its arity, a runner it names held to its caller's grant, each
+ *   draft it passes), its function's inputs and its dataset arguments are
  *   pinned at the hash each holds now, each value argument is stored through
  *   the store's door, and the call is filed `running`, with its limits, its
  *   deadline and its lifetimes. A call found wrong is filed ended `invalid`,
  *   and nothing runs. A one-shot's start ({@link oneShotCallStart}) holds the
  *   request to its caller's grant as a one-shot run within a request is held,
- *   and files its program as an anonymous function of its own, which runs as
- *   a named function's does from here on.
- * - **Run** ({@link functionCallRun}): the call runs on a runner with
+ *   and files its program as an anonymous function of its own, which runs as a
+ *   named function's does from here on.
+ * - **Run** ({@link functionCallRun}): the call's drafts, when it passed any,
+ *   are laid over the records they name, and its inputs of those records
+ *   pinned again at the states they leave (`functionDrafts.ts`'s
+ *   `layAndStage`, east-workspace#1619). Then the call runs on a runner with
  *   `runDetached`, its inputs and arguments staged as the stored objects they
  *   are, while it watches its record for a request to cancel it. Once it ends,
  *   a value is stored through the store's door and the call is recorded ended,
@@ -28,10 +33,11 @@
  *   `running`, the call's `ExecuteResult` once it ends, with its value read back
  *   inline, `cancelled` or `lost`.
  *
- * What a call writes before it names it — its arguments, its value — is written
- * holding the repository's running work, so gc holding the repository still
- * never sweeps it in between; once filed, the call roots everything it names
- * for its lifetime (`RepoStore.gcScanCallRoots`).
+ * What a call writes before it names it — its arguments, its drafts' arguments,
+ * the states its drafts leave, its value — is written holding the repository's
+ * running work, so gc holding the repository still never sweeps it in between;
+ * once filed, the call roots everything it names for its lifetime
+ * (`RepoStore.gcScanCallRoots`).
  *
  * Every step goes through `StorageBackend` and `TaskRunner`, so every backend
  * shares it: the local server's dispatch runs a call in its process, e3-web's
@@ -56,17 +62,23 @@ import {
   type FunctionCallSummary,
   type FunctionObject,
   type OneShotRequest,
+  type PackageObject,
   type RunnerValue,
 } from '@elaraai/e3-types';
 import { readDatasetWhole } from '../dataset-open.js';
 import { PermissionDeniedError, TaskNotFoundError, checkId } from '../errors.js';
-import { packageRead } from '../packages.js';
+import { packageObjectRead } from '../packages.js';
+import { withSharedWorkspaceLock } from '../records.js';
 import { withRunningWork } from '../running-work.js';
 import { storeDatasetBytes } from '../store-collection.js';
 import type { FunctionCallEnd, StorageBackend } from '../storage/interfaces.js';
 import { uuidv7, uuidv7Timestamp } from '../uuid.js';
 import { workspaceGetPackage } from '../workspaces.js';
-import type { DetachedArg, DetachedResult, TaskRunner } from './interfaces.js';
+import {
+  NO_CALL_DRAFTS, callDraftsRead, callRead, checkCallDrafts, draftedInputs, keptCallArgs, keptCallDrafts, layAndStage, storeCallDrafts,
+  type CallDrafts, type CallStaged,
+} from './functionDrafts.js';
+import type { DetachedResult, TaskRunner } from './interfaces.js';
 import {
   oneShotPlatformUse, pinCallArguments, programSignature, resolveExecuteLimits, resolveJobLimits, type ExecuteCeilings, type OneShotGrant,
   type ResolvedLimits,
@@ -81,7 +93,7 @@ export interface FunctionCallLifetimes {
   /** A call that succeeded, or was cancelled */
   readonly succeededMs: number;
   /** A call that failed, was refused, returned too large a value, timed out,
-   *  or was lost */
+   *  met a conflict laying a draft, or was lost */
   readonly failedMs: number;
 }
 
@@ -177,21 +189,82 @@ export function functionRunnerRefusal(stored: RunnerValue, named: RunnerValue, g
   return null;
 }
 
+/** A workspace's function, as the package deployed to it names it ({@link workspaceFunctionResolve}). */
+export interface WorkspaceFunction {
+  /** The deployed package: its name, its version, and the hash the workspace names it by. */
+  readonly ref: { readonly name: string; readonly version: string; readonly hash: string };
+  /** The deployed package's object. */
+  readonly pkg: PackageObject;
+  /** The function object's hash. */
+  readonly hash: string;
+  /** The function object. */
+  readonly fn: FunctionObject;
+}
+
+/**
+ * A function of the package deployed to a workspace, by its name.
+ *
+ * @remarks
+ * The package is the one the workspace names by its hash, as a Save resolves
+ * a record's mutations (`resolveRecord`): never the package a name and a
+ * version name now, which a re-import under the same version replaces before
+ * any deploy of it. So a call, its drafts' mutations and the records they
+ * name are the deployed package's, as a Save of the same edit's are.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param workspace - The workspace
+ * @param fnName - The function's name in the deployed package
+ * @returns The function, and the package it was resolved in
+ * @throws {WorkspaceNotFoundError} When there is no such workspace
+ * @throws {WorkspaceNotDeployedError} When nothing is deployed to it
+ * @throws {TaskNotFoundError} When the deployed package has no such function
+ *
+ * @example
+ * ```ts
+ * const { ref, fn } = await workspaceFunctionResolve(storage, repo, 'production', 'jobs_on');
+ * console.log(`${ref.name}@${ref.version}`, fn.argTypes.length);
+ * ```
+ */
+export async function workspaceFunctionResolve(
+  storage: StorageBackend,
+  repo: string,
+  workspace: string,
+  fnName: string,
+): Promise<WorkspaceFunction> {
+  const ref = await workspaceGetPackage(storage, repo, workspace);
+  const pkg = await packageObjectRead(storage, repo, ref.hash);
+  const hash = pkg.functions.get(fnName);
+  if (hash === undefined) throw new TaskNotFoundError(`function '${fnName}' in ${ref.name}@${ref.version}`);
+  return { ref, pkg, hash, fn: decodeFunctionObject(await storage.objects.read(repo, hash)) };
+}
+
 /**
  * Files a call of a named function through a workspace, as it starts.
  *
  * @remarks
+ * Under the workspace's shared lock (`withSharedWorkspaceLock`), as a Save
+ * runs, so the package, the records the drafts are laid over and every input
+ * pinned are one workspace's, which a deploy cannot change between the reads.
  * In order:
- * 1. **Resolve.** The function in the package deployed to the workspace; the
+ * 1. **Resolve.** The function in the package deployed to the workspace, by
+ *    the hash the workspace names it by ({@link workspaceFunctionResolve}); the
  *    call runs the function object it names now, whatever is deployed later.
  * 2. **Check.** Its arity, the arguments alone, never the inputs the server
- *    reads; and a runner it names, held to the caller's grant
- *    ({@link functionRunnerRefusal}).
+ *    reads; a runner it names, held to the caller's grant
+ *    ({@link functionRunnerRefusal}); and each draft it passes
+ *    (`checkCallDrafts`): of a record the function lists as one a call may
+ *    draft, by a mutation the record declares, with the arguments that
+ *    mutation takes. A draft is only checked and named here, and its arguments
+ *    stored: the call's run lays it, so the request that starts the call waits
+ *    for no mutation's program.
  * 3. **Pin and store.** The function's inputs and its dataset arguments, each
  *    at the hash it holds now (`pinCallArguments`); an input or a dataset with
- *    no value refuses the call, naming it. Each value argument is stored
- *    through the store's door, so the call names it, and a runner elsewhere
- *    stages it as it stages a dataset.
+ *    no value refuses the call, naming it. An input of a drafted record is
+ *    pinned at the state its drafts are laid over, which was read once, with
+ *    the commit the record stood at. Each value argument is stored through the
+ *    store's door, so the call names it, and a runner elsewhere stages it as
+ *    it stages a dataset.
  * 4. **File.** The call, `running`, under the id its caller chose (a UUIDv7
  *    of about now) or one the server mints, its deadline its timeout from now.
  *    It is kept past its deadline for a grace and then a failure's lifetime,
@@ -200,14 +273,15 @@ export function functionRunnerRefusal(stored: RunnerValue, named: RunnerValue, g
  *    and is forgotten as a failure is.
  *
  * A call found wrong is filed ended `invalid`, kept as a failure is, and runs
- * nothing.
+ * nothing: it keeps no argument and no draft.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param workspace - The workspace the call is made through
  * @param fnName - The function's name in the deployed package
  * @param request - The arguments, a runner to run on instead of the
- *   function's own, and the limits
+ *   function's own, the limits, and the drafts to lay over the records the
+ *   function reads
  * @param options - Who calls, their grant, the host's ceilings and deadline,
  *   and the call's lifetimes
  * @returns The call as filed: `running`, or ended `invalid`
@@ -218,6 +292,8 @@ export function functionRunnerRefusal(stored: RunnerValue, named: RunnerValue, g
  *   grant does not allow (`path` `runner`)
  * @throws {InvalidNameError} When the id its caller chose is not a UUIDv7,
  *   before anything is read
+ * @throws {WorkspaceLockError} When a deploy or a removal holds the workspace,
+ *   as a Save is refused then
  * @throws {Error} When a garbage collection or an upgrade holds the
  *   repository, or the workspace keeps a call under the id its caller chose
  */
@@ -232,56 +308,63 @@ export async function functionCallStart(
   if (options.id !== undefined) checkId('call id', options.id);
   const now = options.now ?? Date.now;
   const lifetimes = options.lifetimes ?? DEFAULT_FUNCTION_CALL_LIFETIMES;
-  const deployed = await workspaceGetPackage(storage, repo, workspace);
-  const pkg = await packageRead(storage, repo, deployed.name, deployed.version);
-  const fnHash = pkg.functions.get(fnName);
-  if (fnHash === undefined) throw new TaskNotFoundError(`function '${fnName}' in ${deployed.name}@${deployed.version}`);
-  const fnObj = decodeFunctionObject(await storage.objects.read(repo, fnHash));
+  // The package, the records the drafts are laid over and every input are
+  // read as one workspace's, as a Save reads them; the lock holds the
+  // repository's running work too, for the objects stored before the call
+  // names them
+  return withSharedWorkspaceLock(storage, repo, workspace, undefined, async () => {
+    const { ref, pkg, hash: fnHash, fn: fnObj } = await workspaceFunctionResolve(storage, repo, workspace, fnName);
+    const limits: ResolvedLimits = options.sync !== undefined
+      ? resolveExecuteLimits(request.limits, {
+          ...(options.sync.deadlineMs !== undefined && { syncDeadlineMs: options.sync.deadlineMs }),
+          ...(options.ceilings !== undefined && { ceilings: options.ceilings }),
+        })
+      : resolveJobLimits(request.limits, options.ceilings);
+    const startedAt = now();
+    const filing: Filing = {
+      id: filedId(options.id, startedAt),
+      fn: some(fnName),
+      pkg: some({ name: ref.name, version: ref.version }),
+      caller: options.caller,
+      workspace,
+      startedAt,
+      deadline: startedAt + limits.timeoutMs,
+      limits,
+      verbose: options.verbose ?? false,
+      keep: keepOf(lifetimes),
+    };
+    const refuse = async (diagnostics: Diagnostics): Promise<FunctionCallJob> => {
+      const job = filedCall(filing, variant('invalid', { diagnostics }), [], [], fnHash, fnObj.runner, startedAt + lifetimes.failedMs);
+      await storage.calls.create(repo, job);
+      return job;
+    };
 
-  const limits: ResolvedLimits = options.sync !== undefined
-    ? resolveExecuteLimits(request.limits, {
-        ...(options.sync.deadlineMs !== undefined && { syncDeadlineMs: options.sync.deadlineMs }),
-        ...(options.ceilings !== undefined && { ceilings: options.ceilings }),
-      })
-    : resolveJobLimits(request.limits, options.ceilings);
-  const startedAt = now();
-  const filing: Filing = {
-    id: filedId(options.id, startedAt),
-    fn: some(fnName),
-    pkg: some({ name: deployed.name, version: deployed.version }),
-    caller: options.caller,
-    workspace,
-    startedAt,
-    deadline: startedAt + limits.timeoutMs,
-    limits,
-    verbose: options.verbose ?? false,
-    keep: keepOf(lifetimes),
-  };
-  const refuse = async (diagnostics: Diagnostics): Promise<FunctionCallJob> => {
-    const job = filedCall(filing, variant('invalid', { diagnostics }), [], [], fnHash, fnObj.runner, startedAt + lifetimes.failedMs);
-    await storage.calls.create(repo, job);
-    return job;
-  };
+    if (request.args.length !== fnObj.argTypes.length) {
+      return refuse(diagnostic(`Expected ${fnObj.argTypes.length} argument(s), got ${request.args.length}`));
+    }
+    let runner: RunnerValue = fnObj.runner;
+    if (request.runner.type === 'some') {
+      const refusal = functionRunnerRefusal(fnObj.runner, request.runner.value, options.grant ?? 'platform_free');
+      if (refusal !== null) return refuse(diagnostic(refusal));
+      runner = request.runner.value;
+    }
 
-  if (request.args.length !== fnObj.argTypes.length) {
-    return refuse(diagnostic(`Expected ${fnObj.argTypes.length} argument(s), got ${request.args.length}`));
-  }
-  let runner: RunnerValue = fnObj.runner;
-  if (request.runner.type === 'some') {
-    const refusal = functionRunnerRefusal(fnObj.runner, request.runner.value, options.grant ?? 'platform_free');
-    if (refusal !== null) return refuse(diagnostic(refusal));
-    runner = request.runner.value;
-  }
-
-  return withRunningWork(storage, repo, async () => {
+    // Checked first, and laid by the call's run: the records its drafts name
+    // are resolved in the package its function was
+    const drafted = await checkCallDrafts(storage, repo, workspace, pkg, fnObj, request.drafts);
+    if ('invalid' in drafted) return refuse(diagnostic(drafted.invalid));
     const pinned = await pinCallArguments(storage, repo, workspace, request.args, { inputs: fnObj.inputs });
     if (!('args' in pinned)) {
       return refuse(pinned.outcome.type === 'invalid' ? pinned.outcome.value.diagnostics : diagnostic('the call\'s arguments did not pin'));
     }
-    const inputs = pinned.inputs.slice(0, fnObj.inputs.length);
+    // An input of a drafted record names the state its drafts are laid over,
+    // the one read with the commit the call's result names
+    const inputs = draftedInputs(pinned.inputs.slice(0, fnObj.inputs.length), drafted.map(({ path, base }) => ({ path, hash: base })));
     const args = await keptArguments(storage, repo, request.args, pinned.inputs, fnObj.inputs.length);
+    const drafts = await storeCallDrafts(storage, repo, request.drafts);
     // Kept past the grace, so a read finds a call its host stopped, and records it lost
-    const job = filedCall(filing, variant('running', null), args, inputs, fnHash, runner, filing.deadline + FUNCTION_CALL_GRACE_MS + lifetimes.failedMs);
+    const job = filedCall(filing, variant('running', null), args, inputs, fnHash, runner,
+      filing.deadline + FUNCTION_CALL_GRACE_MS + lifetimes.failedMs, { drafts, drafted });
     await storage.calls.create(repo, job);
     return job;
   });
@@ -410,6 +493,7 @@ export async function oneShotCallStart(
     const fnObj: FunctionObject = {
       bodyIr: program,
       inputs: [],
+      drafts: [],
       argTypes: signature.argTypes,
       outputType: signature.outputType,
       runner: request.runner,
@@ -467,7 +551,9 @@ function keepOf(lifetimes: FunctionCallLifetimes): FunctionCallKeep {
   return { succeeded: BigInt(lifetimes.succeededMs), failed: BigInt(lifetimes.failedMs) };
 }
 
-/** A call as its start files it: `running`, or ended as it started. */
+/** A call as its start files it: `running`, or ended as it started. It keeps
+ *  the drafts it passed with what laying them reads and the commit each
+ *  drafted record stood at, none unless given. */
 function filedCall(
   filing: Filing,
   state: FunctionCallState,
@@ -476,6 +562,7 @@ function filedCall(
   functionObject: string,
   runner: RunnerValue,
   expiresAt: number,
+  drafts: CallDrafts = NO_CALL_DRAFTS,
 ): FunctionCallJob {
   return {
     call: {
@@ -488,6 +575,9 @@ function filedCall(
       package: filing.pkg,
       args,
       inputs,
+      drafts: drafts.drafts,
+      // Its drafts end it only once its run lays them
+      draftEnd: none,
       limits: {
         timeoutMs: BigInt(filing.limits.timeoutMs),
         maxResultBytes: BigInt(filing.limits.maxResultBytes),
@@ -503,6 +593,7 @@ function filedCall(
     deadline: new Date(filing.deadline),
     cancel: none,
     keep: filing.keep,
+    drafted: drafts.drafted,
   };
 }
 
@@ -547,6 +638,18 @@ export interface FunctionCallRunOptions {
   readonly now?: () => number;
 }
 
+/**
+ * What a call's run came to, before its end is recorded: its function's
+ * result; how the call ended before its function ran, as laying its drafts
+ * ended it or as its timeout did once they were laid, or that the laying was
+ * stopped; or the call as the store had it once its drafts were laid, when it
+ * had ended meanwhile or is kept no longer.
+ */
+type CallRan =
+  | { readonly result: DetachedResult }
+  | { readonly unrun: Extract<CallStaged, { kind: 'ended' | 'aborted' }> }
+  | { readonly left: FunctionCallJob | null };
+
 /** What {@link functionCallRun} came to. */
 export interface FunctionCallRun {
   /** The call as it stands once the run is over: ended, or as another run
@@ -564,15 +667,35 @@ export interface FunctionCallRun {
  * @remarks
  * A call that has ended, or that the store keeps no longer, is left as it is.
  * One asked to stop before it runs ends `cancelled`, and one whose deadline has
- * passed `timed_out`. Otherwise it runs on `runner` with `runDetached`: its
- * inputs, then its arguments, each staged as the stored object it is, under
- * what is left of its timeout, while it reads its record every
- * `options.watchMs` for a request to cancel it, which stops the runner. Once it
- * ends:
+ * passed `timed_out`. Otherwise, while it reads its record every
+ * `options.watchMs` for a request to cancel it, which stops whatever it runs:
+ * 1. **Its drafts are laid**, when it passed any, holding the repository's
+ *    running work (`layAndStage`, the step a call of a local repository takes
+ *    too): each by its mutation's own program, on `runner`, under what is left
+ *    of the call's timeout and its log limit. The call's inputs of each drafted
+ *    record are then pinned at the state its drafts left
+ *    (`FunctionCallStore.pinInputs`), which the call keeps alive from there on
+ *    and its result names. A draft that does not lay ends the call as a Save
+ *    of it would have ended, and its function does not run: `failed` or
+ *    `timed_out`, its `draftEnd` naming the draft, the first line of its
+ *    stderr saying so and the mutation's own stderr after it; or `conflict`,
+ *    naming the draft by its place and the refusal's words. Such a call names
+ *    its inputs as its start pinned them. A call whose timeout ends once its
+ *    drafts are laid ends `timed_out`, its `draftEnd` `laid` and its first
+ *    line saying so, and its function does not run.
+ * 2. **Its function runs** on `runner` with `runDetached`: its inputs, then its
+ *    arguments, each staged as the stored object it is — an input that is an
+ *    index of a record as the index's manifest in the state the input names —
+ *    a dataset argument naming a drafted record read as saved, at the state
+ *    the drafts were laid over, under what is left of its timeout.
+ *
+ * Once it ends:
  * - a value is stored through the store's door, holding the repository's
  *   running work, and the call ends `succeeded` naming it;
  * - a request to cancel it ends it `cancelled`, naming who asked;
- * - a run its host stopped, or one the runner could not start, ends `lost`;
+ * - a run its host stopped, one the runner could not start, or one whose
+ *   drafts could not be laid for a reason that is no draft's — the repository
+ *   held by a garbage collection, an object that cannot be read — ends `lost`;
  * - any other end is the run's own: `failed`, `too_large` or `timed_out`.
  *
  * Each end is recorded with its log tails and the lifetime the call's
@@ -596,12 +719,17 @@ export async function functionCallRun(
   options: FunctionCallRunOptions = {},
 ): Promise<FunctionCallRun> {
   const now = options.now ?? Date.now;
-  const job = await storage.calls.get(repo, workspace, id);
-  if (job === null || job.call.state.type !== 'running') return { job, result: null };
-  const end = (state: FunctionCallState, streams: typeof QUIET): Promise<FunctionCallJob> => endCall(storage, repo, job, state, streams, now());
+  const filed = await storage.calls.get(repo, workspace, id);
+  if (filed === null || filed.call.state.type !== 'running') return { job: filed, result: null };
+  // The call as it stands: as filed, then with its inputs at the states its
+  // drafts left
+  let job: FunctionCallJob = filed;
+  const end = (state: FunctionCallState, streams: typeof QUIET, draftEnd: ExecuteResult['draftEnd'] = none): Promise<FunctionCallJob> =>
+    endCall(storage, repo, job, state, streams, now(), draftEnd);
   if (job.cancel.type === 'some') return { job: await end(variant('cancelled', { by: job.cancel.value.by }), QUIET), result: null };
-  const left = job.deadline.getTime() - now();
-  if (left <= 0) return { job: await end(variant('timed_out', { ms: job.call.limits.timeoutMs }), QUIET), result: null };
+  if (job.deadline.getTime() - now() <= 0) {
+    return { job: await end(variant('timed_out', { ms: job.call.limits.timeoutMs }), QUIET), result: null };
+  }
 
   let fnObj: FunctionObject;
   let bodyIr: Uint8Array;
@@ -611,13 +739,9 @@ export async function functionCallRun(
   } catch (err) {
     return { job: await end(variant('lost', { message: `the call's function could not be read: ${messageOf(err)}` }), QUIET), result: null };
   }
-  const args: DetachedArg[] = [
-    ...job.call.inputs.map((input) => ({ dataset: input.hash })),
-    ...job.call.args.map((arg) => ({ dataset: arg.type === 'value' ? arg.value : arg.value.hash })),
-  ];
 
-  // The runner stops at a request to cancel the call, which the run looks for
-  // in its record, or hears of at once from its host
+  // What the call runs stops at a request to cancel it, which the run looks
+  // for in its record, or hears of at once from its host
   const stop = new AbortController();
   const done = new AbortController();
   // The request that stopped the call, once one did: set by the watch
@@ -649,30 +773,73 @@ export async function functionCallRun(
   if (options.cancel?.aborted === true) onCancel();
   if (options.signal?.aborted === true) onStop();
 
-  let result: DetachedResult;
+  // What the run is doing, as a run that could not go on says it
+  let doing = job.drafted.length > 0 ? 'the call\'s drafts could not be laid' : 'the call could not run';
+  let ran: CallRan;
   try {
-    result = await runner.runDetached({
-      bodyIr,
-      args,
-      runner: job.runner,
-      limits: { timeoutMs: left, maxResultBytes: Number(job.call.limits.maxResultBytes), maxLogBytes: Number(job.call.limits.maxLogBytes) },
-      ...(fnObj.environment.type === 'some' && { environment: fnObj.environment.value }),
-    }, { storage, signal: stop.signal, verbose: job.verbose });
+    ran = await (async (): Promise<CallRan> => {
+      // Ended meanwhile, or kept no longer, once its drafts were laid: left as it is
+      let left: FunctionCallJob | null = null;
+      const lay = async (): Promise<CallStaged> => layAndStage(storage, runner, repo, {
+        inputs: job.call.inputs,
+        args: keptCallArgs(job.call.args),
+        drafted: job.drafted,
+        drafts: job.drafted.length > 0 ? await keptCallDrafts(storage, repo, job.call.drafts) : [],
+      }, {
+        deadline: job.deadline.getTime(),
+        timeoutMs: job.call.limits.timeoutMs,
+        maxLogBytes: Number(job.call.limits.maxLogBytes),
+        signal: stop.signal,
+        verbose: job.verbose,
+        now,
+        // The states the drafts left, named by the call from here on
+        pin: async (inputs) => {
+          const pinned = await storage.calls.pinInputs(repo, workspace, id, inputs);
+          if (pinned === null || pinned.call.state.type !== 'running') {
+            left = pinned;
+            return false;
+          }
+          job = pinned;
+          return true;
+        },
+      });
+      // The states the drafts leave are stored before the call names them:
+      // laid and pinned holding the repository's running work
+      const staged = job.drafted.length > 0 ? await withRunningWork(storage, repo, lay) : await lay();
+      if (staged.kind === 'unpinned') return { left };
+      if (staged.kind !== 'staged') return { unrun: staged };
+      // Stopped as it was staged: its function does not start. Nothing is
+      // awaited from here to the runner's start, so a stop after this look
+      // reaches the runner's run
+      if (stop.signal.aborted) return { unrun: { kind: 'aborted' } };
+      doing = 'the call could not run';
+      return {
+        result: await runner.runDetached({
+          bodyIr,
+          args: staged.args,
+          runner: job.runner,
+          limits: { timeoutMs: staged.left, maxResultBytes: Number(job.call.limits.maxResultBytes), maxLogBytes: Number(job.call.limits.maxLogBytes) },
+          ...(fnObj.environment.type === 'some' && { environment: fnObj.environment.value }),
+        }, { storage, signal: stop.signal, verbose: job.verbose }),
+      };
+    })();
   } catch (err) {
-    return { job: await end(variant('lost', { message: `the call could not run: ${messageOf(err)}` }), QUIET), result: null };
+    return { job: await end(variant('lost', { message: `${doing}: ${messageOf(err)}` }), QUIET), result: null };
   } finally {
     done.abort();
     options.cancel?.removeEventListener('abort', onCancel);
     options.signal?.removeEventListener('abort', onStop);
     await watching;
   }
+  if ('left' in ran) return { job: ran.left, result: null };
 
-  const streams = {
-    stdout: result.stdout,
-    stderr: result.stderr,
-    stdoutTruncated: result.stdoutTruncated,
-    stderrTruncated: result.stderrTruncated,
-  };
+  // How the call ended before its function ran, when it did: as a Save of the
+  // draft that ended it would have ended, or at its timeout
+  const unrun = 'unrun' in ran && ran.unrun.kind === 'ended' ? ran.unrun.end : null;
+  // The function's log tails, or the words of the draft that ended the call
+  const streams = 'result' in ran
+    ? { stdout: ran.result.stdout, stderr: ran.result.stderr, stdoutTruncated: ran.result.stdoutTruncated, stderrTruncated: ran.result.stderrTruncated }
+    : unrun === null ? QUIET : { ...QUIET, stderr: unrun.stderr, stderrTruncated: unrun.stderrTruncated };
   const cancel = asked.cancel;
   if (cancel.type === 'some') {
     return { job: await end(variant('cancelled', { by: cancel.value.by }), streams), result: null };
@@ -680,7 +847,14 @@ export async function functionCallRun(
   if (stop.signal.aborted) {
     return { job: await end(variant('lost', { message: 'the call\'s host stopped before it ended' }), streams), result: null };
   }
-  const read = functionCallInputs(job);
+  const read = { inputs: functionCallInputs(job), drafts: functionCallDrafted(job) };
+  if ('unrun' in ran) {
+    // A laying stops at the run's own signal alone, which is not aborted
+    if (unrun === null) return { job: await end(variant('lost', { message: 'the laying of the call\'s drafts was stopped' }), streams), result: null };
+    return { job: await end(unrun.outcome, streams, unrun.draftEnd), result: { outcome: unrun.outcome, ...streams, ...read, draftEnd: unrun.draftEnd } };
+  }
+  // Its function ran, so no draft ended it, whatever its stderr says
+  const { result } = ran;
   switch (result.kind) {
     case 'success': {
       const value = result.value;
@@ -688,22 +862,22 @@ export async function functionCallRun(
         const hash = await storeDatasetBytes(storage, repo, value);
         return end(variant('succeeded', { value: hash }), streams);
       });
-      return { job: ended, result: { outcome: variant('success', { value }), ...streams, inputs: read } };
+      return { job: ended, result: { outcome: variant('success', { value }), ...streams, ...read, draftEnd: none } };
     }
     case 'failed':
       return {
         job: await end(variant('failed', { exitCode: BigInt(result.exitCode) }), streams),
-        result: { outcome: variant('failed', { exitCode: BigInt(result.exitCode) }), ...streams, inputs: read },
+        result: { outcome: variant('failed', { exitCode: BigInt(result.exitCode) }), ...streams, ...read, draftEnd: none },
       };
     case 'too_large':
       return {
         job: await end(variant('too_large', { bytes: BigInt(result.bytes), limit: BigInt(result.limit) }), streams),
-        result: { outcome: variant('too_large', { bytes: BigInt(result.bytes), limit: BigInt(result.limit) }), ...streams, inputs: read },
+        result: { outcome: variant('too_large', { bytes: BigInt(result.bytes), limit: BigInt(result.limit) }), ...streams, ...read, draftEnd: none },
       };
     case 'timed_out':
       return {
         job: await end(variant('timed_out', { ms: job.call.limits.timeoutMs }), streams),
-        result: { outcome: variant('timed_out', { ms: job.call.limits.timeoutMs }), ...streams, inputs: read },
+        result: { outcome: variant('timed_out', { ms: job.call.limits.timeoutMs }), ...streams, ...read, draftEnd: none },
       };
   }
 }
@@ -780,8 +954,10 @@ export async function functionCallStatus(storage: StorageBackend, repo: string, 
 
 /**
  * An ended call's result, as a sync call answers it: its outcome, its value
- * read back inline when it succeeded, its log tails, and each input and
- * dataset argument it read with the hash it was pinned at.
+ * read back inline when it succeeded, its log tails, each input and dataset
+ * argument it read with the hash it was pinned at, and each record it drafted
+ * with the commit that record stood at. A call refused `invalid` read nothing,
+ * and names neither.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -792,24 +968,30 @@ export async function functionCallStatus(storage: StorageBackend, repo: string, 
  */
 export async function functionCallResult(storage: StorageBackend, repo: string, job: FunctionCallJob): Promise<ExecuteResult> {
   const { call } = job;
+  // Its log tails, and how its drafts ended it, which its stderr's first line
+  // says too
   const streams = {
     stdout: call.stdout,
     stderr: call.stderr,
     stdoutTruncated: call.stdoutTruncated,
     stderrTruncated: call.stderrTruncated,
+    draftEnd: call.draftEnd,
   };
   const state = call.state;
+  const read = { inputs: functionCallInputs(job), drafts: functionCallDrafted(job) };
   switch (state.type) {
     case 'succeeded':
-      return { outcome: variant('success', { value: await readDatasetWhole(storage, repo, state.value.value) }), ...streams, inputs: functionCallInputs(job) };
+      return { outcome: variant('success', { value: await readDatasetWhole(storage, repo, state.value.value) }), ...streams, ...read };
     case 'failed':
-      return { outcome: variant('failed', state.value), ...streams, inputs: functionCallInputs(job) };
+      return { outcome: variant('failed', state.value), ...streams, ...read };
     case 'invalid':
-      return { outcome: variant('invalid', state.value), ...streams, inputs: [] };
+      return { outcome: variant('invalid', state.value), ...streams, inputs: [], drafts: [] };
     case 'too_large':
-      return { outcome: variant('too_large', state.value), ...streams, inputs: functionCallInputs(job) };
+      return { outcome: variant('too_large', state.value), ...streams, ...read };
     case 'timed_out':
-      return { outcome: variant('timed_out', state.value), ...streams, inputs: functionCallInputs(job) };
+      return { outcome: variant('timed_out', state.value), ...streams, ...read };
+    case 'conflict':
+      return { outcome: variant('conflict', state.value), ...streams, ...read };
     default:
       throw new Error(`call ${call.id} is ${state.type}, and has no result`);
   }
@@ -869,22 +1051,48 @@ export async function handleProcessFunctionCall(
 
 /**
  * What a call read: each of its function's inputs and each dataset argument,
- * with the hash it was pinned at, in parameter order, as its result names them.
+ * with the hash it is read at, in parameter order, as its result names them.
+ * An input of a record the call drafts names the state its drafts are laid
+ * over until they are laid, and the state they left after; a dataset argument
+ * naming that record, the state they were laid over (`callRead`). An input
+ * that is an index of a record names the record, the index and the hash the
+ * record was read at.
  *
  * @param job - The call
  * @returns What it read; none for a call of a function with no inputs and
  *   value arguments only
+ *
+ * @example
+ * ```ts
+ * const job = await functionCallRead(storage, repo, 'production', id);
+ * for (const { path, hash } of functionCallInputs(job!)) console.log(pathToString(path), hash);
+ * ```
  */
 export function functionCallInputs(job: FunctionCallJob): ExecuteResult['inputs'] {
-  return [
-    ...job.call.inputs,
-    ...job.call.args.flatMap((arg) => (arg.type === 'dataset' ? [{ path: arg.value.path, hash: arg.value.hash }] : [])),
-  ];
+  return callRead(job.call.inputs, keptCallArgs(job.call.args), job.drafted);
 }
 
-/** Records how a call ended, with the lifetime its end gives it, and answers
- *  it as it stands: as the store has it, or as it ended when the store keeps
- *  it no longer (its workspace was removed meanwhile). */
+/**
+ * The records a call drafted, as its result names them: each once, in the
+ * order its drafts first name them, with the commit it stood at as the call
+ * started.
+ *
+ * @param job - The call
+ * @returns The records it drafted; none for a call that passed no draft
+ *
+ * @example
+ * ```ts
+ * const drafted = functionCallDrafted(job); // [{ record: 'jobs', commit: '9f2c…' }]
+ * ```
+ */
+export function functionCallDrafted(job: FunctionCallJob): ExecuteResult['drafts'] {
+  return callDraftsRead(job.drafted);
+}
+
+/** Records how a call ended, with the lifetime its end gives it and how its
+ *  drafts ended it (`none` unless they did), and answers it as it stands: as
+ *  the store has it, or as it ended when the store keeps it no longer (its
+ *  workspace was removed meanwhile). */
 async function endCall(
   storage: StorageBackend,
   repo: string,
@@ -892,11 +1100,12 @@ async function endCall(
   state: FunctionCallState,
   streams: typeof QUIET,
   at: number,
+  draftEnd: ExecuteResult['draftEnd'] = none,
 ): Promise<FunctionCallJob> {
   const keepMs = state.type === 'succeeded' || state.type === 'cancelled' ? job.keep.succeeded : job.keep.failed;
-  const end: FunctionCallEnd = { state, endedAt: new Date(at), expiresAt: new Date(at + Number(keepMs)), ...streams };
+  const end: FunctionCallEnd = { state, endedAt: new Date(at), expiresAt: new Date(at + Number(keepMs)), ...streams, draftEnd };
   const ended = await storage.calls.end(repo, job.workspace, job.call.id, end);
-  return ended ?? { ...job, call: { ...job.call, state, endedAt: some(end.endedAt), expiresAt: end.expiresAt, ...streams } };
+  return ended ?? { ...job, call: { ...job.call, state, endedAt: some(end.endedAt), expiresAt: end.expiresAt, ...streams, draftEnd } };
 }
 
 /** Waits `ms`, or until `signal` aborts. */

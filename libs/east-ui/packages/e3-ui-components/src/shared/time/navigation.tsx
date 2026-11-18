@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Box, Button, chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCalendarWeek, faCaretDown, faChevronLeft, faChevronRight } from "@fortawesome/free-solid-svg-icons";
+import { DateTimeType, equalFor } from "@elaraai/east";
 import { SliceEditPopover, useFormatters } from "@elaraai/east-ui-components";
 import { useSlotStyles } from "@elaraai/east-ui-components/internal";
 import { Seg } from "../schedule/segments.js";
@@ -21,6 +22,8 @@ const DAY_WEEK = [{ key: "day", label: "Days" }, { key: "week", label: "Weeks" }
 const DAY_WEEK_RANGE = [...DAY_WEEK, { key: "range", label: "Range" }] as const;
 const firstPanel = (period: Period, initial?: "day" | "week"): Panel => period === "year" ? "year" : period === "month" || period === "quarter" ? "month" : initial ?? (period === "week" ? "week" : "day");
 const monthStart = (date: number) => { const d = new Date(date); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1); };
+/** Whether two days, or two weeks' first days, are one: East's own equality (#1650). */
+const sameDate = equalFor(DateTimeType);
 
 /** Internal controlled time navigation. The host retains its Slice, records and view unit. */
 export interface TimeNavigatorProps {
@@ -32,6 +35,12 @@ export interface TimeNavigatorProps {
     compact?: boolean;
     /** A truthful visible/custom range may replace the anchor's label. */
     rangeLabel?: string | undefined;
+    /**
+     * The window's last instant, where it spans several periods — the Plan's window of buckets (#1680's review): the
+     * short label names the periods from `date`'s to this one's, as `rangeLabel` names the range. Left out, the window
+     * is the one period `date` is in.
+     */
+    end?: number | undefined;
     label?: string;
     scope: string;
     /** Weekly records open on their weeks, even while the main shows one day. */
@@ -65,7 +74,7 @@ export function setNavigatorStylesProbe(fn: ((styles: object) => void) | undefin
 }
 
 /** One date/range trigger between arrows, with the same Today action in every popup. */
-export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, compact = false, rangeLabel, label = "Choose date", scope, initialPanel, onWeeks, weekMarker, dayMarker, legend, controls, rangeEditor, onToday }: TimeNavigatorProps) {
+export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, compact = false, rangeLabel, end, label = "Choose date", scope, initialPanel, onWeeks, weekMarker, dayMarker, legend, controls, rangeEditor, onToday }: TimeNavigatorProps) {
     const format = useFormatters();
     const now = useNow(givenNow);
     // Its styles made once for the theme (#1398, CL9): the navigator draws again with every step of its builder's dates.
@@ -77,7 +86,7 @@ export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, c
     const [dayPanel, setDayPanel] = useState<"day" | "week">(initialPanel ?? (period === "week" ? "week" : "day"));
     const current = dayStart(date);
     const start = weekStart(current, sunday);
-    const today = dayStart(now).getTime();
+    const today = dayStart(now);
     const year = new Date(month).getUTCFullYear();
     const yearBase = Math.floor(year / 12) * 12;
     const weeks = useMemo(() => {
@@ -105,19 +114,25 @@ export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, c
         <Button size="xs" variant="ghost" aria-label={`Previous ${period}`} onClick={() => move(-1)}><FontAwesomeIcon icon={faChevronLeft} /></Button>
         <Button size="xs" variant="ghost" aria-label={`Next ${period}`} onClick={() => move(1)}><FontAwesomeIcon icon={faChevronRight} /></Button>
     </>;
-    const weekLabel = (d: Date) => `W${format.number(isoWeekUTC(new Date(d.getTime() + 3 * DAY)))} · ${format.range(d, new Date(d.getTime() + 6 * DAY))}`;
+    const weekNumber = (d: Date) => `W${format.number(isoWeekUTC(new Date(d.getTime() + 3 * DAY)))}`;
+    const weekLabel = (d: Date) => `${weekNumber(d)} · ${format.range(d, new Date(d.getTime() + 6 * DAY))}`;
     const fullLabel = rangeLabel ?? (period === "hour" ? format.dateTime(new Date(date)) : period === "day" ? format.weekdayDate(current) : period === "week" ? weekLabel(start) : period === "year" ? format.year(current) : format.monthYear(current));
-    const shortLabel = period === "hour" || period === "day" ? format.monthDay(current) : period === "week" ? `W${format.number(isoWeekUTC(new Date(start.getTime() + 3 * DAY)))}` : period === "year" ? format.year(current) : `${format.month(current)} ${format.year(current)}`;
+    // The short label names the window's periods, its first to its last — one period, where the window is (#1680's review).
+    const last = dayStart(end ?? date);
+    const lastWeek = weekStart(last, sunday);
+    const shortLabel = period === "week"
+        ? (sameDate(lastWeek, start) ? weekNumber(start) : `${weekNumber(start)} – ${weekNumber(lastWeek)}`)
+        : format.periodRange(current, last, period === "hour" || period === "day" ? "day" : period === "year" ? "year" : "month");
     const browse = (step: number) => setMonth(shiftCalendar(new Date(month), panel === "year" || panel === "month" ? "year" : "month", step * (panel === "year" ? 12 : 1)).getTime());
     const heading = panel === "year" ? `${format.year(new Date(Date.UTC(yearBase, 0, 1)))}–${format.year(new Date(Date.UTC(yearBase + 11, 0, 1)))}` : panel === "month" ? format.year(new Date(month)) : format.monthYear(new Date(month));
     // In the toolbar's row, the trigger and the arrows beside it stand as tall as every control there (`sm`, 28px, ruled
     // 23 Oct 2026); the popover's own buttons keep its density.
     const picker = <SliceEditPopover open={open} onOpenChange={changeOpen} label={label}
         trigger={<Button size="sm" variant="ghost" css={styles.trigger} aria-label={label} title={fullLabel} data-time-trigger="">
-            {compact && controls !== undefined ? <FontAwesomeIcon icon={faCalendarWeek} /> : <><Box as="span" css={styles.label} data-time-label="">{compact ? shortLabel : fullLabel}</Box><FontAwesomeIcon icon={faCaretDown} /></>}
+            {compact && controls !== undefined ? <FontAwesomeIcon icon={faCalendarWeek} data-time-icon="" /> : <><Box as="span" css={styles.label} data-time-label="">{compact ? shortLabel : fullLabel}</Box><FontAwesomeIcon icon={faCaretDown} /></>}
         </Button>}
         footLeft={<Box css={styles.footer}>{arrows}</Box>}
-        footActions={<Button size="xs" variant="solid" onClick={() => { choose(today); onToday?.(); }}>Today</Button>}>
+        footActions={<Button size="xs" variant="solid" onClick={() => { choose(today.getTime()); onToday?.(); }}>Today</Button>}>
         <Box css={styles.body} data-time-picker={scope} data-time-panel={panel}>
             {panel !== "range" && <Box css={styles.header}>
                 <Button size="xs" variant="ghost" aria-label={`Previous ${panel === "year" ? "12 years" : panel === "month" ? "year" : "month"}`} onClick={() => browse(-1)}><FontAwesomeIcon icon={faChevronLeft} /></Button>
@@ -128,16 +143,16 @@ export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, c
             {panel === "range" && rangeEditor}
             {panel === "week" && <Box css={styles.weeks}>{weeks.map(week => <chakra.button key={week.getTime()} type="button" css={styles.week}
                 {...{ [`data-${scope}-picker-week`]: week.toISOString().slice(0, 10) }} data-time-week={week.getTime()}
-                data-selected={week.getTime() === start.getTime() ? "" : undefined} aria-pressed={week.getTime() === start.getTime()}
-                aria-current={week.getTime() === weekStart(now, sunday).getTime() ? "date" : undefined}
+                data-selected={sameDate(week, start) ? "" : undefined} aria-pressed={sameDate(week, start)}
+                aria-current={sameDate(week, weekStart(now, sunday)) ? "date" : undefined}
                 onClick={() => choose(week.getTime() + current.getTime() - start.getTime())}>
                 {weekMarker?.(week)}{weekLabel(week)}
             </chakra.button>)}</Box>}
             {panel === "day" && <Box css={styles.days}>
                 {Array.from({ length: 7 }, (_, i) => <Box key={i} css={styles.weekday}>{format.weekday(new Date(weeks[0]!.getTime() + i * DAY))}</Box>)}
                 {weeks.flatMap(week => Array.from({ length: 7 }, (_, i) => new Date(week.getTime() + i * DAY))).map(day => <chakra.button key={day.getTime()} type="button" css={styles.day}
-                    aria-label={format.weekdayDate(day)} aria-pressed={day.getTime() === current.getTime()} aria-current={day.getTime() === today ? "date" : undefined}
-                    data-time-day={day.getTime()} data-selected={day.getTime() === current.getTime() ? "" : undefined} data-outside={day.getUTCMonth() !== new Date(month).getUTCMonth() ? "" : undefined}
+                    aria-label={format.weekdayDate(day)} aria-pressed={sameDate(day, current)} aria-current={sameDate(day, today) ? "date" : undefined}
+                    data-time-day={day.getTime()} data-selected={sameDate(day, current) ? "" : undefined} data-outside={day.getUTCMonth() !== new Date(month).getUTCMonth() ? "" : undefined}
                     onClick={() => choose(day.getTime())}>{format.number(day.getUTCDate())}
                     {dayMarker !== undefined && <Box as="span" css={styles.dayMark} data-time-daymark="">{dayMarker(day)}</Box>}</chakra.button>)}
             </Box>}

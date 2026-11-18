@@ -48,8 +48,8 @@ export interface PlanHeaderProps {
     focus: PlanUiView["focus"];
     /** The focused row's name, while a focus is active. */
     focusLabel: string | undefined;
-    /** Family sizes under a links focus. */
-    linkCounts: { upstream: number; downstream: number } | undefined;
+    /** The rows each role band gathers under a links focus (#1680's review). */
+    linkCounts: { upstream: number; linked: number; downstream: number } | undefined;
 }
 
 /** The sticky header band. */
@@ -68,8 +68,8 @@ export function PlanHeader({
             )}
             <PlanRuler styles={styles} gridTemplate={gridTemplate} caption={rulerCaption}
                 cursorChipRef={cursorChipRef} />
-            {/* Pinned rows collapse like every other row under a focus — they
-                are not exempt from "collapse, never remove". */}
+            {/* Pinned rows strip like every other row an expand focus is not
+                about, and those a links focus does not gather (#1680's review). */}
             {pinnedId !== undefined && <Box role="rowgroup" id={pinnedId}>{pinned}</Box>}
             {/* The R1/R2 focus band — a SECTION row between the header and the
                 body (`← All rows` + caption); the ruler never moves. */}

@@ -18,10 +18,11 @@
 
 import {
     East, Expr, StringType, isTypeEqual, none, some,
-    type ArrayType, type BlockBuilder, type EastType, type ExprType, type StructType, type option,
+    type ArrayType, type BlockBuilder, type EastType, type ExprType, type FunctionType, type IntegerType, type NullType, type OptionType,
+    type StructType, type option,
 } from "@elaraai/east";
 import {
-    isRecordSlices, recordSlicesChrome, resolveRowSource, type RecordSlicesChromeOptions, type RecordSlicesChromeType, type RowSource,
+    PinnedSourceType, isRecordSlices, recordSlicesChrome, resolveRowSource, type RecordSlicesChromeOptions, type RecordSlicesChromeType, type RowSource,
 } from "@elaraai/east-ui/internal";
 import { keyVisibility } from "./key-visibility.js";
 
@@ -139,6 +140,54 @@ export function recordSources(slice: RecordSlicesChromeOptions | undefined, spec
             return { parts, data, keys };
         },
     };
+}
+
+/** A source's part of the slice, as a reader of the rows its page holds reads it (#1349, #1621). */
+type RecordBasePart = ExprType<StructType<{
+    total: FunctionType<[], OptionType<IntegerType>>;
+    pageBase: FunctionType<[IntegerType, IntegerType], OptionType<EastType>>;
+    data: StructType<{
+        id: StringType;
+        revision: FunctionType<[], OptionType<StringType>>;
+        refresh: FunctionType<[OptionType<StringType>], NullType>;
+    }>;
+}>>;
+
+/**
+ * Whether a source's page holds a scope (#1621): its part's type names the fields its page scopes (`scoped`), which its
+ * config holds the values of.
+ *
+ * @param part - The source's part of the slice, bound
+ * @returns Whether its page scopes a field
+ */
+export function recordSourceScoped(part: ExprType<StructType>): boolean {
+    const scoped = (Expr.type(part as unknown as Expr) as StructType).fields["scoped"];
+    return scoped?.type === "Struct" && Object.keys(scoped.fields).length > 0;
+}
+
+/**
+ * The rows a source's page holds of its record (#1349, #1621), as a pinned
+ * source of its window's type: with no scope the record's own, every row in
+ * its order; on a scoped page the scope's alone, numbered 1 to N, paged
+ * through the index on exactly the scope's fields in their keys' order under
+ * each of its values, and no row beyond the scope is read. Its pages are the
+ * source's `pageBase` — the windows the source's other reads of those rows
+ * share — its total the source's, the scope's rows on a scoped source, and its
+ * revision the record's state, which a Save confirms against. It searches no
+ * key itself: a reader seeks those rows through the source's binding
+ * (`recordSliceKeySearch`). What a Sheet's rows are, and what the Choosers of
+ * a paged resource kind list on a scoped page.
+ *
+ * @param part - The source's part of the slice, bound once in the payload's block
+ * @returns A pinned source over the rows the page holds, of the source's window type
+ */
+export function recordBaseSource(part: ExprType<StructType>): ExprType<StructType> {
+    const base = part as unknown as RecordBasePart;
+    const pageType = (Expr.type(base.pageBase as unknown as Expr) as FunctionType).output as OptionType<EastType>;
+    const collection = (pageType.cases as Record<string, EastType>)["some"]!;
+    return East.value({
+        id: base.data.id, page: base.pageBase, total: base.total, seek: none, revision: base.data.revision, refresh: base.data.refresh,
+    } as never, PinnedSourceType(collection)) as unknown as ExprType<StructType>;
 }
 
 /**

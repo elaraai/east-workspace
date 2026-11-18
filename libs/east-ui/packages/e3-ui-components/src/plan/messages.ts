@@ -31,6 +31,8 @@ import { withArticle } from "../shared/article.js";
 import { pagedLoadingMessages, type PagedLoadingMessages } from "../shared/loading.js";
 import { eventsNotCounted, hiddenByText, joinedWords as joined, kindPlural as pluralName, lowerWord, type HiddenWords } from "../shared/schedule/words.js";
 import { timeMessages, type TimeMessages } from "../shared/time/scale.js";
+import type { PlanTool } from "./links/connect.js";
+import type { PlanFocusRole } from "./body-items.js";
 
 /** A lifecycle state as the words name it — `EventStateType`, with the
  *  proposal arms spelled out. */
@@ -66,9 +68,6 @@ export type PlanChartLayerWord = "line" | "area" | "column" | "scatter" | "band"
 /** An event mark's kind, as its name says it. */
 export type PlanMarkWord = "milestone" | "decision" | "exception";
 
-/** A links-focus family tag (R1). */
-export type PlanFocusTagWord = "UPSTREAM" | "DOWNSTREAM" | "LINKED";
-
 /** A tab of the library pane (#1195): the templates, the backlog, the series, or one of the author's own. */
 export type PlanLibraryTabWord = "events" | "backlog" | "series" | "tab";
 
@@ -79,7 +78,7 @@ export type PlanDueWord = "thisWeek" | "nextWeek" | "later" | "none";
 export type PlanInspectorSection = "fields" | "bulk" | "window" | "measures";
 
 /** A fact the inspector pane shows of an event or a row (#1197). */
-export type PlanInspectorFact = "resource" | "start" | "end" | "at" | "lane" | "state" | "quantity" | "group" | "events" | "hours" | "quantities";
+export type PlanInspectorFact = "resource" | "start" | "end" | "at" | "lane" | "state" | "quantity" | "group" | "events" | "hours" | "quantities" | "from" | "to";
 
 /**
  * What the inspector pane counts when nothing is selected (#1197, PB41): the
@@ -126,6 +125,8 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     /** A row repeating the id of an earlier row on the canvas (#822) — `id` is
      *  the id's canonical text. */
     duplicateRow: (p: { id: string }) => string;
+    /** The gutter's right rule, a separator a drag or a key moves (#1680's review): what a reader hears it as. */
+    gutterHandle: () => string;
 
     // ── The toolbar ────────────────────────────────────────────────────────
     /** The grain segment's accessible name. */
@@ -218,6 +219,42 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
      *  see where they fall`; `undefined`, it has none. */
     tooManyEventsHint: (p: { resolution: string | undefined }) => string;
 
+    // ── Too many links to draw (#1541, U10) ────────────────────────────────
+    /** The notice's title: a link kind holding more links than are read — `10,001 flow links`; `kind` its name as running
+     *  text writes it. */
+    tooManyLinks: (p: { kind: string; n: number; count: string }) => string;
+    /** The line under it. */
+    tooManyLinksHint: () => string;
+    /** The tools' strip's accessible name (#1541, U10). */
+    toolsLabel: () => string;
+    /** A tool's name — `Select`, `Connect`. */
+    toolName: (p: { tool: PlanTool }) => string;
+    /** A tool's hint: what a gesture does while it is held — `kind`, the link kind Connect draws, by its name. */
+    toolHint: (p: { tool: PlanTool; kind: string }) => string;
+    /** Connect's menu's accessible name: the link kind it draws. */
+    connectDraws: () => string;
+    /** What Connect's ghost says of the event it drags from: the link kind it draws, by its name — `Draw a feed`. */
+    connectGhost: (p: { kind: string }) => string;
+    /** What Connect's ghost says where its link may land: the kind and the two events it joins — `Feed · Catalogue covers → Catalogue`. */
+    linkDrawn: (p: { kind: string; from: string; to: string }) => string;
+    /** What a screen reader is told as Connect's drop draws its link — `Drew a feed from Catalogue covers to Catalogue.` (#1680's review). */
+    linkDrawnSaid: (p: { kind: string; from: string; to: string }) => string;
+    /**
+     * Why Connect's draft doesn't land: its kind's end — `start` its `from`, `end` its `to` — holds no event of that
+     * kind: `Feed can't end at Van 2`.
+     */
+    linkEndRefused: (p: { kind: string; end: "start" | "end"; item: string }) => string;
+    /** Why Connect's draft doesn't land: the kind's record holds a link under the key this one's row builds. */
+    linkHeld: (p: { kind: string }) => string;
+    /** Why Connect's draft doesn't land: no key can be made for a new link of the kind, or its `key` failed. */
+    linkUnkeyed: (p: { kind: string }) => string;
+    /** Why Connect's draft doesn't land: the kind's new row failed as it was made. */
+    linkFailed: (p: { kind: string }) => string;
+    /** The inspector's Connect to…, by the link kind it draws: its group's name — `Connect a flow`. */
+    inspectorConnect: (p: { kind: string }) => string;
+    /** A field of Connect to…: the link `kind` it draws, and the event it runs `to`. */
+    inspectorConnectField: (p: { field: "kind" | "to" }) => string;
+
     // ── The library pane (#1195) ───────────────────────────────────────────
     /** The library pane's name. */
     libraryPane: () => string;
@@ -233,8 +270,10 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     libraryGroupBy: (p: { tab: PlanLibraryTabWord }) => string;
     /** A template card's head: its kind's name, then the template's `group` (PB27) — `Print job · Jobs`. */
     templateGroup: (p: { kind: string; group: string | undefined }) => string;
-    /** A template card's line — `Print job · 6 h · presses`: its kind's name, how long it runs (an instant kind's runs none), and the resource kinds it is placed on. */
+    /** A template card's line — `Print job · 6 h · presses`: its kind's name, how long it runs (an instant kind's runs none), and the series it lands on. */
     templateLine: (p: { kind: string; duration: string | undefined; resources: readonly string[] }) => string;
+    /** A link kind's template's second line (#1541, U10): its kind, and how it is used — `Flow · click to hold for Connect`. */
+    linkTemplateLine: (p: { kind: string }) => string;
     /** A backlog card's line — `6 h · Press A · due Fri 16`: how long it takes, the resource it is on (`undefined`, on none), and when it is due. */
     backlogLine: (p: { duration: string; resource: string | undefined; due: string | undefined }) => string;
     /** When a backlog event is due — `due Fri 16`: `weekday` and `day` are its day's, formatted. */
@@ -298,6 +337,18 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     inspectorOverlapPair: (p: { first: string; second: string }) => string;
     /** The banner over one event's form while the app's `ready` refuses it, which holds Save (#1525). */
     inspectorRefusals: () => string;
+    /** The banner over one event its kind's `locked` holds where it is (#1541, U9): its form is read only, and it has no gestures. */
+    inspectorLocked: () => string;
+    /** The line under it. */
+    inspectorLockedDetail: () => string;
+    /** How many of several events selected are locked, which the bulk edit and Delete leave as they are — `2 locked: left as they are`. */
+    inspectorLockedCount: (p: { n: number; count: string }) => string;
+    /** The words of a selected link's × (#1541, U10) — `Remove flow`: its link kind's name. */
+    linkRemove: (p: { name: string }) => string;
+    /** A link kind's link, as the inspector names it — its head and its rail — by the two events it joins: `Event posters → Fold and trim`. */
+    linkEnds: (p: { from: string; to: string }) => string;
+    /** Several links selected — `3 links`. */
+    inspectorLinks: (p: { n: number; count: string }) => string;
 
     // ── The horizon, the ruler, the axis in words ──────────────────────────
     /** The horizon strip's caption — `HORIZON · 26 WK`. */
@@ -320,13 +371,19 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     // ── Row focus (R1 / R2) ────────────────────────────────────────────────
     /** The focus band's way back. */
     allRows: () => string;
-    /** The links focus caption — `Links · H1-P03 · 4 upstream · 6 downstream`
-     *  (the band sets it in capitals); `label` is the focused row's gutter label. */
-    focusLinks: (p: { label: string; upstream: string | undefined; downstream: string | undefined }) => string;
+    /** The links focus caption — `Links · H1-P03 · 2 upstream · 1 linked · 3 downstream` (the band sets it in
+     *  capitals); `label` is the focused row's gutter label, each count the rows its role gathers, formatted —
+     *  `linked` `undefined` where no row is both upstream and downstream (#1680's review). */
+    focusLinks: (p: { label: string; upstream: string | undefined; linked: string | undefined; downstream: string | undefined }) => string;
     /** The expand focus caption — `label` is the focused row's gutter label. */
     focusExpanded: (p: { label: string }) => string;
-    /** A row's family Tag under a links focus — `Upstream`, `Downstream`, `Linked`. */
-    focusTag: (p: { tag: PlanFocusTagWord }) => string;
+    /** A links focus's role band (#1680's review) — `Upstream`, `Focused`, `Linked`, `Downstream`. */
+    focusRole: (p: { role: PlanFocusRole }) => string;
+    /** What a role band with no rows says beside its name — `none`. */
+    focusNone: () => string;
+    /** A row a links focus gathers: its sub line — the rows it nests under, outermost first, then its own sub when it
+     *  has one: `Contract A`, `Hall 1 / Press bay · 12k/h` (#1680's review). */
+    focusPath: (p: { path: readonly string[]; sub: string | undefined }) => string;
     /** The links-focus control's accessible name. */
     linksControl: () => string;
     /** The expand control's accessible name. */
@@ -338,8 +395,6 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
      *  the one parent whose members span windows, #822) it is a short bar,
      *  never a count (#1398, CL13). */
     groupMeta: (p: { n: number; count: string }) => string;
-    /** What a links focus's gap band stands for — `12 hidden rows`. */
-    hiddenRows: (p: { n: number; count: string; what: "row" | "group" }) => string;
     // A run of rows not drawn yet says nothing (#1398, CL3); a failed one says so once, in the footer line's words
     // (`lineFailed`, `retryRange`, `PagedLoadingMessages`).
     /** A failed window's retry button. */
@@ -358,8 +413,9 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     planChip: () => string;
     /** A bucket cell's `+n` chip (#1267) — `+2`: the cell's tiles it has no room for. */
     tileMore: (p: { n: number; count: string }) => string;
-    /** The chip's accessible name — `2 more events, Week of Jul 13, 2026, AM`: its cell's bucket and lane in words. */
-    tileMoreLabel: (p: { n: number; count: string; bucket: string; lane: string | undefined }) => string;
+    /** The chip's accessible name — `2 more events, Week of Jul 13, 2026, AM`: its cell's bucket and lane in words;
+     *  `every` where it stands for every event the cell holds, none of them drawn — `1 event, …` (#1680's review). */
+    tileMoreLabel: (p: { n: number; count: string; bucket: string; lane: string | undefined; every: boolean }) => string;
 
     // ── Moves (#825) ───────────────────────────────────────────────────────
     /** How a keyboard reader moves an element — the description of every one that moves. */
@@ -385,7 +441,7 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
      * time after it when it has one (`· 06:00`).
      */
     dropCaption: (p: { what: string; where: string; day: string; time: string | undefined }) => string;
-    /** Why an event can't land on a row: its kind is placed on other resource kinds — `Needs presses`, their names lowercased; none, on no resource. */
+    /** Why an event can't land on a row: its kind lands on other series — `Needs presses`, their names lowercased; none, on no resource. */
     dropNeeds: (p: { resources: readonly string[] }) => string;
     /** The resource matches, but this sub-row displays a different event kind. */
     dropNeedsRow: (p: { kind: string }) => string;
@@ -393,6 +449,8 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     dropBusy: (p: { kind: string }) => string;
     /** Why a drop the kind's own write refuses can't land. */
     dropRefused: () => string;
+    /** Why a drop that would change an event its kind's `locked` holds where it is can't land (#1541, U9) — `Spring catalogue is locked`. */
+    dropLocked: (p: { event: string }) => string;
     /** An author's card over an event of its patch's kind — `Harbour Arts Society → Spring catalogue`. */
     dropCardOnEvent: (p: { card: string; event: string }) => string;
     /** An author's card anywhere but an event — `Drop a customer onto an event`: `fields` the fields its patch sets. */
@@ -416,7 +474,8 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     /** A tab's count where a paged source's entries make no fixed number of what it lists — the Measures tab's, where
      *  some entries make more chart rows than others (#1398): `not counted`, as the Plan's event counts say theirs. */
     tabNotCounted: () => string;
-    /** The card and section for rows in no group. */
+    /** The card and section for rows in no group — and the band a links focus folds the rows it does not gather into
+     *  (#1680's review). */
     otherRows: () => string;
     /** Back to the group list. */
     backToGroups: () => string;
@@ -442,16 +501,18 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     span: (p: { from: string; to: string }) => string;
     /** A run bar's churn, in words. */
     movedTimes: (p: { n: number; count: string }) => string;
-    /** A run bar's accessible name. */
-    runName: (p: { label: string; span: string; state: string; quantity: string | undefined; moved: string | undefined; status: string | undefined }) => string;
+    /** What an element's name says of one held where it is (#1541, U9), which its lock says by look — `locked`. */
+    lockedWord: () => string;
+    /** A run bar's accessible name; `status` its status's own words (#1541), which its ring says by colour; `locked` the lock's word, on a locked one. */
+    runName: (p: { label: string; span: string; state: string; quantity: string | undefined; moved: string | undefined; status: string | undefined; locked: string | undefined }) => string;
     /** A span row's decision diamond's accessible name. */
     decisionName: (p: { at: string; applied: boolean }) => string;
-    /** A bucket tile's accessible name. */
-    tileName: (p: { label: string | undefined; bucket: string; lane: string | undefined; state: string; tone: string | undefined }) => string;
-    /** A cards chip's accessible name. */
-    chipName: (p: { label: string; span: string; state: string }) => string;
-    /** An event mark's accessible name. */
-    markName: (p: { label: string | undefined; kind: PlanMarkWord; applied: boolean; at: string }) => string;
+    /** A bucket tile's accessible name; `status` its status's own words (#1541). */
+    tileName: (p: { label: string | undefined; bucket: string; lane: string | undefined; state: string; status: string | undefined; locked: string | undefined }) => string;
+    /** A cards chip's accessible name; `status` its status's own words (#1541). */
+    chipName: (p: { label: string; span: string; state: string; status: string | undefined; locked: string | undefined }) => string;
+    /** An event mark's accessible name; `status` its status's own words (#1541). */
+    markName: (p: { label: string | undefined; kind: PlanMarkWord; applied: boolean; at: string; status: string | undefined; locked: string | undefined }) => string;
     /** A heat cell's value — `91, at or above the warning threshold`. */
     heatValue: (p: { value: string; warn: boolean }) => string;
     /** A cell or bucket with no value. */
@@ -561,9 +622,9 @@ const LAYER_WORD: Record<PlanChartLayerWord, string> = {
     line: "line", area: "area", column: "columns", scatter: "points", band: "range",
 };
 
-/** A family row's Tag (`Plan links.html`, #1258). */
-const FOCUS_TAG: Record<PlanFocusTagWord, string> = {
-    UPSTREAM: "Upstream", DOWNSTREAM: "Downstream", LINKED: "Linked",
+/** A links focus's role band (#1680's review). */
+const FOCUS_ROLE: Record<PlanFocusRole, string> = {
+    upstream: "Upstream", focused: "Focused", linked: "Linked", downstream: "Downstream",
 };
 
 /** The parts of a list that are there, comma-joined. */
@@ -602,6 +663,7 @@ export const planMessages: PlanMessages = {
     partFailed: ({ part, message }) => `${part} could not render — ${message}`,
     axisMismatch: ({ found, expected }) => `AXIS MISMATCH — this row carries ${found} instants; the axis is ${expected}`,
     duplicateRow: ({ id }) => `DUPLICATE ID — an earlier row already has ${id}`,
+    gutterHandle: () => "Width of the row names",
 
     grainLabel: () => "Grain",
     grainName: ({ grain }) => grain.toUpperCase(),
@@ -645,6 +707,23 @@ export const planMessages: PlanMessages = {
     tooManyEventsHint: ({ resolution }) => (resolution === undefined
         ? "Too many to draw at this resolution: narrow the filters, or zoom in."
         : `Too many to draw at this resolution: switch to ${resolution} to see where they fall.`),
+    tooManyLinks: ({ kind, n, count }) => `${count} ${kind} ${plural(n, "link", "links")}`,
+    tooManyLinksHint: () => "Too many to draw: none of them is shown.",
+    toolsLabel: () => "Tools",
+    toolName: ({ tool }) => (tool === "connect" ? "Connect" : "Select"),
+    toolHint: ({ tool, kind }) => (tool === "connect"
+        ? `Connect — drag from one event to another to draw ${withArticle(lowerWord(kind))}`
+        : "Select — a tap selects, a drag moves an event"),
+    connectDraws: () => "Connect draws",
+    connectGhost: ({ kind }) => `Draw ${withArticle(lowerWord(kind))}`,
+    linkDrawn: ({ kind, from, to }) => `${kind} · ${from} → ${to}`,
+    linkDrawnSaid: ({ kind, from, to }) => `Drew ${withArticle(lowerWord(kind))} from ${from} to ${to}.`,
+    linkEndRefused: ({ kind, end, item }) => `${kind} can't ${end} at ${item}`,
+    linkHeld: ({ kind }) => `That ${lowerWord(kind)} is drawn already`,
+    linkUnkeyed: ({ kind }) => `No key can be made for a new ${lowerWord(kind)}`,
+    linkFailed: ({ kind }) => `A new ${lowerWord(kind)} can't be made here`,
+    inspectorConnect: ({ kind }) => `Connect ${withArticle(lowerWord(kind))}`,
+    inspectorConnectField: ({ field }) => (field === "kind" ? "Link" : "Connect to"),
 
     libraryPane: () => "Library",
     libraryTab: ({ tab }) => (tab === "events" ? "Events" : tab === "backlog" ? "Backlog" : "Series"),
@@ -662,6 +741,7 @@ export const planMessages: PlanMessages = {
     templateLine: ({ kind, duration, resources }) =>
         [kind, duration, resources.length > 0 ? resources.join("/") : undefined]
             .filter((p): p is string => p !== undefined && p !== "").join(" · "),
+    linkTemplateLine: ({ kind }) => `${kind} · click to hold for Connect`,
     backlogLine: ({ duration, resource, due }) => [duration, resource ?? "Unassigned", due]
         .filter((p): p is string => p !== undefined && p !== "").join(" · "),
     backlogDue: ({ weekday, day }) => `due ${weekday} ${day}`,
@@ -679,7 +759,7 @@ export const planMessages: PlanMessages = {
     })[section],
     inspectorFact: ({ fact }) => ({
         resource: "Resource", start: "Start", end: "End", at: "At", lane: "Lane", state: "State", quantity: "Quantity",
-        group: "Group", events: "Events", hours: "Hours", quantities: "Quantity",
+        group: "Group", events: "Events", hours: "Hours", quantities: "Quantity", from: "From", to: "To",
     })[fact],
     inspectorUnassigned: () => "Unassigned",
     inspectorRow: () => "Row",
@@ -702,6 +782,12 @@ export const planMessages: PlanMessages = {
     inspectorRowOverlaps: ({ n, count }) => `${count} ${plural(n, "overlap", "overlaps")}`,
     inspectorOverlapPair: ({ first, second }) => `${first} · ${second}`,
     inspectorRefusals: () => "Not saved yet",
+    inspectorLocked: () => "Locked",
+    inspectorLockedDetail: () => "It can't be moved, changed or deleted.",
+    inspectorLockedCount: ({ count }) => `${count} locked: left as they are`,
+    linkRemove: ({ name }) => `Remove ${name}`,
+    linkEnds: ({ from, to }) => `${from} → ${to}`,
+    inspectorLinks: ({ n, count }) => `${count} ${plural(n, "link", "links")}`,
 
     horizon: ({ count, unit }) => `HORIZON · ${count} ${HORIZON_UNIT[unit]}`,
     horizonMax: ({ n, count, unit }) => `max ${count} ${plural(n, "item", "items")} / ${HORIZON_PER[unit]}`,
@@ -713,15 +799,20 @@ export const planMessages: PlanMessages = {
     now: () => "NOW",
 
     allRows: () => "← All rows",
-    focusLinks: ({ label, upstream, downstream }) =>
-        `Links · ${label}${upstream !== undefined && downstream !== undefined ? ` · ${upstream} upstream · ${downstream} downstream` : ""}`,
+    focusLinks: ({ label, upstream, linked, downstream }) => [
+        `Links · ${label}`,
+        upstream !== undefined ? `${upstream} upstream` : undefined,
+        linked !== undefined ? `${linked} linked` : undefined,
+        downstream !== undefined ? `${downstream} downstream` : undefined,
+    ].filter((p): p is string => p !== undefined).join(" · "),
     focusExpanded: ({ label }) => `EXPANDED · ${label}`,
-    focusTag: ({ tag }) => FOCUS_TAG[tag],
+    focusRole: ({ role }) => FOCUS_ROLE[role],
+    focusNone: () => "none",
+    focusPath: ({ path, sub }) => (sub !== undefined && sub !== "" ? `${path.join(" / ")} · ${sub}` : path.join(" / ")),
     linksControl: () => "Focus linked rows",
     expandControl: () => "Expand row",
 
     groupMeta: ({ n, count }) => `${count} ${plural(n, "row", "rows")}`,
-    hiddenRows: ({ n, count, what }) => `${count} hidden ${what}${n === 1 ? "" : "s"}`,
     retry: () => "Retry",
     moved: ({ count }) => `moved ×${count}`,
     rollupCaption: ({ count, quantity }) =>
@@ -731,7 +822,8 @@ export const planMessages: PlanMessages = {
     quantities: ({ parts }) => parts.join(" · "),
     planChip: () => "plan",
     tileMore: ({ count }) => `+${count}`,
-    tileMoreLabel: ({ n, count, bucket, lane }) => listed([`${count} more ${plural(n, "event", "events")}`, bucket, lane]),
+    tileMoreLabel: ({ n, count, bucket, lane, every }) =>
+        listed([`${count} ${every ? "" : "more "}${plural(n, "event", "events")}`, bucket, lane]),
 
     moveHelp: () =>
         "Press Space to pick it up. The arrow keys then move it — Shift with left or right moves its end, Alt its start — " +
@@ -748,6 +840,7 @@ export const planMessages: PlanMessages = {
     dropNeedsRow: ({ kind }) => `Drop on ${withArticle(kind)} row`,
     dropBusy: ({ kind }) => `${kind} can't change now`,
     dropRefused: () => "Can't go here",
+    dropLocked: ({ event }) => `${event} is locked`,
     dropCardOnEvent: ({ card, event }) => `${card} → ${event}`,
     dropCardNeedsEvent: ({ fields }) => `Drop ${withArticle(fieldNoun(fields))} onto an event`,
     dropKindTakesNo: ({ kind, fields }) => `${pluralName(kind)} take no ${fieldNoun(fields)}`,
@@ -773,15 +866,16 @@ export const planMessages: PlanMessages = {
     status: ({ tone }) => `Status: ${tone}`,
     span: ({ from, to }) => `${from} – ${to}`,
     movedTimes: ({ n, count }) => `moved ${count} ${plural(n, "time", "times")}`,
-    runName: ({ label, span, state, quantity, moved, status }) => listed([label, span, state, quantity, moved, status]),
+    lockedWord: () => "locked",
+    runName: ({ label, span, state, quantity, moved, status, locked }) => listed([label, span, state, quantity, moved, status, locked]),
     decisionName: ({ at, applied }) => `Decision, ${at}, ${applied ? "applied" : "pending"}`,
-    tileName: ({ label, bucket, lane, state, tone }) => listed([label ?? "Event", bucket, lane, state, tone]),
-    chipName: ({ label, span, state }) => listed([label, span, state]),
-    markName: ({ label, kind, applied, at }) => {
+    tileName: ({ label, bucket, lane, state, status, locked }) => listed([label ?? "Event", bucket, lane, state, status, locked]),
+    chipName: ({ label, span, state, status, locked }) => listed([label, span, state, status, locked]),
+    markName: ({ label, kind, applied, at, status, locked }) => {
         const what = kind === "decision" ? `decision, ${applied ? "applied" : "pending"}` : kind;
         return label !== undefined
-            ? listed([label, what, at])
-            : listed([what.charAt(0).toUpperCase() + what.slice(1), at]);
+            ? listed([label, what, at, status, locked])
+            : listed([what.charAt(0).toUpperCase() + what.slice(1), at, status, locked]);
     },
     heatValue: ({ value, warn }) => (warn ? `${value}, at or above the warning threshold` : value),
     noData: () => "no data",
@@ -878,10 +972,6 @@ export function planMessagesIn(parent: PlanMessages, v: PlanVocabulary): PlanMes
         // An event's resource is one of the rows: `Press`, as a group is a `Hall` (review of #1481, finding 5).
         inspectorFact: ({ fact }) => (fact === "group" && groups !== undefined ? groups.one
             : fact === "resource" && rows !== undefined ? rows.one : parent.inspectorFact({ fact })),
-        hiddenRows: (p) => {
-            const noun = p.what === "group" ? groups : rows;
-            return noun === undefined ? parent.hiddenRows(p) : `${p.count} hidden ${lowerWord(plural(p.n, noun.one, noun.other))}`;
-        },
         tabRows: () => rows?.other ?? parent.tabRows(),
         allRows: () => (rowsText === undefined ? parent.allRows() : `← All ${rowsText}`),
         backToAllRows: () => (rowsText === undefined ? parent.backToAllRows() : `← All ${rowsText}`),

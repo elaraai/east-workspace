@@ -23,7 +23,7 @@ import e3 from "@elaraai/e3";
 import { DatasetStatusType, RecordCommitInfoType, TreePathType } from "@elaraai/e3-types";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 
-import { Data, Query, Record, RecordOutcomeType, ui } from "@elaraai/e3-ui";
+import { Data, FuncDraftType, Query, Record, RecordOutcomeType, ui } from "@elaraai/e3-ui";
 import {
     DataBindHandleType, DataPagedHandleType, DataSourceType, Query as QueryInternal, QueryBuilderPayloadType, QueriesHandleType,
     RecordBindingType, RecordErrorType, RecordMutateStatusType, SavedQueriesType,
@@ -107,6 +107,7 @@ const RegionsHandleType = StructType({
         patch: FunctionType([PatchType(RegionsType)], NullType),
     }),
     commit: StructType({ patch: AsyncFunctionType([StringType, PatchType(RegionsType)], RecordOutcomeType) }),
+    draft: StructType({ patch: FunctionType([PatchType(RegionsType)], FuncDraftType) }),
     start: FunctionType([], NullType),
     binding: RecordBindingType,
 });
@@ -123,6 +124,9 @@ const boundRegions = East.function([], RegionsHandleType, (_$) => ({
     },
     commit: {
         patch: East.asyncFunction([StringType, PatchType(RegionsType)], RecordOutcomeType, (_$2) => variant("committed", { commitHash: "c", stateHash: "s" })),
+    },
+    draft: {
+        patch: East.function([PatchType(RegionsType)], FuncDraftType, (_$2, patch) => ({ record: "regions", mutation: "patch", args: [East.Blob.encodeBeast(patch, "v2")] })),
     },
     start: East.function([], NullType, (_$2) => null),
     binding: { name: "regions", mutations: ["patch"] },

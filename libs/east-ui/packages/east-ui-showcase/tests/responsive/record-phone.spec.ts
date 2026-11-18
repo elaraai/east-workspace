@@ -74,6 +74,57 @@ function layoutOf(grid: Locator) {
     });
 }
 
+/** A column group's label, and the part of its group in view it sits over: past the pinned title, up to the grid's edge. */
+interface GroupLabel {
+    text: string;
+    from: number;
+    to: number;
+    left: number;
+    right: number;
+}
+
+/**
+ * The labels of the column groups in view, each with the part of its group it sits over.
+ *
+ * @param grid - The Record's grid
+ * @returns Each labelled group with a pixel or more of its columns in view
+ */
+function groupLabels(grid: Locator): Promise<GroupLabel[]> {
+    return grid.evaluate((el) => {
+        const view = el.getBoundingClientRect();
+        const pin = el.querySelector('[data-slot="headerCell"][data-pinned]')!.getBoundingClientRect();
+        return [...el.querySelectorAll<HTMLElement>('[data-slot="groupSeg"]')].flatMap((segment) => {
+            const seg = segment.getBoundingClientRect();
+            const from = Math.max(seg.left, pin.right);
+            const to = Math.min(seg.right, view.right);
+            const label = segment.firstElementChild;
+            if (to - from < 1 || label === null || segment.textContent === "") return [];
+            const box = label.getBoundingClientRect();
+            return [{ text: segment.textContent ?? "", from, to, left: box.left, right: box.right }];
+        });
+    });
+}
+
+/**
+ * The labels in view once each sits over its group's columns in view, clear of the pinned title. They are read until
+ * they do: a step of the pager glides the window to its next column, and the grid cuts a label to its group's columns
+ * in view as it takes the step. Read as the scroll first rounds to the step, the window is still gliding and a label
+ * still where the last window left it — 4px short of its group, on a run that read it there.
+ *
+ * @param grid - The Record's grid
+ * @param when - What the read follows, for a failure to say
+ * @returns The labels at rest: the read that passed, never a read after it, which a glide still finishing could move
+ */
+async function placedLabels(grid: Locator, when: string): Promise<GroupLabel[]> {
+    let placed: GroupLabel[] = [];
+    await expect.poll(async () => {
+        placed = await groupLabels(grid);
+        return placed.filter((label) => label.left < label.from - 0.5 || label.right > label.to + 0.5)
+            .map((label) => `${label.text}: ${label.left}–${label.right}, its group in view ${label.from}–${label.to}`);
+    }, when).toEqual([]);
+    return placed;
+}
+
 /**
  * How far the page, and the builder's frame, scroll sideways: never, on a phone. The frame clips what it holds off its
  * edge — a pane's view while it is closed — so it is asked to scroll, and says how far it went.
@@ -166,16 +217,7 @@ test.describe("The Record on a phone", () => {
             await next.click();
             await expect.poll(async () => Math.round(await scrollOf(grid) / slot)).toBe(steps);
             await settled(page);
-            const placed = await grid.evaluate((el) => {
-                const view = el.getBoundingClientRect();
-                const pin = el.querySelector('[data-slot="headerCell"][data-pinned]')!.getBoundingClientRect();
-                const segment = [...el.querySelectorAll<HTMLElement>('[data-slot="groupSeg"]')].find((seg) => seg.textContent === "Core")!;
-                const seg = segment.getBoundingClientRect();
-                const label = segment.firstElementChild!.getBoundingClientRect();
-                return { from: Math.max(seg.left, pin.right), to: Math.min(seg.right, view.right), left: label.left, right: label.right };
-            });
-            expect(placed.left, `after ${steps}`).toBeGreaterThanOrEqual(placed.from - 0.5);
-            expect(placed.right, `after ${steps}`).toBeLessThanOrEqual(placed.to + 0.5);
+            expect((await placedLabels(grid, `after ${steps}`)).map((label) => label.text), `after ${steps}`).toContain("Core");
         }
     });
 
@@ -193,24 +235,7 @@ test.describe("The Record on a phone", () => {
                 await expect.poll(async () => Math.round(await scrollOf(grid) / slot)).toBe(steps);
                 await settled(page);
             }
-            const labels = await grid.evaluate((el) => {
-                const view = el.getBoundingClientRect();
-                const pin = el.querySelector('[data-slot="headerCell"][data-pinned]')!.getBoundingClientRect();
-                return [...el.querySelectorAll<HTMLElement>('[data-slot="groupSeg"]')].flatMap((segment) => {
-                    const seg = segment.getBoundingClientRect();
-                    const from = Math.max(seg.left, pin.right);
-                    const to = Math.min(seg.right, view.right);
-                    const label = segment.firstElementChild;
-                    if (to - from < 1 || label === null || segment.textContent === "") return [];
-                    const box = label.getBoundingClientRect();
-                    return [{ text: segment.textContent ?? "", from, to, left: box.left, right: box.right }];
-                });
-            });
-            for (const label of labels) {
-                seen.add(label.text);
-                expect(label.left, `${label.text} after ${steps}`).toBeGreaterThanOrEqual(label.from - 0.5);
-                expect(label.right, `${label.text} after ${steps}`).toBeLessThanOrEqual(label.to + 0.5);
-            }
+            for (const label of await placedLabels(grid, `after ${steps}`)) seen.add(label.text);
         }
         expect([...seen].sort()).toEqual(["Ashgrove Joinery", "Bellmoor Interiors"]);
     });

@@ -25,8 +25,8 @@ import {
     type ExprType, type ValueTypeOf,
 } from "@elaraai/east";
 import {
-    MAX_AREA_RASTER, MAX_LANDED_SEARCHES, MAX_RECORD_SLICE_RUNS, RecordSliceReadType,
-    areaQueries, areaRaster, recordOnPrinter,
+    MAX_AREA_RASTER, MAX_LANDED_SEARCHES, RECORD_SLICE_RUNS_REFUSAL, RecordSliceReadType,
+    areaQueries, areaRaster, recordAreaBoxText, recordOnPrinter, recordPrefixesExtended,
     type AreaCell, type AreaWindow, type RecordOnPrinter, type RecordSliceChoiceType, type RecordSliceIndexType,
 } from "@elaraai/east-ui/internal";
 import type { SchematicBoxFieldsType } from "./types.js";
@@ -81,12 +81,6 @@ export interface SchematicAreaIndexes {
     readonly led: readonly Index[];
 }
 
-/** A box's fields and where it is placed, as a refusal names them. */
-function boxText(box: { x: string; y: string; width: BoxFields["width"]; height: BoxFields["height"] }, centre: boolean): string {
-    const sides = box.width.type === "some" && box.height.type === "some" ? `, width: "${box.width.value}", height: "${box.height.value}"` : "";
-    return `x: "${box.x}", y: "${box.y}"${sides}, at: "${centre ? "centre" : "corner"}"`;
-}
-
 /**
  * The area indexes a kind is read by (§10.4, §11.4, SC34): those its source of
  * the slice lists, each held to the kind's roles — the same `x`, `y`, `width`
@@ -110,9 +104,9 @@ export function schematicAreaIndexes(indexes: readonly Index[], box: BoxFields, 
         const area = index.area.value;
         if (!stringEqual(area.x, box.x) || !stringEqual(area.y, box.y) || !sideEqual(area.width, box.width) || !sideEqual(area.height, box.height)
             || !booleanEqual(area.centre, centre)) {
-            throw new Error(`${where}: the area index '${index.name}' boxes each row by { ${boxText(area, area.centre)} }, and the kind's roles place it by ` +
-                `{ ${boxText(box, centre)} } — an area index the kind is read by boxes each row as its roles place it: declare it ` +
-                `index.area({ ${boxText(box, centre)}, cell })`);
+            throw new Error(`${where}: the area index '${index.name}' boxes each row by { ${recordAreaBoxText(area, area.centre)} }, and the kind's roles place it by ` +
+                `{ ${recordAreaBoxText(box, centre)} } — an area index the kind is read by boxes each row as its roles place it: declare it ` +
+                `index.area({ ${recordAreaBoxText(box, centre)}, cell })`);
         }
     }
     // An area index's fields are its leading fields alone, its key's `on` (#1432).
@@ -120,7 +114,7 @@ export function schematicAreaIndexes(indexes: readonly Index[], box: BoxFields, 
     if (unled === undefined) {
         const named = areas.map((index) => `'${index.name}'`).join(", ");
         throw new Error(`${where}: a kind read by area reads its window through an area index led by no field, whatever the rail chooses, and ` +
-            `${named} ${areas.length === 1 ? "is" : "are"} led by fields — declare index.area({ ${boxText(box, centre)}, cell }) ` +
+            `${named} ${areas.length === 1 ? "is" : "are"} led by fields — declare index.area({ ${recordAreaBoxText(box, centre)}, cell }) ` +
             "beside it, and list it in Data.bindPaged's indexes");
     }
     return { unled, led: areas.filter((index) => index.fields.length > 0) };
@@ -132,10 +126,18 @@ export interface SchematicWindowPlan {
     readonly index: Index;
     /** Its finest cell's side, a power of two. */
     readonly cell: number;
-    /** The `.east` literals of its leading values, a combination each, a window's searches asked of each: `[[]]` for the unled index. */
+    /**
+     * The `.east` literals of its leading values, a combination each, a window's searches asked of each: `[[]]` for the
+     * unled index; none where the page's scope holds no value (#1621), which reads no row.
+     */
     readonly prefixes: readonly (readonly string[])[];
     /** The narrowing's fields the index doesn't lead, which `within` asks of the window's rows; none where it serves the narrowing whole. */
     readonly residual: readonly string[];
+    /**
+     * The most searches a window asks of each combination of its leading values (`areaCells`' budget): the bound on landed
+     * searches shared among them, so a scoped kind whose scope holds many values reads each one's window at coarser cells.
+     */
+    readonly searches: number;
 }
 
 /**
@@ -147,13 +149,21 @@ export interface SchematicWindowPlan {
  * narrowing asked of the window's rows. The window is a read, never the
  * rail's: it is never a choice, and never counted.
  *
+ * A kind whose page holds a scope (#1621) is read under it: through an index
+ * its scope's fields lead, never one that leaves one of them to `within` —
+ * whatever the bound, each value's window is then searched at cells coarse
+ * enough for every value's to be held ({@link SchematicWindowPlan.searches}) —
+ * and a scope that holds no value reads no row.
+ *
  * @param areas - The kind's area indexes ({@link schematicAreaIndexes})
- * @param where - The narrowing the window reads: the rail's, or none, to read every row
+ * @param where - The narrowing the window reads: the rail's, or none, to read every row — the page's scope among it
  * @param box - The window's box, in world units: its searches grow it by the margin (`areaQueries`)
+ * @param scoped - The fields the page's scope holds: none on a page with no scope
  * @returns The index, its leading values and the fields left to `within`
+ * @throws {Error} When the scope's values make more combinations than a read takes
  */
-export function schematicWindowPlan(areas: SchematicAreaIndexes, where: Where, box: AreaWindow): SchematicWindowPlan {
-    return areaPlan(areas, where, (index) => areaQueries([], box, cellOf(index), NO_LEADING).length);
+export function schematicWindowPlan(areas: SchematicAreaIndexes, where: Where, box: AreaWindow, scoped: readonly string[] = []): SchematicWindowPlan {
+    return areaPlan(areas, where, (index) => areaQueries([], box, cellOf(index), NO_LEADING).length, scoped);
 }
 
 /** The `on` of no leading field: a window asks the same cells whatever an index's leading values, so they are counted under none. */
@@ -170,33 +180,54 @@ function cellOf(index: Index): number {
  * one value for a Set field — while the read's searches across those choices
  * stay within the record slice's bound on landed searches, the one leaving the
  * fewest fields of the narrowing to `within` first; otherwise the one led by
- * no field.
+ * no field. A scoped kind's (#1621): one its scope's fields lead, whatever its
+ * searches, which share the bound; a scope that holds no value, none.
  *
  * @param areas - The kind's area indexes
  * @param where - The narrowing the read takes
  * @param searches - How many searches the read asks of each combination of an index's leading values
+ * @param scoped - The fields the page's scope holds
  * @returns The index, its leading values and the fields left to `within`
+ * @throws {Error} When the scope's values make more combinations than a read takes
  */
-function areaPlan(areas: SchematicAreaIndexes, where: Where, searches: (index: Index) => number): SchematicWindowPlan {
+function areaPlan(areas: SchematicAreaIndexes, where: Where, searches: (index: Index) => number, scoped: readonly string[]): SchematicWindowPlan {
+    const leads = (index: Index, field: string) => index.fields.some((led) => stringEqual(led, field));
     let best: SchematicWindowPlan | undefined;
+    let held: Index | undefined;
     for (const index of areas.led) {
         const leading = index.fields;
+        // Read under the page's scope: never through an index that leaves a scoped field to `within`.
+        if (scoped.some((field) => !leads(index, field))) continue;
+        held ??= index;
         let prefixes: string[][] = [[]];
         let fills = true;
         for (const field of leading) {
             const choice = where.get(field);
             const values = choice?.type === "values" ? [...new Set(choice.value)] : [];
-            if (values.length === 0 || (index.sets.has(field) && values.length !== 1) || prefixes.length * values.length > MAX_RECORD_SLICE_RUNS) {
+            const extended = values.length === 0 || (index.sets.has(field) && values.length !== 1) ? undefined : recordPrefixesExtended(prefixes, values);
+            if (extended === undefined) {
                 fills = false;
                 break;
             }
-            prefixes = prefixes.flatMap((prefix) => values.map((value) => [...prefix, value]));
+            prefixes = extended;
         }
-        if (!fills || prefixes.length * searches(index) > MAX_LANDED_SEARCHES) continue;
-        const residual = [...where.keys()].filter((field) => !leading.some((led) => stringEqual(led, field)));
-        if (best === undefined || residual.length < best.residual.length) best = { index, cell: cellOf(index), prefixes, residual };
+        // Past the bound an unscoped read takes another index; a scoped one asks each value's window at coarser cells.
+        if (!fills || (scoped.length === 0 && prefixes.length * searches(index) > MAX_LANDED_SEARCHES)) continue;
+        const residual = [...where.keys()].filter((field) => !leads(index, field));
+        if (best === undefined || residual.length < best.residual.length) {
+            best = { index, cell: cellOf(index), prefixes, residual, searches: Math.max(1, Math.floor(MAX_LANDED_SEARCHES / prefixes.length)) };
+        }
     }
-    return best ?? { index: areas.unled, cell: cellOf(areas.unled), prefixes: [[]], residual: [...where.keys()] };
+    if (best !== undefined) return best;
+    if (scoped.length > 0 && held !== undefined) {
+        const scope = scoped.map((field) => where.get(field));
+        // A scope that holds no value holds no row: no window is searched.
+        if (scope.some((clause) => clause?.type === "values" && clause.value.length === 0)) {
+            return { index: held, cell: cellOf(held), prefixes: [], residual: [...where.keys()].filter((field) => !leads(held!, field)), searches: MAX_LANDED_SEARCHES };
+        }
+        throw new Error(RECORD_SLICE_RUNS_REFUSAL);
+    }
+    return { index: areas.unled, cell: cellOf(areas.unled), prefixes: [[]], residual: [...where.keys()], searches: MAX_LANDED_SEARCHES };
 }
 
 /** How a kind read by area reads its rows with no position: the read it asks, and the fields it leaves to `within`. */
@@ -221,12 +252,17 @@ export interface SchematicUnplacedPlan {
  * read. The unplaced clause is offered only by an index whose `x` and `y` are
  * Options, as a kind with a backlog boxes its rows.
  *
+ * A kind whose page holds a scope (#1621) reads them under it, as its window
+ * is read: through an index its scope's fields lead.
+ *
  * @param areas - The kind's area indexes ({@link schematicAreaIndexes})
- * @param where - The narrowing: the rail's
+ * @param where - The narrowing: the rail's, the page's scope among it
+ * @param scoped - The fields the page's scope holds: none on a page with no scope
  * @returns The index, the narrowing a read takes and the fields left to `within`
+ * @throws {Error} When the scope's values make more combinations than a read takes
  */
-export function schematicUnplacedPlan(areas: SchematicAreaIndexes, where: Where): SchematicUnplacedPlan {
-    const plan = areaPlan(areas, where, () => 1);
+export function schematicUnplacedPlan(areas: SchematicAreaIndexes, where: Where, scoped: readonly string[] = []): SchematicUnplacedPlan {
+    const plan = areaPlan(areas, where, () => 1, scoped);
     const taken = new SortedMap<string, ValueTypeOf<typeof RecordSliceChoiceType>>([], compareString);
     for (const [field, choice] of where) if (plan.index.fields.some((name) => stringEqual(name, field))) taken.set(field, choice);
     return { index: plan.index, read: { where: taken, area: some(variant("unplaced", null)) }, residual: plan.residual };
@@ -260,6 +296,8 @@ export interface SchematicRaster {
  * @returns The raster
  */
 export function schematicRaster(plan: SchematicWindowPlan, box: AreaWindow, printOn: RecordOnPrinter): SchematicRaster {
+    // A scope that holds no value (#1621): no combination, and no cell to count.
+    if (plan.prefixes.length === 0) return { level: 0, side: plan.cell * 2 ** 28, cells: [], coarse: [] };
     const budget = Math.max(1, Math.floor(MAX_AREA_RASTER / plan.prefixes.length));
     const rasters = plan.prefixes.map((prefix) => areaRaster(prefix, box, plan.cell, printOn, budget));
     // The same box, cell and budget: every combination's raster is at one level.

@@ -87,6 +87,7 @@ import {
     TickFormatType,
     ValueFormatType,
 } from "@elaraai/east-ui/internal";
+import { StatusLookType } from "../utils/status.js";
 
 // ============================================================================
 // Instants + axis — the shared scale, in one of three kinds
@@ -556,7 +557,7 @@ export type PlanChartPointType = typeof PlanChartPointType;
 
 /**
  * Which y-axis a chart layer scales against. Left ticks print inside the
- * gutter cell's right edge; right ticks at the plot's right edge.
+ * plot's left edge; right ticks inside its right edge.
  *
  * @property left - The left (primary) y-axis
  * @property right - The right (secondary) y-axis
@@ -1236,7 +1237,7 @@ export type PlanFooterItemType = typeof PlanFooterItemType;
  * @property height - Definite height (`"fill"` fills the parent); header chrome pinned, body scrolls within
  * @property maxHeight - Max-height cap; content-sized up to it, then scrolls
  * @property density - Row rhythm (`compact` ⇒ dense 24px span rows)
- * @property gutterWidth - Explicit gutter width, a CSS px size (`"168px"`; default 168)
+ * @property gutterWidth - The gutter's width where the canvas opens, a CSS px size (`"240px"`; default 240) — a viewer drags its right rule between 168 and 360 (widened to take this), and the canvas keeps where they left it
  */
 export const PlanStyleType = StructType({
     height:      OptionType(StringType),
@@ -1261,7 +1262,7 @@ export type PlanStyleType = typeof PlanStyleType;
  *
  * @remarks
  * The quantity is a number with its unit and format (#824): its value's third
- * of the family's largest sets the link's weight (2, 4 or 8), and its caption —
+ * of the family's largest sets the link's weight (2, 4 or 6), and its caption —
  * `text`, else the value formatted with its unit — prints on the link, on a
  * paper knockout. A link without one draws at the thinnest weight (1.5) and
  * prints nothing. A click on a link reports the `link` arm of the element ref,
@@ -1300,6 +1301,26 @@ export type PlanExpandAxisLiteral = "keep" | "dim" | "off";
 // ============================================================================
 
 /**
+ * An item's status (#1541, U8) — what `Plan.status(words, tone, { ring? })`
+ * builds, and what a run, a tile, a chip and a mark each carry as `status`:
+ * the builders' one status ({@link StatusLookType}), as an event kind's status
+ * case is (`Schedule.Types.Status`).
+ *
+ * @remarks
+ * The item draws its tone — a bar, a tile and a chip a 1.5px ring in the
+ * tone's colour, a mark its glyph in it — and with `ring` it draws as an open
+ * ring, as a tentative status does. Its words are what its accessible name
+ * says of it.
+ *
+ * @property label - Its words
+ * @property tone - Its tone: success, warning, danger, info or neutral
+ * @property ring - Whether the item draws as an open ring
+ */
+export const PlanStatusType = StatusLookType;
+/** Type alias for {@link PlanStatusType}. */
+export type PlanStatusType = typeof PlanStatusType;
+
+/**
  * One span run — a continuous `[start, end)` state-run bar
  * (`"RUN · J-4642 · 96 k sheets"`). Runs are quantity-bearing states, not tasks: no
  * dependency arrows, no critical path.
@@ -1308,10 +1329,13 @@ export type PlanExpandAxisLiteral = "keep" | "dim" | "off";
  * `quantity` is ONE value (#824, {@link PlanQuantityType}): the bar prints its
  * caption after the label (the muted `.q` suffix, `"96 k sheets"`), and a parent's
  * rollup band sums its runs' values unit by unit. `state` is the shared
- * `EventStateType` lifecycle driving the bar recipe; `status: warning` adds
- * the `.stuck` warn ring; `moved` collapses same-status churn to a `moved ×k`
+ * `EventStateType` lifecycle driving the bar recipe; `status` rings the bar in
+ * its tone ({@link PlanStatusType} — a warning's is the over-dwell ring);
+ * `moved` collapses same-status churn to a `moved ×k`
  * counter. Rich click/hover surfaces resolve through the ROOT's `popover` /
  * `hover` functions with the `run` arm of {@link PlanElementRefType}.
+ * `locked` holds it where it is (#1541, U9): drawn with a lock, and not moved,
+ * resized or removed.
  */
 export const PlanRunType = StructType({
     key: StringType,
@@ -1320,9 +1344,10 @@ export const PlanRunType = StructType({
     label: StringType,
     quantity: OptionType(PlanQuantityType),
     state: EventStateType,
-    status: OptionType(StatusValueType),
+    status: OptionType(PlanStatusType),
     moved: OptionType(IntegerType),
     icon: OptionType(IconType),
+    locked: BooleanType,
 });
 /** Type alias for {@link PlanRunType}. */
 export type PlanRunType = typeof PlanRunType;
@@ -1350,7 +1375,8 @@ export type PlanDecisionMarkType = typeof PlanDecisionMarkType;
  * `label: none` ⇒ the resting look — a ✓ chip for confirmed/actual, the
  * dashed `plan` chip for proposed. `icon` with `label: none` ⇒ an icon-only
  * tile. In a laned row, `lane: none` is the mixed grammar — the tile takes
- * the full cell across lanes. Rich surfaces resolve through the root's
+ * the full cell across lanes. `status` rings the tile in its tone
+ * ({@link PlanStatusType}). Rich surfaces resolve through the root's
  * `popover` / `hover` with the `event` arm of {@link PlanElementRefType}.
  */
 export const PlanBucketEventType = StructType({
@@ -1360,12 +1386,14 @@ export const PlanBucketEventType = StructType({
     label: OptionType(StringType),
     icon: OptionType(IconType),
     state: EventStateType,
-    tone: OptionType(StatusValueType),
+    status: OptionType(PlanStatusType),
     color: OptionType(StringType),
     colorPalette: OptionType(ColorSchemeType),
     stretch: OptionType(PlanStretchType),
     content: OptionType(PlanContentType),
     animation: OptionType(PlanAnimationType),
+    // Held where it is (#1541, U9): drawn with a lock, and not moved or removed.
+    locked: BooleanType,
 });
 /** Type alias for {@link PlanBucketEventType}. */
 export type PlanBucketEventType = typeof PlanBucketEventType;
@@ -1374,8 +1402,11 @@ export type PlanBucketEventType = typeof PlanBucketEventType;
  * One cards chip — a Roster shift chip spanning whole buckets. `confirmed`
  * renders the brand-tint chip, proposals dashed (`+64h`),
  * `proposed(removed)` the warn strikethrough, `estimated` the faint ghost a
- * tap would accept. Chip detail resolves through the root's `popover` with
- * the `chip` arm of {@link PlanElementRefType}.
+ * tap would accept. `status` rings the chip in its tone
+ * ({@link PlanStatusType}). Chip detail resolves through the root's `popover`
+ * with the `chip` arm of {@link PlanElementRefType}.
+ * `locked` holds it where it is (#1541, U9): drawn with a lock, and not moved,
+ * resized or removed.
  */
 export const PlanChipType = StructType({
     key: StringType,
@@ -1383,7 +1414,9 @@ export const PlanChipType = StructType({
     to: PlanInstantType,
     label: StringType,
     state: EventStateType,
+    status: OptionType(PlanStatusType),
     icon: OptionType(IconType),
+    locked: BooleanType,
 });
 /** Type alias for {@link PlanChipType}. */
 export type PlanChipType = typeof PlanChipType;
@@ -1393,22 +1426,28 @@ export type PlanChipType = typeof PlanChipType;
  * instant. Clusters collapse to `◇ ×3` in the renderer; labels print when
  * there is room. `icon` swaps the kind's default glyph for an FA icon
  * (12px, still kind-coloured) — hosts choose the glyph, never the geometry.
- * Mark detail resolves through the root's `popover` with the `mark` arm of
- * {@link PlanElementRefType}.
+ * `status` draws the glyph in its tone, in its kind's colour's place
+ * ({@link PlanStatusType}). Mark detail resolves through the root's
+ * `popover` with the `mark` arm of {@link PlanElementRefType}.
+ * `locked` holds it where it is (#1541, U9): drawn with a lock, and not moved,
+ * resized or removed.
  */
 export const PlanEventMarkType = StructType({
     key: StringType,
     at: PlanInstantType,
     kind: PlanEventMarkKindType,
+    status: OptionType(PlanStatusType),
     icon: OptionType(IconType),
     label: OptionType(StringType),
+    locked: BooleanType,
 });
 /** Type alias for {@link PlanEventMarkType}. */
 export type PlanEventMarkType = typeof PlanEventMarkType;
 
 /**
- * One bucket-row lane — a sub-slot within each column cell (`AM`/`PM`).
- * `label: none` renders an unlabelled lane strip.
+ * One bucket-row lane — a sub-slot within each column cell (`AM`/`PM`). Its
+ * label prints once, in the row's gutter, on the lane's own line; `label:
+ * none` renders an unlabelled lane strip.
  */
 export const PlanLaneType = StructType({
     key: StringType,
@@ -1650,7 +1689,7 @@ export type PlanRowsType = typeof PlanRowsType;
 // ============================================================================
 
 /**
- * What a Plan's `editing.onPatch` receives for entries of `R` (#880) — the
+ * What a Plan's `onPatch` receives for entries of `R` (#880) — the
  * shared patch event (`Editing.Types.PatchEvent`) over the Plan's drafts,
  * which are whole entries (`Editing.Types.DraftField(R)`): every gesture
  * writes a complete entry, so a draft is always its `value`.

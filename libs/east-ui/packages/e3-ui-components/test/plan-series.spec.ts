@@ -14,11 +14,12 @@
  *   series and summary file a resource's events under, the type of its cells,
  *   its items and its backlog from what a reader read — the drafts in place,
  *   with no read of the window — one event from the rows the cells hold, and
- *   the paged kind's keys and its rows shaded past the budget.
+ *   the presses — the canvas's own rows, read a page at a time (#1541) — a
+ *   window of them at a time, shaded past the budget.
  * - The refusals a Plan makes of a source's series and summary indexes as its
- *   payload builds, in the words a build uses — a kind on the paged presses
- *   whose source lists no series index, or no summary, among them, each naming
- *   the indexes to declare over the kind's own fields.
+ *   payload builds, in the words a build uses — a kind landing on the paged
+ *   presses whose source lists no series index, or no summary, among them,
+ *   each naming the indexes to declare over the kind's own fields.
  *
  * What a reader reads, and when, is the DOM's (`src/plan/frame/plan-series.dom.test.tsx`).
  */
@@ -35,7 +36,7 @@ import { Editing } from "@elaraai/east-ui/internal";
 import { StateRuntime, UIStore, createRecordSliceImplementation } from "@elaraai/east-ui-components/platform";
 import { Data, Plan, PlanEventShadingType, PlanPayloadType, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-windows";
-import { PrintJob } from "@elaraai/e3-ui/examples/plan/plan-events";
+import { PrintJob, PrintPress } from "@elaraai/e3-ui/examples/plan/plan-events";
 import { datasetPathToString } from "../src/platform/dataset-store.js";
 import { e3Spec } from "./fixtures/e3.js";
 
@@ -70,7 +71,7 @@ interface Declared {
     readonly resource?: "press" | "customer";
     /** The jobs' field the kind ends them at: `end` unless given. */
     readonly end?: "end" | "due";
-    /** Whether the presses are read whole, not paged. */
+    /** Whether the presses — the canvas's rows — are read whole, not paged. */
     readonly whole?: boolean;
     /** Whether the indexes are listed for a second kind over the jobs too, placed on no resource — `loose`. */
     readonly loose?: boolean;
@@ -79,9 +80,9 @@ interface Declared {
 /** The windows example's Plan (`planWindows`), its payload declared in East over e3. */
 function seriesPayload($: BlockBuilder<typeof PlanPayloadType>, declared: Declared = {}): ExprType<typeof PlanPayloadType> {
     const { indexes = ["plan_window_jobs_by_time", "plan_window_jobs_by_press_week", "plan_window_jobs_by_press_month"], resource = "press", end = "end", whole = false, loose = false } = declared;
-    const presses = whole
-        ? Schedule.resources($.let(Data.bind(ex.planWindowPresses)).read(), { name: "Presses", icon: "print", label: (p) => p.name })
-        : Schedule.resources($.let(Data.bindPaged(ex.planWindowPresses)), { name: "Presses", icon: "print", label: (p) => p.name });
+    // The presses are the canvas's rows (#1541): read whole, or a page at a time.
+    const wholePresses = $.let(Data.bind(ex.planWindowPresses));
+    const pagedPresses = $.let(Data.bindPaged(ex.planWindowPresses));
     const jobs = $.let(Record.bind(ex.planWindowJobs, ["patch"]));
     const entries = $.let(Data.bindPaged(ex.planWindowJobs));
     const job = { source: Data.bindPaged(ex.planWindowJobs, { indexes: indexes as never }), range: "start" };
@@ -103,7 +104,8 @@ function seriesPayload($: BlockBuilder<typeof PlanPayloadType>, declared: Declar
     return Plan.Payload({
         axis: Plan.axis({ window: { min: FIRST, max: TWO_WEEKS }, resolution: "day" }),
         slice: { slice: slice as never },
-        resources: { presses },
+        data: whole ? wholePresses.read() : pagedPresses,
+        series: [Plan.series.resources(PrintPress, { key: "presses", title: "Presses", icon: "print", label: (p) => p.name })],
         events: kinds,
     });
 }
@@ -120,8 +122,13 @@ async function payloadOf(declared: Declared = {}): Promise<Payload> {
 
 /** The payload's one event kind, the jobs. */
 const jobsOf = (payload: Payload) => payload.events[0]!;
-/** The payload's paged kind, the presses. */
-const pagedOf = (payload: Payload) => (payload.paged.type === "some" ? payload.paged.value : assert.fail("expected the presses paged"));
+/** The canvas's rows' source: the presses, a window at a time. */
+const sourceOf = (payload: Payload) => (payload.plan.rows.type !== "inline" ? payload.plan.rows.value : assert.fail("expected the presses paged"));
+/** The seam that joins the events into the rows. */
+const seamOf = (payload: Payload) => (payload.seam.type === "some" ? payload.seam.value : assert.fail("expected the event kinds' seam"));
+/** The presses a window's rows hold, by the last step of each landing row's path. */
+const pressesIn = (blocks: readonly { rows: readonly { id: ValueTypeOf<typeof Plan.Types.RowId> }[] }[]) =>
+    blocks.flatMap((b) => b.rows).flatMap((row) => (row.id.type === "entry" ? [row.id.value.path[row.id.value.path.length - 1]!] : []));
 
 /** A kind's cells, encoded as a reader hands them to its seams: each stored job's key beside its row. */
 function cellsOf(payload: Payload, jobs: ReadonlyMap<string, Job>, keys: readonly string[]): Uint8Array {
@@ -202,19 +209,20 @@ describe("the seams of a kind read by its cells (#1039)", () => {
         assert.ok(jobReads().some((request) => request.kind === "find" && request.query.get("index") === null), "sought among the record's own entries");
     });
 
-    test("the paged kind's keys, a window of them at a time — and its rows shaded: the share of each bucket booked, or the hatch where nothing shows", async () => {
+    test("the presses a window at a time — and their rows shaded: the share of each bucket booked, or the hatch where nothing shows", async () => {
         const payload = await payloadOf();
-        const paged = pagedOf(payload);
-        assert.deepEqual(await h.ready(() => paged.keys(0n, 3n)), ["P-1001", "P-1002", "P-1003"]);
-        assert.deepEqual(await h.ready(() => paged.keys(1_999n, 5n)), ["P-3000"], "a window past the last press holds what is left");
+        const source = sourceOf(payload);
+        const first = await h.ready(() => source.page(0n, 3n));
+        assert.deepEqual(pressesIn(first.rows), ["P-1001", "P-1002", "P-1003"]);
+        assert.deepEqual(pressesIn((await h.ready(() => source.page(1_999n, 5n))).rows), ["P-3000"], "a window past the last press holds what is left");
         const held = await heldJobs();
         const reads = new SortedMap([["job", cellsOf(payload, held, ["W-0001", "W-0002", "W-0003"])]], compareString);
-        const placed = await h.ready(() => paged.placed(FIRST, TWO_WEEKS, new SortedMap([], compareString), [], reads));
+        const placed = await h.ready(() => seamOf(payload).placed(FIRST, TWO_WEEKS, new SortedMap([], compareString), [], reads));
         const shading: ValueTypeOf<typeof PlanEventShadingType> = new SortedMap([["presses.span", new SortedMap([
             ["P-1001", [{ at: FIRST, value: some(0.25) }, { at: at("2026-10-06T00:00:00Z"), value: some(0.5) }]],
             ["P-1002", [{ at: FIRST, value: none }, { at: at("2026-10-06T00:00:00Z"), value: none }]],
         ], compareString)]], compareString);
-        const [block] = await h.ready(() => paged.rows(0n, 3n, placed, shading, []));
+        const [block] = seamOf(payload).place(first.rows, placed, shading, [], false);
         const kinds = block!.rows.map((row) => row.kind);
         // Press 1001 draws bars: its share of each day booked.
         const booked = kinds[0]!;
@@ -240,19 +248,19 @@ describe("a source's series and summary indexes, refused as the payload builds (
     /** The two indexes a refusal names, declared over the jobs' own fields: their press, their start and their end. */
     const series = `index\\.series\\(\\{ key: "press", from: "start", to: "end", tile: "week" \\}\\)`;
     const summary = `index\\.summary\\(\\{ key: "press", from: "start", to: "end", tile: "month" \\}\\)`;
-    const paged = `, and the kind is placed on resources\\.presses, paged — a paged kind's events are read a cell at a time`;
+    const paged = `, and the kind is placed on the rows of presses, paged — a paged kind's events are read a cell at a time`;
 
     test("the example's three build", async () => {
         await assert.doesNotReject(payloadOf());
     });
 
-    test("a kind on the paged presses whose source lists its interval index alone: refused, naming the series and the summary index to declare", async () => {
+    test("a kind landing on the paged presses whose source lists its interval index alone: refused, naming the series and the summary index to declare", async () => {
         await assert.rejects(payloadOf({ indexes: ["plan_window_jobs_by_time"] }),
             new RegExp(`^.*Plan: events\\.job's source lists no series index and no summary index${paged}, and shaded past what the Plan draws: ` +
                 `declare ${series} and ${summary} over the same record and list them beside its interval index`));
     });
 
-    test("a kind on the paged presses whose source lists a summary and no series index: refused, naming the series index to declare", async () => {
+    test("a kind landing on the paged presses whose source lists a summary and no series index: refused, naming the series index to declare", async () => {
         await assert.rejects(payloadOf({ indexes: ["plan_window_jobs_by_time", "plan_window_jobs_by_press_month"] }),
             new RegExp(`^.*Plan: events\\.job's source lists the summary index "plan_window_jobs_by_press_month", and no series index${paged}, ` +
                 `through a series index: declare ${series} over the same record and list it beside the summary index`));
@@ -263,9 +271,9 @@ describe("a source's series and summary indexes, refused as the payload builds (
             refused(`series index "plan_window_jobs_by_press_week", and no summary index — the Plan draws a series index's events while they fit, and its summary's shading past that: declare ${summary} over the same record and list it beside the series index`));
     });
 
-    test("a series index for a kind whose resources are read whole, or placed on none", async () => {
+    test("a series index for a kind whose rows are read whole, or placed on none", async () => {
         await assert.rejects(payloadOf({ whole: true }),
-            refused(`series index "plan_window_jobs_by_press_week", and no resource kind is paged — a series index reads the events of a paged resource kind's rows a window at a time: page the resources \\(Data\\.bindPaged\\), or leave the index out`));
+            refused(`series index "plan_window_jobs_by_press_week", and no resources are paged — a series index reads the events of paged resources a window at a time: page the resources \\(Data\\.bindPaged\\), or leave the index out`));
         await assert.rejects(payloadOf({ loose: true }),
             refused(`series index "plan_window_jobs_by_press_week", and the kind places its events on no resource — a series or a summary index files events by their resource: give the kind \`resource\`, or leave the index out`, "loose"));
     });

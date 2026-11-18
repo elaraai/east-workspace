@@ -429,7 +429,12 @@ const size_t *east_beast2_pages_counts(Beast2Pages *p, size_t *n_out);
 // a cache hit (segment or fence) is not counted again.
 // A runner reports these per lazy input — the account residency cannot give
 // on a mapping, where the kernel decides how much of a touched file is resident.
+// A key range's view counts its reads on its source's pager.
 void east_beast2_pages_stats(Beast2Pages *p, size_t *segments_decoded, size_t *fences_probed);
+// The segments the collection is stored in — a key range's view's source's —
+// which asking reads nothing and places no view: what an account of a lazy
+// value reports beside east_beast2_pages_stats.
+size_t east_beast2_pages_stored_segment_count(Beast2Pages *p);
 // What the pager's cache of decoded segments has done (#1129) — the cache
 // element(), the keyed reads, get_keys() and find_sorted() go through — in
 // decoded weight (see east_beast2_pages_set_cache_budget). For tests and
@@ -518,6 +523,13 @@ EastValue *east_beast2_pages_segment_projected(Beast2Pages *p, size_t i,
 // wire-shaped keys; the decode itself is projected and uncached).
 EastValue *east_beast2_pages_segment_disjoint_projected(Beast2Pages *p, size_t i,
                                                         const Beast2Projection *pr);
+// Whether segment i decodes to a loop's projection, through the two entries
+// above: every segment of an Array or a Dict, and none of a Set, whose
+// elements are its keys; of a key range's view, only the segments between its
+// ends — its end segments are read whole, through the cache. A paged loop asks
+// first, so a segment that cannot be projected is read whole with no failed
+// attempt. False for a view whose ends cannot be placed, the reason posted.
+bool east_beast2_pages_segment_projects(Beast2Pages *p, size_t i);
 // Open-time projection: EVERY pager read (segment(), element(), keyed gets,
 // the shared cache) decodes through `pr` from now on — the cache stays
 // consistent because the pager's shape is fixed for its lifetime. `pr` is
@@ -750,6 +762,78 @@ bool east_beast2_intake_file(const char *path, EastType *type, bool ranged, int6
 // 256 MiB; the EAST_PAGED_CACHE_BYTES environment variable sets it at open.
 // Setting it evicts down to it at once.
 void east_beast2_pages_set_cache_budget(Beast2Pages *p, size_t bytes);
+
+// ── A key range of a paged collection (issue #1616) ──────────────────────
+//
+// A range of a lazily opened Set or Dict is a view: a paged value that holds
+// the one it narrows and two bounds, and reads through its source's pager and
+// that pager's one cache. A bound is a leading part of the key
+// (east/key_bound.h): its value and its type, and whether the end is the first
+// key at or past it (`past` false) or the first key past it (`past` true, a
+// prefix's upper end). A NULL bound leaves that end open.
+//
+// Opening a view reads nothing. Its rows are found at the first read that
+// needs them: each end by a bisect of the fences, which reads no segment once
+// they are verified, then a search of the one segment that can hold it,
+// through the cache. A range of a range is placed among the rows of the range
+// it narrows, and reads no segment outside that one's. Every pager entry then
+// answers for the view's rows: its
+// size, a keyed read (a key outside the view is absent, with nothing read),
+// its segments — its first and last through the cache, rows whole; those
+// between them decoded fresh, as a scan's — and a range of it again.
+//
+// A placed view holds its rows by its first key and the first key past them,
+// and nothing of the range it narrows: from then its value holds the
+// source's value instead. So a body may narrow a range thousands of times — a
+// range of a range of a range is placed by a loop, outermost first, and a
+// chain of them never placed is released by one — and the last costs no more
+// to read than the first.
+// east_paged_hydrated on a view decodes its own rows and no others, into a
+// collection of its own, and leaves its source lazy.
+//
+// A view is never frozen, whatever its source is: a range is a new collection
+// a body may change, and changing it decodes its rows and changes those. Its
+// rows decode as the source's do. A host that hands a range out read-only —
+// a range of a file it keeps open — brands the view frozen as it makes it
+// (east_value_set_frozen): it then refuses a change, and its own rows decode
+// into a frozen collection.
+//
+// `source` is a paged value that still reads from its pager, of a Set or Dict
+// root; the view retains it. Returns NULL (message via east_builtin_get_error)
+// when it is not one, or a bound's type is no leading part of the key.
+EastValue *east_beast2_open_paged_range(EastValue *source, EastValue *from, EastType *from_type,
+                                        bool from_past, EastValue *to, EastType *to_type,
+                                        bool to_past);
+// Places a view's ends if they are not yet placed. The entries that have no
+// way to fail — east_beast2_pages_segment_count, _element_count and _counts —
+// answer nothing for a view whose ends cannot be placed, the reason posted, so
+// a caller that reads them asks here first. True at once for a pager that is
+// no view.
+bool east_beast2_pages_prepare(Beast2Pages *p);
+// The rows [*lo_out, *hi_out) of a Set or Dict root between two bounds, in the
+// pager's own row numbering: what a host reads a range of a file by. Bounds
+// are given as east_beast2_open_paged_range takes them. Over a manifest it
+// opens only the segments its ends land in. Refuses where a keyed read
+// refuses — an Array root, segments that are not self-contained, fences that
+// do not ascend — and a bound whose type is no leading part of the key.
+bool east_beast2_pages_range(Beast2Pages *p, EastValue *from, EastType *from_type, bool from_past,
+                             EastValue *to, EastType *to_type, bool to_past, size_t *lo_out,
+                             size_t *hi_out);
+// The rows of a Set or Dict root between two bounds, as one read-only
+// collection of their own: what a host that keeps no lazily opened value of
+// the collection — a file read under a projection — reads a range by. The rows
+// are placed as east_beast2_pages_range places them, and the segments they
+// span are read once each, as a view reads them: the two its ends land in
+// through the cache, where placing the ends left them, and those between them
+// decoded fresh. The collection is frozen, and so is every value in it — the
+// cache's segments are, and those between the ends decode frozen — so it
+// refuses a change at any depth, as a frozen decode does. Bounds are given as
+// east_beast2_open_paged_range takes them; `p` reads its own bytes, and is no
+// view. Returns a retained value, or NULL (message via east_builtin_get_error)
+// where east_beast2_pages_range refuses.
+EastValue *east_beast2_pages_range_rows(Beast2Pages *p, EastValue *from, EastType *from_type,
+                                        bool from_past, EastValue *to, EastType *to_type,
+                                        bool to_past);
 
 // The eager collection behind a paged value, decoding the whole blob on
 // first use (cached on the wrapper; iteration locks carry over). Every read

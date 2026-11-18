@@ -13,14 +13,17 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  StringType, carveBeast2, compareFor, encodeBeast2For, encodeBeast2FenceFor, encodeBeast2SegmentsFor, isVariant, openBeast2PagesFor,
-  readBeast2Extents, readBeast2Type, segmentKeyTypeOf, toEastTypeValue, variant, type EastType, type EastTypeValue,
+  DateTimeType, StringType, carveBeast2, compareFor, encodeBeast2For, encodeBeast2FenceFor, encodeBeast2SegmentsFor, isVariant, openBeast2PagesFor,
+  parseFor, printType, readBeast2Extents, readBeast2Type, segmentKeyTypeOf, toEastTypeValue, variant, type EastType, type EastTypeValue,
+  type ValueTypeOf,
 } from '@elaraai/east';
+import type { PartRunner } from '@elaraai/e3';
 import {
   COLLECTION_MANIFEST_KIND, encodeCollectionManifest, type CollectionManifestEntry, type ExecutionStatus, type Structure,
 } from '@elaraai/e3-types';
 import type { BackendDamage } from './contract/index.js';
 import { checkHash, checkId } from './errors.js';
+import type { DetachedResult } from './execution/interfaces.js';
 import { openZip } from './package-files.js';
 import type { InMemoryStorage } from './storage/in-memory/InMemoryStorage.js';
 import { executionPath } from './storage/local/localHelpers.js';
@@ -377,6 +380,177 @@ export function createTestRepo(): string {
  */
 export function removeTestRepo(repoPath: string): void {
   removeTempDir(repoPath);
+}
+
+/**
+ * Runs `fn` with environment variables set, and restores each as it was after,
+ * whether `fn` resolves or throws.
+ *
+ * @param vars - Each variable's value while `fn` runs: a string sets it, and
+ *   `undefined` unsets it
+ * @param fn - What runs under them
+ * @returns What `fn` resolves to
+ */
+export async function withEnv<T>(vars: Record<string, string | undefined>, fn: () => Promise<T>): Promise<T> {
+  const prev = Object.keys(vars).map((k) => [k, process.env[k]] as const);
+  for (const [k, v] of Object.entries(vars)) {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+  try {
+    return await fn();
+  } finally {
+    for (const [k, v] of prev) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+}
+
+/**
+ * A detached run's end, as a runner reports it: the end given, with log tails
+ * of `out\n` and `err\n`, neither cut, unless the end gives its own.
+ *
+ * @param result - The end: its `kind`, the fields that kind carries, and any
+ *   log tail to give instead
+ * @returns The run's end
+ */
+export function ran(result: Partial<DetachedResult> & Pick<DetachedResult, 'kind'>): DetachedResult {
+  return { stdout: 'out\n', stderr: 'err\n', stdoutTruncated: false, stderrTruncated: false, ...result } as DetachedResult;
+}
+
+/**
+ * The stock runtimes a test that holds every runner to one behaviour runs
+ * over: east-node, which every checkout has, then east-c and east-py, each
+ * where its runner's CLI is on PATH and answers `version`, as CI's are.
+ *
+ * @returns The runtimes, east-node first
+ */
+export function stockRuntimesOnPath(): Array<'east-node' | 'east-c' | 'east-py'> {
+  const runs = (command: string): boolean =>
+    spawnSync(command, ['version'], { stdio: 'ignore', shell: process.platform === 'win32' }).status === 0;
+  return ['east-node', ...(['east-c', 'east-py'] as const).filter(runs)];
+}
+
+/**
+ * The name a spec gives a function or a task it declares once for each stock
+ * runtime: what it does, then the runtime, as a definition's name may spell it.
+ *
+ * @param name - What the definition does
+ * @param runtime - The runtime it runs on: `east-node`, `east-c` or `east-py`
+ * @returns The name: `count_east_node` for `count` on east-node
+ */
+export function onRuntime(name: string, runtime: string): string {
+  return `${name}_${runtime.replace('-', '_')}`;
+}
+
+/**
+ * What a runner's verbose account says its pager decoded of an input: how many
+ * of the input's segments, a count that a read's cost is held to, never a
+ * clock. The account's line is `input <i>: <decoded> of <segments> segments
+ * decoded`.
+ *
+ * @param stderr - The run's log, which a verbose run writes the account to
+ * @param input - The input's place among the unit's inputs, from 0
+ * @returns The segments decoded, and the segments the input is stored in
+ * @throws {Error} When the account names no lazy read of the input, giving the log
+ */
+export function decodedOf(stderr: string, input: number): { decoded: number; segments: number } {
+  const said = new RegExp(`input ${input}: (\\d+) of (\\d+) segments decoded`).exec(stderr);
+  if (said === null) throw new Error(`the runner's account names no lazy read of input ${input}:\n${stderr}`);
+  return { decoded: Number(said[1]), segments: Number(said[2]) };
+}
+
+/** A stock runtime a spec holds to one behaviour on every runtime: the workspace it runs in, and the runner it is given. */
+export interface StockRunner {
+  /** The workspace it runs in: `node`, `c` or `py`. */
+  readonly ws: string;
+  /** The runner its tasks, records' writes and indexes are given. */
+  readonly runner: PartRunner;
+}
+
+/**
+ * The stock runtimes a spec holds to one behaviour on every runtime
+ * ({@link stockRuntimesOnPath}), each with the workspace it runs in and its
+ * runner, and why a comparison of them skips: it needs two, and a machine with
+ * east-node alone skips it rather than fails.
+ *
+ * @returns `runtimes`, east-node first; `missing`, the skip's reason where fewer than two are on PATH, else `false`
+ */
+export function stockRunners(): { readonly runtimes: StockRunner[]; readonly missing: string | false } {
+  const installed = stockRuntimesOnPath();
+  const runtimes: StockRunner[] = [
+    { ws: 'node', runner: { runner: { runtime: 'east-node', platforms: ['@elaraai/east-node-std'] } } },
+    ...(installed.includes('east-c') ? [{ ws: 'c', runner: { runner: { runtime: 'east-c' as const, platforms: [] } } }] : []),
+    ...(installed.includes('east-py') ? [{ ws: 'py', runner: { runner: { runtime: 'east-py' as const, platforms: [] } } }] : []),
+  ];
+  const missing = runtimes.length < 2
+    ? `needs east-c or east-py on PATH beside east-node; have ${runtimes.map((r) => r.ws).join(', ')}`
+    : false;
+  return { runtimes, missing };
+}
+
+// A seeded stream of numbers in [0, 1) (mulberry32), the same rows on every
+// run of a spec that draws them: East's own, which its fuzz generator draws from
+export { randomStream as seededStream } from '@elaraai/east/internal';
+
+/**
+ * A value written as East prints one, read by East's parser: how a spec
+ * writes rows that nest.
+ *
+ * @param type - The value's type
+ * @param text - The value, as East prints it
+ * @returns The value
+ * @throws {Error} When the text is no value of the type, naming the type and why
+ */
+export function parsedValue<T extends EastType>(type: T, text: string): ValueTypeOf<T> {
+  const read = parseFor(type)(text);
+  if (!read.success) throw new Error(`not a ${printType(type)}: ${read.error}`);
+  return read.value;
+}
+
+/**
+ * An instant written as East prints one, read by East's parser.
+ *
+ * @param text - The instant, as East prints it: `2026-01-05T00:00:00.000`
+ * @returns The instant
+ * @throws {Error} When the text is no instant East reads, saying why
+ */
+export function at(text: string): ValueTypeOf<typeof DateTimeType> {
+  return parsedValue(DateTimeType, text);
+}
+
+/**
+ * A Dict as East prints one, from its entries' texts.
+ *
+ * @param entries - Each entry, as East prints it: `key:value`
+ * @returns The Dict's text: `{:}` with no entry
+ */
+export function dictText(entries: readonly string[]): string {
+  return entries.length === 0 ? '{:}' : `{${entries.join(', ')}}`;
+}
+
+/**
+ * Something a test waits for, and the call that brings it: a test that must
+ * act once another step has happened — a runner handed its run — awaits
+ * `opened`, where it would otherwise count on the order two steps are
+ * scheduled in.
+ *
+ * @typeParam T - What the wait is given
+ * @returns `opened`, which settles once `open` is called, with what it was
+ *   given
+ *
+ * @example
+ * ```ts
+ * const running = gated<void>();
+ * const run = start(() => running.open());
+ * await running.opened; // started, wherever its own reads fell
+ * ```
+ */
+export function gated<T>(): { readonly opened: Promise<T>; open(value: T): void } {
+  let open!: (value: T) => void;
+  const opened = new Promise<T>((resolve) => { open = resolve; });
+  return { opened, open };
 }
 
 /**

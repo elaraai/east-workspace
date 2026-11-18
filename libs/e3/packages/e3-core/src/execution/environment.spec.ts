@@ -117,10 +117,35 @@ describe('task and function object decoders', () => {
     assert.throws(() => decodeFunctionObject(earlierBytes), /exported by an older e3 SDK — re-export it with the current one/);
   });
 
-  it('round-trips a current function with an environment hash', () => {
+  it('refuses function bytes from before a function listed the records a call may draft, saying to re-export', () => {
+    const PreDraftsFunctionObjectType = StructType({
+      bodyIr: StringType,
+      inputs: ArrayType(TreePathType),
+      argTypes: ArrayType(EastTypeType),
+      outputType: EastTypeType,
+      runner: RunnerType,
+      environment: OptionType(StringType),
+    });
+    // With an input and with none: either reads as no current function object.
+    for (const inputs of [[], [[variant('field', 'records'), variant('field', 'jobs')]]]) {
+      const earlierBytes = encodeBeast2For(PreDraftsFunctionObjectType)({
+        bodyIr: 'c'.repeat(64),
+        inputs,
+        argTypes: [toEastTypeValue(IntegerType)],
+        outputType: toEastTypeValue(IntegerType),
+        runner: variant('east_node', { platforms: [], decode: variant('lazy', null) }),
+        environment: none,
+      });
+
+      assert.throws(() => decodeFunctionObject(earlierBytes), /exported by an older e3 SDK — re-export it with the current one/);
+    }
+  });
+
+  it('round-trips a current function with an environment hash, and the records it lists in its drafts', () => {
     const fnObj: FunctionObject = {
       bodyIr: 'c'.repeat(64),
-      inputs: [],
+      inputs: [{ path: [variant('field', 'records'), variant('field', 'jobs')], index: none }],
+      drafts: ['jobs'],
       argTypes: [],
       outputType: toEastTypeValue(IntegerType),
       runner: variant('east_node', { platforms: [], decode: variant('lazy', null) }),
@@ -128,6 +153,7 @@ describe('task and function object decoders', () => {
     };
     const decoded = decodeFunctionObject(encodeBeast2For(FunctionObjectType)(fnObj));
     assert.strictEqual(decoded.environment.type === 'some' && decoded.environment.value, 'd'.repeat(64));
+    assert.deepStrictEqual(decoded.drafts, ['jobs']);
   });
 
   it('folds the environment into the task object bytes (cache identity)', () => {

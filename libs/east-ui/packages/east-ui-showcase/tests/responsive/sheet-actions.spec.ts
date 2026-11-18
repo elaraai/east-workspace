@@ -67,7 +67,8 @@ for (const theme of ["light", "dark"] as const) {
                 expect(font.family.toLowerCase()).toContain("mono");
                 expect(font.weight).toBe("600");
                 expect(font.transform).toBe("uppercase");
-                expect(font.line).toBe("16px");
+                // A whole, odd line: the row's room is odd, so the words start a whole number of pixels under its edge (#1638).
+                expect(font.line).toBe("17px");
                 const dot = (await cell.locator("[data-slot=actionDot]").boundingBox())!;
                 expect([Math.round(dot.width), Math.round(dot.height)]).toEqual([8, 8]);
                 // The controls set no position: the grid's ring, the cell's last child, paints over them (S11).

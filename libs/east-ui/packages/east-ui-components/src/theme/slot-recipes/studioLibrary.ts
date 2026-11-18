@@ -19,6 +19,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { centredLine } from "../one-line-box.js";
 
 /** The pane's mono caps captions. */
 const CAPTION = {
@@ -102,13 +103,16 @@ export const studioLibrarySlotRecipe = defineSlotRecipe({
         },
         paneCount: { fontFamily: "mono", fontSize: "10px", color: "fg.subtle", fontVariantNumeric: "tabular-nums" },
         /* A project, or a page with its status dot at the right — the page
-           open in the builder in the strong ink. */
+           open in the builder in the strong ink. Its title stands on a whole
+           line of 20px, centred in its 32px (#1638), where 1.5 of its 13px
+           face is 19.5px. */
         paneRow: {
             display: "flex",
             alignItems: "center",
             gap: "10px",
             width: "100%",
             height: "32px",
+            lineHeight: centredLine(32, 20),
             paddingX: "10px",
             border: "none",
             borderRadius: "{radii.sm}",

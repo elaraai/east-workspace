@@ -48,9 +48,21 @@ export const TaskPartitionType = StructType({ by: ArrayType(StringType) });
 export type TaskPartitionType = typeof TaskPartitionType;
 export type TaskPartition = ValueTypeOf<typeof TaskPartitionType>;
 
-/** A dataset a task reads, and whether the work may be split over it. */
+/**
+ * A dataset a task reads, and whether the work may be split over it; or an
+ * index of a record, which is read through the record's dataset.
+ *
+ * @property path - The dataset's path: for an index, its record's
+ * @property index - The index of the record at `path` the input reads, by its
+ *   name on the record: the body is given the index's entries,
+ *   `Dict<{ ik, k }, P>`, at the state the record holds. `none` for the dataset
+ *   itself
+ * @property partition - How the work may be split over the input; `none` for
+ *   one every piece reads whole, as an index always is
+ */
 export const TaskInputType = StructType({
   path: TreePathType,
+  index: OptionType(StringType),
   partition: OptionType(TaskPartitionType),
 });
 export type TaskInputType = typeof TaskInputType;
@@ -135,7 +147,7 @@ export type TaskRole = ValueTypeOf<typeof TaskRoleType>;
  *   kind: TASK_OBJECT_KIND,
  *   body: variant('east', { program: '5e7a3b...' }),
  *   runner: variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }),
- *   inputs: [{ path: [variant('field', 'inputs'), variant('field', 'sales')], partition: none }],
+ *   inputs: [{ path: [variant('field', 'inputs'), variant('field', 'sales')], index: none, partition: none }],
  *   output: { path: [variant('field', 'tasks'), variant('field', 'totals'), variant('field', 'output')], kind: variant('value', null) },
  *   role: variant('data', null),
  *   environment: none,

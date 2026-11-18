@@ -16,24 +16,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, DateTimeType, DictType, East, OptionType, RecursiveType, StringType, StructType,
+    DateTimeType, DictType, East, RecursiveType, StringType, StructType,
     decodeBeast2For, encodeBeast2For, equalFor, none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { Plan } from "@elaraai/e3-ui/internal";
+import { entry as id, rowsOf, sameIds, sameParents, type RowId } from "./plan-rows.fixtures.js";
 
 const axis = Plan.axis({ window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-10-12T00:00:00Z") }, resolution: "day" });
-
-type RowId = ValueTypeOf<typeof Plan.Types.RowId>;
-type Root = ValueTypeOf<typeof Plan.Types.Root>;
-const id = (series: string, ...path: string[]): RowId => variant("entry", { series, path });
-const sameIds = equalFor(ArrayType(Plan.Types.RowId));
-const sameParents = equalFor(ArrayType(OptionType(Plan.Types.RowId)));
-
-/** The canvas's rows, every block's in order. */
-function rowsOf(root: Root) {
-    if (root.rows.type !== "inline") throw new Error("expected an inline canvas");
-    return root.rows.value.flatMap((b) => b.rows);
-}
 
 // ── Resources, each holding the ones nested under it ─────────────────────────
 

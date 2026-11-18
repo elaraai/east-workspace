@@ -29,7 +29,7 @@ export const planRowFocus = {
 } satisfies SystemStyleObject;
 
 /** A mark's focus — a ring just outside the mark, clear of its own state
- *  ring (the confirmed outline, the stuck warn ring). */
+ *  ring (the confirmed outline, its status's ring). */
 export const planElementFocus = {
     _focusVisible: { outline: "2px solid", outlineColor: "border.focus", outlineOffset: "1px" },
 } satisfies SystemStyleObject;
@@ -56,8 +56,8 @@ export const planElementSelected = {
 
 /**
  * An event in an overlap pair (#1198, `Plan Builder Spec.md` §8, PB51) — a
- * 1.5px warn ring just outside its mark (`data-overlap`), the stuck ring's
- * look. A box shadow, so the selected outline and a keyboard focus's ring draw
+ * 1.5px warn ring just outside its mark (`data-overlap`), a warning status's
+ * look (`status.ts`). A box shadow, so the selected outline and a keyboard focus's ring draw
  * over it, beside it, never in its place; a mark that has a ring of its own
  * composes the two (a confirmed mark's inset brand ring inside this one).
  */
@@ -68,14 +68,16 @@ export const PLAN_OVERLAP_RING = "0 0 0 1.5px {colors.status.warn}";
  * chip's box on the brand tint in a 1.5px solid brand border, whatever its
  * lifecycle look: the tint means selected or dirty only (#949), and the
  * Calendar's drafted blocks wear the same. Spread AFTER the lifecycle states,
- * so it takes their place, and BEFORE the rings — the stuck and overlap rings,
- * the selection and the focus — which ride over it.
+ * so it takes their place, and BEFORE the rings — a status's and the overlap's,
+ * the selection and the focus — which ride over it. Its border stands in the
+ * element's padding (`--state-edge`, `states.ts`), never in its words' room.
  */
 export const planElementDrafted = {
     "&[data-draft]": {
         background: "{colors.brandTint}",
         color: "brand.fg",
         borderWidth: "1.5px",
+        "--state-edge": "1.5px",
         borderStyle: "solid",
         borderColor: "{colors.brand.solid}",
         boxShadow: "none",

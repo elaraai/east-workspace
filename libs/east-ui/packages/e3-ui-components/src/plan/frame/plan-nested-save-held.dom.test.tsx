@@ -52,7 +52,7 @@ const ledgersTyped = { fn: East.function([], UIComponentType, (_$) => Reactive.R
                 cells: Plan.tableCells(Plan.values("readings", (v) => ({ value: some(v) }))), edit: true,
             })]),
         })],
-        editing: { onApply: Record.onApply(record, { keyed: true }) },
+        record,
     });
 }))) };
 

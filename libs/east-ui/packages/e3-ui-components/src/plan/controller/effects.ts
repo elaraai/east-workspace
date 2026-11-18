@@ -11,8 +11,7 @@
  *
  * Every source of the Plan's `Slice.bindRecords` whose range field speaks the
  * axis's arm holds the window (`root/window.ts`) — but the canvas's rows', the
- * `rows` source's and each resource kind's, which the dates on screen never
- * narrow. A pan, the now rung, the brush and the time navigator write the
+ * `rows` source's, which the dates on screen never narrow. A pan, the now rung, the brush and the time navigator write the
  * window into each of them at once — the reader's own gesture, so a choice of
  * a source's that no index takes beside a window gives way, as the range
  * editor says it would. A canvas whose slice has no source holding the window

@@ -23,6 +23,7 @@
  */
 
 import { createContext, useContext } from "react";
+import { StringType, equalFor } from "@elaraai/east";
 import type { CarrySteps, MoveMode, Span } from "../../shared/time/drag.js";
 import { equalInstants, type PlanInstantValue } from "../instant.js";
 import type { PlanRowValue } from "../model.js";
@@ -57,6 +58,8 @@ export interface PlanMovable {
     readonly items: string;
     /** Whether it has two ends to resize. */
     readonly resize: boolean;
+    /** The lane its tile sits in (#1541, U1), where its row has lanes and it is in one. */
+    readonly lane?: string | undefined;
 }
 
 /** A pointer drag of an element, from its press. */
@@ -67,6 +70,17 @@ export interface PlanGrab {
     readonly mode: PlanMoveMode;
     /** Where it was pressed, as a window fraction. */
     readonly grabFrac: number;
+    /** The element's node, as it was pressed: where Connect's draft line starts (#1541, U10). */
+    readonly node?: Element | undefined;
+}
+
+/** Connect's draft in flight (#1541, U10): where the line from the pressed element ends now. */
+export interface PlanConnectDraft {
+    /** The pointer, in client px. */
+    readonly x: number;
+    readonly y: number;
+    /** The element of the event the link may end at, under the pointer: the line snaps to it. `undefined` over none, and over one the link is refused at. */
+    readonly onto: Element | undefined;
 }
 
 /** Where a gesture would land now — the row, and the extent there. */
@@ -84,6 +98,11 @@ export interface PlanProposal {
     readonly fine?: boolean | undefined;
     /** A keyboard carry's steps since it was picked up — the whole element's and each end's — its extent counted from them. */
     readonly steps?: CarrySteps | undefined;
+    /**
+     * The lane of the row it would sit in (#1541, U1): the one a pointer is over, where the row has lanes. A keyboard
+     * carry names none, and the element keeps its own.
+     */
+    readonly lane?: string | undefined;
 }
 
 /** A keyboard carry — the element, and where it would land now. */
@@ -100,10 +119,23 @@ export interface PlanSaid {
     readonly seq: number;
 }
 
-/** Two proposals alike — the same row, extents East calls equal, and the same units. */
+const stringEqual = equalFor(StringType);
+
+/**
+ * Whether two lanes a gesture names are one, as East compares them: none and none, or the same lane.
+ *
+ * @param a - A lane, or none
+ * @param b - Another, or none
+ * @returns Whether they are one
+ */
+export function sameLane(a: string | undefined, b: string | undefined): boolean {
+    return a === undefined ? b === undefined : b !== undefined && stringEqual(a, b);
+}
+
+/** Two proposals alike — the same row, extents East calls equal, the same units and the same lane. */
 function sameProposal(a: PlanProposal | null, b: PlanProposal): boolean {
     return a !== null && a.rowKey === b.rowKey && equalInstants(a.span.start, b.span.start) && equalInstants(a.span.end, b.span.end)
-        && a.units === b.units && a.fine === b.fine;
+        && a.units === b.units && a.fine === b.fine && sameLane(a.lane, b.lane);
 }
 
 /**
@@ -120,11 +152,22 @@ export class PlanEditStore {
     carry: PlanCarry | null = null;
     /** The live region's last words. */
     said: PlanSaid | null = null;
+    /** Connect's draft, while its drag rests on a row (#1541, U10). */
+    connectDraft: PlanConnectDraft | null = null;
+    /**
+     * The lane a card dragged from a library rests in (#1541, U1), by the row the pointer is over: on a row with lanes,
+     * the one the pointer is over; `undefined` on a row with none, and for a drag the keyboard carries. Read as the drop
+     * on that row alone is judged and made — any other row's asks none — and let go as the drag ends (the canvas), so
+     * the next drag begins with none. Never drawn from: nothing listens for it.
+     */
+    cardLane: { readonly row: RowKey; readonly lane: string | undefined } | null = null;
     /** Each element's movable, by its node — how a key finds what Space picks up. */
     private readonly nodes = new WeakMap<Element, PlanMovable>();
     /** The element to focus once the canvas has drawn a keyboard drop. */
     private focusAfter: { rowKey: RowKey; key: string } | null = null;
     private readonly listeners = new Set<() => void>();
+    /** Who draws Connect's draft: told on every step of the pointer, which no other listener hears. */
+    private readonly draftListeners = new Set<() => void>();
     private release: (() => void) | undefined;
 
     /** Listen to every change. */
@@ -135,6 +178,25 @@ export class PlanEditStore {
 
     private emit(): void {
         for (const l of [...this.listeners]) l();
+    }
+    /** Listen to Connect's draft alone: it moves with every step of the pointer. */
+    readonly subscribeDraft = (listener: () => void): (() => void) => {
+        this.draftListeners.add(listener);
+        return () => { this.draftListeners.delete(listener); };
+    };
+    /**
+     * Where Connect's draft line ends now (#1541, U10), or `null` once its drag is over. Heard only while a press
+     * is down.
+     *
+     * @param draft - The pointer, and the element the line snaps to
+     */
+    drawTo(draft: PlanConnectDraft | null): void {
+        if (draft === null && this.connectDraft === null) return;
+        // A line is drawn only while the press that started it is down: the drop's own last look at where it lands
+        // comes after the press has ended, and draws none.
+        if (draft !== null && this.release === undefined) return;
+        this.connectDraft = draft;
+        for (const l of [...this.draftListeners]) l();
     }
 
     /**
@@ -150,7 +212,8 @@ export class PlanEditStore {
         this.proposal = null;
         this.shift = false;
         const follow = (e: KeyboardEvent | PointerEvent) => { this.shift = e.shiftKey; };
-        const end = () => { this.release?.(); };
+        // The press over, Connect's draft line goes with it, landed or not.
+        const end = () => { this.release?.(); this.drawTo(null); };
         doc.addEventListener("keydown", follow, true);
         doc.addEventListener("keyup", follow, true);
         doc.addEventListener("pointermove", follow, true);
@@ -169,6 +232,7 @@ export class PlanEditStore {
     /** The drag ended — its grab and proposal go. */
     disarm(): void {
         this.release?.();
+        this.drawTo(null);
         if (this.grab === null && this.proposal === null) return;
         this.grab = null;
         this.proposal = null;
@@ -288,6 +352,11 @@ export interface PlanEditContextValue {
      * that is no event kind's, and while the canvas takes no event's drag.
      */
     eventMove: ((row: PlanRowValue) => PlanRowMove | undefined) | undefined;
+    /**
+     * The link kind Connect draws while its tool is held (#1541, U10), by its name: an element's ghost says the link
+     * it draws, where it says where a move would land — `undefined` while Select is held.
+     */
+    connecting: string | undefined;
     /** The id of the words that tell a keyboard reader how to move an element. */
     helpId: string;
     /** The Plan recipe's styles — the ghost's look. */

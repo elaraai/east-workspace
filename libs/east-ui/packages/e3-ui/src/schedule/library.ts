@@ -12,6 +12,7 @@ import type { ScheduleEventKind } from "./events.js";
 import { tabSource } from "../utils/record-sources.js";
 import { SchedulePatchTypeFor } from "./patch.js";
 import { ScheduleFieldWriteType } from "./types.js";
+import { keyTextOf } from "./window.js";
 
 /** One keyed card, carrying the field writes its drop makes. */
 export const ScheduleLibraryCardType = StructType({
@@ -76,6 +77,23 @@ export interface ScheduleTabDeclaration {
 }
 
 /**
+ * An author's tab's rows, read once: the keyed source, and its key and row types.
+ *
+ * @param tab - The declared tab
+ * @param where - What a refusal names: the builder and the tab
+ * @returns The rows as an expression, their key type and their row type
+ * @throws {Error} When the rows are not keyed
+ */
+export function scheduleTabRows(tab: Pick<ScheduleTabDeclaration, "rows">, where: string): { source: ExprType<EastType>; keyType: EastType; rowType: EastType } {
+    const source = East.value(tab.rows as SubtypeExprOrValue<EastType>) as ExprType<EastType>;
+    const type = Expr.type(source as unknown as Expr) as EastType;
+    if (type.type !== "Dict") {
+        throw new Error(`${where} reads its rows as Schedule.resources does — a Dict, usually a record's read() — and these are ${printType(type)}`);
+    }
+    return { source, keyType: type.key as EastType, rowType: type.value as EastType };
+}
+
+/**
  * Resolves author cards and checks the patch type against the kinds its cards land on.
  * @param tab - The declared tab
  * @param events - The kinds a card may land on, by slot: a Schedule builder's event kinds, a Schematic's kinds
@@ -90,13 +108,7 @@ export function buildScheduleTab(tab: ScheduleTabDeclaration, events: readonly (
     const cfg = tab.config;
     const named = tabSource(owner, cfg.name, cfg.source, sources);
     const where = owner + ': the "' + cfg.name + '" tab';
-    const source = East.value(tab.rows as SubtypeExprOrValue<EastType>) as ExprType<EastType>;
-    const type = Expr.type(source as unknown as Expr) as EastType;
-    if (type.type !== "Dict") {
-        throw new Error(`${where} reads its rows as Schedule.resources does — a Dict, usually a record's read() — and these are ${printType(type)}`);
-    }
-    const keyType = type.key as EastType;
-    const rowType = type.value as EastType;
+    const { source, keyType, rowType } = scheduleTabRows(tab, where);
 
     // The drop: reified once, its patch's type naming the event kind it lands on.
     let lands: string | undefined;
@@ -133,11 +145,9 @@ export function buildScheduleTab(tab: ScheduleTabDeclaration, events: readonly (
     }
 
     // A String key is its own text; any other key as East prints it.
-    const text = keyType.type === "String"
-        ? East.function([StringType], StringType, (_$, key) => key)
-        : East.function([keyType], StringType, (_$, key) => East.print(key));
+    const text = keyTextOf(keyType);
     const describe = East.function([rowType, keyType], ScheduleLibraryCardType, ($, row, key) => {
-        const keyText = $.const(text as unknown as ExprType<FunctionType<[EastType], StringType>>);
+        const keyText = $.const(text);
         const sets = $.let([], ArrayType(ScheduleFieldWriteType));
         if (writes !== undefined) {
             const setsOf = $.const(writes);

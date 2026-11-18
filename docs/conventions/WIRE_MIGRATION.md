@@ -881,6 +881,24 @@ Each wire changed under this rule, with the kind it is.
   new type. A UI task's output is not stored state, and a column from data
   reads and writes a field the app's record already holds, as it holds it, so
   no repository upgrade step ships with it.
+- **e3-ui's `Plan` items carry a status, the builders' one (#1541)** —
+  package-borne. `Plan.Types.Run.status` is an `Option` of
+  `Plan.Types.Status` (`{ label, tone, ring }`: its words, its tone and
+  whether it draws as an open ring) where it was an `Option` of a tone;
+  `Plan.Types.BucketEvent` loses `tone` and holds `status`, the same `Option`,
+  in its place; `Plan.Types.Chip` gains `status` after `state`, and
+  `Plan.Types.EventMark` after `kind`. `Plan.Types.Status` is the type an
+  event kind's status case already is (`Schedule.Types.Status`, and the
+  Schematic's `Schematic.Types.Status`): one definition
+  (e3-ui's `utils/status.ts`) under the three names, so the Schedule's and the
+  Schematic's kinds on the wire do not change. The four items travel in the
+  `Plan` extension's payload — the canvas's rows, a paged source's windows,
+  the event kinds' blocks and a paged resource kind's — so a UI value encoded
+  under either type does not decode under the other: packages are
+  re-exported, and the dataflow computes each UI task's output again under
+  the new type. A UI task's output is not stored state, so no repository
+  upgrade step ships with it. An application's records keep their types: a
+  status is made by the series' map, from whatever the row holds.
 - **A record's ref remembers its last 16 keyed requests (#1599)** — stored
   state, and no type changes. A record's ref holds its version vector, a
   `Dict<String, String>`, and in it the commit protocol's reserved entries.
@@ -961,3 +979,476 @@ Each wire changed under this rule, with the kind it is.
   manifest whose environment nothing reaches and each layer no kept manifest
   names. So no repository upgrade step ships, and a later release that packs
   layers otherwise builds its own beside these.
+- **e3's functions list the records a call may draft: a function object and
+  its signature gain `drafts` (#1619)** — package-borne, and the function
+  routes' answer. `FunctionObjectType` gains `drafts`, after `inputs`: the
+  names of the records a call may pass drafts of, each a record one of the
+  function's inputs reads, and none for a function that lists none. A
+  function object an earlier SDK exported does not decode under the new type:
+  a call, a list or a describe of its package's functions is refused, naming
+  the fix — re-export the package — and gc, which knows a function object by
+  its current shape, no longer walks it, so the body and the environment only
+  it names are swept: re-export a package with functions before a gc. Packages
+  are re-exported, so no repository upgrade step ships for it. The function
+  routes' signature (`FunctionSignatureType`, which list and describe answer)
+  gains `drafts`, after `inputs`, alike: an answer of either release does not
+  decode as the other's, and a client refuses a server's answer of the other
+  release, naming both types, as it refuses any type it does not read — so
+  `e3 call`, e3-ui's `Func.bind` and the server they call are of one release.
+- **A function's call passes drafts: the call request gains `drafts`
+  (#1619)** — neither package-borne nor stored in a repository: the function
+  routes' request. `FunctionCallRequestType` gains `drafts`, after `limits`:
+  the unsaved edits a call lays over the records its function reads, in
+  order, each a record, one of its mutations and that mutation's arguments
+  (`FunctionDraftType`); none for a call that passes none. A struct that gains
+  a field reads under neither type, so a request of either release does not
+  decode as the other's: a server refuses a client's request of the other
+  release, naming both types, as it refuses any type it does not read — and
+  `e3 call`, e3-ui's `Func.bind` and the server they call are of one release
+  already, by the function's signature (above). A program that calls e3 from
+  East, through e3-api-client's `e3_function_call`, holds the request's type
+  in its IR, and is package-borne by it: one an earlier SDK exported is
+  refused as its runner checks it, naming the type the function takes and the
+  one the program passes — re-export its package. No store keeps a request: a
+  kept call holds its drafts in a form of its own (below), so no repository
+  upgrade step ships for it.
+- **A call's result names the records it drafted and what of its drafts ended
+  it, and may end `conflict` (#1619)** — neither package-borne nor stored in a
+  repository: the function, one-shot and split-call routes' answers.
+  `ExecuteResultType` gains `drafts`, after `inputs`: each record the call
+  drafted, once, with the commit it stood at as the call started, which its
+  drafts were laid over (`FunctionDraftedType`), and none for a call that
+  passed no draft. It gains `draftEnd`, after `drafts`: what of its drafts
+  ended a call before its function ran (`FunctionDraftEndType`) — `draft`, the
+  draft whose mutation failed or ran out of the call's time, with its record,
+  its mutation, its place among the call's, their count and how it ended
+  (`FunctionDraftFailureType`), or `laid`, every draft laid as the call's
+  timeout ended, and how many — and none for any other end. A caller reads
+  that from the result, never from its stderr, whose first line says it for
+  people, and which a function's own output may begin the same way. And its
+  `outcome` gains `conflict`, a draft that no longer fits its record, with
+  the record, the mutation, the draft's place among the call's and the
+  refusal's words (`FunctionDraftConflictType`). The result is what a sync call answers, and
+  two more answers hold it: a kept call's status (`FunctionCallStatusType`'s
+  `completed`) and a split call's (`SplitCallStatusType`'s `completed`, as its
+  `result`). A one-shot and a split call take no draft, so theirs names none,
+  no draft ends it, and it never ends `conflict`; its type changes all the
+  same. With the struct changed,
+  no naming of the case would keep an answer readable (#1104, above), so it
+  has the name a Save's outcome has (`MutationResultType`): an answer of
+  either release does not decode as the other's, and a client refuses a
+  server's answer of the other release, naming both types — so `e3`, e3-ui's
+  `Func.bind`, the query builder and the server they call are of one release,
+  as they were. A program that calls `e3_function_call` or
+  `e3_one_shot_execute` holds the result's type in its IR, and is refused as
+  one that holds the request's is: re-export its package. No store keeps a
+  result — a kept call keeps a state of its own (below), and a split call's
+  job an outcome of its own (`SplitCallOutcomeType`), whose type does not
+  change — so no repository upgrade step ships for it.
+- **A kept call holds its drafts and what of them ended it, and may end
+  `conflict` (#1619)** — stored state, and the call routes' answers.
+  `FunctionCallType` gains `drafts`, after `inputs`: each draft the call
+  passed, in order (`FunctionCallDraftType`) — its record, its mutation, and
+  its arguments by the object they were stored as, `none` for a mutation that
+  takes none. It gains `draftEnd`, after `drafts`: what of its drafts ended
+  it, as its result names it (above), which a store writes as the call ends
+  (`FunctionCallEnd`'s `draftEnd`) and the call store's contract suite holds
+  every backend to. The
+  commit a drafted record stood at is the record's, held once for it below and
+  named by the call's result (`FunctionDraftedType`), never once a draft.
+  `FunctionCallStateType` gains `conflict`, how a call ended whose draft no
+  longer fits its record (`FunctionDraftConflictType`). The record a store
+  keeps (`FunctionCallJobType`) gains `drafted`, after `keep`: for each record
+  the call drafts, what its run lays the drafts from
+  (`FunctionCallDraftedType`) — where the workspace holds the record, the
+  state it held as the call started and the commit it stood at, read together,
+  and the object of each mutation its drafts name — so the run reads the
+  workspace no more, and lays the same state however often it runs. gc
+  keeps what a kept call names (`functionCallRoots`), and so, for as long as
+  the call is kept: each draft's arguments, each drafted record's state and
+  mutations, and among its inputs the drafted state, which nothing else
+  names.
+  The release ships the repository upgrade step `function-call-drafts`
+  (e3-core `upgrades/function-call-drafts.ts`): every call an earlier release
+  kept is rewritten in the new form, holding no draft and none ending it,
+  whatever its state. It
+  reads each call as its store holds it and writes it back the same way
+  (`FunctionCallStore.readStored`, which every backend's call store
+  implements). A unit of the step is a call, keyed `<workspace>/<id>`, 16 at
+  a time. A call whose lifetime has ended is carried too, and forgotten at its
+  next read, as it would have been; a call already in the new form is left as
+  it is, and so is one in neither form.
+  `conflict` sorts second among a call's states, where #1554 (above) had a
+  new case of `FunctionCallStateType` named to sort last. That keeps an
+  earlier call readable where a case is all a release adds; here the call's
+  struct gains a field beside it, so no naming would (#1104, above), and the
+  state has the name a Save's outcome has. The call routes' answers hold the
+  call, its state or its result (`FunctionCallType`,
+  `FunctionCallSummaryType`, `FunctionCallPageType`, `FunctionCallStatusType`,
+  `FunctionCallAnswerType`), and change with them: an answer of either
+  release does not decode as the other's, and a client refuses a server's
+  answer of the other release, naming both types — so `e3 call`, e3-ui's
+  `Func.bind` and the server they call are of one release, as the function's
+  signature already holds them.
+- **east-ui's editing session gains its draft form, and e3-ui's bound record
+  the draft of each mutation (#1620)** — package-borne. The shared session's
+  fields (`EditingSessionFields`: east-ui's `EditingType` and
+  `SnapGridEditingType`, e3-ui's `PlanEditingType` and `SheetEditingType`)
+  gain `toDraft`, after `onApply`: the batch `onApply` takes, over the same
+  bytes, answered as a draft of the source's write and not written
+  (`EditingWireToDraftType`) — the draft's bytes, no change, or the refusal a
+  Save of the batch meets before it writes. A session that saves through
+  e3-ui's `Record.onApply` holds one: a Schedule kind's that saves to its
+  record, a Sheet's over a record, and a Sheet's or a Plan's handed
+  `Record.onApply` as its Save. Every other holds `none`: the SnapGrid's, the
+  query builder's and Studio's, whose Save is the builder's own function, and
+  a Save of the host's own. The fields travel in east-ui's `SnapGrid` arm and
+  in every e3-ui builder's payload, each Schedule kind's session among them,
+  so a UI value encoded under either type does not decode under the other:
+  packages are re-exported, and the dataflow computes each UI task's output
+  again under the new type. e3-ui's `Record.bind` handle
+  (`RecordBindHandleType`) gains `draft`, after `commit`: one function for
+  each mutation the handle binds, from the arguments `mutate.<name>` takes to
+  the mutation's call as a draft (`FuncDraftType`, which is e3-types'
+  `FunctionDraftType`), made by a new UI platform function, `record_draft`. A
+  program that binds a record holds the handle's type in its IR; one an
+  earlier SDK exported names a handle with no `draft`, and is bound one
+  without, as a handle has what its type names — it is re-exported for its
+  session's fields all the same. A UI task's output is not stored state, and a
+  draft is written nowhere, so no repository upgrade step ships with it.
+- **e3-ui's bound function names the records its function lists, and its
+  call sends drafts (#1620)** — package-borne. `Func.bind`'s platform function
+  (`function_bind`) takes a second argument, after the function's name: the
+  names of the records the function lists in its `drafts`. The handle's
+  `binding` (`FuncBindingType`) gains `drafts`, after `name`, which holds
+  them, and its `error` (`FuncErrorType`) gains the kind `conflict`, a draft
+  that no longer fits its record (e3-types' `FunctionDraftConflictType`),
+  which sorts first among its kinds. A function that lists no record keeps the
+  handle it had (`FuncBindHandleType`) but for those two. One that lists a
+  record has a handle type of its own (`FuncBindDraftsHandleType`): its `call`
+  takes the call's drafts after the function's arguments, an Array of
+  `FuncDraftType`, and it gains `drafted`, after `read` — the records drafted
+  by the call that gave `read`'s result, each with the commit it stood at
+  (`FuncDraftedType`, which is e3-types' `FunctionDraftedType`). Behind the
+  handles, `function_call` takes the drafts as a third argument, and
+  `function_drafted` is a new UI platform function, which the function
+  platform's list carries wherever it is spread. A program that binds a
+  function holds the bind's call and the handle's type in its IR: one an
+  earlier SDK exported passes `function_bind` the name alone, and is refused
+  as it is checked, naming the count (`Platform function 'function_bind'
+  expects 2 arguments but got 1`) — re-export its package. The binding travels
+  in five builders' payloads as well — the Calendar's, the Plan's and the
+  Sheet's `optimise`, and the Roster's and the Allocation's `fit` and
+  `optimise` — so a UI value encoded under either type does not decode under
+  the other, and the dataflow computes each UI task's output again under the
+  new type. A UI task's output is not stored state, and a call's drafts ride
+  the function routes' request, whose change is #1619's (above), so no
+  repository upgrade step ships with it.
+- **east-ui's record Slice takes its page's scope (#1621)** — package-borne.
+  A source's config (`RecordSliceConfigType`) gains `scope`, after `presets`:
+  each scoped field's exact values, as `.east` literals, in a `values` clause
+  (`RecordSliceWhereType`). The record bind's platform function
+  (`slice_bind_record`) takes a fifth type parameter, the scoped fields — a
+  Struct with a Null field named for each — and the handle it answers
+  (`RecordSliceHandleType`) gains them as `scoped`, after `source`, and
+  `pageBase`, after `pageWhere`: a page of the rows the page holds of the
+  source, the scope's on a scoped page, which a Sheet's rows read. A program
+  that binds a record Slice holds the bind's type parameters in its IR: one an
+  earlier SDK exported names four, and is refused as it is checked, naming the
+  count (`Platform function 'slice_bind_record' expects 5 type parameters,
+  got 4`) — re-export its package. The config travels in the handle every
+  payload with a rail over records embeds (`RecordSliceBindType`'s `config`),
+  east-ui's and each e3-ui builder's, so a UI value encoded under either type
+  does not decode under the other, and the dataflow computes each UI task's
+  output again under the new type. The narrowing the store keeps
+  (`RecordSliceStateType`) is unchanged, and holds the viewer's choices alone,
+  never the scope, so a narrowing kept or a view saved under the earlier type
+  still decodes. A UI task's output is not stored state, so no repository
+  upgrade step ships with it.
+- **A task's and a function's inputs name the index of a record they read
+  (#1617)** — package-borne, and the task and function routes' answers.
+  `TaskInputType` gains `index`, after `path`: the index of the record at
+  `path` the input reads, by its name on the record, and `none` for the dataset
+  itself. `FunctionObjectType`'s `inputs` is an Array of `FunctionInputType` —
+  a path, and the same `index` — where it was an Array of paths. A task object
+  or a function object an earlier SDK exported does not decode under the new
+  type: a run, a status, a call, a list or a describe of its package is
+  refused, naming the fix — re-export the package. gc walks each as it did: it
+  reads an object under the type its own header names, and what it walks of
+  either — a program, what an output folds with, an environment — is where it
+  was. Packages are re-exported, so no repository upgrade step ships for it.
+  The answers that hold them change with them — a task's details
+  (`TaskDetailsType`'s `inputs`) and a function's signature
+  (`FunctionSignatureType`'s `inputs`) — so an answer of either release does
+  not decode as the other's, and a client refuses a server's answer of the
+  other release, naming both types: `e3`, e3-ui and the server they call are
+  of one release, as they were. A dataflow's graph, which a stored run's state
+  holds, names each input by its dataset's path alone, as it did — an index's
+  by its record's — so no stored run changes, and which index an input reads
+  is the task object's. An execution is keyed by the objects it read: for an
+  index, the manifest its record's state names for it, which a backend finds
+  through the store's own reads (e3-core `inputObject`). No execution recorded
+  before names one, so none is re-keyed.
+- **A call's result and a kept call name the index an input read (#1617)** —
+  the function, one-shot and split-call routes' answers, and stored state.
+  `ExecuteResultType`'s `inputs` and `FunctionCallType`'s are each an Array of
+  `InputReadType` — a path, the `index` of the record there that was read, and
+  the hash the dataset was pinned at — where an entry was a path and a hash.
+  For an index the hash is its record's, the state it was read at, which is
+  the hash the call's other inputs of that record name; a dataset argument, a
+  one-shot's and a split call's among them, names no index. An answer of
+  either release does not decode as the other's, and a client refuses a
+  server's answer of the other release, naming both types. A program that
+  calls `e3_function_call` or `e3_one_shot_execute` holds the result's type in
+  its IR, and one an earlier SDK exported is refused as its runner checks it:
+  re-export its package. A split call's job keeps what it read in a form of
+  its own, a path and a hash, which does not change.
+  The release ships the repository upgrade step `function-call-index-inputs`
+  (e3-core `upgrades/function-call-index-inputs.ts`), after
+  `function-call-drafts`: every call an earlier release kept is rewritten in
+  the new form, each of its inputs naming no index, whatever its state. It
+  reads the form `function-call-drafts` writes, as that step froze it, and
+  each call as its store holds it, and writes it back the same way
+  (`FunctionCallStore.readStored`, which every backend's call store
+  implements). A unit of the step is a call, keyed `<workspace>/<id>`, 16 at
+  a time. A call whose lifetime has ended is carried too, and forgotten at its
+  next read, as it would have been; a call already in the new form is left as
+  it is, and so is one in neither form. gc keeps what a kept call names, an
+  input's hash among them: for an index, its record's state, which names the
+  index's manifest.
+- **e3-ui's builders ask their optimiser of the period in view and land a
+  patch, and a bound function names the records it reads (#1622)** —
+  package-borne. The request and result types each builder's `Types` gives
+  (#1409, above) change whole. A request carries no row. The Calendar's and
+  the Plan's (`ScheduleOptimiseRequestType`, a type where it was a constructor
+  over the kinds' rows) is `{ from, to, period, run, slice }`. The Roster's is
+  the same type, or given `{ edges: true }` that with `fixed`, a Set of the
+  keys of the duties at the week's edges the answer must leave as they are.
+  The Allocation's is `{ day, run, slice }`, and the Sheet's `{ run, slice }`,
+  or over one entry's rows `{ run, slice, entry }`, the entry's key at the
+  record's key type. `period` is the new `OptimisePeriodType`, a variant of
+  `day`, `week`, `month`, `quarter` and `year`, each with no value, and
+  `slice` the new `OptimiseSliceType`: each rail source's narrowing by the
+  source's name (`Dict<String, RecordSliceWhereType>`). A result is a patch of
+  each record the builder edits — `PatchType` of the record's type, what
+  `East.diff` answers — where it was the rows complete: `{ events: { <slot>:
+  Patch } }`, `{ duties: Patch }`, `{ bins: Patch }` and `{ rows: Patch }`.
+  The Roster's is one form for both requests, its `edges` gone. No builder
+  takes the earlier types, and none reads an answer of them. An app's
+  optimiser is an `e3.function` of its own package, and re-exporting does not
+  carry it: it is written again to the new request, reading what it needs from
+  the workspace and listing in `drafts` each record it reads that the builder
+  edits. A page that hands a builder a function of the earlier types is
+  refused as it is built, naming what the function asks.
+  `Func.bind`'s platform function (`function_bind`) takes a third argument,
+  after the records the function lists in `drafts`: the names of the records
+  the function reads, each taken as an input itself or by an index of it. The
+  handle's `binding` (`FuncBindingType`) gains `reads`, after `drafts`, which
+  holds them. A program that binds a function holds the bind's call in its IR:
+  one an earlier SDK exported passes two arguments, and is refused as it is
+  checked, naming the count (`Platform function 'function_bind' expects 3
+  arguments but got 2`) — re-export its package. The Sheet's payload's
+  `optimise` is an `Option<SheetOptimiseBindingType>` where it was an
+  `Option<FuncBindingType>`: the binding, and beside it the record the sheet
+  saves to by its name, the type of the rows its Save reaches and, over one
+  entry's rows, the record's key type with the entry's key as bytes at it. The
+  Calendar's and the Plan's resource kinds on the wire
+  (`ScheduleResourcesType`, `PlanResourcesType`) lose `keyType`, `rowType` and
+  `records`, which #1409 (above) gave them for a request to carry, and
+  `ScheduleResourceRecordsType` goes with them. The binding travels in the
+  five builders' payloads — the Calendar's, the Plan's and the Sheet's
+  `optimise`, and the Roster's and the Allocation's `fit` and `optimise` — so
+  a UI value encoded under either type does not decode under the other:
+  packages are re-exported, and the dataflow computes each UI task's output
+  again under the new type. A Sheet's and a Record's page over a rail hands
+  the record itself, `record` beside `slice`, where it handed
+  `onApply={Record.onApply(record, { keyed: true })}`, which is refused as the
+  page is built, naming `record`. A UI task's output is not stored state, and
+  a run's call is a function call as any other, kept as #1619 (above) keeps
+  one, so no repository upgrade step ships with it.
+- **e3-ui's Roster and Allocation ask their fit the question and the page's
+  scope, and the call carries their unsaved edits as drafts (#1624)** —
+  package-borne. The request types each builder's `Types` gives change whole,
+  each a type where it was a constructor over the builder's rows. The Roster's
+  (`RosterFitRequestType`) is `{ need, slot, start, scope }`, where it carried
+  the week's duties each with its row, the week's targets, every person, the
+  configuration and every slot's coverage. The Allocation's
+  (`AllocationFitRequestType`) is `{ day, ask, scope }`, where it carried the
+  day's bins each with its row and the board's context. `scope` is an
+  `OptimiseSliceType` (#1622, above): each rail source's scope by the source's
+  name, its fields alone. The answers' types (`RosterFitResultType`,
+  `AllocationFitResultType`) are as they were; an answer holds a verdict for
+  each subject the function considered. Each builder's `Types` gains what a
+  fit's function makes of what it read — `Roster.Types.FitContext` and
+  `Roster.Types.Candidate`, and `Allocation.Types.FitContext` — and the
+  ready-made rules are plain East functions over them, none a constructor over
+  the rows: `Roster.fit(words?)`, `Roster.answer`, `Roster.window`,
+  `Allocation.candidates`, `Allocation.answer` and `Allocation.lookahead`.
+  `Schedule.Types` gains the two builders' readings of a row,
+  `RosterRoles` and `AllocationRoles`, which a context holds. No builder takes
+  the earlier request types, and none reads a function of them. An app's fit
+  is an `e3.function` of its own package, and re-exporting does not carry it:
+  it is written again to the new request, reading what it needs from the
+  workspace — its builder's rows through an index of their record — and
+  listing in `drafts` each record it reads that the builder edits. A page that
+  hands a builder a function of the earlier types is refused as it is built,
+  naming what the function asks; one whose function reads a record the builder
+  edits and lists no draft of it is refused as it is evaluated, naming the
+  record. The binding the payloads carry (`FuncBindingType`) is as #1622 left
+  it, and a fit's now names the drafts its function lists. A fit's call is a
+  function call as any other, kept as #1619 (above) keeps one, and no stored
+  form changes, so no repository upgrade step ships with it.
+- **e3-ui's `Plan` draws its event kinds on its own rows, which are the
+  resources (#1541, U1, U2)** — package-borne. The `Plan` extension's payload
+  loses `resources`, the resource kinds (`PlanResourcesType`, each holding its
+  rows, `PlanResourceRowType`), and `blocks`, the seam that made their rows
+  (`PlanEventBlocksType`); its `paged`, the seam over a paged resource kind's
+  windows (`PlanEventPagedType`), becomes a Boolean, whether the canvas's rows
+  are read a page at a time. It gains `landings`, after `plan`: the series of
+  its own rows the event kinds land on (`PlanLandingType`), each resources
+  series and `kinds` case by its key, with its name, the ways its
+  kinds draw, the kinds landing on it, its own series' keys, and whether its
+  resources are the canvas's own entries, read by their keys over rows read a
+  page at a time. And it gains `seam`, after `events`: how the events join the
+  canvas's rows (`PlanEventSeamType`) — `placed`, the events read over a
+  window and filed by landing, by way of drawing and by resource
+  (`PlanEventPlacedType`, a struct where it was a dict), and `place`, which
+  fills the landing rows of any window with them. `PlanEventShownType` goes.
+  The canvas's root (`PlanRootType`) gains `unnarrowed`, after `rows`: where
+  the rail's `rows` source gives the canvas its rows, every row that source
+  narrows, made by the same series — what a pane names a resource the
+  narrowing leaves out by, its row read by its key — and none otherwise. A
+  series value (`Plan.Types.Series`) gains the arms `resources` and `kinds`;
+  its cases are in name order, so the tags of those after `kinds` move. The
+  library's Series tab lists no resource kind and no measure, so a viewer's
+  hidden ids that named one (`resources.<slot>`, `measures.<key>`), kept by
+  the browser, name nothing, and hide nothing.
+  `Schedule.resources` loses its Plan half: `Schedule.Types.PlanResources` and
+  `Schedule.Types.PlanResourceRow` are removed, and the options only a Plan
+  read (`parent`, `sub`, `value`, `status`, `rollup`, `collapsed`,
+  `measures`) are refused, each naming `Plan.series.resources`' own; the
+  Calendar's, the Roster's and the Allocation's resource kinds keep their
+  forms. A Plan given `resources` is refused at build, naming the series that
+  replace it. A UI value encoded under either type does not decode under the
+  other: packages are re-exported, and the dataflow computes each UI task's
+  output again under the new type. A UI task's output is not stored state, so
+  no repository upgrade step ships with it. An application's records keep
+  their types: the resources a Plan drew are the rows of the record its `data`
+  or its rail's `rows` source reads, and moving resources kept in records of
+  their own into one record is that record's own migration, as with any
+  record whose type an application changes.
+- **e3-ui's `Plan` has one drop veto, over what a drop would do (#1541,
+  U7)** — package-borne. The canvas's root (`PlanRootType`) keeps `canDrop`,
+  whose type changes: an Option of a function from what a drop would do
+  (`PlanCandidateType`, `Plan.Types.Candidate`) to an Option of its refusal's
+  words, where it was a function from a drag event (east-ui's `DragEventType`)
+  to a Boolean. The `Plan` extension's payload loses its own `canDrop`, the
+  event kinds' veto over the schedule family's candidate
+  (`PlanEventCanDropType`): the root's is the one check of both. A candidate
+  says the gesture (`add`, `move`, `remove`, `resize`), the event kind or the
+  data series it lands in or leaves, what is dragged — a template, a library
+  tab's card, a backlog event, an event, or a data series' item
+  (`PlanItemRefType`) — what it lands on, the row it would land on, typed, its
+  lane, and its instants there. It is asked, and never stored.
+  `Schedule.Types.Candidate` stays the Calendar's, the Roster's and the
+  Allocation's. A Plan given a check of either older type is refused at build,
+  naming what it is rewritten against. A UI value encoded under either type
+  does not decode under the other: packages are re-exported, and the dataflow
+  computes each UI task's output again under the new type. A UI task's output
+  is not stored state, so no repository upgrade step ships with it.
+- **e3-ui's `Plan` holds one event or item where it is (#1541, U9)** —
+  package-borne. One event as a Plan draws it (`PlanEventItemType`) gains
+  `locked`, last: whether its kind's `locked`, a new option of
+  `Schedule.events`, holds it where it is, read with the event and its drafts
+  in place, and `false` for a kind with no such rule. A run, a bucket's tile,
+  a chip and an event mark (`PlanRunType`, `PlanBucketEventType`,
+  `PlanChipType`, `PlanEventMarkType`) each gain `locked`, last: an event
+  kind's from its event, a data series' from its item's map, `false` where the
+  map leaves it out. An event kind as every builder takes it
+  (`ScheduleKindType`, so the Calendar's, the Roster's and the Allocation's
+  kinds too) gains `locked` after `ready`: none, or the kind's rule over
+  entries, one answer each, which the builders' shared recorder asks of the
+  row a gesture finds. A locked event is not moved, resized, changed or
+  removed in any builder, and an optimiser's answer that changes it is
+  refused; a Plan also draws it with a lock. Nothing is stored of it: the rule
+  is the application's, over its own rows. A UI value encoded under either type does not decode under the
+  other: packages are re-exported, and the dataflow computes each UI task's
+  output again under the new type. A UI task's output is not stored state, so
+  no repository upgrade step ships with it.
+- **A Plan's library tab says what its cards make (#1541, U1)** —
+  package-borne. An author's tab of a Plan's library (`PlanAuthorTabType`, the
+  `tab` case of `PlanLibraryTabType`) is the tab every builder's library takes
+  (`ScheduleAuthorTabType`) with `create` after it: none, or the event kind
+  its cards make an event of, by its slot, and each card's key with what a
+  drop reads of the template its kind knows it by — its key, name, group,
+  start on a whole day and duration (`PlanTabCreateType`, each a
+  `ScheduleCardMadeType`); the template's values stay with its kind. The
+  Calendar's, the Roster's, the Flowchart's and the Schematic's tabs keep
+  their form. An event kind's `write` makes an event from a card's template
+  as from one of its own, under a key of the tab's — its name and the card's
+  key as East prints the pair, `(tab="Orders", card="O-1")`, which no other
+  tab's card shares — and the kind's `templates` list none of them; the
+  gesture is `create`, unchanged. A UI value encoded under
+  either type does not decode under the other: packages are re-exported, and
+  the dataflow computes each UI task's output again under the new type. A UI
+  task's output is not stored state, so no repository upgrade step ships with
+  it.
+- **A Plan carries its link kinds (#1541, U10)** — package-borne. The Plan's
+  payload (`PlanPayloadType`) gains `linkKinds` and `canConnect`, last. The
+  first is each link kind `<Plan links>` lists by slot, in that order
+  (`PlanLinkKindType`): what every kind over the application's record carries
+  of its record (whether it is editable, its session with its patch door, its
+  form, its setter and its row type), its slot, name and icon, the event kinds
+  each of its ends may name, how many links it holds, its stored links — each
+  one's two events and its quantity beside its row's bytes, none past the cap
+  an event kind is read under — a drafted link's same roles, its templates
+  (each as an event kind's are, `ScheduleTemplateType`, its values every field
+  of a link but its two ends), a new link from its two ends and a template's
+  values, or none, its key's builder and its key type. The second is the connect
+  veto (`PlanCanConnectType`, over `PlanConnectCandidateType`: the link kind
+  and the two events), none where the Plan gives none. The canvas's own
+  `links` hold the links built in code, as before. A link kind's links are
+  rows of the application's own record, in its own row type: nothing of them
+  is stored in a form of e3's. A UI value encoded under either type does not
+  decode under the other: packages are re-exported, and the dataflow computes
+  each UI task's output again under the new type. A UI task's output is not
+  stored state, so no repository upgrade step ships with it.
+- **A nested series index holds its keys in their own types (#1540)** —
+  package-borne, and stored. A nested series index's entry key
+  (`NestedEntryKeyType(rowKey, id)`) holds a child row's key, on the path from a
+  row down to a node, and an item's id as the index's ids
+  (`NestedIdType`): one variant with a case for each collection of child rows
+  and of items, named by its place's field names joined with a dot
+  (`nestedIdCase`), each holding that collection's Dict's key type. A path
+  (`NestedPathType(id)`) is a list of ids, and an item (`NestedItemType`) is
+  `id` an id, `at` an instant, `under` a path and an id, or `none`; they were
+  text (`RecordNestedPathType`'s String steps and `RecordNestedItemType`, which
+  is removed). A collection's place stays `RecordNestedPathType`, its field
+  names, and a span's key (`NestedSpanKeyType`) is unchanged. So child rows
+  and items may be keyed by any type a Dict is but a DateTime, and their keys
+  sort in their types' own order. Every nested series index's stored form
+  changes, one whose child rows and items are keyed by String included: a
+  package is re-exported, and a deploy builds each nested series index again
+  under its new index object, as it builds any index whose object changed; no
+  repository upgrade step ships, and no reader keeps the earlier form. A page's
+  reader names a node by its typed path, and a task's or a function's reader
+  takes one (`path: [variant('members', key)]`).
+- **A Plan's events land a step beneath their resource (#1541, U1)** —
+  package-borne. An event as the Plan draws it (`PlanEventItemType`) gains
+  `child`, last: the key of the row beneath its resource it is on, as that
+  row's path ends in it (a String key as it is, any other as East prints it),
+  none for a kind with no `child` and for an event whose field holds none. An
+  event kind (`PlanEventKindType`) gains `child`: the field holding that key
+  and the resources series its rows are of, none for a kind landing on its
+  resource's own rows. A landing series (`PlanLandingType`) gains `under`,
+  last: for a series a kind's `child` lands on, the landing series its rows
+  stand beneath; none for every other, however deep it is nested;
+  its `kinds` and `draws` count a kind with a `child` on the series its child
+  names, never on its resource's. An event's `lane` is a variant field's
+  case, by name, where the kind's `lane` names a variant. The events a window
+  files (`PlanEventPlacedType`) keep their type: a series beneath a resource
+  files them under the resource's key and the child's, as East prints the two
+  together. A UI value encoded under either type does not decode under the
+  other: packages are re-exported, and the dataflow computes each UI task's
+  output again under the new type. A UI task's output is not stored state, so
+  no repository upgrade step ships with it.

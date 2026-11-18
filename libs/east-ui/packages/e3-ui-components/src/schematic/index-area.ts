@@ -185,10 +185,11 @@ export class SchematicIndexArea {
         const wanted = new Map<string, Set<string>>();
         for (const zone of open) {
             const box = boxOf(zone);
-            const plan = schematicWindowPlan(kind.areas, where, box);
+            // Read under the page's scope (#1621), as the window is: each value's box within its share of the bound.
+            const plan = schematicWindowPlan(kind.areas, where, box, [...kind.part.config.scope.keys()]);
             const index = plan.index.name;
             const printOn = recordSliceOnPrinter(kind.part, index);
-            const cells: RecordSliceCell[] = plan.prefixes.flatMap((prefix) => areaCells(prefix, box, plan.cell, printOn))
+            const cells: RecordSliceCell[] = plan.prefixes.flatMap((prefix) => areaCells(prefix, box, plan.cell, printOn, plan.searches))
                 .map((place) => ({ id: printQuery(place.query), queries: [place.query] }));
             // Counted first, in one request: a zone holding more than a window reads lists none of the kind's items.
             const runs = recordSliceCellRuns(kind.part, index, cells);

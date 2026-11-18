@@ -26,8 +26,9 @@
  * @packageDocumentation
  */
 
-import { DateTimeType, SortedMap, StringType, compareFor, printFor, type ValueTypeOf } from "@elaraai/east";
-import { Schedule, ScheduleEventRefType, ScheduleResourceRefType } from "@elaraai/e3-ui/internal";
+import { DateTimeType, SortedMap, StringType, compareFor, type ValueTypeOf } from "@elaraai/east";
+import { Schedule, ScheduleResourceRefType } from "@elaraai/e3-ui/internal";
+import { printEventRef } from "./event-ref.js";
 
 /** One event as every view draws it — `Schedule.Types.Item`, decoded. */
 export type ScheduleItemValue = ValueTypeOf<typeof Schedule.Types.Item>;
@@ -72,7 +73,6 @@ const NONE: ScheduleOverlaps<never> = { pairs: [], peers: new Map() };
 const compareDateTime = compareFor(DateTimeType);
 const compareString = compareFor(StringType);
 const compareResource = compareFor(ScheduleResourceRefType);
-const printEvent = printFor(ScheduleEventRefType);
 
 /** Earliest first: by start, then by key. */
 function byStart<I extends ScheduleItemValue>(a: Spanned<I>, b: Spanned<I>): number {
@@ -87,7 +87,7 @@ function byStart<I extends ScheduleItemValue>(a: Spanned<I>, b: Spanned<I>): num
  * @returns Its key
  */
 export function scheduleEventKey(item: ScheduleItemValue): string {
-    return printEvent({ kind: item.kind, key: item.key });
+    return printEventRef({ kind: item.kind, key: item.key });
 }
 
 /**

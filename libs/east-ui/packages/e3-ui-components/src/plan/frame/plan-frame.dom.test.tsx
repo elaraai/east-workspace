@@ -82,7 +82,9 @@ const bareJobs = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(
     const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
     return Plan({
         axis,
-        resources: { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) },
+        // The presses are the canvas's rows, a landing row each (#1541).
+        data: presses.read(),
+        series: [Plan.series.resources(ex.PrintPress, { key: "presses", title: "Presses", icon: "print", label: (p) => p.name })],
         events: {
             job: Schedule.events(jobs, {
                 name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",

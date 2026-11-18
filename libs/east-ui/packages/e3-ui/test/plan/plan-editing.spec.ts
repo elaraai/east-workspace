@@ -11,16 +11,24 @@
  * goes in under the id the renderer minted and a move keeps the item's id
  * wherever it lands. What the IR proves on its own — the rows' flags, the
  * build-time refusals — is in `plan.spec.ts` and `plan-series.spec.ts`.
+ *
+ * The session here is the canvas's own (`Plan.Root`), its commit a function
+ * the test gives or none. `<Plan>` builds it from `record`, the Plan's one save
+ * door (#1541): what it refuses is in `plan-events.spec.ts`, and a Save
+ * committed to a record on e3 in e3-ui-components' tests.
  */
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, BlobType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, SortedMap, StringType, StructType,
-    compareFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, none, some, variant, type ValueTypeOf,
+    ArrayType, BlobType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, RecursiveType, SortedMap,
+    StringType, StructType,
+    compareFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, none, parseFor, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
-import { Editing, EditingRequestStore, Paged } from "@elaraai/east-ui/internal";
-import { Plan } from "@elaraai/e3-ui/internal";
+import { Editing, EditingToDraftResultTypeFor, Paged } from "@elaraai/east-ui/internal";
+import { DatasetStatusType, RecordCommitInfoType } from "@elaraai/e3-types";
+import { FuncDraftType, RecordBindHandleType, RecordErrorType, RecordMutateStatusType, RecordOutcomeType } from "@elaraai/e3-ui";
+import { Plan, Record } from "@elaraai/e3-ui/internal";
 
 const W27 = new Date("2026-06-29T00:00:00Z");
 const W28 = new Date("2026-07-06T00:00:00Z");
@@ -434,6 +442,7 @@ test("the declaration names the canvas's entries — their type and key, whole-e
     assert.equal(inline.idField.type, "none");
     assert.equal(inline.keyType.type, "some");
     assert.equal(inline.onApply.type, "none");
+    assert.equal(inline.toDraft.type, "none", "with no Save, no draft of one");
     assert.equal(inline.onPatch.type, "none");
     assert.equal(inline.ready.type, "none");
     assert.ok(inline.snapshot.type === "some" && equalFor(Halls)(decodeBeast2For(Halls)(inline.snapshot.value), SEED));
@@ -503,6 +512,7 @@ test("a paged canvas edits the windows it pages — derive and entryIds read the
     // Read-only here, and a paged batch's base is the source's revision, so no
     // snapshot rides the wire; the session is the handle's, by its id.
     assert.equal(wire.onApply.type, "none");
+    assert.equal(wire.toDraft.type, "none");
     assert.equal(wire.snapshot.type, "none");
     assert.equal(wire.sourceId, "ops");
 });
@@ -578,6 +588,8 @@ test("onApply receives the change set at the canvas's own entry and key types �
         return Plan.Root({ axis, data, series: SERIES, editing: { onApply } });
     }).toIR().compile([])());
     assert.ok(sync.onApply.type === "some" && sync.onApply.value.type === "sync");
+    // A Save of the host's own has no draft form (#1620).
+    assert.equal(sync.toDraft.type, "none");
     if (sync.onApply.type === "some" && sync.onApply.value.type === "sync") {
         const result = sync.onApply.value.value(encodeBatch(dropOnP03("r1", variant("snapshot", SEED))));
         assert.deepEqual(result, variant("applied", { revision: some("r1") }));
@@ -589,73 +601,82 @@ test("onApply receives the change set at the canvas's own entry and key types �
         return Plan.Root({ axis, data, series: SERIES, editing: { onApply } });
     }).toIR().compile([])());
     assert.ok(later.onApply.type === "some" && later.onApply.value.type === "async");
+    assert.equal(later.toDraft.type, "none");
     if (later.onApply.type === "some" && later.onApply.value.type === "async") {
         const result = await later.onApply.value.value(encodeBatch(dropOnP03("r2", variant("snapshot", SEED))));
         assert.deepEqual(result, variant("applied", { revision: some("Drop on H1-P03") }));
     }
 });
 
-// ── The inline adapter — a live handle, written through onUpdate ─────────────
+// ── A Save handed over as it is — a record's own — and its draft form (#1620) ──
 
-// The host's store, reached as `State.bind`'s is: through platform calls, so
-// the handle captures nothing. A handle's identity is its reader's bytes — the
-// ledger's key — so it must not change when the source does.
-const HallsStore = {
-    read: East.platform("plan_editing_spec_read", [], Halls),
-    write: East.platform("plan_editing_spec_write", [Halls], NullType),
-};
-const liveHarness = East.function([], Plan.Types.Root, ($) => {
-    const handle = $.const({
-        read: East.function([], Halls, () => HallsStore.read()),
-        write: East.function([Halls], NullType, ($, halls) => { $(HallsStore.write(halls)); }),
-    }, StructType({ read: FunctionType([], Halls), write: FunctionType([Halls], NullType) }));
-    return Plan.Root({ axis, data: handle, series: SERIES, editing: { onUpdate: handle.write } });
+/** A canvas given the record itself (#1541), one handed the record's own Save as `Record.onApply` answers it, and one handed a copy of it bound in a block. */
+const RecordRoots = StructType({ record: Plan.Types.Root, handed: Plan.Types.Root, copied: Plan.Types.Root });
+/**
+ * The halls over a record's handle, as `Record.bind` gives one, the canvas handed the record's own Save: the handle's
+ * patch door answers a Save with the patch it was sent, printed, and its draft door answers the patch as a draft.
+ */
+const recordHarness = East.function([], RecordRoots, ($) => {
+    const record = $.let({
+        read: East.function([], Halls, (_$2) => SEED),
+        status: East.function([], DatasetStatusType, (_$2) => variant("up-to-date", null)),
+        history: East.function([], OptionType(ArrayType(RecordCommitInfoType)), (_$2) => none),
+        mutate: {
+            pending: East.function([], BooleanType, (_$2) => false),
+            status: East.function([], RecordMutateStatusType, (_$2) => variant("idle", null)),
+            error: East.function([], OptionType(RecordErrorType), (_$2) => none),
+            cancel: East.function([], NullType, (_$2) => null),
+            patch: East.function([PatchType(Halls)], NullType, (_$2) => null),
+        },
+        commit: {
+            patch: East.asyncFunction([StringType, PatchType(Halls)], RecordOutcomeType, (_$2, _id, patch) =>
+                variant("committed", { commitHash: "c", stateHash: East.print(patch) })),
+        },
+        draft: {
+            patch: East.function([PatchType(Halls)], FuncDraftType, (_$2, patch) =>
+                ({ record: "spec_halls", mutation: "patch", args: [East.Blob.encodeBeast(patch, "v2")] })),
+        },
+        start: East.function([], NullType, (_$2) => null),
+        binding: { name: "spec_halls", mutations: ["patch"] },
+    }, RecordBindHandleType(Halls, { patch: [PatchType(Halls)] }));
+    const data = $.const(SEED, Halls);
+    // The Save as an author may hold it: a copy, bound in a block.
+    const save = $.const(Record.onApply(record, { keyed: true }));
+    return {
+        record: Plan.Root({ axis, data, series: SERIES, editing: { record } }),
+        handed: Plan.Root({ axis, data, series: SERIES, editing: { onApply: Record.onApply(record, { keyed: true }) } }),
+        copied: Plan.Root({ axis, data, series: SERIES, editing: { onApply: save } }),
+    };
 });
 
-test("onUpdate applies a batch through the live handle — checked against the snapshot it began from, and never written twice", () => {
-    let saved = SEED;
-    let writes = 0;
-    // The request ledger copies its bytes in and out, as the renderer's does:
-    // an encoder may hand the same buffer back on its next call.
-    const ledger = new Map<string, Uint8Array>();
-    const wire = editingOf(liveHarness.toIR().compile([
-        HallsStore.read.implement(() => saved),
-        HallsStore.write.implement((halls) => {
-            saved = halls;
-            writes += 1;
-            return null;
-        }),
-        EditingRequestStore.read.implement((key) => {
-            const recorded = ledger.get(key);
-            return recorded === undefined ? none : some(recorded.slice());
-        }),
-        EditingRequestStore.write.implement((key, payload) => {
-            ledger.set(key, payload.slice());
-            return null;
-        }),
-    ])());
-    if (wire.onApply.type !== "some" || wire.onApply.value.type !== "sync") return assert.fail("the inline adapter is synchronous");
-    const apply = wire.onApply.value.value;
-    if (wire.snapshot.type !== "some") return assert.fail("an inline session carries its snapshot");
-    // The base is the snapshot the canvas was drawn from.
-    const base: BatchValue["base"] = variant("snapshot", decodeBeast2For(Halls)(wire.snapshot.value));
-    const first = encodeBatch(dropOnP03("r1", base));
-    assert.deepEqual(apply(first), variant("applied", { revision: none }));
-    assert.ok(sameHall(saved.get("H1")!, hall1([["j4642", J4642], ["poster-1", POSTER]])));
-    assert.ok(sameHall(saved.get("H2")!, hall2()));
-    assert.equal(writes, 1);
-    // The canvas reads the handle live: the entry read back is the applied one.
-    const read = wire.readEntry("H1", 0n);
-    assert.ok(read.type === "some" && sameHall(decodeHall(read.value), hall1([["j4642", J4642], ["poster-1", POSTER]])));
-    // A replay answers from the ledger — nothing is written twice.
-    assert.deepEqual(apply(first), variant("applied", { revision: none }));
-    assert.equal(writes, 1);
-    // A new batch from the old base is refused, never rebased: the source moved under it.
-    const stale = encodeBatch({
-        requestId: "r2", base, label: "Drop on H2-P11",
-        changes: [{ id: "H2", patch: hallDiff(some(hall2()), some(hall2([["leaflet-0", LEAFLET]]))), place: none }],
-    });
-    assert.equal(apply(stale).type, "conflict");
-    assert.ok(sameHall(saved.get("H2")!, hall2()));
-    assert.equal(writes, 1);
+test("a Plan handed a record's Save takes its draft form: the same batch as a draft of the record's patch door, its patch the one that Save sends — handed a copy of the Save bound in a block, or the record itself, the same draft and the same patch — and a batch of no change is no draft (#1620, #1541)", async () => {
+    const roots = recordHarness.toIR().compile([])();
+    const wire = editingOf(roots.handed);
+    const copied = editingOf(roots.copied);
+    const given = editingOf(roots.record);
+    if (given.toDraft.type !== "some") return assert.fail("a Plan given its record takes the record's Save with its draft form");
+    if (given.onApply.type !== "some" || given.onApply.value.type !== "async") return assert.fail("a record's Save is awaited");
+    if (wire.toDraft.type !== "some") return assert.fail("a record's Save carries its draft form");
+    if (copied.toDraft.type !== "some") return assert.fail("a copy of a record's Save carries its draft form");
+    if (copied.onApply.type !== "some" || copied.onApply.value.type !== "async") return assert.fail("a copy of a record's Save is awaited");
+    if (wire.onApply.type !== "some" || wire.onApply.value.type !== "async") return assert.fail("a record's Save is awaited");
+    const batch = encodeBatch(dropOnP03("r1", variant("snapshot", SEED)));
+    const answer = wire.toDraft.value(batch);
+    if (answer.type !== "draft") return assert.fail(`the batch is a draft: ${answer.type}`);
+    const draft = decodeBeast2For(FuncDraftType)(answer.value);
+    assert.equal(draft.record, "spec_halls");
+    assert.equal(draft.mutation, "patch");
+    assert.equal(draft.args.length, 1, "the patch door's one argument");
+    // The patch the Save sends its door, printed there and read back here.
+    const saved = await wire.onApply.value.value(batch);
+    if (saved.type !== "applied" || saved.value.revision.type !== "some") return assert.fail(`Save applies: ${saved.type}`);
+    const sent = parseFor(PatchType(Halls))(saved.value.revision.value);
+    if (!sent.success) return assert.fail("the door answers with the patch it was sent, printed");
+    assert.ok(equalFor(PatchType(Halls))(decodeBeast2For(PatchType(Halls))(draft.args[0]!), sent.value), "one patch for one batch");
+    assert.ok(equalFor(EditingToDraftResultTypeFor(BlobType))(copied.toDraft.value(batch), answer), "the copy gives the draft the Save gives");
+    assert.ok(equalFor(Editing.Types.ApplyResult)(await copied.onApply.value.value(batch), saved), "and sends the patch the Save sends");
+    assert.ok(equalFor(EditingToDraftResultTypeFor(BlobType))(given.toDraft.value(batch), answer), "the record gives the draft its Save gives");
+    assert.ok(equalFor(Editing.Types.ApplyResult)(await given.onApply.value.value(batch), saved), "and sends the patch its Save sends");
+    const nothing = wire.toDraft.value(encodeBatch({ ...dropOnP03("r2", variant("snapshot", SEED)), changes: [] }));
+    assert.equal(nothing.type, "unchanged");
 });

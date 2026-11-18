@@ -139,7 +139,12 @@
  * the head of the section the view is in stays mounted however far into the
  * section the view goes. A head row that yields sticks only while the whole
  * head fits in half the view; past that, the head's other rows stick while
- * they fit there. A row brought into view at its start lands under a stuck
+ * they fit there. That is decided as the view comes into the section: inside
+ * it, past its start, a change to the head holds what sticks (#1684) — a row
+ * that stuck sticks still, one that went by with the section's rows stays by,
+ * and a row the head gains sticks, so a lane opened under a stuck head shows
+ * its rows under it and none of the others' — while the stuck head fits in
+ * the view. A row brought into view at its start lands under a stuck
  * head, as it lands under the header, and so does an element of a row that the
  * focus or a scroll into view brings in: each place names how much of the
  * view's top covers its row — the header and the rows stuck over it, or above
@@ -366,9 +371,23 @@ export interface StickySection {
     readonly head: number;
     /**
      * Whether a head row, by its index, gives way first: it sticks only while the whole head fits in half the view,
-     * and past that scrolls with the section's other rows. Omitted, none does.
+     * and past that scrolls with the section's other rows — decided as the view comes into the section; inside it, a
+     * change to the head holds what sticks ({@link StuckHold}, #1684). Omitted, none does.
      */
     readonly yields?: ((index: number) => boolean) | undefined;
+}
+
+/**
+ * What holds a section's stuck head through a change to it (#1684), while the view is inside the section, past its
+ * start: the rows that stuck at the frame's last commit stick still, those that went by with the section's rows stay
+ * by, and a row new to the head sticks — a lane opened under a stuck head, its rows under it — while the stuck head fits
+ * in the view.
+ */
+export interface StuckHold {
+    /** Whether a head row, by its index, sticks: it stuck at the last commit, or is new to the head. */
+    readonly sticks: (index: number) => boolean;
+    /** The view's height under the header: a held head taller than it sticks afresh ({@link stuckRows}). */
+    readonly room: number;
 }
 
 /** How a head row sticks (#1568). */
@@ -403,24 +422,30 @@ function sectionsOver(sections: readonly StickySection[], from: number, to: numb
 
 /**
  * Where a section's head rows stick (#1568). Every head row sticks while the whole head fits in `half` the view; past
- * that, the rows that do not yield, in order, while they fit there. Each sticks under the stuck rows above it, in a
- * rail from its place to where the stuck head, whole, meets the section's end — so the next section's start pushes
- * every stuck row out at once.
+ * that, the rows that do not yield, in order, while they fit there. Held (`hold`, #1684) — the view inside the section,
+ * past its start — the rows the hold names stick instead, while they fit in its room: a change to the head neither
+ * unsticks a row that stuck nor sticks one that went by, so a lane toggled under a stuck head shows or hides its own
+ * rows alone. Each sticks under the stuck rows above it, in a rail from its place to where the stuck head, whole, meets
+ * the section's end — so the next section's start pushes every stuck row out at once.
  *
  * @param section - The section
  * @param size - A row's height, by its index
  * @param place - A row's place, by its index, in the rows' own coordinates
  * @param end - Where the section ends, in the rows' own coordinates
  * @param half - Half the view's height
+ * @param hold - What holds the head through a change to it, while the view is inside the section; omitted, the head sticks afresh
  * @returns The rows that stick, by index, and the stuck head's height
  * @internal Exported for its test.
  */
-export function stuckRows(section: StickySection, size: (index: number) => number, place: (index: number) => number, end: number, half: number):
+export function stuckRows(section: StickySection, size: (index: number) => number, place: (index: number) => number, end: number, half: number, hold?: StuckHold):
     { readonly rows: ReadonlyMap<number, StuckRow>; readonly height: number } {
     const head: number[] = [];
     for (let i = section.start; i < Math.min(section.start + section.head, section.end); i++) head.push(i);
+    const tall = (rows: readonly number[]) => rows.reduce((sum, i) => sum + size(i), 0);
+    const held = hold === undefined ? undefined : head.filter((i) => hold.sticks(i));
     let sticking = head;
-    if (head.reduce((sum, i) => sum + size(i), 0) > half) {
+    if (held !== undefined && hold !== undefined && tall(held) <= hold.room) sticking = held;
+    else if (tall(head) > half) {
         sticking = [];
         let total = 0;
         for (const i of head) {
@@ -961,6 +986,22 @@ function measureRect<S extends Element | Window>(el: Element, _entry: ResizeObse
 /** An item's identity to the virtualizer — its key. */
 type ItemKey = VirtualItem["key"];
 
+/** A section's stuck head, as {@link stuckRows} works it out. */
+type StuckHead = ReturnType<typeof stuckRows>;
+
+/** A section's head as a render works it out (#1684): its first row's key, its rows' keys in order, and where they stick. */
+interface WorkedHead {
+    readonly key: ItemKey;
+    readonly rows: readonly ItemKey[];
+    readonly stuck: StuckHead;
+}
+
+/** What a section's head held at the frame's last commit (#1684): its rows, and those of them that stuck, by their keys. */
+interface HeldHead {
+    readonly head: ReadonlySet<ItemKey>;
+    readonly stuck: ReadonlySet<ItemKey>;
+}
+
 /** A frame's scroll anchor (#878): the item it keeps in place, where the item
  *  started among the rows, the scroll offset then, and the item's index —
  *  where to look for it first. */
@@ -1203,6 +1244,9 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     // scrolled: the same row asked for again under the same nonce is that
     // request, wherever the row's index has moved.
     const servedRef = useRef<{ key: ItemKey; nonce: number | undefined; scroller: Rows["scrollElement"] } | null>(null);
+    // What each section's head held at the last commit, by its first row's key (#1684): what a change to the head of a
+    // section the view is inside holds.
+    const heldRef = useRef<ReadonlyMap<ItemKey, HeldHead>>(new Map());
 
     const estimate = sizes !== undefined
         ? (i: number) => sizes[i] ?? 0
@@ -1289,11 +1333,30 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     // rows' own top.
     const margin = bounded ? itemsOffset : 0;
 
-    // A section's stuck head (#1568): where its rows stick, from the rows' measurements and the view's height.
-    const stickOf = (section: StickySection) => {
+    // A section's stuck head (#1568): where its rows stick, from the rows' measurements and the view's height — worked out
+    // once a render, and held at its commit for the next (#1684).
+    const keyOf = (i: number): ItemKey => getItemKey !== undefined ? getItemKey(i) : i;
+    const heads = new Map<number, WorkedHead>();
+    const stickOf = (section: StickySection): StuckHead => {
+        const seen = heads.get(section.start);
+        if (seen !== undefined) return seen.stuck;
         const place = (i: number) => (virtualizer.measurementsCache[i]?.start ?? margin) - margin;
         const end = section.end < count ? place(section.end) : virtualizer.getTotalSize();
-        return stuckRows(section, (i) => virtualizer.measurementsCache[i]?.size ?? 0, place, end, (virtualizer.scrollRect?.height ?? 0) / 2);
+        const view = virtualizer.scrollRect?.height ?? 0;
+        const key = keyOf(section.start);
+        // The view inside the section, past its start — its head stuck: a change to the head holds what stuck at the last
+        // commit, and a row new to it sticks (#1684). Anywhere else the head sticks afresh, as the view comes into it.
+        const was = heldRef.current.get(key);
+        const offset = virtualizer.scrollOffset ?? 0;
+        const hold = was !== undefined && offset > place(section.start) && offset < end ? {
+            sticks: (i: number) => { const row = keyOf(i); return was.head.has(row) ? was.stuck.has(row) : true; },
+            room: view - margin,
+        } : undefined;
+        const stuck = stuckRows(section, (i) => virtualizer.measurementsCache[i]?.size ?? 0, place, end, view / 2, hold);
+        const rows: ItemKey[] = [];
+        for (let i = section.start; i < Math.min(section.start + section.head, section.end); i++) rows.push(keyOf(i));
+        heads.set(section.start, { key, rows, stuck });
+        return stuck;
     };
     // The first row of the section the view is in, while its head sticks under the header (#1568): its key, its index
     // and where it shows, in the rows' own coordinates — which a scroll anchor keeps in place where its own row leaves.
@@ -1329,6 +1392,11 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         const behind = item.start < (virtualizer.scrollOffset ?? 0) + margin + covered;
         return target[1] === "start" || (target[1] === "auto" && behind) ? [Math.max(0, item.start - margin - covered), "start"] : target;
     };
+    // The heads this render worked out, held for the next (#1684): the rows of each, and those that stuck.
+    useLayoutEffect(() => {
+        heldRef.current = new Map([...heads.values()].map(({ key, rows, stuck }) =>
+            [key, { head: new Set(rows), stuck: new Set([...stuck.rows.keys()].map(keyOf)) }] as const));
+    });
 
     // What scrolls the rows, for a row taller than the view — an unloaded run —
     // to draw the part of it the view shows (#1398, CL2; `rows-scroll.ts`): the

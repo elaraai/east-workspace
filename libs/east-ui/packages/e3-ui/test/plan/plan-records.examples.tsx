@@ -9,7 +9,7 @@ import {
 import { Box, Reactive, Slice, UIComponentType } from "@elaraai/east-ui";
 import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
-import { indexedWorkDue, indexedWorkJob, indexedWorkOrders, indexedWorkReference } from "../sheet/sheet-records.examples.js";
+import { IndexedWork, indexedWorkDue, indexedWorkJob, indexedWorkOrders, indexedWorkReference } from "../sheet/sheet-records.examples.js";
 
 /** A job dropped on a press, under its id: a mark at the bucket it landed in. */
 export const PlanPressJob = StructType({ at: Plan.Types.Instant });
@@ -128,9 +128,10 @@ export const planOperations = e3.record("plan_operations", Operations, {
 
 /**
  * The Sheet's 50,000 work orders on a Plan, a row each, and their operations
- * a record of their own placed on them (#1344, #1039). The work orders are a
- * paged resource kind, narrowed through the rail's `orders` source — named
- * after the kind's slot — over their indexes: by Status, Due, Job, Quantity,
+ * a record of their own placed on them (#1344, #1039, #1541). The work orders
+ * are the canvas's rows, laid out by a `Plan.series.resources`, counted as
+ * work orders, the Plan's word for its rows (`vocabulary`), and narrowed
+ * through the rail's `rows` source over their indexes: by Status, Due, Job, Quantity,
  * Urgent and Tag, with the presets and the search, opening on the orders Ready
  * and due in the first fortnight of October. The canvas pages the narrowing's
  * orders themselves, in its index's order, and the dates on screen never
@@ -146,22 +147,21 @@ export const planOperations = e3.record("plan_operations", Operations, {
  */
 export const planRecordIndexes = example({
     keywords: [
-        "Plan", "Schedule", "Schedule.resources", "Schedule.events", "Slice", "Slice.bindRecords", "source", "rail", "narrow",
-        "resource kind", "paged", "Data.bindPaged", "index.on", "interval index", "series index", "summary index",
+        "Plan", "Schedule", "Plan.series.resources", "Schedule.events", "Slice", "Slice.bindRecords", "source", "rail", "narrow",
+        "rows source", "paged", "Data.bindPaged", "index.on", "interval index", "series index", "summary index",
         "index.interval", "index.series", "index.summary", "cell", "window", "range", "large record",
         "million rows", "work orders", "operations", "Record.bind", "entries", "editing", "Save", "#1344", "#1039",
     ],
-    description: "The Sheet's 50,000 work orders on a Plan — a paged resource kind narrowed through the rail's `orders` source over their indexes: Status with a Due range, Job, Quantity, Urgent and Tag, the presets and the search, Due a field of the rail the viewer sets — and their operations a record of their own placed on them, read a cell at a time: the `operation` source lists their interval, series and summary indexes, its range the canvas's window, so the orders' rows stay as the dates move and only the cells around the rows in view are read; a moved operation is a draft of its kind's session, saved through the operations' patch door by its key",
+    description: "The Sheet's 50,000 work orders on a Plan — its rows, a Plan.series.resources over the rail's `rows` source, narrowed over their indexes: Status with a Due range, Job, Quantity, Urgent and Tag, the presets and the search, Due a field of the rail the viewer sets — and their operations a record of their own placed on them, read a cell at a time: the `operation` source lists their interval, series and summary indexes, its range the canvas's window, so the orders' rows stay as the dates move and only the cells around the rows in view are read; a moved operation is a draft of its kind's session, saved through the operations' patch door by its key",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const orders = $.let(Data.bindPaged(indexedWorkOrders));
             const operations = $.let(Record.bind(planOperations));
             const operationEntries = $.let(Data.bindPaged(planOperations));
-            // One rail. Its `orders` source narrows the paged work orders through their indexes, and the canvas pages the
-            // narrowing's orders, their Due a field of the rail the viewer sets. Its `operation` source reads the
+            // One rail. Its `rows` source narrows the work orders through their indexes, and the canvas pages the
+            // narrowing's orders, its rows, their Due a field of the rail the viewer sets. Its `operation` source reads the
             // operations a cell at a time through their series and summary indexes, its range the canvas's window.
             const slice = $.let(Slice.bindRecords("ex.planRecordIndexes", {
-                orders: {
+                rows: {
                     source: Data.bindPaged(indexedWorkOrders, { indexes: ["by_status_due", "by_due", "by_job", "by_quantity", "by_urgent", "by_tag"] }),
                     label: "Work orders", icon: { prefix: "fas", name: "clipboard-list" },
                     fields: { status: { label: "Status", hints: ["Ready", "Scheduled", "Done"] }, due: { label: "Due" }, job: { label: "Job" }, quantity: { label: "Quantity" }, urgent: { label: "Urgent" }, tags: { label: "Tag", hints: ["Production", "Dispatch"] } },
@@ -171,12 +171,12 @@ export const planRecordIndexes = example({
                     source: Data.bindPaged(planOperations, { indexes: ["plan_operations_by_time", "plan_operations_by_work_week", "plan_operations_by_work_month"] }),
                     label: "Operations", fields: { start: { label: "Dates" } }, range: "start",
                 },
-            }, { presets: [{ id: "ready", name: "Ready", where: { orders: { status: ["Ready"] } } }, { id: "urgent", name: "Urgent", where: { orders: { urgent: [true] } } }] }));
+            }, { presets: [{ id: "ready", name: "Ready", where: { rows: { status: ["Ready"] } } }, { id: "urgent", name: "Urgent", where: { rows: { urgent: [true] } } }] }));
             return <Box width="100%" height="760px"><Plan id="planRecordIndexes" slice={{ slice }}
+                // Its rows are work orders, in the Plan's word for them: what the rail counts and the footer's line names.
+                vocabulary={{ rows: { one: "Work order", other: "Work orders" } }}
                 axis={Plan.axis({ window: { min: new Date("2026-10-01T00:00:00Z"), max: new Date("2026-10-15T00:00:00Z") }, resolution: "day", resolutions: ["month", "week", "day"] })}
-                resources={{
-                    orders: Schedule.resources(orders, { name: "Work orders", icon: "clipboard-list", label: (w) => w.reference, sub: (w) => some(w.status) }),
-                }}
+                series={[Plan.series.resources(IndexedWork, { key: "orders", title: "Work orders", icon: "clipboard-list", label: (w) => w.reference, sub: (w) => some(w.status) })]}
                 events={{
                     operation: Schedule.events(operations, {
                         name: "Operation", icon: "gears", title: "label", start: "start", end: "end",
@@ -192,24 +192,23 @@ export const planRecordIndexes = example({
 
 /**
  * The work orders Plan of `planRecordIndexes` in a phone-width frame: the same
- * paged work orders narrowed through the same rail, on the toolbar's responsive
+ * work orders, its rows, narrowed through the same rail, on the toolbar's responsive
  * ladder, and the same operations read a cell at a time, their source holding
  * the canvas's window — the narrow layout's cards drawn from the same reads.
  */
 export const planRecordIndexesMobile = example({
     keywords: [
-        "Plan", "Schedule", "Schedule.resources", "Schedule.events", "Slice", "Slice.bindRecords", "rail", "mobile", "narrow layout",
-        "resource kind", "paged", "Data.bindPaged", "series index", "summary index", "cell", "work orders", "operations", "#1344", "#1039",
+        "Plan", "Schedule", "Plan.series.resources", "Schedule.events", "Slice", "Slice.bindRecords", "rail", "mobile", "narrow layout",
+        "rows source", "paged", "Data.bindPaged", "series index", "summary index", "cell", "work orders", "operations", "#1344", "#1039",
     ],
-    description: "The work orders Plan of planRecordIndexes in a phone-width frame — the paged work orders narrowed through the same rail on the toolbar's responsive ladder, Due a field of it, and their operations read a cell at a time, their source holding the canvas's window, so the dates never narrow the orders",
+    description: "The work orders Plan of planRecordIndexes in a phone-width frame — the work orders, its rows, narrowed through the same rail on the toolbar's responsive ladder, Due a field of it, and their operations read a cell at a time, their source holding the canvas's window, so the dates never narrow the orders",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const orders = $.let(Data.bindPaged(indexedWorkOrders));
             const operations = $.let(Record.bind(planOperations));
             const operationEntries = $.let(Data.bindPaged(planOperations));
-            // The rail of planRecordIndexes: the paged work orders by their indexes, and the operations by cells, holding the window.
+            // The rail of planRecordIndexes: the work orders by their indexes, its rows, and the operations by cells, holding the window.
             const slice = $.let(Slice.bindRecords("ex.planRecordIndexesMobile", {
-                orders: {
+                rows: {
                     source: Data.bindPaged(indexedWorkOrders, { indexes: ["by_status_due", "by_due", "by_job", "by_quantity", "by_urgent", "by_tag"] }),
                     label: "Work orders", icon: { prefix: "fas", name: "clipboard-list" },
                     fields: { status: { label: "Status", hints: ["Ready", "Scheduled", "Done"] }, due: { label: "Due" }, job: { label: "Job" }, quantity: { label: "Quantity" }, urgent: { label: "Urgent" }, tags: { label: "Tag", hints: ["Production", "Dispatch"] } },
@@ -219,14 +218,13 @@ export const planRecordIndexesMobile = example({
                     source: Data.bindPaged(planOperations, { indexes: ["plan_operations_by_time", "plan_operations_by_work_week", "plan_operations_by_work_month"] }),
                     label: "Operations", fields: { start: { label: "Dates" } }, range: "start",
                 },
-            }, { presets: [{ id: "ready", name: "Ready", where: { orders: { status: ["Ready"] } } }, { id: "urgent", name: "Urgent", where: { orders: { urgent: [true] } } }] }));
+            }, { presets: [{ id: "ready", name: "Ready", where: { rows: { status: ["Ready"] } } }, { id: "urgent", name: "Urgent", where: { rows: { urgent: [true] } } }] }));
             return <Box width="100%" maxWidth="390px" height="760px"><Plan id="planRecordIndexesMobile" slice={{ slice }}
+                vocabulary={{ rows: { one: "Work order", other: "Work orders" } }}
                 library={[Plan.library.series()]}
                 inspector
                 axis={Plan.axis({ window: { min: new Date("2026-10-01T00:00:00Z"), max: new Date("2026-10-15T00:00:00Z") }, resolution: "day", resolutions: ["month", "week", "day"] })}
-                resources={{
-                    orders: Schedule.resources(orders, { name: "Work orders", icon: "clipboard-list", label: (w) => w.reference, sub: (w) => some(w.status) }),
-                }}
+                series={[Plan.series.resources(IndexedWork, { key: "orders", title: "Work orders", icon: "clipboard-list", label: (w) => w.reference, sub: (w) => some(w.status) })]}
                 events={{
                     operation: Schedule.events(operations, {
                         name: "Operation", icon: "gears", title: "label", start: "start", end: "end",

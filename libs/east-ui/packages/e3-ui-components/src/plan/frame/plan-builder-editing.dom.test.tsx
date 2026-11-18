@@ -37,10 +37,10 @@ import * as rowDrop from "@elaraai/e3-ui/examples/plan/plan";
 import { announced, pointAt } from "@elaraai/east-ui-components/testing";
 import { usePlanEventEditing, type PlanEventChange } from "../edit/events.js";
 import type { PlanEntryRef } from "../use-plan-editing.js";
-import { carrySaid, keyOn } from "../plan-move.test-utils.js";
+import { carryRun, carrySaid, keyOn, type KeyPress } from "../plan-move.test-utils.js";
 import { boundFrame } from "../../sheet/frame.test-utils.js";
 import { offering } from "../../shared/schedule/keys.test-utils.js";
-import { act, drawnFrom, el, entry, madeFrom, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
+import { act, drawnFrom, el, entry, madeFrom, planHarness, dropPressRow, rowAt, dropRunOf, settle, slot } from "./harness.test-utils.js";
 import { conflictCards, evaluatesAgain, reloadPage } from "../../e3-web-mount.test-utils.js";
 import type { E3Request } from "../../e3-web.test-utils.js";
 import { editedThroughReload, redrawnThroughReload, savedThroughReload } from "../../shared/save-held.test-utils.js";
@@ -74,11 +74,14 @@ async function commits(name: string): Promise<string[]> {
 
 // ── The print works on the canvas ─────────────────────────────────────────────
 
-/** Press A1's bars and marks, Press A2's bars, Crew 1's chips. */
-const A1 = entry("presses.span", "Hall A", "a1");
-const A1_MARKS = entry("presses.marks", "Hall A", "a1");
-const A2 = entry("presses.span", "Hall A", "a2");
-const C1 = entry("crews.cards", "Hall A", "c1");
+/**
+ * Press A1's own row, which its bars draw on, and its marks' row beside it; Press A2's own row; Crew 1's own row, which
+ * its chips draw on — each a resource of the works' halls (#1541).
+ */
+const A1 = entry("presses", "1-presses-a", "a1");
+const A1_MARKS = entry("presses.marks", "1-presses-a", "a1");
+const A2 = entry("presses", "1-presses-a", "a2");
+const C1 = entry("crews", "3-crews-a", "c1");
 
 /** A job's bar on a press's row. */
 const bar = (c: HTMLElement, key: string, row = A1) => c.querySelector<HTMLElement>(`${rowAt(row)} ${el("data-run", "job", key)}`);
@@ -176,13 +179,12 @@ const LAST = new Date("2026-11-02T00:00:00Z");
 const NO_JOINED: readonly EditHistoryJoined<PlanEntryRef>[] = [];
 
 /**
- * The print works' three kinds alone — its jobs, stops and shifts — as the
- * payload carries them, the stops' templates a record of their own following
- * their source of the Plan's one rail (#1344).
+ * The print works' three kinds alone — its jobs, stops and shifts, on its
+ * halls' presses and crews — as the payload carries them, the stops' templates
+ * a record of their own following their source of the Plan's one rail (#1344).
  */
 const printKindsFn = East.function([], PlanPayloadType, ($) => {
-    const presses = $.let(Record.bind(ex.planPrintPresses, []));
-    const crews = $.let(Record.bind(ex.planPrintCrews, []));
+    const works = $.let(Data.bind(ex.planPrintWorksRows));
     const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
     const stops = $.let(Record.bind(ex.planPrintStops, ["patch"]));
     const shifts = $.let(Record.bind(ex.planPrintShifts, ["patch"]));
@@ -193,10 +195,16 @@ const printKindsFn = East.function([], PlanPayloadType, ($) => {
     const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
     return Plan.Payload({
         axis, slice: { slice },
-        resources: {
-            presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }),
-            crews: Schedule.resources(crews.read(), { name: "Crews", icon: "user-group", label: (c) => c.name }),
-        },
+        // The works' halls, each a strip over its presses or its crews — the canvas's own rows (#1541).
+        data: works.read().filter(($2, _group, key) => key.lessThan("5")),
+        series: [Plan.series.group(ex.PrintWorksGroup, {
+            key: "groups", title: "Works", label: (g) => g.name,
+            children: Plan.children("resources", [Plan.series.kinds(ex.PrintResource, "what", {
+                press: { key: "presses", title: "Presses", icon: "print", label: (r) => r.name },
+                crew: { key: "crews", title: "Crews", icon: "user-group", label: (r) => r.name },
+                setter: false, line: false, bay: false, van: false,
+            })]),
+        })],
         events: {
             job: Schedule.events(jobs, {
                 name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
@@ -461,7 +469,7 @@ describe("every gesture is one transaction (PB43)", () => {
         await press(historyButton(container, UNDO));
         expect(pending(container)).toBe("0 pending");
         // The resource: Press A2 — the job and the stop, both placed on presses, move onto it; the shift's kind is placed on crews, and keeps its crew.
-        const stopOnA2 = () => container.querySelector(`${rowAt(entry("presses.marks", "Hall A", "a2"))} [role="button"]${el("data-mark", "stop", "S-01")}`);
+        const stopOnA2 = () => container.querySelector(`${rowAt(entry("presses.marks", "1-presses-a", "a2"))} [role="button"]${el("data-mark", "stop", "S-01")}`);
         await choose(container, "resource", "Press A2");
         expect(bar(container, "J-1001", A2)).not.toBeNull();
         expect(bar(container, "J-1001")).toBeNull();
@@ -830,36 +838,41 @@ describe("a Save of the jobs read over the window: what it landed, as it left it
             e3: h.e3,
             container: c,
             reads: afterCommit(),
-            look: () => starts(c, ["J-1001", "J-1002", "J-1003", "J-1004"]),
+            look: () => starts(c, ["J-1001", "J-1002", "J-1004", "J-1005"]),
             save: () => { fireEvent.click(historyButton(c, SAVE)); },
             unsaved: () => pending(c) !== "0 pending",
-            // The event posters and the course handbook, on Press A1, which the Save did not hold: each one's original is
+            // The course handbook and the menu cards, on Press A1, which the Save did not hold: each one's original is
             // the canvas's own row of it. Picked, then — their Details drawn from the rows their bars were drawn from —
             // shifted an hour.
             again: [
-                () => select(bar(c, "J-1003")!),
-                () => select(bar(c, "J-1004")!, true),
+                () => select(bar(c, "J-1004")!),
+                () => select(bar(c, "J-1005")!, true),
                 () => press(action(c, "shift:1hour")),
             ],
         });
         const after = await readJobs();
         const hourOn = (key: string) => some(new Date(before.get(key)!.start.value!.getTime() + 3_600_000));
-        expect(["J-1001", "J-1002", "J-1003", "J-1004"].map((key) => after.get(key)!.start)).toEqual(["J-1001", "J-1002", "J-1003", "J-1004"].map(hourOn));
+        expect(["J-1001", "J-1002", "J-1004", "J-1005"].map((key) => after.get(key)!.start)).toEqual(["J-1001", "J-1002", "J-1004", "J-1005"].map(hourOn));
     });
 });
 
 const lockedRoster = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const presses = $.let(Record.bind(ex.planPrintPresses, []));
-    const crews = $.let(Record.bind(ex.planPrintCrews, []));
+    const works = $.let(Data.bind(ex.planPrintWorksRows));
     const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
     const shifts = $.let(Record.bind(ex.planLockedShifts, ["patch"]));
     const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
     return Plan({
         axis, inspector: true,
-        resources: {
-            presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name, group: (p) => p.hall }),
-            crews: Schedule.resources(crews.read(), { name: "Crews", icon: "user-group", label: (c) => c.name, group: (c) => c.hall }),
-        },
+        // The works' halls, each a strip over its presses or its crews — the canvas's own rows (#1541).
+        data: works.read().filter(($2, _group, key) => key.lessThan("5")),
+        series: [Plan.series.group(ex.PrintWorksGroup, {
+            key: "groups", title: "Works", label: (g) => g.name,
+            children: Plan.children("resources", [Plan.series.kinds(ex.PrintResource, "what", {
+                press: { key: "presses", title: "Presses", icon: "print", label: (r) => r.name },
+                crew: { key: "crews", title: "Crews", icon: "user-group", label: (r) => r.name },
+                setter: false, line: false, bay: false, van: false,
+            })]),
+        })],
         events: {
             job: Schedule.events(jobs, {
                 name: "Print job", icon: "file-lines", draw: "span", title: "title", start: "start", end: "end",
@@ -908,22 +921,11 @@ const readOps = () => h.read(rowDrop.planDropOps);
 const jobsOf = async (press: string) => (await readOps()).get(press)!.jobs;
 /** Whether `jobs` hold `job` under `id`, field for field. */
 const holds = (jobs: ReadonlyMap<string, DropJob>, id: string, job: DropJob) => jobs.has(id) && sameJob(jobs.get(id)!, job);
-/** A press's run, by its job's id. */
-const runOf = (c: HTMLElement, press: string, id: string) => c.querySelector<HTMLElement>(`${rowAt(entry("press", press))} [data-run=${JSON.stringify(id)}]`);
-/** A press's row. */
-const pressRow = (c: HTMLElement, press: string) => c.querySelector<HTMLElement>(rowAt(entry("press", press)))!;
 /** The Save requests the ops record was sent. */
 const opsWrites = () => h.requests("mutate", rowDrop.planDropOps.name);
 /** A palette card in the Plan's own library panel, by its key. */
 const paletteCard = (c: HTMLElement, key: string) =>
     slot(c, "start")!.querySelector<HTMLElement>(`[role="tabpanel"]:not([hidden]) [data-library-item=${JSON.stringify(key)}]`)!;
-/** Picks a run up by the keyboard, presses the keys given, and puts it down. */
-async function carryRun(run: HTMLElement, ...keys: { key: string; shiftKey?: boolean }[]) {
-    run.focus();
-    await keyOn({ key: " " });
-    for (const key of keys) await keyOn(key);
-    await keyOn({ key: " " });
-}
 
 describe("data's rows, their items written by id (#1436)", () => {
     test("a run moved along its row, resized by its end and another carried to another row: Save sends one write, and each job reads back under its id", async () => {
@@ -936,15 +938,15 @@ describe("data's rows, their items written by id (#1436)", () => {
             const j4642 = (await jobsOf("p03")).get("j4642")!;
             const j4624 = (await jobsOf("p04")).get("j4624")!;
             // J-4642 a week on along H1-P03, then its end a week further.
-            await carryRun(runOf(c, "p03", "j4642")!, { key: "ArrowRight" });
+            await carryRun(dropRunOf(c, "p03", "j4642")!, { key: "ArrowRight" });
             expect(carrySaid(c)).toMatch(/^Dropped RUN · J-4642 on H1-P03/);
-            await carryRun(runOf(c, "p03", "j4642")!, { key: "ArrowRight", shiftKey: true });
+            await carryRun(dropRunOf(c, "p03", "j4642")!, { key: "ArrowRight", shiftKey: true });
             // J-4624 carried up from H1-P04 onto H1-P03, its weeks as they were.
-            await carryRun(runOf(c, "p04", "j4624")!, { key: "ArrowUp" });
-            expect(runOf(c, "p03", "j4624")).not.toBeNull();
-            expect(runOf(c, "p04", "j4624")).toBeNull();
-            expect(pressRow(c, "p03").hasAttribute("data-draft")).toBe(true);
-            expect(pressRow(c, "p04").hasAttribute("data-draft")).toBe(true);
+            await carryRun(dropRunOf(c, "p04", "j4624")!, { key: "ArrowUp" });
+            expect(dropRunOf(c, "p03", "j4624")).not.toBeNull();
+            expect(dropRunOf(c, "p04", "j4624")).toBeNull();
+            expect(dropPressRow(c, "p03").hasAttribute("data-draft")).toBe(true);
+            expect(dropPressRow(c, "p04").hasAttribute("data-draft")).toBe(true);
             // Nothing written yet: the gestures are drafts.
             expect(opsWrites()).toEqual([]);
 
@@ -974,7 +976,7 @@ describe("data's rows, their items written by id (#1436)", () => {
             await settle();
             const deployed = await commits(rowDrop.planDropOps.name);
             fireEvent.pointerDown(paletteCard(c, "job-poster"), { clientX: 0, clientY: 0 });
-            pointAt(pressRow(c, "p04").querySelector("[data-drag-cell]"));
+            pointAt(dropPressRow(c, "p04").querySelector("[data-drag-cell]"));
             fireEvent.pointerMove(document, { clientX: 10, clientY: 10 });
             // The new job's id is the Plan's to mint: offered one.
             offering(["job-minted"]);
@@ -982,7 +984,7 @@ describe("data's rows, their items written by id (#1436)", () => {
             await settle();
             // jsdom's zero-width rect puts the pointer in the first week.
             expect(announced()).toBe("Poster run was dropped on H1-P04, Week of Jun 29, 2026.");
-            expect(runOf(c, "p04", "job-minted")).not.toBeNull();
+            expect(dropRunOf(c, "p04", "job-minted")).not.toBeNull();
 
             await press(historyButton(c, SAVE));
             await settle();
@@ -1010,15 +1012,15 @@ describe("data's rows, their items written by id (#1436)", () => {
             const { container: c } = await h.mount(rowDrop.planRowDrop, { drag: true });
             await settle();
             const deployed = await commits(rowDrop.planDropOps.name);
-            runOf(c, "p03", "j4642")!.focus();
+            dropRunOf(c, "p03", "j4642")!.focus();
             await keyOn({ key: " " });
             await keyOn({ key: "ArrowDown" });
             // H1-P04's jobs keep their ids unique: the row refuses it, and the carry goes on.
             expect(carrySaid(c)).toBe("RUN · J-4642 cannot be dropped on H1-P04, Jul 6, 2026 – Jul 27, 2026");
             await keyOn({ key: " " });
             await keyOn({ key: "Escape" });
-            expect(pressRow(c, "p03").hasAttribute("data-draft")).toBe(false);
-            expect(pressRow(c, "p04").hasAttribute("data-draft")).toBe(false);
+            expect(dropPressRow(c, "p03").hasAttribute("data-draft")).toBe(false);
+            expect(dropPressRow(c, "p04").hasAttribute("data-draft")).toBe(false);
             expect(historyButton(c, SAVE).disabled).toBe(true);
             expect(opsWrites()).toEqual([]);
             expect(await commits(rowDrop.planDropOps.name)).toEqual(deployed);
@@ -1035,13 +1037,9 @@ describe("the conflicts example (planConflicts)", () => {
     test("a bar carried two days later here, then Someone else saves, is one conflict named by its job, its dates one card, the bar wearing the ring", async () => {
         const { container: c } = await h.mount(ex.planConflicts, { drag: true });
         await settle();
-        // Its presses are rows of their own, in no hall.
-        const job = () => bar(c, "J-3001", entry("presses.span", "a1"));
-        job()!.focus();
-        await keyOn({ key: " " });
-        await keyOn({ key: "ArrowRight" });
-        await keyOn({ key: "ArrowRight" });
-        await keyOn({ key: " " });
+        // Its presses are the canvas's own rows, in no hall.
+        const job = () => bar(c, "J-3001", entry("presses", "a1"));
+        await carryRun(job()!, { key: "ArrowRight" }, { key: "ArrowRight" });
         expect(job()!.hasAttribute("data-draft")).toBe(true);
         // Someone else's save moves every job a day later: theirs and the carry here differ.
         await act(async () => { fireEvent.click(within(c).getByRole("button", { name: "Someone else saves" })); });
@@ -1057,17 +1055,14 @@ describe("the conflicts example (planConflicts)", () => {
     test("a job of eight hours carried by the keyboard where it began is not moved: its end out a day and back, its end in or its start on with no room in it — nothing waits to save", async () => {
         const { container: c } = await h.mount(ex.planConflicts, { drag: true });
         await settle();
-        const job = () => bar(c, "J-3001", entry("presses.span", "a1"));
-        const carries: { key: string; shiftKey?: boolean; altKey?: boolean }[][] = [
+        const job = () => bar(c, "J-3001", entry("presses", "a1"));
+        const carries: KeyPress[][] = [
             [{ key: "ArrowRight", shiftKey: true }, { key: "ArrowLeft", shiftKey: true }],
             [{ key: "ArrowLeft", shiftKey: true }],
             [{ key: "ArrowRight", altKey: true }],
         ];
         for (const keys of carries) {
-            job()!.focus();
-            await keyOn({ key: " " });
-            for (const key of keys) await keyOn(key);
-            await keyOn({ key: " " });
+            await carryRun(job()!, ...keys);
             expect(carrySaid(c)).toBe("Spring catalogue was not moved");
         }
         expect([pending(c), job()!.hasAttribute("data-draft")]).toEqual(["0 pending", false]);

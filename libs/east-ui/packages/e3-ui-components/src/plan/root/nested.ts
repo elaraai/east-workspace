@@ -55,20 +55,21 @@
 
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
-    ArrayType, BlobType, SortedMap, StringType, applyFor, compareFor, encodeBeast2For, equalFor, equivalentFor, none, parseFor, printFor, some, variant,
+    ArrayType, BlobType, SortedMap, StringType, applyFor, compareFor, encodeBeast2For, equalFor, equivalentFor, none, printFor, some, variant,
     type EastType, type StructType, type ValueTypeOf, type option,
 } from "@elaraai/east";
 import type { SeekQueryType } from "@elaraai/east-ui";
 import { levelRuns, summaryRun, tileNext, type RecordTile } from "@elaraai/east-ui/internal";
-import { nestedSpanName } from "@elaraai/e3-types";
+import { nestedPathCases, nestedPathValue, nestedSpanName } from "@elaraai/e3-types";
 import { Plan, PlanNestedShadingType, SCHEDULE_EVENT_CAP, type PlanNestedType } from "@elaraai/e3-ui/internal";
 import { useSliceReactivity, useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { snapshotOf, windowedSourceOf } from "@elaraai/east-ui-components/internal";
 import { indexedBindingOf, type IndexedBindingRead } from "../../platform/indexed-paged.js";
+import { keyReaderOf } from "../../platform/key-text.js";
 import { useRecordDrafts, type PreviewedRow, type RecordDraftsSession } from "../../shared/records/drafts.js";
 import type { EditSession } from "@elaraai/east-ui-components";
 import { SCHEDULE_CELL_BLOCK, dividingTiles, wantedBlocks, type ScheduleCellBucket } from "../../shared/schedule/cells.js";
-import type { PlanParentSubtotal, PlanParentSubtotals, PlanRootValue, PlanRowIndex, PlanRowValue } from "../model.js";
+import { pinnedRows, type PlanParentSubtotal, type PlanParentSubtotals, type PlanRootValue, type PlanRowIndex, type PlanRowValue } from "../model.js";
 import type { PlanResolution, PlanScale } from "../scale.js";
 import { windowedArm, type PlanPagedSourceValue } from "../use-plan-paging.js";
 import { bucketsOver } from "./cells.js";
@@ -163,8 +164,14 @@ export function createNestedViewStore(): PlanNestedViewStore {
 
 /** The `.east` literals a search of the nested series index names its bounds in, made once for a binding. */
 interface Literals {
-    /** A place's or a node's path: its names, as the key's paths print. */
-    path(names: readonly string[]): string;
+    /** A collection's place: its field names, as the key's place prints. */
+    place(names: readonly string[]): string;
+    /**
+     * A node's path, as the key's path prints (#1540): the child rows' keys from the row down, each read from its text
+     * at its own type and held under the case of the rows it is a key of, along the collection's place; `undefined`
+     * for a key's text its type cannot read, or a path longer than the place has child rows for.
+     */
+    node(place: readonly string[], keys: readonly string[]): string | undefined;
     /** A row's key's leaves, from its id's text; `undefined` for text the key's type cannot read. */
     row(id: string): readonly string[] | undefined;
     /** A run of a node's entries. */
@@ -183,9 +190,30 @@ interface Literals {
     update(value: unknown, patch: unknown): unknown;
 }
 
-/** A path in the index's key, `end` or a `step` and the rest, from its names. */
-function pathValue(names: readonly string[]): unknown {
-    return names.reduceRight<unknown>((rest, key) => variant("step", { key, rest }), variant("end", null));
+
+/**
+ * The child rows' keys from a row down to a node, each as the index's id (#1540): read from its text at the type its
+ * rows are keyed by — a String as it is, any other as East prints it — and held under its rows' case of the index's
+ * ids. The rows on the way to a collection are its place's fields but the last, each one's case its place so far; a
+ * path longer than those is a tree's, whose rows are keyed as the rows listing them are, under the same case.
+ *
+ * @param ids - The index's ids: each collection of child rows and of items, by its case, and its key type
+ * @param place - The collection's place: its field names from the row down
+ * @param keys - The keys' texts, from the row down
+ * @returns The ids; `undefined` for a text its type cannot read, or keys where the place has no child rows
+ */
+function nodeIds(ids: Readonly<Record<string, EastType>>, place: readonly string[], keys: readonly string[]): unknown[] | undefined {
+    const cases = nestedPathCases(place);
+    const out: unknown[] = [];
+    for (const [i, text] of keys.entries()) {
+        const idCase = cases[Math.min(i, cases.length - 1)];
+        const type = idCase === undefined ? undefined : ids[idCase];
+        if (idCase === undefined || type === undefined) return undefined;
+        const id = keyReaderOf(type)(text);
+        if (id === undefined) return undefined;
+        out.push(variant(idCase, id));
+    }
+    return out;
 }
 
 /** A value's leaves as a search's bounds flatten them: a struct's fields in order, recursed; any other value printed. */
@@ -206,21 +234,28 @@ function literals(binding: IndexedBindingRead): Literals {
     let made = literalsOf.get(nested.entry);
     if (made !== undefined) return made;
     const fields = (nested.entry.fields.ik as StructType).fields as Record<string, EastType>;
+    const printPlace = printFor(fields["collection"]!);
     const printPath = printFor(fields["path"]!);
+    // The index's ids, off its key's path: a step's key is one of them.
+    const ids = (fields["path"] as { readonly node: { readonly cases: { readonly step: StructType } } }).node.cases.step.fields["key"] as
+        EastType & { readonly cases: Readonly<Record<string, EastType>> };
     const printRun = printFor(fields["run"]!);
     const printLevel = printFor(fields["level"]!);
     const printTile = printFor(fields["tile"]!);
     const keyLeaves = leavesOf(binding.key);
-    const parseKey = binding.key.type === "String" ? undefined : parseFor(binding.key);
+    const readKey = keyReaderOf(binding.key);
     const encode = encodeBeast2For(ArrayType(nested.entry)) as (entries: readonly Entry[]) => Uint8Array;
     const printKey = printFor(nested.entry.fields.ik);
     const apply = applyFor(nested.entry.fields.value) as (value: unknown, patch: unknown) => unknown;
     made = {
-        path: (names) => printPath(pathValue(names) as never),
+        place: (names) => printPlace(nestedPathValue(names) as never),
+        node: (place, keys) => {
+            const steps = nodeIds(ids.cases, place, keys);
+            return steps === undefined ? undefined : printPath(nestedPathValue(steps) as never);
+        },
         row: (id) => {
-            if (parseKey === undefined) return keyLeaves(id);
-            const read = parseKey(id);
-            return read.success ? keyLeaves(read.value) : undefined;
+            const key = readKey(id);
+            return key === undefined ? undefined : keyLeaves(key);
         },
         run: (run) => printRun(run as never),
         level: (level) => printLevel(variant(level, null) as never),
@@ -229,7 +264,7 @@ function literals(binding: IndexedBindingRead): Literals {
         key: (ik) => printKey(ik as never),
         prefixOf: (ik) => {
             const k = ik as { readonly collection: unknown; readonly row: unknown; readonly path: unknown; readonly run: unknown; readonly level: unknown };
-            return [printPath(k.collection as never), ...keyLeaves(k.row), printPath(k.path as never), printRun(k.run as never), printLevel(k.level as never)].join("\u0001");
+            return [printPlace(k.collection as never), ...keyLeaves(k.row), printPath(k.path as never), printRun(k.run as never), printLevel(k.level as never)].join("\u0001");
         },
         update: apply,
     };
@@ -336,61 +371,68 @@ function wantedCells(args: PlanNestedArgs, lit: Literals, capped: ReadonlySet<st
     const level = subtotalLevel(resolution, tile);
     const subtotalRun = level === undefined ? undefined : summaryRun(level, range.from, range.to);
     const totalsRun = summary === undefined ? undefined : summaryRun(summary, range.from, range.to);
-    const places = seam.uses.map((use) => lit.path(use.place));
+    const places = seam.uses.map((use) => lit.place(use.place));
     const out = new Map<string, Cell>();
     const add = (kind: Cell["kind"], use: number, row: PlanRowValue, leaves: readonly string[], keys: readonly string[], run: unknown, at: RecordTile,
         from: Date, to: Date) => {
-        const leading = [places[use]!, ...leaves, lit.path(keys), lit.run(run), lit.level(at)];
+        // The node, by its keys along the collection's place: one whose keys the index cannot read holds nothing to read.
+        const node = lit.node(seam.uses[use]!.place, keys);
+        if (node === undefined) return;
+        const leading = [places[use]!, ...leaves, node, lit.run(run), lit.level(at)];
         const prefix = leading.join("\u0001");
         if (!out.has(prefix)) out.set(prefix, { prefix, leading, from, to, kind, place: places[use]!, row, use });
     };
+    // What one row wants: its own items, and what it derives from the rows beneath it.
+    const want = (row: PlanRowValue): void => {
+        if (row.id.type !== "entry") return;
+        const [id, ...keys] = row.id.value.path;
+        const leaves = id === undefined ? undefined : lit.row(id);
+        if (leaves === undefined) return;
+        const series = row.id.value.series;
+        // Its own items, a level at a time — past the cap its totals.
+        seam.uses.forEach((use, u) => {
+            if (!stringEqual(use.series, series)) return;
+            if (capped.has(places[u]!)) {
+                if (totalsRun !== undefined) add("totals", u, row, leaves, keys, variant("totals", null), summary!, totalsRun.from, totalsRun.to);
+                return;
+            }
+            for (const at of use.levels) {
+                const run = runs.get(at.type as RecordTile);
+                if (run !== undefined) add("items", u, row, leaves, keys, variant("items", null), run.level, run.from, run.to);
+            }
+        });
+        // As a parent whose row derives its numbers from its children's: its subtotals, or its subtree's items — past the
+        // cap its subtree's totals.
+        const children = index.children.get(row.key) ?? [];
+        const beneath = new Set(children.flatMap((child) => (child.id.type === "entry" ? [child.id.value.series] : [])));
+        seam.uses.forEach((use, u) => {
+            if (use.parents.type !== "some" || ![...beneath].some((s) => stringEqual(s, use.series))) return;
+            const parents = use.parents.value;
+            const how = derives(row);
+            if (!(parents.type === "subtotals" ? how.subtotals : how.rollsUp)) return;
+            if (parents.type === "subtotals") {
+                if (level !== undefined && subtotalRun !== undefined) {
+                    add("subtotals", u, row, leaves, keys, variant("subtotals", parents.value), level, subtotalRun.from, subtotalRun.to);
+                }
+                return;
+            }
+            if (capped.has(places[u]!)) {
+                if (totalsRun !== undefined) add("totals", u, row, leaves, keys, variant("subtreeTotals", null), summary!, totalsRun.from, totalsRun.to);
+                return;
+            }
+            for (const at of use.levels) {
+                const run = runs.get(at.type as RecordTile);
+                if (run !== undefined) add("subtree", u, row, leaves, keys, variant("subtree", null), run.level, run.from, run.to);
+            }
+        });
+    };
     const view = viewOf(args.view, visible);
     for (const block of wantedBlocks(view, visible.length)) {
-        for (let i = block * SCHEDULE_CELL_BLOCK; i < Math.min((block + 1) * SCHEDULE_CELL_BLOCK, visible.length); i++) {
-            const row = visible[i]!;
-            if (row.id.type !== "entry") continue;
-            const [id, ...keys] = row.id.value.path;
-            const leaves = id === undefined ? undefined : lit.row(id);
-            if (leaves === undefined) continue;
-            const series = row.id.value.series;
-            // Its own items, a level at a time — past the cap its totals.
-            seam.uses.forEach((use, u) => {
-                if (!stringEqual(use.series, series)) return;
-                if (capped.has(places[u]!)) {
-                    if (totalsRun !== undefined) add("totals", u, row, leaves, keys, variant("totals", null), summary!, totalsRun.from, totalsRun.to);
-                    return;
-                }
-                for (const at of use.levels) {
-                    const run = runs.get(at.type as RecordTile);
-                    if (run !== undefined) add("items", u, row, leaves, keys, variant("items", null), run.level, run.from, run.to);
-                }
-            });
-            // As a parent whose row derives its numbers from its children's: its subtotals, or its subtree's items — past the
-            // cap its subtree's totals.
-            const children = index.children.get(row.key) ?? [];
-            const beneath = new Set(children.flatMap((child) => (child.id.type === "entry" ? [child.id.value.series] : [])));
-            seam.uses.forEach((use, u) => {
-                if (use.parents.type !== "some" || ![...beneath].some((s) => stringEqual(s, use.series))) return;
-                const parents = use.parents.value;
-                const how = derives(row);
-                if (!(parents.type === "subtotals" ? how.subtotals : how.rollsUp)) return;
-                if (parents.type === "subtotals") {
-                    if (level !== undefined && subtotalRun !== undefined) {
-                        add("subtotals", u, row, leaves, keys, variant("subtotals", parents.value), level, subtotalRun.from, subtotalRun.to);
-                    }
-                    return;
-                }
-                if (capped.has(places[u]!)) {
-                    if (totalsRun !== undefined) add("totals", u, row, leaves, keys, variant("subtreeTotals", null), summary!, totalsRun.from, totalsRun.to);
-                    return;
-                }
-                for (const at of use.levels) {
-                    const run = runs.get(at.type as RecordTile);
-                    if (run !== undefined) add("subtree", u, row, leaves, keys, variant("subtree", null), run.level, run.from, run.to);
-                }
-            });
-        }
+        for (let i = block * SCHEDULE_CELL_BLOCK; i < Math.min((block + 1) * SCHEDULE_CELL_BLOCK, visible.length); i++) want(visible[i]!);
     }
+    // A pinned row stands under the ruler wherever the view rests, and is none of the rows laid out: its cells are
+    // always wanted.
+    for (const row of pinnedRows(index)) want(row);
     return [...out.values()];
 }
 
@@ -834,15 +876,16 @@ class NestedCellsReader {
             const use = series.get(key)!;
             shading.set(key, new SortedMap([...rows].map(([path, tiles]) => [path, shadesOf(tiles, buckets, use.shade)] as const), compareString));
         }
-        // A place past the cap no summary shades: its rows hatched, and the notice.
+        // A place past the cap no summary shades: its rows hatched, and the notice — the rows laid out, and the pinned.
+        const shown = [...pinnedRows(args.index), ...args.visible];
         const notices: PlanNestedNotice[] = [];
         if (summary === undefined && capped.size > 0) {
             for (const use of args.seam.uses) {
-                const place = lit.path(use.place);
+                const place = lit.place(use.place);
                 if (!capped.has(place) || notices.some((n) => samePlace(n.place, use.place))) continue;
                 notices.push({ place: use.place, items: items.get(place) ?? 0 });
                 const rows = shading.get(use.series) ?? new SortedMap<string, Shade[]>([], compareString);
-                for (const row of args.visible) {
+                for (const row of shown) {
                     if (row.id.type === "entry" && stringEqual(row.id.value.series, use.series)) rows.set(printPathText(row.id.value.path), hatchOf(buckets));
                 }
                 shading.set(use.series, rows);
@@ -851,7 +894,7 @@ class NestedCellsReader {
         // The rows shaded now: their totals read, or hatched.
         const shadedRows = new Set(cells.flatMap((cell) => (cell.kind === "totals" ? [cell.row.key] : [])));
         for (const notice of notices) {
-            for (const row of args.visible) {
+            for (const row of shown) {
                 if (row.id.type === "entry" && args.seam.uses.some((use) => samePlace(use.place, notice.place) && stringEqual(use.series, row.id.value.series))) shadedRows.add(row.key);
             }
         }
@@ -1015,7 +1058,7 @@ function spanOf(binding: IndexedBindingRead, places: readonly (readonly string[]
     if (places.length === 0) return undefined;
     const name = nestedSpanName(binding.nested!.index);
     const lit = literals(binding);
-    const found = binding.batches.seekAll(name, places.map((place) => variant("fields", { values: [lit.path(place)], prefix: none })));
+    const found = binding.batches.seekAll(name, places.map((place) => variant("fields", { values: [lit.place(place)], prefix: none })));
     if (found.type !== "some") return SPAN_READING;
     // Each collection's months, in the index's order, as a read of runs asks: ascending and disjoint.
     const held = found.value.map((range, i) => ({ range, key: placeKey(places[i]!) }))
@@ -1148,7 +1191,6 @@ export interface PlanWholeRows {
 }
 
 const encodersOf = new WeakMap<object, (row: unknown) => Uint8Array>();
-const keyParsers = new WeakMap<object, (id: string) => { success: boolean; value?: unknown }>();
 
 /** The rows a binding reads whole by key, kept at the record's revision. */
 class WholeRows implements PlanWholeRows {
@@ -1190,12 +1232,9 @@ class WholeRows implements PlanWholeRows {
 
 /** A row's key from its id: a String key as it is, any other read back from its `.east` text. */
 function keyOf(binding: IndexedBindingRead, id: string): unknown {
-    if (binding.key.type === "String") return id;
-    let parse = keyParsers.get(binding.key);
-    if (parse === undefined) { parse = parseFor(binding.key) as (id: string) => { success: boolean; value?: unknown }; keyParsers.set(binding.key, parse); }
-    const read = parse(id);
-    if (!read.success) throw new Error(`The row id '${id}' is no key of the record's`);
-    return read.value;
+    const key = keyReaderOf(binding.key)(id);
+    if (key === undefined) throw new Error(`The row id '${id}' is no key of the record's`);
+    return key;
 }
 
 /**

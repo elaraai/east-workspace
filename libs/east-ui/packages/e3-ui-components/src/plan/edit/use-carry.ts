@@ -32,17 +32,17 @@
  */
 
 import { useCallback, useMemo, useRef } from "react";
-import { none, some, variant } from "@elaraai/east";
-import type { DragEventValue, DropVeto } from "@elaraai/east-ui-components";
+import { variant } from "@elaraai/east";
 import { NO_STEPS, stepSpan } from "../../shared/time/drag.js";
-import { slotOfEnd, slotOfInstant } from "../../shared/time/slot.js";
 import { equalInstants } from "../instant.js";
 import type { PlanRowValue, VisibleRow } from "../model.js";
 import type { RowKey } from "../plan-state.js";
 import type { PlanScale } from "../scale.js";
 import type { PlanWords } from "../words.js";
 import { spanWords } from "./movable.js";
-import type { PlanCarry, PlanEditStore, PlanMovable, PlanProposal, PlanSpan } from "./store.js";
+import { sameLane, type PlanCarry, type PlanEditStore, type PlanMovable, type PlanProposal, type PlanSpan } from "./store.js";
+import { rowIdOfKey } from "../row-key.js";
+import { itemCandidate, itemRef, type PlanCandidateGesture, type PlanCandidateValue, type PlanVeto } from "./candidate.js";
 
 /** One move, as the editing session writes it. */
 export interface PlanMoveRequest {
@@ -64,6 +64,8 @@ export interface PlanMoveRequest {
     units?: number | undefined;
     /** Whether `units` are Shift's finer ones. */
     fine?: boolean | undefined;
+    /** The lane of the row it lands in (#1541, U1), where a pointer named one. */
+    lane?: string | undefined;
 }
 
 /** A landing judged by the event kinds' drag (#1196): whether it is taken, and why not. */
@@ -85,7 +87,9 @@ export type PlanMoveOrigin = { kind: "move" } | { kind: "resize"; edge: "start" 
  * @returns Whether nothing moved
  */
 export function unmoved(movable: PlanMovable, to: PlanProposal): boolean {
-    return to.rowKey === movable.rowKey && equalInstants(to.span.start, movable.span.start) && equalInstants(to.span.end, movable.span.end);
+    return to.rowKey === movable.rowKey && equalInstants(to.span.start, movable.span.start) && equalInstants(to.span.end, movable.span.end)
+        // A lane the landing names that is not the element's own moves it (#1541, U1).
+        && (to.lane === undefined || sameLane(to.lane, movable.lane));
 }
 
 /**
@@ -127,27 +131,21 @@ export function holdsKey(row: PlanRowValue, key: string): boolean {
 }
 
 /**
- * The drag event a landing would deliver — what the canvas's `canDrop` is
- * asked: a `move` from the element's start bucket to its new start's, or a
- * `resize` naming the moved end's bucket.
+ * What a landing of one of `data`'s items would do, as the Plan's `canDrop` is
+ * asked it (#1541, U7): the item moved to where it lands, or one of its ends
+ * moved, in the series of the row it lands on.
  *
- * @param surface - The canvas's drag surface
- * @param scale - The shared scale
  * @param movable - The element
  * @param to - Where it lands
- * @returns The candidate event
+ * @returns The candidate; `undefined` for a landing on a row whose key is no row id
  */
-export function candidateOf(surface: string, scale: PlanScale, movable: PlanMovable, to: PlanProposal): DragEventValue {
-    const from = { surface, row: movable.rowKey, slot: slotOfInstant(scale, movable.span.start), event: some(movable.key) };
+export function movedCandidate(movable: PlanMovable, to: PlanProposal): PlanCandidateValue | undefined {
+    const row = rowIdOfKey(to.rowKey);
+    if (row === undefined) return undefined;
     const origin = originOf(movable, to);
-    if (origin.kind === "resize") {
-        const slot = origin.edge === "end" ? slotOfEnd(scale, to.span.end) : slotOfInstant(scale, to.span.start);
-        return variant("resize", { event: { ...from, slot }, edge: variant(origin.edge, null) }) as DragEventValue;
-    }
-    return variant("move", {
-        from,
-        to: { surface, row: to.rowKey, slot: slotOfInstant(scale, to.span.start), event: none },
-    }) as DragEventValue;
+    const gesture = (origin.kind === "resize" ? variant("resize", variant(origin.edge, null)) : variant("move", null)) as PlanCandidateGesture;
+    return itemCandidate(gesture, row.value.series, variant("item", itemRef(movable.rowKey, movable.key)),
+        { row, start: to.span.start, end: to.span.end });
 }
 
 /** What the carry reads of the canvas. */
@@ -160,8 +158,8 @@ export interface PlanCarryDeps {
     words: PlanWords;
     /** The canvas's drag surface — `undefined` while nothing can move. */
     surface: string | undefined;
-    /** The canvas's veto over a drop (`canDrop`). */
-    veto: DropVeto | undefined;
+    /** The Plan's veto over what a drop would do (`canDrop`, #1541 U7). */
+    veto: PlanVeto | undefined;
     /** The rows as the canvas draws them — ↑ / ↓ walk them. */
     rows: readonly VisibleRow[];
     /** Whether a row takes the moved element: one of its item type, or an event kind's on a resource its kind takes (#1196). */
@@ -209,12 +207,14 @@ export function usePlanCarry(deps: PlanCarryDeps): PlanCarryKeys {
         const target = to.rowKey === carry.movable.rowKey ? undefined : rows.find((v) => v.row.key === to.rowKey)?.row;
         // An event kind's element is the event kinds' to judge (#1196), and they say why not.
         const judged = unmoved(carry.movable, to) ? undefined : judge?.(carry.movable, to);
+        // One of `data`'s is the Plan's own check's (#1541, U7), which says why not too.
+        const moved = judged !== undefined || veto === undefined || unmoved(carry.movable, to) ? undefined : movedCandidate(carry.movable, to);
+        const said = moved === undefined ? undefined : veto?.refusal(moved);
         const refused = (target !== undefined && holdsKey(target, carry.movable.key))
-            || (judged !== undefined ? !judged.allowed
-                : veto !== undefined && !unmoved(carry.movable, to) && !veto(candidateOf(surface, scale, carry.movable, to)));
+            || (judged !== undefined ? !judged.allowed : said !== undefined);
         store.setCarry({ movable: carry.movable, to, refused });
         const p = { item: carry.movable.label, target: labelOf(to.rowKey), span: spanWords(scale, carry.movable, to.span, words) };
-        store.say(picked ? words.m.movePickedUp(p) : refused ? words.m.moveRefused({ ...p, reason: judged?.reason }) : words.m.moveOver(p));
+        store.say(picked ? words.m.movePickedUp(p) : refused ? words.m.moveRefused({ ...p, reason: judged?.reason ?? said }) : words.m.moveOver(p));
     }, []);
 
     const end = useCallback((carry: PlanCarry, dropped: boolean, refocus = true) => {

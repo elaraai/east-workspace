@@ -23,12 +23,14 @@
  */
 
 import type { RenderResult } from "@testing-library/react";
-import { StringType, equalFor, parseFor, printFor, variant, type EastType, type ValueTypeOf } from "@elaraai/east";
+import { StringType, equalFor, parseFor, printFor, type EastType, type ValueTypeOf } from "@elaraai/east";
 import { ScheduleEventRefType } from "@elaraai/e3-ui/internal";
+import { parseEventRef, printEventRef } from "../../shared/schedule/event-ref.js";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
-import type { E3Record } from "../../e3-web.test-utils.js";
+import type { E3Record, E3RequestKind } from "../../e3-web.test-utils.js";
 import { act, e3Harness, programOf, settle, type E3Harness, type Example, type UIProgram } from "../../e3-web-mount.test-utils.js";
 import { rowKeyOf, type PlanRowId } from "../model.js";
+import { entry } from "../row-id.test-utils.js";
 // The canvas is an extension: its renderer registers as it loads.
 import "../index.js";
 
@@ -67,6 +69,15 @@ export interface PlanHarness extends E3Harness {
      * @returns The render
      */
     mount(example: Example, options?: MountOptions): Promise<RenderResult>;
+    /**
+     * The kinds of request a record was read with so far, in order: through
+     * one of its indexes, or however it was read.
+     *
+     * @param dataset - The record's path, as e3's requests name it: `records.plan_works`
+     * @param index - The index read through; every request naming the record when left out
+     * @returns Each request's kind: `page`, `find`, `runs`, …
+     */
+    readKinds(dataset: string, index?: string): E3RequestKind[];
 }
 
 /**
@@ -82,6 +93,9 @@ export function planHarness(modules: Readonly<Record<string, Readonly<Record<str
     const mountOver = h.mount;
     return Object.assign(h, {
         commit: <T extends EastType>(record: E3Record<T>, state: ValueTypeOf<T>) => h.patch(record, state),
+        readKinds: (dataset: string, index?: string) => h.requests()
+            .filter((request) => request.dataset === dataset && (index === undefined || (request.query.get("index") ?? undefined) === index))
+            .map((request) => request.kind),
         mount: (example: Example, options: MountOptions = {}) => mountOver(example, {
             drag: options.drag === true,
             storageKey: options.storageKey ?? "plan",
@@ -107,14 +121,8 @@ export const slot = (container: HTMLElement, name: string) => container.querySel
  */
 export const tabs = (pane: HTMLElement) => [...pane.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent);
 
-/**
- * A row's id, by its series and path.
- *
- * @param series - Its series: `<kind>.<draw>` for a resource's row
- * @param path - Its path: its group and its resource's key, for a resource's
- * @returns The id
- */
-export const entry = (series: string, ...path: string[]): PlanRowId => variant("entry", { series, path }) as PlanRowId;
+/** A row's id, by its series and path: the one every Plan test names a row by (`row-id.test-utils.ts`). */
+export { entry };
 
 /**
  * The selector of a row, by its id — `data-plan-row` holds its id's text.
@@ -124,8 +132,6 @@ export const entry = (series: string, ...path: string[]): PlanRowId => variant("
  */
 export const rowAt = (id: PlanRowId) => `[data-plan-row=${JSON.stringify(rowKeyOf(id))}]`;
 
-const printRef = printFor(ScheduleEventRefType);
-
 /**
  * An event's element key: its event, as East prints a `Schedule.Types.EventRef`.
  *
@@ -133,7 +139,7 @@ const printRef = printFor(ScheduleEventRefType);
  * @param key - The event's key in its record
  * @returns The key its elements carry
  */
-export const elementKey = (kind: string, key: string) => printRef({ kind, key });
+export const elementKey = (kind: string, key: string) => printEventRef({ kind, key });
 
 /**
  * The selector of an event's element, by the attribute its draw carries.
@@ -146,7 +152,6 @@ export const elementKey = (kind: string, key: string) => printRef({ kind, key })
 export const el = (attr: "data-run" | "data-chip" | "data-event" | "data-mark", kind: string, key: string) =>
     `[${attr}=${JSON.stringify(elementKey(kind, key))}]`;
 
-const parseRef = parseFor(ScheduleEventRefType);
 const sameText = equalFor(StringType);
 
 /**
@@ -165,10 +170,58 @@ const sameText = equalFor(StringType);
  */
 export function madeFrom(root: ParentNode, attr: "data-run" | "data-chip" | "data-event" | "data-mark", kind: string, from: string): string[] {
     return [...root.querySelectorAll(`[${attr}]`)].flatMap((node) => {
-        const ref = parseRef(node.getAttribute(attr) ?? "");
+        const ref = parseEventRef(node.getAttribute(attr) ?? "");
         return ref.success && sameText(ref.value.kind, kind) && ref.value.key.startsWith(`${from}-`) ? [ref.value.key] : [];
     });
 }
 
 /** A key made from another's over a kind read a window at a time: the other's, and eight hex digits drawn at random. */
 export const drawnFrom = (from: string) => new RegExp(`^${from}-[0-9a-f]{8}$`);
+
+/**
+ * A press's row of the ops record `planRowDrop` edits (#1436): a row of its `press` series, by the press's key.
+ *
+ * @param container - The render's container
+ * @param press - The press's key: `p03`
+ * @returns Its row
+ */
+export const dropPressRow = (container: HTMLElement, press: string) => container.querySelector<HTMLElement>(rowAt(entry("press", press)))!;
+
+/**
+ * A run of a press's row of the ops record (#1436), by its job's id — what a run of `data`'s own rows is keyed by.
+ *
+ * @param container - The render's container
+ * @param press - The press's key
+ * @param id - The job's id: `j4642`
+ * @returns Its run, if the row draws it
+ */
+export const dropRunOf = (container: HTMLElement, press: string, id: string) =>
+    container.querySelector<HTMLElement>(`${rowAt(entry("press", press))} [data-run=${JSON.stringify(id)}]`);
+
+/**
+ * jsdom lays nothing out. Gives the ribbons' layer its width — the default
+ * 240px gutter and a 1000px plot — so a links focus lays its ribbons out, every other
+ * element measuring 0; and, given `tall`, a bounded frame a view tall enough
+ * for every row (TanStack sizes the frame by `offsetHeight`, the view reads
+ * `clientHeight`), so every row mounts and no end clamps to an edge.
+ *
+ * @param options - Whether a bounded frame's view is tall enough for every row
+ * @returns The restore
+ */
+export function ribbonWidth({ tall = false }: { tall?: boolean } = {}): () => void {
+    const heightOf = (el: HTMLElement) => (el.getAttribute("data-virtual-rows") === "bounded" ? 4000 : 0);
+    const stubs: Record<string, (el: HTMLElement) => number> = {
+        clientWidth: (el) => (el.hasAttribute("data-plan-ribbons") ? 1240 : 0),
+        ...(tall ? { clientHeight: heightOf, offsetHeight: heightOf } : {}),
+    };
+    const saved = Object.keys(stubs).map((k) => [k, Object.getOwnPropertyDescriptor(HTMLElement.prototype, k)] as const);
+    for (const [k, get] of Object.entries(stubs)) {
+        Object.defineProperty(HTMLElement.prototype, k, { configurable: true, get(this: HTMLElement) { return get(this); } });
+    }
+    return () => {
+        for (const [k, d] of saved) {
+            if (d !== undefined) Object.defineProperty(HTMLElement.prototype, k, d);
+            else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[k];
+        }
+    };
+}

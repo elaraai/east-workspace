@@ -19,7 +19,6 @@
  */
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
-import { execFileSync } from 'node:child_process';
 import assert from 'node:assert';
 import { join, dirname } from 'node:path';
 import {
@@ -32,20 +31,10 @@ import { recordMutate, recordReindex, readRecordState } from './records.js';
 import { packageImport } from './package-files.js';
 import { workspaceCreate } from './workspaces.js';
 import { workspaceDeploy } from './workspace-files.js';
-import { createTestRepo, removeTestRepo, createTempDir, removeTempDir } from './test-helpers.js';
+import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, stockRunners, seededStream } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
 import type { StorageBackend, TaskRunner } from './index.js';
-
-/** Whether a runtime's CLI answers on PATH. */
-function onPath(command: string, args: string[]): boolean {
-  try {
-    execFileSync(command, args, { stdio: 'ignore', shell: process.platform === 'win32' });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 /** An event: the resources it is on, its state, and its start and end — either of which may be missing. */
 const EventRow = StructType({
@@ -80,18 +69,6 @@ function declared(runner?: RunnerConfig) {
 /** The index names, in declaration order. */
 const INDEXES = Object.keys(declared().indexes);
 
-/** A seeded stream of numbers in [0, 1) (mulberry32): the same rows on every run. */
-function stream(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6D2B79F5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
 const MINUTE = 60_000;
 const DAY = 86_400_000;
 /** The latest and earliest instants a DateTime holds. */
@@ -103,7 +80,7 @@ const LATEST = 8_640_000_000_000_000;
  * backlog), no end (an instant), or an end at or before their start.
  */
 function seeded(): Events {
-  const next = stream(1432);
+  const next = seededStream(1432);
   const rows = new SortedMap<string, Event>(undefined, keyOrder);
   const at = (ms: number) => some(new Date(ms));
   const put = (key: string, start: number | undefined, end: number | undefined, n: number) => {
@@ -168,15 +145,8 @@ describe('the interval index on the real runners', () => {
   let storage: StorageBackend;
   let realRunner: TaskRunner;
 
-  /** The runtimes to compare, minus any that is not installed. */
-  const runtimes: Array<{ ws: string; runner: RunnerConfig }> = [
-    { ws: 'node', runner: { runner: { runtime: 'east-node', platforms: ['@elaraai/east-node-std'] } } },
-    ...(onPath('east-c', ['version']) ? [{ ws: 'c', runner: { runner: { runtime: 'east-c' as const, platforms: [] } } }] : []),
-    ...(onPath('east-py', ['version']) ? [{ ws: 'py', runner: { runner: { runtime: 'east-py' as const, platforms: [] } } }] : []),
-  ];
-  const missing = runtimes.length < 2
-    ? `needs east-c or east-py on PATH beside east-node; have ${runtimes.map((r) => r.ws).join(', ')}`
-    : false;
+  /** The runtimes to compare — east-node, and east-c and east-py where installed — and why their parity skips with fewer than two. */
+  const { runtimes, missing } = stockRunners();
 
   beforeEach(async () => {
     repo = createTestRepo();

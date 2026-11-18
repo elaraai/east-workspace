@@ -153,9 +153,11 @@ export {
   functionCallResult,
   functionCallSummary,
   functionCallInputs,
+  functionCallDrafted,
   functionCallLost,
   functionRunnerRefusal,
   handleProcessFunctionCall,
+  workspaceFunctionResolve,
   DEFAULT_FUNCTION_CALL_LIFETIMES,
   FUNCTION_CALL_GRACE_MS,
   type FunctionCallLifetimes,
@@ -164,7 +166,37 @@ export {
   type FunctionCallRunOptions,
   type FunctionCallRun,
   type ProcessFunctionCallDeps,
+  type WorkspaceFunction,
 } from './functionCall.js';
+
+// A call's drafts: unsaved edits checked and named as the call starts, and
+// laid over the records its function reads as it runs (east-workspace#1619)
+export {
+  checkCallDrafts,
+  storeCallDrafts,
+  keptCallDrafts,
+  keptCallArgs,
+  layCallDrafts,
+  layAndStage,
+  stageCall,
+  callRead,
+  callDraftsEnd,
+  callDraftsRead,
+  draftedInputs,
+  NO_CALL_DRAFTS,
+  type CallDrafts,
+  type CallDraftsEnd,
+  type CallDraftsLaid,
+  type CallStaged,
+  type DraftedCall,
+  type LayAndStageOptions,
+  type LayCallDraftsOptions,
+  type StagedCallArg,
+} from './functionDrafts.js';
+
+// A call no store keeps, run within the process that makes it: a local
+// repository's (`e3 call -w`)
+export { functionCallUnkept, type FunctionCallUnkeptOptions } from './functionCallUnkept.js';
 
 // Persistence-free process helpers (shared by tracked + detached paths), and
 // how every process e3 starts runs: its environment, user and group

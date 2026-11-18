@@ -275,7 +275,7 @@ const dueFollows = { fn: East.function([], UIComponentType, (_$) => Reactive.Roo
     const record = $.let(Record.bind(ex.indexedWorkOrders, ["patch"]));
     const slice = $.let(Slice.bindRecords("test.sheetHiddenPick.dueFollows", { rows: ROWS_DUE_FOLLOWS }));
     return Sheet({
-        name: "dueFollows", slice: { slice }, onApply: Record.onApply(record, { keyed: true }), edits: { insertRows: false },
+        name: "dueFollows", slice: { slice }, record, edits: { insertRows: false },
         columns: {
             reference: Sheet.column.text(ex.IndexedWork, { header: "Reference" }),
             status: Sheet.column.text(ex.IndexedWork, { header: "Status" }),
@@ -329,7 +329,7 @@ const inspected = { fn: East.function([], UIComponentType, (_$) => Reactive.Root
     const record = $.let(Record.bind(ex.indexedWorkOrders, ["patch"]));
     const slice = $.let(Slice.bindRecords("ex.sheetRecordIndexes", { rows: ROWS }, PRESETS));
     return Sheet({
-        name: "inspected", slice: { slice }, inspector: true, onApply: Record.onApply(record, { keyed: true }), edits: { insertRows: false },
+        name: "inspected", slice: { slice }, inspector: true, record, edits: { insertRows: false },
         columns: {
             reference: Sheet.column.text(ex.IndexedWork, { header: "Reference" }),
             status: Sheet.column.text(ex.IndexedWork, { header: "Status" }),

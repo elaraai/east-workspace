@@ -102,16 +102,16 @@ import {
     type EastType, type ExprType, type FunctionType, type NullType, type SetType, type SubtypeExprOrValue, type VariantType,
 } from "@elaraai/east";
 import { EventStateType, TimeStepType, type UIComponentType } from "@elaraai/east-ui";
-import { EditingDraftFieldType, EditingReadinessType, Fields, FieldSpecType, TickFormatType, type FieldHints } from "@elaraai/east-ui/internal";
+import { EditingDraftFieldType, EditingReadinessType, Fields, FieldSpecType, TickFormatType, type FieldHints, type RecordSliceConfigType } from "@elaraai/east-ui/internal";
 import type { PlanDrawLiteral } from "../plan/types.js";
 import { RowInspectorType, rowInspector } from "../utils/row-inspector.js";
 import { scheduleAccessor } from "./accessor.js";
 import { checkKeyField, fieldOf, fieldSetters, keyFieldRef, keyFieldSlots, keyFieldValue, stringCases, type FieldName, type FieldsOf, type KeyField } from "./fields.js";
-import { SCHEDULE_TEMPLATES, checkedTemplates, type ScheduleTemplates } from "./templates.js";
+import { SCHEDULE_TEMPLATES, checkedTemplates, templateValues, type ScheduleTemplates } from "./templates.js";
 import { SCHEDULE_DEF } from "./resources.js";
 import { SCHEDULE_EVENT_CAP, scheduleRecordCount, scheduleRecordWindow, type ScheduleKindPart } from "./record-window.js";
 import { scheduleRecordSession } from "./session.js";
-import { checkEntries, checkIndexWindow, optionOf, scheduleBacklogWindow, scheduleDayCount, scheduleDayWindow, typeText } from "./window.js";
+import { checkEntries, checkIndexWindow, keyText, optionOf, scheduleBacklogWindow, scheduleDayCount, scheduleDayWindow, typeText } from "./window.js";
 import { scheduleNewValues, type ScheduleNewValues } from "./values.js";
 import {
     PlanEventItemType, PlanEventKindType, PlanEventReadType, ScheduleAllocationEntryType, ScheduleAllocationKindType, ScheduleAllocationNewBinType,
@@ -159,6 +159,11 @@ type ResourceShape<T> = ResourceShapeOf<Unwrapped<T>>;
 
 /** A String field of the row: an event's title, or the lane its tile sits in. */
 export type ScheduleStringField<R extends StructType> = FieldsOf<R, StringType>;
+
+/** A field the lane a tile sits in is read from: a String field, or a variant field whose cases hold no value, a lane a case. */
+export type ScheduleLaneField<R extends StructType> = ScheduleStringField<R> | {
+    [F in FieldName<R>]: R["fields"][F] extends VariantType<infer C> ? (IsOption<C> extends true ? never : [C[keyof C]] extends [NullType] ? F : never) : never
+}[FieldName<R>];
 
 /** A DateTime field of the row, or an Option of one: an event's start or end. */
 export type ScheduleInstantField<R extends StructType> = FieldsOf<R, DateTimeType | OptionType<DateTimeType>>;
@@ -343,6 +348,12 @@ export interface ScheduleEventsBase<K extends EastType, R extends StructType, F 
     /** The app's check on a drafted event: a refusal holds Save, naming the event and the field. */
     ready?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<typeof EditingReadinessType>;
     /**
+     * The app's own lock on one event (#1541, U9): `true` holds it where it is. In every builder no gesture moves,
+     * resizes, changes or removes a locked event, and an optimiser's answer that changes it is refused, naming it. A
+     * Plan also draws it with a lock, shows its form read only, and says why a gesture on it is refused.
+     */
+    locked?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<BooleanType>;
+    /**
      * A paged read of a day index over the record (`Data.bindPaged(record, {
      * index, join: true })`), keyed by `Schedule.days`: the kind's events over
      * a window are the rows the index files under the days in view, and the
@@ -364,8 +375,18 @@ export interface ScheduleEventsBase<K extends EastType, R extends StructType, F 
     state?: ScheduleStateField<R>;
     /** Plan: the Float field a bar prints and a parent's rollup sums, unit by unit. */
     quantity?: ScheduleQuantity<R>;
-    /** Plan: the String field naming the lane a tile sits in (AM, PM). */
-    lane?: ScheduleStringField<R>;
+    /**
+     * Plan: the field naming the lane a tile sits in (AM, PM) — a String field, or a variant field whose cases hold
+     * no value (#1541, U1). A variant's lanes are its cases, every one drawn, empty or not, in the order the landing
+     * series' `lanes` lists them, then by name; a String's are the lanes its series lists, then any other an event names.
+     */
+    lane?: ScheduleLaneField<R>;
+    /**
+     * Plan: the row beneath its resource an event is on, one step down (#1541, U1). `of` names a resources series among
+     * the resource's `children`, and `field` holds that row's key in the series' own key type, or an Option of it. The
+     * kind's events land on those rows, never on the resource's own; one whose field holds none is on no row.
+     */
+    child?: { field: FieldName<R>; of: string };
     /** Whether two events of the kind on one resource at once are a conflict (`"warn"`, the default) or run in parallel (`"allow"`). */
     overlaps?: ScheduleOverlapsLiteral;
     /** The Roster: the String field naming a duty's shift, a key of its `shifts`. The Roster requires it. */
@@ -485,6 +506,11 @@ export interface ScheduleEventKind<K extends EastType, R extends EastType> {
     readonly keyType: K;
     /** Its row type. */
     readonly rowType: R;
+    /**
+     * The record its events are, by its name in the deployed package, as its binding carries it (#1622): what a
+     * builder holds its optimiser to — a function that reads the record lists it in `drafts`.
+     */
+    readonly record: ExprType<StringType>;
     /** Its name. */
     readonly name: string;
     /** Its Font Awesome icon: what each of its elements on a Plan wears (#1192). */
@@ -493,6 +519,14 @@ export interface ScheduleEventKind<K extends EastType, R extends EastType> {
     readonly titled: boolean;
     /** The resource kinds its events may be on, by slot name: `resource.of`'s. */
     readonly takes: readonly string[];
+    /**
+     * Plan: the rows beneath its resource its events land on (#1541, U1) — the field holding the row's key, the
+     * resources series those rows are of, and the key's type, the field's own with its Option off; `undefined` for a
+     * kind landing on its resource's own rows.
+     */
+    readonly child: { readonly field: string; readonly of: string; readonly type: EastType } | undefined;
+    /** Plan: a variant `lane`'s cases, by name (#1541, U1): a lane each, drawn empty or not; `undefined` for a String lane, or none. */
+    readonly laneCases: readonly string[] | undefined;
     /** Plan: how it draws — bars, tiles, chips or marks; a resource draws a row for each way its kinds draw (#1192). */
     readonly draw: PlanDrawLiteral;
     /** The builder's Slice source its templates list names, whose shown keys filter its templates (#1343); `undefined` for none. */
@@ -541,6 +575,13 @@ export interface ScheduleEventKind<K extends EastType, R extends EastType> {
      */
     readonly windowed: boolean;
     /**
+     * What a template of it gives (#1541, U1): its row less the fields a drop places — its start, its end and its
+     * resource. What a Plan holds a library tab's `create.values` to at build.
+     */
+    readonly templateValues: StructType;
+    /** Whether its events are each one instant (`at`): a template of it, and a library tab's `create`, gives no `duration`. */
+    readonly instant: boolean;
+    /**
      * The kind on the wire, under its slot: the Calendar's, which takes no
      * notice of Plan's options — its window, through its source, through its day
      * index or in memory, its record read whole, counted first and read only
@@ -565,10 +606,12 @@ export interface ScheduleEventKind<K extends EastType, R extends EastType> {
      *
      * @param slot - The builder's slot name for it
      * @param part - Its source of the builder's `Slice.bindRecords`, when the slice has one
+     * @param made - The templates the Plan's library tabs' cards make its events from (#1541, U1): its `write` makes
+     *   an event from one as from a template of its own, and its `templates` list none of them
      * @returns The kind, closed
      * @throws {Error} As `build` does
      */
-    buildPlan(slot: string, part?: ScheduleKindPart): ExprType<PlanEventKindType>;
+    buildPlan(slot: string, part?: ScheduleKindPart, made?: ExprType<ArrayType<ScheduleTemplateType>>): ExprType<PlanEventKindType>;
     /**
      * The kind on the wire as the Roster takes it, under its slot (#1367): the
      * Calendar's kind, its form over the fields none of the Roster's roles
@@ -618,6 +661,7 @@ interface AnyConfig {
     fields?: Readonly<Record<string, unknown>>;
     templates?: readonly { key: string; name: string; group?: string; at?: unknown; duration?: unknown; values: unknown }[] | ScheduleTemplates<StructType>;
     ready?: (row: unknown, key: unknown) => unknown;
+    locked?: (row: unknown, key: unknown) => unknown;
     window?: unknown;
     backlogWindow?: unknown;
     entries?: unknown;
@@ -625,6 +669,7 @@ interface AnyConfig {
     state?: string;
     quantity?: { field: string; unit?: string; format?: unknown };
     lane?: string;
+    child?: { field: string; of: string };
     overlaps?: string;
     inspector?: unknown;
     shift?: string;
@@ -852,6 +897,20 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         return checkKeyField(field, type, of, { where, prop: "resource", noun: "resource" });
     })();
     const takes = resource === undefined ? [] : keyFieldSlots(resource);
+    // Plan's: the row beneath its resource an event is on (#1541, U1) — a key of a resources series among the resource's
+    // children, which the Plan holds the field to, knowing the series.
+    const child = config.child === undefined ? undefined : (() => {
+        const given = config.child as { field?: unknown; of?: unknown };
+        if (typeof given.field !== "string" || typeof given.of !== "string") {
+            throw new Error(`${where}: \`child\` is { field, of } — the field holding the key of a row beneath the event's resource, and the resources series those rows are of, by its key`);
+        }
+        if (resource === undefined) throw new Error(`${where}: \`child\` is a row beneath the event's resource — give \`resource\` too`);
+        if (given.field === resource.field) {
+            throw new Error(`${where}: \`child.field\` and \`resource.field\` both name "${given.field}" — the row beneath a resource has a key of its own`);
+        }
+        const type = fieldType("child.field", given.field);
+        return { field: given.field, of: given.of, type: optionOf(type) ?? type, optional: optionOf(type) !== undefined };
+    })();
 
     // The status: a variant, a Status per case.
     let statusCases: string[] | undefined;
@@ -885,7 +944,17 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
     };
     const stateField = role("state", config.state, EventStateType, "an EventStateType field, the lifecycle an event wears");
     const quantityField = role("quantity.field", config.quantity === undefined ? undefined : config.quantity.field, FloatType, "a Float field, the quantity a bar prints");
-    const laneField = role("lane", config.lane, StringType, "a String field, the lane a tile sits in");
+    // The lane: a String field, or a variant whose cases hold no value, a lane a case (#1541, U1).
+    const laneField = config.lane;
+    const laneCases = laneField === undefined ? undefined : (() => {
+        const held = fieldType("lane", laneField);
+        if (isTypeEqual(held, StringType)) return undefined;
+        const cases = held.type === "Variant" && optionOf(held) === undefined ? Object.entries(held.cases as Record<string, EastType>) : undefined;
+        if (cases === undefined || cases.some(([, holds]) => holds.type !== "Null")) {
+            throw new Error(`${where}: \`lane\` names a String field, or a variant whose cases hold no value, the lane a tile sits in — "${laneField}" holds ${typeText(held)}`);
+        }
+        return cases.map(([name]) => name);
+    })();
     // The builders' roles (#1367, `Builder Interfaces Spec.md` §4.1), each a field of the row, checked as Plan's are. A
     // kind is the Roster's duties or the Allocation's bins, never both.
     const given = (roles: readonly string[]) => roles.filter((r) => (config as unknown as Readonly<Record<string, unknown>>)[r] !== undefined);
@@ -917,6 +986,10 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
     // The hours a duty counts, reified once and called per row.
     const hoursOf = config.hours === undefined ? undefined : scheduleAccessor(rowType, keyType, FloatType, config.hours,
         (returns) => `${where}: \`hours\` returns a Float, the hours a duty counts — and this one returns ${returns}`);
+    // The app's own lock on an event (#1541, U9), reified once and called per row: by the Plan's item, and by the
+    // check every builder's recorder asks.
+    const lockedOf = config.locked === undefined ? undefined : scheduleAccessor(rowType, keyType, BooleanType, config.locked as never,
+        (returns) => `${where}: \`locked\` answers whether the event is held where it is, a Boolean — and this one returns ${returns}`);
     // The removed verdict, named (#1260) — a plain JS caller would otherwise lose it silently.
     if ("review" in (config as object)) {
         throw new Error(`${where}: \`review\` is removed (#1260) — a Plan approves and rejects nothing: its changes are drafts of its session, saved together`);
@@ -1109,6 +1182,51 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
     });
     // A setter for every field, at any depth: an inspector edit writes one (`field`), its value as bytes at the field's type.
     const setters = fieldSetters(rowType);
+    /**
+     * The fields of the row a kind's source holds its page's scope of (#1621), as the source's type names them
+     * (`scoped`): what an event made on the page takes from the scope. A field the builder's gesture writes keeps the
+     * gesture's, and one that fans out over a Set — which a scope reads by one value, and a row holds many of — or that
+     * names no field of the row takes nothing.
+     */
+    const scopedFields = (part: ScheduleKindPart | undefined, written: readonly (string | undefined)[]): string[] => {
+        if (part === undefined) return [];
+        const type = Expr.type(part as unknown as Expr);
+        const scoped = type.type === "Struct" ? (type.fields as Record<string, EastType>).scoped : undefined;
+        if (scoped?.type !== "Struct") return [];
+        return Object.keys(scoped.fields).filter((name) => Object.hasOwn(fields, name) && fields[name]!.type !== "Set" && !written.includes(name));
+    };
+    /**
+     * A new row with its page's scope written in (#1621): each of `scoped` the scope holds one value of takes that
+     * value, its literal read at the field's type; a field it holds no value or several values of keeps the row's. A
+     * draft that leaves the scope later stays, and saves, as any draft does.
+     */
+    const withScope = (part: ScheduleKindPart, scoped: readonly string[]) => East.function([rowType], rowType, ($, row) => {
+        const source = $.const(part as unknown as ExprType<StructType<{ config: RecordSliceConfigType }>>);
+        const scope = $.const(source.config.scope);
+        const held: Record<string, ExprType<EastType>> = {};
+        for (const name of scoped) {
+            const type = fields[name]!;
+            const value = $.let(fieldOf(row, name) as ExprType<EastType>, type);
+            $.match(scope.tryGet(name), {
+                some: ($2, clause) => {
+                    $2.match(clause, {
+                        values: ($3, list) => { $3.if(East.equal(list.size(), 1n), ($4) => { $4.assign(value, list.get(0n).parse(type)); }); },
+                    });
+                },
+            });
+            held[name] = value;
+        }
+        return East.value(Object.fromEntries(Object.keys(fields).map((f) => [f, held[f] ?? fieldOf(row, f)])) as never, rowType);
+    });
+    /**
+     * What writes its page's scope into a new row of a kind narrowed through `part` (#1621), its gesture writing
+     * `written`: `undefined` where the source holds no scope of a field the gesture leaves to it, so a kind on a page
+     * with no scope is built as it always was.
+     */
+    const scopeWriter = (part: ScheduleKindPart | undefined, written: readonly (string | undefined)[]) => {
+        const scoped = scopedFields(part, written);
+        return part === undefined || scoped.length === 0 ? undefined : withScope(part, scoped);
+    };
 
     /**
      * The reads a build's events come by (#1199, #1343): through the kind's source of its builder's slice, its
@@ -1587,7 +1705,8 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
      * `pagedBacklog` (#1424, the Calendar's), a kind with a backlog narrowed through its source reads its window's rows
      * alone, its builder paging the backlog through the source itself.
      */
-    const kindParts = (once: Once, slot: string, part: ScheduleKindPart | undefined, form: typeof formSpecs, cap?: number, pagedBacklog = false) => {
+    const kindParts = (once: Once, slot: string, part: ScheduleKindPart | undefined, form: typeof formSpecs, cap?: number, pagedBacklog = false,
+        cardTemplates?: ExprType<ArrayType<ScheduleTemplateType>>) => {
         const reads = readsOf(once, slot, part, cap, pagedBacklog);
         // One event, as every view draws it.
         const itemOf = once(East.function([EntryRowType], ScheduleItemType, ($, entry) => {
@@ -1652,12 +1771,24 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             duration: t.duration === undefined ? variant("minutes", 0) : East.value(t.duration as SubtypeExprOrValue<ScheduleDurationType>, ScheduleDurationType),
             values: East.Blob.encodeBeast(East.value(t.values as SubtypeExprOrValue<EastType>, valuesType), "v2"),
         })), ArrayType(ScheduleTemplateType));
+        // A new event on a scoped page takes the scope's values (#1621), its times and resource the gesture's.
+        const scopeOf = scopeWriter(part, [...placed]);
         const write = East.function([ArrayType(ScheduleWriteType)], ArrayType(OptionType(BlobType)), ($, requests) => {
             const place = $.const(placeIn);
             const resolve = resourceValue === undefined ? undefined : $.const(resourceValue);
+            const scope = scopeOf === undefined ? undefined : $.const(scopeOf);
+            const made = (row: ExprType<EastType>): ExprType<EastType> => scope === undefined ? row : scope(row) as ExprType<EastType>;
             const byTemplate = $.let(new Map(), DictType(StringType, BlobType));
             const presets = $.const(templateRows);
             $.for(presets, ($2, t) => { $2(byTemplate.insert(t.key, t.values)); });
+            // The templates a builder's library tabs' cards make its events from (#1541, U1): known here, listed nowhere,
+            // and held by their builder, so a gesture reads them and works none of them out again. A card's key is its
+            // tab's and its card's, which no other tab's is; where one of the kind's own templates stands under it, the
+            // kind's own is the one made, and the kind writes on.
+            if (cardTemplates !== undefined) {
+                const cards = $.const(cardTemplates) as unknown as typeof presets;
+                $.for(cards, ($2, t) => { $2(byTemplate.insertOrUpdate(t.key, t.values, (_$3, own) => own)); });
+            }
             // Each setter's path as East holds it: a field is named by its steps, never by text a dotted name could mimic.
             const setterFns = setters.map((setter) => ({ path: $.const([...setter.path], ArrayType(StringType)), set: $.const(setter.set) }));
             return requests.map(($2, request) => {
@@ -1689,13 +1820,13 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                     create: ($3, c) => {
                         $3.match(byTemplate.tryGet(c.template), {
                             some: ($4, bytes) => {
-                                // The new entry: the template's values, its times and its resource placed.
+                                // The new entry: the template's values, its times and its resource placed, and its page's scope.
                                 const values = $4.const(bytes.decodeBeast(valuesType, "v2"));
                                 if (resolve === undefined) {
-                                    $4.if(c.resource.hasTag("none"), ($5) => { $5.assign(result, encoded(rowWith(values, c.start, c.end, undefined))); });
+                                    $4.if(c.resource.hasTag("none"), ($5) => { $5.assign(result, encoded(made(rowWith(values, c.start, c.end, undefined)))); });
                                 } else {
                                     $4.match(resolve(c.resource), {
-                                        some: ($5, value) => { $5.assign(result, encoded(rowWith(values, c.start, c.end, value as ExprType<EastType>))); },
+                                        some: ($5, value) => { $5.assign(result, encoded(made(rowWith(values, c.start, c.end, value as ExprType<EastType>)))); },
                                     });
                                 }
                             },
@@ -1723,6 +1854,19 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 });
             });
         })();
+        // The author's lock (#1541, U9), one answer per entry, in order, over the row a gesture finds: every builder's
+        // recorder asks it. A rule that throws holds nothing: its event is taken as not locked.
+        const locked = lockedOf === undefined ? undefined : East.function([ArrayType(ScheduleReadyEntryType)], ArrayType(BooleanType), ($, batch) => {
+            const held = $.const(lockedOf);
+            const parse = $.const(keyOf);
+            return batch.map(($2, item) => {
+                const result = $2.let(false, BooleanType);
+                $2.try(($3) => {
+                    $3.assign(result, held(item.entry.decodeBeast(rowType, "v2"), parse(item.id)));
+                }).catch(() => {});
+                return result;
+            });
+        });
         // The shared session over the record (`session.ts`): whole-entry drafts, keyed batches, Save through the
         // patch door; its base the record's snapshot, or for a kind read a window at a time (#1199) its revision.
         const { editing, entries: entriesSeam } = session.build();
@@ -1740,6 +1884,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             unscheduled: seams.unscheduled,
             write,
             ready: ready === undefined ? none : some(ready),
+            locked: locked === undefined ? none : some(locked),
             editing,
             entries: entriesSeam,
             history: session.history,
@@ -1821,10 +1966,13 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         [SCHEDULE_DEF]: "events",
         keyType,
         rowType,
+        record: session.name,
         name: config.name,
         icon: config.icon,
         titled: config.title !== undefined,
         takes,
+        child: child === undefined ? undefined : { field: child.field, of: child.of, type: child.type },
+        laneCases,
         draw: draw as PlanDrawLiteral,
         templatesSource,
         templatesList: config.templates === undefined ? "none" : SCHEDULE_TEMPLATES in config.templates ? "record" : "code",
@@ -1834,6 +1982,8 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         times: { start: startField, end: endField },
         resourceField: resource?.field,
         windowed: dayWindow !== undefined,
+        templateValues: valuesType,
+        instant: instantKind,
         build(slot: string, part?: ScheduleKindPart): ExprType<ScheduleKindType> {
             // Its window counted first, and read only within the cap (#1424): past it, no page is read. The Calendar pages
             // a narrowed kind's backlog through its source itself, so its window reads the window's rows alone.
@@ -1926,11 +2076,15 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 // type's default. A resource the kind refuses, or a duty in no group of a kind whose group is a String
                 // field, makes none before the app's `values` are asked.
                 const blank = East.value(defaultValue(rowType) as never, rowType) as ExprType<EastType>;
+                // A new duty on a scoped page takes the scope's values (#1621), its roles the Roster's.
+                const scopeOf = scopeWriter(part, mapped);
                 const create = East.function([ScheduleRosterNewDutyType], OptionType(BlobType), ($, duty) => {
                     // Its roles, the pattern aside.
                     const roles = duty as unknown as ExprType<typeof Roles>;
                     const resolve = $.const(whoOf);
                     const ownOf = valuesOf === undefined ? undefined : $.const(valuesOf);
+                    const scope = scopeOf === undefined ? undefined : $.const(scopeOf);
+                    const made = (row: ExprType<EastType>): ExprType<EastType> => scope === undefined ? row : scope(row) as ExprType<EastType>;
                     const result = $.let(East.value(none, OptionType(BlobType)), OptionType(BlobType));
                     $.if(takes(roles), ($2) => {
                         $2.match(resolve(roles.resource), {
@@ -1944,7 +2098,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                                     row = $3.const(East.value(Object.fromEntries(Object.entries(fields).map(([f, type]) =>
                                         [f, Object.hasOwn(own.fields, f) ? fieldOf(given, f) : East.value(defaultValue(type) as never, type)])) as never, rowType) as ExprType<EastType>);
                                 }
-                                $3.assign(result, East.value(some(East.Blob.encodeBeast(rosterRow(row, roles, value as ExprType<EastType>), "v2")), OptionType(BlobType)));
+                                $3.assign(result, East.value(some(East.Blob.encodeBeast(made(rosterRow(row, roles, value as ExprType<EastType>)), "v2")), OptionType(BlobType)));
                             },
                         });
                     });
@@ -2026,16 +2180,17 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 // A new bin: its roles written, and every other field the arrival's values' — or, with none, a reservation's
                 // the kind's `values` of it, and a booked bin's, or a reservation's without them, its type's default (B13).
                 const blank = East.value(defaultValue(ValuesType) as never, ValuesType) as ExprType<EastType>;
+                // A new bin on a scoped page takes the scope's values (#1621), its roles the Allocation's.
+                const scopeOf = scopeWriter(part, [...mapped]);
                 const create = East.function([Roles, OptionType(BlobType)], BlobType, ($, roles, values) => {
                     const ownOf = reservedOf === undefined ? undefined : $.const(reservedOf);
-                    const given = $.const(values.match({
-                        some: (_$2, bytes) => bytes.decodeBeast(ValuesType, "v2") as ExprType<EastType>,
-                        none: (_$2) => ownOf === undefined ? blank : roles.arrival.match({
-                            none: (_$3) => ownOf({ at: roles.at, lane: roles.lane, quantity: roles.quantity, parts: roles.parts, hold: roles.hold, kind: roles.kind } as never),
-                            some: (_$3) => blank,
-                        }) as ExprType<EastType>,
-                    }) as ExprType<EastType>);
-                    return East.Blob.encodeBeast(binRow(given, roles), "v2");
+                    const scope = scopeOf === undefined ? undefined : $.const(scopeOf);
+                    const given = $.const(templateValues(values, ValuesType, (_$2) => ownOf === undefined ? blank : roles.arrival.match({
+                        none: (_$3) => ownOf({ at: roles.at, lane: roles.lane, quantity: roles.quantity, parts: roles.parts, hold: roles.hold, kind: roles.kind } as never),
+                        some: (_$3) => blank,
+                    }) as ExprType<EastType>));
+                    const made = (row: ExprType<EastType>): ExprType<EastType> => scope === undefined ? row : scope(row) as ExprType<EastType>;
+                    return East.Blob.encodeBeast(made(binRow(given, roles)), "v2");
                 });
                 return East.value({
                     kind: East.value(parts.fields as never, ScheduleKindType),
@@ -2052,16 +2207,19 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 } as never, ScheduleAllocationKindType);
             });
         },
-        buildPlan(slot: string, part?: ScheduleKindPart): ExprType<PlanEventKindType> {
+        buildPlan(slot: string, part?: ScheduleKindPart, made?: ExprType<ArrayType<ScheduleTemplateType>>): ExprType<PlanEventKindType> {
             return heldKind((once) => {
                 // Its window through its source counted first, and read only within the cap (#1039): past it, no page is read.
-                const parts = kindParts(once, slot, part, formSpecs, SCHEDULE_EVENT_CAP);
+                const parts = kindParts(once, slot, part, formSpecs, SCHEDULE_EVENT_CAP, false, made);
                 const quantity = config.quantity;
                 const format = quantity?.format === undefined ? undefined : East.value(quantity.format as SubtypeExprOrValue<TickFormatType>, TickFormatType);
+                // A child row's key as its row's path ends in it: the key's text, as a Plan's rows' paths spell it.
+                const childSegment = child === undefined ? undefined : keyText(child.type);
                 // One event as Plan draws it: what every view draws, with its roles read from their fields.
                 const planItemOf = once(East.function([EntryRowType], PlanEventItemType, ($, entry) => {
                     const make = $.const(parts.itemOf);
                     const item = $.const(make(entry));
+                    const held = lockedOf === undefined ? undefined : $.const(lockedOf);
                     const row = entry.row;
                     const read = item as unknown as Record<string, ExprType<EastType>>;
                     return East.value({
@@ -2073,7 +2231,18 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                             format: format === undefined ? none : some(format),
                             text: none,
                         }),
-                        lane: laneField === undefined ? none : some(fieldOf(row, laneField)),
+                        // A variant's lane is its case, by name.
+                        lane: laneField === undefined ? none
+                            : some(laneCases === undefined ? fieldOf(row, laneField) : (fieldOf(row, laneField) as unknown as { getTag(): ExprType<StringType> }).getTag()),
+                        // The app's own lock on it (#1541, U9), read with the event: none where the kind gives no rule.
+                        locked: held === undefined ? false : held(row, entry.key),
+                        // The row beneath its resource it is on (#1541, U1): that row's key, as its row's path ends in it.
+                        child: child === undefined ? none
+                            : !child.optional ? some(childSegment!(fieldOf(row, child.field)))
+                                : (fieldOf(row, child.field) as unknown as ExprType<OptionType<EastType>>).match({
+                                    some: (_$2, key) => East.value(some(childSegment!(key)), OptionType(StringType)),
+                                    none: (_$2) => East.value(none, OptionType(StringType)),
+                                }),
                     } as never, PlanEventItemType);
                 })) as unknown as ExprType<FunctionType<[EastType], EastType>>;
                 // One event by its id, the drafts in place, as Plan draws it, and its events and its backlog as Plan draws
@@ -2087,6 +2256,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                     instant: instantKind,
                     overlaps: variant(overlaps, null),
                     roles: { state: name(stateField), quantity: name(quantityField), lane: name(laneField) },
+                    child: child === undefined ? none : some({ field: child.field, of: child.of }),
                     planItems: plan.items,
                     planUnscheduled: plan.unscheduled,
                     planEvent: plan.event,

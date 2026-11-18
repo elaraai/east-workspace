@@ -10,7 +10,7 @@
  * sources' shared `range`: every source whose range field speaks the axis's
  * arm holds it — an event kind's, a tab's that lists what is in the dates on
  * screen — the first leading. The canvas's rows never follow the dates: the
- * `rows` source and a resource kind's never hold the window, so a pan, a
+ * `rows` source never holds the window, so a pan, a
  * step, the brush or a key never narrows them again, and a date field there
  * is a field of the rail the viewer sets. The leading source's window is the
  * canvas's; with none — a choice that replaced it, a preset, Clear all — the
@@ -69,7 +69,7 @@ export interface PlanWindowPart {
 export interface PlanWindowHold {
     /** The window last shown, `[from, to)` on the axis's domain; `undefined` before any. */
     last: readonly [number, number] | undefined;
-    /** The sources whose ranges never hold the window, by name: the `rows` source and each resource kind's (`planRowSources`). */
+    /** The sources whose ranges never hold the window, by name: the `rows` source (`PLAN_ROW_SOURCES`). */
     rows: readonly string[];
     /** How many times a gesture has moved the canvas's own window: what its render reads the hold by. */
     readonly moves: number;
@@ -132,7 +132,10 @@ const ZOOM_TILES: ReadonlySet<string> = new Set<RecordTile>(["day", "week", "mon
 /** A bucket's mean length, in ms: how far a run of them around an instant reaches, before the calendar cuts them. */
 const BUCKET_MS: Readonly<Record<RecordTile, number>> = { day: 864e5, week: 6048e5, month: 2629746e3, quarter: 7889238e3, year: 31556952e3 };
 
-/** Each bucket of a resolution from one instant to another, by its start, in ms: at most ten thousand. */
+/**
+ * Each bucket of a resolution from one instant to another, by its start, in ms: at most ten thousand. The axis's domain
+ * is numbers, as a zoom's window is: arithmetic on them, never an ordering of East DateTimes (#1650).
+ */
 function bucketsOver(tile: RecordTile, from: number, to: number): number[] {
     const out: number[] = [];
     for (let at = tileStart(tile, new Date(from)); at.getTime() < to && out.length < 10_000; at = tileNext(tile, at)) out.push(at.getTime());
@@ -244,7 +247,7 @@ export function statedWindow(axis: PlanAxisValue): readonly [number, number] | u
  *
  * @param kept - What the canvas's storage keeps of its own window
  * @param value - The root the canvas mounts with: its axis and its slice
- * @param rows - The sources whose ranges never hold the window (`planRowSources`)
+ * @param rows - The sources whose ranges never hold the window (`PLAN_ROW_SOURCES`)
  * @returns The window to open on, `[from, to)` on the axis's domain; `undefined` to open on the stated one
  */
 export function restoredWindow(kept: PlanOwnWindow | undefined, value: PlanRootValue, rows: readonly string[]): readonly [number, number] | undefined {
@@ -277,7 +280,7 @@ export function slicedResolution(chrome: PlanSlicesChrome | undefined, parts: re
  * @param data - The root's data-stable twin (its axis)
  * @param words - The canvas's words — the locale the ruler labels format in (#820)
  * @param hold - The canvas's window hold (see {@link PlanWindowHold})
- * @param rows - The sources whose ranges never hold the window: the `rows` source and each resource kind's (`planRowSources`)
+ * @param rows - The sources whose ranges never hold the window: the `rows` source (`PLAN_ROW_SOURCES`)
  * @returns The chrome, the sources holding the window, and the scale
  */
 export function usePlanWindow(value: PlanRootValue, data: PlanRootValue, words: PlanWords, hold: PlanWindowHold, rows: readonly string[]): PlanWindow {

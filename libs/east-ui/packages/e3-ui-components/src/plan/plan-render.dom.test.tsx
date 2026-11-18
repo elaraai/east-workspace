@@ -48,7 +48,7 @@ function run(key: string, start: Date, end: Date, state: unknown, opts?: { quant
             ? some({ value: opts.quantity, unit: opts.unit !== undefined ? some(opts.unit) : none, format: none, text: opts.text !== undefined ? some(opts.text) : none })
             : none,
         state,
-        status: opts?.stuck === true ? some(variant("warning", null)) : none,
+        status: opts?.stuck === true ? some({ label: "Over dwell", tone: variant("warning", null), ring: false }) : none,
         moved: none, icon: none,
     };
 }
@@ -154,10 +154,11 @@ describe("Plan row-layer memoization (#616)", () => {
             rendered.length = 0;
             fireEvent.click(container.querySelector(rowSel("m3"))!);
             expect([...rendered].sort()).toEqual(["m2", "m3"]);
-            // A chart spark↔expanded toggle re-renders exactly the toggled
-            // row (its `chartExpanded` + height moved; nothing else did).
+            // A chart spark↔expanded toggle — its expand control's (#1680's
+            // review) — re-renders exactly the toggled row (its
+            // `chartExpanded` + height moved; nothing else did).
             rendered.length = 0;
-            fireEvent.click(container.querySelector(rowSel("ontime"))!.children[0]!);
+            fireEvent.click(container.querySelector(`${rowSel("ontime")} [data-plan-control="expand"]`)!);
             expect(rendered).toEqual(["ontime"]);
         } finally {
             setBodyRowRenderProbe(undefined);
@@ -199,8 +200,7 @@ describe("Plan DOM scale (#616)", () => {
         expect(container.querySelectorAll("[data-plan-cellwash]")).toHaveLength(1);
         // The marker cell still rings and pins its icon.
         expect(container.querySelector('[data-over="danger"]')).toBeTruthy();
-        // A CAPTIONED lane keeps its full grid (the caption prints per cell —
-        // the Planner `.bl`) — covered by the lanes test above.
+        // A captioned lane mounts no more: its caption is its gutter line's (#1680's review) — the lanes test.
     });
 });
 
@@ -302,7 +302,7 @@ function bucketEvent(key: string, at: Date, state: unknown, opts?: { lane?: stri
         lane: opts?.lane !== undefined ? some(opts.lane) : none,
         label: opts?.label !== undefined ? some(opts.label) : none,
         icon: none, state,
-        tone: opts?.tone !== undefined ? some(variant(opts.tone, null)) : none,
+        status: opts?.tone !== undefined ? some({ label: "Late", tone: variant(opts.tone, null), ring: false }) : none,
         color: none, colorPalette: none,
         stretch: opts?.stretch !== undefined ? some(variant(opts.stretch, null)) : none,
         content: none, animation: none,

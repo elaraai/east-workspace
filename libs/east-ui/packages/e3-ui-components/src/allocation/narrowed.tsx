@@ -8,8 +8,8 @@
  * of its `Slice.bindRecords` itself — the lanes, the resources and the
  * arrivals, each under the slot the app names it by (the bin kind's
  * `resource.of`, its `parts.of`, and `arrivals`) — through the shared source
- * visibility, and a source with nothing chosen reads no page and hides
- * nothing. Fits, checks and totals never see it.
+ * visibility, and a source with nothing chosen and no page scope (#1621)
+ * reads no page and hides nothing. Fits, checks and totals never see it.
  *
  * @packageDocumentation
  */
@@ -70,8 +70,8 @@ export function narrowingText(value: AllocationValue, binChoices: string): strin
 }
 
 /**
- * Which of a source's rows show: its narrowed keys while a choice narrows it,
- * every row — and no read — while none does.
+ * Which of a source's rows show: its narrowed keys while a choice or its
+ * page's scope narrows it, every row — and no read — while neither does.
  *
  * @param value - The payload
  * @param source - The source's role
@@ -85,15 +85,43 @@ export function useNarrowed(value: AllocationValue, source: NarrowedSource, rows
 }
 
 /**
+ * What the board's empty state stands under (#1398, CL13): each source a choice of the viewer's narrows, and the
+ * narrowing's Clear all. A page's scope (#1621) is no choice — a board its scope leaves empty is no narrowing's empty
+ * state, as a board with no rows is not, and Clear filters could not bring a row back — so a board holds one only while
+ * a choice narrows a source.
+ */
+export interface AllocationNarrowed {
+    /** Whether a choice of the viewer's narrows the lanes, the resources, the arrivals. */
+    readonly lanes: boolean;
+    readonly resources: boolean;
+    readonly arrivals: boolean;
+    /** Clears every choice of the narrowing's, the page's scope kept. */
+    readonly clear: () => void;
+}
+
+/**
+ * The board's narrowing, as its empty state stands under it (see {@link AllocationNarrowed}).
+ *
+ * @param value - The payload
+ * @param chosen - Whether a choice of the viewer's narrows each source (its visibility's `chosen`)
+ * @returns The narrowing; `undefined` while no choice narrows a source
+ */
+export function allocationNarrowed(value: AllocationValue, chosen: Readonly<Record<NarrowedSource, boolean>>): AllocationNarrowed | undefined {
+    const { lanes, resources, arrivals } = chosen;
+    if (value.slice.type !== "some" || !(lanes || resources || arrivals)) return undefined;
+    return { lanes, resources, arrivals, clear: value.slice.value.slice.clearAll };
+}
+
+/**
  * The narrowing left nothing to show: the shared empty state, and Clear filters.
  *
- * @param props - The recipe's styles, and the narrowing's Clear all, if there is one
+ * @param props - The recipe's styles, and the narrowing's Clear all
  * @returns The empty state
  */
-export function NarrowedEmpty({ styles, clear }: { styles: AllocationStyles; clear: (() => void) | undefined }) {
+export function NarrowedEmpty({ styles, clear }: { styles: AllocationStyles; clear: () => void }) {
     return <Box css={styles.narrowedEmpty} data-allocation-narrowed-empty="">
         <EmptyStateView size="sm" icon={{ prefix: "fas", name: "filter" }} title="No rows match the filters"
             description="Change or clear the filters to see more rows."
-            actions={clear === undefined ? undefined : <Button size="xs" variant="outline" onClick={clear}>Clear filters</Button>} />
+            actions={<Button size="xs" variant="outline" onClick={clear}>Clear filters</Button>} />
     </Box>;
 }

@@ -6,8 +6,9 @@
  *
  * `<Plan>` counting every event kind it does not read by its cells before one
  * of its events is read (#1039), over the windows example's records on e3
- * itself: thirty presses read whole, and the jobs on them a kind of no paged
- * resource kind — narrowed through the rail's interval index, or read whole.
+ * itself: thirty presses read whole, the canvas's rows, and the jobs on them a
+ * kind over rows read whole — narrowed through the rail's interval index, or
+ * read whole.
  * Another planner books 10,001 proofs on the Monday, which put the range the
  * canvas reads past the 10,000 events a Plan draws. What each request asked
  * is read from the harness's request log; another planner's write is a real
@@ -47,7 +48,7 @@ import { East, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui/internal";
 import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-windows";
-import type { PrintJob } from "@elaraai/e3-ui/examples/plan/plan-events";
+import { PrintPress, type PrintJob } from "@elaraai/e3-ui/examples/plan/plan-events";
 import type { TreePath } from "@elaraai/e3-types";
 import type { E3Request } from "../../e3-web.test-utils.js";
 import { act, el, entry, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
@@ -196,9 +197,9 @@ const summaryPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Ro
     return Plan({
         axis: Plan.axis({ window: { min: FIRST, max: TWO_WEEKS }, resolution: "day", resolutions: ["day", "week", "month", "quarter"], now: NOW }),
         slice: { slice },
-        resources: {
-            presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) }),
-        },
+        // The presses are the canvas's rows, read whole (#1541).
+        data: presses.read(),
+        series: [Plan.series.resources(PrintPress, { key: "presses", title: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) })],
         events: {
             job: Schedule.events(jobs, {
                 name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
@@ -221,9 +222,9 @@ const intervalPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.R
     return Plan({
         axis: Plan.axis({ window: { min: FIRST, max: TWO_WEEKS }, resolution: "day", resolutions: ["day", "week", "month", "quarter"], now: NOW }),
         slice: { slice },
-        resources: {
-            presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) }),
-        },
+        // The presses are the canvas's rows, read whole (#1541).
+        data: presses.read(),
+        series: [Plan.series.resources(PrintPress, { key: "presses", title: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) })],
         events: {
             job: Schedule.events(jobs, {
                 name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
@@ -246,9 +247,9 @@ const inspectedPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.
     return Plan({
         axis: Plan.axis({ window: { min: FIRST, max: TWO_WEEKS }, resolution: "day", resolutions: ["day", "week", "month", "quarter"], now: NOW }),
         slice: { slice },
-        resources: {
-            presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) }),
-        },
+        // The presses are the canvas's rows, read whole (#1541).
+        data: presses.read(),
+        series: [Plan.series.resources(PrintPress, { key: "presses", title: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) })],
         events: {
             job: Schedule.events(jobs, {
                 name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
@@ -278,9 +279,9 @@ const checkedPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Ro
     return Plan({
         axis: Plan.axis({ window: { min: FIRST, max: TWO_WEEKS }, resolution: "day", resolutions: ["day", "week", "month", "quarter"], now: NOW }),
         slice: { slice },
-        resources: {
-            presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) }),
-        },
+        // The presses are the canvas's rows, read whole (#1541).
+        data: presses.read(),
+        series: [Plan.series.resources(PrintPress, { key: "presses", title: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) })],
         events: {
             job: Schedule.events(jobs, {
                 name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
@@ -311,9 +312,9 @@ const dayPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(E
     const entries = $.const(Data.bindPaged(ex.planWindowJobs));
     return Plan({
         axis: Plan.axis({ window: { min: FIRST, max: TWO_WEEKS }, resolution: "day", resolutions: ["day", "week", "month", "quarter"], now: NOW }),
-        resources: {
-            presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) }),
-        },
+        // The presses are the canvas's rows, read whole (#1541).
+        data: presses.read(),
+        series: [Plan.series.resources(PrintPress, { key: "presses", title: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) })],
         events: {
             job: Schedule.events(jobs, {
                 name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
@@ -336,9 +337,9 @@ const dayCheckedPlan = { fn: East.function([], UIComponentType, (_$) => Reactive
     const checks = $.const(Record.bind(ex.planWindowRuns, ["patch"]));
     return Plan({
         axis: Plan.axis({ window: { min: FIRST, max: TWO_WEEKS }, resolution: "day", resolutions: ["day", "week", "month", "quarter"], now: NOW }),
-        resources: {
-            presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) }),
-        },
+        // The presses are the canvas's rows, read whole (#1541).
+        data: presses.read(),
+        series: [Plan.series.resources(PrintPress, { key: "presses", title: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) })],
         events: {
             job: Schedule.events(jobs, {
                 name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
@@ -361,9 +362,9 @@ const wholePlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root
     const jobs = $.const(Record.bind(ex.planWindowJobs, ["patch"]));
     return Plan({
         axis: Plan.axis({ window: { min: FIRST, max: TWO_WEEKS }, resolution: "day", resolutions: ["day", "week", "month", "quarter"], now: NOW }),
-        resources: {
-            presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) }),
-        },
+        // The presses are the canvas's rows, read whole (#1541).
+        data: presses.read(),
+        series: [Plan.series.resources(PrintPress, { key: "presses", title: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) })],
         events: {
             job: Schedule.events(jobs, {
                 name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
@@ -376,8 +377,8 @@ const wholePlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root
 
 // ── What the canvas draws ────────────────────────────────────────────────────
 
-/** A press's row. */
-const pressRow = (key: string) => entry("presses.span", key);
+/** A press's row: its own, which its jobs draw on. */
+const pressRow = (key: string) => entry("presses", key);
 /** A press's row, drawn. */
 const rowOf = (c: HTMLElement, press: string) => c.querySelector<HTMLElement>(rowAt(pressRow(press)))!;
 /** A job's bar on a press's row. */

@@ -4,7 +4,8 @@
  *
  * @vitest-environment jsdom
  *
- * Plan row-focus DOM tests — the links focus (R1: rails, gap bands, and the
+ * Plan row-focus DOM tests — the links focus (R1: the role bands it gathers its
+ * family under, the band its other rows fold into, #1680's review, and the
  * ribbons laid out from the model, #818) and expand-in-place (R2: the focused
  * row's render and its context strips).
  *
@@ -50,7 +51,7 @@ function run(key: string, start: Date, end: Date, state: unknown, opts?: { quant
             ? some({ value: opts.quantity, unit: opts.unit !== undefined ? some(opts.unit) : none, format: none, text: opts.text !== undefined ? some(opts.text) : none })
             : none,
         state,
-        status: opts?.stuck === true ? some(variant("warning", null)) : none,
+        status: opts?.stuck === true ? some({ label: "Over dwell", tone: variant("warning", null), ring: false }) : none,
         moved: none, icon: none,
     };
 }
@@ -68,14 +69,15 @@ function gutter(label: string, opts?: { sub?: string; value?: string; meta?: str
 }
 
 /** One WIRE row, as the source serves it — named by its test key (#822). */
-function planRow(key: string, kind: unknown, opts?: { parent?: string; gutter?: unknown; expand?: unknown; collapsed?: boolean }): PlanWireRow {
+function planRow(key: string, kind: unknown, opts?: { parent?: string; gutter?: unknown; expand?: unknown; collapsed?: boolean; pinned?: boolean; status?: string }): PlanWireRow {
     return {
         id: rowId(key),
         parent: opts?.parent !== undefined ? some(rowId(opts.parent)) : none,
         gutter: opts?.gutter ?? gutter(key),
         kind,
         collapsed: opts?.collapsed === true,
-        pinned: false, height: none, status: none,
+        pinned: opts?.pinned === true, height: none,
+        status: opts?.status !== undefined ? some(variant(opts.status, null)) : none,
         expand: opts?.expand !== undefined ? some(opts.expand) : none,
     } as unknown as PlanWireRow;
 }
@@ -136,13 +138,18 @@ describe("Plan links focus (R1)", () => {
         quantity: some({ value: 34, unit: some("k sheets"), format: none, text: none }),
     });
 
-    test("the control gathers the TRANSITIVE family; unrelated rows rail; ← All rows returns", () => {
+    /** The body's items in order, as their keys name them. */
+    const bodyOrder = (container: HTMLElement) => [...container.querySelectorAll("[data-plan-body] [data-plan-item]")]
+        .map((el) => el.getAttribute("data-plan-item")!)
+        .map((key) => (key.startsWith("r:") ? `r:${testKeyOf(key.slice(2))}` : key));
+
+    test("the control gathers the TRANSITIVE family under its role bands; every other row folds into one band, which opens in place; ← All rows returns (#1680's review)", () => {
         const runAt = (key: string, s: Date, e: Date) => run(key, s, e, variant("confirmed", null));
         const { container } = renderPlan(planRoot([
+            planRow("x", spanKind([runAt("rx", W27, new Date("2026-07-13Z"))])),
             planRow("a", spanKind([runAt("ra", W27, new Date("2026-07-13Z"))])),
             planRow("b", spanKind([runAt("rb", new Date("2026-07-13Z"), new Date("2026-07-27Z"))])),
             planRow("c", spanKind([runAt("rc", new Date("2026-07-27Z"), new Date("2026-08-10Z"))])),
-            planRow("x", spanKind([runAt("rx", W27, new Date("2026-07-13Z"))])),
         ], {
             // a → b → c is a two-hop chain: focusing b gathers BOTH.
             links: [link("a", "ra", "b", "rb"), link("b", "rb", "c", "rc")],
@@ -152,44 +159,50 @@ describe("Plan links focus (R1)", () => {
         expect(container.querySelector(`${rowSel("x")} [data-plan-control="links"]`)).toBeNull();
 
         fireEvent.click(container.querySelector(`${rowSel("b")} [data-plan-control="links"]`)!);
-        // Family keeps full rows with their Tags; x collapses to a rail. The
-        // band names the row by its gutter label (`Plan links.html`, #1258).
+        // The band names the row by its gutter label (`Plan links.html`, #1258) and counts each role's rows.
         expect(container.querySelector('[data-plan-focusbar="links"]')).toBeTruthy();
         expect(screen.getByText("Links · b · 1 upstream · 1 downstream")).toBeTruthy();
         expect(container.querySelector("[data-plan-focusback]")!.textContent).toBe("← All rows");
-        expect(container.querySelector(`${rowSel("a")} [data-plan-focustag="UPSTREAM"]`)!.textContent).toBe("Upstream");
-        expect(container.querySelector(`${rowSel("c")} [data-plan-focustag="DOWNSTREAM"]`)!.textContent).toBe("Downstream");
-        // The focused row carries no Tag.
-        expect(container.querySelector(`${rowSel("b")} [data-plan-focustag]`)).toBeNull();
-        expect(container.querySelector(rowSel("x", "data-plan-rail"))).toBeTruthy();
+        // Upstream, the focused row, downstream — no Linked band, as no row is both ways — then x folded away.
+        expect(bodyOrder(container)).toEqual(["l:upstream", "r:a", "l:focused", "r:b", "l:downstream", "r:c", "l:others"]);
+        const others = container.querySelector<HTMLElement>('[data-plan-focusband="others"]')!;
+        expect([others.textContent, others.getAttribute("aria-expanded")]).toEqual(["Other rows11 row", "false"]);
+        // Opened, it holds x where it stood, and folds again.
+        fireEvent.click(others);
+        expect(bodyOrder(container).slice(-2)).toEqual(["l:others", "r:x"]);
+        expect(container.querySelector('[data-plan-focusband="others"]')!.getAttribute("aria-expanded")).toBe("true");
+        fireEvent.click(container.querySelector('[data-plan-focusband="others"]')!);
         expect(container.querySelector(rowSel("x"))).toBeNull();
+        // A role's band opens nothing.
+        fireEvent.click(container.querySelector('[data-plan-focusband="upstream"]')!);
+        expect(bodyOrder(container)).toHaveLength(7);
 
-        // ← All rows restores everything.
+        // ← All rows restores everything, in its order.
         fireEvent.click(container.querySelector("[data-plan-focusback]")!);
-        expect(container.querySelector(rowSel("x", "data-plan-rail"))).toBeNull();
-        expect(container.querySelector(rowSel("x"))).toBeTruthy();
+        expect(bodyOrder(container)).toEqual(["r:x", "r:a", "r:b", "r:c"]);
     });
 
-    test("a RUN of unrelated rows elides to one ⋯ gap band; a lone one keeps its rail; the gap click returns", () => {
+    test("a role with no rows says none; a row both ways stands under Linked; a gathered row says what it nests under on its sub line, two lines tall (#1680's review)", () => {
         const runAt = (key: string, s: Date, e: Date) => run(key, s, e, variant("confirmed", null));
+        // A plain group band: its summary's case `none` — no strip — is no Option's.
+        const hall: PlanWireRow["kind"] = variant("group", { summary: variant("none", null) });
         const { container } = renderPlan(planRoot([
-            planRow("a", spanKind([runAt("ra", W27, new Date("2026-07-13Z"))])),
-            planRow("x", spanKind([])),
-            planRow("b", spanKind([runAt("rb", new Date("2026-07-13Z"), new Date("2026-07-27Z"))])),
-            planRow("y1", spanKind([])),
-            planRow("y2", spanKind([])),
-            planRow("y3", spanKind([])),
-        ], { links: [link("a", "ra", "b", "rb")] }));
-        fireEvent.click(container.querySelector(`${rowSel("a")} [data-plan-control="links"]`)!);
-        // The lone x stays an 11px rail; the y1–y3 run is ONE gap band.
-        expect(container.querySelector(rowSel("x", "data-plan-rail"))).toBeTruthy();
-        expect(container.querySelector('[data-plan-gap="3"]')).toBeTruthy();
-        expect(container.querySelectorAll("[data-plan-gap]")).toHaveLength(1);
-        expect(container.querySelector(rowSel("y2"))).toBeNull();
-
-        fireEvent.click(container.querySelector("[data-plan-gap]")!);
-        expect(container.querySelector("[data-plan-gap]")).toBeNull();
-        expect(container.querySelector(rowSel("y2"))).toBeTruthy();
+            planRow("g", hall, { gutter: gutter("Hall 1") }),
+            planRow("a", spanKind([runAt("ra", W27, new Date("2026-07-13Z"))]), { parent: "g", gutter: gutter("a", { sub: "12k/h" }) }),
+            planRow("m", spanKind([runAt("rm", new Date("2026-07-27Z"), new Date("2026-08-10Z"))]), { parent: "g" }),
+            planRow("f", spanKind([runAt("rf", new Date("2026-07-13Z"), new Date("2026-07-27Z"))])),
+        ], { links: [link("a", "ra", "f", "rf"), link("f", "rf", "m", "rm"), link("m", "rm", "f", "rf")] }));
+        fireEvent.click(container.querySelector(`${rowSel("f")} [data-plan-control="links"]`)!);
+        expect(screen.getByText("Links · f · 1 upstream · 1 linked · 0 downstream")).toBeTruthy();
+        expect(bodyOrder(container)).toEqual(["l:upstream", "r:a", "l:focused", "r:f", "l:linked", "r:m", "l:downstream", "l:others"]);
+        expect(container.querySelector('[data-plan-focusband="downstream"] [data-plan-focusnone]')!.textContent).toBe("none");
+        expect(container.querySelector('[data-plan-focusband="linked"] [data-plan-focusnone]')).toBeNull();
+        // Its path, then its own sub; at the top, neither.
+        const sub = (key: string) => container.querySelector(`${rowSel(key)} [data-plan-gutter="sub"]`)?.textContent;
+        expect([sub("a"), sub("m"), sub("f")]).toEqual(["Hall 1 · 12k/h", "Hall 1", undefined]);
+        expect(["a", "m", "f"].map((k) => container.querySelector(rowSel(k))!.getAttribute("data-plan-h"))).toEqual(["42", "42", "32"]);
+        // One level in, under its band; and no caret — its subtree, if any, is the others'.
+        expect(container.querySelector(rowSel("m"))!.getAttribute("aria-level")).toBe("2");
     });
 
     test("a row control's name shows through the canvas's tooltip (#1258)", async () => {
@@ -205,19 +218,30 @@ describe("Plan links focus (R1)", () => {
         await waitFor(() => expect(document.querySelector('[data-plan-overlay="tooltip"]')).toBeNull());
     });
 
-    test("a rail click returns; esc walks the focus rung", () => {
+    test("a pinned row the focus does not gather strips to 16px, its value and dot kept; its click returns; esc returns with the others' band open (#1680's review)", () => {
         const { container } = renderPlan(planRoot([
+            planRow("p", spanKind([]), { pinned: true, status: "warning", gutter: gutter("On-time", { value: "94%" }) }),
             planRow("a", spanKind([run("ra", W27, new Date("2026-07-13Z"), variant("actual", null))])),
+            planRow("b", spanKind([run("rb", new Date("2026-07-13Z"), new Date("2026-07-27Z"), variant("actual", null))])),
             planRow("x", spanKind([])),
-        ], { links: [link("a", "ra", "a", "ra")] }));
-        fireEvent.click(container.querySelector('[data-plan-control="links"]')!);
-        expect(container.querySelector(rowSel("x", "data-plan-rail"))).toBeTruthy();
-        fireEvent.click(container.querySelector(rowSel("x", "data-plan-rail"))!);
-        expect(container.querySelector(rowSel("x", "data-plan-rail"))).toBeNull();
+        ], { links: [link("a", "ra", "b", "rb")] }));
+        const pinned = () => container.querySelector(rowSel("p"))!;
+        expect([pinned().getAttribute("data-plan-h"), pinned().hasAttribute("data-ctx")]).toEqual(["32", false]);
+        fireEvent.click(container.querySelector(`${rowSel("a")} [data-plan-control="links"]`)!);
+        expect([pinned().getAttribute("data-plan-h"), pinned().hasAttribute("data-ctx")]).toEqual(["16", true]);
+        const value = pinned().querySelector('[data-plan-gutter="value"]')!;
+        expect([value.textContent, value.hasAttribute("data-keep")]).toEqual(["94%", true]);
+        expect(pinned().querySelector('[data-tone="warning"]')!.hasAttribute("data-keep")).toBe(true);
+        fireEvent.click(pinned());
+        expect(container.querySelector("[data-plan-focusbar]")).toBeNull();
+        expect(pinned().getAttribute("data-plan-h")).toBe("32");
 
-        fireEvent.click(container.querySelector('[data-plan-control="links"]')!);
+        fireEvent.click(container.querySelector(`${rowSel("a")} [data-plan-control="links"]`)!);
+        fireEvent.click(container.querySelector('[data-plan-focusband="others"]')!);
+        expect(container.querySelector(rowSel("x"))).toBeTruthy();
         fireEvent.keyDown(keySurface(container), { key: "Escape" });
-        expect(container.querySelector(rowSel("x", "data-plan-rail"))).toBeNull();
+        expect(container.querySelector("[data-plan-focusbar]")).toBeNull();
+        expect(container.querySelector("[data-plan-focusband]")).toBeNull();
     });
 });
 
@@ -230,8 +254,8 @@ describe("Plan link ribbons (#818)", () => {
     const confirmed = variant("confirmed", null);
     const JUL13 = new Date("2026-07-13Z");
     const JUL27 = new Date("2026-07-27Z");
-    // The 12-week window across a 1000px plot, right of the 168px gutter.
-    const xAt = (d: Date) => 168 + ((d.getTime() - W27.getTime()) / (84 * 86_400_000)) * 1000;
+    // The 12-week window across a 1000px plot, right of the 240px gutter.
+    const xAt = (d: Date) => 240 + ((d.getTime() - W27.getTime()) / (84 * 86_400_000)) * 1000;
 
     /** A path's last point. */
     const endOf = (d: string): [number, number] => {
@@ -245,7 +269,7 @@ describe("Plan link ribbons (#818)", () => {
     };
 
     /**
-     * jsdom lays nothing out. Give the ribbon layer its width — the 168px
+     * jsdom lays nothing out. Give the ribbon layer its width — the 240px
      * gutter and a 1000px plot — and a bounded frame its viewport and the
      * sticky header above its rows their heights (TanStack sizes the frame by
      * `offsetHeight`, the view reads `clientHeight`); every other element keeps
@@ -255,7 +279,7 @@ describe("Plan link ribbons (#818)", () => {
         const heightOf = (el: HTMLElement) => (el.getAttribute("data-virtual-rows") === "bounded" ? viewportPx
             : el.hasAttribute("data-plan-header") ? headerPx : 0);
         const stubs: Record<string, (el: HTMLElement) => number> = {
-            clientWidth: (el) => (el.hasAttribute("data-plan-ribbons") ? 1168 : 0),
+            clientWidth: (el) => (el.hasAttribute("data-plan-ribbons") ? 1240 : 0),
             clientHeight: heightOf,
             offsetHeight: heightOf,
         };
@@ -291,14 +315,15 @@ describe("Plan link ribbons (#818)", () => {
             focusLinks(container, "a");
             // Nothing awaited, no timer run: the ribbon is already there. It
             // leaves a's run END at a's bar centre — the middle of its plot
-            // cell, the 32px row less the rule under it...
+            // cell, the 32px row less the rule under it, under the Upstream and
+            // Focused bands (26 each, #1680's review): 52 + 15.5...
             const band = container.querySelector('[data-plan-link="0"] [data-plan-ribbon-band]')!;
-            expect(band.getAttribute("d")!.startsWith(`M ${xAt(JUL13).toFixed(1)} 15.5`)).toBe(true);
-            // Stroked at its weight: the family's largest quantity, so 8 (#1258).
-            expect(band.getAttribute("stroke-width")).toBe("8");
-            // ...and arrives at b's run START, at b's bar centre (32 + 15.5).
+            expect(band.getAttribute("d")!.startsWith(`M ${xAt(JUL13).toFixed(1)} 67.5`)).toBe(true);
+            // Stroked at its weight: the family's largest quantity, so the heaviest, 6 (#1258; ruled 17 Nov 2026 over §15's 8).
+            expect(band.getAttribute("stroke-width")).toBe("6");
+            // ...and arrives at b's run START, at b's bar centre, under the Downstream band (84 + 26 + 15.5).
             const head = container.querySelector('[data-plan-link="0"] [data-plan-ribbon-head]')!;
-            expect(tipOf(head.getAttribute("d")!)).toEqual([Number(xAt(JUL13).toFixed(1)), 47.5]);
+            expect(tipOf(head.getAttribute("d")!)).toEqual([Number(xAt(JUL13).toFixed(1)), 125.5]);
             // Past the old 320ms settle: still no row/ribbon geometry read.
             // The shared adaptive hook reads the body's container width after
             // every commit; that is not a measurement of the ribbon layout.
@@ -313,8 +338,9 @@ describe("Plan link ribbons (#818)", () => {
 
     test("a link to a row scrolled out of view ends in a stub pointing toward it, and follows the scroll", () => {
         // A bounded frame 140px tall under a 40px sticky header: a 100px view
-        // of the rows. a, c, d, e, b stack 32px apart, so b (128–160) lies
-        // past the view's bottom.
+        // of the rows. Focused on a, under the Upstream and Focused bands, a
+        // stands at 52; c, d, e and b stack 32px apart under the Downstream
+        // band from 110, so b (206–238) lies past the view's bottom.
         const restore = stubLayout(140, 40);
         try {
             const at = (k: string) => planRow(k, spanKind([run(`r${k}`, W27, JUL13, confirmed)]));
@@ -329,47 +355,45 @@ describe("Plan link ribbons (#818)", () => {
             const down = toB.querySelector('[data-plan-stub="below"]')!;
             expect(tipOf(down.getAttribute("d")!)[1]).toBe(100);
             expect(toB.querySelector('[data-plan-stub="above"]')).toBeNull();
-            // Scroll 80px: b comes into view, and a leaves it at the top — the
+            // Scroll 130px: b comes into view, and a leaves it at the top — the
             // stub moves to the ribbon's start, pointing up toward a.
             const frame = container.querySelector<HTMLElement>('[data-virtual-rows="bounded"]')!;
-            Object.defineProperty(frame, "scrollTop", { configurable: true, value: 80 });
+            Object.defineProperty(frame, "scrollTop", { configurable: true, value: 130 });
             act(() => { fireEvent.scroll(frame); });
             expect(toB.querySelector('[data-plan-stub="below"]')).toBeNull();
             const up = toB.querySelector('[data-plan-stub="above"]')!;
-            expect(tipOf(up.getAttribute("d")!)[1]).toBe(80);
-            // A ribbon with both ends past the top — a to c, both above 80 — is not drawn.
+            expect(tipOf(up.getAttribute("d")!)[1]).toBe(130);
+            // A ribbon with both ends past the top — a to c, both above 130 — is not drawn.
             expect(container.querySelector('[data-plan-link="0"]')).toBeNull();
         } finally {
             restore();
         }
     });
 
-    test("collapsing a section re-routes the ribbons in the same render", () => {
+    test("a gathered row's height moving re-routes the ribbons in the same render", () => {
         const restore = stubLayout();
         try {
+            // k is an expandable chart: its expand control toggles it spark ↔ chart (#1680's review).
+            const chart = variant("chart", {
+                layers: [], left: none, right: none, height: variant("spark", null), expandedHeight: none, expandable: true,
+            });
             const { container } = renderPlan(planRoot([
                 planRow("a", spanKind([run("ra", W27, JUL13, confirmed)])),
-                planRow("p", spanKind([run("rp", JUL13, JUL27, confirmed)])),
-                planRow("p1", spanKind([]), { parent: "p" }),
-                planRow("p2", spanKind([]), { parent: "p" }),
-                planRow("p3", spanKind([]), { parent: "p" }),
+                planRow("k", chart),
                 planRow("c", spanKind([run("rc", JUL27, new Date("2026-08-10Z"), confirmed)])),
-            ], { links: [link("a", "ra", "p", "rp"), link("p", "rp", "c", "rc")] }), "plan-818-collapse");
-            focusLinks(container, "p");
+            ], { links: [link("a", "ra", "k", "rk"), link("k", "rk", "c", "rc")] }), "plan-818-collapse");
+            focusLinks(container, "k");
             const toC = () => container.querySelector('[data-plan-link="1"] [data-plan-ribbon-band]')!;
-            // c sits below a, p, and the one ⋯ band standing in for p's three
-            // children: its bar centre is 32 + 32 + 22 + 15.5.
-            expect(container.querySelector('[data-plan-gap="3"]')).toBeTruthy();
-            expect(endOf(toC().getAttribute("d")!)[1]).toBe(101.5);
-            expect(toC().getAttribute("stroke-width")).toBe("8");
-            // Collapse p: its children go, and the band with them.
-            fireEvent.click(container.querySelector(`${rowSel("p")} > :first-child`)!);
-            expect(container.querySelector("[data-plan-gap]")).toBeNull();
-            // The same render: c's end rose by the band's 22px. p's runs now
-            // draw at its rollup height, but a link's weight is its quantity's,
-            // never its bar's (#1258): the link out of them keeps its 8.
-            expect(endOf(toC().getAttribute("d")!)[1]).toBe(79.5);
-            expect(toC().getAttribute("stroke-width")).toBe("8");
+            // c sits under the Upstream band and a, the Focused band and k's 32px spark, and the Downstream band: its
+            // bar centre is 26 + 32 + 26 + 32 + 26 + 15.5.
+            expect(endOf(toC().getAttribute("d")!)[1]).toBe(157.5);
+            expect(toC().getAttribute("stroke-width")).toBe("6");
+            // Open k's chart: the same render, c's end down by the 56px it grew. A link's weight is its quantity's,
+            // never its bar's (#1258): it keeps its 6.
+            fireEvent.click(container.querySelector(`${rowSel("k")} [data-plan-control="expand"]`)!);
+            expect(container.querySelector(rowSel("k"))!.getAttribute("data-plan-h")).toBe("88");
+            expect(endOf(toC().getAttribute("d")!)[1]).toBe(213.5);
+            expect(toC().getAttribute("stroke-width")).toBe("6");
         } finally {
             restore();
         }
@@ -399,14 +423,15 @@ describe("Plan link ribbons (#818)", () => {
             expect(order()).toEqual(["1", "0"]);
             expect(g.querySelector('[data-plan-ribbon-casing="0"]')).toBeTruthy();
             expect(container.querySelectorAll("[data-plan-clip] > [data-plan-ribbon-casing]")).toHaveLength(1);
-            // The halo is 1px, 4 outside each run: a's bar in row 0, b's in row 1
-            // (its line's middle 4.5 out, round a 7.5 corner).
+            // The halo is 1px, 4 outside each run: a's bar at 57.5, under the
+            // Upstream and Focused bands; b's at 115.5, under the Downstream
+            // band (its line's middle 4.5 out, round a 7.5 corner).
             const halo = (side: string) => {
                 const el = g.querySelector(`[data-plan-linkend="${side}"]`)!;
                 return ["x", "y", "width", "height", "rx"].map((k) => Number(el.getAttribute(k)));
             };
-            expect(halo("from")).toEqual([168 - 4.5, 5.5 - 4.5, xAt(JUL13) - 168 + 9, 20 + 9, 7.5]);
-            expect(halo("to")).toEqual([xAt(JUL13) - 4.5, 37.5 - 4.5, xAt(JUL27) - xAt(JUL13) + 9, 20 + 9, 7.5]);
+            expect(halo("from")).toEqual([240 - 4.5, 57.5 - 4.5, xAt(JUL13) - 240 + 9, 20 + 9, 7.5]);
+            expect(halo("to")).toEqual([xAt(JUL13) - 4.5, 115.5 - 4.5, xAt(JUL27) - xAt(JUL13) + 9, 20 + 9, 7.5]);
             fireEvent.pointerLeave(hit);
             expect(g.hasAttribute("data-lit")).toBe(false);
             expect(g.querySelector("[data-plan-linkend]")).toBeNull();
@@ -415,9 +440,11 @@ describe("Plan link ribbons (#818)", () => {
         }
     });
 
-    test("the ribbons come and go without remounting a row", () => {
+    test("the ribbons come and go without remounting a row they gather", () => {
         // The layer is drawn in the rows' own box — which must not come and go
-        // with it, or every row would remount as a focus opens and closes.
+        // with it, or every row would remount as a focus opens and closes. The
+        // rows the focus gathers keep their instances wherever they move; the
+        // one it folds away goes with its band, and comes back after.
         const restore = stubLayout();
         const mounts: string[] = [];
         setBodyRowMountProbe((key, phase) => mounts.push(`${phase} ${testKeyOf(key)}`));
@@ -430,11 +457,9 @@ describe("Plan link ribbons (#818)", () => {
             mounts.length = 0;
             focusLinks(container, "a");
             expect(container.querySelector("[data-plan-ribbons]")).toBeTruthy();
-            // x rails — the same row, drawn another way.
-            expect(container.querySelector(rowSel("x", "data-plan-rail"))).toBeTruthy();
             fireEvent.click(container.querySelector("[data-plan-focusback]")!);
             expect(container.querySelector("[data-plan-ribbons]")).toBeNull();
-            expect(mounts).toEqual([]);
+            expect(mounts).toEqual(["unmount x", "mount x"]);
         } finally {
             setBodyRowMountProbe(undefined);
             restore();
@@ -493,9 +518,9 @@ describe("Plan link ribbons (#818)", () => {
                 planRow("b", spanKind([run("rb", new Date("2026-10-05Z"), new Date("2026-10-19Z"), confirmed)])),
             ], { links: [link("a", "ra", "b", "rb")] }), "plan-1258-ink");
             focusLinks(container, "a");
-            // The casing: the paper 1 either side of the 8 weight, under the ink.
+            // The casing: the paper 1 either side of the 6 weight, under the ink.
             const casing = container.querySelector('[data-plan-ribbon-casing="0"] [data-plan-casing="band"]')!;
-            expect(casing.getAttribute("stroke-width")).toBe("10");
+            expect(casing.getAttribute("stroke-width")).toBe("8");
             expect(casing.getAttribute("d")).toBe(container.querySelector('[data-plan-link="0"] [data-plan-ribbon-band]')!.getAttribute("d"));
             // The caption's knockout: 12 tall, starting 9.5 above its text's
             // baseline, 4 either side of it (jsdom measures no text).
@@ -505,11 +530,12 @@ describe("Plan link ribbons (#818)", () => {
             expect(Number(knockout.getAttribute("height"))).toBe(12);
             expect(Number(knockout.getAttribute("y"))).toBe(Number(caption.getAttribute("y")) - 9.5);
             expect(Number(knockout.getAttribute("width"))).toBe(8);
-            // b's end lands on the plot's right edge (168 + 1000) in a slot
-            // 40 wide and as tall as its bar, open toward the edge.
+            // b's end lands on the plot's right edge (240 + 1000) in a slot
+            // 40 wide and as tall as its bar, open toward the edge — b under
+            // the Downstream band, its bar 115.5 to 135.5.
             const slot = container.querySelector('[data-plan-linkslot="right"]')!;
-            expect(slot.getAttribute("d")).toBe("M 1168 37.5 H 1128 V 57.5 H 1168");
-            expect(tipOf(container.querySelector('[data-plan-link="0"] [data-plan-ribbon-head]')!.getAttribute("d")!)).toEqual([1168, 47.5]);
+            expect(slot.getAttribute("d")).toBe("M 1240 115.5 H 1200 V 135.5 H 1240");
+            expect(tipOf(container.querySelector('[data-plan-link="0"] [data-plan-ribbon-head]')!.getAttribute("d")!)).toEqual([1240, 125.5]);
         } finally {
             restore();
         }
@@ -618,7 +644,7 @@ describe("Plan expand-in-place (R2)", () => {
             planRow("focal", spanKind([]), { expand: { height: none, axis: variant("keep", null) } }),
             planRow("s", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))])),
             planRow("e", variant("events", { marks: [{
-                key: "m1", at: t(W27), kind: variant("milestone", null), icon: none, label: some("KICKOFF"),
+                key: "m1", at: t(W27), kind: variant("milestone", null), status: none, icon: none, label: some("KICKOFF"),
             }] })),
             planRow("ontime", variant("chart", {
                 layers: [variant("line", {
@@ -649,6 +675,45 @@ describe("Plan expand-in-place (R2)", () => {
         const dot = container.querySelector(`${rowSel("e")} [data-mark="m1"]`) as HTMLElement;
         expect(dot).toBeTruthy();
         expect(dot.hasAttribute("data-ctx")).toBe(true);
+    });
+
+    test("an expandable chart has no caret: its expand control is its toggle — spark ↔ chart where it declares no render, and where it does, the render opens with its chart drawn expanded in its band (#1680's review)", () => {
+        // A line over 100 at its last point: a chart drawn expanded outlines the breach, a spark does not.
+        const chart = () => variant("chart", {
+            layers: [variant("line", {
+                points: [{ t: t(W27), y: 94 }, { t: t(new Date("2026-08-31Z")), y: 101 }],
+                axis: variant("left", null), breach: some(variant("above", 100)), fold: variant("mean", null),
+            })],
+            left: none, right: none, height: variant("spark", null), expandedHeight: none, expandable: true,
+        });
+        const { container } = renderPlan(planRoot([
+            planRow("ontime", chart(), { expand: { height: some("120px"), axis: variant("keep", null) } }),
+            planRow("spark", chart()),
+        ], {
+            expandRender: (id: PlanRowId) => variant("Text", { value: `R · ${id.value.path.join("/")}`, style: none }),
+        }), "plan-1680-chart-expand");
+        const row = (key: string) => container.querySelector(rowSel(key)) as HTMLElement;
+        const viewBox = (key: string) => row(key).querySelector('[data-plan-mark="line"]')!.closest("svg")!.getAttribute("viewBox");
+        const control = (key: string) => row(key).querySelector<HTMLElement>('[data-plan-control="expand"]')!;
+        const outlined = (key: string) => row(key).querySelectorAll('[data-plan-mark="breach-rect"]').length > 0;
+        // Carets only fold: neither chart draws one, and a click on its gutter selects it, never toggles it.
+        expect([...container.querySelectorAll("[role='rowheader'] [data-icon='caret-down']")]).toEqual([]);
+        fireEvent.click(row("spark").querySelector("[role='rowheader']")!);
+        expect([viewBox("spark"), row("spark").hasAttribute("data-selected")]).toEqual(["0 0 1000 32", true]);
+        // With no render, its expand control toggles spark ↔ chart, and says so.
+        expect([control("spark").getAttribute("aria-pressed"), row("spark").getAttribute("aria-expanded")]).toEqual(["false", "false"]);
+        fireEvent.click(control("spark"));
+        expect([viewBox("spark"), control("spark").getAttribute("aria-pressed"), row("spark").getAttribute("aria-expanded"), outlined("spark")])
+            .toEqual(["0 0 1000 88", "true", "true", true]);
+        fireEvent.click(control("spark"));
+        expect([viewBox("spark"), outlined("spark")]).toEqual(["0 0 1000 32", false]);
+        // With a render, the control opens it — and the chart draws expanded in its band, the row its band and the render.
+        expect(outlined("ontime")).toBe(false);
+        fireEvent.click(control("ontime"));
+        expect(container.querySelector('[data-plan-focusbar="expand"]')).toBeTruthy();
+        expect([viewBox("ontime"), row("ontime").getAttribute("data-plan-h"), outlined("ontime")]).toEqual(["0 0 1000 88", String(88 + 120), true]);
+        fireEvent.keyDown(keySurface(container), { key: "Escape" });
+        expect([viewBox("ontime"), row("ontime").getAttribute("data-plan-h"), outlined("ontime")]).toEqual(["0 0 1000 32", "32", false]);
     });
 
     test("a focus-expanded CHART row scales its plot to the BAND, not the grown row (#591)", () => {

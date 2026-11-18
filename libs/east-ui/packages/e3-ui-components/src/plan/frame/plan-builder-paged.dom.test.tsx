@@ -25,10 +25,12 @@
  *   into it from a day the window never read — and while a read is in flight
  *   the rows drawn before stand.
  * - The backlog is read through the same index, the jobs with no start.
- * - The presses are paged, the jobs on them read a cell at a time (#1039): a
- *   window of presses at a time, the next as the page scrolls to it, the key
- *   search seeking one; the presses are never read whole. The Plan's own rows
- *   after them are read again with their dataset. A window that cannot be
+ * - The presses are the Plan's rows, paged (#1541), the jobs on them read a
+ *   cell at a time (#1039): a window of presses at a time, the next as the
+ *   page scrolls to it, the key search seeking one; the presses are never read
+ *   whole, and a commit of the jobs reads none of their windows again — the
+ *   jobs are placed on the windows the page holds. The Plan's own rows after
+ *   them are read again with their dataset. A window that cannot be
  *   read is a band where its rows would be, asked once; one refused for a
  *   reason a retry can fix is said on the footer's loading line too, whose
  *   Retry asks e3 again at once (#1398).
@@ -184,7 +186,8 @@ async function writeJob(key: string, change: Partial<Job>) {
 
 /**
  * The windows example's Plan (`planWindows`), unbounded — jsdom lays nothing
- * out, so a bounded canvas would mount no row — its jobs narrowed through its
+ * out, so a bounded canvas would mount no row — its rows the presses, paged,
+ * a resources series laying each out (#1541), its jobs narrowed through its
  * one rail (#1344), the `job` source listing their series index and their
  * summary beside the interval index, so the jobs on the paged presses are read
  * a cell at a time (#1039), its range the window the canvas shows; with the
@@ -206,9 +209,8 @@ const windowsPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Ro
     const axis = $.let(Plan.axis({ window: { min: FIRST, max: TWO_WEEKS }, resolution: "day", now: NOW }));
     return Plan({
         axis, inspector: true, slice: { slice },
-        resources: {
-            presses: Schedule.resources(pressPages, { name: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) }),
-        },
+        data: pressPages,
+        series: [Plan.series.resources(events.PrintPress, { key: "presses", title: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) })],
         events: {
             job: Schedule.events(jobs, {
                 name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
@@ -226,10 +228,10 @@ const windowsPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Ro
 }))) };
 
 /**
- * The same jobs on the presses read whole, unbounded: a kind of no paged
- * resource kind, which the rail's `job` source narrows through their interval
- * index alone — counted first (#1039), then read over the days the canvas
- * draws — with the inspector, whose bulk edit moves the drafts.
+ * The same jobs on the presses read whole, unbounded: a kind over rows read
+ * whole, which the rail's `job` source narrows through their interval index
+ * alone — counted first (#1039), then read over the days the canvas draws —
+ * with the inspector, whose bulk edit moves the drafts.
  */
 const jobsPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.let(Data.bind(ex.planWindowPresses));
@@ -241,9 +243,8 @@ const jobsPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(
     return Plan({
         axis: Plan.axis({ window: { min: FIRST, max: TWO_WEEKS }, resolution: "day", now: NOW }),
         inspector: true, slice: { slice },
-        resources: {
-            presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) }),
-        },
+        data: presses.read(),
+        series: [Plan.series.resources(events.PrintPress, { key: "presses", title: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) })],
         events: {
             job: Schedule.events(jobs, {
                 name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
@@ -258,8 +259,8 @@ const jobsPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(
 
 // ── What the canvas draws ────────────────────────────────────────────────────
 
-/** A press's row. */
-const pressRow = (key: string) => entry("presses.span", key);
+/** A press's row: its own, which its jobs draw on. */
+const pressRow = (key: string) => entry("presses", key);
 /** A job's bars wherever they draw. */
 const bars = (c: HTMLElement, key: string) => [...slot(c, "main")!.querySelectorAll<HTMLElement>(el("data-run", "job", key))];
 /** A job's bar on a press's row. */
@@ -469,6 +470,49 @@ describe("the presses paged (PB55)", () => {
     });
 });
 
+describe("the jobs placed on the paged presses (#1541)", () => {
+    test("a commit of the jobs reads no window of the presses again: the jobs are placed on the windows the page holds — one that changes nothing drawn draws as it was, one that moves a job draws it on its new press", async () => {
+        // Thirty presses, one window: every row the canvas draws mounts.
+        await pressCount(30n);
+        const { container } = await h.mount(windowsPlan);
+        await settle();
+        expect(bar(container, "W-0001", "P-1001")).not.toBeNull();
+        const windows = of("presses").length;
+        // Another planner's write to the brochure run's customer, which nothing on the canvas draws.
+        await writeJob("W-0001", { customer: "Someone else" });
+        await settle();
+        expect(bar(container, "W-0001", "P-1001")).not.toBeNull();
+        // Another's that moves it onto Press 1002.
+        await writeJob("W-0001", { press: some("P-1002") });
+        await waitFor(() => expect(bar(container, "W-0001", "P-1002")).not.toBeNull(), { timeout: 10_000 });
+        expect(bar(container, "W-0001", "P-1001")).toBeNull();
+        // Neither read a window of the presses from e3 again.
+        expect(of("presses")).toHaveLength(windows);
+    });
+
+    test("a Backlog card names a press the page does not hold by its row, read by its key — the presses' key search, then a page of one — its key standing in until it lands (#1199)", async () => {
+        const restore = emulateWindowScroll();
+        try {
+            // The proof sheets, waiting, kept on Press 2870: far past the windows the canvas reads.
+            await writeJob("W-0020", { press: some("P-2870") });
+            const { container: c } = await h.mount(windowsPlan);
+            await settle();
+            expect(draws(c, "P-2870")).toBe(false);
+            const pane = slot(c, "start")!;
+            fireEvent.click(pane.querySelector<HTMLElement>('[role="tab"]')!);
+            await settle();
+            const card = () => pane.querySelector<HTMLElement>(`[role="tabpanel"]:not([hidden]) [data-library-item=${JSON.stringify(elementKey("job", "W-0020"))}]`);
+            await waitFor(() => expect(card()!.textContent).toContain("Press 2870"), { timeout: 10_000 });
+            // Sought by its key, its row read as a page of one — the 1,870th press — and the presses never read whole.
+            expect(of("presses")).toEqual(expect.arrayContaining([`seek "P-2870"`, "page 1869+1"]));
+            expect(h.requests("read", PRESSES)).toEqual([]);
+            expect(draws(c, "P-2870")).toBe(false);
+        } finally {
+            restore();
+        }
+    });
+});
+
 describe("a window of presses that cannot be read (PB55)", () => {
     test("is a run where its rows would be that says so once, with its Retry — the footer's line saying why — read once", async () => {
         // The presses' first window refused, as a request no retry can help is.
@@ -525,12 +569,12 @@ describe("a window of presses that cannot be read (PB55)", () => {
 });
 
 // ============================================================================
-// The Plan's own rows, after a paged kind's (PB55)
+// The Plan's own rows, after its paged rows (PB55)
 // ============================================================================
 
 type Stock = ValueTypeOf<typeof planLinkStock.type>;
 
-describe("the Plan's own rows after a paged kind's (PB55)", () => {
+describe("the Plan's own rows after its paged rows (PB55)", () => {
     test("a new value of their dataset reads the windows again: the paper in stock drawn after the presses with it", async () => {
         // Thirty presses, one window: every row the canvas draws mounts.
         await pressCount(30n);
@@ -538,7 +582,8 @@ describe("the Plan's own rows after a paged kind's (PB55)", () => {
         await settle();
         const board = () => container.querySelector<HTMLElement>(rowAt(entry("stock", "board")));
         expect(draws(container, "P-1030")).toBe(true);
-        // Every row mounts: an event on one of the kind's resources draws on its row alone, and none on an Unassigned row.
+        // Every row mounts: an event on one of the presses draws on its row alone, and none on an Unassigned row, which paged
+        // rows have none of.
         expect(bars(container, "W-0001")).toHaveLength(1);
         expect(bar(container, "W-0001", "P-1001")).not.toBeNull();
         expect(container.querySelector(rowAt(entry("job.unassigned", "span")))).toBeNull();
@@ -628,9 +673,8 @@ const editedPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Roo
     return Plan({
         axis: Plan.axis({ window: { min: FIRST, max: TWO_WEEKS }, resolution: "day", now: NOW }),
         inspector: true, slice: { slice },
-        resources: {
-            presses: Schedule.resources(pressPages, { name: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) }),
-        },
+        data: pressPages,
+        series: [Plan.series.resources(events.PrintPress, { key: "presses", title: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) })],
         events: {
             job: Schedule.events(jobs, {
                 name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
@@ -820,14 +864,14 @@ describe("the jobs edited, their record never read whole (#1199)", () => {
         expect(h.requests("read", JOBS)).toEqual([]);
     });
 
-    test("the inspector's job — its press named by its key — its form, its Duplicate and Delete, and the bulk edit: each one step", async () => {
+    test("the inspector's job — its press named by its row, which the page holds — its form, its Duplicate and Delete, and the bulk edit: each one step", async () => {
         const { container: c } = await h.mount(editedPlan, DRAG);
         await settle();
         await select(bar(c, "W-0001", "P-1001")!);
         expect(slot(c, "end")!.querySelector("[data-inspector-title]")!.textContent).toBe("Brochure run");
-        // Its press, a paged kind's, named once it is read by its key.
+        // Its press, a row of the paged presses the page holds, named from that row (#1541): none is read by its key.
         await waitFor(() => expect(factOf(c, "resource")).toBe("Press 1001"));
-        expect(of("presses")).toContain(`seek "P-1001"`);
+        expect(of("presses").filter((asked) => asked.startsWith("seek"))).toEqual([]);
         // A field of its form: one step, tinted against what the record holds.
         expect(inspectorField(c, "customer").hasAttribute("data-dirty")).toBe(false);
         await typeInto(c, "customer", "Alder & Finch Ltd");
@@ -853,7 +897,7 @@ describe("the jobs edited, their record never read whole (#1199)", () => {
         expect(h.requests("read", JOBS)).toEqual([]);
     });
 
-    test("a press's row in the inspector: its name and its hall read by its key, its jobs in the window counted — neither the presses nor the jobs read whole", async () => {
+    test("a press's row in the inspector: its name and its hall from its row, its jobs in the window counted — neither the presses nor the jobs read whole, and no press read by its key", async () => {
         const { container: c } = await h.mount(editedPlan, DRAG);
         await settle();
         fireEvent.click(c.querySelector(`${rowAt(pressRow("P-1002"))} [role="rowheader"]`)!);
@@ -861,7 +905,7 @@ describe("the jobs edited, their record never read whole (#1199)", () => {
         const end = slot(c, "end")!;
         await waitFor(() => expect(end.querySelector("[data-inspector-title]")!.textContent).toBe("Press 1002"));
         expect([...end.querySelectorAll("[data-inspector-line]")].map((n) => n.textContent)).toEqual(["Hall 2"]);
-        expect(of("presses")).toContain(`seek "P-1002"`);
+        expect(of("presses").filter((asked) => asked.startsWith("seek"))).toEqual([]);
         // The museum guide, six hours, in the window.
         expect(factOf(c, "events")).toBe("1");
         expect(factOf(c, "hours")).toBe("6");

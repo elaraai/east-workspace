@@ -21,13 +21,14 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   DateTimeType, DictType, East, IntegerType, NullType, OptionType, PatchType, RecursiveType, SetType, SortedMap, SortedSet, StringType,
-  StructType, compareFor, encodeBeast2For, equalFor, none, parseFor, printFor, printType, some, variant, type EastType, type ValueTypeOf,
+  StructType, compareFor, encodeBeast2For, equalFor, none, printType, some, variant, type ValueTypeOf,
 } from '@elaraai/east';
 import { DELTA_CONFLICT, editTypeOf, entriesRowsName, patchOpsType } from '@elaraai/e3-types';
 import { record } from './record.js';
 import type { IndexBuilder, IndexDraft } from './record-builders.js';
 import { builtIndex, buildMutationProgram, indexBuildProgram, indexEntryKeyType, indexMaintenance } from './record-programs.js';
 import { package_ } from './package.js';
+import { assertEast, parsed } from './test-helpers.js';
 import type { RecordDef, RecordIndexDef } from './types.js';
 
 /** One service's parcels at a station: how many came through, and how many still wait. */
@@ -49,20 +50,6 @@ type Stations = ValueTypeOf<typeof StationsType>;
 const byName = compareFor(StringType);
 const byShiftKey = compareFor(ShiftType);
 const stationEqual = equalFor(StationType);
-
-/** A value written as East prints one, read by East's parser. */
-function parsed<T extends EastType>(type: T, text: string): ValueTypeOf<T> {
-  const read = parseFor(type)(text);
-  if (!read.success) throw new Error(`not a ${printType(type)}: ${read.error}`);
-  return read.value;
-}
-
-/** Asserts an East value equals the one expected, by its type, printing both as East does when it does not. */
-function assertEast<T extends EastType>(type: T, actual: unknown, expected: ValueTypeOf<T>, what: string): void {
-  if (equalFor(type)(actual as ValueTypeOf<T>, expected)) return;
-  const print = printFor(type);
-  assert.fail(`${what}:\n  got      ${print(actual as ValueTypeOf<T>)}\n  expected ${print(expected)}`);
-}
 
 /** A station's services: each name's parcels and waiting. */
 function services(entries: readonly (readonly [string, bigint, bigint])[]): Station['byService'] {

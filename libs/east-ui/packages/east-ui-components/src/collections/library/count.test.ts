@@ -7,16 +7,20 @@
  * counts — none while one it needs is read.
  */
 import { describe, expect, test } from "vitest";
-import { StringType, none, printFor, some, variant, type option } from "@elaraai/east";
+import { StringType, none, printFor, some, variant, type ValueTypeOf, type option } from "@elaraai/east";
+import type { RecordSliceChoiceType } from "@elaraai/east-ui/internal";
 import { formatters } from "../../format/index.js";
 import { narrowedCount, pagedCount, type PagedCountSource } from "./count.js";
 
+type Choice = ValueTypeOf<RecordSliceChoiceType>;
 const words = formatters("en-US");
-/** A record Slice's reads: its narrowing, and its exact counts. */
-function slice(where: ReadonlyMap<string, unknown>, count: option<bigint>, total: option<bigint>): PagedCountSource {
-    return { read: () => ({ where }), count: () => count, total: () => total };
+/** A record Slice's reads: its narrowing, and its exact counts; given its page's scope, a read carries it (#1621). */
+function slice(where: ReadonlyMap<string, Choice>, count: option<bigint>, total: option<bigint>, scope: ReadonlyMap<string, Choice> = new Map()): PagedCountSource {
+    return { config: { scope }, read: () => ({ where }), count: () => count, total: () => total };
 }
-const NARROWED = new Map([["status", variant("values", [printFor(StringType)("open")])]]);
+const NARROWED: ReadonlyMap<string, Choice> = new Map([["status", variant("values", [printFor(StringType)("open")])]]);
+/** A page for one press: its scope, which a read of it carries. */
+const SCOPE: ReadonlyMap<string, Choice> = new Map([["press", variant("values", [printFor(StringType)("P-1")])]]);
 
 describe("a tab's count over resident cards", () => {
     test("`10 of 33` while a narrowing is in force, else the count alone for the pane to format", () => {
@@ -34,6 +38,12 @@ describe("a paged tab's count over a record Slice (#1341)", () => {
     test("with no choice, the record's total alone, its narrowed count unread", () => {
         const source = slice(new Map(), none, some(2048n));
         expect(pagedCount(words, { ...source, count: () => { throw new Error("read the narrowed count"); } })).toBe(2048);
+    });
+
+    test("on a scoped page the scope is no choice (#1621): the rows the scope holds alone, its narrowed count unread; a choice beside it, `5 of 12`", () => {
+        const scoped = slice(SCOPE, none, some(12n), SCOPE);
+        expect(pagedCount(words, { ...scoped, count: () => { throw new Error("read the narrowed count"); } })).toBe(12);
+        expect(pagedCount(words, slice(new Map([...SCOPE, ...NARROWED]), some(5n), some(12n), SCOPE))).toBe("5 of 12");
     });
 
     test("none while a count it needs is read", () => {

@@ -2,17 +2,17 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  *
- * The canvas body as the virtualizer sees it: the items (rows, gap bands, the
- * unloaded runs of a paged source, failed windows), their exact heights and
- * identities, where a search or the diagnostics chip asks it to scroll, and
- * the viewport reported back to the paging driver.
+ * The canvas body as the virtualizer sees it: the items (rows, a links focus's
+ * bands, the unloaded runs of a paged source, failed windows), their exact
+ * heights and identities, where a search or the diagnostics chip asks it to
+ * scroll, and the viewport reported back to the paging driver.
  *
  * @packageDocumentation
  */
 
 import { useCallback, useMemo, useRef } from "react";
 import {
-    bodyItemKey, elideForFocus, firstDiagnosticItem, placeFailures, rowHeight,
+    bodyItemKey, firstDiagnosticItem, focusBodyItems, focusGathers, placeFailures, rowHeight,
     type PlanBodyItem, type PlanDerived, type PlanFocusCtx, type PlanRowIndex, type VisibleRow,
 } from "../model.js";
 import { planGeometry } from "../geometry.js";
@@ -42,14 +42,19 @@ export interface PlanBody {
  * ledger, so the rows that replace one occupy the same space and nothing below
  * it moves (#577). A block nested under a section's header draws nothing —
  * no rows, no bands — while that header is collapsed or hidden, as its rows
- * would not. Under a links focus each block's run of unrelated rows elides on
- * its own (R1): a gap never spans two blocks, inline or paged.
+ * would not.
+ *
+ * A links focus (#1680's review) gathers its family under its role bands, and
+ * folds every other row into one band after them ({@link focusBodyItems}):
+ * opened, it holds the body as it draws with no focus, less the rows gathered.
  *
  * @param visible - The visible rows
  * @param index - The row index
  * @param blocks - A paged canvas's blocks (`[]` inline — nothing unloaded)
  * @param origin - Which block and window each paged row came from
  * @param focusCtx - Which row is focused
+ * @param placed - Whether the canvas has placed a row it does not hold (a paged source's evicted window's)
+ * @param lanes - The rules a links focus opens for its lanes, and their tracks' heights ({@link focusBodyItems})
  * @returns The items
  */
 export function planBodyItems(
@@ -58,6 +63,20 @@ export function planBodyItems(
     blocks: readonly PlanPagedBlock[],
     origin: ReadonlyMap<string, PlanRowOrigin>,
     focusCtx: PlanFocusCtx | undefined,
+    placed?: (key: RowKey) => boolean,
+    lanes?: ReadonlyMap<number, number>,
+): PlanBodyItem[] {
+    const links = focusCtx?.kind === "links" ? focusCtx.links : undefined;
+    if (focusCtx === undefined || links === undefined) return laidOut(visible, blocks, origin);
+    const others = links.others ? laidOut(visible.filter((v) => !focusGathers(focusCtx, v.row.key)), blocks, origin) : [];
+    return focusBodyItems(index, focusCtx.key, links.family, { open: links.others, items: others }, placed, lanes);
+}
+
+/** The body's rows block after block, each paged block's between its bands and with its failed windows in its seams. */
+function laidOut(
+    visible: readonly VisibleRow[],
+    blocks: readonly PlanPagedBlock[],
+    origin: ReadonlyMap<string, PlanRowOrigin>,
 ): PlanBodyItem[] {
     // A block's rows are contiguous in the stream, so its visible rows are too.
     const perBlock = new Map<number, VisibleRow[]>();
@@ -66,11 +85,7 @@ export function planBodyItems(
         if (list !== undefined) list.push(v);
         else perBlock.set(v.row.block, [v]);
     }
-    // R1 at scale — the links-focus body elides runs of unrelated rows into
-    // gap bands (a lone straggler keeps its rail; see `elideForFocus`).
-    const itemsOf = (rows: readonly VisibleRow[]): PlanBodyItem[] => (focusCtx?.kind === "links"
-        ? elideForFocus(rows, index, focusCtx)
-        : rows.map((row) => ({ kind: "row", row })));
+    const itemsOf = (rows: readonly VisibleRow[]): PlanBodyItem[] => rows.map((row) => ({ kind: "row", row }));
     const out: PlanBodyItem[] = [];
     if (blocks.length === 0) {
         // Inline: the blocks one after another, nothing unloaded.
@@ -104,9 +119,13 @@ export function planBodyItems(
  * Walks the body in order with the depths of the parents still open. A row at
  * or above an open parent's depth ends that parent at the row before it —
  * when that row is one of its members (a parent with nothing visible under it
- * closes nothing). Anything but a row (an unloaded band, a failed window, a
- * links-focus gap) breaks the walk: a group whose members run into a band
- * has no end on the canvas yet. The last row closes every parent still open.
+ * closes nothing). An unloaded band or a failed window breaks the walk: a
+ * group whose members run into a band has no end on the canvas yet. A links
+ * focus's band (#1680's review) closes the band before it at its last row, and
+ * a role's band opens over the rows it gathers, one level in; the others'
+ * opens over nothing, its rows at their own levels. A lane band between two
+ * rows it gathers is room between them, and changes nothing. The last row
+ * closes every parent still open.
  *
  * @param items - The body items, in order
  * @returns The keys of the rows that end a group
@@ -122,6 +141,13 @@ export function groupEndsOf(items: readonly PlanBodyItem[]): ReadonlySet<RowKey>
         }
     };
     for (const item of items) {
+        if (item.kind === "focus") {
+            close(-1);
+            last = undefined;
+            if (item.band.role !== "others") open.push(0);
+            continue;
+        }
+        if (item.kind === "lanes") continue;
         if (item.kind !== "row") {
             open.length = 0;
             last = undefined;
@@ -147,6 +173,8 @@ export function groupEndsOf(items: readonly PlanBodyItem[]): ReadonlySet<RowKey>
  * @param heightCtx - The same, with the expand clamp
  * @param dense - The declared density
  * @param chartsExpanded - The user's expanded chart rows
+ * @param placed - Whether the canvas has placed a row it does not hold — read as the paging moves, which renews the items
+ * @param lanes - The rules a links focus opens for its lanes, and their tracks' heights ({@link focusBodyItems})
  * @returns The body
  */
 export function usePlanBody(
@@ -158,17 +186,24 @@ export function usePlanBody(
     heightCtx: PlanFocusCtx | undefined,
     dense: boolean,
     chartsExpanded: ReadonlySet<RowKey>,
+    placed?: (key: RowKey) => boolean,
+    lanes?: ReadonlyMap<number, number>,
 ): PlanBody {
     const { blocks, origin } = paging;
     const items = useMemo<readonly PlanBodyItem[]>(
-        () => planBodyItems(visible, index, blocks, origin, focusCtx),
-        [focusCtx, visible, index, blocks, origin]);
+        () => planBodyItems(visible, index, blocks, origin, focusCtx, placed, lanes),
+        [focusCtx, visible, index, blocks, origin, placed, lanes]);
     // The height SIGNATURE (#812): a row's kind, the density, a chart's toggle,
     // a focus and the expand clamp all reach it, so any of them changing a
     // height re-measures the frame — and a selection, which reaches none of
-    // its inputs, re-measures nothing.
+    // its inputs, re-measures nothing. A links focus's band is a group band's height, or, where its lane tracks need
+    // more, their height over its rule; a lane band is its tracks'.
     const heights = useMemo(() => items.map((item) => {
-        if (item.kind === "gap") return planGeometry(dense).gap;
+        if (item.kind === "focus") {
+            const g = planGeometry(dense);
+            return Math.max(g.group, item.band.lanes !== undefined ? item.band.lanes.px + g.rule : 0);
+        }
+        if (item.kind === "lanes") return item.lanes.px;
         if (item.kind === "band") return Math.max(1, item.band.px);
         if (item.kind === "failed") return item.failure.px;
         return rowHeight(item.row, dense, chartsExpanded, heightCtx, derived);
@@ -287,6 +322,6 @@ export function usePlanRangeReport(items: readonly PlanBodyItem[], controller: P
             // A failed window's band names its own block and window (#811).
             controller.reportViewport({ kind: "window", block: item.failure.block, w: item.failure.w, shows }, isScrolling);
         }
-        // A links-focus gap band names no window — the demand stays where it is.
+        // A links focus's band names no window — the demand stays where it is.
     }, [items, controller, origin]);
 }

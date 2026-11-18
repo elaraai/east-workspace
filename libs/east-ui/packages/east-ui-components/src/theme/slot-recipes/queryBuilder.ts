@@ -37,6 +37,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { centredLine } from "../one-line-box.js";
 
 /** A small dashed button: a shape line's Insert, an add in a row. */
 const dashed = {
@@ -89,13 +90,16 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
             flexDirection: "column",
             background: "bg.panel",
         },
-        /* The status line under the pane and the results: the frame's footer, over its own rule. */
+        /* The status line under the pane and the results: the frame's footer, over its own rule. Its words — the shape,
+         * the fields, the name — stand on one whole line of 19px, centred in the 31px under the rule (#1638): each took
+         * the body's 1.5 of its own face, 18px or 18.75px, and started at a fraction of a pixel under the rule. */
         status: {
             display: "flex",
             alignItems: "center",
             flexShrink: "0",
             gap: "{spacing.4}",
             minHeight: "32px",
+            lineHeight: centredLine(31, 19),
             paddingX: "{spacing.4}",
             borderTopWidth: "1px",
             borderTopColor: "border.subtle",
@@ -336,11 +340,14 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
             "&[data-open]": { borderColor: "brand.solid", boxShadow: "focus" },
             "&[data-mono]": { fontFamily: "mono", fontVariantNumeric: "tabular-nums" },
         },
+        /* Its words on the small Select's value line (#1638): a whole 16px in the 24px inside the trigger's edge, 4px under
+           it. The line the trigger hands down is 1.3 of its 12.5px face, 16.25px, centred at a fraction. */
         slotText: {
             minWidth: "0",
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
+            lineHeight: centredLine(24, 16),
         },
         /* The slot's caret: Font Awesome's caret-down (#1263), its own width,
          * as the glyph it replaced, not Font Awesome's fixed 1.25em. */

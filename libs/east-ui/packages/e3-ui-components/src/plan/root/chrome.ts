@@ -24,6 +24,8 @@ import type { PlanWords } from "../words.js";
 import type { PlanEntryRef } from "../use-plan-editing.js";
 import type { PlanDiagnostics } from "../shell/Diagnostics.js";
 import type { PlanTransport } from "../shell/transport.js";
+import type { PlanToolsChrome } from "../links/connect.js";
+import type { PlanLinksOver } from "../links/kinds.js";
 import type { ScheduleCellsRead } from "../../shared/schedule/cells.js";
 import type { PlanCanvasInspect } from "./inspect.js";
 import type { PlanEventPart, PlanSlicesChrome, PlanSourcePart } from "./sources.js";
@@ -118,11 +120,11 @@ export interface PlanChrome {
      * pitch, its footer live; `undefined` on an inline canvas, which has none.
      */
     cold: boolean | undefined;
-    /** After cold load, a read the view needs in flight — a window, a narrowing's rows, a resource kind's narrowing: main, the canvas, is busy. */
+    /** After cold load, a read the view needs in flight — a window, a narrowing's rows, their cells: main, the canvas, is busy. */
     busy: boolean;
     /** The rows' pitch, in px: the cold-load skeleton's rows draw at it. */
     pitch: number;
-    /** Key search over the source, when a paged source declares `seek` (#574), or over the record of the source the canvas pages: its `rows` source's, or a paged resource kind's (#1513). */
+    /** Key search over the source, when a paged source declares `seek` (#574), or over the record of the source the canvas pages: its `rows` source's (#1513). */
     search: KeySearchSource | undefined;
     /** What the canvas carried on past (#811). */
     diagnostics: PlanDiagnostics;
@@ -139,8 +141,7 @@ export interface PlanChrome {
     events: PlanEventEditing | undefined;
     /**
      * Whether the canvas takes a write now: no run of the app's optimiser out (#1409, R2), and nothing on it standing in,
-     * retained (#1398, CL8, CL10) — a resource kind's narrowing resolving, a new narrowing's first window or Home or
-     * End's window read. Every command that writes asks it beside its kind's own `available` — the frame's Delete, the
+     * retained (#1398, CL8, CL10) — a new narrowing's first window or Home or End's window read. Every command that writes asks it beside its kind's own `available` — the frame's Delete, the
      * inspector's edits — as the Sheet's `canEdit` does; its drags are refused by the run's lock and the retained region.
      */
     writable: boolean;
@@ -153,6 +154,10 @@ export interface PlanChrome {
      * their cells nor counts.
      */
     cells: ScheduleCellsRead | undefined;
+    /** The link kinds holding more links than are read (#1541, U10): none of such a kind's links is drawn, and the frame's notice says how many it holds. */
+    linksOver: readonly PlanLinksOver[];
+    /** The tools the viewer picks among (#1541, U10): Select and Connect, shown while a link kind is editable; `undefined` while none is. */
+    tools: PlanToolsChrome | undefined;
     /** Where one of the session's issues is: its entry's first row on the canvas, by name. */
     where: (issue: EditIssue) => string;
     /** The author's footer items, in order. */

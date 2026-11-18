@@ -14,8 +14,9 @@
  * chips) and event rows — sliced and planned as one surface.
  *
  * A canvas is DEFINED as `data` + `series`: a keyed source of entries, and a
- * list of `Plan.series.*` row recipes over them (`Plan.pick` makes the list
- * pickable). The list IS the layout — each series contributes its rows in
+ * list of `Plan.series.*` row recipes over them (pickable where the library
+ * lists `Plan.library.series()`, `hidden` naming the ones off to start). The
+ * list IS the layout — each series contributes its rows in
  * declared order, as blocks (#823: a data series one block of its entries'
  * rows, a section its header and then its members') — and the rows are an
  * ordered STREAM (`Array<PlanRow>`, #822), each parent followed by its subtree. The kind
@@ -40,7 +41,8 @@
  * envelope, the row streams and their re-basing) · `factories.ts` (the kind
  * factories, the per-kind constructors and chart-layer consumption) ·
  * `series.ts` (`Plan.series.*`, `Plan.children` and their application to
- * `data`) · `pick.ts` (`Plan.pick` / `Plan.pickItems`) · `root.ts` (the
+ * `data`) · `pick.ts` (which series show: `hidden`, the Series tab's pick,
+ * `Plan.pickItems`) · `root.ts` (the
  * canvas's root, the internal namespace's `Plan.Root`) · `plan.ts` (`<Plan>`
  * itself, its payload and its `Plan` carrier, #1191) with `over.ts`
  * (`Plan.over`, read-only rows over a dataset), `refs.ts` (`Plan.eventRef`,
@@ -109,6 +111,7 @@ import {
     PlanBlocksType,
     PlanFoldType,
     PlanQuantityType,
+    PlanStatusType,
     PlanHeatScaleType,
     PlanGroupSummaryType,
     PlanUiStateType,
@@ -124,10 +127,13 @@ import {
     PlanEditingType,
 } from "./types.js";
 import { PlanRootType } from "./ir.js";
+import { PlanCandidateType, PlanCanConnectType, PlanCanDropType, PlanConnectCandidateType, PlanItemRefType } from "./candidate.js";
+import { planLinks } from "./link-kinds.js";
 import {
     createAxis,
     at,
     createQuantity,
+    createStatus,
     createUiState,
     createRun,
     createDecision,
@@ -179,16 +185,20 @@ import {
     createSeriesSection,
     createSeriesViews,
     createSeriesRows,
+    createSeriesResources,
+    createSeriesKinds,
     createChildren,
+    createChildrenOf,
 } from "./series.js";
 import { createPlanRoot } from "./root.js";
 import { createItems, createValues } from "./reads.js";
-import { createPlanPick, createPlanPickItems } from "./pick.js";
+import { createPlanPickItems } from "./pick.js";
 import { PlanComponent, PlanTag, createPlanPayload, type PlanTagType } from "./plan.js";
 import { createOver } from "./over.js";
 import { createEventRef } from "./refs.js";
 import { libraryBacklog, libraryEvents, librarySeries, libraryTab } from "./library.js";
-import { ScheduleOptimiseRequestTypeFor, ScheduleOptimiseResultTypeFor } from "../schedule/optimise.js";
+import { ScheduleOptimiseRequestType, ScheduleOptimiseResultTypeFor } from "../schedule/optimise.js";
+import { OptimisePeriodType } from "../utils/optimise.js";
 
 // Re-export the UIComp-free types so consumers reach everything via this barrel.
 export {
@@ -293,6 +303,7 @@ export {
     PlanFoldType,
     type PlanFoldLiteral,
     PlanQuantityType,
+    PlanStatusType,
     PlanHeatScaleType,
     PlanGroupSummaryType,
     PlanUiStateType,
@@ -319,22 +330,31 @@ export {
     PlanComponent,
     PlanPayloadType,
     PlanSettingsType,
-    PlanEventBlocksType,
-    PlanEventCanDropType,
+    PlanEventSeamType,
+    PlanLandingType,
     createPlanPayload,
     planKeys,
     type PlanTagType,
     type PlanProps,
     type PlanRowsItem,
+    type PlanLinkList,
+    type PlanLinksProp,
 } from "./plan.js";
+export { PlanCandidateType, PlanCanConnectType, PlanCanDropType, PlanConnectCandidateType, PlanItemRefType };
+export {
+    PlanLinkEndsType, PlanLinkEntryType, PlanLinkKindType, PlanLinkRolesType, isPlanLinks, planLinks,
+    type PlanLinkEnd, type PlanLinkQuantity, type PlanLinks, type PlanLinksConfig, type PlanLinksRecord,
+} from "./link-kinds.js";
 export { createOver, type PlanOverRows } from "./over.js";
 export { createEventRef, eventRefKind } from "./refs.js";
 export {
+    PlanAuthorTabType,
     PlanLibraryCardType,
     PlanLibraryHidesType,
     PlanLibraryRowsItemType,
     PlanLibrarySeriesType,
     PlanLibraryTabType,
+    PlanTabCreateType,
     libraryBacklog,
     libraryEvents,
     librarySeries,
@@ -342,6 +362,7 @@ export {
     planHideId,
     type PlanLibraryTab,
     type PlanLibraryTabConfig,
+    type PlanTabCreateConfig,
 } from "./library.js";
 export {
     resolvePlanEventState,
@@ -351,6 +372,7 @@ export {
     type PlanIconInput,
     type PlanFoldInput,
     type PlanQuantityOptions,
+    type PlanStatusOptions,
     type PlanHeatScaleInput,
     type PlanCellsFoldOptions,
     type PlanUiStateInput,
@@ -404,7 +426,7 @@ export {
     type PlanTableParts,
 } from "./factories.js";
 export { type PlanEditingConfig, type PlanBindHandle, type PlanConfig, type PlanCanvasOptions, createPlanRoot, buildPlanRoot } from "./root.js";
-export { type PlanPickOptions, createPlanPick, createPlanPickItems } from "./pick.js";
+export { type PlanShown, createPlanPickItems, planShown } from "./pick.js";
 export {
     PlanSeriesType,
     type PlanSeriesArm,
@@ -428,6 +450,14 @@ export {
     type PlanGroupSeriesConfig,
     type PlanSectionSeriesConfig,
     type PlanViewsSeriesConfig,
+    type PlanResourcesSeriesConfig,
+    type PlanLanding,
+    type PlanKindsCase,
+    type PlanKindsCaseOptions,
+    type PlanKindsCases,
+    type PlanCaseAccessor,
+    type PlanVariantField,
+    type PlanVariantCases,
     type PlanEntryFields,
     type PlanItemFields,
     type PlanItemInstantType,
@@ -495,6 +525,9 @@ export interface PlanNamespace extends PlanTagType {
     /** Builds a quantity — a number with its unit and format (#824) — for a
      *  run's or a link's `quantity`. */
     quantity: typeof createQuantity;
+    /** Builds an item's status (#1541) — its words, its tone and whether it draws as an open ring — for the
+     *  `status` of a run, a tile, a chip or a mark: `Plan.status("Over dwell", "warning")`. */
+    status: typeof createStatus;
     /** Builds a bound `ui` state's seed (#824) — `State.bind([Plan.Types.UiState], key, Plan.uiState())`. */
     uiState: typeof createUiState;
     /** Span-row stream builder (`series.rows` chrome + nested `rows:` input). */
@@ -539,9 +572,19 @@ export interface PlanNamespace extends PlanTagType {
         views: typeof createSeriesViews;
         /** Hand-built rows, named by the series and placed as its block. */
         rows: typeof createSeriesRows;
+        /** The rows the event kinds land on (#1541): one per resource, its series beneath it. */
+        resources: typeof createSeriesResources;
+        /** Each case of a variant field of the rows a resources series, in one block (#1541). */
+        kinds: typeof createSeriesKinds;
     };
-    /** A step down from an entry to its child rows — a `Dict` field of it, keyed by an id — for a series' `children` (#822, #1436). */
-    children: typeof createChildren;
+    /**
+     * A step down from an entry to its child rows — a `Dict` field of it, keyed by an id — for a series' `children` (#822, #1436);
+     * `Plan.children.of(fn, [series…])` steps down to child rows from a list, read only (#1541, U12).
+     */
+    children: typeof createChildren & {
+        /** Child rows from a list (#1541, U12): the collection the function returns from the row and its key, read only. */
+        of: typeof createChildrenOf;
+    };
     /** Read a row's collection of things people drag — a `Dict` keyed by an id, their times the fields named — as a series' runs, decisions, tiles, chips or marks (#1436). */
     items: typeof createItems;
     /** Read a row's collection of values — a `Dict` keyed by their instants — as cells, a table position's cells, a chart layer's points, ports or markers (#1436). */
@@ -583,6 +626,11 @@ export interface PlanNamespace extends PlanTagType {
     mark: typeof createEventMark;
     /** Builds one link edge of the canvas's link graph (`<Plan links>`). */
     link: typeof createLink;
+    /**
+     * Declares a kind of link over the app's record, each row a link between two events (#1541, U10) —
+     * `links={{ feed: Plan.links(record, { name, icon, from: { field, of }, to: { field, of }, quantity? }) }}`.
+     */
+    links: typeof planLinks;
     /** Non-null mark-kind builders (`Plan.markKind.decision(applied)`). */
     markKind: typeof markKind;
     /** Wraps heat cells into the `heat` arm (scale + warn threshold). */
@@ -611,11 +659,8 @@ export interface PlanNamespace extends PlanTagType {
     band: typeof createBand;
     /** Pins a chart row to an explicit pixel height. */
     fixed: typeof createFixedHeight;
-    /** Binds the canvas's row series to a persisted pick (#590) — pass it as
-     *  `<Plan pick>` and the canvas shows the picked series and mounts the
-     *  library, which lists sections and kinds. */
-    pick: typeof createPlanPick;
-    /** The library entries for the canvas's series — no state binding. */
+    /** What the library's Series tab lists of a series list (#590, #1541): every series of its tree, a `views` as its
+     *  members and a `kinds` as its cases — no state binding. */
     pickItems: typeof createPlanPickItems;
     /** The Plan East types. */
     Types: {
@@ -716,6 +761,12 @@ export interface PlanNamespace extends PlanTagType {
         Expand: typeof PlanExpandType;
         /** The expand render's axis treatment (keep / dim / off). */
         ExpandAxis: typeof PlanExpandAxisType;
+        /** What a drop would do — what a Plan's `canDrop` is asked, whichever way the drop is made (#1541, U7). */
+        Candidate: typeof PlanCandidateType;
+        /** The link a Connect would draw — what a Plan's `canConnect` is asked: its link kind and its two events (#1541, U10). */
+        ConnectCandidate: typeof PlanConnectCandidateType;
+        /** A data series' item, as a candidate names one: its row's id's text, and its key there. */
+        ItemRef: typeof PlanItemRefType;
         /** A gesture a draft is made by — a card dropped on a row (#880), or an element moved or resized (#825). */
         Gesture: typeof PlanGestureType;
         /** A library card dropped on a row — what an editable series' `create` builds its item from (#880). */
@@ -730,13 +781,15 @@ export interface PlanNamespace extends PlanTagType {
         RowEdits: typeof PlanRowEditsType;
         /** How a row's elements move — its item type, and whether they resize (#825). */
         MoveEdits: typeof PlanMoveEditsType;
-        /** `PatchEvent(R)` — what `editing.onPatch` receives for entries of `R` (#880). */
+        /** `PatchEvent(R)` — what `onPatch` receives for entries of `R` (#880). */
         PatchEvent: typeof PlanPatchEventTypeFor;
         /** The root's editing declaration on the wire — the shared session's fields and the canvas's own (#880). */
         Editing: typeof PlanEditingType;
-        /** `OptimiseRequest(E, S)` — what the app's optimiser is asked (#1409): the plan window, the run, every event kind's rows and the resource kinds' by slot. */
-        OptimiseRequest: typeof ScheduleOptimiseRequestTypeFor;
-        /** `OptimiseResult(E)` — what it answers (#1409): the events, complete. */
+        /** What the app's optimiser is asked (#1409, #1622): the plan window and the unit its axis is zoomed to, the run and the rail's narrowing, and no row. */
+        OptimiseRequest: typeof ScheduleOptimiseRequestType;
+        /** A request's `period` (#1622): the unit the axis is zoomed to — `day`, `week`, `month`, `quarter` or `year` — the window spanning several of them. */
+        OptimisePeriod: typeof OptimisePeriodType;
+        /** `OptimiseResult(E)` — what it answers (#1409, #1622): a patch of each event kind's record by slot, `E` their record types. */
         OptimiseResult: typeof ScheduleOptimiseResultTypeFor;
         /** The series type CONSTRUCTOR — `Plan.Types.Series(RowType)` gives the
          *  concrete variant type of one series over `Dict<String, RowType>`
@@ -750,6 +803,8 @@ export interface PlanNamespace extends PlanTagType {
         Fold: typeof PlanFoldType;
         /** A quantity — a number, its unit and format (#824). */
         Quantity: typeof PlanQuantityType;
+        /** An item's status — its words, its tone and whether it draws as an open ring (#1541): what `Plan.status` builds. */
+        Status: typeof PlanStatusType;
         /** A heat scale — min, max and the warn threshold. */
         HeatScale: typeof PlanHeatScaleType;
         /** What a collapsed group strip shows (#824). */
@@ -772,6 +827,7 @@ const PLAN_MEMBERS = {
     axis: createAxis,
     at,
     quantity: createQuantity,
+    status: createStatus,
     uiState: createUiState,
     span: createSpan,
     buckets: createBuckets,
@@ -793,8 +849,10 @@ const PLAN_MEMBERS = {
         section: createSeriesSection,
         views: createSeriesViews,
         rows: createSeriesRows,
+        resources: createSeriesResources,
+        kinds: createSeriesKinds,
     },
-    children: createChildren,
+    children: Object.assign(createChildren, { of: createChildrenOf }),
     items: createItems,
     values: createValues,
     ref: createRef,
@@ -816,6 +874,7 @@ const PLAN_MEMBERS = {
     chip: createChip,
     mark: createEventMark,
     link: createLink,
+    links: planLinks,
     markKind,
     heatCells: createHeatCells,
     weightCells: createWeightCells,
@@ -830,7 +889,6 @@ const PLAN_MEMBERS = {
     scatter: createScatter,
     band: createBand,
     fixed: createFixedHeight,
-    pick: createPlanPick,
     pickItems: createPlanPickItems,
     Types: {
         Root: PlanRootType,
@@ -881,6 +939,9 @@ const PLAN_MEMBERS = {
         Link: PlanLinkType,
         Expand: PlanExpandType,
         ExpandAxis: PlanExpandAxisType,
+        Candidate: PlanCandidateType,
+        ConnectCandidate: PlanConnectCandidateType,
+        ItemRef: PlanItemRefType,
         Gesture: PlanGestureType,
         Drop: PlanDropType,
         Move: PlanMoveType,
@@ -890,13 +951,15 @@ const PLAN_MEMBERS = {
         MoveEdits: PlanMoveEditsType,
         PatchEvent: PlanPatchEventTypeFor,
         Editing: PlanEditingType,
-        OptimiseRequest: ScheduleOptimiseRequestTypeFor,
+        OptimiseRequest: ScheduleOptimiseRequestType,
+        OptimisePeriod: OptimisePeriodType,
         OptimiseResult: ScheduleOptimiseResultTypeFor,
         Series: PlanSeriesType,
         RunRef: PlanRunRefType,
         ElementRef: PlanElementRefType,
         Fold: PlanFoldType,
         Quantity: PlanQuantityType,
+        Status: PlanStatusType,
         HeatScale: PlanHeatScaleType,
         GroupSummary: PlanGroupSummaryType,
         UiState: PlanUiStateType,
@@ -922,13 +985,16 @@ const PLAN_MEMBERS = {
  *
  * - **The rows** come from event kinds over records (`resources` and
  *   `events`, `Schedule`'s, which a Calendar takes too), from `data` laid out
- *   by `series` and edited through `editing`, and from `rows` (hand-built rows
- *   and `Plan.over(data, [series…])`), read only — in that order down the
- *   canvas, pinned rows of any source under the ruler.
+ *   by `series` — edited where the Plan is given the `record` they are read
+ *   from, its one save door — and from `rows` (hand-built rows and
+ *   `Plan.over(data, [series…])`), read only — in that order down the canvas,
+ *   pinned rows of any source under the ruler.
  * - **`data` and `series`**: a keyed collection of raw entries, or a paged
  *   source of one, and one `Plan.series.*` value per row series, whose
- *   accessors derive each canvas row from the raw fields (`Plan.pick` makes
- *   the list one the user picks from). The list IS the layout — one block per
+ *   accessors derive each canvas row from the raw fields. `hidden` names the
+ *   series off to start, and where `library` lists `Plan.library.series()`
+ *   the viewer picks from the list in the Series tab, kept under the Plan's
+ *   `id`. The list IS the layout — one block per
  *   series, top to bottom — and hierarchy comes only from the data's own
  *   nesting (#822): a series' `children` walk what an entry holds, to any
  *   depth (`Plan.children` steps down to another entry type), and a flat
@@ -1103,6 +1169,7 @@ const PLAN_MEMBERS = {
  *     due: OptionType(DateTimeType),
  * });
  * export const PrintCustomer = StructType({ name: StringType, district: StringType, trade: StringType });
+ * export const PrintOrder = StructType({ title: StringType, customer: StringType, sheets: FloatType });
  * export const planPrintPresses = e3.record("plan_print_presses", DictType(StringType, PrintPress), {
  *     initial: new Map([
  *         ["a1", { name: "Press A1", hall: "Hall A", sheets_per_hour: 12000.0 }],
@@ -1147,6 +1214,17 @@ const PLAN_MEMBERS = {
  *         patch: mutation.patch(),
  *     }),
  * });
+ * export const planEventOrders = e3.record("plan_event_orders", DictType(StringType, PrintOrder), {
+ *     initial: new Map([
+ *         ["O-501", { title: "Market flyers", customer: "Orchard Street Market", sheets: 16000.0 }],
+ *         ["O-502", { title: "Season programme", customer: "Heathfield Theatre", sheets: 48000.0 }],
+ *         ["O-503", { title: "Trail maps", customer: "Kestrel Cycling Club", sheets: 24000.0 }],
+ *     ]),
+ *     mutations: (mutation) => ({
+ *         // The orders' patch door: the works takes its orders elsewhere, and a Plan reads them live.
+ *         patch: mutation.patch(),
+ *     }),
+ * });
  * export const planEventJobs = e3.record("plan_event_jobs", DictType(StringType, PrintJob), {
  *     initial: new Map([
  *         ["J-3001", { title: "Spring catalogue", start: some(new Date("2026-10-06T06:00:00Z")), end: some(new Date("2026-10-06T14:00:00Z")), press: some("a1"), state: variant("actual", null), sheets: 96000.0, customer: "Alder & Finch", stock: variant("coated", null), due: some(new Date("2026-10-08T00:00:00Z")) }],
@@ -1162,6 +1240,10 @@ const PLAN_MEMBERS = {
  *         ["J-3011", { title: "Wall calendars", start: none, end: none, press: none, state: variant("estimated", null), sheets: 50000.0, customer: "Foxglove Gardens", stock: variant("coated", null), due: some(new Date("2026-10-23T00:00:00Z")) }],
  *         ["J-3012", { title: "Spare covers", start: none, end: none, press: none, state: variant("estimated", null), sheets: 8000.0, customer: "Meridian Monthly", stock: variant("board", null), due: none }],
  *     ]),
+ *     indexes: (index) => ({
+ *         // The jobs over their interval index: what the print works' optimiser reads the window's jobs and the backlog through (#1622).
+ *         plan_event_jobs_by_time: index.interval({ from: "start", to: "end" }),
+ *     }),
  *     mutations: (mutation) => ({
  *         // The smallest builder's jobs' patch door: its Save commits through it.
  *         patch: mutation.patch(),
@@ -1173,6 +1255,7 @@ const PLAN_MEMBERS = {
  *         const presses = $.let(Record.bind(planPrintPresses, []));
  *         const jobs = $.let(Record.bind(planEventJobs));
  *         const customers = $.let(Record.bind(planPrintCustomers, []));
+ *         const orders = $.let(Record.bind(planEventOrders, []));
  *         const axis = $.let(Plan.axis({
  *             window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") },
  *             resolution: "day", now: new Date("2026-10-14T09:00:00Z"),
@@ -1181,9 +1264,9 @@ const PLAN_MEMBERS = {
  *             <Plan
  *                 id="jobs"
  *                 axis={axis}
- *                 resources={{
- *                     presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: p => p.name }),
- *                 }}
+ *                 // The presses are its rows: each a landing row its jobs land on, by `press`.
+ *                 data={presses.read()}
+ *                 series={[Plan.series.resources(PrintPress, { key: "presses", title: "Presses", icon: "print", label: p => p.name })]}
  *                 events={{
  *                     job: Schedule.events(jobs, {
  *                         name: "Print job", icon: "file-lines",
@@ -1201,6 +1284,20 @@ const PLAN_MEMBERS = {
  *                 }}
  *                 library={[
  *                     Plan.library.backlog(),
+ *                     // The orders to plan, by customer: a card dropped on a press makes a job there, as a
+ *                     // template would, running as long as its sheets take at 8,000 an hour.
+ *                     Plan.library.tab(orders.read(), {
+ *                         name: "Orders", icon: "inbox",
+ *                         label: o => o.title, group: o => o.customer,
+ *                         create: {
+ *                             kind: "job",
+ *                             duration: o => variant("hours", o.sheets.divide(8000.0)),
+ *                             values: o => ({
+ *                                 title: o.title, customer: o.customer, sheets: o.sheets,
+ *                                 state: variant("proposed", variant("added", null)), stock: variant("coated", null), due: none,
+ *                             }),
+ *                         },
+ *                     }),
  *                     // The customers, by district: a card dropped on a job sets its customer.
  *                     Plan.library.tab(customers.read(), {
  *                         name: "Customers", icon: "building",

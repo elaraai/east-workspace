@@ -112,7 +112,10 @@ it('elects one hub across processes and recovers its lock after an ungraceful ex
     cleanup.push(async () => {
       if (child.exitCode === null && child.signalCode === null) { const exit = once(child, 'exit'); child.kill('SIGKILL'); await exit; }
     });
-    const [bytes] = await once(child.stdout, 'data', { signal: AbortSignal.timeout(10_000) });
+    // A contender's line, within a minute. It is a process started cold, loading the lock and what the lock loads: on a
+    // loaded Windows runner one took 6.8 s to say its line (6,000 contenders measured, none failing or stalling), and
+    // ten seconds was once too few.
+    const [bytes] = await once(child.stdout, 'data', { signal: AbortSignal.timeout(60_000) });
     return { child, held: String(bytes).trim() === 'held' };
   };
   const contenders = await Promise.all([launch(), launch(), launch()]);

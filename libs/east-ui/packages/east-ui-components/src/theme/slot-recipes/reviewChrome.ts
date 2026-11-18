@@ -21,6 +21,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { centredLine } from "../one-line-box.js";
 
 export const reviewChromeSlotRecipe = defineSlotRecipe({
     className: "elara-review-chrome",
@@ -29,7 +30,10 @@ export const reviewChromeSlotRecipe = defineSlotRecipe({
         // Review decision-column header — mirrors the column-header type rhythm
         // but right-anchored, with a left rule fencing the column off from the
         // grid (the way a frozen pane is fenced). Width comes from the layout
-        // the renderer builds, not from this slot.
+        // the renderer builds, not from this slot. On a phone it stands the
+        // header's 32px over its 1px rule, its word on a whole line of 19px
+        // centred in the 31px over the rule (#1638), as a column's label is
+        // (`phoneHeaderSort`): the header's own 20px line left half a pixel.
         decisionHeader: {
             fontFamily: "mono",
             fontSize: "11px",
@@ -48,7 +52,7 @@ export const reviewChromeSlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap",
             overflow: "hidden",
             minWidth: 0,
-            "[data-table-phone] &": { paddingY: "0", paddingX: "8px", fontSize: "10px", letterSpacing: "0.14em" },
+            "[data-table-phone] &": { paddingY: "0", paddingX: "8px", fontSize: "10px", letterSpacing: "0.14em", lineHeight: centredLine(31, 19) },
         },
         // Per-row decision cell — the Approve/Reject pair, right-aligned and
         // fenced by the same left rule. Vertical rhythm comes from the row's

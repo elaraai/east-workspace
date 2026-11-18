@@ -77,7 +77,7 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
-import { SortedMap, StringType, compareFor, equalFor, fromEastTypeValue, none, some, type EastType } from "@elaraai/east";
+import { DateTimeType, SortedMap, StringType, compareFor, equalFor, fromEastTypeValue, none, some, type EastType } from "@elaraai/east";
 import { CalendarComponent } from "@elaraai/e3-ui/internal";
 import type { RecordTile } from "@elaraai/east-ui/internal";
 import {
@@ -86,8 +86,13 @@ import {
 } from "@elaraai/east-ui-components";
 import { LoadingReveal, PAGED_LIBRARY_PAGE } from "@elaraai/east-ui-components/internal";
 import { isBounded, rowBreaches } from "../shared/bounds.js";
+import { PLAIN_FUNC_BINDING } from "../shared/func/use-func-call.js";
 import { useOptimise } from "../shared/func/use-optimise.js";
+import { optimiseLandedCounts } from "../shared/func/optimise-diff.js";
+import { NO_OPTIMISE_ROWS } from "../shared/func/optimise-rows.js";
 import { useOptimiseParts } from "../shared/func/optimise-parts.js";
+import { scheduleOptimiseSessions } from "../shared/func/optimise-sessions.js";
+import { optimiseSlice } from "../shared/func/optimise-slice.js";
 import { pagedLoadingLine, pagedLoadingMessages, periodLoading, periodLoadingLine, periodRead, retryPeriod, type PagedLoading } from "../shared/loading.js";
 import type { ScheduleCellNotice, ScheduleCellResources } from "../shared/schedule/cells.js";
 import { scheduleIssueName, useScheduleEditing, type ScheduleEditing, type ScheduleEventDraftsValue, type ScheduleHeldRows, type ScheduleRowRead } from "../shared/schedule/editing.js";
@@ -96,7 +101,7 @@ import { FollowSources, type FollowedSources } from "../shared/schedule/follow-s
 import { HideSources, useHiddenPick, type HiddenPicks, type HiddenSource } from "../shared/schedule/hidden-pick.js";
 import { scheduleOverlaps } from "../shared/schedule/overlaps.js";
 import { refusalText, scheduleRefusals } from "../shared/schedule/refusals.js";
-import { lowerWord } from "../shared/schedule/words.js";
+import { kindSingular, lowerWord } from "../shared/schedule/words.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
 import { useNow } from "../shared/time/now-line.js";
 import { calendarCommands } from "./actions.js";
@@ -223,9 +228,11 @@ function clearOfPanes(element: HTMLElement, shown: Pick<DOMRectReadOnly, "left" 
     view.scrollLeft += box.width >= right - left ? box.left - left : (box.left + box.right - left - right) / 2;
 }
 
-/** Whether two ranges are one window: the same bounds. */
+const sameDate = equalFor(DateTimeType);
+
+/** Whether two ranges are one window: the same bounds, by East's own equality (#1650). */
 function sameRange(a: CalendarRange, b: CalendarRange): boolean {
-    return a.from.getTime() === b.from.getTime() && a.to.getTime() === b.to.getTime();
+    return sameDate(a.from, b.from) && sameDate(a.to, b.to);
 }
 
 /** No drafts: a read-only Calendar's. */
@@ -533,35 +540,45 @@ function CalendarFrame(props: HostProps) {
     // another session's write — leaves it live: a gesture begins from the row its event was drawn from, and a Save never
     // stops the editing.
     const available = current && !data.filtering && data.error === undefined && data.apart.error === undefined && !resourcesBusy && pages?.stale !== true;
-    // The app's optimiser (#1409, #1417): one run over the window in view, its result landed on the events as one
-    // edit, and what it left on them until Apply — the landing and the highlight over the whole frame.
+    // The app's optimiser (#1409, #1417, east-workspace#1622): one run over the window in view — asked the window, its
+    // period and the rail's narrowing, the kinds' unsaved edits sent as drafts — its answer's patches landed on the events
+    // as one edit, and what it left on them until Apply — the landing and the highlight over the whole frame.
     const landing = useLanding(root);
     const landingStyles = useLandingStyles();
     const optimiseTypes = useMemo(() => calendarOptimiseTypes(value), [value]);
     const [optimised, setOptimised] = useState<CalendarOptimised | undefined>(undefined);
     const landAfter = useRef<(run: number) => void>(() => undefined);
-    const latest = useRef({ items, backlog, editing, optimised });
-    latest.current = { items, backlog, editing, optimised };
+    const latest = useRef({ editing, optimised, periodName });
+    latest.current = { editing, optimised, periodName };
+    // Each kind's session, by the record it edits: what the run takes its drafts from, and waits on before its answer lands.
+    const optimiseSessions = useMemo(() => {
+        const records = new Map(value.events.map(kind => [kind.key, kind.editing.sourceId] as const));
+        return scheduleOptimiseSessions(() => latest.current.editing, kind => records.get(kind), words);
+    }, [value.events, words]);
     const run = useOptimise<CalendarOptimiseRequest, CalendarOptimiseResult>({
         name: value.optimise.type === "some" ? value.optimise.value.name : null,
+        binding: value.optimise.type === "some" ? value.optimise.value : PLAIN_FUNC_BINDING,
+        sessions: optimiseSessions, settleKey: editing?.version ?? 0,
+        // The events an answer touches that the page does not hold, read by their keys before it lands (rule 8).
+        rowsByKey: editing?.rowsByKey ?? NO_OPTIMISE_ROWS,
         requestType: optimiseTypes.request, resultType: optimiseTypes.result,
         scope: `${range.from.getTime()}:${range.to.getTime()}`, storageKey,
-        onLanded: (result, request, n) => {
+        onLanded: (result, request, n, read) => {
             const now = latest.current;
             if (now.editing === undefined) return undefined;
             const runText = format.number(n);
-            const landed = landCalendarOptimise(value, now.editing, request, result, optimiseMessages.step({ run: runText }), now.items, now.backlog, runText, now.optimised);
-            if (landed === undefined) return undefined;
-            // A run that changed nothing leaves what earlier runs left (R10).
-            if (landed.optimised !== undefined) { setOptimised(landed.optimised); landAfter.current(n); }
-            return landed.counts;
+            const live = now.editing;
+            const landed = landCalendarOptimise(value, optimiseTypes, live, (kind, id) => live.row(kind, id) ?? read(kind, id), request, result,
+                optimiseMessages.step({ run: runText }), now.periodName, runText, now.optimised);
+            // Events the page does not hold are read by their keys, and the answer lands once they are (rule 8).
+            return optimiseLandedCounts(landed, (left) => { setOptimised(left); landAfter.current(n); });
         },
     });
-    // The eye is listed only where the window can be optimised (ruled 25 Oct 2026): never read only; while its reads
-    // are in flight it waits, disabled, in its place.
+    // The eye is listed only where the window can be optimised (ruled 25 Oct 2026): never read only. It waits on nothing
+    // the page reads (rule 6): the function reads the events itself, and its answer lands on what the page holds then.
     const parts = useOptimiseParts<CalendarOptimiseRequest>({
-        run, landing, period: periodName, readOnly: value.settings.readOnly || editing === undefined, busy: !available || reading,
-        request: n => calendarOptimiseRequest(value, editing!, range, latest.current.items, latest.current.backlog, n), landKey: data.items,
+        run, landing, period: periodName, readOnly: value.settings.readOnly || editing === undefined,
+        request: n => calendarOptimiseRequest(range, view, optimiseSlice(dates.chrome), n), landKey: data.items,
     });
     landAfter.current = parts.landAfter;
     const locked = parts.locked;
@@ -609,8 +626,7 @@ function CalendarFrame(props: HostProps) {
     }, [editing, acted]);
     const displayRange = narrow ? (dates.windowParts.length > 0 ? range : calendarRange(view, value.settings)) : range;
     const standardRange = calendarRange(view, value.settings);
-    const rangeLabel = displayRange.from.getTime() !== standardRange.from.getTime() || displayRange.to.getTime() !== standardRange.to.getTime()
-        ? format.range(displayRange.from, new Date(displayRange.to.getTime() - 1)) : undefined;
+    const rangeLabel = !sameRange(displayRange, standardRange) ? format.range(displayRange.from, new Date(displayRange.to.getTime() - 1)) : undefined;
     const navigationDate = view.date;
     // A step of the period, as Previous and Next take it (#1398): what `[` and `]` do from anywhere in the frame, as the
     // Roster's and the Allocation's do.
@@ -660,8 +676,11 @@ function CalendarFrame(props: HostProps) {
         const keys = followed.get(kind.key)?.shown.keys;
         return keys === undefined ? [] : [[kind.key, keys] as const];
     })), [value.resources, followed]);
+    // One of each resource kind, as a line writes it — the kind's heading read back in the singular, `its press`: what an
+    // event stands on where the kind's source's page does not hold it.
+    const resourceWords = useMemo(() => new Map(value.resources.map(kind => [kind.key, kindSingular(lowerWord(kind.name))] as const)), [value.resources]);
     const finder = useCalendarFind({ kinds: value.events, parts: dates.eventParts, editing, range, format: words, onPick: found, held: cellRows, picks,
-        resourcesShown, laysResources });
+        resourcesShown, laysResources, resourceWords });
     const search = useMemo(() => (finder === undefined ? undefined : hiddenPick.search(finder)), [finder, hiddenPick]);
     // The field an issue or a warning gone to names, asked of its event's form: it takes the keyboard as the form draws it,
     // and so comes into view (`../shared/schedule/field-ask.tsx`).

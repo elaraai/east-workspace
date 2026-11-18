@@ -16,6 +16,16 @@
 
 import type { SystemStyleObject } from "@chakra-ui/react";
 
+/**
+ * A selected link in the ink, its heads with it: what a host adds whose selected link shows by more than its caption's
+ * outline — the Allocation's at rest (A68), and a Plan's link kinds' (#1541), where a link with no quantity has no
+ * caption to outline.
+ */
+export const linkSelectedInk = {
+    "& [data-plan-link][data-selected] [data-plan-ribbon-band]": { stroke: "fg" },
+    "& [data-plan-link][data-selected] [data-plan-ribbon-head]": { fill: "fg" },
+} satisfies SystemStyleObject;
+
 /** The links' look, inside the box the layer fills. */
 export const linkRibbons = {
     "& svg": { display: "block", overflow: "visible" },

@@ -47,7 +47,8 @@
  *   of view enters down (or up) the destination's riser. Both out of view, on
  *   opposite sides, is one vertical band across the view with a stub at each
  *   end. Both out of view on the SAME side draws nothing — the caller never
- *   routes it.
+ *   routes it. A stub is a whole head whatever the room: an end nearer the
+ *   view's edge than a head has its stub stand back over the run's end.
  *
  * Direction changes turn at a small FIXED corner radius (8, clamped to half
  * the drop); straight segments carry the remaining distance —
@@ -60,6 +61,19 @@
  * Its caption sits on the riser at mid-height (an S, an out-of-view stub, the
  * band across the view), on the lane (a loopback), or 6 above the source bar
  * (one row).
+ *
+ * Three refinements a host gives where it knows more (#1680's review, ruled
+ * 17 Nov 2026):
+ *
+ * - **Ports.** An end meets its element at its `port`, where links share the
+ *   end (`ports.ts`), rather than on its centre line.
+ * - **A lane on a rule.** An end that knows its `row` has its loopback's lane
+ *   on the rule on the destination row's source-facing side — never the
+ *   midpoint of the two bars' centres, which, between rows that are not
+ *   adjacent, runs across the bars of a row between them.
+ * - **A planned lane and caption** ({@link RibbonRouteOptions}): a host that
+ *   opens a rule into a band of lane tracks (`lanes.ts`) gives a loopback its
+ *   track, and a one-row link or an S the track or band its caption takes.
  */
 
 import { LINK_CAPTION_DROP, LINK_CORNER, LINK_HEAD_LEN } from "./look.js";
@@ -92,6 +106,22 @@ export interface RibbonEnd {
      * edge) and the ribbon meets the edge with a stub pointing toward the row.
      */
     off?: RibbonOff | undefined;
+    /** Where the link meets the element, down the page: its port where links share the end (`ports.ts`); its centre line when left out. */
+    port?: number | undefined;
+    /**
+     * The row the element is on, from its top to its bottom, its rule
+     * included: where a loopback into it runs its lane — on the rule on its
+     * source-facing side. Left out, the lane runs halfway between the bars.
+     */
+    row?: { readonly top: number; readonly bottom: number } | undefined;
+}
+
+/** What a host that lays bands out for its links gives a route (`lanes.ts`). */
+export interface RibbonRouteOptions {
+    /** A loopback's lane, down the page: its track's centre in the band its rule opens into. */
+    readonly lane?: number | undefined;
+    /** Where a one-row link's caption, or an S's, is centred down the page: its track's centre, or the band its riser crosses. */
+    readonly caption?: number | undefined;
 }
 
 /**
@@ -205,9 +235,10 @@ function arrow(bx: number, by: number, tx: number, ty: number, half: number): st
  * @param to - The destination run's rect (the same)
  * @param weight - The link's weight: its stroke's width (`ribbonWeight`)
  * @param bounds - The plot's edges, which nothing of the link crosses; left out, none
+ * @param options - Its planned lane and caption, where its host lays bands out for them; left out, the route's own
  * @returns The link's paths and caption anchor
  */
-export function routeRibbon(from: RibbonEnd, to: RibbonEnd, weight: number, bounds: RibbonBounds = UNBOUNDED): RibbonPath {
+export function routeRibbon(from: RibbonEnd, to: RibbonEnd, weight: number, bounds: RibbonBounds = UNBOUNDED, options: RibbonRouteOptions = {}): RibbonPath {
     // The weight is the quantity's, never the bar's: the same link draws as
     // wide out of a 20px bar, a compact 16px one and a 12px rollup.
     const width = weight;
@@ -217,8 +248,9 @@ export function routeRibbon(from: RibbonEnd, to: RibbonEnd, weight: number, boun
     // Both ends keep a horizontal run-out LONGER than the head: the exit
     // straight out of A, and the approach straight into the head.
     const runOut = RUN_OUT;
-    const ySrc = (from.top + from.bottom) / 2;
-    const y2 = (to.top + to.bottom) / 2;
+    // Each end meets its element at its port: its centre line, unless links share the end.
+    const ySrc = from.port ?? (from.top + from.bottom) / 2;
+    const y2 = to.port ?? (to.top + to.bottom) / 2;
     const x1 = from.rightX;
     const x2 = to.leftX;
     const neckX = x2 - headLen;
@@ -241,20 +273,27 @@ export function routeRibbon(from: RibbonEnd, to: RibbonEnd, weight: number, boun
         return routeOutOfView(from, to, { width, halfH, headLen, runOut, ySrc, y2, x1, neckX, approachX, forward, arrival, edges });
     }
 
-    const sameRowLink = Math.abs(ySrc - y2) < 0.5;
+    // One row by the two elements' centre lines: two ports on one row stand apart, and the link is still one row's.
+    const sameRowLink = Math.abs((from.top + from.bottom) / 2 - (to.top + to.bottom) / 2) < 0.5;
     const dy = y2 - ySrc;
     const head = arrival;
+    // A one-row link's caption, and an S's: its planned place, else the route's own.
+    const plannedCaption = options.caption === undefined ? undefined : options.caption + CAPTION_DROP;
 
     if (sameRowLink) {
         // ── Same-row: never a loop ──
         if (x2 - x1 >= headLen + 2) {
             // A straight centered feed — the run's output flows directly
-            // into the next run.
+            // into the next run. Out of one port into another at a different
+            // height, it steps across before its approach into the head.
+            const stepX = Math.min(neckX - 1, Math.max(x1 + 1, neckX - runOut));
             return {
                 route: "feed",
-                stroke: `M ${f(x1)} ${f(ySrc)} L ${f(neckX)} ${f(y2)}`,
+                stroke: Math.abs(ySrc - y2) < 0.5
+                    ? `M ${f(x1)} ${f(ySrc)} L ${f(neckX)} ${f(y2)}`
+                    : rounded([[x1, ySrc], [stepX, ySrc], [stepX, y2], [neckX, y2]], CORNER_R),
                 head, tail: "", width,
-                lx: (x1 + neckX) / 2, ly: from.top - 6, anchor: "middle",
+                lx: (x1 + neckX) / 2, ly: plannedCaption ?? from.top - 6, anchor: "middle",
             };
         }
         // Overlapping/backward on one row: the runoff grammar — a squared
@@ -275,7 +314,7 @@ export function routeRibbon(from: RibbonEnd, to: RibbonEnd, weight: number, boun
                     : ` M ${f(x2 - headLen - runOut)} ${f(y2)} L ${f(neckX)} ${f(y2)}`),
             head: drop ? arrow(dropX, to.top - headLen, dropX, to.top, halfH) : head,
             tail: "", width,
-            lx: (x1 + x2) / 2, ly: from.top - 6, anchor: "middle",
+            lx: (x1 + x2) / 2, ly: plannedCaption ?? from.top - 6, anchor: "middle",
         };
     }
 
@@ -294,17 +333,19 @@ export function routeRibbon(from: RibbonEnd, to: RibbonEnd, weight: number, boun
                 + ` A ${f(rad)} ${f(rad)} 0 0 ${1 - sweep1} ${f(approachX)} ${f(y2)}`
                 + ` L ${f(neckX)} ${f(y2)}`,
             head, tail: "", width,
-            // The caption on the riser, at mid-height.
-            lx: xs + rad, ly: (ySrc + y2) / 2 + CAPTION_DROP, anchor: "middle",
+            // The caption on the riser: at mid-height, or where it crosses the band planned for it.
+            lx: xs + rad, ly: plannedCaption ?? (ySrc + y2) / 2 + CAPTION_DROP, anchor: "middle",
         };
     }
 
     // ── The loopback (abutting / overlapping / containing / backward) ──
     // Exit right, turn toward the destination row, travel LEFT along the
-    // midpoint lane, turn into the destination's start. Each U-turn is
-    // corner → vertical straight → corner at CORNER_R, degenerating to a
-    // semicircle when the rows are adjacent.
-    const yLane = (ySrc + y2) / 2;
+    // lane, turn into the destination's start. Each U-turn is corner →
+    // vertical straight → corner at CORNER_R, degenerating to a semicircle
+    // when the rows are adjacent. The lane is the track planned for it; else
+    // the rule on the destination row's source-facing side, where the row is
+    // known — never across a bar of a row between; else halfway between.
+    const yLane = options.lane ?? (to.row !== undefined ? (y2 > ySrc ? to.row.top : to.row.bottom) : (ySrc + y2) / 2);
     // The exit-side turn (toward the lane) and the entry-side turn (lane
     // into B) — each clamps its corner to half its own drop.
     const sgnA = yLane > ySrc ? 1 : -1;
@@ -327,7 +368,11 @@ export function routeRibbon(from: RibbonEnd, to: RibbonEnd, weight: number, boun
         const srcFacing = sgn > 0 ? from.bottom : from.top;
         const dstFacing = sgn > 0 ? to.top : to.bottom;
         const headBase = dstFacing - sgn * headLen;
-        const lane = (srcFacing + (drop ? headBase : dstFacing)) / 2;
+        // The lane's last turn ends at the head's base where it drops, else at the destination's facing edge: a planned
+        // lane between the source's facing edge and there is taken, any other is not.
+        const stop = drop ? headBase : dstFacing;
+        const planned = options.lane !== undefined && sgn * (options.lane - srcFacing) > 0 && sgn * (stop - options.lane) > 0 ? options.lane : undefined;
+        const lane = planned ?? (srcFacing + stop) / 2;
         const exitR = Math.min(CORNER_R, Math.abs(lane - ySrc) / 2);
         const entryR = Math.min(CORNER_R, Math.abs(y2 - lane) / 2);
         const laneFrom = lift ? liftX : xR + exitR;
@@ -371,6 +416,36 @@ export function routeRibbon(from: RibbonEnd, to: RibbonEnd, weight: number, boun
  *  of the approach it runs back to. */
 function exitTurnX(x1: number, runOut: number, approachX: number): number {
     return Math.max(x1 + runOut, approachX + 2);
+}
+
+/**
+ * Whether a link between two rows draws the metro-S: its destination starts
+ * far enough past its source's end for a head, two run-outs and the least gap
+ * (34px). Else it is a loopback. What a host that plans its links' lanes asks
+ * before it routes them (`lanes.ts`).
+ *
+ * @param sourceEnd - The source's end, across the page
+ * @param destinationStart - The destination's start, across the page
+ * @returns Whether it is an S
+ */
+export function ribbonForward(sourceEnd: number, destinationStart: number): boolean {
+    const approachX = destinationStart - HEAD_LEN - RUN_OUT;
+    return approachX - sourceEnd >= RUN_OUT + MIN_S_GAP;
+}
+
+/**
+ * Where a loopback's two risers stand across the page, at their full corner:
+ * its exit's, past the source's end, and its entry's, before the destination's
+ * start. Its lane runs between them — what a band's tracks are ordered by, so
+ * no riser crosses another link's lane (`lanes.ts`).
+ *
+ * @param sourceEnd - The source's end, across the page
+ * @param destinationStart - The destination's start, across the page
+ * @returns The two risers' x
+ */
+export function loopRisers(sourceEnd: number, destinationStart: number): { exit: number; entry: number } {
+    const approachX = destinationStart - HEAD_LEN - RUN_OUT;
+    return { exit: exitTurnX(sourceEnd, RUN_OUT, approachX) + CORNER_R, entry: approachX - CORNER_R };
 }
 
 /** The shared measures {@link routeRibbon} hands its out-of-view cases. */
@@ -435,29 +510,36 @@ function routeOutOfView(from: RibbonEnd, to: RibbonEnd, m: RouteMeasures): Ribbo
         const xV = forward ? approachX - rad : exitTurnX(x1, runOut, approachX) + rad;
         if (xV + halfH + EDGE_CLEAR > bounds.right) {
             // No room to turn before the plot's end: lift straight off the
-            // source's edge at its end, out of view.
+            // source's edge at its end, out of view. The head is a whole head
+            // whatever the room (#1680's review): nearer the view's edge than
+            // one, it stands back over the source's edge.
             const lifted = Math.min(liftX, bounds.right - halfH - EDGE_CLEAR);
             const facing = sgn > 0 ? from.bottom : from.top;
-            const neck = sgn * (edge - sgn * headLen - facing) > 0 ? edge - sgn * headLen : facing;
+            const base = edge - sgn * headLen;
+            const neck = sgn * (base - facing) > 0 ? base : facing;
             return {
                 route: "stub",
                 stroke: `M ${f(lifted)} ${f(facing)} L ${f(lifted)} ${f(neck)}`,
-                head: arrow(lifted, neck, lifted, edge, halfH),
+                head: arrow(lifted, base, lifted, edge, halfH),
                 tail: "",
                 width,
                 lx: lifted, ly: (facing + neck) / 2 + CAPTION_DROP, anchor: "middle",
             };
         }
         // The vertical run stops where the stub's base begins — never past
-        // the source's own centerline, however close the row is to the edge.
-        const yNeck = sgn * (edge - sgn * headLen - ySrc) > rad ? edge - sgn * headLen : ySrc + sgn * rad;
+        // the source's own port, however close the row is to the edge. The
+        // head is a whole head whatever the room (#1680's review): a port
+        // nearer the view's edge than one — the lower of two that spread at
+        // one end — has its head stand back over its run's end.
+        const base = edge - sgn * headLen;
+        const yNeck = sgn * (base - ySrc) > rad ? base : ySrc + sgn * rad;
         return {
             route: "stub",
             stroke: `M ${f(x1)} ${f(ySrc)}`
                 + ` L ${f(xV - rad)} ${f(ySrc)}`
                 + ` A ${f(rad)} ${f(rad)} 0 0 ${sgn === 1 ? 1 : 0} ${f(xV)} ${f(ySrc + sgn * rad)}`
                 + ` L ${f(xV)} ${f(yNeck)}`,
-            head: arrow(xV, yNeck, xV, edge, halfH),
+            head: arrow(xV, base, xV, edge, halfH),
             tail: "",
             width,
             // The caption on the stub's riser, at mid-height.
@@ -478,17 +560,21 @@ function routeOutOfView(from: RibbonEnd, to: RibbonEnd, m: RouteMeasures): Ribbo
         const dropped = Math.max(dropX, bounds.left + halfH + EDGE_CLEAR);
         const facing = sgnIn > 0 ? to.top : to.bottom;
         const base = facing - sgnIn * headLen;
-        const start = sgnIn * (base - (edge + sgnIn * headLen)) >= 0 ? edge + sgnIn * headLen : base;
+        // Each stub a whole head whatever the room (#1680's review): the run between them, where there is one.
+        const tailBase = edge + sgnIn * headLen;
+        const start = sgnIn * (base - tailBase) >= 0 ? tailBase : base;
         return {
             route: "stub",
             stroke: `M ${f(dropped)} ${f(start)} L ${f(dropped)} ${f(base)}`,
             head: arrow(dropped, base, dropped, facing, halfH),
-            tail: arrow(dropped, start, dropped, edge, halfH),
+            tail: arrow(dropped, tailBase, dropped, edge, halfH),
             width,
             lx: dropped, ly: (start + base) / 2 + CAPTION_DROP, anchor: "middle",
         };
     }
-    const yStart = sgnIn * (y2 - sgnIn * rad - (edge + sgnIn * headLen)) >= 0 ? edge + sgnIn * headLen : y2 - sgnIn * rad;
+    // The stub a whole head whatever the room (#1680's review): nearer the port than one, it stands over the riser.
+    const tailBase = edge + sgnIn * headLen;
+    const yStart = sgnIn * (y2 - sgnIn * rad - tailBase) >= 0 ? tailBase : y2 - sgnIn * rad;
     return {
         route: "stub",
         stroke: `M ${f(xV)} ${f(yStart)}`
@@ -496,7 +582,7 @@ function routeOutOfView(from: RibbonEnd, to: RibbonEnd, m: RouteMeasures): Ribbo
             + ` A ${f(rad)} ${f(rad)} 0 0 ${sgnIn === 1 ? 0 : 1} ${f(xV + rad)} ${f(y2)}`
             + ` L ${f(neckX)} ${f(y2)}`,
         head: arrival,
-        tail: arrow(xV, yStart, xV, edge, halfH),
+        tail: arrow(xV, tailBase, xV, edge, halfH),
         width,
         // The caption on the riser it enters down, at mid-height.
         lx: xV, ly: (yStart + y2 - sgnIn * rad) / 2 + CAPTION_DROP, anchor: "middle",

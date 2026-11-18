@@ -154,8 +154,8 @@ describe('oneShotExecute', () => {
     const spec = runner.getDetachedCalls()[0]!;
     assert.deepEqual(spec.args, [{ dataset: prices.hash }, encodeBeast2For(IntegerType)(3n), { dataset: value.hash }]);
     assert.deepEqual(result.inputs, [
-      { path: [variant('field', 'inputs'), variant('field', 'prices')], hash: prices.hash },
-      { path: [variant('field', 'inputs'), variant('field', 'value')], hash: value.hash },
+      { path: [variant('field', 'inputs'), variant('field', 'prices')], index: none, hash: prices.hash },
+      { path: [variant('field', 'inputs'), variant('field', 'value')], index: none, hash: value.hash },
     ]);
   });
 

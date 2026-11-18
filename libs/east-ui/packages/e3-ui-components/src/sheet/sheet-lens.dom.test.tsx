@@ -449,6 +449,33 @@ test("Search Records lists the rows its key finds wherever they are — on scree
     expect(h.requests("read", ORDERS)).toEqual([]);
 });
 
+test("a pick in Search Records goes to its row's place at once, nothing read for it first: where e3 cannot read the stretch the row lies in, the sheet shows that stretch's failed run there, with its Retry, which reads it again (#854)", async () => {
+    const ui = await setup();
+    await waitFor(() => expect(ui.ids().slice(0, 3)).toEqual(["JOB-10000", "JOB-10003", "JOB-10006"]));
+    await settle();
+    // The record's rows from its tenth segment on cannot be read: JOB-50002, Ready, lies there, its 40,003rd row.
+    const stop = h.e3.fail((request) => request.kind === "page" && request.dataset === ORDERS && Number(request.query.get("offset") ?? 0) >= 9 * SEGMENT_ROWS);
+    const search = searchRecords(ui.container);
+    await search.type("JOB-50002");
+    await waitFor(() => expect(search.box().textContent).toMatch(/1 match/), { timeout: 5_000 });
+    // Its line cannot be read either: Enter picks the first match, as it does with no line highlighted.
+    fireEvent.keyDown(search.input(), { key: "Enter" });
+    // The view on the failed run the row lies in, which says its rows with a Retry — the runs beside it failed too, each
+    // said where it is in view.
+    const RUN = "Couldn't read rows 39,280–41,125";
+    const failed = () => [...ui.main().querySelectorAll<HTMLElement>('[data-slot="band"][data-band="failed"]')];
+    const said = (band: HTMLElement) => band.querySelector("[data-loading-failed-message]")?.textContent;
+    await waitFor(() => expect(failed().map(said)).toContain(RUN), { timeout: 10_000 });
+    const holding = failed().find((band) => said(band) === RUN)!;
+    expect(holding.querySelector("[data-loading-retry]")).not.toBeNull();
+    expect(ui.row("JOB-50002")).toBeNull();
+    // e3 reads them again: the Retry reads the run, and its rows are drawn where it stood, at their numbers.
+    stop();
+    fireEvent.click(holding.querySelector("[data-loading-retry]")!);
+    await waitFor(() => expect(failed().map(said)).not.toContain(RUN), { timeout: 10_000 });
+    await waitFor(() => expect(ui.numbers().map(Number).some((n) => n >= 39_280 && n <= 41_125)).toBe(true), { timeout: 10_000 });
+});
+
 /** Where the view rests as the sheet saved it, under its storage key: the row at its top, by its key, and the px into it. */
 const restedAt = (): { key: string; offset: number } | undefined => {
     for (const key of Object.keys(localStorage)) {
@@ -656,7 +683,7 @@ const notedOrders = { fn: East.function([], UIComponentType, (_$) => Reactive.Ro
             reference: Sheet.column.text(ex.IndexedWork, { header: "Reference", detail: (order) => East.str`${word} ${order.reference}` }),
             job: Sheet.column.text(ex.IndexedWork, { header: "Job" }),
         },
-        onApply: Record.onApply(record, { keyed: true }), edits: { insertRows: false },
+        record, edits: { insertRows: false },
     });
 }))) };
 

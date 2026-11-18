@@ -7,6 +7,7 @@ import "./source-locations";
 // the copyable error alert rather than a blank page.
 import "./install-error-overlay";
 import { StrictMode } from "react";
+import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { ChakraProvider, CodeBlock } from "@chakra-ui/react";
 import "@elaraai/east-ui-components/fonts";
@@ -104,8 +105,20 @@ draw();
  * keeps it: the suite clears it as each test starts, as a new browser context
  * has none. A page whose document no longer holds the showcase (a spec set
  * content of its own) is not reset: the suite loads it.
+ *
+ * As each test ends the suite brings the page to rest (`__showcaseRest`)
+ * before it clears the storage: every part unmounted at once, so nothing one
+ * scheduled — a scroll's settle, which keeps where a canvas rests — writes
+ * storage after it is cleared, where the next test's page would open where
+ * this one left it (#1680's review).
  */
 if ((window as { __showcaseKeptPage?: boolean }).__showcaseKeptPage === true) {
+    (window as { __showcaseRest?: () => boolean }).__showcaseRest = () => {
+        if (!container.isConnected) return false;
+        flushSync(() => root.render(null));
+        resetKept();
+        return true;
+    };
     (window as { __showcaseReset?: (address: string) => boolean }).__showcaseReset = (address) => {
         if (!container.isConnected) return false;
         history.replaceState(null, "", address);

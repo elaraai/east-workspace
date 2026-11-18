@@ -33,6 +33,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { centredLine } from "../one-line-box.js";
 
 export const queryResultsSlotRecipe = defineSlotRecipe({
     className: "elara-query-results",
@@ -230,13 +231,15 @@ export const queryResultsSlotRecipe = defineSlotRecipe({
             "&[data-width=mid]": { width: "96px" },
             "&[data-width=long]": { width: "160px" },
         },
-        /* The result's read-outs: its count, its run and what it read. */
+        /* The result's read-outs: its count, its run and what it read, on one whole line of 17px centred in the 31px
+           under the rule (#1638): 1.5 of the 11px face is 16.5px, which started them at a fraction of a pixel under it. */
         footer: {
             display: "flex",
             alignItems: "center",
             flexShrink: "0",
             gap: "{spacing.3}",
             minHeight: "32px",
+            lineHeight: centredLine(31, 17),
             paddingX: "{spacing.4}",
             borderTopWidth: "1px",
             borderTopColor: "border.subtle",

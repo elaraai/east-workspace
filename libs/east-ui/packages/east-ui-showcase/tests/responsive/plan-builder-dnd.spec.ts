@@ -57,7 +57,7 @@ function lookOf(el: Element) {
 }
 
 /** The links example's dispatch bay: its tiles, the deliveries. */
-const BAY = rowSel("bays.buckets", "bay");
+const BAY = rowSel("bays", "bay");
 
 test.describe("the Plan builder's drag and drop (#1196)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "dragged at the desktop width; a phone's canvas is its narrow layout, read below");

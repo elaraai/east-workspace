@@ -974,6 +974,93 @@ cdef class _Beast2ReaderCore:
             _eastc.east_type_release(self._type)
 
 
+# ─── A key range of an open collection (issue #1616) ──────────────────────
+#
+# One end of a range as east-c takes it: the bound's value, its type — a
+# leading part of the key — and whether the end is the first key past the
+# bound, as a prefix's upper end is, or the first at or past it. From python
+# an end is ``None``, left open, or ``(value, type, past)``.
+
+cdef struct _RangeEnd:
+    _eastc.EastValue* value
+    _eastc.EastType* type
+    bint past
+
+
+cdef int _range_end(object end, _RangeEnd* out) except -1:
+    out.value = NULL
+    out.type = NULL
+    out.past = False
+    if end is None:
+        return 0
+    value, py_type, past = end
+    out.type = py_type_to_c(py_type)
+    try:
+        out.value = py_value_to_c(value, out.type)
+    except BaseException:
+        _eastc.east_type_release(out.type)
+        out.type = NULL
+        raise
+    out.past = past
+    return 0
+
+
+cdef void _range_end_free(_RangeEnd* end) noexcept:
+    if end.value != NULL:
+        _eastc.east_value_release(end.value)
+    if end.type != NULL:
+        _eastc.east_type_release(end.type)
+    end.value = NULL
+    end.type = NULL
+
+
+def _paged_range_view(uintptr_t source_ptr, object py_type, object from_end, object to_end):
+    """A read-only range of a lazily opened Set or Dict, as a collection that
+    still reads from its pager (#1616, D6): east-c's view of the paged value
+    at ``source_ptr``, branded frozen as it is made, so it refuses a change
+    and its own rows decode frozen. Making it reads nothing; its size places
+    its two ends, a keyed read tests its bounds first, and iterating it reads
+    its segments, each once. The view holds its source, so the bytes it reads
+    outlive every other holder of them. ``py_type`` is the collection's type.
+
+    Returns None when the value at ``source_ptr`` no longer reads from its
+    pager — it has been decoded whole — so the caller reads the rows another
+    way. Raises RuntimeError with east-c's message when the range cannot be
+    made."""
+    _ensure_eastc_runtime()
+    cdef _eastc.EastValue* source = <_eastc.EastValue*>source_ptr
+    if source == NULL or source.kind != _eastc.EAST_VAL_PAGED \
+            or source.data.paged.hydrated != NULL:
+        return None
+    cdef _RangeEnd f
+    cdef _RangeEnd t
+    cdef _eastc.EastValue* view
+    cdef _eastc.EastType* c_type
+    _range_end(from_end, &f)
+    try:
+        _range_end(to_end, &t)
+    except BaseException:
+        _range_end_free(&f)
+        raise
+    view = _eastc.east_beast2_open_paged_range(source, f.value, f.type, f.past,
+                                               t.value, t.type, t.past)
+    _range_end_free(&f)
+    _range_end_free(&t)
+    if view == NULL:
+        _consume_eastc_error("east-c beast2 v5 key range failed")
+    _eastc.east_value_set_frozen(view)
+    try:
+        c_type = py_type_to_c(py_type)
+    except BaseException:
+        _eastc.east_value_release(view)
+        raise
+    try:
+        return c_value_to_py(view, c_type)
+    finally:
+        _eastc.east_value_release(view)
+        _eastc.east_type_release(c_type)
+
+
 cdef class _Beast2PagesCore:
     """Thin wrapper over east-c's v5 paging reader. Holds a contiguous view of
     the source bytes for the pages object's whole lifetime — the C pager
@@ -1129,6 +1216,72 @@ cdef class _Beast2PagesCore:
         finally:
             _eastc.east_value_release(c_found)
             _eastc.east_value_release(c_missing)
+
+    def range(self, object from_end, object to_end):
+        """The rows ``(lo, hi)`` of a Set or Dict root between two ends, in
+        the pager's own row numbering (#1616, D6) — each end ``None``, left
+        open, or ``(value, type, past)``. The fences are bisected and the one
+        segment that can hold each end is read, through the cache; no segment
+        between them is. Placed by the keys as the wire holds them, so it
+        answers the same under a projection. Raises RuntimeError with east-c's
+        message where a keyed read refuses."""
+        cdef _RangeEnd f
+        cdef _RangeEnd t
+        cdef size_t lo = 0
+        cdef size_t hi = 0
+        cdef bint ok
+        _range_end(from_end, &f)
+        try:
+            _range_end(to_end, &t)
+        except BaseException:
+            _range_end_free(&f)
+            raise
+        ok = _eastc.east_beast2_pages_range(self._p, f.value, f.type, f.past,
+                                            t.value, t.type, t.past, &lo, &hi)
+        _range_end_free(&f)
+        _range_end_free(&t)
+        if not ok:
+            _consume_eastc_error("east-c beast2 v5 key range failed")
+        return (lo, hi)
+
+    def range_rows(self, object from_end, object to_end):
+        """The rows of a Set or Dict root between two ends, each end as
+        :meth:`range` takes it, as one read-only collection of their own
+        (#1616): placed as :meth:`range` places them, and the segments they
+        span read once each, as east-c's view of a lazily opened value reads
+        them — the two the ends land in through the cache, those between them
+        decoded fresh. The collection is frozen at every depth, so it refuses
+        a change wherever one is made. Under a projection its rows are the
+        projected ones. Raises RuntimeError with east-c's message where
+        :meth:`range` refuses."""
+        cdef _RangeEnd f
+        cdef _RangeEnd t
+        cdef _eastc.EastValue* c_val
+        _range_end(from_end, &f)
+        try:
+            _range_end(to_end, &t)
+        except BaseException:
+            _range_end_free(&f)
+            raise
+        c_val = _eastc.east_beast2_pages_range_rows(self._p, f.value, f.type, f.past,
+                                                    t.value, t.type, t.past)
+        _range_end_free(&f)
+        _range_end_free(&t)
+        if c_val == NULL:
+            _consume_eastc_error("east-c beast2 v5 key range failed")
+        try:
+            return c_value_to_py(c_val, self._out_type)
+        finally:
+            _eastc.east_value_release(c_val)
+
+    def stats(self):
+        """What the pager's reads have cost so far, as ``(segments_decoded,
+        fences_probed)`` — every segment decode, cached or fresh. For tests:
+        a count where a clock would be noise."""
+        cdef size_t decoded = 0
+        cdef size_t fences = 0
+        _eastc.east_beast2_pages_stats(self._p, &decoded, &fences)
+        return (decoded, fences)
 
     def find_sorted(self, object target, bint last):
         """Global insertion index for ``target`` over a sorted Array file —

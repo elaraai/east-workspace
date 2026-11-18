@@ -170,7 +170,7 @@ describe('a split call\'s job cancelled (#1104)', () => {
         maxResultBytes: BigInt(launched.limits.maxResultBytes),
         maxLogBytes: BigInt(launched.limits.maxLogBytes),
       },
-      read: launched.read,
+      read: [...launched.read],
       explain: false,
       platformFree: false,
       status: variant('processing', none),

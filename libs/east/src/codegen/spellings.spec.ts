@@ -43,7 +43,8 @@ const INFERRED = "<inferred>";
 function kindOf(type: string): Kind {
   if (type === INFERRED) return "inferred";
   if (/=>/.test(type)) return "callback";
-  if (/SubtypeExprOrValue|ExprOrValue|ValueTypeOf|\b(?:bigint|number|string|boolean|Date|Uint8Array|Map|Set|Float64Array|BigInt64Array|Uint8ClampedArray|null|RegExp)\b/.test(type)) return "value";
+  // `KeyBound` and `KeyPrefix` are a key range's bound as it is written (#1616): the key's type cut short, a value or an expression.
+  if (/SubtypeExprOrValue|ExprOrValue|ValueTypeOf|KeyBound|KeyPrefix|\b(?:bigint|number|string|boolean|Date|Uint8Array|Map|Set|Float64Array|BigInt64Array|Uint8ClampedArray|null|RegExp)\b/.test(type)) return "value";
   if (/Expr(?:Type)?(?:\b|<)/.test(type)) return "expr";
   return "unknown";
 }

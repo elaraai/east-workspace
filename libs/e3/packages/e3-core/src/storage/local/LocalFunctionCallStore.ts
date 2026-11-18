@@ -5,9 +5,9 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { some } from '@elaraai/east';
 import { decodeFunctionCallJob, encodeFunctionCallJob, type FunctionCallCancel, type FunctionCallJob } from '@elaraai/e3-types';
-import type { FunctionCallEnd, FunctionCallListOptions, FunctionCallListPage, FunctionCallStore } from '../interfaces.js';
+import type { FunctionCallEnd, FunctionCallListOptions, FunctionCallListPage, FunctionCallStore, StoredFunctionCall } from '../interfaces.js';
+import { applyCallTransition, callCancelAsked, callEnded, callExpired, callInputsPinned, callListed } from '../function-call-transitions.js';
 import { checkId, checkName, checkPageLimit, isNotFoundError } from '../../errors.js';
 import { withKeyedLock } from '../../keyed-mutex.js';
 import { isUuidv7 } from '../../uuid.js';
@@ -54,37 +54,20 @@ export class LocalFunctionCallStore implements FunctionCallStore {
   }
 
   async end(repo: string, workspace: string, id: string, end: FunctionCallEnd): Promise<FunctionCallJob | null> {
-    const file = callFile(repo, workspace, id);
-    return withKeyedLock(file, async () => {
-      const job = await this.readLive(file);
-      if (job === null || job.call.state.type !== 'running') return job;
-      const ended: FunctionCallJob = {
-        ...job,
-        call: {
-          ...job.call,
-          state: end.state,
-          endedAt: some(end.endedAt),
-          expiresAt: end.expiresAt,
-          stdout: end.stdout,
-          stderr: end.stderr,
-          stdoutTruncated: end.stdoutTruncated,
-          stderrTruncated: end.stderrTruncated,
-        },
-      };
-      await atomicWriteFile(file, encodeFunctionCallJob(ended));
-      return ended;
-    });
+    return this.transition(callFile(repo, workspace, id), (job) => callEnded(job, end));
   }
 
   async requestCancel(repo: string, workspace: string, id: string, cancel: FunctionCallCancel): Promise<FunctionCallJob | null> {
-    const file = callFile(repo, workspace, id);
-    return withKeyedLock(file, async () => {
-      const job = await this.readLive(file);
-      if (job === null || job.call.state.type !== 'running' || job.cancel.type === 'some') return job;
-      const asked: FunctionCallJob = { ...job, cancel: some(cancel) };
-      await atomicWriteFile(file, encodeFunctionCallJob(asked));
-      return asked;
-    });
+    return this.transition(callFile(repo, workspace, id), (job) => callCancelAsked(job, cancel));
+  }
+
+  async pinInputs(repo: string, workspace: string, id: string, inputs: FunctionCallJob['call']['inputs']): Promise<FunctionCallJob | null> {
+    return this.transition(callFile(repo, workspace, id), (job) => callInputsPinned(job, inputs));
+  }
+
+  /** One of the call's transitions, applied under the call's lock to its file as read, the file replaced whole. */
+  private transition(file: string, next: (job: FunctionCallJob) => FunctionCallJob | undefined): Promise<FunctionCallJob | null> {
+    return withKeyedLock(file, async () => applyCallTransition(await this.readLive(file), next, (moved) => atomicWriteFile(file, encodeFunctionCallJob(moved))));
   }
 
   async list(repo: string, workspace: string, options: FunctionCallListOptions): Promise<FunctionCallListPage> {
@@ -101,15 +84,39 @@ export class LocalFunctionCallStore implements FunctionCallStore {
         // A file that does not decode keeps no call a reader can be shown
         continue;
       }
-      if (job === null) continue;
-      // A function's calls: a one-shot names none
-      if (options.function !== undefined && !(job.call.function.type === 'some' && job.call.function.value === options.function)) continue;
-      if (options.state !== undefined && job.call.state.type !== options.state) continue;
+      if (job === null || !callListed(job, options)) continue;
       calls.push(job);
       // A full page names the next while calls are left before its last
       if (calls.length >= options.limit) return at < ids.length - 1 ? { calls, next: id } : { calls };
     }
     return { calls };
+  }
+
+  /** Every call file of the repository, by its workspace's directory and its
+   *  name: read as it is, and replaced whole in its turn among the call's
+   *  writes. */
+  async readStored(repo: string): Promise<StoredFunctionCall[]> {
+    const stored: StoredFunctionCall[] = [];
+    for (const workspace of await entries(path.join(repo, 'workspaces'))) {
+      const dir = path.join(repo, 'workspaces', workspace, 'calls');
+      for (const id of await callIds(dir)) {
+        const file = path.join(dir, `${id}${CALL_EXTENSION}`);
+        stored.push({
+          workspace,
+          id,
+          read: async () => {
+            try {
+              return await readReplacedFile(file);
+            } catch (err) {
+              if (isNotFoundError(err)) return null;
+              throw err;
+            }
+          },
+          replace: (bytes) => withKeyedLock(file, () => atomicWriteFile(file, bytes)),
+        });
+      }
+    }
+    return stored;
   }
 
   /**
@@ -132,7 +139,7 @@ export class LocalFunctionCallStore implements FunctionCallStore {
         } catch {
           continue;
         }
-        if (job === null || !this.expired(job)) continue;
+        if (job === null || !callExpired(job, this.now())) continue;
         expired++;
         if (!dryRun) await removeFile(file);
       }
@@ -156,15 +163,11 @@ export class LocalFunctionCallStore implements FunctionCallStore {
   private async readLive(file: string): Promise<FunctionCallJob | null> {
     const job = await this.readFile(file);
     if (job === null) return null;
-    if (this.expired(job)) {
+    if (callExpired(job, this.now())) {
       await removeFile(file);
       return null;
     }
     return job;
-  }
-
-  private expired(job: FunctionCallJob): boolean {
-    return job.call.expiresAt.getTime() <= this.now();
   }
 }
 

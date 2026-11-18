@@ -22,7 +22,7 @@ import {
 } from "@elaraai/east";
 import {
     AllocationArrivalType, AllocationBinTypeFor, AllocationCandidateType, AllocationCheckContextTypeFor, AllocationContextType, AllocationDayTypeFor,
-    AllocationFitAskType, AllocationFitRequestTypeFor, AllocationFitResultType, AllocationFitType, AllocationIssueType, AllocationLoadType,
+    AllocationFitAskType, AllocationFitContextType, AllocationFitRequestType, AllocationFitResultType, AllocationFitType, AllocationIssueType, AllocationLoadType,
     AllocationPayloadType, AllocationResourceLineType, AllocationResourceType, AllocationSlotType, ScheduleAllocationRolesType, allocationBinOf,
     allocationCandidates, allocationCheck, allocationLoadText, allocationLoads, allocationMilliseconds, allocationQuantityText, allocationResourceLine,
     allocationSlots, type AllocationBinType, type AllocationDayType,
@@ -52,8 +52,12 @@ export type FitAsk = ValueTypeOf<typeof AllocationFitAskType>;
 export type FitResult = ValueTypeOf<typeof AllocationFitResultType>;
 export type Fit = ValueTypeOf<typeof AllocationFitType>;
 export type Candidate = ValueTypeOf<typeof AllocationCandidateType>;
-/** A fit's request: the day as drafted and the question. */
-export interface FitRequest { day: Date; plan: Day; ask: FitAsk; context: Context }
+/** A fit's request: the plan day, the question and the page's scope, and no row (east-workspace#1624). */
+export type FitRequest = ValueTypeOf<typeof AllocationFitRequestType>;
+/** What a fit's function read: the day's bins as their roles, the arrivals, the resources, the rules and the unit. */
+export type FitRead = ValueTypeOf<typeof AllocationFitContextType>;
+/** What a fit's preview is made of: a question about a day as the board holds it — its drafts, or a plan derived from them — and its context. */
+export interface FitPreview { day: Date; plan: Day; ask: FitAsk; context: Context }
 /** A duration, as the payload holds it. */
 export type TimeStep = AllocationValue["every"];
 export type AllocationStyles = Record<string, Record<string, unknown>>;
@@ -94,10 +98,16 @@ export interface AllocationDomain {
     /** The day's lane slots. */
     slots: (day: Date, plan: Day, context: Context) => Slot[];
     /** A question's candidates: what a placement would leave on each resource — a fit's preview, never its verdict. */
-    candidates: (request: FitRequest) => Candidate[];
-    /** The fit's request type at the row type: what the app's function takes. */
-    requestType: EastType;
+    candidates: (preview: FitPreview) => Candidate[];
 }
+
+/** The candidates' rule, over what a function read: the one a fit's function calls, here over the day the board holds. */
+type CandidatesOf = (request: FitRequest, read: FitRead) => Candidate[];
+/** The rule compiled the first time a board previews a fit, never as the package loads. */
+let candidatesFn: CandidatesOf | undefined;
+const candidatesOf: CandidatesOf = (request, read) => (candidatesFn ??= East.compile(allocationCandidates, []) as unknown as CandidatesOf)(request, read);
+/** A preview asks of no scope: it reads the day the board holds. */
+const NO_SCOPE: FitRequest["scope"] = new SortedMap([], compareFor(StringType));
 
 const sameTypeValue = equalFor(EastTypeType);
 const domains: { type: EastTypeValue; domain: AllocationDomain }[] = [];
@@ -126,8 +136,11 @@ export function allocationDomain(rowType: EastTypeValue): AllocationDomain {
         loads: East.compile(allocationLoads(row), []) as unknown as AllocationDomain["loads"],
         check: East.compile(allocationCheck(row), []) as unknown as AllocationDomain["check"],
         slots: East.compile(allocationSlots(row), []) as unknown as AllocationDomain["slots"],
-        candidates: East.compile(allocationCandidates(row), []) as unknown as AllocationDomain["candidates"],
-        requestType: AllocationFitRequestTypeFor(row),
+        // The day's bins as their roles, with no row: what the rule reads of them.
+        candidates: ({ day, plan, ask, context }) => candidatesOf({ day, ask, scope: NO_SCOPE }, {
+            bins: new SortedMap([...plan.bins].map(([id, bin]) => [id, rolesOf(bin)] as const), compareString),
+            arrivals: context.arrivals, resources: context.resources, rules: context.rules, unit: context.unit,
+        }),
     };
     domains.push({ type: rowType, domain });
     return domain;
@@ -183,6 +196,35 @@ export function allocationContext(value: AllocationValue): Context {
         resources: new SortedMap(value.resources.map(r => [r.key, r] as const), compareString),
         rules: value.rules, unit: value.bin.unit.type === "some" ? value.bin.unit.value : "",
     };
+}
+
+/** What a list shows of a subject's verdict (east-workspace#1624): the fit's, still on its way, or none coming. */
+export type FitReading =
+    | { readonly state: "judged"; readonly verdict: Fit }
+    | { readonly state: "pending" }
+    | { readonly state: "unavailable"; readonly why: string };
+
+/**
+ * What the fit's answer says of an arrival (east-workspace#1624, rule 6): its verdict; `pending` while the answer is on
+ * its way; `unavailable`, in the fit's words, where none is coming — the board's fit failed, or the record refused the
+ * day the question is asked of (rule 10); and `undefined` where the answer has landed and names none, the fit having
+ * considered it for nothing, so no list offers it. The one reading a Chooser's arrivals and a reservation's Book list
+ * take.
+ *
+ * @param answer - The answer to the question, once landed
+ * @param failure - Why no answer is coming (`fitFailure`); `undefined` while one may yet come
+ * @param arrival - The arrival's key
+ * @returns What to show of it; `undefined` to leave it out
+ */
+export function arrivalVerdict(answer: FitResult | undefined, failure: string | undefined, arrival: string): FitReading | undefined {
+    if (answer === undefined) return failure === undefined ? { state: "pending" } : { state: "unavailable", why: failure };
+    const verdict = answer.arrivals.get(arrival);
+    return verdict === undefined ? undefined : { state: "judged", verdict };
+}
+
+/** What a list says of a subject no answer is coming for (F3, rule 10): `fits unavailable`, then the fit's words. */
+export function unavailableLine(why: string): string {
+    return `fits unavailable · ${why}`;
 }
 
 /** A bin's parts — or its roles' — the largest first (ties in key order): its first is the resource the bin is shown on. */

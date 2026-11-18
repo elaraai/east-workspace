@@ -37,7 +37,8 @@
  * those. A narrowing the index doesn't lead is asked of the window's rows, and
  * of the far ends read beside them, in one `within` (D28), each row's answer
  * kept for its revision and narrowing; under `narrowed="dim"` every row is
- * read, and `within` says which match.
+ * read — on a page whose source holds a scope (#1621), every row the scope
+ * holds, which no choice changes — and `within` says which match.
  *
  * Past `SCHEMATIC_WINDOW_ROWS` in view, the density (D25): one request finds
  * the bounds of the raster's cells — the level whose cells are about a
@@ -107,7 +108,7 @@
 import { IntegerType, StringType, compareFor, equalFor, printFor, type ValueTypeOf } from "@elaraai/east";
 import { SeekQueryType, type SeekRangeType } from "@elaraai/east-ui";
 import {
-    RecordSliceWhereType, areaCells,
+    RecordSliceWhereType, areaCells, recordSliceBase, recordSliceChosen, recordSliceScoped,
     type AreaCell, type RecordOnPrinter, type RecordSliceBindType, type RecordSliceCell, type RecordSliceEntry, type RecordSliceJoined,
 } from "@elaraai/east-ui/internal";
 import {
@@ -471,9 +472,6 @@ function rowOf(entry: RecordSliceEntry): unknown {
     return undefined;
 }
 
-/** No narrowing: under `narrowed="dim"`, a window reads every row. */
-const NO_WHERE: Where = new Map();
-
 /** No rows. */
 const NO_ROWS: SchematicAreaRows = new Map();
 
@@ -593,6 +591,8 @@ interface Slot {
     far?: { readonly read: readonly PagedRow[]; readonly rows: SchematicAreaRows };
     /** The narrowing's answers, at a revision and a narrowing. */
     answers?: { readonly revision: string; readonly where: string; held: ReadonlyMap<string, boolean> };
+    /** Under `narrowed="dim"`, its page's scope's answers of its far ends (#1621), at a revision: which of them the page holds at all. */
+    scopeAnswers?: { readonly revision: string; readonly where: string; held: ReadonlyMap<string, boolean> };
     /** Its rows, the narrowing asked of them, for what they were read from. */
     narrowed?: { readonly read: SchematicWindowRead; readonly far: SchematicAreaRows; readonly where: Where; readonly dim: boolean; readonly result: SchematicAreaRead };
     /** Its rows made its stored rows: and what they were made from — the kind itself among it, whose accessors make the roles. */
@@ -667,7 +667,7 @@ export class SchematicAreaReader {
      * @param part - Its source of the slice
      * @param areas - Its area indexes
      * @param viewport - Where the viewport rests
-     * @param dim - Whether every row is read, the narrowing drawn as context (`narrowed="dim"`)
+     * @param dim - Whether every row is read — every row its page's scope holds (#1621) — the viewer's narrowing drawn as context (`narrowed="dim"`)
      * @param extent - The drawing's extent, in world units: where a cell's rows lie, as the viewport's count weighs them
      * @returns What the window holds; {@link READING} while a search or a read is in flight
      */
@@ -677,7 +677,9 @@ export class SchematicAreaReader {
         slot.waiting = "rows";
         const revision = recordSliceRevision(part);
         if (revision.type !== "some") return READING;
-        const planned = this.plannedOf(slot, part, areas, dim ? NO_WHERE : part.read().where, this.windowFor(slot, viewport, extent));
+        // Under `dim` a kind reads every row its page holds (`recordSliceBase`, #1621), the viewer's narrowing drawn over them
+        // as context: the same narrowing while its source's config is, so a window is planned again only as what it reads moves.
+        const planned = this.plannedOf(slot, part, areas, dim ? recordSliceBase(part) : part.read().where, this.windowFor(slot, viewport, extent));
         const last = slot.read;
         if (last !== undefined && Object.is(last.planned, planned) && stringEqual(last.revision, revision.value)) {
             slot.waiting = undefined;
@@ -748,10 +750,11 @@ export class SchematicAreaReader {
     private plannedOf(slot: Slot, part: Part, areas: SchematicAreaIndexes, where: Where, window: SchematicWindow): Planned {
         const last = slot.planned;
         if (last !== undefined && Object.is(last.config, part.config) && Object.is(last.where, where) && Object.is(last.window, window)) return last;
-        const plan = schematicWindowPlan(areas, where, window.box);
+        // Read under the page's scope (#1621): through an index its scope's fields lead, each value's window within its share of the bound.
+        const plan = schematicWindowPlan(areas, where, window.box, [...part.config.scope.keys()]);
         const printOn = recordSliceOnPrinter(part, plan.index.name);
         // A cell a search: the same search in every window that holds it (`areaCells`), so a pan asks only the cells it adds.
-        const places = plan.prefixes.flatMap((prefix) => areaCells(prefix, window.box, plan.cell, printOn));
+        const places = plan.prefixes.flatMap((prefix) => areaCells(prefix, window.box, plan.cell, printOn, plan.searches));
         const cells = places.map((place) => ({ id: printQuery(place.query), queries: [place.query] }));
         const planned = { config: part.config, where, window, plan, printOn, cells, places };
         slot.planned = planned;
@@ -822,8 +825,9 @@ export class SchematicAreaReader {
         for (const range of coarse) total += range.count;
         // The coarser levels' rows, boxes larger than half a raster cell: drawn as rows while a window would draw them all.
         const few = total <= BigInt(SCHEMATIC_WINDOW_ROWS);
-        // Under `dim` the raster counts every row; otherwise the fields the index doesn't lead aren't counted in it.
-        const unnarrowed = dim ? part.read().where.size > 0 : planned.plan.residual.length > 0;
+        // Under `dim` the raster counts every row its page holds, the viewer's choices left out of it (`recordSliceChosen`:
+        // its page's scope is none, #1621); otherwise the fields the index doesn't lead aren't counted in it.
+        const unnarrowed = dim ? recordSliceChosen(part) : planned.plan.residual.length > 0;
         const density = this.densityOf(slot, rastered, counts, few ? undefined : coarse.map((range) => range.count), unnarrowed);
         return { density, found, coarse, few: few && total > 0n };
     }
@@ -911,17 +915,18 @@ export class SchematicAreaReader {
      * @param part - Its source of the slice
      * @param areas - Its area indexes
      * @param extent - The drawing's extent, in world units
-     * @param dim - Whether every row is drawn, the narrowing as context (`narrowed="dim"`)
+     * @param dim - Whether every row is drawn — every row its page's scope holds (#1621) — the viewer's narrowing as context (`narrowed="dim"`)
      * @returns The density; {@link READING} while its counts are in flight
      */
     overview(kind: SchematicAreaKind, part: Part, areas: SchematicAreaIndexes, extent: WorldBox, dim: boolean): SchematicDensity | Reading {
         const revision = recordSliceRevision(part);
         if (revision.type !== "some") return READING;
         const slot = this.slotOf(kind.key);
-        const where = dim ? NO_WHERE : part.read().where;
+        const where = dim ? recordSliceBase(part) : part.read().where;
         let planned = slot.overviewPlanned;
         if (planned === undefined || !Object.is(planned.config, part.config) || !Object.is(planned.where, where) || !sameBox(planned.extent, extent)) {
-            const plan = schematicWindowPlan(areas, where, extent);
+            // Counted under the page's scope (#1621), as the window is read.
+            const plan = schematicWindowPlan(areas, where, extent, [...part.config.scope.keys()]);
             const raster = schematicRaster(plan, extent, recordSliceOnPrinter(part, plan.index.name));
             const ranges = raster.cells.flat().map((cell) => cell.query);
             planned = { config: part.config, where, extent, plan, raster, cells: ranges.length, queries: [...ranges, ...raster.coarse.map((cell) => cell.query)] };
@@ -934,7 +939,7 @@ export class SchematicAreaReader {
         if (found.type !== "some") return last === undefined ? READING : last.density;
         const cells = schematicDensityCells(planned.raster, found.value.slice(0, planned.cells).map((range) => range.count),
             found.value.slice(planned.cells).map((range) => range.count));
-        const unnarrowed = dim ? part.read().where.size > 0 : planned.plan.residual.length > 0;
+        const unnarrowed = dim ? recordSliceChosen(part) : planned.plan.residual.length > 0;
         const density: SchematicDensity = {
             side: planned.raster.side, cells, most: cells.reduce((most, cell) => Math.max(most, cell.count), 0), box: extent, spread: true, unnarrowed,
         };
@@ -967,7 +972,8 @@ export class SchematicAreaReader {
         const where = part.read().where;
         let planned = slot.fitPlanned;
         if (planned === undefined || !Object.is(planned.config, part.config) || !Object.is(planned.where, where) || !sameBox(planned.extent, extent)) {
-            const plan = schematicWindowPlan(areas, where, extent);
+            // Counted under the page's scope (#1621), as the window is read.
+            const plan = schematicWindowPlan(areas, where, extent, [...part.config.scope.keys()]);
             const raster = schematicRaster(plan, extent, recordSliceOnPrinter(part, plan.index.name));
             const ranges = raster.cells.flat().map((cell) => cell.query);
             planned = { config: part.config, where, extent, plan, raster, cells: ranges.length, queries: [...ranges, ...raster.coarse.map((cell) => cell.query)] };
@@ -1027,10 +1033,10 @@ export class SchematicAreaReader {
 
     /**
      * A kind's rows read by area, its narrowing asked of them (D28): those it
-     * holds drawn — every one under `dim`, those it holds the matches — each
-     * row's answer kept at its revision and narrowing, so a pan asks only of
-     * the rows it adds; every row asked in one request. The same object while
-     * what it was read from is.
+     * holds drawn — under `dim` every one its page's scope holds (#1621), those
+     * the narrowing holds the matches — each row's answer kept at its revision
+     * and narrowing, so a pan asks only of the rows it adds; every row asked in
+     * one request. The same object while what it was read from is.
      *
      * @param kind - The kind
      * @param part - Its source of the slice
@@ -1051,36 +1057,52 @@ export class SchematicAreaReader {
 
     /** A kind's rows, its narrowing asked of them (see {@link SchematicAreaReader.narrowed}). */
     private narrow(slot: Slot, part: Part, read: SchematicWindowRead, far: SchematicAreaRows, where: Where, dim: boolean, keys: KindKeys): SchematicAreaRead | Reading {
-        const rows = far.size === 0 ? read.rows : new Map([...read.rows, ...far]);
-        if (where.size === 0) return { rows, matched: undefined, from: [...read.from, far] };
+        // Under `dim`, a row its page's scope doesn't hold (#1621) is no row of this page, drawn nowhere — not as context.
+        // The window is read under the scope, through an index the scope's fields lead (`schematicWindowPlan`): its rows are
+        // the scope's. A far end, read by key, is held to the scope.
+        let ends = far;
+        let scoped: ReadonlyMap<string, boolean> | undefined;
+        if (dim && recordSliceScoped(part) && far.size > 0) {
+            const inScope = this.answersOf(slot, part, read.revision, recordSliceBase(part), far, keys, "scopeAnswers");
+            if (inScope === READING) return READING;
+            scoped = inScope;
+            ends = new Map([...far].filter(([key]) => inScope.get(key) === true));
+        }
+        const window = read.rows;
+        const rows = ends.size === 0 ? window : new Map([...window, ...ends]);
+        if (where.size === 0) return { rows, matched: undefined, from: [...read.from, ends] };
         // Read by key, a far end is held to the whole narrowing; a window read through an index that serves it whole, to nothing.
         const residual = dim || read.plan.residual.length > 0;
-        if (!residual && far.size === 0) return { rows, matched: new Set(rows.keys()), from: [...read.from, far] };
-        const held = this.answersOf(slot, part, read.revision, where, residual ? rows : far, keys);
+        if (!residual && ends.size === 0) return { rows, matched: new Set(rows.keys()), from: [...read.from, ends] };
+        // Under `dim` with nothing chosen, the narrowing is the page's scope alone, which holds every row drawn.
+        if (dim && !recordSliceChosen(part)) return { rows, matched: new Set(rows.keys()), from: [...read.from, ends, scoped] };
+        const held = this.answersOf(slot, part, read.revision, where, residual ? rows : ends, keys, "answers");
         if (held === READING) return READING;
         if (dim) {
             const matched = new Set<string>();
             for (const key of rows.keys()) if (held.get(key) === true) matched.add(key);
-            return { rows, matched, from: [...read.from, far, held] };
+            return { rows, matched, from: [...read.from, ends, scoped, held] };
         }
         const shown = new Map<string, unknown>();
         for (const [key, row] of rows) {
-            const asked = residual || far.has(key);
+            const asked = residual || ends.has(key);
             if (!asked || held.get(key) === true) shown.set(key, row);
         }
-        return { rows: shown, matched: new Set(shown.keys()), from: [...read.from, far, held] };
+        return { rows: shown, matched: new Set(shown.keys()), from: [...read.from, ends, held] };
     }
 
     /**
      * Which of some rows a narrowing holds: each answer kept at its revision and narrowing, by its row's key's text, the
-     * rows not yet answered asked in one request — each by its key read back at the record's key type (#1549).
+     * rows not yet answered asked in one request — each by its key read back at the record's key type (#1549). The
+     * narrowing's answers are kept apart from its page's scope's (#1621), which `dim` asks of the far ends beside them.
      */
-    private answersOf(slot: Slot, part: Part, revision: string, where: Where, rows: SchematicAreaRows, keys: KindKeys): ReadonlyMap<string, boolean> | Reading {
+    private answersOf(slot: Slot, part: Part, revision: string, where: Where, rows: SchematicAreaRows, keys: KindKeys,
+        cache: "answers" | "scopeAnswers"): ReadonlyMap<string, boolean> | Reading {
         const text = printWhere(where);
-        let kept = slot.answers;
+        let kept = slot[cache];
         if (kept === undefined || !stringEqual(kept.revision, revision) || !stringEqual(kept.where, text)) {
             kept = { revision, where: text, held: new Map() };
-            slot.answers = kept;
+            slot[cache] = kept;
         }
         const held = kept.held;
         const asked = [...rows].filter(([key]) => !held.has(key));

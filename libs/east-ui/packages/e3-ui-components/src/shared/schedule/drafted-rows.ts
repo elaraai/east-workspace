@@ -196,6 +196,59 @@ export class DraftedStanding {
     }
 }
 
+/** A row with its kind's drafts in place: its key, its roles, and whether its draft adds it, no stored row showing it. */
+export interface DraftedPlaced<R> {
+    /** Its key. */
+    readonly key: string;
+    /** Its roles: as drafted, where its session holds a draft of it. */
+    readonly roles: R;
+    /** Whether its draft adds it. */
+    readonly added: boolean;
+}
+
+/** No stored row hidden. */
+const NONE_HIDDEN: ReadonlySet<string> = new Set<string>();
+
+/**
+ * One kind's rows with its drafts in place, for a builder that holds the kind's stored rows whole — the Flowchart's
+ * kinds, a Plan's link kinds: each stored row as drafted, or nowhere where its draft deletes it; then each row its draft
+ * adds. A drafted row no stored row shows that its draft does not add waits in its session, drawn nowhere — unless,
+ * through a carry-over, its builder last drew it ({@link DraftedStanding}).
+ *
+ * @typeParam R - A row's roles
+ * @param kind - What the kind's session is named by
+ * @param stored - The kind's stored rows the read holds
+ * @param drafts - The kind's drafts
+ * @param standing - Which drafted rows stand, and what the builder last drew
+ * @param drew - Where the kind's drafted rows these rows hold are told: what the builder then remembers of them
+ *   ({@link DraftedStanding.drew})
+ * @param hidden - Stored rows hidden from the builder, though held; none unless given
+ * @param waits - Told each drafted row drawn nowhere, in the drafts' order; nothing unless given
+ * @returns The rows: the stored ones in their order, then those a draft adds, in the drafts'
+ */
+export function draftsInPlace<R>(kind: string, stored: ReadonlyMap<string, { readonly roles: R }>, drafts: DraftedRows<R>, standing: DraftedStanding,
+    drew: Map<string, ReadonlySet<string>>, hidden: ReadonlySet<string> = NONE_HIDDEN, waits?: (key: string, roles: R) => void): DraftedPlaced<R>[] {
+    const out: DraftedPlaced<R>[] = [];
+    const stood = new Set<string>();
+    drew.set(kind, stood);
+    for (const [key, entry] of stored) {
+        if (hidden.has(key)) continue;
+        if (!drafts.has(key)) { out.push({ key, roles: entry.roles, added: false }); continue; }
+        const drafted = drafts.get(key);
+        if (drafted !== undefined) { stood.add(key); out.push({ key, roles: drafted.roles, added: false }); }
+    }
+    for (const [key, drafted] of drafts) {
+        // A row its draft deletes stands nowhere, and is remembered as it stood: the deletion taken back finds it so.
+        if (drafted === undefined) { if (standing.stood(kind, key)) stood.add(key); continue; }
+        if (stored.has(key) && !hidden.has(key)) continue;
+        // A row its draft adds draws whatever the narrowing; any other the read doesn't show waits in its session — but
+        // through a carry-over, its session yet to judge it where its record is, one the builder last drew stands.
+        if (!stored.has(key) && standing.stands(kind, key, drafted, false)) { stood.add(key); out.push({ key, roles: drafted.roles, added: true }); }
+        else waits?.(key, drafted.roles);
+    }
+    return out;
+}
+
 /**
  * One kind's drafted rows (see the module docs): each read once for the version its session holds of it and the
  * original beside it.

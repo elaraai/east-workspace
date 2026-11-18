@@ -5,8 +5,9 @@
 
 /**
  * The Plan's moves under test (#825) — ONE canvas, built by the e3-ui
- * factory and COMPILED over a `State.bind` handle written through the
- * `onUpdate` adapter, whose presses hold four collections, each a Dict keyed
+ * factory and COMPILED over a `State.bind` handle the canvas builder's
+ * `onApply` seam commits to whole (`state-apply.test-utils.ts`; a Plan itself
+ * saves through a record alone, #1541), whose presses hold four collections, each a Dict keyed
  * by an item's id and read by name (#1436), each a series that takes moves:
  *
  * - `jobs` — runs (a span series) of the `Job` item type;
@@ -25,10 +26,10 @@
 import { fireEvent, render, waitFor, type RenderResult } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
-    ArrayType, BooleanType, DateTimeType, DictType, East, StringType, StructType,
-    decodeBeast2For, some, type ValueTypeOf,
+    ArrayType, BooleanType, DateTimeType, DictType, East, OptionType, StringType, StructType,
+    decodeBeast2For, none, some, type ValueTypeOf,
 } from "@elaraai/east";
-import { DragEventType, State } from "@elaraai/east-ui/internal";
+import { State } from "@elaraai/east-ui/internal";
 import { Plan } from "@elaraai/e3-ui/internal";
 import { system, getRegisteredPlatformImplementations, DragLayerProvider } from "@elaraai/east-ui-components";
 import { getStore } from "@elaraai/east-ui-components/internal";
@@ -36,6 +37,7 @@ import { layOut } from "@elaraai/east-ui-components/testing";
 import { act } from "../test-runs.test-utils.js";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import { rowKey, rowSel } from "./plan.test-utils.js";
+import { stateApply } from "./state-apply.test-utils.js";
 
 // ── The canvas's data ───────────────────────────────────────────────────────
 
@@ -96,12 +98,37 @@ const SERIES = [
     }),
 ];
 
+/**
+ * The series with an item of each locked by its map (#1541, U9): the run `j1`, the chip `s1` and the tile `t1` are
+ * held where they are, and every other item moves.
+ */
+const LOCKED_SERIES = [
+    Plan.series.span(Press, {
+        key: "jobs", title: "Jobs", label: (m) => m.label,
+        runs: Plan.items("jobs", { from: "start", to: "end" }, (job, id) => ({ label: job.label, state: "confirmed", locked: id.equal("j1") })),
+        edit: true,
+    }),
+    SERIES[1]!,
+    Plan.series.cards(Press, {
+        key: "shifts", title: "Shifts", label: (m) => m.label,
+        chips: Plan.items("shifts", { from: "from", to: "to" }, (shift, id) => ({ label: shift.label, state: "confirmed", locked: id.equal("s1") })),
+        edit: true,
+    }),
+    Plan.series.buckets(Press, {
+        key: "slots", title: "Slots", label: (m) => m.label,
+        events: Plan.items("slots", { at: "at" }, (slot, id) => ({ label: slot.label, state: "confirmed", locked: id.equal("t1") })),
+        edit: true,
+    }),
+];
+
 /** A `canDrop` that refuses every move onto Press 2's jobs row. */
 const M2_JOBS = rowKey("m2", "jobs");
-const NOT_M2_JOBS = East.function([DragEventType], BooleanType, ($, event) => {
-    const allowed = $.let(true);
-    $.match(event, { move: ($2, m) => { $2.assign(allowed, m.to.row.equal(M2_JOBS).not()); } });
-    return allowed;
+const NOT_M2_JOBS = East.function([Plan.Types.Candidate], OptionType(StringType), ($, candidate) => {
+    const said = $.let(none, OptionType(StringType));
+    $.match(candidate.gesture, { move: ($2) => {
+        $2.match(candidate.row, { some: ($3, row) => { $3.if(East.print(row).equal(M2_JOBS), ($4) => { $4.assign(said, some("Press 2 takes no moved job")); }); } });
+    } });
+    return said;
 });
 
 /** Twelve weeks, W27 to W38. */
@@ -138,20 +165,21 @@ export async function settle(): Promise<void> {
  * Build, compile and mount the presses canvas, and wait for it to draw.
  *
  * @param options - `veto`: a `canDrop` that refuses Press 2's jobs row; `seed`: the presses, in place of
- *   {@link SEED}; `id: false`: the canvas declares no drop-target id
+ *   {@link SEED}; `id: false`: the canvas declares no drop-target id; `locked`: the run `j1`, the chip `s1` and the
+ *   tile `t1` locked by their maps
  * @returns The mounted canvas
  */
-export async function mountMoves(options: { veto?: boolean; seed?: Map<string, PressValue>; id?: boolean } = {}): Promise<MoveCanvas> {
+export async function mountMoves(options: { veto?: boolean; seed?: Map<string, PressValue>; id?: boolean; locked?: boolean } = {}): Promise<MoveCanvas> {
     const seed = options.seed ?? SEED;
     const program = East.compile(East.function([], Plan.Types.Root, ($) => {
         const presses = $.const(State.bind([Presses], STATE_KEY, seed));
         return Plan.Root({
             axis: AXIS,
             data: presses,
-            series: SERIES,
+            series: options.locked === true ? LOCKED_SERIES : SERIES,
             ...(options.id !== false ? { id: SURFACE } : {}),
             ...(options.veto === true ? { canDrop: NOT_M2_JOBS } : {}),
-            editing: { onUpdate: presses.write },
+            editing: { onApply: stateApply(Presses, STATE_KEY, presses) },
         });
     }), getRegisteredPlatformImplementations());
     const patches: MovePatch[] = [];
@@ -282,10 +310,27 @@ export async function dragTo(from: HTMLElement, at: { x: number; y: number }, to
     await letGo();
 }
 
+/** A key pressed on the keyboard, with Shift or Alt held. */
+export type KeyPress = { key: string; shiftKey?: boolean; altKey?: boolean };
+
 /** Press a key on the focused element — it bubbles to the canvas. */
-export async function keyOn(init: { key: string; shiftKey?: boolean; altKey?: boolean }): Promise<void> {
+export async function keyOn(init: KeyPress): Promise<void> {
     await act(async () => { fireEvent.keyDown(document.activeElement ?? document.body, init); });
     await settle();
+}
+
+/**
+ * Picks an element up by the keyboard — a run, a chip, a mark — presses the keys given, and puts it down: Space, the
+ * keys, Space, each landing before the next.
+ *
+ * @param element - The element carried
+ * @param keys - The keys pressed while it is held
+ */
+export async function carryRun(element: HTMLElement, ...keys: KeyPress[]): Promise<void> {
+    element.focus();
+    await keyOn({ key: " " });
+    for (const key of keys) await keyOn(key);
+    await keyOn({ key: " " });
 }
 
 /** What the keyboard carry last said. */

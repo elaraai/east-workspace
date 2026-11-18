@@ -117,10 +117,11 @@ export const sheetWorkOrders = e3.record("sheet_work_orders", DictType(StringTyp
 
 export const sheetActionsWorkOrders = example({
     keywords: ["Sheet", "Sheet.column.action", "action", "state machine", "variant", "start", "next", "blocked", "updates", "Sheet.patch",
-        "Sheet.action.menu", "Sheet.action.form", "Sheet.field", "form", "menu", "button", "summary", "group", "band", "inspector", "Slice.bindRecords", "Record.onApply"],
+        "Sheet.action.menu", "Sheet.action.form", "Sheet.field", "form", "menu", "button", "summary", "group", "band", "inspector", "Slice.bindRecords", "record", "Record.bind"],
     description: "Work orders whose steps are a state machine: Start, Complete, Report… (a number form), Hold ▾ (a menu of reasons) and Alert… (a struct form), each state's `next` its way on; a step blocked until the one before it is finished; each case's `updates` writing Good and Done on the step and the order's status on its band — saved with the order — as one step of history",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
+            // The orders' record, which the sheet is handed beside its rail and saves through.
             const orders = $.let(Record.bind(sheetWorkOrders));
             // One rail over the orders: its `rows` source narrows them.
             const slice = $.let(Slice.bindRecords("sheet.work.sheetActionsWorkOrders", {
@@ -221,7 +222,7 @@ export const sheetActionsWorkOrders = example({
                             done: Sheet.column.date(Step, { header: "Done", width: "64px", level: () => "time", format: "HH:mm" }),
                         }}
                         inspector
-                        onApply={Record.onApply(orders, { keyed: true })}
+                        record={orders}
                     />
                 </Box>
             );
@@ -353,6 +354,7 @@ export const sheetActionsPhone = example({
     description: "Example 2's work orders in a phone's box, 390 wide or the screen's width: each action cell shows its state alone, and a tap on an Action cell turns the docked strip into its action bar — the first action full width, the rest in one line, a menu or a form opening inside the bar — while a tap on Good or Done edits it there, the inspector's field at touch size",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
+            // The orders' record, which the sheet is handed beside its rail and saves through.
             const orders = $.let(Record.bind(sheetWorkOrders));
             // One rail over the orders: its `rows` source narrows them.
             const slice = $.let(Slice.bindRecords("sheet.work.sheetActionsPhone", {
@@ -460,7 +462,7 @@ export const sheetActionsPhone = example({
                         inspector
                         // Good's field, as a tap on its cell edits it under the grid: counted in parts, never below none.
                         fields={{ good: Sheet.field.number({ unit: "pcs", min: 0n, help: "empty until reported" }) }}
-                        onApply={Record.onApply(orders, { keyed: true })}
+                        record={orders}
                     />
                 </Box>
             );

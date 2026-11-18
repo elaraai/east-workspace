@@ -11,6 +11,8 @@
  * - `e3.task()` - Define tasks that transform datasets
  * - `e3.streamTask()` - Define tasks that emit their output into an output
  *   kind (`e3.output.*`), their work split over `e3.partition` inputs
+ * - `e3.index()` - Take an index of a record as an input of a task or a
+ *   function
  * - `e3.package()` - Bundle definitions into a package
  * - `e3.export()` - Export package to a .zip bundle
  *
@@ -54,6 +56,8 @@ import type {
   DictOutputDef,
   FoldOutputDef,
   FunctionDef,
+  IndexInputDef,
+  InputDef,
   MergeDatasets,
   MigrationDef,
   MutationDef,
@@ -70,6 +74,7 @@ import { input } from './input.js';
 import { record } from './record.js';
 import { mutation } from './mutation.js';
 import { task, customTask, streamTask, partition } from './task.js';
+import { index } from './index-input.js';
 import { output } from './output.js';
 import { function_ } from './function.js';
 import { package_ } from './package.js';
@@ -83,6 +88,8 @@ export type {
   DictOutputDef,
   FoldOutputDef,
   FunctionDef,
+  IndexInputDef,
+  InputDef,
   MigrationDef,
   MutationDef,
   OutputDef,
@@ -121,6 +128,7 @@ const e3 = {
   customTask,
   streamTask,
   partition,
+  index,
   output,
   function: function_,
   package: package_,
@@ -130,8 +138,14 @@ const e3 = {
 export default e3;
 
 // Also export individual functions for tree-shaking
-export { input, record, mutation, task, customTask, streamTask, partition, output, function_, package_ as package, export_ as export };
+export { input, record, mutation, task, customTask, streamTask, partition, index, output, function_, package_ as package, export_ as export };
 export type { StreamTaskSpec } from './task.js';
+export type { IndexEntriesOf } from './index-input.js';
+export { NestedUnderType } from './index-read.js';
+export type {
+  IndexRead, IndexReadersOf, PlainReaders, IntervalReaders, SeriesReaders, SummaryReaders, AreaReaders, EntriesReaders, NestedReaders,
+  TimeWindow, KeyWindow, AreaWindow, NestedWindow, LeadingOn, LeadingArgs,
+} from './index-read.js';
 export type { FunctionSpec } from './function.js';
 
 // Singleton tree definitions

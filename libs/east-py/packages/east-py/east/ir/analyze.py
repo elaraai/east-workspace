@@ -55,6 +55,15 @@ class IRAnalysisError(EastError):
         super().__init__(message, list(location))
 
 
+#: The range builtins (#1616): whether each reads a Dict, and the bounds its
+#: last type parameters are the types of — TS ``KEY_RANGE_BOUNDS``.
+_KEY_RANGE_BOUNDS: dict[str, tuple[bool, tuple[str, ...]]] = {
+    "DictRange": (True, ("from", "to")),
+    "DictPrefix": (True, ("prefix",)),
+    "SetRange": (False, ("from", "to")),
+    "SetPrefix": (False, ("prefix",)),
+}
+
 _STACK_TYPE = ArrayType(StructType([
     ("filename", StringType), ("line", IntegerType), ("column", IntegerType),
 ]))
@@ -363,7 +372,50 @@ class _Analyzer:
         arg_types = [self.visit(arg, scope, ret) for arg in p["arguments"]]
         if name == "Query":
             self._query_builtin(node, p, arg_types)
+        if name in _KEY_RANGE_BOUNDS:
+            self._key_range_builtin(node, p, arg_types)
         return p["type"]
+
+    def _key_range_builtin(self, node, p, arg_types):
+        """Holds a call of a range builtin to its type parameters (#1616), as
+        TS ``checkKeyRangeBuiltin`` does.
+
+        A bound's type is a type parameter, so an IR can name one that is no
+        leading part of the key: it is refused here, in the words every
+        runtime refuses it in, and never trusted. The collection read, what
+        the builtin gives and each bound argument are of the types the
+        parameters say.
+        """
+        from east.key_bound import key_bound_refusal
+        from east.types.types import DictType, OptionType, SetType
+
+        name = p["builtin"]
+        is_dict, bounds = _KEY_RANGE_BOUNDS[name]
+        type_parameters = list(p["type_parameters"])
+        first = 2 if is_dict else 1
+        if len(type_parameters) != first + len(bounds):
+            self.fail(
+                f"Builtin function '{name}' takes {first + len(bounds)} type parameters, "
+                f"got {len(type_parameters)}", node)
+        key = type_parameters[0]
+        collection = DictType(key, type_parameters[1]) if is_dict else SetType(key)
+        for what, t in (("its first argument", arg_types[0]), ("what it gives", p["type"])):
+            if t.type != "Never" and not is_type_equal(t, collection):
+                self.fail(
+                    f"Builtin function '{name}': its type parameters say {_print(collection)}, "
+                    f"but {what} is of type {_print(t)}", node)
+        for index, bound in enumerate(bounds):
+            bound_t = type_parameters[first + index]
+            refusal = key_bound_refusal(bound, key, bound_t)
+            if refusal is not None:
+                self.fail(f"Builtin function '{name}': {refusal}", node)
+            expected = bound_t if bound == "prefix" else OptionType(bound_t)
+            argument = arg_types[1 + index]
+            if argument.type != "Never" and not is_type_equal(argument, expected):
+                which = "its prefix" if bound == "prefix" else f"its `{bound}`"
+                self.fail(
+                    f"Builtin function '{name}': {which} is of type {_print(argument)}, "
+                    f"but its type parameters say {_print(expected)}", node)
 
     def _query_builtin(self, node, p, arg_types):
         """Holds a call of the ``Query`` builtin to its query (#1041), as TS

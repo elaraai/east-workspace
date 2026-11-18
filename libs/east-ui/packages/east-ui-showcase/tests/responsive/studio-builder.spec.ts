@@ -23,13 +23,15 @@
  * and the inspector are pinned, main between them; on a phone each rests on
  * its rail, and opened it floats over main from its edge, main where it was,
  * under the scrim — leaving a 48px strip of the scrim beside it, which a tap
- * closes. Every measurement is polled until it holds, on a page at rest.
+ * closes. Every measurement is polled until it holds, on a page at rest. The
+ * preview's bar stands its words on whole pixels (#1638, `box-words.ts`).
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test studio-builder --project desktop`.
  */
 
 import { expect, type Locator, type Page } from "playwright/test";
+import { expectWholeBoxWords } from "./box-words";
 import { test } from "./kept-page";
 import { settled } from "./settle";
 import { frameAt, type Box } from "./builder-frame";
@@ -171,6 +173,8 @@ test.describe("Studio builder (#1000)", () => {
             const aside = root.querySelector("[data-publish-aside]")!.getBoundingClientRect();
             return { bar: [Math.round(bar.height), Math.round(bar.width)], aside: Math.round(aside.width), asideAtRight: Math.round(r.right - aside.right) };
         })).toEqual({ bar: [44, 1440], aside: 320, asideAtRight: 0 });
+        // Its device, its environment and Exit, their words on whole pixels (#1646's review).
+        await expectWholeBoxWords(preview.locator("[data-publish-bar]"), "the preview's bar");
     });
 
     test("E2: Desktop — the page 24 / 28px into its panel, as wide as the panel lets it be, at its declared spans", async ({ page }) => {

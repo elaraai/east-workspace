@@ -242,13 +242,13 @@ function flowsPart(): Bind & { countWhere: ReturnType<typeof vi.fn<Bind["countWh
             { name: "lane_name", fields: ["lane", "name"], sets: new Set<string>(), structured: true, interval: none, area: none, series: none, summary: none, entries: false },
             { name: "kind", fields: ["kind"], sets: new Set<string>(), structured: false, interval: none, area: none, series: none, summary: none, entries: false },
         ],
-        range: none, search: ["name"], presets: [],
+        range: none, search: ["name"], presets: [], scope: new Map(),
     }));
     if (getStore().read(KEY) === undefined) getStore().write(KEY, encodeState({ where: new Map(), preset: none, resolution: none }));
     const read = (): State => { trackKey(KEY); return decodeState(getStore().read(KEY)!); };
     const write = (state: State) => { getStore().write(KEY, encodeState(state)); return null; };
     const choose = (id: string, choice: Choice | undefined) => {
-        const where = recordChoiceWhere(config.indexes, read().where, id, choice);
+        const where = recordChoiceWhere(config, read().where, id, choice);
         if (where === null) throw new Error("Choose a preceding field");
         return write({ ...read(), where, preset: none });
     };

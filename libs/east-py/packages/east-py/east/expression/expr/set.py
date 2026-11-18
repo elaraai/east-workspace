@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from east.expression.errors import ExpressionError
 from east.expression.expr.base import Expression, _deprecated_alias, _fn_init
+from east.expression.key_range import key_bound, key_range_end
 from east.expression.lift import _body, _lift, _trace_inner_fn, if_else
 from east.expression.location import location_id as _loc_id
 from east.expression.nodes import (
@@ -134,6 +135,41 @@ class SetExpression(Expression):
         """Traced SetCopy (shallow)."""
         return self._expr(
             _builtin("SetCopy", self.east_type, [self._elem()], [self.ir]), self.east_type)
+
+    def range(self, from_: Any = None, to: Any = None) -> SetExpression:
+        """Traced SetRange: the elements from the first at or past ``from_``
+        up to, and not including, the first at or past ``to`` — a new set,
+        never frozen (TS ``range({ from, to })``; ``from_`` as ``if_`` and
+        ``for_`` are spelled).
+
+        A bound is the whole element or, for a struct element, its first
+        fields in any order, the last of them cut short the same way where it
+        is a struct itself. A bound left out is that end of the set;
+        ``from_`` past ``to`` gives an empty set. The range is found by a
+        search and never by a walk of the set. A bound that is no leading
+        part of the element is refused where the function is built, naming
+        its fields in order."""
+        elem_t = self._elem()
+        from_t, from_node = key_range_end("from", elem_t, from_)
+        to_t, to_node = key_range_end("to", elem_t, to)
+        return self._expr(
+            _builtin("SetRange", self.east_type, [elem_t, from_t, to_t],
+                     [self.ir, from_node, to_node]),
+            self.east_type)
+
+    def prefix(self, fields: Any) -> SetExpression:
+        """Traced SetPrefix: the elements that begin with ``fields`` — the
+        first fields of a struct element — as a new set, never frozen (TS
+        ``prefix``).
+
+        An element that is not a struct has no prefix: it is refused where
+        the function is built, as a Dict's prefix on such a key is."""
+        elem_t = self._elem()
+        bound = key_bound("prefix", elem_t, fields)
+        return self._expr(
+            _builtin("SetPrefix", self.east_type, [elem_t, bound.east_type],
+                     [self.ir, bound.ir]),
+            self.east_type)
 
     # ── set algebra ─────────────────────────────────────────────────────
 

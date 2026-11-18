@@ -30,14 +30,13 @@
 
 import { expect, test } from "vitest";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { East, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, RecordSliceStateType, Slice, UIComponentType } from "@elaraai/east-ui/internal";
 import { StateRuntime, editingMessages } from "@elaraai/east-ui-components";
 import { Data, Record, Schematic } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/schematic/schematic";
 import type { E3Hold, E3Request } from "../e3-web.test-utils.js";
-import { e3Harness, evaluatesAgain, settle, slot } from "../e3-web-mount.test-utils.js";
+import { e3Harness, evaluatesAgain, retypeNumber as typeNumber, settle, slot } from "../e3-web-mount.test-utils.js";
 import { removedHere, removedOnBothSides, removedThere } from "../shared/remote-rows.test-utils.js";
 import { editedThroughReload, redrawnThroughReload, savedThroughReload } from "../shared/save-held.test-utils.js";
 import { entityId } from "./canvas/drawn.js";
@@ -412,17 +411,7 @@ async function choose(c: HTMLElement, section: string, key: string, option: stri
 
 /** Types a number field of Details' section, a key at a time — the shared input writes back on a frame — and commits it with ⏎. */
 async function retypeNumber(c: HTMLElement, section: string, key: string, text: string) {
-    const user = userEvent.setup();
-    const input = within(inspector(c).querySelector<HTMLElement>(`[data-inspector-fields="${section}"] [data-field="${key}"]`)!).getByRole("spinbutton");
-    await user.clear(input);
-    await settle();
-    for (const ch of text) {
-        await user.type(input, ch);
-        await settle();
-        await act(async () => { for (let i = 0; i < 3; i++) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve())); });
-    }
-    await user.type(input, "{Enter}");
-    await settle();
+    await typeNumber(within(inspector(c).querySelector<HTMLElement>(`[data-inspector-fields="${section}"] [data-field="${key}"]`)!).getByRole("spinbutton"), text);
 }
 
 /** A01, tapped, moved past the floor's east edge in Details — its x 30 m on a floor 28 m wide: a draft Issues says is outside the drawing. */

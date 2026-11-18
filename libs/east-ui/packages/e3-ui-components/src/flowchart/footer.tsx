@@ -30,11 +30,12 @@
 
 import { useCallback, useMemo, useRef } from "react";
 import { Box, type SystemStyleObject } from "@chakra-ui/react";
-import { DateTimeType, StringType, compareFor, equalFor, type ValueTypeOf } from "@elaraai/east";
+import { DateTimeType, compareFor, type ValueTypeOf } from "@elaraai/east";
 import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation, type Formatters } from "@elaraai/east-ui-components";
 import { LoadingLine, RecordSliceSaveNotice, useFooterFit, useRevealed, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
 import { authorOf } from "../shared/records/author.js";
+import { sameDay } from "../shared/schedule/window.js";
 import { kindOf } from "./editing.js";
 import type { FlowchartWords } from "./messages.js";
 import type { FlowchartValue, ModelCounts } from "./model.js";
@@ -42,7 +43,6 @@ import { FLOWCHART_SORTS, type FlowchartSort } from "./read.js";
 
 type Styles = Record<string, SystemStyleObject>;
 
-const stringEqual = equalFor(StringType);
 const compareInstant = compareFor(DateTimeType);
 
 /** A kind read through its source that writes: what its Save's notice counts the rows it took out of the narrowing in. */
@@ -162,10 +162,12 @@ export function useLastSaves(value: FlowchartValue, words: Formatters): Flowchar
     const commits = result.ok ? result.value : undefined;
     return useMemo(() => {
         if (commits === undefined || commits.length === 0) return NONE_SAVED;
-        const today = words.date(new Date());
+        // Its time when it was made today, its date and time otherwise: its day by East's ordering (#1650), never by the
+        // words the formatter prints of it.
+        const now = new Date();
         const records = commits.map((commit): FlowchartLastSave => ({
             sort: commit.sort, name: commit.name, at: commit.at, by: authorOf(commit.actor),
-            when: stringEqual(words.date(commit.at), today) ? words.time(commit.at) : words.dateTime(commit.at),
+            when: sameDay(commit.at, now) ? words.time(commit.at) : words.dateTime(commit.at),
         }));
         const newest = records.reduce((a, b) => (compareInstant(b.at, a.at) > 0 ? b : a));
         return { records, newest };

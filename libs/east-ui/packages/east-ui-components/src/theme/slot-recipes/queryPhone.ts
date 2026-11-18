@@ -20,6 +20,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { centredLine } from "../one-line-box.js";
 
 /** A 32 box drawn inside a 44 target: the target has no box of its own. */
 const TARGET = {
@@ -43,8 +44,10 @@ export const queryPhoneSlotRecipe = defineSlotRecipe({
     base: {
         bar: { flex: "1", minWidth: "0", height: "44px", display: "flex", alignItems: "center", gap: "8px", paddingX: "12px", boxSizing: "border-box" },
         seg: { "[data-query-phone-view] &": { height: "44px" }, flex: "none", height: "32px", display: "inline-flex", boxSizing: "border-box", borderWidth: "1px", borderStyle: "solid", borderColor: "border.strong", borderRadius: "md" },
+        /* Its word on a whole line of 16px, centred in the 30px inside the strip's edge, 42px in a view (#1638): 1.5 of its 11px face is 16.5px. */
         segItem: {
             position: "relative", height: "100%", display: "inline-flex", alignItems: "center", gap: "8px", paddingX: "12px", border: "none", background: "transparent", cursor: "pointer",
+            lineHeight: centredLine(30, 16),
             /* The strip clips nothing: its targets stand past its box, its ends' tint keeps its corners. */
             "&:first-of-type": { borderStartRadius: "calc({radii.md} - 1px)" }, "&:last-of-type": { borderEndRadius: "calc({radii.md} - 1px)" },
             fontFamily: "mono", fontSize: "label.lg", fontWeight: "600", letterSpacing: "0.16em", textTransform: "uppercase", color: "fg.subtle", whiteSpace: "nowrap",
@@ -68,8 +71,9 @@ export const queryPhoneSlotRecipe = defineSlotRecipe({
             "&[data-idle]": { fontStyle: "italic", color: "fg.subtle" },
         },
         runTarget: { ...TARGET, marginInlineStart: "auto" },
+        /* Its word on a whole line of 18px, centred in its 32px (#1638): 1.5 of its 12.5px face is 18.75px. */
         run: {
-            height: "32px", display: "inline-flex", alignItems: "center", gap: "8px", paddingX: "12px", boxSizing: "border-box", borderRadius: "md",
+            height: "32px", lineHeight: centredLine(32, 18), display: "inline-flex", alignItems: "center", gap: "8px", paddingX: "12px", boxSizing: "border-box", borderRadius: "md",
             background: "brand.solid", color: "brand.contrast", fontSize: "body.sm", fontWeight: "600", whiteSpace: "nowrap",
         },
         runIcon: { display: "inline-flex", fontSize: "14px" },

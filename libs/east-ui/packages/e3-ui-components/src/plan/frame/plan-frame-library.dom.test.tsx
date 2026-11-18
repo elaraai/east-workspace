@@ -13,7 +13,7 @@
 import { describe, test, expect } from "vitest";
 import { cleanup, fireEvent, render, within } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
-import { East, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { DictType, East, FloatType, StringType, StructType, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import { UIStore, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
 import { markOf } from "@elaraai/east-ui-components/testing";
@@ -23,7 +23,7 @@ import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import { EastChakraPlan, type PlanRootValue, type PlanValue } from "../index.js";
 import { rowKeyOf, type PlanRowId } from "../model.js";
 import { oneBlock, rowId } from "../plan.test-utils.js";
-import { act, entry, planHarness, settle, slot, tabs } from "./harness.test-utils.js";
+import { act, entry, planHarness, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
 
 const h = planHarness();
 
@@ -118,7 +118,9 @@ function jobsPlan(tabs: readonly TabName[], id?: string, customerDrop = false) {
             } : { name: "Customers", label: (c) => c.name })));
         return Plan({
             axis,
-            resources: { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) },
+            // The presses are the canvas's rows, a landing row each (#1541).
+            data: presses.read(),
+            series: [Plan.series.resources(ex.PrintPress, { key: "presses", title: "Presses", icon: "print", label: (p) => p.name })],
             events: {
                 job: Schedule.events(jobs, {
                     name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
@@ -147,7 +149,7 @@ describe("Plan library integration", () => {
     test("the showcase exposes its templates, search and backlog rail", async () => {
         const { container } = await h.mount(ex.planPrintWorks, DRAG);
         await settle();
-        expect(tabs(pane(container))).toEqual(["Events 12", "Backlog 8", "Series 15", "Customers 16"]);
+        expect(tabs(pane(container))).toEqual(["Events 12", "Backlog 8", "Series 16", "Customers 16"]);
         await openTab(container, "Events");
         expect(heads(container)).toEqual([
             ["Print job · Jobs", "4"], ["Stop · Stops", "2"], ["Crew shift · Shifts", "3"],
@@ -239,7 +241,7 @@ describe("Plan library integration", () => {
     test("hiding events, resources, measures and read-only rows survives a remount", async () => {
         const first = await h.mount(ex.planPrintWorks, DRAG);
         await settle();
-        const marks = entry("presses.marks", "Hall A", "a1");
+        const marks = entry("presses.marks", "1-presses-a", "a1");
         expect(draws(first.container, marks)).toBe(true);
         await openTab(first.container, "Series");
         expect(lines(first.container)).toEqual(expect.arrayContaining([
@@ -249,7 +251,7 @@ describe("Plan library integration", () => {
         await toggle(first.container, "Stop");
         // The stops were the presses' only marks: their row goes, the bars stay.
         expect(draws(first.container, marks)).toBe(false);
-        expect(draws(first.container, entry("presses.span", "Hall A", "a1"))).toBe(true);
+        expect(draws(first.container, entry("presses", "1-presses-a", "a1"))).toBe(true);
         expect(lines(first.container).find(([name]) => name === "Stop")).toEqual(["Stop", false]);
         expect(localStorage.getItem(keptName("plan.printWorks.series"))).toBe(JSON.stringify(["events.stop"]));
         first.unmount();
@@ -264,21 +266,24 @@ describe("Plan library integration", () => {
         expect(draws(again.container, marks)).toBe(true);
         expect(localStorage.getItem(keptName("plan.printWorks.series"))).toBe(JSON.stringify([]));
         const container = again.container;
-        const util = entry("util", "Hall A", "a1");
+        const util = entry("util", "1-presses-a", "a1");
         const output = entry("", "output");
         expect(draws(container, util) && draws(container, output)).toBe(true);
         await toggle(container, "Utilisation");
         expect(draws(container, util)).toBe(false);
-        expect(draws(container, entry("presses.span", "Hall A", "a1"))).toBe(true);
+        expect(draws(container, entry("presses", "1-presses-a", "a1"))).toBe(true);
         // The pinned chart under the ruler is one of the Plan's own rows.
         await toggle(container, "SHEETS / DAY");
         expect(draws(container, output)).toBe(false);
-        // The presses go whole: their rows and their strips.
+        // The presses go: their rows and the rows beneath them. Their halls' strips are the works' group series', which the
+        // crews' halls share, and stay; the crews stay.
         await toggle(container, "Presses");
-        expect(draws(container, entry("presses.span", "Hall A", "a1"))).toBe(false);
-        expect(drawsStrip(container, entry("presses.group", "Hall A"))).toBe(false);
-        expect(drawsStrip(container, entry("crews.group", "Hall A"))).toBe(true);
-        expect(JSON.parse(localStorage.getItem(keptName("plan.printWorks.series"))!)).toEqual(["measures.util", "rows.output", "resources.presses"]);
+        expect(draws(container, entry("presses", "1-presses-a", "a1"))).toBe(false);
+        expect(drawsStrip(container, entry("groups", "1-presses-a"))).toBe(true);
+        expect(draws(container, entry("crews", "3-crews-a", "c1"))).toBe(true);
+        // The series are kept under their pick's key, the Plan's own rows and the kinds under the Plan's.
+        expect(JSON.parse(localStorage.getItem(keptName("pick.plan.printWorks.pick"))!)).toEqual(["util", "presses"]);
+        expect(JSON.parse(localStorage.getItem(keptName("plan.printWorks.series"))!)).toEqual(["rows.output"]);
     });
 
     test("an authored tab wires its grouping, card metadata, drop action and selection", async () => {
@@ -351,17 +356,19 @@ describe("Plan library integration", () => {
     });
 
     test("hidden state is ignored without its tab or with invalid storage", async () => {
-        localStorage.setItem(keptName("plan.series"), JSON.stringify(["resources.presses"]));
+        // The jobs' bars on Press A1, where its first job runs.
+        const bars = (c: HTMLElement) => c.querySelectorAll(`${rowAt(entry("presses", "a1"))} [data-run]`).length;
+        localStorage.setItem(keptName("plan.series"), JSON.stringify(["events.job"]));
         const { container } = await h.mount(jobsPlan(["events"]), DRAG);
         await settle();
-        expect(draws(container, entry("presses.span", "a1"))).toBe(true);
+        expect(bars(container)).toBeGreaterThan(0);
         cleanup();
         // A page of its own, over what storage holds by mistake.
         resetKept();
-        localStorage.setItem(keptName("plan.series"), JSON.stringify({ "resources.presses": true }));
+        localStorage.setItem(keptName("plan.series"), JSON.stringify({ "events.job": true }));
         const odd = await h.mount(jobsPlan(["series"]), DRAG);
         await settle();
-        expect(draws(odd.container, entry("presses.span", "a1"))).toBe(true);
+        expect(bars(odd.container)).toBeGreaterThan(0);
     });
 });
 
@@ -469,6 +476,90 @@ describe("the Series tab over a canvas whose series are picked (#590)", () => {
         const fresh = fakePick(["c"]);
         renderPicked(fresh).unmount();
         expect(fresh.state.read()).toEqual(["c"]);
+    });
+
+    /** A part of a press: one row beneath it. */
+    const Part = StructType({ v: FloatType });
+    /** A press, drawn three ways, with its parts beneath. */
+    const Press = StructType({ v: FloatType, parts: DictType(StringType, Part) });
+
+    /**
+     * Two presses, each one row a view — its jobs, its load, its sheets — the first with a part beneath it, their
+     * series picked through the Series tab under the Plan's id, the ones `hidden` names off to start.
+     */
+    const viewsPlan = (hidden: string[]) => ({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+        const data = $.const(new Map([
+            ["p03", { v: 1.0, parts: new Map([["k1", { v: 5.0 }]]) }],
+            ["p04", { v: 2.0, parts: new Map() }],
+        ]), DictType(StringType, Press));
+        return Plan({
+            id: "views",
+            axis: Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "week" }),
+            data,
+            series: [Plan.series.views(Press, {
+                key: "presses", title: "Presses",
+                children: Plan.children("parts", [
+                    Plan.series.heat(Part, { key: "parts", title: "Parts", label: (_part, key) => key, cells: () => Plan.heatCells([]) }),
+                ]),
+            }, [
+                Plan.series.span(Press, { key: "press-jobs", title: "Jobs", label: (_press, key) => key, runs: () => [] }),
+                Plan.series.heat(Press, { key: "press-load", title: "Load", label: (_press, key) => key, cells: () => Plan.heatCells([]) }),
+                Plan.series.table(Press, { key: "press-sheets", title: "Sheets", label: (_press, key) => key, cells: () => Plan.tableCells([]) }),
+            ])],
+            hidden,
+            library: [Plan.library.series()],
+        });
+    }))) });
+
+    test("a `views` is listed as its members, each switched alone: a member off takes its rows, the entry's children nest under the first left, and what is off is kept under the Plan's id (#1541)", async () => {
+        const first = await h.mount(viewsPlan(["press-sheets"]), DRAG);
+        await settle();
+        const { container } = first;
+        await openTab(container, "Series");
+        // No line for the views themselves: each member its own, the one `hidden` names off to start, then the entry's children.
+        expect(lines(container)).toEqual([["Jobs", true], ["Load", true], ["Sheets", false], ["Parts", true]]);
+        const jobs = entry("press-jobs", "p03");
+        const load = entry("press-load", "p03");
+        const sheets = entry("press-sheets", "p03");
+        const part = entry("parts", "p03", "k1");
+        const drawn = (c: HTMLElement) => [jobs, load, sheets, part].map((id) => draws(c, id));
+        /** Folds or opens a row by its gutter. */
+        const fold = async (c: HTMLElement, id: PlanRowId) => {
+            fireEvent.click(slot(c, "main")!.querySelector<HTMLElement>(`${rowAt(id)} [role='rowheader']`)!);
+            await settle();
+        };
+        expect(drawn(container)).toEqual([true, true, false, true]);
+        // The part nests under the first view row: folding the jobs takes it, the load beside them stays.
+        await fold(container, jobs);
+        expect(drawn(container)).toEqual([true, true, false, false]);
+        await fold(container, jobs);
+        expect(drawn(container)).toEqual([true, true, false, true]);
+        // The jobs off: their rows alone go, and the part nests under the load, the first left.
+        await toggle(container, "Jobs");
+        expect(drawn(container)).toEqual([false, true, false, true]);
+        expect(draws(container, entry("press-load", "p04"))).toBe(true);
+        await fold(container, load);
+        expect(drawn(container)).toEqual([false, true, false, false]);
+        await fold(container, load);
+        expect(drawn(container)).toEqual([false, true, false, true]);
+        // Every member off: no row of the press, and none beneath one.
+        await toggle(container, "Load");
+        expect(drawn(container)).toEqual([false, false, false, false]);
+        // The sheets on: the part nests under them.
+        await toggle(container, "Sheets");
+        expect(drawn(container)).toEqual([false, false, true, true]);
+        expect(lines(container)).toEqual([["Jobs", false], ["Load", false], ["Sheets", true], ["Parts", true]]);
+        // Kept for the viewer under the Plan's id, the pick's key.
+        expect(localStorage.getItem(keptName("pick.plan.views.pick"))).toBe(JSON.stringify(["press-jobs", "press-load"]));
+        first.unmount();
+
+        // A reload: the pick as its program seeds it, the browser's storage kept.
+        resetKept();
+        const again = await h.mount(viewsPlan(["press-sheets"]), DRAG);
+        await settle();
+        expect(drawn(again.container)).toEqual([false, false, true, true]);
+        await openTab(again.container, "Series");
+        expect(lines(again.container)).toEqual([["Jobs", false], ["Load", false], ["Sheets", true], ["Parts", true]]);
     });
 
     test("an empty Series tab explains that there is nothing to hide", async () => {

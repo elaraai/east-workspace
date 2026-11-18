@@ -40,9 +40,10 @@ import { bodyItemKey, type PlanBodyItem } from "../model.js";
 
 /**
  * How many of the grid's rows a body item stands for: a row, a group's band or
- * a links focus's gap is one; a run not read, and a window whose read failed,
- * one for each element it covers — the row an element's entry draws, until its
- * window lands and says what it draws.
+ * a links focus's band is one; a lane band, room between two rows, none; a run
+ * not read, and a window whose read failed, one for each element it covers —
+ * the row an element's entry draws, until its window lands and says what it
+ * draws.
  *
  * @param item - The body item
  * @returns Its rows
@@ -50,8 +51,10 @@ import { bodyItemKey, type PlanBodyItem } from "../model.js";
 function rowsOf(item: PlanBodyItem): number {
     switch (item.kind) {
         case "row":
-        case "gap":
+        case "focus":
             return 1;
+        case "lanes":
+            return 0;
         case "band":
             return item.band.to - item.band.from + 1;
         case "failed":

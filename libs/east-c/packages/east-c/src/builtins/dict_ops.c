@@ -5,6 +5,7 @@
 #include "east/compiler.h"
 #include "east/serialization.h"
 #include "east/values.h"
+#include "key_range.h"
 #include "tree.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -87,6 +88,10 @@ static inline bool arg_paged_live(const EastValue *v)
 static EastValue *dict_size_impl(EastValue **args, size_t n)
 {
     (void)n;
+    /* A range's ends are placed at its first read (#1616); one whose ends
+     * cannot be placed has no size, and says why. */
+    if (arg_paged_live(args[0]) && !east_beast2_pages_prepare(args[0]->data.paged.pages))
+        return NULL;
     return east_integer((int64_t)east_dict_len(args[0]));
 }
 
@@ -1138,6 +1143,19 @@ static BuiltinImpl dict_flatten_tree_factory(EastType **tp, size_t ntp)
     return dict_flatten_tree_impl;
 }
 
+/* DictRange [K, V, F, T] and DictPrefix [K, V, P]: a key range (#1616), the
+ * same builtins a Set's are — key_range.h. */
+static BuiltinImpl dict_range_factory(EastType **tp, size_t ntp)
+{
+    return east_key_range_builtin(ntp > 0 ? tp[0] : NULL, ntp > 2 ? tp[2] : NULL,
+                                  ntp > 3 ? tp[3] : NULL);
+}
+
+static BuiltinImpl dict_prefix_factory(EastType **tp, size_t ntp)
+{
+    return east_key_prefix_builtin(ntp > 0 ? tp[0] : NULL, ntp > 2 ? tp[2] : NULL);
+}
+
 /* --- registration --- */
 
 void east_register_dict_builtins(BuiltinRegistry *reg)
@@ -1162,6 +1180,8 @@ void east_register_dict_builtins(BuiltinRegistry *reg)
     builtin_registry_register(reg, "DictMergeAll", dict_merge_all_factory);
     builtin_registry_register(reg, "DictKeys", dict_keys_factory);
     builtin_registry_register(reg, "DictGetKeys", dict_get_keys_factory);
+    builtin_registry_register(reg, "DictRange", dict_range_factory);
+    builtin_registry_register(reg, "DictPrefix", dict_prefix_factory);
     builtin_registry_register(reg, "DictForEach", dict_for_each_factory);
     builtin_registry_register(reg, "DictCopy", dict_copy_factory);
     builtin_registry_register(reg, "DictMap", dict_map_factory);

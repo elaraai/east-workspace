@@ -54,6 +54,28 @@ describe("the shared links layer", () => {
         expect(empty.container.querySelector("svg")).toBeNull();
     });
 
+    test("the links stand back from the boxes a host gives: every link's casing and ink is masked, each box cut in the layer's coordinates, the captions whole (#1680's review)", () => {
+        const boxes = [{ x: 60, y: 10, width: 40, height: 20 }, { x: 450, y: 112, width: 30, height: 20 }];
+        const view = mount({ standBack: boxes });
+        const cuts = () => [...view.container.querySelectorAll("mask[data-plan-standback-mask] [data-plan-standback] > rect")]
+            .map((r) => ["x", "y", "width", "height"].map((a) => Number(r.getAttribute(a))));
+        // Each box is cut where it is, in the layer's coordinates.
+        expect(cuts()).toEqual([[60, 10, 40, 20], [450, 112, 30, 20]]);
+        const masked = `url(#${view.container.querySelector("mask")!.id})`;
+        const parts = [...view.container.querySelectorAll("[data-plan-link], [data-plan-ribbon-casing]")];
+        expect(parts).toHaveLength(6);
+        expect(parts.every((g) => g.getAttribute("mask") === masked)).toBe(true);
+        expect([...view.container.querySelectorAll("[data-plan-ribbon-label]")].some((g) => g.hasAttribute("mask"))).toBe(false);
+        // Fewer boxes on the next render: their cuts go with them.
+        view.rerender(<ChakraProvider value={system}><Layer standBack={[boxes[1]!]} /></ChakraProvider>);
+        expect(cuts()).toEqual([[450, 112, 30, 20]]);
+        // A host that gives no boxes draws no mask.
+        cleanup();
+        const plain = mount();
+        expect(plain.container.querySelector("mask")).toBeNull();
+        expect(plain.container.querySelector("[data-plan-link][mask]")).toBeNull();
+    });
+
     test("A68 — only the selected link's caption is outlined and carries a × in its own 16px target; its pointer-down is stopped and its click unlinks", () => {
         const onUnlink = vi.fn();
         const outer = vi.fn();
@@ -85,6 +107,17 @@ describe("the shared links layer", () => {
     test("A68 — with no host to unlink, a selected link has no ×", () => {
         const { container } = mount({ selected: 0 });
         expect(container.querySelector("[data-plan-ribbon-unlink]")).toBeNull();
+    });
+
+    test("several links selected at once are each marked, their captions too, and none has a × — one alone, given as a list, keeps its own", () => {
+        const onUnlink = vi.fn();
+        const several = mount({ selected: [0, 1], onUnlink });
+        expect([...several.container.querySelectorAll("[data-plan-link][data-selected]")].map((g) => g.getAttribute("data-plan-link"))).toEqual(["0", "1"]);
+        expect([...several.container.querySelectorAll("[data-plan-ribbon-label][data-selected]")].map((g) => g.getAttribute("data-plan-ribbon-label"))).toEqual(["0", "1"]);
+        expect(several.container.querySelector("[data-plan-ribbon-unlink]")).toBeNull();
+        several.unmount();
+        const one = mount({ selected: [1], onUnlink });
+        expect([...one.container.querySelectorAll("[data-plan-ribbon-unlink]")].map((x) => x.getAttribute("data-plan-ribbon-unlink"))).toEqual(["1"]);
     });
 
     test("A69 — a link drag fades the moved link to its was line, and draws the new line to the pointer", () => {

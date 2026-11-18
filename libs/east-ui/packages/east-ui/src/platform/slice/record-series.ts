@@ -45,7 +45,7 @@
 import { DateTimeType, equalFor, printFor, variant, type ValueTypeOf } from "@elaraai/east";
 import type { SeekQueryType } from "../../contracts/source.js";
 import { RecordSliceTileType, type RecordSliceChoiceType, type RecordSliceIndexType, type RecordSliceTilingType } from "./record-types.js";
-import { MAX_RECORD_SLICE_RUNS } from "./record-plan.js";
+import { MAX_RECORD_SLICE_RUNS, recordPrefixesExtended } from "./record-plan.js";
 
 type Choice = ValueTypeOf<RecordSliceChoiceType>;
 type Index = ValueTypeOf<RecordSliceIndexType>;
@@ -329,10 +329,11 @@ function leadingValues(index: Index, where: ReadonlyMap<string, Choice>): string
         if (index.sets.has(field) && values.length !== 1) {
             throw new Error(`A cell of '${index.name}' takes one value of '${field}', which fans out over a Set`);
         }
-        if (prefixes.length * values.length > MAX_RECORD_SLICE_RUNS) {
+        const extended = recordPrefixesExtended(prefixes, values);
+        if (extended === undefined) {
             throw new Error(`A cell of '${index.name}' needs more than ${MAX_RECORD_SLICE_RUNS} searches a key; choose fewer values`);
         }
-        prefixes = prefixes.flatMap(prefix => values.map(value => [...prefix, value]));
+        prefixes = extended;
     }
     return prefixes;
 }

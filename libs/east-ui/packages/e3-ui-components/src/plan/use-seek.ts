@@ -7,7 +7,7 @@
  * The paged canvas's KEY SEARCH vocabulary — `search` stops being a row filter
  * and becomes a seek (#567 D9, the affordance table). The search itself is
  * framework-free since #815 (`controller/seek.ts`); a query's East value is the
- * key search's (`toSeekQuery`, east-ui-components), shared with the Sheet.
+ * key search's (`toSeekQuery`, east-ui's `key-search.ts`), shared with the Sheet.
  *
  * # Why a key search can address canvas rows at all
  *

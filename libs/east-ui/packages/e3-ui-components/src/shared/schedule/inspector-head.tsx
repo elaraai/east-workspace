@@ -8,6 +8,7 @@ import { Box, type BoxProps } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName } from "@fortawesome/fontawesome-svg-core";
 import { FOCUS_HOME_PROPS } from "../focus-home.js";
+import { statusAttributes, type DrawnStatus } from "../status.js";
 
 /**
  * The shared Plan/Calendar inspector heading, using the inspector's existing recipe slots; `children` sit under its row, in
@@ -19,7 +20,7 @@ import { FOCUS_HOME_PROPS } from "../focus-home.js";
 export function ScheduleInspectorHead({ styles, kind, title, when, status, pending, writes = false, home = false, children }: {
     styles: Record<string, BoxProps["css"]>;
     kind: { name: string; icon: string }; title: string; when: ReactNode;
-    status?: { label: string; tone: { type: string }; ring: boolean } | undefined;
+    status?: DrawnStatus | undefined;
     pending?: "pending" | "new" | undefined;
     writes?: boolean;
     home?: boolean;
@@ -34,7 +35,7 @@ export function ScheduleInspectorHead({ styles, kind, title, when, status, pendi
                 <Box css={styles.when} data-inspector-when="">{when}</Box>
                 {(status !== undefined || pending !== undefined || writes) && <Box css={styles.marks} data-inspector-marks="" data-writes={writes ? "" : undefined}>
                     {pending !== undefined && <Box as="span" css={styles.chip} data-state={pending}>{pending === "new" ? "New" : "Pending"}</Box>}
-                    {status !== undefined && <Box as="span" css={styles.status} data-tone={status.tone.type} data-ring={status.ring ? "" : undefined} data-inspector-status="">{status.label}</Box>}
+                    {status !== undefined && <Box as="span" css={styles.status} {...statusAttributes(status)} data-inspector-status="">{status.label}</Box>}
                 </Box>}
             </Box>
         </Box>

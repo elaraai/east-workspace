@@ -36,6 +36,23 @@
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { coarseHitArea } from "../../style/hit-area.js";
 import { fontAwesomeSize } from "../icon-size.js";
+import { centredLine } from "../one-line-box.js";
+import { tokens } from "../tokens.js";
+
+/** A header's padding over and under its content at each size, in px: what the size variants pad it by. */
+const HEADER_PAD = { sm: 6, md: 10, lg: 12 } as const;
+
+/**
+ * The room a header centres its label in at a size (#1638): its height — the density row token, which the Table
+ * stands each row and its header at — less its 1px rule and its padding over and under its content. The pin and sort
+ * controls stand the content 24px tall, centred in the room as the label is in them, so the label stands where the
+ * room alone would centre it.
+ *
+ * @param size - The Table's size
+ * @returns The room, in px
+ */
+const headerRoom = (size: keyof typeof HEADER_PAD): number =>
+    Number.parseFloat(tokens.sizes.density.row[size].value) - 1 - 2 * HEADER_PAD[size];
 
 export const tableSlotRecipe = defineSlotRecipe({
     className: "elara-table",
@@ -90,6 +107,11 @@ export const tableSlotRecipe = defineSlotRecipe({
             // A number column: the controls lead, the label ends on the right.
             "&[data-align=end]": { flexDirection: "row-reverse" },
         },
+        // Its line is whole, and of its header's room's parity (#1638): each size
+        // sets it (`headerRoom`). Chakra's 20px line left half a pixel in the
+        // odd rooms of the 36px and 42px headers, and a 19px one in the even room
+        // of the smallest density's 27px, and the page painted the label a row
+        // higher or lower in the header by where it stood the table.
         columnHeaderLabel: {
             flex: "1",
             overflow: "hidden",
@@ -289,16 +311,23 @@ export const tableSlotRecipe = defineSlotRecipe({
         /* The row of a phone's column groups: one line of heads across the table. */
         phoneGroupRow: { display: "flex", width: "100%" },
         /* A column group's head over the columns of it in view: its words whole, wrapping at spaces; its width the
-           columns' it heads, given inline, and the review's spacer (`data-table-phone-fill`) the rest of the row. */
+           columns' it heads, given inline, and the review's spacer (`data-table-phone-fill`) the rest of the row.
+           It stands a phone header's 32px over its 1px rule (`columnHeader`). Its words are centred in the 30px
+           that a pixel of padding above them leaves — as much over them as the rule is under them — on a whole,
+           even line of 12px (#1638): one line starts 10px under the head's edge and two start 4px under it. Centred
+           in the 31px over the rule, one line or the other starts at a fraction; so did 1.3 of the 9.5px face. */
         phoneGroup: {
             flex: "none", "&[data-table-phone-fill]": { flex: "1 0 auto" },
-            minHeight: "28px", display: "flex", alignItems: "center", justifyContent: "center", paddingY: "4px", paddingX: "8px", boxSizing: "border-box", textAlign: "center",
-            fontFamily: "mono", fontSize: "label.xs", fontWeight: "600", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: "1.3", whiteSpace: "normal",
+            minHeight: "28px", display: "flex", alignItems: "center", justifyContent: "center", paddingX: "8px", boxSizing: "border-box", textAlign: "center",
+            "[data-table-phone] &": { paddingY: "1px 0" },
+            fontFamily: "mono", fontSize: "label.xs", fontWeight: "600", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: centredLine(30, 12), whiteSpace: "normal",
             background: "bg.canvas", borderBottomWidth: "1px", borderBottomStyle: "solid", borderBottomColor: "border.subtle",
             "& + &[data-table-phone-group]": { borderInlineStartWidth: "1px", borderInlineStartStyle: "solid", borderInlineStartColor: "border.subtle" },
         },
+        /* Its label on a whole line of 19px, centred in the 31px over the header's rule (#1638): the line it would take from the header is 20px, half a pixel off. */
         phoneHeaderSort: {
             all: "unset", position: "relative", boxSizing: "border-box", width: "100%", height: "100%", display: "flex", alignItems: "center", gap: "{spacing.1}", paddingX: "12px", cursor: "pointer",
+            lineHeight: centredLine(31, 19),
             /* The header stays the design's 32; its tap is 44, past it either side. */
             "&::after": { content: '""', position: "absolute", insetInline: "0", top: "-6px", bottom: "-6px" },
             "th[data-pinned] > &": { paddingInlineStart: "16px" },
@@ -340,9 +369,20 @@ export const tableSlotRecipe = defineSlotRecipe({
         // `value.density` (compact / cozy / comfortable) onto sm / md / lg and
         // pairs each with a row height from `TABLE_ROW_HEIGHT`.
         size: {
-            sm: { cell: { paddingX: "{spacing.2}", paddingY: "{spacing.1.5}", fontSize: "12px" }, columnHeader: { paddingX: "{spacing.2}", paddingY: "{spacing.1.5}" } },
-            md: { cell: { paddingX: "{spacing.3.5}", paddingY: "{spacing.2.5}", fontSize: "{fontSizes.body}" }, columnHeader: { paddingX: "{spacing.3.5}", paddingY: "{spacing.2.5}" } },
-            lg: { cell: { paddingX: "{spacing.4}", paddingY: "{spacing.3}", fontSize: "{fontSizes.body.lg}" }, columnHeader: { paddingX: "{spacing.4}", paddingY: "{spacing.3}" } },
+            // A header's label on a whole line of its room's parity (#1638): an even 20px in the smallest density's 14px,
+            // an odd 19px in the 15px and 17px of the larger two.
+            sm: {
+                cell: { paddingX: "{spacing.2}", paddingY: "{spacing.1.5}", fontSize: "12px" },
+                columnHeader: { paddingX: "{spacing.2}", paddingY: `${HEADER_PAD.sm}px` }, columnHeaderLabel: { lineHeight: centredLine(headerRoom("sm"), 20) },
+            },
+            md: {
+                cell: { paddingX: "{spacing.3.5}", paddingY: "{spacing.2.5}", fontSize: "{fontSizes.body}" },
+                columnHeader: { paddingX: "{spacing.3.5}", paddingY: `${HEADER_PAD.md}px` }, columnHeaderLabel: { lineHeight: centredLine(headerRoom("md"), 19) },
+            },
+            lg: {
+                cell: { paddingX: "{spacing.4}", paddingY: "{spacing.3}", fontSize: "{fontSizes.body.lg}" },
+                columnHeader: { paddingX: "{spacing.4}", paddingY: `${HEADER_PAD.lg}px` }, columnHeaderLabel: { lineHeight: centredLine(headerRoom("lg"), 19) },
+            },
         },
         striped: { true: { row: { "&:nth-of-type(odd)": { background: "bg.subtle" } } } },
         interactive: {

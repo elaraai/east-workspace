@@ -91,6 +91,7 @@ export {
   type ParsePackageRefResult,
   treePath,
   pathToString,
+  treePathToRefPath,
   parsePath,
   parseKeypath,
   parseDatasetPath,
@@ -107,6 +108,9 @@ export {
 
 // Function objects
 export {
+  FunctionInputType,
+  type FunctionInput,
+  inputLabel,
   FunctionObjectType,
   type FunctionObject,
   decodeFunctionObject,
@@ -118,12 +122,23 @@ export {
   type FunctionCallCancel,
   FunctionCallKeepType,
   type FunctionCallKeep,
+  FunctionCallDraftedType,
+  type FunctionCallDrafted,
   FunctionCallJobType,
   type FunctionCallJob,
   encodeFunctionCallJob,
   decodeFunctionCallJob,
   functionCallRoots,
 } from './function-call.js';
+
+// How a call says which of its drafts ended it
+export {
+  functionDraftLabel,
+  functionDraftEndLine,
+  functionDraftEnded,
+  functionDraftsLaidLine,
+  functionDraftsOutlasted,
+} from './function-draft.js';
 
 // Record objects
 export {
@@ -149,8 +164,12 @@ export {
   type RecordNestedRun,
   RecordNestedPathType,
   type RecordNestedPath,
-  RecordNestedItemType,
-  type RecordNestedItem,
+  NestedIdType,
+  NestedPathType,
+  NestedItemType,
+  nestedIdCase,
+  nestedPathCases,
+  nestedPathValue,
   NestedEntryKeyType,
   NestedSpanKeyType,
   nestedSpanName,
@@ -446,7 +465,13 @@ export {
   ExecuteLimitsType,
   DiagnosticType,
   ExecuteResultType,
+  InputReadType,
   CallArgType,
+  FunctionDraftType,
+  FunctionDraftConflictType,
+  FunctionDraftedType,
+  FunctionDraftFailureType,
+  FunctionDraftEndType,
   FunctionCallRequestType,
   FunctionSignatureType,
   OneShotRequestType,
@@ -459,6 +484,7 @@ export {
   // Function calls, kept for a lifetime
   FunctionCallStateType,
   FunctionCallArgType,
+  FunctionCallDraftType,
   FunctionCallSummaryType,
   FunctionCallType,
   FunctionCallStatusType,
@@ -534,7 +560,13 @@ export {
   type ExecuteLimits,
   type Diagnostic,
   type ExecuteResult,
+  type InputRead,
   type CallArg,
+  type FunctionDraft,
+  type FunctionDraftConflict,
+  type FunctionDrafted,
+  type FunctionDraftFailure,
+  type FunctionDraftEnd,
   type FunctionCallRequest,
   type FunctionSignature,
   type OneShotRequest,
@@ -545,6 +577,7 @@ export {
   type SplitCallPlan,
   type FunctionCallState,
   type FunctionCallArg,
+  type FunctionCallDraft,
   type FunctionCallSummary,
   type FunctionCall,
   type FunctionCallStatus,

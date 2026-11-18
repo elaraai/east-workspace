@@ -121,6 +121,7 @@ import { SheetApplyResultType, SheetNewRowType, SheetNewGroupType, SheetReadines
 import type { SheetPatchEventTypeFor, SheetDraftEntryOf } from "./drafts.js";
 import { orderedRowSource, type OrderedRowSource } from "../utils/ordered-source.js";
 import { scheduleLastKey } from "../schedule/window.js";
+import type { RecordSaveTypeFor } from "../bind/record.js";
 import { isExistsCheck, type SheetLocksInput } from "./link.js";
 
 // ============================================================================
@@ -180,6 +181,18 @@ export interface SheetReadyInput<R extends StructType, G extends EastType = neve
 }
 
 /**
+ * A sheet's `onApply` over its batch: an East function of the batch, sync or
+ * async, or the Save with its draft form that `Record.onApply` answers — a
+ * sheet handed that can hand its pending Save over as a draft.
+ *
+ * @typeParam B - The batch the sheet hands: `Sheet.Types.ChangeSet(R)`, or `ChangeSet(R, K)` by original primary key
+ */
+export type SheetApplyInput<B extends EastType> =
+    | SubtypeExprOrValue<FunctionType<[B], typeof SheetApplyResultType>>
+    | SubtypeExprOrValue<AsyncFunctionType<[B], typeof SheetApplyResultType>>
+    | ExprType<ReturnType<typeof RecordSaveTypeFor<B>>>;
+
+/**
  * The sheet's own options (§3) — `<Sheet>`'s props beside its rows (`record`
  * or `data`, or its `slice`'s `rows` source), its `columns`, its panes, its
  * narrowing, its views and its name.
@@ -225,8 +238,7 @@ export interface SheetOptions<R extends StructType, K extends EastType = StringT
     /** Observe one gesture's draft and domain patches; this does not authorize writes. */
     onPatch?: SubtypeExprOrValue<FunctionType<[ReturnType<typeof SheetPatchEventTypeFor<R>>], NullType>>;
     /** Submit one checked, idempotent batch to the authoritative source. */
-    onApply?: SubtypeExprOrValue<FunctionType<[ReturnType<typeof SheetChangeSetTypeFor<R>>], typeof SheetApplyResultType>>
-        | SubtypeExprOrValue<AsyncFunctionType<[ReturnType<typeof SheetChangeSetTypeFor<R>>], typeof SheetApplyResultType>>;
+    onApply?: SheetApplyInput<ReturnType<typeof SheetChangeSetTypeFor<R>>>;
     /** The ring moved. */
     onSelect?: SubtypeExprOrValue<FunctionType<[SheetSelectionType], NullType>>;
     /** Controlled selection. */
@@ -290,8 +302,7 @@ export interface SheetNarrowInput<K extends string = string> {
 /** A secondary-index view edits by original primary identity. */
 export interface SheetIndexedOptions<K extends EastType, R extends StructType> extends Omit<SheetOptions<R, K>, "onApply"> {
     /** Checked keyed batch, usually Record.onApply(record, { keyed: true }). */
-    onApply?: SubtypeExprOrValue<FunctionType<[ReturnType<typeof SheetChangeSetTypeFor<R, K>>], typeof SheetApplyResultType>>
-        | SubtypeExprOrValue<AsyncFunctionType<[ReturnType<typeof SheetChangeSetTypeFor<R, K>>], typeof SheetApplyResultType>>;
+    onApply?: SheetApplyInput<ReturnType<typeof SheetChangeSetTypeFor<R, K>>>;
 }
 
 /**
@@ -353,8 +364,7 @@ export interface SheetEntriesOptions<P extends StructType, F extends SheetLinesF
     /** Observe one gesture's draft and domain patches over the entries; this does not authorize writes. */
     onPatch?: SubtypeExprOrValue<FunctionType<[ReturnType<typeof SheetPatchEventTypeFor<SheetEntryOf<P, F>>>], NullType>>;
     /** Submit one checked, idempotent batch of entries to the authoritative source. */
-    onApply?: SubtypeExprOrValue<FunctionType<[ReturnType<typeof SheetChangeSetTypeFor<SheetEntryOf<P, F>>>], typeof SheetApplyResultType>>
-        | SubtypeExprOrValue<AsyncFunctionType<[ReturnType<typeof SheetChangeSetTypeFor<SheetEntryOf<P, F>>>], typeof SheetApplyResultType>>;
+    onApply?: SheetApplyInput<ReturnType<typeof SheetChangeSetTypeFor<SheetEntryOf<P, F>>>>;
 }
 
 /**

@@ -187,7 +187,7 @@ describe('an app mounted from the portable entry alone', () => {
       kind: TASK_OBJECT_KIND,
       body: variant('east', { program }),
       runner: freeRunner,
-      inputs: [{ path: rowsPath, partition: none }],
+      inputs: [{ path: rowsPath, index: none, partition: none }],
       output: { path: countPath, kind: variant('value', null) },
       role: variant('data', null),
       environment: none,
@@ -366,7 +366,9 @@ describe('an app mounted from the portable entry alone', () => {
       stderr: '',
       stdoutTruncated: false,
       stderrTruncated: false,
-      inputs: [{ path: rowsPath, hash: rowsHash }],
+      inputs: [{ path: rowsPath, index: none, hash: rowsHash }],
+      drafts: [],
+      draftEnd: none,
     });
     const refused = variant('error', variant('permission_denied', { path: 'one-shot' }));
     const answers = (answer: ValueTypeOf<typeof ResultType>, expected: ValueTypeOf<typeof ResultType>, what: string): void =>

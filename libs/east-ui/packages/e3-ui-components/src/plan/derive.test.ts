@@ -26,6 +26,7 @@ import type { PlanInstantValue } from "./instant.js";
 import { planScale } from "./scale.js";
 import { PLAN_WORDS } from "./words.js";
 import { rowId, rowKey } from "./plan.test-utils.js";
+import { entry } from "./row-id.test-utils.js";
 
 /** Instants on each arm — REAL East variant values, as the decoder yields them (#631). */
 const t = (d: Date): PlanInstantValue => variant("time", d) as PlanInstantValue;
@@ -360,7 +361,7 @@ describe("Plan derived heat / table aggregates", () => {
         const rows = [
             trow("ok", undefined, heat(n(2))),
             trow("bad", undefined, heat(t(W27))),
-            trow("worse", undefined, variant("events", { marks: [{ key: "m", at: o("FINISH"), kind: variant("milestone", null), icon: none, label: none }] })),
+            trow("worse", undefined, variant("events", { marks: [{ key: "m", at: o("FINISH"), kind: variant("milestone", null), status: none, icon: none, label: none }] })),
             trow("empty", undefined, variant("events", { marks: [] })),
         ];
         expect(axisKindMismatches(indexRows(rows), "number")).toEqual([
@@ -596,6 +597,23 @@ describe("Plan derivations at scale (#810)", () => {
         expect(derived.bands.get("p")).toEqual([
             expect.objectContaining({ from: n(0), to: n(N + 1), count: 2 }),
         ]);
+    });
+
+    test("a parent's bands roll up the rows beneath it, never another row of its own entry: a resource's own series' runs are not its resources' (#1541)", () => {
+        // A site whose press stands under it, a unit under that — each of the first two with a row of its own series
+        // over its own row, at its own path.
+        const at = (id: PlanRowValue["id"], key: string, parent: string | undefined, kind: unknown): PlanRowValue => ({ ...trow(key, parent, kind), id });
+        const derived = derivePlan(indexRows([
+            at(entry("sites", "s1"), "site", undefined, span([numRun("own", 0, 1)], true)),
+            at(entry("maint", "s1"), "site-maint", "site", span([numRun("m0", 50, 60)], false)),
+            at(entry("sites", "s1", "p1"), "press", "site", span([numRun("job", 2, 4)], true)),
+            at(entry("maint", "s1", "p1"), "press-maint", "press", span([numRun("m1", 70, 80)], false)),
+            at(entry("sites", "s1", "p1", "u1"), "unit", "press", span([numRun("part", 6, 8)], false)),
+        ]));
+        const bands = (key: string) => derived.bands.get(key)?.map((band) => [band.from.value, band.to.value]);
+        // The site: its own run, its press's and the unit's beneath that — and no row's maintenance.
+        expect(bands("site")).toEqual([[0, 1], [2, 4], [6, 8]]);
+        expect(bands("press")).toEqual([[2, 4], [6, 8]]);
     });
 
     test("250,000 cells in one bucket aggregate — max / min without a spread", () => {

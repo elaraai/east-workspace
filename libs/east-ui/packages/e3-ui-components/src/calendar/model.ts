@@ -6,6 +6,7 @@
 /** Calendar's UTC windows and projected data; no UI or record writes. */
 import { DateTimeType, SortedSet, StringType, compareFor, equalFor, parseFor, printFor, type ValueTypeOf } from "@elaraai/east";
 import { CalendarPayloadType, ScheduleEventRefType, ScheduleResourceRefType } from "@elaraai/e3-ui/internal";
+import { parseEventRef, printEventRef } from "../shared/schedule/event-ref.js";
 import type { Formatters } from "@elaraai/east-ui-components";
 import { shiftCalendar } from "../shared/time/calendar-math.js";
 import { type ScheduleItemValue } from "../shared/schedule/overlaps.js";
@@ -50,16 +51,16 @@ export const NOTHING_UNCOUNTED: CalendarUncounted = { names: [], all: false, res
 /** A slot recipe's styles. */
 export type CalendarStyles = Record<string, Record<string, unknown>>;
 
-import { DAY, dayStart, weekStart } from "../shared/schedule/window.js";
+import { DAY, dayStart, meetsWindow, weekStart } from "../shared/schedule/window.js";
 export { DAY, NARROW_WIDTH, dayStart, weekStart } from "../shared/schedule/window.js";
 /** A calendar gesture's smallest span. */
 export const QUARTER = 15 * 60_000;
-/** Canonical ids avoid collisions across record kinds and arbitrary keys. */
-export const eventKey = printFor(ScheduleEventRefType);
+/** Canonical ids avoid collisions across record kinds and arbitrary keys: the shared print of an event's reference. */
+export const eventKey = printEventRef;
 /** Resource ids use the shared East codec, not delimiter concatenation. */
 export const resourceKey = printFor(ScheduleResourceRefType);
-/** Reads an event id as its shared East type. */
-export const parseEventKey = parseFor(ScheduleEventRefType);
+/** Reads an event id as its shared East type: the shared parser of an event's reference. */
+export const parseEventKey = parseEventRef;
 /** Reads a resource id as its shared East type. */
 export const parseResourceKey = parseFor(ScheduleResourceRefType);
 /** Drag coordinates use East's DateTime representation. */
@@ -72,10 +73,20 @@ const compareDate = compareFor(DateTimeType);
 const compareRef = compareFor(ScheduleEventRefType);
 const compareString = compareFor(StringType);
 
+/**
+ * The period a view shows: its own on every layout but Resources, which shows a day whatever its period — what its
+ * window spans, a step moves it by, the toolbar names and an optimiser is asked of.
+ *
+ * @param view - The view: its layout and its period
+ * @returns The period it shows
+ */
+export function viewPeriod(view: Pick<CalendarView, "layout" | "period">): CalendarView["period"] {
+    return view.layout === "resources" ? "day" : view.period;
+}
 /** Calendar days including the surrounding weeks of a month. */
 export function calendarRange(view: CalendarView, settings: CalendarValue["settings"]): CalendarRange {
     const current = dayStart(view.date);
-    const period = view.layout === "resources" ? "day" : view.period;
+    const period = viewPeriod(view);
     let from = current;
     let to = new Date(from.getTime() + DAY);
     if (period === "week") {
@@ -91,8 +102,7 @@ export function calendarRange(view: CalendarView, settings: CalendarValue["setti
         }
     }
     const days: Date[] = [];
-    for (let at = from.getTime(); at < to.getTime(); at += DAY) {
-        const day = new Date(at);
+    for (let day = from; compareDate(day, to) < 0; day = new Date(day.getTime() + DAY)) {
         if (period === "day" || settings.weekends || (day.getUTCDay() !== 0 && day.getUTCDay() !== 6)) days.push(day);
     }
     return { from, to, days };
@@ -125,7 +135,7 @@ export function calendarAhead(view: CalendarView, settings: CalendarValue["setti
 export function periodWords(view: CalendarView, range: CalendarRange, settings: CalendarValue["settings"],
     format: Pick<Formatters, "weekdayDate" | "monthYear" | "range">): string {
     const own = calendarRange(view, settings);
-    const period = view.layout === "resources" ? "day" : view.period;
+    const period = viewPeriod(view);
     const same = compareDate(range.from, own.from) === 0 && compareDate(range.to, own.to) === 0;
     if (same && period === "day") return format.weekdayDate(range.from);
     if (same && period === "month") return format.monthYear(dayStart(view.date));
@@ -134,14 +144,12 @@ export function periodWords(view: CalendarView, range: CalendarRange, settings: 
 /** Previous/next period, with resource columns retaining one day. */
 export function navigate(view: CalendarView, step: number): CalendarView {
     const date = new Date(view.date);
-    const period = view.layout === "resources" ? "day" : view.period;
+    const period = viewPeriod(view);
     return { ...view, date: shiftCalendar(date, period, step).getTime() };
 }
-/** Whether a scheduled event intersects a half-open window. */
+/** Whether a scheduled event — one with a start and an end — meets a half-open window ({@link meetsWindow}). */
 export function inWindow(item: CalendarItem, from: Date, to: Date): boolean {
-    return item.start.type === "some" && item.end.type === "some"
-        && compareDate(item.start.value, to) < 0
-        && (compareDate(item.end.value, from) > 0 || compareDate(item.start.value, from) >= 0);
+    return item.start.type === "some" && item.end.type === "some" && meetsWindow(item.start.value, item.end.value, from, to);
 }
 /** Stable chronological order, including a tie-break across record kinds. */
 export function chronological(items: readonly CalendarItem[]): CalendarItem[] {

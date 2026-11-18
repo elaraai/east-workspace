@@ -23,7 +23,7 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
     ArrayType, DateTimeType, DictType, East, FloatType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue,
-    isTypeEqual, none, some, variant, type ValueTypeOf,
+    isTypeEqual, none, some, variant, type ExprType, type ValueTypeOf,
 } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui";
 import { Roster } from "@elaraai/e3-ui";
@@ -49,8 +49,14 @@ const move = East.compile(rosterMove, []);
 type Payload = ValueTypeOf<typeof RosterPayloadType>;
 type Context = ValueTypeOf<typeof Roster.Types.Context>;
 
-/** The warehouse's payload, the tag over its records as the warehouse example binds them, with its pay and its check. */
-const program = East.function([], RosterPayloadType, ($) => {
+/** The targets' own hours needed of a row and its shift's hours (#1678). */
+type TargetsNeeded = (row: ExprType<typeof rx.WarehouseCover>, shiftHours: ExprType<typeof FloatType>) => ExprType<typeof FloatType>;
+
+/**
+ * The warehouse's payload, the tag over its records as the warehouse example binds them, with its pay and its check —
+ * and its targets' own hours needed, where they are given.
+ */
+const programOf = (needed?: TargetsNeeded) => East.function([], RosterPayloadType, ($) => {
     const rota = $.let(Record.bind(rx.rosterDuties, ["patch"]));
     const entries = $.let(Data.bindPaged(rx.rosterDuties));
     const byTime = $.let(Data.bindPaged(rx.rosterDuties, { indexes: ["roster_duties_by_time"] }));
@@ -127,7 +133,7 @@ const program = East.function([], RosterPayloadType, ($) => {
             agencies: Schedule.resources(firms.read(), { name: "Agencies", icon: "building", label: a => a.name }),
         },
         periods: Schedule.periods(weeks, { every: "week", status: { field: "state", draft: "open", published: "issued" }, dismissed: "dismissed" }),
-        targets: Roster.targets(cover, { day: "day", group: "team", shift: "shift", positions: "heads", hours: "hours" }),
+        targets: Roster.targets(cover, { day: "day", group: "team", shift: "shift", positions: "heads", hours: "hours", ...(needed === undefined ? {} : { needed }) }),
         shifts: Roster.shifts(times.read(), { label: s => s.label, code: s => s.code, start: s => s.start, hours: s => s.hours, order: s => s.order, color: s => s.colour }),
         groups: Roster.groups(teams.read(), { label: t => t.label, order: t => t.order }),
         positions: Roster.positions(roles.read(), { label: p => p.label, code: p => p.code, lead: p => p.lead, order: p => p.order }),
@@ -136,14 +142,16 @@ const program = East.function([], RosterPayloadType, ($) => {
         patterns: Roster.patterns(weekPatterns.read(), { name: "Patterns", icon: "calendar-week", label: w => w.label, days: w => w.days, order: w => w.order }),
     });
 });
+/** The warehouse's payload as its example binds it: its targets give no hours needed of their own. */
+const program = programOf();
 
-/** The payload, built over e3 as a UI task's preview builds it, its slice made on the record Slice's platform over e3's pages. */
-async function built(): Promise<Payload> {
-    const { platform } = await h.platform(program);
+/** A payload, built over e3 as a UI task's preview builds it, its slice made on the record Slice's platform over e3's pages. */
+async function built(of = program): Promise<Payload> {
+    const { platform } = await h.platform(of);
     StateRuntime.initializeStore(new UIStore());
     const implementations = [...platform];
     implementations.push(...createRecordSliceImplementation(() => implementations));
-    return East.compile(program, implementations)();
+    return East.compile(of, implementations)();
 }
 /** The context the Roster's functions read, from the payload: every person, list and rule. */
 const contextOf = (value: Payload): Context => ({
@@ -181,7 +189,11 @@ describe("the Roster's payload over the warehouse's records", () => {
         assert.ok(equalFor(DateTimeType)(value.proposals[0]!.day, new Date("2028-03-09T00:00:00Z")));
         assert.deepEqual(value.proposals.map((proposal) => [proposal.key, proposal.person]), [["s317", "nochre"], ["s318", "bpumice"]]);
         assert.deepEqual(value.rules, { rest: 10, lead: true, trainer: true, skill: true });
-        assert.deepEqual([value.currency, value.fit, value.inspector], [some("AUD"), some({ name: "roster_staff_fit" }), true]);
+        // The fit's binding names its function, the duties it lists in `drafts` and the records it reads, each by name (#1624).
+        assert.deepEqual([value.currency, value.fit, value.inspector], [some("AUD"), some({
+            name: "roster_staff_fit", drafts: ["roster_duties"],
+            reads: ["roster_activities", "roster_duties", "roster_positions", "roster_shift_times", "roster_staff", "roster_teams"],
+        }), true]);
         assert.ok(isTypeEqual(fromEastTypeValue(value.duty.rowType), Duty));
         assert.deepEqual([value.duty.roles.position, value.duty.roles.activity], [true, true]);
     });
@@ -248,6 +260,23 @@ describe("the Roster's payload over the warehouse's records", () => {
         const created = decodeCover(targets.create({ ...entry.roles, positions: 2n }));
         assert.deepEqual([created.heads, created.team, created.basis], [2n, "inbound", ""], "a new target's other fields their type's default");
         assert.ok(equalFor(rx.WarehouseCover)(decodeCover(encodeCover(written)), written));
+    });
+
+    test("a target's hours needed (#1678): the sum of its row's hours where the targets give none, else theirs of the row and its shift's hours — each read again from an edited row", async () => {
+        const value = await built();
+        if (value.targets.type !== "some") assert.fail("expected the targets");
+        const targets = value.targets.value;
+        const rows = await h.ready(() => targets.rows(rx.warehouseStart, rx.warehouseNextStart));
+        const entry = [...rows.values()].find((row) => row.roles.group === "inbound" && row.roles.shift === "early" && dateEqual(row.roles.day, rx.warehouseStart))!;
+        // Sunday's Inbound early: 20 + 13 + 13 + 20 + 13 + 6 hours of its activities, on an eight-hour shift.
+        assert.equal(targets.needed(entry.row, 8), 85);
+        const hours = new SortedMap(entry.roles.hours, byString); hours.set("unload", 25);
+        assert.equal(targets.needed(targets.write(entry.row, { ...entry.roles, hours }), 8), 90, "its hours edited, read again from the edited row");
+        // Targets whose hours needed are their heads' shifts: eleven heads of eight hours, then twelve.
+        const own = await built(programOf((row, shiftHours) => row.heads.toFloat().multiply(shiftHours)));
+        if (own.targets.type !== "some") assert.fail("expected the targets");
+        assert.equal(own.targets.value.needed(entry.row, 8), 88);
+        assert.equal(own.targets.value.needed(own.targets.value.write(entry.row, { ...entry.roles, positions: 12n }), 8), 96, "its heads edited, read again");
     });
 
     test("the weeks: this one a draft, the one before published, and when", async () => {

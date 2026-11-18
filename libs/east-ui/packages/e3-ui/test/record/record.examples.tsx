@@ -162,7 +162,7 @@ export const recordSkillsMatrix = example({
                             { label: "Advanced", columnKeys: ["auditing", "training", "planning"] },
                         ]}
                         inspector
-                        onApply={Record.onApply(people, { keyed: true })}
+                        record={people}
                         name="skills"
                     />
                 </Box>
@@ -1126,7 +1126,7 @@ export const recordPreferenceSnapshots = example({
 // ============================================================================
 
 export const recordIndexedWorkOrders = example({
-    keywords: ["Record", "Slice.bindRecords", "rows", "Data.bindPaged", "Record.onApply", "indexes", "paging", "large record", "filter", "range", "search", "presets", "lens", "Record.column.cycle", "tone", "Record.column.toggle"],
+    keywords: ["Record", "Slice.bindRecords", "rows", "Data.bindPaged", "record", "Record.bind", "indexes", "paging", "large record", "filter", "range", "search", "presets", "lens", "Record.column.cycle", "tone", "Record.column.toggle"],
     description: "50,000 work orders as a Record, the record sheetRecordIndexes edits: the rail's rows source narrows them through the record's maintained indexes — Status, a Due range, a Job search, Quantity, Urgent and Tag, opening on Ready, with Ready and Urgent presets — and the Record reads only the rows near the view. Each order's reference is its title, its status a chip a click steps through Ready, Scheduled and Done, and its urgency a toggle; Save commits by key through the record's patch door, and the page adds no orders",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
@@ -1164,7 +1164,7 @@ export const recordIndexedWorkOrders = example({
                             urgent:    Record.column.toggle(IndexedWork, { header: "Urgent", width: "88px", on: "yes", off: "no" }),
                         }}
                         inspector
-                        onApply={Record.onApply(orders, { keyed: true })}
+                        record={orders}
                         name="indexedWorkOrders"
                     />
                 </Box>
@@ -1213,7 +1213,7 @@ export const recordIndexedWorkOrdersMobile = example({
                             urgent:    Record.column.toggle(IndexedWork, { header: "Urgent", width: "88px", on: "yes", off: "no" }),
                         }}
                         inspector
-                        onApply={Record.onApply(orders, { keyed: true })}
+                        record={orders}
                         name="indexedWorkOrdersMobile"
                     />
                 </Box>

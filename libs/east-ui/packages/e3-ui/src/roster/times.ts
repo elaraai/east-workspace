@@ -28,11 +28,21 @@
  */
 
 import {
-    DateTimeType, East, IntegerType, OptionType, StringType, none, some, variant,
+    ArrayType, DateTimeType, East, IntegerType, NullType, OptionType, StringType, StructType, VariantType, none, some, variant,
     type EastType, type ExprType, type FunctionType,
 } from "@elaraai/east";
 import { ScheduleClockType, ScheduleResourceRefType, ScheduleRosterRolesType } from "../schedule/types.js";
-import { RosterContextType, RosterIssueType, RosterPlaceType, RosterPlacementTypeFor, RosterShiftType, RosterSlotType, RosterWhoType } from "./types.js";
+import {
+    RosterContextType, RosterGroupType, RosterIssueType, RosterPlaceType, RosterPlacementTypeFor, RosterShiftType, RosterSlotType, RosterWhoType,
+} from "./types.js";
+
+/**
+ * How far a duty's start may stand from its shift's start on its day, either
+ * way, in hours (§5.5, rules 1 and 4): the one measure of it, which a duty's
+ * day ({@link rosterDayOf}) and every window the Roster reads duties over
+ * ({@link rosterWindow}, {@link rosterSpanWindow}) are made from.
+ */
+const REACH_HOURS = 12n;
 
 /**
  * A duty's day (§5.5, rule 1): the UTC midnight of the day whose shift start is
@@ -46,7 +56,7 @@ import { RosterContextType, RosterIssueType, RosterPlaceType, RosterPlacementTyp
  */
 export const rosterDayOf = East.function([DateTimeType, ScheduleClockType], DateTimeType, ($, start, clock) => {
     const minutes = $.const(clock.hour.multiply(60n).add(clock.minute));
-    return East.DateTime.roundDownDay(start.subtractMinutes(minutes).addHours(12n), 1n);
+    return East.DateTime.roundDownDay(start.subtractMinutes(minutes).addHours(REACH_HOURS), 1n);
 });
 
 /**
@@ -60,6 +70,87 @@ export const rosterDayOf = East.function([DateTimeType, ScheduleClockType], Date
  */
 export const rosterShiftStart = East.function([DateTimeType, RosterShiftType], DateTimeType, (_$, day, shift) =>
     day.addMinutes(shift.start.hour.multiply(60n).add(shift.start.minute)));
+
+/**
+ * Where a duty stands in a week, from its roles (§5.5, rules 1 and 8): the one
+ * measure of a duty's day and place, which the page's reading of a duty
+ * ({@link rosterPlacement}) and a fit's answer (`Roster.answer`,
+ * east-workspace#1624) both call.
+ *
+ * @property placed - Its place in the week: its day, its shift and its group, none for a duty in no group yet
+ * @property elsewhere - A duty whose day falls in another week
+ * @property shift - A duty of this week whose shift isn't configured
+ * @property group - A duty of this week whose group isn't configured, by the group's key
+ * @internal
+ */
+export const RosterStandingType = VariantType({ placed: RosterPlaceType, elsewhere: NullType, shift: NullType, group: StringType });
+
+/**
+ * A week's window (east-workspace#1624): the span a week's duties are read
+ * over — the week and the twelve hours either side, as far as a duty's start
+ * may stand from its shift's ({@link rosterDayOf}). The one copy: the page's
+ * reads and an app's function that reads the week's duties both use it, and
+ * the page's reads of a span of weeks its span's ({@link rosterSpanWindow}).
+ *
+ * @param start - The week's first day, a UTC midnight
+ * @returns The window, half open: from twelve hours before the week to twelve hours after it
+ * @example
+ * ```ts
+ * // Inside an e3.function's body: the week's duties, over the window the Roster reads them over.
+ * const windowOf = $.const(Roster.window);
+ * const span = $.const(windowOf(request.start));
+ * dutiesByTime.overlapping({ from: span.from, to: span.to }).each($, ($2, _carried, key) => { $2(week.insert(key, roles(duties.get(key)))); });
+ * ```
+ */
+export const rosterWindow = East.function([DateTimeType], StructType({ from: DateTimeType, to: DateTimeType }), (_$, start) => ({
+    from: start.subtractHours(REACH_HOURS), to: start.addDays(7n).addHours(REACH_HOURS),
+}));
+
+/**
+ * A span's window (east-workspace#1624): the span a duty may start in for a
+ * shift that starts within the span — the span and the twelve hours either
+ * side, as far as a duty's start may stand from its shift's
+ * ({@link rosterDayOf}). What the page reads a span of weeks' duties over, and
+ * an instant's: the starts a duty of a shift starting then may take.
+ *
+ * @param from - The span's start
+ * @param to - Its end
+ * @returns The window, half open
+ * @internal
+ */
+export const rosterSpanWindow = East.function([DateTimeType, DateTimeType], StructType({ from: DateTimeType, to: DateTimeType }), (_$, from, to) => ({
+    from: from.subtractHours(REACH_HOURS), to: to.addHours(REACH_HOURS),
+}));
+
+/**
+ * Where a duty stands in the week of `start` (see {@link RosterStandingType}).
+ *
+ * @param roles - The duty's roles
+ * @param start - The week's first day, a UTC midnight
+ * @param shifts - The shifts the Roster is configured with
+ * @param groups - Its groups
+ * @returns Its place, or why it has none
+ * @remarks Its day is the UTC day whose shift start is nearest its own — or, for a shift not configured, the UTC day it starts; its week the one holding that day. A duty in no group stands in none (#1548); one of a group not configured stands nowhere.
+ * @internal
+ */
+export const rosterPlaceOf = East.function(
+    [ScheduleRosterRolesType, DateTimeType, ArrayType(RosterShiftType), ArrayType(RosterGroupType)], RosterStandingType,
+    ($, roles, start, shifts, groups) => {
+        const dayOf = $.const(rosterDayOf);
+        const own = $.const(shifts.filter((_$2, shift) => East.equal(shift.key, roles.shift)));
+        const known = $.const(East.greater(own.size(), 0n));
+        const day = $.const(known.ifElse(() => dayOf(roles.start, own.get(0n).start), () => East.DateTime.roundDownDay(roles.start, 1n)));
+        $.if(East.less(day, start).or(() => East.greaterEqual(day, start.addDays(7n))), ($2) => { $2.return(variant("elsewhere", null)); });
+        $.if(known.not(), ($2) => { $2.return(variant("shift", null)); });
+        $.match(roles.group, {
+            some: ($2, group) => {
+                $2.if(groups.some((_$3, configured) => East.equal(configured.key, group)).not(), ($3) => { $3.return(variant("group", group)); });
+            },
+        });
+        // Both are UTC midnights: a whole number of days apart.
+        const index = $.const(East.Float.roundHalf(start.durationDays(day)), IntegerType);
+        return variant("placed", { day: index, group: roles.group, shift: roles.shift });
+    });
 
 /**
  * Reads one duty as the Roster does: its kind's roles and its row, in the week
@@ -78,15 +169,13 @@ export function rosterPlacement<R extends EastType>(row: R) {
     // The row's type erased inside, as the Allocation's functions over their row type are: East checks it as it builds.
     const Placement = RosterPlacementTypeFor(row as EastType);
     return East.function([ScheduleRosterRolesType, row as EastType, StringType, DateTimeType, RosterContextType], Placement, ($, roles, value, key, start, context) => {
-        const dayOf = $.const(rosterDayOf);
+        const placeOf = $.const(rosterPlaceOf);
+        // Where it stands: the one measure of a duty's day and place, which a fit's answer reads too.
+        const standing = $.const(placeOf(roles, start, context.shifts, context.groups));
+        $.match(standing, { elsewhere: ($2) => { $2.return(variant("elsewhere", null)); } });
         const shifts = $.const(context.shifts.filter((_$2, shift) => East.equal(shift.key, roles.shift)));
         const groups = $.const(context.groups.filter((_$2, group) => East.equal(roles.group, some(group.key))));
-        // A duty in no group stands in none (#1548); a group not configured places it nowhere.
-        const grouped = $.const(roles.group.match({ some: (_$2, _group) => East.greater(groups.size(), 0n), none: (_$2) => East.value(true) }));
         const known = $.const(East.greater(shifts.size(), 0n));
-        // Its day: its shift's start nearest its own — or, for a shift not configured, the UTC day it starts.
-        const day = $.const(known.ifElse(() => dayOf(roles.start, shifts.get(0n).start), () => East.DateTime.roundDownDay(roles.start, 1n)));
-        $.if(East.less(day, start).or(() => East.greaterEqual(day, start.addDays(7n))), ($2) => { $2.return(variant("elsewhere", null)); });
         // A group as its issue names it: its label, or the key no group of the Roster's has.
         const groupText = $.const(East.function([StringType], StringType, (_$2, group) =>
             East.greater(groups.size(), 0n).ifElse(() => groups.get(0n).label, () => group)));
@@ -98,18 +187,19 @@ export function rosterPlacement<R extends EastType>(row: R) {
             kind: variant("breach", null), tone: variant("danger", null), title, detail,
             slot: none, assignment: some(key), flag: some(flag), fix: none,
         })));
-        $.if(known.not(), ($2) => {
-            const detail = $2.const(roles.group.match({
-                some: (_$3, group) => East.str`${groupText(group)} · this shift isn't configured: the duty is kept as stored`,
-                none: (_$3) => East.value("This shift isn't configured: the duty is kept as stored", StringType),
-            }));
-            $2.return(variant("unplaced", unplaced(East.str`Unknown shift · ${roles.shift}`, detail, "unknown shift")));
-        });
-        $.if(grouped.not(), ($2) => {
+        $.match(standing, {
+            shift: ($2) => {
+                const detail = $2.const(roles.group.match({
+                    some: (_$3, group) => East.str`${groupText(group)} · this shift isn't configured: the duty is kept as stored`,
+                    none: (_$3) => East.value("This shift isn't configured: the duty is kept as stored", StringType),
+                }));
+                $2.return(variant("unplaced", unplaced(East.str`Unknown shift · ${roles.shift}`, detail, "unknown shift")));
+            },
             // Only a duty of a group the Roster doesn't know: named by its key.
-            const group = $2.const(roles.group.unwrap("some"));
-            $2.return(variant("unplaced", unplaced(East.str`Unknown group · ${group}`,
-                East.str`${shiftText} · this group isn't configured: the duty is kept as stored`, "unknown group")));
+            group: ($2, group) => {
+                $2.return(variant("unplaced", unplaced(East.str`Unknown group · ${group}`,
+                    East.str`${shiftText} · this group isn't configured: the duty is kept as stored`, "unknown group")));
+            },
         });
         const who = $.let(none, OptionType(RosterWhoType));
         $.match(roles.resource, {
@@ -122,11 +212,9 @@ export function rosterPlacement<R extends EastType>(row: R) {
             const where = $2.const(roles.group.match({ some: (_$3, group) => East.str`${groupText(group)} · ${shiftText}`, none: (_$3) => shiftText }));
             $2.return(variant("unplaced", unplaced(East.str`No one rostered · ${key}`, East.str`${where} · the duty names no person and no agency`, "no one")));
         });
-        // Both are UTC midnights: a whole number of days apart.
-        const index = $.const(East.Float.roundHalf(start.durationDays(day)), IntegerType);
         const position = $.const(roles.position.match({ some: (_$2, held) => held, none: (_$2) => East.value("", StringType) }));
         return variant("placed", {
-            place: { day: index, group: roles.group, shift: roles.shift }, who: who.unwrap("some"), position, activity: roles.activity,
+            place: standing.unwrap("placed"), who: who.unwrap("some"), position, activity: roles.activity,
             start: roles.start, end: roles.end, hours: roles.hours, row: value,
         });
     }) as unknown as ExprType<FunctionType<[ScheduleRosterRolesType, R, StringType, DateTimeType, RosterContextType], RosterPlacementTypeFor<R>>>;

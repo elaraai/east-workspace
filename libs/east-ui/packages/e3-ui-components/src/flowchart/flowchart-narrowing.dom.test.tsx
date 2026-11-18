@@ -16,7 +16,9 @@
  *   listed in Issues (D7).
  * - **Dim**: every state read, none by key; what the narrowing leaves out
  *   drawn as context, selected by no path; a ghost faded once every
- *   transition naming it is.
+ *   transition naming it is. On a page whose states' source holds a scope
+ *   (#1621), every state is every state the scope holds: the rest are read by
+ *   key alone, as the ends of the transitions kept, which are hidden with them.
  * - **A draft the rail hides** waits in its session through a remount, and
  *   Save writes it with the rest (R11); a Save that takes a state out of the
  *   narrowing says so in the footer's shared notice (R12).
@@ -32,8 +34,9 @@ import { describe, expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, variant, type ValueTypeOf } from "@elaraai/east";
-import { RecordSliceStateType, type RecordSliceWhereType } from "@elaraai/east-ui/internal";
+import { RecordSliceStateType, Slice, type RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import { StateRuntime, editingMessages, formatters } from "@elaraai/east-ui-components";
+import { Data, Flowchart } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/flowchart/flowchart";
 import type { E3Request } from "../e3-web.test-utils.js";
 import { programOf, reloadPage, slot } from "../e3-web-mount.test-utils.js";
@@ -166,6 +169,28 @@ async function open(example: { fn: { toIR(): unknown } }, first: string): Promis
 // Hide and dim (R6, D7, D11)
 // ============================================================================
 
+/** The depot on the returns' own page (#1621): the states scoped to the returns' flow, a choice of lane beside it, and the transitions every flow's, dimmed. */
+const returnsPage: Parameters<typeof h.mountFlowchart>[0] = ($) => {
+    const slice = $.let(Slice.bindRecords("flowchart.returns", {
+        states: {
+            source: Data.bindPaged(ex.depotStates, { indexes: ["flowchart_states_by_flow", "flowchart_states_by_lane"] }),
+            scope: { flow: ["Returns"] },
+            fields: { phase: { label: "Lane" } },
+        },
+        transitions: { source: Data.bindPaged(ex.depotTransitions, { indexes: ["flowchart_transitions_by_flow"] }) },
+    }));
+    const states = $.let(Data.bindPaged(ex.depotStates));
+    const transitions = $.let(Data.bindPaged(ex.depotTransitions));
+    const lanes = $.let(Data.bind(ex.depotLanes));
+    return {
+        slice: { slice },
+        narrowed: "dim",
+        states: Flowchart.states(states, { label: "name", lane: "phase", order: "seq" }),
+        transitions: Flowchart.transitions(transitions, { from: "src", to: "dst", kind: (t) => t.kind }),
+        lanes: Flowchart.lanes(lanes, { label: "label", order: "seq" }),
+    };
+};
+
 describe("hide and dim (#1502, R6, D7)", () => {
     test("under hide, the ends the states' narrowing leaves out are read by key, every one in one request: one found hides its transition with it; one absent is a ghost, listed in Issues", async () => {
         // A transition of the parcels' flow into RCV, a state of the returns' flow the rail's opening choice leaves out.
@@ -212,6 +237,40 @@ describe("hide and dim (#1502, R6, D7)", () => {
         await waitFor(() => expect(node(c, "DLV")!.hasAttribute("data-context")).toBe(true));
         expect([link(c, "l10"), link(c, "r1") !== null]).toEqual([null, true]);
         expect(inspectorPanel(c).querySelector("[data-inspector-no-issues]")).not.toBeNull();
+    });
+
+    test("on a page scoped to the returns' flow, dimmed, the states read are the returns' alone, every search naming the flow; the parcels' are read by key alone, as the ends their transitions name, and those transitions are hidden with them — drawn neither as themselves nor as context — and Issues lists none (#1621)", async () => {
+        const { container: c } = await h.mountFlowchart(returnsPage);
+        await waitFor(() => expect(node(c, "RCV")).not.toBeNull());
+        await settle();
+        // The returns' states alone, none faded: the scope is no choice of the viewer's, and nothing beyond it is drawn.
+        expect([stateKeys(c), context(c)]).toEqual([["INS", "RCV", "RSD"], []]);
+        // The returns' transitions drawn; every parcels' one hidden with its ends, DSP → DLV's with DSP.
+        expect([...c.querySelectorAll("[data-flowchart-link]")].map((el) => el.getAttribute("data-flowchart-link") ?? "").sort(compareString)).toEqual(["r1", "r2"]);
+        // The parcels' states read by key alone — every end the transitions name that the scope leaves out, in one request
+        // — and the record never whole.
+        const ends = ["ARV", "CH*", "CLR", "DLV", "DSP", "HLD", "IND", "LBL", "LDD", "SCN", "SRD"].map((key) => printText(key)).sort(compareString);
+        expect(h.requests("rows", STATES).map(keysOf)).toEqual([ends]);
+        expect(h.requests("read", STATES)).toEqual([]);
+        // The states sought by the returns' flow alone, through the index the flow leads, and paged through it.
+        const states = h.requests(undefined, STATES);
+        expect(states.flatMap((request) => request.searches)).toEqual([{ key: printText("Returns") }]);
+        expect([...new Set(states.flatMap((request) => { const index = request.query.get("index"); return index === null ? [] : [index]; }))]).toEqual(["flowchart_states_by_flow"]);
+        await openTab(c, "end", "Issues");
+        expect(inspectorPanel(c).querySelector("[data-inspector-no-issues]")).not.toBeNull();
+    });
+
+    test("on a page scoped to the returns' flow, Find state lists the returns' states alone: `I` finds INS by its key and RCV by its label, Received — and never IND, the parcels' (#1621)", async () => {
+        const { container: c } = await h.mountFlowchart(returnsPage);
+        await waitFor(() => expect(node(c, "RCV")).not.toBeNull());
+        await settle();
+        const input = slot(c, "toolbar").querySelector<HTMLInputElement>("[data-toolbar-item='seek'] [data-part='dataset-key-search'] input")!;
+        await act(async () => { input.focus(); fireEvent.input(input, { target: { value: "I" } }); });
+        await settle();
+        const found = () => [...document.querySelectorAll('[role="option"]')].map((option) => (option.textContent ?? "").split(" · ")[0]);
+        // The record's matches first, by key, then a drawn state's by its label.
+        await waitFor(() => expect(found()).toEqual(["INS", "RCV"]), { timeout: 10_000 });
+        expect(h.requests("read", STATES)).toEqual([]);
     });
 });
 

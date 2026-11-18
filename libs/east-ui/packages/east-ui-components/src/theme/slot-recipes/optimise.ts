@@ -37,6 +37,9 @@
  *     `--dur-base` and collapsing over it (`data-leaving`: height and
  *     opacity). The mock's inset card and brand-face title are the mock's:
  *     one banner style in a frame (ruled 26 Oct 2026).
+ *   - legendItem: the legend's `Elara change` item laid out as the design's
+ *     legend item is — its swatch, then its words 8px on — whatever the
+ *     builder's footer gives it; a builder's own legend item style goes over it.
  *   - legendSwatch: the legend's `Elara change` — a 14 × 8 swatch of the dirty
  *     fill with the steady ring and glow.
  *   - landing: the builder's main — or, for a builder with no root of its
@@ -128,7 +131,7 @@ const LANDING = {
 
 export const optimiseSlotRecipe = defineSlotRecipe({
     className: "elara-optimise",
-    slots: ["eye", "button", "stop", "entry", "entryReason", "banner", "bannerBox", "legendSwatch", "landing"],
+    slots: ["eye", "button", "stop", "entry", "entryReason", "banner", "bannerBox", "legendItem", "legendSwatch", "landing"],
     base: {
         eye: {
             display: "block",
@@ -237,6 +240,13 @@ export const optimiseSlotRecipe = defineSlotRecipe({
             minHeight: "0",
             minWidth: "0",
             overflow: "hidden",
+        },
+        legendItem: {
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "{spacing.2}",
+            flex: "none",
+            whiteSpace: "nowrap",
         },
         legendSwatch: {
             display: "inline-block",

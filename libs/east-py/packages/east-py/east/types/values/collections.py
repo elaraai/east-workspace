@@ -319,6 +319,40 @@ def _require_operand_type(other, expected, op: str) -> None:
     )
 
 
+def _bound_traced(bound: Any) -> bool:
+    """Whether a key range's bound is, or holds, a traced expression: a bound
+    is written as a struct of its fields, so one traced field makes the call
+    one a body builds — ``table.prefix({"press": press})``."""
+    from east.expression.lift import _holds_traced
+
+    return _holds_traced(bound)
+
+
+def _eager_bound(name: str, key_type: Any, bound: Any) -> tuple:
+    """``(bound type, bound value)`` of a key range's bound on an eager
+    collection (#1616): the bound's type is the key's type cut short to what
+    is written (``east.key_bound``), and the value is coerced to it. A bound
+    that is no leading part of the key raises ``EastTypeError`` in the words
+    every runtime refuses it in."""
+    from east.key_bound import key_bound_refusal, written_bound_type
+    from east.types.coercion import EastTypeError, coerce_to
+
+    bound_type = written_bound_type(key_type, bound)
+    refusal = key_bound_refusal(name, key_type, bound_type)
+    if refusal is not None:
+        raise EastTypeError(refusal)
+    return bound_type, coerce_to(bound, bound_type)
+
+
+def _eager_range_end(name: str, key_type: Any, bound: Any) -> tuple:
+    """``(bound type, option)`` of one end of an eager range: ``some(bound)``,
+    or ``none`` at the key's own type for an end left out."""
+    if bound is None:
+        return key_type, EastVariant("none", east_null)
+    bound_type, value = _eager_bound(name, key_type, bound)
+    return bound_type, EastVariant("some", value)
+
+
 def _numeric_zero_for(t):
     """The additive identity for a numeric East type, or a named TypeError.
 
@@ -2389,6 +2423,60 @@ class EastSet(Generic[T]):
 
         return _call_builtin("SetCopy", [self.element_type], [self], SetType(self.element_type))
 
+    def range(self, from_: Any = None, to: Any = None) -> EastSet:
+        """The elements from the first at or past ``from_`` up to, and not
+        including, the first at or past ``to`` (east-c SetRange; TS
+        ``range({ from, to })``).
+
+        Args:
+            from_: Where the range starts: the whole element or, for a struct
+                element, its first fields as a dict in any order
+                (``{"press": "P1"}``), the last of them cut short the same way
+                where it is a struct itself. Left out, the set's first element.
+            to: Where the range stops, written as ``from_`` is; the first
+                element at or past it is not in the range. Left out, the range
+                runs to the set's last element.
+
+        Returns:
+            A new set, never frozen, found by a search and never by a walk of
+            the set; ``from_`` past ``to`` gives an empty set.
+
+        Raises:
+            EastTypeError: When a bound is no leading part of the element,
+                naming its fields in order.
+        """
+        from east.types.types import SetType
+
+        if _bound_traced(from_) or _bound_traced(to):
+            return _lift_traced(self).range(from_, to)
+        from_t, from_opt = _eager_range_end("from", self.element_type, from_)
+        to_t, to_opt = _eager_range_end("to", self.element_type, to)
+        return _call_builtin("SetRange", [self.element_type, from_t, to_t],
+                             [self, from_opt, to_opt], SetType(self.element_type))
+
+    def prefix(self, fields: Any) -> EastSet:
+        """The elements that begin with ``fields`` — the first fields of a
+        struct element, as a dict (east-c SetPrefix; TS ``prefix``).
+
+        Args:
+            fields: The element's first fields, in any order.
+
+        Returns:
+            A new set, never frozen, of the elements equal to ``fields`` on
+            every field it gives.
+
+        Raises:
+            EastTypeError: When ``fields`` is no leading part of the element,
+                or the element is not a struct.
+        """
+        from east.types.types import SetType
+
+        if _bound_traced(fields):
+            return _lift_traced(self).prefix(fields)
+        bound_t, bound = _eager_bound("prefix", self.element_type, fields)
+        return _call_builtin("SetPrefix", [self.element_type, bound_t], [self, bound],
+                             SetType(self.element_type))
+
     def for_each(self, fn: Any) -> None:
         """Call ``fn(element)`` for each element, for side effects only (east-c SetForEach).
 
@@ -3769,6 +3857,62 @@ class EastDict(Generic[K, V]):
         from east.types.types import DictType
 
         return _call_builtin("DictCopy", [self.key_type, self.value_type], [self], DictType(self.key_type, self.value_type))
+
+    def range(self, from_: Any = None, to: Any = None) -> EastDict:
+        """The entries from the first key at or past ``from_`` up to, and not
+        including, the first at or past ``to`` (east-c DictRange; TS
+        ``range({ from, to })``).
+
+        Args:
+            from_: Where the range starts: the whole key or, for a struct key,
+                its first fields as a dict in any order (``{"press": "P1"}``,
+                ``{"press": "P1", "day": day}``), the last of them cut short
+                the same way where it is a struct itself. Left out, the dict's
+                first key.
+            to: Where the range stops, written as ``from_`` is; the first key
+                at or past it is not in the range. Left out, the range runs to
+                the dict's last key.
+
+        Returns:
+            A new dict, never frozen, found by a search and never by a walk of
+            the dict; ``from_`` past ``to`` gives an empty dict.
+
+        Raises:
+            EastTypeError: When a bound is no leading part of the key, naming
+                the key's fields in order.
+        """
+        from east.types.types import DictType
+
+        if _bound_traced(from_) or _bound_traced(to):
+            return _lift_traced(self).range(from_, to)
+        from_t, from_opt = _eager_range_end("from", self.key_type, from_)
+        to_t, to_opt = _eager_range_end("to", self.key_type, to)
+        return _call_builtin("DictRange", [self.key_type, self.value_type, from_t, to_t],
+                             [self, from_opt, to_opt], DictType(self.key_type, self.value_type))
+
+    def prefix(self, fields: Any) -> EastDict:
+        """The entries whose key begins with ``fields`` — the first fields of
+        a struct key, as a dict (east-c DictPrefix; TS ``prefix``).
+
+        Args:
+            fields: The key's first fields, in any order: ``{"press": "P1"}``.
+
+        Returns:
+            A new dict, never frozen, of the entries whose key equals
+            ``fields`` on every field it gives.
+
+        Raises:
+            EastTypeError: When ``fields`` is no leading part of the key, or
+                the key is not a struct — read one key with ``get``, or the
+                keys between two with ``range``.
+        """
+        from east.types.types import DictType
+
+        if _bound_traced(fields):
+            return _lift_traced(self).prefix(fields)
+        bound_t, bound = _eager_bound("prefix", self.key_type, fields)
+        return _call_builtin("DictPrefix", [self.key_type, self.value_type, bound_t],
+                             [self, bound], DictType(self.key_type, self.value_type))
 
     def get_keys(self, keys: EastSet, fill: Any) -> EastDict:
         """Restrict to a given set of keys, filling in any that are missing (east-c DictGetKeys).

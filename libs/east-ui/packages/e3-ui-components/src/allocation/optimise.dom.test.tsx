@@ -3,12 +3,14 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  * @vitest-environment jsdom
  *
- * Optimise in the Allocation (#1409, #1420; `Optimise Spec.md` §9) on e3: the
- * yard's optimiser is the example's own `e3.function`, called by name on e3
- * once per run. The eye shows only with an optimiser (R6); a click sends one
- * call over the day — its bins by key, every arrival and the board's context
- * (R1, R26) — and while it is out the eye runs, the footer counts, the
- * history is locked and nothing drags (R2); the result lands as one edit
+ * Optimise in the Allocation (#1409, #1420, east-workspace#1622; `Optimise
+ * Spec.md` §9) on e3: the yard's optimiser is the example's own `e3.function`,
+ * called by name on e3 once per run. The eye shows only with an optimiser
+ * (R6); a click sends one call over the day — the day, the run's number and
+ * the rail's narrowing, and no row (R1, R26): the function reads the bins, the
+ * loads and the kilns itself, the board's unsaved edits laid over them as
+ * drafts — and while it is out the eye runs, the footer counts, the
+ * history is locked and nothing drags (R2); the answer's patch lands as one edit
  * (R7, R8): every load not yet booked booked into a free bay slot and onto
  * the kilns the fit ranks best, the kiln over its maximum relieved — each new
  * bin marked and named for the run, the relinked one marked with where it
@@ -17,27 +19,35 @@
  * heads and the Arrivals count flashing — and one Undo reverts it all, Redo
  * replays the landing without the banner, Save commits it with everything
  * else (R9, R11). Stop and a day change ignore a late answer (R3, R4);
- * nothing to change and a failed call say so (R10). Below 480px the eye is
+ * nothing to change and a failed call say so (R10). A run over a day not read
+ * yet that turns out to take no edit — published — has its answer wait for
+ * the day's read, then refused whole, naming the bin (rule 11). Below 480px the eye is
  * in the toolbar still, and the landing is on the cards; at a phone's toolbar
  * floor it is the View's entry — named for the day, a run and its Stop from
- * there, and off, saying why, while a day's reads are in flight (ruled 27 Oct
- * 2026, "Into the View menu").
+ * there, and on while a day's reads are in flight, which it waits on none of
+ * (ruled 27 Oct 2026, "Into the View menu"). What it does with any answer —
+ * one that inserts, updates and deletes, one that replaces the whole Dict, one
+ * that moves a bin out of the day, another page's save while the call is out,
+ * a key another page takes — is the builders' shared cases
+ * (`optimise-cases.test-utils.ts`), over the day's bins.
  */
 
 import { describe, expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
-import { editingMessages } from "@elaraai/east-ui-components";
+import { decodeBeast2For, diffFor, encodeBeast2For, some } from "@elaraai/east";
+import { editingMessages, optimiseMessages } from "@elaraai/east-ui-components";
 import { Allocation } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
 import * as opt from "@elaraai/e3-ui/examples/allocation/optimise";
 import { act, e3Harness, settle, slot, toolbarAtFloor, width } from "../e3-web-mount.test-utils.js";
 import type { E3Request } from "../e3-web.test-utils.js";
 import { fitCalls } from "../shared/func/fit-calls.test-utils.js";
+import { optimiseCases } from "../shared/func/optimise-cases.test-utils.js";
 import { stubLinkGeometry } from "./harness.test-utils.js";
 import "./index.js";
 
 const h = e3Harness({ "allocation/allocation": ex, "allocation/optimise": opt }, { main: "data-allocation-main" });
-const calls = fitCalls(h, { request: Allocation.Types.OptimiseRequest(ex.kilnBins.type.value), result: Allocation.Types.OptimiseResult(ex.kilnBins.type.value) });
+const calls = fitCalls(h, { request: Allocation.Types.OptimiseRequest, result: Allocation.Types.OptimiseResult(opt.KilnBins) });
 /** The yard's plan day, Tue 11 May 2027. */
 const TUE = new Date("2027-05-11T00:00:00Z");
 /** The loads the day has not booked, which the optimiser books into its free bay slots, under keys of the run's own. */
@@ -97,7 +107,7 @@ describe("the eye in the Allocation", () => {
         expect(items.indexOf("history") - items.indexOf("optimise")).toBe(1);
     });
 
-    test("R1, R2, R26 — one call over the day: its bins by key, every arrival and the context; the lock while it is out", async () => {
+    test("R1, R2, R26 — one call over the day: the day, the run's number and the rail's narrowing, and no row; the lock while it is out", async () => {
         const container = await mounted();
         const at = period(container);
         const hold = calls.hold();
@@ -111,8 +121,12 @@ describe("the eye in the Allocation", () => {
         expect([container.querySelector("[data-draggable]"), container.querySelector("[data-allocation-connector]")]).toEqual([null, null]);
         expect(calls.requests()).toHaveLength(1);
         const asked = calls.requests()[0]!;
-        expect([asked.run, asked.day.getTime(), asked.bins.size, asked.arrivals.length, asked.context.lanes.map(lane => lane.key), asked.context.resources.size > 0])
-            .toEqual([1n, TUE.getTime(), 26, 27, ["B-1", "B-2", "B-3"], true]);
+        // The request names the day and carries no row: no bin, no arrival, nothing of the board's context.
+        expect(Object.keys(asked).sort()).toEqual(["day", "run", "slice"]);
+        expect([asked.run, asked.day.getTime()]).toEqual([1n, TUE.getTime()]);
+        // The rail's narrowing, by source: each of the rail's four, nothing chosen — the bins' their date window alone, the day's.
+        expect([...asked.slice].map(([source, where]) => [source, [...where].map(([field, by]) => [field, by.type])]))
+            .toEqual([["arrivals", []], ["bays", []], ["bin", [["at", "range"]]], ["kilns", []]]);
         hold.release();
         await landed(container, WAITING.length);
         expect([eye(container)!.hasAttribute("data-running"), line(container).hasAttribute("data-idle")]).toEqual([false, true]);
@@ -192,6 +206,32 @@ describe("the eye in the Allocation", () => {
         expect([calls.requests().length, container.querySelectorAll("[data-op]").length]).toEqual([1, 0]);
     });
 
+    test("rule 11 — a run over a day not read yet that turns out published: the answer waits for the day's read, then is refused whole, naming the bin, and nothing is recorded on the published day", async () => {
+        const container = await mounted();
+        const deployed = await commits();
+        // A week back, to Tue 4 May, published, its reads held: the eye is on, as it waits on none of the day's reads.
+        const held = h.e3.hold(dayRead);
+        for (let i = 0; i < 7; i++) await key(container, "[");
+        await waitFor(() => expect(eye(container)?.disabled).toBe(false), { timeout: 10_000 });
+        const at = period(container);
+        // An answer that changes one of Tue 4's bins, LD-2201's: its loading instruction.
+        const Bins = ex.kilnBins.type;
+        const before = await h.read(ex.kilnBins);
+        const after = decodeBeast2For(Bins)(encodeBeast2For(Bins)(before));
+        after.set("3001", { ...before.get("3001")!, instruction: some("Stack on bearers") });
+        calls.answer({ bins: diffFor(Bins)(before, after) as never });
+        await press(eye(container));
+        await waitFor(() => expect(calls.answers()).toHaveLength(1), { timeout: 10_000 });
+        await settle();
+        // Answered, the run waits: whether the day takes edits is not known until it is read.
+        expect([eye(container)!.hasAttribute("data-running"), container.querySelectorAll("[data-op]").length, banner(container, "fail")]).toEqual([true, 0, null]);
+        await act(async () => { held.release(); });
+        await said(container, "fail");
+        expect(words(banner(container, "fail")!)).toEqual([optimiseMessages.fail({ period: at }),
+            optimiseMessages.refusedDetail({ reason: "Elara's answer changes LD-2201, on a day not available to edit." })]);
+        expect([container.querySelectorAll("[data-op]").length, await commits()]).toEqual([0, deployed]);
+    });
+
     test("R10 — a result that changes nothing is said so, the eye blinking; a failed call is an alert until the next run", async () => {
         const container = await mounted();
         await press(eye(container));
@@ -227,7 +267,7 @@ describe("the eye in the Allocation", () => {
         expect(container.querySelector("[data-allocation-band-count][data-opn]")).not.toBeNull();
     });
 
-    test("narrow — at a phone's toolbar floor the eye is the View's entry, never out of the toolbar: named for the day, a run and its Stop from there, and off, saying why, while a day's reads are in flight (ruled 27 Oct 2026, \"Into the View menu\")", async () => {
+    test("narrow — at a phone's toolbar floor the eye is the View's entry, never out of the toolbar: named for the day, a run and its Stop from there, and on while a day's reads are in flight (ruled 27 Oct 2026, \"Into the View menu\")", async () => {
         const container = await mounted();
         const at = period(container);
         await toolbarAtFloor();
@@ -249,17 +289,28 @@ describe("the eye in the Allocation", () => {
         expect([calls.requests().length, added(container).length, container.querySelector("[data-optimise-banner]")]).toEqual([1, 0, null]);
         await act(async () => { fireEvent.keyDown(within(document.body).getByRole("dialog"), { key: "Escape" }); });
         await settle();
-        // Two days on, the second's reads held — the first read ahead — the eye would be off: the entry is, and says why.
+        // Two days on, the second's reads held — the first read ahead: the entry is on still, named for that day. The
+        // request carries no row, so a run waits on none of the day's reads (east-workspace#1622).
         const held = h.e3.hold(dayRead);
         await key(container, "]");
         await key(container, "]");
-        const off = await viewEntry(container);
-        const reason = off().querySelector<HTMLElement>("[data-entry-reason]");
-        expect([off().disabled, off().getAttribute("aria-label")?.startsWith("Optimise "), reason?.textContent, off().getAttribute("aria-describedby") === reason?.id])
-            .toEqual([true, true, "Read-only", true]);
+        const on = await viewEntry(container);
+        expect([on().disabled, on().getAttribute("aria-label")?.startsWith("Optimise "), on().querySelector("[data-entry-reason]")]).toEqual([false, true, null]);
         await act(async () => { held.release(); });
         await settle();
-        await waitFor(() => expect(off().disabled).toBe(false), { timeout: 10_000 });
-        expect(off().querySelector("[data-entry-reason]")).toBeNull();
     });
+});
+
+// The plan day in view, Tue 11 May 2027: its bins, and one the optimiser adds — a load's second bin, later in Bay 1.
+optimiseCases<typeof ex.kilnBins.type.value>({
+    builder: "the Allocation", h,
+    mounted,
+    record: ex.kilnBins,
+    answer: (patch) => { calls.answer({ bins: patch as never }); },
+    add: ["elara-second-bin", (bins) => ({ ...bins.get("3101")!, bay: "B-1", at: new Date("2027-05-11T09:15:00Z") })],
+    change: ["3102", (bin) => ({ ...bin, specMeasured: "MC20" })],
+    remove: "3109",
+    other: ["3101", (bin) => ({ ...bin, instruction: some("Stack on bearers") })],
+    // The same slot a day on.
+    outside: { to: (bin) => ({ ...bin, at: new Date("2027-05-12T01:56:00Z") }), named: "LD-2202" },
 });
