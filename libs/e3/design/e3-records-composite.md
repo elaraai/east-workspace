@@ -180,6 +180,46 @@ one before, the first on `elaraai/feat/index-readers`. The fifth, the
 builders over a composite, waits for the finished Plan. Nothing else of
 rulings 1 to 18 changes.
 
+**Rulings 29 to 38, 18 November 2026.** Reviews of the third and fourth pull
+requests raised ten points this document left unsaid, which the product owner
+settled on the issue (#1465), where each is written out with its examples.
+The sections each names are amended below. Rulings 19 to 28, made on the
+issue while the first three pull requests were built, are not folded into
+this document.
+
+29. **A reader that only a load's commit would decide waits on that load
+    when the load cannot commit in the run**: it is outside a `--filter`'s
+    run set, or it failed, was skipped or waits. The run ends without the
+    reader, where it ended in an error (§4.10, §7.8).
+30. **A version a fed record carries that the repository no longer holds is
+    read as unknown**, as a forgotten delivery's is. Garbage collection roots
+    no version a record carries (§7.8).
+31. **One record's sources may hold deliveries made from different versions
+    of one upstream.** A task that reads the record alone runs on it; one
+    that reads the upstream too is deferred until the slower load catches
+    up, and is told the two sources (§4.10, §7.8).
+32. **A feed that moves releases the readers waiting on its load, never
+    those waiting for a first delivery**, which that delivery's commit
+    releases, so each is told once that it waits (§7.8).
+33. **After a rollback only a source that is external now can wait, and a
+    rollback past a restore or a deploy sets what waits as a restore does**
+    (§7.7).
+34. **A load waits a copy onto its workspace, or the workspace's removal,
+    out**, as it waits a deploy out, and fails only where that took the
+    workspace (§7.5).
+35. **`e3 dataset get -o <path>` writes a file whole or not at all**, and
+    starts over when the dataset moves; the standard output stays a stream,
+    and a read that fails part way says so (§7.13).
+36. **The load's read routes ask the host's rule too**: a load's status asks
+    `read`, and an upload's part and its poll ask `upload` (§7.11).
+37. **One source's loads apply in the order asked.** Each job store starts
+    them in the order they were filed, a waiting load keeps its place, and
+    the local lock service hands the turn to its waiters in the order they
+    asked. No seam gains a method (§7.5, §8; R14).
+38. **A load that has landed is recorded completed, however long the store
+    refuses the write**: it is tried again once a second, with no bound
+    (§7.5, §8).
+
 **The reviewer's calls.** The review made eight engineering calls. None is a
 ruling, and each can be overturned. Calls 1 and 2 are put to the product
 owner before they are built; this document writes each as the review made
@@ -1208,6 +1248,20 @@ once its inputs agree:
    Once someone sets `erp_extract`, `check` waits until `orders.erp` has
    loaded the new value.
 
+Case 3 holds for two sources of one record too (ruling 31): where `orders`'s
+`erp` and `wms` are each fed from `erpOrders`, a task that reads `orders` and
+`erpOrders` waits for the slower load, and is told the two:
+`orders.erp and orders.wms hold deliveries made from different versions of
+erpOrders`. A task that reads `orders` alone runs on it.
+
+In cases 2 to 4 the task waits for a load's commit. Where that load cannot
+commit in the run — `--filter` leaves it out, or it failed or waits — the
+task waits on the load instead, and the run ends without it (ruling 29):
+
+```
+  [WAIT] check: record 'orders' waits on its load orders.erp
+```
+
 A remote run's caller sees no `[DEFER]` line: the API serves no deferral
 (§10).
 
@@ -1502,7 +1556,7 @@ with no test is a gap a reviewer sees. These specs are new:
 | R11 | A delivery whose as-of is older than the source's | Answered `superseded`, naming the source's as-of. Nothing runs or commits. | §4.3 | C4, F1 | `e3-core/src/record-load.spec.ts`, `e3-cli/src/commands/load.spec.ts` |
 | R12 | A delivery whose as-of is the source's or later, or that has none | Loaded. The source's as-of becomes the later of the two; a delivery without one leaves it. | §4.12 | C3, C4 | `e3-core/src/record-load.spec.ts` |
 | R13 | The same delivery after the load's function changed (a redeploy) | It applies again under the new function. | — | C4 | `e3-core/src/record-load.spec.ts` |
-| R14 | Two loads of one source | One at a time, in the order asked. The second waits for the first, however long it takes, saying `Waiting for an earlier load of orders.erp to finish…`. A fed source has one load at a time, its workspace's one run. | §4.3 | C4, D1, F1 | `e3-core/src/record-load.spec.ts`, `e3-cli/src/commands/load.spec.ts` |
+| R14 | Two loads of one source | One at a time, in the order asked. The second waits for the first, however long it takes, saying `Waiting for an earlier load of orders.erp to finish…`, and keeps its place: a third asked after it applies after it (ruling 37). A fed source has one load at a time, its workspace's one run. | §4.3 | C4, D1, F1 | `e3-core/src/record-load.spec.ts`, `e3-cli/src/commands/load.spec.ts` |
 | R15 | Loads of two sources | Side by side, each committing its own run. | — | C4 | `e3-core/src/record-load.spec.ts` |
 | R16 | A mutation, or another source's load, commits while a load runs | It commits as it does today, and the record's readers run on it (ruling 11). The load's commit folds it in from its stored delta, and applies its own delta once, whatever lands. | §4.6, §4.11 | C3 | `e3-core/src/record-load-commit.spec.ts` |
 | R17 | A rollback, restore, migration, reset or reindex lands while a load runs | At its commit, the load reads the source's entries again. As they were, it commits over the new head; changed, it starts again, reusing every piece still valid, and a job says `Loading again: the entries of source 'erp' changed under its load`. | §4.11 | C3, C4, C17, F1 | `e3-core/src/record-load-commit.spec.ts`, `record-load.spec.ts`, `dataflow-loads.spec.ts` |
@@ -1930,12 +1984,27 @@ dataflow's load node calls too (§7.8): `recordSourceRun` and
    upload it again". A fed source is refused here, naming its feed and the run
    that loads it.
 2. **Queue.** Take `<ws>#load~<record>~<source>` exclusively, so one source's
-   loads run one at a time, reporting `queued` while it waits. The wait is a
-   loop of `acquire(…, { wait: true, timeout: 30_000 })`: each time it answers
-   null, the load checks its signal, re-references the delivery, and asks
-   again. It has no bound: the load ahead may take hours. A job store runs one
-   source's jobs in the order they were made, so within a server they also run
-   in the order asked. Across processes, the lock is the order.
+   loads run one at a time, reporting `queued` while it waits. The wait has
+   no bound: the load ahead may take hours. A job store starts one source's
+   jobs in the order they were filed, a job's place taken as it is asked to
+   run, before anything is awaited, so within a server they run in the order
+   asked. Across processes, the lock is the order (ruling 37): a lock
+   service that serves its waiters in the order they asked says so
+   (`LockService.queuesWaiters`), and the load then makes one wait, with no
+   bound (`timeout: Infinity`), which keeps its place, re-referencing its
+   delivery every 30 s meanwhile. The local lock service keeps a place file
+   for each such waiter in the resource's directory and gives the lock to
+   the oldest; e3-web's is one Web Locks request. Of a service that keeps no
+   queue the wait is a loop of
+   `acquire(…, { wait: true, timeout: 30_000 })`, in no set order: each time
+   it answers null, the load checks its signal, re-references the delivery,
+   and asks again. That is enough where the store's own queue runs one job
+   of a source at a time.
+   A removal of the workspace or a copy onto it that announces itself is
+   waited out as a deploy is, and the load then fails only where that took
+   the workspace (ruling 34). A load whose commit has written is recorded
+   `completed` however long the store refuses that write, which is tried
+   again once a second (ruling 38).
 3. **Answer a repeat, or an older copy.** Read the record's ref:
    - If `$load.<source>` names this delivery and `$load.<source>.load` names
      this load object, answer `again`, with `$load.<source>.commit` (none once
@@ -2258,7 +2327,14 @@ request measures it, with people's saves landing meanwhile.
   the state the commit commits holds an entry of its case: one bisect for
   each source, the check of a deploy above. After a rollback `$pending` is
   the prior `$pending`, with each source whose first delivery the rollback
-  undid, less each source the state holds rows of. The delivery slots and
+  undid, less each source the state holds rows of. Two more rules (ruling
+  33): a source that is not external now never waits, since a deploy may
+  have handed it to the record's mutations and no load would deliver it; and
+  a rollback whose walk passes a deploy, or a state an operator committed,
+  sets `$pending` as a restore does, to every external source the state it
+  commits holds no entry of, because such a commit can bring rows of a
+  source that never delivered. A commit does not say whether an operator's
+  system commit was a restore, so any such commit counts. The delivery slots and
   the as-of of a source are forgotten when a rollback undoes its delivery,
   and nothing brings them back when a later rollback returns the rows,
   because a commit keeps no copy of the slots. After any rollback of a
@@ -2399,6 +2475,30 @@ two fed records carrying different versions of one root, defer the task the
 same way, until a load commits. A task that reads a fed record alone is never
 deferred. `stepTaskCommits` answers each deferral with its reason, one of the
 four cases of §4.10 (a `DeferReason`, below).
+
+Three rulings of 18 November 2026 complete this:
+
+- **Ruling 30.** A carried version the store no longer holds, a compaction
+  having cut it and a sweep taken it, is read as `$unknown`. The step asks
+  the store for it as a launch asks for any commit it reads, and the run
+  remembers one that is gone.
+- **Ruling 31.** Two sources of one record may carry different versions of a
+  root. A task for which that record alone names the root reads the record
+  as it stands, the root `$unknown` in what its result was made from; a task
+  that another input also names the root to is deferred `carried`, and the
+  reason names the two sources.
+- **Ruling 29.** Where the load a `forgotten`, `carried` or `feed` deferral
+  waits for cannot commit in the run — it is outside the filter's run set,
+  or it failed, was skipped or waits — the step answers `waiting` instead,
+  naming the load, and the loop leaves the task waiting on it (`upstream`),
+  as it leaves a reader of a load that cannot run. A load's failure sends
+  its record's readers back to be decided, so one deferred before the
+  failure is asked again.
+
+And ruling 32: a feed that moves sends back to be decided only those waiting
+readers of its record that waited on the load, which the move released; one
+waiting for the record's first delivery is decided again by that delivery's
+commit.
 
 Whatever compares or merges two vectors for a launch leaves out every entry
 whose key begins `$`. The slots of §7.7 ride in a record's version vector,
@@ -3185,7 +3285,12 @@ e3-ui-components' dataset store and e3-ui-cli's run screen.
     other value writes its stored bytes.
   - Remotely, it streams `datasetGetStream`'s chunks and decodes nothing.
 
-  Other formats are unchanged.
+  Other formats are unchanged. The standard output is a stream, so a read
+  that fails part way — a dataset that moves while a server's is read — has
+  written part of a value: the command says so as it exits 1. `-o <path>`,
+  in every format, writes a file whole or not at all: beside the path, then
+  renamed into place, the read starting over when the dataset moves
+  (ruling 35).
 - **`e3 seed`** refuses a composite.
 - **The lines come from callbacks a spec can drive.** The callbacks
   `startCommand` and `loadCommand` print through are factored out of them, so
@@ -3394,7 +3499,8 @@ The one change since the third revision is how the deploy check is made
 | Catch-up runs | at most one of each task a task reads through, per run of that task, at commits the run has seen, and under steady edits about that many (§4.6); never written to the workspace | none: the task is deferred |
 | A task deferred for consistency | while two of its inputs read a plain input at different values; while a fed record's delivery is forgotten; while two fed records carry different versions of one upstream; while it reads a fed record and the plain input that feeds it, and the input's new value loads. Each ends once a run or a load catches up | while any two of its inputs came from different commits |
 | A shared taker while a deploy has announced itself | refused at once, naming the deploy | refused at once while the deploy holds the workspace |
-| A load's wait for its source's queue, and for a deploy to finish | no bound; 30-s acquires in a loop, each turn checking the signal and re-referencing the delivery | n/a |
+| A load's wait for its source's queue, and for a deploy to finish | no bound; 30-s acquires in a loop, each turn checking the signal and re-referencing the delivery. Since ruling 37, of a lock service that queues its waiters the wait for the queue is one acquire with no bound, which keeps the load's place, the delivery re-referenced every 30 s meanwhile | n/a |
+| A landed load's write of its `completed` status (ruling 38) | tried again once a second, with no bound, until the store takes it or the job's caller stops the job | n/a |
 | A load's compare-and-swap loop | no attempt cap and no deadline; the existing backoff (`casBackoffMs`); retries ref conflicts alone, and checks the signal before each attempt | a mutation's retry window: 30 s |
 | A load's run | no request deadline (a job, or a step of a run); each piece under the runner's limits, as a split task's | n/a |
 | A load job's progress | throttled to 500 ms, as a split call's | n/a |
