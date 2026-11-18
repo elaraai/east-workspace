@@ -68,14 +68,19 @@ export function createTestDir(): string {
 
 /**
  * Remove a temporary test directory
+ *
+ * @remarks
+ * A test that kills the CLI waits for every process of the CLI's tree to exit
+ * first ({@link killedTreesExit}): on Windows a task's processes end with the
+ * job object their killed CLI held, after the test has seen the CLI exit, and
+ * Windows removes no directory a live process stands in. The retries below
+ * cover none of that — Node retries a removal only after it found the
+ * directory not empty, so a directory a process stands in is refused
+ * (`EBUSY`) at once — only a file another process is still letting go of.
  */
 export function removeTestDir(testDir: string): void {
   const parentDir = tempDirParents.get(testDir);
   if (parentDir) {
-    // maxRetries/retryDelay guards against Windows EBUSY: when a test
-    // force-kills the CLI (e.g. signal-handling tests), spawned children
-    // briefly outlive their parent and hold file handles to the temp dir.
-    // ~1s of retries is enough for them to die / the OS to release locks.
     rmSync(parentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     tempDirParents.delete(testDir);
   }
@@ -225,11 +230,78 @@ export function processTree(pid: number): number[] {
   return tree;
 }
 
+/** Whether a process with this pid exists. */
+export function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Whether `pid` has exited within `ms` — a bounded liveness wait. */
+export async function exitsWithin(pid: number, ms: number): Promise<boolean> {
+  const deadline = Date.now() + ms;
+  while (alive(pid)) {
+    if (Date.now() >= deadline) return false;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return true;
+}
+
+/** The process tree of each CLI a test killed, as it stood when it was killed: what {@link killedTreesExit} waits for. */
+const killedTrees: number[][] = [];
+
+/**
+ * Waits until every process of each CLI killed since the last call has exited:
+ * the CLI and every process beneath it as they stood when it was killed.
+ *
+ * @remarks
+ * A test that kills the CLI calls it before removing its directory. On
+ * Windows a killed CLI's task processes end with the job object it held,
+ * after the test has seen the CLI exit, and Windows removes no directory a
+ * live process stands in; on POSIX a task orphaned by `SIGKILL` runs on until
+ * whatever it waits for is gone, so the test ends that first.
+ *
+ * @param ms - How long they may take, in all
+ * @returns How many of them were still running when it was called, and how long it waited
+ * @throws {Error} Naming the processes still running after `ms`
+ */
+export async function killedTreesExit(ms = 30_000): Promise<{ readonly running: number; readonly waitedMs: number }> {
+  const pids = [...new Set(killedTrees.splice(0).flat())];
+  const start = Date.now();
+  const running = pids.filter(alive).length;
+  const outlived: number[] = [];
+  for (const pid of pids) {
+    if (!(await exitsWithin(pid, Math.max(0, ms - (Date.now() - start))))) outlived.push(pid);
+  }
+  if (outlived.length > 0) throw new Error(`processes of a killed CLI outlived it by ${ms} ms: ${outlived.join(', ')}`);
+  return { running, waitedMs: Date.now() - start };
+}
+
+/**
+ * Removes a test directory whose tasks run while `hold` exists, once its test
+ * may have killed the CLI: deletes `hold`, which ends every such task — one a
+ * killed CLI left running among them — waits for every process of each killed
+ * CLI to exit ({@link killedTreesExit}), and then removes the directory. Says
+ * how long it waited where a killed CLI's processes were still running.
+ *
+ * @param testDir - The test's directory, from {@link createTestDir}
+ * @param hold - The file its tasks run while
+ */
+export async function removeHeldTestDir(testDir: string, hold: string): Promise<void> {
+  rmSync(hold, { force: true });
+  const { running, waitedMs } = await killedTreesExit();
+  if (running > 0) console.log(`waited ${waitedMs} ms for ${running} process(es) of a killed CLI to exit`);
+  removeTestDir(testDir);
+}
+
 /**
  * Handle to a running CLI process that can be signaled
  */
 export interface RunningCliProcess {
-  /** Send a signal to the process */
+  /** Send a signal to the process, its process tree as it stands kept for {@link killedTreesExit} */
   kill: (signal: NodeJS.Signals) => void;
   /** Promise that resolves when process exits */
   result: Promise<CliResult>;
@@ -293,7 +365,10 @@ export function spawnE3Command(
   child.stdin.end();
 
   return {
-    kill: (signal: NodeJS.Signals) => child.kill(signal),
+    kill: (signal: NodeJS.Signals) => {
+      killedTrees.push(processTree(child.pid!));
+      child.kill(signal);
+    },
     result,
     pid: child.pid!,
     getStdout: () => stdout,

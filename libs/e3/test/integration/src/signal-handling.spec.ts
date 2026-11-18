@@ -14,7 +14,7 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, sep } from 'node:path';
-import { createTestDir, removeTestDir, runE3Command, spawnE3Command, waitFor } from './helpers.js';
+import { createTestDir, removeHeldTestDir, runE3Command, spawnE3Command, waitFor } from './helpers.js';
 
 // SDK imports
 import e3 from '@elaraai/e3';
@@ -42,8 +42,8 @@ describe('signal handling', () => {
     holdForBash = hold.split(sep).join('/');
   });
 
-  afterEach(() => {
-    removeTestDir(testDir);
+  afterEach(async () => {
+    await removeHeldTestDir(testDir, join(testDir, 'hold'));
   });
 
   describe('e3 start abort', () => {
