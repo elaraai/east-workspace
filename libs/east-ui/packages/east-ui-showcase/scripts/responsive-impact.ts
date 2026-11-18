@@ -49,7 +49,12 @@ const componentSpecs = {
         "schematic-perf.spec.ts", "schematic-phone.spec.ts", "schematic-records.spec.ts", "schematic-window.spec.ts",
     ],
     sheet: ["optimise-sheet.spec.ts", "sheet-bound.spec.ts", "sheet-chrome.spec.ts", "sheet-far-moves.spec.ts", "sheet-frame.spec.ts", "sheet-keys.spec.ts", "sheet-lens.spec.ts", "sheet-narrowing.spec.ts"],
-    studio: ["studio-builder.spec.ts", "studio-page-library.spec.ts", "studio-page.spec.ts"],
+    // The Studio's builder, page library and published page; what a placement holds, its visuals and their tiles
+    // (#1669, #1671), and the chart rules as its page of visuals draws them — each reads the Studio's own pages alone.
+    studio: [
+        "chart-rules.spec.ts", "studio-builder.spec.ts", "studio-content.spec.ts", "studio-page-library.spec.ts", "studio-page.spec.ts",
+        "studio-tiles.spec.ts", "studio-visuals.spec.ts",
+    ],
 } as const;
 
 type Component = keyof typeof componentSpecs;
