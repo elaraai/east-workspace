@@ -17,7 +17,7 @@
  */
 
 import { ArrayType, StructType, none, some, variant, type EastType } from "@elaraai/east";
-import type { TableRootValue } from "@elaraai/east-ui-components";
+import type { ColumnSort, TableRootValue } from "@elaraai/east-ui-components";
 import { resultCsv } from "../../query/downloads.js";
 import type { QueryWords } from "../../query/model/words.js";
 import { rowsTable, type ResultColumn } from "../../query/results-table.js";
@@ -129,6 +129,19 @@ export function sortedBy(visual: Visual, sort: RecordsSort | undefined): Visual 
     const view = visual.view;
     if (sort === undefined || view.type !== "table" || view.value.type !== "records") return visual;
     return { ...visual, view: variant("table", variant("records", { ...view.value.value, sort: some(sort.field), descending: sort.descending })) };
+}
+
+/**
+ * The column a records table's rows are sorted by, as the Table names it, and
+ * which way: what its program sorted, which the Table's head shows.
+ *
+ * @param records - The records table
+ * @returns The column's key and its direction; `undefined` while it sorts by none of its columns
+ */
+export function recordsSorted(records: RecordsView): ColumnSort | undefined {
+    if (records.sort.type === "none") return undefined;
+    const at = records.columns.indexOf(records.sort.value);
+    return at < 0 ? undefined : { columnKey: recordsKey(at), direction: records.descending ? "desc" : "asc" };
 }
 
 /**

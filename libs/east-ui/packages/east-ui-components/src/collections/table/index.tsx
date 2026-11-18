@@ -6,6 +6,7 @@
 import { memo, useContext, useMemo, useRef, useState, useEffect, useLayoutEffect, useCallback, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { usePersistedState } from "../../hooks/usePersistedState";
+import { useFontsIn } from "../../hooks/useFontsIn.js";
 import { keptRead } from "../../platform/kept.js";
 import {
     Table as ChakraTable,
@@ -32,7 +33,7 @@ import {
     type RowSelectionState,
     type ExpandedState,
 } from "@tanstack/react-table";
-import { compareFor, equalFor, equivalentFor, printFor, variant, BlobType, BooleanType, DateTimeType, FloatType, NullType, OptionType, type ValueTypeOf } from "@elaraai/east";
+import { equalFor, equivalentFor, printFor, variant, BlobType, BooleanType, DateTimeType, NullType, OptionType, type ValueTypeOf } from "@elaraai/east";
 import { Table, ApprovalStateType, type UIComponentType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
@@ -53,7 +54,10 @@ import { windowedSourceOf } from "../windowed-source.js";
 import { useContainerWidth } from "../../contracts/adaptive.js";
 import { NARROW_FRAME } from "../../layout/builder-frame/place.js";
 import { FrameOverlaySlot } from "../../layout/builder-frame/overlay-slot.js";
-import { fitPhoneColumns, measureText } from "./phone-fit.js";
+import { fitPhoneColumns, measureText, themeFont } from "./phone-fit.js";
+import { fitTileColumns, tileDate, TILE_CARET, TILE_EDGE, TILE_GAP, TILE_MARK, TILE_PAD, TILE_TREE_STEP } from "./tile.js";
+import { TileHeaderCell, nextTileSort, type TileSorted } from "./tile-header.js";
+import { asFloat, compareDrawn, isNumberCell, pathKey, subtotalsOf, treeOf, type TableCellValue, type TableCellVariant, type TreeRow } from "./tree.js";
 import { useFormatters, type Formatters, type TickFormatOpt } from "../../format/index.js";
 
 /* Touch (#351): 36px tap halo on the 24px row expander, the size the header's
@@ -97,115 +101,13 @@ export type TableRootValue = ValueTypeOf<typeof Table.Types.Root>;
 /** East Table Column value type */
 export type TableColumnValue = ValueTypeOf<typeof Table.Types.Column>;
 
-/** East Table Cell value type */
-export type TableCellValue = ValueTypeOf<typeof Table.Types.Cell>;
+export type { TableCellValue };
 
 /** East Table Cell Render Context value type */
 type TableCellRenderContextValue = ValueTypeOf<typeof Table.Types.CellRenderContext>;
 
 /** Column render function type (called at render time with cell context, returns UIComponent value) */
 type ColumnRenderFn = (ctx: TableCellRenderContextValue) => ValueTypeOf<UIComponentType>;
-
-/**
- * One row of the table's tree (#954) — a wire row placed: its pre-order index
- * (the `rowIndex` every row reference carries), its path and its children.
- */
-interface TreeRow {
-    /** Its position in the rows' pre-order — a flat table's data index. */
-    index: number;
-    /** Its index among its siblings at each depth. */
-    path: bigint[];
-    /** How deep it sits — 0 at the top. */
-    depth: number;
-    /** Its own cells. */
-    cells: Map<string, TableCellValue>;
-    /** Whether it declares itself collapsed (a parent's). */
-    collapsed: boolean;
-    /** Its children, in data order — TanStack's sub-rows. */
-    subRows: TreeRow[];
-}
-
-/** The table's rows as a tree: the top-level rows, and every row in pre-order. */
-interface TableTree {
-    roots: TreeRow[];
-    all: TreeRow[];
-}
-
-/**
- * The table's rows as a tree (#954): the wire's pre-order stream, each row
- * placed under the nearest row before it one level shallower. A depth that
- * skips a level is read as one level below the row before it, and one below
- * zero as zero, so a malformed stream still draws every row.
- */
-function treeOf(rows: readonly TableRowValue[]): TableTree {
-    const roots: TreeRow[] = [];
-    const all: TreeRow[] = [];
-    // The rows from the top down to the last row placed.
-    const open: TreeRow[] = [];
-    rows.forEach((row, index) => {
-        const depth = Math.max(0, Math.min(Number(row.depth), open.length));
-        open.length = depth;
-        const parent = open[depth - 1];
-        const siblings = parent === undefined ? roots : parent.subRows;
-        const node: TreeRow = {
-            index,
-            path: [...(parent?.path ?? []), BigInt(siblings.length)],
-            depth,
-            cells: row.cells,
-            collapsed: row.collapsed,
-            subRows: [],
-        };
-        siblings.push(node);
-        all.push(node);
-        open.push(node);
-    });
-    return { roots, all };
-}
-
-/** A path as one key — what fold overrides persist under. */
-function pathKey(path: readonly bigint[]): string {
-    return path.join(".");
-}
-
-/**
- * What each parent shows in the `aggregate` columns (#954): its children's
- * subtotal, composed bottom-up — `sum` / `mean` / `min` / `max` of what its
- * children show (a child parent its own subtotal, a leaf its own cell), and
- * `count` the leaf rows beneath it. Walked in REVERSE pre-order, so every
- * child is done before its parent, at any depth.
- *
- * @param tree - The table's tree
- * @param aggregates - Each aggregate column's key and aggregate tag
- * @returns Each parent's subtotal cells, by its pre-order index
- */
-function subtotalsOf(tree: TableTree, aggregates: ReadonlyMap<string, string>): Map<number, Map<string, TableCellValue>> {
-    const out = new Map<number, Map<string, TableCellValue>>();
-    if (aggregates.size === 0) return out;
-    const drawn = (row: TreeRow, key: string) => out.get(row.index)?.get(key) ?? row.cells.get(key);
-    for (let i = tree.all.length - 1; i >= 0; i--) {
-        const row = tree.all[i]!;
-        if (row.subRows.length === 0) continue;
-        const cells = new Map<string, TableCellValue>();
-        for (const [key, tag] of aggregates) {
-            if (tag === "count") {
-                // A leaf counts 1; a parent its own count.
-                let n = 0n;
-                for (const child of row.subRows) {
-                    const shown = child.subRows.length === 0 ? undefined : drawn(child, key);
-                    n += shown === undefined ? 1n : shown.type === "Integer" ? shown.value : 0n;
-                }
-                cells.set(key, variant("Integer", n) as TableCellValue);
-                continue;
-            }
-            const values = row.subRows
-                .map((child) => drawn(child, key))
-                .filter((c): c is TableCellValue => c !== undefined);
-            cells.set(key, computeAggregate(tag, values));
-        }
-        out.set(row.index, cells);
-    }
-    return out;
-}
 
 // Column sort types for external API
 export type SortDirection = 'asc' | 'desc';
@@ -338,6 +240,33 @@ export interface EastChakraTableProps {
      * identity.
      */
     rowHead?: ((rowIndex: number) => TableRowHead | undefined) | undefined;
+    /**
+     * Whether it is a tile's table (#1671) — the design system's Table running
+     * edge to edge in a Frame: each head its label alone, the whole of it the
+     * button that sorts, with no pin and no resize; its columns as wide as
+     * their content needs, sharing the room past it (`fitTileColumns`), and the
+     * table scrolling inside its tile only when they need more; its cells
+     * padded 0 12, 20 at the Frame's edges, and ruled over; a date printed to
+     * its day, and to its minute when it has a time of day (`tileDate`). At a
+     * phone's width it draws its phone form, as every Table does.
+     */
+    tile?: boolean | undefined;
+    /**
+     * In a tile, what its rows are already sorted by when its own sort names
+     * no column — the sort its host's program made: that head shows it.
+     */
+    sorted?: ColumnSort | undefined;
+    /**
+     * In a tile, what a head says after its label, by its column's key — a
+     * value's goal; `undefined` says nothing. Keep it by identity.
+     */
+    headerNote?: ((columnKey: string) => string | undefined) | undefined;
+    /**
+     * How its host prints a number of a column where room is short — a
+     * Studio summary's values at their column's scale (`1.81M`, `0.48M`);
+     * `undefined` prints it as the column's format does. Keep it by identity.
+     */
+    numberText?: ((n: number, columnKey: string) => string | undefined) | undefined;
 }
 
 /** Paged transport state (#576) — what the chrome reports, and what disables
@@ -366,72 +295,11 @@ const treeRowId = (row: TreeRow): string => String(row.index);
 /** A row's children — TanStack's sub-rows. */
 const treeSubRows = (row: TreeRow): TreeRow[] => row.subRows;
 
-/** One decoded table cell — a LiteralValue variant ({ type, value }). */
-type TableCellVariant = ValueTypeOf<typeof Table.Types.Cell>;
-
-/** A cell that holds a number — an Integer or a Float. */
-type NumberCell = Extract<TableCellVariant, { type: "Integer" | "Float" }>;
-
-/** East's own order over cells: by kind, then by the kind's values (#954). */
-const compareCell = compareFor(Table.Types.Cell);
-const compareFloat = compareFor(FloatType);
-
 /** How East prints the cells a column prints as they are (#874). */
 const printBoolean = printFor(BooleanType);
 const printDateTime = printFor(DateTimeType);
 const printBlob = printFor(BlobType);
 const printNull = printFor(NullType);
-
-/** Whether a cell holds a number. */
-function isNumberCell(cell: TableCellVariant): cell is NumberCell {
-    return cell.type === "Integer" || cell.type === "Float";
-}
-
-/** A number cell's value as a Float — how an Integer meets a Float. */
-function asFloat(cell: NumberCell): number {
-    return cell.type === "Integer" ? Number(cell.value) : cell.value;
-}
-
-/**
- * How two drawn cells order (#954): by East's order over cells, save that two
- * numbers compare as numbers — an Integer column's `mean` subtotal is a Float,
- * and it sorts among its siblings' Integers by value.
- */
-function compareDrawn(a: TableCellVariant, b: TableCellVariant): number {
-    return a.type !== b.type && isNumberCell(a) && isNumberCell(b)
-        ? compareFloat(asFloat(a), asFloat(b))
-        : compareCell(a, b);
-}
-
-/**
- * A parent's subtotal in a `sum` / `mean` / `min` / `max` column (#954): the
- * aggregate of what its children show. A sum of Integers stays an Integer; a
- * mean is a Float; `min` / `max` pick by East's order over the column's values.
- * (`count` counts leaves, in {@link subtotalsOf}.)
- */
-function computeAggregate(tag: string, cells: TableCellVariant[]): TableCellVariant {
-    // A parent with nothing beneath it shows Null: no value, so no aggregate
-    // over its siblings counts it.
-    const shown = cells.filter((c) => c.type !== "Null");
-    if (shown.length === 0) return variant("Null", null) as TableCellVariant;
-    if (tag === "sum" || tag === "mean") {
-        // Factory-validated: sum/mean columns are Integer or Float.
-        const numbers = shown.filter(isNumberCell);
-        if (numbers.length === 0) return variant("Null", null) as TableCellVariant;
-        const integers = numbers.flatMap((c) => (c.type === "Integer" ? [c.value] : []));
-        if (tag === "sum" && integers.length === numbers.length) {
-            return variant("Integer", integers.reduce((sum, n) => sum + n, 0n)) as TableCellVariant;
-        }
-        const sum = numbers.reduce((acc, c) => acc + asFloat(c), 0);
-        return variant("Float", tag === "mean" ? sum / numbers.length : sum) as TableCellVariant;
-    }
-    let best = shown[0]!;
-    for (const c of shown) {
-        const order = compareCell(c, best);
-        if (tag === "min" ? order < 0 : order > 0) best = c;
-    }
-    return best;
-}
 
 /** A cell's text when its column has no `render` (#874): a number through the
  *  column's declared `format`, else every digit, never grouped, with the
@@ -486,6 +354,9 @@ const readTablePersisted = keptRead.record<TablePersistedState>({
     folds: keptRead.optional(keptRead.dict(keptRead.boolean)),
 });
 
+/** A tile's scroll bar: the bounded Table's, with no gutter kept for it — a tile's rows run to its edge. */
+const TILE_SCROLLBAR = { ...virtualScrollbarCss, scrollbarGutter: "auto" } as const;
+
 /** A column's padding at a phone's width: 12 each side, and the pinned column's 16 before it (QP10, QP11). */
 const PHONE_PAD = 24;
 const PHONE_PIN_PAD = 28;
@@ -534,6 +405,10 @@ const TableCore = function TableCore({
     totals,
     cellTone,
     rowHead,
+    tile: tileProp = false,
+    sorted: hostSorted,
+    headerNote,
+    numberText,
 }: EastChakraTableProps & {
     hidePaginationBand?: boolean;
     /** The resolved row collection — the whole inline array, or the loaded
@@ -584,6 +459,13 @@ const TableCore = function TableCore({
     const gutterActive = gLeft !== undefined || gRight !== undefined;
     // The phone's form: by the table's own width, as a frame's is.
     const phone = containerWidth > 0 && containerWidth <= NARROW_FRAME && !gutterActive;
+    // A tile's form (#1671), at any wider width.
+    const tile = tileProp && !phone && !gutterActive;
+    // A cell's text: a number as its host prints it, a tile's date to its day, else through its column's format.
+    const printed = useCallback((cell: TableCellVariant, columnKey: string, format: TickFormatOpt): string => {
+        if (tile && cell.type === "DateTime") return tileDate(printDateTime(cell.value));
+        return (numberText !== undefined && isNumberCell(cell) ? numberText(asFloat(cell), columnKey) : undefined) ?? cellText(cell, format, words);
+    }, [numberText, words, tile]);
 
     // Column-resize gating — IR `value.columnResize` takes precedence
     // over the JS-side prop. When neither is defined, default to true
@@ -649,7 +531,7 @@ const TableCore = function TableCore({
     // spread each slot via `css=`, the way accordion/nav do, so the spec
     // values (10px mono header, fg.subtle, 13px cells, 1px rules, top-align)
     // come from the theme rather than per-site inline literals.
-    const tableSlotStyles = useSlotRecipe({ key: "table" })({ size: tableSize });
+    const tableSlotStyles = useSlotRecipe({ key: "table" })({ size: tableSize, tile });
     // Chakra generates the "table" slot union from ITS built-in table recipe,
     // so our custom slots — a nested row's indent and caret (#954), the
     // printed cell's `cellText` (#874) and the header's content, controls and
@@ -962,7 +844,8 @@ const TableCore = function TableCore({
         // the columns scroll (#264).
         right: hasReview ? [REVIEW_COLUMN_ID] : [] as string[],
     }), [pinnedColumns, hasReview]);
-    const hasFrozen = pinnedColumns.length > 0;
+    // A tile's columns stand where their content puts them: none is pinned.
+    const hasFrozen = !tile && pinnedColumns.length > 0;
 
     // ── The phone's window over the columns ───────────────────────────────
     const [phoneFirst, setPhoneFirst] = useState(0);
@@ -972,36 +855,28 @@ const TableCore = function TableCore({
     const phonePin = phone ? ([...value.frozen][0] ?? value.columns[0]?.key) : undefined;
     const phoneOthers = useMemo(() => value.columns.filter(c => c.key !== phonePin), [value.columns, phonePin]);
     // Fonts arriving move what the columns measure.
-    const [fontsIn, setFontsIn] = useState(0);
-    useEffect(() => {
-        if (!phone) return undefined;
-        let live = true;
-        void document.fonts?.ready.then(() => { if (live) setFontsIn(n => n + 1); });
-        return () => { live = false; };
-    }, [phone]);
+    const fontsIn = useFontsIn(phone || tile);
     // Each column's natural width: its widest label or value, over a sample of its rows; a column that renders its own
-    // cells at its declared width. Measured as the recipe's type draws them.
+    // cells at its declared width. Measured as the recipe's type draws them — a phone's and a tile's (#1671) print in
+    // the same faces. A tile's adds what stands beside a cell's text: its head's note and the room its sort's caret
+    // takes, a toned cell's mark, a head row's count, a total's word, and the Frame's edge at its first and last.
     const phoneNaturals = useMemo(() => {
-        if (!phone) return new Map<string, number>();
-        // The fonts as the page resolves them: a canvas refuses a font that names a CSS variable, and measures in its last.
-        const el = tableContainerRef.current;
-        const resolved = (token: string, fallback: string) => {
-            if (el === null) return fallback;
-            const probe = document.createElement("span");
-            probe.style.fontFamily = `var(--chakra-fonts-${token})`;
-            el.appendChild(probe);
-            const family = getComputedStyle(probe).fontFamily;
-            probe.remove();
-            return family || fallback;
-        };
-        const body = resolved("body", "sans-serif");
-        const mono = resolved("mono", "monospace");
+        if (!phone && !tile) return new Map<string, number>();
+        const body = themeFont("body", tableContainerRef.current, "sans-serif");
+        const mono = themeFont("mono", tableContainerRef.current, "monospace");
         const sample = tree.all.slice(0, PHONE_SAMPLE);
-        const depth = nested ? sample.reduce((most, r) => Math.max(most, r.depth), 0) * PHONE_TREE_STEP + PHONE_TREE_STEP : 0;
+        const step = tile ? TILE_TREE_STEP : PHONE_TREE_STEP;
+        const depth = nested ? sample.reduce((most, r) => Math.max(most, r.depth), 0) * step + step : 0;
+        // A label as the label voice draws it: uppercase, tracked.
+        const labelled = (text: string, font: string, tracking: number) => measureText(text.toUpperCase(), font) + text.length * tracking;
+        const firstKey = value.columns[0]?.key;
+        const lastKey = value.columns[value.columns.length - 1]?.key;
         const out = new Map<string, number>();
         for (const col of value.columns) {
             const header = getSomeorUndefined(col.header) ?? col.key;
-            const label = measureText(header.toUpperCase(), `600 10px ${mono}`) + header.length * 1.6;
+            const note = tile ? headerNote?.(col.key) : undefined;
+            const label = labelled(header, `600 10px ${mono}`, 1.6)
+                + (tile ? TILE_CARET + (note === undefined ? 0 : TILE_GAP + labelled(note, `500 10px ${mono}`, 0.6)) : 0);
             const numeric = col.valueType.type === "Integer" || col.valueType.type === "Float";
             // A column that renders its own cells holds at least its declared width, and its value as it prints, so a
             // narrow declared width never cuts a word.
@@ -1011,13 +886,48 @@ const TableCore = function TableCore({
             const font = numeric || col.valueType.type === "DateTime" ? `500 13px ${mono}` : `400 13px ${body}`;
             for (const row of sample) {
                 const cell = subtotals.get(row.index)?.get(col.key) ?? row.cells.get(col.key);
-                if (cell !== undefined) widest = Math.max(widest, measureText(cell.type === "Null" ? "no data" : cellText(cell, format, words), font));
+                if (cell === undefined) continue;
+                const count = tile && col.key === firstKey ? rowHead?.(row.index)?.count : undefined;
+                widest = Math.max(widest, measureText(cell.type === "Null" ? "no data" : printed(cell, col.key, format), font)
+                    + (tile && cellTone?.(row.index, col.key) !== undefined ? TILE_MARK : 0)
+                    + (count === undefined ? 0 : TILE_GAP + Math.max(16, measureText(words.number(count), `500 9.5px ${mono}`) + 8)));
             }
-            out.set(col.key, Math.ceil(Math.max(widest, label)) + PHONE_SLACK + (col.key === phonePin ? PHONE_PIN_PAD + depth : PHONE_PAD));
+            if (tile) {
+                for (const total of totals ?? []) {
+                    const cell = total.get(col.key);
+                    if (cell === undefined) continue;
+                    widest = Math.max(widest, measureText(printed(cell.value, col.key, format), `600 13px ${mono}`)
+                        + (cell.label === undefined ? 0 : TILE_GAP + labelled(cell.label, `400 9.5px ${mono}`, 0.95))
+                        + (cell.tone === undefined ? 0 : TILE_MARK));
+                }
+            }
+            const pad = tile ? TILE_PAD + (col.key === firstKey ? TILE_EDGE + depth : 0) + (col.key === lastKey ? TILE_EDGE : 0)
+                : col.key === phonePin ? PHONE_PIN_PAD + depth : PHONE_PAD;
+            out.set(col.key, Math.ceil(Math.max(widest, label)) + PHONE_SLACK + pad);
         }
         return out;
         // eslint-disable-next-line react-hooks/exhaustive-deps -- `fontsIn` is what measures them again.
-    }, [phone, value.columns, tree, subtotals, words, phonePin, nested, fontsIn]);
+    }, [phone, tile, value.columns, tree, subtotals, words, phonePin, nested, fontsIn, printed, headerNote, cellTone, rowHead, totals]);
+    // A tile's columns (#1671): as wide as their content needs, sharing the room past it. The room is the scroll
+    // box's client width — what a scrollbar leaves — read after every commit, since rows that arrive bring the bar.
+    const [tileRoom, setTileRoom] = useState(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- after every commit: it ends as the width stops changing.
+    useLayoutEffect(() => {
+        const width = tile ? tableContainerRef.current?.clientWidth ?? 0 : 0;
+        if (width !== tileRoom) setTileRoom(width);
+    });
+    const tileFit = useMemo(() => {
+        if (!tile) return undefined;
+        const taken = (getSomeorUndefined(value.expandedContent) !== undefined ? 32 : 0)
+            + (getSomeorUndefined(value.selection) !== undefined ? 40 : 0)
+            + (getSomeorUndefined(value.review) !== undefined ? parseInt(DECISION_WIDTH, 10) : 0);
+        const fitted = fitTileColumns(tileRoom - taken, value.columns.map(c => phoneNaturals.get(c.key) ?? 0));
+        return {
+            widths: new Map(value.columns.map((c, i): [string, number] => [c.key, fitted.widths[i]!])),
+            // What the table is no narrower than: its columns' own widths, once they need more than the room.
+            floor: fitted.scrolls ? fitted.widths.reduce((sum, w) => sum + w, taken) : 0,
+        };
+    }, [tile, tileRoom, value.columns, phoneNaturals, value.expandedContent, value.selection, value.review]);
     // A column that renders its own cells prints what its value does not say: each column at least as wide as the
     // widest word its mounted cells draw, so none is split. It only grows, so it settles.
     const [phoneWords, setPhoneWords] = useState<Record<string, number>>({});
@@ -1069,12 +979,12 @@ const TableCore = function TableCore({
         return hidden;
     }, [phone, value.columns, phoneInView]);
     const phoneLastInView = phoneFit === undefined || phoneFit.widths.length === 0 ? undefined : phoneOthers[phoneFit.first + phoneFit.widths.length - 1]?.key;
-    /** A column's place at a phone's width, over whatever its cell would otherwise take. */
+    /** A column's place at a phone's width and in a tile, over whatever its cell would otherwise take. */
     const phonePlace = (id: string): CSSProperties => {
-        const width = phoneInView.get(id);
+        const width = tile ? tileFit?.widths.get(id) : phoneInView.get(id);
         return width === undefined ? {} : {
             width: `${width}px`, minWidth: 0, flex: "none", position: "relative",
-            borderRight: id === phonePin && phoneFit !== undefined && phoneFit.widths.length > 0 ? "1px solid var(--chakra-colors-border-strong)" : undefined,
+            borderRight: !tile && id === phonePin && phoneFit !== undefined && phoneFit.widths.length > 0 ? "1px solid var(--chakra-colors-border-strong)" : undefined,
         };
     };
 
@@ -1140,7 +1050,8 @@ const TableCore = function TableCore({
             sorting,
             columnSizing,
             rowSelection,
-            columnPinning: phone ? { left: phonePin === undefined ? [] : [phonePin], right: columnPinning.right } : columnPinning,
+            columnPinning: phone ? { left: phonePin === undefined ? [] : [phonePin], right: columnPinning.right }
+                : tile ? { left: [], right: columnPinning.right } : columnPinning,
             columnVisibility,
             expanded,
         },
@@ -1393,7 +1304,8 @@ const TableCore = function TableCore({
             overscrollBehaviorX="contain"
             // Reserved-gutter bar only when the author bounded the table — an
             // unbounded (content-sized) table must not reserve a dead gutter.
-            css={!phone && (styleHeightCss !== undefined || styleMaxHeightCss !== undefined) ? virtualScrollbarCss : undefined}
+            // A tile's rows run to its edge: its bar takes its room only while there is one.
+            css={!phone && (styleHeightCss !== undefined || styleMaxHeightCss !== undefined) ? (tile ? TILE_SCROLLBAR : virtualScrollbarCss) : undefined}
             position="relative"
             {...(gutterActive ? { width: "100%" } : {})}
         >
@@ -1468,7 +1380,7 @@ const TableCore = function TableCore({
                 style={{
                     ...columnSizeVars,
                     width: gutterActive || phone ? '100%' : (hasFrozen ? table.getCenterTotalSize() + frozenPanelWidth : '100%'),
-                    minWidth: gutterActive || phone ? 0 : (hasFrozen ? table.getCenterTotalSize() + frozenPanelWidth : table.getCenterTotalSize()),
+                    minWidth: gutterActive || phone ? 0 : tile ? (tileFit?.floor ?? 0) : (hasFrozen ? table.getCenterTotalSize() + frozenPanelWidth : table.getCenterTotalSize()),
                     tableLayout: 'fixed',
                 }}
             >
@@ -1662,6 +1574,21 @@ const TableCore = function TableCore({
                                     );
                                 }
 
+                                // A tile's head (#1671): its label alone, the whole of it the button that sorts.
+                                if (tile) {
+                                    const shown: TileSorted = isSorted || (sorting.length === 0 && hostSorted?.columnKey === header.id ? hostSorted.direction : false);
+                                    return (
+                                        <TileHeaderCell key={header.id} label={flexRender(header.column.columnDef.header, header.getContext())} note={headerNote?.(header.id)}
+                                            numeric={header.column.columnDef.meta?.numeric === true} sorted={shown} canSort={header.column.getCanSort()}
+                                            onSort={() => {
+                                                const next = nextTileSort(shown, isSorted !== false);
+                                                if (next === false) header.column.clearSorting();
+                                                else header.column.toggleSorting(next === "desc", false);
+                                            }}
+                                            styles={tableCustomSlots} style={{ borderColor, height: `${effectiveRowHeight}px`, ...phonePlace(header.id) }} />
+                                    );
+                                }
+
                                 return (
                                     <ChakraTable.ColumnHeader
                                         key={header.id}
@@ -1838,7 +1765,7 @@ const TableCore = function TableCore({
                                         aria-label={isOpen ? "Hide children" : "Show children"}
                                         onClick={(e: React.MouseEvent) => { e.stopPropagation(); toggleFold(node, !isOpen); }}
                                     >
-                                        <FontAwesomeIcon icon={faCaretDown} />
+                                        <FontAwesomeIcon icon={tile ? faChevronDown : faCaretDown} />
                                     </chakra.button>
                                 )}
                             </Box>
@@ -2129,7 +2056,7 @@ const TableCore = function TableCore({
                                             {phone && cellValue.type === "Null"
                                                 ? <Box as="span" css={tableCustomSlots.phoneAbsent}>no data</Box>
                                                 : <Text css={tableCustomSlots.cellText} data-numeric={meta?.numeric ? "" : undefined} data-date={meta?.date ? "" : undefined}>
-                                                {isCount && cellValue.type === "Integer" ? words.number(cellValue.value) : cellText(cellValue, meta?.format, words)}
+                                                {isCount && cellValue.type === "Integer" ? words.number(cellValue.value) : printed(cellValue, columnKey, meta?.format)}
                                             </Text>}
                                             {count !== undefined && <Box as="span" css={tableCustomSlots.rowCount} data-row-count="">{words.number(count)}</Box>}
                                         </ChakraTable.Cell>
@@ -2201,10 +2128,9 @@ const TableCore = function TableCore({
                             display: "flex",
                             alignItems: "center",
                             overflow: "hidden",
-                            paddingLeft: densityCellPadX,
-                            paddingRight: densityCellPadX,
-                            paddingTop: densityCellPadY,
-                            paddingBottom: densityCellPadY,
+                            // A tile's footer cells are padded as its rows are, by the recipe, at a row's height.
+                            ...(tile ? { minHeight: `${effectiveRowHeight}px` }
+                                : { paddingLeft: densityCellPadX, paddingRight: densityCellPadX, paddingTop: densityCellPadY, paddingBottom: densityCellPadY }),
                             background: footerBackground,
                             borderColor,
                             fontWeight: 600,
@@ -2264,7 +2190,7 @@ const TableCore = function TableCore({
                                                 {cell?.tone !== undefined && <ToneMark tone={cell.tone} css={tableCustomSlots.cellMark} />}
                                                 {cell === undefined ? null : (
                                                     <Text css={tableCustomSlots.cellText} data-numeric={numeric ? "" : undefined}>
-                                                        {cellText(cell.value, getSomeorUndefined(column.format), words)}
+                                                        {printed(cell.value, column.key, getSomeorUndefined(column.format))}
                                                     </Text>
                                                 )}
                                             </ChakraTable.Cell>
@@ -2467,4 +2393,6 @@ export const EastChakraTable = memo(function EastChakraTable(props: EastChakraTa
         </Box>
     );
 }, (prev, next) => tableRootEqual(prev.value, next.value) && prev.storageKey === next.storageKey && prev.phoneBand === next.phoneBand && prev.phoneReading === next.phoneReading
-    && prev.totals === next.totals && prev.cellTone === next.cellTone && prev.rowHead === next.rowHead);
+    && prev.totals === next.totals && prev.cellTone === next.cellTone && prev.rowHead === next.rowHead
+    && prev.tile === next.tile && prev.sorted?.columnKey === next.sorted?.columnKey && prev.sorted?.direction === next.sorted?.direction
+    && prev.headerNote === next.headerNote && prev.numberText === next.numberText);

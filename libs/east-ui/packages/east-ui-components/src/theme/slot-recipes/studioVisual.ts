@@ -63,14 +63,15 @@ export const studioVisualSlotRecipe = defineSlotRecipe({
         /* A line over a chart's plot that says what its axes are, where a legend would sit: mono 10.5 / 500 `--ink-4` on
            the legend's 13px line, 12 over the plot with the body's gap. */
         caption: { fontFamily: "mono", fontSize: "label.md", fontWeight: "500", lineHeight: "13px", color: "fg.subtle", flexShrink: "0", marginBottom: "{spacing.1}" },
-        /* What it holds of how many — `Showing 500 of 1,240 groups`. */
-        note: { textStyle: "mono.xs", color: "fg.muted", flexShrink: "0" },
+        /* What it holds of how many — `Showing 500 of 1,240 groups`: mono 10 `--ink-4`, on a whole 12px line. */
+        note: { fontFamily: "mono", fontSize: "label.sm", fontVariantNumeric: "tabular-nums", lineHeight: "12px", color: "fg.subtle", flexShrink: "0" },
         /* A table, taking the room its foot leaves; a wide one scrolls inside it (TBL-5). */
         table: { flex: "1", minWidth: "0", minHeight: "0", display: "flex", flexDirection: "column" },
-        /* Under a table: where its page stands, and its pages — on the strip's paper, over a `--rule`. */
+        /* Under a table: where its page stands, and its pages — the Frame's footer band, 37 with its `--rule`, on the
+           strip's paper, padded 0 20. Its 24px pager and its 12px line are each centred in the even 36 under the rule. */
         foot: {
             display: "flex", alignItems: "center", justifyContent: "space-between", gap: "{spacing.3}", flexShrink: "0", flexWrap: "wrap",
-            paddingInline: "{spacing.5}", paddingBlock: "{spacing.2}",
+            minHeight: "37px", boxSizing: "border-box", paddingInline: "{spacing.5}", paddingBlock: "6px",
             background: "bg.canvas", borderTopWidth: "1px", borderTopStyle: "solid", borderTopColor: "border.subtle",
         },
         /* A KPI (KPI-1, KPI-3): its number's row, its goal's bar, its trend and its annotation, 8 apart, each gone with its well. */
@@ -92,8 +93,12 @@ export const studioVisualSlotRecipe = defineSlotRecipe({
         trend: { height: "36px", width: "100%", flexShrink: "0" },
         /* The annotation: one line, mono 10 `--ink-4`, on a 15px line. */
         anno: { fontFamily: "mono", fontSize: "label.sm", lineHeight: "15px", color: "fg.subtle" },
-        /* A pivot's heat legend (TBL-4): its ramp over its steps' lower edges. */
-        heat: { display: "flex", flexDirection: "column", gap: "{spacing.1}", flexShrink: "0" },
+        /* A pivot's heat legend (TBL-4): under the grid on the tile's own surface, over a `--rule`, padded 12 20 16 —
+           its ramp over its steps' lower edges, 4 apart. */
+        heat: {
+            display: "flex", flexDirection: "column", gap: "{spacing.1}", flexShrink: "0", padding: "12px 20px 16px",
+            borderTopWidth: "1px", borderTopStyle: "solid", borderTopColor: "border.subtle",
+        },
         heatRamp: { display: "flex", width: "max-content", borderWidth: "1px", borderStyle: "solid", borderColor: "border.subtle" },
         heatSwatch: {
             width: "40px", height: "12px",
@@ -105,7 +110,7 @@ export const studioVisualSlotRecipe = defineSlotRecipe({
         },
         /* The steps' lower edges, each at its swatch's start; the ramp's two rules wide. */
         heatTicks: {
-            display: "flex", width: "202px", justifyContent: "space-between", fontFamily: "mono", fontSize: "label.xs", color: "fg.subtle",
+            display: "flex", width: "202px", justifyContent: "space-between", fontFamily: "mono", fontSize: "label.xs", lineHeight: "11px", color: "fg.subtle",
             fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap",
         },
         /* A list (LST-1): its rows, edge to edge, scrolling inside its tile. */

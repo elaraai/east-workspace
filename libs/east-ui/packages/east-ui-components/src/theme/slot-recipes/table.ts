@@ -38,6 +38,14 @@
  *     32 header on `--paper-2`; cells padded 8 12, the pinned column's 16 before
  *     it, the last in view's 16 after it; values wrapping, numbers and dates mono 13/500,
  *     an absent value `no data` in mono italic `--ink-4`.
+ *   - In a tile (`tile`, #1671) — the design system's Table running edge to
+ *     edge in a Frame: its header on the surface over a `--rule`, each head its
+ *     label alone, the whole of it the button that sorts, the sorted one in
+ *     `--ink` with a 10 px caret; cells padded 0 12, the first and the last
+ *     20 at the Frame's edges; rows ruled over, never under, so the last row
+ *     meets a footer's rule with none of its own; numbers mono 13/500, dates
+ *     mono 12.5; a total row on `--paper-2` in mono 13/600; a nested row's
+ *     step 24, its parent's a 9 px chevron in `--ink-4`.
  *
  * @packageDocumentation
  */
@@ -69,7 +77,7 @@ export const tableSlotRecipe = defineSlotRecipe({
         "root", "header", "body", "row", "cell", "cellText", "cellMark", "rowCount", "totalLabel", "columnHeader",
         "columnHeaderContent", "columnHeaderLabel", "columnControls",
         "columnControl", "columnSortIndex", "columnResizer",
-        "footer", "caption", "scrollArea", "treeIndent", "treeToggle",
+        "footer", "caption", "scrollArea", "treeIndent", "treeToggle", "tileHeader", "tileHeaderLabel", "tileHeaderNote",
         "pageBand", "pageBandText", "pageBandStep",
         "phoneGroupRow", "phoneGroup", "phonePager", "phonePagerBand", "phonePagerRange", "phonePagerStep", "phoneColumns", "phoneColumn", "phoneColumnMark", "phoneColumnText", "phoneColumnName", "phoneColumnKind", "phoneColumnCheck", "phoneHeaderSort", "phoneAbsent", "phoneBar",
         "phoneView", "phoneViewHead", "phoneViewBack", "phoneViewTitle", "phoneViewContext", "phoneViewFoot",
@@ -235,6 +243,24 @@ export const tableSlotRecipe = defineSlotRecipe({
             _focusVisible: { outline: "2px solid", outlineColor: "border.focus", outlineOffset: "1px" },
             "&[aria-expanded=false]": { transform: "rotate(-90deg)" },
         },
+        /* A tile's head (#1671): the button over the whole of it that sorts — its label, a note after it, and the
+           caret of a sort. Its row is centred in the 35px over the header's rule, on a whole, odd line (#1638). A
+           number column's ends at its end, the caret leading so the label stays flush with the figures. */
+        tileHeader: {
+            all: "unset", boxSizing: "border-box", width: "100%", height: "100%", minWidth: "0", display: "flex", alignItems: "center", gap: "6px",
+            paddingX: "12px", cursor: "pointer", lineHeight: centredLine(35, 19),
+            "th:first-of-type > &": { paddingInlineStart: "20px" },
+            "th:last-of-type > &": { paddingInlineEnd: "20px" },
+            "&[data-align=end]": { justifyContent: "flex-end", "& svg": { order: -1 } },
+            "&[data-sorted]": { color: "fg" },
+            "&:disabled": { cursor: "default" },
+            "& svg": { width: "10px", height: "10px", flex: "none" },
+            _hover: { "&:not(:disabled)": { background: "bg.canvas" } },
+            _focusVisible: { boxShadow: "focusInset" },
+        },
+        tileHeaderLabel: { minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+        /* What a head says after its label — a value's goal: the label voice a step lighter, `--ink-4` whatever its head's sort. */
+        tileHeaderNote: { flex: "none", fontWeight: "500", letterSpacing: "0.06em", color: "fg.subtle", whiteSpace: "nowrap" },
         cell: {
             fontSize: "{fontSizes.body}",
             // Tight leading so a single-line cell + 10px vertical padding
@@ -409,6 +435,34 @@ export const tableSlotRecipe = defineSlotRecipe({
             lg: {
                 cell: { paddingX: "{spacing.4}", paddingY: "{spacing.3}", fontSize: "{fontSizes.body.lg}" },
                 columnHeader: { paddingX: "{spacing.4}", paddingY: `${HEADER_PAD.lg}px` }, columnHeaderLabel: { lineHeight: centredLine(headerRoom("lg"), 19) },
+            },
+        },
+        // A tile's table (#1671): the design system's Table in a Frame. Its paddings are the size variants' own keys,
+        // so they replace them whatever the size.
+        tile: {
+            true: {
+                columnHeader: { background: "transparent", paddingX: "0", paddingY: "0", borderBottomColor: "border.subtle" },
+                cell: {
+                    paddingX: "12px", paddingY: "0",
+                    // Every row is ruled over, the first transparently under the header's own rule: each row's words
+                    // are centred in the same 35px, on a whole, odd line (#1638).
+                    lineHeight: centredLine(35, 17),
+                    borderBottomWidth: "0", borderTopWidth: "1px", borderTopStyle: "solid", borderTopColor: "border.subtle",
+                    "[data-index='0'] > tr > &": { borderTopColor: "transparent" },
+                    "&:first-of-type": { paddingInlineStart: "20px" },
+                    "&:last-of-type": { paddingInlineEnd: "20px" },
+                    // A total row: on `--paper-2`, mono 13/600.
+                    "tr[data-table-total] > &": { background: "bg.canvas", fontFamily: "mono", fontWeight: "600" },
+                },
+                cellText: {
+                    "&[data-numeric]": { fontSize: "{fontSizes.body}", fontWeight: "500", fontVariantNumeric: "tabular-nums" },
+                    "&[data-date]": { fontSize: "12.5px" },
+                    "tr[data-row-head] &": { fontSize: "label.sm", fontWeight: "600" },
+                    "tr[data-table-total] &": { fontSize: "{fontSizes.body}", fontWeight: "600" },
+                },
+                // A nested row's step: its parent's 10px chevron and the 14 after it.
+                treeIndent: { paddingLeft: "calc(var(--table-depth, 0) * 24px)" },
+                treeToggle: { width: "10px", height: "10px", marginRight: "14px", fontSize: "9px", borderRadius: "0" },
             },
         },
         striped: { true: { row: { "&:nth-of-type(odd)": { background: "bg.subtle" } } } },

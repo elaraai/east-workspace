@@ -7,8 +7,8 @@
  * @vitest-environment jsdom
  *
  * A Studio list (#1671, LST-1, LST-2): a row a customer, in its order — its
- * name, its region under it, its values with their units, an absent one in
- * words — and, with the ranking bar on, its first value's share of the
+ * name, its region under it, its values in short with their units, an absent
+ * one in words — and, with the ranking bar on, its first value's share of the
  * largest; its first N, and what it holds of how many.
  */
 
@@ -39,13 +39,14 @@ async function modelOf(content: ReturnType<typeof v.of>) {
 }
 
 describe("listModel", () => {
-    it("lists each customer by revenue, high first: its name, its region under it, its values with their units, and its share of the largest (LST-1, LST-2)", async () => {
+    it("lists each customer by revenue, high first: its name, its region under it, its values in short with their units, and its share of the largest (LST-1, LST-2)", async () => {
         const model = await modelOf(v.of("orders", v.list({ item: v.group("customer", { sort: "high" }), caption: "region", values: [v.sum("revenue"), v.count()], bar: true })));
         // Northwind 100 + 30 over two orders, Summit 70 + 20, Harbour 50; each region its first order's.
+        // A currency's amount keeps its cents and says its code; a count says what it counts.
         expect(model.rows).toEqual([
-            { name: "Northwind", caption: "SA", values: [{ text: "130", unit: "AUD" }, { text: "2", unit: undefined }], share: 1 },
-            { name: "Summit", caption: "SA", values: [{ text: "90", unit: "AUD" }, { text: "2", unit: undefined }], share: 90 / 130 },
-            { name: "Harbour", caption: "NSW", values: [{ text: "50", unit: "AUD" }, { text: "1", unit: undefined }], share: 50 / 130 },
+            { name: "Northwind", caption: "SA", values: [{ text: "130.00", unit: "AUD" }, { text: "2", unit: "orders" }], share: 1 },
+            { name: "Summit", caption: "SA", values: [{ text: "90.00", unit: "AUD" }, { text: "2", unit: "orders" }], share: 90 / 130 },
+            { name: "Harbour", caption: "NSW", values: [{ text: "50.00", unit: "AUD" }, { text: "1", unit: "orders" }], share: 50 / 130 },
         ]);
         expect([model.bar, model.shown]).toEqual([true, undefined]);
     });

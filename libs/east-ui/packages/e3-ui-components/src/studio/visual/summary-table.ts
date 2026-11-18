@@ -9,9 +9,11 @@
  * head of the first over its groups of the second, nested; each head's values
  * the query's own (`heads`), never a fold of the rows under it, whose mean
  * would be a mean of means; the total row the query's (`total`), each cell
- * after what made it; a value's cells on the wrong side of its goal marked;
- * and a group's first N, then the rest folded into Other where the fold is
- * exact — else left out, which it says.
+ * after what made it; a value's cells on the wrong side of its goal marked,
+ * its goal a small label after its header; each value's numbers in short, at
+ * their column's scale (`1.81M`, `0.48M`); and a group's first N, then the
+ * rest folded into Other where the fold is exact — else left out, which it
+ * says.
  *
  * It imports neither React nor the renderers.
  *
@@ -26,7 +28,10 @@ import type { VisualAnswer } from "../../query/visual/ask.js";
 import type { VisualAsk, VisualValue } from "../../query/visual/print.js";
 import { foldGroups, partsAt, readGroups, readTotal, type ReadGroup, type ReadGroups } from "../../query/visual/read.js";
 import { capitalised, type StudioMessages } from "../messages.js";
-import { groupLabel, groupWords, valueHead, visualWords, wrongSideOfGoal, type VisualGroup, type VisualShown, type VisualSource, type VisualView } from "./values.js";
+import {
+    groupLabel, groupWords, shortNumber, valueFieldFormat, valueHead, visualWords, wrongSideOfGoal,
+    type VisualGroup, type VisualShown, type VisualSource, type VisualView,
+} from "./values.js";
 
 /** A summary table's view: its groups, its values, and whether it has a total row. */
 export type SummaryView = Extract<Extract<VisualView, { type: "table" }>["value"], { type: "summary" }>["value"];
@@ -53,6 +58,8 @@ const compareFloat = compareFor(FloatType);
  * @property totals - Its total row, each cell after what made it; `undefined` without one
  * @property tone - A cell's tone, by its row's pre-order index and its column's key: on the wrong side of its value's goal, negative
  * @property head - Whether a row is a head, by its pre-order index, with how many groups it holds
+ * @property note - What a column's head says after its label, by its key: a value's goal — `goal 11.00`
+ * @property number - A column's number in short, by its key, at the scale of the largest the column draws
  * @property shown - What it holds of how many groups, when it holds fewer; `undefined` when it holds them all
  */
 export interface SummaryModel {
@@ -64,6 +71,10 @@ export interface SummaryModel {
     readonly tone: (rowIndex: number, columnKey: string) => TableCellTone | undefined;
     /** Whether a row is a head, by its pre-order index, with how many groups it holds. */
     readonly head: (rowIndex: number) => TableRowHead | undefined;
+    /** What a column's head says after its label, by its key: a value's goal. */
+    readonly note: (columnKey: string) => string | undefined;
+    /** A column's number in short, by its key, at the scale of the largest the column draws; `undefined` for a column of no value. */
+    readonly number: (n: number, columnKey: string) => string | undefined;
     /** What it holds of how many groups, when it holds fewer; `undefined` when it holds them all. */
     readonly shown: VisualShown | undefined;
 }
@@ -185,7 +196,7 @@ export function summaryModel(summary: SummaryView, asks: readonly VisualAsk[], a
         if (level.other !== undefined) rows.push({ label: m.other(), parts: level.other.parts, depth: 0, head: {} });
         shown = shownOf(heads, level.hidden, level.kept.length) ?? (complete ? undefined : { shown: leaves.groups.length, of: leaves.of });
     }
-    // The columns: the groups' labels, then each value, headed by its name, its unit and its goal.
+    // The columns: the groups' labels, then each value, headed by its name and its unit, its goal a note after them.
     const heads_ = values.map((value) => valueHead(value, source, said, m));
     const firstWords = groupWords(first, source, m) ?? "";
     const columns: ResultColumn[] = [
@@ -224,11 +235,26 @@ export function summaryModel(summary: SummaryView, asks: readonly VisualAsk[], a
             }];
         }),
     ])];
+    // Each value's numbers in short, at its column's scale: the largest it draws, its total among them.
+    const at = new Map(values.map((_value, i): [string, number] => [summaryValueKey(i), i]));
+    const scales = values.map((_value, i) => Math.max(0, ...[...rows.map((row) => valueAt(row.parts, i)), total === undefined ? undefined : valueAt(total.parts, i)]
+        .flatMap((value) => (value === undefined ? [] : [Math.abs(value)]))));
+    const declared = values.map((value) => valueFieldFormat(value, source));
     return {
         table: rowsTable(columns, rows.map(cells), said, rows.map((row) => row.depth)),
         totals,
         tone: (rowIndex, columnKey) => tones.get(rowIndex)?.get(columnKey),
         head: (rowIndex) => headOf.get(rowIndex),
+        note: (columnKey) => {
+            const i = at.get(columnKey);
+            return i === undefined ? undefined : heads_[i]!.goal;
+        },
+        number: (n, columnKey) => {
+            const i = at.get(columnKey);
+            if (i === undefined) return undefined;
+            const format = declared[i]!;
+            return shortNumber(n, format.type === "some" ? format.value : undefined, said.formatters, scales[i] === 0 ? undefined : scales[i]);
+        },
         shown,
     };
 }

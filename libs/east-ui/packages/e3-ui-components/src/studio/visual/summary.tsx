@@ -6,8 +6,9 @@
 /**
  * A summary table's tile (#1671, TBL-2, TBL-3): {@link summaryModel}'s rows —
  * each head of its first group over its groups of the second, with its count —
- * its total row and its marked cells, drawn by east-ui-components' Table,
- * filling its tile, which scrolls a wide table inside it (TBL-5); and, when it
+ * its total row and its marked cells, drawn by east-ui-components' Table as a
+ * tile's, its numbers in short and a value's goal after its header, filling
+ * its tile, which scrolls a wide table inside it (TBL-5); and, when it
  * holds fewer groups than its source has, a line that says how many of how
  * many.
  *
@@ -48,7 +49,8 @@ export function SummaryVisual({ summary, asks, answers, source, storageKey }: Su
     return (
         <Box css={styles.root} data-studio-summary="">
             <Box css={styles.table}>
-                <EastChakraTable value={model.table} storageKey={`${storageKey}.table`} totals={model.totals} cellTone={model.tone} rowHead={model.head} />
+                <EastChakraTable value={model.table} storageKey={`${storageKey}.table`} tile totals={model.totals} cellTone={model.tone} rowHead={model.head}
+                    headerNote={model.note} numberText={model.number} />
             </Box>
             {model.shown !== undefined && (
                 <Box css={styles.foot}>

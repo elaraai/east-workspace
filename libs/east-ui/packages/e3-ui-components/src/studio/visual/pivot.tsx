@@ -46,21 +46,21 @@ export function PivotVisual({ pivot, asks, answers, source, storageKey }: PivotV
     return (
         <Box css={styles.root} data-studio-pivot="">
             <Box css={styles.table}>
-                <EastChakraMatrix value={model.matrix} storageKey={`${storageKey}.matrix`} />
+                <EastChakraMatrix value={model.matrix} storageKey={`${storageKey}.matrix`} tile />
             </Box>
-            {(model.heat !== undefined || model.shown !== undefined) && (
+            {model.heat !== undefined && (
+                <Box css={styles.heat} data-studio-heat="">
+                    <Box css={styles.heatRamp}>
+                        {model.heat.map((step, i) => <Box key={i} as="span" css={styles.heatSwatch} data-step={i + 1} role="img" aria-label={step.name} />)}
+                    </Box>
+                    <Box css={styles.heatTicks} aria-hidden>
+                        {model.heat.map((step, i) => <span key={i}>{step.label}</span>)}
+                    </Box>
+                </Box>
+            )}
+            {model.shown !== undefined && (
                 <Box css={styles.foot}>
-                    {model.heat !== undefined && (
-                        <Box css={styles.heat} data-studio-heat="">
-                            <Box css={styles.heatRamp}>
-                                {model.heat.map((step, i) => <Box key={i} as="span" css={styles.heatSwatch} data-step={i + 1} role="img" aria-label={step.name} />)}
-                            </Box>
-                            <Box css={styles.heatTicks} aria-hidden>
-                                {model.heat.map((step, i) => <span key={i}>{step.label}</span>)}
-                            </Box>
-                        </Box>
-                    )}
-                    {model.shown !== undefined && <ShownNote shown={model.shown} />}
+                    <ShownNote shown={model.shown} />
                 </Box>
             )}
         </Box>

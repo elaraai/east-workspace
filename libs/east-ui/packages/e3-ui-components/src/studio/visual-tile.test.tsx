@@ -342,7 +342,9 @@ describe("a records table's tile, and a tile's menu (#1671)", () => {
         const { container } = page([cell("c1", v.of("orders", summary))], createInMemoryQueryCall(DATASETS));
         await waitFor(() => expect(container.querySelector("[data-studio-summary] tbody tr")).not.toBeNull());
         const table = container.querySelector<HTMLElement>("[data-studio-summary]")!;
-        expect([...table.querySelectorAll("thead th")].map((th) => th.textContent)).toEqual(["Region · month", "Revenue · goal 80"]);
+        // Each head its label alone; the value's goal a small label of its own after it.
+        expect([...table.querySelectorAll("thead th")].map((th) => [...th.querySelectorAll("button > span")].map((part) => part.textContent))).toEqual([["Region · month"], ["Revenue", "goal 80"]]);
+        expect(table.querySelectorAll("thead [data-control]")).toHaveLength(0);
         // New South Wales over July; South Australia over July and August — each head's first cell, its count after it.
         expect([...table.querySelectorAll("tbody tr[data-row-head]")].map((tr) => tr.querySelector("td")!.textContent)).toEqual(["NSW1", "SA2"]);
         expect([...table.querySelectorAll("tbody tr")].map((tr) => tr.getAttribute("data-depth"))).toEqual(["0", "1", "0", "1", "1"]);
@@ -363,8 +365,8 @@ describe("a records table's tile, and a tile's menu (#1671)", () => {
         // July: NSW 50, SA 100; August: SA 60 — the 95th percentile 100, so steps of 20.
         expect(rows).toEqual([["NSW", ["50", "neutral"], ["no data", "free"]], ["SA", ["100", "brand"], ["60", "brand"]]]);
         const legend = grid.querySelector<HTMLElement>("[data-studio-heat]")!;
-        expect([...legend.querySelectorAll("[data-step]")].map((swatch) => swatch.getAttribute("aria-label"))).toEqual(["0–20", "20–40", "40–60", "60–80", "≥ 80"]);
-        expect([...legend.querySelectorAll("[aria-hidden] span")].map((tick) => tick.textContent)).toEqual(["0", "20", "40", "60", "≥ 80"]);
+        expect([...legend.querySelectorAll("[data-step]")].map((swatch) => swatch.getAttribute("aria-label"))).toEqual(["0–20", "20–40", "40–60", "60–80", "≥80"]);
+        expect([...legend.querySelectorAll("[aria-hidden] span")].map((tick) => tick.textContent)).toEqual(["0", "20", "40", "60", "≥80"]);
     }));
 
     test("a list draws a two-line row an item, its values at the end, and its ranking bar against the largest (LST-1, LST-2)", async () => {

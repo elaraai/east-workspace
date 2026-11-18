@@ -6,12 +6,14 @@
 /**
  * A Studio pivot (#1671, TBL-4): its answer read into the Matrix's value — a
  * row a group of its row field, a column a group of its column field, and at
- * each pair one cell holding its value; a pair with no rows says "no data".
- * With heat on, each value takes one of five steps from 0 to the 95th
- * percentile of the values drawn, the top step closed — `≥ 12` — on the
- * theme's heat tokens, its text ink on the first three and paper on the last
- * two. A group's first N, then the rest folded into Other where the fold is
- * exact; else left out, which it says.
+ * each pair one cell holding its value, in short at the scale of the largest
+ * drawn; a pair with no rows says "no data". Its heads are short, as an
+ * axis's labels are (`Apr`). With heat on, each value takes one of five steps
+ * from 0 to the 95th percentile of the values drawn — whole steps for a
+ * count — the top step closed (`≥12`), on the theme's heat tokens, its text
+ * ink on the first three and paper on the last two. A group's first N, then
+ * the rest folded into Other where the fold is exact; else left out, which
+ * it says.
  *
  * It imports neither React nor the renderers.
  *
@@ -20,13 +22,16 @@
 
 import { FloatType, SortedMap, SortedSet, StringType, compareFor, none, some, variant, type EastType, type ValueTypeOf } from "@elaraai/east";
 import type { Matrix } from "@elaraai/east-ui/internal";
-import type { MatrixRootValue, TickFormatOpt } from "@elaraai/east-ui-components";
+import type { MatrixRootValue } from "@elaraai/east-ui-components";
 import type { QueryWords } from "../../query/model/words.js";
 import type { VisualAnswer } from "../../query/visual/ask.js";
 import type { VisualAsk } from "../../query/visual/print.js";
-import { foldGroups, partsAt, readGroups, type ReadGroup } from "../../query/visual/read.js";
+import { bucketStart, foldGroups, partsAt, readGroups, type ReadGroup } from "../../query/visual/read.js";
 import { capitalised, type StudioMessages } from "../messages.js";
-import { groupLabel, groupWords, valueHead, visualWords, type VisualGroup, type VisualShown, type VisualSource, type VisualView } from "./values.js";
+import {
+    axisLabel, bucketSpan, groupWords, shortNumber, valueFieldFormat, visualWords,
+    type VisualGroup, type VisualShown, type VisualSource, type VisualView,
+} from "./values.js";
 
 /** A pivot's view: its row group, its column group, its value, and whether it is a heat map. */
 export type PivotView = Extract<Extract<VisualView, { type: "table" }>["value"], { type: "pivot" }>["value"];
@@ -48,11 +53,11 @@ const compareKeys = compareFor(StringType);
 /**
  * One step of a pivot's heat ramp, as its legend draws it.
  *
- * @property label - Its lower edge, printed — the top step's closed: `≥ 12`
+ * @property label - Its lower edge, printed — the top step's closed: `≥12`
  * @property name - Its range in words, for a screen reader: `3–6`
  */
 export interface HeatStep {
-    /** Its lower edge, printed — the top step's closed: `≥ 12`. */
+    /** Its lower edge, printed — the top step's closed: `≥12`. */
     readonly label: string;
     /** Its range in words, for a screen reader: `3–6`. */
     readonly name: string;
@@ -100,10 +105,13 @@ interface Side {
     readonly hidden: number;
 }
 
-/** A side's first N keys, then Other where it folds exactly. */
+/** A side's first N keys, each labelled short as an axis labels it, then Other where it folds exactly. */
 function sideOf(keys: readonly unknown[], group: VisualGroup, type: EastType, exact: boolean, said: QueryWords, m: StudioMessages): Side {
     const n = group.top.type === "none" ? keys.length : Number(group.top.value);
-    const kept = keys.slice(0, n).map((key) => ({ label: groupLabel(key, type, group, said, m), keys: [key] }));
+    // What the side's date buckets share, which a short label leaves out: `Apr`, of one year.
+    const unit = group.bucket.type === "some" ? group.bucket.value.type : undefined;
+    const span = bucketSpan(unit === undefined ? [] : keys.map((key) => bucketStart(key as bigint, unit)), said.formatters);
+    const kept = keys.slice(0, n).map((key) => ({ label: axisLabel(key, type, group, span, said, m), keys: [key] }));
     const rest = keys.slice(n);
     if (rest.length === 0) return { drawn: kept, hidden: 0 };
     return exact ? { drawn: [...kept, { label: m.other(), keys: rest }], hidden: 0 } : { drawn: kept, hidden: rest.length };
@@ -137,8 +145,11 @@ function percentileOf(values: readonly number[]): number {
  *   a mean's parts add — and is left out where no fold is exact: a distinct
  *   count, or pairs the program cut at its limit.
  * - **Heat**: five equal steps from 0 to the 95th percentile of the values
- *   drawn, by nearest rank; a value at or past the fourth edge takes the top
+ *   drawn, by nearest rank — each a whole number of a count, so its legend
+ *   reads `0 3 6 9 ≥12`; a value at or past the fourth edge takes the top
  *   step, and one under 0 the first.
+ * - **A value** prints in short, at the scale of the largest drawn: `0.48M`
+ *   beside `1.81M`.
  */
 export function pivotModel(pivot: PivotView, asks: readonly VisualAsk[], answers: readonly VisualAnswer[], source: VisualSource, words: QueryWords, m: StudioMessages): PivotModel | undefined {
     const read = readGroups(asks, answers, [pivot.value], "groups");
@@ -178,24 +189,30 @@ export function pivotModel(pivot: PivotView, asks: readonly VisualAsk[], answers
         return folded === undefined ? undefined : partsAt(folded.parts, 0);
     };
     const grid = rowSide.drawn.map((row) => columnSide.drawn.map((column) => valueAt(row.keys, column.keys)));
-    const format: TickFormatOpt = valueHead(pivot.value, source, said, m).format;
+    const declared = valueFieldFormat(pivot.value, source);
+    const format = declared.type === "some" ? declared.value : undefined;
     const f = said.formatters;
-    // The ramp: five equal steps from 0 to the 95th percentile of the values drawn.
-    const top = percentileOf(grid.flat().filter((value): value is number => value !== undefined));
-    const width = top / HEAT_STEPS;
+    const drawn = grid.flat().filter((value): value is number => value !== undefined);
+    // Each value in short, at the scale of the largest drawn; a step's edge with no zeros ending its decimals.
+    const largest = drawn.reduce((most, value) => Math.max(most, Math.abs(value)), 0);
+    const short = (value: number, trim: boolean) => shortNumber(value, format, f, largest === 0 ? undefined : largest, trim);
+    // The ramp: five equal steps from 0 to the 95th percentile of the values drawn — whole ones for a count.
+    const top = percentileOf(drawn);
+    const counted = pivot.value.measure.type === "count" || pivot.value.measure.type === "distinct";
+    const width = counted && top > 0 ? Math.max(1, Math.ceil(top / HEAT_STEPS)) : top / HEAT_STEPS;
     const stepOf = (value: number) => (width <= 0 ? 0 : Math.min(HEAT_STEPS - 1, Math.max(0, Math.floor(value / width))));
     const cell = (value: number | undefined): MatrixCell => {
         if (value === undefined) return cellOf(m.noValue(), "free", "transparent");
-        const text = f.value(value, format);
+        const text = short(value, false);
         if (!pivot.heat) return cellOf(text, "neutral", "transparent");
         // Ink on the first three steps, paper on the last two.
         const step = stepOf(value);
         return cellOf(text, step < 3 ? "neutral" : "brand", `heat.${step + 1}`);
     };
     const heat = !pivot.heat ? undefined : Array.from({ length: HEAT_STEPS }, (_, k): HeatStep => {
-        const from = f.value(k * width, format);
+        const from = short(k * width, true);
         if (k === HEAT_STEPS - 1) return { label: m.heatTop({ from }), name: m.heatTop({ from }) };
-        return { label: from, name: m.heatStep({ from, to: f.value((k + 1) * width, format) }) };
+        return { label: from, name: m.heatStep({ from, to: short((k + 1) * width, true) }) };
     });
     const matrix: MatrixRootValue = {
         rows: rowSide.drawn.map((row, i) => ({
