@@ -37,6 +37,7 @@ import * as ex from "@elaraai/e3-ui/examples/query/query";
 import { ROOT, keys, savedQuery, type Saved } from "./fixture.test-utils.js";
 import { act, isRun, openQuery, press, queryHarness, settle } from "./query.test-utils.js";
 import type { SavedQuery } from "./session.js";
+import { slotActions } from "./slots.test-utils.js";
 
 /** The shared fixture's default query (`Query Editor Spec.md` §4.7). */
 const DEFAULT_PROGRAM = [
@@ -95,32 +96,14 @@ function partsOf(row: HTMLElement): string[] {
 const rowsOf = (card: HTMLElement) => [...card.querySelectorAll<HTMLElement>("[data-query-line=row]")].map(partsOf);
 /** The shape lines' words, in order. */
 const shapesOf = (container: HTMLElement) => [...container.querySelectorAll<HTMLElement>("[data-query-shape-text]")].map((el) => el.textContent);
-/** The open autocomplete. */
-const popover = () => document.querySelector<HTMLElement>("[data-query-autocomplete]");
-/** Its offers' labels, in order. */
-const offers = () => [...popover()!.querySelectorAll<HTMLElement>("[role=option]")].map((o) => o.querySelector("[data-label]")!.textContent);
+/** The open autocomplete, its offers' labels, and a slot opened and an offer picked as a pointer does. */
+const { popover, offers, openSlot, pick } = slotActions(act, settle);
 /** Its active offer's label. */
 const activeOffer = () => popover()!.querySelector<HTMLElement>("[role=option][aria-selected=true] [data-label]")?.textContent;
 /** Its label. */
 const popoverLabel = () => popover()!.querySelector("label")!.textContent;
 /** Its filter field. */
 const filterOf = () => within(popover()!).getByRole("combobox");
-
-/** Opens a slot by the words it shows, in a card. */
-async function openSlot(card: HTMLElement, text: string) {
-    const slot = [...card.querySelectorAll<HTMLElement>("[aria-haspopup=listbox]")].find((el) => el.querySelector("span")!.textContent === text);
-    if (slot === undefined) throw new Error(`no slot “${text}”`);
-    await act(async () => { fireEvent.click(slot); });
-    await settle();
-}
-
-/** Picks an offer of the open autocomplete by its label, as a click does. */
-async function pick(label: string) {
-    const option = [...popover()!.querySelectorAll<HTMLElement>("[role=option]")].find((o) => o.querySelector("[data-label]")!.textContent === label);
-    if (option === undefined) throw new Error(`no offer “${label}”: ${offers().join(", ")}`);
-    await act(async () => { fireEvent.click(option); });
-    await settle();
-}
 
 /** Presses a key in the autocomplete's filter. */
 async function key(name: string, init: Record<string, unknown> = {}) {

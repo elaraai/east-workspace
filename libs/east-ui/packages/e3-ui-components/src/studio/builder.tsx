@@ -87,6 +87,12 @@ import { StudioConfigure } from "./configure.js";
 import { StudioInspector } from "./inspector.js";
 import { useStudioMessages } from "./messages.js";
 import { StudioLayout, StudioPlacement, useListedByKey } from "./page.js";
+import { sourcesRead, useStudioFilterItems } from "./filter-rail.js";
+import { clickFields } from "../query/visual/links.js";
+import { useLinking } from "./linking.js";
+import { PageClicksProvider } from "./page-clicks.js";
+import { PageFiltersProvider } from "./page-filters.js";
+import { visualName } from "./visual/values.js";
 import { useStudioPalette, visualCards, type PlacedCard } from "./palette.js";
 import { StudioPhoneBar } from "./phone.js";
 import { StudioPublishPreview } from "./publish.js";
@@ -103,6 +109,8 @@ type StudioKey = ValueTypeOf<typeof StudioKeyType>;
 type Cell = ValueTypeOf<typeof StudioCellType>;
 /** What a placement holds. */
 type Content = ValueTypeOf<typeof StudioContentType>;
+/** A visual. */
+type Visual = Extract<Content, { type: "visual" }>["value"];
 /** One entry of the pages record. */
 type Entry = ValueTypeOf<typeof StudioEntryType>;
 /** The canvas's selection, and a change asked of it. */
@@ -116,6 +124,12 @@ const CellsType = ArrayType(StudioCellType);
 const encodeCells = encodeBeast2For(CellsType);
 const decodeCells = decodeBeast2For(CellsType);
 const encodeCell = encodeBeast2For(StudioCellType);
+const encodeContent = encodeBeast2For(StudioContentType);
+
+/** A visual's content written whole: one gesture the canvas takes on its placement. */
+function visualRequest(key: string, visual: Visual): Request {
+    return { key, change: variant("field", { name: "content", value: encodeContent(variant("visual", visual)) }) };
+}
 const decodeBatch = decodeBeast2For(Editing.Types.ChangeSet(StudioCellType));
 /** The canvas's entries — a page's placements — and their drafts, as its editing session types them. */
 const CELL_TYPE = toEastTypeValue(StudioCellType);
@@ -245,6 +259,47 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
         const tile = east.contentTile(content, tiles, sourceNames);
         return tile.type === "some" ? tile.value : undefined;
     }, [east, tiles, sourceNames]);
+    // The open page's placements, each named as its tile is: what the Configure tab's Follows block picks a leader from (#1673).
+    const configurePlacements = useMemo(() => cells.map((cell) => {
+        // A visual's name is its tile's eyebrow's: its own title, else one made from its wells (TIL-1).
+        const visual = cell.content.type === "visual" ? cell.content.value : undefined;
+        const source = visual === undefined ? undefined : sources.find((listed) => stringEqual(listed.key, visual.source));
+        const made = visual === undefined || source === undefined ? undefined : visualName(visual.view, source, m);
+        return {
+            cell,
+            name: cell.title.type === "some" ? cell.title.value : made ?? tileOf(cell.content)?.name ?? east.contentWords(cell.content, sourceNames, componentNames),
+        };
+    }), [cells, sources, tileOf, east, sourceNames, componentNames, m]);
+    // Linking on the canvas (LNK-6, LNK-7): a link's edits are requests on its placements, one gesture each — the
+    // leader's first, where linking switched its click, then the follower's, which stays selected.
+    const asked = useRef<Request[]>([]);
+    /** Asks the canvas for changes, a gesture each, in order: the first now, each next as the one before is taken. */
+    const ask = useCallback((requests: readonly Request[]) => {
+        const [first, ...rest] = requests;
+        if (first === undefined) return;
+        asked.current = rest;
+        setUi({ selected: some(first.key), request: some(first) });
+    }, []);
+    const onLinked = useCallback((edits: readonly { readonly key: string; readonly visual: Visual }[]) => {
+        ask(edits.map(({ key, visual }) => visualRequest(key, visual)));
+    }, [ask]);
+    const linking = useLinking({ placements: configurePlacements, sources, onLinked });
+    // Add a linked visual (LNK-8): a new column chart in a new row after its leader's, on the leader's source, already
+    // following it on the first field its clicks tell — the leader's click switched to select first, where it was not.
+    const addLinked = useCallback((leaderKey: string) => {
+        const cell = cells.find((held) => held.key === leaderKey);
+        const leader = cell !== undefined && cell.content.type === "visual" ? cell.content.value : undefined;
+        const from = leader === undefined ? undefined : clickFields(leader.view)[0];
+        const chart = visuals.find((card) => card.kind !== undefined && stringEqual(card.kind.type, "column"));
+        if (leader === undefined || from === undefined || chart === undefined || chart.kind === undefined) return;
+        const content = Studio.visual.of(leader.source, east.emptyView(chart.kind), { follow: { leader: leaderKey, from, to: from, empty: variant("all", null) } });
+        // Its key and its row are the canvas's to set: a fresh key from this one, in the new row.
+        const entry = encodeCell({ key: "linked", row: "", span: chart.span, height: none, align: variant("top", null), title: none, content });
+        ask([
+            ...(leader.click.type === "select" ? [] : [visualRequest(leaderKey, { ...leader, click: variant("select", null) })]),
+            { key: leaderKey, change: variant("add", entry) },
+        ]);
+    }, [cells, visuals, east, ask]);
     // Each tile's placement — kept as the canvas's cells are drawn, so a
     // dropped card's tile finds what it holds, and its title, at once.
     const placedOf = useRef(new Map<string, Cell>());
@@ -311,9 +366,20 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
     }), [openName, snapshot, saved, east, handle, open, cellView, components, visuals, sources, m]);
     const uiBind = useMemo(() => ({
         read: () => ui,
-        write: (next: UiState) => { setUi(next); return null; },
+        write: (next: UiState) => {
+            // While a leader is picked, a tile's click is the pick's, never the canvas's selection — and neither Esc,
+            // which leaves the mode, nor a click on the canvas itself lets the visual being linked go.
+            if (linking.active && next.request.type === "none") {
+                if (next.selected.type === "some") linking.pick(next.selected.value);
+                return null;
+            }
+            // A gesture taken: the next a link asked for, if one waits.
+            const waiting = next.request.type === "none" ? asked.current.shift() : undefined;
+            setUi(waiting === undefined ? next : { selected: some(waiting.key), request: some(waiting) });
+            return null;
+        },
         has: () => true,
-    }), [ui]);
+    }), [ui, linking]);
     const applyBind = useMemo(() => ({
         read: () => applying,
         write: (next: ApplyState) => { setApplying(next); return null; },
@@ -354,6 +420,13 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
         setUi({ selected: some(key), request: some({ key, change: variant("duplicate", null) }) });
     }, []);
 
+    // A visual's Link: it is selected, and the canvas picks the visual it should follow (LNK-6).
+    const startLinking = linking.start;
+    const linkPlacement = useCallback((key: string) => {
+        setUi({ selected: some(key), request: none });
+        startLinking(key);
+    }, [startLinking]);
+
     // Each tile's content: what its placement holds — its component's own UI, its text, its visual — or its placeholder.
     const listedByKey = useListedByKey(components);
     const renderContent = useCallback((cell: SnapGridEditorCell) => {
@@ -363,10 +436,14 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
         // edits and copies it.
         return (
             <StudioPlacement content={placed.content} listed={listedByKey} sources={sourceNames} storageKey={`${storageKey}.canvas.${cell.key}`}
-                title={placed.title.type === "some" ? placed.title.value : undefined}
-                edit={{ onEdit: () => editPlacement(cell.key), onDuplicate: () => duplicatePlacement(cell.key) }} />
+                title={placed.title.type === "some" ? placed.title.value : undefined} placement={cell.key} pick={linking.stateOf(cell.key)}
+                edit={{
+                    onEdit: () => editPlacement(cell.key), onDuplicate: () => duplicatePlacement(cell.key), onLink: () => linkPlacement(cell.key),
+                    // Only a visual whose clicks tell a field can be followed.
+                    onAddLinked: placed.content.type === "visual" && clickFields(placed.content.value.view).length > 0 ? () => addLinked(cell.key) : undefined,
+                }} />
         );
-    }, [listedByKey, sourceNames, storageKey, editPlacement, duplicatePlacement]);
+    }, [listedByKey, sourceNames, storageKey, editPlacement, duplicatePlacement, linkPlacement, addLinked, linking]);
 
     // ── The toolbar: the page's status, Save as template, Preview and Publish ──
     const status = entry === undefined ? undefined
@@ -412,8 +489,12 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
             </ChipMenu>
         } />
     );
+    // The reader's filters of the open page, among the toolbar's items as other builders place their rail.
+    const filtered = useMemo(() => sourcesRead(cells), [cells]);
+    const filterItems = useStudioFilterItems(open, sources, filtered);
     const toolbar = phone ? {
-        end: [{
+        // On a phone the page's filters are the rail's Filters button, which opens its view over the builder (#1673).
+        end: [...filterItems, {
             key: "studio.phone", forms: [null], phone: {
                 grow: true,
                 form: <StudioPhoneBar status={status} saveTemplate={saveTemplate} project={open.project}
@@ -433,7 +514,7 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
                 </ChakraHStack>,
                 null,
             ],
-        } satisfies ToolbarItem],
+        } satisfies ToolbarItem, ...filterItems],
         end: [
             {
                 key: "save-template", side: "end", rank: RANK_MORE, bundle: MORE_BUNDLE,
@@ -536,8 +617,8 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
     const inspectorTabs = [
         {
             key: "configure", label: m.configure(),
-            body: <StudioConfigure value={inspector} saved={savedContent} pages={configurePages} dnd={wellsDnd}
-                phone={inspectorPhone} />,
+            body: <StudioConfigure value={inspector} saved={savedContent} pages={configurePages} placements={configurePlacements} dnd={wellsDnd}
+                phone={inspectorPhone} onLink={linkPlacement} />,
         },
         { key: "layout", label: m.layout(), body: <StudioInspector value={inspector} phone={inspectorPhone} /> },
     ];
@@ -612,7 +693,13 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
             {/* The canvas's visuals ask their programs over the sources the surface lists (#1670); the preview
                 beside it asks through the same answers, so what the canvas has answered it draws at once. */}
             <VisualAnswersProvider sources={sources}>
-                <Box css={styles.canvas} hidden={previewing} data-studio-canvas="">
+                {/* The reader's filters of the open page narrow the canvas's visuals as they do the page's. */}
+                <PageFiltersProvider page={open}>
+                {/* On the canvas a click edits: a visual's own click does not run, and one that follows another reads
+                    what the preview's reader selected (#1673). */}
+                <PageClicksProvider page={open} cells={cells} live={false}>
+                <Box css={styles.canvas} hidden={previewing} data-studio-canvas="" data-linking={linking.active ? "" : undefined}>
+                    {linking.surface}
                     <SnapGridEditor
                         value={canvas}
                         storageKey={`${storageKey}.canvas`}
@@ -629,9 +716,12 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
                         }}
                     />
                 </Box>
+                </PageClicksProvider>
+                {/* The preview runs the page as its readers see it (BLD-4): its clicks select, filter and open — a page
+                    a click opens is the builder's to show, as its Pages tab opens one. */}
                 {previewing && preview !== undefined && (
                     <StudioPublishPreview value={preview}
-                        page={<StudioLayout cells={cells} components={components} sources={sources} storageKey={`${storageKey}.preview`} />}
+                        page={<StudioLayout cells={cells} components={components} sources={sources} page={open} storageKey={`${storageKey}.preview`} onOpen={openAnother} />}
                         phone={!phone ? undefined : {
                             tab: previewTab, onTab: setPreviewTab, width,
                             tiles: cells.map((cell) => ({
@@ -640,6 +730,7 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
                             })),
                         }} />
                 )}
+                </PageFiltersProvider>
             </VisualAnswersProvider>
         </Box>
     );

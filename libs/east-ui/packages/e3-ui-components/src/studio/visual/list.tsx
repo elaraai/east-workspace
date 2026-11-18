@@ -9,6 +9,8 @@
  * at the end — and, with the ranking bar on, a square 4px bar under its
  * line, its first value against the largest; and, when it holds
  * fewer items than its source has, a line that says how many of how many.
+ * Where its visual's click does something a row is a button, which tells the
+ * group it stands for; a selected row is `--paper-3` (LST-3).
  *
  * @packageDocumentation
  */
@@ -19,6 +21,7 @@ import { variant } from "@elaraai/east";
 import { useSlotStyles } from "@elaraai/east-ui-components/internal";
 import { useQueryWords } from "../../query/words.js";
 import { useStudioMessages } from "../messages.js";
+import { rowClickProps, useVisualClicks } from "./clicks.js";
 import { listModel, type ListView } from "./list-rows.js";
 import { VisualMeta } from "./meta.js";
 import { ShownNote } from "./notes.js";
@@ -41,13 +44,16 @@ export function ListVisual({ list, asks, answers, source }: ListVisualProps) {
     const words = useQueryWords();
     const styles = useSlotStyles("studioVisual");
     const model = useMemo(() => listModel(list, asks, answers, source, words, m), [list, asks, answers, source, words, m]);
+    // A row is a button where its visual's click does something: it tells the group it stands for (LST-3).
+    const clicks = useVisualClicks();
     if (model === undefined) return null;
     return (
         <Box css={styles.root} data-studio-list="">
             <VisualMeta view={variant("list", list)} source={source} shown={model.shown} />
             <Box css={styles.list}>
                 {model.rows.map((row, i) => (
-                    <Box key={i} css={styles.listRow} data-studio-list-row="" data-bar={model.bar ? "" : undefined} data-caption={row.caption !== undefined ? "" : undefined}>
+                    <Box key={i} css={styles.listRow} data-studio-list-row="" data-bar={model.bar ? "" : undefined} data-caption={row.caption !== undefined ? "" : undefined}
+                        {...rowClickProps(clicks, row.clicked)}>
                         <Box css={styles.listLine}>
                             <Box css={styles.listText}>
                                 <Box as="span" css={styles.listName} data-studio-list-name="">{row.name}</Box>

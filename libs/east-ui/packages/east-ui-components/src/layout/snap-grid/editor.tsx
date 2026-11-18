@@ -38,9 +38,10 @@
  * {@link SNAP_GRID_HOST_RANK}, and the history item last.
  *
  * A pane beside the canvas asks it for a change through the bound `ui`
- * (#996): a request for a tile's span, row, height or alignment is taken as
- * one gesture, by the rules the handles and drags keep, and written back
- * `none`. A screen asks it for an Apply through the bound `apply` (#998): the
+ * (#996): a request for a tile's span, row, height or alignment — a field of
+ * its entry, a copy of it, or an entry to add after it (#1672, #1673) — is
+ * taken as one gesture, by the rules the handles and drags keep, and written
+ * back `none`. A screen asks it for an Apply through the bound `apply` (#998): the
  * canvas applies its drafts as its history item does, and answers under the
  * id asked once they land or cannot. The history shortcuts work anywhere in
  * the frame, the panes too.
@@ -518,7 +519,7 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
     const menuRecipe = useSlotRecipe({ key: "menu" });
     const menu = useMemo(() => menuRecipe() as Styles, [menuRecipe]);
     const editing = useSnapGridEditing(value, storageKey);
-    const { session, available, tiles, cells, marks, creates, heights, move, rowTo, align, add, resize, height, remove, field, duplicate, action: sessionAction } = editing;
+    const { session, available, tiles, cells, marks, creates, heights, move, rowTo, align, add, resize, height, remove, field, duplicate, insert, action: sessionAction } = editing;
 
     // ── A phone's frame: the canvas's phone form, by itself at 560px and narrower ──
     // Hidden, as under a preview, it stays what it was: its tiles' state is kept.
@@ -760,7 +761,7 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
         if (request === undefined || bound === undefined) return;
         const tile = tilesRef.current.find((t) => t.key === request.key);
         const change = request.change;
-        // A copy is selected in its original's place; any other change leaves the selection as it is.
+        // A copy, and an entry added, is selected in its tile's place; any other change leaves the selection as it is.
         let selecting = bound.read().selected;
         if (tile !== undefined) {
             switch (change.type) {
@@ -797,6 +798,14 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
                     }
                     break;
                 }
+                case "add": {
+                    const added = insert(tile.key, change.value);
+                    if (added !== undefined) {
+                        selecting = some(added.key);
+                        announce(m.announceAdded({ label: added.label }));
+                    }
+                    break;
+                }
             }
         }
         try {
@@ -804,7 +813,7 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
         } catch (err) {
             console.error("[SnapGrid] ui state write failed:", err);
         }
-    }, [request, bound, resize, rowTo, height, align, field, duplicate, announce, m]);
+    }, [request, bound, resize, rowTo, height, align, field, duplicate, insert, announce, m]);
 
     // ── An Apply a screen asks for (#998) — the drafts applied, then answered ─
     const applyBind = value.apply.type === "some" ? value.apply.value : undefined;

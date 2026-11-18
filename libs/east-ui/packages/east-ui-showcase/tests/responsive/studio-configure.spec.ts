@@ -122,8 +122,12 @@ test.describe("The Studio's Configure tab, as designed (#1672)", () => {
         // Its words start a whole number of pixels under the box's edge.
         expect(name!.y - box!.y).toBe(8);
         const hints = await read(tab, "[data-configure-hint]");
-        expect(hints.map((hint) => [hint.size, hint.line, hint.h])).toEqual([["12.5px", "19px", 19], ["12.5px", "19px", 19]]);
-        expect(await tab.locator("[data-configure-hint]").allTextContents()).toEqual(["Switching view resets the wells.", "Column · categories or periods side by side"]);
+        // The Follows field's hint runs to two of its lines (#1673).
+        expect(hints.map((hint) => [hint.size, hint.line, hint.h])).toEqual([["12.5px", "19px", 19], ["12.5px", "19px", 19], ["12.5px", "19px", 38]]);
+        expect(await tab.locator("[data-configure-hint]").allTextContents()).toEqual([
+            "Switching view resets the wells.", "Column · categories or periods side by side",
+            "Pick a visual whose click selects: this one then shows what is selected there.",
+        ]);
         // The section's fields: the source, the view and the kind, 12px apart.
         const fields = await read(tab, "[data-configure-section=kind] > [data-configure]");
         expect(fields.slice(1).map((field, at) => field.y - (fields[at]!.y + fields[at]!.h))).toEqual([12, 12]);

@@ -18,13 +18,15 @@
  * @packageDocumentation
  */
 
-import { none, some, variant, type EastType, type ValueTypeOf, type option } from "@elaraai/east";
+import { none, printJq, some, variant, type EastType, type ValueTypeOf, type option } from "@elaraai/east";
 import type { StudioSourceType, StudioVisualType } from "@elaraai/e3-ui/internal";
 import { tickFormatOf, type Formatters, type TickFormatOpt, type ValueFormat } from "@elaraai/east-ui-components";
 import { human, plural, type QueryWords } from "../../query/model/words.js";
 import { valueText } from "../../query/results-table.js";
+import { readLiteral } from "../../query/steps/jq.js";
 import { singular } from "../../query/steps/shape.js";
 import type { VisualAnswer } from "../../query/visual/ask.js";
+import type { Pick as ClickedPick } from "../../query/visual/clicks.js";
 import { visualValues, type VisualAsk, type VisualValue } from "../../query/visual/print.js";
 import { bucketStart, partsAt, readGroups, readTotal } from "../../query/visual/read.js";
 import { capitalised, type StudioMessages } from "../messages.js";
@@ -92,7 +94,7 @@ export interface VisualShown {
  * @param m - The Studio's words
  * @returns The label
  */
-export function groupLabel(key: unknown, type: EastType, group: VisualGroup | undefined, words: QueryWords, m: StudioMessages): string {
+export function groupLabel(key: unknown, type: EastType, group: Pick<VisualGroup, "field" | "bucket"> | undefined, words: QueryWords, m: StudioMessages): string {
     if (group !== undefined && group.bucket.type === "some") {
         const unit = group.bucket.value.type;
         // A bucket's key is the period number its program grouped by.
@@ -149,6 +151,22 @@ export interface BucketSpan {
 export function bucketSpan(starts: readonly Date[], f: Formatters): BucketSpan {
     const same = (said: (d: Date) => string) => new Set(starts.map(said)).size <= 1;
     return { oneYear: same(f.year), oneDay: same(f.date) };
+}
+
+/**
+ * One field of a clicked group in words, as its visual labels the group
+ * ({@link groupLabel}): what a follower's tile says its leader has selected
+ * (LNK-4).
+ *
+ * @param pick - The field, its bucket and the group's key
+ * @param words - The words and formatters
+ * @param m - The Studio's words
+ * @returns The label; a field with none in the Studio's words for no value
+ */
+export function pickLabel(pick: ClickedPick, words: QueryWords, m: StudioMessages): string {
+    const read = readLiteral(pick.key);
+    if (read === undefined) return printJq(pick.key).text;
+    return read.value === null ? m.noValue() : groupLabel(read.value, read.type, pick, words, m);
 }
 
 /**
@@ -265,7 +283,7 @@ export function groupWords(group: VisualGroup, source: VisualSource, m: StudioMe
  * @param view - What the visual draws
  * @param source - Its source
  * @param m - The Studio's words
- * @returns The name; `undefined` while a well it is named from is empty, and for a slicer
+ * @returns The name; `undefined` while a well it is named from is empty
  */
 export function visualName(view: VisualView, source: VisualSource, m: StudioMessages): string | undefined {
     const named = (value: VisualValue) => valueName(value, source, m);
@@ -310,7 +328,6 @@ export function visualName(view: VisualView, source: VisualSource, m: StudioMess
             break;
         }
         case "list": return items(view.value.item.field);
-        case "slicer": return undefined;
     }
     return undefined;
 }
@@ -360,7 +377,7 @@ export function visualMeta(view: VisualView, source: VisualSource, m: StudioMess
             break;
         }
         case "list": unit(view.value.values[0]); break;
-        case "kpi": case "slicer": break;
+        case "kpi": break;
     }
     if (shown !== undefined) parts.push(m.metaShown(shown));
     return parts.length === 0 ? undefined : parts.join(JOIN);

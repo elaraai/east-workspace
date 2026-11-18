@@ -15,11 +15,12 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { isValueOf, none, some, variant } from "@elaraai/east";
+import { isValueOf, none, printJq, some, variant } from "@elaraai/east";
 import { Studio } from "@elaraai/e3-ui";
 import { formatters, type TableRootValue } from "@elaraai/east-ui-components";
 import { queryWords } from "../../query/model/words.js";
 import type { VisualAnswer } from "../../query/visual/ask.js";
+import { groupCondition } from "../../query/visual/clicks.js";
 import { LISTED_ORDERS, ORDERS_SOURCE, QUARTER, answered } from "../../query/visual/visual.test-utils.js";
 import { studioMessages } from "../messages.js";
 import { recordsCsv, recordsField, recordsModel, recordsRows, rowsVisual, sortedBy, type RecordsView } from "./records-table.js";
@@ -67,6 +68,13 @@ describe("recordsModel", () => {
         expect(cellsIn(model.table, "c0")).toEqual(["SA", "SA", "NSW", "VIC", "WA"].map((region) => variant("String", region)));
         expect(cellsIn(model.table, "c1")).toEqual([100, 70, 50, 30, 20].map((revenue) => variant("Float", revenue)));
         expect([model.first, model.last, model.total]).toEqual([1, 5, 5]);
+    });
+
+    it("says the group a row stands for, by its place on the page: its first column's value (TBL-6)", async () => {
+        const model = recordsModel(recordsOf(BY_REVENUE), answerOf((await answered(BY_REVENUE)).answers), 0, LISTED_ORDERS, words, m);
+        const said = (rowIndex: number) => model.clicked(rowIndex)?.map((clicked) => printJq(groupCondition(clicked.group, clicked.key, clicked.type)!).text);
+        // The third row, by revenue: New South Wales's order.
+        expect([said(0), said(2), said(9)]).toEqual([[`.region == "SA"`], [`.region == "NSW"`], undefined]);
     });
 
     it("says where a later page stands among every row", async () => {

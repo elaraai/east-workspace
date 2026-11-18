@@ -235,11 +235,9 @@ describe("Studio.changes — a placement's content (#1669)", () => {
             "source Orders → stock · view Column chart → Line chart · values 1 → 2", "a source the surface does not list is named by its key");
     });
 
-    test("what a view holds is counted under its own name — a records table's columns, a slicer's controls — and not at all across views that hold different things", () => {
+    test("what a view holds is counted under its own name — a records table's columns — and not at all across views that hold different things", () => {
         const records = (columns: string[]) => Studio.visual.of("orders", Studio.visual.records({ columns }));
         assert.equal(configured(records(["ordered_at", "region"]), records(["ordered_at", "region", "revenue"])), "columns 2 → 3");
-        assert.equal(configured(Studio.visual.of("orders", Studio.visual.slicer(["range"])), Studio.visual.of("orders", Studio.visual.slicer(["range", "search"]))),
-            "controls 1 → 2");
         // A records table holds columns and a summary values: the change of view says it, and no count compares the two.
         assert.equal(configured(records(["ordered_at", "region", "revenue"]), Studio.visual.of("orders", Studio.visual.summary({
             rows: [Studio.visual.group("region")], values: [Studio.visual.sum("revenue")],

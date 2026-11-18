@@ -24,6 +24,7 @@
  */
 
 import { memo, useCallback, useMemo } from "react";
+import { Box, useSlotRecipe } from "@chakra-ui/react";
 import { equalFor, equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import {
     StudioCellType, StudioComponentType, StudioContentType, StudioEntryType, StudioKeyType, StudioPageComponent, StudioSourceType,
@@ -33,6 +34,7 @@ import {
     EastChakraComponent,
     EmptyStateView,
     SnapGridTiles,
+    Toolbar,
     implementUIComponent,
     useTrackedEvaluation,
     type SnapGridLayoutCell,
@@ -40,6 +42,9 @@ import {
 
 import { VisualAnswersProvider } from "../query/visual/answers.js";
 import { useStudioMessages } from "./messages.js";
+import { sourcesRead, useStudioFilterItems } from "./filter-rail.js";
+import { PageClicksProvider } from "./page-clicks.js";
+import { PageFiltersProvider } from "./page-filters.js";
 import { studioEast } from "./studio-east.js";
 import { StudioText } from "./text.js";
 import { StudioVisualTile, type VisualEdit } from "./visual-tile.js";
@@ -56,6 +61,8 @@ type Content = ValueTypeOf<typeof StudioContentType>;
 type Cell = ValueTypeOf<typeof StudioCellType>;
 /** One entry of the pages record. */
 type Entry = ValueTypeOf<typeof StudioEntryType>;
+/** A page's key. */
+type Key = ValueTypeOf<typeof StudioKeyType>;
 
 const pageEqual = equivalentFor(StudioPageComponent.schema);
 const keyEqual = equalFor(StudioKeyType);
@@ -115,6 +122,10 @@ export interface StudioPlacementProps {
     title?: string | undefined;
     /** On the builder's canvas, what a visual's menu's Edit visual and Duplicate do (#1672); omitted on a page. */
     edit?: VisualEdit | undefined;
+    /** Its key: what a visual's selection is kept under, and what a visual that follows it names (#1673); `undefined` outside a layout. */
+    placement?: string | undefined;
+    /** While the builder's canvas picks a leader (#1673, LNK-6): whether a visual is the one being linked, or one that can lead. */
+    pick?: "follower" | "leader" | undefined;
 }
 
 /**
@@ -128,7 +139,7 @@ export interface StudioPlacementProps {
  * @param props - What it holds, the listed components and the listed sources' names
  * @returns The content
  */
-export function StudioPlacement({ content, listed: byKey, sources, storageKey, title, edit }: StudioPlacementProps) {
+export function StudioPlacement({ content, listed: byKey, sources, storageKey, title, edit, placement, pick }: StudioPlacementProps) {
     const m = useStudioMessages();
     if (content.type === "text") return <StudioText text={content.value} />;
     if (content.type === "visual") {
@@ -139,7 +150,7 @@ export function StudioPlacement({ content, listed: byKey, sources, storageKey, t
                     title={m.noSource({ key: visual.source })} description={m.noSourceHint()} />
             );
         }
-        return <StudioVisualTile content={content} names={sources} storageKey={storageKey} title={title} edit={edit} />;
+        return <StudioVisualTile content={content} names={sources} storageKey={storageKey} title={title} edit={edit} placement={placement} pick={pick} />;
     }
     const key = content.value;
     const listed = byKey.get(key) ?? [];
@@ -164,21 +175,27 @@ export interface StudioLayoutProps {
     components: readonly Component[];
     /** The sources the surface lists. */
     sources: readonly Source[];
+    /** The page the layout is of, whose filters narrow its visuals. */
+    page: Key;
     /** Where its placements' UIs keep their state. */
     storageKey: string;
+    /** Told the key of the page a click on a visual opens (#1673), its filters already the clicked group; omitted, such a click opens nothing. */
+    onOpen?: ((page: Key) => void) | undefined;
 }
 
 /**
  * A layout's placements on the snap grid, each what it holds — a frameless
  * component and a text block bare; a visual, and a placement the surface
  * cannot draw, in a tile. Under a narrow container the tiles stack in row
- * order.
+ * order. Its visuals are narrowed by the reader's filters of its page, and
+ * their clicks run: they select, filter and open, as each visual says.
  *
- * @param props - The placements, the listed components and the listed sources
+ * @param props - The placements, the listed components, the listed sources, the page and who is told a click opens another
  * @returns The grid
  */
-export function StudioLayout({ cells, components, sources, storageKey }: StudioLayoutProps) {
+export function StudioLayout({ cells, components, sources, page, storageKey, onOpen }: StudioLayoutProps) {
     const east = studioEast();
+    const filterStyles = useSlotRecipe({ key: "studioFilters" })();
     const listed = useListedByKey(components);
     const names = useMemo(() => east.sourceNames([...sources]), [east, sources]);
     // Whether a placement is framed is read by what it holds alone (e3-ui's East): a page makes no tile — no name, no
@@ -194,15 +211,23 @@ export function StudioLayout({ cells, components, sources, storageKey }: StudioL
         frame: east.contentFramed(cell.content, frames),
         cell,
     })), [east, cells, frames]);
+    // The reader's filters of the page, over the sources its visuals read: a row over the grid.
+    const read = useMemo(() => sourcesRead(cells), [cells]);
+    const filterItems = useStudioFilterItems(page, sources, read);
     return (
         <VisualAnswersProvider sources={sources}>
-            <SnapGridTiles
-                cells={tiles}
-                content={(tile) => (
-                    <StudioPlacement content={tile.cell.content} listed={listed} sources={names} storageKey={`${storageKey}.${tile.key}`}
-                        title={tile.cell.title.type === "some" ? tile.cell.title.value : undefined} />
-                )}
-            />
+            <PageFiltersProvider page={page}>
+                <PageClicksProvider page={page} cells={cells} live onOpen={onOpen}>
+                    {filterItems.length > 0 && <Box css={filterStyles.row} data-studio-filters=""><Toolbar items={filterItems} /></Box>}
+                    <SnapGridTiles
+                        cells={tiles}
+                        content={(tile) => (
+                            <StudioPlacement content={tile.cell.content} listed={listed} sources={names} storageKey={`${storageKey}.${tile.key}`}
+                                title={tile.cell.title.type === "some" ? tile.cell.title.value : undefined} placement={tile.key} />
+                        )}
+                    />
+                </PageClicksProvider>
+            </PageFiltersProvider>
         </VisualAnswersProvider>
     );
 }
@@ -224,6 +249,9 @@ export interface EastChakraStudioPageProps {
 export const EastChakraStudioPage = memo(function EastChakraStudioPage({ value, storageKey }: EastChakraStudioPageProps) {
     const m = useStudioMessages();
     const key = value.page;
+    // Who is told a click opens a page: the host's function, as the payload carries it.
+    const told = value.onOpen.type === "some" ? value.onOpen.value : undefined;
+    const onOpen = useMemo(() => (told === undefined ? undefined : (page: Key) => { told(page); }), [told]);
     // The record's key order is its own: the entry is found by the key's value.
     let entry: Entry | undefined;
     for (const [at, found] of value.pages) {
@@ -247,7 +275,7 @@ export const EastChakraStudioPage = memo(function EastChakraStudioPage({ value, 
                 title={m.notPublished({ page: key.page })} description={m.notPublishedHint()} />
         );
     }
-    return <StudioLayout cells={layout.cells} components={value.components} sources={value.sources} storageKey={storageKey} />;
+    return <StudioLayout cells={layout.cells} components={value.components} sources={value.sources} page={key} storageKey={storageKey} onOpen={onOpen} />;
 }, (prev, next) => pageEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
 
 implementUIComponent(StudioPageComponent, EastChakraStudioPage);

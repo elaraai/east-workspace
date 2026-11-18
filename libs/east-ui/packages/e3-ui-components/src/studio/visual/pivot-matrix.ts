@@ -25,6 +25,7 @@ import type { Matrix } from "@elaraai/east-ui/internal";
 import type { MatrixRootValue } from "@elaraai/east-ui-components";
 import type { QueryWords } from "../../query/model/words.js";
 import type { VisualAnswer } from "../../query/visual/ask.js";
+import type { ClickedGroup } from "../../query/visual/clicks.js";
 import type { VisualAsk } from "../../query/visual/print.js";
 import { bucketStart, foldGroups, partsAt, readGroups, type ReadGroup } from "../../query/visual/read.js";
 import { capitalised, type StudioMessages } from "../messages.js";
@@ -69,6 +70,7 @@ export interface HeatStep {
  * @property matrix - Its cells as the Matrix's value
  * @property heat - Its heat ramp's steps, for its legend; `undefined` with heat off
  * @property shown - What it holds of how many groups, when it holds fewer; `undefined` when it holds them all
+ * @property clicked - The groups a cell stands for, by its row's and its column's keys: what a click on it is made on (TBL-6)
  */
 export interface PivotModel {
     /** Its cells as the Matrix's value. */
@@ -77,6 +79,8 @@ export interface PivotModel {
     readonly heat: readonly HeatStep[] | undefined;
     /** What it holds of how many groups, when it holds fewer; `undefined` when it holds them all. */
     readonly shown: VisualShown | undefined;
+    /** The groups a cell stands for, by its row's and its column's keys in the Matrix (TBL-6): its row's and its column's; `undefined` for a cell of Other's. */
+    readonly clicked: (row: string, column: string) => readonly ClickedGroup[] | undefined;
 }
 
 /** A label in the Matrix's form: its text alone. */
@@ -99,9 +103,9 @@ function orderedKeys(first: readonly unknown[], group: VisualGroup, type: EastTy
     return [...first].sort(compare);
 }
 
-/** One side of a pivot drawn: each kept key's label and its keys — Other's the rest — and how many it left out. */
+/** One side of a pivot drawn: each kept key's label and its keys — Other's the rest, which it says it is — and how many it left out. */
 interface Side {
-    readonly drawn: readonly { readonly label: string; readonly keys: readonly unknown[] }[];
+    readonly drawn: readonly { readonly label: string; readonly keys: readonly unknown[]; readonly other?: boolean }[];
     readonly hidden: number;
 }
 
@@ -114,7 +118,7 @@ function sideOf(keys: readonly unknown[], group: VisualGroup, type: EastType, ex
     const kept = keys.slice(0, n).map((key) => ({ label: axisLabel(key, type, group, span, said, m), keys: [key] }));
     const rest = keys.slice(n);
     if (rest.length === 0) return { drawn: kept, hidden: 0 };
-    return exact ? { drawn: [...kept, { label: m.other(), keys: rest }], hidden: 0 } : { drawn: kept, hidden: rest.length };
+    return exact ? { drawn: [...kept, { label: m.other(), keys: rest, other: true }], hidden: 0 } : { drawn: kept, hidden: rest.length };
 }
 
 /**
@@ -237,5 +241,15 @@ export function pivotModel(pivot: PivotView, asks: readonly VisualAsk[], answers
         : rowSide.hidden > 0 ? { shown: rowSide.drawn.length, of: rowSide.drawn.length + rowSide.hidden }
         : columnSide.hidden > 0 ? { shown: columnSide.drawn.length, of: columnSide.drawn.length + columnSide.hidden }
         : undefined;
-    return { matrix, heat, shown };
+    // A cell stands for its row's group and its column's: each side's one key, by the Matrix's own keys.
+    const sideClicked = (side: Side, prefix: string, group: VisualGroup, type: EastType) => new Map(side.drawn.flatMap((held, i): [string, ClickedGroup][] => (
+        held.other === true ? [] : [[`${prefix}${i}`, { group, key: held.keys[0], type }]]
+    )));
+    const rowsClicked = sideClicked(rowSide, "r", pivot.rows, rowType);
+    const columnsClicked = sideClicked(columnSide, "c", pivot.columns, columnType);
+    const clicked: PivotModel["clicked"] = (row, column) => {
+        const [r, c] = [rowsClicked.get(row), columnsClicked.get(column)];
+        return r === undefined || c === undefined ? undefined : [r, c];
+    };
+    return { matrix, heat, shown, clicked };
 }

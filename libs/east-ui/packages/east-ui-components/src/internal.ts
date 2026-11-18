@@ -99,6 +99,11 @@ export { brushHorizon } from "./slice/brush-math.js";
 export { SliceDensityContext } from "./slice/density.js";
 export { railAffordanceKinds } from "./slice/rail-kinds.js";
 export { HOST_RANK, useSliceToolbarItems } from "./slice/rail/index.js";
+// The rail's shared visual layer over the rail engine (#1673), for a rail whose filters are its host's own — a Studio
+// page's jq filters: the toolbar items a model's affordances fold into, and the row of filter chips they are drawn as.
+export { useSliceRailItems, type SliceRailDescriptor, type SliceRailModel } from "./slice/rail/toolbar.js";
+export { SliceFilterChips, type SliceFilterChip, type SliceFilterChipsProps } from "./slice/filter/chips.js";
+export { useSliceDensity } from "./slice/density.js";
 export { SliceRangeContent } from "./slice/range/index.js";
 // The rail's field chip, for a result a host shows as one: a Find fix's, which its × clears (#1342); and its
 // choice chips and quiet reset, for choices a host offers as the rail does: a Sheet's views, folded with its key search (#1345).

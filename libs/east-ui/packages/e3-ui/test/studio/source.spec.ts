@@ -117,7 +117,7 @@ describe("Studio.source — the sources a surface lists (#1669)", () => {
                     units: { format: "compact" },
                     region: {},
                 },
-                range: "ordered_at", search: ["region"], split: ["region"],
+                range: "ordered_at",
             }),
         }));
         assert.deepEqual(rest, [], "one source listed");
@@ -129,7 +129,7 @@ describe("Studio.source — the sources a surface lists (#1669)", () => {
             ["revenue", "Revenue", "number"], ["ordered_at", "Ordered", "date"], ["units", "Units", "number"], ["region", "Region", "text"],
         ], "a label not given is made from the field's name");
         assert.deepEqual(orders.fields.map((f) => f.format.type === "some" ? f.format.value.type : "none"), ["currency", "none", "compact", "none"]);
-        assert.deepEqual([orders.range, orders.search, orders.split], [some("ordered_at"), ["region"], ["region"]]);
+        assert.deepEqual(orders.range, some("ordered_at"));
     });
 
     test("fields omitted, every field of the row is offered under a label made from its name, its kind read from its type — an optional field's is its value's", () => {
@@ -146,13 +146,13 @@ describe("Studio.source — the sources a surface lists (#1669)", () => {
                     field("units", "Units", "number"), field("shipped", "Shipped", "boolean"), field("promisedOn", "Promised on", "date"),
                     field("lines", "Lines", "other"),
                 ],
-                range: none, search: [], split: [],
+                range: none,
             },
             {
                 key: "assets", name: "Assets", icon: "gears", description: none,
                 binding: { name: "assets", source: variant("value", ASSETS), type: toEastTypeValue(AssetsType) },
                 fields: [field("site", "Site", "text"), field("run_hours", "Run hours", "number")],
-                range: none, search: [], split: [],
+                range: none,
             },
         ]), "in the order listed: a paged source's rows are its page's, a Dict's its values'");
     });
@@ -162,7 +162,7 @@ describe("Studio.source — the sources a surface lists (#1669)", () => {
         assert.deepEqual(East.compile(East.function([], ArrayType(StudioSourceType), (_$) => studioSources("Studio.Page", undefined)), [])(), []);
     });
 
-    test("a field, a range, a search or a split field the row lacks is refused where the surface is built, naming the source and what its rows have — and held by TypeScript", () => {
+    test("a field or a range field the row lacks is refused where the surface is built, naming the source and what its rows have — and held by TypeScript", () => {
         const has = /which its rows do not have — they have site, run_hours$/;
         // @ts-expect-error `hours` is no field of an asset
         assert.throws(() => listed(({ assets }) => ({ assets: Studio.source(assets, { name: "Assets", icon: "gears", fields: { hours: {} } }) })),
@@ -170,12 +170,6 @@ describe("Studio.source — the sources a surface lists (#1669)", () => {
         // @ts-expect-error `ordered_at` is no field of an asset
         assert.throws(() => listed(({ assets }) => ({ assets: Studio.source(assets, { name: "Assets", icon: "gears", range: "ordered_at" }) })),
             /the source "assets" names the range field "ordered_at"/);
-        // @ts-expect-error `customer` is no field of an asset
-        assert.throws(() => listed(({ assets }) => ({ assets: Studio.source(assets, { name: "Assets", icon: "gears", search: ["site", "customer"] }) })),
-            /the source "assets" names the search field "customer"/);
-        // @ts-expect-error `category` is no field of an asset
-        assert.throws(() => listed(({ assets }) => ({ assets: Studio.source(assets, { name: "Assets", icon: "gears", split: ["category"] }) })),
-            /the source "assets" names the split field "category"/);
     });
 
     test("a name every object answers to is no field of the row: it is refused as any other the row lacks", () => {
@@ -184,8 +178,8 @@ describe("Studio.source — the sources a surface lists (#1669)", () => {
         assert.throws(() => listed(({ assets }) => ({ assets: Studio.source(assets, { name: "Assets", icon: "gears", fields: { constructor: {} } }) })),
             (err: Error) => /^Studio\.Builder: the source "assets" names the field "constructor", /.test(err.message) && has.test(err.message));
         // @ts-expect-error `toString` is no field of an asset
-        assert.throws(() => listed(({ assets }) => ({ assets: Studio.source(assets, { name: "Assets", icon: "gears", search: ["toString"] }) })),
-            /the source "assets" names the search field "toString"/);
+        assert.throws(() => listed(({ assets }) => ({ assets: Studio.source(assets, { name: "Assets", icon: "gears", range: "toString" }) })),
+            /the source "assets" names the range field "toString"/);
     });
 
     test("a range is over a date field: any other is refused", () => {
@@ -246,7 +240,7 @@ describe("Studio.source — the sources a surface lists (#1669)", () => {
     test("Studio.Types.Source is data only: its binding is the query builder's data source, and it holds no function", () => {
         assert.ok(isTypeEqual(Studio.Types.Source, StudioSourceType));
         assert.ok(isTypeEqual(Studio.Types.Source.fields.binding, Query.Types.DataSource));
-        assert.deepEqual(Object.keys(Studio.Types.Source.fields), ["key", "name", "icon", "description", "binding", "fields", "range", "search", "split"]);
+        assert.deepEqual(Object.keys(Studio.Types.Source.fields), ["key", "name", "icon", "description", "binding", "fields", "range"]);
         assert.deepEqual(Object.keys(Studio.Types.Field.fields), ["id", "label", "kind", "format"]);
     });
 });

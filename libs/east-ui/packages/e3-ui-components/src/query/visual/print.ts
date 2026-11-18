@@ -92,16 +92,32 @@ export interface PrintWindow {
 }
 
 /**
- * The page's state, as a visual's programs read it.
+ * The page's range on a source: the window its filters hold the source's
+ * range field to, and what they say besides — read from the filters by
+ * `pageRange` (`filters.ts`).
+ *
+ * @property window - The window: what a value over another period is moved from
+ * @property rest - The filters' conditions that are no bound of the window: what a value over another period keeps
+ */
+export interface PrintRange {
+    /** The window: what a value over another period is moved from. */
+    readonly window: PrintWindow;
+    /** The filters' conditions that are no bound of the window, each a jq condition over one row. */
+    readonly rest: readonly JqNode[];
+}
+
+/**
+ * The page's state, as a visual's programs read it — made from the page's
+ * filters by `printStateOf` (`filters.ts`).
  *
  * @property filters - The page's filters on the visual's source: each a jq condition over one row
- * @property window - The page's window on the source's range field, which a value's period moves; `undefined` when the page has none
+ * @property range - The page's range on the source's range field, read from those filters, which a value's period moves; `undefined` when they hold it to no window
  */
 export interface PrintState {
     /** The page's filters on the visual's source: each a jq condition over one row. */
     readonly filters: readonly JqNode[];
-    /** The page's window on the source's range field, which a value's period moves; `undefined` when the page has none. */
-    readonly window?: PrintWindow | undefined;
+    /** The page's range on the source's range field, read from those filters; `undefined` when they hold it to no window. */
+    readonly range?: PrintRange | undefined;
 }
 
 // ─── What it gives ───────────────────────────────────────────────────────────
@@ -147,16 +163,15 @@ export type TrendBucket = "day" | "week" | "month";
  * - `missing` — fields its source does not have, by id.
  * - `range` — a value over another period, over a source with no date range
  *   to move the page's window along: no filter the page can set gives it one.
- * - `window` — a value over another period, on a page with no window to move.
- * - `none` — it asks nothing: a slicer.
+ * - `window` — a value over another period, on a page whose filters hold
+ *   its source's date to no window to move.
  */
 export type PrintedVisual =
     | { readonly kind: "asks"; readonly asks: readonly VisualAsk[] }
     | { readonly kind: "empty"; readonly wells: readonly string[] }
     | { readonly kind: "missing"; readonly fields: readonly string[] }
     | { readonly kind: "range" }
-    | { readonly kind: "window" }
-    | { readonly kind: "none" };
+    | { readonly kind: "window" };
 
 // ─── jq, built as the query builder's steps build it ─────────────────────────
 
@@ -405,7 +420,7 @@ interface ViewShape {
 }
 
 /** What a grouped view reads. */
-function shapeOf(view: Exclude<View, { type: "slicer" }>): ViewShape | { readonly records: Extract<Extract<View, { type: "table" }>["value"], { type: "records" }>["value"] } {
+function shapeOf(view: View): ViewShape | { readonly records: Extract<Extract<View, { type: "table" }>["value"], { type: "records" }>["value"] } {
     switch (view.type) {
         case "kpi": {
             const kpi = view.value;
@@ -496,10 +511,9 @@ function shapeOf(view: Exclude<View, { type: "slicer" }>): ViewShape | { readonl
  * x then its y; a list's first two.
  *
  * @param view - The view
- * @returns Its values; none for a records table or a slicer
+ * @returns Its values; none for a records table
  */
 export function visualValues(view: View): readonly VisualValue[] {
-    if (view.type === "slicer") return [];
     const shape = shapeOf(view);
     return "records" in shape ? [] : shape.values;
 }
@@ -509,18 +523,20 @@ export function visualValues(view: View): readonly VisualValue[] {
  *
  * @param visual - The visual
  * @param source - Its source, as the printer reads it ({@link PrintSource})
- * @param state - The page's filters on its source and its window
+ * @param state - The page's filters on its source, and the range they hold its date to
  * @param page - A records table's rows it asks: its first page unless given
  * @returns The programs; or the wells it needs filled, the fields its source
- *   lacks, that a value over another period needs a date range on its source
- *   or a window on the page, or that it asks nothing
+ *   lacks, or that a value over another period needs a date range on its
+ *   source or a window on the page
  *
  * @remarks
- * - **One program a period**: a value over the previous period, or a year
- *   ago, is asked by the same program with the window moved
- *   ({@link periodWindow}); a visual's values are asked a period at a time.
- *   A list with no values still lists its items: one program, of the page's
- *   window.
+ * - **One program a period**: a visual's values are asked a period at a
+ *   time. The current period's program is narrowed by the page's filters as
+ *   they are. A value over the previous period, or a year ago, is asked by
+ *   the same program with the page's window moved ({@link periodWindow}) in
+ *   place of the filters' bounds on the source's date, the filters' other
+ *   conditions kept. A list with no values still lists its items: one
+ *   program, of the current period.
  * - **Ordered high or low**, a program's groups follow the first of the
  *   visual's values it holds; a group with no value comes last.
  * - **Totals** are their own program: a KPI's value and what it is compared
@@ -529,13 +545,14 @@ export function visualValues(view: View): readonly VisualValue[] {
  *   alone (`heads`) — so a head's values are the query's, a distinct count
  *   among them, never a fold of the rows under it.
  * - **A KPI's trend** is its value along its trend field, bucketed to fit the
- *   window: a day up to a month, a week up to half a year, else a month.
+ *   page's window: a day up to a month, a week up to half a year, else a
+ *   month — as with no window.
  * - **Records** are a page of {@link VISUAL_RECORDS_PAGE} from its offset,
  *   or every row — an export's ({@link RecordsPage}); their `groups` is how
  *   many rows there are in all.
  * - A visual's own filter, then the page's filters, narrow every program.
- * - **`.now`**: a filter that reads `$now` has every program bind
- *   `.now as $now` first, and each ask says it reads it (`readsNow`).
+ * - **`.now`**: a program one of whose conditions reads `$now` binds
+ *   `.now as $now` first, and its ask says it reads it (`readsNow`).
  *
  * @example
  * ```ts
@@ -545,10 +562,11 @@ export function visualValues(view: View): readonly VisualValue[] {
  */
 export function printVisual(visual: Visual, source: PrintSource, state: PrintState, page: RecordsPage = FIRST_RECORDS_PAGE): PrintedVisual {
     const view = visual.view;
-    if (view.type === "slicer") return { kind: "none" };
-    const where = [...(visual.where.type === "some" ? [visual.where.value] : []), ...state.filters];
-    // A filter that reads `$now` has every program read `.now`.
-    const now = where.some(node => readsVariable(node, NOW_FIELD));
+    const own = visual.where.type === "some" ? [visual.where.value] : [];
+    const where = [...own, ...state.filters];
+    // A program one of whose conditions reads `$now` reads `.now`.
+    const readsNow = (conditions: readonly JqNode[]) => conditions.some(node => readsVariable(node, NOW_FIELD));
+    const now = readsNow(where);
     const shape = shapeOf(view);
     if ("records" in shape) {
         const records = shape.records;
@@ -556,7 +574,7 @@ export function printVisual(visual: Visual, source: PrintSource, state: PrintSta
         const fields = [...records.columns, ...(records.sort.type === "some" ? [records.sort.value] : [])];
         const missing = [...new Set(fields.filter(f => fieldType(source.row, f) === undefined))];
         if (missing.length > 0) return { kind: "missing", fields: missing };
-        const program = recordsProgram(rowsOf(source, where, state.window, now), records.columns,
+        const program = recordsProgram(rowsOf(source, where, undefined, now), records.columns,
             records.sort.type === "some" ? records.sort.value : undefined, records.descending, page);
         return { kind: "asks", asks: [{ role: "records", period: "current", values: [], program, readsNow: now }] };
     }
@@ -576,29 +594,34 @@ export function printVisual(visual: Visual, source: PrintSource, state: PrintSta
         if (period === "current") continue;
         // Another period moves the window along the source's date: a source with none has nothing to move it by.
         if (source.range === undefined) return { kind: "range" };
-        if (state.window === undefined) return { kind: "window" };
+        if (state.range === undefined) return { kind: "window" };
     }
-    const window = source.range === undefined ? undefined : state.window;
+    const range = source.range === undefined ? undefined : state.range;
+    // The current period's rows: the visual's own filter and the page's, as they are.
+    const current = rowsOf(source, where, undefined, now);
     const asks: VisualAsk[] = [];
     for (const [period, values] of periods) {
-        const rows = rowsOf(source, where, window === undefined ? undefined : periodWindow(window, period), now);
+        // Another period's: the page's window moved, in place of the filters' bounds on the source's date.
+        const moved = period === "current" || range === undefined ? undefined : [...own, ...range.rest];
+        const reads = moved === undefined ? now : readsNow(moved);
+        const rows = moved === undefined || range === undefined ? current : rowsOf(source, moved, periodWindow(range.window, period), reads);
         const indexes = values.map(([i]) => i);
         if (shape.groups.length > 0) {
-            asks.push({ role: "groups", period, values: indexes, program: groupedProgram(rows, source, shape.groups, shape.extras, values, VISUAL_GROUP_LIMIT), readsNow: now });
+            asks.push({ role: "groups", period, values: indexes, program: groupedProgram(rows, source, shape.groups, shape.extras, values, VISUAL_GROUP_LIMIT), readsNow: reads });
         }
         // A summary's group heads, from the query: its first group alone (TBL-2).
         if (shape.heads) {
-            asks.push({ role: "heads", period, values: indexes, program: groupedProgram(rows, source, shape.groups.slice(0, 1), shape.extras, values, VISUAL_GROUP_LIMIT), readsNow: now });
+            asks.push({ role: "heads", period, values: indexes, program: groupedProgram(rows, source, shape.groups.slice(0, 1), shape.extras, values, VISUAL_GROUP_LIMIT), readsNow: reads });
         }
-        if (shape.total) asks.push({ role: "total", period, values: indexes, program: totalProgram(rows, source, values), readsNow: now });
+        if (shape.total) asks.push({ role: "total", period, values: indexes, program: totalProgram(rows, source, values), readsNow: reads });
     }
-    // A KPI's trend: its value along the trend field, in the current window.
+    // A KPI's trend: its value along the trend field, over the current period.
     if (view.type === "kpi" && view.value.trend.type === "some") {
-        const bucket = trendBucket(window);
+        const bucket = trendBucket(range?.window);
         const trend: Group = { field: view.value.trend.value, bucket: some(variant(bucket, null)), sort: variant("natural", null), top: none };
         asks.push({
             role: "trend", period: "current", values: [0],
-            program: groupedProgram(rowsOf(source, where, window, now), source, [trend], [], [[0, view.value.value]], VISUAL_GROUP_LIMIT),
+            program: groupedProgram(current, source, [trend], [], [[0, view.value.value]], VISUAL_GROUP_LIMIT),
             readsNow: now, bucket,
         });
     }

@@ -20,6 +20,7 @@ import { variant } from "@elaraai/east";
 import type { QueryWords } from "../../query/model/words.js";
 import { valueText } from "../../query/results-table.js";
 import type { VisualAnswer } from "../../query/visual/ask.js";
+import type { ClickedGroup } from "../../query/visual/clicks.js";
 import { visualValues, type VisualAsk } from "../../query/visual/print.js";
 import { partsAt, readGroups } from "../../query/visual/read.js";
 import type { StudioMessages } from "../messages.js";
@@ -48,6 +49,7 @@ export interface ListValue {
  * @property caption - What it says under its name; `undefined` with no caption
  * @property values - Its values, two at most
  * @property share - Its first value as a share of the largest, from 0 to 1 — its bar; `undefined` with none
+ * @property clicked - The group it stands for: what a click on it is made on (LST-3)
  */
 export interface ListRow {
     /** Its item's name. */
@@ -58,6 +60,8 @@ export interface ListRow {
     readonly values: readonly ListValue[];
     /** Its first value as a share of the largest, from 0 to 1 — its bar; `undefined` with none. */
     readonly share: number | undefined;
+    /** The group it stands for: what a click on it is made on (LST-3). */
+    readonly clicked: readonly ClickedGroup[];
 }
 
 /**
@@ -113,6 +117,7 @@ export function listModel(list: ListView, asks: readonly VisualAsk[], answers: r
             return at === undefined ? { text: m.noValue(), unit: undefined } : { text: shortValue(at, values[v]!, source, f), unit: units[v] };
         }),
         share: largest <= 0 || firsts[i] === undefined ? undefined : Math.max(0, firsts[i]!) / largest,
+        clicked: [{ group: list.item, key: group.keys[0], type: keyType }],
     }));
     const of = Math.max(read.of, read.groups.length);
     return { rows, bar: list.bar, shown: kept.length < of ? { shown: kept.length, of } : undefined };

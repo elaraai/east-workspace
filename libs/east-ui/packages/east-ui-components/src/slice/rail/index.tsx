@@ -73,7 +73,7 @@ import { EastChakraSliceLegend } from "../legend";
 import { Toolbar, type ToolbarItem } from "../../toolbar/index.js";
 import { useSliceRailItems, type SliceRailClusterSpec } from "./toolbar.js";
 export type { SliceRailClusterSpec } from "./toolbar.js";
-export { HOST_RANK, SUMMARY_RANK } from "./ranks.js";
+export { HOST_RANK, SUMMARY_RANK } from "../../toolbar/rail/index.js";
 
 /** The bound slice handle, decoded. */
 type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;

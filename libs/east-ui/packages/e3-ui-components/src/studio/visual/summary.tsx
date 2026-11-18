@@ -17,11 +17,12 @@
 
 import { useMemo } from "react";
 import { Box } from "@chakra-ui/react";
-import { variant } from "@elaraai/east";
-import { EastChakraTable } from "@elaraai/east-ui-components";
+import { some, variant } from "@elaraai/east";
+import { EastChakraTable, type TableRootValue } from "@elaraai/east-ui-components";
 import { useSlotStyles } from "@elaraai/east-ui-components/internal";
 import { useQueryWords } from "../../query/words.js";
 import { useStudioMessages } from "../messages.js";
+import { useGroupClicks, useMarked } from "./clicks.js";
 import { VisualMeta } from "./meta.js";
 import { ShownNote } from "./notes.js";
 import { summaryModel, type SummaryView } from "./summary-table.js";
@@ -47,12 +48,23 @@ export function SummaryVisual({ summary, asks, answers, source, storageKey }: Su
     const words = useQueryWords();
     const styles = useSlotStyles("studioVisual");
     const model = useMemo(() => summaryModel(summary, asks, answers, source, words, m), [summary, asks, answers, source, words, m]);
-    if (model === undefined) return null;
+    // A click on a row tells the groups it stands for (TBL-6): the Table tells its row, by its pre-order index.
+    const { raise, onClickCapture } = useGroupClicks();
+    const table = useMemo((): TableRootValue | undefined => (model === undefined || raise === undefined ? model?.table : {
+        ...model.table,
+        onRowClick: some((event) => {
+            raise(model.clicked(Number(event.rowIndex)));
+            return null;
+        }),
+    }), [model, raise]);
+    // A row the placement's selection holds is marked.
+    const marked = useMarked(model?.clicked);
+    if (model === undefined || table === undefined) return null;
     return (
-        <Box css={styles.root} data-studio-summary="">
+        <Box css={styles.root} data-studio-summary="" onClickCapture={onClickCapture}>
             <VisualMeta view={variant("table", variant("summary", summary))} source={source} shown={model.shown} />
             <Box css={styles.table}>
-                <EastChakraTable value={model.table} storageKey={`${storageKey}.table`} tile totals={model.totals} cellTone={model.tone} rowHead={model.head}
+                <EastChakraTable value={table} storageKey={`${storageKey}.table`} tile totals={model.totals} cellTone={model.tone} rowHead={model.head} rowMarked={marked}
                     headerNote={model.note} numberText={model.number} />
             </Box>
             {model.shown !== undefined && (

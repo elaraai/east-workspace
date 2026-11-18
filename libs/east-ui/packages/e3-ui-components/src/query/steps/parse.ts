@@ -137,8 +137,12 @@ function takes(field: StepField | undefined, kind: ComparisonKind, whole: boolea
  * @param node - the condition's node
  * @param shape - the rows it tests
  * @returns the condition, or `undefined` when it is no canonical form
+ *
+ * @remarks
+ * What a Keep rows where step's rows are read by, and what a Studio page's
+ * filters are read by for the window they hold a date to (`visual/filters.ts`).
  */
-function readCondition(node: JqNode, shape: Shape): Condition | undefined {
+export function readCondition(node: JqNode, shape: Shape): Condition | undefined {
     if (node.type === "binary" && (node.value.op === "and" || node.value.op === "or")) {
         const op = node.value.op;
         const conds = readChain(node, op).map(n => readCondition(n, shape));

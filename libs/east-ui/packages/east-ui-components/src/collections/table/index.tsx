@@ -45,7 +45,7 @@ import { railAffordanceKinds } from "../../slice/rail-kinds.js";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity";
 import { useDataStable } from "../../hooks/useDataStable";
 import { RowStateManager, type RowKey, type RowState } from "../../utils/RowStateManager";
-import { useRowStatusBg, useDensityHeights } from "../shared/helpers";
+import { statusTokenToBg, useRowStatusBg, useDensityHeights } from "../shared/helpers";
 import { useReviewController, DecisionButtons, ReviewFoot, DECISION_WIDTH, type ApprovalOptionValue } from "../shared/review";
 import { DensityProvider } from "../../contracts/density";
 import { usePlotGutter, gutterPx } from "../../contracts/plot-gutter.js";
@@ -241,6 +241,15 @@ export interface EastChakraTableProps {
      */
     rowHead?: ((rowIndex: number) => TableRowHead | undefined) | undefined;
     /**
+     * Whether a row is marked, by its pre-order index (#1673) — what its host
+     * shows as chosen: a Studio table's row a click selected. A marked row
+     * wears the selected row's ground — the value's `selectedBackground`, else
+     * the neutral status ground, `--paper-3` — and `data-selected`, with no
+     * checkbox column: a selection the viewer ticks is the value's own
+     * `selection`. Keep it by identity.
+     */
+    rowMarked?: ((rowIndex: number) => boolean) | undefined;
+    /**
      * Whether it is a tile's table (#1671) — the design system's Table running
      * edge to edge in a Frame: each head its label alone, the whole of it the
      * button that sorts, with no pin and no resize; its columns as wide as
@@ -405,6 +414,7 @@ const TableCore = function TableCore({
     totals,
     cellTone,
     rowHead,
+    rowMarked,
     tile: tileProp = false,
     sorted: hostSorted,
     headerNote,
@@ -1713,11 +1723,13 @@ const TableCore = function TableCore({
                         const rowIndex = BigInt(node.index);
                         const path = node.path;
                         const isSelected = !!row.getIsSelected?.();
+                        // A row its host marks (#1673) wears the selected row's ground, and none of its checkbox.
+                        const isMarked = rowMarked?.(node.index) === true;
                         // Zebra stripes follow the DISPLAY order; everything
                         // keyed to the row follows its pre-order index.
                         const isOdd = virtualRow.index % 2 === 1;
 
-                        // Background priority: rowStatus > selected > zebra
+                        // Background priority: rowStatus > selected > marked > zebra
                         // (when striped on odd row) > undefined.
                         // Note: virtualizer wraps each row in a `<div>`, which
                         // breaks Chakra's `:nth-child` zebra. Apply zebra
@@ -1737,6 +1749,7 @@ const TableCore = function TableCore({
                             : undefined;
                         const rowBg = rowStatusBg
                             ?? (isSelected ? selectedBackground : undefined)
+                            ?? (isMarked ? selectedBackground ?? statusTokenToBg("neutral") : undefined)
                             ?? stripedZebra;
 
                         const isExpanded = expandedRows.has(node.index);
@@ -1804,7 +1817,7 @@ const TableCore = function TableCore({
                                 }}
                             >
                             <ChakraTable.Row
-                                data-selected={isSelected ? "true" : undefined}
+                                data-selected={isSelected || isMarked ? "true" : undefined}
                                 data-depth={treeColumnId !== undefined ? node.depth : undefined}
                                 data-parent={isParent ? "" : undefined}
                                 data-row-head={head !== undefined ? "" : undefined}
@@ -2393,6 +2406,6 @@ export const EastChakraTable = memo(function EastChakraTable(props: EastChakraTa
         </Box>
     );
 }, (prev, next) => tableRootEqual(prev.value, next.value) && prev.storageKey === next.storageKey && prev.phoneBand === next.phoneBand && prev.phoneReading === next.phoneReading
-    && prev.totals === next.totals && prev.cellTone === next.cellTone && prev.rowHead === next.rowHead
+    && prev.totals === next.totals && prev.cellTone === next.cellTone && prev.rowHead === next.rowHead && prev.rowMarked === next.rowMarked
     && prev.tile === next.tile && prev.sorted?.columnKey === next.sorted?.columnKey && prev.sorted?.direction === next.sorted?.direction
     && prev.headerNote === next.headerNote && prev.numberText === next.numberText);

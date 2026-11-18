@@ -41,7 +41,6 @@ import {
     StudioKpiType,
     StudioListType,
     StudioMeasureType,
-    StudioSlicerType,
     StudioTableType,
     StudioTextType,
     StudioValueType,
@@ -49,6 +48,7 @@ import {
     StudioVisualType,
     StudioVisuals,
 } from "./content.js";
+import { StudioFilterType } from "./filter.js";
 import { StudioMigrations } from "./migrations.js";
 import { StudioFieldType, StudioSourceType, createSource } from "./source.js";
 
@@ -94,7 +94,6 @@ export {
     StudioPieLegendType,
     StudioScatterChartType,
     StudioSeriesChartType,
-    StudioSlicerType,
     StudioSortType,
     StudioStackType,
     StudioTableType,
@@ -133,6 +132,10 @@ export {
     type StudioSourceMeta,
     type StudioSourceRows,
 } from "./source.js";
+export {
+    StudioFilterType, StudioFiltersType, studioFiltersKey,
+    StudioPickType, StudioClickedType, StudioSelectionsType, studioSelectionsKey,
+} from "./filter.js";
 export { StudioFormatChoiceType, choiceFormat, editedFormatChoice, formatChoice, isCurrencyCode, type StudioFormatChoice } from "./format.js";
 export { StudioMigrations, cellContent, type StudioMigrationsNamespace } from "./migrations.js";
 export {
@@ -258,7 +261,7 @@ export interface StudioTypes {
     Content: StudioContentType;
     /** A visual: its source, its filter, its view, its click and the visual it follows ({@link StudioVisualType}). */
     Visual: StudioVisualType;
-    /** What a visual draws: a KPI, a chart, a table, a list or a slicer ({@link StudioViewType}). */
+    /** What a visual draws: a KPI, a chart, a table or a list ({@link StudioViewType}). */
     View: StudioViewType;
     /** A KPI ({@link StudioKpiType}). */
     Kpi: typeof StudioKpiType;
@@ -268,8 +271,6 @@ export interface StudioTypes {
     Table: typeof StudioTableType;
     /** A list ({@link StudioListType}). */
     List: typeof StudioListType;
-    /** A slicer ({@link StudioSlicerType}). */
-    Slicer: typeof StudioSlicerType;
     /** One value of a visual: a measure, and how it reads ({@link StudioValueType}). */
     Value: StudioValueType;
     /** What a value measures ({@link StudioMeasureType}). */
@@ -282,6 +283,8 @@ export interface StudioTypes {
     Click: typeof StudioClickType;
     /** The visual a visual follows ({@link StudioFollowType}). */
     Follow: typeof StudioFollowType;
+    /** One filter of a page: a jq condition every visual of one source reads through ({@link StudioFilterType}). */
+    Filter: typeof StudioFilterType;
     /** A source a surface's visuals may read ({@link StudioSourceType}). */
     Source: typeof StudioSourceType;
     /** One field of a source ({@link StudioFieldType}). */
@@ -326,13 +329,13 @@ const types: StudioTypes = {
     Chart: StudioChartType,
     Table: StudioTableType,
     List: StudioListType,
-    Slicer: StudioSlicerType,
     Value: StudioValueType,
     Measure: StudioMeasureType,
     Group: StudioGroupType,
     Text: StudioTextType,
     Click: StudioClickType,
     Follow: StudioFollowType,
+    Filter: StudioFilterType,
     Source: StudioSourceType,
     Field: StudioFieldType,
 };

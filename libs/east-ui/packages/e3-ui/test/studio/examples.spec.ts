@@ -20,5 +20,6 @@ describeEast("Studio examples (#991–#1000, #1669, #1671, #1672)", (test) => {
         studioContent: studio.studioContent,
         studioVisuals: studio.studioVisuals,
         studioChartOptions: studio.studioChartOptions,
+        studioClicks: studio.studioClicks,
     });
 }, { platformFns: TestImpl });

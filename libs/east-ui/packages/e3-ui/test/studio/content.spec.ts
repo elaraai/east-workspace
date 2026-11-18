@@ -45,7 +45,6 @@ const FORMS = [
     { view: v.summary({ rows: [v.group("region")], values: [revenue] }), words: "Summary table", icon: "table" },
     { view: v.pivot({ rows: v.group("region"), columns: month, value: revenue }), words: "Pivot table", icon: "table-cells" },
     { view: v.list({ item: v.group("customer"), values: [revenue] }), words: "List", icon: "list" },
-    { view: v.slicer(["range", "filter", "search"]), words: "Slicer", icon: "sliders" },
 ] as const;
 
 describe("Studio.visual — a visual's parts, each with its defaults (#1669)", () => {
@@ -90,10 +89,9 @@ describe("Studio.visual — a visual's parts, each with its defaults (#1669)", (
             variant("table", variant("pivot", { rows: v.group("region"), columns: month, value: revenue, heat: false })));
         assert.deepEqual(v.list({ item: v.group("customer"), values: [revenue] }),
             variant("list", { item: v.group("customer"), caption: none, values: [revenue], bar: false }));
-        assert.deepEqual(v.slicer(["range", "search"]), variant("slicer", { affordances: [variant("range", null), variant("search", null)] }));
     });
 
-    test("a visual over a source keeps every row, follows none, and takes its view's click: a chart and a KPI filter, a table and a list select, a slicer does nothing", () => {
+    test("a visual over a source keeps every row, follows none, and takes its view's click: a chart and a KPI filter, a table and a list select", () => {
         const click = (view: (typeof FORMS)[number]["view"]) => {
             const content = v.of("orders", view);
             if (content.type !== "visual") assert.fail("expected a visual");
@@ -103,7 +101,7 @@ describe("Studio.visual — a visual's parts, each with its defaults (#1669)", (
         assert.deepEqual(FORMS.map(({ view, words }) => [words, click(view)]), [
             ["KPI", "filter"], ["Column chart", "filter"], ["Bar chart", "filter"], ["Line chart", "filter"], ["Area chart", "filter"],
             ["Combo chart", "filter"], ["Scatter chart", "filter"], ["Pie chart", "filter"], ["Donut chart", "filter"],
-            ["Records table", "select"], ["Summary table", "select"], ["Pivot table", "select"], ["List", "select"], ["Slicer", "none"],
+            ["Records table", "select"], ["Summary table", "select"], ["Pivot table", "select"], ["List", "select"],
         ]);
     });
 
@@ -130,7 +128,9 @@ describe("Studio.visual — a visual's parts, each with its defaults (#1669)", (
         assert.ok(isTypeEqual(Studio.Types.View, StudioViewType));
         // A variant's cases are held in name order.
         assert.deepEqual(Object.keys(Studio.Types.Content.cases), ["component", "text", "visual"]);
-        assert.deepEqual(Object.keys(Studio.Types.View.cases), ["chart", "kpi", "list", "slicer", "table"]);
+        assert.deepEqual(Object.keys(Studio.Types.View.cases), ["chart", "kpi", "list", "table"]);
+        // A page's filter: a jq condition on one source's rows.
+        assert.deepEqual(Object.keys(Studio.Types.Filter.fields), ["source", "where"]);
         assert.deepEqual(Object.keys(Studio.Types.Chart.cases), ["area", "bar", "column", "combo", "line", "pie", "scatter"]);
         assert.deepEqual(Object.keys(Studio.Types.Table.cases), ["pivot", "records", "summary"]);
         assert.deepEqual(Object.keys(Studio.Types.Cell.fields), ["key", "row", "span", "height", "align", "title", "content"]);

@@ -98,6 +98,14 @@ export interface SnapGridEditing {
      * @returns The copy's key, when it was drafted
      */
     duplicate(key: string): string | undefined;
+    /**
+     * Add an entry a host built, in a new row after a tile's row (#1673): its
+     * bytes the entry's at the entries' type; its identity a fresh key made
+     * from the one it holds, and its row the new row's — never the host's.
+     * Stable.
+     * @returns The new tile's key and its name, when it was drafted: not for bytes that are no entry, or after a tile the canvas does not hold
+     */
+    insert(after: string, bytes: Uint8Array): { readonly key: string; readonly label: string } | undefined;
     /** A history item action. Stable. */
     action(action: HistoryAction): void;
 }
@@ -261,6 +269,23 @@ export function useSnapGridEditing(value: SnapGridEditorValue, storageKey: strin
         }
         return updates.length > 0 && session.record(updates, origin, label, joins);
     };
+    /**
+     * A new row's tile: its own cell's — the key and the name the author maps
+     * it to — at its entry's span, or at the span and height of the tile it
+     * copies. `undefined` when its cell cannot be drawn, which is said.
+     */
+    const tileFor = (entry: Entry, what: string, named: string, like?: SnapGridTile): SnapGridTile | undefined => {
+        let cell: SnapGridEditorCell | undefined;
+        try { cell = editing.derive(codec.encodeRows([entry]))[0]; }
+        catch (err) {
+            console.error(`[SnapGrid] ${what} could not be drawn:`, err);
+            return undefined;
+        }
+        return {
+            key: cell?.key ?? idOf(entry), id: idOf(entry), row: entry[fields.row] as string, span: like?.span ?? Number(entry[fields.span] as bigint),
+            height: like?.height, minHeight: like?.minHeight, label: cell?.label.type === "some" ? cell.label.value : named,
+        };
+    };
     const gestures = {
         move(key: string, drop: SnapGridDrop, narrows?: number): boolean {
             const tile = tiles.find((t) => t.key === key);
@@ -302,23 +327,13 @@ export function useSnapGridEditing(value: SnapGridEditorValue, storageKey: strin
                 return undefined;
             }
             entry = { ...entry, [fields.row]: rowKey };
-            // Its tile is its own cell's: the key and the name the author maps it to.
-            let cell: SnapGridEditorCell | undefined;
-            try { cell = editing.derive(codec.encodeRows([entry]))[0]; }
-            catch (err) {
-                console.error("[SnapGrid] a dropped card's tile could not be drawn:", err);
-                return undefined;
-            }
-            const label = cell?.label.type === "some" ? cell.label.value : card.key;
-            const tile: SnapGridTile = {
-                key: cell?.key ?? idOf(entry), id: idOf(entry), row: rowKey, span: Number(entry[fields.span] as bigint),
-                height: undefined, minHeight: undefined, label,
-            };
+            const tile = tileFor(entry, "a dropped card's tile", card.key);
+            if (tile === undefined) return undefined;
             if (narrows !== undefined) tile.span = narrows;
             const edit = placeTile(tiles, tile, landing.drop);
             // The new row is written whole: the row it lands in, and its fitted span.
             edit.writes.set(tile.id, { ...edit.writes.get(tile.id), row: rowKey, ...(narrows !== undefined ? { span: narrows } : {}) });
-            return record(edit, "drop", `Add ${label}`, undefined, entry) ? tile.key : undefined;
+            return record(edit, "drop", `Add ${tile.label}`, undefined, entry) ? tile.key : undefined;
         },
         resize(key: string, span: number, joins?: string): boolean {
             const tile = tiles.find((t) => t.key === key);
@@ -379,20 +394,30 @@ export function useSnapGridEditing(value: SnapGridEditorValue, storageKey: strin
             const rowKey = drop.kind === "join" ? rows[at]!.key : newRowKey(tiles);
             const id = freshKey(tile.id, new Set(tiles.map((t) => t.id)));
             const entry: Entry = { ...row, [fields.key]: id, [fields.row]: rowKey };
-            // Its tile is its own cell's: the key and the name the author maps it to.
-            let cell: SnapGridEditorCell | undefined;
-            try { cell = editing.derive(codec.encodeRows([entry]))[0]; }
-            catch (err) {
-                console.error("[SnapGrid] a copied tile could not be drawn:", err);
-                return undefined;
-            }
-            const copy: SnapGridTile = {
-                key: cell?.key ?? id, id, row: rowKey, span: tile.span, height: tile.height, minHeight: tile.minHeight,
-                label: cell?.label.type === "some" ? cell.label.value : tile.label,
-            };
+            const copy = tileFor(entry, "a copied tile", tile.label, tile);
+            if (copy === undefined) return undefined;
             const edit = placeTile(tiles, copy, drop);
             edit.writes.set(id, { ...edit.writes.get(id), row: rowKey });
             return record(edit, "insert", `Duplicate ${tile.label}`, undefined, entry) ? copy.key : undefined;
+        },
+        insert(after: string, bytes: Uint8Array): { readonly key: string; readonly label: string } | undefined {
+            const at = rowsOf(tiles).findIndex((r) => r.tiles.some((t) => t.key === after));
+            if (at < 0) return undefined;
+            let given: Entry;
+            try { given = codec.decodeEntry(bytes) as Entry; }
+            catch (err) {
+                console.error("[SnapGrid] the entry asked to be added could not be read:", err);
+                return undefined;
+            }
+            // Its identity and its row are the canvas's: a fresh key from the one it holds, and the new row's.
+            const rowKey = newRowKey(tiles);
+            const id = freshKey(idOf(given), new Set(tiles.map((t) => t.id)));
+            const entry: Entry = { ...given, [fields.key]: id, [fields.row]: rowKey };
+            const tile = tileFor(entry, "an added tile", id);
+            if (tile === undefined) return undefined;
+            const edit = placeTile(tiles, tile, { kind: "gap", at: at + 1 });
+            edit.writes.set(id, { ...edit.writes.get(id), row: rowKey });
+            return record(edit, "insert", `Add ${tile.label}`, undefined, entry) ? { key: tile.key, label: tile.label } : undefined;
         },
         action(action: HistoryAction): void {
             if (action === "apply") void session.apply();
@@ -412,6 +437,7 @@ export function useSnapGridEditing(value: SnapGridEditorValue, storageKey: strin
     const remove = useCallback((key: string) => current.current.remove(key), []);
     const field = useCallback((key: string, name: string, bytes: Uint8Array) => current.current.field(key, name, bytes), []);
     const duplicate = useCallback((key: string) => current.current.duplicate(key), []);
+    const insert = useCallback((after: string, bytes: Uint8Array) => current.current.insert(after, bytes), []);
     const action = useCallback((a: HistoryAction) => current.current.action(a), []);
 
     // ── The rows the canvas draws, heard by the author (#996) ──────────
@@ -439,6 +465,6 @@ export function useSnapGridEditing(value: SnapGridEditorValue, storageKey: strin
         creates: editing.create.type === "some",
         heights: fields.height.type === "some",
         aligns: fields.align.type === "some",
-        move, rowTo, align, add, resize, height, remove, field, duplicate, action,
+        move, rowTo, align, add, resize, height, remove, field, duplicate, insert, action,
     };
 }

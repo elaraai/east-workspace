@@ -12,7 +12,7 @@
 import { describe, expect, it } from "vitest";
 import {
     ArrayType, BooleanType, DateTimeType, DictType, FloatType, IntegerType, OptionType, StringType, StructType,
-    checkJq, evaluateJq, isValueOf, none, parseJq, some, toEastTypeValue, variant,
+    checkJq, evaluateJq, isValueOf, none, some, toEastTypeValue, variant,
     type EastType, type JqNode, type ValueTypeOf,
 } from "@elaraai/east";
 import { Studio } from "@elaraai/e3-ui";
@@ -21,8 +21,10 @@ import { utcAt as at } from "../../plan/plan.test-utils.js";
 import { draftPlan } from "../plan.js";
 import { queryRoot } from "../one-shot.js";
 import { visualAnswerType } from "./ask.js";
-import { periodWindow, printVisual, type PrintedVisual, type VisualAsk } from "./print.js";
+import { printStateOf } from "./filters.js";
+import { periodWindow, printVisual, type PrintState, type PrintedVisual, type VisualAsk } from "./print.js";
 import { printSourceOf } from "./source.js";
+import { condition } from "./visual.test-utils.js";
 
 const Row = StructType({
     ordered_at: DateTimeType, region: StringType, customer: StringType, revenue: FloatType, units: IntegerType,
@@ -42,19 +44,22 @@ function sourceOver(type: EastType, range: ValueTypeOf<typeof StudioSourceType>[
     return {
         key: "orders", name: "Orders", icon: "receipt", description: none,
         binding: { name: "orders", source: variant("value", [variant("field", "inputs"), variant("field", "orders")]), type: toEastTypeValue(type) },
-        fields: [], range, search: [], split: [],
+        fields: [], range,
     };
 }
 
 const SOURCE = printSourceOf(sourceOver(ArrayType(Row)))!;
 const ROOT = StructType({ orders: ArrayType(Row) });
+/** The root of a program that reads the page's minute. */
+const ROOT_NOW = StructType({ orders: ArrayType(Row), now: DateTimeType });
 const WINDOW = { from: at("2026-07-01T00:00:00"), to: at("2026-10-01T00:00:00") };
+/** The minute the page is read at. */
+const NOW = at("2026-09-15T12:00:00");
 
-/** A jq condition, as a filter holds it. */
-function condition(text: string): JqNode {
-    const parsed = parseJq(text);
-    if (parsed.program.type === "none") throw new Error(`does not parse: ${text}`);
-    return parsed.program.value;
+/** A page's state: a filter that holds the orders' date to the quarter from July 2026, then the conditions given, a filter each. */
+function quarter(...more: readonly JqNode[]): PrintState {
+    const held = [condition(`.ordered_at >= "2026-07-01" and .ordered_at < "2026-10-01"`), ...more];
+    return printStateOf(held.map((where) => ({ source: "orders", where })), "orders", SOURCE, NOW);
 }
 
 /** A visual's content's visual. */
@@ -97,7 +102,7 @@ const v = Studio.visual;
 describe("printVisual", () => {
     it("prints a KPI's value, its compare a year ago and its trend, each over the window", () => {
         const kpi = visualOf(v.of("orders", v.kpi({ value: v.sum("revenue"), compare: v.sum("revenue", { period: "year_ago" }), trend: "ordered_at" })));
-        const asks = asksOf(printVisual(kpi, SOURCE, { filters: [], window: WINDOW }));
+        const asks = asksOf(printVisual(kpi, SOURCE, quarter()));
         expect(asks.map(a => [a.role, a.period, a.values])).toEqual([["total", "current", [0]], ["total", "year_ago", [1]], ["trend", "current", [0]]]);
         expect(answerOf(asks[0]!.program).rows).toEqual([{ v0: 220.5, n: 3n }]);
         expect(answerOf(asks[1]!.program).rows).toEqual([{ v1: 40, n: 1n }]);
@@ -110,7 +115,7 @@ describe("printVisual", () => {
         const column = visualOf(v.of("orders", v.column({
             x: v.group("ordered_at", { bucket: "month" }), values: [v.sum("revenue"), v.count()], split: "region", stack: "stacked",
         }), { where: condition(".export") }));
-        const asks = asksOf(printVisual(column, SOURCE, { filters: [condition(`.region | IN("SA", "NSW")`)], window: WINDOW }));
+        const asks = asksOf(printVisual(column, SOURCE, quarter(condition(`.region | IN("SA", "NSW")`))));
         expect(asks.map(a => [a.role, a.values])).toEqual([["groups", [0]]]);
         const answer = answerOf(asks[0]!.program);
         expect(answer.rows).toEqual([
@@ -191,7 +196,7 @@ describe("printVisual", () => {
 
     it("orders each period's program by the first of the visual's values it holds", () => {
         const list = visualOf(v.of("orders", v.list({ item: v.group("customer", { sort: "high" }), values: [v.sum("revenue", { period: "previous" }), v.count()] })));
-        const asks = asksOf(printVisual(list, SOURCE, { filters: [], window: WINDOW }));
+        const asks = asksOf(printVisual(list, SOURCE, quarter()));
         expect(asks.map(a => [a.period, a.values])).toEqual([["previous", [0]], ["current", [1]]]);
         // This quarter's orders: one each.
         expect(answerOf(asks[1]!.program).rows.map(r => [r["g0"], r["v1"]])).toEqual([["Harbour", 1n], ["Northwind", 1n], ["Summit", 1n]]);
@@ -256,12 +261,11 @@ describe("printVisual", () => {
         expect(asksOf(printVisual(plain, SOURCE, { filters: [condition(".export")] })).map(a => [a.readsNow, a.program.startsWith(".orders")])).toEqual([[false, true]]);
     });
 
-    it("says what it needs: an empty well, a field the source lacks, a window for another period; and a slicer asks nothing", () => {
+    it("says what it needs: an empty well, a field the source lacks, a window for another period", () => {
         expect(printVisual(visualOf(v.of("orders", v.column({ x: v.group("region"), values: [] }))), SOURCE, { filters: [] })).toEqual({ kind: "empty", wells: ["values"] });
         expect(printVisual(visualOf(v.of("orders", v.records({ columns: [] }))), SOURCE, { filters: [] })).toEqual({ kind: "empty", wells: ["columns"] });
         expect(printVisual(visualOf(v.of("orders", v.kpi({ value: v.sum("net_revenue") }))), SOURCE, { filters: [] })).toEqual({ kind: "missing", fields: ["net_revenue"] });
         expect(printVisual(visualOf(v.of("orders", v.kpi({ value: v.sum("revenue", { period: "previous" }) }))), SOURCE, { filters: [] })).toEqual({ kind: "window" });
-        expect(printVisual(visualOf(v.of("orders", v.slicer(["range"]))), SOURCE, { filters: [] })).toEqual({ kind: "none" });
     });
 
     it("says a group of no field is a well to fill, by its kind's field — what a dropped visual starts with (#1672)", () => {
@@ -279,8 +283,47 @@ describe("printVisual", () => {
     it("says a source with no date range has none to compare periods by, whatever the page's window", () => {
         const undated = printSourceOf(sourceOver(ArrayType(Row), none))!;
         const kpi = visualOf(v.of("orders", v.kpi({ value: v.sum("revenue"), compare: v.sum("revenue", { period: "year_ago" }) })));
-        expect(printVisual(kpi, undated, { filters: [], window: WINDOW })).toEqual({ kind: "range" });
+        expect(printVisual(kpi, undated, quarter())).toEqual({ kind: "range" });
         expect(printVisual(kpi, undated, { filters: [] })).toEqual({ kind: "range" });
+    });
+
+    it("narrows the current period by the page's filters as they are; another period by the window moved in place of the date's bounds, the other conditions kept", () => {
+        const kpi = visualOf(v.of("orders", v.kpi({ value: v.sum("revenue"), compare: v.sum("revenue", { period: "year_ago" }) }), { where: condition(".export") }));
+        const [current, before] = asksOf(printVisual(kpi, SOURCE, quarter(condition(`.region != "NSW"`))));
+        // The visual's own filter, then each of the page's, as it was written: no window besides.
+        expect(current!.program.split("\n").slice(0, 4)).toEqual([
+            ".orders",
+            "| map(select(.export))",
+            `| map(select(.ordered_at >= "2026-07-01" and .ordered_at < "2026-10-01"))`,
+            `| map(select(.region != "NSW"))`,
+        ]);
+        // A year before: the visual's own filter and the page's other condition, then the window a year back.
+        expect(before!.program.split("\n").slice(0, 4)).toEqual([
+            ".orders",
+            "| map(select(.export))",
+            `| map(select(.region != "NSW"))`,
+            `| map(select(.ordered_at >= "2025-07-01T00:00:00.000+00:00" and .ordered_at < "2025-10-01T00:00:00.000+00:00"))`,
+        ]);
+        expect([before!.period, answerOf(current!.program).rows, answerOf(before!.program).rows]).toEqual(["year_ago", [{ v0: 170.5, n: 2n }], [{ v1: 40, n: 1n }]]);
+    });
+
+    it("moves a window the page's filters count back from now: the current period's program reads `.now`, another period's is of fixed dates and does not", () => {
+        // The last 60 days to 15 September: from 17 July, so the previous 60 days are from 18 May.
+        const last = printStateOf([{ source: "orders", where: condition(`.ordered_at >= ($now | datetime_add(-60; "day"))`) }], "orders", SOURCE, NOW);
+        expect(last.range).toEqual({ window: { from: at("2026-07-17T12:00:00"), to: NOW }, rest: [] });
+        const kpi = visualOf(v.of("orders", v.kpi({ value: v.count(), compare: v.count({ period: "previous" }) })));
+        const [current, before] = asksOf(printVisual(kpi, SOURCE, last));
+        expect([current!.readsNow, before!.readsNow]).toEqual([true, false]);
+        expect(current!.program.split("\n").slice(0, 3)).toEqual([".now as $now", "| .orders", `| map(select(.ordered_at >= ($now | datetime_add(-60; "day"))))`]);
+        expect(before!.program.split("\n").slice(0, 2)).toEqual([".orders", `| map(select(.ordered_at >= "2026-05-18T12:00:00.000+00:00" and .ordered_at < "2026-07-17T12:00:00.000+00:00"))`]);
+        // 20 July and 2 August are in the last 60 days; 3 July is in the 60 before them.
+        expect([answerOf(current!.program, ORDERS, ROOT_NOW, NOW).rows, answerOf(before!.program).rows]).toEqual([[{ v0: 2n, n: 2n }], [{ v1: 1n, n: 1n }]]);
+    });
+
+    it("asks a value over another period of a page whose filters hold its date to no window nothing: it says the page has none", () => {
+        const kpi = visualOf(v.of("orders", v.kpi({ value: v.sum("revenue", { period: "previous" }) })));
+        const region = printStateOf([{ source: "orders", where: condition(`.region == "SA"`) }], "orders", SOURCE, NOW);
+        expect([region.range, printVisual(kpi, SOURCE, region)]).toEqual([undefined, { kind: "window" }]);
     });
 });
 

@@ -17,7 +17,7 @@ import { defineSlotRecipe } from "@chakra-ui/react";
 
 export const studioBuilderSlotRecipe = defineSlotRecipe({
     className: "elara-studio-builder",
-    slots: ["root", "canvas"],
+    slots: ["root", "canvas", "linking", "linkNote"],
     base: {
         root: {
             display: "flex",
@@ -28,11 +28,25 @@ export const studioBuilderSlotRecipe = defineSlotRecipe({
         },
         /* Kept mounted while the preview shows — its drafts stay its own. */
         canvas: {
+            position: "relative",
             flex: "1",
             minHeight: "0",
             display: "flex",
             flexDirection: "column",
             "&[hidden]": { display: "none" },
+            /* Linking (#1673, LNK-6): while a leader is picked, the visuals that can lead are outlined dashed `--brand-d`
+               on `--brand-tint` and take a pointer's hand; the one being linked stands as it is; the rest dim. */
+            "&[data-linking] [data-snap-grid-tile]": { opacity: "0.4" },
+            "&[data-linking] [data-snap-grid-tile]:has([data-pick])": { opacity: "1" },
+            "&[data-linking] [data-snap-grid-tile]:has([data-pick=leader])": {
+                outline: "1.5px dashed", outlineColor: "brand.solid", outlineOffset: "-1px", background: "brandTint", cursor: "pointer",
+            },
         },
+        /* The banner that says what to do, over the canvas's top, in the middle: as wide as its words, never the canvas. */
+        linking: {
+            position: "absolute", top: "{spacing.3}", insetInline: "0", marginInline: "auto", width: "fit-content", maxWidth: "calc(100% - 32px)", zIndex: "2",
+        },
+        /* What the link's popover says under its fields: 12 / 16, `--ink-3`, a line each. */
+        linkNote: { fontSize: "{fontSizes.body.sm}", lineHeight: "16px", color: "fg.muted", margin: "0", "& + &": { marginTop: "{spacing.1}" } },
     },
 });

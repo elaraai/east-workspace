@@ -34,7 +34,7 @@ const ROOT = queryRoot([{ name: "orders", path: PATH, type: toEastTypeValue(Arra
 const SOURCE = printSourceOf({
     key: "orders", name: "Orders", icon: "receipt", description: none,
     binding: { name: "orders", source: variant("value", PATH), type: toEastTypeValue(ArrayType(Row)) },
-    fields: [], range: some("ordered_at"), search: [], split: [],
+    fields: [], range: some("ordered_at"),
 })!;
 
 const v = Studio.visual;

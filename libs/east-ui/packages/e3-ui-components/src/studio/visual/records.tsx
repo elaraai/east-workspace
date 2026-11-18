@@ -17,16 +17,17 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Box } from "@chakra-ui/react";
-import { none } from "@elaraai/east";
+import { none, some } from "@elaraai/east";
 import {
     EastChakraPagination, EastChakraTable, useFormatters, usePersistedState,
-    type ColumnSort, type PaginationValue,
+    type ColumnSort, type PaginationValue, type TableRootValue,
 } from "@elaraai/east-ui-components";
 import { keptRead, useSlotStyles, type KeptReader } from "@elaraai/east-ui-components/internal";
 import { useVisualAnswers } from "../../query/visual/answers.js";
 import { printVisual, VISUAL_RECORDS_PAGE, type PrintSource, type PrintState, type VisualAsk } from "../../query/visual/print.js";
 import { useQueryWords } from "../../query/words.js";
 import { useStudioMessages } from "../messages.js";
+import { useGroupClicks, useMarked } from "./clicks.js";
 import { SourceFailed, VisualNote } from "./notes.js";
 import { recordsField, recordsModel, recordsOf, recordsSorted, sortedBy, type RecordsModel, type RecordsSort } from "./records-table.js";
 import type { Visual, VisualSource } from "./values.js";
@@ -106,12 +107,23 @@ export function RecordsVisual({ visual, source, read, state, storageKey }: Recor
         },
         style: none,
     }), [drawn, page]);
+    // A click on a row tells the group it stands for (TBL-6): its first column's value.
+    const { raise, onClickCapture } = useGroupClicks();
+    const table = useMemo((): TableRootValue | undefined => (drawn === undefined || raise === undefined ? drawn?.table : {
+        ...drawn.table,
+        onRowClick: some((event) => {
+            raise(drawn.clicked(Number(event.rowIndex)));
+            return null;
+        }),
+    }), [drawn, raise]);
+    // A row the placement's selection holds is marked: every row whose first column is the selected value.
+    const marked = useMarked(drawn?.clicked);
     if (asked.status === "failed") return <SourceFailed source={source.name} message={asked.message} retry={asked.retry} />;
-    if (drawn === undefined) return null;
+    if (drawn === undefined || table === undefined) return null;
     return (
-        <Box css={styles.root} data-studio-records={model === undefined ? "waiting" : ""}>
+        <Box css={styles.root} data-studio-records={model === undefined ? "waiting" : ""} onClickCapture={onClickCapture}>
             <Box css={styles.table}>
-                <EastChakraTable value={drawn.table} storageKey={`${storageKey}.table`} tile sorted={programSort} enableMultiSort={false} onSortChange={onSort} />
+                <EastChakraTable value={table} storageKey={`${storageKey}.table`} tile sorted={programSort} enableMultiSort={false} onSortChange={onSort} rowMarked={marked} />
             </Box>
             <Box css={styles.foot}>
                 <VisualNote>{m.rowsShown({ first: f.number(drawn.first), last: f.number(drawn.last), of: f.number(drawn.total) })}</VisualNote>

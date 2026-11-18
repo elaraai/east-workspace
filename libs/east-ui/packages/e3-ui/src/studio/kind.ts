@@ -37,15 +37,14 @@ export function isOf<T extends EastType>(value: unknown, type: T): value is Valu
  * The kind a decoded view is, and the struct its wells and options edit.
  *
  * @param view - The view
- * @returns Its kind and its struct; `undefined` for a slicer, which no editor draws
+ * @returns Its kind and its struct
  */
-export function kindStruct(view: StudioView): { readonly kind: StudioKindLiteral; readonly struct: Readonly<Record<string, unknown>> } | undefined {
+export function kindStruct(view: StudioView): { readonly kind: StudioKindLiteral; readonly struct: Readonly<Record<string, unknown>> } {
     switch (view.type) {
         case "kpi": return { kind: "kpi", struct: view.value };
         case "chart": return { kind: view.value.type, struct: view.value.value };
         case "table": return { kind: view.value.type, struct: view.value.value };
         case "list": return { kind: "list", struct: view.value };
-        case "slicer": return undefined;
     }
 }
 
@@ -54,11 +53,10 @@ export function kindStruct(view: StudioView): { readonly kind: StudioKindLiteral
  *
  * @param view - The view
  * @param editors - The views' editors; {@link studioEditors} unless given
- * @returns Its kind's editor; `undefined` for a slicer, or a kind the editors do not hold
+ * @returns Its kind's editor; `undefined` for a kind the editors do not hold
  */
 export function kindEditor(view: StudioView, editors: readonly StudioViewEditor[] = studioEditors): StudioKindEditor | undefined {
     const at = kindStruct(view);
-    if (at === undefined) return undefined;
     for (const viewEditor of editors) {
         for (const editor of viewEditor.kinds) {
             if (editor.kind.type === at.kind) return editor;
@@ -75,17 +73,16 @@ export function kindEditor(view: StudioView, editors: readonly StudioViewEditor[
  * @param field - The field of its kind's struct
  * @param value - Its new value
  * @returns The view
- * @throws {Error} When the view is a slicer, or the value does not fit the field
+ * @throws {Error} When the kind has no such field, or the value does not fit it
  */
 export function withKindField(view: StudioView, field: string, value: unknown): StudioView {
     const at = kindStruct(view);
-    if (at === undefined || !(field in at.struct)) throw new Error(`Studio: "${field}" is no field of the ${at?.kind ?? "slicer"}'s`);
+    if (!(field in at.struct)) throw new Error(`Studio: "${field}" is no field of the ${at.kind}'s`);
     const struct = { ...at.struct, [field]: value };
     let next: unknown;
     switch (view.type) {
         case "kpi": case "list": next = variant(view.type, struct); break;
         case "chart": case "table": next = variant(view.type, variant(view.value.type, struct)); break;
-        case "slicer": next = view; break;
     }
     if (!isOf(next, StudioViewType)) throw new Error(`Studio: the ${at.kind}'s "${field}" does not take that value`);
     return next;

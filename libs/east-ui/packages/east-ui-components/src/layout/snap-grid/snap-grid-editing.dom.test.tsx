@@ -33,7 +33,7 @@ import { UIStore } from "../../platform/state-store.js";
 import { layOut } from "../../testing/drag-layer.js";
 import { faIcons, loneGlyphs } from "../../testing/icons.js";
 import {
-    BLOCKED, SEED, type EditingSnapGrid, type TileValue,
+    BLOCKED, SEED, Tile, type EditingSnapGrid, type TileValue,
     announced, clickTile, drop, dragHandle, endZone, gapEl, heightOf, history, historyButton, hold, hostWrites, key, layRows, marks,
     mountSnapGrid, rowsDrawn, selectedTile, spanOf, tileEl,
 } from "./snap-grid-editing.test-utils.js";
@@ -690,6 +690,7 @@ describe("a pane beside the canvas (#996)", () => {
 describe("what a tile shows, and its copies (#1672)", () => {
     const encodeText = encodeBeast2For(StringType);
     const encodeInteger = encodeBeast2For(IntegerType);
+    const encodeTile = encodeBeast2For(Tile);
 
     test("a field request sets that field of the tile's entry as one typed gesture: the tile draws what it now holds, Undo takes it back, and the request is written back none", async () => {
         const canvas = await mountSnapGrid();
@@ -738,6 +739,33 @@ describe("what a tile shows, and its copies (#1672)", () => {
             .toEqual([8, 4, 4, "region-1", "Duplicated Breakdown bars"]);
         await history(canvas, "Undo");
         expect(rowsDrawn(c)).toEqual(SEED_ROWS);
+    }, 30_000);
+
+    test("an add request places an entry the host built in a new row after the tile's row, under a fresh key and the new row's — one insert, selected and said — and one Undo takes it back (#1673)", async () => {
+        const canvas = await mountSnapGrid();
+        const c = canvas.container;
+        // The entry's own key and row are never kept: its key seeds a fresh one, and its row is the new row's.
+        const built = encodeTile({ id: "linked", row: "kpis", span: 6n, height: none, minHeight: none, name: "Linked chart", align: variant("top", null) });
+        await canvas.hostAsks({ key: "trend", change: variant("add", built) });
+        expect(rowsDrawn(c)).toEqual([["kpi"], ["trend", "region"], ["linked-1"], ["board"]]);
+        // Selected, it wears its name and its span over its top edge.
+        expect([spanOf(c, "linked-1"), tileEl(c, "linked-1").querySelector("[data-snap-grid-badge]")!.textContent, canvas.boundSelection(), selectedTile(c), announced(c)])
+            .toEqual([6, "Linked chart · 6/12", "linked-1", "linked-1", "Added Linked chart"]);
+        // Nothing of the rows it landed between changed.
+        expect([spanOf(c, "trend"), spanOf(c, "region")]).toEqual([8, 4]);
+        expect([labels(canvas), origins(canvas), canvas.boundRequest()]).toEqual([["Add Linked chart"], ["insert"], null]);
+        await history(canvas, "Undo");
+        expect(rowsDrawn(c)).toEqual(SEED_ROWS);
+    }, 30_000);
+
+    test("an add request after a tile the canvas does not hold, or of bytes that are no entry, adds nothing and is written back", async () => {
+        const error = vi.spyOn(console, "error").mockImplementation(() => {});
+        const canvas = await mountSnapGrid();
+        const built = encodeTile({ id: "linked", row: "", span: 6n, height: none, minHeight: none, name: "Linked chart", align: variant("top", null) });
+        await canvas.hostAsks({ key: "gone", change: variant("add", built) });
+        await canvas.hostAsks({ key: "trend", change: variant("add", encodeText("not an entry")) });
+        expect([rowsDrawn(canvas.container), canvas.patches.length, canvas.boundRequest()]).toEqual([SEED_ROWS, 0, null]);
+        expect(error).toHaveBeenCalledWith("[SnapGrid] the entry asked to be added could not be read:", expect.anything());
     }, 30_000);
 
     test("the selected tile wears its name and span over its top edge, and its toolbar: Duplicate and Remove — no Edit, this host editing nothing it shows", async () => {

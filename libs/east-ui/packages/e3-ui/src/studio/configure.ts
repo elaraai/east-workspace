@@ -24,7 +24,7 @@
  * @packageDocumentation
  */
 
-import { ArrayType, East, OptionType, StringType, StructType, none, some, variant, type option } from "@elaraai/east";
+import { ArrayType, East, OptionType, StringType, StructType, none, some, variant } from "@elaraai/east";
 import { TimeResolutionType } from "@elaraai/east-ui";
 import {
     StudioChartType,
@@ -62,42 +62,39 @@ const EMPTY_VIEWS: { readonly [K in StudioKindLiteral]: StudioView } = {
 };
 
 /** Each kind, as the kind a view is. */
-const HELD: { readonly [K in StudioKindLiteral]: option<StudioKind> } = {
-    kpi: some(variant("kpi", null)),
-    column: some(variant("column", null)),
-    bar: some(variant("bar", null)),
-    line: some(variant("line", null)),
-    area: some(variant("area", null)),
-    combo: some(variant("combo", null)),
-    scatter: some(variant("scatter", null)),
-    pie: some(variant("pie", null)),
-    records: some(variant("records", null)),
-    summary: some(variant("summary", null)),
-    pivot: some(variant("pivot", null)),
-    list: some(variant("list", null)),
+const HELD: { readonly [K in StudioKindLiteral]: StudioKind } = {
+    kpi: variant("kpi", null),
+    column: variant("column", null),
+    bar: variant("bar", null),
+    line: variant("line", null),
+    area: variant("area", null),
+    combo: variant("combo", null),
+    scatter: variant("scatter", null),
+    pie: variant("pie", null),
+    records: variant("records", null),
+    summary: variant("summary", null),
+    pivot: variant("pivot", null),
+    list: variant("list", null),
 };
 
-/**
- * The kind a view is; `none` for a slicer, which no editor draws.
- */
-export const kindOfView = East.function([StudioViewType], OptionType(StudioKindType), (_$, view) => view.match({
-    kpi: (_$2) => East.value(HELD.kpi, OptionType(StudioKindType)),
+/** The kind a view is. */
+export const kindOfView = East.function([StudioViewType], StudioKindType, (_$, view) => view.match({
+    kpi: (_$2) => East.value(HELD.kpi, StudioKindType),
     chart: (_$2, chart) => chart.match({
-        column: (_$3) => East.value(HELD.column, OptionType(StudioKindType)),
-        bar: (_$3) => East.value(HELD.bar, OptionType(StudioKindType)),
-        line: (_$3) => East.value(HELD.line, OptionType(StudioKindType)),
-        area: (_$3) => East.value(HELD.area, OptionType(StudioKindType)),
-        combo: (_$3) => East.value(HELD.combo, OptionType(StudioKindType)),
-        scatter: (_$3) => East.value(HELD.scatter, OptionType(StudioKindType)),
-        pie: (_$3) => East.value(HELD.pie, OptionType(StudioKindType)),
+        column: (_$3) => East.value(HELD.column, StudioKindType),
+        bar: (_$3) => East.value(HELD.bar, StudioKindType),
+        line: (_$3) => East.value(HELD.line, StudioKindType),
+        area: (_$3) => East.value(HELD.area, StudioKindType),
+        combo: (_$3) => East.value(HELD.combo, StudioKindType),
+        scatter: (_$3) => East.value(HELD.scatter, StudioKindType),
+        pie: (_$3) => East.value(HELD.pie, StudioKindType),
     }),
     table: (_$2, table) => table.match({
-        records: (_$3) => East.value(HELD.records, OptionType(StudioKindType)),
-        summary: (_$3) => East.value(HELD.summary, OptionType(StudioKindType)),
-        pivot: (_$3) => East.value(HELD.pivot, OptionType(StudioKindType)),
+        records: (_$3) => East.value(HELD.records, StudioKindType),
+        summary: (_$3) => East.value(HELD.summary, StudioKindType),
+        pivot: (_$3) => East.value(HELD.pivot, StudioKindType),
     }),
-    list: (_$2) => East.value(HELD.list, OptionType(StudioKindType)),
-    slicer: (_$2) => East.value(none, OptionType(StudioKindType)),
+    list: (_$2) => East.value(HELD.list, StudioKindType),
 }));
 
 /**
@@ -344,10 +341,7 @@ export const switchedView = East.function(
     [StudioViewType, StudioKindType, ArrayType(StudioFieldType)],
     StudioViewType,
     ($, view, kind, fields) => {
-        const same = $.let(kindOfView(view).match({
-            some: (_$2, was) => was.getTag().equal(kind.getTag()),
-            none: (_$2) => false,
-        }));
+        const same = $.let(kindOfView(view).getTag().equal(kind.getTag()));
         $.if(same, ($2) => {
             $2.return(view);
         });

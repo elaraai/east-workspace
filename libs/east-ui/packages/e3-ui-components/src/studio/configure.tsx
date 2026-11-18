@@ -38,11 +38,11 @@
  * @packageDocumentation
  */
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Box, chakra, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
+import { memo, useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
+import { Box, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName } from "@fortawesome/fontawesome-svg-core";
-import { faArrowUpRightFromSquare, faChevronDown, faLock } from "@fortawesome/free-solid-svg-icons";
+import { faArrowUpRightFromSquare, faLock } from "@fortawesome/free-solid-svg-icons";
 import {
     StringType, defaultValue, encodeBeast2For, equalFor, isValueOf, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
@@ -51,12 +51,14 @@ import {
     StudioContentType, StudioKeyType, StudioTextType, changedParts, kindEditor, kindStruct, optionSpecs, placedFields, savedKindFields, withKindField,
     type StudioKind, type StudioViewEditor,
 } from "@elaraai/e3-ui/internal";
-import { EastChakraTextarea, FieldForm, SliceEditPopover, type TextareaValue } from "@elaraai/east-ui-components";
-import { Chooser, type ChooserSection } from "@elaraai/east-ui-components/internal";
+import { EastChakraTextarea, FieldForm, type TextareaValue } from "@elaraai/east-ui-components";
+import type { ChooserSection } from "@elaraai/east-ui-components/internal";
 
 import { StudioFieldsList } from "./fields-list.js";
+import { StudioFollows, type ConfigurePlacement } from "./follows.js";
 import { InspectorEmpty, InspectorHead, type InspectorPhone, type Selection, type StudioInspectorValue } from "./inspector.js";
 import { useStudioMessages } from "./messages.js";
+import { PickBox } from "./pick-box.js";
 import { SegStrip, segControls } from "./seg.js";
 import { studioEast } from "./studio-east.js";
 import { StudioWells, type WellsDnd } from "./wells.js";
@@ -107,19 +109,23 @@ export interface StudioConfigureProps {
     saved: Content | undefined;
     /** The project's pages: what a click may open. */
     pages: readonly ConfigurePage[];
+    /** The open page's placements, each with its name: what a visual may follow (#1673). */
+    placements: readonly ConfigurePlacement[];
     /** The ids a visual's wells' drags go by. */
     dnd: WellsDnd;
     /** In a phone's frame: where the placement stands, and what Move does. */
     phone?: InspectorPhone | undefined;
+    /** Starts linking a visual on the canvas (#1673, LNK-6): its Follows block's button; omitted, the block has none. */
+    onLink?: ((placement: string) => void) | undefined;
 }
 
 /**
  * Renders the inspector's Configure tab — see the module docs.
  *
- * @param props - The selected placement, what it holds saved, the project's pages, its drags' ids and, on a phone, where it stands
+ * @param props - The selected placement, what it holds saved, the project's pages, the page's placements, its drags' ids and, on a phone, where it stands
  * @returns The tab's body
  */
-export const StudioConfigure = memo(function StudioConfigure({ value, saved, pages, dnd, phone }: StudioConfigureProps) {
+export const StudioConfigure = memo(function StudioConfigure({ value, saved, pages, placements, dnd, phone, onLink }: StudioConfigureProps) {
     const styles = useSlotRecipe({ key: "studioInspector" })() as Styles;
     const selection = value.selection.type === "some" ? value.selection.value : undefined;
     const onRequest = value.onRequest;
@@ -143,7 +149,8 @@ export const StudioConfigure = memo(function StudioConfigure({ value, saved, pag
             {content.type === "component" && <ComponentInfo selection={selection} />}
             {content.type === "text" && <TextEditor text={content.value} saved={saved?.type === "text" ? saved.value : undefined} onEdit={editText} />}
             {content.type === "visual" && (
-                <VisualEditor visual={content.value} saved={saved} sources={value.sources} editors={value.editors} pages={pages} dnd={dnd} onEdit={editVisual} />
+                <VisualEditor placement={selection.key} visual={content.value} saved={saved} sources={value.sources} editors={value.editors} pages={pages}
+                    placements={placements} dnd={dnd} onEdit={editVisual} onLink={onLink} />
             )}
         </Box>
     );
@@ -252,6 +259,8 @@ function TextEditor({ text, saved, onEdit }: { text: Text; saved: Text | undefin
 
 /** Props of {@link VisualEditor}. */
 interface VisualEditorProps {
+    placement: string;
+    placements: readonly ConfigurePlacement[];
     visual: Visual;
     saved: Content | undefined;
     sources: readonly Source[];
@@ -259,10 +268,11 @@ interface VisualEditorProps {
     pages: readonly ConfigurePage[];
     dnd: WellsDnd;
     onEdit: (visual: Visual) => void;
+    onLink: ((placement: string) => void) | undefined;
 }
 
-/** A visual's stack: its source, its view and kind, its wells, its options, its click and its source's fields. */
-function VisualEditor({ visual, saved, sources, editors, pages, dnd, onEdit }: VisualEditorProps) {
+/** A visual's stack: its source, its view and kind, its wells, its options, its click, the visual it follows and its source's fields. */
+function VisualEditor({ placement, placements, visual, saved, sources, editors, pages, dnd, onEdit, onLink }: VisualEditorProps) {
     const styles = useSlotRecipe({ key: "studioInspector" })() as Styles;
     const m = useStudioMessages();
     const east = studioEast();
@@ -329,6 +339,11 @@ function VisualEditor({ visual, saved, sources, editors, pages, dnd, onEdit }: V
                 )}
                 <ClickPicker click={visual.click} changed={changed("click")} pages={pages} onPick={(click) => onEdit({ ...visual, click })} />
             </Box>
+            <Box css={styles.part} data-configure-section="follows">
+                <StudioFollows placement={placement} visual={visual} placements={placements} sources={sources} onEdit={onEdit}
+                    onLink={onLink === undefined ? undefined : () => onLink(placement)}
+                    field={({ label, part, hint, children }) => <Fld key={label} label={label} part={part} changed={changed(part)} hint={hint}>{children}</Fld>} />
+            </Box>
             {source !== undefined && (
                 <StudioFieldsList source={source} placed={placed} library={dnd.fields} />
             )}
@@ -338,9 +353,7 @@ function VisualEditor({ visual, saved, sources, editors, pages, dnd, onEdit }: V
 
 /** A visual's source: its picker, the sources the surface lists in a Chooser, each with its icon and what one row is. */
 function SourcePicker({ sources, current, onPick }: { sources: readonly Source[]; current: string; onPick: (key: string) => void }) {
-    const styles = useSlotRecipe({ key: "studioInspector" })() as Styles;
     const m = useStudioMessages();
-    const [open, setOpen] = useState(false);
     const source = sources.find((s) => stringEqual(s.key, current));
     const sections = useMemo((): ChooserSection[] => [{
         label: m.sourcesListed(),
@@ -350,19 +363,11 @@ function SourcePicker({ sources, current, onPick }: { sources: readonly Source[]
         })),
     }], [sources, current, m]);
     return (
-        <SliceEditPopover open={open} onOpenChange={setOpen} label={m.source()} flush
-            trigger={(
-                <chakra.button type="button" css={styles.box} aria-label={`${m.source()}: ${source?.name ?? current}`} data-configure-source={current}>
-                    {source !== undefined && <Box as="span" css={styles.boxIcon} aria-hidden><FontAwesomeIcon icon={["fas", source.icon as IconName]} /></Box>}
-                    <Box as="span" css={styles.boxName}>{source?.name ?? current}</Box>
-                    <Box as="span" css={styles.boxCaret} aria-hidden><FontAwesomeIcon icon={faChevronDown} /></Box>
-                </chakra.button>
-            )}>
-            <Chooser sections={sections} placeholder={m.findSource()} onChoose={(key) => {
-                setOpen(false);
+        <PickBox label={m.source()} said={source?.name ?? current} icon={source === undefined ? undefined : ["fas", source.icon as IconName]}
+            sections={sections} placeholder={m.findSource()} data={{ "data-configure-source": current }}
+            onChoose={(key) => {
                 if (!stringEqual(key, current)) onPick(key);
             }} />
-        </SliceEditPopover>
     );
 }
 
@@ -372,9 +377,7 @@ function SourcePicker({ sources, current, onPick }: { sources: readonly Source[]
  * while it opens one, what that does.
  */
 function ClickPicker({ click, changed, pages, onPick }: { click: Click; changed: string | undefined; pages: readonly ConfigurePage[]; onPick: (click: Click) => void }) {
-    const styles = useSlotRecipe({ key: "studioInspector" })() as Styles;
     const m = useStudioMessages();
-    const [open, setOpen] = useState(false);
     const opened = click.type === "open" ? click.value : undefined;
     const page = opened === undefined ? undefined : pages.find((p) => keyEqual(p.key, opened));
     const said = opened === undefined ? m.clickName({ click: click.type }) : m.openPage({ page: page?.title ?? opened.page });
@@ -392,7 +395,6 @@ function ClickPicker({ click, changed, pages, onPick }: { click: Click; changed:
         },
     ].filter((section) => section.options.length > 0), [pages, opened, click.type, m]);
     const choose = (key: string) => {
-        setOpen(false);
         if (key.startsWith(PAGE)) {
             const chosen = pages.find((p) => stringEqual(p.key.page, key.slice(PAGE.length)));
             if (chosen !== undefined && (opened === undefined || !keyEqual(chosen.key, opened))) onPick(variant("open", chosen.key));
@@ -404,17 +406,9 @@ function ClickPicker({ click, changed, pages, onPick }: { click: Click; changed:
     };
     return (
         <Fld label={m.onClick()} part="click" changed={changed} hint={opened === undefined ? undefined : m.clickOpens()}>
-            <SliceEditPopover open={open} onOpenChange={setOpen} label={m.onClick()} flush
-                trigger={(
-                    <chakra.button type="button" css={styles.box} aria-label={`${m.onClick()}: ${said}`} data-configure-click={click.type}
-                        data-configure-page={opened?.page}>
-                        {opened !== undefined && <Box as="span" css={styles.boxIcon} aria-hidden><FontAwesomeIcon icon={faArrowUpRightFromSquare} /></Box>}
-                        <Box as="span" css={styles.boxName}>{said}</Box>
-                        <Box as="span" css={styles.boxCaret} aria-hidden><FontAwesomeIcon icon={faChevronDown} /></Box>
-                    </chakra.button>
-                )}>
-                <Chooser sections={sections} placeholder={m.findPage()} onChoose={choose} />
-            </SliceEditPopover>
+            <PickBox label={m.onClick()} said={said} icon={opened === undefined ? undefined : faArrowUpRightFromSquare}
+                sections={sections} placeholder={m.findPage()} data={{ "data-configure-click": click.type, "data-configure-page": opened?.page }}
+                onChoose={choose} />
         </Fld>
     );
 }

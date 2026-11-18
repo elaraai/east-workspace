@@ -24,8 +24,8 @@
  * the last one leaves, and spells out its own.
  *
  * Every type the Studio declares is copied, and the snap grid's alignment with
- * them. A date's resolution, a slicer's controls, a value's format and jq are
- * east's and east-ui's own wires, read here by name: a change of one changes every record
+ * them. A date's resolution, a value's format and jq are east's and east-ui's
+ * own wires, read here by name: a change of one changes every record
  * that holds it, and is those packages' to migrate.
  *
  * @packageDocumentation
@@ -48,7 +48,7 @@ import {
     variant,
 } from "@elaraai/east";
 import { TimeResolutionType } from "@elaraai/east-ui";
-import { SliceAffordanceType, ValueFormatType } from "@elaraai/east-ui/internal";
+import { ValueFormatType } from "@elaraai/east-ui/internal";
 
 // ============================================================================
 // The pages record's type as `cell_content` leaves it — frozen
@@ -113,7 +113,6 @@ const ViewV1 = VariantType({
         pivot: StructType({ rows: GroupV1, columns: GroupV1, value: ValueV1, heat: BooleanType }),
     }),
     list: StructType({ item: GroupV1, caption: OptionType(StringType), values: ArrayType(ValueV1), bar: BooleanType }),
-    slicer: StructType({ affordances: ArrayType(SliceAffordanceType) }),
 });
 /** What a placement holds: a component's key, a visual or a text block. */
 const ContentV1 = VariantType({

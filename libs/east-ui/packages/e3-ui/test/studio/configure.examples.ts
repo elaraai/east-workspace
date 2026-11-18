@@ -60,7 +60,7 @@ export const studioFieldMeasures = example({
 export const studioKindOfView = example({
     keywords: ["Studio", "Configure", "kindOfView", "kind", "view", "chart", "column", "segments"],
     description: "The kind a visual's view is — the segment the Configure tab marks: a column chart's is column",
-    fn: East.function([], OptionType(StudioKindType), ($) => {
+    fn: East.function([], StudioKindType, ($) => {
         const view = $.const(variant("chart", variant("column", {
             x: { field: "region", bucket: none, sort: variant("high", null), top: none },
             values: [],
@@ -71,7 +71,7 @@ export const studioKindOfView = example({
         return kindOfView(view);
     }),
     inputs: [],
-    returns: some(variant("column", null)),
+    returns: variant("column", null),
 });
 
 export const studioEmptyView = example({
@@ -122,12 +122,12 @@ export const studioMostUsedSource = example({
             {
                 key: "orders", name: "Orders", icon: "receipt", description: none,
                 binding: { name: "orders", source: variant("value", [variant("field", "inputs"), variant("field", "orders")]), type: variant("Array", variant("String", null)) },
-                fields: [], range: none, search: [], split: [],
+                fields: [], range: none,
             },
             {
                 key: "assets", name: "Assets", icon: "gears", description: none,
                 binding: { name: "assets", source: variant("value", [variant("field", "inputs"), variant("field", "assets")]), type: variant("Array", variant("String", null)) },
-                fields: [], range: none, search: [], split: [],
+                fields: [], range: none,
             },
         ], ArrayType(StudioSourceType));
         const count = $.const({

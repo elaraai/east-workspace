@@ -503,7 +503,7 @@ function createCell(fields: SnapGridCellFields): ExprType<SnapGridCellType> {
  *
  * @example
  * ```ts
- * import { East, NullType, variant } from "@elaraai/east";
+ * import { East, IntegerType, NullType, StringType, StructType, variant } from "@elaraai/east";
  * import { SnapGrid, State } from "@elaraai/east-ui";
  *
  * const select = East.function([], NullType, ($) => {
@@ -526,6 +526,18 @@ function createCell(fields: SnapGridCellFields): ExprType<SnapGridCellType> {
  *     $(ui.write(SnapGrid.uiState({
  *         selected: "revenue-trend",
  *         request: { key: "revenue-trend", change: variant("duplicate", null) },
+ *     })));
+ * });
+ *
+ * // A tile of the host's own, in a new row after it (#1673): the entry, encoded at the rows' type. The canvas
+ * // gives it a fresh key made from the one it holds, and the new row's.
+ * const Tile = StructType({ id: StringType, row: StringType, span: IntegerType });
+ * const add = East.function([], NullType, ($) => {
+ *     const ui = $.const(State.bind([SnapGrid.Types.UiState], "builder.selection", SnapGrid.uiState()));
+ *     const entry = $.const({ id: "revenue-by-region", row: "", span: 6n }, Tile);
+ *     $(ui.write(SnapGrid.uiState({
+ *         selected: "revenue-trend",
+ *         request: { key: "revenue-trend", change: variant("add", East.Blob.encodeBeast(entry, "v2")) },
  *     })));
  * });
  * ```
@@ -602,8 +614,8 @@ function createViewState(state?: {
  * reads the rows the canvas draws, which `editing.onDrafted` hears, and asks
  * for a change by writing a `request` to the bound `ui` — a span, a row, a
  * height or an alignment, a field of the tile's row that sets what it shows,
- * or a copy of the tile (#1672) — taken as one gesture of the session. A
- * screen that
+ * a copy of the tile (#1672), or an entry of its own to add in a new row
+ * after the tile (#1673) — taken as one gesture of the session. A screen that
  * must not leave drafts behind asks for an Apply through the bound `apply`
  * (#998), and the canvas answers once its drafts land or cannot.
  *

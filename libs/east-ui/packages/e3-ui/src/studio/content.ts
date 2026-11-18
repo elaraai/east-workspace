@@ -5,8 +5,8 @@
 
 /**
  * What a placement holds (#1669): a developer's component, by its key; a
- * visual an operator builds — a KPI, a chart, a table, a list or a slicer over
- * a source the surface lists; or a text block.
+ * visual an operator builds — a KPI, a chart, a table or a list over a source
+ * the surface lists; or a text block.
  *
  * A visual is data: the source it reads, a filter of its own, its view — what
  * it measures, groups by and draws — what a click on it does, and the visual
@@ -39,7 +39,7 @@ import {
     type ValueTypeOf,
 } from "@elaraai/east";
 import { TimeResolutionType, type TimeResolutionLiteral } from "@elaraai/east-ui";
-import { SliceAffordanceType, ValueFormatType, toValueFormat, type SliceAffordanceLiteral, type SliceFieldFormat } from "@elaraai/east-ui/internal";
+import { ValueFormatType, toValueFormat, type SliceFieldFormat } from "@elaraai/east-ui/internal";
 import { StudioKeyType } from "./key.js";
 import { sourceName } from "./source.js";
 
@@ -368,22 +368,11 @@ export const StudioListType = StructType({
 /** Type representing a list. */
 export type StudioListType = typeof StudioListType;
 
-/**
- * A slicer: the controls that narrow every visual of its source on the page.
- *
- * @property affordances - The controls it shows, in order
- */
-export const StudioSlicerType = StructType({ affordances: ArrayType(SliceAffordanceType) });
-
-/** Type representing a slicer. */
-export type StudioSlicerType = typeof StudioSlicerType;
-
 const StudioViewTypeImpl = VariantType({
     kpi: StudioKpiType,
     chart: StudioChartType,
     table: StudioTableType,
     list: StudioListType,
-    slicer: StudioSlicerType,
 });
 type StudioViewTypeImpl = typeof StudioViewTypeImpl;
 
@@ -406,7 +395,6 @@ export interface StudioViewType extends StudioViewTypeImpl {}
  * @property chart - A chart, by its kind
  * @property table - A table, by its kind
  * @property list - A list of items with their values
- * @property slicer - The controls that narrow its source on the page
  */
 export const StudioViewType: StudioViewType = StudioViewTypeImpl;
 
@@ -538,7 +526,6 @@ export const viewWords = East.function([StudioViewType], StringType, (_$, view) 
         pivot: (_$3) => East.value("Pivot table"),
     }),
     list: (_$2) => East.value("List"),
-    slicer: (_$2) => East.value("Slicer"),
 }));
 
 /** A view's icon: a Font Awesome solid icon name. */
@@ -559,14 +546,12 @@ export const viewIcon = East.function([StudioViewType], StringType, (_$, view) =
         pivot: (_$3) => East.value("table-cells"),
     }),
     list: (_$2) => East.value("list"),
-    slicer: (_$2) => East.value("sliders"),
 }));
 
 /**
  * What a view holds that a change counts, and what it is called: the values a
  * view measures — a KPI's, a chart's, a summary's — or, for a view that
- * measures none, what it holds in their place: a records table's columns, a
- * slicer's controls.
+ * measures none, what it holds in their place: a records table's columns.
  */
 const ViewCountType = StructType({ noun: StringType, count: IntegerType });
 
@@ -591,7 +576,6 @@ const viewCount = East.function([StudioViewType], ViewCountType, (_$, view) => v
         pivot: (_$3) => East.value({ noun: "values", count: 1n }, ViewCountType),
     }),
     list: (_$2, list) => East.value({ noun: "values", count: list.values.size() }, ViewCountType),
-    slicer: (_$2, slicer) => East.value({ noun: "controls", count: slicer.affordances.size() }, ViewCountType),
 }));
 
 /** What a click does, in words: "select", "filter", "none", or the page it opens — "open Ops / Weekly". */
@@ -641,8 +625,8 @@ export const contentWords = East.function(
  * What changed between two contents of one placement, in words, as the
  * publish preview's change list says it: a visual's source ("source Orders →
  * Assets"), its view ("view Column chart → Line chart"), how many values it
- * holds ("values 1 → 2") — a records table's columns and a slicer's controls
- * by their own names ("columns 3 → 4"), and nothing where the view changed to
+ * holds ("values 1 → 2") — a records table's columns by their own name
+ * ("columns 3 → 4"), and nothing where the view changed to
  * one that holds another — its filter, what a click does ("click filter →
  * open Ops / Weekly") and what it follows, joined with ` · `; "options
  * changed" for a visual changed in none of those; a text block's as "text
@@ -760,7 +744,7 @@ export interface StudioGroupOptions {
 export interface StudioVisualOptions {
     /** Its own filter: a checked jq condition over one row; every row unless given. */
     where?: ValueTypeOf<typeof JqType>;
-    /** What a click does; its view's default unless given — select for a table or a list, filter for a chart or a KPI, nothing for a slicer. */
+    /** What a click does; its view's default unless given — select for a table or a list, filter for a chart or a KPI. */
     click?: ValueTypeOf<StudioClickType>;
     /** The visual it follows; none unless given. */
     follow?: ValueTypeOf<StudioFollowType>;
@@ -794,12 +778,11 @@ function groupOf(field: string, options: StudioGroupOptions = {}): StudioGroup {
     };
 }
 
-/** The click a view takes unless one is given: select for a table or a list, filter for a chart or a KPI, nothing for a slicer. */
+/** The click a view takes unless one is given: select for a table or a list, filter for a chart or a KPI. */
 function defaultClick(view: StudioView): ValueTypeOf<StudioClickType> {
     switch (view.type) {
         case "table": case "list": return variant("select", null);
         case "chart": case "kpi": return variant("filter", null);
-        case "slicer": return variant("none", null);
     }
 }
 
@@ -927,9 +910,5 @@ export const StudioVisuals = {
     /** A list: a row an item, with a caption, its values, and a ranking bar when asked. */
     list: (list: { item: StudioGroup; caption?: string; values: readonly StudioValue[]; bar?: boolean }): StudioView => variant("list", {
         item: list.item, caption: list.caption === undefined ? none : some(list.caption), values: [...list.values], bar: list.bar ?? false,
-    }),
-    /** A slicer: the controls it shows, in order. */
-    slicer: (affordances: readonly SliceAffordanceLiteral[]): StudioView => variant("slicer", {
-        affordances: affordances.map((affordance) => variant(affordance, null)),
     }),
 };

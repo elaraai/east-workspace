@@ -92,9 +92,7 @@ export type StudioFieldType = typeof StudioFieldType;
  * @property description - What one row is; `none` says nothing
  * @property binding - The binding it is, and its value's type
  * @property fields - The fields operators may use, in order
- * @property range - The date field the page's range narrows; `none` has no range
- * @property search - The fields the page's search reads
- * @property split - The fields the page may split its charts by
+ * @property range - The date field a filter on it is the page's range, which a value's other periods move; `none` has no range
  */
 export const StudioSourceType = StructType({
     key: StringType,
@@ -104,8 +102,6 @@ export const StudioSourceType = StructType({
     binding: DataSourceType,
     fields: ArrayType(StudioFieldType),
     range: OptionType(StringType),
-    search: ArrayType(StringType),
-    split: ArrayType(StringType),
 });
 
 /** Type representing a source a surface's visuals may read. */
@@ -170,9 +166,7 @@ export type StudioSourceField<H> = [keyof RowFields<SourceValue<H>>] extends [ne
  * @property icon - A Font Awesome solid icon name
  * @property description - What one row is — "One row per order line"
  * @property fields - The fields operators may use, in order, each with a label and a format; every field of the row, labelled from its name, when omitted
- * @property range - The date field the page's range narrows
- * @property search - The fields the page's search reads
- * @property split - The fields the page may split its charts by
+ * @property range - The date field a filter on it is the page's range
  */
 export interface StudioSourceMeta<F extends string = string> {
     /** Its name, as operators see it. */
@@ -187,12 +181,8 @@ export interface StudioSourceMeta<F extends string = string> {
      * Omitted, every field of the row is offered.
      */
     fields?: { [K in F]?: { label?: string; format?: SliceFieldFormat } };
-    /** The date field the page's range narrows. */
+    /** The date field a filter on it is the page's range, which a value over the previous period, or a year ago, moves. */
     range?: F;
-    /** The fields the page's search reads. */
-    search?: readonly F[];
-    /** The fields the page may split its charts by. */
-    split?: readonly F[];
 }
 
 /** A source as `Studio.source` declares it: its handle, and what operators see of it. A surface lists them under the names its visuals read them by. */
@@ -209,10 +199,10 @@ export interface StudioSourceDeclaration {
  *
  * @remarks
  * A source is a `Data.bind`, `Data.bindPaged` or `Record.bind` handle the
- * surface binds, so it is in the surface's manifest already. `fields`,
- * `range`, `search` and `split` name the row's own fields: TypeScript holds
- * them to it, and the surface's build refuses a name the row lacks, naming
- * the source. The source's key is the name it is listed under.
+ * surface binds, so it is in the surface's manifest already. `fields` and
+ * `range` name the row's own fields: TypeScript holds them to it, and the
+ * surface's build refuses a name the row lacks, naming the source. The
+ * source's key is the name it is listed under.
  *
  * @typeParam H - The bound handle
  * @param handle - A `Data.bind`, `Data.bindPaged` or `Record.bind` handle
@@ -232,7 +222,7 @@ export interface StudioSourceDeclaration {
  *             revenue:    { label: "Revenue", format: { currency: { code: "AUD" } } },
  *             units:      { label: "Units", format: "compact" },
  *         },
- *         range: "ordered_at", search: ["region"], split: ["region"],
+ *         range: "ordered_at",
  *     }),
  *     assets: Studio.source(assets, { name: "Assets", icon: "gears" }),
  * };
@@ -299,10 +289,9 @@ function defaultLabel(id: string): string {
  * @param sources - The sources the surface lists, by the names its visuals read them by; none when omitted
  * @returns An East expression of the sources, in the order listed
  * @throws {Error} When a key is not a jq identifier; when a source's rows are
- *   not an Array of Structs or a Dict of Structs; when `fields`, `range`,
- *   `search` or `split` names a field its rows lack; and when `range` names a
- *   field that is no date, or a date some rows may lack — each naming the
- *   source
+ *   not an Array of Structs or a Dict of Structs; when `fields` or `range`
+ *   names a field its rows lack; and when `range` names a field that is no
+ *   date, or a date some rows may lack — each naming the source
  */
 export function studioSources(component: string, sources: Readonly<Record<string, StudioSourceDeclaration>> | undefined): ExprType<ArrayType<StudioSourceType>> {
     return East.value(Object.entries(sources ?? {}).map(([key, { handle, meta }]) => {
@@ -319,8 +308,6 @@ export function studioSources(component: string, sources: Readonly<Record<string
         };
         const configured: Record<string, { label?: string; format?: SliceFieldFormat } | undefined> = meta.fields ?? {};
         for (const field of Object.keys(configured)) held(field, "the field");
-        for (const field of meta.search ?? []) held(field, "the search field");
-        for (const field of meta.split ?? []) held(field, "the split field");
         if (meta.range !== undefined) {
             held(meta.range, "the range field");
             const ranged = row[meta.range]!;
@@ -350,8 +337,6 @@ export function studioSources(component: string, sources: Readonly<Record<string
                 };
             }),
             range: meta.range === undefined ? none : some(meta.range),
-            search: [...(meta.search ?? [])],
-            split: [...(meta.split ?? [])],
         };
     }), ArrayType(StudioSourceType));
 }

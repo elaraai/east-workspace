@@ -211,7 +211,7 @@ describe("<Studio.Builder> — the Configure tab (#1672)", () => {
             await settle();
         };
         expect([...inspector(container).querySelectorAll("[data-configure]")].map((el) => el.getAttribute("data-configure")))
-            .toEqual(["source", "view", "kind", "wells", "options", "click", "fields"]);
+            .toEqual(["source", "view", "kind", "wells", "options", "click", "follow", "fields"]);
         /** What a click does, as its select says it. */
         const click = () => part("click").querySelector("[data-configure-click]")!.textContent;
         expect(tinted()).toEqual([]);
@@ -222,7 +222,11 @@ describe("<Studio.Builder> — the Configure tab (#1672)", () => {
         expect([pressed("view"), pressed("kind")]).toEqual([["Chart"], ["Column"]]);
         // Under a group of icons, what the chosen one is for.
         expect([...inspector(container).querySelectorAll("[data-configure-hint]")].map((el) => el.textContent))
-            .toEqual(["Switching view resets the wells.", "Column · categories or periods side by side"]);
+            .toEqual([
+                "Switching view resets the wells.", "Column · categories or periods side by side",
+                // The Follows field says what following does, while the visual follows none (#1673).
+                "Pick a visual whose click selects: this one then shows what is selected there.",
+            ]);
         expect(tile(container, "b-sales").querySelector("[data-studio-visual-name]")!.textContent).toBe("Revenue by region");
         expect(tinted()).toEqual(["kind"]);
         // Another view starts its kind empty; Undo brings the column back.
