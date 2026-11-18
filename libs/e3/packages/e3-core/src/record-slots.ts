@@ -424,15 +424,26 @@ export function compactedSourceSlots(versions: ReadonlyMap<string, string>): Rec
  * - A restore commits a state from outside the history, which says nothing of
  *   what each source sent: every delivery is forgotten, and every external
  *   source waits that the state holds no entry of.
+ * - A rollback past a deploy, or past a state an operator committed, sets
+ *   what waits as a restore does (ruling 33): either can change which sources
+ *   hold entries with no load, so the sources that waited before, and the
+ *   first loads the walk passed, no longer say which have never delivered.
+ *
+ * Only a source that is external now can wait: one a deploy since handed to
+ * the mutations has no load to deliver it, and would wait for ever.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param prior - The version vector of the ref being replaced
- * @param external - The record's external sources
+ * @param external - The record's external sources, as its package declares
+ *   them now
  * @param state - The state the commit commits: a record state, or its rows'
  *   manifest
  * @param undone - For a rollback, each source whose delivery it undoes, and
  *   whether it undid the source's first; `null` for a restore
+ * @param byState - For a rollback, whether what waits is read from the state
+ *   alone, as a restore reads it: its walk passed a deploy, or a state an
+ *   operator committed
  * @returns The slots to write: a value writes one, `undefined` drops it
  */
 export async function systemCommitSourceSlots(
@@ -442,14 +453,16 @@ export async function systemCommitSourceSlots(
   external: readonly string[],
   state: string,
   undone: ReadonlyMap<string, boolean> | null,
+  byState = false,
 ): Promise<Record<string, string | undefined>> {
   const owned: Record<string, string | undefined> = {};
   for (const source of undone === null ? external : undone.keys()) {
     for (const slot of Object.values(sourceLoadSlots(source))) owned[slot] = undefined;
   }
-  const mayWait = new Set(undone === null
+  const waited = pendingSources(prior);
+  const mayWait = undone === null || byState
     ? external
-    : [...pendingSources(prior), ...[...undone].flatMap(([source, first]) => first ? [source] : [])]);
+    : external.filter((source) => waited.some((each) => sameField(each, source)) || undone.get(source) === true);
   const pending: string[] = [];
   for (const source of mayWait) {
     if (!(await sourceHoldsEntries(storage, repo, state, source))) pending.push(source);

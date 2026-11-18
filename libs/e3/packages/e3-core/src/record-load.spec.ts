@@ -690,4 +690,26 @@ describe('a load of a delivery', () => {
     await forgets(ws, 'wms');
     assert.equal((await ref(ws)).versions.get(PENDING_SLOT), 'wms', 'erp holds entries in the restored state; wms holds none, and waits');
   });
+
+  it('ruling 33 — a rollback past a restore reads what waits from the state it commits: a source the restore brought rows of, which never delivered, waits again', async () => {
+    // A state that holds entries of erp, as a backup of another workspace holds one
+    const other = await fresh();
+    await load(other, 'erp', await deliver([['SO-3301', acme]]));
+    const backup = (await ref(other)).hash;
+
+    const ws = await fresh();
+    const minted = (await ref(ws)).versions.get('.records.orders')!;
+    const waiting = async (): Promise<string | undefined> => (await ref(ws)).versions.get(PENDING_SLOT);
+    assert.equal(await waiting(), 'erp,wms', 'minted, both sources wait');
+    const restored = await recordSystemCommit(storage, runner, repoDir, ws, 'orders', {
+      name: '$restore', target: { state: backup, applied: [] }, actor: 'ada@example.com',
+    });
+    assert.equal(restored.kind, 'committed');
+    assert.equal(await waiting(), 'wms', 'the restored state holds entries of erp, with no load');
+
+    // Rolled back to the mint: no load is undone, and erp did not wait before, but it holds no entry and never delivered
+    await rollback(ws, minted);
+    assert.equal(await waiting(), 'erp,wms');
+    await holds(ws, [['own', 'P-1', birch]]);
+  });
 });

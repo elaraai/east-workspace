@@ -1204,6 +1204,22 @@ describe('a deploy\'s record migrations', () => {
       assert.deepEqual(await ordersRef(), before);
     });
 
+    it('ruling 33 — a rollback past a deploy leaves no source waiting that is external no longer: one handed to the mutations has no load to deliver it', async () => {
+      await deploy(sales('1.0.0'));
+      const minted = (await ordersRef()).versions.get('.records.orders')!;
+      // erp's first delivery, and then a deploy that hands erp to the mutations, and crm to its load
+      await erpLoaded([['SO-1', cedar]]);
+      await deploy(sales('1.1.0'));
+      assert.equal((await ordersRef()).versions.get(EXTERNAL_SLOT), 'crm');
+
+      // Rolled back to the mint, past the deploy and erp's first load: the state holds no order of erp's
+      const rolled = await recordSystemCommit(storage, runner, repo, ws, 'orders', { name: '$rollback', target: { commit: minted }, actor: 'ada@example.com' });
+      assert.equal(rolled.kind, 'committed');
+      const { versions } = await ordersRef();
+      assert.equal(versions.has(PENDING_SLOT), false, 'erp does not wait: no load delivers it now, and crm holds its order');
+      assert.deepEqual(deliveryOf(versions, 'erp'), {}, 'and erp\'s delivery is forgotten');
+    });
+
     it('R25 — a deploy that migrates a composite forgets each external source\'s delivery but its as-of, and a source that waited still waits', async () => {
       await deploy(sales('1.0.0'));
       await erpLoaded([['SO-1', cedar]]);

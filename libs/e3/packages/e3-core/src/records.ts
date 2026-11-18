@@ -2647,7 +2647,7 @@ export async function recordSystemCommit(
       if (opts.expectedHead !== undefined && head !== opts.expectedHead) {
         return { kind: 'invalid', message: `record '${recordName}' has moved on from the head expected, ${opts.expectedHead}: read its history again` };
       }
-      const target: { state: string; undone?: ReadonlyMap<string, boolean> | null } | { refusal: string } = current === null
+      const target: { state: string; undone?: ReadonlyMap<string, boolean> | null; byState?: boolean } | { refusal: string } = current === null
         ? await genesisState(storage, repo, recordName, chain, opts.target)
         : await systemCommitState(storage, repo, recordName, head, current.versions, opts.target);
       if ('refusal' in target) return { kind: 'invalid', message: target.refusal };
@@ -2659,7 +2659,7 @@ export async function recordSystemCommit(
       // its sources wait is read from the state it commits
       const external = externalSources(resolved);
       const sourceSlots = current === null || external.length === 0 ? {}
-        : await systemCommitSourceSlots(storage, repo, current.versions, external, state.primary, target.undone ?? null);
+        : await systemCommitSourceSlots(storage, repo, current.versions, external, state.primary, target.undone ?? null, target.byState === true);
 
       const build = new Map<string, string>();
       for (const [name, indexHash] of resolved.indexes) {
@@ -2762,6 +2762,10 @@ async function genesisState(
  *
  * A rollback's walk reads each load's commit it passes: a delivery of a
  * composite record's source the rollback undoes, which the source forgets.
+ * It notes too whether it passes a deploy, or a state an operator committed —
+ * a restore or an earlier rollback, which a commit does not tell apart: either
+ * can change which sources hold entries with no load, so what waits after the
+ * rollback is then read from the state it commits (`byState`, ruling 33).
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -2771,7 +2775,8 @@ async function genesisState(
  * @param target - What the commit points the record at
  * @returns The state to commit, and, for a rollback, each source whose
  *   delivery it undoes and whether it undid the source's first (`null` for a
- *   restore, which undoes every delivery); or the refusal
+ *   restore, which undoes every delivery), and whether what waits is read
+ *   from the state alone; or the refusal
  */
 async function systemCommitState(
   storage: StorageBackend,
@@ -2780,7 +2785,7 @@ async function systemCommitState(
   head: string | undefined,
   versions: ReadonlyMap<string, string>,
   target: RecordSystemCommitTarget,
-): Promise<{ state: string; undone: ReadonlyMap<string, boolean> | null } | { refusal: string }> {
+): Promise<{ state: string; undone: ReadonlyMap<string, boolean> | null; byState?: boolean } | { refusal: string }> {
   if ('state' in target) {
     const applied = appliedMigrations(versions);
     if (target.applied.length !== applied.length || target.applied.some((name, i) => applied[i] !== name)) {
@@ -2798,6 +2803,8 @@ async function systemCommitState(
   // Each source a load's commit the walk passes loaded: a delivery the
   // rollback undoes, and whether it undid the source's first
   const undone = new Map<string, boolean>();
+  // Whether the walk passed a deploy, or a state an operator committed
+  let byState = false;
   let at = head;
   while (at !== undefined && !seen.has(at)) {
     seen.add(at);
@@ -2807,7 +2814,7 @@ async function systemCommitState(
     } catch {
       break;
     }
-    if (at === target.commit) return { state: commit.state, undone };
+    if (at === target.commit) return { state: commit.state, undone, byState };
     if (commit.mutation === '$reset' || commit.mutation.startsWith('$migrate:')) {
       return {
         refusal: `rolling record '${recordName}' back to ${target.commit} goes past its '${commit.mutation}' commit: ` +
@@ -2816,12 +2823,28 @@ async function systemCommitState(
     }
     const loaded = loadCommitSource(commit.mutation);
     if (loaded !== null) undone.set(loaded, (undone.get(loaded) ?? false) || await loadWasFirst(storage, repo, commit));
+    else if (changesEntriesUnloaded(commit.mutation)) byState = true;
     at = commit.parent.type === 'some' ? commit.parent.value : undefined;
   }
   return {
     refusal: `commit ${target.commit} is not in record '${recordName}''s history: ` +
       `a compaction has cut it from the chain, or it is another record's`,
   };
+}
+
+/**
+ * Whether a commit that is no load's can change which of a composite
+ * record's sources hold entries: a deploy, which can hand a source to its
+ * load or back to the mutations and drop its rows, and a state an operator
+ * committed, which a restore brings from outside the history. A save writes
+ * the solution's own entries alone, and a reindex and a compaction keep the
+ * record's rows.
+ *
+ * @param mutation - The commit's name
+ */
+function changesEntriesUnloaded(mutation: string): boolean {
+  if (!mutation.startsWith('$')) return false;
+  return mutation === '$deploy' || !OWN_COMMIT_NAMES.includes(mutation);
 }
 
 /** Reads the one value of a load's commit's arguments. */
