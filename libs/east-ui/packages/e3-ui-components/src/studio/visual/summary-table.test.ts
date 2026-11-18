@@ -59,8 +59,12 @@ describe("summaryModel", () => {
             values: [v.sum("revenue"), v.ratio("revenue", "units", { goal: 30 })], total: true,
         })));
         expect(model.table.columns.map((c) => [c.key, c.header])).toEqual([
-            ["g", some("Region · customer")], ["v0", some("Revenue AUD")], ["v1", some("Revenue per unit AUD · goal 30")],
+            ["g", some("Region · customer")], ["v0", some("Revenue AUD")], ["v1", some("Revenue per unit AUD")],
         ]);
+        // A value's goal is a note after its header; a column of no value, and one with no goal, has none.
+        expect(["g", "v0", "v1"].map((key) => model.note(key))).toEqual([undefined, undefined, "goal 30.00"]);
+        // A column's numbers are short, at the scale of the largest it draws: a currency's amounts with their cents.
+        expect([model.number(170, "v0"), model.number(100 / 3, "v1"), model.number(1, "g")]).toEqual(["170.00", "33.33", undefined]);
         // The heads by revenue, high first; under each, its customers as is natural, A to Z.
         expect(rowsOf(model.table, 2)).toEqual([
             ["SA", 0, float(170), float(34)], ["Northwind", 1, float(100), float(100 / 3)], ["Summit", 1, float(70), float(35)],

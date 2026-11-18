@@ -55,16 +55,17 @@ const columnsOf = (matrix: MatrixRootValue) => matrix.columns.map((column) => (c
 describe("pivotModel", () => {
     it("puts each pair's value where its region meets its month, a pair with no rows in words (TBL-4)", async () => {
         const model = await modelOf(v.of("orders", v.pivot({ rows: v.group("region"), columns: v.group("ordered_at", { bucket: "month" }), value: v.sum("revenue") })));
-        expect(columnsOf(model.matrix)).toEqual([words.formatters.monthYear(new Date(Date.UTC(2026, 6))), words.formatters.monthYear(new Date(Date.UTC(2026, 7))), words.formatters.monthYear(new Date(Date.UTC(2026, 8)))]);
+        // Its heads are short, as an axis's labels are: the months of one year by their names.
+        expect(columnsOf(model.matrix)).toEqual([6, 7, 8].map((month) => words.formatters.month(new Date(Date.UTC(2026, month)))));
         expect(model.matrix.rowHeader).toEqual(some("Region"));
         const plain = (text: string) => [text, "neutral", "transparent"];
         const none = ["no data", "free", "transparent"];
-        // July: SA 100, NSW 50; August: SA 70, VIC 30; September: WA 20.
+        // July: SA 100, NSW 50; August: SA 70, VIC 30; September: WA 20 — each a currency's amount, with its cents.
         expect(cellsOf(model.matrix)).toEqual([
-            ["NSW", plain("50"), none, none],
-            ["SA", plain("100"), plain("70"), none],
-            ["VIC", none, plain("30"), none],
-            ["WA", none, none, plain("20")],
+            ["NSW", plain("50.00"), none, none],
+            ["SA", plain("100.00"), plain("70.00"), none],
+            ["VIC", none, plain("30.00"), none],
+            ["WA", none, none, plain("20.00")],
         ]);
         expect([model.heat, model.shown]).toEqual([undefined, undefined]);
     });
@@ -73,23 +74,32 @@ describe("pivotModel", () => {
         const model = await modelOf(v.of("orders", v.pivot({ rows: v.group("region"), columns: v.group("customer"), value: v.sum("revenue"), heat: true })));
         // The values: 50, 100, 70, 30, 20 — the 95th percentile 100, so steps of 20.
         expect(cellsOf(model.matrix)).toEqual([
-            ["NSW", ["50", "neutral", "heat.3"], ["no data", "free", "transparent"], ["no data", "free", "transparent"]],
-            ["SA", ["no data", "free", "transparent"], ["100", "brand", "heat.5"], ["70", "brand", "heat.4"]],
-            ["VIC", ["no data", "free", "transparent"], ["30", "neutral", "heat.2"], ["no data", "free", "transparent"]],
-            ["WA", ["no data", "free", "transparent"], ["no data", "free", "transparent"], ["20", "neutral", "heat.2"]],
+            ["NSW", ["50.00", "neutral", "heat.3"], ["no data", "free", "transparent"], ["no data", "free", "transparent"]],
+            ["SA", ["no data", "free", "transparent"], ["100.00", "brand", "heat.5"], ["70.00", "brand", "heat.4"]],
+            ["VIC", ["no data", "free", "transparent"], ["30.00", "neutral", "heat.2"], ["no data", "free", "transparent"]],
+            ["WA", ["no data", "free", "transparent"], ["no data", "free", "transparent"], ["20.00", "neutral", "heat.2"]],
         ]);
+        // A step's edge reads as an axis's tick does; the top step is closed.
         expect(model.heat).toEqual([
-            { label: "0", name: "0–20" }, { label: "20", name: "20–40" }, { label: "40", name: "40–60" }, { label: "60", name: "60–80" }, { label: "≥ 80", name: "≥ 80" },
+            { label: "0", name: "0–20" }, { label: "20", name: "20–40" }, { label: "40", name: "40–60" }, { label: "60", name: "60–80" }, { label: "≥80", name: "≥80" },
         ]);
+    });
+
+    it("steps a count's heat by whole numbers, so its legend never reads a fraction of a row", async () => {
+        // Orders a region a customer: 1 or 2 — the 95th percentile 2, a fifth of it 0.4.
+        const model = await modelOf(v.of("orders", v.pivot({ rows: v.group("region"), columns: v.group("customer"), value: v.count(), heat: true })));
+        expect(model.heat?.map((step) => step.label)).toEqual(["0", "1", "2", "3", "≥4"]);
+        const texts = cellsOf(model.matrix).flatMap((row) => row.slice(1).map((cell) => (cell as string[])[0] ?? ""));
+        expect(texts.filter((text) => text !== "no data").every((text) => /^[0-9]+$/.test(text))).toBe(true);
     });
 
     it("keeps a group's first N, then Other, folded from the pairs it holds", async () => {
         const model = await modelOf(v.of("orders", v.pivot({ rows: v.group("region", { top: 2n }), columns: v.group("ordered_at", { bucket: "month" }), value: v.sum("revenue") })));
         // NSW and SA, then Victoria and Western Australia folded: August's 30, September's 20.
         expect(cellsOf(model.matrix).map((row) => row.slice(0, 1).concat(row.slice(1).map((cell) => (cell as string[] | undefined)?.[0])))).toEqual([
-            ["NSW", "50", "no data", "no data"],
-            ["SA", "100", "70", "no data"],
-            ["Other", "no data", "30", "20"],
+            ["NSW", "50.00", "no data", "no data"],
+            ["SA", "100.00", "70.00", "no data"],
+            ["Other", "no data", "30.00", "20.00"],
         ]);
         expect(model.shown).toBeUndefined();
     });

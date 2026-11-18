@@ -67,6 +67,25 @@ export function fitPhoneColumns(room: number, pinned: number, others: readonly n
     return { pinned: pinnedWidth, first: at, widths: natural.map((w) => w + spare), lastFirst };
 }
 
+/**
+ * A theme font as the page resolves it, for {@link measureText}: a canvas
+ * refuses a font that names a CSS variable, and measures in its last.
+ *
+ * @param token - The theme's font: `body` or `mono`
+ * @param within - An element of the page the theme reaches; `null` before one is mounted
+ * @param fallback - The family to measure in where none resolves
+ * @returns The font's family list
+ */
+export function themeFont(token: "body" | "mono", within: Element | null, fallback: string): string {
+    if (within === null) return fallback;
+    const probe = document.createElement("span");
+    probe.style.fontFamily = `var(--chakra-fonts-${token})`;
+    within.appendChild(probe);
+    const family = getComputedStyle(probe).fontFamily;
+    probe.remove();
+    return family || fallback;
+}
+
 /** How a printed text is measured: its width at a font, px. */
 export type MeasureText = (text: string, font: string) => number;
 

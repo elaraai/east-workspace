@@ -6,9 +6,10 @@
 /**
  * A Studio list (#1671, LST-1, LST-2): its answer read into its rows — one a
  * group of its item, in its order: the item's name, a caption under it (the
- * caption field's value in the group's first row), up to two values with
- * their units, and, with the ranking bar on, the first value's share of the
- * largest. Its item's first N; a list cut says what it holds of how many.
+ * caption field's value in the group's first row), up to two values in
+ * short, each with its unit (`612k AUD`), and, with the ranking bar on, the
+ * first value's share of the largest. Its item's first N; a list cut says
+ * what it holds of how many.
  *
  * It imports neither React nor the renderers.
  *
@@ -22,7 +23,7 @@ import type { VisualAnswer } from "../../query/visual/ask.js";
 import { visualValues, type VisualAsk } from "../../query/visual/print.js";
 import { partsAt, readGroups } from "../../query/visual/read.js";
 import type { StudioMessages } from "../messages.js";
-import { groupLabel, valueUnit, visualWords, type VisualShown, type VisualSource, type VisualView } from "./values.js";
+import { groupLabel, shortValue, unitLabel, visualWords, type VisualShown, type VisualSource, type VisualView } from "./values.js";
 
 /** A list's view: its item, its caption, its values, and whether it ranks them with a bar. */
 export type ListView = Extract<VisualView, { type: "list" }>["value"];
@@ -30,13 +31,13 @@ export type ListView = Extract<VisualView, { type: "list" }>["value"];
 /**
  * One value of a list's row, as it prints.
  *
- * @property text - The value, in its format — `no data` where it has none
- * @property unit - Its unit after it — a currency's code; `undefined` for none
+ * @property text - The value, in short as every tile's number is — `612k`; `no data` where it has none
+ * @property unit - Its unit after it — a currency's code, a count's source; `undefined` for none, and beside no value
  */
 export interface ListValue {
-    /** The value, in its format — `no data` where it has none. */
+    /** The value, in short as every tile's number is — `612k`; `no data` where it has none. */
     readonly text: string;
-    /** Its unit after it — a currency's code; `undefined` for none. */
+    /** Its unit after it — a currency's code, a count's source; `undefined` for none, and beside no value. */
     readonly unit: string | undefined;
 }
 
@@ -103,13 +104,13 @@ export function listModel(list: ListView, asks: readonly VisualAsk[], answers: r
     const captionType = read.extraTypes.get("c");
     const firsts = kept.map((group) => partsAt(group.parts, 0));
     const largest = Math.max(0, ...firsts.filter((first): first is number => first !== undefined));
-    const units = values.map((value) => valueUnit(value, source));
+    const units = values.map((value) => unitLabel(value, source, m));
     const rows = kept.map((group, i): ListRow => ({
         name: groupLabel(group.keys[0], keyType, list.item, said, m),
         caption: captionType === undefined || list.caption.type === "none" ? undefined : valueText(captionType, group.extras.get("c"), said, list.caption.value),
         values: values.map((_value, v): ListValue => {
             const at = partsAt(group.parts, v);
-            return at === undefined ? { text: m.noValue(), unit: undefined } : { text: f.value(at, units[v]!.format), unit: units[v]!.unit };
+            return at === undefined ? { text: m.noValue(), unit: undefined } : { text: shortValue(at, values[v]!, source, f), unit: units[v] };
         }),
         share: largest <= 0 || firsts[i] === undefined ? undefined : Math.max(0, firsts[i]!) / largest,
     }));

@@ -28,7 +28,7 @@ import { printVisual, VISUAL_RECORDS_PAGE, type PrintSource, type PrintState, ty
 import { useQueryWords } from "../../query/words.js";
 import { useStudioMessages } from "../messages.js";
 import { SourceFailed, VisualNote } from "./notes.js";
-import { recordsField, recordsModel, recordsOf, sortedBy, type RecordsModel, type RecordsSort } from "./records-table.js";
+import { recordsField, recordsModel, recordsOf, recordsSorted, sortedBy, type RecordsModel, type RecordsSort } from "./records-table.js";
 import type { Visual, VisualSource } from "./values.js";
 
 /** What a viewer's sort keeps: the sort, while there is one. */
@@ -76,6 +76,8 @@ export function RecordsVisual({ visual, source, read, state, storageKey, action 
     const { state: kept, setState: setKept } = usePersistedState<KeptSort>(`${storageKey}.sort`, {}, readSort);
     const sorted = useMemo(() => sortedBy(visual, kept.sort), [visual, kept.sort]);
     const records = recordsOf(sorted);
+    // What its program sorted by: the head of that column shows it.
+    const programSort = useMemo(() => (records === undefined ? undefined : recordsSorted(records)), [records]);
     const offset = page * VISUAL_RECORDS_PAGE;
     const printed = useMemo(() => printVisual(sorted, read, state, { offset, size: VISUAL_RECORDS_PAGE }), [sorted, read, state, offset]);
     const asks = printed.kind === "asks" ? printed.asks : NO_ASKS;
@@ -111,7 +113,7 @@ export function RecordsVisual({ visual, source, read, state, storageKey, action 
     return (
         <Box css={styles.root} data-studio-records={model === undefined ? "waiting" : ""}>
             <Box css={styles.table}>
-                <EastChakraTable value={drawn.table} storageKey={`${storageKey}.table`} enableMultiSort={false} onSortChange={onSort} />
+                <EastChakraTable value={drawn.table} storageKey={`${storageKey}.table`} tile sorted={programSort} enableMultiSort={false} onSortChange={onSort} />
             </Box>
             <Box css={styles.foot}>
                 <VisualNote>{m.rowsShown({ first: f.number(drawn.first), last: f.number(drawn.last), of: f.number(drawn.total) })}</VisualNote>

@@ -354,23 +354,24 @@ export function columnHead(source: VisualSource, id: string, m: StudioMessages):
 /**
  * How a table heads a value's column, and prints its numbers (TBL-2, TBL-3):
  * by its name, a currency's code after it — `Revenue AUD` — over its amounts
- * grouped, with no currency sign in each cell; then its goal, where it has
- * one — `Revenue per unit AUD · goal 11.00`. A value of any other field is
- * printed in that field's format; one of none — a count, a sum of units —
- * grouped, to two decimals at most.
+ * grouped, with no currency sign in each cell; and its goal, where it has
+ * one, a small label of its own after the header — `goal 11.00`. A value of
+ * any other field is printed in that field's format; one of none — a count,
+ * a sum of units — grouped, to two decimals at most.
  *
  * @param value - The value
  * @param source - The source its fields are of
  * @param words - The words and formatters
  * @param m - The Studio's words
- * @returns The column's header, and its numbers' format
+ * @returns The column's header, its numbers' format, and its goal's label; `undefined` with no goal
  */
-export function valueHead(value: VisualValue, source: VisualSource, words: QueryWords, m: StudioMessages): { readonly header: string; readonly format: TickFormatOpt } {
+export function valueHead(value: VisualValue, source: VisualSource, words: QueryWords, m: StudioMessages): { readonly header: string; readonly format: TickFormatOpt; readonly goal: string | undefined } {
     const name = valueName(value, source, m);
     const { format, unit } = valueUnit(value, source);
     const header = unit === undefined ? name : m.columnUnit({ label: name, unit });
-    if (value.goal.type === "none") return { header, format };
-    return { header: m.goalHeader({ header, goal: words.formatters.value(value.goal.value, format) }), format };
+    if (value.goal.type === "none") return { header, format, goal: undefined };
+    const declared = valueFieldFormat(value, source);
+    return { header, format, goal: m.goalLabel({ goal: shortNumber(value.goal.value, declared.type === "some" ? declared.value : undefined, words.formatters) }) };
 }
 
 /**

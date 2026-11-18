@@ -190,8 +190,6 @@ export interface StudioMessages {
     measureWord: (p: { measure: "count" | "sum" | "mean" | "min" | "max" | "distinct" | "ratio" }) => string;
     /** A cell on the wrong side of its value's goal, as its mark names it (TBL-3) — `below goal`; `above goal` where less is better. */
     goalMissed: (p: { over: boolean }) => string;
-    /** A value's column header with its goal (TBL-3) — `Revenue per unit · goal 11.00`. */
-    goalHeader: (p: { header: string; goal: string }) => string;
     /** A summary's label column's header, its groups — `Region · category`; `second` is mid-sentence. */
     labelHeader: (p: { first: string; second?: string | undefined }) => string;
     /** A pivot's heat legend's top step — `≥ 1,200`. */
@@ -478,9 +476,8 @@ export const studioMessages: StudioMessages = {
     noValue: () => "no data",
     measureWord: ({ measure }) => (measure === "mean" ? "average" : measure),
     goalMissed: ({ over }) => (over ? "above goal" : "below goal"),
-    goalHeader: ({ header, goal }) => `${header} · goal ${goal}`,
     labelHeader: ({ first, second }) => (second === undefined ? first : `${first} · ${second}`),
-    heatTop: ({ from }) => `≥ ${from}`,
+    heatTop: ({ from }) => `≥${from}`,
     heatStep: ({ from, to }) => `${from}–${to}`,
     notPublished: ({ page }) => `${page} is not published yet`,
     notPublishedHint: () => "Publish it to show it here.",

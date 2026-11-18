@@ -32,6 +32,18 @@
  *    stands inside the plot over its rule; a scatter says what its axes are
  *    on a line over its plot; a pie's legend rows are 26 tall with 10 × 10
  *    swatches over a note, and a donut's total stands over its caption.
+ *  - T5 a table is its mock (TBL-1 to TBL-5): its header has no fill and
+ *    stands 36 over a `--rule`, each head its label alone — no pin, no sort
+ *    button, no resize grip — and the sorted one in `--ink` beside a caret;
+ *    its columns fill the tile and never scroll it sideways while they fit;
+ *    its cells are padded 12, 20 at the tile's edges, its rows 36, its
+ *    numerals mono 13 / 500; a summary's child rows start 44 in, its total
+ *    row is on `--paper-2` in mono 13 / 600, and a value's goal is a small
+ *    label after its header; the footer band is 37; a pivot's heads have
+ *    no fill, its rows are 40 around 30px blocks of radius 4 — the mock's 39
+ *    cannot centre a 30px block on whole pixels — its values mono 11 / 500
+ *    and its row names mono 11 / 400, 20 from the tile's edge; its legend is
+ *    padded 12 20 16 on no fill, a count's steps whole and its top closed.
  *
  * Every measurement is taken from the laid-out page, at rest.
  *
@@ -234,6 +246,117 @@ test.describe("Studio tiles, as designed (#1671)", () => {
             bar: { bottomAxis: 0, grid: 0, ends: true, inside: true },
             goal: true,
             pie: { rows: [26], swatch: [10, 10], said: true },
+        });
+    });
+
+    test("T5: a table is its mock — a plain header over a rule, columns that fill the tile, cells padded 12 and 20, rows 36, a summary's indent, total row and goal label, a 37 footer, a whole heat legend", async ({ page }) => {
+        const grid = await openVisuals(page, "light");
+        const read = await grid.evaluate((root) => {
+            const themed = (property: "color" | "backgroundColor" | "fontFamily", token: string) => {
+                const probe = document.createElement("span");
+                probe.style[property] = `var(${token})`;
+                root.append(probe);
+                const value = getComputedStyle(probe)[property];
+                probe.remove();
+                return value;
+            };
+            const rule = themed("color", "--chakra-colors-border-subtle");
+            const ink = themed("color", "--chakra-colors-fg");
+            const paper2 = themed("backgroundColor", "--chakra-colors-bg-canvas");
+            const mono = themed("fontFamily", "--chakra-fonts-mono");
+            const px = (value: string) => Math.round(Number.parseFloat(value) * 10) / 10;
+            const out: Record<string, unknown> = {};
+            for (const kind of ["records", "summary"]) {
+                const tile = root.querySelector(`[data-studio-${kind}]`);
+                const scroller = tile?.querySelector("table")?.parentElement;
+                if (tile === null || tile === undefined || scroller === null || scroller === undefined) { out[kind] = "missing"; continue; }
+                const heads = [...tile.querySelectorAll("thead th")];
+                const buttons = heads.map((th) => th.querySelector("button"));
+                const rows = [...tile.querySelectorAll("tbody tr")];
+                const numeral = tile.querySelector("tbody tr:not([data-row-head]) [data-numeric]");
+                const numeralLook = numeral === null ? undefined : getComputedStyle(numeral);
+                const edge = tile.getBoundingClientRect();
+                out[kind] = {
+                    // The header: no fill, 36 over a `--rule`, its label alone.
+                    headFill: [...new Set(heads.map((th) => getComputedStyle(th).backgroundColor))],
+                    headRule: [...new Set(heads.map((th) => `${getComputedStyle(th).borderBottomWidth} ${getComputedStyle(th).borderBottomColor}`))].map((r) => r === `1px ${rule}`),
+                    headHeight: [...new Set(heads.map((th) => th.getBoundingClientRect().height))],
+                    controls: tile.querySelectorAll("thead [data-control], thead [data-slot=columnResizer]").length,
+                    // Padded 12, 20 at the tile's edges.
+                    headPad: buttons.map((b) => (b === null ? "" : `${px(getComputedStyle(b).paddingLeft)} ${px(getComputedStyle(b).paddingRight)}`)),
+                    cellPad: rows[1] === undefined ? [] : [...rows[1].querySelectorAll("td")].map((td) => `${px(getComputedStyle(td).paddingLeft)} ${px(getComputedStyle(td).paddingRight)}`),
+                    rowHeights: [...new Set(rows.map((tr) => tr.getBoundingClientRect().height))],
+                    numeral: numeralLook === undefined ? "missing" : [numeralLook.fontFamily === mono, numeralLook.fontSize, numeralLook.fontWeight],
+                    // The columns fill the tile, and scroll it sideways only when they need more than it has.
+                    fills: Math.round(heads.reduce((sum, th) => sum + th.getBoundingClientRect().width, 0)) === scroller.clientWidth,
+                    sideways: scroller.scrollWidth > scroller.clientWidth,
+                    reachesEdge: Math.round(scroller.getBoundingClientRect().left - edge.left) === 0,
+                };
+            }
+            // The records' sorted column: its label in the ink, beside a caret.
+            const sorted = root.querySelector("[data-studio-records] thead button[data-sorted]");
+            out.sorted = sorted === null ? "missing" : [getComputedStyle(sorted).color === ink, sorted.querySelectorAll("svg").length];
+            // The summary: a child row's label 44 from the tile's edge, the total row, and the goal's own label.
+            const summary = root.querySelector("[data-studio-summary]");
+            if (summary !== null) {
+                const child = summary.querySelector("tbody tr[data-depth='1'] td [data-numeric], tbody tr[data-depth='1'] td p");
+                const label = summary.querySelector("tbody tr[data-depth='1'] td p");
+                const total = summary.querySelector("tfoot tr[data-table-total] td");
+                const totalLook = total === null ? undefined : getComputedStyle(total);
+                const toggle = summary.querySelector("tbody tr[data-row-head] [data-slot=treeToggle] svg");
+                out.summary2 = {
+                    childIndent: label === null || child === null ? "missing" : Math.round(label.getBoundingClientRect().left - summary.getBoundingClientRect().left),
+                    total: totalLook === undefined ? "missing" : [totalLook.backgroundColor === paper2, totalLook.fontFamily === mono, totalLook.fontWeight, total!.getBoundingClientRect().height],
+                    chevron: toggle === null ? "missing" : toggle.getAttribute("data-icon"),
+                    note: /^goal /.test(summary.querySelector("thead [data-table-head-note]")?.textContent ?? ""),
+                };
+            }
+            // The footer band, and the pivot's legend.
+            const foot = root.querySelector("[data-studio-records]")?.lastElementChild;
+            out.foot = foot === null || foot === undefined ? "missing" : foot.getBoundingClientRect().height;
+            // The pivot's grid: heads on no fill over a `--rule`, unruled rows around their blocks.
+            const pivot = root.querySelector("[data-studio-pivot]");
+            if (pivot !== null) {
+                const headCells = [...pivot.querySelectorAll("[data-slot=headerCell], [data-slot=colHeader]")];
+                const bar = pivot.querySelector("[data-slot=bar]");
+                const value = pivot.querySelector("[data-slot=seg]:not([data-fill=free])");
+                const valueLook = value === null ? undefined : getComputedStyle(value);
+                const name = pivot.querySelector("[data-slot=rowHeaderName]");
+                const nameLook = name === null ? undefined : getComputedStyle(name);
+                out.pivot = {
+                    headFill: [...new Set(headCells.map((h) => getComputedStyle(h).backgroundColor))],
+                    headRule: [...new Set(headCells.map((h) => `${getComputedStyle(h).borderBottomWidth} ${getComputedStyle(h).borderBottomColor}` === `1px ${rule}`))],
+                    rows: [...new Set([...pivot.querySelectorAll("[data-row-key]")].map((r) => r.getBoundingClientRect().height))],
+                    block: bar === null ? "missing" : [bar.getBoundingClientRect().height, getComputedStyle(bar).borderTopLeftRadius],
+                    value: valueLook === undefined ? "missing" : [valueLook.fontFamily === mono, valueLook.fontSize, valueLook.fontWeight],
+                    name: name === null || nameLook === undefined ? "missing" : [nameLook.fontSize, nameLook.fontWeight, Math.round(name.getBoundingClientRect().left - pivot.getBoundingClientRect().left)],
+                };
+            }
+            const heat = root.querySelector("[data-studio-heat]");
+            if (heat !== null) {
+                const look = getComputedStyle(heat);
+                const ticks = [...heat.querySelectorAll("[aria-hidden] span")].map((t) => t.textContent ?? "");
+                out.heat = {
+                    pad: look.padding, fill: look.backgroundColor, rule: `${look.borderTopWidth} ${look.borderTopColor}` === `1px ${rule}`,
+                    whole: ticks.slice(0, -1).every((t) => /^[0-9]+$/.test(t)), closed: /^≥[0-9]+$/.test(ticks[ticks.length - 1] ?? ""), steps: ticks.length,
+                    height: heat.getBoundingClientRect().height,
+                };
+            }
+            return out;
+        });
+        const table = (pads: string[]) => ({
+            headFill: ["rgba(0, 0, 0, 0)"], headRule: [true], headHeight: [36], controls: 0,
+            headPad: pads, cellPad: pads, rowHeights: [36], numeral: [true, "13px", "500"],
+            fills: true, sideways: false, reachesEdge: true,
+        });
+        expect(read).toEqual({
+            records: table(["20 12", "12 12", "12 12", "12 12", "12 12", "12 20"]),
+            summary: table(["20 12", "12 12", "12 20"]),
+            sorted: [true, 1],
+            summary2: { childIndent: 44, total: [true, true, "600", 36], chevron: "chevron-down", note: true },
+            foot: 37,
+            pivot: { headFill: ["rgba(0, 0, 0, 0)"], headRule: [true], rows: [40], block: [30, "4px"], value: [true, "11px", "500"], name: ["11px", "400", 20] },
+            heat: { pad: "12px 20px 16px", fill: "rgba(0, 0, 0, 0)", rule: true, whole: true, closed: true, steps: 5, height: 58 },
         });
     });
 });
