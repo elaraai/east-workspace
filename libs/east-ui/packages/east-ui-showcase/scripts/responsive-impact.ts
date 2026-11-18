@@ -52,7 +52,7 @@ const componentSpecs = {
     // The Studio's builder, page library and published page; what a placement holds, its visuals and their tiles
     // (#1669, #1671), and the chart rules as its page of visuals draws them — each reads the Studio's own pages alone.
     studio: [
-        "chart-rules.spec.ts", "studio-builder.spec.ts", "studio-configure.spec.ts", "studio-content.spec.ts", "studio-heights.spec.ts", "studio-page-library.spec.ts", "studio-page.spec.ts", "studio-rows.spec.ts",
+        "chart-rules.spec.ts", "studio-builder.spec.ts", "studio-chart-options.spec.ts", "studio-configure.spec.ts", "studio-content.spec.ts", "studio-heights.spec.ts", "studio-page-library.spec.ts", "studio-page.spec.ts", "studio-rows.spec.ts",
         "studio-tiles.spec.ts", "studio-visuals.spec.ts",
     ],
 } as const;

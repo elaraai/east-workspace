@@ -117,7 +117,7 @@ describe("Each kind's editor (#1672, EDT-2)", () => {
         }
     });
 
-    test("every option is a switch or a case of several, three at most; a line takes no stack", () => {
+    test("every option is a switch or a case of several, three at most; a line takes no stack, and every chart says of its legend", () => {
         for (const viewEditor of studioEditors) {
             for (const editor of viewEditor.kinds) {
                 assert.ok(editor.options.length <= 3, `${editor.kind.type} has at most three options`);
@@ -130,23 +130,34 @@ describe("Each kind's editor (#1672, EDT-2)", () => {
                 }
             }
         }
-        assert.deepEqual(kindEditor(FULL.line)?.options, []);
-        assert.deepEqual(kindEditor(FULL.column)?.options.map((o) => o.field), ["stack"]);
+        assert.deepEqual(kindEditor(FULL.line)?.options.map((o) => o.field), ["legend"]);
+        assert.deepEqual(kindEditor(FULL.column)?.options.map((o) => o.field), ["stack", "legend"]);
+        for (const kind of ["column", "bar", "line", "area", "combo", "scatter", "pie"] as const) {
+            assert.ok(kindEditor(FULL[kind])?.options.some((o) => o.field === "legend"), `${kind} says whether it draws its legend`);
+        }
         assert.equal(kindEditor(v.slicer(["range"])), undefined);
     });
 
     test("a kind's options are the form's fields, by their declared labels: a choice its cases in their words, a yes or no a box", () => {
         const fields = (kind: StudioKindLiteral) => optionSpecs(kindEditor(FULL[kind])!).map((spec) => [spec.path.join("."), spec.label, spec.editor.type]);
-        assert.deepEqual(fields("column"), [["stack", "Stack", "select"]]);
+        assert.deepEqual(fields("column"), [["stack", "Stack", "select"], ["legend", "Legend", "select"]]);
         const stack = optionSpecs(kindEditor(FULL.column)!)[0]!.editor;
         assert.deepEqual(stack.type === "select" ? stack.value : [], [
             { case: "none", label: "Clustered" }, { case: "stacked", label: "Stacked" }, { case: "percent", label: "Percent" },
         ]);
         assert.deepEqual(fields("summary"), [["total", "Total row", "checkbox"]]);
-        assert.deepEqual(fields("line"), []);
+        assert.deepEqual(fields("line"), [["legend", "Legend", "select"]]);
+        // A chart's legend is drawn where it names more than one series, or never; a pie's shows its values, its names or nothing.
+        const legendOf = (kind: StudioKindLiteral) => {
+            const editor = optionSpecs(kindEditor(FULL[kind])!).find((spec) => spec.path.join(".") === "legend")!.editor;
+            return editor.type === "select" ? editor.value : [];
+        };
+        assert.deepEqual(legendOf("column"), [{ case: "auto", label: "Auto" }, { case: "hidden", label: "Hidden" }]);
+        assert.deepEqual(fields("pie"), [["donut", "Donut", "checkbox"], ["legend", "Legend", "select"]]);
+        assert.deepEqual(legendOf("pie"), [{ case: "values", label: "Values" }, { case: "names", label: "Names" }, { case: "hidden", label: "Hidden" }]);
         // An option a declaration adds is drawn from it alone: a line's stack.
         const line = { ...kindEditor(FULL.line)!, options: [...kindEditor(FULL.column)!.options] };
-        assert.deepEqual(optionSpecs(line).map((spec) => [spec.path.join("."), spec.label]), [["stack", "Stack"]]);
+        assert.deepEqual(optionSpecs(line).map((spec) => [spec.path.join("."), spec.label]), [["stack", "Stack"], ["legend", "Legend"]]);
     });
 
     test("a well takes the kinds of field it accepts: a trend a date, a records table's columns any field, a value no struct (EDT-4)", () => {
@@ -265,7 +276,7 @@ describe("What an edit changed from what is saved (#1672, EDT-10)", () => {
     });
 
     test("what a view held saved of each field its kind has now: a field of the same name at the same type, and none of any other", () => {
-        assert.deepEqual(Object.keys(savedKindFields(FULL.bar, FULL.column)), ["x", "values", "split", "stack"]);
+        assert.deepEqual(Object.keys(savedKindFields(FULL.bar, FULL.column)), ["x", "values", "split", "stack", "legend"]);
         assert.ok(viewEqual(withKindField(FULL.column, "values", savedKindFields(FULL.bar, FULL.column)["values"]), v.column({
             x: month, values: [revenue, units], split: "region", stack: "stacked",
         })));
@@ -280,7 +291,7 @@ describe("What an edit changed from what is saved (#1672, EDT-10)", () => {
         assert.deepEqual([...changedParts(v.text("Figures are to last night.", "About"), v.text("Figures are to this morning.", "About"))], ["body"]);
         assert.deepEqual([...changedParts(undefined, v.text("Note"))], ["heading", "body"]);
         assert.deepEqual([...changedParts(undefined, v.of("orders", FULL.pie))].sort(),
-            ["click", "donut", "follow", "kind", "slice", "source", "value", "view", "where"]);
+            ["click", "donut", "follow", "kind", "legend", "slice", "source", "value", "view", "where"]);
         assert.deepEqual([...changedParts(v.component("rail"), v.component("trend"))], []);
     });
 });
@@ -326,6 +337,10 @@ const EXPECTED = {
     storeAsPivot: v.pivot({ rows: v.group("store"), columns: v.group(""), value: v.count() }),
     summaryAsRecords: v.records({ columns: ["region", "ordered_at"] }),
     emptyRecords: v.records({ columns: [] }),
+    hiddenColumn: v.column({ x: region, values: [revenue], legend: "hidden" }),
+    hiddenPie: v.pie({ slice: region, value: revenue, legend: "hidden" }),
+    namesPie: v.pie({ slice: region, value: revenue, legend: "names" }),
+    hiddenCombo: v.combo({ x: region, columns: [v.left(revenue)], lines: [], legend: "hidden" }),
     sources: [sourceOf("orders"), sourceOf("assets")],
     assetsTwice: [cellOf("c1", v.of("assets", FULL.kpi)), cellOf("c2", v.of("orders", FULL.bar)), cellOf("c3", v.of("assets", FULL.pie)), cellOf("c4", v.text("Note"))],
     tie: [cellOf("c1", v.of("assets", FULL.kpi)), cellOf("c2", v.of("orders", FULL.bar))],
@@ -391,6 +406,12 @@ describeEast("The Configure tab's rules (#1672)", (test) => {
         $(Assert.equal(switchedView(FULL.column, variant("scatter", null), FIELDS), EXPECTED.columnAsScatter));
         $(Assert.equal(switchedView(FULL.bar, variant("pie", null), FIELDS), EXPECTED.barAsPie));
         $(Assert.equal(switchedView(FULL.pie, variant("bar", null), FIELDS), EXPECTED.pieAsBar));
+    });
+
+    test("a chart's legend stays hidden across a change of kind, and is drawn where it was: a pie's names are a legend drawn", $ => {
+        $(Assert.equal(switchedView(EXPECTED.hiddenColumn, variant("pie", null), FIELDS), EXPECTED.hiddenPie));
+        $(Assert.equal(switchedView(EXPECTED.hiddenPie, variant("combo", null), FIELDS), EXPECTED.hiddenCombo));
+        $(Assert.equal(switchedView(EXPECTED.namesPie, variant("bar", null), FIELDS), EXPECTED.pieAsBar));
     });
 
     test("a summary's groups become a pivot's rows and columns, its first value the pivot's value — and back", $ => {

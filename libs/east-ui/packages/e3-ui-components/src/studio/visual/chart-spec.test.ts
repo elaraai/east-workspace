@@ -260,6 +260,49 @@ describe("chartModel", () => {
         expect(mean.type === "pie" ? [mean.value.top, mean.value.total, mean.value.other] : []).toEqual([some(4n), none, some("Other")]);
     });
 
+    it("draws a chart's legend where it names more than one series, and none where the chart hides it", async () => {
+        const x = v.group("region");
+        const legendOf = async (view: ReturnType<typeof v.column>) => frameOf((await modelOf(v.of("orders", view))).spec).legend.type;
+        // Two values, a split, a combo's two series, a scatter's split: each a legend, unless hidden.
+        expect(await Promise.all([
+            legendOf(v.column({ x, values: [v.sum("revenue"), v.count()] })),
+            legendOf(v.column({ x, values: [v.sum("revenue"), v.count()], legend: "hidden" })),
+            legendOf(v.area({ x, values: [v.sum("revenue")], split: "customer" })),
+            legendOf(v.area({ x, values: [v.sum("revenue")], split: "customer", legend: "hidden" })),
+            legendOf(v.combo({ x, columns: [v.left(v.sum("revenue"))], lines: [v.right(v.count())] })),
+            legendOf(v.combo({ x, columns: [v.left(v.sum("revenue"))], lines: [v.right(v.count())], legend: "hidden" })),
+            legendOf(v.scatter({ point: "customer", x: v.sum("units"), y: v.sum("revenue"), split: "region" })),
+            legendOf(v.scatter({ point: "customer", x: v.sum("units"), y: v.sum("revenue"), split: "region", legend: "hidden" })),
+        ])).toEqual(["some", "none", "some", "none", "some", "none", "some", "none"]);
+        // One series has none to draw either way.
+        expect(await legendOf(v.line({ x, values: [v.sum("revenue")] }))).toBe("none");
+    });
+
+    it("gives a pie the legend it says: its values, its names alone, or none", async () => {
+        const legendOf = async (legend?: "values" | "names" | "hidden") => {
+            const [pie] = childrenOf((await modelOf(v.of("orders", v.pie({ slice: v.group("region"), value: v.sum("revenue"), ...(legend === undefined ? {} : { legend }) })))).spec);
+            return pie?.type === "pie" ? pie.value.legend : none;
+        };
+        expect([await legendOf(), await legendOf("values"), await legendOf("names"), await legendOf("hidden")])
+            .toEqual([some(variant("values", null)), some(variant("values", null)), some(variant("names", null)), some(variant("hidden", null))]);
+    });
+
+    it("prints a value by its own format in place of its field's: an axis's ticks, a bar's end, a pie's values and what they are", async () => {
+        const tickFormat = (model: ChartModel, side: "axisLeft" | "axisBottom") => axisNode(model.spec, side)!.tickFormat;
+        // Revenue's field is a currency: its own compact takes the axis.
+        const column = await modelOf(v.of("orders", v.column({ x: v.group("region"), values: [v.sum("revenue", { format: "compact" }), v.count()] })));
+        expect(tickFormat(column, "axisLeft")).toEqual(some(variant("compact", null)));
+        // A bar's end says a plain number where the field's currency would keep its cents.
+        const bar = await modelOf(v.of("orders", v.bar({ x: v.group("region", { sort: "high" }), values: [v.sum("revenue", { format: "number" })] })));
+        expect(childrenOf(bar.spec).flatMap(child => (child.type === "text" ? [child.value.text] : []))).toEqual(["170", "50", "30", "20"]);
+        // A pie's values, and its note: with no currency of its own, it names none.
+        const [pie] = childrenOf((await modelOf(v.of("orders", v.pie({ slice: v.group("region"), value: v.sum("revenue", { format: "number" }) })))).spec);
+        expect(pie?.type === "pie" ? [pie.value.format, pie.value.note] : []).toEqual([some(variant("number", null)), some("share of 270")]);
+        // A goal's label reads in the value's own format.
+        const goal = await modelOf(v.of("orders", v.column({ x: v.group("region"), values: [v.sum("units", { goal: 0.5, format: "percent" })] })));
+        expect(ruleNode(goal.spec)!.label).toEqual(some("goal 50%"));
+    });
+
     it("says under a pie's legend what its values are and the total they are shares of; its numbers are values", async () => {
         const model = await modelOf(v.of("orders", v.pie({ slice: v.group("region"), value: v.sum("revenue") })));
         const [pie] = childrenOf(model.spec);

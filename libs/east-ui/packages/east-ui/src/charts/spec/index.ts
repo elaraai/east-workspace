@@ -72,6 +72,8 @@ import {
     ChartSliceType,
     ChartSliceArrayType,
     ChartPieType,
+    ChartPieLegendType,
+    type ChartPieLegendLiteral,
 } from "./types.js";
 
 // Internal re-export for sibling modules (slice/chart, component dispatch).
@@ -336,6 +338,7 @@ export function chartBandArea(
  * @property format  - How a value prints in the legend and the centre
  * @property caption - What a donut's total is, under it in the centre
  * @property note    - A line under the legend's rows, saying what the values are
+ * @property legend  - What the legend shows: each slice's value and share (the default), its name alone, or no legend
  */
 export interface ChartPieOptions {
     /** How many slices are drawn before the rest fold into Other (default 4). */
@@ -352,13 +355,15 @@ export interface ChartPieOptions {
     caption?: SubtypeExprOrValue<StringType>;
     /** A line under the legend's rows, saying what the values are — `AUD · share of 3.84M`. */
     note?: SubtypeExprOrValue<StringType>;
+    /** What the legend shows — `"values"` (the default), `"names"` or `"hidden"`, or an expression. */
+    legend?: SubtypeExprOrValue<ChartPieLegendType> | ChartPieLegendLiteral;
 }
 
 /**
  * Creates a `pie` node — shares of one total, with its legend.
  *
  * @param data    - The slices, in any order
- * @param options - How many slices before Other, the total, Other's label, a donut, the value format, a donut's caption and the legend's note (see {@link ChartPieOptions})
+ * @param options - How many slices before Other, the total, Other's label, a donut, the value format, a donut's caption, the legend's note and what the legend shows (see {@link ChartPieOptions})
  * @returns A `pie` {@link ChartSpecValue}
  *
  * @remarks
@@ -376,6 +381,9 @@ export function chartPie(data: SubtypeExprOrValue<ChartSliceArrayType>, options?
         format: options?.format !== undefined ? some(options.format) : none,
         caption: options?.caption !== undefined ? some(options.caption) : none,
         note:   options?.note !== undefined ? some(options.note) : none,
+        legend: options?.legend !== undefined
+            ? some(typeof options.legend === "string" ? East.value(variant(options.legend, null), ChartPieLegendType) : options.legend)
+            : none,
     }), ChartSpecType);
 }
 
@@ -1247,8 +1255,17 @@ export const ChartSpec = {
          * @property other  - Other's label
          * @property donut  - Drawn as a ring with the total in its centre
          * @property format - How a value prints
+         * @property legend - What the legend shows
          */
         Pie: ChartPieType,
+        /**
+         * What a pie's legend shows: each slice's value and share, its name
+         * alone, or no legend.
+         *
+         * @remarks
+         * Mirror of {@link ChartPieLegendType}.
+         */
+        PieLegend: ChartPieLegendType,
         /**
          * In-chart legend configuration.
          *

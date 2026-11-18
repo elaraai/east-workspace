@@ -372,6 +372,77 @@ describe("<Studio.Builder> — the Configure tab (#1672)", () => {
         }));
     });
 
+    test("a value pill's menu sets how its numbers are shown: as its field's until it takes a format of its own — a currency's code under the choice, three letters — each one gesture, Save writing it", async () => {
+        const { container, was } = await mountBoard();
+        await select(container, "b-sales");
+        await pressOn(well(container, "values").querySelector("[data-pill-chip]")!);
+        const field = (name: string) => document.querySelector<HTMLElement>(`[data-pill-menu=value] [data-field="${name}"]`);
+        const strip = () => field("format")!.querySelector<HTMLElement>('[data-seg-strip="format"]')!;
+        const formats = () => [...strip().querySelectorAll("button")].map((b) => `${b.textContent}${b.getAttribute("aria-pressed") === "true" ? " (on)" : ""}`);
+        const pick = (name: string) => pressOn(within(strip()).getByRole("button", { name }));
+        // After which way is better, before its label; as its field's until it has one of its own, which its help line says.
+        const order = [...document.querySelectorAll("[data-pill-menu=value] [data-field]")].map((el) => el.getAttribute("data-field"));
+        expect(order).toEqual(["period", "goal", "better", "format", "label"]);
+        expect(formats()).toEqual(["Auto (on)", "Number", "Percent", "Money"]);
+        expect(field("format")!.textContent).toContain("Auto shows it as its field's format says.");
+        await pick("Percent");
+        expect([formats(), field("format.currency")]).toEqual([["Auto", "Number", "Percent (on)", "Money"], null]);
+
+        // A currency: its code in a block under the choice — its field's, here none's.
+        await pick("Money");
+        const code = () => within(field("format.currency")!).getByRole("textbox", { name: "Currency code" }) as HTMLInputElement;
+        expect([formats()[3], code().value]).toEqual(["Money (on)", "USD"]);
+        // Typed in small letters, it is taken in capitals; what is no code is refused, the field saying why.
+        await act(async () => { fireEvent.change(code(), { target: { value: "aud" } }); });
+        await act(async () => { fireEvent.focusOut(code()); });
+        await settle();
+        expect(code().value).toBe("AUD");
+        await act(async () => { fireEvent.change(code(), { target: { value: "dollars" } }); });
+        await act(async () => { fireEvent.focusOut(code()); });
+        await settle();
+        expect(field("format.currency")!.textContent).toContain("A currency's code is three letters, as AUD");
+
+        // Each a gesture Undo takes back: the code, then the choice of a currency.
+        await press("Undo");
+        expect(code().value).toBe("USD");
+        await press("Redo");
+        expect(code().value).toBe("AUD");
+        await press("Save");
+        expect(await commits()).toEqual(["patch", ...was]);
+        const sales = (await boardCells()).find((cell) => cell.key === "b-sales")!;
+        if (sales.content.type !== "visual") throw new Error("expected a visual");
+        expect(sales.content.value.view).toEqual(Studio.visual.bar({
+            x: Studio.visual.group("region"), values: [Studio.visual.sum("revenue", { format: { currency: { code: "AUD" } } })],
+        }));
+
+        // As its field's again: the value holds no format of its own.
+        await pick("Auto");
+        expect([formats()[0], field("format.currency")]).toEqual(["Auto (on)", null]);
+        await press("Save");
+        const back = (await boardCells()).find((cell) => cell.key === "b-sales")!;
+        expect(back.content).toEqual(bars);
+    });
+
+    test("a chart's legend is an option of its kind: drawn where it names more than one series, or hidden; a pie's its values, its names or hidden — one gesture, Save writing it", async () => {
+        const { container, was } = await mountBoard();
+        await select(container, "b-sales");
+        const options = () => configurePart(container, "options");
+        const strip = (name: string) => options().querySelector<HTMLElement>(`[data-seg-strip="${name}"]`)!;
+        const words = (name: string) => [...strip(name).querySelectorAll("button")].map((b) => `${b.textContent}${b.getAttribute("aria-pressed") === "true" ? " (on)" : ""}`);
+        expect(words("legend")).toEqual(["Auto (on)", "Hidden"]);
+        await pressOn(within(strip("legend")).getByRole("button", { name: "Hidden" }));
+        expect(words("legend")).toEqual(["Auto", "Hidden (on)"]);
+        // A pie keeps it hidden, and offers its names alone.
+        await pressOn(within(configurePart(container, "kind")).getByRole("button", { name: "Pie" }));
+        expect(words("legend")).toEqual(["Values", "Names", "Hidden (on)"]);
+        await pressOn(within(strip("legend")).getByRole("button", { name: "Names" }));
+        await press("Save");
+        expect(await commits()).toEqual(["patch", ...was]);
+        const sales = (await boardCells()).find((cell) => cell.key === "b-sales")!;
+        if (sales.content.type !== "visual") throw new Error("expected a visual");
+        expect(sales.content.value.view).toEqual(Studio.visual.pie({ slice: Studio.visual.group("region"), value: Studio.visual.sum("revenue"), legend: "names" }));
+    });
+
     test("a source changed keeps the wells whose fields it has; a pill whose field it lacks is marked in its well, which says which, and so does the tile (EDT-9, MOD-5)", async () => {
         const { container } = await mountBoard();
         await select(container, "b-sales");

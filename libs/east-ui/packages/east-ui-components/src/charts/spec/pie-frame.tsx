@@ -6,7 +6,8 @@
 /**
  * A pie's frame (#1671, CHT-7), as its mock draws it: the pie beside its
  * legend, as `pie.ts` gives its slices — a row a slice, then the legend's
- * note; a donut's total in its centre, over its caption.
+ * note; a donut's total in its centre, over its caption. Its legend shows
+ * each slice's value and share, its name alone, or nothing, as the pie says.
  *
  * @packageDocumentation
  */
@@ -58,8 +59,11 @@ function sliceMark(slice: PieSlice): ChartMark {
  * twelve o'clock with a 1.5 px gap of the surface between, no labels; a donut
  * a 26 px ring with the total in its centre, over its caption. Each legend row
  * carries the slice's value and share, the values on one scale where the host
- * prints them; the legend's note says what they are. A slice and its legend
- * row tell the host when clicked.
+ * prints them; the legend's note says what they are. A legend of names
+ * alone is the swatch and the name; with no legend the pie stands alone in
+ * the middle of its frame. Where the legend does not say a slice's value, the
+ * slice says it — its name, its value and its share — where the pointer
+ * rests. A slice and its legend row tell the host when clicked.
  */
 export function PieFrame({ pie, height, width, style, onMark, numberText }: { pie: PieValue; height: number; width: number | undefined; style: ChartStyle; onMark: ChartMarkHandler | undefined; numberText: ChartNumberText | undefined }): ReactNode {
     const words = useFormatters();
@@ -70,44 +74,57 @@ export function PieFrame({ pie, height, width, style, onMark, numberText }: { pi
     // A value as the host prints it beside the largest it is read with, else through the pie's own format.
     const said = (n: number, of: number) => (numberText !== undefined ? numberText(n, format, of) : fmt(n));
     const largest = shown.slices.reduce((most, slice) => Math.max(most, slice.value), 0);
-    const note = getSomeorUndefined(pie.note);
     const caption = getSomeorUndefined(pie.caption);
+    // What the legend shows: each slice's value and share unless the pie says its names alone, or nothing.
+    const legend = getSomeorUndefined(pie.legend)?.type ?? "values";
+    // The note says what the legend's values are: it goes with them.
+    const note = legend === "values" ? getSomeorUndefined(pie.note) : undefined;
     const draw = (w: number, h: number) => {
-        const layout = w >= PIE_SIDE_MIN ? "side" : "below";
+        // With no legend the pie has the frame to itself; else beside its legend where there is room, over it where not.
+        const layout = legend !== "hidden" && w >= PIE_SIDE_MIN ? "side" : "below";
         const styles = recipe({ layout });
-        const legendH = layout === "below" ? shown.slices.length * PIE_LEGEND_ROW + (note !== undefined ? PIE_NOTE_LINE : 0) : 0;
-        // An even number of pixels across, so its centre stands on a whole pixel.
+        const rows = legend === "hidden" ? 0 : shown.slices.length;
+        const legendH = layout === "below" ? rows * PIE_LEGEND_ROW + (note !== undefined ? PIE_NOTE_LINE : 0) : 0;
+        // An even number of pixels across, a whole number from its frame's edges: its centre stands on a whole pixel.
         const diameter = 2 * Math.floor(Math.max(0, Math.min(layout === "side" ? Math.min(w * 0.45, h * PIE_SIDE_SHARE) : w, h - legendH)) / 2);
+        // Beside its legend, in the middle of its frame's height; over one, of its width; alone, of both.
+        const fromTop = layout === "side" || legend === "hidden" ? Math.max(0, Math.floor((h - diameter) / 2)) : 0;
+        const fromStart = layout === "below" ? Math.max(0, Math.floor((w - diameter) / 2)) : 0;
         const outer = diameter / 2;
         const inner = pie.donut ? Math.max(0, outer - DONUT_RING) : 0;
         return (
-            <Box css={styles.root} data-chart-pie="" data-layout={layout} style={{ height: `${h}px` }}>
-                <Box as="svg" css={styles.plot} style={{ width: `${diameter}px`, height: `${diameter}px` }}>
+            <Box css={styles.root} data-chart-pie="" data-layout={layout} data-legend={legend} style={{ height: `${h}px` }}>
+                <Box as="svg" css={styles.plot} style={{ width: `${diameter}px`, height: `${diameter}px`, marginTop: `${fromTop}px`, marginInlineStart: `${fromStart}px` }}>
                     <Group top={outer} left={outer}>
                         <Pie<PieSlice> data={[...shown.slices]} pieValue={s => s.value} pieSort={null} pieSortValues={null}
                             outerRadius={outer} innerRadius={inner} startAngle={0} endAngle={Math.PI * 2}>
                             {p => p.arcs.map(arc => (
                                 <path key={arc.data.key} d={p.path(arc) ?? ""} fill={style.color(arc.data.color)} stroke={style.pointFill} strokeWidth={1.5}
                                     data-chart-slice={arc.data.key} {...(arc.data.other ? { "data-other": "" } : {})}
-                                    {...(onMark !== undefined ? { cursor: "pointer", onClick: () => onMark(sliceMark(arc.data)) } : {})} />
+                                    {...(onMark !== undefined ? { cursor: "pointer", onClick: () => onMark(sliceMark(arc.data)) } : {})}>
+                                    {legend !== "values" && <title>{`${arc.data.key} · ${said(arc.data.value, largest)} · ${words.percent(arc.data.share)}`}</title>}
+                                </path>
                             ))}
                         </Pie>
                         {pie.donut && <SvgText css={styles.total} y={caption !== undefined ? DONUT_TOTAL_Y : 0} textAnchor="middle" dominantBaseline="central" data-chart-pie-total="">{said(shown.total, shown.total)}</SvgText>}
                         {pie.donut && caption !== undefined && <SvgText css={styles.caption} y={DONUT_CAPTION_Y} textAnchor="middle" dominantBaseline="central" data-chart-pie-caption="">{caption}</SvgText>}
                     </Group>
                 </Box>
-                <Box css={styles.legend} data-chart-pie-legend="">
-                    {shown.slices.map(s => (
-                        <Box key={s.key} css={styles.entry} data-chart-slice-entry={s.key} {...(s.other ? { "data-other": "" } : {})}
-                            {...(onMark !== undefined ? { as: "button" as const, type: "button" as const, "data-clickable": "", onClick: () => onMark(sliceMark(s)) } : {})}>
-                            <Box as="span" css={styles.swatch} background={style.color(s.color)} />
-                            <Box as="span" css={styles.label}>{s.key}</Box>
-                            <Box as="span" css={styles.value}>{said(s.value, largest)}</Box>
-                            <Box as="span" css={styles.share}>{words.percent(s.share)}</Box>
-                        </Box>
-                    ))}
-                    {note !== undefined && <Box css={styles.note} data-chart-pie-note="">{note}</Box>}
-                </Box>
+                {legend !== "hidden" && (
+                    <Box css={styles.legend} data-chart-pie-legend={legend}>
+                        {shown.slices.map(s => (
+                            <Box key={s.key} css={styles.entry} data-chart-slice-entry={s.key} {...(s.other ? { "data-other": "" } : {})}
+                                {...(legend === "names" ? { "data-names": "" } : {})}
+                                {...(onMark !== undefined ? { as: "button" as const, type: "button" as const, "data-clickable": "", onClick: () => onMark(sliceMark(s)) } : {})}>
+                                <Box as="span" css={styles.swatch} background={style.color(s.color)} />
+                                <Box as="span" css={styles.label}>{s.key}</Box>
+                                {legend === "values" && <Box as="span" css={styles.value}>{said(s.value, largest)}</Box>}
+                                {legend === "values" && <Box as="span" css={styles.share}>{words.percent(s.share)}</Box>}
+                            </Box>
+                        ))}
+                        {note !== undefined && <Box css={styles.note} data-chart-pie-note="">{note}</Box>}
+                    </Box>
+                )}
             </Box>
         );
     };

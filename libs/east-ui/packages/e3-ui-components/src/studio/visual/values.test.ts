@@ -18,8 +18,9 @@ import { Studio } from "@elaraai/e3-ui";
 import { formatters } from "@elaraai/east-ui-components";
 import { LISTED_ORDERS, answered } from "../../query/visual/visual.test-utils.js";
 import { studioMessages } from "../messages.js";
-import { variant } from "@elaraai/east";
-import { CHANGE_FORMAT, changeOf, fieldLabel, goalOf, kpiModel, shortNumber, shortValue, unitLabel, valueFormat, valueName, visualMeta, visualName, type KpiView } from "./values.js";
+import { some, variant } from "@elaraai/east";
+import { queryWords } from "../../query/model/words.js";
+import { CHANGE_FORMAT, changeOf, fieldLabel, goalOf, kpiModel, shortNumber, shortValue, unitLabel, valueFieldFormat, valueFormat, valueHead, valueName, valueUnit, visualMeta, visualName, type KpiView } from "./values.js";
 
 const v = Studio.visual;
 const m = studioMessages;
@@ -51,6 +52,25 @@ describe("a value's name and format", () => {
         expect([revenue, perUnit]).toEqual(["$1,234.50", "$12.50"]);
         expect([valueFormat(v.count(), LISTED_ORDERS), valueFormat(v.distinct("customer"), LISTED_ORDERS), valueFormat(v.sum("units"), LISTED_ORDERS)]).toEqual([undefined, undefined, undefined]);
         expect(words.value(0.124, CHANGE_FORMAT, true)).toBe("+12.4%");
+    });
+
+    it("formats a value by its own format in place of its field's, wherever its numbers are printed", () => {
+        // Revenue's field is a currency, AUD: a value's own format takes its place.
+        expect(valueFieldFormat(v.sum("revenue"), LISTED_ORDERS)).toEqual(some(variant("currency", { code: "AUD", compact: false })));
+        expect(valueFieldFormat(v.sum("revenue", { format: "compact" }), LISTED_ORDERS)).toEqual(some(variant("compact", null)));
+        expect(words.value(0.25, valueFormat(v.ratio("revenue", "units", { format: "percent" }), LISTED_ORDERS))).toBe("25%");
+        // A count, which has no field, takes one of its own.
+        expect(valueFieldFormat(v.count({ format: "percent" }), LISTED_ORDERS)).toEqual(some(variant("percent", null)));
+        // Its unit is its own format's: a currency of its own says its code; a plain number of a currency field says none.
+        expect([
+            unitLabel(v.sum("units", { format: { currency: { code: "USD" } } }), LISTED_ORDERS, m),
+            unitLabel(v.sum("revenue", { format: "number" }), LISTED_ORDERS, m),
+            valueUnit(v.sum("revenue", { format: "number" }), LISTED_ORDERS).unit,
+        ]).toEqual(["USD", undefined, undefined]);
+        // A table heads it by its own currency's code, and a tile's short number keeps its own cents.
+        expect(valueHead(v.sum("units", { format: { currency: { code: "USD" } } }), LISTED_ORDERS, queryWords(words), m).header).toBe("Units USD");
+        expect([shortValue(1284, v.sum("units", { format: { currency: { code: "USD" } } }), LISTED_ORDERS, words), shortValue(0.5, v.sum("revenue", { format: "percent" }), LISTED_ORDERS, words)])
+            .toEqual(["1,284.00", "50%"]);
     });
 });
 

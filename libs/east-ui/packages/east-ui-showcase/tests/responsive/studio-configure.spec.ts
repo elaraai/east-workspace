@@ -47,9 +47,7 @@
 import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
 import { settled } from "./settle";
-
-/** The showcase's builder over a page of visuals. */
-const HASH = "e3/studio/studio/studioContent";
+import { openConfigure } from "./studio-configure-page";
 
 /** What is read of one element: its box within the tab, and how its words are set. */
 interface Read {
@@ -57,29 +55,6 @@ interface Read {
     readonly size: string; readonly weight: string; readonly line: string; readonly caps: string; readonly family: string;
     readonly radius: string; readonly edge: string; readonly padStart: string; readonly padEnd: string;
     readonly color: string; readonly bg: string;
-}
-
-/**
- * Opens the builder, selects its first visual and opens the inspector on its Configure tab.
- *
- * @param page - The browser's page
- * @returns The tab
- */
-async function openConfigure(page: Page): Promise<Locator> {
-    await page.goto(`/?theme=light#${HASH}`);
-    await page.waitForSelector("header", { timeout: 20_000 });
-    const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${HASH}"]`) });
-    await entry.scrollIntoViewIfNeeded();
-    const tile = entry.locator("[data-snap-grid-tile]", { has: page.locator("[data-studio-visual-tile]") }).first();
-    await expect(tile).toBeVisible({ timeout: 30_000 });
-    await tile.click({ position: { x: 30, y: 60 } });
-    // The inspector's pane is a rail at this width: open it.
-    const expand = entry.getByRole("button", { name: "Expand Inspector" });
-    if (await expand.count() > 0) await expand.click();
-    const tab = entry.locator("[data-studio-configure]");
-    await expect(tab.locator("[data-configure=fields] [data-field-row]").first()).toBeVisible({ timeout: 20_000 });
-    await settled(page);
-    return tab;
 }
 
 /**
@@ -122,7 +97,7 @@ test.describe("The Studio's Configure tab, as designed (#1672)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "read once, at the desktop width");
 
     test("C1: the head — a small label, the name at 16 / 600 and what the visual is, 4px apart, padded 16", async ({ page }) => {
-        const tab = await openConfigure(page);
+        const { tab } = await openConfigure(page);
         const [label, name, is] = await read(tab, "[data-inspector=selection] > span");
         expect([label!.size, label!.weight, label!.line, label!.caps]).toEqual(["10px", "600", "12px", "uppercase"]);
         expect([name!.size, name!.weight, name!.line, name!.family]).toEqual(["16px", "600", "21px", "DM Sans Variable"]);
@@ -132,7 +107,7 @@ test.describe("The Studio's Configure tab, as designed (#1672)", () => {
     });
 
     test("C2: a field — its label 6px over a 32px select of radius 6, a 14px icon, Inter 13 and a 10px chevron; a hint on a 19px line; fields 12px apart", async ({ page }) => {
-        const tab = await openConfigure(page);
+        const { tab } = await openConfigure(page);
         const [label] = await read(tab, "[data-configure=source] > span");
         expect([label!.size, label!.weight, label!.line, label!.caps, label!.family]).toEqual(["12.5px", "500", "15px", "none", "Inter Tight Variable"]);
         for (const select of ["[data-configure-source]", "[data-configure-click]"]) {
@@ -155,7 +130,7 @@ test.describe("The Studio's Configure tab, as designed (#1672)", () => {
     });
 
     test("C3: the view's and the kind's segment groups are 32px of equal icon segments filling the row, the chosen one tinted; an option's is 24px of mono 10.5 / 600 capitals", async ({ page }) => {
-        const tab = await openConfigure(page);
+        const { tab } = await openConfigure(page);
         const tint = await token(page, "--chakra-colors-brand-tint");
         for (const [name, count] of [["views", 4], ["kinds", 7]] as const) {
             const [group] = await read(tab, `[data-seg-strip=${name}]`);
@@ -177,7 +152,7 @@ test.describe("The Studio's Configure tab, as designed (#1672)", () => {
     });
 
     test("C4: the wells are 14px apart, each label 6px over 32px pills — an 11px kind mark, Inter 13, a 22px aggregate chip, a 24px remove — and a value's menu is a head, 32px items and its form", async ({ page }) => {
-        const tab = await openConfigure(page);
+        const { tab } = await openConfigure(page);
         const wells = await read(tab, "[data-well]");
         expect(wells.slice(1).map((well, at) => well.y - (wells[at]!.y + wells[at]!.h))).toEqual(wells.slice(1).map(() => 14));
         const [label] = await read(tab, "[data-well=values] > span");
@@ -217,7 +192,7 @@ test.describe("The Studio's Configure tab, as designed (#1672)", () => {
     });
 
     test("C5: the source's fields — a label and a 16px count, a 32px search box, then 32px rows: a 7px grip, an 11px kind mark, Inter 13 and a 12px check for a placed field", async ({ page }) => {
-        const tab = await openConfigure(page);
+        const { tab } = await openConfigure(page);
         const [count] = await read(tab, "[data-fields-count]");
         expect([count!.w, count!.h, count!.size, count!.line, count!.radius]).toEqual([16, 16, "9.5px", "16px", "4px"]);
         const [search] = await read(tab, "[data-configure=fields] > div:nth-of-type(2)");
@@ -244,7 +219,7 @@ test.describe("The Studio's Configure tab, as designed (#1672)", () => {
     });
 
     test("C7: a group of names never cuts one — a table's kinds side by side while they fit, a 28px row each in a pane a scroll bar narrows", async ({ page }) => {
-        const tab = await openConfigure(page);
+        const { tab } = await openConfigure(page);
         await tab.locator("[data-seg-strip=views]").getByRole("button", { name: "Table" }).click();
         const kinds = tab.locator("[data-seg-strip=kinds]");
         await expect(kinds.locator("button")).toHaveCount(3);
@@ -268,7 +243,7 @@ test.describe("The Studio's Configure tab, as designed (#1672)", () => {
     });
 
     test("C6: every part of the tab stands a whole number of pixels under its top", async ({ page }) => {
-        const tab = await openConfigure(page);
+        const { tab } = await openConfigure(page);
         const parts = await read(tab, "[data-inspector], [data-configure], [data-well-pill], [data-field-row], [data-seg-strip], [data-configure-hint]");
         expect(parts.length).toBeGreaterThan(12);
         expect(parts.filter((part) => !Number.isInteger(part.y) || !Number.isInteger(part.h)).map((part) => [part.y, part.h])).toEqual([]);

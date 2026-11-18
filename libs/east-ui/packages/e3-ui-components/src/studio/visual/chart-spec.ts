@@ -359,7 +359,8 @@ function seriesChart(kind: "column" | "bar" | "line" | "area", chart: SeriesChar
         ? splitSeries(folded, groups, values[0]!, stack !== undefined, place, made)
         : values.flatMap((value, i) => (value.period.type === "current" ? [seriesOf(i, value, SERIES_COLORS[i % SERIES_COLORS.length]!)] : []));
     const reference = chart.split.type === "some" ? [] : values.flatMap((value, i) => (value.period.type === "current" ? [] : [seriesOf(i, value, REFERENCE_COLOR)]));
-    const legend = chart.split.type === "some" || current.length + reference.length > 1;
+    // Its legend names more than one series, unless the chart hides it.
+    const legend = chart.legend.type !== "hidden" && (chart.split.type === "some" || current.length + reference.length > 1);
     const layers: ChartSpec[] = [
         ...(current.length > 0 ? [layerOf(current, mark, stack === undefined ? {} : { stack })] : []),
         ...(reference.length > 0 ? [layerOf(reference, "line", { width: REFERENCE_WIDTH })] : []),
@@ -478,7 +479,7 @@ function comboChart(chart: ComboChart, read: ReadGroups, made: Made): ChartModel
         axisOf("axisLeft", { format: formatOf(left[0], made), ticks: leftTicks }),
         ...(right.length > 0 ? [axisOf("axisRight", { format: formatOf(right[0], made), ticks: ticksOver(sides.right.values, sides.right.zero) })] : []),
     ];
-    return { spec: frameOf(children, { x: "band", y: "linear" }, axes.length > 1, right.length > 0), shown, caption: undefined, numbers: "ticks" };
+    return { spec: frameOf(children, { x: "band", y: "linear" }, chart.legend.type !== "hidden" && axes.length > 1, right.length > 0), shown, caption: undefined, numbers: "ticks" };
 }
 
 /**
@@ -529,7 +530,7 @@ function scatterChart(chart: ScatterChart, read: ReadGroups, made: Made): ChartM
         x: midSentence(valueName(chart.x, made.source, made.m)), xUnit: unitLabel(chart.x, made.source, made.m),
         y: midSentence(valueName(chart.y, made.source, made.m)), yUnit: unitLabel(chart.y, made.source, made.m),
     });
-    return { spec: frameOf(children, { x: "linear", y: "linear" }, data.length > 1, false), shown, caption, numbers: "ticks" };
+    return { spec: frameOf(children, { x: "linear", y: "linear" }, chart.legend.type !== "hidden" && data.length > 1, false), shown, caption, numbers: "ticks" };
 }
 
 /**
@@ -565,6 +566,8 @@ function pieChart(chart: PieChart, read: ReadGroups, total: number | undefined, 
         // A donut's total says what it is under it; a pie's legend says what its values are shares of.
         caption: chart.donut ? some(made.m.pieCaption({ unit: unit ?? midSentence(valueName(chart.value, made.source, made.m)) })) : none,
         note: chart.donut ? none : some(made.m.pieNote({ unit, total: shortNumber(sum, format, f) })),
+        // What its legend shows: each slice's value and share, its name alone, or nothing — as the pie says.
+        legend: some(chart.legend),
     });
     const spec: ChartSpec = variant("frame", {
         height: FILL, width: none, margin: none, xScale: variant("band", null), yScale: variant("linear", null), yScale2: none,

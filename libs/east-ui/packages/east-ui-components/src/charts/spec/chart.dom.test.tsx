@@ -715,6 +715,7 @@ describe("Chart renderer — a pie (#1671, CHT-7)", () => {
             format: none,
             caption: opts.caption === undefined ? none : some(opts.caption),
             note: opts.note === undefined ? none : some(opts.note),
+            legend: none,
         })],
     });
 
@@ -985,8 +986,8 @@ describe("Chart renderer — what a tile asks of it: a host's numbers, lines on 
 });
 
 describe("Chart renderer — a pie as its mock draws it (#1671, CHT-7)", () => {
-    const pieOf = (opts: { donut?: boolean; caption?: string; note?: string }) => variant("frame", {
-        height: 220, width: some(400), margin: none,
+    const pieOf = (opts: { donut?: boolean; caption?: string; note?: string; legend?: "values" | "names" | "hidden"; width?: number }) => variant("frame", {
+        height: 220, width: some(opts.width ?? 400), margin: none,
         xScale: variant("band", null), yScale: variant("linear", null), yScale2: none,
         tooltip: none, legend: none, slice: none,
         children: [variant("pie", {
@@ -994,14 +995,22 @@ describe("Chart renderer — a pie as its mock draws it (#1671, CHT-7)", () => {
             top: none, total: none, other: none, donut: opts.donut ?? false, format: none,
             caption: opts.caption === undefined ? none : some(opts.caption),
             note: opts.note === undefined ? none : some(opts.note),
+            legend: opts.legend === undefined ? none : some(variant(opts.legend, null)),
         })],
     });
+    /** Each legend row's texts, its swatch first. */
+    const rowsOf = (container: HTMLElement) => [...container.querySelectorAll("[data-chart-slice-entry]")].map((row) => [...row.querySelectorAll("span")].map((s) => s.textContent));
+    /** What each slice says where the pointer rests; `null` for a slice that says nothing. */
+    const titlesOf = (container: HTMLElement) => [...container.querySelectorAll("path[data-chart-slice]")].map((path) => path.querySelector("title")?.textContent ?? null);
 
-    test("the pie is at most four fifths of its frame's height, an even number of pixels across", () => {
+    test("the pie is at most four fifths of its frame's height, an even number of pixels across, a whole number of pixels from its frame's edges", () => {
         const { container } = ui(<EastVisxChart value={pieOf({}) as never} />);
         const plot = container.querySelector("[data-chart-pie] svg") as SVGElement;
-        // 400 wide and 220 high: 45% of the width is 180, four fifths of the height 176.
-        expect([plot.style.width, plot.style.height]).toEqual(["176px", "176px"]);
+        // 400 wide and 220 high: 45% of the width is 180, four fifths of the height 176 — 22 under its frame's top, at its start.
+        expect([plot.style.width, plot.style.height, plot.style.marginTop, plot.style.marginInlineStart]).toEqual(["176px", "176px", "22px", "0px"]);
+        // Over its legend, 240 wide: three rows of 26 leave it 142, 49 from its frame's start, at its top.
+        const over = ui(<EastVisxChart value={pieOf({ width: 240 }) as never} />).container.querySelector("[data-chart-pie] svg") as SVGElement;
+        expect([over.style.width, over.style.marginTop, over.style.marginInlineStart]).toEqual(["142px", "0px", "49px"]);
     });
 
     test("its legend's values are the host's, each beside the largest; its note stands under its rows", () => {
@@ -1024,5 +1033,72 @@ describe("Chart renderer — a pie as its mock draws it (#1671, CHT-7)", () => {
         expect([bare.querySelector("[data-chart-pie-total]")!.getAttribute("y"), bare.querySelector("[data-chart-pie-caption]")]).toEqual(["0", null]);
         // A pie that is no donut has no centre to caption.
         expect(ui(<EastVisxChart value={pieOf({ caption: "units · total" }) as never} />).container.querySelector("[data-chart-pie-caption]")).toBeNull();
+    });
+
+    test("a legend of values is the legend a pie draws unless it says otherwise: its slices say nothing more", () => {
+        const said = ui(<EastVisxChart value={pieOf({ legend: "values", note: "AUD · share of 100" }) as never} />).container;
+        const unsaid = ui(<EastVisxChart value={pieOf({ note: "AUD · share of 100" }) as never} />).container;
+        for (const container of [said, unsaid]) {
+            expect(container.querySelector("[data-chart-pie]")!.getAttribute("data-legend")).toBe("values");
+            expect(rowsOf(container)).toEqual([["", "NSW", "50", "50%"], ["", "VIC", "30", "30%"], ["", "QLD", "20", "20%"]]);
+            expect(container.querySelector("[data-chart-pie-note]")!.textContent).toBe("AUD · share of 100");
+            expect(titlesOf(container)).toEqual([null, null, null]);
+        }
+    });
+
+    test("a legend of names is each slice's swatch and name alone, with no note; each slice says its name, its value and its share", () => {
+        const { container } = ui(<EastVisxChart value={pieOf({ legend: "names", note: "AUD · share of 100" }) as never} />);
+        expect(container.querySelector("[data-chart-pie]")!.getAttribute("data-legend")).toBe("names");
+        expect(container.querySelector("[data-chart-pie-legend]")!.getAttribute("data-chart-pie-legend")).toBe("names");
+        expect(rowsOf(container)).toEqual([["", "NSW"], ["", "VIC"], ["", "QLD"]]);
+        expect([...container.querySelectorAll("[data-chart-slice-entry]")].every((row) => row.hasAttribute("data-names"))).toBe(true);
+        // The note says what the legend's values are: with none, it is not drawn.
+        expect(container.querySelector("[data-chart-pie-note]")).toBeNull();
+        expect(titlesOf(container)).toEqual(["NSW · 50 · 50%", "VIC · 30 · 30%", "QLD · 20 · 20%"]);
+        // Beside its legend still, at the size it has beside a legend of values.
+        const plot = container.querySelector("[data-chart-pie] svg") as SVGElement;
+        expect([container.querySelector("[data-chart-pie]")!.getAttribute("data-layout"), plot.style.width]).toEqual(["side", "176px"]);
+    });
+
+    test("with no legend the pie has its frame to itself, as large as it holds; each slice says its name, its value and its share", () => {
+        const numberText = (n: number, _format: unknown, of: number) => `${n} of ${of}`;
+        const { container } = ui(<EastVisxChart value={pieOf({ legend: "hidden", note: "AUD · share of 100" }) as never} numberText={numberText} />);
+        expect(container.querySelector("[data-chart-pie]")!.getAttribute("data-legend")).toBe("hidden");
+        expect(container.querySelector("[data-chart-pie-legend]")).toBeNull();
+        expect(container.querySelector("[data-chart-pie-note]")).toBeNull();
+        expect(container.querySelectorAll("[data-chart-slice-entry]")).toHaveLength(0);
+        // 400 wide and 220 high: the whole of its height, an even number of pixels across, in the middle of its width.
+        const plot = container.querySelector("[data-chart-pie] svg") as SVGElement;
+        expect([plot.style.width, plot.style.height, plot.style.marginTop, plot.style.marginInlineStart]).toEqual(["220px", "220px", "0px", "90px"]);
+        // Its values as the host prints them, each beside the largest.
+        expect(titlesOf(container)).toEqual(["NSW · 50 of 50 · 50%", "VIC · 30 of 50 · 30%", "QLD · 20 of 50 · 20%"]);
+        // Narrower than it is high, it is as wide as its frame holds: a whole number of pixels from each edge, never half a one.
+        const narrow = ui(<EastVisxChart value={pieOf({ legend: "hidden", width: 181 }) as never} />).container.querySelector("[data-chart-pie] svg") as SVGElement;
+        expect([narrow.style.width, narrow.style.height, narrow.style.marginTop, narrow.style.marginInlineStart]).toEqual(["180px", "180px", "20px", "0px"]);
+        // An odd width leaves the odd pixel after it: 375 less 162 is 213, 106 before.
+        const oddFrame = pieOf({ legend: "hidden", width: 375 });
+        (oddFrame.value as { height: number }).height = 162;
+        const odd = ui(<EastVisxChart value={oddFrame as never} />).container.querySelector("[data-chart-pie] svg") as SVGElement;
+        expect([odd.style.width, odd.style.marginInlineStart, odd.style.marginTop]).toEqual(["162px", "106px", "0px"]);
+    });
+
+    test("a slice with no legend to click still tells the host its key; a donut keeps its total", () => {
+        const onMark = vi.fn();
+        const sameX = equalFor(Chart.Spec.Types.XCoord);
+        const { container } = ui(<EastVisxChart value={pieOf({ legend: "hidden", donut: true, caption: "units · total" }) as never} onMark={onMark} />);
+        fireEvent.click(container.querySelector('path[data-chart-slice="VIC"]')!);
+        expect(sameX((onMark.mock.calls[0]![0] as ChartMark).x!, variant("category", "VIC"))).toBe(true);
+        expect(container.querySelector("[data-chart-pie-total]")!.textContent).toBe("100");
+        expect(container.querySelectorAll("button")).toHaveLength(0);
+    });
+
+    test("under the pie, a legend of names takes a row a slice and no note's line", () => {
+        // 240 wide and 220 high: three rows of 26 under the pie leave it 142.
+        const names = ui(<EastVisxChart value={pieOf({ legend: "names", note: "AUD · share of 100", width: 240 }) as never} />).container;
+        const plot = names.querySelector("[data-chart-pie] svg") as SVGElement;
+        expect([names.querySelector("[data-chart-pie]")!.getAttribute("data-layout"), plot.style.width]).toEqual(["below", "142px"]);
+        // With its values and their note, the note's 19 less: 123, an even 122.
+        const values = ui(<EastVisxChart value={pieOf({ note: "AUD · share of 100", width: 240 }) as never} />).container.querySelector("[data-chart-pie] svg") as SVGElement;
+        expect(values.style.width).toBe("122px");
     });
 });

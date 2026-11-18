@@ -23,6 +23,7 @@ describeEast("Chart", (test) => {
         scatterQuadrants: ex.scatterQuadrants,
         scatterBubble: ex.scatterBubble,
         pieShares: ex.pieShares,
+        pieLegendNames: ex.pieLegendNames,
         composedColumnLine: ex.composedColumnLine,
         composedDualAxis: ex.composedDualAxis,
         composedAnnotations: ex.composedAnnotations,
@@ -298,6 +299,23 @@ describeEast("Chart", (test) => {
         $(Assert.equal(pie.top.hasTag("none"), true));
         $(Assert.equal(pie.total.hasTag("none"), true));
         $(Assert.equal(pie.donut, false));
+        // Its legend carries each slice's value and share unless it says otherwise.
+        $(Assert.equal(pie.legend.hasTag("none"), true));
+    });
+
+    test("Chart.Pie's legend is as it says: its slices' names alone, or none at all", $ => {
+        const rows = $.const([
+            { region: "NSW", revenue: 420.0 }, { region: "VIC", revenue: 310.0 },
+        ], ArrayType(StructType({ region: StringType, revenue: FloatType })));
+        const names = $.let(Chart.Root(Chart.Pie(rows, { label: r => r.region, value: r => r.revenue }, { legend: "names" })));
+        const namesPie = $.const(names.unwrap().unwrap("VisxChart").unwrap().unwrap("frame").children.get(0n).unwrap().unwrap("pie"));
+        $(Assert.equal(namesPie.legend.unwrap("some").hasTag("names"), true));
+        const hidden = $.let(Chart.Root(Chart.Pie(rows, { label: r => r.region, value: r => r.revenue }, { legend: "hidden" })));
+        const hiddenPie = $.const(hidden.unwrap().unwrap("VisxChart").unwrap().unwrap("frame").children.get(0n).unwrap().unwrap("pie"));
+        $(Assert.equal(hiddenPie.legend.unwrap("some").hasTag("hidden"), true));
+        const values = $.let(Chart.Root(Chart.Pie(rows, { label: r => r.region, value: r => r.revenue }, { legend: "values" })));
+        const valuesPie = $.const(values.unwrap().unwrap("VisxChart").unwrap().unwrap("frame").children.get(0n).unwrap().unwrap("pie"));
+        $(Assert.equal(valuesPie.legend.unwrap("some").hasTag("values"), true));
     });
 
     test("Chart.Pie prints a label that is no text as East prints it, and takes a slice's colour by its label", $ => {

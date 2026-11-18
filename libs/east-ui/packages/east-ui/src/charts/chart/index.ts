@@ -1087,8 +1087,10 @@ export const Chart = {
      * (4 by default), then one Other slice for the rest, in `--ink-5`, with a
      * 1.5 px gap of the surface between slices. Slices carry no labels: the
      * legend carries each slice's value and share, and a `note` under its
-     * rows. A donut is a 26 px ring with the total in its centre, over its
-     * `caption`. Colours follow the chart rules' series
+     * rows — or, as `legend` says, each slice's name alone (`"names"`) or
+     * nothing (`"hidden"`), a slice then saying its name, value and share
+     * where the pointer rests. A donut is a 26 px ring with the total in its
+     * centre, over its `caption`. Colours follow the chart rules' series
      * order by rank — `--brand-d`, then teal, purple, blue, orange — unless
      * `colors` names a slice's. `total` is the whole the slices are shares
      * of when they are not all of it; Other holds what is past their sum.

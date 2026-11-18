@@ -24,8 +24,8 @@
  * the last one leaves, and spells out its own.
  *
  * Every type the Studio declares is copied, and the snap grid's alignment with
- * them. A date's resolution, a slicer's controls and jq are east's and
- * east-ui's own wires, read here by name: a change of one changes every record
+ * them. A date's resolution, a slicer's controls, a value's format and jq are
+ * east's and east-ui's own wires, read here by name: a change of one changes every record
  * that holds it, and is those packages' to migrate.
  *
  * @packageDocumentation
@@ -48,7 +48,7 @@ import {
     variant,
 } from "@elaraai/east";
 import { TimeResolutionType } from "@elaraai/east-ui";
-import { SliceAffordanceType } from "@elaraai/east-ui/internal";
+import { SliceAffordanceType, ValueFormatType } from "@elaraai/east-ui/internal";
 
 // ============================================================================
 // The pages record's type as `cell_content` leaves it — frozen
@@ -78,6 +78,7 @@ const ValueV1 = StructType({
     period: VariantType({ current: NullType, previous: NullType, year_ago: NullType }),
     goal: OptionType(FloatType),
     better: VariantType({ higher: NullType, lower: NullType }),
+    format: OptionType(ValueFormatType),
 });
 /** What a visual groups its rows by. */
 const GroupV1 = StructType({
@@ -88,8 +89,10 @@ const GroupV1 = StructType({
 });
 /** How a chart's series stack. */
 const StackV1 = VariantType({ none: NullType, stacked: NullType, percent: NullType });
+/** Whether a chart draws its legend. */
+const LegendV1 = VariantType({ auto: NullType, hidden: NullType });
 /** A chart of series along one axis. */
-const SeriesV1 = StructType({ x: GroupV1, values: ArrayType(ValueV1), split: OptionType(StringType), stack: StackV1 });
+const SeriesV1 = StructType({ x: GroupV1, values: ArrayType(ValueV1), split: OptionType(StringType), stack: StackV1, legend: LegendV1 });
 /** A combo chart's value, and the axis it reads against. */
 const AxisValueV1 = StructType({ value: ValueV1, right: BooleanType });
 /** What a visual draws. */
@@ -100,9 +103,9 @@ const ViewV1 = VariantType({
         bar: SeriesV1,
         line: SeriesV1,
         area: SeriesV1,
-        combo: StructType({ x: GroupV1, columns: ArrayType(AxisValueV1), lines: ArrayType(AxisValueV1), stack: StackV1 }),
-        scatter: StructType({ point: StringType, x: ValueV1, y: ValueV1, split: OptionType(StringType) }),
-        pie: StructType({ slice: GroupV1, value: ValueV1, donut: BooleanType }),
+        combo: StructType({ x: GroupV1, columns: ArrayType(AxisValueV1), lines: ArrayType(AxisValueV1), stack: StackV1, legend: LegendV1 }),
+        scatter: StructType({ point: StringType, x: ValueV1, y: ValueV1, split: OptionType(StringType), legend: LegendV1 }),
+        pie: StructType({ slice: GroupV1, value: ValueV1, donut: BooleanType, legend: VariantType({ values: NullType, names: NullType, hidden: NullType }) }),
     }),
     table: VariantType({
         records: StructType({ columns: ArrayType(StringType), sort: OptionType(StringType), descending: BooleanType }),

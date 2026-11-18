@@ -237,12 +237,23 @@ const STACK: StudioKindEditor["options"][number] = {
     field: "stack", label: "Stack",
     cases: [{ case: "none", label: "Clustered" }, { case: "stacked", label: "Stacked" }, { case: "percent", label: "Percent" }],
 };
+/** Whether a chart draws its legend: where it has more than one series to name, or never. */
+const LEGEND: StudioKindEditor["options"][number] = {
+    field: "legend", label: "Legend",
+    cases: [{ case: "auto", label: "Auto" }, { case: "hidden", label: "Hidden" }],
+};
+/** What a pie's legend shows: each slice's value and share, its name alone, or no legend. */
+const PIE_LEGEND: StudioKindEditor["options"][number] = {
+    field: "legend", label: "Legend",
+    cases: [{ case: "values", label: "Values" }, { case: "names", label: "Names" }, { case: "hidden", label: "Hidden" }],
+};
 
 /**
  * Each view's editors, in the Configure tab's order: the KPI, the seven
  * charts, the three tables and the list (EDT-2, BLD-1). A KPI is placed at
  * span 3, the rest at 6 (BLD-2). A line takes no stack, and keeps the one it
- * has for when it switches back (CHT-1).
+ * has for when it switches back (CHT-1). Every chart says whether it draws its
+ * legend, and a pie what its legend shows.
  */
 export const studioEditors: readonly StudioViewEditor[] = [
     {
@@ -258,24 +269,24 @@ export const studioEditors: readonly StudioViewEditor[] = [
     },
     {
         view: "chart", label: "Chart", icon: "chart-column", kinds: [
-            { kind: variant("column", null), label: "Column", icon: "chart-column", span: 6n, wells: [...SERIES_WELLS], options: [STACK] },
-            { kind: variant("bar", null), label: "Bar", icon: "chart-bar", span: 6n, wells: [...SERIES_WELLS], options: [STACK] },
-            { kind: variant("line", null), label: "Line", icon: "chart-line", span: 6n, wells: [...SERIES_WELLS], options: [] },
-            { kind: variant("area", null), label: "Area", icon: "chart-area", span: 6n, wells: [...SERIES_WELLS], options: [STACK] },
+            { kind: variant("column", null), label: "Column", icon: "chart-column", span: 6n, wells: [...SERIES_WELLS], options: [STACK, LEGEND] },
+            { kind: variant("bar", null), label: "Bar", icon: "chart-bar", span: 6n, wells: [...SERIES_WELLS], options: [STACK, LEGEND] },
+            { kind: variant("line", null), label: "Line", icon: "chart-line", span: 6n, wells: [...SERIES_WELLS], options: [LEGEND] },
+            { kind: variant("area", null), label: "Area", icon: "chart-area", span: 6n, wells: [...SERIES_WELLS], options: [STACK, LEGEND] },
             {
                 kind: variant("combo", null), label: "Combo", icon: "chart-simple", span: 6n,
                 wells: [well("x", "X axis", "group"), well("columns", "Columns", "axis", { list: true }), well("lines", "Lines", "axis", { list: true })],
-                options: [STACK],
+                options: [STACK, LEGEND],
             },
             {
                 kind: variant("scatter", null), label: "Scatter", icon: "braille", span: 6n,
                 wells: [well("point", "Point", "field"), well("x", "X", "value"), well("y", "Y", "value"), well("split", "Colour by", "field", { optional: true })],
-                options: [],
+                options: [LEGEND],
             },
             {
                 kind: variant("pie", null), label: "Pie", icon: "chart-pie", span: 6n,
                 wells: [well("slice", "Slices", "group"), well("value", "Value", "value")],
-                options: [yesNo("donut", "Donut")],
+                options: [yesNo("donut", "Donut"), PIE_LEGEND],
             },
         ],
     },
