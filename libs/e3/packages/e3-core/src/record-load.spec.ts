@@ -27,7 +27,7 @@ import {
 } from '@elaraai/e3-types';
 import { deliveryAdoptStored } from './dataset-adopt.js';
 import { acquireWorkspaceExclusive, workspaceIntentLock } from './deploy-lock.js';
-import { RecordLoadRefusedError, RecordLoadStoppedError, RepositoryBusyError } from './errors.js';
+import { RecordLoadRefusedError, RecordLoadStoppedError, RepositoryBusyError, WorkspaceNotFoundError } from './errors.js';
 import { Budget, type BudgetRequest, type Grant } from './execution/budget.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
 import type { TaskRunner } from './execution/interfaces.js';
@@ -43,7 +43,7 @@ import {
   inProjectWithoutEastC, ledgerOrders, ledgerWorkspaces, overriding, removeTempDir, removeTestRepo, withEnv, withStores, type LedgerErpLoad,
   type LedgerWorkspaces,
 } from './test-helpers.js';
-import { workspaceDeploy } from './workspaces.js';
+import { workspaceCopy, workspaceDeploy, workspaceRemove } from './workspaces.js';
 
 type OrderRow = ValueTypeOf<typeof SourcedOrderType>;
 
@@ -441,18 +441,23 @@ describe('a load of a delivery', () => {
     await holds(ws, [['erp', 'SO-1001', acme], ['own', 'P-1', birch]]);
   });
 
+  /** What announces `operation` on a workspace, has it whole once its holders let go, and leaves it as it was. */
+  const announcing = (operation: LockOperation) => async (ws: string): Promise<void> => {
+    const whole = await acquireWorkspaceExclusive(storage, repoDir, ws, operation);
+    await whole.release();
+  };
+
   /**
-   * A load whose pieces are held when `operation` takes its workspace whole,
-   * as an export, a copy onto it or its removal does: what the load did, and
-   * every step it reported, once the operation has had the workspace and let
-   * it go.
+   * A load whose pieces are held when `taking` takes its workspace whole, as
+   * an export, a copy onto it or its removal does: what the load did, and
+   * every step it reported, once that has had the workspace and let it go.
    *
    * The load looks at the workspace's intent again only once the operation is
    * done, as a slow machine can make it look: its release of the workspace
-   * returns then. What it does must follow from what stopped it, not from
-   * whether that is still there when it looks.
+   * returns then. What it does must follow from what stopped it and what that
+   * did, not from whether it is still there when the load looks.
    */
-  const loadMeeting = async (operation: LockOperation, rows: Array<[string, OrderRow]>) => {
+  const loadMeeting = async (taking: (ws: string) => Promise<void>, rows: Array<[string, OrderRow]>) => {
     const ws = await fresh();
     const gated = new GatedTaskRunner(runner, ['orders.erp']);
     const steps: RecordLoadProgress[] = [];
@@ -479,30 +484,49 @@ describe('a load of a delivery', () => {
     await gated.launched('orders.erp');
     gated.pass('orders.erp');
     // It announces itself, and has the workspace once the load lets it go
-    const whole = await acquireWorkspaceExclusive(storage, repoDir, ws, operation);
-    await whole.release();
+    await taking(ws);
     operationDone();
     return { ws, steps, ...await running };
   };
 
   it('ruling 26 — an export that starts while a load runs stops it, and the load goes on once the export is done', async () => {
-    const { ws, steps, ...ended } = await loadMeeting(variant('export', null), [['SO-2601', acme]]);
+    const { ws, steps, ...ended } = await loadMeeting(announcing(variant('export', null)), [['SO-2601', acme]]);
     assert.ok('result' in ended && ended.result.outcome.type === 'loaded', 'it loaded');
     assert.deepEqual(stops(steps), [`an export of ${ws} started. The load goes on once it is done…`]);
     await holds(ws, [['erp', 'SO-2601', acme], ['own', 'P-1', birch]]);
   });
 
-  it('ruling 26 — a copy onto the workspace, or its removal, fails a load that runs, naming it, and nothing is loaded', async () => {
-    for (const [operation, words] of [
-      [variant('workspace_copy', null), (ws: string) => `a copy onto ${ws} replaced the workspace: nothing loaded`],
-      [variant('removal', null), (ws: string) => `a removal of ${ws} removed the workspace: nothing loaded`],
-    ] as const) {
-      const { ws, steps, ...ended } = await loadMeeting(operation, [['SO-2602', cedar]]);
-      assert.ok('error' in ended && ended.error instanceof Error, 'it failed');
-      assert.equal(ended.error.message, words(ws));
-      assert.deepEqual(stops(steps), [], 'and said nothing of going on');
-      assert.deepEqual(await chain(ws), DEPLOYED, 'nothing was committed');
-    }
+  it('rulings 26, 34 — a copy that replaces the workspace, and a removal that removes it, fail a load that runs, naming it, once they have ended', async () => {
+    const from = await fresh();
+    const copied = await loadMeeting((ws) => workspaceCopy(storage, repoDir, from, ws), [['SO-2602', cedar]]);
+    assert.ok('error' in copied && copied.error instanceof Error, 'it failed');
+    assert.equal(copied.error.message, `a copy onto ${copied.ws} replaced the workspace: nothing loaded`);
+    assert.deepEqual(stops(copied.steps), [`a copy onto ${copied.ws} started. The load goes on once it is done, unless it replaces the workspace…`]);
+    assert.deepEqual(await chain(copied.ws), DEPLOYED, 'the copy stands, and nothing was loaded into it');
+
+    const removed = await loadMeeting((ws) => workspaceRemove(storage, repoDir, ws), [['SO-2602', cedar]]);
+    assert.ok('error' in removed && removed.error instanceof Error, 'it failed');
+    assert.equal(removed.error.message, `a removal of ${removed.ws} removed the workspace: nothing loaded`);
+    assert.equal(await storage.refs.workspaceRead(repoDir, removed.ws), null, 'the workspace is gone');
+  });
+
+  it('ruling 34 — a copy onto the workspace, or its removal, that leaves the workspace as it was fails no load: the load goes on once it has ended', async () => {
+    // A copy that announces itself, and is given up. One refused for its source announces nothing: it finds its
+    // source before it takes its target, so it stops no load
+    const givenUp = await loadMeeting(async (ws) => {
+      await assert.rejects(workspaceCopy(storage, repoDir, 'stagng', ws), WorkspaceNotFoundError);
+      await announcing(variant('workspace_copy', null))(ws);
+    }, [['SO-3401', acme]]);
+    assert.ok('result' in givenUp && givenUp.result.outcome.type === 'loaded', 'it loaded');
+    assert.deepEqual(stops(givenUp.steps), [`a copy onto ${givenUp.ws} started. The load goes on once it is done, unless it replaces the workspace…`],
+      'stopped once, by the copy that announced itself');
+    await holds(givenUp.ws, [['erp', 'SO-3401', acme], ['own', 'P-1', birch]]);
+
+    // A removal that announces itself, and is given up
+    const refused = await loadMeeting(announcing(variant('removal', null)), [['SO-3402', cedar]]);
+    assert.ok('result' in refused && refused.result.outcome.type === 'loaded', 'it loaded');
+    assert.deepEqual(stops(refused.steps), [`a removal of ${refused.ws} started. The load goes on once it is done, unless it removes the workspace…`]);
+    await holds(refused.ws, [['erp', 'SO-3402', cedar], ['own', 'P-1', birch]]);
   });
 
   it('R69 — gc while a load waits its turn, or waits out a deploy, is refused, and the load\'s delivery is kept', async () => {

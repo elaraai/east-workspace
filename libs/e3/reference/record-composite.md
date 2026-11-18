@@ -120,8 +120,10 @@ orders.erp holds a delivery as of 2026-11-02T03:00:00.000, later than this one's
 - **A deploy or an export** of the workspace stops a load while it runs, and
   the load goes on once it is done: `Stopped: a deploy of main started. The
   load goes on once the deploy is done…`. A removal of the workspace, or a
-  copy onto it, fails the load: `a copy onto main replaced the workspace:
-  nothing loaded`.
+  copy onto it, stops a load the same way, and the load waits for it to end:
+  it fails where the workspace was removed or replaced, `a copy onto main
+  replaced the workspace: nothing loaded`, and goes on where it was left as it
+  was, the copy or the removal having been refused.
 - **Ctrl-C** asks the load to cancel, and follows it to its end: `Cancelling
   the load…`, then `Cancelled: nothing loaded.` (exit 130), or what the load
   did, when its commit had written. A second Ctrl-C stops following a
