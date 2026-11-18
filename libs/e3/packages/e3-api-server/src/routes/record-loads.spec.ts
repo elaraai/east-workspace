@@ -17,7 +17,9 @@ import { decodeBeast2For, encodeBeast2For, none } from '@elaraai/east';
 import { InMemoryTransferBackend, MockTaskRunner } from '@elaraai/e3-core';
 import { InMemoryStorage } from '@elaraai/e3-core/test';
 import { BEAST2_CONTENT_TYPE, E3_RELEASE, RecordLoadRequestType, RecordLoadStatusType, TRANSFER_PROTOCOL_VERSION } from '@elaraai/e3-types';
-import { ResponseType, PackageJobResponseType, TransferUploadRequestType, TransferUploadResponseType } from '../types.js';
+import {
+  ResponseType, PackageJobResponseType, TransferDoneResponseType, TransferPartResponseType, TransferUploadRequestType, TransferUploadResponseType,
+} from '../types.js';
 import { createObjectUploadRoutes, createRecordLoadRoutes, type LoadAccess, type LoadAction } from './record-loads.js';
 
 const REPO = 'r';
@@ -26,6 +28,8 @@ const WS = 'main';
 const decodeJob = decodeBeast2For(ResponseType(PackageJobResponseType));
 const decodeStatus = decodeBeast2For(ResponseType(RecordLoadStatusType));
 const decodeUpload = decodeBeast2For(ResponseType(TransferUploadResponseType));
+const decodePart = decodeBeast2For(ResponseType(TransferPartResponseType));
+const decodeDone = decodeBeast2For(ResponseType(TransferDoneResponseType));
 const encodeRequest = encodeBeast2For(RecordLoadRequestType);
 const encodeUpload = encodeBeast2For(TransferUploadRequestType);
 
@@ -57,6 +61,8 @@ describe('the load routes', () => {
   const bytes = async (response: Response): Promise<Uint8Array> => new Uint8Array(await response.arrayBuffer());
   const LOADS = `/api/repos/${REPO}/workspaces/${WS}/records/orders/loads/erp`;
   const OBJECTS = `/api/repos/${REPO}/workspaces/${WS}/objects?protocol=${TRANSFER_PROTOCOL_VERSION}&release=${E3_RELEASE}`;
+  /** An upload's own routes, by its id. */
+  const UPLOAD = (id: string): string => `/api/repos/${REPO}/workspaces/${WS}/objects/upload/${id}`;
 
   it('R86 — a caller the host does not grant a load is refused permission_denied, naming the load, and the host is asked what each caller asks to do', async () => {
     const { app, asked } = serve(() => false);
@@ -69,6 +75,37 @@ describe('the load routes', () => {
     assert.ok(upload.type === 'error' && upload.value.type === 'permission_denied' && upload.value.value.path === 'upload');
     assert.deepEqual(asked.map((action) => 'record' in action ? `${action.kind} ${action.record}.${action.source}` : action.kind),
       ['load orders.erp', 'cancel orders.erp', 'upload']);
+  });
+
+  it('R86, ruling 36 — a read is asked of the host as a write is: a load\'s status, where an upload\'s part goes, and its commit and poll are refused a caller it does not grant', async () => {
+    const { app, asked } = serve(() => false);
+    const id = globalThis.crypto.randomUUID();
+    const status = decodeStatus(await bytes(await app.request(`${LOADS}/${id}`)));
+    assert.ok(status.type === 'error' && status.value.type === 'permission_denied' && status.value.value.path === 'orders.erp',
+      `a load's status is refused: ${status.type}`);
+    const part = decodePart(await bytes(await app.request(`${UPLOAD(id)}/parts/1`)));
+    assert.ok(part.type === 'error' && part.value.type === 'permission_denied' && part.value.value.path === 'upload');
+    const commit = decodeDone(await bytes(await post(app, `${UPLOAD(id)}?protocol=${TRANSFER_PROTOCOL_VERSION}&release=${E3_RELEASE}`, new Uint8Array())));
+    assert.ok(commit.type === 'error' && commit.value.type === 'permission_denied' && commit.value.value.path === 'upload');
+    const poll = decodeDone(await bytes(await app.request(UPLOAD(id))));
+    assert.ok(poll.type === 'error' && poll.value.type === 'permission_denied' && poll.value.value.path === 'upload');
+    assert.deepEqual(asked.map((action) => 'record' in action ? `${action.kind} ${action.record}.${action.source}` : action.kind),
+      ['read orders.erp', 'upload', 'upload', 'upload']);
+  });
+
+  it('a rule that throws is answered as any error is, in each route\'s own type: no request ends in an untyped 500', async () => {
+    const { app } = serve(() => { throw new Error('the roles could not be read'); });
+    const id = globalThis.crypto.randomUUID();
+    const answers = [
+      decodeStatus(await bytes(await app.request(`${LOADS}/${id}`))),
+      decodePart(await bytes(await app.request(`${UPLOAD(id)}/parts/1`))),
+      decodeDone(await bytes(await post(app, `${UPLOAD(id)}?protocol=${TRANSFER_PROTOCOL_VERSION}&release=${E3_RELEASE}`, new Uint8Array()))),
+      decodeDone(await bytes(await app.request(UPLOAD(id)))),
+    ];
+    for (const answer of answers) {
+      assert.ok(answer.type === 'error' && answer.value.type === 'internal' && answer.value.value.message.includes('the roles could not be read'),
+        `answered ${answer.type}`);
+    }
   });
 
   it('a load launched is polled to its end, and a cancel after its end is answered as it ended; a poll from another workspace finds none', async () => {

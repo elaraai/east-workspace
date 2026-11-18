@@ -10,7 +10,8 @@
  * arrives by, mounted at `/api/repos/:repo/workspaces/:ws/objects`.
  *
  * A load replaces a whole source, so a host with roles of its own grants it
- * apart from an edit: each route asks the host's {@link LoadAccess} first.
+ * apart from an edit: each route asks the host's {@link LoadAccess} first, a
+ * read as a write, and answers a rule that throws as it answers any error.
  */
 
 import { Hono } from 'hono';
@@ -22,7 +23,9 @@ import { decodeBody, sendError, sendSuccess } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
 import type { Identity } from '../identity.js';
 import { cancelRecordLoad, getRecordLoadStatus, startRecordLoad, type LoadAddress } from '../handlers/record-loads.js';
-import { PackageJobResponseType, TransferDoneResponseType, TransferUploadRequestType, TransferUploadResponseType } from '../types.js';
+import {
+  PackageJobResponseType, TransferDoneResponseType, TransferPartResponseType, TransferUploadRequestType, TransferUploadResponseType,
+} from '../types.js';
 import { resolveActor } from './records.js';
 import { DEFAULT_COMMIT_WAIT_MS, protocolProblem, stagedUploadAnswers } from './transfer.js';
 
@@ -30,12 +33,13 @@ import { DEFAULT_COMMIT_WAIT_MS, protocolProblem, stagedUploadAnswers } from './
 const sameName = equalFor(StringType);
 
 /**
- * What a caller asks to do: load a delivery into a record's source, or cancel
- * such a load (`load`, `cancel`, naming the record and the source), or upload
- * a file as an object, which names no load (`upload`).
+ * What a caller asks to do: load a delivery into a record's source, cancel
+ * such a load, or read its status (`load`, `cancel`, `read`, naming the
+ * record and the source); or upload a file as an object, which names no load
+ * (`upload`: its init, where to send a part, its commit, and a poll of it).
  */
 export type LoadAction =
-  | { readonly kind: 'load' | 'cancel'; readonly record: string; readonly source: string }
+  | { readonly kind: 'load' | 'cancel' | 'read'; readonly record: string; readonly source: string }
   | { readonly kind: 'upload' };
 
 /**
@@ -46,8 +50,11 @@ export type LoadAction =
  * @remarks
  * A load replaces a whole source, so a host with roles of its own grants it
  * apart from an edit: to the integration that sends the delivery, not to
- * everyone who may change a row. A refusal is `permission_denied`, its `path`
- * the load as it is named, `orders.erp`, or `upload` for an upload.
+ * everyone who may change a row. A load's status says what was delivered and
+ * when, and an upload's part says where its bytes go, so each read is asked
+ * of the rule as its write is: a load's id is no grant. A refusal is
+ * `permission_denied`, its `path` the load as it is named, `orders.erp`, or
+ * `upload` for an upload.
  */
 export type LoadAccess = (c: Context, action: LoadAction) => boolean | Promise<boolean>;
 
@@ -114,7 +121,17 @@ export function createRecordLoadRoutes(transferBackend: TransferBackend, options
   });
 
   // GET /:rec/loads/:source/:id — poll a load (RecordLoadStatus)
-  app.get('/:rec/loads/:source/:id', (c) => getRecordLoadStatus(store, addressOf(c), c.req.param('id')));
+  app.get('/:rec/loads/:source/:id', async (c) => {
+    const address = addressOf(c);
+    try {
+      if (!await options.access(c, { kind: 'read', record: address.record, source: address.source })) {
+        return sendError(RecordLoadStatusType, refusedLoad(address));
+      }
+      return await getRecordLoadStatus(store, address, c.req.param('id'));
+    } catch (err) {
+      return sendError(RecordLoadStatusType, errorToVariant(err));
+    }
+  });
 
   // POST /:rec/loads/:source/:id/cancel — ask a load to cancel (RecordLoadStatus)
   app.post('/:rec/loads/:source/:id/cancel', async (c) => {
@@ -209,21 +226,36 @@ export function createObjectUploadRoutes(
     }
   });
 
+  /**
+   * Answers a request of an upload once the host grants its caller an
+   * upload: refused `permission_denied` otherwise, and a rule or a lookup
+   * that throws answered as any error is, in the route's own type.
+   */
+  async function granted(
+    c: Context,
+    type: typeof TransferPartResponseType | typeof TransferDoneResponseType,
+    answer: (upload: ObjectUploadJob | null) => Response | Promise<Response>,
+  ): Promise<Response> {
+    try {
+      if (!await options.access(c, { kind: 'upload' })) return sendError(type, variant('permission_denied', { path: 'upload' }));
+      return await answer(await uploadAt(c, c.req.param('id')!));
+    } catch (err) {
+      return sendError(type, errorToVariant(err));
+    }
+  }
+
   // GET /upload/:id/parts/:n — where to send part n (TransferPartResponse)
-  app.get('/upload/:id/parts/:part', async (c) =>
-    answers.part(c, c.req.param('id'), await uploadAt(c, c.req.param('id')), Number(c.req.param('part'))));
+  app.get('/upload/:id/parts/:part', (c) =>
+    granted(c, TransferPartResponseType, (upload) => answers.part(c, c.req.param('id'), upload, Number(c.req.param('part')))));
 
   // POST /upload/:id — commit (TransferDoneResponse)
-  app.post('/upload/:id', async (c) => {
+  app.post('/upload/:id', (c) => {
     if (protocolProblem(c) !== null) return answers.commit(c, c.req.param('id'), null);
-    if (!await options.access(c, { kind: 'upload' })) {
-      return sendError(TransferDoneResponseType, variant('permission_denied', { path: 'upload' }));
-    }
-    return answers.commit(c, c.req.param('id'), await uploadAt(c, c.req.param('id')));
+    return granted(c, TransferDoneResponseType, (upload) => answers.commit(c, c.req.param('id'), upload));
   });
 
   // GET /upload/:id — poll a commit (TransferDoneResponse)
-  app.get('/upload/:id', async (c) => answers.poll(c.req.param('id'), await uploadAt(c, c.req.param('id'))));
+  app.get('/upload/:id', (c) => granted(c, TransferDoneResponseType, (upload) => answers.poll(c.req.param('id'), upload)));
 
   return app;
 }
