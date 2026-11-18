@@ -10,7 +10,9 @@
  * `util`), which Vite externalizes and breaks in the browser. The example
  * files only need `e3.input(...)` / `e3.function(...)` + def types — and
  * `e3.index(...)`, an index of a record as a function's input, which every
- * builder's optimiser example reads its rows through (east-workspace#1622) —
+ * builder's optimiser example reads its rows through (east-workspace#1622),
+ * and `e3.recordComposite(...)`, the record of several sources that the
+ * `Record.bind` examples bind (east-workspace#1465) —
  * but the public `@elaraai/e3-ui` entry re-exports `ui()`, which imports
  * `task`, so the shim must carry `task` too for the bundle to resolve. All
  * are pure.
@@ -28,24 +30,28 @@ import { input } from '../../../../e3/packages/e3/src/input.ts';
 import { task } from '../../../../e3/packages/e3/src/task.ts';
 import { function_ } from '../../../../e3/packages/e3/src/function.ts';
 import { record } from '../../../../e3/packages/e3/src/record.ts';
+import { recordComposite } from '../../../../e3/packages/e3/src/record-composite.ts';
 import { mutation } from '../../../../e3/packages/e3/src/mutation.ts';
 import { index } from '../../../../e3/packages/e3/src/index-input.ts';
 
-export { input, task, record, mutation, index };
+export { input, task, record, recordComposite, mutation, index };
 export { function_ };
-export type { DatasetDef, FunctionDef, RecordDef, MutationDef, RecordIndexDef } from '../../../../e3/packages/e3/src/types.ts';
+export type {
+    CompositeRecordDef, DatasetDef, FunctionDef, RecordDef, MutationDef, RecordIndexDef, RecordSourceDef,
+} from '../../../../e3/packages/e3/src/types.ts';
 
 /** Default-export surface, matching `@elaraai/e3`'s `e3` object for the
- *  members the browser harness can support. `record` / `mutation` / `index`
- *  are pure (they reach `@elaraai/east` and `@elaraai/e3-types`, never a Node
- *  built-in), so the `Record.bind` examples, the examples that page a record
- *  through its indexes — declared in the record — and the functions that
- *  take one of them as an input bundle. */
+ *  members the browser harness can support. `record` / `recordComposite` /
+ *  `mutation` / `index` are pure (they reach `@elaraai/east` and
+ *  `@elaraai/e3-types`, never a Node built-in), so the `Record.bind` examples,
+ *  the examples that page a record through its indexes — declared in the
+ *  record — and the functions that take one of them as an input bundle. */
 const e3 = {
     input,
     task,
     function: function_,
     record,
+    recordComposite,
     mutation,
     index,
 } as const;
