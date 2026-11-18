@@ -6,8 +6,9 @@
 /**
  * What a visual's tile says about itself (#1671): what it shows of how many,
  * under it — a records table's rows, or the groups a visual holds when it
- * holds fewer than its source has (CHT-9); and that its source could not be
- * read, with a Retry where asking again may mend it.
+ * holds fewer than its source has (CHT-9); that its source could not be
+ * read, with a Retry where asking again may mend it; and what a program that
+ * ended without answering says.
  *
  * @packageDocumentation
  */
@@ -16,8 +17,22 @@ import type { ReactNode } from "react";
 import { Box, Button } from "@chakra-ui/react";
 import { BannerView, useFormatters } from "@elaraai/east-ui-components";
 import { useSlotStyles } from "@elaraai/east-ui-components/internal";
-import { useStudioMessages } from "../messages.js";
+import type { VisualAnswer } from "../../query/visual/ask.js";
+import { useStudioMessages, type StudioMessages } from "../messages.js";
 import type { VisualShown } from "./values.js";
+
+/**
+ * What a program that ended without answering says: its first problem, else
+ * that it stopped.
+ *
+ * @param answer - The program's answer, a problem
+ * @param m - The Studio's words
+ * @returns What to say of it
+ */
+export function problemOf(answer: Extract<VisualAnswer, { kind: "problem" }>, m: StudioMessages): string {
+    const outcome = answer.result.outcome;
+    return (outcome.type === "error" ? outcome.value[0]?.message : undefined) ?? m.answerStopped();
+}
 
 /**
  * The line under a visual that says what it shows of how many, in its words.
