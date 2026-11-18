@@ -17,11 +17,19 @@
  * decodes its package once, and every task object read here is read once
  * per object and then from memory ({@link taskObjectRead}): an object's hash
  * fixes what it decodes to.
+ *
+ * A task found by its name ({@link workspaceFindTask},
+ * {@link workspaceGetTaskHash}) may be a load: the load of a composite
+ * record's source runs a task object of its own, and is found by the name it
+ * has as a step of a run, `<record>.<source>`, so its logs, runs and details
+ * are read as a task's are. A list of a workspace's tasks lists its tasks
+ * alone.
  */
 
 import { decodeBeast2For } from '@elaraai/east';
 import {
   WorkspaceRecordType,
+  type DataflowLoad,
   type PackageObject,
   type TaskObject,
   decodeTaskObject,
@@ -29,6 +37,7 @@ import {
 import { OBJECT_CONCURRENCY, eachAtMost } from './concurrency.js';
 import { hashMemo, memoKey } from './memo.js';
 import { packageObjectRead, packageRead } from './packages.js';
+import { packageLoadStep } from './record-load-step.js';
 import {
   TaskNotFoundError,
   WorkspaceNotFoundError,
@@ -158,15 +167,17 @@ async function getWorkspacePackageObject(storage: StorageBackend, repo: string, 
 
 /**
  * A task of a workspace: its name, the hash of its task object, and the task
- * object.
+ * object. A load found by its step's name is one too, and says what it loads.
  */
 export interface WorkspaceTask {
-  /** The task's name */
+  /** The task's name; a load's is its step's, `<record>.<source>` */
   readonly name: string;
   /** The hash of its task object */
   readonly hash: string;
   /** Its task object: runner, inputs, output and role */
   readonly task: TaskObject;
+  /** The record and source it loads, and the record's dataset ref path, when it is a load; absent for a task */
+  readonly load?: DataflowLoad & { readonly refPath: string };
 }
 
 /**
@@ -226,14 +237,20 @@ export async function workspaceListTaskObjects(
  * Find a task in a workspace: its hash and its task object, the workspace's
  * record read once and its package decoded once.
  *
+ * @remarks
+ * A name no task has may be a load's, as a step of a run names it
+ * (`orders.erp`): the load of a composite record's source, whether a dataset
+ * feeds it or `e3 load` delivers it. It is found with the task object its
+ * runs are kept under, and says what it loads.
+ *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param ws - Workspace name
- * @param taskName - Name of the task
+ * @param taskName - Name of the task, or a load's `<record>.<source>`
  * @returns The task
  * @throws {WorkspaceNotFoundError} If workspace not found
  * @throws {WorkspaceNotDeployedError} If workspace not deployed
- * @throws {TaskNotFoundError} If task not found
+ * @throws {TaskNotFoundError} If the workspace has no task and no load of the name
  */
 export async function workspaceFindTask(
   storage: StorageBackend,
@@ -243,25 +260,27 @@ export async function workspaceFindTask(
 ): Promise<WorkspaceTask> {
   const pkg = await getWorkspacePackageObject(storage, repo, ws);
   const hash = pkg.tasks.get(taskName);
+  if (hash) return { name: taskName, hash, task: await taskObjectRead(storage, repo, hash) };
 
-  if (!hash) {
+  const step = await packageLoadStep(storage, repo, pkg, taskName);
+  if (step === null) {
     throw new TaskNotFoundError(taskName);
   }
-
-  return { name: taskName, hash, task: await taskObjectRead(storage, repo, hash) };
+  return { name: taskName, hash: step.task, task: await taskObjectRead(storage, repo, step.task), load: { ...step.load, refPath: step.refPath } };
 }
 
 /**
- * Get task hash from a workspace.
+ * Get task hash from a workspace: a task's, or a load's by the name it has as
+ * a step of a run ({@link workspaceFindTask}).
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param ws - Workspace name
- * @param taskName - Name of the task
+ * @param taskName - Name of the task, or a load's `<record>.<source>`
  * @returns The hash of the TaskObject
  * @throws {WorkspaceNotFoundError} If workspace not found
  * @throws {WorkspaceNotDeployedError} If workspace not deployed
- * @throws {TaskNotFoundError} If task not found
+ * @throws {TaskNotFoundError} If the workspace has no task and no load of the name
  */
 export async function workspaceGetTaskHash(
   storage: StorageBackend,
@@ -270,7 +289,7 @@ export async function workspaceGetTaskHash(
   taskName: string
 ): Promise<string> {
   const pkg = await getWorkspacePackageObject(storage, repo, ws);
-  const taskHash = pkg.tasks.get(taskName);
+  const taskHash = pkg.tasks.get(taskName) ?? (await packageLoadStep(storage, repo, pkg, taskName))?.task;
 
   if (!taskHash) {
     throw new TaskNotFoundError(taskName);

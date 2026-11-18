@@ -570,6 +570,32 @@ export function cliTests(
         assert.strictEqual(history.exitCode, 0, `history failed: ${history.stderr}`);
         assert.doesNotMatch(history.stdout, /\$load:/, 'nothing loaded');
       });
+
+      it('ruling 41 — shows the log of a load the dataflow ran by its step\'s name, as a task\'s is shown, and refuses a source the solution writes as no task', async (t) => {
+        const ctx = await withCli(t);
+        const { remoteUrl, workDir } = ctx;
+        const env = getCredentialsEnv();
+        const wsName = `load-logs-cli-ws-${Date.now()}`;
+        removeAfter(t, remoteUrl, wsName);
+        const zipPath = await createFedRecordPackageZip(ctx.tempDir, 'load-logs-cli-pkg', '1.0.0');
+        for (const command of [
+          ['package', 'import', remoteUrl, zipPath], ['workspace', 'create', remoteUrl, wsName], ['workspace', 'deploy', remoteUrl, wsName, 'load-logs-cli-pkg@1.0.0'],
+        ]) {
+          const setup = await runE3Command(command, workDir, { env });
+          assert.strictEqual(setup.exitCode, 0, `${command[0]} ${command[1]} failed: ${setup.stderr}`);
+        }
+        // The ERP's orders load once combine_erp has run
+        const ran = await runE3Command(['dataflow', 'run', remoteUrl, wsName], workDir, { env });
+        assert.match(ran.stdout, /\[DONE\] orders\.erp/, `the run: ${ran.stdout}${ran.stderr}`);
+
+        const logs = await runE3Command(['task', 'logs', remoteUrl, `${wsName}.orders.erp`], workDir, { env });
+        assert.strictEqual(logs.exitCode, 0, `logs failed: ${logs.stderr}`);
+        assert.match(logs.stdout, /Task:.*orders\.erp/);
+
+        const refused = await runE3Command(['task', 'logs', remoteUrl, `${wsName}.orders.own`], workDir, { env });
+        assert.notStrictEqual(refused.exitCode, 0);
+        assert.match(refused.stderr, /orders\.own/, `the refusal names it: ${refused.stderr}`);
+      });
     });
   });
 }

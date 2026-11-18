@@ -13,7 +13,9 @@
  * loaded, or completed once its commit wrote (R85). Where the host does not
  * grant a load it is refused `permission_denied`, naming it (R86). A load the
  * workspace cannot take fails, saying why, and loads nothing; so does a load
- * into a source the dataflow loads, naming its feed (R20).
+ * into a source the dataflow loads, naming its feed (R20). A load's logs, runs
+ * and details are read by the name it has as a step of a run,
+ * `<record>.<source>`, through the routes that read a task's (ruling 41).
  */
 
 import { describe, it } from 'node:test';
@@ -24,8 +26,8 @@ import {
 } from '@elaraai/east';
 import { RecordLoadResultType, type RecordLoadRequest, type RecordLoadResult, type RecordLoadStatus } from '@elaraai/e3-types';
 import {
-  ApiError, datasetGet, objectUpload, workspaceRecordHistory, workspaceRecordLoad, workspaceRecordLoadCancel, workspaceRecordLoadLaunch,
-  workspaceRecordLoadStatus, type RequestOptions,
+  ApiError, dataflowExecute, dataflowGraph, datasetGet, objectUpload, taskExecutionList, taskGet, taskList, taskLogs, workspaceRecordHistory,
+  workspaceRecordLoad, workspaceRecordLoadCancel, workspaceRecordLoadLaunch, workspaceRecordLoadStatus, type RequestOptions,
 } from '@elaraai/e3-api-client';
 
 import type { TestContext } from '../context.js';
@@ -228,6 +230,53 @@ export function recordLoadTests(setup: TestSetup<TestContext>): void {
       }
       const end = await ended(ctx, launched.id, await workspaceRecordLoadStatus(base, ctx.repoName, LOAD_WS, 'orders', 'erp', launched.id, opts));
       assert.equal(end.type, 'completed', 'through its own, it is found, and ends');
+    });
+
+    it('ruling 41 — a load delivered as a job is read by its step\'s name, through the routes that read a task\'s: its runs, its latest run\'s log and its details; the list of tasks lists no load, and a source the solution writes is no task', async (t) => {
+      const ctx = await setup(t);
+      await deployLoadedOrders(ctx);
+      const opts = await ctx.opts();
+      const base = ctx.config.baseUrl;
+      const loaded = await load(ctx, request(await upload(ctx, [['SO-1001', ACME]])));
+      assert.equal(loaded.outcome.type, 'loaded', printResult(loaded));
+
+      const runs = await taskExecutionList(base, ctx.repoName, LOAD_WS, 'orders.erp', opts);
+      assert.deepEqual(runs.map((run) => run.status.type), ['success'], 'the load ran once');
+      const log = await taskLogs(base, ctx.repoName, LOAD_WS, 'orders.erp', { stream: 'stdout' }, opts);
+      assert.deepEqual([log.inputsHash, log.executionId, log.ended], [runs[0]!.inputsHash, runs[0]!.executionId, true], 'the log is its latest run\'s');
+      assert.equal((await taskGet(base, ctx.repoName, LOAD_WS, 'orders.erp', opts)).name, 'orders.erp');
+      assert.ok(!(await taskList(base, ctx.repoName, LOAD_WS, opts)).some((task) => task.name === 'orders.erp'), 'a task list lists tasks alone');
+
+      for (const name of ['orders.own', 'orders.ftp', 'nope.erp']) {
+        for (const read of [
+          () => taskLogs(base, ctx.repoName, LOAD_WS, name, { stream: 'stdout' }, opts),
+          () => taskExecutionList(base, ctx.repoName, LOAD_WS, name, opts),
+          () => taskGet(base, ctx.repoName, LOAD_WS, name, opts),
+        ]) {
+          await assert.rejects(read(), (err: unknown) => err instanceof ApiError && err.code === 'task_not_found', name);
+        }
+      }
+    });
+
+    it('ruling 41 — a load the dataflow ran is read by its step\'s name, under the task object the run\'s graph names for it; a load that has not run has no log yet', async (t) => {
+      const ctx = await setup(t);
+      await deployFedOrders(ctx);
+      const opts = await ctx.opts();
+      const base = ctx.config.baseUrl;
+      // The ERP's orders load once combine_erp has run; the warehouse's wait on an input that holds its package's value
+      await dataflowExecute(base, ctx.repoName, LOAD_WS, {}, opts);
+      assert.deepEqual(await chain(ctx), ['$load:erp', '$init']);
+
+      const node = (await dataflowGraph(base, ctx.repoName, LOAD_WS, opts)).tasks.find((step) => step.name === 'orders.erp');
+      assert.equal((await taskGet(base, ctx.repoName, LOAD_WS, 'orders.erp', opts)).hash, node?.hash, 'the task object the graph names for the load');
+      const runs = await taskExecutionList(base, ctx.repoName, LOAD_WS, 'orders.erp', opts);
+      assert.deepEqual(runs.map((run) => run.status.type), ['success']);
+      const log = await taskLogs(base, ctx.repoName, LOAD_WS, 'orders.erp', { stream: 'stderr' }, opts);
+      assert.deepEqual([log.executionId, log.ended], [runs[0]!.executionId, true]);
+
+      assert.deepEqual(await taskExecutionList(base, ctx.repoName, LOAD_WS, 'orders.wms', opts), [], 'the warehouse\'s load has not run');
+      await assert.rejects(taskLogs(base, ctx.repoName, LOAD_WS, 'orders.wms', { stream: 'stdout' }, opts),
+        (err: unknown) => err instanceof ApiError && err.code === 'execution_not_found');
     });
   });
 }
