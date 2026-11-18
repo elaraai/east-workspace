@@ -99,7 +99,7 @@ import {
   resultVersionsKey,
   waitingTasks,
 } from '../steps.js';
-import type { Mutable } from '../types.js';
+import type { InputWait, Mutable } from '../types.js';
 
 /** Whether two inputs hashes are the same: what tells a task's own run over
  *  a set of inputs from a catch-up run of it over the same. */
@@ -1222,7 +1222,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
             versions = catchingUp.versions;
           } else {
             const at = await stepTaskCommits(storage, state, taskName);
-            if (at.kind === 'deferred') {
+            if (at.kind !== 'commits') {
               // Its status may have moved while its commits were read: a
               // failure skipped it, and it stays skipped
               const decided = state.tasks.get(taskName)?.status;
@@ -1233,7 +1233,16 @@ export class LocalOrchestrator implements DataflowOrchestrator {
                 hadSyncCompletion = true;
                 continue;
               }
-              this.deferTask(execution, taskName, at);
+              if (at.kind === 'deferred') {
+                this.deferTask(execution, taskName, at);
+                continue;
+              }
+              // Only a load's commit would decide it, and that load cannot
+              // commit in the run: it waits on the load, told so anew if it
+              // is deferred again later
+              hadSyncCompletion = true;
+              execution.deferredFor.delete(taskName);
+              await this.leaveWaiting(execution, taskName, at.waits, changed);
               continue;
             }
             versions = at.versions;
@@ -1261,17 +1270,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
           if (prepared.kind === 'waiting') {
             hadSyncCompletion = true;
             this.releaseCatchUps(execution, taskName);
-            await execution.mutex.runExclusive(async () => {
-              // A changed input was taken in since the task's versions were
-              // read, while it was prepared or while this waited its turn:
-              // the input it would wait on may be the one, and the look that
-              // found it passed the task by as one about to launch. It is
-              // decided again; one a failure settled meanwhile stays settled.
-              if (execution.changed !== changed || !this.stillReady(execution, taskName)) return;
-              const { waiting } = stepTasksWaiting(state, taskName, prepared.waits);
-              await this.persistState(execution, state);
-              for (const each of waiting) options.onTaskWaiting?.(each.task, each.waits);
-            });
+            await this.leaveWaiting(execution, taskName, prepared.waits, changed);
             continue;
           }
 
@@ -1865,6 +1864,28 @@ export class LocalOrchestrator implements DataflowOrchestrator {
   private stillReady(execution: RunningExecution, taskName: string): boolean {
     const status = execution.state.tasks.get(taskName)?.status;
     return (status === 'pending' || status === 'ready') && !execution.aborted && execution.stoppedBy === null;
+  }
+
+  /**
+   * Leaves a task waiting on what it cannot read, and its dependents with it
+   * ({@link stepTasksWaiting}), under the mutex, telling the run's caller of
+   * each.
+   *
+   * @remarks
+   * A changed input may have been taken in since the task's versions were
+   * read (`changed`), while it was decided or while this waited its turn: the
+   * input it would wait on may be the one, and the look that found it passed
+   * the task by as one about to launch. It is then left as it is, to be
+   * decided again; and one a failure settled meanwhile stays settled.
+   */
+  private async leaveWaiting(execution: RunningExecution, taskName: string, waits: readonly InputWait[], changed: number): Promise<void> {
+    const { state, options } = execution;
+    await execution.mutex.runExclusive(async () => {
+      if (execution.changed !== changed || !this.stillReady(execution, taskName)) return;
+      const { waiting } = stepTasksWaiting(state, taskName, waits);
+      await this.persistState(execution, state);
+      for (const each of waiting) options.onTaskWaiting?.(each.task, each.waits);
+    });
   }
 
   /**

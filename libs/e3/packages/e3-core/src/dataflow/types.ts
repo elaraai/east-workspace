@@ -168,20 +168,27 @@ export type DeferReason =
    *  the roots its feed reads it holds: `roots` names those another input of
    *  the task names */
   | { kind: 'forgotten'; record: string; source: string; roots: string[] }
-  /** Two fed records, by their keypaths, holding deliveries made from
-   *  different versions of one root */
-  | { kind: 'carried'; records: [string, string]; root: string }
+  /** Two fed sources holding deliveries made from different versions of one
+   *  root: each by its record's keypath (`records`) and its name (`sources`),
+   *  in the same order. They are two records' sources, or two sources of one
+   *  record that the task reads beside the root */
+  | { kind: 'carried'; records: [string, string]; sources: [string, string]; root: string }
   /** A fed record, by its keypath, read beside the plain input that feeds its
    *  source, which has moved on from the value its delivery was made from */
   | { kind: 'feed'; record: string; source: string; input: string };
 
 /**
  * What stepTaskCommits answers: the version of each root the task reads —
- * for a record, the commit — or why it is deferred.
+ * for a record, the commit — or why it is deferred; or, where only a load's
+ * commit would end the deferral and that load cannot commit in the run, the
+ * load it waits on.
  */
 export type TaskCommits =
   | { kind: 'commits'; versions: Map<string, string> }
-  | { kind: 'deferred'; reason: DeferReason };
+  | { kind: 'deferred'; reason: DeferReason }
+  /** The task waits on a record's load (`upstream`), as a reader of a load
+   *  that cannot run does: it is left waiting (stepTasksWaiting) */
+  | { kind: 'waiting'; waits: InputWait[] };
 
 /**
  * An input a task waits on, by its keypath, and why the task cannot read it
@@ -205,7 +212,9 @@ export type InputWait =
    *  it: a load waits until someone sets it */
   | { input: string; kind: 'package' }
   /** The input is a composite record whose load node `task` waits: its
-   *  readers wait with it */
+   *  readers wait with it. So does a reader that only that load's commit
+   *  would decide, where the load cannot commit in the run: it failed, or
+   *  the run's filter leaves it out */
   | { input: string; kind: 'upstream'; task: string };
 
 /**

@@ -549,6 +549,15 @@ export function ledgerOrders(options: { readonly erp?: LedgerErpLoad; readonly o
   });
 }
 
+/** A load that fails for a delivery holding the order `id`, naming the order,
+ *  and loads any other as {@link loadBook} does. */
+function loadFailingOn(id: string) {
+  return East.function([ErpDeliveryType, ErpDeliveryType], PatchType(ErpDeliveryType), ($, delivery, current) => {
+    $.if(delivery.has(id), ($) => $.error(East.str`the ERP sent order ${East.value(id)}, which no order book holds`));
+    return East.diff(current, delivery);
+  });
+}
+
 /**
  * A package for a fed load's spec, after the design's §4.4: `orders`, a
  * composite record whose `erp` source the dataflow loads from its feed, beside
@@ -584,12 +593,7 @@ export function fedOrders(options: {
   const erpExtract = e3.input('erp_extract', ErpDeliveryType, variant('value', new Map([['SO-0', { customer: 'Placeholder', qty: 0n }]])));
   const wmsRows = e3.input('wms_rows', ErpDeliveryType);
   const combineWms = e3.task('combine_wms', [wmsRows], East.function([ErpDeliveryType], ErpDeliveryType, (_$, rows) => rows));
-  const failsOn = options.failsOn;
-  const loadErp = failsOn === undefined ? loadBook : East.function(
-    [ErpDeliveryType, ErpDeliveryType], PatchType(ErpDeliveryType), ($, delivery, current) => {
-      $.if(delivery.has(failsOn), ($) => $.error(East.str`the ERP sent order ${East.value(failsOn)}, which no order book holds`));
-      return East.diff(current, delivery);
-    });
+  const loadErp = options.failsOn === undefined ? loadBook : loadFailingOn(options.failsOn);
   const fedBy = (feed: typeof combineErp | typeof erpExtract) => e3.recordComposite('orders', SourcedOrderType, {
     sources: (source) => ({
       erp: source.load(StringType, feed, loadErp),
@@ -627,13 +631,17 @@ export function fedOrders(options: {
  *   `orders`; `audit` reads `orders` and `invoices`.
  * - `extract`: the input `erp_extract`, which nothing sets until a spec does;
  *   `check` reads `erp_extract` and `orders`.
+ * - `twice`: `combine_erp`, beside a second fed source of `orders`, `inv`,
+ *   fed `erp_book` whole by `combine_inv`: one record whose two sources each
+ *   carry a version of the book. `reconcile` reads `erp_book` and `orders`.
  *
  * `forecast` reads `orders` alone, and counts its entries.
  *
- * @param options - What feeds `orders.erp`
+ * @param options - What feeds `orders.erp`, and an order id whose delivery
+ *   makes its load fail, naming the order
  * @returns The package (`book`, at `1.0.0`)
  */
-export function bookFed(options: { readonly feed?: 'book' | 'extract' } = {}) {
+export function bookFed(options: { readonly feed?: 'book' | 'extract' | 'twice'; readonly failsOn?: string } = {}) {
   const erpBook = e3.record('erp_book', ErpDeliveryType, {
     initial: new Map([['SO-1', { customer: 'Acme', qty: 5n }]]),
     mutations: (mutation, { state, edit }) => ({
@@ -646,9 +654,24 @@ export function bookFed(options: { readonly feed?: 'book' | 'extract' } = {}) {
     ($, rows) => rows.filter(($, order) => order.qty.greater(0n))));
   const combineInv = e3.task('combine_inv', [erpBook], East.function([ErpDeliveryType], ErpDeliveryType, (_$, rows) => rows));
   const erpExtract = e3.input('erp_extract', ErpDeliveryType);
+  const loadErp = options.failsOn === undefined ? loadBook : loadFailingOn(options.failsOn);
+  if (options.feed === 'twice') {
+    const twice = e3.recordComposite('orders', SourcedOrderType, {
+      sources: (source) => ({
+        erp: source.load(StringType, combineErp, loadBook),
+        inv: source.load(StringType, combineInv, loadBook),
+        own: source.mutations(StringType),
+      }),
+      initial: { own: new Map([['P-1', { customer: 'Birch', qty: 2n }]]) },
+    });
+    return e3.package('book', '1.0.0',
+      e3.task('forecast', [twice], East.function([twice.type], IntegerType, (_$, held) => held.size())),
+      e3.task('reconcile', [erpBook, twice],
+        East.function([ErpDeliveryType, twice.type], IntegerType, (_$, held, orders) => held.size().multiply(100n).add(orders.size()))));
+  }
   const composite = (name: string, feed: TaskDef<typeof ErpDeliveryType> | DatasetDef<typeof ErpDeliveryType>) => e3.recordComposite(name, SourcedOrderType, {
     sources: (source) => ({
-      erp: source.load(StringType, feed, loadBook),
+      erp: source.load(StringType, feed, name === 'orders' ? loadErp : loadBook),
       own: source.mutations(StringType),
     }),
     initial: { own: new Map(name === 'orders' ? [['P-1', { customer: 'Birch', qty: 2n }]] : []) },

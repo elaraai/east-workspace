@@ -1065,7 +1065,8 @@ describe('stepTaskCommits', () => {
   it('names the root a deferral is for, which its event records', () => {
     assert.strictEqual(deferralPath({ kind: 'plain', input: '.rates', through: ['x', 'y'] }), '.rates');
     assert.strictEqual(deferralPath({ kind: 'feed', record: '.records.orders', source: 'erp', input: '.rates' }), '.rates');
-    assert.strictEqual(deferralPath({ kind: 'carried', records: ['.records.orders', '.records.stock'], root: '.records.book' }), '.records.book');
+    assert.strictEqual(
+      deferralPath({ kind: 'carried', records: ['.records.orders', '.records.stock'], sources: ['erp', 'wms'], root: '.records.book' }), '.records.book');
     assert.strictEqual(
       deferralPath({ kind: 'forgotten', record: '.records.orders', source: 'erp', roots: ['.records.book', '.rates'] }), '.records.book',
       'the first root its feed reads that another input names');

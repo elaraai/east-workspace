@@ -680,7 +680,8 @@ function declaredName(keypath: string): string {
  *   migration made it forget, and the roots its feed reads that the task
  *   reads too.
  * - `carried`: two fed records holding deliveries made from different
- *   versions of one root.
+ *   versions of one root; or one record's two sources, each named as its
+ *   load is.
  * - `feed`: a fed record read beside the input that feeds it, which has moved
  *   on since the record's delivery was made from it.
  *
@@ -710,8 +711,12 @@ export function describeDeferral(reason: DeferReason): string {
       const load = `${record}.${reason.source}`;
       return `${load}'s delivery was forgotten, so nothing says which ${listed(reason.roots.map(declaredName))} ${record} holds: it runs once ${load} loads again`;
     }
-    case 'carried':
-      return `${listed(reason.records.map(declaredName))} hold deliveries made from different versions of ${declaredName(reason.root)}: it runs once their loads catch up`;
+    case 'carried': {
+      // Two sources of one record are told apart by their loads' names
+      const records = reason.records.map(declaredName);
+      const holders = sameName(reason.records[0], reason.records[1]) ? records.map((record, at) => `${record}.${reason.sources[at]}`) : records;
+      return `${listed(holders)} hold deliveries made from different versions of ${declaredName(reason.root)}: it runs once their loads catch up`;
+    }
     case 'feed': {
       const record = declaredName(reason.record);
       return `${record} holds a delivery made from an earlier value of input '${declaredName(reason.input)}': it runs once ${record}.${reason.source} loads the new one`;

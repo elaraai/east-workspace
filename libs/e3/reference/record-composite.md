@@ -200,7 +200,17 @@ $ e3 dataflow run . main
     [DEFER] check: orders holds a delivery made from an earlier value of input 'erp_extract': it runs once orders.erp loads the new one
   ```
 
-  A task that reads a fed record alone is never deferred.
+  Two sources of one record can hold deliveries made from different versions
+  of an upstream too, and are then named as their loads are:
+  `orders.erp and orders.wms hold deliveries made from different versions of
+  erpOrders`. A version of the upstream that a compaction cut and a sweep
+  took is read as a forgotten delivery's is. A task that reads a fed record
+  alone is never deferred, whatever its sources hold.
+
+  Where the load such a reader is deferred for cannot commit in the run — it
+  failed, it waits, or `--filter` leaves it out — the reader waits on the load
+  instead, and the run ends without it:
+  `[WAIT] check: record 'orders' waits on its load orders.erp`.
 - **A load that fails** says so as it fails, `[FAIL] orders.erp [412ms] (exit
   code 1)`, and the record keeps its last commit. The run goes on, and the
   load runs again when its feed moves. A run whose load still stands failed at

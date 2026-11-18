@@ -606,10 +606,18 @@ export async function stepDetectInputChanges(
  *
  * Nothing says which version to read, and the task is deferred until a load
  * commits, saying why: when a record forgot its delivery and another input
- * names a root its feed reads (`forgotten`); when two fed records carry
- * different versions of one root (`carried`); and when a fed record carries an
- * earlier value of a plain input another input reads (`feed`). A task that
- * reads a fed record alone is never deferred.
+ * names a root its feed reads (`forgotten`); when two fed sources — of two
+ * records, or of one the task reads beside the root — carry different
+ * versions of one root (`carried`); and when a fed record carries an earlier
+ * value of a plain input another input reads (`feed`). A version a record
+ * carries that the store no longer holds, a compaction having cut it and a
+ * sweep taken it, is read as a forgotten delivery's is. A task that reads a
+ * fed record alone is never deferred, whatever its sources carry.
+ *
+ * Where the load whose commit would end such a deferral cannot commit in the
+ * run — it is outside the filter's run set, or it failed, was skipped or
+ * waits — the task waits on that load instead (`waiting`), and the run goes
+ * on without it.
  *
  * A reserved slot of a vector, whose key begins `$`, is no root, and is left
  * out.
@@ -623,7 +631,8 @@ export async function stepDetectInputChanges(
  *   needs. A caller that only asks what the task would read, to say whether
  *   it is due, passes false: the store is then asked for no commit, and the
  *   run's memory of those a launch found gone answers
- * @returns The version of each root the task reads, or why it is deferred
+ * @returns The version of each root the task reads, why it is deferred, or
+ *   the load it waits on
  */
 export async function stepTaskCommits(
   storage: StorageBackend,
@@ -659,35 +668,49 @@ export async function stepTaskCommits(
     const commit = producer === undefined && loads.has(inputPath) ? vector.get(inputPath) : undefined;
     if (commit === undefined) continue;
     for (const { source, versions } of dataflowCarried(state, inputPath, commit)) {
-      for (const [root, version] of versionRoots(versions)) name(root, { version, through: inputPath, carrier: { record: inputPath, source, commit } });
+      for (const [root, carried] of versionRoots(versions)) {
+        // A version the store no longer holds says nothing, as a delivery its
+        // record forgot says nothing
+        const version = dataflowCommitGone(state, root, carried) ? UNKNOWN_VERSION : carried;
+        name(root, { version, through: inputPath, carrier: { record: inputPath, source, commit } });
+      }
     }
   }
 
-  // Why the task is deferred, where it is, is decided for every root before
-  // any commit is asked of the store: the ask re-references a commit for the
-  // task's launch, and a deferred task launches nothing, however often it is
-  // decided again
+  // Why the task is deferred, or waits, where it does, is decided for every
+  // root before any commit is asked of the store: the ask re-references a
+  // commit for the task's launch, and a task that is deferred launches
+  // nothing, however often it is decided again
   const agreed = (names: ReadonlyArray<{ version: string }>): boolean => names.every((each) => sameVersion(each.version, names[0]!.version));
+  const unsaid = new Set<string>();
   const carriedAt = new Map<string, NamedVersion>();
   for (const [root, names] of named) {
-    // A delivery its record forgot: nothing says which version of the root it
-    // holds, which matters only where another input names the root
-    if (names.some((each) => sameVersion(each.version, UNKNOWN_VERSION))) {
-      if (names.every((each) => sameVersion(each.version, UNKNOWN_VERSION))) continue;
-      return forgottenDeferral(graph, task, named);
-    }
-    // Two fed records whose deliveries were made from different versions of it
-    const carried = names.filter((each) => each.carrier !== undefined);
+    const unknown = names.some((each) => sameVersion(each.version, UNKNOWN_VERSION));
+    const carried = names.filter((each) => each.carrier !== undefined && !sameVersion(each.version, UNKNOWN_VERSION));
     const distinct = carried.filter((each, at) => carried.findIndex((other) => sameVersion(other.version, each.version)) === at);
-    if (distinct.length > 1) {
-      return { kind: 'deferred', reason: { kind: 'carried', records: [distinct[0]!.carrier!.record, distinct[1]!.carrier!.record], root } };
+    if (unknown || distinct.length > 1) {
+      // Nothing says one version of the root: a record forgot its delivery, or
+      // fed sources hold deliveries made from different versions of it. That
+      // matters only where another input names the root: a task that reads one
+      // fed record alone runs on the record as it stands
+      if (carriedAlone(names) || names.every((each) => sameVersion(each.version, UNKNOWN_VERSION))) {
+        unsaid.add(root);
+        continue;
+      }
+      if (unknown) return deferredOrWaiting(state, graph, forgottenDeferral(graph, task, named));
+      const [first, second] = [distinct[0]!.carrier!, distinct[1]!.carrier!];
+      return deferredOrWaiting(state, graph, {
+        kind: 'deferred', reason: { kind: 'carried', records: [first.record, second.record], sources: [first.source, second.source], root },
+      });
     }
     // The workspace's records are read only where two inputs disagree
     if (!agreed(names) && !(await dataflowRecords(storage, state)).has(root)) {
       // A fed record carries a value of the input another input has moved on from
       const fed = carried.find((each) => names.some((other) => other.carrier === undefined && !sameVersion(other.version, each.version)));
       if (fed !== undefined) {
-        return { kind: 'deferred', reason: { kind: 'feed', record: fed.carrier!.record, source: fed.carrier!.source, input: root } };
+        return deferredOrWaiting(state, graph, {
+          kind: 'deferred', reason: { kind: 'feed', record: fed.carrier!.record, source: fed.carrier!.source, input: root },
+        });
       }
       const through = [...new Set(names.map((each) => each.through))];
       return {
@@ -699,13 +722,27 @@ export async function stepTaskCommits(
   }
 
   // The task launches: a record its inputs name at several commits is read at
-  // the oldest the store holds. A root a forgotten delivery alone names stays
-  // unknown, its names agreeing
+  // the oldest the store holds
+  const hold = options.hold !== false;
   const versions = new Map<string, string>();
   for (const [root, names] of named) {
-    versions.set(root, agreed(names)
-      ? names[0]!.version
-      : await oldestHeld(storage, state, root, names.map((each) => each.version), options.hold !== false));
+    if (unsaid.has(root)) {
+      versions.set(root, UNKNOWN_VERSION);
+      continue;
+    }
+    let version = names[0]!.version;
+    if (!agreed(names)) {
+      // The version a fed record carries is where the task reads the root
+      // beside the record: the store is asked for it as a launch asks for any
+      // commit it reads. One it no longer holds is read as unknown, so the
+      // task is decided again
+      const carried = carriedAt.get(root);
+      if (carried !== undefined && !(await commitHeld(storage, state, root, carried.version, hold))) {
+        return stepTaskCommits(storage, state, taskName, options);
+      }
+      version = await oldestHeld(storage, state, root, names.map((each) => each.version), hold);
+    }
+    versions.set(root, version);
   }
   // A root a fed record carries is read at the version the record's commit
   // carries, where the task reads the record at that commit
@@ -726,6 +763,45 @@ interface NamedVersion {
   readonly carrier?: { readonly record: string; readonly source: string; readonly commit: string };
 }
 
+/** Whether one fed record alone names a root to a task: every version of the
+ *  root the task's inputs name is one a source of that record carries. */
+function carriedAlone(names: readonly NamedVersion[]): boolean {
+  const first = names[0]?.carrier;
+  return first !== undefined && names.every((each) => each.carrier !== undefined && sameInput(each.carrier.record, first.record));
+}
+
+/**
+ * A deferral that only a load's commit ends; or, where a load it names cannot
+ * commit in the run, the wait on that load it becomes.
+ *
+ * @remarks
+ * A task deferred for a forgotten delivery, for deliveries made from
+ * different versions of a root, or for a fed record beside the input that
+ * feeds it, is decided again as the load it names commits. A load outside the
+ * filter's run set, or one that failed, was skipped or waits, commits nothing
+ * in the run as it stands, and nothing else would decide the task again: it
+ * waits on the load (`upstream`), as a reader of a load that cannot run does,
+ * and the run goes on, and ends, without it. It is decided again once the
+ * load commits ({@link stepTaskCompleted}), or one of its inputs changes
+ * ({@link stepTasksDue}).
+ */
+function deferredOrWaiting(state: DataflowExecutionState, graph: DataflowGraph, deferral: Extract<TaskCommits, { kind: 'deferred' }>): TaskCommits {
+  const { reason } = deferral;
+  if (reason.kind === 'plain') return deferral;
+  const named = reason.kind === 'carried'
+    ? [{ record: reason.records[0], source: reason.sources[0] }, { record: reason.records[1], source: reason.sources[1] }]
+    : [{ record: reason.record, source: reason.source }];
+  const runSet = stepGetRunSet(state);
+  for (const { record, source } of named) {
+    const node = loadsOf(graph).get(record)?.find((each) => each.load.type === 'some' && sameInput(each.load.value.source, source));
+    if (node === undefined) continue;
+    const status = state.tasks.get(node.name)?.status;
+    const commits = (runSet === null || runSet.has(node.name)) && status !== 'failed' && status !== 'skipped' && status !== 'waiting';
+    if (!commits) return { kind: 'waiting', waits: [{ input: record, kind: 'upstream', task: node.name }] };
+  }
+  return deferral;
+}
+
 /**
  * A task deferred for a delivery its record forgot: the record and the source
  * whose delivery it was, and each root its feed reads that another input of
@@ -733,11 +809,15 @@ interface NamedVersion {
  * or else, for a version the task reads through a result made from such a
  * record, the first source of the graph whose feed reads the root.
  */
-function forgottenDeferral(graph: DataflowGraph, task: DataflowGraph['tasks'][number], named: ReadonlyMap<string, readonly NamedVersion[]>): TaskCommits {
+function forgottenDeferral(
+  graph: DataflowGraph, task: DataflowGraph['tasks'][number], named: ReadonlyMap<string, readonly NamedVersion[]>,
+): Extract<TaskCommits, { kind: 'deferred' }> {
   const roots = [...named]
-    .filter(([, names]) => names.some((each) => sameVersion(each.version, UNKNOWN_VERSION)) && names.some((each) => !sameVersion(each.version, UNKNOWN_VERSION)))
+    .filter(([, names]) => !carriedAlone(names) &&
+      names.some((each) => sameVersion(each.version, UNKNOWN_VERSION)) && names.some((each) => !sameVersion(each.version, UNKNOWN_VERSION)))
     .map(([root]) => root);
-  const unknown = [...named.values()].flat().find((each) => each.carrier !== undefined && sameVersion(each.version, UNKNOWN_VERSION))?.carrier;
+  const unknown = roots.flatMap((root) => named.get(root) ?? [])
+    .find((each) => each.carrier !== undefined && sameVersion(each.version, UNKNOWN_VERSION))?.carrier;
   const node = unknown === undefined
     ? graph.tasks.find((each) => each.load.type === 'some' && each.name !== task.name && feedRoots(graph, each.inputs[0]!).includes(roots[0]!))
     : undefined;
@@ -763,7 +843,7 @@ function forgottenDeferral(graph: DataflowGraph, task: DataflowGraph['tasks'][nu
  * @example
  * ```ts
  * deferralPath({ kind: 'plain', input: '.inputs.rates', through: ['forecast', 'capacity'] }); // '.inputs.rates'
- * deferralPath({ kind: 'carried', records: ['.records.orders', '.records.stock'], root: '.records.erp_book' }); // '.records.erp_book'
+ * deferralPath({ kind: 'carried', records: ['.records.orders', '.records.stock'], sources: ['erp', 'wms'], root: '.records.erp_book' }); // '.records.erp_book'
  * ```
  */
 export function deferralPath(reason: DeferReason): string {
@@ -818,13 +898,27 @@ async function oldestHeld(
   while (commits.length > 0) {
     let oldest = commits[0]!;
     for (const each of commits.slice(1)) oldest = await recordCommitOrder(storage, state, record, oldest, each);
-    if (!hold) return oldest;
-    const [held] = await storage.objects.touch(state.repo, [oldest]);
-    if (held === true) return oldest;
-    dataflowCommitSwept(state, record, oldest);
+    if (await commitHeld(storage, state, record, oldest, hold)) return oldest;
     commits = commits.filter((each) => !sameVersion(each, oldest));
   }
   return state.inputSnapshot.get(record) ?? named[0]!;
+}
+
+/**
+ * Whether the store still holds a commit of a record a task is about to read.
+ *
+ * @remarks
+ * With `hold`, the store is asked as a touch, which re-references a commit it
+ * holds, so a sweep beside the running work leaves it while the task reads
+ * it; one it no longer holds is remembered by the run (`dataflowCommitSwept`).
+ * Without, nothing is asked of the store, and the run's memory of the commits
+ * a launch found gone answers.
+ */
+async function commitHeld(storage: StorageBackend, state: DataflowExecutionState, record: string, commit: string, hold: boolean): Promise<boolean> {
+  if (!hold) return !dataflowCommitGone(state, record, commit);
+  const [held] = await storage.objects.touch(state.repo, [commit]);
+  if (held !== true) dataflowCommitSwept(state, record, commit);
+  return held === true;
 }
 
 /**
@@ -839,9 +933,9 @@ async function wouldReadOther(storage: StorageBackend, state: DataflowExecutionS
   const made = state.versionVectors.get(output);
   if (made === undefined) return true;
   const at = await stepTaskCommits(storage, state, taskName, { hold: false });
-  // Deferred: nothing says which version of an input it reads, which the
-  // launch says, once it is decided again
-  return at.kind === 'deferred' || !sameVersions(at.versions, made);
+  // Deferred, or waiting on a load: nothing says which version of an input
+  // it reads, which the launch says, once it is decided again
+  return at.kind !== 'commits' || !sameVersions(at.versions, made);
 }
 
 /**

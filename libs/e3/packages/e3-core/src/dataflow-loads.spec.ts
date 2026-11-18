@@ -24,7 +24,7 @@ import { DatasetRefType, VersionVectorType, type TreePath } from '@elaraai/e3-ty
 import { dataflowGetGraph } from './dataflow.js';
 import type { OrchestratorStartOptions } from './dataflow/orchestrator/interfaces.js';
 import type { DeferReason, FinalizeResult, InputWait } from './dataflow/types.js';
-import { DataflowAbortedError } from './errors.js';
+import { DataflowAbortedError, ObjectNotFoundError } from './errors.js';
 import type { TaskRunner } from './execution/interfaces.js';
 import { LocalOrchestrator } from './execution/local-orchestrator.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
@@ -75,7 +75,7 @@ function deferWords(reason: DeferReason): string {
   switch (reason.kind) {
     case 'plain': return `plain ${reason.input} through ${reason.through.join(', ')}`;
     case 'forgotten': return `forgotten ${reason.record}.${reason.source} (${reason.roots.join(', ')})`;
-    case 'carried': return `carried ${reason.root} (${reason.records.join(', ')})`;
+    case 'carried': return `carried ${reason.root} (${reason.records.map((record, at) => `${record}.${reason.sources[at]}`).join(', ')})`;
     case 'feed': return `feed ${reason.input} (${reason.record}.${reason.source})`;
   }
 }
@@ -729,7 +729,7 @@ describe('a source the dataflow loads', () => {
     const gate = new GatedTaskRunner(runner, ['orders.erp']);
     const running = start({ runner: gate });
     await gate.launched('orders.erp');
-    await running.until('defer audit: carried .records.erp_book (.records.orders, .records.invoices)');
+    await running.until('defer audit: carried .records.erp_book (.records.orders.erp, .records.invoices.erp)');
     releaseAll(gate, 'orders.erp');
     const result = await running.done;
     const told = running.lines.join('\n');
@@ -756,6 +756,99 @@ describe('a source the dataflow loads', () => {
 
     assert.equal(result.success, true, told);
     assert.equal(await workspaceGetDataset(storage, repo, WS, outputOf('check')), 203n, 'the input\'s two orders, beside orders\' three');
+  });
+
+  it('ruling 29 — a reader only a load\'s commit would decide waits on that load where the run\'s filter leaves the load out, and the run ends', async () => {
+    await deployedBook({ feed: 'extract' });
+    await setRows(ERP_EXTRACT, { 'SO-1': ['Acme', 5n] });
+    const first = await run();
+    assert.equal(first.result.success, true, first.told);
+    await setRows(ERP_EXTRACT, { 'SO-1': ['Acme', 5n], 'SO-2': ['Birch', 4n] });
+
+    // The filter loads nothing (R57): check waits on the load, and says so
+    const { result, lines, told } = await run({ filter: 'check' });
+    assert.equal(result.success, true, told);
+    assert.deepEqual(lines, ['wait check: upstream .records.orders (orders.erp)']);
+    assert.equal(result.waiting, 1, told);
+
+    // The next run loads the input, and check runs on the record it leaves
+    const loaded = await run();
+    assert.equal(loaded.result.success, true, loaded.told);
+    assert.equal(await workspaceGetDataset(storage, repo, WS, outputOf('check')), 203n, 'the input\'s two orders, beside orders\' three');
+  });
+
+  it('ruling 29 — a reader deferred until a load commits waits on the load once it fails: the run ends failed, naming the load, and the reader runs once the load commits', async () => {
+    await deployedBook({ feed: 'extract', failsOn: 'SO-9' });
+    await setRows(ERP_EXTRACT, { 'SO-1': ['Acme', 5n] });
+    const first = await run();
+    assert.equal(first.result.success, true, first.told);
+    await setRows(ERP_EXTRACT, { 'SO-1': ['Acme', 5n], 'SO-9': ['Nobody', 1n] });
+
+    const failed = await run();
+    assert.equal(failed.result.success, false, failed.told);
+    assert.deepEqual([failed.result.failed, failed.result.waiting], [1, 1], failed.told);
+    const at = (line: string): number => failed.lines.indexOf(line);
+    assert.ok(at('failed orders.erp') >= 0 && at('failed orders.erp') < at('wait check: upstream .records.orders (orders.erp)'), failed.told);
+    assert.match(failed.errors.get('orders.erp') ?? '', /the ERP sent order SO-9/, failed.told);
+
+    await setRows(ERP_EXTRACT, { 'SO-1': ['Acme', 5n], 'SO-2': ['Birch', 4n] });
+    const loaded = await run();
+    assert.equal(loaded.result.success, true, loaded.told);
+    assert.equal(await workspaceGetDataset(storage, repo, WS, outputOf('check')), 203n);
+  });
+
+  it('ruling 30 — a version a fed record carries that the store no longer holds is read as unknown: a reader of the record and that upstream is deferred until the load commits', async () => {
+    await loadedBook();
+    const cut = (await refOf('erp_book')).versions.get('.records.erp_book')!;
+    await putBook('SO-2', 'Birch', 4n);
+
+    // A compaction cut the book's earlier commit and a sweep took it: the store holds it no more
+    const isCut = (hash: string): boolean => equalFor(StringType)(hash, cut);
+    const objects = overriding(storage.objects, {
+      touch: async (...args: Parameters<StorageBackend['objects']['touch']>) => {
+        const held = await storage.objects.touch(...args);
+        return args[1].map((hash, at) => !isCut(hash) && held[at] === true);
+      },
+      read: async (...args: Parameters<StorageBackend['objects']['read']>) => {
+        if (isCut(args[1])) throw new ObjectNotFoundError(cut);
+        return storage.objects.read(...args);
+      },
+    });
+    const gate = new GatedTaskRunner(runner, ['orders.erp']);
+    const running = start({ runner: gate, storage: withStores(storage, { objects }) });
+    await gate.launched('orders.erp');
+    // orders still holds the delivery made from the commit that is gone: nothing says which book it holds
+    await running.until('defer reconcile: forgotten .records.orders.erp (.records.erp_book)');
+    releaseAll(gate, 'orders.erp');
+    const result = await running.done;
+    const told = running.lines.join('\n');
+
+    assert.equal(result.success, true, told);
+    assert.equal(await workspaceGetDataset(storage, repo, WS, outputOf('reconcile')), 203n, `the book's two orders, beside orders' three\n${told}`);
+  });
+
+  it('ruling 31 — one record\'s sources holding deliveries made from different versions of an upstream: a reader of the record alone runs, and one that reads the upstream too is deferred until the slower load catches up, naming the two', async () => {
+    await deployedBook({ feed: 'twice' });
+    const first = await run();
+    assert.equal(first.result.success, true, first.told);
+    await putBook('SO-2', 'Birch', 4n);
+
+    // erp's load commits from the book's new order while inv's is held: the two sources carry different versions of the book
+    const gate = new GatedTaskRunner(runner, ['orders.inv']);
+    const running = start({ runner: gate });
+    await gate.launched('orders.inv');
+    await running.until('defer reconcile: carried .records.erp_book (.records.orders.erp, .records.orders.inv)');
+    await running.until('done forecast');
+    releaseAll(gate, 'orders.inv');
+    const result = await running.done;
+    const { lines } = running;
+    const told = lines.join('\n');
+
+    assert.equal(result.success, true, told);
+    assert.ok(!lines.some((line) => line.startsWith('defer forecast')), `forecast reads orders alone, and is never deferred\n${told}`);
+    assert.ok(lines.indexOf('done orders.erp') < lines.indexOf('done forecast') && lines.indexOf('done forecast') < lines.indexOf('done orders.inv'),
+      `it ran on the record as erp's commit left it\n${told}`);
+    assert.equal(await workspaceGetDataset(storage, repo, WS, outputOf('reconcile')), 205n, 'the book\'s two orders, beside orders\' five');
   });
 
   it('F45 — a workspace made from a bundle holds each fed load\'s execution its record names, and answers its loads [CACHED]', async () => {

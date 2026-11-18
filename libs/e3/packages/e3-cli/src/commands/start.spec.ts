@@ -154,8 +154,13 @@ describe('a local run\'s lines', () => {
       'two roots are joined as tasks are',
     );
     assert.equal(
-      describeDeferral({ kind: 'carried', records: ['.records.orders', '.records.invoices'], root: '.records.erpOrders' }),
+      describeDeferral({ kind: 'carried', records: ['.records.orders', '.records.invoices'], sources: ['erp', 'erp'], root: '.records.erpOrders' }),
       'orders and invoices hold deliveries made from different versions of erpOrders: it runs once their loads catch up',
+    );
+    assert.equal(
+      describeDeferral({ kind: 'carried', records: ['.records.orders', '.records.orders'], sources: ['erp', 'wms'], root: '.records.erp_book' }),
+      'orders.erp and orders.wms hold deliveries made from different versions of erp_book: it runs once their loads catch up',
+      'ruling 31: two sources of one record are named as their loads are',
     );
     assert.equal(
       describeDeferral({ kind: 'feed', record: '.records.orders', source: 'erp', input: '.inputs.erp_extract' }),
