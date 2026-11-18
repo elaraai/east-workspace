@@ -80,7 +80,7 @@ holds every example to it: no function captures the whole slice.
 A record's Save is held the same way (#1620). `Record.onApply` answers one
 East struct, the Save and its draft form (`RecordSaveTypeFor`), built in a
 block that binds the plan of the write and the record's doors once
-(`inWriteBlock`, `bind/record.ts`): the two call one plan, and neither holds
+(`inWriteBlock`, `bind/record-apply.ts`): the two call one plan, and neither holds
 the handle. A collection takes its `onApply` through east-ui's
 `withEditingSave`, which binds a Save once where the session is made and
 hands the collection its apply and its draft form; a plain function goes
