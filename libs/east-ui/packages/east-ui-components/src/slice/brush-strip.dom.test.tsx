@@ -54,6 +54,19 @@ function strip(props: Partial<BrushStripProps> = {}) {
     return { view, q, track, onCommit, onClear };
 }
 
+/** Where a window's two zones lie as the strip draws them: whether it is narrow, each zone's side of its edge and its left. */
+function placed(from: number, to: number) {
+    const { q, track } = strip({ window: { from, to } });
+    const zones = [...q("[data-brush-zone]")];
+    const read = {
+        narrow: track.hasAttribute("data-narrow"),
+        sides: zones.map((zone) => zone.getAttribute("data-side")),
+        lefts: zones.map((zone) => declaredStyle(zone, "left")),
+    };
+    cleanup();
+    return read;
+}
+
 describe("the horizon brush's layers (#1438)", () => {
     test("the band behind the bars, the baseline under them, nothing masking outside the window", () => {
         const { q } = strip();
@@ -178,17 +191,6 @@ describe("the horizon brush's hover and gestures (#1438)", () => {
     });
 
     test("a window narrower than its two zones marks the track narrow and sets each zone, its tab over it, beside its edge — outside it, or against the track's end just inside it, the other pushed along beside it", () => {
-        const placed = (from: number, to: number) => {
-            const { q, track } = strip({ window: { from, to } });
-            const zones = [...q("[data-brush-zone]")];
-            const read = {
-                narrow: track.hasAttribute("data-narrow"),
-                sides: zones.map((zone) => zone.getAttribute("data-side")),
-                lefts: zones.map((zone) => declaredStyle(zone, "left")),
-            };
-            cleanup();
-            return read;
-        };
         // 200–218.75px of 400: each zone outside its edge.
         expect(placed(0.5, 0.546875)).toEqual({ narrow: true, sides: ["out", "out"], lefts: ["188px", "218.75px"] });
         // 388–396px of 400: no room for the end's zone outside, so the start's lies just before it.
@@ -196,5 +198,14 @@ describe("the horizon brush's hover and gestures (#1438)", () => {
         // The first 1px: two tabs side by side, never one over the other (#1440).
         expect(placed(0, 0.0025)).toEqual({ narrow: true, sides: ["in", "out"], lefts: ["0px", "12px"] });
         expect(placed(0.5, 0.6)).toEqual({ narrow: false, sides: [null, null], lefts: ["50%", "60%"] });
+    });
+
+    test("a wider window's edge at an end of the track sets its zone, its tab over it, just inside the edge: nothing of the strip past its track (#1680's review)", () => {
+        // The whole track: each zone just inside its end.
+        expect(placed(0, 1)).toEqual({ narrow: false, sides: ["in", "in"], lefts: ["0px", "388px"] });
+        // 3.125px from the start: its zone centred would pass it, so it lies just inside the edge; the end's, with room, centred.
+        expect(placed(1 / 128, 0.5)).toEqual({ narrow: false, sides: ["in", null], lefts: ["3.125px", "50%"] });
+        // 6.25px from each end: room for each zone centred on its edge.
+        expect(placed(1 / 64, 63 / 64)).toEqual({ narrow: false, sides: [null, null], lefts: ["1.5625%", "98.4375%"] });
     });
 });

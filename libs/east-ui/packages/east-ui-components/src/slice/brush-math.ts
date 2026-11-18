@@ -108,11 +108,35 @@ export function brushZones(win: BrushWindowPx, width: number, handlePx: number =
 }
 
 /**
+ * Where a window's edge zones lie at the track's ends, for a window as wide
+ * as its two zones side by side or wider (#1680's review): an edge whose
+ * centred zone would pass its end of the track has its zone just inside it,
+ * as a narrow window's does ({@link brushZones}), its tab drawn over it.
+ * Nothing of the strip then lies past its track, where its host may have a
+ * control of its own — the Plan's resource column's resize stands at its
+ * horizon's start — and a press anywhere on a tab grabs its edge. An edge
+ * with room either side keeps its zone centred on it, and has none here.
+ *
+ * @param win - The window in track px
+ * @param width - The track's width (px)
+ * @param handlePx - Half-width of each edge zone
+ * @returns The zone of each edge at an end of the track
+ */
+export function brushEndZones(win: BrushWindowPx, width: number, handlePx: number = BRUSH_HANDLE_PX): { lo?: BrushZone; hi?: BrushZone } {
+    const zone = 2 * handlePx;
+    return {
+        ...(win.lo - handlePx < 0 ? { lo: { from: win.lo, to: win.lo + zone, side: "in" as const } } : {}),
+        ...(win.hi + handlePx > width ? { hi: { from: win.hi - zone, to: win.hi, side: "in" as const } } : {}),
+    };
+}
+
+/**
  * Resolves which gesture a pointer-down at `x` starts against the applied
  * window. Edge hot zones win over the window interior; no window (or a
  * pointer outside it) means a fresh draw. A window narrower than its two
  * zones side by side sets each zone beside its edge ({@link brushZones}),
- * so a press inside it still moves it (#1438).
+ * so a press inside it still moves it (#1438); a wider window's edge at an
+ * end of the track has its zone just inside it ({@link brushEndZones}).
  *
  * @param x - Pointer-down position (track px)
  * @param win - The applied window in track px, if any
@@ -128,8 +152,10 @@ export function brushHitTest(x: number, win: BrushWindowPx | undefined, width: n
         if (x >= zones.hi.from && x <= zones.hi.to) return "resize-hi";
         return x > win.lo && x < win.hi ? "move" : "draw";
     }
-    if (Math.abs(x - win.lo) <= handlePx) return "resize-lo";
-    if (Math.abs(x - win.hi) <= handlePx) return "resize-hi";
+    const ends = brushEndZones(win, width, handlePx);
+    const on = (zone: BrushZone | undefined, edge: number) => zone !== undefined ? x >= zone.from && x <= zone.to : Math.abs(x - edge) <= handlePx;
+    if (on(ends.lo, win.lo)) return "resize-lo";
+    if (on(ends.hi, win.hi)) return "resize-hi";
     if (x > win.lo && x < win.hi) return "move";
     return "draw";
 }

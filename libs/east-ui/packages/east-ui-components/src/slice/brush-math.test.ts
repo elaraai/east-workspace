@@ -11,7 +11,8 @@
 
 import { describe, test, expect } from "vitest";
 import {
-    BRUSH_HANDLE_COARSE_PX, brushBars, brushBucketAt, brushCursor, brushDragWindow, brushHitTest, brushHorizon, brushKey, brushRelease, brushZones, type BrushDrag,
+    BRUSH_HANDLE_COARSE_PX, brushBars, brushBucketAt, brushCursor, brushDragWindow, brushEndZones, brushHitTest, brushHorizon, brushKey, brushRelease, brushZones,
+    type BrushDrag,
 } from "./brush-math.js";
 
 const WIDTH = 400;
@@ -102,6 +103,34 @@ describe("brushHitTest — resolves the gesture at pointer-down (#192)", () => {
         expect(brushZones(last, WIDTH)).toEqual({ lo: { from: 376, to: 388, side: "out" }, hi: { from: 388, to: 400, side: "in" } });
         expect(brushHitTest(380, last, WIDTH)).toBe("resize-lo");
         expect(brushHitTest(395, last, WIDTH)).toBe("resize-hi");
+    });
+
+    test("a wider window's edge at an end of the track has its zone just inside it, nothing past the track; an edge with room either side keeps its zone centred (#1680's review)", () => {
+        // The whole track: each zone just inside its end.
+        const whole = { lo: 0, hi: WIDTH };
+        expect(brushEndZones(whole, WIDTH)).toEqual({ lo: { from: 0, to: 12, side: "in" }, hi: { from: 388, to: 400, side: "in" } });
+        expect(brushHitTest(0, whole, WIDTH)).toBe("resize-lo");
+        expect(brushHitTest(12, whole, WIDTH)).toBe("resize-lo");
+        expect(brushHitTest(13, whole, WIDTH)).toBe("move");
+        expect(brushHitTest(387, whole, WIDTH)).toBe("move");
+        expect(brushHitTest(388, whole, WIDTH)).toBe("resize-hi");
+        expect(brushHitTest(400, whole, WIDTH)).toBe("resize-hi");
+        // 4px from the start: its zone centred would pass it, so it lies just inside the edge; the end's, with room, centred.
+        const near = { lo: 4, hi: 200 };
+        expect(brushEndZones(near, WIDTH)).toEqual({ lo: { from: 4, to: 16, side: "in" } });
+        expect(brushHitTest(16, near, WIDTH)).toBe("resize-lo");
+        expect(brushHitTest(17, near, WIDTH)).toBe("move");
+        expect(brushHitTest(194, near, WIDTH)).toBe("resize-hi");
+        expect(brushHitTest(206, near, WIDTH)).toBe("resize-hi");
+        // 6px from each end: room for each zone centred on its edge.
+        const room = { lo: 6, hi: 394 };
+        expect(brushEndZones(room, WIDTH)).toEqual({});
+        expect(brushHitTest(0, room, WIDTH)).toBe("resize-lo");
+        expect(brushHitTest(400, room, WIDTH)).toBe("resize-hi");
+        // A coarse pointer's, 24px just inside.
+        expect(brushEndZones(whole, WIDTH, BRUSH_HANDLE_COARSE_PX)).toEqual({ lo: { from: 0, to: 24, side: "in" }, hi: { from: 376, to: 400, side: "in" } });
+        expect(brushHitTest(24, whole, WIDTH, BRUSH_HANDLE_COARSE_PX)).toBe("resize-lo");
+        expect(brushHitTest(25, whole, WIDTH, BRUSH_HANDLE_COARSE_PX)).toBe("move");
     });
 });
 

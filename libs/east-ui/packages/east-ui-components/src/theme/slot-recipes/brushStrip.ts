@@ -10,6 +10,7 @@
  * token, so the dark theme needs nothing of its own. Bottom to top:
  *
  * - **track** — `bg.surface` edge to edge; nothing masks outside the window.
+ *   Its own stacking context, so the zones' rise over the window stays in it.
  * - **band** — the window, `brandTint` at 0.7, the track's full height,
  *   behind the bars.
  * - **baseline** — 1px of `border.subtle` along the track's bottom, under the
@@ -28,10 +29,14 @@
  *   pointer), centred on its edge, in lockstep with `brush-math`'s
  *   `BRUSH_HANDLE_PX`; a narrow window's sits beside its edge (`data-side`,
  *   `brushZones`, placed where it lies): outside it, or against the track's
- *   end just inside, the other edge's pushed along beside it.
+ *   end just inside, the other edge's pushed along beside it; a wider
+ *   window's edge at an end of the track has its zone just inside it
+ *   (`brushEndZones`), so nothing of the strip lies past its track. Over the
+ *   window, as the hit test has it: a press on a tab, its cursor and its
+ *   hover are its edge's.
  * - **handle** — an outlined tab, 9 wide, 2 in from the track's top and
- *   bottom, centred on its edge — beside a narrow window's, over its zone
- *   against the edge: `bg.surface` fill, a 1px `brand.solid` border and two
+ *   bottom, centred on its edge — beside a narrow window's, or at an end of
+ *   the track, over its zone against the edge: `bg.surface` fill, a 1px `brand.solid` border and two
  *   1px × 10 **grip**s in the same ink, a 1px `bg.surface` outline, so it
  *   reads on any bar. Hover `bg.canvas` with `brandPressed`
  *   ink; pressed `brandTint` with `brandPressed`; focus its ring, `focus`.
@@ -49,6 +54,8 @@ export const brushStripSlotRecipe = defineSlotRecipe({
     base: {
         track: {
             position: "relative",
+            // Its own stacking context: the zones over the window stay in the strip.
+            isolation: "isolate",
             minWidth: "0",
             background: "bg.surface",
             touchAction: "none",
@@ -111,8 +118,12 @@ export const brushStripSlotRecipe = defineSlotRecipe({
             width: "12px",
             transform: "translateX(-50%)",
             cursor: "ew-resize",
+            // Over the window, which the start's zone comes before: a press on a tab, its cursor and its hover are its
+            // edge's, as the hit test has it.
+            zIndex: 1,
             _coarse: { width: "24px" },
-            // Beside a narrow window's edge, where its zone lies (`brushZones`): placed whole, not about the edge.
+            // Beside a narrow window's edge, or just inside an end of the track, where its zone lies (`brushZones`,
+            // `brushEndZones`): placed whole, not about the edge.
             "&[data-side]": { transform: "none" },
         },
         handle: {
@@ -136,7 +147,8 @@ export const brushStripSlotRecipe = defineSlotRecipe({
             outlineWidth: "1px",
             outlineStyle: "solid",
             outlineColor: "bg.surface",
-            // Beside a narrow window's edge, drawn over its zone against the edge: what is drawn is what is grabbed.
+            // Beside a narrow window's edge, or at an end of the track, drawn over its zone against the edge: what is drawn
+            // is what is grabbed.
             "[data-side='out'][data-edge='lo'] > &": { left: "100%", transform: "translateX(-100%)" },
             "[data-side='in'][data-edge='hi'] > &": { left: "100%", transform: "translateX(-100%)" },
             "[data-side='out'][data-edge='hi'] > &": { left: "0", transform: "none" },

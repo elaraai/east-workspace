@@ -25,7 +25,11 @@
  *   coarse pointer); while the window is narrower than its two zones, each
  *   zone sits beside its edge — outside it, or against the track's end just
  *   inside it, pushing the other along beside it — its tab drawn over it, so
- *   a press inside the window moves it and the two tabs never overlap;
+ *   a press inside the window moves it and the two tabs never overlap; a
+ *   wider window's edge at an end of the track has its zone, and its tab,
+ *   just inside it (#1680's review), so nothing of the strip lies past its
+ *   track — over the Plan's resource column's resize at its start — and a
+ *   press anywhere on a tab grabs its edge;
  * - the hover's Tooltip, 8 above the track over the bucket under the
  *   pointer: its bucket, then its count.
  *
@@ -42,8 +46,8 @@ import { Box, Portal, Tooltip, useSlotRecipe } from "@chakra-ui/react";
 import { useDrag } from "@use-gesture/react";
 import { useCoarsePointer, useContainerWidth } from "../contracts/adaptive.js";
 import {
-    BRUSH_HANDLE_COARSE_PX, BRUSH_HANDLE_PX, brushBars, brushBucketAt, brushCursor, brushDragWindow, brushHitTest, brushKey, brushNarrow, brushRelease,
-    brushZones, type BrushZone,
+    BRUSH_HANDLE_COARSE_PX, BRUSH_HANDLE_PX, brushBars, brushBucketAt, brushCursor, brushDragWindow, brushEndZones, brushHitTest, brushKey, brushNarrow,
+    brushRelease, brushZones, type BrushZone,
     type BrushBar, type BrushBucketSpan, type BrushDrag, type BrushKeyTarget,
 } from "./brush-math.js";
 
@@ -270,10 +274,11 @@ export function BrushStrip({ buckets, window: win, nowFrac, height, barHeight, o
         : drag.mode === "resize-lo" ? (drag.current > drag.win.hi ? "hi" : "lo")
             : drag.mode === "resize-hi" ? (drag.current < drag.win.lo ? "lo" : "hi")
                 : undefined;
-    // Narrower than its two zones side by side, each zone lies beside its edge, its tab over it (brush-math's hit test).
+    // Narrower than its two zones side by side, each zone lies beside its edge, its tab over it; wider, an edge at an end
+    // of the track has its zone just inside it (brush-math's hit test): nothing of the strip lies past its track.
     const shownPx = shown !== undefined && trackPx > 0 ? { lo: shown.from * trackPx, hi: shown.to * trackPx } : undefined;
     const narrow = shownPx !== undefined && brushNarrow(shownPx, handlePx);
-    const zones = narrow ? brushZones(shownPx, trackPx, handlePx) : undefined;
+    const zones = shownPx === undefined ? undefined : narrow ? brushZones(shownPx, trackPx, handlePx) : brushEndZones(shownPx, trackPx, handlePx);
 
     const read = buckets?.(trackPx);
     const list = read === undefined || read === "loading" ? [] : read;
