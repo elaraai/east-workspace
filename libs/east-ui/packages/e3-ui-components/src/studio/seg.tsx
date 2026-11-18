@@ -13,12 +13,14 @@
  *
  * A group is the `studioInspector` recipe's `seg` — the design system's
  * segment group, which the spec's editor draws; the switch is the shared
- * `Switch`, labelled by the field it is drawn in.
+ * `Switch`, labelled by the field it is drawn in. A group of names never cuts
+ * one: where they do not fit its row side by side — a pane a scroll bar
+ * narrows — it stacks them, a row each.
  *
  * @packageDocumentation
  */
 
-import { useMemo, type ReactElement, type ReactNode } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { Portal, Tooltip, chakra, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName } from "@fortawesome/fontawesome-svg-core";
@@ -90,8 +92,24 @@ export interface SegStripProps {
 export function SegStrip({ label, name, options, current, onPick, fit }: SegStripProps) {
     const styles = useSlotRecipe({ key: "studioInspector" })() as Styles;
     const iconic = options.length > 3 && options.every((option) => option.icon !== undefined);
+    const root = useRef<HTMLDivElement>(null);
+    // Whether its names fit its row side by side, in equal segments: measured as it is laid out, and again as its row
+    // or a name's width changes — the pane resized, a scroll bar come, its font arrived.
+    const [stacked, setStacked] = useState(false);
+    useLayoutEffect(() => {
+        const group = root.current;
+        if (group === null || iconic || fit === true) return undefined;
+        const measure = () => setStacked(!namesFit(group));
+        measure();
+        if (typeof ResizeObserver !== "function") return undefined;
+        const observer = new ResizeObserver(measure);
+        observer.observe(group);
+        for (const said of group.querySelectorAll("[data-seg-name]")) observer.observe(said);
+        return () => observer.disconnect();
+    }, [iconic, fit, options]);
     return (
-        <chakra.div css={styles.seg} role="group" aria-label={label} data-seg-strip={name} data-size={iconic ? "md" : "sm"} data-fit={fit === true ? "" : undefined}>
+        <chakra.div ref={root} css={styles.seg} role="group" aria-label={label} data-seg-strip={name} data-size={iconic ? "md" : "sm"}
+            data-fit={fit === true ? "" : undefined} data-stack={stacked ? "" : undefined}>
             {options.map((option) => {
                 const on = current !== undefined && stringEqual(option.key, current);
                 const button = (
@@ -99,13 +117,37 @@ export function SegStrip({ label, name, options, current, onPick, fit }: SegStri
                         aria-label={iconic ? option.label : undefined} disabled={option.disabled === true} data-seg={option.key}
                         onClick={() => { if (!on) onPick(option.key); }}>
                         {option.icon !== undefined && <FontAwesomeIcon icon={["fas", option.icon as IconName]} />}
-                        {!iconic && <span>{option.label}</span>}
+                        {!iconic && <span data-seg-name="">{option.label}</span>}
                     </chakra.button>
                 );
                 return iconic ? <Tip key={option.key} tip={option.label}>{button}</Tip> : button;
             })}
         </chakra.div>
     );
+}
+
+/** A segment's padding at each side, and the room between its icon and its name, in px: the recipe's. */
+const SEG_PAD = 8;
+const SEG_GAP = 6;
+
+/**
+ * Whether a group's names fit its row side by side: the widest segment — its
+ * icon, its name whole, its padding — times how many there are, inside the
+ * group's edge and its dividers. A group not laid out yet fits.
+ *
+ * @param group - The group's element
+ * @returns Whether they fit
+ */
+function namesFit(group: HTMLElement): boolean {
+    const segments = [...group.querySelectorAll<HTMLElement>("button")];
+    const room = group.clientWidth - Math.max(0, segments.length - 1);
+    if (room <= 0 || segments.length === 0) return true;
+    const widest = Math.max(...segments.map((segment) => {
+        const said = segment.querySelector<HTMLElement>("[data-seg-name]");
+        const mark = segment.querySelector("svg");
+        return 2 * SEG_PAD + (said === null ? 0 : said.scrollWidth) + (mark === null ? 0 : mark.getBoundingClientRect().width + SEG_GAP);
+    }));
+    return Math.ceil(widest) * segments.length <= room;
 }
 
 /**
