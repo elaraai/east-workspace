@@ -37,7 +37,7 @@ import {
 } from "@elaraai/east";
 import { SnapGrid } from "@elaraai/east-ui/internal";
 import { RecordOutcomeType } from "../bind/record.js";
-import { StudioComponentType } from "./component.js";
+import { StudioComponentType, componentNames } from "./component.js";
 import { contentWords } from "./content.js";
 import {
     StudioCellType,
@@ -145,9 +145,9 @@ export type StudioPublishPayloadType = typeof StudioPublishPayloadType;
  * saved. A page never published is ready, its changes those from nothing:
  * every placement added. A published one is ready while its layout differs
  * from its live version's; otherwise it is current. A change names its
- * placement by its title, else its content's own name: its component's name,
- * else its component's key; its visual's view and source; "Text". `sources`
- * is each listed source's name, by its key.
+ * placement by its title, else its content's own name (`contentWords`): its
+ * component's name, else its component's key; its visual's view and source;
+ * "Text". `sources` is each listed source's name, by its key.
  */
 export const publishSummary = East.function(
     [ArrayType(StudioComponentType), DictType(StringType, StringType), OptionType(StudioLiveType), StudioPageType, ArrayType(StudioCellType), BooleanType],
@@ -162,11 +162,7 @@ export const publishSummary = East.function(
                 unsaved,
             }, PublishSummaryType));
         });
-        const listed = $.let(components.toDict(
-            (_$2, component) => component.key,
-            (_$2, component) => component,
-            (_$2, first) => first,
-        ), DictType(StringType, StudioComponentType));
+        const listed = $.let(componentNames(components));
         const before = $.let(live.match({
             some: (_$2, version) => version.page,
             none: (_$2) => East.value({ title: layout.title, cells: [] }, StudioPageType),
@@ -177,18 +173,11 @@ export const publishSummary = East.function(
         $.for(before.cells.concat(layout.cells), ($2, cell) => {
             const name = $2.let(cell.title.match({
                 some: (_$3, title) => title,
-                none: (_$3) => cell.content.match({
-                    component: (_$4, key) => listed.tryGet(key).match({
-                        some: (_$5, component) => component.name,
-                        none: (_$5) => key,
-                    }),
-                    visual: (_$4) => contentWords(cell.content, sources),
-                    text: (_$4) => contentWords(cell.content, sources),
-                }),
+                none: (_$3) => contentWords(cell.content, sources, listed),
             }));
             $2(names.insertOrUpdate(cell.key, name, (_$3, _old) => name));
         });
-        const changes = $.let(pageChanges(before, layout, sources).map((_$2, change) => ({
+        const changes = $.let(pageChanges(before, layout, sources, listed).map((_$2, change) => ({
             change,
             name: names.get(change.match({
                 added: (_$3, c) => c.cell,

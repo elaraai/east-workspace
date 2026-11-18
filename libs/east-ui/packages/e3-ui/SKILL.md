@@ -128,10 +128,10 @@ Task → What do you need?
     ├─ Offer components for operators to arrange on pages (Studio)
     │   ├─ Declare one — self-contained, like a ui() body   → Studio.component(key, meta, fn)
     │   ├─ Store the pages operators build                  → e3.record("pages", Studio.Types.Pages, { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }), migrations: (migration) => [migration.rows("cell_content", Studio.migrations.cellContent)] })
-    │   ├─ List the data a page's visuals may read          → sources={{ orders: Studio.source(handle, { name, icon, description?, fields?, range?, search?, split? }) }} on the builder, the library and the page
+    │   ├─ List the data a page's visuals may read          → sources={{ orders: Studio.source(handle, { name, icon, description?, fields?, range?, search?, split? }) }} on the builder and the page (range: a date field every row has, never an optional one)
     │   ├─ Seed a page: a component, a visual, a text block → a placement's content: Studio.visual.component(key) · Studio.visual.of("orders", Studio.visual.column({ x: Studio.visual.group("ordered_at", { bucket: "month" }), values: [Studio.visual.sum("revenue")] })) · Studio.visual.text(body, heading?)
     │   ├─ The builder: canvas, palette, inspector, preview → <Studio.Builder pages components project sources? page? onOpen? env? audience? rollout? id? />
-    │   ├─ Templates, pages, and where new pages start      → <Studio.Library pages components project onOpen sources? page? />
+    │   ├─ Templates, pages, and where new pages start      → <Studio.Library pages components project onOpen page? />
     │   ├─ Open a page from the library in the builder      → hold the open page (a route's params, or State.bind([Studio.Types.Key], …)); give it to both as `page`, change it in `onOpen`
     │   └─ Show one page, live or draft, with no chrome     → <Studio.Page pages components page sources? version? />
     │

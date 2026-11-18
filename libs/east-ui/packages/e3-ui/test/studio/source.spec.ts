@@ -22,7 +22,7 @@ import {
 import { DatasetStatusType, TreePathType } from "@elaraai/e3-types";
 
 import { Query, Studio, type StudioSourceDeclaration } from "@elaraai/e3-ui";
-import { DataBindHandleType, DataPagedHandleType, StudioSourceType, sourceNames, studioSources } from "@elaraai/e3-ui/internal";
+import { DataBindHandleType, DataPagedHandleType, StudioSourceType, sourceName, sourceNames, studioSources } from "@elaraai/e3-ui/internal";
 
 type Source = ValueTypeOf<typeof Studio.Types.Source>;
 type TreePath = ValueTypeOf<typeof TreePathType>;
@@ -177,11 +177,35 @@ describe("Studio.source — the sources a surface lists (#1669)", () => {
             /the source "assets" names the split field "category"/);
     });
 
+    test("a name every object answers to is no field of the row: it is refused as any other the row lacks", () => {
+        const has = /which its rows do not have — they have site, run_hours$/;
+        // @ts-expect-error `constructor` is no field of an asset
+        assert.throws(() => listed(({ assets }) => ({ assets: Studio.source(assets, { name: "Assets", icon: "gears", fields: { constructor: {} } }) })),
+            (err: Error) => /^Studio\.Builder: the source "assets" names the field "constructor", /.test(err.message) && has.test(err.message));
+        // @ts-expect-error `toString` is no field of an asset
+        assert.throws(() => listed(({ assets }) => ({ assets: Studio.source(assets, { name: "Assets", icon: "gears", search: ["toString"] }) })),
+            /the source "assets" names the search field "toString"/);
+    });
+
     test("a range is over a date field: any other is refused", () => {
         assert.throws(() => listed(({ orders }) => ({ orders: Studio.source(orders, { name: "Orders", icon: "receipt", range: "region" }) })),
             /^Error: Studio\.Builder: the source "orders" names the range field "region", which is no date — a page's range is over a date field$/);
-        assert.doesNotThrow(() => listed(({ orders }) => ({ orders: Studio.source(orders, { name: "Orders", icon: "receipt", range: "promisedOn" }) })),
-            "an optional date is a date");
+        // An optional date is a date some rows lack: a row with none would be in no range, so it is refused, saying why.
+        assert.throws(() => listed(({ orders }) => ({ orders: Studio.source(orders, { name: "Orders", icon: "receipt", range: "promisedOn" }) })),
+            /^Error: Studio\.Builder: the source "orders" names the range field "promisedOn", which is an optional date — a page's range is over a date every row has$/);
+        assert.doesNotThrow(() => listed(({ orders }) => ({ orders: Studio.source(orders, { name: "Orders", icon: "receipt", range: "ordered_at" }) })));
+    });
+
+    test("a field's label made from its name is made as the surface is built: the sources hold its text, and call nothing to make it", () => {
+        const build = East.function([], ArrayType(StudioSourceType), ($) => {
+            const assets = $.let(boundAssets());
+            return studioSources("Studio.Builder", { assets: Studio.source(assets, { name: "Assets", icon: "gears" }) });
+        });
+        assert.deepEqual(East.compile(build, [])()[0]!.fields.map((f) => f.label), ["Site", "Run hours"]);
+        // The words are in the function as written, with none of the calls that make a name into words.
+        const source = East.toSource(build);
+        assert.ok(source.includes('"Run hours"'), source);
+        assert.ok(!/replace|lowerCase|upperCase/.test(source), source);
     });
 
     test("rows that are not Structs are refused, naming the source and what it reads; and a key a query can't read as a root field", () => {
@@ -199,6 +223,9 @@ describe("Studio.source — the sources a surface lists (#1669)", () => {
         }));
         assert.deepEqual([...names(sources)], [["assets", "Assets"], ["orders", "Orders"]]);
         assert.deepEqual([...names([sources[0]!, { ...sources[1]!, key: "orders" }])], [["orders", "Orders"]]);
+        // One source's name by its key, wherever a placement's content is said in words: its key where none is listed under it.
+        const nameOf = East.compile(sourceName, []);
+        assert.deepEqual([nameOf("orders", names(sources)), nameOf("stock", names(sources))], ["Orders", "stock"]);
     });
 
     test("Studio.Types.Source is data only: its binding is the query builder's data source, and it holds no function", () => {

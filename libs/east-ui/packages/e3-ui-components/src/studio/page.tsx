@@ -132,7 +132,7 @@ export function StudioPlacement({ content, listed: byKey, sources, storageKey }:
                     title={m.noSource({ key: visual.source })} description={m.noSourceHint()} />
             );
         }
-        return <EmptyStateView icon={{ prefix: "fas", name: east.viewIcon(visual.view) }} title={east.contentWords(content, sources)} />;
+        return <EmptyStateView icon={{ prefix: "fas", name: east.viewIcon(visual.view) }} title={east.visualWords(visual, sources)} />;
     }
     const key = content.value;
     const listed = byKey.get(key) ?? [];
@@ -174,21 +174,19 @@ export function StudioLayout({ cells, components, sources, storageKey }: StudioL
     const east = studioEast();
     const listed = useListedByKey(components);
     const names = useMemo(() => east.sourceNames([...sources]), [east, sources]);
-    // Whether a placement is framed is its content's tile's: e3-ui's East.
-    const framed = useMemo(() => east.canvasTiles([...components]), [east, components]);
-    const tiles = useMemo(() => cells.map((cell): SnapGridLayoutCell & { cell: Cell } => {
-        const tile = east.contentTile(cell.content, framed, names);
-        return {
-            key: cell.key,
-            row: cell.row,
-            span: cell.span,
-            height: cell.height,
-            align: cell.align,
-            // A placement whose component the surface does not list is its placeholder, in a tile.
-            frame: tile.type === "none" ? true : tile.value.frame,
-            cell,
-        };
-    }), [east, cells, framed, names]);
+    // Whether a placement is framed is read by what it holds alone (e3-ui's East): a page makes no tile — no name, no
+    // meta line of what a component reads — to draw its placements.
+    const frames = useMemo(() => east.componentFrames([...components]), [east, components]);
+    const tiles = useMemo(() => cells.map((cell): SnapGridLayoutCell & { cell: Cell } => ({
+        key: cell.key,
+        row: cell.row,
+        span: cell.span,
+        height: cell.height,
+        align: cell.align,
+        // A placement whose component the surface does not list is its placeholder, in a tile.
+        frame: east.contentFramed(cell.content, frames),
+        cell,
+    })), [east, cells, frames]);
     return (
         <SnapGridTiles
             cells={tiles}

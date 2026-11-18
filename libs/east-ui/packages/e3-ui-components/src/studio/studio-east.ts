@@ -17,6 +17,9 @@ import { East, type TypeOf, type ValueTypeOf } from "@elaraai/east";
 import {
     Studio,
     canvasTiles,
+    componentFrames,
+    componentNames,
+    contentFramed,
     contentTile,
     contentWords,
     inspectorSelection,
@@ -32,6 +35,7 @@ import {
     sourceNames,
     textParagraphs,
     viewIcon,
+    visualWords,
 } from "@elaraai/e3-ui/internal";
 
 /** The JavaScript function an East function compiles to. */
@@ -49,6 +53,14 @@ export interface StudioEast {
     contentTile: Compiled<typeof contentTile>;
     /** What a placement holds, in words. */
     contentWords: Compiled<typeof contentWords>;
+    /** A visual, in words: its view and its source's name. */
+    visualWords: Compiled<typeof visualWords>;
+    /** Each listed component's name, by its key. */
+    componentNames: Compiled<typeof componentNames>;
+    /** Each listed component's frame, by its key. */
+    componentFrames: Compiled<typeof componentFrames>;
+    /** Whether a placement is drawn in a tile frame, by what it holds. */
+    contentFramed: Compiled<typeof contentFramed>;
     /** A view's icon. */
     viewIcon: Compiled<typeof viewIcon>;
     /** A text block's paragraphs. */
@@ -94,6 +106,14 @@ function compileStudio(): StudioEast {
         contentTile: East.compile(contentTile, []),
         /** What a placement holds, in words. */
         contentWords: East.compile(contentWords, []),
+        /** A visual, in words: its view and its source's name. */
+        visualWords: East.compile(visualWords, []),
+        /** Each listed component's name, by its key. */
+        componentNames: East.compile(componentNames, []),
+        /** Each listed component's frame, by its key. */
+        componentFrames: East.compile(componentFrames, []),
+        /** Whether a placement is drawn in a tile frame, by what it holds. */
+        contentFramed: East.compile(contentFramed, []),
         /** A view's icon. */
         viewIcon: East.compile(viewIcon, []),
         /** A text block's paragraphs. */

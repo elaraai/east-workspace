@@ -35,8 +35,10 @@ const saveTemplate = East.compile(Studio.saveTemplate, []);
 const changesOf = East.compile(Studio.changes, []);
 /** The listed sources' names, by key: what a visual's source is called in a change's words. */
 const SOURCES = new Map([["orders", "Orders"], ["assets", "Assets"]]);
-/** The changes from one layout to another, over the listed sources. */
-const changes = (before: Page, after: Page) => changesOf(before, after, SOURCES);
+/** The listed components' names, by key: what a component is called in a change's words. */
+const COMPONENTS = new Map([["kpi_rail", "KPI rail"], ["revenue_trend", "Revenue trend"]]);
+/** The changes from one layout to another, over the listed sources and components. */
+const changes = (before: Page, after: Page) => changesOf(before, after, SOURCES, COMPONENTS);
 const status = East.compile(Studio.status, []);
 
 /** The Overview: a KPI rail alone on row 1, a chart and bars on row 2, three tiles on row 3. */
@@ -233,11 +235,29 @@ describe("Studio.changes — a placement's content (#1669)", () => {
             "source Orders → stock · view Column chart → Line chart · values 1 → 2", "a source the surface does not list is named by its key");
     });
 
+    test("what a view holds is counted under its own name — a records table's columns, a slicer's controls — and not at all across views that hold different things", () => {
+        const records = (columns: string[]) => Studio.visual.of("orders", Studio.visual.records({ columns }));
+        assert.equal(configured(records(["ordered_at", "region"]), records(["ordered_at", "region", "revenue"])), "columns 2 → 3");
+        assert.equal(configured(Studio.visual.of("orders", Studio.visual.slicer(["range"])), Studio.visual.of("orders", Studio.visual.slicer(["range", "search"]))),
+            "controls 1 → 2");
+        // A records table holds columns and a summary values: the change of view says it, and no count compares the two.
+        assert.equal(configured(records(["ordered_at", "region", "revenue"]), Studio.visual.of("orders", Studio.visual.summary({
+            rows: [Studio.visual.group("region")], values: [Studio.visual.sum("revenue")],
+        }))), "view Records table → Summary table");
+        // The same columns in another order hold as many: its options changed.
+        assert.equal(configured(records(["ordered_at", "region"]), records(["region", "ordered_at"])), "options changed");
+    });
+
     test("a visual's click and the visual it follows say they changed; any other change of it is its options", () => {
         const group = Studio.visual.group("ordered_at", { bucket: "month" });
         const sum = Studio.visual.sum("revenue");
         const view = Studio.visual.column({ x: group, values: [sum] });
         assert.equal(configured(column, Studio.visual.of("orders", view, { click: variant("select", null) })), "click filter → select");
+        // A click that opens a page says which: another page is another click.
+        const opens = (page: string) => Studio.visual.of("orders", view, { click: variant("open", { project: "ops", page }) });
+        assert.equal(configured(column, opens("Weekly")), "click filter → open ops / Weekly");
+        assert.equal(configured(opens("Weekly"), opens("Monthly")), "click open ops / Weekly → open ops / Monthly");
+        assert.equal(configured(opens("Weekly"), Studio.visual.of("orders", view, { click: variant("none", null) })), "click open ops / Weekly → none");
         assert.equal(configured(column, Studio.visual.of("orders", view, {
             follow: { leader: "c-list", from: "region", to: "region", empty: variant("all", null) },
         })), "link changed");
@@ -247,8 +267,10 @@ describe("Studio.changes — a placement's content (#1669)", () => {
 
     test("a text block's text is edited; a placement holding another kind of content, or another component, says what it held and holds", () => {
         assert.equal(configured(Studio.visual.text("Figures are to last night."), Studio.visual.text("Figures are to this morning.", "About")), "text edited");
-        assert.equal(configured(Studio.visual.component("kpi_rail"), Studio.visual.component("revenue_trend")), "kpi_rail → revenue_trend");
-        assert.equal(configured(Studio.visual.component("kpi_rail"), column), "kpi_rail → Column chart · Orders");
+        // A component is said by its name, as the row's own name is — its key only where the surface lists none of it.
+        assert.equal(configured(Studio.visual.component("kpi_rail"), Studio.visual.component("revenue_trend")), "KPI rail → Revenue trend");
+        assert.equal(configured(Studio.visual.component("kpi_rail"), column), "KPI rail → Column chart · Orders");
+        assert.equal(configured(Studio.visual.component("kpi_rail"), Studio.visual.component("orders_v0")), "KPI rail → orders_v0");
         assert.equal(configured(column, Studio.visual.text("A note")), "Column chart · Orders → Text");
     });
 

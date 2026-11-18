@@ -25,7 +25,8 @@ import {
     some,
 } from "@elaraai/east";
 import { StudioComponentType, readNames } from "./component.js";
-import { StudioContentType, contentWords, viewIcon } from "./content.js";
+import { StudioContentType, viewIcon, visualWords } from "./content.js";
+import { sourceName } from "./source.js";
 
 // ============================================================================
 // What a placement's tile shows
@@ -91,11 +92,44 @@ export const contentTile = East.function(
         component: (_$2, key) => tiles.tryGet(key),
         visual: (_$2, visual) => East.value(some({
             frame: true,
-            name: contentWords(content, sources),
+            name: visualWords(visual, sources),
             icon: viewIcon(visual.view),
-            meta: sources.tryGet(visual.source).match({ some: (_$3, name) => name, none: (_$3) => visual.source }),
+            meta: sourceName(visual.source, sources),
         }), OptionType(CanvasTileType)),
         text: (_$2) => East.value(some({ frame: false, name: "Text", icon: "align-left", meta: "" }), OptionType(CanvasTileType)),
+    }),
+);
+
+/**
+ * Each listed component's frame, by key: whether its placements are drawn in
+ * a tile frame, or bare. A key two components share keeps the first one's.
+ */
+export const componentFrames = East.function(
+    [ArrayType(StudioComponentType)],
+    DictType(StringType, BooleanType),
+    (_$, components) => components.toDict((_$2, component) => component.key, (_$2, component) => component.frame.hasTag("card"), (_$2, first) => first),
+);
+
+/**
+ * Whether a placement is drawn in a tile frame, by what it holds: a listed
+ * component as it chose ({@link componentFrames}), and one the surface does
+ * not list in one, as its placeholder is; a visual in one; a text block bare.
+ * What a page reads to draw its placements, with no tile's name or meta line
+ * made for it.
+ *
+ * @remarks
+ * `frames` is each listed component's frame, by key.
+ */
+export const contentFramed = East.function(
+    [StudioContentType, DictType(StringType, BooleanType)],
+    BooleanType,
+    (_$, content, frames) => content.match({
+        component: (_$2, key) => frames.tryGet(key).match({
+            some: (_$3, framed) => framed,
+            none: (_$3) => true,
+        }),
+        visual: (_$2) => true,
+        text: (_$2) => false,
     }),
 );
 
