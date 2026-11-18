@@ -653,35 +653,30 @@ export const studioOrders = e3.input("studio_orders", ArrayType(StructType({
 
 const vis = Studio.visual;
 
-/** A placement of a visual: in a row, so many columns wide, so tall unless its content sizes it. */
-function visualCell(key: string, row: string, span: bigint, height: bigint | undefined, content: ReturnType<typeof vis.of>) {
-    return { key, row, span, height: height === undefined ? none : some(height), align: variant("stretch", null), title: none, content };
-}
-
 /** The Visuals page's placements: two KPIs and a donut; the series charts, the combo and the scatter; the list; the summary and the pivot; the records; and two that cannot draw yet — a chart with no value, and a KPI of a field its source lacks. */
 const visualCells = [
-    visualCell("v-revenue", "r1", 4n, undefined, vis.of("orders", vis.kpi({ value: vis.sum("revenue", { goal: 24000 }), compare: vis.mean("revenue"), trend: "ordered_at" }))),
-    visualCell("v-orders", "r1", 4n, undefined, vis.of("orders", vis.kpi({ value: vis.count(), trend: "ordered_at" }))),
-    visualCell("v-share", "r1", 4n, 240n, vis.of("orders", vis.pie({ slice: vis.group("category"), value: vis.sum("revenue"), donut: true }))),
-    visualCell("v-months", "r2", 6n, 240n, vis.of("orders", vis.column({ x: vis.group("ordered_at", { bucket: "month" }), values: [vis.sum("revenue")], split: "region", stack: "stacked" }))),
-    visualCell("v-customers", "r2", 6n, 240n, vis.of("orders", vis.bar({ x: vis.group("customer", { sort: "high", top: 4n }), values: [vis.sum("revenue")] }))),
-    visualCell("v-units", "r3", 4n, 220n, vis.of("orders", vis.line({ x: vis.group("ordered_at", { bucket: "week" }), values: [vis.sum("units")] }))),
-    visualCell("v-trend", "r3", 4n, 220n, vis.of("orders", vis.area({ x: vis.group("ordered_at", { bucket: "month" }), values: [vis.sum("revenue", { goal: 8000 })] }))),
-    visualCell("v-scatter", "r3", 4n, 220n, vis.of("orders", vis.scatter({ point: "customer", x: vis.sum("units"), y: vis.sum("revenue"), split: "region" }))),
-    visualCell("v-combo", "r4", 6n, 240n, vis.of("orders", vis.combo({
+    { key: "v-revenue", row: "r1", span: 4n, height: none, align: variant("stretch", null), title: none, content: vis.of("orders", vis.kpi({ value: vis.sum("revenue", { goal: 24000 }), compare: vis.mean("revenue"), trend: "ordered_at" })) },
+    { key: "v-orders", row: "r1", span: 4n, height: none, align: variant("stretch", null), title: none, content: vis.of("orders", vis.kpi({ value: vis.count(), trend: "ordered_at" })) },
+    { key: "v-share", row: "r1", span: 4n, height: some(240n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.pie({ slice: vis.group("category"), value: vis.sum("revenue"), donut: true })) },
+    { key: "v-months", row: "r2", span: 6n, height: some(240n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.column({ x: vis.group("ordered_at", { bucket: "month" }), values: [vis.sum("revenue")], split: "region", stack: "stacked" })) },
+    { key: "v-customers", row: "r2", span: 6n, height: some(240n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.bar({ x: vis.group("customer", { sort: "high", top: 4n }), values: [vis.sum("revenue")] })) },
+    { key: "v-units", row: "r3", span: 4n, height: some(220n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.line({ x: vis.group("ordered_at", { bucket: "week" }), values: [vis.sum("units")] })) },
+    { key: "v-trend", row: "r3", span: 4n, height: some(220n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.area({ x: vis.group("ordered_at", { bucket: "month" }), values: [vis.sum("revenue", { goal: 8000 })] })) },
+    { key: "v-scatter", row: "r3", span: 4n, height: some(220n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.scatter({ point: "customer", x: vis.sum("units"), y: vis.sum("revenue"), split: "region" })) },
+    { key: "v-combo", row: "r4", span: 6n, height: some(240n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.combo({
         x: vis.group("region"), columns: [vis.left(vis.sum("revenue"))], lines: [vis.right(vis.mean("margin"))],
-    }))),
-    visualCell("v-list", "r4", 6n, 240n, vis.of("orders", vis.list({ item: vis.group("customer", { sort: "high" }), caption: "region", values: [vis.sum("revenue"), vis.count()], bar: true }))),
-    visualCell("v-summary", "r5", 6n, 300n, vis.of("orders", vis.summary({
+    })) },
+    { key: "v-list", row: "r4", span: 6n, height: some(240n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.list({ item: vis.group("customer", { sort: "high" }), caption: "region", values: [vis.sum("revenue"), vis.count()], bar: true })) },
+    { key: "v-summary", row: "r5", span: 6n, height: some(300n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.summary({
         rows: [vis.group("region", { sort: "high" }), vis.group("category")],
         values: [vis.sum("revenue"), vis.ratio("revenue", "units", { goal: 11.5 })], total: true,
-    }))),
-    visualCell("v-pivot", "r5", 6n, 300n, vis.of("orders", vis.pivot({
+    })) },
+    { key: "v-pivot", row: "r5", span: 6n, height: some(300n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.pivot({
         rows: vis.group("region"), columns: vis.group("ordered_at", { bucket: "month" }), value: vis.count(), heat: true,
-    }))),
-    visualCell("v-records", "r6", 12n, 320n, vis.of("orders", vis.records({ columns: ["ordered_at", "customer", "region", "revenue", "units", "margin"], sort: "ordered_at", descending: true }))),
-    visualCell("v-empty", "r7", 6n, undefined, vis.of("orders", vis.column({ x: vis.group("region"), values: [] }))),
-    visualCell("v-missing", "r7", 6n, undefined, vis.of("orders", vis.kpi({ value: vis.sum("net_revenue") }))),
+    })) },
+    { key: "v-records", row: "r6", span: 12n, height: some(320n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.records({ columns: ["ordered_at", "customer", "region", "revenue", "units", "margin"], sort: "ordered_at", descending: true })) },
+    { key: "v-empty", row: "r7", span: 6n, height: none, align: variant("stretch", null), title: none, content: vis.of("orders", vis.column({ x: vis.group("region"), values: [] })) },
+    { key: "v-missing", row: "r7", span: 6n, height: none, align: variant("stretch", null), title: none, content: vis.of("orders", vis.kpi({ value: vis.sum("net_revenue") })) },
 ];
 
 /** The pages of the visuals' project: one page, Visuals, live as it was drafted. */
