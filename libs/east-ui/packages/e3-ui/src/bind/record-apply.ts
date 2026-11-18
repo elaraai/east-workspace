@@ -44,6 +44,7 @@ import { RecordCommitInfoType } from '@elaraai/e3-types';
 import { Editing } from '@elaraai/east-ui';
 import { EditingSaveTypeFor, EditingToDraftResultTypeFor } from '@elaraai/east-ui/internal';
 import { FuncDraftType } from './func.js';
+import { externalSourceOf, sourcesOfHandle, type RecordBindingSourcesType } from './record-composite.js';
 import { RecordOutcomeType } from './record-handle.js';
 
 // ============================================================================
@@ -208,6 +209,17 @@ type RecordLastChange = ExprType<FunctionType<[], StringType>>;
 /** A batch's write, planned: refused, or its patch ({@link writePlanType}). */
 type RecordPlan = ExprType<FunctionType<[EastType], WritePlanType>>;
 
+/** The sources a record's binding names, bound where the write is built; `undefined` where no entry can be a load's. */
+type RecordSourcesBound = ExprType<RecordBindingSourcesType> | undefined;
+
+/**
+ * The words a write of a loaded entry is refused in, before any commit: the
+ * entry as East prints its key, and the external source whose load alone
+ * writes it (east-workspace#1465).
+ */
+const loadWrites = East.function([StringType, StringType], StringType,
+    (_$, entry, source) => East.str`entry ${entry} is source ${source}'s, which only its load writes`);
+
 /** A batch's write to a record, checked ({@link checkWrite}). */
 interface CheckedWrite {
     /** The patch mutation's name. */
@@ -218,15 +230,18 @@ interface CheckedWrite {
     readonly drafts: boolean;
     /** A change's key from its id, over the record's own entries; `undefined` over one entry's rows. */
     readonly keyOf: ExprType<FunctionType<[StringType], EastType>> | undefined;
+    /** The sources the handle's binding names, read off the handle; `undefined` where no entry can be a load's ({@link sourcesOfHandle}). */
+    readonly sources: RecordSourcesBound;
     /**
      * The one East function that turns a batch into its patch, or into the
      * refusal that comes before any write.
      *
      * @param read - The record, read whole
      * @param lastChange - Who changed the record last
-     * @returns The function, over the two as they are bound where the write is built
+     * @param sources - The binding's sources, where an entry can be a load's
+     * @returns The function, over the three as they are bound where the write is built
      */
-    plan(read: RecordRead, lastChange: RecordLastChange): RecordPlan;
+    plan(read: RecordRead, lastChange: RecordLastChange, sources: RecordSourcesBound): RecordPlan;
 }
 
 /**
@@ -273,6 +288,10 @@ function checkWrite(
             `${mutation}: mutation.patch() among the mutations it declares`);
     }
     const planType = writePlanType(recordType);
+    // Over a composite record the binding names its sources, and a write of an entry an external source's load
+    // writes is refused before any commit, by the one check of whose an entry is.
+    const named = sourcesOfHandle(handle);
+    const whose = named === undefined ? undefined : externalSourceOf(named.keyType);
 
     if ("entry" in options) {
         const entryType = recordType.value;
@@ -297,13 +316,14 @@ function checkWrite(
         const entryKey = East.value(options.entry as SubtypeExprOrValue<EastType>, recordType.key);
         const apply = Editing.apply(rowType, options.idField);
         const batchType = Editing.Types.ChangeSet(rowType);
-        const plan = (read: RecordRead, changedBy: RecordLastChange) => East.function([batchType], planType, ($, batch) => {
+        const plan = (read: RecordRead, changedBy: RecordLastChange, sources: RecordSourcesBound) => East.function([batchType], planType, ($, batch) => {
             const rowsOf = $.const(get as ExprType<FunctionType<[EastType], typeof rowsType>>);
             const withRows = $.const(set as ExprType<FunctionType<[EastType, typeof rowsType], EastType>>);
             const applyRows = $.const(apply);
             const key = $.const(entryKey);
             const planned = $.let(variant("conflict", []), planType);
-            $.match(batch.base, {
+            // The entry's rows, written: the batch applied to the rows it began from.
+            const overRows = ($: BlockBuilder<WritePlanType>): void => { $.match(batch.base, {
                 revision: ($) => {
                     $.assign(planned, variant("rejected", [{ entry: "", row: none, field: none,
                         message: "Rows inside a record entry are checked against the rows the edit began from — a snapshot, never a revision" }]));
@@ -340,10 +360,23 @@ function checkWrite(
                         },
                     });
                 },
+            }); };
+            if (whose === undefined || sources === undefined) {
+                overRows($ as unknown as BlockBuilder<WritePlanType>);
+                return planned;
+            }
+            // An entry of an external source is its load's, rows and all: refused before any write.
+            const whoseEntry = $.const(whose);
+            const words = $.const(loadWrites);
+            $.match(whoseEntry(key, sources), {
+                some: ($, source) => {
+                    $.assign(planned, variant("rejected", [{ entry: "", row: none, field: none, message: words(East.print(key), source) }]));
+                },
+                none: ($) => { overRows($ as unknown as BlockBuilder<WritePlanType>); },
             });
             return planned;
         }) as unknown as RecordPlan;
-        return { mutation, batchType, drafts, keyOf: undefined, plan };
+        return { mutation, batchType, drafts, keyOf: undefined, sources: named?.sources, plan };
     }
 
     const keyType = recordType.key;
@@ -356,15 +389,23 @@ function checkWrite(
     const keyOf = (keyType.type === "String"
         ? East.function([StringType], StringType, (_$, id) => id)
         : East.function([StringType], keyType, (_$, id) => id.parse(keyType))) as ExprType<FunctionType<[StringType], EastType>>;
-    const plan = East.function([batchType], planType, ($, batch) => {
+    const plan = (_read: RecordRead, _changedBy: RecordLastChange, sources: RecordSourcesBound) => East.function([batchType], planType, ($, batch) => {
         const keyFrom = $.const(keyOf);
         // Each change is its entry's insert, update or delete, restated by key.
         // The values and entry patches are the batch's own, carrying what each
         // entry was when the edit began, which the record checks.
         const ops = $.let(new Map(), DictType(keyType, dictPatchOpsType(entryType)));
+        // Over a composite record, a change of an entry an external source's load writes is refused, each
+        // named in the words that say whose it is, and nothing of the batch is written.
+        const guard = whose === undefined || sources === undefined ? undefined : {
+            whoseEntry: $.const(whose),
+            words: $.const(loadWrites),
+            sources,
+            refused: $.let([], ArrayType(Editing.Types.Issue)),
+        };
         $.for(batch.changes, ($, change) => {
             const key = $.const(keyFrom(change.id));
-            $.match(change.patch, {
+            const restate = ($: BlockBuilder<WritePlanType>): void => { $.match(change.patch, {
                 replace: ($, swap) => {
                     $.match(swap.after, {
                         some: ($, after) => {
@@ -381,12 +422,26 @@ function checkWrite(
                 patch: ($, entry) => {
                     $.match(entry, { some: ($, update) => { $(ops.insert(key, variant("update", update))); } });
                 },
+            }); };
+            if (guard === undefined) {
+                restate($ as unknown as BlockBuilder<WritePlanType>);
+                return;
+            }
+            $.match(guard.whoseEntry(key, guard.sources), {
+                some: ($, source) => {
+                    $(guard.refused.pushLast({ entry: change.id, row: none, field: none, message: guard.words(change.id, source) }));
+                },
+                none: ($) => { restate($ as unknown as BlockBuilder<WritePlanType>); },
             });
         });
-        return $.let(variant("write", { patch: variant("patch", ops), changes: ops.size().greater(0n) }), planType);
+        const planned = $.let(variant("write", { patch: variant("patch", ops), changes: ops.size().greater(0n) }), planType);
+        if (guard !== undefined) {
+            $.if(guard.refused.size().greater(0n), ($) => { $.assign(planned, variant("rejected", guard.refused)); });
+        }
+        return planned;
     }) as unknown as RecordPlan;
     // Over the record's own entries the patch is the batch's alone: the record is not read.
-    return { mutation, batchType, drafts, keyOf, plan: () => plan };
+    return { mutation, batchType, drafts, keyOf, sources: named?.sources, plan };
 }
 
 /** What a record's write is built from, each bound once in the block the write is built in ({@link inWriteBlock}). */
@@ -438,7 +493,9 @@ function inWriteBlock<T extends EastType>(
             }),
             none: (_$2) => East.str``,
         }))) as RecordLastChange;
-        const plan = $.const(checked.plan(read, lastChange)) as RecordPlan;
+        // The binding's sources are data: bound once, and held by the plan alone.
+        const sources = checked.sources === undefined ? undefined : $.const(checked.sources) as ExprType<RecordBindingSourcesType>;
+        const plan = $.const(checked.plan(read, lastChange, sources)) as RecordPlan;
         return build($ as unknown as BlockBuilder<T>, { read, lastChange, plan }) as never;
     });
     return made() as ExprType<T>;
@@ -591,6 +648,16 @@ type RecordDoors = {
  * The record must declare the patch mutation and the handle be bound with it —
  * `Record.bind(record)` binds every mutation the record declares — and the
  * record must be a `Dict`.
+ *
+ * Over a composite record (`e3.recordComposite`) a Save never writes an entry
+ * an external source's load writes (east-workspace#1465). A change of one —
+ * its key's case an external source among the handle's `binding.sources` — is
+ * `rejected` before any commit, each such entry named with its source (`entry
+ * .erp "SO-1001" is source erp's, which only its load writes`), and nothing
+ * of the batch is written; over one entry's rows, an `entry` of an external
+ * source is rejected the same way. The draft form refuses in the same words.
+ * The record refuses such a write too, so a handle typed by hand that names
+ * no sources is refused by it instead.
  *
  * What it answers is the Save with its draft form: a struct of `apply`, the
  * commit above, and `toDraft`, the same batch as a draft of that commit

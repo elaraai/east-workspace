@@ -69,8 +69,11 @@ export {
     recordBindPlatformFn,
     RecordBindPrimitives,
 } from './bind/record.js';
-// A composite record's sources as a record's binding names them (east-workspace#1465).
-export { RecordBindingSourceType, RecordBindingSourcesType, bindingSources } from './bind/record-composite.js';
+// A composite record's sources as a record's binding names them, and the one check of whose an entry is
+// (east-workspace#1465): what a Save, a form over one entry and each builder's lock ask.
+export {
+    RecordBindingSourceType, RecordBindingSourcesType, bindingSources, externalSourceOf, sourcesOfHandle, type ExternalSourceOf,
+} from './bind/record-composite.js';
 // The Record: `<Record>` with its namespace, the payload the renderer takes
 // through the `Record` carrier, and the types a Record is written with.
 // `Record` here is the internal namespace — the public one, `Record.Payload`
