@@ -660,6 +660,9 @@ interface RunRoots {
   /** The older of two commits of a record the run never took, by the record
    *  and the two */
   older: Map<string, Promise<string>>;
+  /** The commits of each record the store was found to hold no more, as a
+   *  task was launched: the store is not asked for one again */
+  gone: Map<string, Set<string>>;
 }
 
 const runRoots = new WeakMap<DataflowExecutionState, RunRoots>();
@@ -679,7 +682,7 @@ function numberVersion(roots: RunRoots, path: string, version: string): void {
 function rootsOf(state: DataflowExecutionState): RunRoots {
   let roots = runRoots.get(state);
   if (roots === undefined) {
-    roots = { records: null, taken: new Map(), next: 0, older: new Map() };
+    roots = { records: null, taken: new Map(), next: 0, older: new Map(), gone: new Map() };
     runRoots.set(state, roots);
     for (const [path, version] of state.inputSnapshot) numberVersion(roots, path, version);
   }
@@ -756,22 +759,71 @@ function letGoVersions(state: DataflowExecutionState, roots: RunRoots): void {
     const versions = named.get(record);
     if (versions === undefined || !versions.has(first) || !versions.has(second)) roots.older.delete(key);
   }
+  for (const [record, gone] of [...roots.gone]) {
+    const versions = named.get(record);
+    for (const commit of [...gone]) {
+      if (versions === undefined || !versions.has(commit)) gone.delete(commit);
+    }
+    if (gone.size === 0) roots.gone.delete(record);
+  }
 }
 
 /**
  * What a run's memory holds of its roots: the versions its snapshots
- * numbered, and the orders of pairs of commits it never took.
+ * numbered, the orders of pairs of commits it never took, and the commits it
+ * found the store to hold no more.
  *
  * @param state - The run's state
  * @returns How many of each it holds
  * @internal
  */
-export function dataflowRootsHeld(state: DataflowExecutionState): { versions: number; pairs: number } {
+export function dataflowRootsHeld(state: DataflowExecutionState): { versions: number; pairs: number; gone: number } {
   const roots = runRoots.get(state);
-  if (roots === undefined) return { versions: 0, pairs: 0 };
+  if (roots === undefined) return { versions: 0, pairs: 0, gone: 0 };
   let versions = 0;
   for (const taken of roots.taken.values()) versions += taken.size;
-  return { versions, pairs: roots.older.size };
+  let gone = 0;
+  for (const commits of roots.gone.values()) gone += commits.size;
+  return { versions, pairs: roots.older.size, gone };
+}
+
+/**
+ * Notes a commit of a record the store was found to hold no more, as a task
+ * that would read the record there was launched: a compaction cut it from the
+ * record's history, and garbage collection swept it.
+ *
+ * @remarks
+ * The run keeps it until its state names the commit no more
+ * ({@link dataflowSnapshotTaken}), so what a task would read is decided the
+ * same without asking the store again ({@link dataflowCommitGone}).
+ *
+ * @param state - The run's state
+ * @param record - The record's keypath
+ * @param commit - The commit the store holds no more
+ * @internal
+ */
+export function dataflowCommitSwept(state: DataflowExecutionState, record: string, commit: string): void {
+  const roots = rootsOf(state);
+  let gone = roots.gone.get(record);
+  if (gone === undefined) {
+    gone = new Set();
+    roots.gone.set(record, gone);
+  }
+  gone.add(commit);
+}
+
+/**
+ * Whether the run found the store to hold a commit of a record no more
+ * ({@link dataflowCommitSwept}).
+ *
+ * @param state - The run's state
+ * @param record - The record's keypath
+ * @param commit - A commit of the record
+ * @returns True when a launch of the run found it gone
+ * @internal
+ */
+export function dataflowCommitGone(state: DataflowExecutionState, record: string, commit: string): boolean {
+  return runRoots.get(state)?.gone.get(record)?.has(commit) === true;
 }
 
 /**

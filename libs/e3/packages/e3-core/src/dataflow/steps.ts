@@ -32,6 +32,8 @@ import {
   dataflowGetReadyTasks,
   dataflowGetDependentsToSkip,
   dataflowGetDependencyClosure,
+  dataflowCommitGone,
+  dataflowCommitSwept,
   dataflowRecords,
   dataflowResolveInputs,
   dataflowSnapshotTaken,
@@ -536,12 +538,19 @@ export async function stepDetectInputChanges(
  * @param storage - Storage backend
  * @param state - Execution state
  * @param taskName - The task
+ * @param options - `hold`: whether the commit of a record the task reads is
+ *   re-referenced in the store, so a sweep beside the running work leaves it
+ *   while the task reads it. True unless given, as a task about to launch
+ *   needs. A caller that only asks what the task would read, to say whether
+ *   it is due, passes false: the store is then asked for no commit, and the
+ *   run's memory of those a launch found gone answers
  * @returns The version of each root the task reads, or why it is deferred
  */
 export async function stepTaskCommits(
   storage: StorageBackend,
   state: DataflowExecutionState,
-  taskName: string
+  taskName: string,
+  options: { hold?: boolean } = {},
 ): Promise<TaskCommits> {
   const graph = getGraph(state);
   const task = graph.tasks.find(t => t.name === taskName);
@@ -576,7 +585,7 @@ export async function stepTaskCommits(
           reason: { kind: 'plain', input: root, through: [...through.filter((each) => sameInput(each, root)), ...through.filter((each) => !sameInput(each, root))] },
         };
       }
-      version = await oldestHeld(storage, state, root, names.map((each) => each.version));
+      version = await oldestHeld(storage, state, root, names.map((each) => each.version), options.hold !== false);
     }
     versions.set(root, version);
   }
@@ -607,25 +616,43 @@ export function deferralPath(reason: DeferReason): string {
  * @remarks
  * A commit a compaction cut from the record's history is gone once garbage
  * collection has swept it — while the run yielded, or beside the running work
- * — and no task can read the record there. Each oldest is asked of the store
- * as a touch, which re-references a commit it holds, so a sweep beside the
- * running work leaves it while the task reads it; one gone is passed over for
- * the next oldest. Where none is held, the task reads the record as the run's
- * snapshot holds it.
+ * — and no task can read the record there. As a task launches, each oldest
+ * is asked of the store as a touch, which re-references a commit it holds, so
+ * a sweep beside the running work leaves it while the task reads it; one gone
+ * is passed over for the next oldest, and the run remembers it
+ * (`dataflowCommitSwept`). Where none is held, the task reads the record as
+ * the run's snapshot holds it.
+ *
+ * Asking whether a task is due asks the store nothing (`hold` false): the
+ * answer is the oldest commit no launch found gone, which is the one the
+ * task's launch decides on unless it finds that commit gone too, and the run
+ * then remembers it, so the next ask agrees. A record edited every few
+ * seconds, with many readers, would otherwise cost a write to the store for
+ * each reader at each edit, for decisions that read nothing there.
  *
  * @param storage - Storage backend
  * @param state - The run's state
  * @param record - The record's keypath
  * @param named - The commits the task's inputs name
+ * @param hold - Whether the store is asked for the commit, and re-references it
  * @returns The commit the task reads the record at
  */
-async function oldestHeld(storage: StorageBackend, state: DataflowExecutionState, record: string, named: readonly string[]): Promise<string> {
-  let commits = named.filter((commit, at) => named.findIndex((each) => sameVersion(each, commit)) === at);
+async function oldestHeld(
+  storage: StorageBackend,
+  state: DataflowExecutionState,
+  record: string,
+  named: readonly string[],
+  hold: boolean,
+): Promise<string> {
+  let commits = named.filter((commit, at) =>
+    named.findIndex((each) => sameVersion(each, commit)) === at && !dataflowCommitGone(state, record, commit));
   while (commits.length > 0) {
     let oldest = commits[0]!;
     for (const each of commits.slice(1)) oldest = await recordCommitOrder(storage, state, record, oldest, each);
+    if (!hold) return oldest;
     const [held] = await storage.objects.touch(state.repo, [oldest]);
     if (held === true) return oldest;
+    dataflowCommitSwept(state, record, oldest);
     commits = commits.filter((each) => !sameVersion(each, oldest));
   }
   return state.inputSnapshot.get(record) ?? named[0]!;
@@ -636,12 +663,13 @@ async function oldestHeld(storage: StorageBackend, state: DataflowExecutionState
  * result was made from: another commit of a record, another result of a
  * task, or another value of a plain input, at the versions it reads now
  * ({@link stepTaskCommits}). A result is known by the versions it was made
- * from.
+ * from. The store is asked for no commit, and nothing is written to it: the
+ * question is asked of every completed reader of every change.
  */
 async function wouldReadOther(storage: StorageBackend, state: DataflowExecutionState, taskName: string, output: string): Promise<boolean> {
   const made = state.versionVectors.get(output);
   if (made === undefined) return true;
-  const at = await stepTaskCommits(storage, state, taskName);
+  const at = await stepTaskCommits(storage, state, taskName, { hold: false });
   // Deferred: its inputs read a plain input at two values, which the launch
   // says, once they are decided again
   return at.kind === 'deferred' || !sameVersions(at.versions, made);

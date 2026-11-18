@@ -737,7 +737,7 @@ describe('stepDetectInputChanges', () => {
     const { changes } = await stepDetectInputChanges(storage, state, structure);
     assert.deepStrictEqual(changes.map((change) => change.path), ['.a', '.b']);
     assert.strictEqual(scans, 1, 'one read of the run\'s vectors for the look, not one for each changed input');
-    assert.deepStrictEqual(dataflowRootsHeld(state), { versions: 4, pairs: 0 }, 'each input\'s snapshot is numbered, before and after');
+    assert.deepStrictEqual(dataflowRootsHeld(state), { versions: 4, pairs: 0, gone: 0 }, 'each input\'s snapshot is numbered, before and after');
   });
 });
 
@@ -862,13 +862,13 @@ describe('stepTaskCommits', () => {
     // The run takes c2 to c20 while both results stay made at c1: it holds each, and the order of a pair it never took
     for (let n = 2; n <= 20; n++) take(c(n));
     assert.strictEqual(await recordCommitOrder(storage, state, '.records.orders', apart, elsewhere), [apart, elsewhere].sort()[0]);
-    assert.deepStrictEqual(dataflowRootsHeld(state), { versions: 21, pairs: 1 }, 'c1 to c20, and r1');
+    assert.deepStrictEqual(dataflowRootsHeld(state), { versions: 21, pairs: 1, gone: 0 }, 'c1 to c20, and r1');
 
     // Both results land on c19: the next snapshot lets go of every version before it, and of the pair
     state.versionVectors.set('.x_out', new Map([['.records.orders', c(19)], ['.rates', 'r1']]));
     state.versionVectors.set('.y_out', new Map([['.records.orders', c(19)], ['.rates', 'r1']]));
     take(c(21));
-    assert.deepStrictEqual(dataflowRootsHeld(state), { versions: 4, pairs: 0 }, 'c19 to c21, and r1');
+    assert.deepStrictEqual(dataflowRootsHeld(state), { versions: 4, pairs: 0, gone: 0 }, 'c19 to c21, and r1');
 
     // A result made at a version let go — a task's in flight, launched at c5 — is the older; two let go are ordered
     // by the record's history
@@ -896,6 +896,58 @@ describe('stepTaskCommits', () => {
     assert.deepStrictEqual(await stepTaskCommits(storage, both, 'plan'), {
       kind: 'commits', versions: new Map([['.records.orders', first], ['.rates', 'r1']]),
     });
+  });
+
+  it('asks the store for a commit only as a task launches: whether a task is due is decided from the run\'s memory, and writes nothing', async () => {
+    const c1 = await commit(null, '$init');
+    const c2 = await commit(c1, 'edit');
+    const c3 = await commit(c2, 'edit');
+    const swept = createHash('sha256').update('a commit gc swept').digest('hex');
+    const at = (orders: string) => ({ kind: 'commits', versions: new Map([['.records.orders', orders], ['.rates', 'r1']]) });
+    /** A run whose snapshot of the record is `snapshot`, where plan holds a result made at `made`. */
+    const holding = (x: string, y: string, snapshot: string, made: string): DataflowExecutionState => {
+      const state = run({ orders: x, rates: 'r1' }, { orders: y, rates: 'r1' });
+      state.inputSnapshot.set('.records.orders', snapshot);
+      (state.tasks as Map<string, TaskState>).set('plan', makeCompleted('plan', 'plan-out'));
+      state.versionVectors.set('.plan_out', new Map([['.records.orders', made], ['.rates', 'r1']]));
+      return state;
+    };
+
+    // Each commit the store is asked for, which re-references it
+    const touch = storage.objects.touch.bind(storage.objects);
+    const touched: string[] = [];
+    storage.objects.touch = async (repo, hashes) => {
+      touched.push(...hashes);
+      return touch(repo, hashes);
+    };
+    try {
+      // plan's inputs name the record at c1 and c2, and its result was made at c1: asked whether it is due, it is
+      // not, and the store is asked for nothing
+      const state = holding(c1, c2, c1, c1);
+      dataflowSnapshotTaken(state, [{ path: '.records.orders', version: c2 }]);
+      assert.deepStrictEqual((await stepTasksDue(storage, state, [{ path: '.x_out' }])).due, []);
+      assert.deepStrictEqual(touched, []);
+      // As plan launches, the commit it reads is re-referenced, so a sweep leaves it
+      assert.deepStrictEqual(await stepTaskCommits(storage, state, 'plan'), at(c1));
+      assert.deepStrictEqual(touched, [c1]);
+
+      // x's result was made at a commit gc swept: until a launch finds it gone it is the oldest named
+      touched.length = 0;
+      const later = holding(swept, c2, c2, c2);
+      assert.deepStrictEqual(await stepTaskCommits(storage, later, 'plan', { hold: false }), at(swept));
+      assert.deepStrictEqual(await stepTaskCommits(storage, later, 'plan'), at(c2), 'the launch passes it over');
+      assert.deepStrictEqual(touched, [swept, c2]);
+      // The run remembers it: asked whether it is due, plan would read what it launched at, with nothing asked
+      touched.length = 0;
+      assert.deepStrictEqual((await stepTasksDue(storage, later, [{ path: '.x_out' }])).due, [], 'not due: its result was made at c2');
+      assert.deepStrictEqual([touched, dataflowRootsHeld(later).gone], [[], 1]);
+      // until the run's state names the commit no more
+      later.versionVectors.set('.x_out', new Map([['.records.orders', c2], ['.rates', 'r1']]));
+      dataflowSnapshotTaken(later, [{ path: '.records.orders', version: c3 }]);
+      assert.strictEqual(dataflowRootsHeld(later).gone, 0);
+    } finally {
+      storage.objects.touch = touch;
+    }
   });
 
   it('takes no order from a read of the history that failed: it is raised, and the history is read again by the next to ask', async () => {
