@@ -16,8 +16,9 @@ import { RackEnrollRequestType, RackEnrollResponseType, RackLeaseRequestType, Ra
   RackHeartbeatRequestType, RackHeartbeatResponseType, RackExtendRequestType,
   RackWatchRequestType, RackWatchResponseType, RACK_WATCH_MAX_LEASES,
   RackCompleteRequestType, RackCompleteResponseType, RackStorageRequestType, RackStorageResponseType,
-  RackLogsRequestType, RACK_PROTOCOL, RACK_PROTOCOL_HEADER, RACK_TRANSFERS_AT_ONCE, readRackHello, readRackRefusal,
+  RackLogsRequestType, RACK_CALL_VALUE_OBJECTS, RACK_PROTOCOL, RACK_PROTOCOL_HEADER, RACK_TRANSFERS_AT_ONCE, readRackHello, readRackRefusal,
   type RackLeaseRef, type RackLeaseResult } from '../protocol/index.js';
+import { detachedSpecToWire } from '../runner-event.js';
 
 /** Supplies a fresh real-listener control plane for each protocol case. */
 export interface RackProtocolFixture {
@@ -27,6 +28,10 @@ export interface RackProtocolFixture {
   repo?: string;
   /** Optional transport for non-HTTP object URLs in a test bridge. */
   fetch?: typeof fetch;
+  /** What the host's hello says it takes beyond the protocol: none unless
+   *  given. A host that takes a call's value as an object names
+   *  `call-value-objects`, and its case here runs. */
+  features?: readonly string[];
   /** Mints one unconsumed enrollment credential. */
   mintEnrollmentToken(): Promise<string>;
   /** Creates, cancels and inspects leases through the host's real dispatch. */
@@ -106,7 +111,8 @@ export function rackProtocolSuite(label: string, setup: () => Promise<RackProtoc
       const response = await f.request(`${f.baseUrl}/api/rack/hello`);
       assert.equal(response.status, 200);
       assert.match(response.headers.get('content-type') ?? '', /^application\/json/);
-      assert.deepEqual(readRackHello(await response.text()), { protocol: RACK_PROTOCOL, e3: E3_RACK_VERSION, limits: { transfersAtOnce: RACK_TRANSFERS_AT_ONCE } });
+      assert.deepEqual(readRackHello(await response.text()), { protocol: RACK_PROTOCOL, e3: E3_RACK_VERSION, limits: { transfersAtOnce: RACK_TRANSFERS_AT_ONCE },
+        features: [...(f.features ?? [])] });
     });
     void it('refuses a request that names another protocol, or none, before its body is read, and spends no enrolment token on it', async (t) => {
       const f = await fixture(t); const token = await f.mintEnrollmentToken();
@@ -182,6 +188,35 @@ export function rackProtocolSuite(label: string, setup: () => Promise<RackProtoc
       }
       assert.equal((await f.success(await f.complete(a.rackToken, lease.leaseId, { taskName: 'contract', status: 'success', state: 'success', outputHash: hash }), RackCompleteResponseType)).disposition.type, 'recorded');
       assert.deepEqual(new Uint8Array((await f.readObject(f.repo, hash))!), bytes);
+    });
+    void it('takes a call\'s value named by hash only as the output its completion commits, from a host whose hello says it takes one', async (t) => {
+      const f = await fixture(t); const a = await f.enroll();
+      const takes = (f.features ?? []).includes(RACK_CALL_VALUE_OBJECTS);
+      const program = await f.seedObject(f.repo, encodeBeast2For(StringType)('a program'));
+      const lease = await f.dispatch.createLease({ version: 2, workspace: 'dev', taskName: 'fn:contract', e3Version: E3_RACK_VERSION, program, closure: { hashes: [program] },
+        runnerEvent: { mode: 'run-detached', repo: f.repo, launchId: uuidv7(), timeoutMs: 60000, spec: detachedSpecToWire({ bodyIr: new Uint8Array(), args: [],
+          runner: variant('east_node', { platforms: [], decode: variant('lazy', null) }), limits: { timeoutMs: 60000, maxResultBytes: 1024 ** 2, maxLogBytes: 1024 } }) } }, 'node');
+      await f.success(await f.claim(a.rackToken), RackLeaseGrantType);
+      const bytes = encodeBeast2For(StringType)('a value too large to carry inline '.repeat(2000));
+      const hash = createHash('sha256').update(bytes).digest('hex');
+      const named: RackLeaseResult = { taskName: 'fn:contract', status: 'success', outputHash: hash,
+        detached: { kind: 'success', valueHash: hash, stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false } };
+      const completion = (uploadId: string | undefined) => f.raw('complete', RackCompleteRequestType, { repo: f.repo, leaseId: lease.leaseId,
+        resultJson: JSON.stringify(named), outputUploadId: uploadId === undefined ? none : some(uploadId), inlineOutput: none }, a.rackToken);
+      // Named by hash, and never staged: no object the completion commits
+      await f.refusal(await completion(undefined), 400, 'invalid-request');
+      const storage = { repo: f.repo, leaseId: lease.leaseId, need: [], envManifest: none, outputs: [], commits: [] };
+      const staged = (await f.success(await f.raw('storage', RackStorageRequestType, { ...storage, output: some({ hash, size: BigInt(bytes.length) }) }, a.rackToken),
+        RackStorageResponseType)).output;
+      assert(staged.type === 'some', 'a call\'s lease may stage its whole output');
+      const put = await f.request(staged.value.url, { method: 'PUT', body: bytes }); assert(put.ok); await put.arrayBuffer();
+      if (!takes) {
+        // A host that takes no value as an object refuses one, staged or not
+        await f.refusal(await completion(staged.value.uploadId), 400, 'invalid-request');
+        return;
+      }
+      assert.equal((await f.success(await completion(staged.value.uploadId), RackCompleteResponseType)).disposition.type, 'recorded');
+      assert.deepEqual(new Uint8Array((await f.readObject(f.repo, hash))!), bytes, 'the value is the object its completion committed');
     });
     for (const how of ['cancel', 'supersede'] as const) void it(`stops a ${how} lease and discards its late completion`, async (t) => {
       const f = await fixture(t); const a = await f.enroll(); const lease = await f.create(); await f.success(await f.claim(a.rackToken), RackLeaseGrantType);

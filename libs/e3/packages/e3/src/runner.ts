@@ -128,15 +128,28 @@ export function runnerToVariant(r: Runner): RunnerValue {
 }
 
 /**
+ * Each stock runtime's standard platform package: its standard library
+ * (console, files, time, random, …), one family across the runtimes.
+ * {@link DEFAULT_RUNNER} loads east-node's, and `e3 call --ir` loads the one
+ * of the runtime it runs on unless told otherwise.
+ */
+export const STANDARD_PLATFORM_BY_RUNNER = {
+  east_node: '@elaraai/east-node-std',
+  east_py: 'east-py-std',
+  east_c: 'east-c-std',
+} as const;
+
+/**
  * The stock platform packages that implement ONE platform contract per
- * runtime. An imported function (#628) whose platform dependency is
- * provided by `east-py-std` runs unchanged on an east-node runner listing
+ * runtime, the standard library's first ({@link STANDARD_PLATFORM_BY_RUNNER}).
+ * An imported function (#628) whose platform dependency is provided by
+ * `east-py-std` runs unchanged on an east-node runner listing
  * `@elaraai/east-node-std`: the compliance suites pin that each family
  * implements the same functions on every runtime. A custom package name
  * must match exactly.
  */
 export const STOCK_PLATFORM_FAMILIES: ReadonlyArray<ReadonlyArray<string>> = [
-  ['east-py-std', '@elaraai/east-node-std', 'east-c-std'],
+  [STANDARD_PLATFORM_BY_RUNNER.east_py, STANDARD_PLATFORM_BY_RUNNER.east_node, STANDARD_PLATFORM_BY_RUNNER.east_c],
   ['east-py-io', '@elaraai/east-node-io'],
   ['east-py-datascience'],
 ];
@@ -179,7 +192,7 @@ export function runnerProvides(runner: Runner, provider: string): boolean {
  */
 export const DEFAULT_RUNNER: Runner = {
   runtime: 'east-node',
-  platforms: ['@elaraai/east-node-std'],
+  platforms: [STANDARD_PLATFORM_BY_RUNNER.east_node],
 };
 
 /**

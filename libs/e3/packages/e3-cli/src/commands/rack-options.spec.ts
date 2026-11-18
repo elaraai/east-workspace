@@ -5,7 +5,11 @@
 
 import { it } from 'node:test';
 import assert from 'node:assert/strict';
-import { rackEnvironmentLine, rackPlacementLine } from './rack-options.js';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { Budget, LocalStorage, repoInit } from '@elaraai/e3-core';
+import { commandPlacement, openCommandRack, rackAsked, rackEnvironmentLine, rackPlacementLine, unattachedLine } from './rack-options.js';
 
 const task = { taskName: 'train', role: 'task' as const };
 const unit = { taskName: 'score', role: 'unit' as const };
@@ -66,4 +70,59 @@ it('prints nothing for work that was never a rack\'s, and of a unit only what we
     '  [LOCAL] score (guest-crashed: out of memory)');
   assert.equal(rackPlacementLine({ kind: 'placed', ...unit, where: 'local', reason: 'memory-limit-exceeded',
     detail: { code: 'memory-limit-exceeded', needsBytes: 3 * 1024 ** 3, limitBytes: 2 * 1024 ** 3 } }), '  [LOCAL] score (memory-limit-exceeded: needs 3 GB, limit 2 GB)');
+});
+
+it('says every reason work runs here to a command that names one piece of work, and when it opened no rack session', () => {
+  const call = { taskName: 'fn:read_config', role: 'call' as const };
+  const hostCoupled = { kind: 'placed', ...call, where: 'local', reason: 'host-coupled:fs_read_file' } as const;
+  assert.equal(rackPlacementLine(hostCoupled), undefined, 'a dataflow run says nothing of work that was never a rack\'s');
+  assert.equal(rackPlacementLine(hostCoupled, true), '  [LOCAL] fn:read_config (host-coupled:fs_read_file)');
+  assert.equal(rackPlacementLine({ kind: 'placed', ...task, where: 'local', reason: 'gpu-not-east-py' }, true), '  [LOCAL] train (gpu-not-east-py)');
+  assert.equal(rackPlacementLine({ kind: 'placed', taskName: 'fn:score', role: 'call', where: 'rack', rackLabel: 'rack-a', leaseId: 'c',
+    needs: { kind: 'task', cores: 8, memoryBytes: 16 * 1024 ** 3, gpu: false } }, true), '  [RACK] fn:score → rack-a (cap 16 GB)');
+  assert.equal(rackPlacementLine({ kind: 'outgrew', taskName: 'fn:score', role: 'call', where: 'rack', rackLabel: 'rack-a', leaseId: 'c', capBytes: 4 * 1024 ** 3 }, true),
+    '  [RACK] fn:score failed: memory-limit-exceeded (cap 4 GB); raise --memory-limit or --size');
+  // A split task's progress still tells of its units
+  assert.equal(rackPlacementLine({ kind: 'placed', ...unit, where: 'local', reason: 'spill' }, true), undefined);
+
+  const lines: string[] = [];
+  const placement = commandPlacement((line) => lines.push(line));
+  placement(hostCoupled);
+  placement({ kind: 'placed', ...unit, where: 'rack', rackLabel: 'rack-a', leaseId: 'u' });
+  assert.deepEqual(lines, ['  [LOCAL] fn:read_config (host-coupled:fs_read_file)']);
+});
+
+it('says a command\'s work ran here with no rack session only of work that ran', () => {
+  const unattached = { unattached: 'no rack hub is running' };
+  assert.equal(unattachedLine(unattached, 'fn:score', true), '  [LOCAL] fn:score (no-rack-session: no rack hub is running)');
+  assert.equal(unattachedLine(unattached, 'train', false), undefined, 'a run the cache answered ran nowhere');
+  assert.equal(unattachedLine({}, 'train', true), undefined, 'a session\'s work is placed by its own lines');
+});
+
+it('takes a rack as asked for by --rack or --rack-only, and not by --no-rack or no flag, which leave it to the policy', () => {
+  assert.equal(rackAsked({ rack: true }), true);
+  assert.equal(rackAsked({ rackOnly: true }), true);
+  assert.equal(rackAsked({ rack: false }), false);
+  assert.equal(rackAsked({}), false);
+});
+
+it('throws a command\'s interrupt when it stopped the rack session\'s opening, so its work is never said to run here', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'e3-cli-rack-'));
+  const rackHome = process.env.E3_RACK_HOME;
+  process.env.E3_RACK_HOME = join(home, 'rack');
+  try {
+    const repoPath = join(home, 'repo');
+    assert.ok(repoInit(repoPath).success);
+    // Ctrl-C before the hub answered: the opening is given up before any hub
+    // is asked or started
+    const stop = new AbortController();
+    stop.abort(new Error('interrupted'));
+    const lines: string[] = [];
+    await assert.rejects(() => openCommandRack({ repoPath, workspace: 'dev', storage: new LocalStorage(), label: 'e3 call score',
+      budget: new Budget({ cores: 1, memory: 512 * 1024 ** 2 }, { sampler: null }), signal: stop.signal, print: (line) => { lines.push(line); } }), /^Error: interrupted$/);
+    assert.deepEqual(lines, []);
+  } finally {
+    if (rackHome === undefined) delete process.env.E3_RACK_HOME; else process.env.E3_RACK_HOME = rackHome;
+    rmSync(home, { recursive: true, force: true });
+  }
 });

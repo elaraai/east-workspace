@@ -30,7 +30,7 @@ import { repoGc } from '../gc.js';
 import { packageImport } from '../package-files.js';
 import { datasetWrite, workspaceSetDataset } from '../trees.js';
 import { workspaceDeploy } from '../workspace-files.js';
-import { createTempDir, createTestRepo, removeTempDir, removeTestRepo } from '../test-helpers.js';
+import { createTempDir, createTestRepo, removeTempDir, removeTestRepo, watchObjects } from '../test-helpers.js';
 import { LocalStorage } from '../storage/local/index.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 import type { TaskResult, TaskRunner } from './interfaces.js';
@@ -74,22 +74,6 @@ const countByRemainder = call(
   [partitioned(dataset('sales'))],
   variant('dict', { merge: some(ir(East.function([IntegerType, IntegerType, IntegerType], IntegerType, ($, _key, a, b) => a.add(b)))) }),
 );
-
-/** `storage`, with the hash of every object its object store is asked about
- *  recorded in `asked`. */
-function counting(storage: StorageBackend, asked: Set<string>): StorageBackend {
-  const objects = new Proxy(storage.objects, {
-    get(target, key, receiver) {
-      const member: unknown = Reflect.get(target, key, receiver);
-      if (typeof member !== 'function') return member;
-      return (...args: unknown[]) => {
-        if (typeof args[1] === 'string') asked.add(args[1]);
-        return (member as (...a: unknown[]) => unknown).apply(target, args);
-      };
-    },
-  });
-  return new Proxy(storage, { get: (target, key, receiver) => (key === 'objects' ? objects : Reflect.get(target, key, receiver)) });
-}
 
 /** Each sale's key that leaves 4 over 13, in order: 616 of 8000 sales. */
 const everyThirteenth = ir(East.function([SalesType, EmitInteger], NullType, ($, sales, emit) => {
@@ -284,7 +268,7 @@ describe('split calls', () => {
     const inner = runner;
     runner = {
       ...inner,
-      runDetached: (spec, options) => inner.runDetached(spec, options?.storage === undefined ? options : { ...options, storage: counting(options.storage, staged) }),
+      runDetached: (spec, options) => inner.runDetached(spec, options?.storage === undefined ? options : { ...options, storage: watchObjects(options.storage, (_method, hash) => { staged.add(hash); }) }),
     };
     const launched = await splitCallPrepare(storage, repo, WS, call(
       ir(East.function([SalesType, IntegerType, EmitEntry], NullType, ($, sales, _offset, emit) => {

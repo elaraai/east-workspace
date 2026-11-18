@@ -132,6 +132,24 @@ describe('atomicWriteFile', () => {
     }
   });
 
+  it('leaves the file as it was, and no staging file, when the write of the new file fails part way', async () => {
+    const target = join(dir, 'status.beast2');
+    await atomicWriteFile(target, Buffer.from('old'));
+    // A disk that fills as the staging file is written: part of it is there
+    const { writeFile } = fsPromises;
+    mock.method(fsPromises, 'writeFile', async (file: string) => {
+      await writeFile(file, 'ne');
+      throw Object.assign(new Error(`ENOSPC: no space left on device, write '${file}'`), { code: 'ENOSPC' });
+    });
+    try {
+      await assert.rejects(() => atomicWriteFile(target, Buffer.from('new')), { code: 'ENOSPC' });
+    } finally {
+      mock.restoreAll();
+    }
+    assert.deepStrictEqual(await fs.readdir(dir), ['status.beast2'], 'the part written is removed');
+    assert.strictEqual((await fs.readFile(target)).toString(), 'old');
+  });
+
   it('leaves no .partial staging files behind after sequential overwrites', async () => {
     const target = join(dir, 'sub', 'a.beast2');
     await atomicWriteFile(target, Buffer.from('hello'));

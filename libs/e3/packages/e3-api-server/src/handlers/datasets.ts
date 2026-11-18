@@ -114,7 +114,8 @@ export async function getDataset(
           },
         });
       }
-      const chunks = (await DatasetSegments.open(storage, repoPath, hash)).splice()[Symbol.asyncIterator]();
+      // The manifest opened above is the one streamed: it is not read again
+      const chunks = (await DatasetSegments.of(storage, repoPath, { ...collection, manifest: collection.manifest })).splice()[Symbol.asyncIterator]();
       const body = new ReadableStream<Uint8Array>({
         async pull(controller) {
           const next = await chunks.next();

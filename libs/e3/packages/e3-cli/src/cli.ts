@@ -19,7 +19,7 @@
  *   auth      login | logout | status | token | whoami
  *   rack      enroll | list | remove | status | config | policy | hub | stop
  *   run       <pkg.task> <inputs...> -o <out>     (ad-hoc)
- *   call      <pkg.fn> [args...] [-o <out>]       (named functions)
+ *   call      <pkg.fn> [args...] [-o <out>]       (named functions, or --ir <file>)
  *   watch     <source> [<ws>]
  *   convert   <input> [...]
  *
@@ -355,16 +355,19 @@ program
   .option('-v, --verbose', "Pass -v to the runner (timing/perf to stderr)")
   .option(...JOBS)
   .option(...MEMORY)
+  .option('--rack', "Run the task's body on this machine's enrolled rack, whatever the rack policy selects (a rule that names the task still sizes it)")
+  .option('--rack-only', 'Wait for rack capacity instead of running locally when the racks are full; an unhealthy rack is given two minutes, and a failed transfer one more lease, before the task runs locally')
   .action(runCommand);
 
 // ---------------------------------------------------------------------------
-// call — named package functions (graph-free, persists nothing)
+// call — named package functions, or a function from its IR file
+// (graph-free, persists nothing)
 // ---------------------------------------------------------------------------
 program
   .command('call')
-  .description('Call a named package function (function: pkg.fn or pkg@version.fn)')
+  .description('Call a named package function (function: pkg.fn or pkg@version.fn), or a function from its IR file (--ir)')
   .argument('<repo>', 'Repository path or URL')
-  .argument('<fn>', 'Function specifier: pkg.fn or pkg@version.fn (with --workspace: fn)')
+  .argument('[fn]', 'Function specifier: pkg.fn or pkg@version.fn (with --workspace: fn); with --ir, the first argument')
   .argument('[args...]', 'Arguments: .east literals or .beast2/.json/.east file paths, and with --workspace a dataset of the workspace as @<keypath> (e.g. @.inputs.sales)')
   .option('-w, --workspace <ws>', 'Call against the package deployed in a workspace, whose datasets an argument may name')
   .option('-o, --output <path>', 'Write the result to a .beast2 file instead of printing')
@@ -374,8 +377,14 @@ program
     + "as e3 mutate takes them. Repeatable, laid in order; written after the call's own arguments",
   )
   .option('-v, --verbose', "Pass -v to the runner (timing/perf to stderr; local or remote)")
+  .option('--ir <file>', "Call the function an IR file holds (.beast2, or .json / .east as a runner reads one), its signature read from the IR; through a server, a workspace's one-shot call (needs -w)")
+  .option('--runner <runtime>', "The runtime an --ir function runs on: east-node (the default), east-c or east-py, with that runtime's standard platform package")
+  .option('--platform <package>', "A platform package an --ir function's runtime loads, in place of its standard one; repeat it for each, or name none for none",
+    (name: string, names: string[] | undefined): string[] => [...(names ?? []), name])
   .option(...JOBS)
   .option(...MEMORY)
+  .option('--rack', "Run the call on this machine's enrolled rack, whatever the rack policy selects (a rule that names fn:<name> still sizes it)")
+  .option('--rack-only', 'Wait for rack capacity instead of running locally when the racks are full; an unhealthy rack is given two minutes before the call runs locally')
   .action(callCommand);
 
 // ---------------------------------------------------------------------------

@@ -67,6 +67,7 @@ import {
   RackStorageRequestType,
   RackStorageResponseType,
   RackLogsRequestType,
+  RACK_CALL_VALUE_OBJECTS,
   RACK_PASS_OVER_MS,
   RACK_PROTOCOL,
   RACK_PROTOCOL_HEADER,
@@ -188,6 +189,14 @@ export interface RackRouteOptions {
    *  build's), and which published env build is read for a lease that names
    *  no release of its own. */
   e3Version?: string;
+  /**
+   * Whether the source takes a call's value as an object of its store: its
+   * hello names {@link RACK_CALL_VALUE_OBJECTS}, and a function lease's
+   * completion may name its value by hash, as the output it commits. Set it
+   * only where what reads a call's result reads such a value. Absent, no
+   * agent sends one, and a value too large to carry inline runs elsewhere.
+   */
+  callValueObjects?: boolean;
   /**
    * Wakes a dataflow's parked run once a rack attempt's outcome is recorded
    * (#208): `wakeRun` over the run's pointer, which asks the deployment's
@@ -384,12 +393,14 @@ export function createRackRoutes(
   }
 
   // GET /api/rack/hello — what an agent asks before it shows any credential:
-  // the protocol this source speaks, its e3 release, and its limits. JSON,
-  // so an agent of any protocol reads it.
+  // the protocol this source speaks, its e3 release, its limits, and what it
+  // takes beyond the protocol. JSON, so an agent of any protocol reads it.
+  const callValueObjects = options?.callValueObjects === true;
   const hello: RackHello = {
     protocol: RACK_PROTOCOL,
     e3: e3Version ?? E3_RACK_VERSION,
     limits: { transfersAtOnce: options?.transfersAtOnce ?? RACK_TRANSFERS_AT_ONCE },
+    features: callValueObjects ? [RACK_CALL_VALUE_OBJECTS] : [],
   };
   app.get('/api/rack/hello', () => new Response(JSON.stringify(hello), { headers: { 'Content-Type': 'application/json' } }));
 
@@ -765,6 +776,11 @@ export function createRackRoutes(
       if (!inlineSuccess && result.outputHash !== undefined && (typeof result.outputHash !== 'string' || !isObjectHash(result.outputHash))) throw new Error('invalid output hash');
       if (result.cancelled !== undefined && typeof result.cancelled !== 'boolean') throw new Error('invalid cancellation');
       if (result.error !== undefined && typeof result.error !== 'string') throw new Error('invalid error');
+      // A call's value named by hash is the output its completion commits:
+      // the object it uploaded, to a source that takes one
+      const valueHash = (result.detached as { valueHash?: unknown } | undefined)?.valueHash;
+      if (valueHash !== undefined && (!callValueObjects || result.status !== 'success' || typeof valueHash !== 'string' || !isObjectHash(valueHash)
+        || result.outputHash !== valueHash || request.outputUploadId.type !== 'some')) throw new Error('a call\'s value named by hash is the output its completion commits');
       // What is stored and handed on is what this build read of them.
       const reason = readRackReason(result.reason);
       const retries = readRackRetries(result.retries);

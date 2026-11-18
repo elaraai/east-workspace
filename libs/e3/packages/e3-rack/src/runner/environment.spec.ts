@@ -18,7 +18,7 @@ import { lstat, mkdir, mkdtemp, readFile, readlink, rm, writeFile } from 'node:f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { BlobType, East, IntegerType, StringType, encodeBeast2For, some, variant } from '@elaraai/east';
+import { BlobType, East, IntegerType, StringType, decodeBeast2For, encodeBeast2For, encodeEastIR, some, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { EnvironmentSpecType, TaskObjectType, decodeTaskObject } from '@elaraai/e3-types';
 import { Budget, LocalStorage, LocalTaskRunner, datasetWrite, environmentLayerPath, hostEnvironmentPlatform, inputsHash, packageImport, packageRead,
@@ -33,7 +33,7 @@ import { ENV_LAYER_MEDIA_TYPE, type EnvLayerManifest } from '../server/env-publi
 import type { RackLeaseEvent } from '../protocol/task-envelope.js';
 import { E3_RACK_VERSION } from '../version.js';
 import { openRackRunner, type OpenRackRunnerOptions } from './rack-runner.js';
-import { ranLocally, type RackPlacementEvent } from './rack-body.js';
+import { ranLocally, type RackPlacementEvent } from '../protocol/placement.js';
 import type { RackEnvironmentEvent } from './environment.js';
 import { describeRackSummary } from './summary.js';
 
@@ -174,6 +174,34 @@ it('builds an environment\'s layers once for the rack\'s platform, leases the wo
     const rebuilt = f.environments.find((again) => again.kind === 'built'); assert(rebuilt?.kind === 'built');
     assert.deepEqual([rebuilt.layers, rebuilt.fresh], [2, 1], 'what its lock installs is the layer the repository kept');
     assert.match(describeRackSummary(rack.takeSummary())!, /^Rack summary: 3 tasks on test rack · .* · 0 ran locally$/);
+  });
+
+it('runs a call that declares an environment on a rack that composes environments, from the layers built for its platform, and returns a local call\'s value',
+  { skip: posix ? false : NOT_ON_WINDOWS }, async () => {
+    const f = await fixture(); const agent = await f.agent(); const rack = await f.open({ selected: true });
+    const envHash = await f.environment('called');
+    const spec = { bodyIr: encodeEastIR(East.function([StringType], IntegerType, (_$, text) => text.length()).toIR()),
+      args: [encodeBeast2For(StringType)('from the environment')], runner: variant('east_node', { platforms: [] as string[], decode: variant('lazy', null) }),
+      limits: { timeoutMs: 60_000, maxResultBytes: 1024, maxLogBytes: 64 * 1024 }, environment: envHash };
+    const running = rack.runner.runDetached(spec, { storage: f.storage, functionName: 'length' });
+    const grant = await agent.claim(); assert(grant);
+    const event = JSON.parse(grant.eventJson) as RackLeaseEvent;
+    assert.equal(event.environment, envHash, 'the call\'s lease names its environment');
+    assert(event.runnerEvent.mode === 'run-detached' && event.runnerEvent.spec.environment === envHash);
+    assert('hashes' in event.closure && event.closure.hashes.includes(envHash), 'and its closure holds the environment\'s spec');
+    const remote = await agent.execute(grant); assert.equal(remote.status, 'success', remote.error);
+    const result = await running;
+    assert(result.kind === 'success', result.stderr);
+    // Built once for the rack's platform, and composed there from the layers: nothing installed on the rack.
+    assert.deepEqual(f.environments.map((built) => built.kind), ['building', 'built']);
+    assert((await lstat(join(agent.repo, 'envs', envHash))).isSymbolicLink(), 'linked, not built');
+    assert.deepEqual(f.placements.flatMap((placed) => placed.kind === 'placed' ? [[placed.where, placed.role, placed.taskName]] : []), [['rack', 'call', 'fn:length']]);
+    // A local call of the same function, which installs the environment here, returns the same value.
+    const local = await new LocalTaskRunner(f.repo, f.budget).runDetached(spec, { storage: f.storage });
+    assert(local.kind === 'success', local.stderr);
+    const decode = decodeBeast2For(IntegerType);
+    assert.equal(decode(result.value), BigInt('from the environment'.length));
+    assert.equal(decode(result.value), decode(local.value));
   });
 
 it('leases work that declares an environment only to a rack that composes environments for a platform its layers are kept for, and serves that rack its own environment\'s layers alone',

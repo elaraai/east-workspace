@@ -175,10 +175,13 @@ class InMemoryDatasetUploadStore implements DatasetUploadStore {
         await this.storage.objects.adoptFile(repoPath, stagingPath, record.hash);
         await datasetAdoptObject(this.storage, repoPath, record.workspace, treePath, record.hash, runner, { onProgress: report });
       } else {
+        // The staged file is this store's own, and unlinked once the commit
+        // ends: the store may take it itself, by a link
         await datasetAdoptFile(this.storage, repoPath, record.workspace, treePath, stagingPath, {
           expectHash: record.hash,
           runner,
           onProgress: report,
+          link: true,
         });
       }
       return variant('completed', null);

@@ -23,9 +23,10 @@
  */
 
 import {
-  IMPORT_PLATFORM, decodeAsyncEastIR, decodeEastIR, literalValueOf, none, some, variant, walkIR, type AsyncFunctionIR, type EastTypeValue, type FunctionIR,
-  type IR, type ValueIR,
+  IMPORT_PLATFORM, InMemoryUnitIO, decodeAsyncEastIR, decodeEastIR, encodeEastIR, literalValueOf, none, some, variant, walkIR, type AsyncFunctionIR,
+  type EastTypeValue, type FunctionIR, type IR, type ValueIR,
 } from '@elaraai/east';
+import { loadUnitProgram } from '@elaraai/east/internal';
 import {
   pathToString, type CallArg, type ExecuteLimits, type ExecuteResult, type FunctionInput, type InputRead, type OneShotRequest, type RunnerValue,
   type TreePath,
@@ -257,6 +258,25 @@ export function programSignature(ir: Uint8Array): { argTypes: EastTypeValue[]; o
   const type: EastTypeValue = decodeBody(ir).value.type;
   if (type.type !== 'Function' && type.type !== 'AsyncFunction') throw new Error(`its type is ${type.type}, not a function's`);
   return { argTypes: [...type.value.inputs], outputType: type.value.output };
+}
+
+/**
+ * A program as the file a caller keeps it in holds it: a function's or an
+ * async function's IR, in any encoding a runner reads — `.beast2`, the bundle
+ * with its source map, or `.json` or `.east`, with none — as the beast2
+ * bundle a runner is handed, and its signature.
+ *
+ * @param path - The file's name, whose extension says its encoding
+ * @param bytes - The file's bytes
+ * @returns The program's bundle, its parameters' types and its return type
+ * @throws {Error} When the extension is none a runner reads, or the bytes
+ *   are not a function's IR.
+ * @example
+ * const { bodyIr, argTypes, outputType } = readProgram('score.beast2', await readFile('score.beast2'));
+ */
+export function readProgram(path: string, bytes: Uint8Array): { bodyIr: Uint8Array; argTypes: EastTypeValue[]; outputType: EastTypeValue } {
+  const bodyIr = encodeEastIR(loadUnitProgram(new InMemoryUnitIO([[path, bytes]]), path));
+  return { bodyIr, ...programSignature(bodyIr) };
 }
 
 /**

@@ -171,6 +171,10 @@ export interface TaskSelection {
   size: RackComputeSize;
   /** Maximum execution time in minutes. */
   timeoutMinutes: number;
+  /** The time its rule sets, in minutes; null when no rule matches it, or its
+   *  rule sets none. A call's time is then its caller's, where a task's is
+   *  the policy's default. */
+  ruleTimeoutMinutes: number | null;
   /** Whether the author deliberately overrides the host-access guard. */
   allowHostCoupled: boolean;
   /** The ceiling on what one piece of the task's work may be capped at on a
@@ -197,6 +201,7 @@ export function selectTask(policy: RackPolicy, taskName: string): TaskSelection 
     target: rule?.target.type ?? (policy.mode.type === 'auto' ? 'rack' : 'local'),
     size: rule?.size.type === 'some' ? rule.size.value.type : policy.defaultSize.type,
     timeoutMinutes: Number(rule?.timeoutMinutes.type === 'some' ? rule.timeoutMinutes.value : policy.defaultTimeoutMinutes),
+    ruleTimeoutMinutes: rule?.timeoutMinutes.type === 'some' ? Number(rule.timeoutMinutes.value) : null,
     allowHostCoupled: rule?.allowHostCoupled ?? false,
     memoryLimit: rule?.memoryLimit.type === 'some' ? Number(rule.memoryLimit.value) : null,
     gpu: rule?.gpu ?? false,

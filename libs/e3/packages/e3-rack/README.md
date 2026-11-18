@@ -1,8 +1,9 @@
 # @elaraai/e3-rack
 
-Delegate eligible task bodies from a local e3 repository to a rack agent. The
-local process still plans the graph, checks caches and owns the repository.
-One hub per operating-system user coordinates the rack fleet across projects.
+Delegate eligible task bodies from a local e3 repository to a rack agent, and
+the CLI's ad-hoc runs and function calls. The local process still plans the
+graph, checks caches and owns the repository. One hub per operating-system
+user coordinates the rack fleet across projects.
 
 ## Connect a rack
 
@@ -250,8 +251,9 @@ failures. `--rack-only` disables capacity spill; infrastructure failures can
 still fall back locally, after a wait: work whose racks are not healthy waits
 two minutes for one to come back, and work whose transfer failed its tries is
 leased once more. It does not force ineligible tasks onto a rack.
-Rack flags apply to local dataflows and watch with `--start`, and are refused
-for remote repository URLs. Calls, mutations and intake remain local.
+Rack flags apply to local dataflows, watch with `--start`, and `e3 run` and
+`e3 call` ([below](#one-task-or-one-call)), and are refused for remote
+repository URLs. A local API server's calls, mutations and intake remain local.
 
 Stock runner configurations delegate, and so does a task that declares a
 `python` or `node` environment, with the project platform packages its runner
@@ -316,6 +318,64 @@ A task whose environment cannot go to a rack runs here, and says why on its
 
 A task's tier is its runner's, `py-datascience` when it names
 `east-py-datascience`, and `py-datascience` when its rule says `--gpu`.
+
+### One task or one call
+
+`e3 run` and `e3 call` take `--rack` and `--rack-only` for the one piece of
+work they name. The flag selects it, whatever the policy's rules or its
+`enable` say, and a rule that matches its name still sizes it: a call is named
+`fn:<name>`, and one from an IR file by the file's name without its extension.
+Fitness applies as it does to a task, and every reason the work runs here is
+printed:
+
+```sh
+e3 run . acme-forecast.train ./sales.beast2 -o ./model.beast2 --rack
+e3 call . -w dev train_once @.inputs.sales --rack
+e3 call . --ir ./score.beast2 '[1.0, 2.0]' 5 --rack
+e3 rack policy . set 'fn:train_once' rack --size xlarge
+```
+
+```text
+Running acme-forecast@1.2.0/train
+  Input: ./sales.beast2 -> 3f9a2b1c0d4e...
+  [RACK] train → workshop (cap 16 GB)
+Rack summary: 1 task on workshop · 0 waited for capacity · 0 ran again · 0 transfers retried · 0 ran locally
+Done (41250ms)
+Output: ./model.beast2
+```
+
+`e3 run --rack` runs the task as a dataflow runs it: a whole task's body on a
+rack, or a split task's pieces and merges, its planning and assembly here; its
+cache and history are a local run's. A call's lines go to the terminal's
+stderr, its value to stdout: `[RACK] fn:train_once → workshop (cap 32 GB)`, or
+`[LOCAL] fn:read_config (host-coupled:fs_read_file)`.
+
+A call is a lease of its own, never joined to another's, sized as a whole task
+is, its program and any argument past 192 KiB staged as objects with its
+closure. Its value comes back with its completion, or past 192 KiB as the
+object the completion commits. Its time is the one its caller's spec gives it,
+counted from when its lease is first queued, and may be longer than the 24.8
+days one timer waits. The CLI gives a call its rule's timeout when a rule that
+matches `fn:<name>` sets one (`rackCallTimeoutMs`), longer or shorter than its
+own ten minutes, and else those ten minutes; the call's drafts and its function
+share that time. A call no rack may run is judged before any session opens,
+and runs here at once, starting no hub.
+Ctrl-C leaves the lease of a call, and the leases of an ad-hoc run, whose
+output file is then left as it was. A call or a run that had finished as
+Ctrl-C came answers as it would have: nothing was stopped. An ad-hoc run the
+cache answers is no rack's work, and opens no rack session.
+
+| The call | What it comes to |
+| --- | --- |
+| Not fit for a rack, or no healthy rack of its tier | Runs here; its line says why. |
+| No rack claims it within the claim timeout | Runs here; under `--rack-only`, waits while a compatible rack is healthy. |
+| Success | The value. |
+| `too_large`, `timed_out` | Its answer, as a local call's would be. |
+| The function fails | Its answer, with its exit code and log tails; run again here only with `--retry-task-failures-locally`. |
+| Its cap stops it | Fails, `memory-limit-exceeded`, naming the cap. |
+| The rack cannot relay its value | Runs here (`value-too-large-to-relay`). |
+| The hub or the lease is lost, or the rack's infrastructure fails | Runs here, with the time left. |
+| Ctrl-C | The lease is left and its rack told to stop it. |
 
 ## Execution and recovery
 
@@ -498,9 +558,12 @@ e3 rack stop                           # stop the shared hub
 
 Hub state lives under `~/.e3/rack` (override with `E3_RACK_HOME`). The rack
 listener is off until configured. A running hub and the e3 that calls it speak
-the same control protocol (3) exactly. A hub that an older e3 started is asked
+the same control protocol (4) exactly. A hub that an older e3 started is asked
 to exit once idle, and the run that found it runs locally this time; `e3 rack
-stop` with that e3, or ending its process, replaces it now. Agents must report
+stop` with that e3, or ending its process, replaces it now. So every project
+that uses a rack from one machine runs the e3 release that machine's hub was
+started by: they are upgraded together, and a hub kept running as a service
+is stopped and started again with the new e3. Agents must report
 a bundled e3 version at least as new as the project's, and speak the hub's rack
 protocol ([below](#rack-protocol)): `e3 rack list` shows one that does not as
 `incompatible: speaks rack protocol 2, not 3; update the rack`.
@@ -614,8 +677,10 @@ with a release:
 
 - **Hello.** `GET /api/rack/hello` answers anyone who reaches the listener,
   before any credential, in JSON: `{ "protocol": 3, "e3": "<release>",
-  "limits": { "transfersAtOnce": 8 } }`. An agent asks it before it spends an
-  enrollment token.
+  "limits": { "transfersAtOnce": 8 }, "features": ["call-value-objects"] }`. An
+  agent asks it before it spends an enrollment token. `features` names what the
+  source takes beyond the protocol: a source from before it names none, and an
+  entry a reader does not know, a word or of another form, is passed over.
 - **Requests.** Every request names its protocol in the `x-e3-rack-protocol`
   header and carries the BEAST2 of the route's request type. One that names
   another protocol, or none, is answered `426 upgrade-required` before its body
@@ -644,6 +709,16 @@ heartbeat's `report` says what the rack is and has (its `features`, the
 platform it installs environments for, its cores, memory and GPUs and what of
 them is free), and each poll's `offer` says how much the poll may be answered
 with. A lease's event and result were JSON already.
+
+A function call's lease carries the `run-detached` event: its program by hash
+in the lease's closure, and its arguments inline, a dataset's or a large
+value's by hash. Its result's `detached` outcome (`RackFunctionResult`) holds
+the value inline (`valueB64`) up to 192 KiB (`RACK_INLINE_VALUE_MAX`). A larger
+value goes as an object only to a source whose hello names `call-value-objects`:
+the agent stages it as the lease's output, the completion commits it, and the
+outcome names it (`valueHash`, the completion's `outputHash`). To any other
+source the agent says the value is too large to relay (`rackResultTooLarge`),
+and the call runs there.
 
 An agent that composes environments reports the feature `environments` and its
 `target`, the platform it runs them on as e3-core names one
@@ -711,5 +786,6 @@ release, and pin the hub's certificate; an older bundle falls back locally.
 See [the epic reconciliation](../../design/e3-rack-reconciliation.md) for the
 changes required by current cloud and workspace APIs, wire migration rules,
 and the remaining companion work. `tools` and `image` environments on a rack,
-environments from a Windows launching machine, remote function calls,
-automatic reconnect after hub restart and embedded UI integration are deferred.
+environments from a Windows launching machine, a local API server's calls on a
+rack, split calls on a rack, automatic reconnect after hub restart and embedded
+UI integration are deferred.

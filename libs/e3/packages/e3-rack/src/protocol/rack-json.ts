@@ -104,8 +104,16 @@ export interface RackResources {
 }
 
 /**
+ * The hello's feature by which a source says it takes a call's value as an
+ * object of its store: a function lease's completion may name its value by
+ * hash, the output it commits, in place of carrying it inline.
+ */
+export const RACK_CALL_VALUE_OBJECTS = 'call-value-objects';
+
+/**
  * What a source answers `GET /api/rack/hello` with, to anyone who can reach
- * it: the protocol it speaks, its e3 release, and its limits.
+ * it: the protocol it speaks, its e3 release, its limits, and what it takes
+ * beyond the protocol.
  */
 export interface RackHello {
   /** The rack protocol the source speaks */
@@ -117,6 +125,12 @@ export interface RackHello {
     /** The object and layer transfers it serves one rack at once */
     readonly transfersAtOnce: number;
   };
+  /**
+   * What the source takes beyond the protocol: {@link RACK_CALL_VALUE_OBJECTS}.
+   * An agent uses a feature only with a source that names it; a source that
+   * names none takes none.
+   */
+  readonly features: readonly string[];
 }
 
 /**
@@ -165,6 +179,17 @@ function count(value: unknown, what: string): number {
   return value;
 }
 
+/**
+ * A JSON value's features: the words its list holds. An entry of another kind
+ * is a later release's way of naming a feature, which this build does not
+ * take, and is passed over, so the list can grow.
+ */
+function features(value: unknown, what: string): string[] {
+  const listed = value ?? [];
+  if (!Array.isArray(listed)) throw new Error(`${what} are not a list`);
+  return listed.filter((feature): feature is string => typeof feature === 'string');
+}
+
 /** A JSON text as an object. */
 function object(json: string, what: string): Record<string, unknown> {
   let value: unknown;
@@ -192,7 +217,8 @@ function resources(value: unknown, what: string): RackResources {
  * Reads a heartbeat's report.
  *
  * @param json - The report, as the heartbeat carries it
- * @returns The report, with the fields this build knows
+ * @returns The report, with the fields this build knows, and the features
+ *   that are words
  * @throws {Error} When it is not a JSON object, or a field this build reads is
  *   of the wrong kind
  *
@@ -203,11 +229,9 @@ function resources(value: unknown, what: string): RackResources {
  */
 export function readRackReport(json: string): RackReport {
   const fields = object(json, 'the report');
-  const features = fields.features ?? [];
-  if (!Array.isArray(features) || features.some((feature) => typeof feature !== 'string')) throw new Error('the report\'s features are not strings');
   if (fields.target !== undefined && (typeof fields.target !== 'string' || fields.target === '')) throw new Error('the report\'s target is not a platform\'s name');
   return {
-    features: features as string[],
+    features: features(fields.features, 'the report\'s features'),
     ...(fields.target !== undefined && { target: fields.target }),
     ...(fields.resources !== undefined && { resources: resources(fields.resources, 'the report\'s resources') }),
     ...(fields.free !== undefined && { free: resources(fields.free, 'the report\'s free resources') }),
@@ -235,9 +259,11 @@ export function readRackOffer(json: string): RackOffer {
  *
  * @param json - The hello's body
  * @returns The hello; a source that states no limit serves
- *   {@link RACK_TRANSFERS_AT_ONCE} transfers at once
+ *   {@link RACK_TRANSFERS_AT_ONCE} transfers at once, one that names no
+ *   feature takes none, and an entry of its features that is no word is
+ *   passed over
  * @throws {Error} When it is not a JSON object that names a protocol and an e3
- *   release
+ *   release, or its features are not a list
  *
  * @example
  * ```ts
@@ -251,7 +277,7 @@ export function readRackHello(json: string): RackHello {
   const limits = typeof fields.limits === 'object' && fields.limits !== null ? fields.limits as Record<string, unknown> : {};
   const transfers = limits.transfersAtOnce === undefined ? RACK_TRANSFERS_AT_ONCE : count(limits.transfersAtOnce, 'the hello\'s transfersAtOnce');
   if (transfers < 1) throw new Error('the hello\'s transfersAtOnce is not at least one');
-  return { protocol: count(fields.protocol, 'the hello\'s protocol'), e3: fields.e3, limits: { transfersAtOnce: transfers } };
+  return { protocol: count(fields.protocol, 'the hello\'s protocol'), e3: fields.e3, limits: { transfersAtOnce: transfers }, features: features(fields.features, 'the hello\'s features') };
 }
 
 /**

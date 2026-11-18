@@ -9,8 +9,8 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { East, IntegerType, StringType, encodeBeast2For, encodeEastIR, equalFor, none, some, variant } from '@elaraai/east';
-import { InMemoryStorage, LocalStorage, repoInit, uuidv7, type TaskBodyRequest } from '@elaraai/e3-core';
-import { EnvironmentSpecType, TASK_OBJECT_KIND, TaskObjectType, type TaskObject } from '@elaraai/e3-types';
+import { InMemoryStorage, LocalStorage, repoInit, uuidv7, type DetachedCallRequest, type TaskBodyRequest } from '@elaraai/e3-core';
+import { EnvironmentSpecType, TASK_OBJECT_KIND, TaskObjectType, type RunnerValue, type TaskObject } from '@elaraai/e3-types';
 import { DEFAULT_RACK_POLICY, RACK_SIZES, RackPolicyError, RackPolicyType, loadPolicy, policyPath, removeRule, savePolicy, selectTask, setEnabled, setMode, setRule } from './policy.js';
 import { rackTierFor } from './tiers.js';
 import { collectPlatformNames, hostCoupledPlatforms } from './host-coupling.js';
@@ -25,8 +25,11 @@ it('matches whole names, literal punctuation, wildcards, and first-rule preceden
   assert.equal(selectTask(policy, 'train_xgb').target, 'local');
   assert.equal(selectTask(policy, 'other').size, 'small');
   assert.equal(selectTask(policy, 'other').timeoutMinutes, 12);
+  assert.equal(selectTask(policy, 'other').ruleTimeoutMinutes, 12, 'the time is its rule\'s own');
   assert.equal(selectTask(policy, 'train').size, 'large');
   assert.equal(selectTask(policy, 'train').timeoutMinutes, 1440);
+  assert.equal(selectTask(policy, 'train').ruleTimeoutMinutes, null, 'its rule sets none: the default is the policy\'s');
+  assert.equal(selectTask(DEFAULT_RACK_POLICY, 'train').ruleTimeoutMinutes, null, 'no rule matches it');
   const literal = setRule(DEFAULT_RACK_POLICY, 'task[?].*', 'rack');
   assert.equal(selectTask(literal, 'task[x].anything').target, 'rack');
   assert.equal(selectTask(literal, 'taskxx.anything').target, 'local');
@@ -149,6 +152,43 @@ it('takes a task that declares an environment with the platform package it carri
   assert.deepEqual(await evaluate(await spec(variant('tools', { files: [] }))), { eligible: false, reason: 'environment:tools' });
   assert.deepEqual(await evaluate(await spec(variant('image', { digest: 'sha256:' + 'c'.repeat(64) }))), { eligible: false, reason: 'environment:image' });
   assert.deepEqual(await evaluate('d'.repeat(64)), { eligible: false, reason: 'unscannable' }, 'an environment whose spec the store lacks');
+});
+
+it('judges a call as a task is judged: its rule by fn:<name>, or every call under the flag, its runner, its environment and its program', async () => {
+  const storage = new InMemoryStorage();
+  await storage.repos.create('repo');
+  const node = variant('east_node', { platforms: [] as string[], decode: variant('lazy', null) });
+  const limits = { timeoutMs: 1000, maxResultBytes: 1024, maxLogBytes: 1024 };
+  /** A call of the program, named `score` unless a name is given, or none. */
+  const call = (bodyIr: Uint8Array, more: { name?: string | null; runner?: RunnerValue; environment?: string } = {}): DetachedCallRequest => ({
+    repo: 'repo', settings: {},
+    spec: { bodyIr, args: [], runner: more.runner ?? node, limits, ...(more.environment !== undefined && { environment: more.environment }) },
+    options: more.name === null ? {} : { functionName: more.name ?? 'score' },
+  });
+  const pure = encodeEastIR(East.function([IntegerType], IntegerType, ($, value) => value.add(1n)).toIR());
+  const coupled = encodeEastIR(asyncNested.toIR());
+  const eligible = { eligible: true as const, tier: 'node' as const, size: 'large' as const, timeoutMinutes: 1440, memoryLimit: null, gpu: false, environment: null };
+  const named = new EligibilityEvaluator(setRule(DEFAULT_RACK_POLICY, 'fn:score', 'rack', { size: 'small' }));
+  assert.deepEqual(await named.evaluateCall(call(pure), storage), { ...eligible, size: 'small' }, 'its rule names it fn:<name>');
+  assert.deepEqual(await named.evaluateCall(call(pure, { name: 'other' }), storage), { eligible: false, reason: 'not-selected' });
+  assert.deepEqual(await named.evaluateCall(call(pure, { name: null }), storage), { eligible: false, reason: 'no-function-name' });
+  // The flag selects every call, whatever the rules select; a rule that names it still sizes it
+  const flagged = new EligibilityEvaluator(setRule(DEFAULT_RACK_POLICY, 'fn:score', 'local', { size: 'medium' }), { selected: true });
+  assert.deepEqual(await flagged.evaluateCall(call(pure), storage), { ...eligible, size: 'medium' });
+  assert.deepEqual(await flagged.evaluateCall(call(pure, { name: 'other' }), storage), eligible);
+  // Fitness still applies: a platform call that reaches the host, unless its rule allows it, and a custom runner
+  assert.deepEqual(await flagged.evaluateCall(call(coupled), storage), { eligible: false, reason: 'host-coupled:fetch_get' });
+  const allowed = new EligibilityEvaluator(setRule(DEFAULT_RACK_POLICY, 'fn:score', 'rack', { allowHostCoupled: true }));
+  assert.deepEqual(await allowed.evaluateCall(call(coupled), storage), eligible);
+  assert.deepEqual(await flagged.evaluateCall(call(pure, { runner: variant('custom', { command: ['mine'] }) }), storage), { eligible: false, reason: 'custom-runner' });
+  assert.deepEqual(await flagged.evaluateCall(call(new Uint8Array([1])), storage), { eligible: false, reason: 'unscannable' });
+  // An environment is judged as a task's is
+  const tools = await storage.objects.write('repo', encodeBeast2For(EnvironmentSpecType)(variant('tools', { files: [] })));
+  assert.deepEqual(await flagged.evaluateCall(call(pure, { environment: tools }), storage), { eligible: false, reason: 'environment:tools' });
+  if (process.platform !== 'win32') {
+    const python = await storage.objects.write('repo', encodeBeast2For(EnvironmentSpecType)(variant('python', { pyproject: 'a'.repeat(64), lock: 'b'.repeat(64), sdists: [] })));
+    assert.deepEqual(await flagged.evaluateCall(call(pure, { environment: python }), storage), { ...eligible, size: 'medium', environment: python });
+  }
 });
 
 it('holds a rule\'s memory limit and its GPU, selects them with the task, and names what each size stands for', async (t) => {

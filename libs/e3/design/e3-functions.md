@@ -55,6 +55,18 @@
 > `draftEnd` and the state `conflict` (hard cutovers, with a repository upgrade
 > step for the kept call: `docs/conventions/WIRE_MIGRATION.md`). Who may pass a draft is the
 > host's `DraftAccess`, which `createWorkspaceFunctionRoutes` takes (§7.1).
+>
+> **Amended 2026-11-16 (#1627):** `e3 call --ir <file>` calls the function an
+> IR file holds, its signature read from the IR (e3-core `readProgram`,
+> `execution/oneShot.ts`), on `--runner`'s stock runtime (east-node unless
+> named) with that runtime's standard platform package
+> (`STANDARD_PLATFORM_BY_RUNNER`, e3), or the packages `--platform` names
+> (`none` for none). A local repository runs it as it runs a named call; a
+> server's URL makes it one of the workspace's one-shot calls (`oneShotCall`),
+> under the caller's grant (§7.3). `e3 call --rack` runs a call of a local
+> repository on an enrolled rack (`e3-rack-delegation.md`): its drafts are
+> laid here, and its function runs on the rack (`functionCallUnkept`'s
+> `functionRunner`).
 > Audience: e3 maintainers + an implementing agent. This is the **local/shared**
 > spec (e3 monorepo). The AWS cloud implementation is specified in the companion
 > doc `e3-cloud/design/e3-functions-cloud.md`, which depends on the published
@@ -1008,6 +1020,42 @@ and renders `outcome.success.value` decoded with `outputType` (or writes to `-o`
 Non-`success` outcomes print the diagnostic/exit code/stderr and set a non-zero
 exit code.
 
+**A function from its IR file** (#1627) — the anonymous sibling of a named
+call, with no package:
+
+```bash
+e3 call <repo> --ir score.beast2 [args...]                  # a function from its IR file
+e3 call <repo> -w <ws> --ir score.beast2 @.inputs.sales 5   # a dataset of the workspace
+e3 call <url> -w <ws> --ir score.beast2 @.inputs.sales 5    # one of a server's one-shot calls
+e3 call <repo> -w <ws> <fn> [args...] --rack                # on an enrolled rack
+```
+
+- **The file** is a function's or an async function's IR: a `.beast2` bundle,
+  its source map with it, or `.json` / `.east`, as the runners' CLIs read one
+  (e3-core `readProgram`, which hands a runner the bundle). Its signature is
+  read from the IR, and each argument is read against it as a named call's is.
+  It is named by the file's name without its extension.
+- **The runner** is `--runner east-node|east-c|east-py`, east-node unless
+  named, as `e3.function`'s default is, given that runtime's standard platform
+  package; `--platform <package>`, repeated, names the packages in its place,
+  and `--platform none` names none: a platform-free call. A named function runs
+  on its own runner, and either flag is refused beside it.
+- **A local repository** runs it with `runDetached`, under a local named
+  call's limits; with `-w` its dataset arguments are pinned at their hashes
+  when it starts (`pinCallArguments`).
+- **A server's URL** needs `-w`: the call is one of the workspace's one-shot
+  calls (`oneShotCall`), started, polled and stopped by Ctrl-C as a workspace
+  function's call is, under the grant the server gives the caller (§10). A
+  reader runs a platform-free call alone, and is refused any other in the
+  server's words.
+- **`--rack` / `--rack-only`** run a call of a local repository — named, or
+  from its IR file — on an enrolled rack, whatever the repository's rack policy
+  selects, and say where it ran and why on the terminal's stderr. Both are
+  refused on a server's URL before any credential is read: a server decides
+  where its own work runs. Under either, a rack rule that matches `fn:<name>`
+  and sets a timeout gives the call that time, in place of the CLI's ten
+  minutes; a call with neither flag keeps the CLI's.
+
 ## 8. Execution semantics
 
 - **Signature validation.** `args.length` is checked against `argTypes` — never
@@ -1029,7 +1077,10 @@ exit code.
 - **Persistence — none.** No task object, no output object, no execution record,
   no logs, no dataset ref. The repo is byte-for-byte unchanged. The only disk
   write is the runner's transient scratch file, deleted on completion (local) /
-  the unrooted S3 object reclaimed by GC (cloud).
+  the unrooted S3 object reclaimed by GC (cloud). A call on a rack (#1627)
+  writes its program, a value argument past what a lease carries inline and a
+  value too large to return inline as unrooted objects of the repository, which
+  nothing names and gc reclaims.
 - **No workspace lock.** Function/one-shot calls are not dataflow runs and do not
   mutate workspace state — they take no lock and run concurrently with each other
   and with a dataflow run.
@@ -1551,6 +1602,26 @@ paths.
       `function-call.spec.ts`: `--draft` read against its mutation, drafts in
       order, the call's own arguments beside them, each refusal naming the
       draft by its place, and how each ending is printed.
+
+19. **A function from its IR file, and calls on a rack (#1627).**
+    - e3-core `execution/oneShot.spec.ts`: `readProgram` reads a program from
+      its `.beast2`, `.json` and `.east` IR as the same bundle, with its
+      signature, and refuses another extension and a value.
+    - e3-cli `commands/call.spec.ts`: `irRunner`'s default and named runtimes,
+      their standard packages, `--platform` and `none`; `irProgram` names a
+      call by its file, and refuses a file holding no function, naming it.
+    - Integration `function-call.spec.ts`: `e3 call --ir` returns what the same
+      function called by name returns, from each encoding, with literals, file
+      arguments, `-o`, a dataset argument with `-w` and `--platform none`, and
+      refuses an argument its signature does not take before anything runs.
+    - e3-api-tests `cliTests`, on every server: `e3 call <url> -w <ws> --ir`
+      runs as one of the workspace's one-shot calls, is refused without `-w`,
+      and a reader runs it given no platform package and is refused it given
+      one.
+    - Integration `rack.spec.ts`, over the test agent: a named call and an IR
+      file's run on a rack, with a dataset argument and a value argument past
+      what a lease carries inline; a host-coupled call runs here, saying why;
+      Ctrl-C leaves the call's lease, and the rack is told to stop.
 
 ## 14. Open questions
 

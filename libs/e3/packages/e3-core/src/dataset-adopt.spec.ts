@@ -16,8 +16,10 @@
  * - a delivered collection is stored as the value path stores its value, so a
  *   new delivery shares every segment the old one had but those around what
  *   changed — and the same bytes delivered again are not read twice;
- * - a delivery of any other value is the delivery's own inode where the file
- *   system allows it, and every delivery is left exactly as it was found;
+ * - a delivery of any other value is a copy of it, which a later write into
+ *   the file leaves alone, unless its caller owns the file and asks for the
+ *   file itself, which is then its own inode where the file system allows
+ *   it; and every delivery is left exactly as it was found;
  * - deploy resolves a package's `file` sources, and a bad one fails the deploy
  *   with the previous deployment intact.
  *
@@ -371,7 +373,7 @@ describe('path-initialised inputs', () => {
   });
 
   describe('objectAdoptFile', () => {
-    it('takes any other value in as the delivery itself, sharing its storage', async () => {
+    it('takes any other value its caller owns in as the file itself, sharing its storage, when asked to', async () => {
       const bytes = encodeBeast2For(RowType)({ id: 7n, name: 'row-7' });
       const file = join(tempDir, 'row.beast2');
       writeFileSync(file, bytes);
@@ -379,7 +381,7 @@ describe('path-initialised inputs', () => {
       utimesSync(file, new Date(1_700_000_000_000), new Date(1_700_000_000_000));
       const before = statSync(file);
 
-      const result = await objectAdoptFile(storage, testRepo, file);
+      const result = await objectAdoptFile(storage, testRepo, file, { link: true });
 
       assert.deepEqual(result, { hash: computeHash(bytes), size: bytes.length, taken: 'carried' }, 'the object is the file, by its hash');
       const after = statSync(file);
@@ -395,6 +397,46 @@ describe('path-initialised inputs', () => {
         const delivery = statSync(file, { bigint: true });
         assert.ok(object.dev === delivery.dev && object.ino === delivery.ino, 'the object is the delivery\'s own inode');
       }
+    });
+
+    it('takes any other value in as a copy, which a later write into the file leaves alone, copying none the store holds already', async () => {
+      const bytes = encodeBeast2For(RowType)({ id: 7n, name: 'row-7' });
+      const file = join(tempDir, 'working.beast2');
+      writeFileSync(file, bytes);
+
+      const result = await objectAdoptFile(storage, testRepo, file);
+
+      assert.deepEqual(result, { hash: computeHash(bytes), size: bytes.length, taken: 'carried' });
+      const object = statSync(objectPath(testRepo, result.hash), { bigint: true });
+      assert.notEqual(object.ino, statSync(file, { bigint: true }).ino, 'the object is not the file by another name');
+      // The file is written into, as `cp`, a shell's `>` or a tool that makes it again does
+      writeFileSync(file, encodeBeast2For(RowType)({ id: 8n, name: 'row-8' }));
+      assert.deepEqual(readFileSync(objectPath(testRepo, result.hash)), Buffer.from(bytes), 'the object keeps the bytes it is stored under');
+
+      // The same bytes adopted again are the object the store holds: not copied again
+      const again = join(tempDir, 'again.beast2');
+      writeFileSync(again, bytes);
+      const objects = storage.objects;
+      const writeStream = objects.writeStream.bind(objects);
+      let copies = 0;
+      objects.writeStream = (repo, stream) => {
+        copies++;
+        return writeStream(repo, stream);
+      };
+      try {
+        assert.deepEqual(await objectAdoptFile(storage, testRepo, again), result);
+      } finally {
+        objects.writeStream = writeStream;
+      }
+      assert.equal(copies, 0, 'nothing was copied');
+    });
+
+    it('stops a copy at its signal, storing nothing', async () => {
+      const file = join(tempDir, 'stopped.beast2');
+      writeFileSync(file, encodeBeast2For(RowType)({ id: 9n, name: 'row-9' }));
+      const before = await storage.objects.count(testRepo);
+      await assert.rejects(objectAdoptFile(storage, testRepo, file, { signal: AbortSignal.abort() }), (err: unknown) => err instanceof Error && err.name === 'AbortError');
+      assert.equal(await storage.objects.count(testRepo), before, 'nothing was stored');
     });
 
     // A supplier replaces a delivery by writing a new file and renaming it over
@@ -420,24 +462,37 @@ describe('path-initialised inputs', () => {
         'the memo pairs the first bytes with nothing, rather than with the second');
     });
 
-    it('never stores another value under the hash of the file it replaced', async () => {
+    it('never stores another value under the hash of the file it replaced, copied or taken itself', async () => {
       const file = join(tempDir, 'row.beast2');
-      writeFileSync(file, encodeBeast2For(RowType)({ id: 7n, name: 'row-7' }));
-      const first = computeHash(readFileSync(file));
-      // Replaced as the store takes the file in.
-      const objects = Object.create(storage.objects, {
+      /** Replaces the file, as a supplier's rename over it does. */
+      const replace = (): void => {
+        writeFileSync(`${file}.next`, encodeBeast2For(RowType)({ id: 8n, name: 'row-8' }));
+        renameSync(`${file}.next`, file);
+      };
+      // Replaced as the store takes the file itself in, and as it copies it
+      const asked = Object.create(storage.objects, {
         adoptFile: {
           value: async (repo: string, path: string, hash?: string): Promise<{ hash: string; size: number }> => {
-            writeFileSync(`${file}.next`, encodeBeast2For(RowType)({ id: 8n, name: 'row-8' }));
-            renameSync(`${file}.next`, file);
+            replace();
             return storage.objects.adoptFile(repo, path, hash);
           },
         },
       }) as StorageBackend['objects'];
-
-      await assert.rejects(objectAdoptFile(withStores({ objects }), testRepo, file), /changed while it was adopted/);
-      assert.equal(await storage.objects.exists(testRepo, first), false,
-        'nothing is stored under the first file\'s hash, which a later adoption of it would reuse');
+      const copied = Object.create(storage.objects, {
+        writeStream: {
+          value: (repo: string, stream: AsyncIterable<Uint8Array>): Promise<string> => {
+            replace();
+            return storage.objects.writeStream(repo, stream);
+          },
+        },
+      }) as StorageBackend['objects'];
+      for (const [objects, link] of [[asked, true], [copied, false]] as const) {
+        writeFileSync(file, encodeBeast2For(RowType)({ id: 7n, name: 'row-7' }));
+        const first = computeHash(readFileSync(file));
+        await assert.rejects(objectAdoptFile(withStores({ objects }), testRepo, file, { link }), /changed while it was adopted/);
+        assert.equal(await storage.objects.exists(testRepo, first), false,
+          `nothing is stored under the first file's hash, which a later adoption of it would reuse (link: ${link})`);
+      }
     });
 
     it('checks the declared type on the file it stores', async () => {

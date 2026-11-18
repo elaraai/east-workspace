@@ -25,7 +25,7 @@ import { createRackRoutes, type RackLeaseSignal } from '../server/rack-routes.js
 import { envManifestKey, type EnvIndexStore, type EnvLayerManifest } from '../server/env-publication.js';
 import { RackRegistrationType, RackSecurityPolicyType } from '../protocol/registration.js';
 import { RACK_LISTENER_IDLE_MS, RACK_PROTOCOL, type RackReport } from '../protocol/rack-json.js';
-import { describeRackReason, isLeaseEventV2, leaseInputs, leaseReserve, leaseTaskHash, rackEverHolds, readRackLeaseResources, type RackLeaseEvent } from '../protocol/task-envelope.js';
+import { describeRackReason, isFunctionLease, isLeaseEventV2, leaseInputs, leaseReserve, leaseTaskHash, rackEverHolds, readRackLeaseResources, type RackLeaseEvent } from '../protocol/task-envelope.js';
 import { decodeRunnerEvent } from '../runner-event.js';
 import { ApproveRackType, AttachLeaseResultType, CancelLeaseResultType, CreateLeaseResultType, CreateLeaseType, EmptyType, HubConfigType,
   HubEnrollResultType, HubEnrollType, HubHelloType, HubOutcomeType, HubStatusType, OpenSessionResultType, OpenSessionType,
@@ -53,7 +53,9 @@ interface Session {
 interface Subscription {
   repo: string;
   id: string;
-  key: string;
+  /** What identical work shares, by which a session joins it: none for a
+   *  call's lease, which no other call shares. */
+  key?: string;
   version: string;
   owner: string;
   subscribers: Set<string>;
@@ -244,16 +246,17 @@ export class RackHub {
     for (const id of sub.subscribers) { const session = this.sessions.get(id); if (session !== undefined) this.emit(session, event); }
   }
 
+  /** A claim's event: the rack, and the attempt the claim runs, which a call's lease has none of. */
   private async claimedEvent(lease: RackLeaseRecord): Promise<SessionEvent['event']> {
-    if (lease.attempt === undefined || lease.claimedBy === undefined) throw new Error('Claim has no attempt');
+    if (lease.claimedBy === undefined) throw new Error('Claim has no rack');
     const rack = await this.registry.getRack(lease.claimedBy);
     return variant('claimed', { leaseId: lease.leaseId, rackId: lease.claimedBy, rackLabel: rack?.label ?? lease.claimedBy,
-      attempt: { executionId: lease.attempt.executionId, startedAt: new Date(lease.attempt.startedAtMs) } });
+      attempt: lease.attempt === undefined ? none : some({ executionId: lease.attempt.executionId, startedAt: new Date(lease.attempt.startedAtMs) }) });
   }
 
   private async finish(sub: Subscription): Promise<void> {
     sub.endedAt ??= this.now();
-    if (this.dedupe.get(sub.key) === sub.id) this.dedupe.delete(sub.key);
+    if (sub.key !== undefined && this.dedupe.get(sub.key) === sub.id) this.dedupe.delete(sub.key);
     await this.bridge.discardWrites(sub.repo, sub.id, []).catch((error: unknown) => this.options.log?.(`rack cleanup: ${messageOf(error)}`));
   }
 
@@ -267,13 +270,15 @@ export class RackHub {
       // Reclaim invalidates every prior-attempt data URL before its new grant.
       await this.bridge.discardWrites(lease.repo, lease.leaseId, lease.targets ?? []);
       const event = await this.claimedEvent(lease);
-      if (event.type === 'claimed') {
+      const attempt = lease.attempt;
+      if (event.type === 'claimed' && attempt !== undefined) {
         // A line of the attempt's log, best effort: the claim stands, and its
-        // grant is answered, whether or not the session stored the line.
+        // grant is answered, whether or not the session stored the line. A
+        // call's lease runs no attempt, and keeps no log.
         try {
-          await this.bridge.attempts.logs.append(lease.repo, lease.taskHash, lease.inputsHash, lease.attempt!.executionId,
+          await this.bridge.attempts.logs.append(lease.repo, lease.taskHash, lease.inputsHash, attempt.executionId,
             'stdout', `e3: running on rack ${event.value.rackLabel} (lease ${lease.leaseId})\n`);
-          await this.bridge.attempts.logs.flush?.(lease.repo, lease.taskHash, lease.inputsHash, lease.attempt!.executionId);
+          await this.bridge.attempts.logs.flush?.(lease.repo, lease.taskHash, lease.inputsHash, attempt.executionId);
         } catch (error) { this.options.log?.(`rack lease ${lease.leaseId}: its first log line was not stored: ${messageOf(error)}`); }
       }
       this.publish(sub, event);
@@ -291,13 +296,20 @@ export class RackHub {
     }
   }
 
-  /** Attaches the session to identical work already queued or held, or queues the work; attach-only queues nothing. */
+  /**
+   * Attaches the session to identical work already queued or held, or queues
+   * the work; attach-only queues nothing. A call's lease is never attached to
+   * another: two calls of one program differ by their arguments alone, which
+   * no key of the work names, so each is its own lease.
+   */
   private async submit(session: Session, request: ValueTypeOf<typeof CreateLeaseType>, attachOnly: boolean): Promise<ValueTypeOf<typeof CreateLeaseResultType> | null> {
     if (this.draining) throw new RackHubError('draining', 'Rack hub is draining');
     const value: unknown = JSON.parse(request.eventJson);
     if (!isLeaseEventV2(value)) throw new Error('Expected a v2 rack lease');
     const runner = decodeRunnerEvent(value.runnerEvent);
-    if (runner.mode !== 'task' && runner.mode !== 'unit') throw new Error('Local rack delegation supports tasks and units only');
+    if (runner.mode === 'intake') throw new Error('Local rack delegation runs tasks, units and calls: an intake runs where its delivery is');
+    // A call's program is an object of the repository, staged with its closure
+    if (runner.mode === 'run-detached' && (typeof value.program !== 'string' || !isObjectHash(value.program))) throw new Error('A call\'s lease names its program');
     if (value.environment !== undefined && (typeof value.environment !== 'string' || !isObjectHash(value.environment))) throw new Error('Invalid environment');
     // A unit goes only to a rack that caps it at what its lease asks, so its
     // lease says what that is
@@ -309,8 +321,9 @@ export class RackHub {
     } else if (!isObjectHash(closure.object) || !Number.isSafeInteger(closure.count) || closure.count < 0) throw new Error('Invalid closure object');
     const event: RackLeaseEvent = { ...value, runnerEvent: { ...runner, repo: session.alias },
       workspace: session.registration.workspace, e3Version: session.registration.e3Version };
-    const key = JSON.stringify([session.alias, leaseTaskHash(event), inputsHash(leaseInputs(event)), session.registration.e3Version]);
-    const existingId = this.dedupe.get(key);
+    const key = isFunctionLease(event) ? undefined
+      : JSON.stringify([session.alias, leaseTaskHash(event), inputsHash(leaseInputs(event)), session.registration.e3Version]);
+    const existingId = key === undefined ? undefined : this.dedupe.get(key);
     const existing = existingId === undefined ? null : await this.leases.get(session.alias, existingId);
     if (existing !== null && nonterminal(existing)) {
       const sub = this.subscriptions.get(existing.leaseId)!;
@@ -322,8 +335,9 @@ export class RackHub {
     if (attachOnly) return null;
     if (this.subscriptions.size >= 16384) throw new RackHubError('capacity', 'Rack hub queue is full');
     const lease = await this.dispatch.createLease(event, request.tier, request.computeSize);
-    this.subscriptions.set(lease.leaseId, { repo: session.alias, id: lease.leaseId, key, version: session.registration.e3Version, owner: session.id, subscribers: new Set([session.id]), claimants: new Set() });
-    this.dedupe.set(key, lease.leaseId);
+    this.subscriptions.set(lease.leaseId, { repo: session.alias, id: lease.leaseId, ...(key !== undefined && { key }), version: session.registration.e3Version,
+      owner: session.id, subscribers: new Set([session.id]), claimants: new Set() });
+    if (key !== undefined) this.dedupe.set(key, lease.leaseId);
     return { leaseId: lease.leaseId, attached: false, attempt: none };
   }
 
@@ -554,6 +568,8 @@ export class RackHub {
       coordinator: this.coordinator, now: this.now, signal: this.abort.signal, visibilityMs: this.options.visibilityMs,
       leaseWindowMs: this.options.leaseWindowMs,
       envIndex: this.envIndex, e3Version: E3_RACK_VERSION,
+      // A session reads a call's value from the object its completion commits
+      callValueObjects: true,
       onLeaseSignal: (signal) => this.signal(signal),
       // A heartbeat that was read is of this protocol: what was wrong is not.
       onReport: (rackId, report) => { this.reports.set(rackId, report); this.problems.delete(rackId); },

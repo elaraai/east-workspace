@@ -3,12 +3,13 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import type { OpenRackRunnerOptions, RackEnvironmentEvent, RackPlacementEvent, RackRunnerHandle } from '@elaraai/e3-rack';
+import type { DetachedSpec, StorageBackend } from '@elaraai/e3-core';
+import type { OpenRackRunnerOptions, RackEnvironmentEvent, RackPlacementEvent, RackPolicy, RackRunnerHandle } from '@elaraai/e3-rack';
 // The protocol's entry alone, which loads no hub, route or TLS
-import { leaseReserve } from '@elaraai/e3-rack/protocol';
+import { leaseReserve, ranLocally } from '@elaraai/e3-rack/protocol';
 import { formatSize } from '../format.js';
 
-/** Rack flags shared by dataflow run and watch. */
+/** Rack flags shared by dataflow run and watch, and by run and call, which take `--rack` alone. */
 export interface RackFlags {
   /** Enables or disables rack routing for this invocation. */
   rack?: boolean;
@@ -19,9 +20,20 @@ export interface RackFlags {
 /** Rejects rack flags on remote repository URLs before resolving credentials. */
 export function refuseRemoteRack(repo: string, flags: RackFlags): void {
   if (/^https?:\/\//.test(repo) && (flags.rack !== undefined || flags.rackOnly)) {
-    throw new Error('rack delegation applies to local repositories — a server decides where its own tasks run');
+    throw new Error('rack delegation applies to local repositories — a server decides where its own work runs');
   }
   if (flags.rackOnly && flags.rack === false) throw new Error('--rack-only and --no-rack cannot be combined');
+}
+
+/**
+ * Whether the invocation asks for a rack itself, with `--rack` or
+ * `--rack-only`, whatever the repository's policy says.
+ *
+ * @param flags - The invocation's rack flags
+ * @returns True when it names one of them
+ */
+export function rackAsked(flags: RackFlags): boolean {
+  return flags.rack === true || flags.rackOnly === true;
 }
 
 /** Resolves the invocation override, then the repository's enabled policy. */
@@ -72,10 +84,16 @@ export async function openRack(options: OpenRackRunnerOptions): Promise<RackRunn
  *   environment cannot go to a rack, and `[LOCAL] fit
  *   (no-rack-for-environment:py)` where no rack composes environments.
  *
+ * A command that names one piece of work and asks for a rack for it (`e3 run
+ * --rack`, `e3 call --rack`) is told every reason its work runs here
+ * (`everyReason`): `[LOCAL] fn:read_config (host-coupled:fs_read_file)` too.
+ *
  * @param event - The event
+ * @param everyReason - Whether every reason work runs here is printed, not
+ *   only those of a rack's work that ran here after all
  * @returns The line, or undefined for an event a run does not print
  */
-export function rackPlacementLine(event: RackPlacementEvent): string | undefined {
+export function rackPlacementLine(event: RackPlacementEvent, everyReason = false): string | undefined {
   if (event.kind === 'retried') return `  [RACK] ${event.taskName} ${event.retry.transfer} transfer retried (${event.retry.attempt} of ${event.retry.of}): ${event.retry.cause}`;
   if (event.kind === 'waiting') {
     const cores = (n: number) => `${n} ${n === 1 ? 'core' : 'cores'}`;
@@ -101,9 +119,110 @@ export function rackPlacementLine(event: RackPlacementEvent): string | undefined
   }
   if (event.detail !== undefined) return `  [LOCAL] ${event.taskName} (${event.reason.replace(/^fallback:/, '')})`;
   if (event.role === 'unit') return undefined;
-  return event.reason === 'spill' || event.reason === 'source-unreachable' || event.reason.startsWith('fallback:') || event.reason.startsWith('no-rack-') ||
-    event.reason.startsWith('environment:')
-    ? `  [LOCAL] ${event.taskName} (${event.reason})` : undefined;
+  // A rack's work that ran here after all, by the rule a run's summary counts by
+  return everyReason || ranLocally(event) ? `  [LOCAL] ${event.taskName} (${event.reason})` : undefined;
+}
+
+/**
+ * What a command that names one piece of work says of where it runs, once it
+ * asked for a rack for it: each placement's line, every reason it runs here
+ * among them ({@link rackPlacementLine}).
+ *
+ * @param print - Where a line goes: a run's progress, or, for a call whose
+ *   value goes to stdout, the terminal's stderr
+ * @returns The placement sink
+ */
+export function commandPlacement(print: (line: string) => void): (event: RackPlacementEvent) => void {
+  return (event) => {
+    const line = rackPlacementLine(event, true);
+    if (line !== undefined) print(line);
+  };
+}
+
+/**
+ * Opens the rack session of a command that names one piece of work and asks
+ * for a rack for it (`e3 run --rack`, `e3 call --rack`): its work is a rack's
+ * whatever the repository's policy selects, and every line of where it runs,
+ * and of an environment built for it, goes where the command prints.
+ *
+ * @param options - The repository, what the rack's activity view names the
+ *   work by, the session's label, the command's budget, whether the work is
+ *   kept for a rack, the signal that ends its wait and its lease, the policy
+ *   when the command has read it already, and where a line goes: a run's
+ *   progress, or, for a call whose value goes to stdout, the terminal's stderr
+ * @returns The session's handle
+ * @throws The signal's reason, when it stopped the session's opening: the
+ *   command's work then runs nowhere, and is not said to run here
+ */
+export async function openCommandRack(
+  options: Pick<OpenRackRunnerOptions, 'repoPath' | 'workspace' | 'storage' | 'label' | 'budget' | 'rackOnly' | 'signal' | 'policy'> & { print: (line: string) => void },
+): Promise<RackRunnerHandle> {
+  const { print, ...session } = options;
+  const rack = await openRack({ ...session, selected: true, onPlacement: commandPlacement(print), onEnvironment: (event) => print(rackEnvironmentLine(event)), log: print });
+  if (rack.unattached !== undefined) options.signal?.throwIfAborted();
+  return rack;
+}
+
+/** Where `e3 call --rack` takes a call, read before anything of it runs. */
+export type RackCallPlan =
+  /** To a rack, under the policy its session is opened with, and with the
+   *  time a rule that names it gives it, when one does */
+  | { readonly kind: 'rack'; readonly policy: RackPolicy; readonly timeoutMs: number | null }
+  /** Here, as the line says, with the time a rule gives it, when one does */
+  | { readonly kind: 'here'; readonly line: string; readonly timeoutMs: number | null };
+
+/**
+ * Where a call kept for a rack (`e3 call --rack`) goes, read from the
+ * repository's rack policy before anything of the call runs or any rack
+ * session is opened: a call no rack may run (a program that reaches the host,
+ * a custom runner, an environment no rack installs) runs here at once,
+ * saying why, and starts no hub and waits for no rack. A rule that names the
+ * call (`fn:<name>`) gives it its time, which the drafts it lays here and its
+ * function share, wherever it runs.
+ *
+ * @param repoPath - The repository
+ * @param storage - Its storage, which holds the environment the call declares
+ * @param name - The function's name, or its IR file's
+ * @param spec - The call: its program, runner and environment are judged
+ * @returns Where it goes, and its rule's time
+ * @example
+ * const plan = await planRackCall(repoPath, storage, 'score', spec);
+ * if (plan.kind === 'here') console.error(plan.line);
+ */
+export async function planRackCall(repoPath: string, storage: StorageBackend, name: string, spec: DetachedSpec): Promise<RackCallPlan> {
+  const taskName = `fn:${name}`;
+  const here = (reason: string, timeoutMs: number | null = null): RackCallPlan =>
+    ({ kind: 'here', line: rackPlacementLine({ kind: 'placed', taskName, role: 'call', where: 'local', reason }, true)!, timeoutMs });
+  const { EligibilityEvaluator, loadPolicy, rackCallTimeoutMs } = await import('@elaraai/e3-rack');
+  let policy: RackPolicy;
+  try {
+    policy = await loadPolicy(repoPath);
+  } catch (error) {
+    // A policy that does not read opens no session, as a session's opening says
+    return here(`no-rack-session: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const timeoutMs = rackCallTimeoutMs(policy, name);
+  const verdict = await new EligibilityEvaluator(policy, { selected: true })
+    .evaluateCall({ repo: repoPath, spec, options: { storage, functionName: name }, settings: {} }, storage);
+  return verdict.eligible ? { kind: 'rack', policy, timeoutMs } : here(verdict.reason, timeoutMs);
+}
+
+/**
+ * What a command that names one piece of work says when it opened no rack
+ * session, whose work then ran here without a placement of its own: nothing
+ * of work that did not run, as a run the cache answered did not.
+ *
+ * @param rack - The command's rack handle: why its session was not opened,
+ *   when it was not
+ * @param name - The work's name: a task's, or a call's `fn:<name>`
+ * @param ran - Whether the work ran
+ * @returns The line, or undefined when there is none to print
+ * @example
+ * const line = unattachedLine(rack, 'train', !result.cached);
+ * if (line !== undefined) console.log(line);
+ */
+export function unattachedLine(rack: Pick<RackRunnerHandle, 'unattached'>, name: string, ran: boolean): string | undefined {
+  return rack.unattached !== undefined && ran ? `  [LOCAL] ${name} (no-rack-session: ${rack.unattached})` : undefined;
 }
 
 /**

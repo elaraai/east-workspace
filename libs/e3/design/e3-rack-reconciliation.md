@@ -38,7 +38,12 @@ envelope, so the statement below that control and protocol responses are
 memory, and each lease says what it asks (#1634). A task that declares a
 `python` or `node` environment runs on a rack that composes environments
 (#1633): custom environments are no longer deferred, `tools` and `image` ones
-are. The [design of record](e3-rack-delegation.md) describes each.
+are. The CLI delegates a function call (`e3 call --rack`) and an ad-hoc run
+(`e3 run --rack`) (#1627): e3-core hands a detached call to a hook of its own,
+beside the task-body hook, so the statements below that `runDetached` remains
+local, and that the local CLI delegates no function call, no longer hold.
+Intake stays local, as do a local API server's calls, and the local control
+protocol is 4. The [design of record](e3-rack-delegation.md) describes each.
 
 ## Changes required in each child
 

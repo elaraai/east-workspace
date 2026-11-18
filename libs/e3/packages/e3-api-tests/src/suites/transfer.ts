@@ -148,6 +148,49 @@ export function transferTests(
           cleanup();
         }
       });
+
+      it('takes a bare package name as its greatest version, 1.10.0 after 1.9.0, to export and to deploy, in a local repo and a remote one', async (t) => {
+        const ctx = await withTransfer(t);
+        const { remoteUrl, workDir } = ctx;
+        const env = getCredentialsEnv();
+        const { path: localRepo, cleanup } = await createLocalTestRepo(ctx.tempDir);
+        const repos = [['local', localRepo, undefined], ['remote', remoteUrl, { env }]] as const;
+
+        try {
+          for (const version of ['1.9.0', '1.10.0']) {
+            const pkgZip = await createPackageZip(ctx.tempDir, 'bare-name-pkg', version);
+            for (const [where, repo, options] of repos) {
+              const result = await runE3Command(['package', 'import', repo, pkgZip], workDir, options);
+              assert.strictEqual(result.exitCode, 0, `${where} import of ${version} failed: ${result.stderr}`);
+            }
+          }
+
+          for (const [where, repo, options] of repos) {
+            const exportZip = join(ctx.tempDir, `bare-name-${where}-${Date.now()}.zip`);
+            let result = await runE3Command(['package', 'export', repo, 'bare-name-pkg', exportZip], workDir, options);
+            assert.strictEqual(result.exitCode, 0, `${where} export failed: ${result.stderr}`);
+            assert.match(result.stdout, /Exported bare-name-pkg@1\.10\.0 to /, where);
+
+            const wsName = `bare-name-${where}-${Date.now()}`;
+            // The local repository goes whole with its cleanup
+            if (where === 'remote') removeWorkspaceAfter(t, remoteUrl, wsName, getCredentialsEnv);
+            result = await runE3Command(['workspace', 'create', repo, wsName], workDir, options);
+            assert.strictEqual(result.exitCode, 0, `${where} workspace create failed: ${result.stderr}`);
+            result = await runE3Command(['workspace', 'deploy', repo, wsName, 'bare-name-pkg'], workDir, options);
+            assert.strictEqual(result.exitCode, 0, `${where} deploy failed: stdout=${result.stdout}, stderr=${result.stderr}`);
+            assert.ok(result.stdout.includes(`Deployed bare-name-pkg@1.10.0 to workspace: ${wsName}`), `${where} says the version it deployed: ${result.stdout}`);
+            result = await runE3Command(['workspace', 'list', repo], workDir, options);
+            assert.strictEqual(result.exitCode, 0, `${where} workspace list failed: ${result.stderr}`);
+            assert.ok(result.stdout.includes(`${wsName} (bare-name-pkg@1.10.0)`), `${where}: ${result.stdout}`);
+          }
+
+          const absent = await runE3Command(['package', 'export', localRepo, 'no-such-pkg', join(ctx.tempDir, 'absent.zip')], workDir);
+          assert.notStrictEqual(absent.exitCode, 0);
+          assert.match(absent.stderr, /Package 'no-such-pkg' not found/);
+        } finally {
+          cleanup();
+        }
+      });
     });
 
     describe('workspace transfer', { concurrency: false }, () => {

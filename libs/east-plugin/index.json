@@ -1,7 +1,7 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1383,
+    "totalEntries": 1385,
     "totalFiles": 226,
     "packages": {
       "east": 595,
@@ -10,7 +10,7 @@
       "east-py-datascience": 94,
       "east-ui": 308,
       "e3-ui": 220,
-      "e3": 34,
+      "e3": 36,
       "e3-ui-cli": 8,
       "e3-create": 6
     }
@@ -49918,6 +49918,64 @@
       ],
       "imports": [],
       "source": "# Local machine: bind a VPN address the worker can reach.\ne3 rack enroll --listen 100.64.0.10:7331 --label workshop\n# Inside a prepared worker VM, run the printed matching-release configure/enroll\n# commands with its host-provisioned allocation path. Enter the origin and token\n# at their hidden prompts; never put them in shell arguments or plaintext files.\n# HTTP needs --allow-vpn-http plus authenticated VPN and exact host endpoint policy.\n# Enrollment observes a new registration, not activation or task readiness.\n# Independent agents use separate worker VMs; resources/GPU ownership belong to\n# the host lifecycle. Final host/source management and capacity activation remain\n# companion cloud #253 work. Once the service and capacity are active:\ne3 rack policy . set 'train_*' rack --size large --gpu\ne3 rack policy . set 'score_*' rack --memory-limit 8G\ne3 dataflow run . dev --rack -j 4 --memory 8G\ne3 watch src/main.ts . dev --start --rack\ne3 rack list\ne3 rack status\ne3 task logs . dev.train_model --follow\n# Placement preserves hashes/cache. Local planner and fallback retain the budget.\n# A split task's pieces are leased together, each at its memory cap (half as much\n# again as the task was measured to need): a rack books the caps it holds, so it\n# never books more than it has. --memory-limit is a ceiling on one piece's cap;\n# --gpu asks for a rack's GPU (east-py tasks). A piece that outgrows its cap\n# runs again under a larger one; a whole task that does fails.\n# A task that declares a python or node environment runs on a rack that composes\n# environments: this machine installs it for the rack's platform and sends it as\n# layers ([ENV] lines), with no container runtime; tools/image environments, a\n# package with no wheel for the platform or with native code stay local, with\n# the reason on the task's [LOCAL] line.\n# --rack-only waits for busy compatible capacity; infrastructure fallback remains.\n# Custom commands and host-dependent calls stay local by default.\n# For a local API server with the matching optional @elaraai/e3-rack installed:\ne3-api-server --repos ./repos --rack",
+      "languages": [
+        "typescript"
+      ]
+    },
+    {
+      "id": "e3:static:rack-run-and-call",
+      "skill": "e3",
+      "package": "e3",
+      "file": "static",
+      "suite": "e3 rack",
+      "test": "Run one task ad hoc, or call one function, on an enrolled rack with --rack",
+      "keywords": [
+        "e3",
+        "rack",
+        "run",
+        "e3 run",
+        "call",
+        "e3 call",
+        "--rack",
+        "rack-only",
+        "ad hoc",
+        "function call",
+        "fn:",
+        "policy",
+        "placement",
+        "host-coupled",
+        "lease"
+      ],
+      "imports": [],
+      "source": "# One task, ad hoc, on a rack. The flag selects it, whatever the rack policy selects.\ne3 run . acme-forecast.train ./sales.beast2 -o ./model.beast2 --rack\n#   Running acme-forecast@1.2.0/train\n#     Input: ./sales.beast2 -> 3f9a2b1c0d4e...\n#     [RACK] train → workshop (cap 16 GB)\n#   Rack summary: 1 task on workshop · 0 waited for capacity · 0 ran again · 0 transfers retried · 0 ran locally\n# A split task's pieces and merges are leased; its planning and assembly stay here.\n# Each input file is taken in as --from-file takes one, a collection never read whole.\n\n# One call on a rack: a lease of its own, sized as a whole task. Its lines go to\n# stderr and its value to stdout, so the value can be piped.\ne3 call . -w dev train_once @.inputs.sales --rack        # [RACK] fn:train_once → workshop\ne3 call . --ir ./score.beast2 '[1.0, 2.0]' 5 --rack      # a function from its IR file, named fn:score\ne3 call . -w dev read_config --rack                      # [LOCAL] fn:read_config (host-coupled:fs_read_file)\n\n# A rule that names the work still sizes it: a call's name is fn:<name>.\ne3 rack policy . set 'fn:train_once' rack --size xlarge\n# --rack-only waits for rack capacity instead of running locally when the racks are full.\n# Work no rack can run runs here, and the command says why. Ctrl-C leaves a call's lease.\n# Both flags are refused for a server's URL: a server decides where its own work runs.",
+      "languages": [
+        "typescript"
+      ]
+    },
+    {
+      "id": "e3:static:call-ir",
+      "skill": "e3",
+      "package": "e3",
+      "file": "static",
+      "suite": "e3 CLI",
+      "test": "Call a function from its IR file, with no package: in a local repository, or as one of a server's one-shot calls",
+      "keywords": [
+        "e3",
+        "cli",
+        "call",
+        "e3 call",
+        "--ir",
+        "IR file",
+        "anonymous function",
+        "one-shot",
+        "--runner",
+        "--platform",
+        "platform-free",
+        "beast2",
+        "encodeEastIR"
+      ],
+      "imports": [],
+      "source": "# The file holds a function's IR: a .beast2 bundle, as TypeScript writes one with\n#   writeFileSync('score.beast2', encodeEastIR(score.toIR()))\n# or the .json / .east a runner's CLI reads. Its signature is read from the IR, and\n# each argument is read against it as a named call's is.\ne3 call . --ir ./score.beast2 '[1.0, 2.0]' 5\ne3 call . -w dev --ir ./score.beast2 @.inputs.sales 5             # a dataset of the workspace\ne3 call . --ir ./score.beast2 --runner east-c --platform none 5   # on east-c, given no platform package\ne3 call https://e3.example.com/repos/acme -w dev --ir ./score.beast2 @.inputs.sales 5\n# --runner east-node|east-c|east-py (east-node by default) loads that runtime's standard\n# platform package. --platform <package>, repeated, names the packages in its place, and\n# --platform none names none: a platform-free call.\n# Through a server the call needs -w and is one of the workspace's one-shot calls, kept and\n# polled as a workspace function's call is, under the grant the server gives you: a reader\n# runs a platform-free call alone, and is refused any other with the server's reason.",
       "languages": [
         "typescript"
       ]

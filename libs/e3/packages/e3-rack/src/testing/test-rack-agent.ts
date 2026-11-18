@@ -11,20 +11,21 @@ import { Readable } from 'node:stream';
 import { setTimeout as delay } from 'node:timers/promises';
 import { BooleanType, decodeBeast2For, encodeBeast2For, none, some, variant, type EastType, type ValueTypeOf } from '@elaraai/east';
 import { BEAST2_CONTENT_TYPE } from '@elaraai/e3-types';
-import { ENVIRONMENT_LAYER_ROOT, LocalStorage, gcObjectReaders, hostEnvironmentPlatform, linkPrebuiltEnvironment, markReachable, repoInit,
+import { ENVIRONMENT_LAYER_ROOT, LocalStorage, LocalTaskRunner, gcObjectReaders, hostEnvironmentPlatform, linkPrebuiltEnvironment, markReachable, repoInit,
   taskExecute, taskExecuteUnit, unpackEnvironmentLayer } from '@elaraai/e3-core';
 import type { EnvLayerManifest } from '../server/env-publication.js';
 import { closureHashes } from '../lease/closure.js';
-import { decodeRunnerEvent, splitUnitFromWire } from '../runner-event.js';
+import { decodeRunnerEvent, detachedSpecFromWire, splitUnitFromWire, type RunnerDetachedEvent } from '../runner-event.js';
 import { E3_RACK_VERSION } from '../version.js';
 import { pinnedFetch } from '../tls/tls.js';
 import { RackCompleteRequestType, RackCompleteResponseType, RackEnrollRequestType, RackEnrollResponseType,
   RackExtendRequestType, RackHeartbeatRequestType, RackHeartbeatResponseType, RackLeaseGrantType, RackLeaseRequestType,
   RackLogsRequestType, RackStorageRequestType, RackStorageResponseType, type RackLeaseGrant, type RackLeaseRef,
   type RackLogChunk, type RackObjectCommit, type RackStorageRequest } from '../protocol/rack-wire.js';
-import { RACK_PROTOCOL, RACK_PROTOCOL_HEADER, RACK_TRANSFERS_AT_ONCE, RACK_WAITING_HEADER, readRackHello, readRackRefusal, readRackWaiting,
+import { RACK_CALL_VALUE_OBJECTS, RACK_PROTOCOL, RACK_PROTOCOL_HEADER, RACK_TRANSFERS_AT_ONCE, RACK_WAITING_HEADER, readRackHello, readRackRefusal, readRackWaiting,
   type RackHello, type RackOffer, type RackReport, type RackResources, type RackWaiting } from '../protocol/rack-json.js';
-import { leaseReserve, readRackLeaseResources, type RackLeaseEvent, type RackLeaseResources, type RackLeaseResult, type RackTransferRetry } from '../protocol/task-envelope.js';
+import { RACK_INLINE_VALUE_MAX, leaseReserve, readRackLeaseResources, type RackFunctionResult, type RackLeaseEvent, type RackLeaseResources, type RackLeaseResult,
+  type RackTransferRetry } from '../protocol/task-envelope.js';
 
 /** Configures deterministic failures of an in-process protocol peer. */
 export interface TestRackAgentFaults {
@@ -130,8 +131,9 @@ export interface TestRackAgentOptions {
 
 /**
  * Exercises the real rack HTTP protocol over an isolated local runner store.
- * It runs e3-core task/unit execution instead of a microVM; it is not a
- * security or isolation boundary, or a substitute for the pinned e3-cloud agent's VM/installer acceptance test.
+ * It runs e3-core task, unit and function call execution instead of a
+ * microVM; it is not a security or isolation boundary, or a substitute for
+ * the pinned e3-cloud agent's VM/installer acceptance test.
  * Every input travels through storage descriptors and every output through
  * checksum-bound PUTs and per-object commits. It has no more transfers in
  * flight than its source's hello allows, waits when told its source is busy,
@@ -142,6 +144,12 @@ export interface TestRackAgentOptions {
  * and its layers, checks each layer's digest and size, unpacks them, and runs
  * the work with the tree linked where e3-core looks for a built environment:
  * nothing is installed on it.
+ *
+ * A call's lease runs e3-core's `runDetached` over its closure, and completes
+ * with the call's outcome: its value inline up to {@link RACK_INLINE_VALUE_MAX},
+ * and past it as an object staged as the lease's output, to a source whose
+ * hello names {@link RACK_CALL_VALUE_OBJECTS}; to any other, the value is not
+ * relayed (`rackResultTooLarge`).
  * @example
  * const agent = await TestRackAgent.enroll(origin, token);
  * await agent.runOne();
@@ -160,6 +168,8 @@ export class TestRackAgent {
   readonly transfers: TestRackAgentTransfers = { peak: 0, busy: 0, retried: 0, resumed: 0 };
   /** The transfers its source serves it at once, as its hello said. */
   private sourceTransfers = RACK_TRANSFERS_AT_ONCE;
+  /** What its source takes beyond the protocol, as its hello said. */
+  private sourceFeatures: readonly string[] = [];
   private inFlight = 0;
   private readonly waiting: Array<() => void> = [];
   /** What each lease the agent holds books of its resources, by lease. */
@@ -235,6 +245,7 @@ export class TestRackAgent {
       throw new Error(`The source speaks rack protocol ${hello.protocol} (e3 ${hello.e3}), and this agent ${RACK_PROTOCOL}`);
     }
     this.sourceTransfers = hello.limits.transfersAtOnce;
+    this.sourceFeatures = hello.features;
     if (!repoInit(this.repo).success) throw new Error('Could not initialize test rack repository');
     const enrolled = await this.post('enroll', RackEnrollRequestType, { enrollmentToken,
       hostInfo: { label: this.options.label ?? 'test rack', tiers: this.tiers, capacity: BigInt(this.capacity), agentVersion: this.version } }, RackEnrollResponseType);
@@ -367,12 +378,43 @@ export class TestRackAgent {
     return this.post('logs', RackLogsRequestType, { repo: lease.repo, leaseId: lease.leaseId, chunks }, BooleanType);
   }
 
-  /** Posts an outcome without hiding accepted-and-discarded semantics. */
-  async complete(lease: RackLeaseRef, result: RackLeaseResult): Promise<ValueTypeOf<typeof RackCompleteResponseType>> {
+  /**
+   * Posts an outcome without hiding accepted-and-discarded semantics.
+   * @param lease - The lease
+   * @param result - Its result
+   * @param uploadId - The upload of a whole output staged for the lease,
+   *   which the completion commits: a call's value sent as an object
+   * @returns The source's disposition of it
+   */
+  async complete(lease: RackLeaseRef, result: RackLeaseResult, uploadId?: string): Promise<ValueTypeOf<typeof RackCompleteResponseType>> {
     try {
       return await this.post('complete', RackCompleteRequestType, { repo: lease.repo, leaseId: lease.leaseId,
-        resultJson: JSON.stringify(result), inlineOutput: none, outputUploadId: none }, RackCompleteResponseType);
+        resultJson: JSON.stringify(result), inlineOutput: none, outputUploadId: uploadId === undefined ? none : some(uploadId) }, RackCompleteResponseType);
     } finally { this.booked.delete(lease.leaseId); }
+  }
+
+  /**
+   * Stages an object as a held lease's whole output, through the target its
+   * source names, and answers the upload's id, which the lease's completion
+   * commits: a PUT is sent whole each try.
+   * @param lease - The lease
+   * @param hash - The object's hash
+   * @param bytes - The object
+   * @param signal - Ends the transfer with the lease
+   * @param of - The lease's transfers, which take note of each retry
+   * @returns The upload's id
+   * @throws {Error} When the source names no target
+   */
+  async stageOutput(lease: RackLeaseRef, hash: string, bytes: Uint8Array, signal: AbortSignal = this.abort.signal, of?: Transfers): Promise<string> {
+    const staged = (await this.storageRequest(lease, { output: some({ hash, size: BigInt(bytes.length) }) })).output;
+    if (staged.type !== 'some') throw new Error(`The source named no target for output ${hash}`);
+    const { url, uploadId } = staged.value;
+    await this.transfer(() => this.tries(`Rack output ${hash}`, signal, of, async (deadline) => {
+      const put = await this.transport(url, { method: 'PUT', body: bytes, signal: deadline });
+      if (!put.ok) return put;
+      await put.arrayBuffer();
+    }));
+    return uploadId;
   }
 
   /**
@@ -570,7 +612,7 @@ export class TestRackAgent {
       await this.complete(lease, result); return result;
     }
     const run = decodeRunnerEvent(event.runnerEvent);
-    if (run.mode !== 'task' && run.mode !== 'unit') throw new Error('Test agent runs tasks and units');
+    if (run.mode === 'intake') throw new Error('Test agent runs tasks, units and calls');
     const heartbeat = setInterval(() => {
       void this.heartbeat().catch(() => stop.abort());
     }, this.options.timings?.heartbeatMs ?? 15000);
@@ -599,6 +641,7 @@ export class TestRackAgent {
           return failed;
         }
       }
+      if (run.mode === 'run-detached') return await this.executeCall(lease, event, run, signal, transfers);
       const options = { force: true, signal, timeout: run.timeoutMs, verbose: run.verbose,
         onStdout: (data: string) => { chunks.push({ stream: variant('stdout', null), data }); },
         onStderr: (data: string) => { chunks.push({ stream: variant('stderr', null), data }); } };
@@ -663,6 +706,65 @@ export class TestRackAgent {
       if (!this.abort.signal.aborted) await this.complete(lease, output);
       return output;
     } finally { clearInterval(heartbeat); clearInterval(extend); }
+  }
+
+  /**
+   * Runs a call's lease with e3-core's `runDetached` over the objects its
+   * closure fetched, its program among them, and completes it with the call's
+   * outcome: its value inline, or, past what a completion carries inline, as
+   * the lease's staged output, to a source that takes one. A call keeps no
+   * log: what it printed rides its outcome.
+   */
+  private async executeCall(lease: RackLeaseGrant, event: RackLeaseEvent, run: RunnerDetachedEvent, signal: AbortSignal, transfers: Transfers): Promise<RackLeaseResult> {
+    const retries = () => (transfers.retries.length > 0 ? { retries: transfers.retries } : {});
+    if (event.program === undefined) throw new Error('A call\'s lease names no program');
+    const wired = detachedSpecFromWire(run.spec);
+    const spec = { ...wired, bodyIr: await this.storage.objects.read(this.repo, event.program),
+      limits: { ...wired.limits, timeoutMs: Math.min(wired.limits.timeoutMs, run.timeoutMs) } };
+    const outcome = await new LocalTaskRunner(this.repo).runDetached(spec, { storage: this.storage, signal, ...(run.verbose !== undefined && { verbose: run.verbose }) });
+    // The cap the lease asked, stood in for by the peak its runner is taken
+    // to have reached: above it, the call was stopped, and nothing is sent.
+    const peakBytes = this.options.peak === undefined ? undefined : await this.options.peak(lease, undefined);
+    const needs = readRackLeaseResources(event.resources);
+    if (needs !== undefined && peakBytes !== undefined && peakBytes > needs.memoryBytes) {
+      const stopped: RackLeaseResult = { taskName: event.taskName, status: 'failed', state: 'error', peakBytes: needs.memoryBytes,
+        error: `the runner outgrew its cap of ${needs.memoryBytes} bytes`, reason: { code: 'outgrew-cap', capBytes: needs.memoryBytes, peakBytes }, ...retries() };
+      if (!this.abort.signal.aborted) await this.complete(lease, stopped);
+      return stopped;
+    }
+    const streams = { stdout: outcome.stdout, stderr: outcome.stderr, stdoutTruncated: outcome.stdoutTruncated, stderrTruncated: outcome.stderrTruncated };
+    let detached: RackFunctionResult;
+    let staged: { hash: string; uploadId: string } | undefined;
+    switch (outcome.kind) {
+      case 'success':
+        if (outcome.value.length <= RACK_INLINE_VALUE_MAX) detached = { kind: 'success', valueB64: Buffer.from(outcome.value).toString('base64'), ...streams };
+        else if (this.sourceFeatures.includes(RACK_CALL_VALUE_OBJECTS)) {
+          // Too large to carry: the value is the lease's output, which its completion commits
+          transfers.transfer = 'output';
+          const hash = await this.storage.objects.write(this.repo, outcome.value);
+          staged = { hash, uploadId: await this.stageOutput(lease, hash, outcome.value, signal, transfers) };
+          detached = { kind: 'success', valueHash: hash, ...streams };
+        } else {
+          detached = { kind: 'failed', rackResultTooLarge: true, ...streams,
+            stderr: `the call's value (${outcome.value.length} bytes) is too large to carry inline, and its source takes no value as an object` };
+        }
+        break;
+      case 'failed':
+        detached = { kind: 'failed', exitCode: outcome.exitCode, ...streams };
+        break;
+      case 'too_large':
+        detached = { kind: 'too_large', bytes: outcome.bytes, limit: outcome.limit, ...streams };
+        break;
+      case 'timed_out':
+        detached = { kind: 'timed_out', ms: outcome.ms, ...streams };
+        break;
+    }
+    const failed = detached.kind === 'failed' && detached.rackResultTooLarge !== true;
+    const result: RackLeaseResult = { taskName: event.taskName, status: detached.kind === 'success' ? 'success' : 'failed', detached,
+      ...(staged !== undefined && { outputHash: staged.hash }), cancelled: signal.aborted,
+      ...(failed && { exitCode: outcome.kind === 'failed' ? outcome.exitCode : -1, reason: { code: 'task-error' } }), ...retries() };
+    if (!this.consume('dropCompletionNext') && !this.abort.signal.aborted) await this.complete(lease, result, staged?.uploadId);
+    return result;
   }
 
   /** Claims and executes the next task. */

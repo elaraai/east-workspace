@@ -24,8 +24,9 @@
  * line per file as it finishes, and a live line for the files in flight.
  */
 
+import type { EastTypeValue } from '@elaraai/east';
 import { sha256File } from '@elaraai/e3';
-import type { DatasetTaken, DeploySourceProgress } from '@elaraai/e3-core';
+import { objectAdoptFile, type DatasetTaken, type DeploySourceProgress, type ObjectAdoptResult, type StorageBackend, type TaskRunner } from '@elaraai/e3-core';
 import type { DeployProgress, IntakeFile } from '@elaraai/e3-types';
 import { formatBytes, type Progress, type StepHandle } from './progress.js';
 
@@ -165,6 +166,49 @@ export function intakeReporter(progress: Progress, now: () => number = Date.now)
       step?.fail();
     },
   };
+}
+
+/**
+ * Takes a file into a local repository's store as a dataset's file is taken in
+ * (`objectAdoptFile`) — a collection by intake units on the runner, a piece of
+ * its segments each, never read whole, and any other value as a copy of the
+ * file, which stays its user's to write again — telling `intake` how far it
+ * has got, and once it is in, how.
+ *
+ * @param intake - The reporter of the files taken in together
+ * @param storage - Storage backend
+ * @param repo - The repository
+ * @param file - The file
+ * @param path - What the intake knows the file by, the last part of which its
+ *   lines call it: a dataset's path, or the file's path as it was given
+ * @param sources - Every file taken in together: how many, and their bytes
+ * @param options - The type the destination declares, when it declares one,
+ *   the runner that takes a collection in, and a signal that stops the intake
+ * @returns What the file was taken in as
+ * @throws What `objectAdoptFile` throws, once the live line has ended
+ */
+export async function adoptFileReported(
+  intake: IntakeReporter,
+  storage: StorageBackend,
+  repo: string,
+  file: string,
+  path: string,
+  sources: DeploySourceProgress['sources'],
+  options: { declared?: { subject: string; type: EastTypeValue }; runner: TaskRunner; signal?: AbortSignal },
+): Promise<ObjectAdoptResult> {
+  let adopted: ObjectAdoptResult;
+  try {
+    adopted = await objectAdoptFile(storage, repo, file, { ...options, onProgress: (progress) => intake.report({ path, file, sources, ...progress }) });
+  } catch (err) {
+    intake.fail();
+    throw err;
+  }
+  intake.report({
+    path, file, sources, phase: 'done', bytes: adopted.size, total: adopted.size, taken: adopted.taken,
+    ...(adopted.runners !== undefined && { runners: adopted.runners }),
+    ...(adopted.fallback !== undefined && { fallback: adopted.fallback }),
+  });
+  return adopted;
 }
 
 /** A file being uploaded, as the live line shows it. */

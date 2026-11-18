@@ -3,14 +3,14 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { ranLocally, type RackPlacementEvent } from './rack-body.js';
+import { ranLocally, type RackPlacementEvent } from '../protocol/placement.js';
 
 /** What a run's rack work came to. */
 export interface RackRunSummary {
   /** The work racks claimed, by rack, in the order each first claimed some:
-   *  each task or unit once, by the rack that first claimed it, though it was
-   *  leased again */
-  readonly placed: ReadonlyArray<{ readonly rackLabel: string; readonly tasks: number; readonly units: number }>;
+   *  each task, unit or call once, by the rack that first claimed it, though
+   *  it was leased again */
+  readonly placed: ReadonlyArray<{ readonly rackLabel: string; readonly tasks: number; readonly units: number; readonly calls: number }>;
   /** The leases that were queued with no rack having room for them */
   readonly waited: number;
   /** The longest any of them waited for a rack to claim it, in ms */
@@ -33,7 +33,7 @@ export interface RackRunSummary {
  * console.log(describeRackSummary(tally.take()));
  */
 export class RackTally {
-  private placed = new Map<string, { tasks: number; units: number }>();
+  private placed = new Map<string, { tasks: number; units: number; calls: number }>();
   private waited = 0;
   private longestWaitMs = 0;
   private ranAgain = 0;
@@ -53,8 +53,8 @@ export class RackTally {
       if (event.waitedMs !== undefined) this.longestWaitMs = Math.max(this.longestWaitMs, event.waitedMs);
       // Work leased again was counted when it was first claimed
       if (event.again === true) return;
-      const rack = this.placed.get(event.rackLabel) ?? { tasks: 0, units: 0 };
-      if (event.role === 'task') rack.tasks++; else rack.units++;
+      const rack = this.placed.get(event.rackLabel) ?? { tasks: 0, units: 0, calls: 0 };
+      if (event.role === 'task') rack.tasks++; else if (event.role === 'call') rack.calls++; else rack.units++;
       this.placed.set(event.rackLabel, rack);
     } else if (ranLocally(event)) this.ranLocally++;
   }
@@ -79,8 +79,9 @@ const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? on
  *
  * @param summary - The run's summary
  * @returns Such as `Rack summary: 100 units on rack-a · 44 waited for capacity
- *   (longest 38 s) · 1 ran again · 2 transfers retried · 0 ran locally`,
- *   or undefined when no work went to a rack or came back from one
+ *   (longest 38 s) · 1 ran again · 2 transfers retried · 0 ran locally`, or
+ *   `1 call on rack-a`, or undefined when no work went to a rack or came back
+ *   from one
  *
  * @example
  * const line = describeRackSummary(rack.takeSummary());
@@ -89,7 +90,8 @@ const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? on
 export function describeRackSummary(summary: RackRunSummary): string | undefined {
   if (summary.placed.length === 0 && summary.ranLocally === 0 && summary.transfersRetried === 0 && summary.waited === 0) return undefined;
   const placed = summary.placed.map((rack) =>
-    `${[rack.tasks > 0 ? count(rack.tasks, 'task') : '', rack.units > 0 ? count(rack.units, 'unit') : ''].filter(Boolean).join(' and ')} on ${rack.rackLabel}`);
+    `${[rack.tasks > 0 ? count(rack.tasks, 'task') : '', rack.units > 0 ? count(rack.units, 'unit') : '', rack.calls > 0 ? count(rack.calls, 'call') : '']
+      .filter(Boolean).join(' and ')} on ${rack.rackLabel}`);
   const waited = `${summary.waited} waited for capacity${summary.waited > 0 ? ` (longest ${Math.round(summary.longestWaitMs / 1000)} s)` : ''}`;
   return `Rack summary: ${[...(placed.length > 0 ? placed : ['nothing ran on a rack']), waited, `${summary.ranAgain} ran again`,
     `${count(summary.transfersRetried, 'transfer')} retried`, `${summary.ranLocally} ran locally`].join(' · ')}`;

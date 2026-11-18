@@ -42,7 +42,6 @@ import {
   workspaceStatus as workspaceStatusRemote,
   packageImport as packageImportRemote,
   packageGet as packageGetRemote,
-  packageList as packageListRemote,
   datasetSetStream,
   ApiError,
 } from '@elaraai/e3-api-client';
@@ -52,7 +51,7 @@ import * as path from 'node:path';
 import { DateTimeType, printFor, type EastTypeValue } from '@elaraai/east';
 import e3, { DatasetFileTypeMismatchError, readDatasetFileHeader, sha256File } from '@elaraai/e3';
 import { treePath, type ApiTaskStatus, type PackageObject, type TreePath } from '@elaraai/e3-types';
-import { parseRepoLocation, parsePackageSpec, formatError, exitError, type RepoLocation } from '../utils.js';
+import { parseRepoLocation, parsePackageSpec, resolvePackageVersion, formatError, exitError, type RepoLocation } from '../utils.js';
 import { loadPackageFile } from './load-package.js';
 import { createProgress, formatBytes, type Progress } from '../progress.js';
 import { deployJobText, intakeReporter, uploadReporter } from '../intake.js';
@@ -182,18 +181,20 @@ export const workspaceCommand = {
         return;
       }
 
-      const { name, version } = parsePackageSpec(pkgSpec!);
+      // A bare name deploys the greatest version the repository holds, resolved
+      // here, so the package this command checks the file sources of is exactly
+      // the one deployed
+      const { name, version: named } = parsePackageSpec(pkgSpec!);
+      const version = await resolvePackageVersion(location, name, named);
 
       if (location.type === 'local') {
         await deployLocal(target, new LocalStorage(), location.path, name, version);
       } else {
-        // Resolve `latest` here, so the package this command checks the file
-        // sources of is exactly the one the server deploys.
-        const resolved = version === 'latest' ? await latestRemoteVersion(location, name) : version;
-        await deployRemote(target, name, resolved);
+        await deployRemote(target, name, version);
       }
 
-      if (!target.plan) console.log(`Deployed ${pkgSpec} to workspace: ${ws}`);
+      // The version deployed, which a bare name does not say
+      if (!target.plan) console.log(`Deployed ${name}@${version} to workspace: ${ws}`);
     } catch (err) {
       exitError(formatError(err));
     }
@@ -715,21 +716,6 @@ function reportSkippedFileSources(target: DeployTarget, sources: FileSource[]): 
       `e3 dataset set ${target.repoArg} ${target.ws}.${source.name} --from-file ${source.file}`
     );
   }
-}
-
-/**
- * The version a server deploys for a bare package name: the greatest version
- * string, sorted as `packageGetLatestVersion` sorts them.
- */
-async function latestRemoteVersion(location: RepoLocation, name: string): Promise<string> {
-  if (location.type !== 'remote') throw new Error('latestRemoteVersion needs a remote repository');
-  const versions = (await packageListRemote(location.baseUrl, location.repo, { token: location.token }))
-    .filter((p) => p.name === name)
-    .map((p) => p.version)
-    .sort();
-  const latest = versions[versions.length - 1];
-  if (latest === undefined) throw new Error(`Package not found: ${name}`);
-  return latest;
 }
 
 /** How many file sources a remote deploy uploads at once. */

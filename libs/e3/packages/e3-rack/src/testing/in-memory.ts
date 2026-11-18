@@ -70,11 +70,20 @@ export class InMemoryRackStorageBridge implements RackStorageBridge {
   /**
    * Test hook: a PUT through a write target, as S3 serves it: refused unless
    * its bytes hash to the address and it sends the headers signed into its
-   * URL; otherwise a new version at the address.
+   * URL; otherwise a new version at the address. A PUT through a staged
+   * output's target (#210) stages its bytes for the upload, which its
+   * completion commits once they hash to the output.
    *
    * @returns The version the PUT made, or why it was refused
    */
   put(url: string, bytes: Uint8Array, headers: Readonly<Record<string, string>>): { version: string } | { refused: string } {
+    const stage = /^mem:\/\/stage\/[^/]+\/[0-9a-f]{64}\?upload=(.+)$/.exec(url);
+    if (stage !== null) {
+      const uploadId = decodeURIComponent(stage[1]!);
+      if (!this.targets.has(uploadId)) return { refused: `NoSuchUpload: no output is staged as ${uploadId}` };
+      this.stageUpload(uploadId, new Uint8Array(bytes));
+      return { version: `v${++this.seq}` };
+    }
     const match = /^mem:\/\/put\/([^/]+)\/([0-9a-f]{64})\?lease=(.+)$/.exec(url);
     if (match === null) return { refused: `not a write target: ${url}` };
     const [, repo, hash, lease] = match as unknown as [string, string, string, string];
@@ -148,7 +157,7 @@ export class InMemoryRackStorageBridge implements RackStorageBridge {
   stagedTarget(repo: string, _workspace: string, hash: string, size: bigint): Promise<{ url: string; uploadId: string }> {
     const uploadId = `up-${++this.seq}`;
     this.targets.set(uploadId, { repo, hash, size });
-    return Promise.resolve({ url: `mem://stage/${encodeURIComponent(repo)}/${hash}`, uploadId });
+    return Promise.resolve({ url: `mem://stage/${encodeURIComponent(repo)}/${hash}?upload=${encodeURIComponent(uploadId)}`, uploadId });
   }
 
   /** Verifies and commits a legacy whole-output upload. */

@@ -129,7 +129,7 @@ Defines an input dataset. CLI users address it as `<ws>.${name}`; the on-disk st
 The third argument says where the initial value comes from, and is always a variant:
 
 - `variant('value', v)` — an inline value, carried in the package.
-- `variant('file', path)` — a beast2 file on the machine that deploys the package. Only the path travels in the package; `e3 workspace deploy` takes the file into the object store as the value it holds — a collection by intake units on the runners, in pieces, as the store's own segment objects; any other value by a reflink, hard link or one kernel copy. The file is never read whole and never modified. Relative paths resolve against the working directory at export.
+- `variant('file', path)` — a beast2 file on the machine that deploys the package. Only the path travels in the package; `e3 workspace deploy` takes the file into the object store as the value it holds — a collection by intake units on the runners, in pieces, as the store's own segment objects; any other value as a copy, unless the store holds it already. The file is never read whole and never modified, and stays yours to write again. Relative paths resolve against the working directory at export.
 - omitted — unassigned until set.
 
 ```typescript
@@ -168,8 +168,8 @@ which bounded a segment by its element count alone; either is refused with a
 message saying to write it again with a current Writer, whose segments stay
 under 8 MiB. Either way the store holds its own segments, so a new delivery
 that differs from the last in a few rows stores only the segments around them.
-Any other value's object may be a hard link to the file, so publish a new file
-rather than editing one in place.
+Any other value is stored as a copy of the file, so a later write into the file
+leaves the stored value alone.
 
 The file is read on the machine that runs `e3 workspace deploy`, whichever
 repository it deploys to. Against a remote repository — a package spec,
@@ -725,7 +725,8 @@ and the first differing field. `--from-file` never holds the file whole: its
 hash is streamed and its header checked by ranged reads; a collection is then
 taken in by intake units on the runners, as a deploy takes a file source in —
 bytes the store has taken before cost only their hash — and any other value
-enters the object store by reflink, hard link or one kernel copy. It says how
+enters the object store as a copy, unless the store holds it already, so the
+file stays yours to write again. It says how
 far it has got, as a deploy does, and `-j` and `--memory` set the budget its
 intake units run under. Against a remote
 repository the file is streamed through the transfer protocol and checked the
@@ -948,6 +949,30 @@ The policy can opt into retrying task failures. Rack flags are refused for
 remote URLs; on a local API server use `e3-api-server --repos ./repos --rack`
 with the optional matching `@elaraai/e3-rack` package installed.
 
+`e3 run` and `e3 call` take `--rack` and `--rack-only` too, for the one task or
+call they name: the flag sends it to a rack whatever the policy selects, and a
+rule that matches its name still sizes it (a call's is `fn:<name>`, an IR
+file's call's `fn:<the file's name>`). What a rack cannot run runs here, and
+the command says why:
+
+```sh
+e3 run . acme-forecast.train ./sales.beast2 -o ./model.beast2 --rack
+e3 call . -w dev train_once @.inputs.sales --rack        # [RACK] fn:train_once → workshop
+e3 call . --ir ./score.beast2 '[1.0, 2.0]' 5 --rack
+e3 call . -w dev read_config --rack                      # [LOCAL] fn:read_config (host-coupled:fs_read_file)
+```
+
+`e3 run --rack` leases a whole task's body, or a split task's pieces and
+merges, as a dataflow run does, and ends with the rack summary. A call is a
+lease of its own, sized as a whole task is: its arguments past 192 KiB, and a
+value past 192 KiB, travel as objects of the repository through the lease's
+data path. A call's lines go to stderr, so its value can be piped. A call has
+the CLI's ten minutes, unless a rack rule that matches `fn:<name>` sets a
+timeout, which it then has instead: its drafts and its function share it, the
+function's part counted from when its lease is queued. Ctrl-C
+leaves a call's lease, or a run's, and its rack is told to stop it. A local
+API server's calls stay local.
+
 Plain HTTP (`e3 rack config --no-tls`) is for a TLS terminator in front of the
 hub, and is served only on the loopback or a private address, to the addresses
 `--allow` names. Use `e3 rack list`, `e3 rack remove <id-or-label>` and
@@ -963,9 +988,21 @@ capacity-activation work.
 ```bash
 e3 run <repo> <pkg.task> <inputs...> -o <out>
 e3 run <repo> <pkg@1.0.0.task> <in.beast2> -o <out.beast2> [-v]
+e3 run <repo> <pkg.task> <inputs...> -o <out> --rack   # on an enrolled rack (above)
 ```
 
-Task spec uses dots: `pkg.task` (or `pkg@version.task`). Slashes are no longer accepted.
+Task spec uses dots: `pkg.task` (or `pkg@version.task`); a bare package name
+runs the greatest version the repository holds. Slashes are no longer accepted.
+Each input file is taken in as `e3 dataset set --from-file` takes one, saying
+how far it has got: a collection by intake units, a piece of its segments
+each, never read whole, so a task split over it runs in pieces; any other value
+as a copy of the file, which stays yours to write again. Each is checked by
+its header, as a delivery is, and is not decoded whole. The output is written
+to `-o` as the value itself, a collection from its segments a segment at a
+time: the file at `-o` is replaced, never written into, as `e3 call -o` and
+`e3 convert -o` replace theirs. In a directory you may not write, where nothing
+can be made beside it, a file nothing else links to is written into, and one
+another name links to is refused.
 
 ### Call (named functions)
 
@@ -976,6 +1013,10 @@ e3 call <repo> -w <ws> <fn> @.inputs.sales 5 # pass a dataset of the workspace
 e3 call <repo> -w <ws> <fn> [args...] --draft <record>.<mutation> [args...]  # over an unsaved edit; nothing is saved
 e3 call <repo> <pkg.fn> 2 3 -o sum.beast2    # write raw result to a file
 e3 call <repo> <pkg.fn> 2 3 -v               # print the runner's timing/perf to stderr (local repos)
+e3 call <repo> --ir score.beast2 '[1.0, 2.0]' 5                 # a function from its IR file
+e3 call <repo> --ir score.beast2 --runner east-c --platform none 5   # on east-c, given no platform package
+e3 call <url> -w <ws> --ir score.beast2 @.inputs.sales 5        # one of a server's one-shot calls
+e3 call <repo> -w <ws> <fn> @.inputs.sales --rack               # on an enrolled rack (above)
 ```
 
 Arguments are `.east` literals (`5`, `"hello"`, `[1.0, 2.0]`) or paths to
@@ -990,7 +1031,9 @@ called with `-w`; without it, it is refused, naming its inputs. On success
 the decoded result prints to stdout; failures
 (wrong arity, runtime error, timeout, over-size result) exit non-zero with
 a diagnostic. Calls are graph-free — they trigger no dataflow and change no
-dataset or record of the workspace.
+dataset or record of the workspace; a call on a rack writes its program, and
+an argument or a value too large to travel inline, as objects nothing names,
+which `e3 repo gc` removes.
 
 With `-w`, each `--draft <record>.<mutation> [args...]` lays an unsaved edit
 over a record the function lists in `drafts`: the mutation runs as `e3 mutate`
@@ -1021,7 +1064,22 @@ non-zero saying which:
   when the record changed under the edit
 
 The objects a drafted state is made of are stored, and named by nothing once
-the call is gone, so `e3 repo gc` collects them.
+the call is gone, so `e3 repo gc` collects them. With `--rack`
+the drafts are laid here, over this repository's records, and the function
+runs on the rack.
+
+`--ir <file>` calls the function an IR file holds — a `.beast2` bundle, or the
+`.json` / `.east` a runner's CLI reads — with no package: its signature is read
+from the IR, its arguments are read against it as a named call's are, and it is
+named by the file's name. It runs on `--runner` (`east-node`, the default,
+`east-c` or `east-py`) with that runtime's standard platform package, or the
+packages `--platform` names, repeated; `--platform none` names none, which makes
+a platform-free call. A local repository runs it here, or with `--rack` on a
+rack. A server's URL needs `-w`: the call is one of the workspace's one-shot
+calls, kept and polled as a workspace function's call is, under the grant the
+server gives you — a reader runs a platform-free call alone, and is refused any
+other with the server's reason. It reads no record,
+so it takes no `--draft`.
 
 ### Watch / Live Development
 

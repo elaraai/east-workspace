@@ -30,17 +30,15 @@ import { StringType, encodeBeast2For } from '@elaraai/east';
 import {
   LocalStorage,
   LocalTaskRunner,
-  objectAdoptFile,
   recordSystemCommit,
   resolveRecord,
   withRunningWork,
   type MutationOutcome,
-  type ObjectAdoptResult,
 } from '@elaraai/e3-core';
 import { actor, parseRepoLocation, formatError, exitError } from '../utils.js';
 import { formatSize } from '../format.js';
 import { createProgress } from '../progress.js';
-import { intakeReporter } from '../intake.js';
+import { adoptFileReported, intakeReporter } from '../intake.js';
 import { commandBudget, type BudgetFlags } from './budget.js';
 
 const encodeString = encodeBeast2For(StringType);
@@ -102,22 +100,8 @@ export async function seedCommand(
     const intake = intakeReporter(createProgress());
     const sources = { count: 1, bytes: (await stat(path)).size };
     const { adopted, outcome } = await withRunningWork(storage, location.path, async () => {
-      let adopted: ObjectAdoptResult;
-      try {
-        adopted = await objectAdoptFile(storage, location.path, path, {
-          declared: { subject: `record '${record}'`, type: resolved.type },
-          runner,
-          onProgress: (progress) => intake.report({ path: resolved.refPath, file: path, sources, ...progress }),
-        });
-      } catch (err) {
-        intake.fail();
-        throw err;
-      }
-      intake.report({
-        path: resolved.refPath, file: path, sources, phase: 'done', bytes: adopted.size, total: adopted.size, taken: adopted.taken,
-        ...(adopted.runners !== undefined && { runners: adopted.runners }),
-        ...(adopted.fallback !== undefined && { fallback: adopted.fallback }),
-      });
+      const adopted = await adoptFileReported(intake, storage, location.path, path, resolved.refPath, sources,
+        { declared: { subject: `record '${record}'`, type: resolved.type }, runner });
 
       // The record's first state: at the package's type, so the whole
       // declared chain counts as applied, as a deploy's mint counts it.

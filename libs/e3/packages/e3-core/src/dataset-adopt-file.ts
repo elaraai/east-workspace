@@ -9,12 +9,13 @@
  *
  * The adoption is `dataset-adopt.ts`'s, which every backend shares for a
  * delivery the store holds; this takes a delivered file in: hashed, its type
- * read from its header, and its bytes taken in by intake units or linked in as
- * the object the file is, the file never modified.
+ * read from its header, and its bytes taken in by intake units or copied in as
+ * the object the file holds, the file never modified.
  *
  * @packageDocumentation
  */
 
+import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { isCollectionRoot, type TreePath } from '@elaraai/e3-types';
 import type { EastTypeValue } from '@elaraai/east';
@@ -56,6 +57,22 @@ export interface DatasetAdoptOptions {
   onProgress?: (progress: DatasetAdoptProgress) => void;
   /** Aborting it stops the intake. */
   signal?: AbortSignal;
+  /**
+   * Whether the store may take the file itself, by a hard link, rather than a
+   * copy of it: for a file its caller owns and never writes again, as a
+   * transfer's staged upload. A user's file is copied, so a later write into
+   * it leaves the stored value alone.
+   */
+  link?: boolean;
+}
+
+/**
+ * A file's bytes as they are read, the read opened at the first pull: an
+ * error, its signal's among them, rejects the pull that meets it, never an
+ * event no one listens for before the reader starts.
+ */
+async function* bytesOf(file: string, signal: AbortSignal | undefined): AsyncGenerator<Uint8Array> {
+  yield* createReadStream(file, signal === undefined ? {} : { signal });
 }
 
 /**
@@ -69,9 +86,14 @@ export interface DatasetAdoptOptions {
  * A collection is taken in by intake units on `options.runner`, in pieces of
  * its segments, and the delivery's SHA-256 is remembered with the manifest it
  * became, so the same bytes adopted again cost their hash and nothing else.
- * Any other value is stored by `ObjectStore.adoptFile` as the object the file
- * is. Objects are content-addressed and immutable, and an adopted object no
- * ref names is gc's to collect.
+ * Any other value is stored as a copy of the file, which a later write into
+ * the file leaves alone: a user's file is theirs to write again, by an editor,
+ * `cp` or a shell's `>`. One the store already holds is not copied again. A
+ * caller whose file is its own, and never written again, as a transfer's
+ * staged upload, passes `link: true`, and `ObjectStore.adoptFile` may make
+ * the object the file itself, by a hard link. Objects are content-addressed
+ * and immutable, and an adopted object no ref names is gc's to collect: so is
+ * a copy of a file that changed while it was read.
  *
  * The path is opened more than once — to hash the file, to read its type, to
  * store it — and a delivery replaced in between would pair one file's hash
@@ -85,7 +107,9 @@ export interface DatasetAdoptOptions {
  * @param file - Path to the file to adopt
  * @param options - The digest the caller was promised, checked before anything
  *   is written, the type the destination declares, the runner that takes a
- *   collection in, a listener for how far the adopt has got, and a signal
+ *   collection in, a listener for how far the adopt has got, a signal, which
+ *   stops a copy too, and `link: true` for a file its caller owns and never
+ *   writes again
  * @returns The dataset object's hash — the manifest, for a collection — the
  *   file's size, and how it was taken in
  * @throws {DatasetFileTypeMismatchError} When the file's type is not the
@@ -106,6 +130,7 @@ export async function objectAdoptFile(
     runner?: TaskRunner;
     onProgress?: (progress: DatasetAdoptProgress) => void;
     signal?: AbortSignal;
+    link?: boolean;
   } = {}
 ): Promise<ObjectAdoptResult> {
   const delivered = await stat(file, { bigint: true });
@@ -126,7 +151,14 @@ export async function objectAdoptFile(
   };
 
   if (!isCollectionRoot(type)) {
-    await storage.objects.adoptFile(repo, file, sourceHash);
+    if (options.link === true) await storage.objects.adoptFile(repo, file, sourceHash);
+    else if (!(await storage.objects.touch(repo, [sourceHash]))[0]) {
+      // A copy, which shares nothing with the file: read as it is written,
+      // stopped by the caller's signal, and refused unless it is the bytes
+      // that were hashed
+      const stored = await storage.objects.writeStream(repo, bytesOf(file, options.signal));
+      if (stored !== sourceHash) throw new Error(`${file} changed while it was adopted: it holds ${stored}, not the ${sourceHash} it was hashed as`);
+    }
     await unchanged();
     return { hash: sourceHash, size, taken: 'carried' };
   }
@@ -161,7 +193,8 @@ export async function objectAdoptFile(
  * @param file - Path to the file to adopt
  * @param options - A lock the caller already holds, the digest it was
  *   promised, the runner that takes a collection in, a listener for how far
- *   the adopt has got, and a signal
+ *   the adopt has got, a signal, and `link: true` for a file its caller owns
+ *   and never writes again
  * @returns The dataset's new hash, the file's size, the stored geometry and how
  *   it was taken in
  * @throws {DatasetTypeMismatchError} When the file's wire type is not the
@@ -197,6 +230,7 @@ export async function datasetAdoptFile(
         runner: options.runner,
         onProgress: options.onProgress,
         signal: options.signal,
+        link: options.link,
       });
     } catch (err) {
       if (err instanceof DatasetFileTypeMismatchError) {

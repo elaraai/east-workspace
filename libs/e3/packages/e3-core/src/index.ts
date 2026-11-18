@@ -287,6 +287,7 @@ export {
   DatasetSegments,
   readManifest,
   openDatasetObject,
+  readDatasetChunks,
   readDatasetWhole,
   inputObject,
   taskInputRead,
@@ -318,6 +319,8 @@ export {
   objectAdoptFile,
   type DatasetAdoptOptions,
 } from './dataset-adopt-file.js';
+// And a stored value written out to a file, a segment or a range at a time
+export { writeOutputFile, type WriteOutputFileOptions } from './storage/local/output-file.js';
 export {
   datasetAdoptObject,
   datasetAdoptKnown,
@@ -412,6 +415,8 @@ export {
   type ExecutionResult,
   type TaskBodyRequest,
   type TaskBodyExecutor,
+  type DetachedCallRequest,
+  type DetachedCallExecutor,
   type LocalTaskRunnerOptions,
 } from './execution/LocalTaskRunner.js';
 

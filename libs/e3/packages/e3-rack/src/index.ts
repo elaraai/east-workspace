@@ -30,6 +30,8 @@ export * from './server/storage-bridge.js';
 export * from './server/env-publication.js';
 export * from './lease/coordinator.js';
 export * from './runner/rack-body.js';
+export * from './runner/rack-call.js';
+export * from './runner/rack-lease.js';
 export * from './runner/environment.js';
 export * from './runner/rack-runner.js';
 export * from './runner/summary.js';

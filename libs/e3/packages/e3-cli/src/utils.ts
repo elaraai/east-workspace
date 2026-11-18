@@ -17,9 +17,9 @@ export function shortHash(hash: string): string {
   return `${hash.slice(0, HASH_DISPLAY_WIDTH)}...`;
 }
 
-import { LocalStorage, repoGet, repositoryOpen } from '@elaraai/e3-core';
+import { LocalStorage, PackageNotFoundError, comparePackageVersions, packageGetLatestVersion, repoGet, repositoryOpen } from '@elaraai/e3-core';
 import { parseDatasetPath, parsePackageRef } from '@elaraai/e3-types';
-import { ApiError } from '@elaraai/e3-api-client';
+import { ApiError, packageList } from '@elaraai/e3-api-client';
 import { getValidToken } from './credentials.js';
 
 /**
@@ -156,6 +156,36 @@ export async function openRepo(repoArg: string): Promise<string> {
 export function parsePackageSpec(spec: string): { name: string; version: string } {
   const { name, version } = parsePackageRef(spec);
   return { name, version: version ?? 'latest' };
+}
+
+/**
+ * The version a package spec names in a repository: the version it names, or
+ * for `latest` — what {@link parsePackageSpec} gives a spec that names none —
+ * the greatest version the repository holds, ordered as e3-core's
+ * `comparePackageVersions` orders them, so 1.10.0 follows 1.9.0.
+ *
+ * @param location - The repository: a local one, whose store is read, or a
+ *   server's, whose package list is
+ * @param name - The package
+ * @param version - The version the spec names, or `latest`
+ * @returns The version
+ * @throws {PackageNotFoundError} When the spec names `latest` and the
+ *   repository holds no version of the package
+ * @example
+ * const version = await resolvePackageVersion({ type: 'local', path: repoPath }, 'acme-forecast', 'latest'); // '1.2.0'
+ */
+export async function resolvePackageVersion(location: RepoLocation, name: string, version: string): Promise<string> {
+  if (version !== 'latest') return version;
+  let latest: string | undefined;
+  if (location.type === 'local') {
+    latest = await packageGetLatestVersion(new LocalStorage(), location.path, name);
+  } else {
+    for (const listed of await packageList(location.baseUrl, location.repo, { token: location.token })) {
+      if (listed.name === name && (latest === undefined || comparePackageVersions(listed.version, latest) > 0)) latest = listed.version;
+    }
+  }
+  if (latest === undefined) throw new PackageNotFoundError(name);
+  return latest;
 }
 
 /**

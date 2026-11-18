@@ -401,18 +401,39 @@ export interface RackLeaseAttempt {
 }
 
 /**
+ * The most bytes of value arguments a call's lease carries inline, in all: an
+ * argument past them is stored as an object of the repository, and staged as
+ * a dataset argument is, through the lease's closure.
+ */
+export const RACK_INLINE_ARGS_MAX = 192 * 1024;
+
+/**
+ * The largest call value a completion carries inline, in bytes: a larger one
+ * travels as an object of the store, to a source whose hello says it takes
+ * one (`call-value-objects`), and to any other is not relayed
+ * (`rackResultTooLarge`).
+ */
+export const RACK_INLINE_VALUE_MAX = 192 * 1024;
+
+/**
  * Wire shape of a delegated function call's outcome (#83): a JSON-safe
- * mirror of e3-core's `DetachedResult` with the value bytes base64. Rides
- * inside the completion's `resultJson` onto the lease row (no object-store
- * writes: functions are persistence-free), so the AGENT size-gates
- * `valueB64` and streams to keep the row under the DynamoDB item cap; an
- * over-sized value is reported as kind 'failed' with `rackResultTooLarge`
- * and the runner re-runs the call on cloud.
+ * mirror of e3-core's `DetachedResult`, its value inline as base64 or named
+ * by hash. Rides inside the completion's `resultJson` onto the lease row, so
+ * the AGENT size-gates `valueB64` to keep the row under the DynamoDB item
+ * cap. A value too large to carry goes as an object of the store to a source
+ * whose hello says it takes one (`call-value-objects`): the completion commits
+ * it as its output, and names it here. To any other source it is reported as
+ * kind 'failed' with `rackResultTooLarge`, and the runner runs the call
+ * elsewhere.
  */
 export interface RackFunctionResult {
   kind: 'success' | 'failed' | 'too_large' | 'timed_out';
   /** Result value bytes (beast2), base64: kind 'success' only. */
   valueB64?: string;
+  /** The value's hash, when it travels as an object of the store: kind
+   *  'success' only, in place of `valueB64`. The completion commits the
+   *  object as its output (`outputHash`), which is the same hash. */
+  valueHash?: string;
   stdout: string;
   stderr: string;
   stdoutTruncated: boolean;

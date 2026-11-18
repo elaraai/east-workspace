@@ -7,23 +7,52 @@
  * e3 run command - Ad-hoc task execution
  *
  * Usage:
- *   e3 run . acme-forecast/train ./sales.beast2 -o ./model.beast2
- *   e3 run . my-pkg@1.0.0/process ./input1.beast2 ./input2.beast2 -o ./output.beast2
- *   e3 run . my-pkg/task ./data.beast2 -o ./out.beast2 --force
+ *   e3 run . acme-forecast.train ./sales.beast2 -o ./model.beast2
+ *   e3 run . my-pkg@1.0.0.process ./input1.beast2 ./input2.beast2 -o ./output.beast2
+ *   e3 run . my-pkg.task ./data.beast2 -o ./out.beast2 --force
+ *   e3 run . acme-forecast.train ./sales.beast2 -o ./model.beast2 --rack
+ *
+ * Each input file is taken in as a dataset's file is (`e3 dataset set
+ * --from-file`): a collection by intake units, a piece of its segments each,
+ * never read whole, so a task split over it plans its pieces from it; any other
+ * value as a copy of the file, which stays its user's to write again. The
+ * output is written to -o as the value itself, a collection from its
+ * segments, a segment at a time: the file is replaced, never written into.
+ *
+ * With --rack the task's body runs on an enrolled rack, whatever the
+ * repository's rack policy selects: a rule that names the task still sizes
+ * it. A task split over an input delegates its pieces and merges, its planning
+ * and assembly staying here. The cache, the execution records and the logs are
+ * as a local run writes them. A line says where the task ran, and why, and the
+ * run ends with the rack summary a dataflow run ends with, which says where a
+ * split task's pieces ran. A run the cache answers is no rack's work, and
+ * opens no rack session. Ctrl-C leaves the task's leases, whose racks are
+ * told to stop it, and stops the output's write: the file at -o is then as
+ * it was.
  */
 
-import { readFile, writeFile } from 'fs/promises';
+import { stat } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import {
+  inputsHash,
   packageRead,
-  objectWrite,
-  objectRead,
+  probeExecutionCache,
+  readDatasetChunks,
   taskExecute,
   withRunningWork,
+  writeOutputFile,
   LocalStorage,
+  LocalTaskRunner,
+  type Budget,
+  type ExecutionResult,
+  type TaskResult,
 } from '@elaraai/e3-core';
-import { decodeBeast2 } from '@elaraai/east';
-import { openRepo, parsePackageSpec, formatError, exitError, shortHash } from '../utils.js';
+import { openRepo, parsePackageSpec, resolvePackageVersion, formatError, exitError, shortHash } from '../utils.js';
+import { createProgress } from '../progress.js';
+import { adoptFileReported, intakeReporter } from '../intake.js';
 import { commandBudget, type BudgetFlags } from './budget.js';
+import { openCommandRack, printRackSummary, rackAsked, refuseRemoteRack, unattachedLine, type RackFlags } from './rack-options.js';
+import { untilInterrupted } from '../interrupt.js';
 
 /**
  * Parse task specifier: `pkg.task` or `pkg@version.task`.
@@ -55,22 +84,59 @@ export function parseTaskSpec(spec: string): { name: string; version: string; ta
 }
 
 /**
- * Run a task ad-hoc with file inputs and output.
+ * Takes a run's input files in, in order, saying how far the intake has got.
+ *
+ * @param storage - Storage backend
+ * @param repoPath - The repository
+ * @param inputs - The files, as they were given
+ * @param budget - The budget the intake units of a collection take from
+ * @param signal - Stops the intake
+ * @returns Each input's dataset object hash: the manifest, for a collection
+ * @throws {Error} When a file cannot be read or holds no beast2 value, naming it
+ */
+async function takeInInputs(storage: LocalStorage, repoPath: string, inputs: readonly string[], budget: Budget, signal?: AbortSignal): Promise<string[]> {
+  if (inputs.length === 0) return [];
+  const files = inputs.map((input) => resolve(input));
+  const sources = { count: files.length, bytes: 0 };
+  for (const file of files) sources.bytes += (await stat(file)).size;
+  const runner = new LocalTaskRunner(repoPath, budget);
+  const intake = intakeReporter(createProgress());
+  const hashes: string[] = [];
+  for (const [i, input] of inputs.entries()) {
+    try {
+      // An input is its user's working file, written again between runs: the
+      // store takes a copy of a value, never the file itself by a hard link
+      hashes.push((await adoptFileReported(intake, storage, repoPath, files[i]!, input, sources,
+        { runner, ...(signal !== undefined && { signal }) })).hash);
+    } catch (err) {
+      throw new Error(`Input ${input}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  return hashes;
+}
+
+/**
+ * Run a task ad-hoc with file inputs and output: here, or with --rack on an
+ * enrolled rack.
  */
 export async function runCommand(
   repoArg: string,
   taskSpec: string,
   inputs: string[],
-  options: BudgetFlags & { output?: string; force?: boolean; verbose?: boolean }
+  options: BudgetFlags & RackFlags & { output?: string; force?: boolean; verbose?: boolean }
 ): Promise<void> {
   try {
+    // A server decides where its own work runs: refused before anything is read
+    refuseRemoteRack(repoArg, options);
     const repoPath = await openRepo(repoArg);
     const storage = new LocalStorage();
     // The budget a split task's units take from.
     const budget = commandBudget(options);
 
-    // Parse task specifier
-    const { name, version, task } = parseTaskSpec(taskSpec);
+    // Parse task specifier: a bare package name runs the greatest version the
+    // repository holds
+    const { name, version: named, task } = parseTaskSpec(taskSpec);
+    const version = await resolvePackageVersion({ type: 'local', path: repoPath }, name, named);
 
     // Validate output is provided
     if (!options.output) {
@@ -89,35 +155,57 @@ export async function runCommand(
     }
 
     console.log(`Running ${name}@${version}/${task}`);
+    const output = options.output;
 
-    // Read input files and store as objects
-    const inputHashes: string[] = [];
-    for (const inputPath of inputs) {
-      const data = await readFile(inputPath);
-
-      // Verify it's valid beast2 (will throw if not)
+    // The inputs are taken in, the task run and its output written as running
+    // work: gc takes the repository exclusively, so a sweep never takes an
+    // input's segments, or this execution's unrooted objects (carved slices,
+    // unit outputs), before its records name them
+    const onRack = rackAsked(options);
+    const run = (signal?: AbortSignal) => withRunningWork(storage, repoPath, async () => {
+      const inputHashes = await takeInInputs(storage, repoPath, inputs, budget, signal);
+      for (const [i, hash] of inputHashes.entries()) console.log(`  Input: ${inputs[i]} -> ${shortHash(hash)}`);
+      const startTime = Date.now();
+      // A run the cache answers is no rack's work: no session is opened for
+      // it, which may start a hub and wait for a rack
+      const cached = onRack && options.force !== true ? await probeExecutionCache(storage, repoPath, taskHash, inputsHash(inputHashes)) : null;
+      // With --rack, a session opened for this task alone, which leases it
+      // whatever the policy selects
+      const rack = onRack && cached === null
+        ? await openCommandRack({ repoPath, workspace: `${name}@${version}`, storage, label: `e3 run ${name}@${version}.${task} (pid ${process.pid})`, budget,
+          rackOnly: options.rackOnly, ...(signal !== undefined && { signal }), print: (line) => console.log(line) })
+        : undefined;
+      let result: TaskResult | ExecutionResult;
       try {
-        decodeBeast2(data);
-      } catch {
-        exitError(`Invalid beast2 file: ${inputPath}`);
+        result = cached ?? (rack !== undefined
+          ? await rack.runner.execute(storage, taskHash, inputHashes, { force: options.force, verbose: options.verbose, taskName: task, ...(signal !== undefined && { signal }) })
+          : await taskExecute(storage, repoPath, taskHash, inputHashes, { force: options.force, verbose: options.verbose, budget }));
+        if (rack !== undefined) {
+          // With no session the task ran here, unless the cache answered it
+          const unattached = unattachedLine(rack, task, !result.cached);
+          if (unattached !== undefined) console.log(unattached);
+          // A split task's pieces have no lines of their own: the line a
+          // dataflow run ends with says where they ran
+          await printRackSummary(rack);
+        }
+      } finally {
+        await rack?.close();
       }
-
-      const hash = await objectWrite(repoPath, data);
-      inputHashes.push(hash);
-      console.log(`  Input: ${inputPath} -> ${shortHash(hash)}`);
-    }
-
-    // Execute the task as running work: gc takes the repository exclusively,
-    // so a sweep never runs while this execution's unrooted objects (carved
-    // slices, unit outputs) exist.
-    const startTime = Date.now();
-    const result = await withRunningWork(storage, repoPath, () => taskExecute(storage, repoPath, taskHash, inputHashes, {
-      force: options.force,
-      verbose: options.verbose,
-      budget,
-    }));
-
-    const elapsed = Date.now() - startTime;
+      const elapsed = Date.now() - startTime;
+      // The value itself, a collection's from its segments, in a file that
+      // replaces the one at -o and is never written into it: Ctrl-C stops the
+      // write, and the file is then as it was
+      if (result.state === 'success' && result.outputHash) {
+        await writeOutputFile(output, readDatasetChunks(storage, repoPath, result.outputHash), { ...(signal !== undefined && { signal }) });
+      }
+      return { result, elapsed };
+    });
+    // Ctrl-C leaves a rack's leases, from before the session opens; a run
+    // here ends as it always has. A run that had succeeded, its output
+    // written, as Ctrl-C came was not interrupted
+    const ran = onRack ? await untilInterrupted(run, 'the task\'s racks are told to stop it', (done) => done.result.state === 'success') : await run();
+    if (ran === null) return;
+    const { result, elapsed } = ran;
 
     if (result.cached) {
       console.log(`Cached (${elapsed}ms)`);
@@ -127,10 +215,7 @@ export async function runCommand(
 
     // Handle result
     if (result.state === 'success' && result.outputHash) {
-      // Read output object and write to file
-      const outputData = await objectRead(repoPath, result.outputHash);
-      await writeFile(options.output, outputData);
-      console.log(`Output: ${options.output}`);
+      console.log(`Output: ${output}`);
     } else if (result.state === 'failed') {
       console.error(`Task failed with exit code: ${result.exitCode}`);
       process.exit(1);
