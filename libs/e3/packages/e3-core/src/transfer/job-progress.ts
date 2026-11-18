@@ -4,9 +4,85 @@
  */
 
 /**
- * How a job writes its progress to its store: what the handlers of a split
- * call's job and a record load's job share.
+ * How a job that runs for a while keeps its store's record of it: what the
+ * handlers of a split call's job and a record load's job share. Each watches
+ * its record for word that it should stop, writes its progress one write at a
+ * time, and ends failed unless its caller stopped it to run it again.
  */
+
+/**
+ * Watches a running job's record, as often as `pollMs`, for word that the job
+ * should stop: its end written by another, or a request to cancel it.
+ *
+ * @param stops - Reads the job's record, and answers whether it says to stop
+ * @param pollMs - How often the record is read
+ * @param stop - Told once the record says so
+ * @returns Ends the watch
+ */
+export function watchJob(stops: () => Promise<boolean>, pollMs: number, stop: () => void): () => void {
+  const watch = setInterval(() => {
+    stops().then((found) => {
+      if (found) stop();
+    }, () => {
+      // A read that fails leaves the job running: the next one looks again.
+    });
+  }, pollMs);
+  return () => clearInterval(watch);
+}
+
+/** A job's writes of its progress to its store, one at a time. */
+export interface ProgressWrites<P> {
+  /** Writes a progress, after every one before it. */
+  write(progress: P): void;
+  /** Resolves once every progress written so far has been: before the job's
+   *  end is written, so no progress lands after it. */
+  written(): Promise<void>;
+}
+
+/**
+ * Writes a job's progress to its store one write at a time, in the order
+ * given.
+ *
+ * @remarks
+ * A write the store refuses says the job has ended there, cancelled or ended
+ * by another, and the job is told to stop. A write that fails leaves the last
+ * progress standing.
+ *
+ * @typeParam P - The progress written
+ * @param update - Writes a progress to the job's record, answering whether
+ *   the store took it
+ * @param refused - Told when the store refuses one
+ * @returns The writes
+ */
+export function progressWrites<P>(update: (progress: P) => Promise<boolean>, refused: () => void): ProgressWrites<P> {
+  let writes: Promise<void> = Promise.resolve();
+  return {
+    write(progress) {
+      writes = writes.then(async () => {
+        if (!await update(progress)) refused();
+      }).catch(() => {
+        // A progress write that fails leaves the last one standing.
+      });
+    },
+    written: () => writes,
+  };
+}
+
+/**
+ * Ends a job whose run threw: recorded `failed`, with the error's message,
+ * unless its caller's signal stopped it, when it is handed over as it stands
+ * for the call that runs it again. The error is thrown again either way.
+ *
+ * @param err - What the run threw
+ * @param signal - The caller's signal, which hands the job over
+ * @param fail - Records the job failed, with a message
+ * @throws The error
+ */
+export async function failedUnlessHandedOver(err: unknown, signal: AbortSignal | undefined, fail: (message: string) => Promise<unknown>): Promise<never> {
+  // A job its caller stopped is handed over, not failed.
+  if (signal?.aborted !== true) await fail(err instanceof Error ? err.message : String(err));
+  throw err;
+}
 
 /**
  * Progress that comes many times a second, held back so that its job's store

@@ -607,35 +607,49 @@ class InMemoryRepoGcStore implements RepoGcStore {
 // =============================================================================
 
 /**
- * The local server's split calls: records in memory, each job run in this
- * process on the repository's runner, and its record forgotten a while after
- * it finishes.
+ * The local server's jobs of one kind whose end is written once: records in
+ * memory, each job run in this process on the repository's runner, a status
+ * taken only while the job has not ended, and a record forgotten a while
+ * after its job ends. What a split call's store and a record load's share.
+ *
+ * @typeParam J - A job's record, whose status is `processing` until it ends
  */
-class InMemorySplitCallStore implements SplitCallStore {
-  private readonly records = new Map<string, SplitCallJob>();
+abstract class InMemoryEndedJobs<J extends { readonly status: { readonly type: string } }> {
+  protected readonly records = new Map<string, J>();
   private readonly executing = new Set<string>();
 
+  /**
+   * @param what - The kind of job, as an error names one: `Split call`
+   * @param ttlMs - How long an ended job's record stays readable for its poll
+   * @param storage - The storage the jobs run over, when the backend runs any
+   * @param getRepoPath - The repository a job names, as a path
+   * @param getRunner - The runner a repository's jobs run on
+   */
   constructor(
+    private readonly what: string,
+    private readonly ttlMs: number,
     private readonly storage?: StorageBackend,
     private readonly getRepoPath?: (repo: string) => string,
     private readonly getRunner?: (repoPath: string) => TaskRunner,
-    private readonly width?: number,
   ) {}
 
-  async create(id: string, record: SplitCallJob): Promise<void> {
+  /** The status of a job that ended failed, for the reason given. */
+  protected abstract failure(message: string): J['status'];
+
+  async create(id: string, record: J): Promise<void> {
     this.records.set(id, record);
-    // A job filed already finished — a launch that found the request wrong —
-    // is forgotten as one that ran is.
+    // A job filed already ended — a launch that found the request wrong — is
+    // forgotten as one that ran is.
     if (record.status.type !== 'processing') this.forget(id);
   }
 
-  async get(id: string): Promise<SplitCallJob | null> {
+  async get(id: string): Promise<J | null> {
     return this.records.get(id) ?? null;
   }
 
-  async updateStatus(id: string, status: SplitCallJob['status']): Promise<boolean> {
+  async updateStatus(id: string, status: J['status']): Promise<boolean> {
     const record = this.records.get(id);
-    if (!record) throw new Error(`Split call ${id} not found`);
+    if (!record) throw new Error(`${this.what} ${id} not found`);
     // Checked and written with nothing awaited between: one step.
     if (record.status.type !== 'processing') return false;
     this.records.set(id, { ...record, status });
@@ -646,41 +660,84 @@ class InMemorySplitCallStore implements SplitCallStore {
     this.records.delete(id);
   }
 
-  async execute(id: string, repo: string): Promise<void> {
+  clear(): void {
+    this.records.clear();
+  }
+
+  /**
+   * Takes a job to run: its record, and what it runs on. A job that has ended,
+   * or is running, is not taken twice; and a backend given no storage or
+   * runner ends it failed, saying so.
+   *
+   * @returns The job, which its caller {@link settled | settles} once its run
+   *   has ended; `null` when there is nothing to run
+   */
+  protected async taken(id: string, repo: string, runsNone: string): Promise<{ record: J; storage: StorageBackend; repoPath: string; runner: TaskRunner } | null> {
     const record = this.records.get(id);
-    if (!record) throw new Error(`Split call ${id} not found`);
-    if (record.status.type !== 'processing' || this.executing.has(id)) return;
+    if (!record) throw new Error(`${this.what} ${id} not found`);
+    if (record.status.type !== 'processing' || this.executing.has(id)) return null;
     this.executing.add(id);
 
     const repoPath = this.storage !== undefined && this.getRepoPath !== undefined ? this.getRepoPath(repo) : undefined;
     const runner = repoPath === undefined ? undefined : this.getRunner?.(repoPath);
     if (this.storage === undefined || repoPath === undefined || runner === undefined) {
-      await this.updateStatus(id, variant('failed', { message: 'this backend runs no split call: it was given no storage or runner' }));
-      this.executing.delete(id);
-      this.forget(id);
-      return;
+      await this.failed(id, runsNone);
+      return null;
     }
+    return { record, storage: this.storage, repoPath, runner };
+  }
+
+  /** Ends a job taken that could not start: failed, for the reason given. */
+  protected async failed(id: string, message: string): Promise<void> {
+    await this.updateStatus(id, this.failure(message));
+    this.settled(id);
+  }
+
+  /** A job taken has ended its run: it may be taken no more, and its record
+   *  is forgotten once its poll has had a while to read it. */
+  protected settled(id: string): void {
+    this.executing.delete(id);
+    this.forget(id);
+  }
+
+  private forget(id: string): void {
+    setTimeout(() => { this.records.delete(id); }, this.ttlMs).unref();
+  }
+}
+
+/**
+ * The local server's split calls: records in memory, each job run in this
+ * process on the repository's runner, and its record forgotten a while after
+ * it finishes.
+ */
+class InMemorySplitCallStore extends InMemoryEndedJobs<SplitCallJob> implements SplitCallStore {
+  constructor(
+    storage?: StorageBackend,
+    getRepoPath?: (repo: string) => string,
+    getRunner?: (repoPath: string) => TaskRunner,
+    private readonly width?: number,
+  ) {
+    super('Split call', SPLIT_CALL_RESULT_TTL_MS, storage, getRepoPath, getRunner);
+  }
+
+  protected failure(message: string): SplitCallJob['status'] {
+    return variant('failed', { message });
+  }
+
+  async execute(id: string, repo: string): Promise<void> {
+    const job = await this.taken(id, repo, 'this backend runs no split call: it was given no storage or runner');
+    if (job === null) return;
 
     // The job runs in this process, on the runner every task of the server
     // runs on, and outlives the request that launched it.
     void handleProcessSplitCall(
-      { storage: this.storage, splitCallStore: this, runner, ...(this.width !== undefined && { width: this.width }) },
-      { id, repo: repoPath },
+      { storage: job.storage, splitCallStore: this, runner: job.runner, ...(this.width !== undefined && { width: this.width }) },
+      { id, repo: job.repoPath },
     ).catch(() => {
       // Error already recorded in job status by handleProcessSplitCall
     }).finally(() => {
-      this.executing.delete(id);
-      this.forget(id);
+      this.settled(id);
     });
-  }
-
-  /** Forgets a finished job once its poll has had a while to read it. */
-  private forget(id: string): void {
-    setTimeout(() => { this.records.delete(id); }, SPLIT_CALL_RESULT_TTL_MS).unref();
-  }
-
-  clear(): void {
-    this.records.clear();
   }
 }
 
@@ -702,9 +759,7 @@ function loadSource(job: RecordLoadJob): string {
  * the order they were made, and a record forgotten a while after its job
  * ends.
  */
-class InMemoryRecordLoadStore implements RecordLoadStore {
-  private readonly records = new Map<string, RecordLoadJob>();
-  private readonly executing = new Set<string>();
+class InMemoryRecordLoadStore extends InMemoryEndedJobs<RecordLoadJob> implements RecordLoadStore {
   /** The last job of each source dispatched, which the next of it runs after. */
   private readonly lastOfSource = new Map<string, Promise<void>>();
   /** Wakes a job waiting for an earlier one of its source: asked to cancel, it
@@ -712,27 +767,15 @@ class InMemoryRecordLoadStore implements RecordLoadStore {
   private readonly waiting = new Map<string, () => void>();
 
   constructor(
-    private readonly storage?: StorageBackend,
-    private readonly getRepoPath?: (repo: string) => string,
-    private readonly getRunner?: (repoPath: string) => TaskRunner,
-  ) {}
-
-  async create(id: string, record: RecordLoadJob): Promise<void> {
-    this.records.set(id, record);
-    if (record.status.type !== 'processing') this.forget(id);
+    storage?: StorageBackend,
+    getRepoPath?: (repo: string) => string,
+    getRunner?: (repoPath: string) => TaskRunner,
+  ) {
+    super('Record load', RECORD_LOAD_RESULT_TTL_MS, storage, getRepoPath, getRunner);
   }
 
-  async get(id: string): Promise<RecordLoadJob | null> {
-    return this.records.get(id) ?? null;
-  }
-
-  async updateStatus(id: string, status: RecordLoadJob['status']): Promise<boolean> {
-    const record = this.records.get(id);
-    if (!record) throw new Error(`Record load ${id} not found`);
-    // Checked and written with nothing awaited between: one step.
-    if (record.status.type !== 'processing') return false;
-    this.records.set(id, { ...record, status });
-    return true;
+  protected failure(message: string): RecordLoadJob['status'] {
+    return variant('failed', { message });
   }
 
   async cancel(id: string, cancel: FunctionCallCancel): Promise<RecordLoadJob | null> {
@@ -746,35 +789,17 @@ class InMemoryRecordLoadStore implements RecordLoadStore {
     return asked;
   }
 
-  async delete(id: string): Promise<void> {
-    this.records.delete(id);
-  }
-
   async execute(id: string, repo: string): Promise<void> {
-    const record = this.records.get(id);
-    if (!record) throw new Error(`Record load ${id} not found`);
-    if (record.status.type !== 'processing' || this.executing.has(id)) return;
-    this.executing.add(id);
-
-    const repoPath = this.storage !== undefined && this.getRepoPath !== undefined ? this.getRepoPath(repo) : undefined;
-    const runner = repoPath === undefined ? undefined : this.getRunner?.(repoPath);
-    const failed = async (message: string): Promise<void> => {
-      await this.updateStatus(id, variant('failed', { message }));
-      this.executing.delete(id);
-      this.forget(id);
-    };
-    if (this.storage === undefined || repoPath === undefined || runner === undefined) {
-      await failed('this backend runs no load: it was given no storage or runner');
-      return;
-    }
-    const storage = this.storage;
+    const job = await this.taken(id, repo, 'this backend runs no load: it was given no storage or runner');
+    if (job === null) return;
+    const { record, storage, repoPath, runner } = job;
     // Held from now until the job ends, so no sweep takes its delivery while
     // it waits for an earlier load of its source
     let work: LockHandle;
     try {
       work = await acquireRunningWork(storage, repoPath);
     } catch (err) {
-      await failed(err instanceof Error ? err.message : String(err));
+      await this.failed(id, err instanceof Error ? err.message : String(err));
       return;
     }
     const source = loadSource(record);
@@ -797,20 +822,10 @@ class InMemoryRecordLoadStore implements RecordLoadStore {
       })
       .finally(async () => {
         await work.release();
-        this.executing.delete(id);
-        this.forget(id);
+        this.settled(id);
         if (this.lastOfSource.get(source) === run) this.lastOfSource.delete(source);
       });
     this.lastOfSource.set(source, run);
-  }
-
-  /** Forgets an ended job once its poll has had a while to read it. */
-  private forget(id: string): void {
-    setTimeout(() => { this.records.delete(id); }, RECORD_LOAD_RESULT_TTL_MS).unref();
-  }
-
-  clear(): void {
-    this.records.clear();
   }
 }
 

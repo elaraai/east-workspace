@@ -17,7 +17,7 @@
  */
 
 import { none, some, variant } from '@elaraai/east';
-import type { InputPlan, RecordIndexPlan, RecordLoadProgress, RecordLoadResult, RecordPlan } from '@elaraai/e3-types';
+import type { InputPlan, RecordIndexPlan, RecordLoadProgress, RecordLoadResult, RecordPlan, SplitCallProgress } from '@elaraai/e3-types';
 
 import { ExportStoppedError, RecordLoadStoppedError } from '../errors.js';
 import { recordLoad } from '../record-load.js';
@@ -30,7 +30,7 @@ import type { RunningExecution, TaskRunner } from '../execution/interfaces.js';
 import { splitCallExplain, splitCallReference, splitCallRun, type SplitCallTask } from '../execution/splitCall.js';
 import { openZip, zipSinkOf, zipSourceOf, type ZipReader, type ZipSource } from '../zip.js';
 import type { PackageExportStore, PackageImportStore, RecordLoadStore, RepoGcStore, SplitCallStore, WorkspaceDeployStore } from './interfaces.js';
-import { heldProgress } from './job-progress.js';
+import { failedUnlessHandedOver, heldProgress, progressWrites, watchJob } from './job-progress.js';
 import type { PackageZipCheckpoint } from './types.js';
 
 // =============================================================================
@@ -611,17 +611,15 @@ export async function handleProcessSplitCall(
     if (!ended.signal.aborted) ended.abort(new Error(`split call ${id} was cancelled`));
   };
   const jobSignal = signal === undefined ? ended.signal : AbortSignal.any([signal, ended.signal]);
-  const watch = setInterval(() => {
-    splitCallStore.get(id).then((current) => {
-      if (current === null || current.status.type !== 'processing') end();
-    }, () => {
-      // A read that fails leaves the job running: the next one looks again.
-    });
-  }, SPLIT_CANCEL_POLL_MS);
+  const unwatch = watchJob(async () => {
+    const current = await splitCallStore.get(id);
+    return current === null || current.status.type !== 'processing';
+  }, SPLIT_CANCEL_POLL_MS, end);
 
   // Progress is written one write at a time, and the last before the outcome.
+  // A write the store refuses says the job has ended.
   let reported = 0;
-  let writes: Promise<void> = Promise.resolve();
+  const progress = progressWrites<SplitCallProgress>((made) => splitCallStore.updateStatus(id, variant('processing', some(made))), end);
   try {
     if (record.explain) {
       const status = await withRunningWork(storage, repo, async () => {
@@ -637,31 +635,22 @@ export async function handleProcessSplitCall(
       signal: jobSignal,
       launchedAt: record.createdAt,
       ...(width !== undefined && { width }),
-      onProgress: (progress) => {
+      onProgress: (made) => {
         const now = Date.now();
         if (now - reported < SPLIT_PROGRESS_INTERVAL_MS) return;
         reported = now;
-        writes = writes.then(async () => {
-          // Refused: the job has ended.
-          if (!await splitCallStore.updateStatus(id, variant('processing', some(progress)))) end();
-        }).catch(() => {
-          // A progress write that fails leaves the last one standing.
-        });
+        progress.write(made);
       },
     }));
-    await writes;
+    await progress.written();
     await splitCallStore.updateStatus(id, variant('completed', outcome));
   } catch (err) {
-    await writes;
+    await progress.written();
     // A call cancelled has ended already: its record says so.
     if (ended.signal.aborted) return;
-    // A call its caller stopped is handed over, not failed.
-    if (signal?.aborted === true) throw err;
-    const message = err instanceof Error ? err.message : String(err);
-    await splitCallStore.updateStatus(id, variant('failed', { message }));
-    throw err;
+    await failedUnlessHandedOver(err, signal, (message) => splitCallStore.updateStatus(id, variant('failed', { message })));
   } finally {
-    clearInterval(watch);
+    unwatch();
   }
 }
 
@@ -743,34 +732,24 @@ export async function handleProcessRecordLoad(
   };
   if (record.cancel.type === 'some') ask();
   const jobSignal = signal === undefined ? asked.signal : AbortSignal.any([signal, asked.signal]);
-  const watch = setInterval(() => {
-    recordLoadStore.get(id).then((current) => {
-      if (current === null || current.cancel.type === 'some' || current.status.type !== 'processing') ask();
-    }, () => {
-      // A read that fails leaves the load running: the next one looks again.
-    });
-  }, LOAD_CANCEL_POLL_MS);
+  const unwatch = watchJob(async () => {
+    const current = await recordLoadStore.get(id);
+    return current === null || current.cancel.type === 'some' || current.status.type !== 'processing';
+  }, LOAD_CANCEL_POLL_MS, ask);
 
-  // Progress is written one write at a time, and the last before the end
-  let writes: Promise<void> = Promise.resolve();
-  const write = (progress: RecordLoadProgress): void => {
-    writes = writes.then(async () => {
-      // Refused: the job has ended
-      if (!await recordLoadStore.updateStatus(id, variant('processing', some(progress)))) ask();
-    }).catch(() => {
-      // A progress write that fails leaves the last one standing.
-    });
-  };
+  // Progress is written one write at a time, and the last before the end. A
+  // write the store refuses says the job has ended.
+  const progress = progressWrites<RecordLoadProgress>((made) => recordLoadStore.updateStatus(id, variant('processing', some(made))), ask);
   // Pieces settle many times a second: the newest count is held back, and
   // written once the interval has passed, or before the step after
-  const pieces = heldProgress(write, LOAD_PIECES_INTERVAL_MS);
-  const report = (progress: RecordLoadProgress): void => {
-    if (progress.type === 'pieces') {
-      pieces.hold(progress);
+  const pieces = heldProgress(progress.write, LOAD_PIECES_INTERVAL_MS);
+  const report = (made: RecordLoadProgress): void => {
+    if (made.type === 'pieces') {
+      pieces.hold(made);
       return;
     }
     pieces.flush();
-    write(progress);
+    progress.write(made);
   };
   let result: RecordLoadResult;
   try {
@@ -784,8 +763,8 @@ export async function handleProcessRecordLoad(
     } finally {
       // The load has settled: no count is written after its end
       pieces.stop();
-      clearInterval(watch);
-      await writes;
+      unwatch();
+      await progress.written();
     }
   } catch (err) {
     // Stopped before its commit wrote, at a request to cancel it
@@ -793,11 +772,7 @@ export async function handleProcessRecordLoad(
       await recordLoadStore.updateStatus(id, variant('cancelled', null));
       return;
     }
-    // A load its caller stopped is handed over, not failed.
-    if (signal?.aborted === true) throw err;
-    const message = err instanceof Error ? err.message : String(err);
-    await recordLoadStore.updateStatus(id, variant('failed', { message }));
-    throw err;
+    return await failedUnlessHandedOver(err, signal, (message) => recordLoadStore.updateStatus(id, variant('failed', { message })));
   }
   // Its commit has written, when it made one: the load has landed, whatever
   // was asked since, and whatever the store says of the write of its end
