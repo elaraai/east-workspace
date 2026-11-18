@@ -658,7 +658,7 @@ function visualCell(key: string, row: string, span: bigint, height: bigint | und
     return { key, row, span, height: height === undefined ? none : some(height), align: variant("stretch", null), title: none, content };
 }
 
-/** The Visuals page's placements: two KPIs and a donut; the series charts, the combo and the scatter; the list; the summary and the pivot; the records. */
+/** The Visuals page's placements: two KPIs and a donut; the series charts, the combo and the scatter; the list; the summary and the pivot; the records; and two that cannot draw yet — a chart with no value, and a KPI of a field its source lacks. */
 const visualCells = [
     visualCell("v-revenue", "r1", 4n, undefined, vis.of("orders", vis.kpi({ value: vis.sum("revenue", { goal: 24000 }), compare: vis.mean("revenue"), trend: "ordered_at" }))),
     visualCell("v-orders", "r1", 4n, undefined, vis.of("orders", vis.kpi({ value: vis.count(), trend: "ordered_at" }))),
@@ -680,6 +680,8 @@ const visualCells = [
         rows: vis.group("region"), columns: vis.group("ordered_at", { bucket: "month" }), value: vis.count(), heat: true,
     }))),
     visualCell("v-records", "r6", 12n, 320n, vis.of("orders", vis.records({ columns: ["ordered_at", "customer", "region", "revenue", "units", "margin"], sort: "ordered_at", descending: true }))),
+    visualCell("v-empty", "r7", 6n, undefined, vis.of("orders", vis.column({ x: vis.group("region"), values: [] }))),
+    visualCell("v-missing", "r7", 6n, undefined, vis.of("orders", vis.kpi({ value: vis.sum("net_revenue") }))),
 ];
 
 /** The pages of the visuals' project: one page, Visuals, live as it was drafted. */
@@ -701,7 +703,7 @@ export const studioVisuals = example({
         "Studio", "Studio.Page", "Studio.visual", "visual", "KPI", "goal", "trend", "chart", "column", "bar", "line", "area", "combo", "scatter",
         "pie", "donut", "list", "ranking bar", "table", "records", "summary", "total", "pivot", "heat", "Studio.source", "Data.bind",
     ],
-    description: "Every form a visual draws, on a published page over the quarter's orders: a KPI with its goal, its change and its trend, and a count; a donut of revenue by category; columns stacked by region, the top customers' bars, a line, an area and a scatter; a combo of revenue against margin on its right axis; the customers as a list with ranking bars; a summary of regions over categories with its total row and a goal its cells are marked against; a pivot of orders by region and month on the heat ramp; and the latest orders, a page at a time",
+    description: "Every form a visual draws, on a published page over the quarter's orders: a KPI with its goal, its change and its trend, and a count; a donut of revenue by category; columns stacked by region, the top customers' bars, a line, an area and a scatter; a combo of revenue against margin on its right axis; the customers as a list with ranking bars; a summary of regions over categories with its total row and a goal its cells are marked against; a pivot of orders by region and month on the heat ramp; the latest orders, a page at a time; and two tiles that say why they cannot draw — a chart with no value yet, and a KPI of a field its source lacks",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const pages = $.let(Data.bind(studioVisualPages));

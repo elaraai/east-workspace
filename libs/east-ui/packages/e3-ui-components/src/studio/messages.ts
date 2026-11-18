@@ -82,12 +82,22 @@ export interface StudioMessages {
     noSourceHint: () => string;
     /** A visual with a well it needs empty (#1670) — its heading. */
     wellsEmpty: () => string;
-    /** A well it needs, in the list under it. */
+    /** A well it needs, in the checklist under it. */
     wellNeeded: (p: { well: string }) => string;
-    /** A visual reading a field its source does not have — its heading. */
-    fieldMissing: (p: { source: string; field: string }) => string;
-    /** Under it. */
-    fieldMissingHint: () => string;
+    /** What that checklist has done: its source is chosen. */
+    sourcePicked: () => string;
+    /** A visual reading a field its source does not have — the words before the field's name: `Orders has no field`. */
+    noField: (p: { source: string }) => string;
+    /** Under it, the link that opens the visual's fields. */
+    pickAnotherField: () => string;
+    /** A tile's meta while its answer is awaited. */
+    metaLoading: () => string;
+    /** A tile's meta while a field it reads is missing. */
+    metaNeedsField: () => string;
+    /** A tile's meta: what it groups by — `by week`. */
+    metaBy: (p: { by: string }) => string;
+    /** A tile's meta: what it holds of how many — `7 of 46`; both are formatted. */
+    metaShown: (p: { shown: string; of: string }) => string;
     /** A visual with a value over another period, over a source with no date range to move the page's window along — its heading. */
     noRange: (p: { source: string }) => string;
     /** Under it. */
@@ -96,10 +106,10 @@ export interface StudioMessages {
     needsWindow: (p: { source: string }) => string;
     /** Under it. */
     needsWindowHint: () => string;
-    /** A visual that read no rows — its heading. */
+    /** A visual that read no rows — where its value would be. */
     noData: () => string;
-    /** Under it, why. */
-    noDataReason: (p: { source: string }) => string;
+    /** Under it, why: none of its source's rows, named mid-sentence — `No orders`. */
+    noDataReason: (p: { rows: string }) => string;
     /** A visual whose source could not be read — the banner's title. */
     sourceError: (p: { source: string }) => string;
     /** The banner's action, which asks the visual's programs again. */
@@ -417,14 +427,19 @@ export const studioMessages: StudioMessages = {
     noSourceHint: () => "This surface lists no source with this key.",
     wellsEmpty: () => "Add fields to draw it",
     wellNeeded: ({ well }) => (well === "values" ? "A number in Values" : well === "columns" ? "A field in Columns" : well === "rows" ? "A field in Rows" : `A field in ${well}`),
-    fieldMissing: ({ source, field }) => `${source} has no field ${field}`,
-    fieldMissingHint: () => "Pick another field for this visual.",
+    sourcePicked: () => "Pick a source",
+    noField: ({ source }) => `${source} has no field`,
+    pickAnotherField: () => "Pick another field",
+    metaLoading: () => "loading",
+    metaNeedsField: () => "needs a field",
+    metaBy: ({ by }) => `by ${by}`,
+    metaShown: ({ shown, of }) => `${shown} of ${of}`,
     noRange: ({ source }) => `${source} has no date to compare periods by`,
     noRangeHint: () => "Measure this value over the current period instead.",
     needsWindow: ({ source }) => `Comparing periods needs a date filter on ${source}`,
     needsWindowHint: () => "Filter the page by date to compare it with another period.",
     noData: () => "no data",
-    noDataReason: ({ source }) => `No rows of ${source} match.`,
+    noDataReason: ({ rows }) => `No ${rows}`,
     sourceError: ({ source }) => `${source} could not be read`,
     retry: () => "Retry",
     answerGroups: ({ n, groups, nr, rows }) => `${groups} ${n === 1 ? "group" : "groups"} from ${rows} ${nr === 1 ? "row" : "rows"}`,

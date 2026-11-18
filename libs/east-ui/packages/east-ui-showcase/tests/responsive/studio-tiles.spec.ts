@@ -44,6 +44,15 @@
  *    cannot centre a 30px block on whole pixels — its values mono 11 / 500
  *    and its row names mono 11 / 400, 20 from the tile's edge; its legend is
  *    padded 12 20 16 on no fill, a count's steps whole and its top closed.
+ *  - T6 a tile that cannot draw says why, as its mock does (TIL-1, TIL-3):
+ *    wells it needs — the view's icon at 28 in `--rule-strong`, "Add fields
+ *    to draw it" in the heading face at 15 / 700, and a checklist of 16px
+ *    lines 6 apart, what is chosen in `--ink` after a 14px `--pos` check and
+ *    what is missing in `--ink-3` after a 10px `--ink-5` dot, under its
+ *    source's name; a field its source lacks — a 14px `--neg` exclamation,
+ *    the words, the field's name as code on `--paper-3` — under "needs a
+ *    field"; and a drawn tile's meta says what it groups by, never its
+ *    source's name.
  *
  * Every measurement is taken from the laid-out page, at rest.
  *
@@ -357,6 +366,86 @@ test.describe("Studio tiles, as designed (#1671)", () => {
             foot: 37,
             pivot: { headFill: ["rgba(0, 0, 0, 0)"], headRule: [true], rows: [40], block: [30, "4px"], value: [true, "11px", "500"], name: ["11px", "400", 20] },
             heat: { pad: "12px 20px 16px", fill: "rgba(0, 0, 0, 0)", rule: true, whole: true, closed: true, steps: 5, height: 58 },
+        });
+    });
+
+    test("T6: a tile that cannot draw says why as its mock does — the checklist of the wells it needs, a field its source lacks — and a drawn tile's meta says what it groups by", async ({ page }) => {
+        const grid = await openVisuals(page, "light");
+        const read = await grid.evaluate((root) => {
+            const themed = (property: "color" | "backgroundColor" | "fontFamily", token: string) => {
+                const probe = document.createElement("span");
+                probe.style[property] = `var(${token})`;
+                root.append(probe);
+                const value = getComputedStyle(probe)[property];
+                probe.remove();
+                return value;
+            };
+            const tone = (value: string) => ({
+                [themed("color", "--chakra-colors-fg")]: "ink", [themed("color", "--chakra-colors-fg-muted")]: "ink-3", [themed("color", "--chakra-colors-fg-faint")]: "ink-5",
+                [themed("color", "--chakra-colors-border-strong")]: "rule-strong", [themed("color", "--chakra-colors-status-pos")]: "pos", [themed("color", "--chakra-colors-status-neg")]: "neg",
+                [themed("color", "--chakra-colors-bg-subtle")]: "paper-3",
+            }[value] ?? value);
+            const tileOf = (state: Element) => state.closest("[data-studio-visual-tile]")!;
+            const metaOf = (state: Element) => tileOf(state).querySelector("[data-studio-visual-meta]")?.textContent;
+            const box = (el: Element) => el.getBoundingClientRect();
+            const out: Record<string, unknown> = {};
+            const empty = root.querySelector("[data-studio-visual=empty]");
+            if (empty !== null) {
+                const head = tileOf(empty).querySelector("[data-studio-visual-head]")!;
+                const icon = empty.querySelector("svg")!;
+                const title = empty.querySelector("h4")!;
+                const items = [...empty.querySelectorAll("li")];
+                const titleLook = getComputedStyle(title);
+                out.empty = {
+                    meta: metaOf(empty),
+                    // 32 under the eyebrow strip; its parts 12 apart, centred.
+                    iconTop: Math.round(box(icon).top - box(head).bottom),
+                    icon: [box(icon).width, box(icon).height, tone(getComputedStyle(icon.parentElement!).color)],
+                    gaps: [Math.round(box(title).top - box(icon).bottom), Math.round(box(items[0]!).top - box(title).bottom)],
+                    centred: Math.abs((box(icon).left + box(icon).right) / 2 - (box(empty).left + box(empty).right) / 2) <= 0.5,
+                    title: [titleLook.fontFamily === themed("fontFamily", "--chakra-fonts-heading"), titleLook.fontSize, titleLook.fontWeight, box(title).height],
+                    // The checklist: 16px lines, 6 apart; each mark in its own colour and size.
+                    lines: items.map((li) => box(li).height),
+                    pitch: items.slice(1).map((li, i) => Math.round(box(li).top - box(items[i]!).bottom)),
+                    marks: items.map((li) => {
+                        const mark = li.querySelector("svg")!;
+                        return [li.hasAttribute("data-done"), mark.getAttribute("data-icon"), box(mark).height, tone(getComputedStyle(mark.parentElement!).color), tone(getComputedStyle(li).color), getComputedStyle(li).fontSize];
+                    }),
+                };
+            }
+            const missing = root.querySelector("[data-studio-visual=missing]");
+            if (missing !== null) {
+                const line = missing.querySelector("code")!.closest("div")!;
+                const icon = missing.querySelector("svg")!;
+                const code = missing.querySelector("code")!;
+                const codeLook = getComputedStyle(code);
+                out.missing = {
+                    meta: metaOf(missing), text: missing.textContent,
+                    line: [box(line).height, getComputedStyle(line).fontSize, tone(getComputedStyle(line).color)],
+                    icon: [icon.getAttribute("data-icon"), box(icon).height, tone(getComputedStyle(icon.parentElement!).color)],
+                    gap: Math.round(box(icon.parentElement!.nextElementSibling!).left - box(icon.parentElement!).right),
+                    code: [codeLook.fontFamily === themed("fontFamily", "--chakra-fonts-mono"), tone(codeLook.backgroundColor), codeLook.borderTopLeftRadius, codeLook.padding],
+                    link: missing.querySelectorAll("button, a").length,
+                };
+            }
+            // A drawn tile's meta: what it groups by and its unit; a KPI's and a records table's say nothing.
+            out.metas = [...root.querySelectorAll("[data-studio-visual-tile]")].map((tile) => tile.querySelector("[data-studio-visual-meta]")?.textContent);
+            return out;
+        });
+        expect(read).toEqual({
+            empty: {
+                meta: "Orders", iconTop: 32, icon: [28, 28, "rule-strong"], gaps: [12, 12], centred: true, title: [true, "15px", "700", 20],
+                lines: [16, 16], pitch: [6],
+                marks: [[true, "circle-check", 14, "pos", "ink", "13px"], [false, "circle", 10, "ink-5", "ink-3", "13px"]],
+            },
+            missing: {
+                meta: "needs a field", text: "Orders has no field net_revenue",
+                line: [16, "13px", "ink"], icon: ["circle-exclamation", 14, "neg"], gap: 8, code: [true, "paper-3", "4px", "1px 5px"], link: 0,
+            },
+            metas: [
+                "", "", "AUD", "by month · AUD", "by customer · AUD", "by week", "by month · AUD", "", "by region", "AUD",
+                "", "by region · month", "", "Orders", "needs a field",
+            ],
         });
     });
 });

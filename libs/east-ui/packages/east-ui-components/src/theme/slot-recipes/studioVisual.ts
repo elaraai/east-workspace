@@ -11,14 +11,17 @@
  * goal's bar with its tick, its trend and its one line of annotation; a
  * pivot's heat legend — its five steps on the
  * heat tokens, each 40 × 12 inside a `--rule`, their lower edges under them in
- * mono 9.5 `--ink-4` (TBL-4); and the line that says what a visual holds of
- * how many. Every numeral is mono and tabular, every label mono at the label
+ * mono 9.5 `--ink-4` (TBL-4); the line that says what a visual holds of
+ * how many; and its states (TIL-3) — the checklist of the wells it needs, a
+ * field its source lacks, and the blocks that stand in its shape while its
+ * answer is awaited. Every numeral is mono and tabular, every label mono at the label
  * sizes (TIL-5); colour is the theme's alone.
  *
  * @packageDocumentation
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { fontAwesomeSize } from "../icon-size.js";
 import { centredLine } from "../one-line-box.js";
 
 /** The room a tile's eyebrow strip centres its row in: its 36px less its rule and the pixel of padding over the row. */
@@ -31,6 +34,7 @@ export const studioVisualSlotRecipe = defineSlotRecipe({
         "kpi", "kpiRow", "kpiValue", "kpiNumber", "kpiUnit", "kpiChange", "absent", "goal", "goalTick", "trend", "anno",
         "heat", "heatRamp", "heatSwatch", "heatTicks",
         "list", "listRow", "listLine", "listText", "listName", "listCaption", "listValue", "listUnit", "listBar", "listBarFill",
+        "state", "empty", "emptyIcon", "emptyTitle", "checks", "check", "checkMark", "missing", "missingLine", "missingIcon", "code", "link", "load", "loadBlock",
     ],
     base: {
         /* A visual's tile: its eyebrow strip over its body, filling the frame, edge to edge. */
@@ -112,6 +116,46 @@ export const studioVisualSlotRecipe = defineSlotRecipe({
         heatTicks: {
             display: "flex", width: "202px", justifyContent: "space-between", fontFamily: "mono", fontSize: "label.xs", lineHeight: "11px", color: "fg.subtle",
             fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap",
+        },
+        /* A state in a tile's body (TIL-3). A table's or a list's body runs edge to edge: its state pads itself as any other body is padded. */
+        state: { display: "flex", flexDirection: "column", minWidth: "0", "[data-flush] > &": { padding: "{spacing.5}" } },
+        /* Wells it needs: the view's icon at 28 in `--rule-strong`, the words, and the checklist — centred, 12 apart, 32 from the
+           body's top and bottom (12 past its padding). */
+        empty: { display: "flex", flexDirection: "column", alignItems: "center", gap: "{spacing.3}", paddingBlock: "{spacing.3}" },
+        emptyIcon: { color: "border.strong", ...fontAwesomeSize("28px") },
+        emptyTitle: { fontFamily: "heading", fontSize: "{fontSizes.title.xs}", fontWeight: "700", letterSpacing: "-0.01em", lineHeight: "20px", color: "fg", margin: "0" },
+        /* The checklist: a 16px line each, 6 apart — what is chosen in `--ink` after a 14px `--pos` check, what is missing in
+           `--ink-3` after a 10px `--ink-5` dot, each mark centred in 14. */
+        checks: { display: "flex", flexDirection: "column", gap: "6px", margin: "0", padding: "0", listStyle: "none" },
+        check: { display: "flex", alignItems: "center", gap: "{spacing.2}", fontSize: "{fontSizes.body}", lineHeight: "16px", color: "fg.muted", "&[data-done]": { color: "fg" } },
+        /* Font Awesome sizes its mark in ems, outside the recipes' layer: the mark's size is this box's font size. */
+        checkMark: {
+            display: "inline-flex", alignItems: "center", justifyContent: "center", flex: "none", width: "14px", height: "14px", color: "fg.faint",
+            fontSize: "10px", lineHeight: 1, "--fa-width": "1em",
+            "[data-done] > &": { color: "status.pos", fontSize: "14px" },
+        },
+        /* A field its source lacks: a 16px line — a 14px `--neg` exclamation, the words, the field's name as code — over the link that mends it, 6 apart. */
+        missing: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "6px" },
+        missingLine: { display: "flex", alignItems: "center", gap: "{spacing.2}", minWidth: "0", fontSize: "{fontSizes.body}", lineHeight: "16px", color: "fg" },
+        missingIcon: { flex: "none", color: "status.neg", ...fontAwesomeSize("14px") },
+        /* On a 14px line of its own: with its pixel of padding over and under, the 16 of the line it stands in — the
+           line's own 16 would stand the mono face's box half a pixel past it. */
+        code: { fontFamily: "mono", fontSize: "0.92em", lineHeight: "14px", background: "bg.subtle", borderRadius: "sm", padding: "1px 5px" },
+        /* The link role: 12.5 / 500 `--brand-d`, underlined on hover. */
+        link: {
+            all: "unset", cursor: "pointer", fontSize: "{fontSizes.body.sm}", fontWeight: "500", lineHeight: "15px", color: "brand.solid",
+            _hover: { textDecoration: "underline" }, _focusVisible: { outline: "2px solid", outlineColor: "border.focus", outlineOffset: "2px" },
+        },
+        /* While its answer is awaited: Skeleton blocks in the visual's own shape, 10 apart — a KPI's number 112 × 26 over a 192 × 10
+           line; a chart's plot; a table's or a list's rows, a 10px bar in each 36. */
+        load: { display: "flex", flexDirection: "column", gap: "10px", minWidth: "0", "&[data-shape=rows]": { gap: "26px", paddingBlock: "13px" } },
+        loadBlock: {
+            flex: "none", maxWidth: "100%", borderRadius: "sm",
+            "&[data-block=number]": { width: "112px", height: "26px" },
+            "&[data-block=line]": { width: "192px", height: "10px" },
+            "&[data-block=plot]": { width: "100%", height: "96px" },
+            /* A row's bar: no two the same width, as a table's values are not. */
+            "&[data-block=row]": { height: "10px", width: "62%", "&[data-row='1']": { width: "84%" }, "&[data-row='2']": { width: "48%" }, "&[data-row='3']": { width: "71%" } },
         },
         /* A list (LST-1): its rows, edge to edge, scrolling inside its tile. */
         list: { display: "flex", flexDirection: "column", flex: "1", minWidth: "0", minHeight: "0", overflowY: "auto" },

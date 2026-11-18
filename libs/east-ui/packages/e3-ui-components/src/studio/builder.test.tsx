@@ -1299,7 +1299,7 @@ describe("<Studio.Builder> — what a placement holds (#1669)", () => {
         expect([framed(container, "n-note"), framed(container, "n-sales"), framed(container, "n-stock")]).toEqual([false, true, true]);
         // Its eyebrow names it (#1671, TIL-1): with no title of its own, by its wells, its source at the end.
         const eyebrow = tile(container, "n-sales").querySelector("[data-studio-visual-head]")!;
-        expect([...eyebrow.querySelectorAll("[data-studio-visual-name], [data-studio-visual-meta]")].map((el) => el.textContent)).toEqual(["Revenue by region", "Sales"]);
+        expect([...eyebrow.querySelectorAll("[data-studio-visual-name], [data-studio-visual-meta]")].map((el) => el.textContent)).toEqual(["Revenue by region", "by region"]);
         expect(within(tile(container, "n-stock")).getByText('No source "stock" is listed')).toBeTruthy();
         expect(within(tile(container, "n-stock")).getByText("This surface lists no source with this key.")).toBeTruthy();
         expect(tile(container, "n-kpi").textContent).toContain("KPIs");
