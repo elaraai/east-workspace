@@ -37,6 +37,7 @@ import {
 import { DatasetStatusType, MutationResultType, RecordCommitInfoType, type TreePath } from '@elaraai/e3-types';
 import type { RecordDef, MutationDef } from '@elaraai/e3';
 import { FuncDraftType } from './func.js';
+import { RecordBindingSourcesType, bindingSources } from './record-composite.js';
 
 // ============================================================================
 // Status + error + descriptor types
@@ -98,14 +99,19 @@ export type RecordErrorType = typeof RecordErrorType;
 
 /**
  * Descriptor for a record binding — carried on the handle's `binding` field
- * for inspector surfaces.
+ * for inspector surfaces, and for whatever must tell a composite record's
+ * loaded entries from the solution's own.
  *
  * @property name - The bound record's name in the deployed package
  * @property mutations - The mutation names this binding exposes
+ * @property sources - A composite record's sources, in the order of its key's
+ *   cases, each with whether its load alone writes its entries
+ *   ({@link RecordBindingSourcesType}); none for a plain record
  */
 export const RecordBindingType = StructType({
     name:      StringType,
     mutations: ArrayType(StringType),
+    sources:   RecordBindingSourcesType,
 });
 
 /** Type representing the {@link RecordBindingType} structure. */
@@ -294,14 +300,17 @@ export type BoundRecord<
  * @remarks
  * Generic over `H`, the fully-instantiated handle struct — its shape IS the
  * signature (the runtime recovers the state type from `read` and the mutation
- * names + arg types from `mutate`). The single literal argument is the record
- * name; the record's dataset path is reconstructed runtime-side, and mutation
- * names are validated against the deployed record signature.
+ * names + arg types from `mutate`). Its two arguments are literals: the
+ * record's name — the record's dataset path is reconstructed runtime-side, and
+ * mutation names are validated against the deployed record signature — and
+ * the record's sources ({@link RecordBindingSourcesType}), none for a plain
+ * record, which the handle carries as `binding.sources` and a host reads from
+ * the UI's IR before it deploys (`deriveUiAccess`).
  */
 export const recordBindPlatformFn = East.genericPlatform(
     "record_bind",
     ["H"],
-    [StringType],
+    [StringType, RecordBindingSourcesType],
     "H",
     { optional: true },
 );
@@ -424,6 +433,11 @@ type AllMutationsOf<R> = R extends { readonly mutations: infer M } ? readonly M[
  * handle. A function that lists the record in its `drafts` takes the draft
  * with its call (`Func.bind`), and reads the record with it laid over.
  *
+ * A composite record (`e3.recordComposite`) is bound as any record is, and
+ * its handle's `binding.sources` names its sources, each with whether its
+ * load alone writes its entries: what a Save and every builder tell a loaded
+ * entry from one of the solution's own by. A plain record's names none.
+ *
  * @example
  * ```ts
  * import { East, IntegerType, NullType } from "@elaraai/east";
@@ -507,5 +521,7 @@ export function bindRecord(record: RecordDef<EastType>, names?: readonly string[
     // manifest derivation (`derive.ts`) handles. `record.name` is a static JS
     // string at IR-build time, so this holds by construction.
     const nameValue = East.value(record.name, StringType);
-    return recordBindPlatformFn([handleType], nameValue);
+    // The record's sources are a literal too, from its declaration: what `deriveUiAccess` reads back.
+    const sourcesValue = East.value(bindingSources(record), RecordBindingSourcesType);
+    return recordBindPlatformFn([handleType], nameValue, sourcesValue);
 }

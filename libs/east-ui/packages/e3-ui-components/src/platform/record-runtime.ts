@@ -63,7 +63,9 @@ import {
     type ValueTypeOf,
 } from "@elaraai/east";
 import { type PlatformFunction } from "@elaraai/east/internal";
-import { recordBindPlatformFn, RecordBindPrimitives, type FuncDraftType, type RecordErrorType, type RecordOutcomeType } from "@elaraai/e3-ui/internal";
+import {
+    recordBindPlatformFn, RecordBindPrimitives, type FuncDraftType, type RecordBindingSourcesType, type RecordErrorType, type RecordOutcomeType,
+} from "@elaraai/e3-ui/internal";
 import {
     workspaceRecordDescribe,
     workspaceRecordMutate,
@@ -333,8 +335,9 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
     // The method IR is a pure function of the record name and the mutations the
     // handle binds (two binds of one record may bind different ones), and the
     // methods resolve cache/api/ws LIVE, so a cached handle still re-binds.
-    // Cleared on clear().
-    private readonly handleCache = new Map<string, Record<string, unknown>>();
+    // A handle's binding is no part of it: each bind is given its own, with
+    // the sources that bind names. Cleared on clear().
+    private readonly handleCache = new Map<string, { readonly methods: Record<string, unknown>; readonly mutations: readonly string[] }>();
 
     // By channel, the workspace's polls as they stood when the record's last
     // committed write was answered (the cache's `pollMark`) — kept only for a
@@ -789,16 +792,31 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
      * is a thin IR-bearing `East.function` over {@link buildPrimitives}, capturing
      * only the record name (+ per-mutation name), so the handle is ordinary
      * serializable East data (issue #106).
+     *
+     * @param handleType - The handle's type, as the binding instantiates it
+     * @param name - The record's name
+     * @param sources - The record's sources as the binding names them
+     *   (east-workspace#1465): a composite record's, each with whether its load
+     *   alone writes its entries, and none for a plain record — what the
+     *   handle's `binding` carries
+     * @returns The handle: the cached methods, and a binding of its own
      */
-    buildHandle(handleType: EastTypeValue, name: string): Record<string, unknown> {
+    buildHandle(handleType: EastTypeValue, name: string, sources: ValueTypeOf<RecordBindingSourcesType>): Record<string, unknown> {
         // Compiled-handle cache (issue #106 perf): the name and the handle's own
         // mutations fix its signature, so the method IRs (incl. nested mutate.*)
         // are identical across renders; methods resolve cache/api/ws live.
         const fields = (handleType as { value: { name: string; type: EastTypeValue }[] }).value;
         const key = [name, ...fields.flatMap(f => f.name === "mutate" || f.name === "commit" || f.name === "draft"
             ? [f.name, ...(f.type.value as { name: string }[]).map(m => m.name)] : [])].join("\u0000");
+        // Each bind is given a binding of its own, as a function's is: page code may change the Arrays it holds,
+        // and the sources are the bind's, never those of whichever bind filled the cache.
+        const bindingOf = (mutations: readonly string[]) => ({
+            name,
+            mutations: [...mutations],
+            sources: sources.map((source) => ({ name: source.name, external: source.external })),
+        });
         const cached = this.handleCache.get(key);
-        if (cached) return cached;
+        if (cached) return { ...cached.methods, binding: bindingOf(cached.mutations) };
 
         const sig = signatureOfRecordHandleType(handleType);
         const stateTypeEast = fromEastTypeValue(sig.stateType);
@@ -854,7 +872,7 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
             }
         }
 
-        const handle: Record<string, unknown> = {
+        const methods: Record<string, unknown> = {
             read: East.compile(East.function([], stateTypeEast, ($) => { $.return(P.read([stateTypeEast], nameExpr)); }), platform),
             status: East.compile(East.function([], statusRet, ($) => { $.return(P.status(nameExpr)); }), platform),
             history: East.compile(East.function([], historyRet, ($) => { $.return(P.history(nameExpr)); }), platform),
@@ -862,10 +880,10 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
             ...(cfields !== undefined && { commit }),
             ...(dfields !== undefined && { draft }),
             start: East.compile(East.function([], NullType, ($) => { $.return(P.start(nameExpr)); }), platform),
-            binding: { name, mutations: [...sig.mutations.keys()] },
         };
-        this.handleCache.set(key, handle);
-        return handle;
+        const mutations = [...sig.mutations.keys()];
+        this.handleCache.set(key, { methods, mutations });
+        return { ...methods, binding: bindingOf(mutations) };
     }
 
     // ----- platform building -------------------------------------------------
@@ -875,7 +893,7 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
      *  manifest scoping. */
     buildPlatform(allowed: ReadonlySet<string> | null): PlatformFunction {
         return recordBindPlatformFn.implement((handleType: EastTypeValue) =>
-            (nameArg: unknown) => {
+            (nameArg: unknown, sourcesArg: unknown) => {
                 const name = nameArg as string;
                 if (allowed && !allowed.has(name)) {
                     throw new Error(
@@ -883,7 +901,7 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
                         `bind it in the task body so derivation records it`,
                     );
                 }
-                return this.buildHandle(handleType, name);
+                return this.buildHandle(handleType, name, sourcesArg as ValueTypeOf<RecordBindingSourcesType>);
             },
         );
     }

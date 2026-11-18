@@ -26,7 +26,7 @@ import { after, afterEach, before, beforeEach } from "node:test";
 import { toEastTypeValue, type EastType, type option, type StructType, type ValueTypeOf } from "@elaraai/east";
 import type { PlatformFunction } from "@elaraai/east/internal";
 import { workspaceCopy, type RecordHistoryResult, type RequestOptions } from "@elaraai/e3-api-client";
-import { deriveManifest, type DataManifest } from "@elaraai/e3-ui/internal";
+import { bindingSources, deriveManifest, type DataManifest } from "@elaraai/e3-ui/internal";
 import {
     patchRecord, readDataset, recordHistory, runDataflow, settleE3, startTestE3, workspaceRequests, writeDataset,
     type E3Dataset, type E3Hold, type E3Record, type E3Request, type TestE3,
@@ -171,7 +171,8 @@ export interface E3Spec {
     /**
      * A record bound through a record runtime over e3 in the test's workspace:
      * its writes through e3's record API, its reads through a cache of its own
-     * ({@link cache}).
+     * ({@link cache}). The handle's binding names the record's sources, as
+     * `Record.bind` reads them from the record's declaration.
      *
      * @param record - The record
      * @param handleType - The handle's type, as `RecordBindHandleType` gives it
@@ -180,7 +181,7 @@ export interface E3Spec {
      *   nothing of it is loaded: a read of it whole throws.
      * @returns The cache, the runtime and the handle
      */
-    bindRecord(record: { readonly name: string; readonly path: E3Dataset["path"] }, handleType: StructType,
+    bindRecord(record: { readonly name: string; readonly path: E3Dataset["path"] } & Parameters<typeof bindingSources>[0], handleType: StructType,
         options?: { readonly whole?: boolean }): Promise<E3BoundRecord>;
     /**
      * The platform a UI task's East function runs on over e3, as its preview
@@ -306,7 +307,7 @@ export function e3Spec(modules: Readonly<Record<string, Readonly<Record<string, 
             }
             const runtime = new RecordRuntime();
             runtime.initialize(createDefaultRecordApi(e3().apiUrl, e3().repo, () => e3().options), held.cache, workspace());
-            return { ...held, runtime, handle: runtime.buildHandle(toEastTypeValue(handleType), record.name) };
+            return { ...held, runtime, handle: runtime.buildHandle(toEastTypeValue(handleType), record.name, bindingSources(record)) };
         },
         async platform(program, options = {}) {
             const at = options.workspace ?? workspace();

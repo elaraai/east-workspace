@@ -375,7 +375,7 @@ const jobSheets = East.compile(East.function([], JobSheets, ($) => {
                 ({ record: "sheet_draft_jobs", mutation: "patch", args: [East.Blob.encodeBeast(patch, "v2")] })),
         },
         start: East.function([], NullType, (_$2) => null),
-        binding: { name: "sheet_draft_jobs", mutations: ["patch"] },
+        binding: { name: "sheet_draft_jobs", mutations: ["patch"], sources: [] },
     }, RecordBindHandleType(textJobs, { patch: [PatchType(textJobs)] }));
     const rows = recordRows(record);
     const jobs = $.const(BY_TEXT, textJobs);
@@ -418,7 +418,7 @@ const weekSheets = East.compile(East.function([], WeekSheets, ($) => {
                 ({ record: "sheet_draft_weeks", mutation: "patch", args: [East.Blob.encodeBeast(patch, "v2")] })),
         },
         start: East.function([], NullType, (_$2) => null),
-        binding: { name: "sheet_draft_weeks", mutations: ["patch"] },
+        binding: { name: "sheet_draft_weeks", mutations: ["patch"], sources: [] },
     }, RecordBindHandleType(DraftWeeks, { patch: [PatchType(DraftWeeks)] }));
     const rows = recordRows(record, { entry: { key: "2026-W42", rows: "rows", id: "id" } });
     const held = $.const(W42_ROWS, ArrayType(DraftRow));

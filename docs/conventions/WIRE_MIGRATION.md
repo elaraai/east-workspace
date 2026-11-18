@@ -1620,3 +1620,21 @@ Each wire changed under this rule, with the kind it is.
   a migration drop it with the delivery's other slots. The ref's version
   vector keeps its type, and a commit that owns none of a source's slots
   carries each as it is, so no repository upgrade step ships.
+- **e3-ui's bound record names its record's sources (#1465)** —
+  package-borne. `Record.bind`'s platform function (`record_bind`) takes a
+  second argument, after the record's name: the record's sources, an Array of
+  `{ name, external }` (`RecordBindingSourcesType`) — a composite record's, in
+  the order of its key's cases, each with whether its load alone writes its
+  entries, and empty for a plain record. The handle's `binding`
+  (`RecordBindingType`) gains `sources`, after `mutations`, which holds them:
+  what a Save and a builder tell a loaded entry from one of the solution's own
+  by. A program that binds a record holds the bind's call and the handle's
+  type in its IR: one an earlier SDK exported passes `record_bind` the name
+  alone, and is refused as it is checked, naming the count (`Platform function
+  'record_bind' expects 2 arguments but got 1`) — re-export its package. A
+  host that reads what a UI writes and calls before deploying it
+  (`deriveUiAccess`) refuses such a UI too, saying to export its package
+  again. What it answers, `UiAccessType`, gains `sources` on each of its
+  `records`, after `indexes`: the sources the UI's bindings name. It is
+  derived from the IR each time it is asked and no store keeps one, and a UI
+  task's output is not stored state, so no repository upgrade step ships.

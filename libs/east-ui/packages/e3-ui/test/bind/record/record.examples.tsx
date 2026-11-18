@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/e3-ui */
-import { ArrayType, BooleanType, DictType, East, IntegerType, NullType, StringType, StructType, example } from "@elaraai/east";
+import { ArrayType, BooleanType, DictType, East, IntegerType, NullType, PatchType, StringType, StructType, example } from "@elaraai/east";
 import { Box, Button, Editing, HStack, Reactive, Stat, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Data, Func, Record, Sheet } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
@@ -187,6 +187,46 @@ export const recordSheetApply = example({
                         onApply={Record.onApply(record)}
                     />
                 </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+// A composite record (east-workspace#1465): the ERP's orders, which its load
+// alone writes, beside the planner's own, which the record's mutations write.
+// Its key is a variant, a case a source: `.erp "SO-1001"`, `.own "N-1"`.
+export const OrderType = StructType({ customer: StringType, status: StringType });
+export const ErpOrdersType = DictType(StringType, OrderType);
+export const orders = e3.recordComposite("orders", OrderType, {
+    sources: (source) => ({
+        // The ERP delivers its whole order book: the load answers the patch that makes the source's entries it.
+        erp: source.load(StringType, ErpOrdersType, East.function([ErpOrdersType, ErpOrdersType], PatchType(ErpOrdersType),
+            (_$, delivery, current) => East.diff(current, delivery))),
+        own: source.mutations(StringType),
+    }),
+    initial: { own: new Map() },
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+
+export const recordBindComposite = example({
+    keywords: ["Record", "bind", "recordComposite", "composite", "sources", "external", "load", "binding", "ERP", "system of record"],
+    description: "Bind a composite record — one record over an external system's entries, which its load alone writes, and the solution's own — as any record is bound: the binding names each source and whether it is external, so a view tells a loaded entry from one saved here",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const r = $.let(Record.bind(orders));
+            // Each source is a case of the record's key; an external one's entries are its load's, and no Save writes them.
+            const whose = $.let(r.binding.sources.map((_$, source) => source.external.ifElse(
+                (_$) => East.str`${source.name}: loaded`,
+                (_$) => East.str`${source.name}: saved here`,
+            )).stringJoin(" · "));
+            return (
+                <VStack gap="3" align="stretch">
+                    <Stat label="Orders" value={East.print(r.read().size())} />
+                    <Text.MonoLabel>{whose}</Text.MonoLabel>
+                </VStack>
             );
         }}</Reactive>
     )),

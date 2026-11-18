@@ -79,15 +79,15 @@ function draftDoors(type: EastType, record: string): Record<string, unknown> {
 }
 
 /**
- * `Record.bind`: the handle its type declares, its descriptor naming the record and the mutations it commits through,
- * and its drafts made ({@link draftDoors}).
+ * `Record.bind`: the handle its type declares, its descriptor naming the record, the mutations it commits through and
+ * the sources the binding was built with, and its drafts made ({@link draftDoors}).
  */
-const records = recordBindPlatformFn.implement((handleType: EastTypeValue) => (nameArg: unknown) => {
+const records = recordBindPlatformFn.implement((handleType: EastTypeValue) => (nameArg: unknown, sources: unknown) => {
     const name = nameArg as string;
     const type = fromEastTypeValue(handleType);
     const commits = type.type === "Struct" ? type.fields["commit"] : undefined;
     const mutations = commits?.type === "Struct" ? Object.keys(commits.fields) : [];
-    return { ...refusingFields(type, `Record.bind("${name}")`), draft: draftDoors(type, name), binding: { name, mutations } };
+    return { ...refusingFields(type, `Record.bind("${name}")`), draft: draftDoors(type, name), binding: { name, mutations, sources } };
 });
 
 /** `Data.bind`: the handle, its descriptor the dataset's paths and the mode. */

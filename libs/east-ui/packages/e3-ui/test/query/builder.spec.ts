@@ -129,7 +129,7 @@ const boundRegions = East.function([], RegionsHandleType, (_$) => ({
         patch: East.function([PatchType(RegionsType)], FuncDraftType, (_$2, patch) => ({ record: "regions", mutation: "patch", args: [East.Blob.encodeBeast(patch, "v2")] })),
     },
     start: East.function([], NullType, (_$2) => null),
-    binding: { name: "regions", mutations: ["patch"] },
+    binding: { name: "regions", mutations: ["patch"], sources: [] },
 }));
 
 /** The saved queries record, bound, as a value. */
