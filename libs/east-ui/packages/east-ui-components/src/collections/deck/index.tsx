@@ -37,7 +37,7 @@ import { usePersistedState } from "../../hooks/usePersistedState";
 import { keptRead } from "../../platform/kept.js";
 import { useHoverCapable } from "../../contracts/adaptive.js";
 import { parseCssSize } from "../../style/parse-size.js";
-import { tickFormatter } from "../../charts/spec/index.js";
+import { tickFormatter } from "../../charts/spec/tick-format.js";
 import { useFormatters, type Formatters } from "../../format/index.js";
 import { SliceRailCluster } from "../../slice/rail";
 import { railAffordanceKinds } from "../../slice/rail-kinds.js";

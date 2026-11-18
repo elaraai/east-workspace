@@ -27,7 +27,8 @@ export {
 export { debugFlag } from "./platform/debug-flag.js";
 // Formatting: a tick's spec and printers, a date pattern's printer and reader,
 // the theme's colour lookup, and a density's row heights.
-export { formatDatePattern, parseDatePattern, tickFormatter, type TickFormat } from "./charts/spec/index.js";
+export { formatDatePattern, parseDatePattern, tickFormatter } from "./charts/spec/tick-format.js";
+export type { TickFormat } from "./charts/spec/context.js";
 export { resolveColor, useDensityHeights } from "./collections/shared/helpers.js";
 // The review chrome's foot, its toolbar item, and the decision column's width.
 export {

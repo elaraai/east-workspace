@@ -1,0 +1,211 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ */
+
+/**
+ * What a chart frame shares with its marks: the spec's decoded types, the
+ * key a typed x coordinate is matched by, the chrome resolved from the
+ * theme, and the scales and inner size a `frame` derives from its data and
+ * provides to its descendants (`ScaleContext`). The renderer's marks, axes
+ * and frame read these; nothing here draws.
+ *
+ * @packageDocumentation
+ */
+
+import { createContext, useContext } from "react";
+import { DateTimeType, FloatType, match, parseFor, printFor, type ValueTypeOf } from "@elaraai/east";
+import { Chart } from "@elaraai/east-ui/internal";
+import type { scaleLinear } from "@visx/scale";
+import type { AxisScale } from "@visx/axis";
+import { getSomeorUndefined } from "../../utils";
+
+export const T = Chart.Spec.Types;
+export type Spec = ValueTypeOf<typeof T.Spec>;
+export type Curve = ValueTypeOf<typeof T.Curve>;
+export type Anchor = ValueTypeOf<typeof T.Anchor>;
+export type Point = ValueTypeOf<typeof T.Point>;
+export type Series = ValueTypeOf<typeof T.Series>;
+export type BandSeries = ValueTypeOf<typeof T.BandSeries>;
+export type XCoord = ValueTypeOf<typeof T.XCoord>;
+export type TickFormat = ValueTypeOf<typeof T.TickFormat>;
+export type Domain = ValueTypeOf<typeof T.Domain>;
+export type Axis = ValueTypeOf<typeof T.Axis>;
+export type SeriesMark = ValueTypeOf<typeof T.SeriesMark>;
+export type Margin = { top: number; right: number; bottom: number; left: number };
+export type ScaleKind = "band" | "linear" | "time";
+
+/**
+ * A mark of a chart that was clicked (#1671, CHT-8): what the click stands for.
+ *
+ * @remarks
+ * - A bar, a point, an area's band or a line's point: its series and its x.
+ * - Elsewhere in the plot at an x: that x, and no series — every series there.
+ * - A legend row: its series, and no x.
+ * - A pie's slice or its legend row: the slice's key as a category x, and no
+ *   series; Other's says `other`, and has no x.
+ */
+export interface ChartMark {
+    /** The series the mark is of, by its key; `undefined` for an x of every series, and for a pie's slice. */
+    readonly series: string | undefined;
+    /** The x the mark is at, as the chart holds it; `undefined` for a legend row's series and for a pie's Other. */
+    readonly x: XCoord | undefined;
+    /** Whether it is a pie's Other: every slice past the first ones. */
+    readonly other: boolean;
+}
+
+/** What a chart tells its host when a mark is clicked. */
+export type ChartMarkHandler = (mark: ChartMark) => void;
+
+const printNumberKey = printFor(FloatType);
+const printInstantKey = printFor(DateTimeType);
+const readNumberKey = parseFor(FloatType);
+const readInstantKey = parseFor(DateTimeType);
+
+/**
+ * A stable string key for a typed x coordinate — the band category as-is, a
+ * number or an instant as East prints it: the spelling the Chart factory
+ * gives a `rule`'s `at` (`East.print`), so a rule lands on its coordinate.
+ * Used for the band domain and hover matching, and read back with East's
+ * parser for the `time` / `linear` scales ({@link numberOfKey},
+ * {@link instantOfKey}).
+ */
+export const xKeyOf = (x: XCoord): string => match(x, {
+    category: s => s,
+    number: n => printNumberKey(n),
+    time: d => printInstantKey(d),
+});
+
+/** The number a `linear` key names, as East reads a printed Float — `NaN`
+ *  for a key that is no Float. */
+export function numberOfKey(key: string): number {
+    const read = readNumberKey(key);
+    return read.success ? read.value : NaN;
+}
+
+/** The instant a `time` key names, as East reads a printed DateTime — an
+ *  invalid Date for a key that is no DateTime. */
+export function instantOfKey(key: string): Date {
+    const read = readInstantKey(key);
+    return read.success ? read.value : new Date(NaN);
+}
+
+/** A whole-layer style read off a `series` node and threaded to its marks. */
+export interface LayerStyle {
+    curve: Curve | undefined;
+    strokeWidth: number | undefined;
+    dashArray: string | undefined;
+    dots: boolean | undefined;
+    fillOpacity: number | undefined;
+    radius: number | undefined;
+    opacity: number | undefined;
+}
+
+/**
+ * Resolved chart chrome, drawn from the design tokens via Chakra's own resolver
+ * (`system.token`) so the chart re-themes. `color` resolves a data-driven series
+ * token the same way. Threaded to every mark via {@link ScaleContext}.
+ */
+export interface ChartStyle {
+    /** Mono font stack for axis ticks + text labels. */
+    font: string;
+    /** Tick / text label size (CSS length). */
+    labelSize: string;
+    /** Tick / text label colour. */
+    labelColor: string;
+    /** Axis baseline + tick stroke. */
+    axisStroke: string;
+    /** Gridline stroke. */
+    gridStroke: string;
+    /** Default line / area stroke width. */
+    lineWidth: number;
+    /** Default filled-area opacity. */
+    areaOpacity: number;
+    /** Point-marker fill (the surface, so the line reads through). */
+    pointFill: string;
+    /** Point-marker stroke width. */
+    pointStrokeWidth: number;
+    /** Radius of the dot markers on a line series. */
+    dotRadius: number;
+    /** Radius of a scatter-series marker (slightly larger, filled). */
+    scatterRadius: number;
+    /** Bar corner radius. */
+    barRadius: number;
+    /** Emphasis colour for annotation marks (reference dot / labels). */
+    accent: string;
+    /** Stacking tier for the hover tooltip's portal — the design system's `zIndex.tooltip`
+     *  token (top of the overlay stack), so the tooltip sits above sticky chart-chrome
+     *  (Plan / Table sticky headers), drawers, dialogs and popovers rather than under them. */
+    tooltipZIndex: number;
+    /** Resolve a data-driven token (e.g. a series colour) to a CSS value. */
+    color: (token: string) => string;
+    /** Resolve a theme font-family tag (`sans` / `serif` / `mono`) to its stack (#315). */
+    fontFor: (tag: string) => string;
+    /** Default axis-TITLE font stack — the sans/UI font (titles read better than the mono tick chrome; #327). */
+    titleFont: string;
+    /** Default axis-TITLE colour — full-contrast `fg.default` (not the muted tick colour). */
+    titleColor: string;
+}
+
+/** A numeric `[min, max]` from a {@link Domain} (time arm via epoch ms). */
+export function domainBounds(d: Domain): [number, number] {
+    return match(d, {
+        number: ({ min, max }) => [min, max] as [number, number],
+        time: ({ min, max }) => [min.getTime(), max.getTime()] as [number, number],
+    });
+}
+
+/** Which y-axis a layer binds to (default left). */
+export function sideOf(sm: SeriesMark): "left" | "right" {
+    const s = getSomeorUndefined(sm.axis);
+    return s ? match(s, { left: () => "left" as const, right: () => "right" as const }) : "left";
+}
+
+/** A measure scale: values to screen y, or to screen x in a horizontal frame. */
+export type YScale = ReturnType<typeof scaleLinear<number>>;
+
+// Shared scales + inner dims + resolved chrome, provided by the `frame` to its
+// descendants. The x-scale is band / time / linear (per the frame's `xScale`);
+// marks stay scale-agnostic via `cx` (centre-x for a point); `y2` is the optional
+// right scale for dual-axis layers. A horizontal frame (#249) swaps the roles:
+// the band domain runs along y and the numeric measure along x.
+interface ScaleCtx {
+    cx: (p: Point) => number;
+    /** Position of a domain key along its axis — screen x normally, screen **y**
+     *  in a horizontal frame (used by bars / rules / bands / hover). */
+    cxKey: (key: string) => number;
+    bandWidth: number;
+    xAxisScale: AxisScale;
+    /** The left-axis scale — the measure `y` scale normally; the band domain
+     *  scale in a horizontal frame (#249). */
+    yAxisScale: AxisScale;
+    /** Tick values to pin a continuous x axis to the data points (band: undefined). */
+    xTickValues: Array<number | Date> | undefined;
+    xKind: ScaleKind;
+    /** Horizontal frame (#249): the frame's `yScale` is `band` — bars grow
+     *  along x, `cxKey` gives a domain key's centre y, and `y` is the measure
+     *  scale mapping values to screen **x**. */
+    horizontal: boolean;
+    y: ReturnType<typeof scaleLinear<number>>;
+    y2: ReturnType<typeof scaleLinear<number>> | undefined;
+    /** Map a per-point scatter `size` value to a marker radius (area-proportional). */
+    sizeR: ((v: number) => number) | undefined;
+    innerW: number;
+    innerH: number;
+    margin: Margin;
+    /** x of the rotated y-axis title — pinned to its NATURAL margin (just past the
+     *  tick labels), not the gutter-widened `margin.left`, so a shared plotGutter
+     *  doesn't fling the title to the far left away from the axis (#147). */
+    yTitleX: number;
+    /** x of the rotated y2-axis title — natural right margin (mirror of yTitleX). */
+    y2TitleX: number;
+    style: ChartStyle;
+}
+export const ScaleContext = createContext<ScaleCtx | null>(null);
+export const useScales = (): ScaleCtx => {
+    const c = useContext(ScaleContext);
+    if (!c) throw new Error("ChartSpec mark rendered outside a frame");
+    return c;
+};
+/** Centre-x accessor for a point (band centre / time / linear position). */
+export const useCx = () => useScales().cx;

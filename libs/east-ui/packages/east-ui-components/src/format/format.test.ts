@@ -17,7 +17,7 @@ import { DateTimeType, East, FloatType, equalFor, printFor, type ExprType } from
 import { Chart, Format } from "@elaraai/east-ui";
 import { formatters, formatPattern, parsePattern, tickFormatOf, type TickFormatOpt, type ValueFormat } from "./index.js";
 import { formatTick } from "../typography/numeric/format-tick.js";
-import { tickFormatter } from "../charts/spec/index.js";
+import { tickFormatter } from "../charts/spec/tick-format.js";
 
 type Tick = Exclude<TickFormatOpt, undefined>;
 
