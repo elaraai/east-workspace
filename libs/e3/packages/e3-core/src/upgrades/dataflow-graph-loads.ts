@@ -21,7 +21,7 @@
  * @packageDocumentation
  */
 
-import { ArrayType, OptionType, StringType, StructType, encodeBeast2For, none, toEastTypeValue, type ValueTypeOf } from '@elaraai/east';
+import { ArrayType, OptionType, StringType, StructType, encodeBeast2For, none, some, toEastTypeValue, type ValueTypeOf } from '@elaraai/east';
 import type { RepositoryUpgrade } from '../storage/interfaces.js';
 import { DataflowStateWithForceTasksType } from './dataflow-force-tasks.js';
 import { isStoredForm, storedFormReader } from './forms.js';
@@ -68,9 +68,9 @@ const beforeGraphLoads = storedFormReader(DataflowStateWithForceTasksType);
 /** A run of the form before this upgrade, in the form it writes: each node of
  *  its graph loading nothing. */
 function withGraphLoads(state: StateBeforeGraphLoads): StateWithGraphLoads {
-  const graph = state.graph.type === 'some'
-    ? { ...state.graph, value: { tasks: state.graph.value.tasks.map((task) => ({ ...task, load: none })) } }
-    : state.graph;
+  const graph: StateWithGraphLoads['graph'] = state.graph.type === 'some'
+    ? some({ tasks: state.graph.value.tasks.map((task) => ({ ...task, load: none })) })
+    : none;
   return { ...state, graph };
 }
 
