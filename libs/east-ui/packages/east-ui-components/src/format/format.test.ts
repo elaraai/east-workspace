@@ -277,6 +277,18 @@ describe("the edges", () => {
         // Beside a number under ten thousand, as it is.
         expect(en.short(10.76, 11.42)).toBe("10.76");
         expect(en.short(120, 1284)).toBe("120");
+        // Past the other's magnitude it keeps the scale, with no digit groups: it is short already.
+        expect(en.short(1_210_000, 612_000)).toBe("1210k");
+    });
+
+    test("a trimmed short number leaves off the zeros that end its decimals, as an axis's ticks read", () => {
+        const en = formatters("en-US");
+        expect([0, 25_000, 50_000].map((n) => en.short(n, 50_000, true))).toEqual(["0", "25k", "50k"]);
+        expect([1_250_000, 2_500_000].map((n) => en.short(n, 2_500_000, true))).toEqual(["1.25M", "2.5M"]);
+        expect([60_000, 90_000, 120_000].map((n) => en.short(n, 120_000, true))).toEqual(["60k", "90k", "120k"]);
+        // Untrimmed, a value keeps its three significant digits.
+        expect([en.short(25_000), en.short(2_500_000)]).toEqual(["25.0k", "2.50M"]);
+        expect(formatters("de-DE").short(2_500_000, 2_500_000, true)).toBe("2,5\u00a0Mio.");
     });
 
     test("a short number is the locale's: its separators, its words for a magnitude and its own magnitudes", () => {

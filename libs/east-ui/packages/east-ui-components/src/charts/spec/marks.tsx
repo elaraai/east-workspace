@@ -279,7 +279,7 @@ export function RuleMark({ value }: { value: ValueTypeOf<typeof T.Rule> }): Reac
                 <text
                     x={across ? RULE_LABEL_INSET : pos + RULE_LABEL_INSET} y={across ? pos - RULE_LABEL_INSET : RULE_LABEL_INSET}
                     textAnchor="start" {...(across ? {} : { dominantBaseline: "hanging" })} data-chart-rule-label=""
-                    style={{ fontFamily: style.font, fontSize: RULE_LABEL_SIZE, fontWeight: 600, fill: stroke }}
+                    style={{ fontFamily: style.font, fontSize: RULE_LABEL_SIZE, fontWeight: 600, fill: stroke, fontVariantNumeric: "tabular-nums" }}
                 >{label}</text>
             )}
         </>
@@ -289,7 +289,8 @@ export function TextMark({ value }: { value: ValueTypeOf<typeof T.Text> }): Reac
     const cx = useCx(); const { y, cxKey, horizontal, style } = useScales();
     const fill = getSomeorUndefined(value.fill);
     const anchor = anchorFor(getSomeorUndefined(value.anchor));
-    const css = { fontFamily: style.font, fontSize: getSomeorUndefined(value.fontSize) !== undefined ? `${getSomeorUndefined(value.fontSize)}px` : style.labelSize, fill: fill ? style.color(fill) : style.labelColor };
+    // Every numeral of a chart is tabular (the chart rules).
+    const css = { fontFamily: style.font, fontSize: getSomeorUndefined(value.fontSize) !== undefined ? `${getSomeorUndefined(value.fontSize)}px` : style.labelSize, fill: fill ? style.color(fill) : style.labelColor, fontVariantNumeric: "tabular-nums" as const };
     const weight = getSomeorUndefined(value.fontWeight) ?? 500;
     if (horizontal) {
         // #249 — a point's value runs along x and its coordinate is the y

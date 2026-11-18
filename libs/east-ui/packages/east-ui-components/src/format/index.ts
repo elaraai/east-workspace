@@ -86,10 +86,13 @@ export interface Formatters {
      *
      * @param n - The number
      * @param of - A number it is read beside — a goal beside its gap, a total beside its share — whose magnitude and
-     *   decimals it then takes, so the two share a scale: `0.66M` beside `4.50M`. Itself when omitted
+     *   decimals it then takes, so the two share a scale: `0.66M` beside `4.50M`, `1210k` beside `612k`. Itself when
+     *   omitted
+     * @param trim - Whether zeros that end its decimals are left off, as an axis's ticks read: `25k`, `2.5M`, never
+     *   `25.0k`
      * @returns The text; a zero is `0` at any scale
      */
-    short(n: number, of?: number): string;
+    short(n: number, of?: number, trim?: boolean): string;
     /** A bare chart tick — a whole number, else one decimal, never grouped:
      *  `1200`, `2.5` (`2,5` in `de-DE`); a negative zero prints `0`. */
     tick(n: number): string;
@@ -376,7 +379,7 @@ function build(locale: string): Formatters {
         float: (n) => printFloat(n).replace(".", decimal),
         percent: (fraction) => pct.format(fraction),
         compact: (n) => compact.format(n),
-        short(n, of = n) {
+        short(n, of = n, trim = false) {
             const size = Math.abs(of);
             if (n === 0 || !Number.isFinite(n) || !(size >= 10_000) || !Number.isFinite(size)) return amount.format(n === 0 ? 0 : n);
             // The magnitude `of` prints at: the number it shows against the number it is — a power of ten, and the
@@ -386,7 +389,11 @@ function build(locale: string): Formatters {
             const fraction = digitsOf("fraction");
             const shown = Number(`${digitsOf("integer")}.${fraction === "" ? "0" : fraction}`);
             const exponent = Math.round(Math.log10(size / shown));
-            const scaled = numberFormat({ minimumFractionDigits: fraction.length, maximumFractionDigits: fraction.length }).format(n / 10 ** exponent);
+            // At a magnitude the number is short already: no digit groups, so `1210k` beside `612k`. At none — a locale
+            // with no word for a thousand — it is the number, grouped.
+            const scaled = numberFormat({
+                minimumFractionDigits: trim ? 0 : fraction.length, maximumFractionDigits: fraction.length, useGrouping: exponent === 0,
+            }).format(n / 10 ** exponent);
             const parts = short.formatToParts(size);
             const digits = parts.map(isDigits);
             return about(parts.slice(0, digits.indexOf(true))) + scaled + about(parts.slice(digits.lastIndexOf(true) + 1));

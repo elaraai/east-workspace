@@ -27,7 +27,7 @@ const HEAD_ROOM = 34;
 export const studioVisualSlotRecipe = defineSlotRecipe({
     className: "elara-studio-visual",
     slots: [
-        "tile", "head", "name", "end", "meta", "body", "root", "note", "table", "foot",
+        "tile", "head", "name", "end", "meta", "body", "root", "caption", "note", "table", "foot",
         "kpi", "kpiRow", "kpiValue", "kpiNumber", "kpiUnit", "kpiChange", "absent", "goal", "goalTick", "trend", "anno",
         "heat", "heatRamp", "heatSwatch", "heatTicks",
         "list", "listRow", "listLine", "listText", "listName", "listCaption", "listValue", "listUnit", "listBar", "listBarFill",
@@ -60,6 +60,9 @@ export const studioVisualSlotRecipe = defineSlotRecipe({
         },
         /* A visual's body: its part, then its note. */
         root: { display: "flex", flexDirection: "column", gap: "{spacing.2}", minWidth: "0", minHeight: "0", height: "100%" },
+        /* A line over a chart's plot that says what its axes are, where a legend would sit: mono 10.5 / 500 `--ink-4` on
+           the legend's 13px line, 12 over the plot with the body's gap. */
+        caption: { fontFamily: "mono", fontSize: "label.md", fontWeight: "500", lineHeight: "13px", color: "fg.subtle", flexShrink: "0", marginBottom: "{spacing.1}" },
         /* What it holds of how many — `Showing 500 of 1,240 groups`. */
         note: { textStyle: "mono.xs", color: "fg.muted", flexShrink: "0" },
         /* A table, taking the room its foot leaves; a wide one scrolls inside it (TBL-5). */

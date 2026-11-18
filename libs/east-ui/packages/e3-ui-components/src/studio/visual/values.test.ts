@@ -18,7 +18,8 @@ import { Studio } from "@elaraai/e3-ui";
 import { formatters } from "@elaraai/east-ui-components";
 import { LISTED_ORDERS, answered } from "../../query/visual/visual.test-utils.js";
 import { studioMessages } from "../messages.js";
-import { CHANGE_FORMAT, changeOf, fieldLabel, goalOf, kpiModel, shortValue, unitLabel, valueFormat, valueName, visualName, type KpiView } from "./values.js";
+import { variant } from "@elaraai/east";
+import { CHANGE_FORMAT, changeOf, fieldLabel, goalOf, kpiModel, shortNumber, shortValue, unitLabel, valueFormat, valueName, visualName, type KpiView } from "./values.js";
 
 const v = Studio.visual;
 const m = studioMessages;
@@ -63,11 +64,23 @@ describe("a value's number in short, and its unit (KPI-1)", () => {
 
     it("prints a number at three significant digits of its magnitude with no sign of its currency, beside another at that one's scale", () => {
         const revenue = v.sum("revenue");
-        expect([3_840_000, 612_000, 1284, 11.42].map((n) => shortValue(n, revenue, LISTED_ORDERS, words))).toEqual(["3.84M", "612k", "1,284", "11.42"]);
+        // A currency's amount under ten thousand keeps its cents.
+        expect([3_840_000, 612_000, 1284, 11.42].map((n) => shortValue(n, revenue, LISTED_ORDERS, words))).toEqual(["3.84M", "612k", "1,284.00", "11.42"]);
+        expect(shortValue(1284, v.sum("units"), LISTED_ORDERS, words)).toBe("1,284");
         // A gap beside its goal.
         expect(shortValue(660_000, revenue, LISTED_ORDERS, words, 4_500_000)).toBe("0.66M");
         // A count is plain.
         expect(shortValue(1000, v.count(), LISTED_ORDERS, words)).toBe("1,000");
+    });
+
+    it("trims a tick: no zeros end its decimals, a currency's cents among them; a share is as its format prints it", () => {
+        const aud = variant("currency", { code: "AUD", compact: false });
+        expect([0, 2000, 4000].map((n) => shortNumber(n, aud, words, 4000, true))).toEqual(["0", "2,000", "4,000"]);
+        expect([10, 11.5, 13].map((n) => shortNumber(n, aud, words, 13, true))).toEqual(["10", "11.5", "13"]);
+        expect([0, 250_000, 500_000].map((n) => shortNumber(n, aud, words, 500_000, true))).toEqual(["0", "250k", "500k"]);
+        expect([0, 0.5, 1].map((n) => shortNumber(n, variant("percent", null), words, 1, true))).toEqual(["0%", "50%", "100%"]);
+        // With no declared format, a number as it is.
+        expect(shortNumber(1284, undefined, words)).toBe("1,284");
     });
 });
 
@@ -139,24 +152,24 @@ describe("kpiModel", () => {
         const { asks, answers } = await answered(content);
         const model = kpiModel(kpiOf(content), asks, answers, LISTED_ORDERS, m, words);
         // The quarter's 270 against a year before's 50; the quarter's trend a week a point.
-        expect([model.value, model.text, model.unit, model.change]).toEqual([270, "270", "AUD", { change: { delta: 220, share: 4.4, tone: "positive" }, text: "+440%" }]);
+        expect([model.value, model.text, model.unit, model.change]).toEqual([270, "270.00", "AUD", { change: { delta: 220, share: 4.4, tone: "positive" }, text: "+440%" }]);
         expect(model.trend).toEqual([100, 50, 70, 30, 20]);
         expect(model.goal).toEqual({ goal: 300, share: 0.9, gap: 30, over: false });
         // One line: what the change is against, then the goal and the gap — no sign of the currency, which the unit says.
-        expect(model.annotation).toBe("vs year ago 50 · by week · 90% of goal 300 · 30 to go");
+        expect(model.annotation).toBe("vs year ago 50.00 · by week · 90% of goal 300.00 · 30.00 to go");
     });
 
     it("says a value past its goal by how far past, and its share of the goal past 100%", async () => {
         const content = v.of("orders", v.kpi({ value: v.sum("revenue", { goal: 200 }) }));
         const { asks, answers } = await answered(content);
-        expect(kpiModel(kpiOf(content), asks, answers, LISTED_ORDERS, m, words).annotation).toBe("135% of goal 200 · 70 over");
+        expect(kpiModel(kpiOf(content), asks, answers, LISTED_ORDERS, m, words).annotation).toBe("135% of goal 200.00 · 70.00 over");
     });
 
     it("colours the change of a value that is better lower as a fall being good, and says so", async () => {
         const content = v.of("orders", v.kpi({ value: v.sum("revenue", { better: "lower" }), compare: v.sum("revenue", { period: "year_ago" }) }));
         const { asks, answers } = await answered(content);
         const model = kpiModel(kpiOf(content), asks, answers, LISTED_ORDERS, m, words);
-        expect([model.change?.change.tone, model.annotation]).toEqual(["negative", "vs year ago 50 · lower is better"]);
+        expect([model.change?.change.tone, model.annotation]).toEqual(["negative", "vs year ago 50.00 · lower is better"]);
     });
 
     it("says a count's change as a number of it, never a share", async () => {
