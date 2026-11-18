@@ -109,33 +109,26 @@ test("the history item sits at the row's end, and folds to the buttons alone onl
     }
 });
 
-test("the item is measured again when its status line, its issues or its error change", () => {
+test("the item is measured again when its status line or its issues change", () => {
     const session = editSession();
     const version = () => historyToolbarItem({ session, words: WORDS, editing: false, onAction: noop, onIssue: noop }).version;
     const idle = version();
     session.status = "applying";
     const applying = version();
     expect(applying).not.toBe(idle);
-    session.error = "Refused by the host";
-    expect(version()).not.toBe(applying);
 });
 
-test("a host that shows the session's error in its banners takes the line from under the buttons (#1184)", () => {
+test("the session's error is its banners' (#1184): the item draws no line of it in the toolbar, and its width does not move with it", () => {
     row.px = 510;
     const session = editSession();
     session.error = "Refused by the host";
-    const item = (showError?: boolean) => historyToolbarItem({
-        session, words: WORDS, editing: false, onAction: noop, onIssue: noop, ...(showError === undefined ? {} : { showError }),
-    });
-    const kept = render(<ChakraProvider value={system}><Toolbar items={[item()]} /></ChakraProvider>);
-    expect(kept.container.querySelector('[role="alert"]')?.textContent).toBe("Refused by the host");
-    cleanup();
-    const left = render(<ChakraProvider value={system}><Toolbar items={[item(false)]} /></ChakraProvider>);
-    expect(left.container.querySelector('[role="alert"]')).toBeNull();
-    // Its width no longer moves with the error: another error measures nothing again.
-    const before = item(false).version;
+    const item = () => historyToolbarItem({ session, words: WORDS, editing: false, onAction: noop, onIssue: noop });
+    const { container } = render(<ChakraProvider value={system}><Toolbar items={[item()]} /></ChakraProvider>);
+    expect([container.querySelector('[role="alert"]'), container.textContent!.includes("Refused by the host")]).toEqual([null, false]);
+    // Another error measures nothing again.
+    const before = item().version;
     session.error = "Another refusal";
-    expect(item(false).version).toBe(before);
+    expect(item().version).toBe(before);
 });
 
 test("an entry beside the issues that holds no Save is counted as a warning, its words saying so, and a press goes to it (#1585)", () => {
