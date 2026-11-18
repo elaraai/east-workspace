@@ -17,7 +17,7 @@
  */
 
 import { none, some, variant } from '@elaraai/east';
-import type { InputPlan, RecordIndexPlan, RecordLoadProgress, RecordPlan } from '@elaraai/e3-types';
+import type { InputPlan, RecordIndexPlan, RecordLoadProgress, RecordLoadResult, RecordPlan } from '@elaraai/e3-types';
 
 import { ExportStoppedError, RecordLoadStoppedError } from '../errors.js';
 import { recordLoad } from '../record-load.js';
@@ -30,6 +30,7 @@ import type { RunningExecution, TaskRunner } from '../execution/interfaces.js';
 import { splitCallExplain, splitCallReference, splitCallRun, type SplitCallTask } from '../execution/splitCall.js';
 import { openZip, zipSinkOf, zipSourceOf, type ZipReader, type ZipSource } from '../zip.js';
 import type { PackageExportStore, PackageImportStore, RecordLoadStore, RepoGcStore, SplitCallStore, WorkspaceDeployStore } from './interfaces.js';
+import { heldProgress } from './job-progress.js';
 import type { PackageZipCheckpoint } from './types.js';
 
 // =============================================================================
@@ -703,16 +704,17 @@ export const LOAD_CANCEL_POLL_MS = 1_000;
  * Gets the job, loads its delivery into its record's source (`recordLoad`),
  * and records what the load did, or why it did not. A client polling the job
  * reads how far it has got: each step as it happens, its pieces at most every
- * {@link LOAD_PIECES_INTERVAL_MS}, and the last count of them before the step
- * after.
+ * {@link LOAD_PIECES_INTERVAL_MS}, the newest count no later than that after
+ * it came, and the last count of them before the step after.
  *
  * Only the job writes its end. A cancel records a request on the job's
  * record, which the job reads every {@link LOAD_CANCEL_POLL_MS} as it runs; a
  * progress write the store refuses, the job having ended, says the same. The
  * load then stops: stopped before its commit wrote, the job ends `cancelled`,
  * and its finished pieces stay cached; once its commit has written, the load
- * has landed, and the job ends `completed`. A job asked to cancel before it
- * starts loads nothing.
+ * has landed, and the job ends `completed`, never `failed`: a store that
+ * fails the write of that end is asked again until it takes it. A job asked
+ * to cancel before it starts loads nothing, and ends `cancelled`.
  *
  * @param deps - Storage backend, record load store, the runner the load runs
  *   on, and the caller's signal
@@ -759,37 +761,33 @@ export async function handleProcessRecordLoad(
       // A progress write that fails leaves the last one standing.
     });
   };
-  // Pieces settle many times a second: the last count is held back, and
+  // Pieces settle many times a second: the newest count is held back, and
   // written once the interval has passed, or before the step after
-  let piecesAt = 0;
-  let heldPieces: RecordLoadProgress | null = null;
+  const pieces = heldProgress(write, LOAD_PIECES_INTERVAL_MS);
   const report = (progress: RecordLoadProgress): void => {
     if (progress.type === 'pieces') {
-      const now = Date.now();
-      if (now - piecesAt < LOAD_PIECES_INTERVAL_MS) {
-        heldPieces = progress;
-        return;
-      }
-      piecesAt = now;
-    } else if (heldPieces !== null) {
-      write(heldPieces);
+      pieces.hold(progress);
+      return;
     }
-    heldPieces = null;
+    pieces.flush();
     write(progress);
   };
+  let result: RecordLoadResult;
   try {
-    const result = await recordLoad(storage, runner, repo, record.workspace, record.record, record.source, record.delivery, {
-      actor: record.actor,
-      ...(record.asOf.type === 'some' && { asOf: record.asOf.value }),
-      signal: jobSignal,
-      onProgress: report,
-    });
-    await writes;
-    // Its commit has written, when it made one: the load has landed, whatever
-    // was asked since
-    await recordLoadStore.updateStatus(id, variant('completed', result));
+    try {
+      result = await recordLoad(storage, runner, repo, record.workspace, record.record, record.source, record.delivery, {
+        actor: record.actor,
+        ...(record.asOf.type === 'some' && { asOf: record.asOf.value }),
+        signal: jobSignal,
+        onProgress: report,
+      });
+    } finally {
+      // The load has settled: no count is written after its end
+      pieces.stop();
+      clearInterval(watch);
+      await writes;
+    }
   } catch (err) {
-    await writes;
     // Stopped before its commit wrote, at a request to cancel it
     if (err instanceof RecordLoadStoppedError && asked.signal.aborted) {
       await recordLoadStore.updateStatus(id, variant('cancelled', null));
@@ -800,7 +798,31 @@ export async function handleProcessRecordLoad(
     const message = err instanceof Error ? err.message : String(err);
     await recordLoadStore.updateStatus(id, variant('failed', { message }));
     throw err;
-  } finally {
-    clearInterval(watch);
+  }
+  // Its commit has written, when it made one: the load has landed, whatever
+  // was asked since, and whatever the store says of the write of its end
+  await landedWritten(recordLoadStore, id, result, signal);
+}
+
+/**
+ * Writes the end of a load that has landed: `completed`, and nothing else.
+ *
+ * @remarks
+ * The record holds the delivery once the load's commit has written, so no
+ * failure after it is the load's: a store that fails the write of the job's
+ * end is asked again, each {@link LOAD_CANCEL_POLL_MS}, until it takes it. A
+ * job its caller stops meanwhile is handed over as it stands, `processing`:
+ * the call that runs it again is answered `again` by the record, and writes
+ * its end.
+ */
+async function landedWritten(store: RecordLoadStore, id: string, result: RecordLoadResult, signal: AbortSignal | undefined): Promise<void> {
+  for (;;) {
+    try {
+      await store.updateStatus(id, variant('completed', result));
+      return;
+    } catch (err) {
+      if (signal?.aborted === true) throw err;
+      await new Promise<void>((resolve) => { setTimeout(resolve, LOAD_CANCEL_POLL_MS); });
+    }
   }
 }

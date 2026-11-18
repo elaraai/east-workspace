@@ -466,6 +466,9 @@ export async function recordLoad(
   const stopIfAsked = (): void => {
     if (signal?.aborted === true) throw new RecordLoadStoppedError(name);
   };
+  // A load asked to stop before it starts reads nothing: it is stopped, and
+  // not failed for a delivery or a source it never looked at
+  stopIfAsked();
   return withRunningWork(storage, repo, async () => {
     await reference(storage, repo, delivery);
     const began = await sourceToLoad(storage, repo, ws, record, source);

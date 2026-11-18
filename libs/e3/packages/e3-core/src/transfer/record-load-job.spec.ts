@@ -180,6 +180,37 @@ describe('a load run as a job on the in-memory transfer backend', () => {
     assert.equal((await history(ws))[0]![0], '$load:erp');
   });
 
+  it('R85 — a job asked to cancel before it starts ends cancelled, though its delivery was never uploaded: it reads nothing', async () => {
+    const ws = await fresh();
+    const backend = backendOn(runner);
+    const id = uuidv7();
+    const job: RecordLoadJob = {
+      repo: repoDir, workspace: ws, record: 'orders', source: 'erp', delivery: 'd'.repeat(64), actor: 'ada@example.com', asOf: none,
+      cancel: some(asked), status: variant('processing', none), createdAt: new Date(),
+    };
+    await backend.recordLoad.create(id, job);
+    await backend.recordLoad.execute(id, repoDir);
+    assert.equal((await ended(backend, id)).status.type, 'cancelled', 'not failed for a delivery it never looked for');
+  });
+
+  it('a job whose commit has written ends completed though its store fails the write of its end: the end is written again, and the job never ends failed', async () => {
+    const ws = await fresh();
+    const backend = backendOn(runner);
+    const update = backend.recordLoad.updateStatus.bind(backend.recordLoad);
+    const written: string[] = [];
+    let ends = 0;
+    backend.recordLoad.updateStatus = async (id, status) => {
+      if (status.type === 'completed' && ends++ === 0) throw new Error('the store is throttling');
+      written.push(status.type);
+      return update(id, status);
+    };
+
+    const job = await ended(backend, await launch(backend, ws, await storage.objects.write(repoDir, delivery([['SO-0801', acme]]))));
+    assert.equal(job.status.type, 'completed');
+    assert.deepEqual([ends, written.includes('failed')], [2, false], 'its end was written again, and it was never written failed');
+    assert.equal((await history(ws))[0]![0], '$load:erp', 'the record holds the delivery');
+  });
+
   it('R21 — a file uploaded as an object, writing no ref, is loaded by its hash', async () => {
     const ws = await fresh();
     const backend = backendOn(runner);
