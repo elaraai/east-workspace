@@ -702,6 +702,7 @@ export {
   stepTasksDue,
   stepTaskDueAgain,
   stepTaskCommits,
+  deferralPath,
   type StepInitializeOptions,
 } from './dataflow/steps.js';
 

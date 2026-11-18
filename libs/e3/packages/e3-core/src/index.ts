@@ -526,6 +526,7 @@ export {
   stepTasksDue,
   stepTaskDueAgain,
   stepTaskCommits,
+  deferralPath,
   type StepInitializeOptions,
   // State store
   type ExecutionStateStore,

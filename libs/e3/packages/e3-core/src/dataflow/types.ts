@@ -170,7 +170,7 @@ export type DeferReason =
  */
 export type TaskCommits =
   | { kind: 'commits'; versions: Map<string, string> }
-  | { kind: 'deferred'; reason: DeferReason; conflictPath: string };
+  | { kind: 'deferred'; reason: DeferReason };
 
 /**
  * What stepPrepareTask answers for a task that cannot run yet: an input of it

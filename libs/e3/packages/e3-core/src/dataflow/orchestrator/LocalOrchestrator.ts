@@ -83,6 +83,7 @@ import {
   stepTasksDue,
   stepTaskDueAgain,
   stepTaskCommits,
+  deferralPath,
   stepGetRunSet,
   stepTaskForced,
   waitingTasks,
@@ -1721,7 +1722,8 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     const ts = state.tasks.get(taskName) as Mutable<TaskState> | undefined;
     if (ts) ts.status = 'deferred';
 
-    const told = `${at.reason.kind}:${at.conflictPath}`;
+    const path = deferralPath(at.reason);
+    const told = `${at.reason.kind}:${path}`;
     if (execution.deferredFor.get(taskName) === told) return;
     execution.deferredFor.set(taskName, told);
 
@@ -1733,7 +1735,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       seq: mutableState.eventSeq,
       timestamp: new Date(),
       task: taskName,
-      conflictPath: at.conflictPath,
+      conflictPath: path,
     });
     (mutableState.events as ExecutionEvent[]).push(deferEvent);
 

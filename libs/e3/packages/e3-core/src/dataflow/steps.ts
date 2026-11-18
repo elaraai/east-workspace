@@ -52,6 +52,7 @@ import {
 import type { DataflowGraph } from '../dataflow.js';
 import type {
   DataflowExecutionState,
+  DeferReason,
   TaskState,
   InitializeResult,
   PrepareTaskBehind,
@@ -569,7 +570,6 @@ export async function stepTaskCommits(
         const through = [...new Set(names.map((each) => each.through))];
         return {
           kind: 'deferred',
-          conflictPath: root,
           reason: { kind: 'plain', input: root, through: [...through.filter((each) => sameInput(each, root)), ...through.filter((each) => !sameInput(each, root))] },
         };
       }
@@ -578,6 +578,23 @@ export async function stepTaskCommits(
     versions.set(root, version);
   }
   return { kind: 'commits', versions };
+}
+
+/**
+ * The input a deferral names: what the run's `task_deferred` event records as
+ * its conflict path, and what, with the reason's kind, tells one deferral of
+ * a task from another.
+ *
+ * @param reason - Why the task is deferred
+ * @returns The input's keypath
+ *
+ * @example
+ * ```ts
+ * deferralPath({ kind: 'plain', input: '.inputs.rates', through: ['forecast', 'capacity'] }); // '.inputs.rates'
+ * ```
+ */
+export function deferralPath(reason: DeferReason): string {
+  return reason.input;
 }
 
 /**

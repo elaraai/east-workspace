@@ -20,6 +20,7 @@ import {
   stepTasksDue,
   stepTaskDueAgain,
   stepTaskCommits,
+  deferralPath,
   stepGetReady,
   stepDetectInputChanges,
   stepYield,
@@ -868,12 +869,16 @@ describe('stepTaskCommits', () => {
   it('defers a task whose inputs read a plain input at two values, naming the input and the inputs that read it, a direct read first', async () => {
     const state = run({ orders: 'c1', rates: 'r1' }, { orders: 'c1', rates: 'r2' });
     assert.deepStrictEqual(await stepTaskCommits(storage, state, 'plan'), {
-      kind: 'deferred', conflictPath: '.rates', reason: { kind: 'plain', input: '.rates', through: ['x', 'y'] },
+      kind: 'deferred', reason: { kind: 'plain', input: '.rates', through: ['x', 'y'] },
     });
     // `direct` reads the input itself, at r2, and x's result, made from r1
     assert.deepStrictEqual(await stepTaskCommits(storage, state, 'direct'), {
-      kind: 'deferred', conflictPath: '.rates', reason: { kind: 'plain', input: '.rates', through: ['.rates', 'x'] },
+      kind: 'deferred', reason: { kind: 'plain', input: '.rates', through: ['.rates', 'x'] },
     });
+  });
+
+  it('names the input a deferral is for, which its event records', () => {
+    assert.strictEqual(deferralPath({ kind: 'plain', input: '.rates', through: ['x', 'y'] }), '.rates');
   });
 
   it('throws for a task the graph lacks, and is the step every entry exports', async () => {
