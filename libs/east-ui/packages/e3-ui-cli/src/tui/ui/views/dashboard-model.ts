@@ -38,7 +38,7 @@ import {
     datasetStatusCell, eventCell, intakeCell, loadStatusCell, recordDeployCell, splitPlace, statusText, taskStatusCell, unitPlace, waitCell,
     type StatusCell,
 } from '../../model/status.js';
-import { runProgress } from '../../data/dataflow.js';
+import { isRunLive, runProgress } from '../../data/dataflow.js';
 import { recordEntries } from '../../data/records.js';
 import { b, blank, d, lineWidth, lrLine, t, type Line, type RenderCtx } from '../lines.js';
 import { centredBlock, sectionLine, tableLine, tablePlan, type TableRow } from '../shell/widgets.js';
@@ -284,11 +284,6 @@ export function latestPerTask(events: readonly DataflowEvent[]): DataflowEvent[]
         latest.set(task, event);
     }
     return order.map(task => latest.get(task)!);
-}
-
-/** Whether an execution is live (running, launched and not yet seen running, or being stopped). */
-function isLive(execution: ExecutionData | undefined): boolean {
-    return execution !== undefined && (execution.state?.status.type === 'running' || execution.settling || execution.stopping);
 }
 
 /** Whether an event's row opens the task's logs. */
@@ -558,7 +553,7 @@ function buildModel(state: TuiState, ws: string, dctx: DashboardCtx, key: Dashbo
     const entries = datasetEntries(state, ws);
     const latestEvents = latestPerTask(execution?.events ?? []);
     const latest = new Map(latestEvents.map(e => [e.value.task, e] as const));
-    const live = isLive(execution);
+    const live = isRunLive(state, ws);
     const { done, total: steps, loads } = runProgress(state, ws);
     // The loads a run steps through beside the tasks
     const loadNodes = (key.graph?.tasks ?? []).filter(node => node.load.type === 'some');
