@@ -17,7 +17,7 @@ import { gunzipSync } from 'node:zlib';
 import { Readable } from 'node:stream';
 import { extract as tarExtract } from 'tar-stream';
 import { BlobType, decodeBeast2For, isTypeValueEqual, readBeast2Type, toEastTypeValue } from '@elaraai/east';
-import { pythonLeftOut, readRequiredDistribution } from '@elaraai/e3';
+import { canonicalPythonName, pythonLeftOut, pythonLockSettings, readRequiredDistribution } from '@elaraai/e3';
 import type { EnvironmentSpec } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/index.js';
 import { pythonMinor, type TierManifest } from '../tier-manifest.js';
@@ -161,6 +161,65 @@ async function writePythonProject(
   await writeBlob(storage, repo, spec.value.lock, path.join(buildDir, 'uv.lock'));
 }
 
+/**
+ * Whether a python environment's lock explains every incompatibility a failed
+ * `uv pip check` of it found: each a distribution installed at another
+ * version than a package depending on it asks, which the lock's workspace
+ * overrides, or one not installed, which it excludes or overrides away
+ * ({@link pythonLockSettings}).
+ *
+ * @remarks
+ * The check reads each installed distribution's own requirements, and knows
+ * nothing of the settings the lock was resolved under: under an override of
+ * `shap>=0.51.0`, econml's `shap<0.49.0` fails it, though the sync installed
+ * the shap the lock holds. An override may also install nothing of a name
+ * (`nvidia-nccl-cu12 ; sys_platform == 'never'`, the idiom from before
+ * excludes). Any other incompatibility is the build's fault, a local package
+ * the capture missed among them, and so is a line of any other kind, and a
+ * count of incompatibilities that its lines do not make up.
+ *
+ * Every backend that builds an environment from its spec checks it with
+ * this, so a lock's settings pass alike wherever it is built; e3-core's spec
+ * runs the real `uv pip check`, so a uv that words its account otherwise
+ * fails there first.
+ *
+ * @param said - What the failed check said, its error output among it
+ * @param settings - The distributions the lock's workspace overrides and
+ *   excludes, by PEP 503 name
+ * @returns Whether the lock explains them all
+ * @example
+ * lockExplainsCheck('Found 1 incompatibility\nThe package `econml` requires `shap<0.49.0`, but `0.52.0` is installed',
+ *   { overrides: ['shap'], excludes: [] }); // true
+ */
+export function lockExplainsCheck(said: string, settings: { readonly overrides: readonly string[]; readonly excludes: readonly string[] }): boolean {
+  const lines = said.split(/\r?\n/);
+  const counts = lines.map((line) => /^Found (\d+) incompatibilit(?:y|ies)$/.exec(line)).filter((count): count is RegExpExecArray => count !== null);
+  const found = lines.filter((line) => line.startsWith('The package `'));
+  if (counts.length !== 1 || found.length === 0 || found.length !== Number(counts[0]![1])) return false;
+  return found.every((line) => {
+    const read = /^The package `[^`]+` requires `([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)[^`]*`, but (?:(`[^`]+` is installed)|it's not installed)$/.exec(line);
+    if (read === null) return false;
+    const name = canonicalPythonName(read[1]!);
+    // Another version installed: an override's. None installed: an exclude's, or an override's that installs none.
+    return settings.overrides.includes(name) || (read[2] === undefined && settings.excludes.includes(name));
+  });
+}
+
+/**
+ * Checks that what a python environment installed is whole, with `uv pip
+ * check`: a failure its lock explains ({@link lockExplainsCheck}) is the
+ * resolution its workspace asked for, and passes; any other fails the build.
+ */
+async function checkPython(buildDir: string, venv: string, settings: ProcessSettings, platform?: TargetPlatform): Promise<void> {
+  try {
+    await run('uv', ['pip', 'check', '--python', venv, ...(platform === undefined ? [] : ['--python-platform', platform.name])], buildDir,
+      'environment consistency check', settings);
+  } catch (err) {
+    const said = err instanceof Error ? err.message : String(err);
+    if (!lockExplainsCheck(said, pythonLockSettings(await fs.readFile(path.join(buildDir, 'uv.lock'), 'utf-8')))) throw err;
+  }
+}
+
 /** Writes a python environment's captured sdists under the build directory's
  *  `.sdists`, and answers their paths. */
 async function writeSdists(
@@ -295,7 +354,8 @@ export async function sharedInstall(key: string, buildDir: string, settings: Pro
  * it and from where the lock pins it — an explicit index of the workspace's
  * among them — and none of the local packages they depend on is taken from a
  * registry; then the project's own packages, from their sdists; and a check
- * that what is installed is whole.
+ * that what is installed is whole, which what the lock's workspace overrides
+ * or excludes passes ({@link lockExplainsCheck}).
  *
  * @param platform - The platform it is installed for, when not this machine's
  * @param python - The Python its virtualenv is of, as `3.11`: a tier's; uv's
@@ -348,7 +408,8 @@ async function installPython(
     // package (a stale-code hazard). `uv pip check` then verifies the
     // environment is internally consistent and fails loudly otherwise, so
     // an incomplete capture is a materialization error, never a silent
-    // wrong-code env.
+    // wrong-code env; what the lock's workspace overrides or excludes is
+    // the resolution it asked for (checkPython).
     if (platform === undefined) {
       await run('uv', ['pip', 'install', '--python', venv, '--no-deps', ...sdists], buildDir, 'project sdist install', settings);
     } else {
@@ -378,8 +439,7 @@ async function installPython(
   // For another platform, checked while the virtualenv's interpreter is still
   // this machine's, which uv asks what it is; and, over a tier, while it
   // still holds everything it runs with.
-  await run('uv', ['pip', 'check', '--python', venv, ...(platform === undefined ? [] : ['--python-platform', platform.name])], buildDir,
-    'environment consistency check', settings);
+  await checkPython(buildDir, venv, settings, platform);
   return project;
 }
 

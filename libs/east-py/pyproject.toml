@@ -2,7 +2,7 @@
 name = "east-py-monorepo"
 version = "0.1.0"
 description = "East programming language Python implementations"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = { file = "LICENSE.md" }
 
 [tool.uv.workspace]
@@ -26,7 +26,7 @@ dev = [
 ]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 warn_return_any = false
 warn_unused_configs = true
 disallow_untyped_defs = false
@@ -92,7 +92,7 @@ ignore_missing_imports = true
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = [
@@ -114,4 +114,9 @@ ignore = [
     "N802",   # Function name should be lowercase (Type constructors use PascalCase)
     "N812",   # Lowercase imported as non-lowercase (F for torch.nn.functional is standard)
     "B904",   # raise ... from err (would require many manual fixes)
+    # PEP 695's syntax (`type X = …`, `class C[T]`, `def f[T]`) makes other
+    # runtime objects than the aliases and generics the code builds and reads
+    "UP040",
+    "UP046",
+    "UP047",
 ]

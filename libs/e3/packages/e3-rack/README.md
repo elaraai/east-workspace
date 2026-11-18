@@ -302,9 +302,9 @@ The layers are kept under the repository's `rack/env-layers`, and `e3 repo gc`
 removes those of an environment nothing uses any more.
 
 A rack whose agent composes environments **over its tier** needs far less of a
-python environment. Its tier's image already holds an interpreter and, for the
-datascience tier, torch and its CUDA libraries, and its agent reports what the
-image holds. This machine then builds the environment over that image: without
+python environment. Its tier's image already holds an interpreter, Python
+3.12, and, for the datascience tier, torch and its CUDA libraries, and its
+agent reports what the image holds. This machine then builds the environment over that image: without
 an interpreter, and without each distribution the image holds the same, by its
 name, its version and the files it installed. It says so as it builds:
 
@@ -323,6 +323,22 @@ name, its version and the files it installed. It says so as it builds:
 
 Every distribution is still downloaded here once, into uv's cache: that is
 how one is told to be the image's. It is neither packed nor sent.
+
+**For torch to stay in the tier, ask for it through the datascience package's
+extras.** A member that lists `elaraai-east-py-datascience[torch,lightning]`,
+and no torch of its own, locks the torch from PyPI that its release was tested
+with, which that release's `py-datascience` image holds. A member that lists
+`torch` itself locks the newest, and is sent it. So is one that takes torch
+from a PyTorch index: its `+cpu` or `+cu130` build meets the extras' pin, since
+a pin with no local label is met by every local label, and is not the image's.
+What nothing pins is still sent when it has moved since the release: numpy and
+other small packages. A project holds those to the tier with the pins of the
+release's `east-py-constraints.txt` (in `@elaraai/e3-core`'s `tier/`), under
+`[tool.uv] constraint-dependencies` in its workspace root, each written
+`name==version ; marker`: the pin and its marker, and none of the line's
+trailing `\`, `--hash` lines or `# via` notes. Every pin of a name goes in,
+each with its marker, or one platform is held at another's version; the
+datascience package's README shows the form.
 
 A task whose environment cannot go to a rack runs here, and says why on its
 `[LOCAL]` line; a build's own message is in the task's log (`e3 task logs`).

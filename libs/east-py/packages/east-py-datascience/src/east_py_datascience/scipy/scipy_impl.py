@@ -578,14 +578,14 @@ def scipy_interpolate_1d_fit(
         NotImplementedError: the ``scipy`` extra is not installed.
     """
     _check_scipy_support()
-    from scipy import interpolate
+    from scipy.interpolate import interp1d
 
     x_np = x.to_numpy()
     y_np = y.to_numpy()
 
     kind = option_tag(config["kind"], "linear")
 
-    interp = interpolate.interp1d(x_np, y_np, kind=kind, fill_value="extrapolate")
+    interp = interp1d(x_np, y_np, kind=kind, fill_value="extrapolate")
 
     return EastVariant(
         "scipy_interp_1d",

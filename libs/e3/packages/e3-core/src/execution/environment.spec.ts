@@ -8,7 +8,7 @@ import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { encodeBeast2For, variant, some, none } from '@elaraai/east';
 import {
   TASK_OBJECT_KIND, TaskObjectType, decodeTaskObject,
@@ -24,7 +24,8 @@ import { uvOnPath } from '../test-helpers.js';
 import {
   decodeEnvironmentFile, environmentFitsTier, installShell, materializeEnvironment, materializeEnvironmentFor, nodeLockFilename,
 } from './environment.js';
-import { encodeFile, memberWorkspace, pythonProject, storedSdist, type CapturedSdist } from './environment.test-utils.js';
+import { lockExplainsCheck } from './environment-build.js';
+import { encodeFile, memberWorkspace, pythonProject, storedSdist, writeWheel, type CapturedSdist } from './environment.test-utils.js';
 
 // An environment installed for another platform, or over a tier: environment-target.spec.ts
 
@@ -59,6 +60,43 @@ describe('the files an environment names', () => {
       fs.rmSync(shims, { recursive: true, force: true });
       fs.rmSync(executables, { recursive: true, force: true });
     }
+  });
+});
+
+describe('the check of what a python environment installed', () => {
+  // A failed `uv pip check`, as uv 0.11 writes it: the two incompatibilities a
+  // workspace's settings make
+  const said = [
+    'Checked 4 packages in 0.21ms',
+    'Found 2 incompatibilities',
+    'The package `capper` requires `shared-lib<2`, but `2.0` is installed',
+    'The package `needer` requires `left-lib ; sys_platform == \'linux\'`, but it\'s not installed',
+  ].join('\n');
+  const settled = { overrides: ['shared-lib'], excludes: ['left-lib'] };
+
+  it('passes a failure whose every incompatibility the lock\'s workspace asked for: a version it overrides, and a distribution it excludes', () => {
+    assert.strictEqual(lockExplainsCheck(said, settled), true);
+    assert.strictEqual(lockExplainsCheck(`environment materialization: environment consistency check ('uv pip check --python .venv') failed:\n${said}\n`, settled), true,
+      'as the build\'s error carries what uv said');
+    assert.strictEqual(lockExplainsCheck(said.replace('`shared-lib<2`', '`Shared_Lib<2`'), settled), true, 'by the requirement\'s PEP 503 name');
+    // An override that installs nothing of a name, the idiom from before excludes:
+    // `left-lib ; sys_platform == 'never'`
+    assert.strictEqual(lockExplainsCheck(said, { overrides: ['left-lib', 'shared-lib'], excludes: [] }), true, 'an override that installs none of it');
+  });
+
+  it('fails one the settings do not name, a setting of the other kind, a count its lines do not make up, a line of another kind, and what is no account of incompatibilities', () => {
+    for (const [settings, why] of [
+      [{ overrides: ['shared-lib'], excludes: [] }, 'an exclude the lock does not name'],
+      [{ overrides: [], excludes: ['left-lib'] }, 'an override the lock does not name'],
+      [{ overrides: ['left-lib'], excludes: ['shared-lib'] }, 'an exclude explains no other version installed'],
+    ] as const) {
+      assert.strictEqual(lockExplainsCheck(said, settings), false, why);
+    }
+    const every = { overrides: ['left-lib', 'shared-lib', 'x'], excludes: ['left-lib', 'shared-lib', 'x'] };
+    assert.strictEqual(lockExplainsCheck(said.replace('Found 2', 'Found 3'), every), false, 'a count its lines do not make up');
+    assert.strictEqual(lockExplainsCheck(`${said.replace('Found 2', 'Found 3')}\nThe package \`x\` has multiple installed distributions:`, every), false,
+      'a line of another kind');
+    assert.strictEqual(lockExplainsCheck('spawn uv ENOENT', every), false, 'no account of incompatibilities');
   });
 });
 
@@ -489,6 +527,62 @@ describe('materializeEnvironment', () => {
         const out = execFileSync(path.join(bin!, process.platform === 'win32' ? 'python.exe' : 'python'),
           ['-c', 'import regpkg, helper, pricing; print(regpkg.MARKER, helper.MARKER, pricing.MARKER)'], { encoding: 'utf-8' });
         assert.deepStrictEqual(out.trim().split(' '), ['regpkg-of-the-index', 'helper-of-the-workspace', 'pricing-of-the-workspace']);
+      } finally {
+        fs.rmSync(ws, { recursive: true, force: true });
+      }
+    });
+
+  it('builds an environment whose workspace overrides a version and excludes a distribution, which uv pip check reads each distribution\'s own requirements against, and still fails one whose capture missed a local package',
+    { skip: hasUv ? false : 'uv not on PATH' }, async () => {
+      const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-py-settings-'));
+      try {
+        // An index of the test's own: e3capper asks for e3shared below 2,
+        // which the workspace overrides, and e3needer for e3left, which it
+        // excludes
+        const index = path.join(ws, 'index');
+        fs.mkdirSync(index);
+        writeWheel(index, 'e3capper', '1.0', 'py3-none-any', ['e3shared<2']);
+        writeWheel(index, 'e3shared', '1.0', 'py3-none-any');
+        writeWheel(index, 'e3shared', '2.0', 'py3-none-any');
+        writeWheel(index, 'e3needer', '1.0', 'py3-none-any', ['e3left']);
+        writeWheel(index, 'e3left', '1.0', 'py3-none-any');
+        const root = path.join(ws, 'root');
+        pythonProject(path.join(root, 'packages', 'helper'), 'helper', [], 'helper-of-the-workspace');
+        pythonProject(path.join(root, 'packages', 'app'), 'app', ['e3capper', 'e3needer', 'helper'], 'app-of-the-workspace',
+          '\n[tool.uv.sources]\nhelper = { workspace = true }\n');
+        fs.writeFileSync(path.join(root, 'pyproject.toml'),
+          '[project]\nname = "ws-root"\nversion = "0.1.0"\nrequires-python = ">=3.11"\ndependencies = ["app"]\n\n' +
+          '[tool.uv]\noverride-dependencies = ["e3shared>=2"]\nexclude-dependencies = ["e3left"]\n\n' +
+          '[tool.uv.workspace]\nmembers = ["packages/*"]\n\n' +
+          `[[tool.uv.index]]\nname = "local"\nurl = ${JSON.stringify(index)}\nformat = "flat"\n\n` +
+          '[tool.uv.sources]\napp = { workspace = true }\n');
+        execFileSync('uv', ['lock'], { cwd: root, stdio: 'ignore' });
+        const sdistOf = (name: string): Promise<CapturedSdist> => storedSdist(path.join(root, 'packages', name), path.join(ws, 'dist', name), write);
+        const environment = async (sdists: CapturedSdist[]): Promise<string> => storage.objects.write(repo, encodeBeast2For(EnvironmentSpecType)(variant('workspace_python', {
+          pyproject: await write(fs.readFileSync(path.join(root, 'pyproject.toml'))), lock: await write(fs.readFileSync(path.join(root, 'uv.lock'))),
+          subjects: ['app'], sdists, requires: [],
+        })));
+        const [helper, app] = [await sdistOf('helper'), await sdistOf('app')];
+
+        const [bin] = await materializeEnvironment(storage, repo, await environment([helper, app]));
+        const python = path.join(bin!, process.platform === 'win32' ? 'python.exe' : 'python');
+        const out = execFileSync(python, ['-c', [
+          'import importlib.util as u, app, helper, e3capper, e3needer',
+          'from importlib.metadata import version',
+          'print(app.MARKER, helper.MARKER, version("e3shared"), u.find_spec("e3left") is None)',
+        ].join('\n')], { encoding: 'utf-8' });
+        assert.deepStrictEqual(out.trim().split(' '), ['app-of-the-workspace', 'helper-of-the-workspace', '2.0', 'True'],
+          'the version the workspace overrode, and nothing of what it excluded');
+        // Which uv's own check of it does not pass
+        const checked = spawnSync('uv', ['pip', 'check', '--python', python], { encoding: 'utf-8' });
+        assert.notStrictEqual(checked.status, 0);
+        assert.match(checked.stderr, /^Found 2 incompatibilities$/m);
+
+        // A capture that missed the member's local package fails as before, beside what the workspace asked for
+        const missed = await environment([app]);
+        await assert.rejects(materializeEnvironment(storage, repo, missed),
+          /environment consistency check \('uv pip check[^']*'\) failed:[\s\S]*The package `app` requires `helper`, but it's not installed/);
+        assert.ok(!fs.existsSync(path.join(repo, 'envs', missed)), 'nothing was built');
       } finally {
         fs.rmSync(ws, { recursive: true, force: true });
       }

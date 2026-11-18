@@ -170,7 +170,7 @@ Pre-built Docker images provide a consistent execution environment without needi
 | Image | License | Contents |
 |-------|---------|----------|
 | `ghcr.io/elaraai/east-node` | AGPL-3.0 | Node.js 22 + East + east-node-std/io + east-ui |
-| `ghcr.io/elaraai/e3` | BSL + AGPL | Everything in east-node + Python 3.11 + east-py + east-c + e3 |
+| `ghcr.io/elaraai/e3` | BSL + AGPL | Everything in east-node + Python 3.12 + east-py + east-c + e3 |
 
 ### Usage
 

@@ -239,6 +239,14 @@ Rules:
   config)`.
 - Optional dependencies gate at call time: a function raises
   `NotImplementedError` naming the missing extra (`east-py-datascience[causal]`).
+- **Ask for torch through the extras**
+  (`elaraai-east-py-datascience[torch,lightning]`), and list no `torch` of the
+  project's own: the extras pin the torch the release was tested with, which
+  its rack tier image holds, so a task on a rack is not sent torch. That holds
+  for torch from PyPI: a pin with no local label is met by a PyTorch index's
+  `+cpu` or `+cu130` build too, which is not the image's, and is sent.
+- **Python 3.12 or later**, and xgboost 3.4 or later beside torch: an earlier
+  xgboost brings another NCCL library over torch's, and `import torch` fails.
 
 For the East-value API (eager methods, `coerce_to`, `to_numpy` / `to_torch`,
 `@East.platform_function`), load the **east-py** skill.

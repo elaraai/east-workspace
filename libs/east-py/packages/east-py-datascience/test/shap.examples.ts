@@ -75,7 +75,8 @@ export const shapTreeExplainerCategorical = example({
             [7.0, 8.0, 0.0],
             [8.0, 9.0, 1.0],
         ]));
-        const y_train = $.let(East.Vector.fromArray([3.0, 5.0, 7.0, 9.0, 11.0, 13.0, 15.0, 17.0]));
+        // Machine type 1 adds 6, so the trees split on the categorical feature
+        const y_train = $.let(East.Vector.fromArray([3.0, 11.0, 7.0, 9.0, 17.0, 13.0, 15.0, 23.0]));
 
         const config = $.let({
             n_estimators: variant('some', 50n),
@@ -99,7 +100,8 @@ export const shapTreeExplainerCategorical = example({
         }, XGBoost.Types.XGBoostConfigType);
 
         const model = $.let(XGBoost.trainRegressor(X_train, y_train, config));
-        // path_dependent mode supports categorical splits (SHAP >= 0.49)
+        // path_dependent mode explains categorical splits: shap takes the
+        // values from XGBoost's own TreeSHAP
         const explainer = $.let(Shap.treeExplainerCreate(variant('path_dependent', { model })));
 
         const feature_names = $.let(["vibration", "temperature", "machine_type"]);
@@ -107,10 +109,16 @@ export const shapTreeExplainerCategorical = example({
 
         const importance = $.let(Shap.featureImportance(shap_result.shap_values, feature_names));
 
+        // Each row's SHAP values and the base value add up to its prediction
+        const explained = $.let(shap_result.shap_values.unwrap('matrix_2d').rowSums()
+            .addScalar(shap_result.base_value.unwrap('single')));
+        const gap = $.let(explained.addScaled(XGBoost.predict(model, X_train), -1.0).abs().max());
+
         // 3 features explained with non-negative importances
         return importance.importances.length().equal(3n)
             .and(() => importance.importances.get(0n).greaterEqual(0.0))
-            .and(() => importance.feature_names.length().equal(3n));
+            .and(() => importance.feature_names.length().equal(3n))
+            .and(() => gap.lessEqual(1e-4));
     }),
     inputs: [],
     returns: true,
@@ -130,7 +138,8 @@ export const shapTreeExplainerInterventionalCategorical = example({
             [7.0, 8.0, 0.0],
             [8.0, 9.0, 1.0],
         ]));
-        const y_train = $.let(East.Vector.fromArray([3.0, 5.0, 7.0, 9.0, 11.0, 13.0, 15.0, 17.0]));
+        // Machine type 1 adds 6, so the trees split on the categorical feature
+        const y_train = $.let(East.Vector.fromArray([3.0, 11.0, 7.0, 9.0, 17.0, 13.0, 15.0, 23.0]));
 
         const config = $.let({
             n_estimators: variant('some', 50n),
@@ -153,7 +162,9 @@ export const shapTreeExplainerInterventionalCategorical = example({
         }, XGBoost.Types.XGBoostConfigType);
 
         const model = $.let(XGBoost.trainRegressor(X_train, y_train, config));
-        // interventional + categorical auto-falls back to KernelExplainer
+        // SHAP's tree algorithm cannot read categorical splits, so interventional
+        // mode over a categorical model falls back to KernelExplainer, which
+        // explains the model's own output against the background
         const background = $.let(East.Matrix.fromArray([
             [1.0, 2.0, 0.0],
             [4.0, 5.0, 1.0],
@@ -165,8 +176,14 @@ export const shapTreeExplainerInterventionalCategorical = example({
         const shap_result = $.let(Shap.computeValues(explainer, X_train, feature_names));
         const importance = $.let(Shap.featureImportance(shap_result.shap_values, feature_names));
 
+        // Each row's SHAP values and the base value add up to its prediction
+        const explained = $.let(shap_result.shap_values.unwrap('matrix_2d').rowSums()
+            .addScalar(shap_result.base_value.unwrap('single')));
+        const gap = $.let(explained.addScaled(XGBoost.predict(model, X_train), -1.0).abs().max());
+
         return importance.importances.length().equal(3n)
-            .and(() => importance.feature_names.length().equal(3n));
+            .and(() => importance.feature_names.length().equal(3n))
+            .and(() => gap.lessEqual(1e-4));
     }),
     inputs: [],
     returns: true,
@@ -182,14 +199,15 @@ export const shapMapieCategoricalInterventional = example({
             [5.0, 6.0, 1.0], [6.0, 7.0, 2.0], [7.0, 8.0, 0.0], [8.0, 9.0, 1.0],
             [9.0, 10.0, 2.0], [10.0, 11.0, 0.0],
         ]));
-        const y_train = $.let(East.Vector.fromArray([3.0, 5.0, 7.0, 9.0, 11.0, 13.0, 15.0, 17.0, 19.0, 21.0]));
+        // Machine type 1 adds 6, so the trees split on the categorical feature
+        const y_train = $.let(East.Vector.fromArray([3.0, 11.0, 7.0, 9.0, 17.0, 13.0, 15.0, 23.0, 19.0, 21.0]));
         // Calibration data (need >=11 for 90% confidence)
         const X_calib = $.let(East.Matrix.fromArray([
             [1.5, 2.5, 0.0], [2.5, 3.5, 1.0], [3.5, 4.5, 2.0], [4.5, 5.5, 0.0],
             [5.5, 6.5, 1.0], [6.5, 7.5, 2.0], [7.5, 8.5, 0.0], [8.5, 9.5, 1.0],
             [9.5, 10.5, 2.0], [10.5, 11.5, 0.0], [11.5, 12.5, 1.0],
         ]));
-        const y_calib = $.let(East.Vector.fromArray([4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0, 18.0, 20.0, 22.0, 24.0]));
+        const y_calib = $.let(East.Vector.fromArray([4.0, 12.0, 8.0, 10.0, 18.0, 14.0, 16.0, 24.0, 20.0, 22.0, 30.0]));
 
         const config = $.let({
             base_model: variant('xgboost', {
@@ -228,8 +246,15 @@ export const shapMapieCategoricalInterventional = example({
         const shap_result = $.let(Shap.computeValues(explainer, X_train, feature_names));
         const importance = $.let(Shap.featureImportance(shap_result.shap_values, feature_names));
 
+        // Each row's SHAP values and the base value add up to the point
+        // prediction, its XGBoost estimator's
+        const explained = $.let(shap_result.shap_values.unwrap('matrix_2d').rowSums()
+            .addScalar(shap_result.base_value.unwrap('single')));
+        const gap = $.let(explained.addScaled(MAPIE.predictInterval(model, X_train).pred, -1.0).abs().max());
+
         return importance.importances.length().equal(3n)
-            .and(() => importance.feature_names.length().equal(3n));
+            .and(() => importance.feature_names.length().equal(3n))
+            .and(() => gap.lessEqual(1e-4));
     }),
     inputs: [],
     returns: true,

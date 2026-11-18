@@ -260,7 +260,7 @@ export async function ensureLocalStack(): Promise<LocalStack | null> {
   try {
     // The wheel build and e3's own `uv venv` must agree on the interpreter, or
     // the cp3xx wheel will not install into the materialized env.
-    process.env['UV_PYTHON'] ??= '3.11';
+    process.env['UV_PYTHON'] ??= '3.12';
     // Label each step: when this fails on a platform you cannot reproduce
     // locally, the skip reason must name WHICH step broke, not just that
     // something did.

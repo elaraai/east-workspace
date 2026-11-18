@@ -54,15 +54,12 @@ ENV E3_API_SERVER_VERSION=${E3_API_SERVER_VERSION:-latest}
 ENV EAST_C_CLI_VERSION=${EAST_C_CLI_VERSION:-latest}
 ENV EAST_PY_VERSION=${EAST_PY_VERSION:-latest}
 
-# Install system dependencies including Python and C compiler for Cython extensions
+# Install system dependencies: a C compiler for Cython extensions. Python is
+# not the system's (below).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     git \
     curl \
-    python3 \
-    python3-pip \
-    python3-venv \
-    python3-dev \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
@@ -70,8 +67,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:$PATH"
 
-# Create Python virtual environment
-RUN python3 -m venv /opt/venv
+# Python 3.12, as uv builds it, which the east-py packages need: the system's
+# is 3.11. Kept under /opt/python, which every user of the image reads, and
+# linked as python3.12 on every user's PATH, where uv finds it for a
+# virtualenv of 3.12. /opt/python is where this install puts it, not uv's
+# setting: a Python uv fetches later, for an environment of another, goes
+# where it would for that user, which /opt/python, root's, is not.
+RUN UV_PYTHON_INSTALL_DIR=/opt/python uv python install 3.12 && \
+    ln -sf "$(UV_PYTHON_INSTALL_DIR=/opt/python uv python find --managed-python 3.12)" /usr/local/bin/python3.12
+
+# Create Python virtual environment, by that Python
+RUN "$(UV_PYTHON_INSTALL_DIR=/opt/python uv python find --managed-python 3.12)" -m venv /opt/venv
 ENV VIRTUAL_ENV="/opt/venv"
 ENV PATH="/opt/venv/bin:$PATH"
 
@@ -83,10 +89,15 @@ WORKDIR /workspace
 # a re-fetch (e.g. if a PyPI yank/republish reused a version).
 ARG EAST_PY_CACHEBUST=0
 
-# Copy and run install script (Node.js + Python)
+# Copy and run install script (Node.js + Python). A named release's python
+# packages are installed under its pins: the east-py workspace's lock,
+# exported, with its overrides, as the release's published @elaraai/e3-core
+# ships them (e3: a project and its tier resolve the same torch). The script
+# fetches them into /opt/e3, where they stay. `latest` is unconstrained, and
+# keeps none.
 COPY docker/images/install-packages.sh /tmp/install-packages.sh
 RUN chmod +x /tmp/install-packages.sh && \
-    /tmp/install-packages.sh && \
+    EAST_PY_PINS_DIR=/opt/e3 /tmp/install-packages.sh && \
     rm /tmp/install-packages.sh
 
 # (east-c is installed from npm by install-packages.sh — no build-stage copy.)

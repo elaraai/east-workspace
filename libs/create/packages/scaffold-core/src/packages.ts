@@ -164,7 +164,7 @@ function writePythonWorkspaceRoot(projectDir: string, names: ProjectNames, membe
     `name = "${names.projectName}"\n` +
     `version = "0.1.0"\n` +
     `description = "${names.displayName}"\n` +
-    `requires-python = ">=3.11"\n` +
+    `requires-python = ">=3.12"\n` +
     `dependencies = [\n` +
     `  "elaraai-east-py",\n  "elaraai-east-py-std",\n  "elaraai-east-py-io",\n` +
     `  "elaraai-east-py-datascience",\n  "elaraai-east-py-cli",\n]\n\n` +

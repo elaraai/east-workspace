@@ -28,10 +28,27 @@ def serialize(obj: Any) -> EastBlob:
 
 
 def deserialize(blob: EastBlob) -> Any:
-    """Load an object serialised by :func:`serialize`."""
+    """Load an object serialised by :func:`serialize`.
+
+    A blob holds the classes of the libraries that saved it: one saved by an
+    earlier release whose libraries since moved or removed a class (arviz 1.x
+    removed the ``InferenceData`` a PyMC trace of pymc 5 was) does not load.
+
+    Raises:
+        RuntimeError: the blob names a module or class these libraries no
+            longer have; it says to train the model again.
+    """
+    import pickle
+
     import cloudpickle
 
-    return cloudpickle.loads(bytes(blob))
+    try:
+        return cloudpickle.loads(bytes(blob))
+    except (AttributeError, ImportError, pickle.UnpicklingError) as e:
+        raise RuntimeError(
+            "this model was saved by an earlier release of east-py-datascience, whose libraries "
+            f"this one cannot read ({type(e).__name__}: {e}): train it again with this release"
+        ) from e
 
 
 def extra_guard(module: str, extra: str, label: str) -> Callable[[], None]:

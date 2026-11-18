@@ -55,6 +55,41 @@ export async function storedSdist(project: string, out: string, write: (bytes: U
   return { filename, hash: await write(fs.readFileSync(path.join(out, filename))) };
 }
 
+/** The script {@link writeWheel} runs: its arguments are the index, the
+ *  distribution's name, its version, its tags and what it requires. */
+const WHEEL_SCRIPT = [
+  'import base64, hashlib, sys, zipfile',
+  'out, name, version, tag, *requires = sys.argv[1:]',
+  'dist = f"{name}-{version}.dist-info"',
+  'metadata = f"Metadata-Version: 2.1\\nName: {name}\\nVersion: {version}\\n" + "".join(f"Requires-Dist: {r}\\n" for r in requires)',
+  'files = {',
+  '    f"{name}/__init__.py": f"PLATFORM = {tag.split(chr(45))[2]!r}\\n".encode(),',
+  '    f"{dist}/METADATA": metadata.encode(),',
+  '    f"{dist}/WHEEL": f"Wheel-Version: 1.0\\nGenerator: e3-test\\nRoot-Is-Purelib: false\\nTag: {tag}\\n".encode(),',
+  '}',
+  'record = [f"{path},sha256={base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b\'=\').decode()},{len(data)}" for path, data in files.items()]',
+  'files[f"{dist}/RECORD"] = ("\\n".join(record + [f"{dist}/RECORD,,"]) + "\\n").encode()',
+  'with zipfile.ZipFile(f"{out}/{name}-{version}-{tag}.whl", "w") as archive:',
+  '    for path, data in files.items():',
+  '        archive.writestr(zipfile.ZipInfo(path, (2020, 1, 1, 0, 0, 0)), data)',
+  '',
+].join('\n');
+
+/**
+ * Writes a wheel of one module into a flat index. A wheel is a zip: its
+ * metadata names what it requires, and its module's `PLATFORM` the platform
+ * tag it was made for, so what was installed says which was chosen.
+ *
+ * @param index - The index's directory
+ * @param name - The distribution's name, which is its module's
+ * @param version - Its version
+ * @param tag - Its tags, as `py3-none-any`
+ * @param requires - What it requires, each as its metadata writes it
+ */
+export function writeWheel(index: string, name: string, version: string, tag: string, requires: readonly string[] = []): void {
+  execFileSync('uv', ['run', '--no-project', 'python', '-c', WHEEL_SCRIPT, index, name, version, tag, ...requires], { stdio: 'ignore' });
+}
+
 /**
  * A uv workspace of two members, locked, with its root's manifest and lock and
  * each member's sdist stored as an environment's files (#1654).

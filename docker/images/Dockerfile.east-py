@@ -15,6 +15,10 @@
 # Usage:
 #   docker build -f Dockerfile.east-py -t ghcr.io/elaraai/east-py .
 #   docker run --rm -v $(pwd):/workspace ghcr.io/elaraai/east-py east-py run program.east
+#
+# Python is 3.12, and its virtualenv (/opt/venv, on PATH) holds no pip. An
+# image built FROM this one adds packages with uv, which installs into it:
+#   RUN uv pip install <package>
 
 FROM node:22-slim AS base
 
@@ -27,16 +31,12 @@ LABEL org.opencontainers.image.licenses="BUSL-1.1 AND AGPL-3.0"
 ARG EAST_PY_VERSION
 ENV EAST_PY_VERSION=${EAST_PY_VERSION:-latest}
 
-# System dependencies: python toolchain (python3-dev + gcc for Cython/numba
-# extension builds) mirrors Dockerfile.e3's python setup.
+# System dependencies: gcc for an extension that builds from source (Cython,
+# numba). Python is not the system's (below).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     git \
     curl \
-    python3 \
-    python3-pip \
-    python3-venv \
-    python3-dev \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
@@ -44,8 +44,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:$PATH"
 
-# Create Python virtual environment
-RUN python3 -m venv /opt/venv
+# Python 3.12, as uv builds it, which the east-py packages need: the system's
+# is 3.11. Kept under /opt/python, which every user of the image reads; it
+# carries its own headers, for an extension that builds from source. Linked
+# as python3.12 on every user's PATH, where uv finds it for a virtualenv of
+# 3.12. /opt/python is where this install puts it, not uv's setting: a Python
+# uv fetches later, for an environment of another, goes where it would for
+# that user, which /opt/python, root's, is not.
+RUN UV_PYTHON_INSTALL_DIR=/opt/python uv python install 3.12 && \
+    ln -sf "$(UV_PYTHON_INSTALL_DIR=/opt/python uv python find --managed-python 3.12)" /usr/local/bin/python3.12
+
+# The virtualenv the image's tasks run in, made by that Python, without pip:
+# it then holds what install-packages.sh installs into it with uv, under a
+# release's pins, and its tier manifest names nothing else. Made with pip, it
+# would also hold the pip and setuptools a Python seeds a virtualenv with,
+# which no package here needs, at versions the release's pins do not.
+RUN "$(UV_PYTHON_INSTALL_DIR=/opt/python uv python find --managed-python 3.12)" -m venv --without-pip /opt/venv
 ENV VIRTUAL_ENV="/opt/venv"
 ENV PATH="/opt/venv/bin:$PATH"
 
@@ -56,10 +70,16 @@ WORKDIR /workspace
 # (see Dockerfile.e3).
 ARG EAST_PY_CACHEBUST=0
 
-# Copy and run install script (python packages minus datascience)
+# Copy and run install script (python packages minus datascience). A named
+# release is installed under its pins: the east-py workspace's lock, exported,
+# with its overrides, as the release's published @elaraai/e3-core ships them
+# (e3: a project and its tier resolve the same torch). The script fetches
+# them into /opt/e3, where they stay: the image then holds the build of
+# everything the release was tested with. `latest` is unconstrained, and
+# keeps none.
 COPY docker/images/install-packages.sh /tmp/install-packages.sh
 RUN chmod +x /tmp/install-packages.sh && \
-    /tmp/install-packages.sh --py-only && \
+    EAST_PY_PINS_DIR=/opt/e3 /tmp/install-packages.sh --py-only && \
     rm /tmp/install-packages.sh
 
 # What this image holds, for an environment built over it: its tier manifest

@@ -77,7 +77,9 @@ environment is built over the tier's image, without an interpreter and
 without what the image holds the same (`[ENV] … over py-datascience: building`,
 `[ENV] … built in 41 s: 2 layers, 6.2 MB (2 new), 31 distributions from the
 tier`); one whose lock leaves out the image's Python is built whole, and so is
-one whose build over the image fails. ❗ What cannot go
+one whose build over the image fails. torch
+stays in the tier for a member that asks for it through
+`elaraai-east-py-datascience[torch,lightning]` and lists no torch of its own. ❗ What cannot go
 stays local, with its reason on the task's `[LOCAL]` line: `environment:tools`
 / `environment:image` (its kind), `environment:windows-host` (a Windows
 launching machine), `no-rack-for-environment:<tier>` (no rack composes them),

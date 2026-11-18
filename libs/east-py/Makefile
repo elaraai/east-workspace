@@ -189,9 +189,9 @@ vendor:
 ## Build manylinux wheels locally for the Cython packages (east-py,
 ## east-py-datascience) via cibuildwheel — the exact path the release runs on
 ## Linux, so isolation bugs surface here instead of in CI. Requires Docker.
-## Override the target interpreter with e.g. CIBW_BUILD=cp312-manylinux_x86_64.
+## Override the target interpreter with e.g. CIBW_BUILD=cp313-manylinux_x86_64.
 CIBW ?= uvx --from 'cibuildwheel<3' cibuildwheel
-CIBW_BUILD ?= cp311-manylinux_x86_64
+CIBW_BUILD ?= cp312-manylinux_x86_64
 # Drop any in-tree .so from the container copy so the wheel only ships freshly
 # built extensions (the host tree — and your editable install — is untouched).
 export CIBW_BEFORE_BUILD = find {project} -name '*.cpython-*.so' -delete

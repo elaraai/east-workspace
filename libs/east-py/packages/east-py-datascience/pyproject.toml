@@ -4,7 +4,7 @@ version = "1.0.109"
 description = "East Data Science - ML/optimization platform functions for East Python runtime"
 readme = "README.md"
 license = { text = "BSL-1.1" }
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "elaraai-east-py",
     "numpy>=2.0.0",
@@ -13,6 +13,24 @@ dependencies = [
 [tool.uv.sources]
 elaraai-east-py = { workspace = true }
 
+# torch and pytorch-lightning are pinned exactly, the same in `torch`,
+# `lightning` and `all`, at the versions this workspace's lock holds: a project
+# that asks for these extras then locks the torch this release was tested
+# with, which is the torch of the release's py-datascience image, and an
+# environment a rack runs over that image leaves torch to it (#1662). Move a
+# pin with `uv lock --upgrade-package <name>`; scripts/check-version-drift.mjs
+# holds the pins to the lock.
+#
+# xgboost is 3.4.0 or later: its NCCL library is `nvidia-nccl-cu13`, the one
+# torch pins. An earlier xgboost asks for `nvidia-nccl-cu12`, which installs
+# the same file, `nvidia/nccl/lib/libnccl.so.2`; with it on top `import torch`
+# fails (`undefined symbol: ncclCommResume`).
+#
+# pymc is 6.3.2 or later, with arviz 1.1 or later: pymc 5 reads
+# `arviz.InferenceData` as it is imported, which arviz 1.0 removed, and asks
+# for no arviz below 1.0, so beside arviz 1.x it does not import. Below Python
+# 3.13 the lock holds pymc 6.3.2, not 6.4: pymc 6.4 needs scipy 1.18, and dowhy
+# holds scipy at 1.15.3 there.
 [project.optional-dependencies]
 mads = ["PyNomadBBO>=4.4.0"]
 optuna = ["optuna>=4.0.0"]
@@ -28,7 +46,7 @@ scipy = [
     "cloudpickle>=3.0.0",
 ]
 xgboost = [
-    "xgboost>=2.1.0",
+    "xgboost>=3.4.0",
     "cloudpickle>=3.0.0",
 ]
 lightgbm = [
@@ -44,7 +62,7 @@ shap = [
     "cloudpickle>=3.0.0",
 ]
 torch = [
-    "torch>=2.4.0",
+    "torch==2.15.0",
     "cloudpickle>=3.0.0",
 ]
 gp = [
@@ -52,8 +70,8 @@ gp = [
     "cloudpickle>=3.0.0",
 ]
 lightning = [
-    "torch>=2.4.0",
-    "pytorch-lightning>=2.2.0",
+    "torch==2.15.0",
+    "pytorch-lightning==2.6.6",
     "cloudpickle>=3.0.0",
 ]
 mapie = [
@@ -67,8 +85,8 @@ google-or = [
     "ortools>=9.9",
 ]
 pymc = [
-    "pymc>=5.0.0",
-    "arviz>=0.15.0",
+    "pymc>=6.3.2",
+    "arviz>=1.1.0",
     "cloudpickle>=3.0.0",
 ]
 causal = [
@@ -89,17 +107,17 @@ all = [
     "skl2onnx>=1.17.0",
     "onnxruntime>=1.18.0",
     "scipy>=1.12.0",
-    "xgboost>=2.1.0",
+    "xgboost>=3.4.0",
     "lightgbm>=4.3.0",
     "ngboost>=0.5.0",
     "shap>=0.45.0",
-    "torch>=2.4.0",
-    "pytorch-lightning>=2.2.0",
+    "torch==2.15.0",
+    "pytorch-lightning==2.6.6",
     "mapie>=1.2.0",
     "alns>=6.0.0",
     "ortools>=9.9",
-    "pymc>=5.0.0",
-    "arviz>=0.15.0",
+    "pymc>=6.3.2",
+    "arviz>=1.1.0",
     "dowhy>=0.12",
     "econml>=0.15.0",
     "PyALE>=1.2.0",
@@ -147,7 +165,7 @@ filterwarnings = [
 ]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 disallow_untyped_defs = false
 
 # External optional dependencies - no stubs or incomplete stubs

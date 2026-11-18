@@ -20,7 +20,7 @@ import { packEnvironmentLayers } from '../storage/local/environment-layers.js';
 import { readTierManifest, recordedSiteFiles } from '../tier-manifest.js';
 import { decodeEnvironmentFile, environmentFitsTier, EnvironmentTargetRefused, hostEnvironmentPlatform, materializeEnvironmentFor } from './environment.js';
 import { sharedInstall } from './environment-build.js';
-import { encodeFile, memberWorkspace } from './environment.test-utils.js';
+import { encodeFile, memberWorkspace, writeWheel } from './environment.test-utils.js';
 
 describe('materializeEnvironmentFor: an environment installed for a platform that is not this machine\'s', () => {
   let tmpDir: string;
@@ -297,27 +297,9 @@ describe('materializeEnvironmentFor: an environment installed for a platform tha
       work = fs.mkdtempSync(path.join(tmpDir, 'python-'));
       index = path.join(work, 'index');
       fs.mkdirSync(index);
-      // A wheel is a zip: one per platform, whose module names the platform
-      // it was made for, so what was installed says which was chosen.
-      const script = path.join(work, 'wheel.py');
-      fs.writeFileSync(script, [
-        'import base64, hashlib, sys, zipfile',
-        'out, name, version, tag = sys.argv[1:5]',
-        'dist = f"{name}-{version}.dist-info"',
-        'files = {',
-        '    f"{name}/__init__.py": f"PLATFORM = {tag.split(chr(45))[2]!r}\\n".encode(),',
-        '    f"{dist}/METADATA": f"Metadata-Version: 2.1\\nName: {name}\\nVersion: {version}\\n".encode(),',
-        '    f"{dist}/WHEEL": f"Wheel-Version: 1.0\\nGenerator: e3-test\\nRoot-Is-Purelib: false\\nTag: {tag}\\n".encode(),',
-        '}',
-        'record = [f"{path},sha256={base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b\'=\').decode()},{len(data)}" for path, data in files.items()]',
-        'files[f"{dist}/RECORD"] = ("\\n".join(record + [f"{dist}/RECORD,,"]) + "\\n").encode()',
-        'with zipfile.ZipFile(f"{out}/{name}-{version}-{tag}.whl", "w") as archive:',
-        '    for path, data in files.items():',
-        '        archive.writestr(zipfile.ZipInfo(path, (2020, 1, 1, 0, 0, 0)), data)',
-        '',
-      ].join('\n'));
+      // One wheel per platform, whose module names the platform it was made for
       for (const tag of ['manylinux_2_17_x86_64', 'manylinux_2_17_aarch64', 'macosx_11_0_arm64', 'macosx_11_0_x86_64']) {
-        uv(['run', '--no-project', 'python', script, index, 'platmark', '1.0', `py3-none-${tag}`], work);
+        writeWheel(index, 'platmark', '1.0', `py3-none-${tag}`);
       }
       fs.copyFileSync(sdistOf('sdonly'), path.join(index, 'sdonly-1.0.tar.gz'));
       pureSdist = sdistOf('ownpure');

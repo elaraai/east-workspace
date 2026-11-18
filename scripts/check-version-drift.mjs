@@ -2,7 +2,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { semverToPep440 } from './set-python-version.mjs';
+import { EAST_PY_PINS, EAST_PY_PINS_DIR, semverToPep440 } from './set-python-version.mjs';
+import { PINNED_EXTRAS, extrasPinErrors } from './lib/extras-pins.mjs';
+import { lockPackages } from './lib/uv-lock.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
@@ -111,21 +113,33 @@ for (const rel of PYPROJECTS) {
 // track the canonical version too, else every `uv sync` rewrites the lock and
 // it ships stale. set-python-version.mjs re-locks on bump; this enforces it.
 const UV_LOCK = 'libs/east-py/uv.lock';
-const lockRaw = fs.readFileSync(path.join(repoRoot, UV_LOCK), 'utf8');
-let lockMembersChecked = 0;
-for (const block of lockRaw.split(/\n(?=\[\[package\]\])/)) {
-  if (!block.startsWith('[[package]]')) continue;
-  if (!/source\s*=\s*\{\s*editable\s*=/.test(block)) continue;
-  const name = block.match(/\nname\s*=\s*"([^"]+)"/)?.[1];
-  if (!name?.startsWith('elaraai-east-py')) continue;
-  const v = block.match(/\nversion\s*=\s*"([^"]+)"/)?.[1];
-  lockMembersChecked++;
-  if (v !== expectedPep440) {
-    errors.push(`${UV_LOCK} (${name}): ${v} ≠ ${expectedPep440} (PEP 440 of ${canonical})`);
+let lockMembers = [];
+try {
+  lockMembers = lockPackages(fs.readFileSync(path.join(repoRoot, UV_LOCK), 'utf8'))
+    .filter((locked) => locked.editable && typeof locked.name === 'string' && locked.name.startsWith('elaraai-east-py'));
+} catch (error) {
+  errors.push(`${UV_LOCK}: ${error instanceof Error ? error.message : String(error)}`);
+}
+for (const { name, version } of lockMembers) {
+  if (version !== expectedPep440) {
+    errors.push(`${UV_LOCK} (${name}): ${version} ≠ ${expectedPep440} (PEP 440 of ${canonical})`);
   }
 }
-if (lockMembersChecked === 0) {
-  errors.push(`${UV_LOCK}: found no editable east-py members to verify (parse failure?)`);
+if (lockMembers.length === 0) {
+  errors.push(`${UV_LOCK}: found no editable east-py members to verify`);
+}
+
+// The pins the release's python packages are installed under name the
+// release they are of, in their first line: the bump writes them again of
+// the lock it makes (set-python-version.mjs), and an image refuses pins that
+// are another release's.
+for (const name of EAST_PY_PINS) {
+  const rel = `${EAST_PY_PINS_DIR}/${name}`;
+  const first = fs.existsSync(path.join(repoRoot, rel)) ? fs.readFileSync(path.join(repoRoot, rel), 'utf8').split('\n', 1)[0] : null;
+  const named = first === null ? null : / of release (\S+) /.exec(first)?.[1] ?? null;
+  if (first === null) errors.push(`${rel}: missing`);
+  else if (named === null) errors.push(`${rel}: its first line names no release`);
+  else if (named !== expectedPep440) errors.push(`${rel}: ${named} ≠ ${expectedPep440} (PEP 440 of ${canonical})`);
 }
 
 const pluginVersion = readJsonVersion(PLUGIN_JSON);
@@ -169,5 +183,25 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
+// A package's extras that pin a distribution exactly pin it at the version
+// its workspace's lock holds, the same in every extra: the release's images
+// are built under the lock's pins, so a project that asks for the extras
+// then locks the build its tier image holds (#1662).
+const pinErrors = PINNED_EXTRAS.flatMap((pinned) => {
+  try {
+    return extrasPinErrors(fs.readFileSync(path.join(repoRoot, pinned.file), 'utf8'), fs.readFileSync(path.join(repoRoot, pinned.lock), 'utf8'), pinned);
+  } catch (error) {
+    return [`${pinned.file}: ${error instanceof Error ? error.message : String(error)}`];
+  }
+});
+if (pinErrors.length > 0) {
+  console.error(`An extra's pin is not its lock's:`);
+  for (const e of pinErrors) console.error(`  - ${e}`);
+  console.error(`\nA pin is moved in the package's pyproject.toml, in every extra that holds it, and \`uv lock\` then writes`);
+  console.error(`the lock of it (\`uv lock --upgrade-package <name>\` finds the newest first).`);
+  process.exit(1);
+}
+
 console.log(`OK — all manifests aligned to ${canonical}`);
 console.log(`     (PEP 440: ${expectedPep440}; plugin: ${pluginVersion})`);
+console.log(`     (extras pinned at their lock's versions: ${PINNED_EXTRAS.flatMap((pinned) => Object.keys(pinned.pins)).join(', ')})`);

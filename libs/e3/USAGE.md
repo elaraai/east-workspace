@@ -1213,7 +1213,7 @@ my-e3-project/
 [project]
 name = "my-e3-project"
 version = "1.0.0"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "east-py>=0.0.1b11",
     "east-py-std>=0.0.1b11",
