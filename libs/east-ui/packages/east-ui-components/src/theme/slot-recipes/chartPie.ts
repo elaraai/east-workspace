@@ -4,24 +4,32 @@
  */
 
 /**
- * Chart pie slot recipe (#1671) — a pie and its legend: the pie beside the
- * legend where the chart is wide enough, above it where it is not. A legend
- * entry is the chart rules' (`guidelines/charts.md`, Legend): a 14 × 3 swatch,
- * the label in mono 10.5 / 600 `--ink`, then the slice's value and its share,
- * each tabular, the share in `--ink-4`. An entry a click reaches is a button,
- * whose hover steps one paper darker.
+ * Chart pie slot recipe (#1671) — a pie and its legend, as the pie's mock
+ * draws them: the pie beside the legend, 20 apart, where the chart is wide
+ * enough, above it where it is not. A legend row is 26 tall: a 10 × 10
+ * swatch — a slice is an area, where a series' 14 × 3 swatch is a line — the
+ * label in mono 10.5 / 600 `--ink`, the slice's value in mono 12 / 500, and
+ * its share in mono 10.5 `--ink-4`, each tabular, on a whole 16px line in the
+ * row (#1638). Under the rows, the legend's note in mono 10 `--ink-4`. A
+ * donut's total is the 26px numeral, over its caption in mono 10 / 500
+ * `--ink-4`. An entry a click reaches is a button, whose hover steps one paper
+ * darker.
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { centredLine } from "../one-line-box.js";
+
+/** A legend row's height, which the pie's frame counts its rows by. */
+const ROW = 26;
 
 export const chartPieSlotRecipe = defineSlotRecipe({
     className: "elara-chart-pie",
-    slots: ["root", "plot", "total", "legend", "entry", "swatch", "label", "value", "share"],
+    slots: ["root", "plot", "total", "caption", "legend", "entry", "swatch", "label", "value", "share", "note"],
     base: {
         root: {
             display: "flex",
             alignItems: "center",
-            gap: "{spacing.4}",
+            gap: "{spacing.5}",
             width: "100%",
             height: "100%",
             minWidth: "0",
@@ -30,33 +38,39 @@ export const chartPieSlotRecipe = defineSlotRecipe({
             flexShrink: "0",
             display: "block",
         },
-        /* A donut's total, in its centre: a numeral, mono and tabular. */
+        /* A donut's total, in its centre: the 26px numeral, mono and tabular. */
         total: {
             fontFamily: "mono",
-            fontSize: "15px",
+            fontSize: "{fontSizes.num}",
             fontWeight: "600",
             fill: "fg",
             fontVariantNumeric: "tabular-nums",
         },
+        /* What the total is, under it: mono 10 / 500, `--ink-4`. */
+        caption: {
+            fontFamily: "mono",
+            fontSize: "10px",
+            fontWeight: "500",
+            fill: "fg.subtle",
+        },
         legend: {
             display: "flex",
             flexDirection: "column",
-            gap: "{spacing.1}",
             minWidth: "0",
             flex: "1",
         },
         entry: {
             display: "grid",
-            gridTemplateColumns: "14px minmax(0, 1fr) auto 4ch",
+            gridTemplateColumns: "10px minmax(0, 1fr) auto 32px",
             alignItems: "center",
             columnGap: "{spacing.2}",
             width: "100%",
-            paddingY: "2px",
-            paddingX: "{spacing.1}",
+            height: `${ROW}px`,
+            flexShrink: "0",
             borderRadius: "{radii.sm}",
             fontFamily: "mono",
             fontSize: "10.5px",
-            lineHeight: "16px",
+            lineHeight: centredLine(ROW, 16),
             textAlign: "start",
             background: "transparent",
             "&[data-clickable]": {
@@ -66,9 +80,8 @@ export const chartPieSlotRecipe = defineSlotRecipe({
             },
         },
         swatch: {
-            width: "14px",
-            height: "3px",
-            borderRadius: "1px",
+            width: "10px",
+            height: "10px",
         },
         label: {
             fontWeight: "600",
@@ -78,16 +91,25 @@ export const chartPieSlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap",
         },
         value: {
-            fontWeight: "600",
+            fontSize: "12px",
+            fontWeight: "500",
             color: "fg",
             fontVariantNumeric: "tabular-nums",
             textAlign: "right",
         },
         share: {
-            fontWeight: "500",
+            fontWeight: "400",
             color: "fg.subtle",
             fontVariantNumeric: "tabular-nums",
             textAlign: "right",
+        },
+        /* The legend's note, under its rows: mono 10 `--ink-4`, 4 under the last row. */
+        note: {
+            paddingTop: "{spacing.1}",
+            fontFamily: "mono",
+            fontSize: "10px",
+            lineHeight: "15px",
+            color: "fg.subtle",
         },
     },
     variants: {

@@ -398,7 +398,7 @@ const barNode = (data: ReturnType<typeof series>[], opts: { stackId?: string } =
     });
 
 const ruleNode = (axis: "x" | "y", at: string) =>
-    variant("rule", { axis: variant(axis, null), at, stroke: "border.strong", dashArray: none });
+    variant("rule", { axis: variant(axis, null), at, stroke: "border.strong", dashArray: none, label: none });
 
 const gridNode = (tag: "gridRows" | "gridColumns") =>
     variant(tag, { numTicks: none, dashArray: none });
@@ -696,7 +696,7 @@ describe("Chart renderer — a click tells the host the mark it falls on (#1671,
 
 describe("Chart renderer — a pie (#1671, CHT-7)", () => {
     /** A pie's frame, 400 wide and 200 high: its pie beside its legend. */
-    const pieFrame = (slices: [string, number][], opts: { top?: bigint; donut?: boolean; total?: number } = {}) => variant("frame", {
+    const pieFrame = (slices: [string, number][], opts: { top?: bigint; donut?: boolean; total?: number; caption?: string; note?: string } = {}) => variant("frame", {
         height: 200,
         width: some(400),
         margin: some({ top: 8, right: 8, bottom: 24, left: 40 }),
@@ -713,6 +713,8 @@ describe("Chart renderer — a pie (#1671, CHT-7)", () => {
             other: none,
             donut: opts.donut ?? false,
             format: none,
+            caption: opts.caption === undefined ? none : some(opts.caption),
+            note: opts.note === undefined ? none : some(opts.note),
         })],
     });
 
@@ -872,5 +874,155 @@ describe("Chart renderer — the chart rules (guidelines/charts.md; #1671)", () 
         const below = under.querySelector("[data-chart-legend]")!;
         expect(below.hasAttribute("data-below")).toBe(true);
         expect(below.compareDocumentPosition(under.querySelector("svg")!) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+    });
+});
+
+describe("Chart renderer — what a tile asks of it: a host's numbers, lines on labelled ticks, labels on rules and bar ends (#1671)", () => {
+    /** An axis with its own tick values, domain and format. */
+    const axis = (tag: "axisBottom" | "axisLeft", opts: { ticks?: number[]; domain?: [number, number]; span?: [Date, Date]; format?: unknown } = {}) =>
+        variant(tag, {
+            label: none, numTicks: none,
+            tickValues: opts.ticks !== undefined ? some(variant("number", opts.ticks)) : none,
+            hideTicks: none, hideLine: none,
+            domain: opts.domain !== undefined ? some(variant("number", { min: opts.domain[0], max: opts.domain[1] }))
+                : opts.span !== undefined ? some(variant("time", { min: opts.span[0], max: opts.span[1] })) : none,
+            tickFormat: opts.format !== undefined ? some(opts.format) : none,
+            tickStyle: none, titleStyle: none, titleGap: none,
+        });
+    const leftLabels = (container: HTMLElement) => [...container.querySelectorAll(".visx-axis-left .visx-axis-tick text")].map((t) => t.textContent);
+
+    // The vertical frame: innerH = 240 − 8 − 24 = 208, so over [0, 500] y(250) = 104.
+    test("the grid's rows are drawn at the left axis's own tick values: a line a labelled tick", () => {
+        const node = frame([
+            gridNode("gridRows"),
+            barNode([series("Qty", "series.1", [pt("Jan", 120), pt("Feb", 470)])]),
+            axisNode("axisBottom"),
+            axis("axisLeft", { ticks: [0, 250, 500], domain: [0, 500] }),
+        ]);
+        const { container } = ui(<EastVisxChart value={node as never} />);
+        expect([...container.querySelectorAll(".visx-rows line")].map((line) => Number(line.getAttribute("y1")))).toEqual([208, 104, 0]);
+        expect(leftLabels(container)).toEqual(["0", "250", "500"]);
+    });
+
+    test("a host's printer prints a measure's ticks, given the axis's format and its domain's end; a category is never its", () => {
+        const numberText = vi.fn((n: number, format: unknown, of: number) => `${n / 1000}k of ${of / 1000}k${format === undefined ? "" : " fmt"}`);
+        const node = frame([
+            barNode([series("Qty", "series.1", [pt("Jan", 120_000), pt("Feb", 470_000)])]),
+            axisNode("axisBottom"),
+            axis("axisLeft", { ticks: [0, 250_000, 500_000], domain: [0, 500_000] }),
+        ]);
+        const { container } = ui(<EastVisxChart value={node as never} numberText={numberText} />);
+        expect(leftLabels(container)).toEqual(["0k of 500k", "250k of 500k", "500k of 500k"]);
+        expect([...container.querySelectorAll(".visx-axis-bottom .visx-axis-tick text")].map((t) => t.textContent)).toEqual(["Jan", "Feb"]);
+        // The margin before the plot holds the labels as the host prints them: twelve 7px glyphs and the label's room.
+        expect(container.querySelector("svg > g")!.getAttribute("transform")).toBe(`translate(${12 * 7 + 15}, 8)`);
+    });
+
+    test("a rule's label stands inside the plot at its start, over its line, in its colour; a rule with none draws none", () => {
+        const labelled = variant("rule", { axis: variant("y", null), at: "250.0", stroke: "fg.muted", dashArray: some("4 3"), label: some("goal 250") });
+        const node = frame([
+            barNode([series("Qty", "series.1", [pt("Jan", 120), pt("Feb", 470)])]),
+            labelled, ruleNode("y", "400.0"),
+            axisNode("axisBottom"),
+            axis("axisLeft", { ticks: [0, 250, 500], domain: [0, 500] }),
+        ]);
+        const { container } = ui(<EastVisxChart value={node as never} />);
+        const labels = [...container.querySelectorAll("text[data-chart-rule-label]")] as SVGTextElement[];
+        expect(labels.map((l) => l.textContent)).toEqual(["goal 250"]);
+        const label = labels[0]!;
+        // 4 in from the plot's start, 4 over the line at y(250) = 104.
+        expect([Number(label.getAttribute("x")), Number(label.getAttribute("y")), label.getAttribute("text-anchor")]).toEqual([4, 100, "start"]);
+        expect([label.style.fontSize, label.style.fontWeight]).toEqual(["10px", "600"]);
+        // In the rule's own colour: the line's stroke.
+        const line = [...container.querySelectorAll("line.visx-line")].find((l) => l.getAttribute("stroke-dasharray") === "4 3")!;
+        expect(label.style.fill).toBe(line.getAttribute("stroke"));
+    });
+
+    test("in a horizontal frame a text at a bar's end stands 6 after the bar at its band's middle, and the margin after the plot holds it", () => {
+        const end = (x: string, value: number, text: string) => variant("text", { point: pt(x, value), text, anchor: none, fill: none, fontSize: some(10), fontWeight: none });
+        const node = hframe([
+            barNode([series("Qty", "series.1", [pt("Alpha", 10), pt("Beta", 20)])]),
+            end("Alpha", 10, "10k"), end("Beta", 20, "1210k"),
+            axisNode("axisLeft"),
+        ]);
+        const { container } = ui(<EastVisxChart value={node as never} />);
+        const bars = [...container.querySelectorAll("rect.visx-bar")];
+        const texts = [...container.querySelectorAll("svg > g > text")] as SVGTextElement[];
+        expect(texts.map((t) => t.textContent)).toEqual(["10k", "1210k"]);
+        for (const [i, text] of texts.entries()) {
+            const bar = bars[i]!;
+            // After the bar's end, clear of it by 6; at the middle of the bar's 12px.
+            expect(Number(text.getAttribute("x"))).toBeCloseTo(Number(bar.getAttribute("x")) + Number(bar.getAttribute("width")) + 6, 6);
+            expect(Number(text.getAttribute("y"))).toBeCloseTo(Number(bar.getAttribute("y")) + 6, 6);
+            expect([text.getAttribute("text-anchor"), text.getAttribute("dominant-baseline")]).toEqual(["start", "central"]);
+        }
+        // The plot ends where the widest label still fits after it: five 6px glyphs (a 10px face), 6 clear and 2 spare, of
+        // the 400 less the 50 before the plot.
+        expect(Number(container.querySelector("clipPath rect")!.getAttribute("width"))).toBe(400 - 50 - (5 * 6 + 6 + 2));
+    });
+
+    test("on a time axis that runs edge to edge, the first date is drawn from its tick on and the last up to its tick", () => {
+        const at = (month: number) => new Date(Date.UTC(2026, month, 1));
+        const points = [0, 1, 2].map((month, i) => ({ x: variant("time", at(month)), value: 10 * (i + 1), size: none, color: none }));
+        const node = variant("frame", {
+            height: 240, width: some(400), margin: none,
+            xScale: variant("time", null), yScale: variant("linear", null), yScale2: none,
+            tooltip: none, legend: none, slice: none,
+            children: [
+                lineNode([{ key: "Sales", color: "series.1", points }]),
+                axis("axisBottom", { span: [at(0), at(2)], format: variant("date", "MMM DD") }),
+                axisNode("axisLeft"),
+            ],
+        });
+        const { container } = ui(<EastVisxChart value={node as never} />);
+        const ticks = [...container.querySelectorAll(".visx-axis-bottom .visx-axis-tick text")];
+        expect(ticks.map((t) => [t.textContent, t.getAttribute("text-anchor")])).toEqual([["Jan 01", "start"], ["Feb 01", "middle"], ["Mar 01", "end"]]);
+        // The line runs the plot's whole width: from its start to its end.
+        const d = container.querySelector("path.visx-linepath")!.getAttribute("d")!;
+        const xs = [...d.matchAll(/[ML]?(-?[\d.]+),(-?[\d.]+)/g)].map((m) => Number(m[1]));
+        expect([Math.min(...xs), Math.max(...xs)]).toEqual([0, 400 - 44 - 24]);
+    });
+});
+
+describe("Chart renderer — a pie as its mock draws it (#1671, CHT-7)", () => {
+    const pieOf = (opts: { donut?: boolean; caption?: string; note?: string }) => variant("frame", {
+        height: 220, width: some(400), margin: none,
+        xScale: variant("band", null), yScale: variant("linear", null), yScale2: none,
+        tooltip: none, legend: none, slice: none,
+        children: [variant("pie", {
+            data: [["NSW", 50], ["VIC", 30], ["QLD", 20]].map(([key, value]) => ({ key, value, color: none })),
+            top: none, total: none, other: none, donut: opts.donut ?? false, format: none,
+            caption: opts.caption === undefined ? none : some(opts.caption),
+            note: opts.note === undefined ? none : some(opts.note),
+        })],
+    });
+
+    test("the pie is at most four fifths of its frame's height, an even number of pixels across", () => {
+        const { container } = ui(<EastVisxChart value={pieOf({}) as never} />);
+        const plot = container.querySelector("[data-chart-pie] svg") as SVGElement;
+        // 400 wide and 220 high: 45% of the width is 180, four fifths of the height 176.
+        expect([plot.style.width, plot.style.height]).toEqual(["176px", "176px"]);
+    });
+
+    test("its legend's values are the host's, each beside the largest; its note stands under its rows", () => {
+        const numberText = (n: number, _format: unknown, of: number) => `${n} of ${of}`;
+        const { container } = ui(<EastVisxChart value={pieOf({ note: "AUD · share of 100" }) as never} numberText={numberText} />);
+        const legend = container.querySelector("[data-chart-pie-legend]")!;
+        expect([...legend.querySelectorAll("[data-chart-slice-entry]")].map((row) => [...row.querySelectorAll("span")].map((s) => s.textContent)))
+            .toEqual([["", "NSW", "50 of 50", "50%"], ["", "VIC", "30 of 50", "30%"], ["", "QLD", "20 of 50", "20%"]]);
+        expect(legend.lastElementChild!.getAttribute("data-chart-pie-note")).toBe("");
+        expect(legend.lastElementChild!.textContent).toBe("AUD · share of 100");
+        expect(ui(<EastVisxChart value={pieOf({}) as never} />).container.querySelector("[data-chart-pie-note]")).toBeNull();
+    });
+
+    test("a donut's total stands over its caption, about the centre; with no caption the total is the centre's", () => {
+        const { container } = ui(<EastVisxChart value={pieOf({ donut: true, caption: "units · total" }) as never} />);
+        const total = container.querySelector("[data-chart-pie-total]")!;
+        const caption = container.querySelector("[data-chart-pie-caption]")!;
+        expect([total.textContent, total.getAttribute("y"), caption.textContent, caption.getAttribute("y")]).toEqual(["100", "-6", "units · total", "17"]);
+        const bare = ui(<EastVisxChart value={pieOf({ donut: true }) as never} />).container;
+        expect([bare.querySelector("[data-chart-pie-total]")!.getAttribute("y"), bare.querySelector("[data-chart-pie-caption]")]).toEqual(["0", null]);
+        // A pie that is no donut has no centre to caption.
+        expect(ui(<EastVisxChart value={pieOf({ caption: "units · total" }) as never} />).container.querySelector("[data-chart-pie-caption]")).toBeNull();
     });
 });

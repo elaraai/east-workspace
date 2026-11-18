@@ -20,13 +20,17 @@ import { useFormatters } from "../../format/index.js";
 import { getSomeorUndefined } from "../../utils";
 import { T, useScales, type Axis } from "./context.js";
 import { labelWidth, tickPx, tickTextCss, ticksThatFit, titleTextCss } from "./labels.js";
-import { tickFormatter } from "./tick-format.js";
+import { domainReach, measureFormatter, tickFormatter } from "./tick-format.js";
 
 // Axis labels carry their font via inline `style` (visx forwards it) so the mono
 // size wins over the CSS cascade; tick text is formatted per the axis node.
 export function AxisBMark({ value }: { value: Axis }): ReactNode {
-    const { xAxisScale, xTickValues, xKind, horizontal, innerW, innerH, margin, style } = useScales();
-    const fmt = tickFormatter(getSomeorUndefined(value.tickFormat), xKind, useFormatters().locale);
+    const { xAxisScale, xTickValues, xKind, horizontal, innerW, innerH, margin, numberText, style } = useScales();
+    const locale = useFormatters().locale;
+    // A numeric x is a measure — a horizontal frame's values, a scatter's x — which the host's printer prints.
+    const fmt = xKind === "linear"
+        ? measureFormatter(numberText, getSomeorUndefined(value.tickFormat), domainReach(xAxisScale as unknown as { domain: () => unknown[] }), locale)
+        : tickFormatter(getSomeorUndefined(value.tickFormat), xKind, locale);
     const label = getSomeorUndefined(value.label);
     // #149 — explicit tick control (numTicks / tickValues / hideTicks / hideLine).
     // Explicit `tickValues` win over the band scale's category positions; defaults
@@ -61,11 +65,14 @@ export function AxisBMark({ value }: { value: Axis }): ReactNode {
     // length and the plot's width (#354 thinned only compact plots, by a fixed
     // 64px a label). The author's own tick values stand as given.
     // A label that would cross the chart's edge is drawn from that edge in:
-    // the first from its tick on, the last up to its tick.
+    // the first from its tick on, the last up to its tick. So is a date at
+    // the plot's own edge — a time axis that runs edge to edge — whose label
+    // would otherwise hang half outside the plot.
     const placed = (v: unknown) => {
         const at = Number(scale(v)) + (scale.bandwidth?.() ?? 0) / 2;
         const width = labelWidth(fmt(v), px);
-        const anchor = at - width / 2 < -margin.left ? "start" as const : at + width / 2 > innerW + margin.right ? "end" as const : "middle" as const;
+        const atEdge = xKind !== "time" ? undefined : at <= 0.5 ? "start" as const : at >= innerW - 0.5 ? "end" as const : undefined;
+        const anchor = atEdge ?? (at - width / 2 < -margin.left ? "start" as const : at + width / 2 > innerW + margin.right ? "end" as const : "middle" as const);
         const from = anchor === "start" ? at : anchor === "end" ? at - width : at - width / 2;
         return { value: v, at, from, to: from + width, anchor };
     };
@@ -92,12 +99,15 @@ export function AxisBMark({ value }: { value: Axis }): ReactNode {
     );
 }
 export function AxisLMark({ value }: { value: Axis }): ReactNode {
-    const { y, yAxisScale, horizontal, innerH, yTitleX, style } = useScales();
+    const { y, yAxisScale, horizontal, innerH, yTitleX, numberText, style } = useScales();
+    const locale = useFormatters().locale;
     // Horizontal frames (#249): the left axis is the category band — format
     // as band labels, show every category (visx subsamples only past its
     // default tick budget, mirroring the vertical band x-axis), and keep the
     // baseline rule (the categorical baseline the bars sit on).
-    const fmt = tickFormatter(getSomeorUndefined(value.tickFormat), horizontal ? "band" : "linear", useFormatters().locale);
+    const fmt = horizontal
+        ? tickFormatter(getSomeorUndefined(value.tickFormat), "band", locale)
+        : measureFormatter(numberText, getSomeorUndefined(value.tickFormat), domainReach(y), locale);
     const label = getSomeorUndefined(value.label);
     const explicitTicks = getSomeorUndefined(value.tickValues);
     const tickValues = explicitTicks !== undefined ? [...explicitTicks.value] : undefined;
@@ -123,9 +133,9 @@ export function AxisLMark({ value }: { value: Axis }): ReactNode {
     );
 }
 export function AxisRMark({ value }: { value: Axis }): ReactNode {
-    const { y, y2, innerW, innerH, y2TitleX, style } = useScales();
+    const { y, y2, innerW, innerH, y2TitleX, numberText, style } = useScales();
     const scale = y2 ?? y;
-    const fmt = tickFormatter(getSomeorUndefined(value.tickFormat), "linear", useFormatters().locale);
+    const fmt = measureFormatter(numberText, getSomeorUndefined(value.tickFormat), domainReach(scale), useFormatters().locale);
     const label = getSomeorUndefined(value.label);
     const explicitTicks = getSomeorUndefined(value.tickValues);
     const tickValues = explicitTicks !== undefined ? [...explicitTicks.value] : undefined;
@@ -148,7 +158,7 @@ export function AxisRMark({ value }: { value: Axis }): ReactNode {
     );
 }
 export function GridRowsMark({ value }: { value: ValueTypeOf<typeof T.Grid> }): ReactNode {
-    const { y, yAxisScale, horizontal, innerW, style } = useScales();
+    const { y, yAxisScale, horizontal, innerW, leftTicks, style } = useScales();
     const dash = getSomeorUndefined(value.dashArray);
     const numTicks = getSomeorUndefined(value.numTicks);
     // Horizontal frames (#249): rows follow the band y — one centred line per
@@ -157,12 +167,15 @@ export function GridRowsMark({ value }: { value: ValueTypeOf<typeof T.Grid> }): 
     if (horizontal) {
         return <GridRows scale={yAxisScale} width={innerW} {...(numTicks !== undefined ? { numTicks } : {})} stroke={style.gridStroke} {...(dash ? { strokeDasharray: dash } : {})} />;
     }
-    return <GridRows scale={y} width={innerW} numTicks={numTicks ?? 4} stroke={style.gridStroke} {...(dash ? { strokeDasharray: dash } : {})} />;
+    // A row at each tick the left axis labels: its own tick values where it gives them, else the scale's.
+    return <GridRows scale={y} width={innerW} {...(leftTicks !== undefined ? { tickValues: leftTicks } : { numTicks: numTicks ?? 4 })} stroke={style.gridStroke} {...(dash ? { strokeDasharray: dash } : {})} />;
 }
 export function GridColsMark({ value }: { value: ValueTypeOf<typeof T.Grid> }): ReactNode {
-    const { xAxisScale, horizontal, innerH, style } = useScales();
+    const { xAxisScale, horizontal, innerH, bottomTicks, style } = useScales();
     const dash = getSomeorUndefined(value.dashArray);
-    // Horizontal frames (#249): the columns follow the measure x — default to
-    // the measure-axis tick count so gridlines land on the axis ticks.
-    return <GridColumns scale={xAxisScale} height={innerH} {...(horizontal ? { numTicks: getSomeorUndefined(value.numTicks) ?? 4 } : {})} stroke={style.gridStroke} {...(dash ? { strokeDasharray: dash } : {})} />;
+    // Horizontal frames (#249): the columns follow the measure x — at the
+    // bottom axis's own tick values where it gives them, else the
+    // measure-axis tick count, so gridlines land on the axis ticks.
+    const ticks = !horizontal ? {} : bottomTicks !== undefined ? { tickValues: bottomTicks } : { numTicks: getSomeorUndefined(value.numTicks) ?? 4 };
+    return <GridColumns scale={xAxisScale} height={innerH} {...ticks} stroke={style.gridStroke} {...(dash ? { strokeDasharray: dash } : {})} />;
 }

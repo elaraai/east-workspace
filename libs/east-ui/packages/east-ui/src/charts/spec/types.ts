@@ -451,12 +451,14 @@ export type ChartPointsType = typeof ChartPointsType;
  * @property at        - The data coordinate (stringified) to place the rule at
  * @property stroke    - Rule colour
  * @property dashArray - SVG dash pattern; solid when omitted
+ * @property label     - Its caption, drawn inside the plot at the rule's start, over the line, in the rule's colour (`target 2.00M`); `none` draws none
  */
 export const ChartRuleType = StructType({
     axis:      VariantType({ x: NullType, y: NullType }),
     at:        StringType,
     stroke:    StringType,
     dashArray: OptionType(StringType),
+    label:     OptionType(StringType),
 });
 export type ChartRuleType = typeof ChartRuleType;
 
@@ -549,23 +551,28 @@ export type ChartSliceArrayType = typeof ChartSliceArrayType;
  * The renderer draws the slices largest first from twelve o'clock, the first
  * `top` of them and then one Other slice for the rest, with a 1.5 px gap of
  * the surface between slices. A slice carries no label: the legend beside the
- * pie carries each slice's value and its share. A donut is a 26 px ring with
- * the total in its centre. A slice of no positive value is not drawn.
+ * pie carries each slice's value and its share, and a `note` under its rows.
+ * A donut is a 26 px ring with the total in its centre, and a `caption` under
+ * it. A slice of no positive value is not drawn.
  *
  * @property data   - The slices, in any order
  * @property top    - How many slices are drawn before the rest fold into Other; `none` draws 4
  * @property total  - The whole the slices are shares of, when they are not all of it: what is past their sum is Other's; `none` is their sum
  * @property other  - Other's label in the legend; `none` is "Other"
- * @property donut  - Drawn as a ring, its total in the middle
- * @property format - How a value prints in the legend and the centre; `none` prints a number
+ * @property donut   - Drawn as a ring, its total in the middle
+ * @property format  - How a value prints in the legend and the centre; `none` prints a number
+ * @property caption - What a donut's total is, under it in the centre (`units · total`); `none` draws none
+ * @property note    - A line under the legend's rows, saying what the values are (`AUD · share of 3.84M`); `none` draws none
  */
 export const ChartPieType = StructType({
-    data:   ChartSliceArrayType,
-    top:    OptionType(IntegerType),
-    total:  OptionType(FloatType),
-    other:  OptionType(StringType),
-    donut:  BooleanType,
-    format: OptionType(ChartTickFormatType),
+    data:    ChartSliceArrayType,
+    top:     OptionType(IntegerType),
+    total:   OptionType(FloatType),
+    other:   OptionType(StringType),
+    donut:   BooleanType,
+    format:  OptionType(ChartTickFormatType),
+    caption: OptionType(StringType),
+    note:    OptionType(StringType),
 });
 export type ChartPieType = typeof ChartPieType;
 

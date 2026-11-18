@@ -332,8 +332,10 @@ export function chartBandArea(
  * @property top    - How many slices are drawn before the rest fold into Other (default 4)
  * @property total  - The whole the slices are shares of, when they are not all of it
  * @property other  - Other's label in the legend (default "Other")
- * @property donut  - Draw a ring with the total in its centre
- * @property format - How a value prints in the legend and the centre
+ * @property donut   - Draw a ring with the total in its centre
+ * @property format  - How a value prints in the legend and the centre
+ * @property caption - What a donut's total is, under it in the centre
+ * @property note    - A line under the legend's rows, saying what the values are
  */
 export interface ChartPieOptions {
     /** How many slices are drawn before the rest fold into Other (default 4). */
@@ -346,13 +348,17 @@ export interface ChartPieOptions {
     donut?: SubtypeExprOrValue<BooleanType>;
     /** How a value prints in the legend and the centre. */
     format?: SubtypeExprOrValue<ChartTickFormatType>;
+    /** What a donut's total is, under it in the centre — `units · total`. */
+    caption?: SubtypeExprOrValue<StringType>;
+    /** A line under the legend's rows, saying what the values are — `AUD · share of 3.84M`. */
+    note?: SubtypeExprOrValue<StringType>;
 }
 
 /**
  * Creates a `pie` node — shares of one total, with its legend.
  *
  * @param data    - The slices, in any order
- * @param options - How many slices before Other, the total, Other's label, a donut, and the value format (see {@link ChartPieOptions})
+ * @param options - How many slices before Other, the total, Other's label, a donut, the value format, a donut's caption and the legend's note (see {@link ChartPieOptions})
  * @returns A `pie` {@link ChartSpecValue}
  *
  * @remarks
@@ -368,6 +374,8 @@ export function chartPie(data: SubtypeExprOrValue<ChartSliceArrayType>, options?
         other:  options?.other !== undefined ? some(options.other) : none,
         donut:  options?.donut ?? false,
         format: options?.format !== undefined ? some(options.format) : none,
+        caption: options?.caption !== undefined ? some(options.caption) : none,
+        note:   options?.note !== undefined ? some(options.note) : none,
     }), ChartSpecType);
 }
 
@@ -802,13 +810,14 @@ export const ChartSpec = {
      * Creates a pie — shares of one total, with its legend — the only node of its frame.
      *
      * @param data    - The slices, in any order: each its key, its value and, optionally, its colour
-     * @param options - How many slices before Other, the total, Other's label, a donut, and the value format
+     * @param options - How many slices before Other, the total, Other's label, a donut, the value format, a donut's caption and the legend's note
      * @returns A `pie` {@link ChartSpecValue}
      *
      * @remarks
      * Drawn largest first from twelve o'clock: the first `top` slices (4 by
      * default), then one Other slice for the rest. The legend carries each
-     * slice's value and share; a donut has the total in its centre.
+     * slice's value and share, and a `note` under its rows; a donut has the
+     * total in its centre, over its `caption`.
      *
      * @example
      * ```ts

@@ -179,7 +179,7 @@ function goalNodes(values: readonly VisualValue[], first: string | undefined, ma
     return values.flatMap((value): ChartSpec[] => {
         if (value.goal.type === "none") return [];
         const goal = value.goal.value;
-        const rule: ChartSpec = variant("rule", { axis: variant("y", null), at: printFloat(goal), stroke: GOAL_COLOR, dashArray: some(DASH) });
+        const rule: ChartSpec = variant("rule", { axis: variant("y", null), at: printFloat(goal), stroke: GOAL_COLOR, dashArray: some(DASH), label: none });
         if (first === undefined) return [rule];
         const label = made.m.goalOf({ goal: made.words.formatters.value(goal, undefined) });
         return [rule, variant("text", {
@@ -389,6 +389,8 @@ function pieChart(chart: PieChart, read: ReadGroups, total: number | undefined, 
         other: some(made.m.other()),
         donut: chart.donut,
         format: valueFieldFormat(chart.value, made.source),
+        caption: none,
+        note: none,
     });
     const spec: ChartSpec = variant("frame", {
         height: FILL, width: none, margin: none, xScale: variant("band", null), yScale: variant("linear", null), yScale2: none,

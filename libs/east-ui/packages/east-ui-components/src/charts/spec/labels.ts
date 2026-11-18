@@ -37,6 +37,9 @@ export const RIGHT_AXIS_ROOM = 44;
 /** The legend's block over the plot: its 13px line and the 12px under it. */
 export const LEGEND_HEIGHT = 25;
 
+/** How far a label stands clear of what it labels: a bar's end, a rule's line and the plot's start. */
+export const MARK_LABEL_GAP = 6;
+
 /** Shared font-weight tags → CSS weights (the `FontWeightType` arms). */
 const FONT_WEIGHTS: Record<string, number> = { light: 300, normal: 400, medium: 500, semibold: 600, bold: 700 };
 

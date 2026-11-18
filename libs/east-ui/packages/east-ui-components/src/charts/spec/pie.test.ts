@@ -22,6 +22,8 @@ function pie(data: readonly [string, number, string?][], options: { top?: bigint
         other: options.other === undefined ? none : some(options.other),
         donut: false,
         format: none,
+        caption: none,
+        note: none,
     };
 }
 

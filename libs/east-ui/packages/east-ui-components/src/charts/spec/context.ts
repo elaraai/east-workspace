@@ -57,6 +57,18 @@ export interface ChartMark {
 /** What a chart tells its host when a mark is clicked. */
 export type ChartMarkHandler = (mark: ChartMark) => void;
 
+/**
+ * How a host prints a number a chart shows where room is short (#1671): a
+ * measure axis's tick, a pie's values and its total. A chart given none
+ * prints through its axis's declared format (`tick-format.ts`).
+ *
+ * @param n - The number
+ * @param format - The format its axis or its pie declares, when it declares one
+ * @param of - The largest number it is read beside — its axis's domain end, its pie's largest slice — so the host can keep them on one scale
+ * @returns The text
+ */
+export type ChartNumberText = (n: number, format: TickFormat | undefined, of: number) => string;
+
 const printNumberKey = printFor(FloatType);
 const printInstantKey = printFor(DateTimeType);
 const readNumberKey = parseFor(FloatType);
@@ -199,6 +211,12 @@ interface ScaleCtx {
     yTitleX: number;
     /** x of the rotated y2-axis title — natural right margin (mirror of yTitleX). */
     y2TitleX: number;
+    /** The host's printer for a measure's numbers; the axis's own format without it. */
+    numberText: ChartNumberText | undefined;
+    /** The left axis's own tick values, which the grid's rows are drawn at; `undefined` leaves the rows to the scale. */
+    leftTicks: number[] | undefined;
+    /** A horizontal frame's bottom axis's own tick values, which the grid's columns are drawn at; `undefined` leaves them to the scale. */
+    bottomTicks: number[] | undefined;
     style: ChartStyle;
 }
 export const ScaleContext = createContext<ScaleCtx | null>(null);
