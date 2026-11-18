@@ -180,6 +180,61 @@ export function rowsVisual(visual: Visual, source: VisualSource, read: PrintSour
     };
 }
 
+/** A records answer's column, under the name it is shown by. */
+interface NamedColumn {
+    /** Its name. */
+    readonly name: string;
+    /** The key the answer holds it under (`c0`). */
+    readonly key: string;
+    /** Its East type. */
+    readonly type: EastType;
+}
+
+/**
+ * A records answer's columns, each once, under a name: a column the answer
+ * has no type for is left out, and one whose name an earlier column took.
+ *
+ * @param records - The records table
+ * @param answer - Its answer: each column's East type
+ * @param nameOf - A column's name, by its field and its place
+ * @returns The columns, in the table's order
+ */
+function namedColumns(records: RecordsView, answer: VisualAnswered, nameOf: (field: string, at: number) => string): NamedColumn[] {
+    const named: NamedColumn[] = [];
+    records.columns.forEach((field, i) => {
+        const type = answer.columns.get(recordsKey(i));
+        const name = nameOf(field, i);
+        if (type !== undefined && !named.some((column) => column.name === name)) named.push({ name, key: recordsKey(i), type });
+    });
+    return named;
+}
+
+/** An answer's rows as an Array of one struct of its named columns: the type, and the rows of it. */
+function structRows(named: readonly NamedColumn[], answer: VisualAnswered): { readonly type: EastType; readonly value: Readonly<Record<string, unknown>>[] } {
+    return {
+        type: ArrayType(StructType(named.map((column) => [column.name, column.type] as const))),
+        value: answer.rows.map((row) => Object.fromEntries(named.map((column) => [column.name, row[column.key]]))),
+    };
+}
+
+/**
+ * A records answer's rows as East values of one struct (TIL-2): each row its
+ * columns under their source's labels — a label two fields share, under each
+ * field's own name; a field shown twice, once — each value of its column's
+ * own East type, so a value tree shows whatever a source's rows hold.
+ *
+ * @param records - The records table
+ * @param answer - A page's answer: its rows, and each column's East type
+ * @param source - Its source: the fields' labels
+ * @returns The rows' type, an Array of the struct, and the rows of that type
+ */
+export function recordsRows(records: RecordsView, answer: VisualAnswered, source: VisualSource): { readonly type: EastType; readonly value: readonly Readonly<Record<string, unknown>>[] } {
+    const labelOf = (field: string) => source.fields.find((listed) => listed.id === field)?.label ?? field;
+    // A label is a column's name while no other field among the columns has it; a field shown twice is shown once.
+    const shared = (label: string) => new Set(records.columns.filter((field) => labelOf(field) === label)).size > 1;
+    return structRows(namedColumns(records, answer, (field) => (shared(labelOf(field)) ? field : labelOf(field))), answer);
+}
+
 /**
  * Records as CSV (TIL-2): the answer's rows, one a row, each column headed by
  * its field's name — a field shown twice, once — through the query builder's
@@ -191,13 +246,6 @@ export function rowsVisual(visual: Visual, source: VisualSource, read: PrintSour
  * @returns The CSV's bytes, UTF-8
  */
 export function recordsCsv(records: RecordsView, answer: VisualAnswered, words: QueryWords): Uint8Array {
-    // Each field once, at its first column: the answer's key for it, and its type.
-    const named: { readonly field: string; readonly key: string; readonly type: EastType }[] = [];
-    records.columns.forEach((field, i) => {
-        const type = answer.columns.get(recordsKey(i));
-        if (type !== undefined && !named.some((column) => column.field === field)) named.push({ field, key: recordsKey(i), type });
-    });
-    const type = ArrayType(StructType(named.map((column) => [column.field, column.type] as const)));
-    const value = answer.rows.map((row) => Object.fromEntries(named.map((column) => [column.field, row[column.key]])));
+    const { type, value } = structRows(namedColumns(records, answer, (field) => field), answer);
     return resultCsv({ type, value, counts: undefined, total: undefined, truncated: false, paged: undefined }, words);
 }

@@ -6,8 +6,9 @@
 /**
  * A visual's tile (#1670, #1671): its eyebrow, which names it, says its meta
  * — what its body says of itself (`visual/meta.tsx`) — and holds its
- * menu — Show rows, its rows in the drawer, and Export CSV (TIL-2), and on the
- * builder's canvas Edit visual and Duplicate (#1672); its
+ * menu — Show rows, its rows as a value tree in a popover hanging from the
+ * menu, and Export CSV (TIL-2), and on the builder's canvas Edit visual and
+ * Duplicate (#1672); its
  * programs printed, asked on e3, and its state drawn (`visual/states.tsx`) —
  * waiting, on the shared
  * loading clock; a well it needs empty; a field its source lacks; a value
@@ -23,18 +24,18 @@
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { Box, Button, Menu as ChakraMenu } from "@chakra-ui/react";
 import { faEllipsis } from "@fortawesome/free-solid-svg-icons";
-import { none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import type { ValueTypeOf } from "@elaraai/east";
 import { kindEditor, type StudioContentType } from "@elaraai/e3-ui/internal";
-import { BannerView, ChipMenu, EmptyStateView, downloadFile, useFormatters } from "@elaraai/east-ui-components";
-import { DrawerContent, useLoadingReveal, useSlotStyles, type DrawerOpenInputValue } from "@elaraai/east-ui-components/internal";
+import { BannerView, ChipMenu, EmptyStateView, SliceEditPopover, downloadFile, useFormatters } from "@elaraai/east-ui-components";
+import { useLoadingReveal, useSlotStyles } from "@elaraai/east-ui-components/internal";
 import { resultFileName } from "../query/results.js";
 import { useVisualAnswers, useVisualAsk, useVisualSource } from "../query/visual/answers.js";
-import { visualReadRows, type VisualAnswer } from "../query/visual/ask.js";
+import { visualReadRows } from "../query/visual/ask.js";
 import { printVisual, type PrintSource, type PrintState, type VisualAsk } from "../query/visual/print.js";
 import { printSourceOf } from "../query/visual/source.js";
 import { useQueryWords } from "../query/words.js";
 import { messageOf } from "../shared/message.js";
-import { useStudioMessages, type StudioMessages } from "./messages.js";
+import { useStudioMessages } from "./messages.js";
 import { studioEast } from "./studio-east.js";
 import { ChartVisual } from "./visual/chart.js";
 import { KpiVisual } from "./visual/kpi.js";
@@ -42,8 +43,9 @@ import { RecordsVisual } from "./visual/records.js";
 import { recordsCsv, recordsOf, rowsVisual } from "./visual/records-table.js";
 import { ListVisual } from "./visual/list.js";
 import { TileMeta, TileMetaSlot } from "./visual/meta.js";
-import { SourceFailed } from "./visual/notes.js";
+import { SourceFailed, VisualNote, problemOf } from "./visual/notes.js";
 import { PivotVisual } from "./visual/pivot.js";
+import { RowsTree } from "./visual/rows.js";
 import { FieldMissing, NoRows, VisualLoading, WellsEmpty } from "./visual/states.js";
 import { SummaryVisual } from "./visual/summary.js";
 import { midSentence, visualName, type VisualSource } from "./visual/values.js";
@@ -59,12 +61,6 @@ const NO_STATE: PrintState = { filters: [] };
 /** Whether a view's rows run edge to edge in its tile: a table's and a list's. */
 function flush(visual: Visual): boolean {
     return visual.view.type === "table" || visual.view.type === "list";
-}
-
-/** What a program that ended without answering says: its first problem, else that it stopped. */
-function problemOf(answer: Extract<VisualAnswer, { kind: "problem" }>, m: StudioMessages): string {
-    const outcome = answer.result.outcome;
-    return (outcome.type === "error" ? outcome.value[0]?.message : undefined) ?? m.answerStopped();
 }
 
 /** What a visual's menu does on the builder's canvas (#1672): its Edit visual and its Duplicate. */
@@ -139,7 +135,7 @@ export function StudioVisualTile({ content, names, storageKey, title, edit }: St
 interface VisualMenuProps {
     /** The visual. */
     visual: Visual;
-    /** Its name, as its eyebrow says it: the drawer's title and the file's. */
+    /** Its name, as its eyebrow says it: whose rows the popover's head says they are, and the file's. */
     name: string;
     /** Its source, as the surface lists it; `undefined` while it lists none of its key, which has no rows to show. */
     source: VisualSource | undefined;
@@ -155,13 +151,18 @@ interface VisualMenuProps {
 
 /**
  * A visual's menu (TIL-2): Show rows — the rows under it, without its
- * grouping, a records table in the drawer, with Export CSV under them — and
- * Export CSV, the same rows, every one, as a file named after it; on the
- * builder's canvas, Edit visual and Duplicate after them (#1672).
+ * grouping, as a value tree in a popover hanging from the menu, read a page
+ * at a time, how many there are and Export CSV at its foot — and Export CSV,
+ * the same rows, every one, as a file named after it; on the builder's
+ * canvas, Edit visual and Duplicate after them (#1672).
+ *
+ * The rows open in a popover, never a drawer: the app's design keeps the
+ * Drawer for its rail on a phone.
  */
 function VisualMenu({ visual, name, source, read, storageKey, onFailed, edit }: VisualMenuProps) {
     const m = useStudioMessages();
     const words = useQueryWords();
+    const f = useFormatters();
     const ask = useVisualAsk(visual.source);
     const [showing, setShowing] = useState(false);
     const rows = useMemo(() => (source === undefined || read === undefined ? undefined : rowsVisual(visual, source, read)), [visual, source, read]);
@@ -184,38 +185,34 @@ function VisualMenu({ visual, name, source, read, storageKey, onFailed, edit }: 
             onFailed(messageOf(err));
         }
     }, [rows, read, ask, name, words, m, onFailed]);
-    const drawer = useMemo((): DrawerOpenInputValue => ({
-        body: [],
-        eyebrow: some(m.rowsEyebrow()),
-        title: some(name),
-        description: none,
-        style: some({
-            size: some(variant("lg", null)), placement: some(variant("end", null)), contained: none, open: none, defaultOpen: none,
-            closeOnInteractOutside: none, closeOnEscape: none, lazyMount: none, unmountOnExit: none, onOpenChange: none,
-            onExitComplete: none, bodyPadding: none, flush: some(true), fillBody: some(true), stacked: none, stackIcon: none,
-        }),
-    }), [m, name]);
+    // How many rows there are, as the open popover's tree learns it.
+    const [total, setTotal] = useState<number | undefined>(undefined);
     const csv: ReactNode = <Button size="xs" variant="outline" onClick={() => { void exportRows(); }} data-studio-export="">{m.exportCsv()}</Button>;
+    const menu = (
+        <ChipMenu label={m.visualMenu()} icon={faEllipsis} bare data="data-studio-visual-menu" onSelect={(picked) => {
+            if (picked === "rows") setShowing(true);
+            else if (picked === "csv") void exportRows();
+            else if (picked === "edit") edit?.onEdit();
+            else if (picked === "duplicate") edit?.onDuplicate();
+        }}>
+            {rows !== undefined && <ChakraMenu.Item value="rows">{m.showRows()}</ChakraMenu.Item>}
+            {rows !== undefined && <ChakraMenu.Item value="csv">{m.exportCsv()}</ChakraMenu.Item>}
+            {edit !== undefined && rows !== undefined && <ChakraMenu.Separator />}
+            {edit !== undefined && <ChakraMenu.Item value="edit">{m.editVisual()}</ChakraMenu.Item>}
+            {edit !== undefined && <ChakraMenu.Item value="duplicate">{m.duplicate()}</ChakraMenu.Item>}
+        </ChipMenu>
+    );
+    if (rows === undefined || source === undefined || read === undefined) return menu;
     return (
-        <>
-            <ChipMenu label={m.visualMenu()} icon={faEllipsis} bare data="data-studio-visual-menu" onSelect={(picked) => {
-                if (picked === "rows") setShowing(true);
-                else if (picked === "csv") void exportRows();
-                else if (picked === "edit") edit?.onEdit();
-                else if (picked === "duplicate") edit?.onDuplicate();
-            }}>
-                {rows !== undefined && <ChakraMenu.Item value="rows">{m.showRows()}</ChakraMenu.Item>}
-                {rows !== undefined && <ChakraMenu.Item value="csv">{m.exportCsv()}</ChakraMenu.Item>}
-                {edit !== undefined && rows !== undefined && <ChakraMenu.Separator />}
-                {edit !== undefined && <ChakraMenu.Item value="edit">{m.editVisual()}</ChakraMenu.Item>}
-                {edit !== undefined && <ChakraMenu.Item value="duplicate">{m.duplicate()}</ChakraMenu.Item>}
-            </ChipMenu>
-            {showing && rows !== undefined && source !== undefined && read !== undefined && (
-                <DrawerContent value={drawer} storageKey={`${storageKey}.rows`} open onClose={() => setShowing(false)}>
-                    <RecordsVisual visual={rows} source={source} read={read} state={NO_STATE} storageKey={`${storageKey}.rows`} action={csv} />
-                </DrawerContent>
+        <SliceEditPopover open={showing} onOpenChange={setShowing} label={m.rowsOf({ name })} size="lg" flush anchor={menu}
+            footLeft={total === undefined ? undefined : <VisualNote>{m.rowsCount({ n: total, count: f.number(total) })}</VisualNote>}
+            footActions={csv}>
+            {showing && (
+                <Box data-studio-rows="">
+                    <RowsTree visual={rows} source={source} read={read} state={NO_STATE} storageKey={`${storageKey}.rows`} onTotal={setTotal} />
+                </Box>
             )}
-        </>
+        </SliceEditPopover>
     );
 }
 

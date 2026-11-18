@@ -318,8 +318,10 @@ export interface StudioMessages {
     rowsShown: (p: { first: string; last: string; of: string }) => string;
     /** A records column's header with its field's unit — `Revenue AUD`. */
     columnUnit: (p: { label: string; unit: string }) => string;
-    /** The Show rows drawer's eyebrow, over the visual's name. */
-    rowsEyebrow: () => string;
+    /** The Show rows popover's head: whose rows they are — `Rows · Revenue by region`. */
+    rowsOf: (p: { name: string }) => string;
+    /** At its foot, how many rows there are — `1,284 rows`. */
+    rowsCount: (p: { n: number; count: string }) => string;
     /** An export that could not be made — its banner's title. */
     exportFailed: () => string;
     /** The banner's action, which puts it away. */
@@ -723,7 +725,8 @@ export const studioMessages: StudioMessages = {
     groupsShown: ({ shown, of, n }) => `Showing ${shown} of ${of} ${n === 1 ? "group" : "groups"}`,
     rowsShown: ({ first, last, of }) => `Showing ${first}–${last} of ${of}`,
     columnUnit: ({ label, unit }) => `${label} ${unit}`,
-    rowsEyebrow: () => "Rows",
+    rowsOf: ({ name }) => `Rows · ${name}`,
+    rowsCount: ({ n, count }) => (n === 1 ? "1 row" : `${count} rows`),
     exportFailed: () => "The rows could not be exported",
     dismiss: () => "Dismiss",
     totalRow: () => "Total",

@@ -8,14 +8,14 @@
  * asked through the page's answers — in the Table, filling its tile, which
  * scrolls a wide table inside it (TBL-5); a header's sort sorting every row by
  * its program, so a page is never one page reordered; and under it, where the
- * page stands among every row and the Pagination. Its tile's Show rows draws
- * the same over any visual's rows (TIL-2). What it shows is
- * {@link recordsModel}'s; this draws it with the parts' own renderers.
+ * page stands among every row and the Pagination. What it shows is
+ * {@link recordsModel}'s; this draws it with the parts' own renderers. (A
+ * tile's Show rows lists any visual's rows as a value tree: `rows.tsx`.)
  *
  * @packageDocumentation
  */
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Box } from "@chakra-ui/react";
 import { none } from "@elaraai/east";
 import {
@@ -46,7 +46,7 @@ const NO_ASKS: readonly VisualAsk[] = [];
 
 /** Props of {@link RecordsVisual}. */
 export interface RecordsVisualProps {
-    /** The visual: a records table — a tile's, or Show rows' of a visual's rows. */
+    /** The visual: a records table. */
     readonly visual: Visual;
     /** Its source, as the surface lists it. */
     readonly source: VisualSource;
@@ -56,17 +56,15 @@ export interface RecordsVisualProps {
     readonly state: PrintState;
     /** Where its parts keep their state: the Table's, and the viewer's sort of every row. */
     readonly storageKey: string;
-    /** What its foot offers at its end: Show rows' Export CSV. */
-    readonly action?: ReactNode;
 }
 
 /**
  * A records table's tile: a page of its rows, and where it stands.
  *
- * @param props - The visual, its source, the page's state, where its parts keep their state, and its foot's action
+ * @param props - The visual, its source, the page's state, and where its parts keep their state
  * @returns The tile's body
  */
-export function RecordsVisual({ visual, source, read, state, storageKey, action }: RecordsVisualProps) {
+export function RecordsVisual({ visual, source, read, state, storageKey }: RecordsVisualProps) {
     const m = useStudioMessages();
     const words = useQueryWords();
     const f = useFormatters();
@@ -118,7 +116,6 @@ export function RecordsVisual({ visual, source, read, state, storageKey, action 
             <Box css={styles.foot}>
                 <VisualNote>{m.rowsShown({ first: f.number(drawn.first), last: f.number(drawn.last), of: f.number(drawn.total) })}</VisualNote>
                 {pagination !== undefined && <EastChakraPagination value={pagination} storageKey={`${storageKey}.pages`} />}
-                {action}
             </Box>
         </Box>
     );

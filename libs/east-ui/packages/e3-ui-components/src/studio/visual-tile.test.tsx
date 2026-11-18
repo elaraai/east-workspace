@@ -336,7 +336,7 @@ describe("a records table's tile, and a tile's menu (#1671)", () => {
         expect(container.querySelector("[data-studio-visual-tile] > [data-flush]")).not.toBeNull();
     });
 
-    test("Show rows lists the rows under a visual in the drawer, newest first; its Export CSV writes every one, named after the visual (TIL-2)", async () => {
+    test("Show rows lists the rows under a visual as a value tree in a popover hanging from its menu — never a drawer — newest first, how many at its foot; its Export CSV writes every one, named after the visual (TIL-2)", () => sized(async () => {
         const downloads = capturing();
         try {
             const { container } = page([cell("c1", v.of("orders", v.column({ x: v.group("region"), values: [v.sum("revenue")] })))], createInMemoryQueryCall(DATASETS));
@@ -344,12 +344,22 @@ describe("a records table's tile, and a tile's menu (#1671)", () => {
             const chip = container.querySelector<HTMLElement>("[data-studio-visual-menu]")!;
             await openMenu(chip);
             await pick(chip, "Show rows");
-            const drawer = await screen.findByRole("dialog");
-            expect([within(drawer).getByText("Rows"), within(drawer).getByText("Revenue by region")]).toHaveLength(2);
-            await waitFor(() => expect(within(drawer).getByText("Showing 1–3 of 3")).toBeTruthy());
-            // Every field of the rows, as its source lists none.
-            expect([...drawer.querySelectorAll("thead th")].map((th) => th.textContent)).toEqual(["Ordered at", "Region", "Revenue", "Units"]);
-            await act(async () => { fireEvent.click(within(drawer).getByRole("button", { name: "Export CSV" })); });
+            const popover = await screen.findByRole("dialog");
+            // A popover of the menu's, its head saying whose rows they are: no drawer, no scrim.
+            expect([popover.getAttribute("data-scope"), document.querySelector("[data-scope=drawer]")]).toEqual(["popover", null]);
+            expect(within(popover).getByText("Rows · Revenue by region")).toBeTruthy();
+            // The rows as a tree of East values, a row a line; how many there are at its foot.
+            await waitFor(() => expect(within(popover).getByText("3 rows")).toBeTruthy());
+            const tree = within(popover).getByRole("tree");
+            await waitFor(() => expect(within(tree).getAllByRole("treeitem").length).toBeGreaterThanOrEqual(3));
+            // Newest first: a row a line that previews its values, over its fields — every field of the rows, as its source
+            // lists none — each a value of its own East type.
+            const said = within(tree).getAllByRole("treeitem").map((row) => row.textContent ?? "");
+            expect(said.filter((line) => line.includes(" · "))).toEqual([
+                "SA2026-08-02 10:00:00 · SA · 60", "NSW2026-07-20 10:00:00 · NSW · 50", "SA2026-07-03 10:00:00 · SA · 100",
+            ]);
+            expect(said.slice(1, 5)).toEqual(["Ordered at2026-08-02 10:00:00", "RegionSA", "Revenue60", "Units2"]);
+            await act(async () => { fireEvent.click(within(popover).getByRole("button", { name: "Export CSV" })); });
             await waitFor(() => expect(downloads.saved).toHaveLength(1));
             const [head, ...lines] = (await downloads.saved[0]!.blob.text()).split("\r\n").filter((line) => line !== "");
             expect([downloads.saved[0]!.name, head, lines.map((line) => line.split(",")[1])])
@@ -357,7 +367,7 @@ describe("a records table's tile, and a tile's menu (#1671)", () => {
         } finally {
             downloads.restore();
         }
-    });
+    }));
 
     test("a summary draws each region's head over its months, with its count; the total row after its function; a cell short of its goal marked (TBL-2, TBL-3)", () => sized(async () => {
         const summary = v.summary({ rows: [v.group("region"), v.group("ordered_at", { bucket: "month" })], values: [v.sum("revenue", { goal: 80 })], total: true });

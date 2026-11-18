@@ -10,18 +10,19 @@
  * their well order, headed by the source's labels, a currency's code in its
  * header and its amounts grouped (TBL-1, TBL-5) — and where it stands among
  * every row; a viewer's sort, its program's; the rows under any visual,
- * without its grouping (TIL-2); and records as CSV.
+ * without its grouping (TIL-2), as a table's page and as East values of one
+ * struct, which a value tree shows; and records as CSV.
  */
 
 import { describe, expect, it } from "vitest";
-import { none, some, variant } from "@elaraai/east";
+import { isValueOf, none, some, variant } from "@elaraai/east";
 import { Studio } from "@elaraai/e3-ui";
 import { formatters, type TableRootValue } from "@elaraai/east-ui-components";
 import { queryWords } from "../../query/model/words.js";
 import type { VisualAnswer } from "../../query/visual/ask.js";
 import { LISTED_ORDERS, ORDERS_SOURCE, QUARTER, answered } from "../../query/visual/visual.test-utils.js";
 import { studioMessages } from "../messages.js";
-import { recordsCsv, recordsField, recordsModel, rowsVisual, sortedBy, type RecordsView } from "./records-table.js";
+import { recordsCsv, recordsField, recordsModel, recordsRows, rowsVisual, sortedBy, type RecordsView } from "./records-table.js";
 
 const v = Studio.visual;
 const words = queryWords(formatters("en-AU"));
@@ -101,6 +102,26 @@ describe("the rows under a visual (TIL-2)", () => {
         // A source listing no fields shows every field of its rows.
         const bare = rowsVisual(sa, { ...LISTED_ORDERS, fields: [] }, ORDERS_SOURCE);
         expect(recordsOf(variant("visual", bare)).columns).toEqual(["ordered_at", "region", "customer", "revenue", "units", "margin"]);
+    });
+});
+
+describe("recordsRows (TIL-2)", () => {
+    it("gives a page's rows as East values of one struct: each column under its source's label, of its own East type", async () => {
+        const sa = visualOf(v.of("orders", v.column({ x: v.group("region"), values: [v.sum("revenue")] })));
+        const rows = variant("visual", rowsVisual(sa, LISTED_ORDERS, ORDERS_SOURCE));
+        const { type, value } = recordsRows(recordsOf(rows), answerOf((await answered(rows)).answers), LISTED_ORDERS);
+        // Every row is a value of the type, as East tells it — a date a date, a number a number.
+        expect(isValueOf(value, type)).toBe(true);
+        expect(value.map((row) => Object.keys(row))).toEqual(value.map(() => ["Ordered", "Region", "Customer", "Revenue", "Units", "Margin"]));
+        expect(value.map((row) => row["Region"])).toEqual(["WA", "VIC", "SA", "NSW", "SA"]);
+    });
+
+    it("names a column by its field where two columns share a label, and shows a field once", async () => {
+        const same = { ...LISTED_ORDERS, fields: LISTED_ORDERS.fields.map((field) => (field.id === "customer" ? { ...field, label: "Region" } : field)) };
+        const twice = v.of("orders", v.records({ columns: ["region", "customer", "revenue", "revenue"], sort: "revenue", descending: true }));
+        const { type, value } = recordsRows(recordsOf(twice), answerOf((await answered(twice)).answers), same);
+        expect(isValueOf(value, type)).toBe(true);
+        expect(Object.keys(value[0]!)).toEqual(["region", "customer", "Revenue"]);
     });
 });
 
