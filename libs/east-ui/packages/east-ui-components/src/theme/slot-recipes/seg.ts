@@ -26,12 +26,27 @@
  * (`toolbar-row.ts`, ruled 23 Oct 2026), its segments filling it, each label
  * on a line as tall as the 26px of room inside the strip's edge, so it starts
  * a whole number of pixels under it (#1636); in a popover or an inspector it
- * keeps the spec's 25px.
+ * keeps the spec's 25px — a segment holding its icon alone as tall as one
+ * holding words.
+ *
+ * A segment centres what it holds, as an icon button does, and its icon — the
+ * Allocation's Table · Timeline, the Studio's design widths — stands at its
+ * middle on whole pixels: an odd 11px glyph on the odd 13px line, an even
+ * 10px one in the even 26px of a toolbar's row, as many rows above it as
+ * below (`centredLine`'s rule). On the text's baseline it stood a pixel or two
+ * high, at a fraction.
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { coarseHitArea } from "../../style/hit-area.js";
+import { centredLine } from "../one-line-box.js";
 import { IN_TOOLBAR_ROW, TOOLBAR_CONTROL_HEIGHT, toolbarControlBox } from "../toolbar-row.js";
+
+/** A segment's line outside a toolbar's row, and its padding above and below: the spec's 23px segment. */
+const LINE = 13;
+const PAD = 5;
+/** A segment's line in a toolbar's row: the room inside the strip's edge. */
+const ROW_LINE = parseFloat(toolbarControlBox().lineHeight);
 
 /** A segment's tap halo, its height alone; on a coarse pointer the segment is at least 44 wide beside it. */
 const HALO = coarseHitArea({ position: true, axis: "block" }) as { position: string; _coarse: Record<string, unknown> };
@@ -51,14 +66,19 @@ export const segSlotRecipe = defineSlotRecipe({
             [IN_TOOLBAR_ROW]: { height: TOOLBAR_CONTROL_HEIGHT },
         },
         item: {
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
             fontFamily: "mono",
             fontSize: "10px",
             fontWeight: "semibold",
             letterSpacing: "0.06em",
             textTransform: "uppercase",
             paddingInline: "11px",
-            paddingBlock: "5px",
-            lineHeight: "13px",
+            paddingBlock: `${PAD}px`,
+            lineHeight: `${LINE}px`,
+            // Holding its icon alone, as tall as a segment holding words.
+            minHeight: `${LINE + 2 * PAD}px`,
             color: "fg.subtle",
             background: "transparent",
             borderLeftWidth: "1px",
@@ -66,10 +86,13 @@ export const segSlotRecipe = defineSlotRecipe({
             borderLeftColor: "border.subtle",
             cursor: "pointer",
             whiteSpace: "nowrap",
-            // A segment's icon (the Allocation's Table · Timeline), before its label.
+            // A segment's icon, at its middle on whole pixels: an odd glyph on the odd line.
+            "& svg": { flex: "none", fontSize: centredLine(LINE, 11) },
+            // Before its label.
             "& [data-seg-icon]": { marginInlineEnd: "6px" },
-            // In a row, the strip's height its own: the segment fills it, its label on a line the room's height.
-            [IN_TOOLBAR_ROW]: { paddingBlock: "0", lineHeight: toolbarControlBox().lineHeight },
+            // In a row, the strip's height its own: the segment fills it, its label on a line the room's height, and its
+            // icon an even glyph in that even room.
+            [IN_TOOLBAR_ROW]: { paddingBlock: "0", lineHeight: toolbarControlBox().lineHeight, "& svg": { fontSize: centredLine(ROW_LINE, 10) } },
             ...HALO,
             _coarse: { ...HALO._coarse, minWidth: "44px" },
             // The strip's 6px corner, less its border, on the end segments.

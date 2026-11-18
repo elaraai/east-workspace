@@ -1019,7 +1019,8 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
                     <chakra.button key={i} type="button" css={seg.item} data-state={pressed ? "on" : "off"} aria-pressed={pressed}
                         {...(iconsOnly ? { "aria-label": preset.label, title: preset.label } : {})}
                         onClick={() => setView({ width: some(preset.width), zoom: view.zoom })}>
-                        {icon !== undefined && <Box as="span" css={styles.widthIcon}><FontAwesomeIcon icon={["fas", icon as IconName]} /></Box>}
+                        {/* The strip's icon: before the words, or alone — at the segment's middle by the strip's rule. */}
+                        {icon !== undefined && <FontAwesomeIcon icon={["fas", icon as IconName]} aria-hidden {...(iconsOnly ? {} : { "data-seg-icon": "" })} />}
                         {(!iconsOnly || icon === undefined) && <span>{preset.label}</span>}
                     </chakra.button>
                 );
