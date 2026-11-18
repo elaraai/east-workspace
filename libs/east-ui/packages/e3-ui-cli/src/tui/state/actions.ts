@@ -34,7 +34,7 @@ import type {
     WorkspaceInfo,
     WorkspaceStatusResult,
 } from '@elaraai/e3-api-client';
-import type { WorkspaceState } from '@elaraai/e3-types';
+import type { DataflowLoad, WorkspaceState } from '@elaraai/e3-types';
 import type { ValueTree, ValueTreePagedRow } from '@elaraai/east-ui/internal';
 import type { ConnectionState } from './poll.js';
 import type { Size } from '../render/layout.js';
@@ -120,8 +120,27 @@ export function isLogTab(tab: TaskTab): tab is 'stdout' | 'stderr' {
     return tab === 'stdout' || tab === 'stderr';
 }
 
-/** The tabs of a task, in strip order (`reads` only for a `ui` task). */
+/**
+ * What a step of a workspace's runs loads, when it is a load: the step of a
+ * run that loads a composite record's source, named `<record>.<source>`.
+ *
+ * @param state - The store state
+ * @param ws - The workspace
+ * @param step - The step's name
+ * @returns The record and the source, or undefined for a task, and until the run's graph is read
+ */
+export function loadStepOf(state: TuiState, ws: string, step: string): DataflowLoad | undefined {
+    const node = (state.data.graph[ws]?.tasks ?? []).find(x => x.name === step);
+    return node?.load.type === 'some' ? node.load.value : undefined;
+}
+
+/**
+ * The tabs of a task, in strip order (`reads` only for a `ui` task). A load,
+ * opened by the name it has as a step of a run, has its logs and its runs as
+ * a task has, and no output of its own: what it writes is its record.
+ */
 export function taskTabsOf(state: TuiState, ws: string, task: string): TaskTab[] {
+    if (loadStepOf(state, ws, task) !== undefined) return ['stdout', 'stderr', 'runs'];
     const ui = (state.data.taskList[ws] ?? []).some(x => x.name === task && x.role.type === 'ui');
     return ui ? ['output', 'stdout', 'stderr', 'runs', 'reads'] : ['output', 'stdout', 'stderr', 'runs'];
 }

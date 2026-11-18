@@ -463,22 +463,29 @@ describe('the dashboard over a run\'s loads (R77)', () => {
         assert.match(rowOf(lines, 'orders.erp'), /^  orders\.erp\s+● loaded\s+ingest\s+—\s+Dict<Variant, Str…\s+1\.2 MB · 2\.3s\s+64 MB$/);
         // Fed by an input, as INPUTS lists a task's; its failure inline, as a task's is.
         assert.match(rowOf(lines, 'orders.forecast'), /^  orders\.forecast\s+✗ failed · exit 3\s+—\s+calendar\s+Dict<Variant, Str…\s+1\.2 MB · 0\.4s\s+—$/);
-        // The panel lists a load's failure after the task's, and offers no logs for it: none is kept under a load's name.
+        // The panel lists a load's failure after the task's, with its logs to open as the task's has (ruling 41).
         assert.match(lines[9]!, /^ ▌  1m  ✗ failed      report\s+exit 2 · 0\.8s     ⏎ logs$/);
-        assert.match(lines[10]!, /^   55s  ✗ failed      orders\.forecast\s+exit 3 · 0\.4s$/);
+        assert.match(lines[10]!, /^   55s  ✗ failed      orders\.forecast\s+exit 3 · 0\.4s     ⏎ logs$/);
         // The records table lists the record the loads write.
         assert.ok(lines.some(line => /^  orders\s+1,240\s+1\.2 MB\s+—\s+—$/.test(line)), mounted.frame());
     });
 
-    test('⏎ on a load\'s row opens the record it loads; its failure in the panel is no row to open', async () => {
+    test('⏎ on a load\'s row opens the load\'s logs and runs, as a task\'s row opens the task, and ⏎ on its failure in the panel opens its logs (ruling 41)', async () => {
         mounted = await mountApp({ view: dashboardView(), actions: fixture({ loads: true }), size: tall });
-        // The rows in order: report's failure, ingest, then the load of what ingest writes.
+        // The rows in order: report's failure, the forecast's load's, ingest, then the load of what ingest writes.
+        await mounted.press('j');
+        await mounted.press(KEY.enter);
+        let view = mounted.store.getState().view;
+        assert.deepEqual(view.kind === 'task' && [view.ws, view.task, view.tab], ['main', 'orders.forecast', 'stdout']);
+        await mounted.press(KEY.escape);
         await mounted.press('j');
         await mounted.press('j');
         assert.match(rowOf(mounted.lines(), 'orders.erp'), /^ ▌orders\.erp\s/);
         await mounted.press(KEY.enter);
-        const view = mounted.store.getState().view;
-        assert.deepEqual(view.kind === 'record' && [view.ws, view.name, view.tab], ['main', 'orders', 'state']);
+        view = mounted.store.getState().view;
+        assert.deepEqual(view.kind === 'task' && [view.ws, view.task, view.tab], ['main', 'orders.erp', 'stdout']);
+        // A load's page has no output of its own: its logs, and its runs
+        assert.match(mounted.lines()[2]!, /^ orders\.erp   ▌1 Stdout▐  2 Stderr   3 Runs\s+LOAD · ● LOADED · 2\.3s$/);
     });
 
     test('while running: the loads count among the run\'s steps, a load\'s pieces show in the feed, and its row says in-progress', async () => {

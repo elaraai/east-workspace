@@ -428,11 +428,8 @@ registerViewHooks('dashboard', {
         const ws = state.view.ws;
         if (row.kind === 'logs') controller.openTask(ws, row.name, 'stdout');
         else if (row.kind === 'task') controller.openTask(ws, row.name);
-        else if (row.kind === 'load') {
-            // A load is no task, and has no page of its own: its row opens the record it loads.
-            const load = nav.model.tasks.find(step => step.name === row.name)?.load;
-            if (load !== undefined) controller.openRecord(ws, load.record);
-        }
+        // A load's page has its logs and its runs, and no output of its own: its record has a row of the records table
+        else if (row.kind === 'load') controller.openTask(ws, row.name, 'stdout');
         else if (row.kind === 'record') controller.openRecord(ws, row.name);
         else controller.openInput(ws, row.name);
     },

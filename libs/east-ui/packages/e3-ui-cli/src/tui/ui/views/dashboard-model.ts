@@ -60,7 +60,8 @@ export interface DashboardCtx {
 /**
  * A selectable row of the column: what `⏎` opens, and its line index. A
  * `load` row is named as its step of a run is (`orders.erp`), and opens the
- * record it loads.
+ * load's logs and runs, as a task's row opens the task; a `logs` row may be
+ * a failed load's.
  */
 export interface DashboardRow {
     kind: 'logs' | 'task' | 'load' | 'input' | 'record';
@@ -417,7 +418,7 @@ export interface RecordRowModel {
  * @property steps - Steps a run has: the workspace's tasks and its loads
  * @property loads - How many of the steps are loads
  * @property feed - The rows the panel lists: while live, the last of the rows {@link liveRows} gives; after, each step's
- *   failure — a load's opens no logs, as no log is kept under a load's name
+ *   failure, a load's among the tasks'
  * @property latest - The latest event per step
  * @property taskPlan - The tasks table's fitted column plan
  * @property tasks - The tasks table's rows: each task, and each load after the task that writes its feed — after the
@@ -559,13 +560,11 @@ function buildModel(state: TuiState, ws: string, dctx: DashboardCtx, key: Dashbo
     const latest = new Map(latestEvents.map(e => [e.value.task, e] as const));
     const live = isLive(execution);
     const { done, total: steps, loads } = runProgress(state, ws);
-    // The loads a run steps through beside the tasks: no log is kept under a load's name, so its failure opens none.
+    // The loads a run steps through beside the tasks
     const loadNodes = (key.graph?.tasks ?? []).filter(node => node.load.type === 'some');
-    const isLoad = (step: string): boolean => loadNodes.some(node => sameName(node.name, step));
-    const feed = (execution === undefined || execution.state === null ? []
+    const feed = execution === undefined || execution.state === null ? []
         : live ? liveRows(execution, latestEvents, g).slice(-MAX_EVENT_ROWS)
-        : latestEvents.filter(opensLogs).map(event => eventRow(event, g))
-    ).map(row => (row.logs && isLoad(row.task) ? { ...row, logs: false } : row));
+        : latestEvents.filter(opensLogs).map(event => eventRow(event, g));
     /** The names of the inputs among a step's inputs, which the INPUTS column lists. */
     const inputsOf = (paths: readonly string[]): string => {
         const names = paths.filter(p => p.startsWith('.inputs.')).map(p => p.slice('.inputs.'.length));

@@ -135,6 +135,10 @@ export interface FakeLoad {
     source: string;
     /** The dataset that feeds it, by its path (`.tasks.erp_orders.output`, `.inputs.erp_export`). */
     feed: string;
+    /** Its latest run's log, which the server reads by the load's step name. */
+    logs?: { stdout?: string; stderr?: string } | undefined;
+    /** Its runs, newest first. */
+    executions?: ExecutionListItem[] | undefined;
 }
 
 /** The fake's own (mutable) record of a dataflow execution. */
@@ -334,10 +338,20 @@ export class FakeApi implements Api {
         return w;
     }
 
+    /**
+     * A task by its name, or a load by the name it has as a step of a run, as
+     * the server finds one: a load's logs, runs and details are read as a
+     * task's are, and what it writes is its record.
+     */
     private findTask(ws: FakeWorkspace, name: string): FakeTask {
         const t = ws.tasks.find(x => x.name === name);
-        if (t === undefined) throw new ApiError('task_not_found', { task: name });
-        return t;
+        if (t !== undefined) return t;
+        const load = (ws.loads ?? []).find(x => loadNodeName(x.record, x.source) === name);
+        if (load === undefined) throw new ApiError('task_not_found', { task: name });
+        return {
+            name, status: variant('ready', null), inputs: [load.feed], dependsOn: [], outputPath: `.records.${load.record}`,
+            logs: load.logs, executions: load.executions,
+        };
     }
 
     private findRecord(ws: FakeWorkspace, name: string): FakeRecord {
