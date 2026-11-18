@@ -19,7 +19,7 @@ import { formatters } from "@elaraai/east-ui-components";
 import { LISTED_ORDERS, answered } from "../../query/visual/visual.test-utils.js";
 import { studioMessages } from "../messages.js";
 import { variant } from "@elaraai/east";
-import { CHANGE_FORMAT, changeOf, fieldLabel, goalOf, kpiModel, shortNumber, shortValue, unitLabel, valueFormat, valueName, visualName, type KpiView } from "./values.js";
+import { CHANGE_FORMAT, changeOf, fieldLabel, goalOf, kpiModel, shortNumber, shortValue, unitLabel, valueFormat, valueName, visualMeta, visualName, type KpiView } from "./values.js";
 
 const v = Studio.visual;
 const m = studioMessages;
@@ -185,5 +185,35 @@ describe("kpiModel", () => {
         const { asks, answers } = await answered(content);
         const model = kpiModel(kpiOf(content), asks, answers, LISTED_ORDERS, m, words);
         expect([model.value, model.change, model.trend, model.goal, model.annotation]).toEqual([5, undefined, [], undefined, undefined]);
+    });
+});
+
+describe("visualMeta", () => {
+    /** A visual's meta, with what it holds of how many where given. */
+    const meta = (content: ReturnType<typeof v.of>, shown?: { shown: string; of: string }) => {
+        if (content.type !== "visual") throw new Error("not a visual");
+        return visualMeta(content.value.view, LISTED_ORDERS, m, shown);
+    };
+
+    it("says what a chart groups by and its first value's unit (TIL-1)", () => {
+        expect(meta(v.of("orders", v.line({ x: v.group("ordered_at", { bucket: "week" }), values: [v.sum("revenue")] })))).toBe("by week · AUD");
+        expect(meta(v.of("orders", v.column({ x: v.group("region"), values: [v.count()] })))).toBe("by region · orders");
+        // A combo's two axes have a unit each: it says its groups alone. A pie's slices are its legend: its unit alone.
+        expect(meta(v.of("orders", v.combo({ x: v.group("region"), columns: [v.left(v.sum("revenue"))], lines: [v.right(v.sum("units"))] })))).toBe("by region");
+        expect(meta(v.of("orders", v.pie({ slice: v.group("region"), value: v.sum("revenue") })))).toBe("AUD");
+    });
+
+    it("says a pivot's two groups, a list's unit, and what a visual holds of how many", () => {
+        expect(meta(v.of("orders", v.pivot({ rows: v.group("region"), columns: v.group("ordered_at", { bucket: "month" }), value: v.count() })))).toBe("by region · month");
+        expect(meta(v.of("orders", v.list({ item: v.group("customer"), values: [v.sum("revenue")] })), { shown: "7", of: "46" })).toBe("AUD · 7 of 46");
+        expect(meta(v.of("orders", v.summary({ rows: [v.group("region")], values: [v.sum("revenue")], total: true })), { shown: "2", of: "5" })).toBe("2 of 5");
+    });
+
+    it("says nothing of a KPI, whose unit stands beside its number, a scatter, whose axes say theirs, or a records table", () => {
+        expect([
+            meta(v.of("orders", v.kpi({ value: v.sum("revenue") }))),
+            meta(v.of("orders", v.scatter({ point: "customer", x: v.sum("units"), y: v.sum("revenue") }))),
+            meta(v.of("orders", v.records({ columns: ["region"] }))),
+        ]).toEqual([undefined, undefined, undefined]);
     });
 });

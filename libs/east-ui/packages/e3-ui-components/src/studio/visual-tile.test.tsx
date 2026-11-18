@@ -22,6 +22,7 @@ import {
     ArrayType, DateTimeType, FloatType, IntegerType, StringType, StructType, none, parseJq, some, toEastTypeValue, variant, type JqNode, type ValueTypeOf,
 } from "@elaraai/east";
 import { Studio, type StudioCellType, type StudioSourceType } from "@elaraai/e3-ui/internal";
+import { markOf } from "@elaraai/east-ui-components/testing";
 import { StateRuntime, UIStore, system } from "@elaraai/east-ui-components";
 import { utcAt as at } from "../plan/plan.test-utils.js";
 import { QueryCallProvider, QuerySourceStatusProvider, type QueryCall } from "../query/hooks.js";
@@ -98,10 +99,10 @@ const eyebrow = (container: HTMLElement) =>
     [container.querySelector("[data-studio-visual-name]")?.textContent, container.querySelector("[data-studio-visual-meta]")?.textContent];
 
 describe("a visual's tile", () => {
-    test("asks its program and draws what it answered, under its eyebrow: a name made from its wells, and its source (TIL-1)", async () => {
+    test("asks its program and draws what it answered, under its eyebrow: a name made from its wells, and a meta that says what it groups by (TIL-1)", async () => {
         const { container } = page([cell("c1", v.of("orders", v.column({ x: v.group("region"), values: [v.sum("revenue")] })))], createInMemoryQueryCall(DATASETS));
         await waitFor(() => expect(charts(container)).toEqual(["column"]));
-        expect(eyebrow(container)).toEqual(["Revenue by region", "Orders"]);
+        expect(eyebrow(container)).toEqual(["Revenue by region", "by region"]);
     });
 
     test("names a tile by its placement's own title before its wells, and by its view while its wells are empty (TIL-1)", () => {
@@ -113,28 +114,48 @@ describe("a visual's tile", () => {
         expect(names).toEqual(["Orders this quarter", "Column chart"]);
     });
 
-    test("waits on the shared loading clock: its placeholder shows once the wait passes the delay", async () => {
+    test("waits on the shared loading clock: once the wait passes the delay its meta says loading over blocks in its own shape", async () => {
         const never: QueryCall = () => new Promise(() => {});
-        const { container } = page([cell("c1", v.of("orders", v.kpi({ value: v.count() })))], never);
+        const { container } = page([
+            cell("c1", v.of("orders", v.kpi({ value: v.count() }))),
+            cell("c2", v.of("orders", v.column({ x: v.group("region"), values: [v.count()] }))),
+            cell("c3", v.of("orders", v.list({ item: v.group("region"), values: [v.count()] }))),
+        ], never);
         expect(container.querySelector("[data-studio-visual=waiting]")).toBeNull();
-        await waitFor(() => expect(container.querySelector("[data-studio-visual=waiting]")).not.toBeNull(), { timeout: 2_000 });
+        // Until then its eyebrow says nothing of it.
+        expect(eyebrow(container)).toEqual(["Orders", ""]);
+        await waitFor(() => expect(container.querySelectorAll("[data-studio-visual=waiting]")).toHaveLength(3), { timeout: 2_000 });
+        expect([...container.querySelectorAll("[data-studio-visual-meta]")].map((meta) => meta.textContent)).toEqual(["loading", "loading", "loading"]);
+        // A KPI's number over its line; a chart's legend line over its plot; a list's rows.
+        const blocks = [...container.querySelectorAll("[data-studio-visual=waiting]")].map((state) => [...state.querySelectorAll("[data-block]")].map((block) => block.getAttribute("data-block")));
+        expect(blocks).toEqual([["number", "line"], ["line", "plot"], ["row", "row", "row", "row"]]);
     });
 
-    test("lists the wells it needs filled", () => {
-        page([cell("c1", v.of("orders", v.column({ x: v.group("region"), values: [] })))], createInMemoryQueryCall(DATASETS));
-        expect(screen.getByText("Add fields to draw it")).toBeTruthy();
-        expect(screen.getByText("A number in Values")).toBeTruthy();
+    test("lists the wells it needs filled as a checklist — its source chosen, each well it needs missing — under its source's name (TIL-3)", () => {
+        const { container } = page([cell("c1", v.of("orders", v.column({ x: v.group("region"), values: [] })))], createInMemoryQueryCall(DATASETS));
+        const state = container.querySelector<HTMLElement>("[data-studio-visual=empty]")!;
+        expect(within(state).getByRole("heading", { name: "Add fields to draw it" })).toBeTruthy();
+        // A check for what is chosen, a dot for what is missing; the view's icon over them.
+        expect([...state.querySelectorAll("li")].map((item) => [item.textContent, item.hasAttribute("data-done"), markOf(item)?.split(" ").slice(0, 2).join(" ")])).toEqual([
+            ["Pick a source", true, "fas circle-check"], ["A number in Values", false, "fas circle"],
+        ]);
+        expect(markOf(state.querySelector("h4")!.previousElementSibling)).toBe("fas chart-column");
+        expect(eyebrow(container)).toEqual(["Column chart", "Orders"]);
     });
 
-    test("names a field its source does not have", () => {
-        page([cell("c1", v.of("orders", v.kpi({ value: v.sum("net_revenue") })))], createInMemoryQueryCall(DATASETS));
-        expect(screen.getByText("Orders has no field net_revenue")).toBeTruthy();
+    test("names a field its source does not have, as code, and its meta says it needs a field; a published page offers no link to pick another (TIL-3)", () => {
+        const { container } = page([cell("c1", v.of("orders", v.kpi({ value: v.sum("net_revenue") })))], createInMemoryQueryCall(DATASETS));
+        const state = container.querySelector<HTMLElement>("[data-studio-visual=missing]")!;
+        expect([state.textContent, state.querySelector("code")?.textContent, markOf(state)?.split(" ").slice(0, 2).join(" ")]).toEqual(["Orders has no field net_revenue", "net_revenue", "fas circle-exclamation"]);
+        expect(state.querySelector("button")).toBeNull();
+        expect(eyebrow(container)[1]).toBe("needs a field");
     });
 
-    test("says no data when it reads no rows, never a zero", async () => {
-        page([cell("c1", v.of("orders", v.kpi({ value: v.sum("revenue") }), { where: condition(`.region == "WA"`) }))], createInMemoryQueryCall(DATASETS));
+    test("says no data where its value would be when it reads no rows, never a zero, and why under it (TIL-3)", async () => {
+        const { container } = page([cell("c1", v.of("orders", v.kpi({ value: v.sum("revenue") }), { where: condition(`.region == "WA"`) }))], createInMemoryQueryCall(DATASETS));
         expect(await screen.findByText("no data")).toBeTruthy();
-        expect(screen.getByText("No rows of Orders match.")).toBeTruthy();
+        const state = container.querySelector<HTMLElement>("[data-studio-visual=no-rows]")!;
+        expect([...state.firstElementChild!.children].map((part) => part.textContent)).toEqual(["no data", "No orders"]);
     });
 
     test("shows its source's error when there is no server to ask", async () => {
@@ -220,7 +241,8 @@ describe("a KPI's tile (#1671)", () => {
         const { container } = page([cell("c1", v.of("orders", kpi))], createInMemoryQueryCall(DATASETS));
         expect(await screen.findByText("210")).toBeTruthy();
         // The eyebrow names it; the KPI draws no label of its own.
-        expect([eyebrow(container), screen.getAllByText("Revenue")]).toEqual([["Revenue", "Orders"], [container.querySelector("[data-studio-visual-name]")]]);
+        // A KPI's unit stands beside its number: its meta says nothing more.
+        expect([eyebrow(container), screen.getAllByText("Revenue")]).toEqual([["Revenue", ""], [container.querySelector("[data-studio-visual-name]")]]);
         // Its number, and its change at the end of its row; this source's revenue declares no unit to say beside it.
         const row = container.querySelector("[data-studio-kpi-value]")!.parentElement!.parentElement!;
         expect([...row.children].map((part) => part.textContent)).toEqual(["210", "+200%"]);

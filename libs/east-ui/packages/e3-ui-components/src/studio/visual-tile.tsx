@@ -4,9 +4,11 @@
  */
 
 /**
- * A visual's tile (#1670, #1671): its eyebrow, which names it and holds its
+ * A visual's tile (#1670, #1671): its eyebrow, which names it, says its meta
+ * — what its body says of itself (`visual/meta.tsx`) — and holds its
  * menu — Show rows, its rows in the drawer, and Export CSV (TIL-2); its
- * programs printed, asked on e3, and its state drawn — waiting, on the shared
+ * programs printed, asked on e3, and its state drawn (`visual/states.tsx`) —
+ * waiting, on the shared
  * loading clock; a well it needs empty; a field its source lacks; a value
  * over another period over a source with no date range, or on a page with no
  * date window; its source's error, with a Retry when asking again may mend
@@ -22,9 +24,7 @@ import { Box, Button, Menu as ChakraMenu } from "@chakra-ui/react";
 import { faEllipsis } from "@fortawesome/free-solid-svg-icons";
 import { none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import type { StudioContentType } from "@elaraai/e3-ui/internal";
-import {
-    BannerView, ChipMenu, EastChakraSkeleton, EmptyStateView, downloadFile, useFormatters, type SkeletonValue,
-} from "@elaraai/east-ui-components";
+import { BannerView, ChipMenu, EmptyStateView, downloadFile, useFormatters } from "@elaraai/east-ui-components";
 import { DrawerContent, useLoadingReveal, useSlotStyles, type DrawerOpenInputValue } from "@elaraai/east-ui-components/internal";
 import { resultFileName } from "../query/results.js";
 import { useVisualAnswers, useVisualAsk, useVisualSource } from "../query/visual/answers.js";
@@ -40,10 +40,12 @@ import { KpiVisual } from "./visual/kpi.js";
 import { RecordsVisual } from "./visual/records.js";
 import { recordsCsv, recordsOf, rowsVisual } from "./visual/records-table.js";
 import { ListVisual } from "./visual/list.js";
+import { TileMeta, TileMetaSlot } from "./visual/meta.js";
 import { SourceFailed } from "./visual/notes.js";
 import { PivotVisual } from "./visual/pivot.js";
+import { FieldMissing, NoRows, VisualLoading, WellsEmpty } from "./visual/states.js";
 import { SummaryVisual } from "./visual/summary.js";
-import { visualName, type VisualSource } from "./visual/values.js";
+import { midSentence, visualName, type VisualSource } from "./visual/values.js";
 
 /** A placement's content that is a visual. */
 type VisualContent = Extract<ValueTypeOf<typeof StudioContentType>, { type: "visual" }>;
@@ -52,9 +54,6 @@ type Visual = VisualContent["value"];
 
 /** The page's state as a visual's programs read it: no filters, no window, until the page's filters land. */
 const NO_STATE: PrintState = { filters: [] };
-
-/** What a waiting tile shows once the loading clock says so: three lines of placeholder. */
-const WAITING: SkeletonValue = { shape: variant("text", null), lines: some(3n), count: none, style: none };
 
 /** Whether a view's rows run edge to edge in its tile: a table's and a list's. */
 function flush(visual: Visual): boolean {
@@ -82,8 +81,8 @@ export interface StudioVisualTileProps {
 /**
  * A visual's tile: its eyebrow (TIL-1) — its placement's title, else a name
  * made from its wells (`Revenue by month`), else, while those are empty, its
- * view (`Column chart`) — with its source and its menu at the end; then its
- * state, as its programs print and answer.
+ * view (`Column chart`) — with its meta and its menu at the end; then its
+ * state, as its programs print and answer, which says the meta.
  *
  * @param props - The visual, the sources' names, where its parts keep their state, and its title
  * @returns The tile's content
@@ -99,12 +98,14 @@ export function StudioVisualTile({ content, names, storageKey, title }: StudioVi
     const name = title ?? (source === undefined ? undefined : visualName(visual.view, source, m)) ?? east.viewWords(visual.view);
     // An export that failed, said over the body until it is put away.
     const [failed, setFailed] = useState<string | undefined>(undefined);
+    // The eyebrow's meta slot, which the body's part draws its meta in.
+    const [metaSlot, setMetaSlot] = useState<HTMLElement | null>(null);
     return (
         <Box css={styles.tile} data-studio-visual-tile="">
             <Box css={styles.head} data-studio-visual-head="">
                 <Box as="span" css={styles.name} data-studio-visual-name="">{name}</Box>
                 <Box css={styles.end}>
-                    <Box as="span" css={styles.meta} data-studio-visual-meta="">{sourceName}</Box>
+                    <Box as="span" css={styles.meta} data-studio-visual-meta="" ref={setMetaSlot} />
                     {source !== undefined && read !== undefined && (
                         <VisualMenu visual={visual} name={name} source={source} read={read} storageKey={storageKey} onFailed={setFailed} />
                     )}
@@ -115,7 +116,9 @@ export function StudioVisualTile({ content, names, storageKey, title }: StudioVi
                     <BannerView status="error" title={m.exportFailed()} description={failed}
                         actions={<Button size="xs" variant="outline" onClick={() => setFailed(undefined)}>{m.dismiss()}</Button>} />
                 )}
-                <VisualBody visual={visual} source={source} read={read} sourceName={sourceName} storageKey={storageKey} />
+                <TileMetaSlot value={metaSlot}>
+                    <VisualBody visual={visual} source={source} read={read} sourceName={sourceName} storageKey={storageKey} />
+                </TileMetaSlot>
             </Box>
         </Box>
     );
@@ -216,21 +219,22 @@ function VisualBody({ visual, source, read, sourceName, storageKey }: VisualBody
     const east = studioEast();
     const printed = useMemo(() => (read === undefined ? undefined : printVisual(visual, read, NO_STATE)), [visual, read]);
     const icon = east.viewIcon(visual.view);
+    // Until a visual draws, its meta is its source's name — but for a missing field, which it says.
+    const named = <TileMeta>{sourceName}</TileMeta>;
     if (printed === undefined || source === undefined || read === undefined) {
-        return <EmptyStateView icon={{ prefix: "fas", name: "database" }} title={m.noSource({ key: visual.source })} description={m.noSourceHint()} />;
+        return <>{named}<EmptyStateView icon={{ prefix: "fas", name: "database" }} title={m.noSource({ key: visual.source })} description={m.noSourceHint()} /></>;
     }
     switch (printed.kind) {
         case "none":
-            return <EmptyStateView icon={{ prefix: "fas", name: icon }} title={east.viewWords(visual.view)} />;
+            return <>{named}<EmptyStateView icon={{ prefix: "fas", name: icon }} title={east.viewWords(visual.view)} /></>;
         case "empty":
-            return <EmptyStateView icon={{ prefix: "fas", name: icon }} title={m.wellsEmpty()} description={printed.wells.map((well) => m.wellNeeded({ well })).join(" · ")} />;
+            return <>{named}<WellsEmpty icon={icon} wells={printed.wells} /></>;
         case "missing":
-            return <EmptyStateView icon={{ prefix: "fas", name: "circle-exclamation" }}
-                title={m.fieldMissing({ source: sourceName, field: printed.fields.join(", ") })} description={m.fieldMissingHint()} />;
+            return <><TileMeta>{m.metaNeedsField()}</TileMeta><FieldMissing source={sourceName} fields={printed.fields} /></>;
         case "range":
-            return <EmptyStateView icon={{ prefix: "fas", name: "calendar" }} title={m.noRange({ source: sourceName })} description={m.noRangeHint()} />;
+            return <>{named}<EmptyStateView icon={{ prefix: "fas", name: "calendar" }} title={m.noRange({ source: sourceName })} description={m.noRangeHint()} /></>;
         case "window":
-            return <EmptyStateView icon={{ prefix: "fas", name: "calendar" }} title={m.needsWindow({ source: sourceName })} description={m.needsWindowHint()} />;
+            return <>{named}<EmptyStateView icon={{ prefix: "fas", name: "calendar" }} title={m.needsWindow({ source: sourceName })} description={m.needsWindowHint()} /></>;
         case "asks":
             return <AskedVisual asks={printed.asks} visual={visual} listed={source} read={read} sourceName={sourceName} icon={icon} storageKey={storageKey} />;
     }
@@ -255,16 +259,17 @@ function AskedVisual({ asks, visual, listed, read, sourceName, icon, storageKey 
     const shown = useLoadingReveal(asked.status === "waiting");
     switch (asked.status) {
         case "waiting":
-            return shown ? <Box data-studio-visual="waiting"><EastChakraSkeleton value={WAITING} /></Box> : null;
+            // Once the loading clock says so: blocks in its own shape, and its meta says it is loading.
+            return shown ? <><TileMeta>{m.metaLoading()}</TileMeta><VisualLoading view={visual.view} /></> : null;
         case "failed":
-            return <SourceFailed source={sourceName} message={asked.message} retry={asked.retry} />;
+            return <><TileMeta>{sourceName}</TileMeta><SourceFailed source={sourceName} message={asked.message} retry={asked.retry} /></>;
         case "answered": {
             const problem = asked.answers.find((answer) => answer.kind === "problem");
-            if (problem !== undefined && problem.kind === "problem") return <SourceFailed source={sourceName} message={problemOf(problem, m)} />;
+            if (problem !== undefined && problem.kind === "problem") return <><TileMeta>{sourceName}</TileMeta><SourceFailed source={sourceName} message={problemOf(problem, m)} /></>;
             // No data when no program read a row — every period's, not the first's alone.
             const read_ = asked.answers.find((answer) => answer.kind === "answered" && answer.n > 0);
             if (!visualReadRows(asked.answers) || read_ === undefined || read_.kind !== "answered") {
-                return <EmptyStateView icon={{ prefix: "fas", name: icon }} title={m.noData()} description={m.noDataReason({ source: sourceName })} />;
+                return <NoRows reason={m.noDataReason({ rows: midSentence(sourceName) })} />;
             }
             const view = visual.view;
             switch (view.type) {

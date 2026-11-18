@@ -314,6 +314,57 @@ export function visualName(view: VisualView, source: VisualSource, m: StudioMess
 }
 
 /**
+ * What a drawn visual's tile says at its eyebrow's end (TIL-1): what it
+ * groups by (`by week`, `by region · month`), its first value's unit (`AUD`),
+ * and what it holds of how many (`7 of 46`), joined — whichever its view
+ * has. A KPI, a scatter and a records table have none of the first two: a
+ * KPI's unit stands beside its number, and a scatter's axes say theirs.
+ *
+ * @param view - What the visual draws
+ * @param source - Its source
+ * @param m - The Studio's words
+ * @param shown - What it holds of how many, each formatted; `undefined` when it holds them all
+ * @returns The meta; `undefined` with nothing to say
+ */
+export function visualMeta(view: VisualView, source: VisualSource, m: StudioMessages, shown?: { readonly shown: string; readonly of: string }): string | undefined {
+    const parts: string[] = [];
+    const by = (words: string | undefined) => {
+        if (words !== undefined) parts.push(m.metaBy({ by: words }));
+    };
+    const unit = (value: VisualValue | undefined) => {
+        const label = value === undefined ? undefined : unitLabel(value, source, m);
+        if (label !== undefined) parts.push(label);
+    };
+    switch (view.type) {
+        case "chart": {
+            const chart = view.value;
+            switch (chart.type) {
+                case "column": case "bar": case "line": case "area":
+                    by(groupWords(chart.value.x, source, m));
+                    unit(chart.value.values[0]);
+                    break;
+                case "combo": by(groupWords(chart.value.x, source, m)); break;
+                case "pie": unit(chart.value.value); break;
+                case "scatter": break;
+            }
+            break;
+        }
+        case "table": {
+            if (view.value.type === "pivot") {
+                const rows = groupWords(view.value.value.rows, source, m);
+                const columns = groupWords(view.value.value.columns, source, m);
+                by(rows === undefined || columns === undefined ? undefined : m.groupsCross({ rows, columns }));
+            }
+            break;
+        }
+        case "list": unit(view.value.values[0]); break;
+        case "kpi": case "slicer": break;
+    }
+    if (shown !== undefined) parts.push(m.metaShown(shown));
+    return parts.length === 0 ? undefined : parts.join(JOIN);
+}
+
+/**
  * The format a value's numbers take: its field's — a ratio's, what it is of;
  * none for a count, which is plain.
  *

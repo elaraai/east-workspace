@@ -17,10 +17,12 @@
 
 import { useMemo } from "react";
 import { Box } from "@chakra-ui/react";
+import { variant } from "@elaraai/east";
 import { EastChakraTable } from "@elaraai/east-ui-components";
 import { useSlotStyles } from "@elaraai/east-ui-components/internal";
 import { useQueryWords } from "../../query/words.js";
 import { useStudioMessages } from "../messages.js";
+import { VisualMeta } from "./meta.js";
 import { ShownNote } from "./notes.js";
 import { summaryModel, type SummaryView } from "./summary-table.js";
 import type { VisualAsked } from "./values.js";
@@ -48,6 +50,7 @@ export function SummaryVisual({ summary, asks, answers, source, storageKey }: Su
     if (model === undefined) return null;
     return (
         <Box css={styles.root} data-studio-summary="">
+            <VisualMeta view={variant("table", variant("summary", summary))} source={source} shown={model.shown} />
             <Box css={styles.table}>
                 <EastChakraTable value={model.table} storageKey={`${storageKey}.table`} tile totals={model.totals} cellTone={model.tone} rowHead={model.head}
                     headerNote={model.note} numberText={model.number} />

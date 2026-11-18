@@ -16,11 +16,13 @@
 
 import { useCallback, useMemo } from "react";
 import { Box } from "@chakra-ui/react";
+import { variant } from "@elaraai/east";
 import { EastVisxChart, type ChartMarkHandler, type ChartNumberText } from "@elaraai/east-ui-components";
 import { useSlotStyles } from "@elaraai/east-ui-components/internal";
 import { useQueryWords } from "../../query/words.js";
 import { useStudioMessages } from "../messages.js";
 import { chartModel, type ChartView } from "./chart-spec.js";
+import { VisualMeta } from "./meta.js";
 import { ShownNote } from "./notes.js";
 import { shortNumber, type VisualAsked } from "./values.js";
 
@@ -49,6 +51,7 @@ export function ChartVisual({ chart, asks, answers, source, onMark }: ChartVisua
     if (model === undefined) return null;
     return (
         <Box css={styles.root} data-studio-chart={chart.type}>
+            <VisualMeta view={variant("chart", chart)} source={source} shown={model.shown} />
             {model.caption !== undefined && <Box css={styles.caption} data-studio-chart-caption="">{model.caption}</Box>}
             <EastVisxChart value={model.spec} numberText={numberText} {...(onMark !== undefined ? { onMark } : {})} />
             {model.shown !== undefined && <ShownNote shown={model.shown} />}

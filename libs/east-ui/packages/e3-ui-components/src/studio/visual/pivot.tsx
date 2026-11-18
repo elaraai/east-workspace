@@ -15,10 +15,12 @@
 
 import { useMemo } from "react";
 import { Box } from "@chakra-ui/react";
+import { variant } from "@elaraai/east";
 import { EastChakraMatrix } from "@elaraai/east-ui-components";
 import { useSlotStyles } from "@elaraai/east-ui-components/internal";
 import { useQueryWords } from "../../query/words.js";
 import { useStudioMessages } from "../messages.js";
+import { VisualMeta } from "./meta.js";
 import { ShownNote } from "./notes.js";
 import { pivotModel, type PivotView } from "./pivot-matrix.js";
 import type { VisualAsked } from "./values.js";
@@ -45,6 +47,7 @@ export function PivotVisual({ pivot, asks, answers, source, storageKey }: PivotV
     if (model === undefined) return null;
     return (
         <Box css={styles.root} data-studio-pivot="">
+            <VisualMeta view={variant("table", variant("pivot", pivot))} source={source} shown={model.shown} />
             <Box css={styles.table}>
                 <EastChakraMatrix value={model.matrix} storageKey={`${storageKey}.matrix`} tile />
             </Box>

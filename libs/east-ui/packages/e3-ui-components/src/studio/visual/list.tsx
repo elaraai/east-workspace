@@ -15,10 +15,12 @@
 
 import { Fragment, useMemo } from "react";
 import { Box } from "@chakra-ui/react";
+import { variant } from "@elaraai/east";
 import { useSlotStyles } from "@elaraai/east-ui-components/internal";
 import { useQueryWords } from "../../query/words.js";
 import { useStudioMessages } from "../messages.js";
 import { listModel, type ListView } from "./list-rows.js";
+import { VisualMeta } from "./meta.js";
 import { ShownNote } from "./notes.js";
 import type { VisualAsked } from "./values.js";
 
@@ -42,6 +44,7 @@ export function ListVisual({ list, asks, answers, source }: ListVisualProps) {
     if (model === undefined) return null;
     return (
         <Box css={styles.root} data-studio-list="">
+            <VisualMeta view={variant("list", list)} source={source} shown={model.shown} />
             <Box css={styles.list}>
                 {model.rows.map((row, i) => (
                     <Box key={i} css={styles.listRow} data-studio-list-row="" data-bar={model.bar ? "" : undefined} data-caption={row.caption !== undefined ? "" : undefined}>
