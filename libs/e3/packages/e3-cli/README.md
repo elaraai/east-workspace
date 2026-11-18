@@ -151,8 +151,14 @@ naming its feed.
 e3 task list <repo> <ws>                        # List tasks with execution status
 e3 task logs <repo> <ws.task>                   # The last 200 lines of a task's logs (-n <lines> for more, --all for the whole log)
 e3 task logs <repo> <ws.task> --follow          # Tail, then stream live output
+e3 task logs <repo> <ws.record.source>          # The log of a composite record's load, by the name it has as a step of a run (dev.orders.erp)
 e3 task logs <repo> --execution <taskHash>/<inputsHash>/<executionId>   # One execution's own log — a unit a split task's log names (local repositories)
 ```
+
+The load of a composite record's source keeps its runs and its log as a task
+does, and is read by `<record>.<source>`, whether the dataflow runs it or
+`e3 load` delivers it: the log is its latest run's, the one that says why a
+load failed. `e3 task list` lists tasks alone.
 
 ### Dataflow execution
 
