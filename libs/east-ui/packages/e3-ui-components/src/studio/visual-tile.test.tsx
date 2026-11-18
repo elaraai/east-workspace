@@ -214,24 +214,39 @@ describe("a visual's tile", () => {
 });
 
 describe("a KPI's tile (#1671)", () => {
-    test("draws its value under its name, its change as a pill in its valence with a caret, its trend and its goal with the gap", async () => {
+    test("draws its value and unit under its name, its change a pill in its valence with a caret at their row's end, its goal, its trend and one line of annotation", async () => {
         // Revenue: 210 against an average order of 70; a goal of 300; a month a bucket, July's and August's.
         const kpi = v.kpi({ value: v.sum("revenue", { goal: 300 }), compare: v.mean("revenue"), trend: "ordered_at" });
         const { container } = page([cell("c1", v.of("orders", kpi))], createInMemoryQueryCall(DATASETS));
         expect(await screen.findByText("210")).toBeTruthy();
-        // The eyebrow names it; the Stat draws no label of its own.
+        // The eyebrow names it; the KPI draws no label of its own.
         expect([eyebrow(container), screen.getAllByText("Revenue")]).toEqual([["Revenue", "Orders"], [container.querySelector("[data-studio-visual-name]")]]);
+        // Its number, and its change at the end of its row; this source's revenue declares no unit to say beside it.
+        const row = container.querySelector("[data-studio-kpi-value]")!.parentElement!.parentElement!;
+        expect([...row.children].map((part) => part.textContent)).toEqual(["210", "+200%"]);
         const change = container.querySelector("[data-studio-kpi-change]")!;
-        expect([change.getAttribute("data-studio-kpi-change"), change.textContent]).toEqual(["positive", "+200%vs average revenue 70 · by month"]);
+        expect([change.getAttribute("data-studio-kpi-change"), change.textContent]).toEqual(["positive", "+200%"]);
         expect(change.querySelector("svg[data-icon=caret-up]")).not.toBeNull();
+        expect(container.querySelector("[data-studio-kpi-goal] [data-studio-kpi-goal-tick]")).not.toBeNull();
         expect(container.querySelectorAll("[data-studio-kpi-trend] svg path")).toHaveLength(1);
-        expect(screen.getByText("70% of goal 300 · 90 to go")).toBeTruthy();
+        // One line says what the change is against, then the goal and the gap.
+        expect([...container.querySelectorAll("[data-studio-kpi-note]")].map((note) => note.textContent)).toEqual(["vs average revenue 70 · by month · 70% of goal 300 · 90 to go"]);
+        // In the mock's order: the row, the goal's bar, the trend, the annotation.
+        expect([...container.querySelector("[data-studio-kpi]")!.children].map((part) => [...part.attributes].find((a) => a.name.startsWith("data-studio-kpi-"))?.name ?? "row"))
+            .toEqual(["row", "data-studio-kpi-goal", "data-studio-kpi-trend", "data-studio-kpi-note"]);
+    });
+
+    test("says a count's unit beside its number: its source, mid-sentence", async () => {
+        const { container } = page([cell("c1", v.of("orders", v.kpi({ value: v.count() })))], createInMemoryQueryCall(DATASETS));
+        await waitFor(() => expect(container.querySelector("[data-studio-kpi-unit]")).not.toBeNull());
+        const value = container.querySelector("[data-studio-kpi-value]")!;
+        expect([...value.parentElement!.children].map((part) => [part === value, part.textContent === "orders"])).toEqual([[true, false], [false, true]]);
     });
 
     test("draws only its value when its compare, trend and goal are empty, and says an absent value in words", async () => {
         const { container } = page([cell("c1", v.of("orders", v.kpi({ value: v.max("units") }), { where: condition(`.region == "SA"`) }))], createInMemoryQueryCall(DATASETS));
         expect(await screen.findByText("4")).toBeTruthy();
-        expect(container.querySelector("[data-studio-kpi-change], [data-studio-kpi-trend], [data-studio-kpi-goal]")).toBeNull();
+        expect(container.querySelector("[data-studio-kpi-change], [data-studio-kpi-trend], [data-studio-kpi-goal], [data-studio-kpi-note], [data-studio-kpi-unit]")).toBeNull();
     });
 });
 

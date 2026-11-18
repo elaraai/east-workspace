@@ -9,8 +9,8 @@
  * A Studio visual's values, as its tiles show them (#1671): a visual's name
  * made from its wells (TIL-1), values' names made from their measures, their
  * fields' formats, a change coloured by which way is better (KPI-2), a goal's
- * standing, and a KPI's model read from its answers, its words made (KPI-1,
- * KPI-3).
+ * standing, a number in short with its unit beside it, and a KPI's model
+ * read from its answers, its words made (KPI-1, KPI-3).
  */
 
 import { describe, expect, it } from "vitest";
@@ -18,7 +18,7 @@ import { Studio } from "@elaraai/e3-ui";
 import { formatters } from "@elaraai/east-ui-components";
 import { LISTED_ORDERS, answered } from "../../query/visual/visual.test-utils.js";
 import { studioMessages } from "../messages.js";
-import { CHANGE_FORMAT, changeOf, fieldLabel, goalOf, kpiModel, valueFormat, valueName, visualName, type KpiView } from "./values.js";
+import { CHANGE_FORMAT, changeOf, fieldLabel, goalOf, kpiModel, shortValue, unitLabel, valueFormat, valueName, visualName, type KpiView } from "./values.js";
 
 const v = Studio.visual;
 const m = studioMessages;
@@ -50,6 +50,24 @@ describe("a value's name and format", () => {
         expect([revenue, perUnit]).toEqual(["$1,234.50", "$12.50"]);
         expect([valueFormat(v.count(), LISTED_ORDERS), valueFormat(v.distinct("customer"), LISTED_ORDERS), valueFormat(v.sum("units"), LISTED_ORDERS)]).toEqual([undefined, undefined, undefined]);
         expect(words.value(0.124, CHANGE_FORMAT, true)).toBe("+12.4%");
+    });
+});
+
+describe("a value's number in short, and its unit (KPI-1)", () => {
+    it("says a value's unit beside its number: a currency's code, a count's source, what a ratio is of per one of what it is per", () => {
+        const units = [v.sum("revenue"), v.count(), v.distinct("customer"), v.ratio("revenue", "units"), v.ratio("units", "customer"), v.sum("units"), v.mean("margin")]
+            .map((value) => unitLabel(value, LISTED_ORDERS, m));
+        // A sum of a field with no unit has none: its name says what it is.
+        expect(units).toEqual(["AUD", "orders", "customers", "AUD/unit", "units/customer", undefined, undefined]);
+    });
+
+    it("prints a number at three significant digits of its magnitude with no sign of its currency, beside another at that one's scale", () => {
+        const revenue = v.sum("revenue");
+        expect([3_840_000, 612_000, 1284, 11.42].map((n) => shortValue(n, revenue, LISTED_ORDERS, words))).toEqual(["3.84M", "612k", "1,284", "11.42"]);
+        // A gap beside its goal.
+        expect(shortValue(660_000, revenue, LISTED_ORDERS, words, 4_500_000)).toBe("0.66M");
+        // A count is plain.
+        expect(shortValue(1000, v.count(), LISTED_ORDERS, words)).toBe("1,000");
     });
 });
 
@@ -121,38 +139,38 @@ describe("kpiModel", () => {
         const { asks, answers } = await answered(content);
         const model = kpiModel(kpiOf(content), asks, answers, LISTED_ORDERS, m, words);
         // The quarter's 270 against a year before's 50; the quarter's trend a week a point.
-        expect([model.value, model.change?.change, model.change?.text, model.change?.against])
-            .toEqual([270, { delta: 220, share: 4.4, tone: "positive" }, "+440%", "vs year ago $50.00 · by week"]);
+        expect([model.value, model.text, model.unit, model.change]).toEqual([270, "270", "AUD", { change: { delta: 220, share: 4.4, tone: "positive" }, text: "+440%" }]);
         expect(model.trend).toEqual([100, 50, 70, 30, 20]);
-        expect(model.goal).toEqual({ standing: { goal: 300, share: 0.9, gap: 30, over: false }, text: "90% of goal $300.00 · $30.00 to go" });
-        expect(words.value(model.value!, model.format)).toBe("$270.00");
+        expect(model.goal).toEqual({ goal: 300, share: 0.9, gap: 30, over: false });
+        // One line: what the change is against, then the goal and the gap — no sign of the currency, which the unit says.
+        expect(model.annotation).toBe("vs year ago 50 · by week · 90% of goal 300 · 30 to go");
     });
 
     it("says a value past its goal by how far past, and its share of the goal past 100%", async () => {
         const content = v.of("orders", v.kpi({ value: v.sum("revenue", { goal: 200 }) }));
         const { asks, answers } = await answered(content);
-        expect(kpiModel(kpiOf(content), asks, answers, LISTED_ORDERS, m, words).goal?.text).toBe("135% of goal $200.00 · $70.00 over");
+        expect(kpiModel(kpiOf(content), asks, answers, LISTED_ORDERS, m, words).annotation).toBe("135% of goal 200 · 70 over");
     });
 
     it("colours the change of a value that is better lower as a fall being good, and says so", async () => {
         const content = v.of("orders", v.kpi({ value: v.sum("revenue", { better: "lower" }), compare: v.sum("revenue", { period: "year_ago" }) }));
         const { asks, answers } = await answered(content);
-        const change = kpiModel(kpiOf(content), asks, answers, LISTED_ORDERS, m, words).change;
-        expect([change?.change.tone, change?.against]).toEqual(["negative", "vs year ago $50.00 · lower is better"]);
+        const model = kpiModel(kpiOf(content), asks, answers, LISTED_ORDERS, m, words);
+        expect([model.change?.change.tone, model.annotation]).toEqual(["negative", "vs year ago 50 · lower is better"]);
     });
 
     it("says a count's change as a number of it, never a share", async () => {
         const content = v.of("orders", v.kpi({ value: v.count(), compare: v.count({ period: "year_ago" }) }));
         const { asks, answers } = await answered(content);
-        const change = kpiModel(kpiOf(content), asks, answers, LISTED_ORDERS, m, words).change;
+        const model = kpiModel(kpiOf(content), asks, answers, LISTED_ORDERS, m, words);
         // Five orders this quarter against two a year before.
-        expect([change?.text, change?.against]).toEqual(["+3", "vs year ago 2"]);
+        expect([model.text, model.unit, model.change?.text, model.annotation]).toEqual(["5", "orders", "+3", "vs year ago 2"]);
     });
 
     it("leaves out a part whose well is empty: no compare, no trend, no goal (KPI-3)", async () => {
         const content = v.of("orders", v.kpi({ value: v.count() }));
         const { asks, answers } = await answered(content);
         const model = kpiModel(kpiOf(content), asks, answers, LISTED_ORDERS, m, words);
-        expect([model.value, model.change, model.trend, model.goal, model.format]).toEqual([5, undefined, [], undefined, undefined]);
+        expect([model.value, model.change, model.trend, model.goal, model.annotation]).toEqual([5, undefined, [], undefined, undefined]);
     });
 });

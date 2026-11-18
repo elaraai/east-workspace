@@ -375,6 +375,7 @@ describe("the small boxes whose words are centred in them (#1638)", () => {
         ["a Roster skill tag", at(roster, "skillTag"), "16px", "14px"],
         ["an Allocation band's count", at(allocation, "bandCount"), "16px", "16px"],
         ["a Table group head's count", at(tableSlotRecipe.base, "rowCount"), "16px", "16px"],
+        ["a metric chip: the 20px DeltaPill in its clear edge", at(metricChipSlotRecipe.base, "root"), "20px", "18px"],
         ["the Allocation inspector's resource field", at(allocationInspectorSlotRecipe.base, "resourceField"), "32px", "30px"],
         ["the Studio preview's device", at(studioPublishSlotRecipe.base, "device"), "26px", "26px"],
         ["the Studio preview's environment", at(studioPublishSlotRecipe.base, "env"), "26px", "24px"],

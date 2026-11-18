@@ -9,8 +9,9 @@
  * placement has no title (TIL-1); a value's name — its label, else one made
  * from its measure and its fields' labels — and the format its numbers take,
  * its field's; a change against a compare, coloured by which way is better
- * (KPI-2); how a value stands to its goal; and a KPI's whole model, read from
- * its answers, its words made.
+ * (KPI-2); how a value stands to its goal; a number where room is short and
+ * the unit said beside it; and a KPI's whole model, read from its answers,
+ * its words made.
  *
  * It imports neither React nor the renderers.
  *
@@ -327,6 +328,50 @@ export function valueUnit(value: VisualValue, source: VisualSource): { readonly 
 }
 
 /**
+ * A value's unit, as a tile says it beside its number (KPI-1): a currency's
+ * code — `AUD`; a count's source, mid-sentence — `orders`; a count of
+ * different values, what is counted — `customers`; a ratio's, what it is of
+ * per one of what it is per — `AUD/unit`. A value of any other field has
+ * none: its name says what it is.
+ *
+ * @param value - The value
+ * @param source - The source its fields are of
+ * @param m - The Studio's words
+ * @returns The unit; `undefined` for none
+ */
+export function unitLabel(value: VisualValue, source: VisualSource, m: StudioMessages): string | undefined {
+    const measure = value.measure;
+    switch (measure.type) {
+        case "count": return midSentence(source.name);
+        case "distinct": return plural(midSentence(fieldLabel(source, measure.value)));
+        case "ratio": {
+            const of = valueUnit(value, source).unit ?? midSentence(fieldLabel(source, measure.value.of));
+            return m.unitPer({ unit: of, per: singular(midSentence(fieldLabel(source, measure.value.per))) });
+        }
+        default: return valueUnit(value, source).unit;
+    }
+}
+
+/**
+ * A value's number where room is short — a tile's number, an axis tick, a
+ * bar's end (KPI-1, TIL-5): three significant digits of its magnitude, with
+ * no sign of a currency, whose code is said apart ({@link unitLabel}) —
+ * `3.84M`, `612k`, `1,284`, `11.42`; a share or a date as its field prints it.
+ *
+ * @param n - The number
+ * @param value - The value it is of
+ * @param source - The source its fields are of
+ * @param f - The locale's formatters
+ * @param of - A number it is read beside, whose magnitude and decimals it takes — a goal beside its gap
+ * @returns The text
+ */
+export function shortValue(n: number, value: VisualValue, source: VisualSource, f: Formatters, of?: number): string {
+    const declared = valueFieldFormat(value, source);
+    const own = declared.type === "some" && declared.value.type !== "currency" && declared.value.type !== "number" && declared.value.type !== "compact";
+    return own ? f.value(n, tickFormatOf(declared.value)) : f.short(n, of);
+}
+
+/**
  * Whether a value lies on its goal's wrong side (CHT-4, TBL-3): under it
  * where higher is better, over it where lower is.
  *
@@ -424,27 +469,11 @@ export function goalOf(value: number, goal: number): GoalStanding {
  *
  * @property change - The change itself
  * @property text - What its pill says: a count's change as a number of it (`−12`), any other's as a share of what it is against (`+6.1%`)
- * @property against - What it is against, with what that was, then its trend's bucket and, when less is better, so — `vs year ago 10.76 · by month`
  */
 export interface KpiChange {
     /** The change itself. */
     readonly change: ValueChange;
     /** What its pill says. */
-    readonly text: string;
-    /** What it is against, and how to read it. */
-    readonly against: string;
-}
-
-/**
- * A KPI's goal, in its words.
- *
- * @property standing - How the value stands to it
- * @property text - How far to it, and the gap — `85% of goal 4.50M · 0.66M to go`
- */
-export interface KpiGoal {
-    /** How the value stands to it. */
-    readonly standing: GoalStanding;
-    /** How far to it, and the gap. */
     readonly text: string;
 }
 
@@ -452,29 +481,38 @@ export interface KpiGoal {
  * A KPI, read from its answers.
  *
  * @property value - Its value; `undefined` for "no data"
- * @property format - Its value's format
+ * @property text - Its value in short, with no sign of its unit — `3.84M`; `undefined` for "no data"
+ * @property unit - Its unit, said beside it — `AUD`, `orders`, `AUD/unit`; `undefined` for none
  * @property change - Its change against its compare; `undefined` with no compare, or none to make
  * @property trend - Its value along its trend field, a bucket a point in time order; empty with no trend
  * @property goal - How it stands to its value's goal; `undefined` with no goal, or no value
+ * @property annotation - Its one line of annotation: what its change is against, with what that was, its trend's
+ *   bucket and, when less is better, so — `vs year ago 10.76 · by month` — then how far to its goal and the gap —
+ *   `85% of goal 4.50M · 0.66M to go`; `undefined` with neither
  */
 export interface KpiModel {
     /** Its value; `undefined` for "no data". */
     readonly value: number | undefined;
-    /** Its value's format. */
-    readonly format: TickFormatOpt;
+    /** Its value in short, with no sign of its unit; `undefined` for "no data". */
+    readonly text: string | undefined;
+    /** Its unit, said beside it; `undefined` for none. */
+    readonly unit: string | undefined;
     /** Its change against its compare; `undefined` with no compare, or none to make. */
     readonly change: KpiChange | undefined;
     /** Its value along its trend field, a bucket a point in time order; empty with no trend. */
     readonly trend: readonly number[];
     /** How it stands to its value's goal; `undefined` with no goal, or no value. */
-    readonly goal: KpiGoal | undefined;
+    readonly goal: GoalStanding | undefined;
+    /** Its one line of annotation; `undefined` with nothing to say. */
+    readonly annotation: string | undefined;
 }
 
 /**
- * A KPI's model, from its answers (KPI-1 to KPI-3): its value, its change
- * against its compare, its trend and its goal, each with its words — each
- * absent where its well is empty, so nothing is drawn in its place. Its name
- * is its tile's eyebrow ({@link visualName}).
+ * A KPI's model, from its answers (KPI-1 to KPI-3): its value in short with
+ * its unit, its change against its compare, its trend and its goal, and the
+ * one line that says what they are against — each absent where its well is
+ * empty, so nothing is drawn in its place. Its name is its tile's eyebrow
+ * ({@link visualName}).
  *
  * @param kpi - The KPI
  * @param asks - Its asks, as the printer gave them
@@ -492,30 +530,42 @@ export function kpiModel(
     const made = (index: number) => (total === undefined ? undefined : partsAt(total.parts, index));
     const value = made(0);
     const compared = made(1);
-    const format = valueFormat(kpi.value, source);
     const compare = kpi.compare.type === "some" ? kpi.compare.value : undefined;
     const bucket = asks.find((ask) => ask.role === "trend")?.bucket;
+    // The one line of annotation: what the change is against, then the goal.
+    const notes: string[] = [];
     let change: KpiChange | undefined;
     if (compare !== undefined && value !== undefined && compared !== undefined) {
         const of = changeOf(value, compared, kpi.value.better.type);
-        const against = [
-            m.changeAgainst({ period: compare.period.type, name: midSentence(valueName(compare, source, m)), value: f.value(compared, valueFormat(compare, source)) }),
+        notes.push(
+            // What it was, beside the value: at the value's scale.
+            m.changeAgainst({ period: compare.period.type, name: midSentence(valueName(compare, source, m)), value: shortValue(compared, compare, source, f, value) }),
             ...(bucket === undefined ? [] : [m.trendBy({ unit: m.bucketWord({ unit: bucket }) })]),
             ...(kpi.value.better.type === "lower" ? [m.lowerBetter()] : []),
-        ];
-        const text = kpi.value.measure.type === "count" || of.share === undefined ? f.value(of.delta, format, true) : f.value(of.share, CHANGE_FORMAT, true);
-        change = { change: of, text, against: against.join(JOIN) };
+        );
+        const text = kpi.value.measure.type === "count" || of.share === undefined ? f.value(of.delta, valueFormat(kpi.value, source), true) : f.value(of.share, CHANGE_FORMAT, true);
+        change = { change: of, text };
     }
     const trend = kpi.trend.type === "none" ? [] : (readGroups(asks, answers, values, "trend")?.groups ?? [])
         .map((group) => partsAt(group.parts, 0))
         .filter((point): point is number => point !== undefined);
-    let goal: KpiGoal | undefined;
+    let goal: GoalStanding | undefined;
     if (kpi.value.goal.type === "some" && value !== undefined) {
-        const standing = goalOf(value, kpi.value.goal.value);
-        const target = f.value(standing.goal, format);
+        goal = goalOf(value, kpi.value.goal.value);
+        // The goal and the gap share a scale: the larger of the value and the goal.
+        const scale = Math.max(Math.abs(value), Math.abs(goal.goal));
+        const target = shortValue(goal.goal, kpi.value, source, f, scale);
         // How far to it is the value over the goal, past 100% once it is passed; a goal of 0 has none.
-        const reached = standing.goal === 0 ? m.goalOf({ goal: target }) : m.goalShare({ share: f.value(value / standing.goal, SHARE_FORMAT), goal: target });
-        goal = { standing, text: [reached, m.goalGap({ gap: f.value(standing.gap, format), over: standing.over })].join(JOIN) };
+        notes.push(
+            goal.goal === 0 ? m.goalOf({ goal: target }) : m.goalShare({ share: f.value(value / goal.goal, SHARE_FORMAT), goal: target }),
+            m.goalGap({ gap: shortValue(goal.gap, kpi.value, source, f, scale), over: goal.over }),
+        );
     }
-    return { value, format, change, trend, goal };
+    return {
+        value,
+        text: value === undefined ? undefined : shortValue(value, kpi.value, source, f),
+        unit: unitLabel(kpi.value, source, m),
+        change, trend, goal,
+        annotation: notes.length === 0 ? undefined : notes.join(JOIN),
+    };
 }
