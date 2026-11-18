@@ -73,7 +73,7 @@ export type SnapGridVariantLiteral = "tiles" | "wireframe";
 
 /**
  * A change a host asks the editing canvas to make to one tile (#996, #1672) —
- * an inspector's edit. The canvas takes it as ONE gesture of its session, by
+ * an inspector's edit — or a row to add after it (#1673). The canvas takes it as ONE gesture of its session, by
  * the rules its own handles and drags keep, and writes the `ui` state's
  * `request` back to `none`.
  *
@@ -84,9 +84,12 @@ export type SnapGridVariantLiteral = "tiles" | "wireframe";
  *   content's own; its `align`, written to the field `edit.align` names; a
  *   `field` of its entry, by name, its value encoded at the field's type — what
  *   it shows, edited (#1672): never a field `edit` names, which is its identity
- *   or its place, and the other cases'; or a `duplicate`: a copy of its entry
+ *   or its place, and the other cases'; a `duplicate`: a copy of its entry
  *   under a fresh key, after it in its row while the row has room for it at its
- *   span — else in a new row after its row — and selected (#1672)
+ *   span — else in a new row after its row — and selected (#1672); or an `add`:
+ *   an entry the host built, encoded at the entries' type, placed in a new row
+ *   after the tile's row and selected — its identity a fresh key made from the
+ *   one it holds, its row the new row's, both the canvas's to set (#1673)
  */
 export const SnapGridRequestType = StructType({
     key: StringType,
@@ -97,6 +100,7 @@ export const SnapGridRequestType = StructType({
         align: SnapGridAlignType,
         field: StructType({ name: StringType, value: BlobType }),
         duplicate: NullType,
+        add: BlobType,
     }),
 });
 

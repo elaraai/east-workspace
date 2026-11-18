@@ -30,7 +30,7 @@ const HEAD_ROOM = 34;
 export const studioVisualSlotRecipe = defineSlotRecipe({
     className: "elara-studio-visual",
     slots: [
-        "tile", "head", "name", "end", "meta", "body", "root", "caption", "note", "table", "foot",
+        "tile", "head", "name", "end", "meta", "follow", "body", "root", "caption", "note", "table", "foot",
         "kpi", "kpiRow", "kpiValue", "kpiNumber", "kpiUnit", "kpiChange", "absent", "goal", "goalTick", "trend", "anno",
         "heat", "heatRamp", "heatSwatch", "heatTicks",
         "list", "listRow", "listLine", "listText", "listName", "listCaption", "listValue", "listUnit", "listBar", "listBarFill",
@@ -57,6 +57,15 @@ export const studioVisualSlotRecipe = defineSlotRecipe({
         end: { display: "flex", alignItems: "center", gap: "{spacing.1}", flexShrink: "0" },
         /* Its meta: mono 9.5, `--ink-4`, on the name's line. */
         meta: { fontFamily: "mono", fontSize: "label.xs", lineHeight: centredLine(HEAD_ROOM, 12), color: "fg.subtle", whiteSpace: "nowrap" },
+        /* What it follows (LNK-4): the link icon, then the selected value, as its meta is set — in `--brand-d` while it
+           is narrowed, `--ink-4` with nothing selected or its leader removed; cut with an ellipsis before its meta. */
+        follow: {
+            display: "inline-flex", alignItems: "center", gap: "{spacing.1}", minWidth: "0", maxWidth: "160px",
+            fontFamily: "mono", fontSize: "label.xs", lineHeight: centredLine(HEAD_ROOM, 12), color: "fg.subtle", whiteSpace: "nowrap",
+            "& > span": { overflow: "hidden", textOverflow: "ellipsis" },
+            "& svg": { fontSize: "9px", flexShrink: "0" },
+            "&[data-following='selected']": { color: "brand.solid" },
+        },
         /* Its body, padded 20; its parts 12 apart. A table's or a list's rows run edge to edge, under the strip. */
         body: {
             display: "flex", flexDirection: "column", gap: "{spacing.3}", flex: "1", minWidth: "0", minHeight: "0", padding: "{spacing.5}",
@@ -169,6 +178,13 @@ export const studioVisualSlotRecipe = defineSlotRecipe({
             "&[data-caption]": { paddingTop: "8px" },
             "&:last-of-type": { borderBottomWidth: "0" },
             "&[data-bar]": { paddingBlock: "10px" },
+            /* A row a click selects, filters or opens by: a button. Selected, `--paper-3` (LST-3). */
+            "&[data-clickable]": {
+                cursor: "pointer",
+                _hover: { background: "bg.canvas" },
+                _focusVisible: { outline: "2px solid", outlineColor: "border.focus", outlineOffset: "-2px" },
+            },
+            "&[data-selected], &[data-selected]:hover": { background: "bg.subtle" },
         },
         /* Its line: its name and caption, then its values with their units, 12 apart. */
         listLine: { display: "flex", alignItems: "baseline", gap: "{spacing.3}", minWidth: "0" },

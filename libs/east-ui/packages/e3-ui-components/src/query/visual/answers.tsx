@@ -44,15 +44,17 @@ const sourcesEqual = equalFor(ArrayType(StudioSourceType));
 const sameMinute = equalFor(DateTimeType);
 
 /**
- * A page's answers: the sources it lists, and by key; its kept answers; the
- * hash of each source as the poll last read it; whether the root's `.now` is
- * the clock; why each source it cannot query cannot, by key; and the minute it
- * is when an ask is made. The minute a tile draws by is apart from these, in
+ * A page's answers: the sources it lists, and by key; the root its programs
+ * read, where it has sources to query; its kept answers; the hash of each
+ * source as the poll last read it; whether the root's `.now` is the clock; why
+ * each source it cannot query cannot, by key; and the minute it is when an ask
+ * is made. The minute a tile draws by is apart from these, in
  * {@link PageMinuteContext}: as it moves on, these stay as they were.
  */
 interface PageAnswers {
     readonly list: Source[];
     readonly sources: ReadonlyMap<string, Source>;
+    readonly root: QueryRoot | undefined;
     readonly answers: VisualAnswers;
     readonly hashes: ReadonlyMap<string, string>;
     readonly clock: boolean;
@@ -64,8 +66,8 @@ const PageAnswersContext = createContext<PageAnswers | null>(null);
 
 /**
  * The minute a page takes as now (#1670): apart from its answers, so that
- * only what reads it — a tile whose programs read `.now` — draws again as it
- * moves on.
+ * only what reads it — a tile whose programs read `.now`, the filters that
+ * count back from it — draws again as it moves on.
  */
 const PageMinuteContext = createContext<Date | undefined>(undefined);
 
@@ -185,8 +187,8 @@ function PageAnswersRoot({ sources, now, children }: VisualAnswersProviderProps)
             const why = refusedByName.get(source.binding.name);
             if (why !== undefined) refused.set(source.key, why);
         }
-        return { list: [...sources], sources: byKey, answers, hashes, clock, refused, minute: minuteNow };
-    }, [sources, refusedByName, answers, hashes, clock, minuteNow]);
+        return { list: [...sources], sources: byKey, root, answers, hashes, clock, refused, minute: minuteNow };
+    }, [sources, refusedByName, root, answers, hashes, clock, minuteNow]);
     return createElement(PageAnswersContext.Provider, { value }, createElement(PageMinuteContext.Provider, { value: minute }, children));
 }
 
@@ -198,6 +200,26 @@ function PageAnswersRoot({ sources, now, children }: VisualAnswersProviderProps)
  */
 export function useVisualSource(key: string): Source | undefined {
     return useContext(PageAnswersContext)?.sources.get(key);
+}
+
+/**
+ * The root the page's programs read: a struct of the sources it can query —
+ * what a filter's conditions are checked against, and its values read from.
+ *
+ * @returns The root; `undefined` when the page has no source to query, or no provider is mounted
+ */
+export function useVisualRoot(): QueryRoot | undefined {
+    return useContext(PageAnswersContext)?.root;
+}
+
+/**
+ * The minute the page takes as now: what a filter that counts back from now
+ * counts from. What reads it draws again as it moves on.
+ *
+ * @returns The minute; `undefined` when no provider is mounted
+ */
+export function useVisualMinute(): Date | undefined {
+    return useContext(PageMinuteContext);
 }
 
 /**

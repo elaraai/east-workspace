@@ -15,7 +15,7 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-    ArrayType, East, FloatType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, none, some, variant,
+    ArrayType, East, FloatType, NullType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, none, some, variant,
     type ValueTypeOf,
 } from "@elaraai/east";
 import e3 from "@elaraai/e3";
@@ -97,8 +97,8 @@ describe("<Studio.Page> (#993)", () => {
             return Studio.Page({
                 pages: all.read(), components, page: { project: "ops", page: "overview" },
                 sources: {
-                    sales: Studio.source(whole, { name: "Sales", icon: "receipt", search: ["region"] }),
-                    orders: Studio.source(paged, { name: "Orders", icon: "cart-shopping", split: ["region"] }),
+                    sales: Studio.source(whole, { name: "Sales", icon: "receipt" }),
+                    orders: Studio.source(paged, { name: "Orders", icon: "cart-shopping" }),
                 },
             });
         }))));
@@ -124,5 +124,21 @@ describe("<Studio.Page> (#993)", () => {
             return Studio.Page({ pages: PAGES, components, page: { project: "ops", page: "overview" }, version: "draft" });
         }), [])());
         assert.deepEqual(draft.version, variant("draft", null));
+    });
+
+    test("#1673: it carries the host's onOpen, which a click that opens a page tells that page's key; with none given, it holds none", () => {
+        const told = payloadOf(East.compile(East.function([], UIComponentType, ($) => {
+            const components = $.let([note]);
+            const onOpen = $.const(East.function([Studio.Types.Key], NullType, (_$2, _key) => null));
+            return Studio.Page({ pages: PAGES, components, page: { project: "ops", page: "overview" }, onOpen });
+        }), [])());
+        if (told.onOpen.type !== "some") assert.fail("expected the host's onOpen");
+        assert.equal(told.onOpen.value({ project: "ops", page: "detail" }), null);
+
+        const silent = payloadOf(East.compile(East.function([], UIComponentType, ($) => {
+            const components = $.let([note]);
+            return Studio.Page({ pages: PAGES, components, page: { project: "ops", page: "overview" } });
+        }), [])());
+        assert.deepEqual(silent.onOpen, none);
     });
 });

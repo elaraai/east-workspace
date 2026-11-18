@@ -25,6 +25,7 @@ import type { TableCellTone, TableRootValue, TableRowHead, TableTotalCell } from
 import type { QueryWords } from "../../query/model/words.js";
 import { rowsTable, type ResultColumn } from "../../query/results-table.js";
 import type { VisualAnswer } from "../../query/visual/ask.js";
+import type { ClickedGroup } from "../../query/visual/clicks.js";
 import type { VisualAsk, VisualValue } from "../../query/visual/print.js";
 import { foldGroups, partsAt, readGroups, readTotal, type ReadGroup, type ReadGroups } from "../../query/visual/read.js";
 import { capitalised, type StudioMessages } from "../messages.js";
@@ -61,6 +62,7 @@ const compareFloat = compareFor(FloatType);
  * @property note - What a column's head says after its label, by its key: a value's goal — `goal 11.00`
  * @property number - A column's number in short, by its key, at the scale of the largest the column draws
  * @property shown - What it holds of how many groups, when it holds fewer; `undefined` when it holds them all
+ * @property clicked - The groups a row stands for, by its pre-order index: what a click on it is made on (TBL-6)
  */
 export interface SummaryModel {
     /** Its rows as the Table's value, in pre-order: a head, then its groups. */
@@ -77,14 +79,17 @@ export interface SummaryModel {
     readonly number: (n: number, columnKey: string) => string | undefined;
     /** What it holds of how many groups, when it holds fewer; `undefined` when it holds them all. */
     readonly shown: VisualShown | undefined;
+    /** The groups a row stands for, by its pre-order index (TBL-6): a head's its own, a group under a head both; `undefined` for Other's. */
+    readonly clicked: (rowIndex: number) => readonly ClickedGroup[] | undefined;
 }
 
-/** One row of a summary: its label, its values' parts, how deep it sits, and a head's count. */
+/** One row of a summary: its label, its values' parts, how deep it sits, a head's count, and the groups it stands for. */
 interface SummaryRow {
     readonly label: string;
     readonly parts: ReadGroup["parts"];
     readonly depth: number;
     readonly head: TableRowHead | undefined;
+    readonly clicked?: readonly ClickedGroup[];
 }
 
 /** A value of some parts; `undefined` for "no data". */
@@ -169,7 +174,12 @@ export function summaryModel(summary: SummaryView, asks: readonly VisualAsk[], a
     if (second === undefined || heads === undefined) {
         // One group: a row a group, its first N then Other.
         const level = cutAt(ordered(leaves.groups, 0, first, leaves.keyTypes[0]!), first, leaves.of <= leaves.groups.length);
-        for (const group of level.kept) rows.push({ label: label(group.keys[0], leaves.keyTypes[0], first), parts: group.parts, depth: 0, head: undefined });
+        for (const group of level.kept) {
+            rows.push({
+                label: label(group.keys[0], leaves.keyTypes[0], first), parts: group.parts, depth: 0, head: undefined,
+                clicked: [{ group: first, key: group.keys[0], type: leaves.keyTypes[0]! }],
+            });
+        }
         if (level.other !== undefined) rows.push({ label: m.other(), parts: level.other.parts, depth: 0, head: undefined });
         shown = shownOf(leaves, level.hidden, level.kept.length);
     } else {
@@ -187,9 +197,15 @@ export function summaryModel(summary: SummaryView, asks: readonly VisualAsk[], a
         const level = cutAt(heads.groups, first, heads.of <= heads.groups.length);
         for (const head of level.kept) {
             const groups = under.get(head.keys[0]) ?? [];
-            rows.push({ label: label(head.keys[0], headType, first), parts: head.parts, depth: 0, head: { count: groups.length } });
+            const headed: ClickedGroup = { group: first, key: head.keys[0], type: headType };
+            rows.push({ label: label(head.keys[0], headType, first), parts: head.parts, depth: 0, head: { count: groups.length }, clicked: [headed] });
             const inner = cutAt(ordered(groups, 1, second, groupType), second, complete);
-            for (const group of inner.kept) rows.push({ label: label(group.keys[1], groupType, second), parts: group.parts, depth: 1, head: undefined });
+            for (const group of inner.kept) {
+                rows.push({
+                    label: label(group.keys[1], groupType, second), parts: group.parts, depth: 1, head: undefined,
+                    clicked: [headed, { group: second, key: group.keys[1], type: groupType }],
+                });
+            }
             if (inner.other !== undefined) rows.push({ label: m.other(), parts: inner.other.parts, depth: 1, head: undefined });
         }
         // Other's head: the heads past the first N, folded — the query's own heads, so a mean is still the query's.
@@ -256,5 +272,6 @@ export function summaryModel(summary: SummaryView, asks: readonly VisualAsk[], a
             return shortNumber(n, format.type === "some" ? format.value : undefined, said.formatters, scales[i] === 0 ? undefined : scales[i]);
         },
         shown,
+        clicked: (rowIndex) => rows[rowIndex]?.clicked,
     };
 }

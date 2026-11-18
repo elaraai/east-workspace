@@ -17,11 +17,12 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { equalFor, none, printJq, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Studio } from "@elaraai/e3-ui";
-import type { Chart } from "@elaraai/east-ui/internal";
+import { Chart } from "@elaraai/east-ui/internal";
 import { formatters } from "@elaraai/east-ui-components";
 import { queryWords } from "../../query/model/words.js";
+import { groupCondition } from "../../query/visual/clicks.js";
 import { LISTED_ORDERS, answered } from "../../query/visual/visual.test-utils.js";
 import { studioMessages } from "../messages.js";
 import { GOAL_COLOR, NEG_COLOR, OTHER_COLOR, REFERENCE_COLOR, REFERENCE_WIDTH, chartModel, type ChartModel, type ChartSpec, type ChartView } from "./chart-spec.js";
@@ -311,5 +312,49 @@ describe("chartModel", () => {
         // A count has no currency: its source is its unit.
         const counted = childrenOf((await modelOf(v.of("orders", v.pie({ slice: v.group("region"), value: v.count(), donut: true })))).spec)[0]!;
         expect(counted.type === "pie" ? counted.value.caption : none).toEqual(some("orders · total"));
+    });
+    it("says the groups a mark stands for: a column's category and its split's value, a legend row's split value — and none for Other's, or a legend row naming a value (CHT-8)", async () => {
+        const split = await modelOf(v.of("orders", v.column({
+            x: v.group("ordered_at", { bucket: "month" }), values: [v.sum("revenue")], split: "region", stack: "stacked",
+        })));
+        const said = (groups: ReturnType<ChartModel["clicked"]>) => groups?.map((clicked) => printJq(groupCondition(clicked.group, clicked.key, clicked.type)!).text);
+        // July's South Australia: the month, and the region.
+        expect(said(split.clicked({ series: "SA", x: variant("category", month(6)), other: false })))
+            .toEqual([`(.ordered_at | strftime("%Y-%m")) == "2026-07"`, `.region == "SA"`]);
+        // A legend row is its split's value alone; every series at an x, the month alone.
+        expect(said(split.clicked({ series: "NSW", x: undefined, other: false }))).toEqual([`.region == "NSW"`]);
+        expect(said(split.clicked({ series: undefined, x: variant("category", month(7)), other: false }))).toEqual([`(.ordered_at | strftime("%Y-%m")) == "2026-08"`]);
+        // Other's series is no one region.
+        expect(split.clicked({ series: "Other", x: variant("category", month(7)), other: false })).toBeUndefined();
+
+        const values = await modelOf(v.of("orders", v.column({ x: v.group("region", { top: 2n }), values: [v.sum("revenue"), v.count()] })));
+        // A series that is a value names no group: its mark is its category's, and its legend row no group's.
+        expect(said(values.clicked({ series: "Revenue", x: variant("category", "SA"), other: false }))).toEqual([`.region == "SA"`]);
+        expect(values.clicked({ series: "Revenue", x: undefined, other: false })).toBeUndefined();
+        // Other's category is no one region.
+        const other = childrenOf(values.spec).flatMap((child) => (child.type === "series" ? child.value.data.flatMap((series) => series.points.map((point) => point.x)) : []))
+            .find((x) => x.type === "category" && x.value.startsWith("Other"));
+        expect(other === undefined ? "no Other" : values.clicked({ series: "Revenue", x: other, other: false })).toBeUndefined();
+    });
+
+    it("says the group a line's point over dates, a pie's slice and a scatter's point stand for (CHT-8)", async () => {
+        const said = (groups: ReturnType<ChartModel["clicked"]>) => groups?.map((clicked) => printJq(groupCondition(clicked.group, clicked.key, clicked.type)!).text);
+        // A line over dates stands on a time axis: its point's x is its bucket's first instant.
+        const line = await modelOf(v.of("orders", v.line({ x: v.group("ordered_at", { bucket: "month" }), values: [v.sum("revenue")] })));
+        const [first] = layersOf(line.spec)[0]!.data[0]!.points;
+        expect(first!.x.type).toBe("time");
+        expect(said(line.clicked({ series: "Revenue", x: first!.x, other: false }))).toEqual([`(.ordered_at | strftime("%Y-%m")) == "2026-07"`]);
+
+        const pie = await modelOf(v.of("orders", v.pie({ slice: v.group("region", { top: 2n }), value: v.sum("revenue") })));
+        expect(said(pie.clicked({ series: undefined, x: variant("category", "SA"), other: false }))).toEqual([`.region == "SA"`]);
+        expect(pie.clicked({ series: undefined, x: undefined, other: true })).toBeUndefined();
+
+        const scatter = await modelOf(v.of("orders", v.scatter({ point: "customer", x: v.sum("units"), y: v.sum("revenue") })));
+        const points = layersOf(scatter.spec)[0]!.data[0]!.points;
+        const groups = points.map((point) => scatter.clicked({ series: undefined, x: point.x, other: false }));
+        // Each point alone at its x is its customer's; two at one x are no one customer's.
+        expect(groups.some((clicked) => clicked !== undefined && clicked[0]!.group.field === "customer")).toBe(true);
+        const sameX = equalFor(Chart.Spec.Types.XCoord);
+        points.forEach((point, k) => expect(groups[k] === undefined).toBe(points.filter((other) => sameX(other.x, point.x)).length > 1));
     });
 });

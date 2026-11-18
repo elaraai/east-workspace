@@ -106,6 +106,86 @@ export interface StudioMessages {
     needsWindow: (p: { source: string }) => string;
     /** Under it. */
     needsWindowHint: () => string;
+    /** The page's filters — the rail's name, and its folded chip's. */
+    filters: () => string;
+    /** How many filters narrow the page, as the rail's folded chip says it. */
+    filtersSet: (p: { n: number; count: string }) => string;
+    /** A filter's chip where the page lists more than one source: the source's name, then the filter's words. */
+    filterOn: (p: { source: string; filter: string }) => string;
+    /** A filter's editor's head: the source it is on. */
+    filterOf: (p: { source: string }) => string;
+    /** The source a new filter is on — the chooser's label. */
+    filterSource: () => string;
+    /** A filter on a source the page no longer lists, in its editor. */
+    filterSourceGone: (p: { source: string }) => string;
+    /** A follower's tag on the builder's canvas: the visual it follows (LNK-4). */
+    followsLeader: (p: { leader: string }) => string;
+    /** A leader's tag on the builder's canvas: how many visuals follow it; `count` is formatted. */
+    leads: (p: { count: string }) => string;
+    /** A follower's tag with nothing selected on its leader (LNK-5). */
+    followNothing: () => string;
+    /** A follower's tag when its leader is no longer on the page (LNK-5). */
+    followRemoved: () => string;
+    /** What a follower's tag names for assistive technology: the visual it follows, and what is selected. */
+    followsName: (p: { leader: string; selected: string }) => string;
+    /** A follower that asks for a pick, with nothing selected: its title, naming the leader's field and the leader (LNK-5). */
+    followPrompt: (p: { field: string; leader: string }) => string;
+    /** Under it. */
+    followPromptHint: (p: { field: string }) => string;
+    /** The Configure tab's Follows field: the visual a visual follows (LNK-3). */
+    follows: () => string;
+    /** Its choice for following none. */
+    followsNothing: () => string;
+    /** Its chooser's head: the visuals a visual may follow. */
+    followsLeaders: () => string;
+    /** Its chooser's search, while empty. */
+    followsFind: () => string;
+    /** Under the field while it follows none: what following does. */
+    followsHint: () => string;
+    /** A leader its chooser refuses: following it would make a cycle (LNK-3). */
+    followsCycle: () => string;
+    /** A leader, as its chooser's line says it: what it draws, and its source. */
+    followsLine: (p: { view: string; source: string }) => string;
+    /** The match's field: the leader's field against this visual's. */
+    match: () => string;
+    /** The leader's field's picker's name. */
+    matchFrom: (p: { leader: string }) => string;
+    /** This visual's field's picker's name. */
+    matchTo: () => string;
+    /** Under the match: the two fields, each with its source — `Assets' Machine against Telemetry's Machine id.` */
+    matchHint: (p: { leaderSource: string; from: string; source: string; to: string }) => string;
+    /** What a follower shows with nothing selected: the field's name, and its two choices (LNK-5). */
+    followEmpty: () => string;
+    followAll: () => string;
+    followAsk: () => string;
+    /** Takes the link off. */
+    stopFollowing: () => string;
+    /** A leader's menu's item: a new chart on the next row, on its source, already following it (LNK-8). */
+    addLinked: () => string;
+    /** Starts linking on the canvas: a visual's menu's item, and the Follows block's button (LNK-6). */
+    linkOnCanvas: () => string;
+    /** The banner while a leader is picked: what to do, naming the visual being linked. */
+    linkPick: (p: { follower: string }) => string;
+    /** Under it: which visuals can be picked, and how to leave. */
+    linkPickHint: () => string;
+    /** A click on a visual that follows the one being linked: why it is refused (LNK-3). */
+    linkCycle: (p: { leader: string }) => string;
+    /** A click on a placement whose clicks tell no field: why it cannot lead. */
+    linkNothing: (p: { leader: string }) => string;
+    /** The link's popover's head (LNK-7). */
+    linkFollow: (p: { leader: string }) => string;
+    /** Over its fields: the leader's field, which one of this visual's matches. */
+    linkMatch: (p: { leader: string; from: string }) => string;
+    /** Under them, where the two read different sources: how the match was made. */
+    linkByName: (p: { follower: string; source: string; leader: string; leaderSource: string }) => string;
+    /** Under them, where the leader's click was not select: what linking switches. */
+    linkSwitches: (p: { leader: string; click: "filter" | "open" | "none" | "select" }) => string;
+    /** Its button. */
+    link: () => string;
+    /** A follower that asks for a pick whose leader is no longer on the page: its title. */
+    followGone: () => string;
+    /** Under it. */
+    followGoneHint: () => string;
     /** A visual that read no rows — where its value would be. */
     noData: () => string;
     /** Under it, why: none of its source's rows, named mid-sentence — `No orders`. */
@@ -593,6 +673,49 @@ export const studioMessages: StudioMessages = {
     noRangeHint: () => "Measure this value over the current period instead.",
     needsWindow: ({ source }) => `Comparing periods needs a date filter on ${source}`,
     needsWindowHint: () => "Filter the page by date to compare it with another period.",
+    filters: () => "Filters",
+    filtersSet: ({ n, count }) => (n === 0 ? "No filters" : n === 1 ? "1 filter" : `${count} filters`),
+    filterOn: ({ source, filter }) => `${source}: ${filter}`,
+    filterOf: ({ source }) => `Filter · ${source}`,
+    filterSource: () => "Source",
+    filterSourceGone: ({ source }) => `This page no longer lists ${source}. Remove the filter.`,
+    followsLeader: ({ leader }) => `follows ${leader}`,
+    leads: ({ count }) => `leads ${count}`,
+    followNothing: () => "nothing selected",
+    followRemoved: () => "leader removed",
+    followsName: ({ leader, selected }) => `Follows ${leader}: ${selected}`,
+    followPrompt: ({ field, leader }) => `Pick ${/^[aeiou]/i.test(field) ? "an" : "a"} ${field} in ${leader}`,
+    followPromptHint: ({ field }) => `This visual shows the ${field} you select.`,
+    addLinked: () => "Add a linked visual",
+    linkOnCanvas: () => "Link on the canvas",
+    linkPick: ({ follower }) => `Click the visual ${follower} should follow`,
+    linkPickHint: () => "The outlined visuals can lead. Esc cancels.",
+    linkCycle: ({ leader }) => `${leader} follows this visual already: linking them would make a cycle.`,
+    linkNothing: ({ leader }) => `${leader} has nothing to select, so nothing can follow it.`,
+    linkFollow: ({ leader }) => `Follow ${leader}`,
+    linkMatch: ({ leader, from }) => `${leader}'${leader.endsWith("s") ? "" : "s"} ${from} matches this visual's`,
+    linkByName: ({ follower, source, leader, leaderSource }) => `Matched by name. ${follower} reads ${source}; ${leader} reads ${leaderSource}.`,
+    linkSwitches: ({ leader, click }) =>
+        `${leader} will select on click instead of ${click === "filter" ? "filtering the page" : click === "open" ? "opening a page" : "doing nothing"}.`,
+    link: () => "Link",
+    follows: () => "Follows",
+    followsNothing: () => "Nothing",
+    followsLeaders: () => "Visuals whose click selects",
+    followsFind: () => "Find a visual…",
+    followsHint: () => "Pick a visual whose click selects: this one then shows what is selected there.",
+    followsCycle: () => "It follows this visual already",
+    followsLine: ({ view, source }) => `${view} · ${source}`,
+    match: () => "Match",
+    matchFrom: ({ leader }) => `${leader}'${leader.endsWith("s") ? "" : "s"} field`,
+    matchTo: () => "This visual's field",
+    matchHint: ({ leaderSource, from, source, to }) =>
+        `${leaderSource}'${leaderSource.endsWith("s") ? "" : "s"} ${from} against ${source}'${source.endsWith("s") ? "" : "s"} ${to}.`,
+    followEmpty: () => "With nothing selected",
+    followAll: () => "Show all",
+    followAsk: () => "Ask to pick",
+    stopFollowing: () => "Stop following",
+    followGone: () => "The visual this one follows was removed",
+    followGoneHint: () => "Link it to another visual, or stop following.",
     noData: () => "no data",
     noDataReason: ({ rows }) => `No ${rows}`,
     sourceError: ({ source }) => `${source} could not be read`,

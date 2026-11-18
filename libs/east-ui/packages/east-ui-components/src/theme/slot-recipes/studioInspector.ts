@@ -122,7 +122,7 @@ export const studioInspectorSlotRecipe = defineSlotRecipe({
         "layout", "field", "fieldLabel", "rowField", "heightField",
         "footer", "empty", "emptyTitle", "emptyHint",
         "part", "form", "fld", "fldLabel", "fldHint",
-        "box", "boxIcon", "boxName", "boxCaret",
+        "box", "boxIcon", "boxName", "boxCaret", "match", "matchEquals", "stop",
         "seg", "segItem",
         "wells", "well", "wellSlots", "wellSlot", "wellHelp", "wellError",
         "pill", "pillKind", "pillOpen", "pillName", "pillNote", "pillAgg", "pillRemove",
@@ -263,6 +263,13 @@ export const studioInspectorSlotRecipe = defineSlotRecipe({
             fontFamily: "body", fontSize: "{fontSizes.body}", lineHeight: centredLine(30, 16),
         },
         boxCaret: { ...icon("10px"), color: "fg.subtle" },
+        /* A match (#1673): the leader's field's box and this visual's, sharing the row, an equals sign between them. */
+        match: {
+            display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto minmax(0, 1fr)", alignItems: "center", gap: "{spacing.2}", minWidth: "0",
+        },
+        matchEquals: { fontFamily: "mono", fontSize: "label.sm", color: "fg.subtle" },
+        /* Stop following: a small button at its block's start, never as wide as its row. */
+        stop: { alignSelf: "flex-start" },
         /* A segment group filling its row: 32px of icons, or 24px of words. */
         seg: {
             display: "grid",

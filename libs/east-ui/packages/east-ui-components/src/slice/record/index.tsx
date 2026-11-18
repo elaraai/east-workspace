@@ -22,7 +22,7 @@ import { enableRecordSlicePersistence } from "../../platform/slice/record.js";
 import type { SlicePersistMode } from "../../platform/slice/index.js";
 import { SliceEditPopover } from "../edit/index.js";
 import { useSliceRailItems, type SliceRailDescriptor } from "../rail/toolbar.js";
-import { SUMMARY_RANK } from "../rail/ranks.js";
+import { SUMMARY_RANK } from "../../toolbar/rail/index.js";
 import { useSliceReactivity, useSlicesReactivity } from "../use-slice-reactivity.js";
 import { useSliceDensity } from "../density.js";
 import { useSlotStyles } from "../../theme/slot-styles.js";

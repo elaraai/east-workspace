@@ -14,10 +14,11 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { some } from "@elaraai/east";
+import { printJq, some } from "@elaraai/east";
 import { Studio } from "@elaraai/e3-ui";
 import { formatters, type MatrixRootValue } from "@elaraai/east-ui-components";
 import { queryWords } from "../../query/model/words.js";
+import { groupCondition, type ClickedGroup } from "../../query/visual/clicks.js";
 import { LISTED_ORDERS, answered } from "../../query/visual/visual.test-utils.js";
 import { studioMessages } from "../messages.js";
 import { pivotModel, type PivotView } from "./pivot-matrix.js";
@@ -51,6 +52,8 @@ function cellsOf(matrix: MatrixRootValue) {
 
 /** The columns' labels. */
 const columnsOf = (matrix: MatrixRootValue) => matrix.columns.map((column) => (column.label.type === "some" ? column.label.value.value : column.key));
+/** The groups a click is made on, each as the jq condition it stands for. */
+const said = (groups: readonly ClickedGroup[] | undefined) => groups?.map((clicked) => printJq(groupCondition(clicked.group, clicked.key, clicked.type)!).text);
 
 describe("pivotModel", () => {
     it("puts each pair's value where its region meets its month, a pair with no rows in words (TBL-4)", async () => {
@@ -68,6 +71,16 @@ describe("pivotModel", () => {
             ["WA", none, none, plain("20.00")],
         ]);
         expect([model.heat, model.shown]).toEqual([undefined, undefined]);
+    });
+
+    it("says the groups a cell stands for, by the Matrix's keys: its row's and its column's, and none for a cell of Other's (TBL-6)", async () => {
+        const model = await modelOf(v.of("orders", v.pivot({ rows: v.group("region"), columns: v.group("ordered_at", { bucket: "month" }), value: v.sum("revenue") })));
+        // SA is the second row; August the second column.
+        expect(said(model.clicked(model.matrix.rows[1]!.key, model.matrix.columns[1]!.key))).toEqual([`.region == "SA"`, `(.ordered_at | strftime("%Y-%m")) == "2026-08"`]);
+        expect(model.clicked("r99", "c0")).toBeUndefined();
+        const cut = await modelOf(v.of("orders", v.pivot({ rows: v.group("region", { top: 1n }), columns: v.group("customer"), value: v.sum("revenue") })));
+        const other = cut.matrix.rows[cut.matrix.rows.length - 1]!;
+        expect([other.value, cut.clicked(other.key, cut.matrix.columns[0]!.key)]).toEqual(["Other", undefined]);
     });
 
     it("shades each value on five steps to the 95th percentile, ink on the first three and paper on the last two, its legend's top step closed", async () => {

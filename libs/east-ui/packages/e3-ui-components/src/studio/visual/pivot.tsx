@@ -15,11 +15,12 @@
 
 import { useMemo } from "react";
 import { Box } from "@chakra-ui/react";
-import { variant } from "@elaraai/east";
-import { EastChakraMatrix } from "@elaraai/east-ui-components";
+import { some, variant } from "@elaraai/east";
+import { EastChakraMatrix, type MatrixRootValue } from "@elaraai/east-ui-components";
 import { useSlotStyles } from "@elaraai/east-ui-components/internal";
 import { useQueryWords } from "../../query/words.js";
 import { useStudioMessages } from "../messages.js";
+import { useGroupClicks } from "./clicks.js";
 import { VisualMeta } from "./meta.js";
 import { ShownNote } from "./notes.js";
 import { pivotModel, type PivotView } from "./pivot-matrix.js";
@@ -44,12 +45,21 @@ export function PivotVisual({ pivot, asks, answers, source, storageKey }: PivotV
     const words = useQueryWords();
     const styles = useSlotStyles("studioVisual");
     const model = useMemo(() => pivotModel(pivot, asks, answers, source, words, m), [pivot, asks, answers, source, words, m]);
-    if (model === undefined) return null;
+    // A click on a cell tells the groups it stands for (TBL-6): the Matrix tells its row's and its column's keys.
+    const { raise, onClickCapture } = useGroupClicks();
+    const matrix = useMemo((): MatrixRootValue | undefined => (model === undefined || raise === undefined ? model?.matrix : {
+        ...model.matrix,
+        onCellClick: some((event) => {
+            raise(model.clicked(event.row, event.column));
+            return null;
+        }),
+    }), [model, raise]);
+    if (model === undefined || matrix === undefined) return null;
     return (
-        <Box css={styles.root} data-studio-pivot="">
+        <Box css={styles.root} data-studio-pivot="" onClickCapture={onClickCapture}>
             <VisualMeta view={variant("table", variant("pivot", pivot))} source={source} shown={model.shown} />
             <Box css={styles.table}>
-                <EastChakraMatrix value={model.matrix} storageKey={`${storageKey}.matrix`} tile />
+                <EastChakraMatrix value={matrix} storageKey={`${storageKey}.matrix`} tile />
             </Box>
             {model.heat !== undefined && (
                 <Box css={styles.heat} data-studio-heat="">

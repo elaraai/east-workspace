@@ -10,13 +10,17 @@
  * each program it prints, asked in memory.
  */
 
-import { ArrayType, DateTimeType, FloatType, IntegerType, OptionType, StringType, StructType, none, some, toEastTypeValue, variant, type ValueTypeOf } from "@elaraai/east";
+import {
+    ArrayType, DateTimeType, FloatType, IntegerType, OptionType, StringType, StructType, none, parseJq, some, toEastTypeValue, variant,
+    type JqNode, type ValueTypeOf,
+} from "@elaraai/east";
 import { toValueFormat } from "@elaraai/east-ui/internal";
 import type { Studio, StudioSourceType } from "@elaraai/e3-ui/internal";
 import { utcAt as at } from "../../plan/plan.test-utils.js";
 import { createInMemoryQueryCall } from "../in-memory-call.js";
 import { queryRoot } from "../one-shot.js";
 import { askProgram, type VisualAnswer } from "./ask.js";
+import { printStateOf } from "./filters.js";
 import { printVisual, visualValues, type PrintState, type RecordsPage, type VisualAsk } from "./print.js";
 import { printSourceOf } from "./source.js";
 
@@ -48,20 +52,37 @@ export const LISTED_ORDERS: ValueTypeOf<typeof StudioSourceType> = {
         { id: "units", label: "Units", kind: variant("number", null), format: none },
         { id: "margin", label: "Margin", kind: variant("number", null), format: some(toValueFormat("percent")) },
     ],
-    range: some("ordered_at"), search: [], split: [],
+    range: some("ordered_at"),
 };
 
 /** The orders as the printer reads them. */
 export const ORDERS_SOURCE = printSourceOf(LISTED_ORDERS)!;
 
 /** The root the orders' programs read. */
-const ROOT = queryRoot([{ name: "orders", path: PATH, type: toEastTypeValue(ArrayType(OrderRow)) }]);
+export const ORDERS_ROOT = queryRoot([{ name: "orders", path: PATH, type: toEastTypeValue(ArrayType(OrderRow)) }]);
 
 /** The calls, answered in memory over the orders. */
 const SEAMS = { call: createInMemoryQueryCall([{ path: PATH, type: ArrayType(OrderRow), value: ORDERS }]), split: undefined, collection: undefined, status: undefined };
 
-/** A page's state with the quarter from July 2026 as its window. */
-export const QUARTER: PrintState = { filters: [], window: { from: at("2026-07-01T00:00:00"), to: at("2026-10-01T00:00:00") } };
+/**
+ * A jq condition over one row, as a filter holds it.
+ *
+ * @param text - The condition's jq
+ * @returns The condition
+ */
+export function condition(text: string): JqNode {
+    const parsed = parseJq(text);
+    if (parsed.program.type === "none") throw new Error(`does not parse: ${text}`);
+    return parsed.program.value;
+}
+
+/** The minute the visual tests' pages are read at: in the quarter's last month. */
+export const QUARTER_NOW = at("2026-09-15T12:00:00");
+
+/** A page's state whose one filter holds the orders' date to the quarter from July 2026. */
+export const QUARTER: PrintState = printStateOf(
+    [{ source: "orders", where: condition(`.ordered_at >= "2026-07-01" and .ordered_at < "2026-10-01"`) }], "orders", ORDERS_SOURCE, QUARTER_NOW,
+);
 
 /** A visual's asks, their answers as e3 gives them, and the values the asks' indexes name. */
 export interface Answered {
@@ -75,7 +96,7 @@ export interface Answered {
  * e3 asks it.
  *
  * @param content - The visual, as a placement holds it
- * @param state - The page's state; the quarter's window unless given
+ * @param state - The page's state; the quarter's filter unless given
  * @param page - A records table's rows it asks; its first page unless given
  * @returns Its asks, their answers, and its values
  */
@@ -84,7 +105,7 @@ export async function answered(content: ReturnType<typeof Studio.visual.of>, sta
     const printed = printVisual(content.value, ORDERS_SOURCE, state, page);
     if (printed.kind !== "asks") throw new Error(`printed ${printed.kind}`);
     const answers = await Promise.all(printed.asks.map(async ask => {
-        const kept = await askProgram(ask.program, ROOT, SEAMS, {}, new AbortController().signal);
+        const kept = await askProgram(ask.program, ORDERS_ROOT, SEAMS, {}, new AbortController().signal);
         if (kept === undefined) throw new Error("abandoned");
         return kept.value;
     }));

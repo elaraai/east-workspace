@@ -50,6 +50,8 @@ export interface SnapGridMessages extends EditingMessages {
     tileBadge: (p: { label: string; span: string; of: string }) => string;
     /** A tile duplicated. */
     announceDuplicated: (p: { label: string }) => string;
+    /** A tile a host asked to be added (#1673). */
+    announceAdded: (p: { label: string }) => string;
     /** The right-edge handle. */
     spanHandle: () => string;
     /** The bottom-edge handle. */
@@ -176,6 +178,7 @@ export const snapGridMessages: SnapGridMessages = {
     edit: () => "Edit",
     tileBadge: ({ label, span, of }) => `${label} · ${span}/${of}`,
     announceDuplicated: ({ label }) => `Duplicated ${label}`,
+    announceAdded: ({ label }) => `Added ${label}`,
     spanHandle: () => "Drag to change span",
     heightHandle: () => "Drag to change height",
     bothHandle: () => "Drag to change span and height",

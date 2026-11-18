@@ -22,6 +22,7 @@ import { resultCsv } from "../../query/downloads.js";
 import type { QueryWords } from "../../query/model/words.js";
 import { rowsTable, type ResultColumn } from "../../query/results-table.js";
 import type { VisualAnswered } from "../../query/visual/ask.js";
+import type { ClickedGroup } from "../../query/visual/clicks.js";
 import { recordsKey, type PrintSource } from "../../query/visual/print.js";
 import type { StudioMessages } from "../messages.js";
 import { columnHead, visualWords, type Visual, type VisualSource, type VisualView } from "./values.js";
@@ -83,6 +84,7 @@ export function recordsColumns(records: RecordsView, answer: VisualAnswered, sou
  * @property first - Its first row's place, from 1; 0 for a page with none
  * @property last - Its last row's place
  * @property total - How many rows there are in all
+ * @property clicked - The group a row stands for, by its place on the page: its first column's value (TBL-6)
  */
 export interface RecordsModel {
     /** The page's rows as the Table's value. */
@@ -93,6 +95,8 @@ export interface RecordsModel {
     readonly last: number;
     /** How many rows there are in all. */
     readonly total: number;
+    /** The group a row stands for, by its place on the page (TBL-6): its first column's value; `undefined` for a row the page does not hold. */
+    readonly clicked: (rowIndex: number) => readonly ClickedGroup[] | undefined;
 }
 
 /**
@@ -109,11 +113,17 @@ export interface RecordsModel {
  */
 export function recordsModel(records: RecordsView, answer: VisualAnswered, offset: number, source: VisualSource, words: QueryWords, m: StudioMessages): RecordsModel {
     const rows = answer.rows.length;
+    const [first] = recordsColumns(records, answer, source, m);
     return {
         table: rowsTable(recordsColumns(records, answer, source, m), answer.rows, visualWords(words, m)),
         first: rows === 0 ? 0 : offset + 1,
         last: offset + rows,
         total: answer.groups,
+        clicked: (rowIndex) => {
+            const row = answer.rows[rowIndex];
+            return row === undefined || first === undefined || first.field === undefined ? undefined
+                : [{ group: { field: first.field, bucket: none }, key: row[first.key], type: first.type }];
+        },
     };
 }
 

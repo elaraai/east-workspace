@@ -32,7 +32,7 @@ const h = e3Harness({ "studio/studio": ex }, { measure: false });
 const SOURCE: ValueTypeOf<typeof StudioSourceType> = {
     key: "daily", name: "Daily revenue", icon: "chart-line", description: none,
     binding: { name: "daily", source: variant("value", ex.studioRevenueDaily.path), type: toEastTypeValue(ex.studioRevenueDaily.type) },
-    fields: [], range: some("day"), search: [], split: [],
+    fields: [], range: some("day"),
 };
 /** The sources the page lists: one list, as a page holds it while it shows. */
 const SOURCES = [SOURCE];

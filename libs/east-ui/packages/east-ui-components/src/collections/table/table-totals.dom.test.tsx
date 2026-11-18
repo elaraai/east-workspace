@@ -9,8 +9,10 @@
  * Studio summary's total row — drawn in its footer as its cells print, through
  * a column's format, at the end of a number column and after what made each,
  * and never sorted with its rows; a cell its host marks negative — a value on
- * the wrong side of its goal — with the exclamation before it, named; and a
- * row its host marks a group's head, with its count after its label.
+ * the wrong side of its goal — with the exclamation before it, named; a
+ * row its host marks a group's head, with its count after its label; and a
+ * row its host marks as chosen (#1673), on the selected row's ground with no
+ * checkbox column.
  */
 
 import { describe, test, expect, afterEach, beforeEach } from "vitest";
@@ -66,12 +68,12 @@ const TONE = (rowIndex: number, columnKey: string) => (rowIndex === 0 && columnK
 /** SA heads its two categories. */
 const HEAD = (rowIndex: number): TableRowHead | undefined => (rowIndex === 1 ? { count: 2 } : undefined);
 
-/** The table, keeping its view state — its sort — under its own key. */
-function renderTable(storageKey: string) {
+/** The table, keeping its view state — its sort — under its own key; its host marking rows, when it does. */
+function renderTable(storageKey: string, rowMarked?: (rowIndex: number) => boolean) {
     return render(
         <ChakraProvider value={system}>
             <I18nProvider locale="en-AU">
-                <EastChakraTable value={ROOT} storageKey={storageKey} totals={TOTALS} cellTone={TONE} rowHead={HEAD} />
+                <EastChakraTable value={ROOT} storageKey={storageKey} totals={TOTALS} cellTone={TONE} rowHead={HEAD} rowMarked={rowMarked} />
             </I18nProvider>
         </ChakraProvider>,
     );
@@ -118,5 +120,32 @@ describe("a group's head (#1671)", () => {
         ]);
         expect(rows[1]!.querySelector("td [data-row-count]")!.textContent).toBe("2");
         expect(container.querySelectorAll("[data-row-count]")).toHaveLength(1);
+    });
+});
+
+describe("a row its host marks (#1673)", () => {
+    /** SA's row, by its pre-order index: the one a click chose. */
+    const SA = (rowIndex: number) => rowIndex === 1;
+    /** Each body row: its first cell's words, whether it is marked, and the ground its row stands on. */
+    const drawn = (container: HTMLElement) => [...container.querySelectorAll<HTMLElement>("tbody tr")].map((tr) =>
+        [tr.querySelector("td")!.textContent, tr.getAttribute("data-selected"), tr.parentElement!.style.background] as const);
+
+    test("wears the selected row's ground and data-selected, with no checkbox column; no other row does, and a table whose host marks none has none", () => {
+        const marked = renderTable("table-totals.marked", SA);
+        expect(drawn(marked.container)).toEqual([
+            ["NSW", null, ""], ["SA2", "true", "var(--chakra-colors-bg-subtle)"], ["Tools", null, ""], ["Wire", null, ""],
+        ]);
+        expect(marked.container.querySelectorAll("input[type=checkbox], input[type=radio]")).toHaveLength(0);
+        marked.unmount();
+        const plain = renderTable("table-totals.unmarked");
+        expect(drawn(plain.container).map(([, selected, ground]) => [selected, ground])).toEqual([[null, ""], [null, ""], [null, ""], [null, ""]]);
+    });
+
+    test("follows its row by its pre-order index through a sort", async () => {
+        const { container } = renderTable("table-totals.marked-sorted", SA);
+        await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Sort by region" })); });
+        // SA sorts first, and is still the marked one.
+        expect(drawn(container).filter(([, selected]) => selected === "true").map(([words]) => words)).toEqual(["SA2"]);
+        expect(drawn(container)[0]![0]).toBe("SA2");
     });
 });

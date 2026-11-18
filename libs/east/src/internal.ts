@@ -64,6 +64,7 @@ export { isObjectLiteral } from './expr/key_range.js';
 // host reads a stored program's nodes by (e3-ui-components' Studio printer,
 // which binds `.now` only for a visual whose filter reads `$now`)
 export { jqChildren, type JqChild } from './query/jq/spans.js';
+export { isoDateTime } from './query/jq/literals.js';
 
 /**
  * Type helper for platform function definitions.

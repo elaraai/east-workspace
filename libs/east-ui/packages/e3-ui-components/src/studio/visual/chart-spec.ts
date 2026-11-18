@@ -28,9 +28,10 @@
 
 import { DateTimeType, FloatType, SortedMap, SortedSet, compareFor, none, printFor, some, variant, type EastType, type ValueTypeOf } from "@elaraai/east";
 import type { Chart } from "@elaraai/east-ui/internal";
-import type { ValueFormat } from "@elaraai/east-ui-components";
+import type { ChartMark, ValueFormat } from "@elaraai/east-ui-components";
 import type { QueryWords } from "../../query/model/words.js";
 import type { VisualAnswer } from "../../query/visual/ask.js";
+import type { ClickedGroup } from "../../query/visual/clicks.js";
 import { visualValues, type VisualAsk, type VisualValue } from "../../query/visual/print.js";
 import { bucketStart, firstKeys, foldRest, partsAt, readGroups, readTotal, type ReadGroup, type ReadGroups } from "../../query/visual/read.js";
 import type { StudioMessages } from "../messages.js";
@@ -104,6 +105,7 @@ const printInstant = printFor(DateTimeType);
  * @property shown - What it holds of how many groups, when it holds fewer (CHT-9); `undefined` when it holds them all
  * @property caption - A line over the plot that says what its axes are — a scatter's `x units · y revenue per unit, AUD/unit`; `undefined` for none
  * @property numbers - How its renderer's numbers read: an axis's `ticks`, with no zeros ending their decimals, or a pie's `values`, each to three figures
+ * @property clicked - The groups a mark stands for (CHT-8): what a click on it is made on
  */
 export interface ChartModel {
     /** The chart, as east-ui-components' chart renderer draws it. */
@@ -114,6 +116,50 @@ export interface ChartModel {
     readonly caption: string | undefined;
     /** How its renderer's numbers read: an axis's ticks, or a pie's values. */
     readonly numbers: "ticks" | "values";
+    /**
+     * The groups a mark stands for (CHT-8): a column's category, and its
+     * split's; a legend row's split value; a slice's group; a point's.
+     * `undefined` for a mark of no one group — Other's, and a legend row that
+     * names a value.
+     */
+    readonly clicked: (mark: ChartMark) => readonly ClickedGroup[] | undefined;
+}
+
+/**
+ * What a chart's marks stand for, by their x's key and their series' key.
+ *
+ * @param xs - Each place's group, by its x's key; Other's place is in none
+ * @param series - Each series' group, by its key, where a series is a group — a split's; `undefined` where a series is a value
+ * @returns The groups of a mark
+ */
+function clickedBy(xs: ReadonlyMap<string, ClickedGroup>, series?: ReadonlyMap<string, ClickedGroup>): ChartModel["clicked"] {
+    return (mark) => {
+        if (mark.other) return undefined;
+        const groups: ClickedGroup[] = [];
+        if (mark.x !== undefined) {
+            const at = xs.get(xKey(mark.x));
+            if (at === undefined) return undefined;
+            groups.push(at);
+        }
+        if (series !== undefined && mark.series !== undefined) {
+            const of = series.get(mark.series);
+            if (of === undefined) return undefined;
+            groups.push(of);
+        }
+        return groups.length === 0 ? undefined : groups;
+    };
+}
+
+/** Each place's group along a chart's categories, by its x's key: what a mark there stands for. */
+function placesClicked(groups: readonly ReadGroup[], read: ReadGroups, x: VisualGroup, place: (group: ReadGroup) => Place): Map<string, ClickedGroup> {
+    const xs = new Map<string, ClickedGroup>();
+    const type = read.keyTypes[0];
+    if (type === undefined) return xs;
+    for (const group of groups) {
+        const at = place(group);
+        if (!at.other && group.keys[0] !== undefined) xs.set(xKey(at.x), { group: x, key: group.keys[0], type });
+    }
+    return xs;
 }
 
 /** What a chart model is made with. */
@@ -365,6 +411,13 @@ function seriesChart(kind: "column" | "bar" | "line" | "area", chart: SeriesChar
         ...(current.length > 0 ? [layerOf(current, mark, stack === undefined ? {} : { stack })] : []),
         ...(reference.length > 0 ? [layerOf(reference, "line", { width: REFERENCE_WIDTH })] : []),
     ];
+    // A mark stands for its category, and for its split's value where the chart splits.
+    const splitType = folded.keyTypes[1];
+    const splitField = chart.split.type === "some" ? chart.split.value : undefined;
+    const splits = splitField === undefined || splitType === undefined ? undefined : new Map(groups.flatMap((group): [string, ClickedGroup][] => (
+        group.keys[1] === undefined ? [] : [[groupLabel(group.keys[1], splitType, undefined, made.words, made.m), { group: { field: splitField, bucket: none }, key: group.keys[1], type: splitType }]]
+    )));
+    const clicked = clickedBy(placesClicked(groups, folded, chart.x, place), splits);
     const percent = stack === "percent";
     const format: ValueFormat | undefined = percent ? variant("percent", null) : formatOf(values[0], made);
     // The measure's ticks: over every value drawn and each goal, from zero for a mark filled from it.
@@ -384,10 +437,10 @@ function seriesChart(kind: "column" | "bar" | "line" | "area", chart: SeriesChar
                 text: shortNumber(point.value, format, made.words.formatters, largest === 0 ? undefined : largest),
                 anchor: none, fill: none, fontSize: some(END_LABEL_SIZE), fontWeight: none,
             }));
-            return { spec: frameOf([...layers, ...goals, ...ends, axisOf("axisLeft", { style: CATEGORY_STYLE })], { x: "linear", y: "band" }, legend, false), shown, caption: undefined, numbers: "ticks" };
+            return { spec: frameOf([...layers, ...goals, ...ends, axisOf("axisLeft", { style: CATEGORY_STYLE })], { x: "linear", y: "band" }, legend, false), shown, caption: undefined, numbers: "ticks", clicked };
         }
         const children = [gridOf("gridColumns"), ...layers, ...goals, axisOf("axisBottom", { format, ticks: axis }), axisOf("axisLeft", { style: CATEGORY_STYLE })];
-        return { spec: frameOf(children, { x: "linear", y: "band" }, legend, false), shown, caption: undefined, numbers: "ticks" };
+        return { spec: frameOf(children, { x: "linear", y: "band" }, legend, false), shown, caption: undefined, numbers: "ticks", clicked };
     }
     const children: ChartSpec[] = [
         gridOf("gridRows"),
@@ -396,7 +449,7 @@ function seriesChart(kind: "column" | "bar" | "line" | "area", chart: SeriesChar
         axisOf("axisBottom", { time }),
         axisOf("axisLeft", { format, ticks: axis }),
     ];
-    return { spec: frameOf(children, { x: time === undefined ? "band" : "time", y: "linear" }, legend, false), shown, caption: undefined, numbers: "ticks" };
+    return { spec: frameOf(children, { x: time === undefined ? "band" : "time", y: "linear" }, legend, false), shown, caption: undefined, numbers: "ticks", clicked };
 }
 
 /**
@@ -479,7 +532,10 @@ function comboChart(chart: ComboChart, read: ReadGroups, made: Made): ChartModel
         axisOf("axisLeft", { format: formatOf(left[0], made), ticks: leftTicks }),
         ...(right.length > 0 ? [axisOf("axisRight", { format: formatOf(right[0], made), ticks: ticksOver(sides.right.values, sides.right.zero) })] : []),
     ];
-    return { spec: frameOf(children, { x: "band", y: "linear" }, chart.legend.type !== "hidden" && axes.length > 1, right.length > 0), shown, caption: undefined, numbers: "ticks" };
+    return {
+        spec: frameOf(children, { x: "band", y: "linear" }, chart.legend.type !== "hidden" && axes.length > 1, right.length > 0), shown, caption: undefined, numbers: "ticks",
+        clicked: clickedBy(placesClicked(groups, folded, chart.x, place)),
+    };
 }
 
 /**
@@ -530,7 +586,19 @@ function scatterChart(chart: ScatterChart, read: ReadGroups, made: Made): ChartM
         x: midSentence(valueName(chart.x, made.source, made.m)), xUnit: unitLabel(chart.x, made.source, made.m),
         y: midSentence(valueName(chart.y, made.source, made.m)), yUnit: unitLabel(chart.y, made.source, made.m),
     });
-    return { spec: frameOf(children, { x: "linear", y: "linear" }, chart.legend.type !== "hidden" && data.length > 1, false), shown, caption, numbers: "ticks" };
+    // A point stands for its group, where it alone is at its x: two at one x are no one group's.
+    const pointType = read.keyTypes[0];
+    const xs = new Map<string, ClickedGroup>();
+    const twice = new Set<string>();
+    for (const group of read.groups) {
+        const x = valueAt(group, 0);
+        if (pointType === undefined || x === undefined || valueAt(group, 1) === undefined || group.keys[0] === undefined) continue;
+        const key = xKey(variant("number", x));
+        if (xs.has(key)) twice.add(key);
+        xs.set(key, { group: { field: chart.point, bucket: none }, key: group.keys[0], type: pointType });
+    }
+    for (const key of twice) xs.delete(key);
+    return { spec: frameOf(children, { x: "linear", y: "linear" }, chart.legend.type !== "hidden" && data.length > 1, false), shown, caption, numbers: "ticks", clicked: clickedBy(xs) };
 }
 
 /**
@@ -573,7 +641,12 @@ function pieChart(chart: PieChart, read: ReadGroups, total: number | undefined, 
         height: FILL, width: none, margin: none, xScale: variant("band", null), yScale: variant("linear", null), yScale2: none,
         tooltip: none, legend: none, slice: none, children: [pie],
     });
-    return { spec, shown: cut ? { shown: read.groups.length, of: read.of } : undefined, caption: undefined, numbers: "values" };
+    // A slice stands for its group: its key is its label.
+    const sliceType = read.keyTypes[0]!;
+    const slices = new Map(read.groups.flatMap((group): [string, ClickedGroup][] => (
+        group.keys[0] === undefined ? [] : [[groupLabel(group.keys[0], sliceType, chart.slice, made.words, made.m), { group: chart.slice, key: group.keys[0], type: sliceType }]]
+    )));
+    return { spec, shown: cut ? { shown: read.groups.length, of: read.of } : undefined, caption: undefined, numbers: "values", clicked: clickedBy(slices) };
 }
 
 /**

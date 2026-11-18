@@ -49,7 +49,7 @@ const SOURCE: ValueTypeOf<typeof StudioSourceType> = {
         { id: "region", label: "Region", kind: variant("text", null), format: none },
         { id: "revenue", label: "Revenue", kind: variant("number", null), format: none },
     ],
-    range: none, search: [], split: [],
+    range: none,
 };
 
 /** The shipped chart's declaration, and two of its kinds'. */
@@ -83,7 +83,7 @@ function mount() {
     const value = { selection, sources: [SOURCE], editors: EDITORS, onRequest: (request: Request) => { requests.push(request); return null; } };
     const { container } = render(
         <ChakraProvider value={system}>
-            <StudioConfigure value={value} saved={CELL.content} pages={[]} dnd={{ wells: "test.wells", fields: "test.fields" }} />
+            <StudioConfigure value={value} saved={CELL.content} pages={[]} placements={[{ cell: CELL, name: "The line" }]} dnd={{ wells: "test.wells", fields: "test.fields" }} />
         </ChakraProvider>,
     );
     return { container, requests };

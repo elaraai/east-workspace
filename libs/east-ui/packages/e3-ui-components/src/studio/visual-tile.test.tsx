@@ -14,75 +14,20 @@
  * sources, one inside the other; an answer outlives its calls' identity.
  */
 
-import type { ReactNode } from "react";
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { ChakraProvider } from "@chakra-ui/react";
-import {
-    ArrayType, DateTimeType, FloatType, IntegerType, StringType, StructType, none, parseJq, some, toEastTypeValue, variant, type JqNode, type ValueTypeOf,
-} from "@elaraai/east";
-import { Studio, type StudioCellType, type StudioSourceType } from "@elaraai/e3-ui/internal";
+import { describe, expect, test, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { ArrayType, none, some, toEastTypeValue, variant, type ValueTypeOf } from "@elaraai/east";
+import { Studio, type StudioSourceType } from "@elaraai/e3-ui/internal";
 import { markOf } from "@elaraai/east-ui-components/testing";
-import { StateRuntime, UIStore, system } from "@elaraai/east-ui-components";
 import { utcAt as at } from "../plan/plan.test-utils.js";
-import { QueryCallProvider, QuerySourceStatusProvider, type QueryCall } from "../query/hooks.js";
-import { createInMemoryQueryCall, createInMemorySourceStatus } from "../query/in-memory-call.js";
+import { type QueryCall } from "../query/hooks.js";
+import { createInMemoryQueryCall } from "../query/in-memory-call.js";
 import { VisualAnswersProvider } from "../query/visual/answers.js";
+import { condition } from "../query/visual/visual.test-utils.js";
 import { StudioLayout } from "./page.js";
-
-class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
-(globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
-(globalThis as { matchMedia?: unknown }).matchMedia ??= (query: string) => ({
-    matches: false, media: query, onchange: null,
-    addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent() { return false; },
-});
-
-beforeEach(() => { StateRuntime.initializeStore(new UIStore()); });
-afterEach(() => { cleanup(); });
-
-const Row = StructType({ ordered_at: DateTimeType, region: StringType, revenue: FloatType, units: IntegerType });
-const PATH = [variant("field", "inputs"), variant("field", "orders")];
-const ORDERS: ValueTypeOf<typeof Row>[] = [
-    { ordered_at: at("2026-07-03T10:00:00"), region: "SA", revenue: 100, units: 4n },
-    { ordered_at: at("2026-07-20T10:00:00"), region: "NSW", revenue: 50, units: 1n },
-    { ordered_at: at("2026-08-02T10:00:00"), region: "SA", revenue: 60, units: 2n },
-];
-const DATASETS = [{ path: PATH, type: ArrayType(Row), value: ORDERS }];
-const SOURCE: ValueTypeOf<typeof StudioSourceType> = {
-    key: "orders", name: "Orders", icon: "receipt", description: none,
-    binding: { name: "orders", source: variant("value", PATH), type: toEastTypeValue(ArrayType(Row)) },
-    fields: [], range: some("ordered_at"), search: [], split: [],
-};
+import { DATASETS, PAGE, Row, SOURCE, cell, filterPage, host, page, sized } from "./tile.test-utils.js";
 
 const v = Studio.visual;
-/** A placement holding content. */
-function cell(key: string, content: ValueTypeOf<typeof StudioCellType>["content"]): ValueTypeOf<typeof StudioCellType> {
-    return { key, row: "r1", span: 6n, height: none, align: variant("top", null), title: none, content };
-}
-/** A jq condition. */
-function condition(text: string): JqNode {
-    const parsed = parseJq(text);
-    if (parsed.program.type === "none") throw new Error(text);
-    return parsed.program.value;
-}
-
-/** What a page draws in: the theme, and — given a call — its calls, its sources' status read in memory. */
-function host(children: ReactNode, call?: QueryCall) {
-    return (
-        <ChakraProvider value={system}>
-            {call === undefined ? children : (
-                <QueryCallProvider call={call}>
-                    <QuerySourceStatusProvider status={createInMemorySourceStatus(DATASETS)}>{children}</QuerySourceStatusProvider>
-                </QueryCallProvider>
-            )}
-        </ChakraProvider>
-    );
-}
-
-/** A page of placements over the sources — the orders unless given — its calls the given one's. */
-function page(cells: ValueTypeOf<typeof StudioCellType>[], call?: QueryCall, sources: ValueTypeOf<typeof StudioSourceType>[] = [SOURCE]) {
-    return render(host(<StudioLayout cells={cells} components={[]} sources={sources} storageKey="tile" />, call));
-}
 
 /** The in-memory call, counting its calls. */
 function counting(): { call: QueryCall; calls: () => number } {
@@ -211,8 +156,8 @@ describe("a visual's tile", () => {
         // A builder's canvas, and its preview beside it.
         const { container } = render(host(
             <VisualAnswersProvider sources={[SOURCE]}>
-                <StudioLayout cells={[cell("c1", content)]} components={[]} sources={[SOURCE]} storageKey="canvas" />
-                <StudioLayout cells={[cell("c1", content)]} components={[]} sources={[SOURCE]} storageKey="preview" />
+                <StudioLayout cells={[cell("c1", content)]} components={[]} sources={[SOURCE]} page={PAGE} storageKey="canvas" />
+                <StudioLayout cells={[cell("c1", content)]} components={[]} sources={[SOURCE]} page={PAGE} storageKey="preview" />
             </VisualAnswersProvider>,
             call,
         ));
@@ -223,7 +168,7 @@ describe("a visual's tile", () => {
     test("keeps its answer when the host's calls change identity — a token refreshed — and asks nothing again", async () => {
         const first = counting();
         const content = v.of("orders", v.bar({ x: v.group("region"), values: [v.count()] }));
-        const layout = <StudioLayout cells={[cell("c1", content)]} components={[]} sources={[SOURCE]} storageKey="tile" />;
+        const layout = <StudioLayout cells={[cell("c1", content)]} components={[]} sources={[SOURCE]} page={PAGE} storageKey="tile" />;
         const { container, rerender } = render(host(layout, first.call));
         await waitFor(() => expect(charts(container)).toEqual(["bar"]));
         const second = counting();
@@ -265,6 +210,75 @@ describe("a KPI's tile (#1671)", () => {
         expect([...value.parentElement!.children].map((part) => [part === value, part.textContent === "orders"])).toEqual([[true, false], [false, true]]);
     });
 
+    test("is narrowed by the reader's filters of its page, held in the UI store under the page's key: set, changed and cleared, every visual of the source follows (#1673)", async () => {
+        const { container } = page([
+            cell("c1", v.of("orders", v.kpi({ value: v.count() }))),
+            cell("c2", v.of("orders", v.kpi({ value: v.sum("revenue") }), { where: condition(".units > 1") })),
+        ], createInMemoryQueryCall(DATASETS));
+        const values = () => [...container.querySelectorAll("[data-studio-kpi-value]")].map((el) => el.textContent);
+        // Three orders; two of more than one unit, 160 between them.
+        await waitFor(() => expect(values()).toEqual(["3", "160"]));
+        // South Australia's alone: two orders, both of more than one unit.
+        await filterPage(`.region == "SA"`);
+        await waitFor(() => expect(values()).toEqual(["2", "160"]));
+        // Each filter a row must pass, after the visual's own: August's South Australian order.
+        await filterPage(`.region == "SA"`, `.ordered_at >= "2026-08-01"`);
+        await waitFor(() => expect(values()).toEqual(["1", "60"]));
+        await filterPage();
+        await waitFor(() => expect(values()).toEqual(["3", "160"]));
+    });
+
+    test("compares a value with another period once the page's filters hold its date to a window, and says it needs one until they do (#1673)", async () => {
+        const { container } = page([cell("c1", v.of("orders", v.kpi({ value: v.count(), compare: v.count({ period: "previous" }) })))], createInMemoryQueryCall(DATASETS));
+        expect(await screen.findByText("Comparing periods needs a date filter on Orders")).toBeTruthy();
+        // August, against July: one order against two.
+        await filterPage(`(.ordered_at | strftime("%Y-%m")) == "2026-08"`);
+        await waitFor(() => expect(container.querySelector("[data-studio-kpi-value]")?.textContent).toBe("1"));
+        await waitFor(() => expect(container.querySelector("[data-studio-kpi-change]")?.textContent).toBe("-1"));
+        // A filter of another field alone leaves the date no window.
+        await filterPage(`.region == "SA"`);
+        expect(await screen.findByText("Comparing periods needs a date filter on Orders")).toBeTruthy();
+    });
+
+    test("a page's filters are its own: another page's tiles, over the same sources, are not narrowed by them (#1673)", async () => {
+        const content = v.of("orders", v.kpi({ value: v.count() }));
+        const other = { project: "Sales desk", page: "Stock" };
+        const { container } = render(host(
+            <VisualAnswersProvider sources={[SOURCE]}>
+                <StudioLayout cells={[cell("c1", content)]} components={[]} sources={[SOURCE]} page={PAGE} storageKey="one" />
+                <StudioLayout cells={[cell("c1", content)]} components={[]} sources={[SOURCE]} page={other} storageKey="two" />
+            </VisualAnswersProvider>,
+            createInMemoryQueryCall(DATASETS),
+        ));
+        const values = () => [...container.querySelectorAll("[data-studio-kpi-value]")].map((el) => el.textContent);
+        await waitFor(() => expect(values()).toEqual(["3", "3"]));
+        await filterPage(`.region == "NSW"`);
+        await waitFor(() => expect(values()).toEqual(["1", "3"]));
+    });
+
+    test("the page's rail says each filter as a chip in the query builder's words, over the grid; its × takes the filter out, and every visual follows (#1673)", async () => {
+        const { container } = page([cell("c1", v.of("orders", v.kpi({ value: v.count() })))], createInMemoryQueryCall(DATASETS));
+        const rail = () => container.querySelector<HTMLElement>("[data-studio-filters]")!;
+        const chips = () => [...rail().querySelectorAll<HTMLElement>("[data-slice-clause]")].map((chip) => chip.getAttribute("title"));
+        await waitFor(() => expect(container.querySelector("[data-studio-kpi-value]")?.textContent).toBe("3"));
+        // With no filter the rail is its + FILTER chip alone, before the grid.
+        expect([chips(), rail().querySelector("[data-slice-add=filter]") !== null]).toEqual([[], true]);
+        expect(rail().compareDocumentPosition(container.querySelector("[data-studio-kpi-value]")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        await filterPage(`.region == "SA"`, ".units > 1");
+        await waitFor(() => expect(chips()).toEqual(["region is SA", "units is more than 1"]));
+        await waitFor(() => expect(container.querySelector("[data-studio-kpi-value]")?.textContent).toBe("2"));
+        // A chip's ×, as a pointer presses it.
+        const remove = rail().querySelector<HTMLElement>("[data-slice-clause] [data-chip-remove]");
+        expect(remove).not.toBeNull();
+        await act(async () => { fireEvent.click(remove!); });
+        await waitFor(() => expect(chips()).toEqual(["units is more than 1"]));
+    });
+
+    test("a page whose placements read no source has no rail (#1673)", () => {
+        const { container } = page([cell("c1", v.text("Notes"))], createInMemoryQueryCall(DATASETS));
+        expect(container.querySelector("[data-studio-filters]")).toBeNull();
+    });
+
     test("draws only its value when its compare, trend and goal are empty, and says an absent value in words", async () => {
         const { container } = page([cell("c1", v.of("orders", v.kpi({ value: v.max("units") }), { where: condition(`.region == "SA"`) }))], createInMemoryQueryCall(DATASETS));
         expect(await screen.findByText("4")).toBeTruthy();
@@ -285,24 +299,6 @@ async function pick(chip: HTMLElement, words: string) {
     if (item === undefined) throw new Error(`no item “${words}”`);
     await act(async () => { fireEvent.pointerDown(item); });
     await act(async () => { fireEvent.click(item); });
-}
-
-/**
- * Runs a test with every element laid out 1200 × 600: a Table or a Matrix
- * virtualises its rows, drawing those its box has room for, which jsdom lays
- * out at 0.
- */
-async function sized(run: () => Promise<void>) {
-    const height = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
-    const width = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth");
-    Object.defineProperty(HTMLElement.prototype, "offsetHeight", { configurable: true, get: () => 600 });
-    Object.defineProperty(HTMLElement.prototype, "offsetWidth", { configurable: true, get: () => 1200 });
-    try {
-        await run();
-    } finally {
-        if (height !== undefined) Object.defineProperty(HTMLElement.prototype, "offsetHeight", height);
-        if (width !== undefined) Object.defineProperty(HTMLElement.prototype, "offsetWidth", width);
-    }
 }
 
 /** Saves what the page downloads, in order: each file's name and its text. */

@@ -15,10 +15,11 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { none, some, variant } from "@elaraai/east";
+import { none, printJq, some, variant } from "@elaraai/east";
 import { Studio } from "@elaraai/e3-ui";
 import { formatters, type TableRootValue } from "@elaraai/east-ui-components";
 import { queryWords } from "../../query/model/words.js";
+import { groupCondition, type ClickedGroup } from "../../query/visual/clicks.js";
 import { LISTED_ORDERS, answered } from "../../query/visual/visual.test-utils.js";
 import { studioMessages } from "../messages.js";
 import { SUMMARY_LABEL_KEY, summaryModel, summaryValueKey, type SummaryView } from "./summary-table.js";
@@ -51,6 +52,8 @@ function rowsOf(table: TableRootValue, values: number) {
 }
 
 const float = (n: number) => variant("Float", n);
+/** The groups a click is made on, each as the jq condition it stands for. */
+const said = (groups: readonly ClickedGroup[] | undefined) => groups?.map((clicked) => printJq(groupCondition(clicked.group, clicked.key, clicked.type)!).text);
 
 describe("summaryModel", () => {
     it("nests each region's head over its customers, their values the query's, each head's count after it; the total row names each function (TBL-2)", async () => {
@@ -82,6 +85,15 @@ describe("summaryModel", () => {
             ["v1", { value: float(22.5), label: "ratio", tone: { tone: "negative", label: "below goal" } }],
         ])]);
         expect(model.shown).toBeUndefined();
+    });
+
+    it("says the groups a row stands for, by its pre-order index: a head's its own, a customer under it both, and none for Other's (TBL-6)", async () => {
+        const nested = await modelOf(v.of("orders", v.summary({ rows: [v.group("region", { sort: "high" }), v.group("customer")], values: [v.sum("revenue")] })));
+        // SA's head, then Northwind under it, as the rows above stand.
+        expect([said(nested.clicked(0)), said(nested.clicked(1))]).toEqual([[`.region == "SA"`], [`.region == "SA"`, `.customer == "Northwind"`]]);
+        expect(nested.clicked(99)).toBeUndefined();
+        const cut = await modelOf(v.of("orders", v.summary({ rows: [v.group("region", { sort: "high", top: 1n })], values: [v.sum("revenue")] })));
+        expect([said(cut.clicked(0)), cut.clicked(1)]).toEqual([[`.region == "SA"`], undefined]);
     });
 
     it("marks the cells on the wrong side of a value's goal, named, and no other (TBL-3)", async () => {

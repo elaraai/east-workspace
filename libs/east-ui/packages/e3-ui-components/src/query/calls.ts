@@ -94,6 +94,7 @@ export {
     printVisual,
     VISUAL_GROUP_LIMIT,
     VISUAL_RECORDS_PAGE,
+    type PrintRange,
     type PrintSource,
     type PrintState,
     type PrintWindow,
@@ -102,6 +103,7 @@ export {
     type VisualPeriod,
     type VisualValue,
 } from "./visual/print.js";
+export { pageRange, printStateOf, type PageFilter } from "./visual/filters.js";
 export {
     askProgram,
     visualValue,

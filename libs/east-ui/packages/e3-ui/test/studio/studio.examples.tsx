@@ -595,7 +595,7 @@ export const studioContentPages = e3.record("studio_content_pages", Studio.Types
 
 export const studioContent = example({
     keywords: [
-        "Studio", "Studio.source", "sources", "source", "fields", "Studio.visual", "visual", "KPI", "chart", "column", "list", "table", "slicer",
+        "Studio", "Studio.source", "sources", "source", "fields", "Studio.visual", "visual", "KPI", "chart", "column", "list", "table",
         "text block", "text", "content", "Studio.Types.Content", "Studio.migrations", "cellContent", "migration.rows", "migrations",
         "Data.bind", "Studio.Builder", "e3.record",
     ],
@@ -616,7 +616,6 @@ export const studioContent = example({
                                     channel: { label: "Channel" },
                                     revenue: { label: "Revenue", format: { currency: { code: "USD" } } },
                                 },
-                                search: ["region", "channel"], split: ["channel"],
                             }),
                         }} />
                 </Box>
@@ -653,6 +652,17 @@ export const studioOrders = e3.input("studio_orders", ArrayType(StructType({
 ]));
 
 const vis = Studio.visual;
+
+/** The orders' fields, as every page over them lists them: each one's label, and how a number of it prints. */
+const orderFields = {
+    ordered_at: { label: "Ordered" },
+    region: { label: "Region" },
+    category: { label: "Category" },
+    customer: { label: "Customer" },
+    revenue: { label: "Revenue", format: { currency: { code: "AUD" } } },
+    units: { label: "Units" },
+    margin: { label: "Margin", format: "percent" },
+} as const;
 
 /** The Visuals page's placements: two KPIs and a donut; the series charts, the combo and the scatter; the list; the summary and the pivot; the records; and two that cannot draw yet — a chart with no value, and a KPI of a field its source lacks. */
 const visualCells = [
@@ -709,16 +719,8 @@ export const studioVisuals = example({
                     sources={{
                         orders: Studio.source(orders, {
                             name: "Orders", icon: "receipt", description: "One row per order",
-                            fields: {
-                                ordered_at: { label: "Ordered" },
-                                region: { label: "Region" },
-                                category: { label: "Category" },
-                                customer: { label: "Customer" },
-                                revenue: { label: "Revenue", format: { currency: { code: "AUD" } } },
-                                units: { label: "Units" },
-                                margin: { label: "Margin", format: "percent" },
-                            },
-                            range: "ordered_at", search: ["customer", "region"], split: ["region", "category"],
+                            fields: orderFields,
+                            range: "ordered_at",
                         }),
                     }} />
             );
@@ -767,15 +769,90 @@ export const studioChartOptions = example({
                     sources={{
                         orders: Studio.source(orders, {
                             name: "Orders", icon: "receipt", description: "One row per order",
-                            fields: {
-                                ordered_at: { label: "Ordered" },
-                                region: { label: "Region" },
-                                category: { label: "Category" },
-                                customer: { label: "Customer" },
-                                revenue: { label: "Revenue", format: { currency: { code: "AUD" } } },
-                                units: { label: "Units" },
-                                margin: { label: "Margin", format: "percent" },
-                            },
+                            fields: orderFields,
+                        }),
+                    }} />
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+// ============================================================================
+// Clicks — a visual's click selects, filters or opens; a visual follows another (#1673)
+// ============================================================================
+
+/** The customers list a click selects in: what the Customers page's other visuals follow. */
+const followCustomers = { leader: "k-customers", from: "customer", to: "customer" } as const;
+
+/**
+ * The Customers page's placements: a list of customers, whose click selects;
+ * revenue by month, which follows it and shows every customer until one is
+ * picked; the mean margin, which follows it and asks for a pick; a donut of
+ * revenue by category, whose click filters the page; and the regions' bars,
+ * whose click opens the Region orders page.
+ */
+const customerCells = [
+    { key: "k-customers", row: "r1", span: 4n, height: some(300n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.list({ item: vis.group("customer", { sort: "high" }), values: [vis.sum("revenue"), vis.count()], bar: true })) },
+    { key: "k-months", row: "r1", span: 8n, height: some(300n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.column({ x: vis.group("ordered_at", { bucket: "month" }), values: [vis.sum("revenue")] }), {
+        follow: { ...followCustomers, empty: variant("all", null) },
+    }) },
+    { key: "k-margin", row: "r2", span: 4n, height: some(240n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.kpi({ value: vis.mean("margin") }), {
+        follow: { ...followCustomers, empty: variant("prompt", null) },
+    }) },
+    { key: "k-category", row: "r2", span: 4n, height: some(240n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.pie({ slice: vis.group("category"), value: vis.sum("revenue"), donut: true }), {
+        click: variant("filter", null),
+    }) },
+    { key: "k-regions", row: "r2", span: 4n, height: some(240n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.bar({ x: vis.group("region", { sort: "high" }), values: [vis.sum("revenue")] }), {
+        click: variant("open", { project: "Sales desk", page: "Region orders" }),
+    }) },
+];
+
+/** The Region orders page's placements: the orders' revenue and count, and the orders themselves — narrowed to the region whose bar opened it. */
+const regionCells = [
+    { key: "g-revenue", row: "r1", span: 6n, height: none, align: variant("stretch", null), title: none, content: vis.of("orders", vis.kpi({ value: vis.sum("revenue") })) },
+    { key: "g-orders", row: "r1", span: 6n, height: none, align: variant("stretch", null), title: none, content: vis.of("orders", vis.kpi({ value: vis.count() })) },
+    { key: "g-records", row: "r2", span: 12n, height: some(320n), align: variant("stretch", null), title: none, content: vis.of("orders", vis.records({ columns: ["ordered_at", "customer", "region", "category", "revenue"], sort: "ordered_at", descending: true })) },
+];
+
+/** The pages of the clicks' project: Customers, and Region orders, each live as it was drafted. */
+export const studioClickPages = e3.record("studio_click_pages", Studio.Types.Pages, {
+    initial: new SortedMap<Key, Entry>([
+        [{ project: "Sales desk", page: "Customers" }, variant("page", {
+            draft: { title: "Customers", cells: customerCells },
+            live: some({ version: 1n, page: { title: "Customers", cells: customerCells } }),
+        })],
+        [{ project: "Sales desk", page: "Region orders" }, variant("page", {
+            draft: { title: "Region orders", cells: regionCells },
+            live: some({ version: 1n, page: { title: "Region orders", cells: regionCells } }),
+        })],
+    ], compareFor(Studio.Types.Key)),
+    mutations: (mutation) => ({
+        // The record's one write.
+        patch: mutation.patch(),
+    }),
+});
+
+export const studioClicks = example({
+    keywords: [
+        "Studio", "Studio.Page", "Studio.visual", "visual", "click", "select", "selection", "filter", "open", "onOpen", "follow", "follower", "leader",
+        "linked visuals", "master detail", "drill through", "page filters", "filter chip", "State.bind", "navigate", "Studio.source", "Data.bind",
+    ],
+    description: "What a click on a visual does, on a published page over the quarter's orders: a list of customers whose click selects (a list's and a table's click, unless it says otherwise) — ⌘-click adds, Esc or a click on the selection again clears; revenue by month follows it (`follow: { leader, from, to, empty: \"all\" }`), showing every customer until one is picked, its eyebrow then saying whom; the mean margin follows it too and asks for a pick first (`empty: \"prompt\"`); a donut whose click filters the page (`click: \"filter\"`, a chart's and a KPI's unless it says otherwise) — the slice joins the page's filters as a chip over the grid, which every visual of the source reads; and the regions' bars, whose click opens the Region orders page (`click: { open: key }`) narrowed to that region: the page's `onOpen` is told its key, and the surface, which holds the open page in a State, shows it — its filter chip the reader's to clear",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const pages = $.let(Data.bind(studioClickPages));
+            const orders = $.let(Data.bind(studioOrders));
+            // The open page is the surface's: a click that opens a page writes it. A host with routes navigates here instead.
+            const open = $.let(State.bind([Studio.Types.Key], "ex.studio.clicks.open", { project: "Sales desk", page: "Customers" }));
+            const go = $.const(East.function([Studio.Types.Key], NullType, ($2, key) => { $2(open.write(key)); }));
+            return (
+                <Studio.Page pages={pages.read()} components={[]} page={open.read()} onOpen={go}
+                    sources={{
+                        orders: Studio.source(orders, {
+                            name: "Orders", icon: "receipt", description: "One row per order",
+                            fields: orderFields,
+                            range: "ordered_at",
                         }),
                     }} />
             );

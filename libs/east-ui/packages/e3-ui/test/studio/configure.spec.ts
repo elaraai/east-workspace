@@ -135,7 +135,8 @@ describe("Each kind's editor (#1672, EDT-2)", () => {
         for (const kind of ["column", "bar", "line", "area", "combo", "scatter", "pie"] as const) {
             assert.ok(kindEditor(FULL[kind])?.options.some((o) => o.field === "legend"), `${kind} says whether it draws its legend`);
         }
-        assert.equal(kindEditor(v.slicer(["range"])), undefined);
+        // A kind the editors given do not hold has none.
+        assert.equal(kindEditor(FULL.pie, studioEditors.filter((viewEditor) => viewEditor.view !== "chart")), undefined);
     });
 
     test("a kind's options are the form's fields, by their declared labels: a choice its cases in their words, a yes or no a box", () => {
@@ -284,7 +285,6 @@ describe("What an edit changed from what is saved (#1672, EDT-10)", () => {
         assert.deepEqual(Object.keys(savedKindFields(FULL.records, FULL.combo)), []);
         assert.deepEqual(Object.keys(savedKindFields(FULL.kpi, FULL.list)), []);
         assert.deepEqual(savedKindFields(undefined, FULL.pie), {});
-        assert.deepEqual(savedKindFields(v.slicer(["range"]), FULL.pie), {});
     });
 
     test("a text block's heading and body; content not saved, every part; a component's, none", () => {
@@ -302,7 +302,7 @@ function sourceOf(key: string): ValueTypeOf<typeof StudioSourceType> {
     return {
         key, name: key, icon: "receipt", description: none,
         binding: { name: key, source: variant("value", PATH), type: toEastTypeValue(ArrayType(StringType)) },
-        fields: [], range: none, search: [], split: [],
+        fields: [], range: none,
     };
 }
 /** A placement holding content. */
@@ -317,7 +317,6 @@ const EXPECTED = {
     regionHighest: variant("group", v.group("region", { sort: "high" })),
     views: Object.values(FULL),
     kinds: Object.keys(FULL),
-    slicer: v.slicer(["range"]),
     emptyColumn: v.column({ x: v.group(""), values: [] }),
     countKpi: v.kpi({ value: v.count() }),
     emptyPivot: v.pivot({ rows: v.group(""), columns: v.group(""), value: v.count() }),
@@ -378,10 +377,9 @@ describeEast("The Configure tab's rules (#1672)", (test) => {
         $(Assert.equal(fieldMeasures(ORDERED), [variant("distinct", "ordered_at"), variant("count", null)]));
     });
 
-    test("each view is its kind; a slicer none", $ => {
+    test("each view is its kind", $ => {
         const views = $.const(EXPECTED.views, ArrayType(StudioViewType));
-        $(Assert.equal(views.map((_$2, view) => kindOfView(view).unwrap("some").getTag()), EXPECTED.kinds));
-        $(Assert.equal(kindOfView(EXPECTED.slicer).hasTag("none"), true));
+        $(Assert.equal(views.map((_$2, view) => kindOfView(view).getTag()), EXPECTED.kinds));
     });
 
     test("a kind with nothing in its wells: groups of no field, a single value the rows' count, lists empty (MOD-4)", $ => {

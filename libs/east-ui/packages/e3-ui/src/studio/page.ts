@@ -18,9 +18,13 @@
 
 import {
     ArrayType,
+    FunctionType,
     NullType,
+    OptionType,
     StructType,
     VariantType,
+    none,
+    some,
     variant,
     type ExprType,
     type SubtypeExprOrValue,
@@ -65,6 +69,7 @@ export type StudioVersionLiteral = "live" | "draft";
  * @property sources - The sources its visuals read, in the order listed; none when the surface lists none
  * @property page - The page's key
  * @property version - Which of its layouts to draw
+ * @property onOpen - Told the key of the page a click on one of its visuals opens; `none`, such a click opens nothing
  */
 export const StudioPagePayloadType = StructType({
     pages: StudioPagesType,
@@ -72,6 +77,7 @@ export const StudioPagePayloadType = StructType({
     sources: ArrayType(StudioSourceType),
     page: StudioKeyType,
     version: StudioVersionType,
+    onOpen: OptionType(FunctionType([StudioKeyType], NullType)),
 });
 
 /** Type representing the `StudioPage` renderer's payload. */
@@ -95,6 +101,7 @@ export const StudioPageComponent = EastUI.component("StudioPage", StudioPagePayl
  * @property sources - The sources its visuals read, by the names their queries read them by
  * @property page - The page's key
  * @property version - `"live"` (the default) or `"draft"`
+ * @property onOpen - Told the key of the page a click on one of its visuals opens
  */
 export interface StudioPageOptions {
     /** The pages record's value — `Data.bind(pages).read()`, or a bound record's `read()`. */
@@ -107,6 +114,14 @@ export interface StudioPageOptions {
     page: SubtypeExprOrValue<StudioKeyType>;
     /** Which layout: the published one (`"live"`, the default), or the draft. */
     version?: StudioVersionLiteral | SubtypeExprOrValue<StudioVersionType>;
+    /**
+     * Told the key of the page a click on one of its visuals opens — a visual
+     * whose click is `open`. The clicked group is already the target page's
+     * filters when it is told, so the host only shows the page: it navigates,
+     * or writes the state its `page` reads. Omitted, such a click opens
+     * nothing.
+     */
+    onOpen?: SubtypeExprOrValue<FunctionType<[StudioKeyType], NullType>>;
 }
 
 /**
@@ -124,6 +139,13 @@ export interface StudioPageOptions {
  * version not yet published, is a placeholder that says so. Under a narrow
  * container the tiles stack in row order. The page draws no border around
  * itself.
+ *
+ * Over its grid the page draws its reader's filters, when its visuals read a
+ * source: each a chip, which narrows every visual of its source. A click on
+ * a visual does what the visual says: it selects the clicked group, which a
+ * visual that follows it narrows to; it adds the group to the page's filters;
+ * or it opens another page narrowed to the group, telling `onOpen` that
+ * page's key.
  *
  * @param options - The record's value, the listed components, the page and
  *   its version ({@link StudioPageOptions})
@@ -155,6 +177,7 @@ function createPage(options: StudioPageOptions): ExprType<UIComponentType> {
         sources: studioSources("Studio.Page", options.sources),
         page: options.page,
         version: typeof version === "string" ? variant(version, null) : version,
+        onOpen: options.onOpen === undefined ? none : some(options.onOpen),
     });
 }
 

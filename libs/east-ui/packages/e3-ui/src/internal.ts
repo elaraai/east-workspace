@@ -185,6 +185,15 @@ export {
     StudioClickType,
     StudioSourceType,
     StudioFieldType,
+    // A page's filters (#1673): a jq condition every visual of one source reads through.
+    StudioFilterType,
+    StudioFiltersType,
+    studioFiltersKey,
+    // A page's selections (#1673): the groups clicked on each placement whose click selects.
+    StudioPickType,
+    StudioClickedType,
+    StudioSelectionsType,
+    studioSelectionsKey,
     contentChange,
     contentWords,
     textParagraphs,
