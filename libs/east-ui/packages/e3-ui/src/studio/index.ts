@@ -55,6 +55,7 @@ import { StudioFieldType, StudioSourceType, createSource } from "./source.js";
 export {
     StudioComponentType,
     StudioFrameType,
+    componentNames,
     dataName,
     readNames,
     type StudioComponentMeta,
@@ -105,6 +106,7 @@ export {
     textParagraphs,
     viewIcon,
     viewWords,
+    visualWords,
     type StudioAxisValue,
     type StudioContent,
     type StudioGroup,
@@ -120,6 +122,7 @@ export {
     StudioFieldType,
     StudioSourceType,
     createSource,
+    sourceName,
     sourceNames,
     studioSources,
     type StudioSourceDeclaration,
@@ -150,6 +153,8 @@ export {
 } from "./palette.js";
 export {
     canvasTiles,
+    componentFrames,
+    contentFramed,
     contentTile,
     CanvasTileType,
     StudioSaveTemplatePayloadType,

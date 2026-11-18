@@ -41,6 +41,7 @@ import {
 import { TimeResolutionType, type TimeResolutionLiteral } from "@elaraai/east-ui";
 import { SliceAffordanceType, type SliceAffordanceLiteral } from "@elaraai/east-ui/internal";
 import { StudioKeyType } from "./key.js";
+import { sourceName } from "./source.js";
 
 // ============================================================================
 // Values and groups
@@ -529,45 +530,77 @@ export const viewIcon = East.function([StudioViewType], StringType, (_$, view) =
     slicer: (_$2) => East.value("sliders"),
 }));
 
-/** How many values a view holds: what a change of its values counts. */
-const viewValues = East.function([StudioViewType], IntegerType, (_$, view) => view.match({
-    kpi: (_$2, kpi) => kpi.compare.hasTag("some").ifElse(() => 2n, () => 1n),
-    chart: (_$2, chart) => chart.match({
-        column: (_$3, series) => series.values.size(),
-        bar: (_$3, series) => series.values.size(),
-        line: (_$3, series) => series.values.size(),
-        area: (_$3, series) => series.values.size(),
-        combo: (_$3, combo) => combo.columns.size().add(combo.lines.size()),
-        scatter: (_$3) => East.value(2n),
-        pie: (_$3) => East.value(1n),
-    }),
+/**
+ * What a view holds that a change counts, and what it is called: the values a
+ * view measures — a KPI's, a chart's, a summary's — or, for a view that
+ * measures none, what it holds in their place: a records table's columns, a
+ * slicer's controls.
+ */
+const ViewCountType = StructType({ noun: StringType, count: IntegerType });
+
+/** How many of them a view holds ({@link ViewCountType}): what a change of them counts. */
+const viewCount = East.function([StudioViewType], ViewCountType, (_$, view) => view.match({
+    kpi: (_$2, kpi) => East.value({ noun: "values", count: kpi.compare.hasTag("some").ifElse(() => 2n, () => 1n) }, ViewCountType),
+    chart: (_$2, chart) => East.value({
+        noun: "values",
+        count: chart.match({
+            column: (_$3, series) => series.values.size(),
+            bar: (_$3, series) => series.values.size(),
+            line: (_$3, series) => series.values.size(),
+            area: (_$3, series) => series.values.size(),
+            combo: (_$3, combo) => combo.columns.size().add(combo.lines.size()),
+            scatter: (_$3) => East.value(2n),
+            pie: (_$3) => East.value(1n),
+        }),
+    }, ViewCountType),
     table: (_$2, table) => table.match({
-        records: (_$3, records) => records.columns.size(),
-        summary: (_$3, summary) => summary.values.size(),
-        pivot: (_$3) => East.value(1n),
+        records: (_$3, records) => East.value({ noun: "columns", count: records.columns.size() }, ViewCountType),
+        summary: (_$3, summary) => East.value({ noun: "values", count: summary.values.size() }, ViewCountType),
+        pivot: (_$3) => East.value({ noun: "values", count: 1n }, ViewCountType),
     }),
-    list: (_$2, list) => list.values.size(),
-    slicer: (_$2, slicer) => slicer.affordances.size(),
+    list: (_$2, list) => East.value({ noun: "values", count: list.values.size() }, ViewCountType),
+    slicer: (_$2, slicer) => East.value({ noun: "controls", count: slicer.affordances.size() }, ViewCountType),
+}));
+
+/** What a click does, in words: "select", "filter", "none", or the page it opens — "open Ops / Weekly". */
+const clickWords = East.function([StudioClickType], StringType, (_$, click) => click.match({
+    select: (_$2) => East.value("select"),
+    filter: (_$2) => East.value("filter"),
+    open: (_$2, page) => East.str`open ${page.project} / ${page.page}`,
+    none: (_$2) => East.value("none"),
 }));
 
 /**
- * What a placement holds, in words: a component by its key, which its reader
- * names by the component it lists; a visual by its view and its source's name
- * — "Column chart · Orders", its source's key where the surface lists none of
- * that key; a text block as "Text".
+ * A visual, in words: its view and its source's name — "Column chart ·
+ * Orders", its source's key where the surface lists none of that key.
  *
  * @remarks
- * `sources` is each listed source's name, by its key.
+ * `sources` is each listed source's name, by its key (`sourceNames`).
+ */
+export const visualWords = East.function(
+    [StudioVisualType, DictType(StringType, StringType)],
+    StringType,
+    (_$, visual, sources) => East.str`${viewWords(visual.view)} · ${sourceName(visual.source, sources)}`,
+);
+
+/**
+ * What a placement holds, in words: a component by its name, its key where
+ * the surface lists none of that key; a visual by its view and its source
+ * ({@link visualWords}); a text block as "Text".
+ *
+ * @remarks
+ * `sources` is each listed source's name, by its key (`sourceNames`), and
+ * `components` each listed component's (`componentNames`).
  */
 export const contentWords = East.function(
-    [StudioContentType, DictType(StringType, StringType)],
+    [StudioContentType, DictType(StringType, StringType), DictType(StringType, StringType)],
     StringType,
-    (_$, content, sources) => content.match({
-        component: (_$2, key) => key,
-        visual: (_$2, visual) => East.str`${viewWords(visual.view)} · ${sources.tryGet(visual.source).match({
+    (_$, content, sources, components) => content.match({
+        component: (_$2, key) => components.tryGet(key).match({
             some: (_$3, name) => name,
-            none: (_$3) => visual.source,
-        })}`,
+            none: (_$3) => key,
+        }),
+        visual: (_$2, visual) => visualWords(visual, sources),
         text: (_$2) => East.value("Text"),
     }),
 );
@@ -576,22 +609,22 @@ export const contentWords = East.function(
  * What changed between two contents of one placement, in words, as the
  * publish preview's change list says it: a visual's source ("source Orders →
  * Assets"), its view ("view Column chart → Line chart"), how many values it
- * holds ("values 1 → 2"), its filter, its click and what it follows, joined
- * with ` · `; "options changed" for a visual changed in none of those; a text
- * block's as "text edited"; and a placement now holding another kind of
- * content, or another component, as what it held and what it holds.
+ * holds ("values 1 → 2") — a records table's columns and a slicer's controls
+ * by their own names ("columns 3 → 4"), and nothing where the view changed to
+ * one that holds another — its filter, what a click does ("click filter →
+ * open Ops / Weekly") and what it follows, joined with ` · `; "options
+ * changed" for a visual changed in none of those; a text block's as "text
+ * edited"; and a placement now holding another kind of content, or another
+ * component, as what it held and what it holds ({@link contentWords}).
  *
  * @remarks
- * `sources` is each listed source's name, by its key.
+ * `sources` is each listed source's name, by its key (`sourceNames`), and
+ * `components` each listed component's (`componentNames`).
  */
 export const contentChange = East.function(
-    [StudioContentType, StudioContentType, DictType(StringType, StringType)],
+    [StudioContentType, StudioContentType, DictType(StringType, StringType), DictType(StringType, StringType)],
     StringType,
-    ($, old, now, sources) => {
-        const named = $.const(East.function([StringType], StringType, (_$2, key) => sources.tryGet(key).match({
-            some: (_$3, name) => name,
-            none: (_$3) => key,
-        })));
+    ($, old, now, sources, components) => {
         const parts = $.let([], ArrayType(StringType));
         $.match(now, {
             text: ($2) => {
@@ -603,19 +636,24 @@ export const contentChange = East.function(
                 $2.match(old, {
                     visual: ($3, was) => {
                         $3.if(East.notEqual(was.source, visual.source), ($4) => {
-                            $4(parts.pushLast(East.str`source ${named(was.source)} → ${named(visual.source)}`));
+                            $4(parts.pushLast(East.str`source ${sourceName(was.source, sources)} → ${sourceName(visual.source, sources)}`));
                         });
-                        $3.if(East.notEqual(viewWords(was.view), viewWords(visual.view)), ($4) => {
-                            $4(parts.pushLast(East.str`view ${viewWords(was.view)} → ${viewWords(visual.view)}`));
+                        const wasView = $3.let(viewWords(was.view));
+                        const nowView = $3.let(viewWords(visual.view));
+                        $3.if(East.notEqual(wasView, nowView), ($4) => {
+                            $4(parts.pushLast(East.str`view ${wasView} → ${nowView}`));
                         });
-                        $3.if(East.notEqual(viewValues(was.view), viewValues(visual.view)), ($4) => {
-                            $4(parts.pushLast(East.str`values ${East.print(viewValues(was.view))} → ${East.print(viewValues(visual.view))}`));
+                        // A count is said under its own name, where both views hold the same thing.
+                        const wasCount = $3.let(viewCount(was.view));
+                        const nowCount = $3.let(viewCount(visual.view));
+                        $3.if(wasCount.noun.equal(nowCount.noun).and(() => wasCount.count.notEqual(nowCount.count)), ($4) => {
+                            $4(parts.pushLast(East.str`${nowCount.noun} ${East.print(wasCount.count)} → ${East.print(nowCount.count)}`));
                         });
                         $3.if(East.notEqual(was.where, visual.where), ($4) => {
                             $4(parts.pushLast("filter changed"));
                         });
                         $3.if(East.notEqual(was.click, visual.click), ($4) => {
-                            $4(parts.pushLast(East.str`click ${was.click.getTag()} → ${visual.click.getTag()}`));
+                            $4(parts.pushLast(East.str`click ${clickWords(was.click)} → ${clickWords(visual.click)}`));
                         });
                         $3.if(East.notEqual(was.follow, visual.follow), ($4) => {
                             $4(parts.pushLast("link changed"));
@@ -629,7 +667,7 @@ export const contentChange = East.function(
         });
         // Another kind of content, or another component: what it held, and what it holds.
         return parts.size().equal(0n).ifElse(
-            () => East.str`${contentWords(old, sources)} → ${contentWords(now, sources)}`,
+            () => East.str`${contentWords(old, sources, components)} → ${contentWords(now, sources, components)}`,
             () => parts.stringJoin(" · "),
         );
     },

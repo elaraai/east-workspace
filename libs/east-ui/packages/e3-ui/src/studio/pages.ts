@@ -533,13 +533,14 @@ const layoutOf = East.function([StudioPageType], LayoutType, ($, page) => {
  * move reports the placement moved and not the ones around it; which of two
  * placements that swapped places moved is ambiguous, and one is reported. A
  * placement whose content changed is configured, its detail saying what
- * changed in words; `sources` is each listed source's name, by its key, which
- * those words name a visual's source by.
+ * changed in words; `sources` is each listed source's name, by its key, and
+ * `components` each listed component's, which those words name a visual's
+ * source and a component by.
  */
 export const pageChanges = East.function(
-    [StudioPageType, StudioPageType, DictType(StringType, StringType)],
+    [StudioPageType, StudioPageType, DictType(StringType, StringType), DictType(StringType, StringType)],
     ArrayType(StudioChangeType),
-    ($, before, after, sources) => {
+    ($, before, after, sources, components) => {
         const layout = $.const(layoutOf);
         const was = $.let(layout(before));
         const now = $.let(layout(after));
@@ -636,7 +637,7 @@ export const pageChanges = East.function(
                         $4(changes.pushLast(variant("retitled", { cell: key, content: cell.content, detail: East.str`title ${oldTitle} → ${newTitle}` })));
                     });
                     $3.if(East.notEqual(old.content, cell.content), ($4) => {
-                        $4(changes.pushLast(variant("configured", { cell: key, content: cell.content, detail: contentChange(old.content, cell.content, sources) })));
+                        $4(changes.pushLast(variant("configured", { cell: key, content: cell.content, detail: contentChange(old.content, cell.content, sources, components) })));
                     });
                 },
             });

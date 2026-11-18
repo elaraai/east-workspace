@@ -104,7 +104,7 @@ The public `Studio` namespace is exactly this: `Studio.component`,
 `<Studio.Builder>`, `<Studio.Library>`, `<Studio.Page>` and `Studio.Types` —
 and, since a placement holds content (a component's key, a visual or a text
 block), `Studio.source`, which declares a source a surface's visuals may read
-(`sources={{ orders: Studio.source(handle, meta) }}` on each tag),
+(`sources={{ orders: Studio.source(handle, meta) }}` on the builder and the page: the page library reads none),
 `Studio.visual`, which builds a placement's content for a record's seeds, and
 `Studio.migrations`, the steps a pages record lists
 (`migration.rows("cell_content", Studio.migrations.cellContent)` carries pages

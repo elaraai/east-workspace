@@ -20,7 +20,8 @@ import { Text, UIComponentType } from "@elaraai/east-ui/internal";
 
 import { Studio } from "@elaraai/e3-ui";
 import {
-    StudioContentType, StudioStackType, StudioViewType, StudioVisualType, canvasTiles, contentTile, contentWords, textParagraphs, viewIcon, viewWords,
+    StudioContentType, StudioStackType, StudioViewType, StudioVisualType, canvasTiles, componentFrames, componentNames, contentFramed, contentTile,
+    contentWords, textParagraphs, viewIcon, viewWords, visualWords,
 } from "@elaraai/e3-ui/internal";
 
 const v = Studio.visual;
@@ -143,6 +144,13 @@ const ICONS = FORMS.map((form) => form.icon);
 /** A listed component, and its tile. */
 const kpiRail = Studio.component("kpi_rail", { name: "KPI rail", category: "Display", icon: "gauge-high", frame: "none" },
     East.function([], UIComponentType, (_$) => Text.Root("KPIs")));
+/** A listed component drawn in a tile frame, as a component is unless it says otherwise. */
+const trend = Studio.component("revenue_trend", { name: "Revenue trend", category: "Charts", icon: "chart-area" },
+    East.function([], UIComponentType, (_$) => Text.Root("Trend")));
+/** The visuals of the contents above, as the words of a visual alone take them. */
+const COLUMN_VISUAL = COLUMN.type === "visual" ? COLUMN.value : undefined;
+const UNLISTED_VISUAL = UNLISTED_KPI.type === "visual" ? UNLISTED_KPI.value : undefined;
+if (COLUMN_VISUAL === undefined || UNLISTED_VISUAL === undefined) throw new Error("expected visuals");
 
 describeEast("A placement's content, in words (#1669)", (test) => {
     test("each of a visual's forms is known by its words and its icon", $ => {
@@ -151,12 +159,18 @@ describeEast("A placement's content, in words (#1669)", (test) => {
         $(Assert.equal(views.map((_$2, view) => viewIcon(view)), ICONS));
     });
 
-    test("a visual is its view and its source's name — its source's key where the surface lists none of it; a component its key; a text block Text", $ => {
+    test("a visual is its view and its source's name — its source's key where the surface lists none of it; a component its name — its key where the surface lists none of it; a text block Text", $ => {
         const sources = $.const(new Map([["orders", "Orders"]]));
-        $(Assert.equal(contentWords(COLUMN, sources), "Column chart · Orders"));
-        $(Assert.equal(contentWords(UNLISTED_KPI, sources), "KPI · stock"));
-        $(Assert.equal(contentWords(RAIL, sources), "kpi_rail"));
-        $(Assert.equal(contentWords(NOTE, sources), "Text"));
+        const components = $.let(componentNames([kpiRail, trend]));
+        $(Assert.equal(components, new Map([["kpi_rail", "KPI rail"], ["revenue_trend", "Revenue trend"]])));
+        $(Assert.equal(contentWords(COLUMN, sources, components), "Column chart · Orders"));
+        $(Assert.equal(contentWords(UNLISTED_KPI, sources, components), "KPI · stock"));
+        $(Assert.equal(contentWords(RAIL, sources, components), "KPI rail"));
+        $(Assert.equal(contentWords(RETIRED, sources, components), "retired"));
+        $(Assert.equal(contentWords(NOTE, sources, components), "Text"));
+        // A visual alone, as its tile and a page's placeholder name it.
+        $(Assert.equal(visualWords(East.value(COLUMN_VISUAL, StudioVisualType), sources), "Column chart · Orders"));
+        $(Assert.equal(visualWords(East.value(UNLISTED_VISUAL, StudioVisualType), sources), "KPI · stock"));
     });
 
     test("a text block's paragraphs: its text cut at each blank line — empty, or only spaces — each trimmed and none empty, a line break inside one kept", $ => {
@@ -174,5 +188,15 @@ describeEast("A placement's content, in words (#1669)", (test) => {
         $(Assert.equal(contentTile(RETIRED, tiles, sources), none));
         $(Assert.equal(contentTile(LINE, tiles, sources), some({ frame: true, name: "Line chart · Orders", icon: "chart-line", meta: "Orders" })));
         $(Assert.equal(contentTile(NOTE, tiles, sources), some({ frame: false, name: "Text", icon: "align-left", meta: "" })));
+    });
+
+    test("whether a placement is framed is read by what it holds alone: a listed component as it chose, one not listed in a frame, a visual in one, a text block bare", $ => {
+        const frames = $.let(componentFrames([kpiRail, trend]));
+        $(Assert.equal(frames, new Map([["kpi_rail", false], ["revenue_trend", true]])));
+        $(Assert.equal(contentFramed(RAIL, frames), false));
+        $(Assert.equal(contentFramed(v.component("revenue_trend"), frames), true));
+        $(Assert.equal(contentFramed(RETIRED, frames), true));
+        $(Assert.equal(contentFramed(LINE, frames), true));
+        $(Assert.equal(contentFramed(NOTE, frames), false));
     });
 }, { platformFns: TestImpl });

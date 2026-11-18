@@ -155,6 +155,8 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
     const id = value.id.type === "some" ? value.id.value : undefined;
     // Each listed source's name, by its key: what a visual's source is called.
     const sourceNames = useMemo(() => east.sourceNames(sources), [east, sources]);
+    // Each listed component's name, by its key: what a placement of it is called in words.
+    const componentNames = useMemo(() => east.componentNames(components), [east, components]);
     const keys = useMemo(() => builderKeys(id), [id]);
 
     // The record, read where the builder renders, and again when it moves.
@@ -338,7 +340,7 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
     const status = entry === undefined ? undefined
         : entry.type === "template" ? { label: m.statusTemplate(), tone: "neutral" as const, ring: false }
             : entry.value.live.type === "none" ? { label: m.statusDraft(), tone: "neutral" as const, ring: true }
-                : east.changes(entry.value.live.value.page, entry.value.draft, sourceNames).length === 0
+                : east.changes(entry.value.live.value.page, entry.value.draft, sourceNames, componentNames).length === 0
                     ? { label: m.statusLive(), tone: "success" as const, ring: false }
                     : { label: m.statusLiveEdited(), tone: "warning" as const, ring: false };
     const statusStyles = status === undefined ? undefined : statusRecipe({ status: status.tone, size: "md", ring: status.ring }) as Styles;
@@ -571,7 +573,7 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
                         tab: previewTab, onTab: setPreviewTab, width,
                         tiles: cells.map((cell) => ({
                             key: cell.key, row: cell.row, span: Number(cell.span),
-                            name: cell.title.type === "some" ? cell.title.value : tileOf(cell.content)?.name ?? east.contentWords(cell.content, sourceNames),
+                            name: cell.title.type === "some" ? cell.title.value : tileOf(cell.content)?.name ?? east.contentWords(cell.content, sourceNames, componentNames),
                         })),
                     }} />
             )}

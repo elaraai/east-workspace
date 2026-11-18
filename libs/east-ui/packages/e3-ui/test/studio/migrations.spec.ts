@@ -8,17 +8,21 @@
  * carries an entry whose placements hold a component's key to one whose
  * placements hold content — in a page's draft, its live version and a
  * template, nothing else changed — and a solution's record declares it as a
- * rows step. A later kind of content is another type again, which the record
- * is refused at without a step of its own. A deploy that runs the step on a
- * runner is e3-ui-cli's `studio-migration.spec.ts`.
+ * rows step. The types it takes and leaves are frozen copies: the type it
+ * leaves is the pages record's own today, which a test holds it to, and stays
+ * as it is when the Studio's type moves on — so a later kind of content is
+ * another type, which the record is refused at without a step of its own. A
+ * deploy that runs the step on a runner is e3-ui-cli's
+ * `studio-migration.spec.ts`.
  */
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-    ArrayType, DictType, East, IntegerType, OptionType, SortedMap, StringType, StructType, VariantType, compareFor, isTypeEqual, none, some, variant,
-    type ValueTypeOf,
+    ArrayType, DictType, East, Expr, IntegerType, OptionType, SortedMap, StringType, StructType, VariantType, compareFor, isTypeEqual, none, printType, some,
+    variant,
+    type EastType, type ValueTypeOf,
 } from "@elaraai/east";
 import e3 from "@elaraai/e3";
 
@@ -68,8 +72,17 @@ describe("Studio.migrations.cellContent (#1669)", () => {
         assert.ok(isTypeEqual(pages.type, Studio.Types.Pages));
     });
 
+    test("the types it takes and leaves, spelled out in migrations.ts, are the pages record's today — when the Studio's types move on this fails: before the step ships, bring the copies up to them; after, leave them and ship the step that carries its type on", () => {
+        const step: EastType = Expr.type(Studio.migrations.cellContent);
+        if (step.type !== "Function") assert.fail(`expected a function, got ${printType(step)}`);
+        const [key] = step.inputs as EastType[];
+        assert.ok(isTypeEqual(key!, Studio.Types.Key), "the key it takes is the pages record's key");
+        assert.ok(isTypeEqual(step.output as EastType, Studio.Types.Entry), "the entry it leaves is the pages record's entry");
+    });
+
     test("a later kind of content is another type: a record declared with it and this step alone is refused where it is declared, so its release ships a step of its own", () => {
-        // The pages record's type with one more kind of content, and otherwise the Studio's.
+        // The pages record's type as a release that adds a kind of content would declare it: this step still leaves the
+        // type it shipped with, which is that type no longer.
         const WiderCell = StructType({ ...Studio.Types.Cell.fields, content: VariantType({ ...Studio.Types.Content.cases, embed: StringType }) });
         const WiderPage = StructType({ title: StringType, cells: ArrayType(WiderCell) });
         const WiderEntry = VariantType({

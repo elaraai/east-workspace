@@ -83,7 +83,7 @@ describeEast("The builder's inspector — what it shows of the selected placemen
         $(Assert.equal(gone.layout, { span: 6n, most: 12n, row: 1n, rows: 1n, height: none, align: variant("center", null) }));
     });
 
-    test("#1669: a visual is named by its view and its source, and shows its view, its icon and its source's name — its key where the surface lists none of it; a text block is named Text; a title names either", $ => {
+    test("#1669: a visual is named by its view and its source, and shows its view and its source's name — its key where the surface lists none of it; a text block is named Text; a title names either", $ => {
         const cells = $.const([
             { key: "c-revenue", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, content: revenueByMonth },
             { key: "c-stock", row: "r1", span: 6n, height: none, align: variant("top", null), title: some("Stock on hand"), content: stockOnHand },
@@ -92,11 +92,11 @@ describeEast("The builder's inspector — what it shows of the selected placemen
         const listed = $.let([kpiRail]);
         const revenue = $.let(inspectorSelection(listed, SOURCES, cells, some("c-revenue")).unwrap("some"));
         $(Assert.equal(revenue.name, "Column chart · Orders"));
-        $(Assert.equal(revenue.content, variant("visual", { view: "Column chart", icon: "chart-column", source: "Orders" })));
+        $(Assert.equal(revenue.content, variant("visual", { view: "Column chart", source: "Orders" })));
         $(Assert.equal(revenue.layout.most, 6n));
         const stock = $.let(inspectorSelection(listed, SOURCES, cells, some("c-stock")).unwrap("some"));
         $(Assert.equal(stock.name, "Stock on hand"));
-        $(Assert.equal(stock.content, variant("visual", { view: "KPI", icon: "gauge-high", source: "stock" })));
+        $(Assert.equal(stock.content, variant("visual", { view: "KPI", source: "stock" })));
         const note = $.let(inspectorSelection(listed, SOURCES, cells, some("c-note")).unwrap("some"));
         $(Assert.equal(note.name, "Text"));
         $(Assert.equal(note.content, variant("text", null)));

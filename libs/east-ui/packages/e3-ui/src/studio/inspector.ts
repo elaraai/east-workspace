@@ -32,9 +32,10 @@ import {
     variant,
 } from "@elaraai/east";
 import { SnapGrid } from "@elaraai/east-ui/internal";
-import { StudioComponentType, readNames } from "./component.js";
-import { contentWords, viewIcon, viewWords } from "./content.js";
+import { StudioComponentType, componentNames, readNames } from "./component.js";
+import { contentWords, viewWords } from "./content.js";
 import { StudioCellType } from "./pages.js";
+import { sourceName } from "./source.js";
 
 // ============================================================================
 // What the inspector shows
@@ -69,13 +70,13 @@ export type InspectorLayoutType = typeof InspectorLayoutType;
  *   reads, whole or a window at a time, each named in words ({@link
  *   readNames}: "Sales daily") — never its keypath; and its description, fixed
  *   by its developer
- * @property visual - A visual: its view in words ("Column chart"), its view's
- *   icon, and its source's name — its source's key where the surface lists none of that key
+ * @property visual - A visual: its view in words ("Column chart"), and its
+ *   source's name — its source's key where the surface lists none of that key
  * @property text - A text block
  */
 export const InspectorContentType = VariantType({
     component: StructType({ key: StringType, reads: ArrayType(StringType), description: OptionType(StringType) }),
-    visual: StructType({ view: StringType, icon: StringType, source: StringType }),
+    visual: StructType({ view: StringType, source: StringType }),
     text: NullType,
 });
 
@@ -86,8 +87,9 @@ export type InspectorContentType = typeof InspectorContentType;
  * The selected placement, as the inspector shows it.
  *
  * @property key - The placement's key — what a layout request names
- * @property name - Its title, else its content's own name: its component's
- *   name, else its component's key; its visual's view and source; "Text"
+ * @property name - Its title, else its content's own name (`contentWords`):
+ *   its component's name, else its component's key; its visual's view and
+ *   source; "Text"
  * @property content - What it holds ({@link InspectorContentType})
  * @property layout - Its layout ({@link InspectorLayoutType})
  */
@@ -151,7 +153,7 @@ export const inspectorSelection = East.function(
         }), OptionType(StudioComponentType));
         const name = $.let(cell.title.match({
             some: (_$2, title) => title,
-            none: (_$2) => component.match({ some: (_$3, c) => c.name, none: (_$3) => contentWords(cell.content, sources) }),
+            none: (_$2) => contentWords(cell.content, sources, componentNames(listed)),
         }));
         const content = $.let(cell.content.match({
             component: (_$2, key) => East.value(variant("component", {
@@ -167,8 +169,7 @@ export const inspectorSelection = East.function(
             }), InspectorContentType),
             visual: (_$2, visual) => East.value(variant("visual", {
                 view: viewWords(visual.view),
-                icon: viewIcon(visual.view),
-                source: sources.tryGet(visual.source).match({ some: (_$3, sourceName) => sourceName, none: (_$3) => visual.source }),
+                source: sourceName(visual.source, sources),
             }), InspectorContentType),
             text: (_$2) => East.value(variant("text", null), InspectorContentType),
         }), InspectorContentType);

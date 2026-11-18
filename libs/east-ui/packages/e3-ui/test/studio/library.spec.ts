@@ -47,6 +47,13 @@ const revenueTrend = Studio.component("revenue_trend", { name: "Revenue trend", 
 /** A component that reads nothing. */
 const kpiRail = Studio.component("kpi_rail", { name: "KPI rail", category: "Display", icon: "gauge-high" },
     East.function([], UIComponentType, (_$) => Text.Root("KPIs")));
+/** Components whose names are another's: a second KPI rail, and ones named as a text block and as a view are. */
+const namedAsRail = Studio.component("kpi_rail_b", { name: "KPI rail", category: "Display", icon: "gauge-high" },
+    East.function([], UIComponentType, (_$) => Text.Root("More KPIs")));
+const namedText = Studio.component("words", { name: "Text", category: "Display", icon: "font" },
+    East.function([], UIComponentType, (_$) => Text.Root("Words")));
+const namedList = Studio.component("ranks", { name: "List", category: "Display", icon: "list" },
+    East.function([], UIComponentType, (_$) => Text.Root("Ranks")));
 
 /** Two visuals of one view over two sources, a list, and a text block. */
 const byRegion = Studio.visual.group("region");
@@ -137,6 +144,20 @@ describeEast("<Studio.Library> — what it shows (#997)", (test) => {
         $(Assert.equal(layoutSummary(listed, cells), "Text · Column chart ×2 · KPI rail · List"));
     });
 
+    test("#1669: a layout's summary counts placements by what they are, never by the words they are shown in: two components of one name are two, and a component named as a text block or a view is none of them", $ => {
+        const listed = $.let([kpiRail, namedAsRail, namedText, namedList]);
+        const cells = $.let([
+            { key: "c-rail", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, content: variant("component", "kpi_rail") },
+            { key: "c-rail-b", row: "r1", span: 6n, height: none, align: variant("top", null), title: none, content: variant("component", "kpi_rail_b") },
+            { key: "c-note", row: "r2", span: 12n, height: none, align: variant("top", null), title: none, content: aNote },
+            { key: "c-words", row: "r3", span: 6n, height: none, align: variant("top", null), title: none, content: variant("component", "words") },
+            { key: "c-note-2", row: "r3", span: 6n, height: none, align: variant("top", null), title: none, content: aNote },
+            { key: "c-top", row: "r4", span: 6n, height: none, align: variant("top", null), title: none, content: topRegions },
+            { key: "c-ranks", row: "r4", span: 6n, height: none, align: variant("top", null), title: none, content: variant("component", "ranks") },
+        ], ArrayType(Studio.Types.Cell));
+        $(Assert.equal(layoutSummary(listed, cells), "KPI rail · KPI rail · Text ×2 · Text · List · List"));
+    });
+
     test("D3: the project's templates in name order, each with its title, summary and placements; its pages and other projects' entries are not listed", $ => {
         const templates = $.let(libraryTemplates(East.value(PAGES, StudioPagesType), "ops", [kpiRail, revenueTrend]));
         $(Assert.equal(templates.map((_$2, t) => t.name), ["t-empty", "t-summary"]));
@@ -219,7 +240,8 @@ describe("<Studio.Library> — the surface (#997)", () => {
         // Its host is told through the function it gave.
         assert.equal(payload.onOpen({ project: "ops", page: "a-detail" }), null);
         assert.deepEqual(payload.components.map((component) => component.key), ["revenue_trend", "kpi_rail"]);
-        assert.deepEqual(payload.sources, [], "no sources listed is none");
+        // It reads no source: its payload holds none, and its surface binds none for it.
+        assert.deepEqual(Object.keys(StudioLibraryPayloadType.fields), ["pages", "components", "project", "page", "onOpen"]);
         assert.equal(payload.pages.read().size, PAGES.size);
 
         const bare = build(false);
