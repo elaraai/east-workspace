@@ -18,6 +18,7 @@
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { readdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { StringType, encodeBeast2For, equalFor, none, printFor, some, toEastTypeValue, variant, type ValueTypeOf } from '@elaraai/east';
 import e3 from '@elaraai/e3';
@@ -242,6 +243,34 @@ describe('a load of a delivery', () => {
     await holds(ws, [['erp', 'SO-1401', birch], ['erp', 'SO-1402', cedar], ['own', 'P-1', birch]]);
   });
 
+  it('ruling 37 — loads of one source asked while one runs apply in the order they were asked, each keeping its place', async () => {
+    const ws = await fresh();
+    const gated = new GatedTaskRunner(runner, ['orders.erp']);
+    const first = load(ws, 'erp', await deliver([['SO-3701', acme]]), {}, storage, gated);
+    await gated.launched('orders.erp');
+
+    // Three more, as three `e3 load` commands would ask: each once the one before has its place in the source's queue
+    const queue = join(repoDir, 'locks', loadQueueLock(ws, 'orders', 'erp'));
+    const placed = async (count: number): Promise<void> => {
+      while ((await readdir(queue).catch((): string[] => [])).filter((name) => name.startsWith('wait.')).length !== count) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+    };
+    const later: Array<ReturnType<typeof load>> = [];
+    for (const [nth, row] of ([['SO-3702', birch], ['SO-3703', cedar], ['SO-3704', acme]] as Array<[string, OrderRow]>).entries()) {
+      later.push(load(ws, 'erp', await deliver([row]), {}, storage, gated));
+      await placed(nth + 1);
+    }
+
+    gated.pass('orders.erp');
+    gated.release('orders.erp');
+    const loaded = await Promise.all([first, ...later]);
+    const committed = (await recordHistory(storage, repoDir, ws, 'orders')).filter(({ commit }) => commit.mutation === '$load:erp').map(({ hash }) => hash).reverse();
+    assert.deepEqual(committed, loaded.map(({ result }) => (result.commit.type === 'some' ? result.commit.value : null)), 'each committed in the order it was asked');
+    assert.deepEqual(loaded.slice(1).map(({ steps }) => story(steps)[0]), ['queued', 'queued', 'queued']);
+    await holds(ws, [['erp', 'SO-3704', acme], ['own', 'P-1', birch]]);
+  });
+
   it('R15 — loads of two sources run side by side, each committing its own entries', async () => {
     const ws = await fresh();
     const gated = new GatedTaskRunner(runner, ['orders.erp', 'orders.wms']);
@@ -337,7 +366,8 @@ describe('a load of a delivery', () => {
     let earlier: LockHandle | null = await storage.locks.acquire(repoDir, queue, variant('dataset_write', null));
     let deploying: LockHandle | null = await storage.locks.acquire(repoDir, intent, variant('deployment', null));
     assert.ok(earlier !== null && deploying !== null);
-    // Each turn of a wait ends as one that waited its whole length: three, before the lock is let go
+    // Each turn of a wait ends as one that waited its whole length: three, before the lock is let go. The lock
+    // service keeps no queue of its waiters, as a backend whose jobs run through a queue of its own keeps none
     let touches = 0;
     const turns: Record<string, number[]> = { [queue]: [], [intent]: [] };
     const waiting = withStores(storage, {
@@ -348,6 +378,7 @@ describe('a load of a delivery', () => {
         },
       }),
       locks: overriding(storage.locks, {
+        queuesWaiters: false,
         acquire: async (repo, resource, operation, options) => {
           const seen = turns[resource];
           if (seen !== undefined && options?.wait === true) {
@@ -368,6 +399,52 @@ describe('a load of a delivery', () => {
     assert.deepEqual(stops(steps), [`a deploy of ${ws} started. The load goes on once the deploy is done…`]);
     assert.deepEqual(turns[queue], [1, 2, 3, 4], 'each turn of its wait for its turn re-referenced the delivery');
     assert.deepEqual(turns[intent], [4, 5, 6, 7], 'and each turn of its wait for the deploy');
+  });
+
+  it('R23, ruling 37 — a load that keeps its place in a queue of waiters waits once, re-referencing its delivery every 30 s, and fails if the store no longer holds it', async (t) => {
+    const ws = await fresh();
+    const delivery = await deliver([['SO-2301', acme]]);
+    const queue = loadQueueLock(ws, 'orders', 'erp');
+    const earlier = await storage.locks.acquire(repoDir, queue, variant('dataset_write', null));
+    assert.ok(earlier !== null);
+    // The store is asked for the delivery at each turn of the wait; told to, it answers that it holds it no more
+    let touches = 0;
+    let held = true;
+    const waits: Array<number | undefined> = [];
+    const waiting = withStores(storage, {
+      objects: overriding(storage.objects, {
+        touch: async (repo: string, hashes: readonly string[]) => {
+          if (!hashes.includes(delivery)) return storage.objects.touch(repo, hashes);
+          touches++;
+          return held ? storage.objects.touch(repo, hashes) : hashes.map(() => false);
+        },
+      }),
+      locks: overriding(storage.locks, {
+        acquire: (repo, resource, operation, options) => {
+          if (resource === queue && options?.wait === true) waits.push(options.timeout);
+          return storage.locks.acquire(repo, resource, operation, options);
+        },
+      }),
+    });
+    t.mock.timers.enable({ apis: ['setInterval'] });
+    let queued!: () => void;
+    const saidQueued = new Promise<void>((resolve) => { queued = resolve; });
+    const waited = load(ws, 'erp', delivery, { onProgress: (step) => { if (step.type === 'queued') queued(); } }, waiting);
+    await saidQueued;
+    const before = touches;
+    t.mock.timers.tick(30_000);
+    t.mock.timers.tick(30_000);
+    assert.equal(touches - before, 2, 'the delivery is re-referenced once every 30 s of the wait');
+    assert.deepEqual(waits, [Infinity], 'one wait, with no bound, which keeps its place');
+
+    // The store no longer holds the delivery: the load fails, saying so, and the lock that comes later is let go
+    held = false;
+    t.mock.timers.tick(30_000);
+    await assert.rejects(waited, { message: `delivery ${delivery} is not in the repository: upload it again` });
+    await earlier.release();
+    const free = await storage.locks.acquire(repoDir, queue, variant('dataset_write', null), { wait: true, timeout: Infinity });
+    assert.ok(free !== null, 'the turn is free once the abandoned wait was given it and let it go');
+    await free.release();
   });
 
   it('R62 — a deploy that starts while a load runs stops it within about a second; the load says so, and goes on once the deploy is done', async () => {

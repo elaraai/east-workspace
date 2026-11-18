@@ -68,6 +68,8 @@ import {
   handleProcessImport,
   handleProcessRecordLoad,
   handleProcessSplitCall,
+  JobOrder,
+  loadJobKey,
   type DatasetAdoptProgress,
   type DatasetCommitStatus,
   type DatasetDownloadStore,
@@ -1374,12 +1376,31 @@ class WebSplitCallStore extends JobStore<SplitCallJob, SplitRecord> implements S
 /**
  * Record loads: each run in this worker through e3-core's shared handler, on
  * the repository's runner, its turn among its source's loads taken through
- * the storage's locks. A cancel is recorded on the job, which the job acts
- * on, ending itself: `cancelled` before its commit writes, `completed` after.
+ * the storage's locks. This worker's jobs of one source run in the order they
+ * were filed (ruling 37): each is started after every job it was asked to
+ * run before, and waits for the earlier ones of its source. A cancel is
+ * recorded on the job, which the job acts on, ending itself: `cancelled`
+ * before its commit writes, `completed` after.
  */
 class WebRecordLoadStore extends JobStore<RecordLoadJob, LoadRecord> implements RecordLoadStore {
+  /** The order each source's jobs run in, in this worker */
+  private readonly order = new JobOrder();
+  /** Settles once every job this worker was asked to run has started */
+  private starting: Promise<void> = Promise.resolve();
+
   constructor(host: TransferHost, running: Running) {
     super(host, running, 'load', loadForm);
+  }
+
+  /**
+   * Starts a job after every job this worker was asked to run before it: a
+   * start reads the job's record, so two asked together would otherwise
+   * start in either order, and one source's jobs run in the order they start.
+   */
+  override execute(id: string, repo: string): Promise<void> {
+    const started = this.starting.then(() => super.execute(id, repo));
+    this.starting = started.catch(() => undefined);
+    return started;
   }
 
   /** Records the job's status unless it has ended, in one transaction. */
@@ -1419,9 +1440,18 @@ class WebRecordLoadStore extends JobStore<RecordLoadJob, LoadRecord> implements 
     return variant('failed', { message });
   }
 
-  protected work(id: string, record: LoadRecord): Promise<void> {
+  protected async work(id: string, record: LoadRecord): Promise<void> {
     const repo = record.job.repo;
-    return handleProcessRecordLoad({ storage: this.host.storage, recordLoadStore: this, runner: this.host.getRunner(repo) }, { id, repo });
+    // Its place among its source's loads, taken as it starts, before anything is awaited
+    const place = this.order.take(loadJobKey(record.job));
+    try {
+      // Waiting for an earlier load of its source, the job says so
+      if (place.waits) await this.updateStatus(id, variant('processing', some(variant('queued', null))));
+      await place.before;
+      await handleProcessRecordLoad({ storage: this.host.storage, recordLoadStore: this, runner: this.host.getRunner(repo) }, { id, repo });
+    } finally {
+      place.leave();
+    }
   }
 }
 

@@ -88,3 +88,4 @@ export {
   type ProcessRecordLoadDeps,
   type ProcessRecordLoadInput,
 } from './process.js';
+export { JobOrder, loadJobKey, type JobPlace } from './job-progress.js';

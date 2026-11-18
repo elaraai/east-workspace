@@ -85,6 +85,72 @@ export async function failedUnlessHandedOver(err: unknown, signal: AbortSignal |
 }
 
 /**
+ * What one source's load jobs are ordered under ({@link JobOrder}): the
+ * repository, the workspace, the record and the source.
+ *
+ * @param job - A load job
+ * @returns The key
+ */
+export function loadJobKey(job: { readonly repo: string; readonly workspace: string; readonly record: string; readonly source: string }): string {
+  return [job.repo, job.workspace, job.record, job.source].join('\u0000');
+}
+
+/** A job's place among the jobs filed under one key, in the order they were
+ *  filed ({@link JobOrder.take}). */
+export interface JobPlace {
+  /** Whether a job filed before it under its key had yet to end as it took
+   *  its place: it waits */
+  readonly waits: boolean;
+  /** Settles once every job filed before it under its key has ended */
+  readonly before: Promise<void>;
+  /** Lets the job filed after it go on: called once, when this one has ended,
+   *  or was not run */
+  leave(): void;
+}
+
+/**
+ * The order the jobs filed under one key run in, in a store that runs its
+ * jobs in one process: each after every one filed before it.
+ *
+ * @remarks
+ * A place is taken as a job is asked to run, before anything is awaited, so
+ * the order the store is asked in is the order the jobs run in, however long
+ * each takes to start. A job that is not run after all, or ends early, leaves
+ * its place, and the one after it still waits for every job before that.
+ *
+ * @example
+ * ```ts
+ * const order = new JobOrder();
+ * const place = order.take('main/orders/erp');
+ * await place.before;       // every load of orders.erp filed before this one has ended
+ * try { await run(); } finally { place.leave(); }
+ * ```
+ */
+export class JobOrder {
+  private readonly last = new Map<string, Promise<void>>();
+
+  /**
+   * Takes a job's place after every job that took one under `key` before it.
+   *
+   * @param key - What the jobs are ordered under: a record's source, say
+   * @returns The place
+   */
+  take(key: string): JobPlace {
+    const earlier = this.last.get(key);
+    const before = earlier ?? Promise.resolve();
+    let leave!: () => void;
+    const left = new Promise<void>((resolve) => { leave = resolve; });
+    // Ended once every job before it has, and it has
+    const ended = before.then(() => left);
+    this.last.set(key, ended);
+    void ended.then(() => {
+      if (this.last.get(key) === ended) this.last.delete(key);
+    });
+    return { waits: earlier !== undefined, before, leave };
+  }
+}
+
+/**
  * Progress that comes many times a second, held back so that its job's store
  * is written no more often than an interval.
  */

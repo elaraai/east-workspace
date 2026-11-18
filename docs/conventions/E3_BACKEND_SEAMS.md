@@ -342,11 +342,21 @@ repository holds — sent, when it is a file, by an upload that writes no ref
 (`TransferBackend.objectUpload`, an `ObjectUploadStore`, through
 `createObjectUploadRoutes`): the dataset upload's protocol, whose commit
 stores the bytes as the object they hash to and points nothing at it. One
-source's loads apply one at a time, in the order asked: a store runs each
-source's jobs in the order they were made, and the load takes its turn by a
+source's loads apply one at a time, in the order asked: a store starts each
+source's jobs in the order they were filed, and the load takes its turn by a
 lock of its own, `<ws>#load~<record>~<source>` (`loadQueueLock`), which the
 lock service takes as it takes `<ws>#dataflow`, so loads in two processes
-take turns too. A load holds the repository's running work from when it is
+take turns too. A store that runs its jobs in one process keeps the order
+with `JobOrder`, a place taken as a job is asked to run, before anything is
+awaited; one with a queue of its own keeps it there. Where the lock service
+says it queues its waiters (`LockService.queuesWaiters`), the load waits for
+its turn once, with no bound, and holds its place: the local service keeps a
+place file for each such waiter in the resource's directory and gives the
+lock to the oldest, so several `e3 load` commands on one repository apply in
+the order they were started, and e3-web's is one Web Locks request. Of a
+service that does not, the load asks in turns of 30 s, in no set order, which
+is enough where the store's own queue runs one job of a source at a time. A
+load holds the repository's running work from when it is
 dispatched, so no sweep takes its delivery while it waits, and the workspace
 shared from its intake to its commit, as a Save holds it; it lets the
 workspace go when a deploy or an export announces itself on the workspace's

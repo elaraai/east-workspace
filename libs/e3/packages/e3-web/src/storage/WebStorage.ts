@@ -963,6 +963,11 @@ function statusOf(taskHash: string, inputsHash: string, data: Uint8Array): Execu
  * as its `bootId`.
  */
 class WebLockService implements LockService {
+  /** A wait with no bound stays one request of the locks adapter, which
+   *  grants waiting requests in the order they were made and refuses one that
+   *  does not wait while one waits: across the tabs that share the storage. */
+  readonly queuesWaiters = true;
+
   constructor(private readonly records: RecordsAdapter, private readonly locks: LocksAdapter) {}
 
   /** The adapter's name for a repository's resource. */
@@ -983,8 +988,10 @@ class WebLockService implements LockService {
   ): Promise<LockHandle | null> {
     checkName('lock', resource);
     const mode = options?.mode ?? 'exclusive';
-    // A waiting acquire waits 30 s unless told otherwise, as every service's does.
-    const wait = options?.wait === true ? { wait: true, timeout: options.timeout ?? 30_000 } : {};
+    // A waiting acquire waits 30 s unless told otherwise, as every service's
+    // does; told to wait with no bound, it waits until the lock is free
+    const bound = options?.timeout === Infinity ? {} : { timeout: options?.timeout ?? 30_000 };
+    const wait = options?.wait === true ? { wait: true, ...bound } : {};
     const hold = await this.locks.acquire(this.nameOf(repo, resource), mode, wait);
     if (hold === null) return null;
     if (mode === 'shared') {

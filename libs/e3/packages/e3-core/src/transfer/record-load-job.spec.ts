@@ -27,7 +27,7 @@ import { LocalStorage } from '../storage/local/index.js';
 import { transferStagingDir, transferStagingPath } from '../storage/local/localHelpers.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 import {
-  ErpDeliveryType, GatedTaskRunner, LEDGER_ORDERS, SourcedOrderType, createTempDir, createTestRepo, encodeInSegmentsOf, ledgerOrders,
+  ErpDeliveryType, GatedTaskRunner, LEDGER_ORDERS, SourcedOrderType, createTempDir, createTestRepo, encodeInSegmentsOf, gated, ledgerOrders,
   ledgerWorkspaces, objectUploadStoreTests, overriding, recordLoadStoreTests, removeTempDir, removeTestRepo, withStores, type LedgerWorkspaces,
 } from '../test-helpers.js';
 import { uuidv7 } from '../uuid.js';
@@ -139,6 +139,40 @@ describe('a load run as a job on the in-memory transfer backend', () => {
     assert.deepEqual(commits.slice(0, 2).map(([name]) => name), ['$load:erp', '$load:erp']);
     assert.ok(one.status.type === 'completed' && one.status.value.commit.type === 'some' && commits[1]![1] === one.status.value.commit.value,
       'the first committed first');
+  });
+
+  it('ruling 37 — jobs of one source asked to run together run in the order they were filed, however long each takes to start', async () => {
+    const ws = await fresh();
+    // The first job asked takes longer to start than the second: its hold of the running work comes once the second has its own
+    const secondHolds = gated<void>();
+    let asks = 0;
+    const locks = overriding(storage.locks, {
+      acquire: async (...args: Parameters<StorageBackend['locks']['acquire']>) => {
+        const ask = args[1] === TASKS_LOCK ? asks++ : -1;
+        if (ask === 0) await secondHolds.opened;
+        const handle = await storage.locks.acquire(...args);
+        if (ask === 1) secondHolds.open();
+        return handle;
+      },
+    });
+    const backend = backendOn(runner, withStores(storage, { locks }));
+    const file = async (rows: Array<[string, OrderRow]>): Promise<string> => {
+      const id = uuidv7();
+      await backend.recordLoad.create(id, {
+        repo: repoDir, workspace: ws, record: 'orders', source: 'erp', delivery: await storage.objects.write(repoDir, delivery(rows)),
+        actor: 'ada@example.com', asOf: none, cancel: none, status: variant('processing', none), createdAt: new Date(),
+      });
+      return id;
+    };
+    const [first, second] = [await file([['SO-3701', acme]]), await file([['SO-3702', birch]])];
+    await Promise.all([backend.recordLoad.execute(first, repoDir), backend.recordLoad.execute(second, repoDir)]);
+
+    const [one, two] = [await ended(backend, first), await ended(backend, second)];
+    assert.deepEqual([one.status.type, two.status.type], ['completed', 'completed']);
+    const commits = await history(ws);
+    assert.ok(one.status.type === 'completed' && one.status.value.commit.type === 'some' && commits[1]![1] === one.status.value.commit.value,
+      'the job filed first committed first');
+    assert.ok(two.status.type === 'completed' && two.status.value.commit.type === 'some' && commits[0]![1] === two.status.value.commit.value);
   });
 
   it('R85 — a cancel asked while a job runs is recorded, and the job ends itself cancelled before its commit writes: nothing commits', async () => {

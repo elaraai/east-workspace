@@ -428,8 +428,11 @@ export interface RecordLoadOptions {
  *    step 6, reporting `restarted`; its pieces whose inputs did not change come
  *    from the cache.
  *
- * Its waits — its turn, and a deploy's end — are turns of
- * {@link LOAD_WAIT_TURN_MS} with no bound, each re-referencing the delivery.
+ * Its waits — its turn, and a deploy's end — have no bound, and re-reference
+ * the delivery every {@link LOAD_WAIT_TURN_MS}. Its turn is one wait where
+ * the lock service queues its waiters, so the source's loads apply in the
+ * order asked (ruling 37), and turns of that length elsewhere; a deploy's end
+ * is waited for in such turns.
  *
  * While it holds the workspace it asks once a second whether something that
  * takes the workspace whole has announced itself. A deploy or an export of
@@ -672,11 +675,19 @@ async function unlessStopped(asked: Promise<LockHandle | null>, signal: AbortSig
 
 /**
  * Takes the load's turn among its source's loads: at once when no other holds
- * it, and otherwise in turns of {@link LOAD_WAIT_TURN_MS}, reporting `queued`
- * once, and re-referencing the delivery each turn.
+ * it or waits for it, and otherwise after a wait, reporting `queued` once and
+ * re-referencing the delivery every {@link LOAD_WAIT_TURN_MS}.
+ *
+ * @remarks
+ * Of a lock service that queues its waiters the load makes one wait, with no
+ * bound, which keeps its place: its source's loads are given the turn in the
+ * order they asked (ruling 37). Of any other it asks in turns of
+ * {@link LOAD_WAIT_TURN_MS}, as often as it takes, and is served in no set
+ * order: such a backend keeps its loads' order in its own queue.
  *
  * @returns The turn, which the load lets go once it ends
  * @throws {RecordLoadStoppedError} When the signal fires while it waits
+ * @throws {Error} When the store no longer holds the delivery
  */
 async function queueTaken(
   storage: StorageBackend, repo: string, ws: string, record: string, source: string, delivery: string, name: string,
@@ -687,6 +698,33 @@ async function queueTaken(
   const free = await storage.locks.acquire(repo, lock, operation);
   if (free !== null) return free;
   report(variant('queued', null));
+  if (storage.locks.queuesWaiters === true) {
+    // One wait, given up when the load is stopped or its delivery is gone: a
+    // lock that comes after that is let go as it comes
+    const given = new AbortController();
+    const stop = (): void => given.abort();
+    if (signal?.aborted === true) stop();
+    signal?.addEventListener('abort', stop, { once: true });
+    let gone: unknown = null;
+    const kept = setInterval(() => {
+      reference(storage, repo, delivery).catch((err: unknown) => {
+        gone ??= err;
+        stop();
+      });
+    }, LOAD_WAIT_TURN_MS);
+    try {
+      for (;;) {
+        const turn = await unlessStopped(storage.locks.acquire(repo, lock, operation, { wait: true, timeout: Infinity }), given.signal);
+        if (turn !== STOPPED && turn !== null) return turn;
+        if (gone !== null) throw gone;
+        if (turn === STOPPED) throw new RecordLoadStoppedError(name);
+        // Not given, though its wait had no bound: it asks again
+      }
+    } finally {
+      clearInterval(kept);
+      signal?.removeEventListener('abort', stop);
+    }
+  }
   for (;;) {
     const turn = await unlessStopped(storage.locks.acquire(repo, lock, operation, { wait: true, timeout: LOAD_WAIT_TURN_MS }), signal);
     if (turn === STOPPED) throw new RecordLoadStoppedError(name);

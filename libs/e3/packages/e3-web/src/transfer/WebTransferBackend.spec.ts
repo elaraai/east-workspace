@@ -508,6 +508,30 @@ describe('WebTransferBackend', () => {
       assert.equal(statuses.filter((status) => status === 'completed').length, 1, `the import ran once: ${statuses.join(' → ')}`);
     });
 
+    it('ruling 37 — runs one source\'s loads asked together in the order they were asked: the second waits for the first, and says so', async () => {
+      const tab = await openTab(newOrigin());
+      await tab.storage.repos.create(REPO);
+      // Two loads of a source no workspace holds: each ends failed as it runs, which is all this case needs of a run
+      const [first, second] = [crypto.randomUUID(), crypto.randomUUID()];
+      for (const [id, delivery] of [[first, 'a'.repeat(64)], [second, 'b'.repeat(64)]] as const) {
+        await tab.transfer.recordLoad.create(id, {
+          repo: REPO, workspace: WORKSPACE, record: 'orders', source: 'erp', delivery, actor: 'ada@example.com', asOf: none, cancel: none,
+          status: variant('processing', none), createdAt: new Date(),
+        });
+      }
+      const told: string[] = [];
+      const update = tab.transfer.recordLoad.updateStatus.bind(tab.transfer.recordLoad);
+      tab.transfer.recordLoad.updateStatus = (id, status) => {
+        const step = status.type === 'processing' ? (status.value.type === 'some' ? status.value.value.type : 'processing') : status.type;
+        told.push(`${id === first ? 'first' : 'second'} ${step}`);
+        return update(id, status);
+      };
+      await Promise.all([tab.transfer.recordLoad.execute(first, REPO), tab.transfer.recordLoad.execute(second, REPO)]);
+      await until(async () => ((await tab.transfer.recordLoad.get(second))?.status.type === 'processing' ? null : true), 'both loads to end', 10_000);
+      assert.deepEqual(told.filter((line) => line.endsWith(' queued') || line.endsWith(' failed')), ['second queued', 'first failed', 'second failed'],
+        told.join(' → '));
+    });
+
     it('verifies an upload whose commit is asked for twice at once once', async () => {
       const origin = newOrigin();
       const setup = await openTab(origin);

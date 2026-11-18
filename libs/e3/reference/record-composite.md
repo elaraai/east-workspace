@@ -113,7 +113,8 @@ orders.erp holds a delivery as of 2026-11-02T03:00:00.000, later than this one's
   entries of source 'erp' changed under its load`.
 - **In turn.** One source's loads apply one at a time, in the order asked; a
   load asked while another runs says `Waiting for an earlier load of orders.erp
-  to finish…`.
+  to finish…`, and keeps its place: three `e3 load` commands started one after
+  another apply in that order, however long the first takes.
 - **`--as-of <time>`**, as East writes a time, in UTC: a delivery older than
   the source's last is answered `superseded`, and nothing runs. The source
   keeps the latest as-of any of its deliveries carried.
