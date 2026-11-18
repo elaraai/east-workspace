@@ -447,6 +447,40 @@ describe('stepTasksDue', () => {
     assert.deepStrictEqual([events[0].value.task, events[0].value.reason], ['a', 'input changed: .input']);
   });
 
+  it('ruling 32 — a feed that moves releases its load that waited and the readers waiting on that load, and leaves a reader waiting for a first delivery', async () => {
+    const reads = (name: string, inputs: string[]) => ({ name, hash: `hash-${name}`, inputs, output: `.${name}_out`, dependsOn: [], load: none });
+    const loads: DataflowGraph = {
+      tasks: [
+        reads('forecast', ['.records.orders']),
+        reads('count', ['.records.stock']),
+        reads('both', ['.records.orders', '.records.parts']),
+        { name: 'orders.erp', hash: 'hash-erp', inputs: ['.erp_rows'], output: '.records.orders', dependsOn: [], load: some({ record: 'orders', source: 'erp' }) },
+        { name: 'stock.wms', hash: 'hash-wms', inputs: ['.wms_rows'], output: '.records.stock', dependsOn: [], load: some({ record: 'stock', source: 'wms' }) },
+        { name: 'parts.mrp', hash: 'hash-mrp', inputs: ['.mrp_rows'], output: '.records.parts', dependsOn: [], load: some({ record: 'parts', source: 'mrp' }) },
+      ],
+    };
+    // orders' load waited, and so does parts'; stock's is ready to run, and stock's reader waits for its first delivery
+    const waiting = (): DataflowExecutionState => makeState(loads, new Map<string, TaskState>([
+      ['forecast', makeTaskState('forecast', 'waiting')],
+      ['count', makeTaskState('count', 'waiting')],
+      ['both', makeTaskState('both', 'waiting')],
+      ['orders.erp', makeTaskState('orders.erp', 'waiting')],
+      ['stock.wms', makeTaskState('stock.wms', 'ready')],
+      ['parts.mrp', makeTaskState('parts.mrp', 'waiting')],
+    ]));
+    const statuses = (state: DataflowExecutionState) => ['forecast', 'count', 'both', 'orders.erp', 'stock.wms', 'parts.mrp'].map((name) => state.tasks.get(name)!.status);
+
+    const state = waiting();
+    assert.deepStrictEqual(await stepTasksDue(unread, state, [{ path: '.erp_rows' }, { path: '.wms_rows' }]), { due: [], events: [] });
+    assert.deepStrictEqual(statuses(state), ['pending', 'waiting', 'waiting', 'pending', 'ready', 'waiting'],
+      'forecast waited on the load the move released; count waits for stock\'s first delivery; both reads a record whose load still waits');
+
+    // The record itself changed, a delivery's commit among its changes: its waiting reader is decided again
+    const committed = waiting();
+    await stepTasksDue(unread, committed, [{ path: '.records.stock' }]);
+    assert.strictEqual(committed.tasks.get('count')!.status, 'pending');
+  });
+
   it('leaves its dependents as they are: a change travels a step at a time, and they are asked once its next result lands', async () => {
     const state = run('v2', 'v1');
     await stepTasksDue(unread, state, [{ path: '.input' }]);

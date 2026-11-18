@@ -280,8 +280,8 @@ describe('a source the dataflow loads', () => {
 
     const { result, lines, told } = await run();
     assert.equal(result.success, true, told);
-    // forecast waits for erp's first delivery, and runs once the load commits
-    assert.ok(lines.includes('wait forecast: pending .records.orders (erp)'), told);
+    // forecast waits for erp's first delivery, told once (ruling 32), and runs once the load commits
+    assert.equal(count(lines, 'wait forecast: pending .records.orders (erp)'), 1, told);
     const at = (line: string): number => lines.indexOf(line);
     assert.ok(at('done combine_erp') >= 0 && at('done combine_erp') < at('start orders.erp'), told);
     assert.ok(at('start orders.erp') < at('done orders.erp') && at('done orders.erp') < at('done forecast'), told);

@@ -902,7 +902,12 @@ function taskDue(state: DataflowExecutionState, taskState: Mutable<TaskState>, r
  * forgot its delivery, which it loads again. A moved feed asks its record's
  * readers too, as a change of the record would: while the feed's output is
  * the record's delivery, the record carries the versions the feed was made
- * from in the run ({@link stepTaskCommits}). A mutation leaves the slot, and
+ * from in the run ({@link stepTaskCommits}). A reader left waiting is decided
+ * again for a moved feed only where it waited on the record's load, which the
+ * move released: a load that can run holds no reader up. One waiting for the
+ * record's first delivery is decided again by that delivery's commit
+ * ({@link stepTaskCompleted}), so it is told once that it waits. A mutation
+ * leaves the slot, and
  * the node, as they are. A failed load node goes back to pending, out of the
  * failed count, once its feed has moved since the launch that failed: a
  * load's failure does not end its run, which loads the feed's next output.
@@ -921,12 +926,22 @@ export async function stepTasksDue(
   events: ExecutionEvent[];
 }> {
   const graph = getGraph(state);
-  const paths = new Set(changed.map((change) => change.path));
+  const moved = new Set(changed.map((change) => change.path));
+  const paths = new Set(moved);
   // A record a moved feed loads is asked too: what it carries of the roots
   // the feed reads follows the feed's output in the run while that output is
-  // its delivery, so its readers may read them otherwise now
+  // its delivery, so its readers may read them otherwise now. A load that
+  // waited is decided again before its record's readers are asked: its feed
+  // is what it waited on, and a load that can run holds no reader up
+  const released = new Set<string>();
   for (const node of graph.tasks) {
-    if (node.load.type === 'some' && paths.has(node.inputs[0]!)) paths.add(node.output);
+    if (node.load.type !== 'some' || !paths.has(node.inputs[0]!)) continue;
+    paths.add(node.output);
+    const loadState = state.tasks.get(node.name) as Mutable<TaskState> | undefined;
+    if (loadState?.status === 'waiting' && !waitsOnDependency(state, graph, node.name)) {
+      loadState.status = 'pending';
+      released.add(node.output);
+    }
   }
   const due: string[] = [];
   const events: ExecutionEvent[] = [];
@@ -940,15 +955,15 @@ export async function stepTasksDue(
     if (read.length === 0 && !forgotten) continue;
 
     if (await askDue(storage, state, task, taskState, forgotten, `input changed: ${read.join(', ')}`, { due, events })) continue;
-    if (taskState.status === 'deferred') {
-      // Un-defer — it is decided again as it next launches
-      taskState.status = 'pending';
-    } else if (taskState.status === 'waiting' && !waitsOnDependency(state, graph, task.name)) {
-      // Stop waiting — the input it waited on may be the one that changed,
-      // and the loop decides it again — unless a task it reads still waits,
-      // which decides it again as that task completes
-      taskState.status = 'pending';
-    }
+    // A reader left waiting that is asked only because a record's feed moved
+    // stays waiting, unless it waited on the record's load, which the move
+    // released: one that waits for the record's first delivery is decided
+    // again by that delivery's commit, and is told once that it waits
+    if (taskState.status === 'waiting' && !read.some((input) => moved.has(input) || released.has(input))) continue;
+    // Deferred, it is decided again as it next launches; and waiting, since
+    // the input it waited on may be the one that changed, unless a task it
+    // reads still waits, which decides it again as that task completes
+    decideAgain(state, graph, task.name);
   }
 
   return { due, events };
