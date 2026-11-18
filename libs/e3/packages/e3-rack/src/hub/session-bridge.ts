@@ -96,9 +96,9 @@ export interface SessionBridgeOptions {
    */
   advertiseOrigin: () => string | undefined;
   /**
-   * The keys a rack's manifest of a lease's environment may be kept under, by
-   * what the rack last reported, the first the one it is served when its
-   * session keeps it: the layers built over the tier it boots the lease's
+   * The keys of the manifests of a lease's environment a rack may be served,
+   * of those the lease's sessions keep, by what the rack last reported, the
+   * first the one it is: the layers built over the tier it boots the lease's
    * work over, then the whole environment's, each for its platform. None for
    * a rack that reports no platform. Absent, no layer is served.
    */
@@ -132,7 +132,7 @@ const MANIFESTS_KEPT_BYTES = 16 * 1024 * 1024;
  * The layers of a lease's environment are served the same way, from where
  * its session keeps them: a lease reads the manifest of its own environment,
  * built for the platform of the rack that asks, over the tier that rack
- * boots it over when its session keeps that build, and the layers it names.
+ * boots it over when its sessions keep that build, and the layers it names.
  * @example
  * const bridge = new SessionProxyStorageBridge(options);
  * app.route('/', bridge.dataRoutes());
@@ -152,9 +152,6 @@ export class SessionProxyStorageBridge implements RackStorageBridge {
   /** The key a rack is served a lease's environment by, for as long as it
    *  holds the lease: by the lease and the rack. */
   private readonly envKeys = new Map<string, string>();
-  /** The keys a lease's session was found to keep no manifest by, each but a
-   *  rack's last: by the lease and the key. */
-  private readonly envMisses = new Set<string>();
   private readonly transfersAtOnce: number;
   private readonly now: () => number;
 
@@ -336,21 +333,15 @@ export class SessionProxyStorageBridge implements RackStorageBridge {
 
   /**
    * The manifest a lease's session keeps by a key, or null when it keeps none:
-   * a lease reads its own environment's, and no other. Asked of a lease
-   * outside its fence too, as a poll asks whether its rack could take it.
+   * a lease reads its own environment's, and no other.
    *
    * @remarks
    * What a session keeps by a manifest's name it never changes, so a manifest
-   * read once is answered again from memory ({@link MANIFESTS_KEPT_BYTES}),
-   * and a poll that asks of every lease waiting asks its session nothing more.
+   * read once is answered again from memory ({@link MANIFESTS_KEPT_BYTES}):
+   * each of a lease's reads of its environment asks its session nothing more.
    * One a session does not keep is asked again each time: it may be built.
-   *
-   * @param repo - The lease's repository
-   * @param leaseId - The lease
-   * @param manifestKey - The manifest's key
-   * @returns The manifest, or null
    */
-  async readEnvManifestOf(repo: string, leaseId: string, manifestKey: string): Promise<string | null> {
+  private async readEnvManifestOf(repo: string, leaseId: string, manifestKey: string): Promise<string | null> {
     const lease = await this.options.leases.get(repo, leaseId);
     const environment = lease?.event.environment;
     const name = envManifestName(manifestKey);
@@ -383,29 +374,20 @@ export class SessionProxyStorageBridge implements RackStorageBridge {
 
   /**
    * The key of the manifest a rack is served of a lease's environment: the
-   * first of the rack's keys ({@link SessionBridgeOptions.envManifestKeys})
-   * its session keeps a manifest by.
+   * first of the keys the rack may be served
+   * ({@link SessionBridgeOptions.envManifestKeys}), which name the builds the
+   * lease's sessions keep, so no session is asked anything to choose it.
    *
    * @remarks
    * A rack that holds the lease is served the one manifest for as long as it
-   * holds it, though its session builds another meanwhile: the layers it asks
-   * for are that manifest's.
-   *
-   * A session builds a lease's layers before it leases the work, so a key
-   * that keeps no manifest of the lease's environment — the layers built over
-   * a rack's tier image, when they were built whole — keeps none until
-   * another session joins the lease, having built what it built
-   * ({@link forgetEnvMisses}), and is not asked again till then: a claim poll
-   * asks the session nothing more of it. A rack's last key, the whole
-   * environment's, is asked each time. A read that fails is no answer of
-   * whether a key keeps a manifest: the next is asked, and the failure stands
-   * when none answers.
+   * holds it, though a session that joins the lease meanwhile keeps another:
+   * the layers it asks for are that manifest's.
    *
    * @param repo - The lease's repository
    * @param leaseId - The lease
    * @param rackId - The rack that asks, or would claim it
-   * @returns The key, or null when its session keeps none of them
-   * @throws {Error} When no key answered, and a read of one failed
+   * @returns The key, or null when the lease's sessions keep none the rack
+   *   may be served
    */
   async envManifestKeyOf(repo: string, leaseId: string, rackId: string): Promise<string | null> {
     const held = `${repo} ${leaseId} ${rackId}`;
@@ -413,40 +395,9 @@ export class SessionProxyStorageBridge implements RackStorageBridge {
     if (known !== undefined) return known;
     const lease = await this.options.leases.get(repo, leaseId);
     if (lease === null) return null;
-    const keys = this.options.envManifestKeys?.(rackId, lease) ?? [];
-    let failed: { error: unknown } | undefined;
-    for (const [i, key] of keys.entries()) {
-      const missed = `${repo} ${leaseId} ${key}`;
-      const last = i === keys.length - 1;
-      if (!last && this.envMisses.has(missed)) continue;
-      let manifest: string | null;
-      try {
-        manifest = await this.readEnvManifestOf(repo, leaseId, key);
-      } catch (error) {
-        failed ??= { error };
-        continue;
-      }
-      if (manifest === null) {
-        if (!last) this.envMisses.add(missed);
-        continue;
-      }
-      if (lease.status === 'claimed' && lease.claimedBy === rackId) this.envKeys.set(held, key);
-      return key;
-    }
-    if (failed !== undefined) throw failed.error;
-    return null;
-  }
-
-  /**
-   * Forgets the keys a lease's session was found to keep no manifest by: a
-   * session that joins the lease built the layers of its environment for the
-   * racks it saw first, which may be kept under one of them now.
-   *
-   * @param repo - The lease's repository
-   * @param leaseId - The lease
-   */
-  forgetEnvMisses(repo: string, leaseId: string): void {
-    for (const missed of this.envMisses) if (missed.startsWith(`${repo} ${leaseId} `)) this.envMisses.delete(missed);
+    const key = this.options.envManifestKeys?.(rackId, lease)[0] ?? null;
+    if (key !== null && lease.status === 'claimed' && lease.claimedBy === rackId) this.envKeys.set(held, key);
+    return key;
   }
 
   /**
@@ -484,7 +435,6 @@ export class SessionProxyStorageBridge implements RackStorageBridge {
     this.revoke(repo, leaseId);
     // Its next claim, by this rack or another, is served its manifest anew
     for (const held of this.envKeys.keys()) if (held.startsWith(`${repo} ${leaseId} `)) this.envKeys.delete(held);
-    this.forgetEnvMisses(repo, leaseId);
     const caps = [...this.capabilities.values()].filter((cap) => cap.repo === repo && cap.leaseId === leaseId);
     for (const cap of caps) this.capabilities.delete(cap.id);
     const results = await Promise.allSettled(caps.map(async (cap) => {
@@ -599,6 +549,5 @@ export class SessionProxyStorageBridge implements RackStorageBridge {
     this.manifests.clear();
     this.manifestBytes = 0;
     this.envKeys.clear();
-    this.envMisses.clear();
   }
 }

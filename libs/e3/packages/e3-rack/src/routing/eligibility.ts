@@ -3,14 +3,11 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { decodeBeast2For } from '@elaraai/east';
 import type { DetachedCallRequest, StorageBackend, TaskBodyRequest } from '@elaraai/e3-core';
-import { EnvironmentSpecType, decodeTaskObject } from '@elaraai/e3-types';
+import { decodeEnvironmentSpec, decodeTaskObject } from '@elaraai/e3-types';
 import { selectTask, type RackComputeSize, type RackPolicy, type TaskSelection } from './policy.js';
 import { rackTierFor, type IneligibleReason, type RackTier } from './tiers.js';
 import { collectPlatformNames, hostCoupledPlatforms, scanProgram } from './host-coupling.js';
-
-const decodeEnvironmentSpec = decodeBeast2For(EnvironmentSpecType);
 
 /**
  * A request's rack destination, or why it remains local. Work that declares
@@ -37,11 +34,13 @@ export interface EligibilityOptions {
  * Why the environment work declares cannot go to a rack, or null when it can:
  * an environment that is files of the launching machine's platform, or a
  * server's image, is not installed for a rack's; nor is one built on Windows,
- * whose built environments have another layout.
+ * whose built environments have another layout. A spec of another type than
+ * this release's is refused by the one decoder every reader goes through, and
+ * the work stays here, where running it says why.
  */
 async function environmentRefusal(storage: StorageBackend, repo: string, environment: string | null): Promise<IneligibleReason | null> {
   if (environment === null) return null;
-  const spec = decodeEnvironmentSpec(await storage.objects.read(repo, environment));
+  const spec = decodeEnvironmentSpec(await storage.objects.read(repo, environment), environment);
   if (spec.type === 'tools' || spec.type === 'image') return `environment:${spec.type}`;
   if (process.platform === 'win32') return 'environment:windows-host';
   return null;

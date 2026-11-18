@@ -89,8 +89,9 @@ export function envLayerBlobKey(digest: string): string {
  * Key of the manifest of an environment's layers, as built with an e3 release
  * for a platform: beside its blobs. A launching machine keeps both under its
  * repository's `rack/` directory, by these keys. Layers built over a tier are
- * kept under a key that names the tier and its image's manifest, so another
- * image of the tier is another build.
+ * kept under a key that names the tier and its image's manifest by its whole
+ * digest, so another image of the tier is another build, whatever its
+ * digest's first digits are.
  *
  * @param envHash - The environment spec's hash
  * @param e3Version - The e3 release the layers were built with
@@ -103,7 +104,7 @@ export function envLayerBlobKey(digest: string): string {
  * const small = envManifestKey(envHash, '1.0.108', 'x86_64-manylinux_2_28', { tier: 'py-datascience', manifest: digest });
  */
 export function envManifestKey(envHash: string, e3Version: string, platform: string, over?: EnvLayerOver): string {
-  const tier = over === undefined ? '' : `-${over.tier}-${over.manifest.replace(/^sha256:/, '').slice(0, 12)}`;
+  const tier = over === undefined ? '' : `-${over.tier}-${over.manifest.replace(/^sha256:/, '')}`;
   return `env-layers/manifests/${envHash}-${e3Version}-${platform}${tier}.json`;
 }
 

@@ -360,6 +360,13 @@ describe('a tier manifest', () => {
         const out = join(dir, 'manifest.json');
         execFileSync(imagePython, [SCRIPT, out], { env: { ...process.env, PYTHONPATH: elsewhere } });
         assert.deepEqual(readTierManifest(readFileSync(out)).distributions.map(({ name }) => name), ['idna']);
+        // One that names no version is passed over, as one with no record is, and the manifest is read whole
+        const unversioned = join(made.python.site, 'noversion-0.dist-info');
+        mkdirSync(unversioned);
+        writeFileSync(join(unversioned, 'METADATA'), 'Metadata-Version: 2.1\nName: noversion\n');
+        writeFileSync(join(unversioned, 'RECORD'), 'noversion.py,sha256=z,1\nnoversion-0.dist-info/RECORD,,\n');
+        execFileSync(imagePython, [SCRIPT, out]);
+        assert.deepEqual(readTierManifest(readFileSync(out)).distributions.map(({ name }) => name), ['idna']);
         // Two of one name in it, which no install makes: which files are whose cannot be told, so neither is the tier's
         const twice = join(made.python.site, 'idna-9.9.dist-info');
         mkdirSync(twice);

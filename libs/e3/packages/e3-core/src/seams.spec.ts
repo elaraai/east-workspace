@@ -58,12 +58,13 @@ function within(file: string, places: readonly string[]): boolean {
 const LOCAL = [
   'storage/local/',
   'execution/LocalTaskRunner.ts', 'execution/processExec.ts', 'execution/processHelpers.ts', 'execution/runDetached.ts',
-  'execution/intake.ts', 'execution/units.ts', 'execution/environment.ts', 'execution/scratch.ts', 'execution/budget.ts',
+  'execution/intake.ts', 'execution/units.ts', 'execution/environment.ts', 'execution/environment-build.ts', 'execution/environment-install.ts',
+  'execution/environment-target.ts', 'execution/scratch.ts', 'execution/budget.ts',
   'execution/cgroups.ts', 'execution/memory.ts', 'execution/segment-fetch.ts', 'execution/local-orchestrator.ts',
 ];
 
 /** Test support: it creates local repositories and temporary files for tests. */
-const TEST_SUPPORT = ['test-helpers.ts', 'contract/'];
+const TEST_SUPPORT = ['test-helpers.ts', 'contract/', 'execution/environment.test-utils.ts'];
 
 /** The modules besides {@link LOCAL} that may import the local backend, and why. */
 const LOCAL_IMPORTS: Record<string, string> = {

@@ -138,6 +138,8 @@ for (const failure of [
   // A task's own failure is its verdict whatever its message mentions, unless the policy retries failures locally
   { state: 'failed' as const, exitCode: 1, error: 'fetch timed out after 30 s', retry: false, expected: 'failed' },
   { state: 'failed' as const, exitCode: 1, error: 'fetch timed out after 30 s', retry: true, expected: 'success' },
+  // A failure the rack gives a reason of its own for is the rack's, whatever its state: its work disk filled, so the task's process died
+  { state: 'failed' as const, exitCode: 1, error: 'No space left on device', reason: { code: 'work-disk-full', detail: 'the work disk is full' }, retry: false, expected: 'success' },
 ]) it(`classifies ${failure.error} (retry=${failure.retry}) as ${failure.expected}`, async () => {
   const f = await fixture(); const agent = await f.agent();
   const policy: RackPolicy = { ...f.policy, retryTaskFailuresLocally: failure.retry };

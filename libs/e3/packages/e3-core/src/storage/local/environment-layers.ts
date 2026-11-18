@@ -15,7 +15,9 @@
  *   manifests/<name>.json  what names an environment's layers, for one
  *                          platform and e3 release; its name begins with the
  *                          environment's hash
- *   building/              a build's claim, and its scratch tree
+ *   building/              a build's claim, and its scratch tree, beside which
+ *                          the builds over tiers of one Python that run
+ *                          together keep the install they share
  * ```
  *
  * A layer is a gzip tar of part of the installed tree, its entries under
@@ -516,13 +518,14 @@ export async function sweepEnvironmentLayers(repo: string, reachable: ReadonlySe
   };
   const list = (sub: string): Promise<string[]> => fs.readdir(path.join(dir, sub)).catch(() => [] as string[]);
 
-  // A build's claim and scratch tree, once its builder is gone: a claim that
-  // names none is a builder's that has not named itself yet, for a while
+  // A build's claim and scratch tree, and the install builds share beside
+  // it, once its builder is gone: a claim that names none is a builder's that
+  // has not named itself yet, for a while
   let building = false;
   const claims = await list('building');
   for (const entry of claims) {
     const file = path.join(dir, 'building', entry);
-    const tree = /\.tree-(\d+)-(\d+)$/.exec(entry);
+    const tree = /\.tree-(\d+)-(\d+)(?:\.install)?$/.exec(entry);
     const claim = entry.endsWith('.claim');
     const holder = tree ?? (claim ? /^(\d+) (\d+)\n$/.exec(await fs.readFile(file, 'utf8').catch(() => '')) : null);
     const lives = holder !== null ? !await processExited(Number(holder[1]), Number(holder[2]))

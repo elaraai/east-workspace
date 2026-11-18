@@ -30,19 +30,21 @@ const decodeCurrent = (bytes: Uint8Array): EnvironmentSpec => decodeEnvironmentS
 const H = (c: string): string => c.repeat(64); // stand-in 64-hex object hash
 
 describe('decodeEnvironmentSpec', () => {
-  it('refuses a spec an earlier release exported, which decodes at this type, and bytes of another type, naming the re-export', () => {
+  it('refuses a spec an earlier release exported, which decodes at this type, naming the re-export; a later release\'s, naming the upgrade; and what is no spec', () => {
     // The type before its `workspace_python` case: its values decode at today's, and are refused by their type
     const Earlier = VariantType({
       python: PythonEnvironmentType, node: NodeEnvironmentType, image: ImageEnvironmentType, tools: ToolsEnvironmentType,
       workspace_node: WorkspaceNodeEnvironmentType,
     });
-    const refusal = { message: `the environment ${H('a')} was exported by an older e3 SDK — re-export its package with the current one` };
-    for (const bytes of [
-      encodeBeast2For(Earlier)(variant('tools', { files: [{ path: 'bin/my-runner', hash: H('1') }] })),
-      encodeBeast2For(StringType)('not a spec'),
-      new TextEncoder().encode('not beast2'),
-    ]) {
-      assert.throws(() => decodeEnvironmentSpec(bytes, H('a')), refusal);
+    const tools = variant('tools', { files: [{ path: 'bin/my-runner', hash: H('1') }] });
+    assert.throws(() => decodeEnvironmentSpec(encodeBeast2For(Earlier)(tools), H('a')),
+      { message: `the environment ${H('a')} was exported by an older e3 SDK — re-export its package with the current one` });
+    // A later release's, with a case this one does not know: re-exporting with this one cannot help
+    const Later = VariantType({ ...EnvironmentSpecType.cases, conda: StringType });
+    assert.throws(() => decodeEnvironmentSpec(encodeBeast2For(Later)(tools), H('a')),
+      { message: `the environment ${H('a')} was exported by a newer e3 SDK than this one, as its conda says — upgrade e3 to the release that exported its package` });
+    for (const bytes of [encodeBeast2For(StringType)('not a spec'), new TextEncoder().encode('not beast2')]) {
+      assert.throws(() => decodeEnvironmentSpec(bytes, H('a')), { message: `the object ${H('a')} is not an environment's spec` });
     }
   });
 });

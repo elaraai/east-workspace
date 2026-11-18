@@ -20,6 +20,7 @@ import { describeRackReason, readRackReason, readRackRetries, type RackLeaseReso
 import type { RackResources } from '../protocol/rack-json.js';
 import { EligibilityEvaluator, type Eligibility } from '../routing/eligibility.js';
 import { RACK_SIZES, type RackPolicy } from '../routing/policy.js';
+import { envManifestKey } from '../server/env-publication.js';
 import { compatibleRacks, rackCapsUnits, rackCouldHold, rackFree, rackResources, rackRoom, type SnapshotRack } from './capacity.js';
 import { publishEnvLayers, type EnvLayerTarget, type RackEnvironmentEvent } from './environment.js';
 
@@ -537,7 +538,8 @@ export interface RackSubmitted {
  * known. A rack says both with its heartbeats: of one this hub has not heard
  * yet, neither is known. For a rack that names the image of the work's tier
  * it boots environments over, the layers are built over that image, and
- * whole for any other: the rack is served whichever its build came to.
+ * whole for any other: the rack is served whichever its build came to, as
+ * the work's lease names the builds kept.
  *
  * @example
  * ```ts
@@ -551,6 +553,9 @@ export class RackFleet {
    *  platform they are kept whole for, and each platform and tier image they
    *  are kept built over ({@link layersFor}) */
   private kept: ReadonlySet<string> | undefined;
+  /** The keys of the manifests of those builds, sorted: what the work's
+   *  lease tells the hub a rack may be served */
+  private manifests: readonly string[] = [];
 
   /**
    * @param session - The session the work is leased through
@@ -645,7 +650,10 @@ export class RackFleet {
    * environment is a rack's once the environment's layers are kept for the
    * platform of a rack that could hold it: they are built first, for each
    * such platform, over the tier image each such rack names and whole for a
-   * rack that names none. A build over an image that fails is tried whole for
+   * rack that names none. The builds start together, so those over the
+   * images of one platform and Python install the environment once, each
+   * leaving its own image's share to it (e3-core's `materializeEnvironmentFor`).
+   * A build over an image that fails is tried whole for
    * its platform, which a rack of that image runs too. Work whose environment
    * no install makes for any of them, or whose builds fail, runs locally with
    * the build's reason and words: a whole build's, when one was tried.
@@ -696,10 +704,13 @@ export class RackFleet {
       if (options.signal?.aborted) return { kind: 'aborted' };
       // Kept over the image asked for, or whole: an environment that does
       // not fit an image is kept whole, which a rack of that image runs too
-      this.kept = new Set([
-        ...built.flatMap(({ platform, image }, i) => made[i]!.reason !== undefined ? [] : [layersFor(platform, made[i]!.over === true ? image : undefined)]),
-        ...wholes.flatMap((platform, i) => whole[i]!.reason !== undefined ? [] : [layersFor(platform)]),
-      ]);
+      const kept: Array<{ platform: string; image: RackTierImage | undefined }> = [
+        ...built.flatMap(({ platform, image }, i) => made[i]!.reason !== undefined ? [] : [{ platform, image: made[i]!.over === true ? image : undefined }]),
+        ...wholes.flatMap((platform, i) => whole[i]!.reason !== undefined ? [] : [{ platform, image: undefined }]),
+      ];
+      this.kept = new Set(kept.map(({ platform, image }) => layersFor(platform, image)));
+      this.manifests = [...new Set(kept.map(({ platform, image }) => envManifestKey(environment, this.session.e3Version, platform,
+        image === undefined ? undefined : { tier: this.verdict.tier, manifest: image.digest })))].sort();
       if (this.kept.size === 0) {
         const refused = whole.find((result) => result.reason !== undefined) ?? made.find((result) => result.reason !== undefined)!;
         return { kind: 'local', why: { reason: `environment:${refused.reason!}`, ...(refused.said !== undefined && { said: refused.said }) } };
@@ -714,7 +725,8 @@ export class RackFleet {
    * Queues the work's lease, or, when the racks are full and the work may
    * run here, joins identical work queued or held already, which costs them
    * no further capacity; anything else is left to run here, without first
-   * queuing a lease a rack could claim before the spill.
+   * queuing a lease a rack could claim before the spill. Either names the
+   * builds of the work's environment this session keeps ({@link place}).
    * @param lease - The lease
    * @param needs - What it asks
    * @param options - Whether it may join other work, whether it may spill,
@@ -726,15 +738,16 @@ export class RackFleet {
    * @throws {RackHubUnavailableError} When the session is closed or its hub
    *   is gone
    */
-  async submit(lease: CreateLease, needs: RackLeaseResources, options: RackSubmitOptions): Promise<RackSubmitted | null> {
+  async submit(lease: Omit<CreateLease, 'envManifests'>, needs: RackLeaseResources, options: RackSubmitOptions): Promise<RackSubmitted | null> {
+    const request: CreateLease = { ...lease, envManifests: [...this.manifests] };
     const full = this.room(needs) <= 0;
     let handle: LeaseHandle;
     if (full && options.canSpill()) {
       if (!options.joins) return null;
-      const attached = await this.session.attachLease(lease);
+      const attached = await this.session.attachLease(request);
       if (attached === null) return null;
       handle = attached;
-    } else handle = await this.session.createLease(lease);
+    } else handle = await this.session.createLease(request);
     // Work attached to a lease a rack already holds waits for nothing
     if (!full || handle.attempt !== null) return { handle };
     // Queued with no room for it now: said once, with the rack that has the

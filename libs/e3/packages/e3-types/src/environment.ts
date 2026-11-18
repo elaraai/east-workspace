@@ -19,7 +19,10 @@
  * content-addressed object store and transfer machinery.
  */
 
-import { ArrayType, OptionType, StringType, StructType, ValueTypeOf, VariantType, decodeBeast2For, isTypeValueEqual, readBeast2Type, toEastTypeValue } from '@elaraai/east';
+import {
+  ArrayType, OptionType, StringType, StructType, ValueTypeOf, VariantType, decodeBeast2For, isTypeValueEqual, readBeast2Type, toEastTypeValue,
+  type EastTypeValue,
+} from '@elaraai/east';
 
 /**
  * A Python (uv) project environment.
@@ -238,37 +241,50 @@ export type EnvironmentSpec = ValueTypeOf<typeof EnvironmentSpecType>;
 const ENVIRONMENT_SPEC_TYPE = toEastTypeValue(EnvironmentSpecType);
 const decodeSpec = decodeBeast2For(EnvironmentSpecType);
 
+/** The names of this release's cases of a spec. */
+const SPEC_CASES: ReadonlySet<string> = new Set(Object.keys(EnvironmentSpecType.cases));
+
 /**
  * Decodes an environment's spec object, as this release writes it.
  *
  * @remarks
- * Whatever reads a spec reads it here, so a spec an earlier release wrote is
- * refused in one set of words wherever it is read. Such a spec, of a type
- * with fewer cases, would decode at this one still; it is refused by its type
- * before it is read, as an environment's file an older SDK stored raw is, and
- * its package is exported again.
+ * Whatever reads a spec reads it here, so a spec of another type is refused in
+ * one set of words wherever it is read, by its type, before it is read. The
+ * spec's type grows by cases, so the refusal names the fix by its cases:
+ * - each a case this release names: an earlier SDK wrote it, of a type with
+ *   fewer cases, which would decode at this one still; its package is
+ *   exported again, as one whose file an older SDK stored raw is;
+ * - a case this release does not name: a later SDK wrote it, which this
+ *   release cannot read; e3 is upgraded to the release that exported it;
+ * - no variant at all, or no beast2: it is no spec.
  *
  * @param data - The object's bytes
  * @param hash - The object's hash, which a refusal names
  * @returns The spec
- * @throws {Error} When the object is not a spec of this release's type: one
- *   an older e3 SDK exported, whose package is re-exported
+ * @throws {Error} When the object is not a spec of this release's type, saying
+ *   which of the three it is
  * @example
  * ```ts
  * const spec = decodeEnvironmentSpec(await storage.objects.read(repo, envHash), envHash);
  * ```
  */
 export function decodeEnvironmentSpec(data: Uint8Array, hash: string): EnvironmentSpec {
-  let isSpec = false;
+  let type: EastTypeValue | null = null;
   try {
-    isSpec = isTypeValueEqual(readBeast2Type(data), ENVIRONMENT_SPEC_TYPE);
+    type = readBeast2Type(data);
   } catch {
     // Not beast2 at all
   }
-  if (!isSpec) {
+  if (type !== null && isTypeValueEqual(type, ENVIRONMENT_SPEC_TYPE)) return decodeSpec(data);
+  if (type === null || type.type !== 'Variant' || type.value.length === 0) {
+    throw new Error(`the object ${hash} is not an environment's spec`);
+  }
+  if (type.value.every(({ name }) => SPEC_CASES.has(name))) {
     throw new Error(`the environment ${hash} was exported by an older e3 SDK — re-export its package with the current one`);
   }
-  return decodeSpec(data);
+  const unknown = type.value.map(({ name }) => name).filter((name) => !SPEC_CASES.has(name));
+  throw new Error(`the environment ${hash} was exported by a newer e3 SDK than this one, as its ${unknown.join(', ')} says — ` +
+    'upgrade e3 to the release that exported its package');
 }
 
 /**

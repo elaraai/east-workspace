@@ -25,7 +25,8 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { decodeBeast2For } from '@elaraai/east';
 import { EnvironmentSpecType } from '@elaraai/e3-types';
-import { captureEnvironment, captureAutoEnvironment, canonicalPythonName, pythonLeftOut, pythonRequires, type BuiltSdists, type UvLock } from './environment-capture.js';
+import { captureEnvironment, captureAutoEnvironment, canonicalPythonName, pythonLeftOut, pythonRequires, type BuiltSdists, type UvLock, type UvLockPackage } from './environment-capture.js';
+import { pythonClosure } from './environment-uv-lock.js';
 
 function toolAvailable(cmd: string): boolean {
   try { execFileSync(cmd, ['--version'], { stdio: 'ignore', shell: process.platform === 'win32' }); return true; } catch { return false; }
@@ -211,6 +212,37 @@ describe('python closure capture (#278)', () => {
     assert.deepStrictEqual(pythonLeftOut(lock, []), ['extra-x', 'extra-y', 'forked', 'from-git', 'helper-dep', 'needed-a', 'own-only', 'with-extras']);
     assert.throws(() => pythonLeftOut(lock, ['needed-a[x']), /'needed-a\[x' is not a package's name/);
     assert.throws(() => pythonLeftOut('version = 2\n', []), /unsupported uv\.lock version 2/);
+  });
+
+  it('walks a registry package as an install takes it: its dependencies and the extras asked of it, so a local archive only an extra nothing asks for names is no refusal', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-cap-walk-'));
+    try {
+      for (const name of ['member', 'helper']) fs.mkdirSync(path.join(root, 'packages', name), { recursive: true });
+      const registry = { registry: 'https://pypi.org/simple' };
+      /** A workspace whose member depends on a registry package as it is given, with that package's extras naming a local archive and a local package. */
+      const lockOf = (dependency: { name: string; extra?: string[] }, own: UvLockPackage['optional-dependencies'] = {}): UvLock => ({ version: 1, package: [
+        { name: 'member', source: { editable: 'packages/member' }, dependencies: [dependency], 'optional-dependencies': own },
+        { name: 'regpkg', source: registry, dependencies: [{ name: 'six' }],
+          'optional-dependencies': { torch: [{ name: 'torch' }], helpers: [{ name: 'helper' }] } },
+        { name: 'six', source: registry },
+        { name: 'torch', source: { path: 'wheels/torch-2.9.0-cp311-cp311-linux_x86_64.whl' } },
+        { name: 'helper', source: { editable: 'packages/helper' } },
+      ] });
+      const names = (closure: Array<{ name: string }>) => closure.map(({ name }) => name);
+
+      // The extras nothing asks for are not walked: neither the archive nor the local package they name
+      assert.deepStrictEqual(names(pythonClosure(lockOf({ name: 'regpkg' }), root, ['member'], 'score')), ['member']);
+      // Asked for by the member, the archive is one an install takes: refused
+      assert.throws(() => pythonClosure(lockOf({ name: 'regpkg', extra: ['torch'] }), root, ['member'], 'score'),
+        /Environment for 'score': local archive dependency 'torch' is not supported/);
+      // Asked for by a required distribution, the local package rides as an sdist
+      assert.deepStrictEqual(names(pythonClosure(lockOf({ name: 'regpkg' }), root, ['member'], 'score', [{ name: 'regpkg', extras: ['helpers'] }])), ['helper', 'member']);
+      // A workspace's own package is walked through every group it names, as before
+      assert.throws(() => pythonClosure(lockOf({ name: 'six' }, { gpu: [{ name: 'torch' }] }), root, ['member'], 'score'), /local archive dependency 'torch'/);
+      assert.deepStrictEqual(names(pythonClosure(lockOf({ name: 'six' }, { extra: [{ name: 'helper' }] }), root, ['member'], 'score')), ['helper', 'member']);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('carries the sdist of each local package a registry package depends on: one a required distribution does, and one a member reaches through it',

@@ -131,6 +131,9 @@ export interface RecordedFile {
  *
  * @param record - The `RECORD` file's text
  * @returns The files, in the record's order
+ * @example
+ * const files = recordedSiteFiles('six.py,sha256=AbC,34549\n../../bin/six,sha256=DeF,207\n');
+ * // [{ file: 'six.py', digest: 'sha256=AbC', size: '34549' }]
  */
 export function recordedSiteFiles(record: string): RecordedFile[] {
   const files: RecordedFile[] = [];
@@ -147,6 +150,8 @@ export function recordedSiteFiles(record: string): RecordedFile[] {
  *
  * @param bytes - The manifest file's bytes
  * @returns `sha256:<hex>`
+ * @example
+ * const digest = tierManifestDigest(await readFile('/opt/e3/tier-manifest.json')); // 'sha256:3f9a…'
  */
 export function tierManifestDigest(bytes: Uint8Array): string {
   return `sha256:${computeHash(bytes)}`;
@@ -227,6 +232,9 @@ export function readTierManifest(bytes: Uint8Array): TierManifest {
  * @param manifest - The tier's manifest
  * @param distribution - The distribution, as an environment installed it
  * @returns Whether the tier's is the same
+ * @example
+ * const record = await readFile(join(site, 'idna-3.10.dist-info', 'RECORD'), 'utf8');
+ * tierHolds(manifest, { name: 'idna', version: '3.10', files: installedFilesDigest(record) }); // true when the tier's idna is that one
  */
 export function tierHolds(manifest: TierManifest, distribution: TierDistribution): boolean {
   const name = canonicalPythonName(distribution.name);
@@ -334,8 +342,12 @@ function sharedNamespaces(files: readonly string[][][], manifest: TierManifest):
  */
 export function leftToTier(installed: readonly InstalledDistribution[], manifest: TierManifest): Set<string> {
   const files = packageFiles(installed);
-  const namespaces = sharedNamespaces(files, manifest);
+  return leftOf(installed, manifest, files, sharedNamespaces(files, manifest));
+}
 
+/** {@link leftToTier}, given each distribution's files and the namespace
+ *  packages both hold parts of, which {@link tierImports} reads too. */
+function leftOf(installed: readonly InstalledDistribution[], manifest: TierManifest, files: readonly string[][][], namespaces: ReadonlySet<string>): Set<string> {
   // Each distribution's group, by what it shares with others: a top-level
   // name, or, in a namespace package, what is directly in it
   const group = installed.map((_, i) => i);
@@ -420,9 +432,10 @@ function importName(entry: string, file: boolean): string | null {
  * // imports.roots: ['idna', 'nvidia.cudnn', …]; imports.namespaces: ['nvidia']
  */
 export function tierImports(installed: readonly InstalledDistribution[], manifest: TierManifest): TierImports {
-  const left = leftToTier(installed, manifest);
+  // Each record read, and each distribution's files digested, once
   const files = packageFiles(installed);
   const shared = sharedNamespaces(files, manifest);
+  const left = leftOf(installed, manifest, files, shared);
   const roots = new Set<string>();
   const pathFiles = new Set<string>();
   for (const [i, distribution] of installed.entries()) {
@@ -509,6 +522,8 @@ export function pythonSatisfies(version: string, specifier: string): boolean {
  * @param version - The Python's version
  * @returns The minor release
  * @throws {Error} When the version names none
+ * @example
+ * pythonMinor('3.11.2'); // '3.11'
  */
 export function pythonMinor(version: string): string {
   const release = releaseOf(version);

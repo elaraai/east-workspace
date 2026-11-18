@@ -31,8 +31,14 @@ export const OpenSessionType = StructType({
 });
 /** Returns the session's identity and stable rack-cache namespace. */
 export const OpenSessionResultType = StructType({ sessionId: StringType, repoAlias: StringType });
-/** Submits the current v2 task, unit or call event and the requested rack shape. */
-export const CreateLeaseType = StructType({ eventJson: StringType, tier: StringType, computeSize: StringType });
+/**
+ * Submits the current v2 task, unit or call event and the requested rack
+ * shape; and, of work that declares an environment, the keys of the manifests
+ * of the environment's layers its session keeps (`envManifests`): the builds a
+ * rack may be served, which a session that attaches adds to. None for work
+ * that declares none.
+ */
+export const CreateLeaseType = StructType({ eventJson: StringType, tier: StringType, computeSize: StringType, envManifests: ArrayType(StringType) });
 /** Names a claim-time attempt, which changes on reclaim. */
 export const HubAttemptType = StructType({ executionId: StringType, startedAt: DateTimeType });
 /** Attaches to a lease, replaying its current attempt through the event stream. */

@@ -98,16 +98,18 @@ def tier_manifest():
     twice = set()
     for dist in metadata.distributions(path=[site]):
         name = dist.metadata["Name"]
+        version = dist.metadata["Version"]
         record = dist.read_text("RECORD")
-        # One with no RECORD cannot be told from another: it is never left out
-        if name is None or record is None:
+        # One with no name, version or RECORD cannot be told from another: it
+        # is never left out, and the rest of the manifest is read whole
+        if name is None or version is None or record is None:
             continue
         name = canonical_name(name)
         # Two of one name, which is no install of one: which files are whose
         # cannot be told, so neither is left out
         if name in distributions:
             twice.add(name)
-        distributions[name] = {"name": name, "version": dist.version, "files": files_digest(record)}
+        distributions[name] = {"name": name, "version": version, "files": files_digest(record)}
     for name in twice:
         del distributions[name]
     return {
