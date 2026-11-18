@@ -6,7 +6,7 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { chmodSync, chownSync, linkSync, lstatSync, mkdirSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, chownSync, linkSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { createTempDir, removeTempDir } from '../../test-helpers.js';
@@ -136,8 +136,10 @@ describe('writeOutputFile', () => {
   it('writes into a file nothing else links to in a directory its user may not write, and refuses, naming the file, one another name links to or one not there', {
     skip: posix || (root ? 'root may write any directory' : false),
   }, async () => {
+    // Reached through a link, as macOS's temporary directory is
     const shared = join(dir, 'shared');
-    mkdirSync(shared);
+    mkdirSync(join(dir, 'shared-real'));
+    symlinkSync('shared-real', shared);
     const file = join(shared, 'out.beast2');
     writeFileSync(file, 'the first model');
     const linked = join(shared, 'linked.beast2');
@@ -150,9 +152,12 @@ describe('writeOutputFile', () => {
       assert.equal(readFileSync(file, 'utf8'), 'the second model');
       assert.equal(statSync(file, { bigint: true }).ino, inode, 'written into, as nothing could be made beside it');
 
+      // The directory as the file system names it, alike whether the file is
+      // there or not
+      const real = realpathSync(shared);
       const refused = (named: string, why: RegExp) => (err: unknown): boolean => {
         assert.ok(err instanceof Error, String(err));
-        assert.ok(err.message.startsWith(`Cannot write ${named}: its directory ${shared} is not this user's to write`), err.message);
+        assert.ok(err.message.startsWith(`Cannot write ${named}: its directory ${real} is not this user's to write`), err.message);
         assert.match(err.message, why);
         assert.ok(!err.message.includes('.partial'), 'the refusal names the file, not a file beside it');
         return true;

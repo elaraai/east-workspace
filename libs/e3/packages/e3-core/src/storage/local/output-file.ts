@@ -173,8 +173,11 @@ export async function writeOutputFile(
   }
   const target = existing === undefined ? await leadsTo(file) : await realpath(file);
   if (existing !== undefined) await access(target, constants.W_OK);
-  if (!(await mayMakeIn(dirname(target)))) {
-    const where = `its directory ${dirname(target)} is not this user's to write`;
+  // Named as the file system names it, whether the file is there or not: a
+  // directory reached through a link (macOS's /var) by its own path
+  const directory = await realpath(dirname(target));
+  if (!(await mayMakeIn(directory))) {
+    const where = `its directory ${directory} is not this user's to write`;
     if (existing === undefined) throw new Error(`Cannot write ${file}: ${where}`);
     if (existing.nlink > 1) {
       throw new Error(`Cannot write ${file}: ${where}, so it would be written into, and another name links to it, which would change too`);
