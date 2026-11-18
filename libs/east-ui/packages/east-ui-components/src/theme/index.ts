@@ -120,6 +120,7 @@ import { commandPaletteSlotRecipe } from "./slot-recipes/commandPalette.js";
 import { actionBarSlotRecipe } from "./slot-recipes/actionBar.js";
 import { segmentedMeterSlotRecipe } from "./slot-recipes/segmentedMeter.js";
 import { barStripSlotRecipe } from "./slot-recipes/barStrip.js";
+import { chartLegendSlotRecipe } from "./slot-recipes/chartLegend.js";
 import { chartPieSlotRecipe } from "./slot-recipes/chartPie.js";
 import { meterSlotRecipe } from "./slot-recipes/meter.js";
 import { metricChipSlotRecipe } from "./slot-recipes/metricChip.js";
@@ -281,6 +282,7 @@ const config = defineConfig({
             actionBar:       actionBarSlotRecipe,
             segmentedMeter: segmentedMeterSlotRecipe,
             barStrip:        barStripSlotRecipe,
+            chartLegend:     chartLegendSlotRecipe,
             chartPie:        chartPieSlotRecipe,
             meter:           meterSlotRecipe,
             metricChip:      metricChipSlotRecipe,

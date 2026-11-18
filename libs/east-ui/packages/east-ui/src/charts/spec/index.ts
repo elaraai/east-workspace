@@ -148,8 +148,10 @@ export type ChartSpecValue = ExprType<ChartSpecType>;
 // Node constructors — assemble a ChartSpec tree.
 // ============================================================================
 
-/** Default margins: room for the mono y labels (left) and x labels (bottom). */
-const DEFAULT_MARGIN = { top: 8, right: 8, bottom: 24, left: 40 };
+/** Default margins — the chart rules' grid margins (`guidelines/charts.md`):
+ *  room for the mono y labels before the plot and the x labels under it. The
+ *  renderer widens a side whose labels need more. */
+const DEFAULT_MARGIN = { top: 24, right: 24, bottom: 28, left: 44 };
 
 /**
  * Options for {@link chartFrame}.
@@ -160,7 +162,7 @@ const DEFAULT_MARGIN = { top: 8, right: 8, bottom: 24, left: 40 };
  *
  * @property height  - Plot height in px
  * @property width   - Plot width in px; omit for responsive (fills the container)
- * @property margin  - Margins around the plotting area; defaults reserve axis room
+ * @property margin  - Margins around the plotting area; the chart rules' by default (24 above, 24 after, 28 below, 44 before)
  * @property xScale  - X-scale kind
  * @property yScale  - Y-scale kind
  * @property yScale2 - Secondary (right) y-scale kind; omit for a single y-axis
@@ -172,7 +174,7 @@ export interface ChartFrameOptions {
     height: SubtypeExprOrValue<FloatType>;
     /** Plot width in px; omit for responsive (fills the container). */
     width?: SubtypeExprOrValue<FloatType>;
-    /** Margins around the plotting area; sensible defaults reserve axis room. */
+    /** Margins around the plotting area; the chart rules' by default (24 above, 24 after, 28 below, 44 before), a side widened when its labels need more. */
     margin?: { top: number; right: number; bottom: number; left: number };
     /** X-scale kind (default `band`). */
     xScale?: "band" | "linear" | "time";
@@ -1044,7 +1046,7 @@ export const ChartSpec = {
          * Mirror of {@link ChartAxisTextStyleType} — the `tickStyle` /
          * `titleStyle` of an axis config, reusing the shared typography
          * vocabulary. Absent fields fall back to the spec chrome (mono 11px,
-         * `fg.muted`).
+         * weight 500 for ticks, `fg.muted`).
          *
          * @property fontSize      - CSS font size
          * @property fontFamily    - Theme font family (sans / serif / mono)

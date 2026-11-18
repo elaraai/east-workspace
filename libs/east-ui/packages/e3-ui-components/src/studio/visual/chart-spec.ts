@@ -63,10 +63,10 @@ export const GOAL_COLOR = "series.goal";
 export const NEG_COLOR = "status.neg";
 /** A reference series' and a goal's dash. */
 const DASH = "4 3";
-/** The frame's margins, as the chart factory gives them. */
-const MARGIN = { top: 8, right: 8, bottom: 24, left: 40 };
 /** A frame height of 0: the chart fills its tile, never less than its natural height. */
 const FILL = 0;
+/** How many ticks a scatter's x axis asks its scale for. */
+const SCATTER_TICKS = 4;
 
 const printFloat = printFor(FloatType);
 
@@ -132,7 +132,8 @@ function frameOf(children: ChartSpec[], horizontal: boolean, legend: boolean, ri
     return variant("frame", {
         height: FILL,
         width: none,
-        margin: some(MARGIN),
+        // The chart rules' margins, each side as wide as its labels need: the renderer's.
+        margin: none,
         xScale: variant(horizontal ? "linear" : "band", null),
         yScale: variant(horizontal ? "band" : "linear", null),
         yScale2: right ? some(variant("linear", null)) : none,
@@ -144,10 +145,10 @@ function frameOf(children: ChartSpec[], horizontal: boolean, legend: boolean, ri
 }
 
 /** An axis node of a chart's frame. */
-function axisOf(side: "axisBottom" | "axisLeft" | "axisRight", label: string | undefined, format: ReturnType<typeof valueFieldFormat>): ChartSpec {
+function axisOf(side: "axisBottom" | "axisLeft" | "axisRight", label: string | undefined, format: ReturnType<typeof valueFieldFormat>, ticks?: number): ChartSpec {
     return variant(side, {
         label: label === undefined ? none : some(label),
-        numTicks: none, tickValues: none, hideTicks: none, hideLine: none, domain: none,
+        numTicks: ticks === undefined ? none : some(ticks), tickValues: none, hideTicks: none, hideLine: none, domain: none,
         tickFormat: format,
         tickStyle: none, titleStyle: none, titleGap: none,
     });
@@ -355,11 +356,12 @@ function scatterChart(chart: ScatterChart, read: ReadGroups, made: Made): ChartM
     const children: ChartSpec[] = [
         variant("gridRows", { numTicks: none, dashArray: none }),
         layerOf(data, "scatter"),
-        axisOf("axisBottom", valueName(chart.x, made.source, made.m), valueFieldFormat(chart.x, made.source)),
+        // Even ticks across: a scatter's x is a measure, not its points' own positions.
+        axisOf("axisBottom", valueName(chart.x, made.source, made.m), valueFieldFormat(chart.x, made.source), SCATTER_TICKS),
         axisOf("axisLeft", valueName(chart.y, made.source, made.m), valueFieldFormat(chart.y, made.source)),
     ];
     const spec: ChartSpec = variant("frame", {
-        height: FILL, width: none, margin: some(MARGIN),
+        height: FILL, width: none, margin: none,
         xScale: variant("linear", null), yScale: variant("linear", null), yScale2: none,
         tooltip: some({ cursor: none }), legend: data.length > 1 ? some({ orientation: none, position: none }) : none,
         slice: none, children,
@@ -389,7 +391,7 @@ function pieChart(chart: PieChart, read: ReadGroups, total: number | undefined, 
         format: valueFieldFormat(chart.value, made.source),
     });
     const spec: ChartSpec = variant("frame", {
-        height: FILL, width: none, margin: some(MARGIN), xScale: variant("band", null), yScale: variant("linear", null), yScale2: none,
+        height: FILL, width: none, margin: none, xScale: variant("band", null), yScale: variant("linear", null), yScale2: none,
         tooltip: none, legend: none, slice: none, children: [pie],
     });
     return { spec, shown: cut ? { shown: read.groups.length, of: read.of } : undefined };
