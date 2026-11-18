@@ -63,24 +63,30 @@ export const queries = e3.record("queries", Query.Types.Saved, Query.value({ ord
 
 ```tsx
 // The builder, for operators: it queries the data sources it is handed, and saves through the record.
+// The surface holds the open query — a new one on orders to begin with — and changes it when the builder asks.
 export const builder = ui("query_builder", [], East.function([], UIComponentType, _$ => (
     <Reactive>{$ => {
         const orders    = $.let(Data.bindPaged(d.orders));   // large: paged, never downloaded whole
         const customers = $.let(Data.bind(d.customers));
         const bom       = $.let(Data.bind(d.bom));
         const saved     = $.let(Record.bind(d.queries, [d.queriesPatch]));
-        return <Query.Builder queries={saved} datasets={{ orders, customers, bom }} />;
+        const open      = $.let(State.bind([Query.Types.Open], "queries.open", Query.open.on("orders")));
+        const go        = $.const(East.function([Query.Types.Open], NullType, ($2, next) => { $2(open.write(next)); }));
+        return <Query.Builder queries={saved} datasets={{ orders, customers, bom }} query={open.read()} onOpen={go} />;
     }}</Reactive>
 )));
 
-// The query library: every saved query, and where new ones start.
+// The query library: every saved query, and where new ones start. It marks the open query, and tells the
+// surface which is asked for next — here the State the builder reads; across routes, a navigation.
 export const library = ui("query_library", [], East.function([], UIComponentType, _$ => (
     <Reactive>{$ => {
         const orders    = $.let(Data.bindPaged(d.orders));
         const customers = $.let(Data.bind(d.customers));
         const bom       = $.let(Data.bind(d.bom));
         const saved     = $.let(Record.bind(d.queries, [d.queriesPatch]));
-        return <Query.Library queries={saved} datasets={{ orders, customers, bom }} />;
+        const open      = $.let(State.bind([Query.Types.Open], "queries.open", Query.open.on("orders")));
+        const go        = $.const(East.function([Query.Types.Open], NullType, ($2, next) => { $2(open.write(next)); }));
+        return <Query.Library queries={saved} datasets={{ orders, customers, bom }} query={open.read()} onOpen={go} />;
     }}</Reactive>
 )));
 ```
@@ -88,11 +94,13 @@ export const library = ui("query_library", [], East.function([], UIComponentType
 `datasets` names the root: a query over this page reads `.orders`, `.customers` and `.bom`, and nothing else.
 `id`, on both, names the builder when one surface holds two, and the library whose cards it takes and
 whose recent runs it shares. The open query is the host's (#1668): a `Query.Types.Open` — a saved query by
-its name, or a new query on a data source — given to both as `query`; `onOpen`, on both, is told each query
-asked for, so the host can change it, or navigate to its builder.
+its name (`Query.open.saved(name)`, or the name alone), or the new query on a data source
+(`Query.open.on(source)`) — given to both as `query`; `onOpen` is told each query asked for, so the host
+can change it, or navigate to its builder. The query library always has an `onOpen`: it opens nothing
+itself. A builder given no `query` holds its own, and needs none.
 
-The public `Query` namespace is exactly this: `<Query.Builder>`, `<Query.Library>`, `Query.value` and
-`Query.Types`.
+The public `Query` namespace is exactly this: `<Query.Builder>`, `<Query.Library>`, `Query.value`,
+`Query.open` and `Query.Types`.
 
 ---
 

@@ -44,7 +44,7 @@ import {
     type UIComponentType,
 } from "@elaraai/east-ui/internal";
 import { DataSourceType, dataSources, type BoundSource } from "../bind/sources.js";
-import { QueryOpenType } from "./open.js";
+import { QueryOpenType, openOf } from "./open.js";
 import { QueriesHandleType, type QueriesHandle } from "./queries.js";
 
 // ============================================================================
@@ -90,7 +90,7 @@ export const QueryLibraryComponent = EastUI.component("QueryLibrary", QueryLibra
  *
  * @property queries - The saved queries record, bound with its patch mutation — `Record.bind(queries)`
  * @property datasets - The data sources a query may read: each name, as a query reads it, to its binding
- * @property query - The query open in the builder, whose card is marked
+ * @property query - The query open in the builder, whose card is marked: a saved query's name, or a `Query.Types.Open`
  * @property onOpen - Told when a query is asked for, with that query — the host shows it in its builder
  * @property id - Names the builder that takes its cards and shares its recent runs, when a surface holds two
  */
@@ -104,8 +104,12 @@ export interface QueryLibraryOptions {
      * sources are bound.
      */
     datasets: Readonly<Record<string, BoundSource>>;
-    /** The query open in the builder, whose card is marked — the value the host gives its builder's `query`. Omitted, no card is marked. */
-    query?: SubtypeExprOrValue<QueryOpenType>;
+    /**
+     * The query open in the builder, whose card is marked — the value the
+     * host gives its builder's `query`, in either form the builder takes it: a
+     * saved query's name, or a `Query.Types.Open`. Omitted, no card is marked.
+     */
+    query?: SubtypeExprOrValue<StringType | QueryOpenType>;
     /**
      * Told when a card or "+ New query on …" is pressed, with the query asked
      * for: a saved query as itself, a recent run of one as the saved query, a
@@ -173,7 +177,7 @@ function createLibrary(options: QueryLibraryOptions): ExprType<UIComponentType> 
     return QueryLibraryComponent.Root({
         queries: { read: options.queries.read, history: options.queries.history, commit: { patch: options.queries.commit.patch } },
         datasets: dataSources("Query.Library", options.datasets),
-        query: options.query === undefined ? none : some(options.query),
+        query: options.query === undefined ? none : some(openOf(options.query)),
         onOpen: options.onOpen,
         id: options.id === undefined ? none : some(options.id),
     });

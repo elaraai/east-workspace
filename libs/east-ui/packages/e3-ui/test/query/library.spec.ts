@@ -116,15 +116,42 @@ describe("<Query.Library> (#1063)", () => {
         assert.deepEqual([plain.id, plain.query], [none, none], "an id and an open query not given are none: no card is marked");
     });
 
+    test("#1668: the open query it is given is whatever its host gives its builder — a saved query's name, an expression of one, or the open query itself", () => {
+        const given = (query: NonNullable<Parameters<typeof Query.Library>[0]["query"]>) =>
+            payloadOf(({ queries, customers }) => Query.Library({ queries, datasets: { customers }, query, onOpen: heard })).query;
+        assert.ok(opens(given("Revenue by region"), some(variant("saved", "Revenue by region"))), "a name is the saved query of that name");
+        assert.ok(opens(given(East.value("Revenue by region", StringType)), some(variant("saved", "Revenue by region"))), "an expression of a name");
+        assert.ok(opens(given(Query.open.on("customers")), some(variant("new", { id: "on:customers", source: "customers", from: none }))), "Query.open.on");
+        assert.ok(opens(given(variant("saved", "Revenue by region")), some(variant("saved", "Revenue by region"))), "the open query, as a value");
+    });
+
     test("#1668: Query.open builds the open query a host holds — a saved query by its name, a new query on a data source, the same one each time", () => {
         const open = East.compile(East.function([StringType], ArrayType(Query.Types.Open), (_$, name) =>
             [Query.open.saved("Big orders"), Query.open.saved(name), Query.open.on("customers"), Query.open.on(name)]), []);
         assert.ok(equalFor(ArrayType(Query.Types.Open))(open("orders"), [
             variant("saved", "Big orders"),
             variant("saved", "orders"),
-            variant("new", { id: "customers", source: "customers", from: none }),
-            variant("new", { id: "orders", source: "orders", from: none }),
+            variant("new", { id: "on:customers", source: "customers", from: none }),
+            variant("new", { id: "on:orders", source: "orders", from: none }),
         ]));
+    });
+
+    test("#1668: the new query on a data source is one a data source, told from every other by its source's name — a source named as another query's id is its own; a builder that holds its own begins with the same one", () => {
+        const openOn = East.compile(QueryInternal.openOn, []);
+        const one = equalFor(Query.Types.Open);
+        assert.ok(one(openOn("orders"), variant("new", { id: "on:orders", source: "orders", from: none })));
+        assert.ok(one(openOn("orders"), openOn("orders")), "the same query each time");
+        // A data source may be named anything a query reads as a root field: `first`, or `on`.
+        const ids = ["orders", "first", "on", "on_orders"].map((source) => {
+            const open = openOn(source);
+            if (open.type !== "new") assert.fail("a new query");
+            return open.value.id;
+        });
+        assert.deepEqual(ids, ["on:orders", "on:first", "on:on", "on:on_orders"]);
+        assert.equal(new Set(ids).size, ids.length, "no two data sources share a new query");
+        // What `Query.open.on` gives is this, as a page compiles it.
+        const viaOpen = East.compile(East.function([StringType], Query.Types.Open, (_$, source) => Query.open.on(source)), []);
+        assert.ok(one(viaOpen("first"), openOn("first")));
     });
 
     test("only bound sources can be queried — a library handed none, or a name a query can't read as a root field, is refused when the surface is built", () => {

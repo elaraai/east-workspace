@@ -36,7 +36,7 @@
 
 import { StrictMode, useCallback, useMemo, useSyncExternalStore, type ReactNode } from "react";
 import { fireEvent, screen, within, type RenderResult } from "@testing-library/react";
-import { East, NullType, StringType, decodeBeast2For, encodeBeast2For, none, toEastTypeValue, variant } from "@elaraai/east";
+import { East, NullType, StringType, decodeBeast2For, encodeBeast2For, toEastTypeValue, variant } from "@elaraai/east";
 import { Reactive, Stack, State, Text, UIComponentType } from "@elaraai/east-ui/internal";
 import { StateRuntime } from "@elaraai/east-ui-components";
 import { Data, Query, QueryOpenType, Record } from "@elaraai/e3-ui/internal";
@@ -52,6 +52,7 @@ import { act, e3Harness, settle, type E3Harness } from "../e3-web-mount.test-uti
 import type { E3Answer, E3Dataset, E3Match } from "../e3-web.test-utils.js";
 import { queryRoot, type QueryRoot } from "./one-shot.js";
 import type { QueryOpen } from "./open-query.js";
+import { queryEast } from "./query-east.js";
 import type { SavedQuery } from "./session.js";
 import { savedRecord, type Saved } from "./fixture.test-utils.js";
 // The builder and the query library are extensions: their renderers register as they load.
@@ -78,7 +79,7 @@ const encodeOpen = encodeBeast2For(QueryOpenType);
 const decodeOpen = decodeBeast2For(QueryOpenType);
 
 /** A new query on a data source, as a builder given no query begins: what a surface that names none holds to begin with. */
-export const firstQuery = (source: string): QueryOpen => variant("new", { id: "first", source, from: none });
+export const firstQuery = (source: string): QueryOpen => queryEast().openOn(source);
 
 /**
  * The open query the test's surface holds, if one is mounted.
