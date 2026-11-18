@@ -749,7 +749,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         return unit === undefined ? text : `${text} ${unit}`;
     }, [history, sessions, value.items, unit, words]);
     const historyItem = editing.edits
-        ? historyToolbarItem({ session: history, words: editingWords, editing: false, showError: false, onIssue, onConflict: onIssue, where, conflictValue, onAction })
+        ? historyToolbarItem({ session: history, words: editingWords, editing: false, onIssue, onConflict: onIssue, where, conflictValue, onAction })
         : undefined;
     const items = useSchematicToolbarItems({
         styles, words, chrome, nouns, tools, held, links: narrow ? NO_LINK_CHOICES : linkChoices, onTools: pickTools, find,
