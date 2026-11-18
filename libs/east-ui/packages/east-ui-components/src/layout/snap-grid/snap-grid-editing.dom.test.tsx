@@ -19,12 +19,14 @@
  * for (#998): answered under the id asked — at once with no drafts, once the
  * source confirms them, or refused in the canvas's words. Then the toolbar a
  * row short of room folds into chips (#1229): its ladder, the View chip's
- * bundle, its menu, and its hold.
+ * bundle, its menu, and its hold. Then what a tile shows and its copies
+ * (#1672): a field of its entry a pane sets, and a duplicate — asked by a pane
+ * or from the selected tile's own toolbar, under its badge.
  */
 
 import { describe, test, expect, beforeEach, afterEach, beforeAll, afterAll, vi } from "vitest";
 import { act, cleanup, fireEvent, waitFor } from "@testing-library/react";
-import { none, some, variant } from "@elaraai/east";
+import { IntegerType, StringType, encodeBeast2For, none, some, variant } from "@elaraai/east";
 import { initializeStore } from "../../platform/state-runtime.js";
 import { resetKept } from "../../platform/kept.js";
 import { UIStore } from "../../platform/state-store.js";
@@ -682,6 +684,72 @@ describe("a pane beside the canvas (#996)", () => {
         expect(spanOf(c, "trend")).toBe(8);
         await act(async () => { fireEvent.keyDown(pane, { key: "y", ctrlKey: true }); });
         expect(spanOf(c, "trend")).toBe(7);
+    }, 30_000);
+});
+
+describe("what a tile shows, and its copies (#1672)", () => {
+    const encodeText = encodeBeast2For(StringType);
+    const encodeInteger = encodeBeast2For(IntegerType);
+
+    test("a field request sets that field of the tile's entry as one typed gesture: the tile draws what it now holds, Undo takes it back, and the request is written back none", async () => {
+        const canvas = await mountSnapGrid();
+        const c = canvas.container;
+        await canvas.hostAsks({ key: "trend", change: variant("field", { name: "name", value: encodeText("Revenue by week") }) });
+        expect(tileEl(c, "trend").textContent).toBe("Revenue by week");
+        expect([labels(canvas), origins(canvas), canvas.boundRequest()]).toEqual([["Edit Revenue trend"], ["typed"], null]);
+        await history(canvas, "Undo");
+        expect(tileEl(c, "trend").textContent).toBe("Revenue trend");
+        expect(canvas.writes()).toBe(0);
+    }, 30_000);
+
+    test("a field request never sets the tile's identity or its place, a field it lacks, a value of another type, or the value it holds", async () => {
+        const error = vi.spyOn(console, "error").mockImplementation(() => {});
+        const canvas = await mountSnapGrid();
+        const asked: ReadonlyArray<readonly [string, Uint8Array]> = [
+            ["id", encodeText("chart")], ["row", encodeText("kpis")], ["span", encodeInteger(4n)], ["colour", encodeText("teal")],
+            ["name", encodeInteger(7n)], ["name", encodeText("Revenue trend")],
+        ];
+        for (const [name, value] of asked) await canvas.hostAsks({ key: "trend", change: variant("field", { name, value }) });
+        expect([canvas.patches.length, canvas.boundRequest(), tileEl(canvas.container, "trend").textContent]).toEqual([0, null, "Revenue trend"]);
+        // The value of another type is said as it is refused.
+        expect(error).toHaveBeenCalledWith('[SnapGrid] the value asked for "name" could not be read:', expect.anything());
+    }, 30_000);
+
+    test("a duplicate request copies the tile after it in its row while the row has room at its span — one insert, selected and said — and Save keeps it, the original's entry under its own key", async () => {
+        const seed: TileValue[] = [{ id: "kpi", row: "kpis", span: 4n, height: none, minHeight: none, name: "KPI", align: variant("top", null) }];
+        const canvas = await mountSnapGrid({ seed });
+        const c = canvas.container;
+        await canvas.hostAsks({ key: "kpi", change: variant("duplicate", null) });
+        expect(rowsDrawn(c)).toEqual([["kpi", "kpi-1"]]);
+        expect([spanOf(c, "kpi-1"), canvas.boundSelection(), selectedTile(c), announced(c)]).toEqual([4, "kpi-1", "kpi-1", "Duplicated KPI"]);
+        expect([labels(canvas), origins(canvas), canvas.boundRequest()]).toEqual([["Duplicate KPI"], ["insert"], null]);
+        await history(canvas, "Save");
+        const stored = canvas.stored();
+        expect([storedRows(canvas), stored.map((t) => t.span), stored.map((t) => t.name)]).toEqual([["kpi@kpis", "kpi-1@kpis"], [4n, 4n], ["KPI", "KPI"]]);
+    }, 30_000);
+
+    test("the selected tile's Duplicate copies it into a new row after a row with no room for it, nothing in the row narrowed; one Undo takes it back", async () => {
+        const canvas = await mountSnapGrid();
+        const c = canvas.container;
+        await clickTile(c, "region");
+        await act(async () => { fireEvent.click(tileEl(c, "region").querySelector("[data-snap-grid-duplicate]")!); });
+        expect(rowsDrawn(c)).toEqual([["kpi"], ["trend", "region"], ["region-1"], ["board"]]);
+        expect([spanOf(c, "trend"), spanOf(c, "region"), spanOf(c, "region-1"), selectedTile(c), announced(c)])
+            .toEqual([8, 4, 4, "region-1", "Duplicated Breakdown bars"]);
+        await history(canvas, "Undo");
+        expect(rowsDrawn(c)).toEqual(SEED_ROWS);
+    }, 30_000);
+
+    test("the selected tile wears its name and span over its top edge, and its toolbar: Duplicate and Remove — no Edit, this host editing nothing it shows", async () => {
+        const canvas = await mountSnapGrid();
+        const c = canvas.container;
+        await clickTile(c, "region");
+        const tile = tileEl(c, "region");
+        expect(tile.querySelector("[data-snap-grid-badge]")!.textContent).toBe("Breakdown bars · 4/12");
+        expect([...tile.querySelectorAll("[data-snap-grid-tile-bar] button")].map((b) => b.getAttribute("aria-label"))).toEqual(["Duplicate", "Remove from page"]);
+        expect(faIcons(tile.querySelector<HTMLElement>("[data-snap-grid-duplicate]")!, "clone")).toHaveLength(1);
+        // The others wear neither.
+        expect(tileEl(c, "trend").querySelector("[data-snap-grid-badge], [data-snap-grid-tile-bar]")).toBeNull();
     }, 30_000);
 });
 

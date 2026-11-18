@@ -189,6 +189,45 @@ export {
     InspectorSelectionType,
     StudioInspectorPayloadType,
 } from "./inspector.js";
+export {
+    StudioKindEditorType,
+    StudioKindOptionType,
+    StudioKindType,
+    StudioPillType,
+    StudioViewEditorType,
+    StudioWellHoldsType,
+    StudioWellType,
+    studioEditors,
+    type StudioKind,
+    type StudioKindEditor,
+    type StudioKindLiteral,
+    type StudioPill,
+    type StudioViewEditor,
+    type StudioWell,
+} from "./editors.js";
+export {
+    emptyView,
+    fieldGroup,
+    fieldMeasures,
+    kindOfView,
+    mostUsedSource,
+    placedPill,
+    switchedView,
+} from "./configure.js";
+export { kindEditor, kindStruct, optionSpecs, withKindField } from "./kind.js";
+export {
+    fieldFits,
+    movedInWell,
+    pillFields,
+    placedFields,
+    placedInWell,
+    removedFromWell,
+    replacedInWell,
+    wellMost,
+    wellPills,
+    withWellPills,
+} from "./wells.js";
+export { changedParts, savedKindFields } from "./changed.js";
 
 /** The Studio's East types — what a solution declares its pages record with, and seeds it from. */
 export interface StudioTypes {

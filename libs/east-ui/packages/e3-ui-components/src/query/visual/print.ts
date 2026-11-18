@@ -207,8 +207,18 @@ function valueParts(source: PrintSource, value: VisualValue, index: number): str
     }
 }
 
-/** The fields a value reads. */
-function valueFields(value: VisualValue): string[] {
+/**
+ * The fields a value reads: its measure's field, a ratio's two, a count's none.
+ *
+ * The editor's wells read a value pill's the same way (e3-ui's `pillFields`,
+ * `studio/wells.ts`). It is said again here, not imported: this module loads
+ * in Node (`test/query/node-safe.spec.ts`), and reaches e3-ui for its types
+ * alone — e3-ui's entry reaches east-ui.
+ *
+ * @param value - The value
+ * @returns Its fields, in order
+ */
+export function valueFields(value: VisualValue): string[] {
     const measure = value.measure;
     switch (measure.type) {
         case "count": return [];
@@ -373,6 +383,15 @@ function trendBucket(window: PrintWindow | undefined): TrendBucket {
 
 // ─── A visual ────────────────────────────────────────────────────────────────
 
+/**
+ * A view's wells that must hold something and hold nothing, by its kind's
+ * fields: each group of no field — what a dropped visual starts with (#1672) —
+ * and each list of values or groups that is empty.
+ */
+function emptyWells(groups: readonly [string, Group][], lists: readonly [string, readonly unknown[]][]): string[] {
+    return [...groups.filter(([, group]) => group.field === "").map(([well]) => well), ...lists.filter(([, list]) => list.length === 0).map(([well]) => well)];
+}
+
 /** What a view reads: its groups, its values with their indexes, its extra fields, and its wells that are empty. */
 interface ViewShape {
     readonly groups: readonly Group[];
@@ -404,22 +423,35 @@ function shapeOf(view: Exclude<View, { type: "slicer" }>): ViewShape | { readonl
                     const groups: Group[] = series.split.type === "some"
                         ? [series.x, { field: series.split.value, bucket: none, sort: variant("natural", null), top: none }]
                         : [series.x];
-                    return { groups, values, extras: [], fields: [...groups.map(g => g.field), ...values.flatMap(valueFields)], empty: values.length === 0 ? ["values"] : [], total: false, heads: false };
+                    return {
+                        groups, values, extras: [], fields: [...groups.map(g => g.field), ...values.flatMap(valueFields)],
+                        empty: emptyWells([["x", series.x]], [["values", values]]), total: false, heads: false,
+                    };
                 }
                 case "combo": {
                     const combo = chart.value;
                     const values = [...combo.columns, ...combo.lines].map(axis => axis.value);
-                    return { groups: [combo.x], values, extras: [], fields: [combo.x.field, ...values.flatMap(valueFields)], empty: values.length === 0 ? ["values"] : [], total: false, heads: false };
+                    return {
+                        groups: [combo.x], values, extras: [], fields: [combo.x.field, ...values.flatMap(valueFields)],
+                        empty: emptyWells([["x", combo.x]], [["columns", values]]), total: false, heads: false,
+                    };
                 }
                 case "scatter": {
                     const scatter = chart.value;
                     const point: Group = { field: scatter.point, bucket: none, sort: variant("natural", null), top: none };
                     const extras: [string, string][] = scatter.split.type === "some" ? [["s", scatter.split.value]] : [];
-                    return { groups: [point], values: [scatter.x, scatter.y], extras, fields: [scatter.point, ...extras.map(([, f]) => f), ...valueFields(scatter.x), ...valueFields(scatter.y)], empty: [], total: false, heads: false };
+                    return {
+                        groups: [point], values: [scatter.x, scatter.y], extras,
+                        fields: [scatter.point, ...extras.map(([, f]) => f), ...valueFields(scatter.x), ...valueFields(scatter.y)],
+                        empty: emptyWells([["point", point]], []), total: false, heads: false,
+                    };
                 }
                 case "pie": {
                     const pie = chart.value;
-                    return { groups: [pie.slice], values: [pie.value], extras: [], fields: [pie.slice.field, ...valueFields(pie.value)], empty: [], total: true, heads: false };
+                    return {
+                        groups: [pie.slice], values: [pie.value], extras: [], fields: [pie.slice.field, ...valueFields(pie.value)],
+                        empty: emptyWells([["slice", pie.slice]], []), total: true, heads: false,
+                    };
                 }
             }
             break;
@@ -430,15 +462,17 @@ function shapeOf(view: Exclude<View, { type: "slicer" }>): ViewShape | { readonl
                 case "records": return { records: table.value };
                 case "summary": {
                     const summary = table.value;
-                    const empty = [...(summary.rows.length === 0 ? ["rows"] : []), ...(summary.values.length === 0 ? ["values"] : [])];
                     return {
                         groups: summary.rows.slice(0, 2), values: summary.values, extras: [], fields: [...summary.rows.map(g => g.field), ...summary.values.flatMap(valueFields)],
-                        empty, total: summary.total, heads: summary.rows.length >= 2,
+                        empty: emptyWells([], [["rows", summary.rows], ["values", summary.values]]), total: summary.total, heads: summary.rows.length >= 2,
                     };
                 }
                 case "pivot": {
                     const pivot = table.value;
-                    return { groups: [pivot.rows, pivot.columns], values: [pivot.value], extras: [], fields: [pivot.rows.field, pivot.columns.field, ...valueFields(pivot.value)], empty: [], total: false, heads: false };
+                    return {
+                        groups: [pivot.rows, pivot.columns], values: [pivot.value], extras: [], fields: [pivot.rows.field, pivot.columns.field, ...valueFields(pivot.value)],
+                        empty: emptyWells([["rows", pivot.rows], ["columns", pivot.columns]], []), total: false, heads: false,
+                    };
                 }
             }
             break;
@@ -447,7 +481,10 @@ function shapeOf(view: Exclude<View, { type: "slicer" }>): ViewShape | { readonl
             const list = view.value;
             const values = list.values.slice(0, 2);
             const extras: [string, string][] = list.caption.type === "some" ? [["c", list.caption.value]] : [];
-            return { groups: [list.item], values, extras, fields: [list.item.field, ...extras.map(([, f]) => f), ...values.flatMap(valueFields)], empty: [], total: false, heads: false };
+            return {
+                groups: [list.item], values, extras, fields: [list.item.field, ...extras.map(([, f]) => f), ...values.flatMap(valueFields)],
+                empty: emptyWells([["item", list.item]], []), total: false, heads: false,
+            };
         }
     }
 }

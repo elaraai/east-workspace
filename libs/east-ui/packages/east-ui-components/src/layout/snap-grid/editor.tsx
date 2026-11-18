@@ -62,7 +62,7 @@ import {
 import { Box, chakra, Menu as ChakraMenu, useSlotRecipe, VisuallyHidden, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { library, type IconName } from "@fortawesome/fontawesome-svg-core";
-import { fas, faCaretDown, faCheck, faEye, faMinus, faPlus, faTrashCan } from "@fortawesome/free-solid-svg-icons";
+import { fas, faCaretDown, faCheck, faClone, faEye, faMinus, faPen, faPlus, faTrashCan } from "@fortawesome/free-solid-svg-icons";
 import { none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import type { SnapGrid } from "@elaraai/east-ui/internal";
 import { EastChakraComponent } from "../../component";
@@ -244,6 +244,10 @@ interface TileProps {
     onSelect: (key: string) => void;
     onResizeStart: (e: ReactPointerEvent, key: string, kind: ResizeKind) => void;
     onRemove: (key: string) => void;
+    /** Copies it after itself (#1672). */
+    onDuplicate: (key: string) => void;
+    /** The host's edit of what it shows (#1672); `undefined` draws no Edit. */
+    onEdit: ((key: string) => void) | undefined;
     register: (key: string, el: HTMLElement | null) => void;
     /** Draws the tile's content, when the host does — else its East content. */
     renderContent: ((cell: SnapGridEditorCell) => ReactNode) | undefined;
@@ -265,7 +269,7 @@ const SnapGridTileBox = memo(function SnapGridTileBox(p: TileProps) {
     const height = p.preview !== undefined && p.preview.height !== undefined ? p.preview.height : tile.height;
     const style = { "--snap-grid-span": String(span) } as CSSProperties;
     const frameStyle: CSSProperties | undefined = height === null || height === undefined ? undefined : { height: `${height}px` };
-    const { onResizeStart, onRemove, onSelect } = p;
+    const { onResizeStart, onRemove, onDuplicate, onEdit, onSelect } = p;
     return (
         <Box
             {...drag}
@@ -305,12 +309,26 @@ const SnapGridTileBox = memo(function SnapGridTileBox(p: TileProps) {
                         <Box as="span" css={styles.handle} data-handle="height" title={m.heightHandle()} aria-hidden
                             onPointerDown={(e: ReactPointerEvent) => onResizeStart(e, key, "height")} />
                     )}
-                    <chakra.button type="button" css={styles.remove} aria-label={m.remove()} title={m.remove()} data-snap-grid-remove=""
+                    {/* Its name and span over its top edge, and its toolbar at the other end (#1672, BLD-3); the tile's own name says both. */}
+                    <Box as="span" css={styles.tileBadge} aria-hidden data-snap-grid-badge="">{m.tileBadge({ label: tile.label, span: words.number(span), of: words.number(SNAP_GRID_COLUMNS) })}</Box>
+                    <Box css={styles.tileBar} data-snap-grid-tile-bar=""
                         onPointerDown={(e: ReactPointerEvent) => e.stopPropagation()}
-                        onKeyDown={(e: ReactKeyboardEvent) => e.stopPropagation()}
-                        onClick={(e: ReactMouseEvent) => { e.stopPropagation(); onRemove(key); }}>
-                        <FontAwesomeIcon icon={faTrashCan} />
-                    </chakra.button>
+                        onKeyDown={(e: ReactKeyboardEvent) => e.stopPropagation()}>
+                        {onEdit !== undefined && (
+                            <chakra.button type="button" css={styles.tileAction} aria-label={m.edit()} title={m.edit()} data-snap-grid-edit=""
+                                onClick={(e: ReactMouseEvent) => { e.stopPropagation(); onEdit(key); }}>
+                                <FontAwesomeIcon icon={faPen} />
+                            </chakra.button>
+                        )}
+                        <chakra.button type="button" css={styles.tileAction} aria-label={m.duplicate()} title={m.duplicate()} data-snap-grid-duplicate=""
+                            onClick={(e: ReactMouseEvent) => { e.stopPropagation(); onDuplicate(key); }}>
+                            <FontAwesomeIcon icon={faClone} />
+                        </chakra.button>
+                        <chakra.button type="button" css={styles.tileAction} aria-label={m.remove()} title={m.remove()} data-snap-grid-remove="" data-danger=""
+                            onClick={(e: ReactMouseEvent) => { e.stopPropagation(); onRemove(key); }}>
+                            <FontAwesomeIcon icon={faTrashCan} />
+                        </chakra.button>
+                    </Box>
                 </>
             )}
             <InsertLine css={styles.insertBefore} styles={styles} attr="insert" />
@@ -467,6 +485,12 @@ export interface SnapGridEditorProps {
     renderContent?: ((cell: SnapGridEditorCell) => ReactNode) | undefined;
     /** What a host says of the page on a phone, and does there ({@link SnapGridPhoneOptions}). The canvas's phone form needs none. */
     phone?: SnapGridPhoneOptions | undefined;
+    /**
+     * Told when the selected tile's Edit is pressed, with its key: the host
+     * shows what edits what the tile shows (#1672). Omitted, the tile draws no
+     * Edit.
+     */
+    onEdit?: ((key: string) => void) | undefined;
 }
 
 /**
@@ -476,7 +500,7 @@ export interface SnapGridEditorProps {
  * @param props - The value, its storage key and any host toolbar items
  * @returns The canvas
  */
-export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, toolbarItems, toolbar, panes, renderContent, phone: phoneOptions }: SnapGridEditorProps) {
+export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, toolbarItems, toolbar, panes, renderContent, phone: phoneOptions, onEdit }: SnapGridEditorProps) {
     const words = useSnapGridWords();
     const m = words.m;
     const recipe = useSlotRecipe({ key: "snapGrid" });
@@ -492,7 +516,7 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
     const menuRecipe = useSlotRecipe({ key: "menu" });
     const menu = useMemo(() => menuRecipe() as Styles, [menuRecipe]);
     const editing = useSnapGridEditing(value, storageKey);
-    const { session, available, tiles, cells, marks, creates, heights, move, rowTo, align, add, resize, height, remove, action: sessionAction } = editing;
+    const { session, available, tiles, cells, marks, creates, heights, move, rowTo, align, add, resize, height, remove, field, duplicate, action: sessionAction } = editing;
 
     // ── A phone's frame: the canvas's phone form, by itself at 560px and narrower ──
     // Hidden, as under a preview, it stays what it was: its tiles' state is kept.
@@ -740,36 +764,55 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
         }
     });
 
-    // ── A change a pane asks for (#996) — one gesture, then written back ─
+    // ── A change a pane asks for (#996, #1672) — one gesture, then written back ─
     useEffect(() => {
         if (request === undefined || bound === undefined) return;
         const tile = tilesRef.current.find((t) => t.key === request.key);
         const change = request.change;
+        // A copy is selected in its original's place; any other change leaves the selection as it is.
+        let selecting = bound.read().selected;
         if (tile !== undefined) {
-            if (change.type === "span") {
-                resize(tile.key, Number(change.value));
-            } else if (change.type === "row") {
-                rowTo(tile.key, Number(change.value));
-            } else if (change.type === "height") {
-                // As a height drag: a least height floors it, else its content's
-                // height, where it returns to auto; never past the most.
-                const asked = change.value.type === "some" ? Number(change.value.value) : null;
-                const natural = naturals.current.get(tile.key);
-                const kept = asked === null ? null
-                    : tile.minHeight !== undefined ? Math.max(tile.minHeight, Math.min(MAX_HEIGHT, asked))
-                        : natural !== undefined && asked <= natural ? null
-                            : Math.min(MAX_HEIGHT, asked);
-                height(tile.key, kept);
-            } else {
-                align(tile.key, change.value.type);
+            switch (change.type) {
+                case "span":
+                    resize(tile.key, Number(change.value));
+                    break;
+                case "row":
+                    rowTo(tile.key, Number(change.value));
+                    break;
+                case "height": {
+                    // As a height drag: a least height floors it, else its content's
+                    // height, where it returns to auto; never past the most.
+                    const asked = change.value.type === "some" ? Number(change.value.value) : null;
+                    const natural = naturals.current.get(tile.key);
+                    const kept = asked === null ? null
+                        : tile.minHeight !== undefined ? Math.max(tile.minHeight, Math.min(MAX_HEIGHT, asked))
+                            : natural !== undefined && asked <= natural ? null
+                                : Math.min(MAX_HEIGHT, asked);
+                    height(tile.key, kept);
+                    break;
+                }
+                case "align":
+                    align(tile.key, change.value.type);
+                    break;
+                case "field":
+                    field(tile.key, change.value.name, change.value.value);
+                    break;
+                case "duplicate": {
+                    const copy = duplicate(tile.key);
+                    if (copy !== undefined) {
+                        selecting = some(copy);
+                        announce(m.announceDuplicated({ label: tile.label }));
+                    }
+                    break;
+                }
             }
         }
         try {
-            bound.write({ selected: bound.read().selected, request: none });
+            bound.write({ selected: selecting, request: none });
         } catch (err) {
             console.error("[SnapGrid] ui state write failed:", err);
         }
-    }, [request, bound, resize, rowTo, height, align]);
+    }, [request, bound, resize, rowTo, height, align, field, duplicate, announce, m]);
 
     // ── An Apply a screen asks for (#998) — the drafts applied, then answered ─
     const applyBind = value.apply.type === "some" ? value.apply.value : undefined;
@@ -814,6 +857,14 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
         announce(m.announceRemoved({ label }));
         select(null);
     }, [remove, announce, m, select]);
+    // A copy after it, selected (#1672).
+    const onDuplicate = useCallback((key: string) => {
+        const label = tilesRef.current.find((t) => t.key === key)?.label ?? key;
+        const copy = duplicate(key);
+        if (copy === undefined) return;
+        announce(m.announceDuplicated({ label }));
+        select(copy);
+    }, [duplicate, announce, m, select]);
 
     // ── The keyboard ─────────────────────────────────────────────────────
     // The history shortcuts, anywhere in the frame — a pane's controls too;
@@ -1157,6 +1208,8 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
                                                     onSelect={select}
                                                     onResizeStart={onResizeStart}
                                                     onRemove={onRemove}
+                                                    onDuplicate={onDuplicate}
+                                                    onEdit={onEdit}
                                                     register={register}
                                                     renderContent={renderContent}
                                                 />

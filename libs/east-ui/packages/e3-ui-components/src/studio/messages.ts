@@ -82,8 +82,8 @@ export interface StudioMessages {
     noSourceHint: () => string;
     /** A visual with a well it needs empty (#1670) — its heading. */
     wellsEmpty: () => string;
-    /** A well it needs, in the checklist under it. */
-    wellNeeded: (p: { well: string }) => string;
+    /** A well it needs, in the checklist under it, by its label — `A number in Values`; `value` when a value fills it (#1672). */
+    wellNeeded: (p: { label: string; value: boolean }) => string;
     /** What that checklist has done: its source is chosen. */
     sourcePicked: () => string;
     /** A visual reading a field its source does not have — the words before the field's name: `Orders has no field`. */
@@ -176,6 +176,138 @@ export interface StudioMessages {
     exportCsv: () => string;
     /** The tile menu's item that places a copy of the visual beside it. */
     duplicate: () => string;
+    /** The tile menu's item, on the builder's canvas, that opens the visual's Configure tab (#1672). */
+    editVisual: () => string;
+    /** The inspector's tab that edits what the selected placement holds (#1672). */
+    configure: () => string;
+    /** The palette's grouping by who configures a card: the operator, or its developer (#1672). */
+    configuredBy: () => string;
+    /** The palette's group of visuals, which the operator configures. */
+    paletteVisuals: () => string;
+    /** The palette's group of components, built by developers. */
+    paletteDevelopers: () => string;
+    /** A visual card's category, under the palette's Category grouping. */
+    visualsCategory: () => string;
+    /** The palette's text block card. */
+    textCard: () => string;
+    /** A text block's heading field, in its Configure tab. */
+    textHeading: () => string;
+    /** A text block's body field. */
+    textBody: () => string;
+    /** What a text block dropped from the palette says until it is written. */
+    newText: () => string;
+    /** A visual's source part, and its picker's name. */
+    source: () => string;
+    /** The source picker's search. */
+    findSource: () => string;
+    /** The source picker's one section. */
+    sourcesListed: () => string;
+    /** A visual's kind segments' name. */
+    kind: () => string;
+    /** A visual's options part. */
+    options: () => string;
+    /** A visual's On click part. */
+    onClick: () => string;
+    /** What a click on a visual does, as its segment says it. */
+    clickName: (p: { click: "select" | "filter" | "open" | "none" }) => string;
+    /** The page an Open a page click opens — its picker's name. */
+    pageToOpen: () => string;
+    /** The page picker's search. */
+    findPage: () => string;
+    /** An option set to a value its kind does not take. */
+    cannotSet: (p: { label: string }) => string;
+    /** A visual's wells' part — its name, for the keyboard. */
+    wells: () => string;
+    /** An empty single well's slot, and a list well's add slot — `Add a value`; `value` when a value fills it (EDT-3). */
+    addToWell: (p: { value: boolean }) => string;
+    /** The field chooser's search, and the Fields list's. */
+    findField: () => string;
+    /** The groups fields are listed in: what a visual groups by, and numbers — `Dimensions`, `Numbers`. */
+    fieldGroup: (p: { numbers: boolean }) => string;
+    /** The Fields list's grouping. */
+    fieldKind: () => string;
+    /** The Fields part's eyebrow. */
+    fields: () => string;
+    /** One field, and any other count — the Fields list's noun. */
+    fieldNoun: () => { singular: string; plural: string };
+    /** A field a well holds, as the Fields list marks it (EDT-3). */
+    fieldInUse: () => string;
+    /** The Fields part's label — `Orders fields`. */
+    fieldsOf: (p: { source: string }) => string;
+    /** Under the Fields list, what to do with one. */
+    dragFields: () => string;
+    /** The Fields list with none its search leaves. */
+    noFieldFound: () => string;
+    /** Under the view's segments. */
+    viewHint: () => string;
+    /** Under a chart's kinds, what the chosen one is for — `Column · categories or periods side by side`; a kind it has no words for, its name alone. */
+    kindHint: (p: { label: string; kind: string }) => string;
+    /** A well's empty place while a field it takes is dragged over it — `Drop Region on Split by`. */
+    dropOn: (p: { field: string; well: string }) => string;
+    /** A click that opens a page, as its select says it — `Open Region detail`. */
+    openPage: (p: { page: string }) => string;
+    /** Under the On click select while a click opens a page. */
+    clickOpens: () => string;
+    /** A group pill's first N, after its name — `top 2 + Other`. */
+    pillTop: (p: { top: string }) => string;
+    /** A pill's name and what it is set to, which open its menu — `Edit Revenue`. */
+    editPill: (p: { label: string }) => string;
+    /** A pill's remove — `Remove Revenue from Values`. */
+    removeFromWell: (p: { label: string; well: string }) => string;
+    /** A list well's pill's grip — `Move Revenue`; ⌥↑ and ⌥↓ move it too. */
+    movePill: (p: { label: string }) => string;
+    /** A pill's field, which opens the field chooser to change it — `Change Revenue`. */
+    changeField: (p: { label: string }) => string;
+    /** Under a well, a pill whose field its source does not have (MOD-5). */
+    wellMissing: (p: { source: string; field: string }) => string;
+    /** Under a well a list is held to one pill by, while the list holds more (CHT-2) — `Split by takes the first value only`. */
+    wellTakesFirst: (p: { well: string }) => string;
+    /** The drag's caption over a well that takes the field — `Add Region to X axis`. */
+    dropInto: (p: { field: string; well: string }) => string;
+    /** Over a well that does not — `Trend cannot take Region`. */
+    dropRefused: (p: { field: string; well: string }) => string;
+    /** Over a list well that is full — `Values takes no more`. */
+    wellFull: (p: { well: string }) => string;
+    /** A value pill's aggregate, as its chip and its menu name it (EDT-6) — `Sum`; a ratio's by what it is per — `Per unit`. */
+    aggregate: (p: { measure: "count" | "sum" | "mean" | "min" | "max" | "distinct" | "ratio"; per: string }) => string;
+    /** The value pill menu's aggregates' name. */
+    aggregates: () => string;
+    /** The value pill menu's choice of a ratio, which asks for the field it is per. */
+    perAnother: () => string;
+    /** The ratio's field chooser's head. */
+    perField: () => string;
+    /** A value's period — the value pill menu's segments. */
+    period: () => string;
+    /** A period, as its segment says it. */
+    periodName: (p: { period: "current" | "previous" | "year_ago" }) => string;
+    /** A value's goal. */
+    goal: () => string;
+    /** Which way a value is better. */
+    better: () => string;
+    /** A way it is better, as its segment says it. */
+    betterName: (p: { better: "higher" | "lower" }) => string;
+    /** A value's own label, in place of its name. */
+    valueLabel: () => string;
+    /** The axis a combo's value is drawn against — the value pill menu's segments. */
+    axis: () => string;
+    /** A side, as its segment says it. */
+    axisSide: (p: { right: boolean }) => string;
+    /** A value pill's goal, after its name — `goal 450k`. */
+    pillGoal: (p: { goal: string }) => string;
+    /** A value pill's period other than the page's, after its name — `year ago`. */
+    pillPeriod: (p: { period: "previous" | "year_ago" }) => string;
+    /** A group's bucket — the group pill popover's segments (EDT-7). */
+    bucket: () => string;
+    /** A bucket, as its segment and a group pill's chip say it — `Month`. */
+    bucketName: (p: { unit: "auto" | "hour" | "day" | "week" | "month" | "quarter" | "year" }) => string;
+    /** A group's order. */
+    order: () => string;
+    /** An order, as its segment and a group pill's chip say it — `Time order` for a date's own. */
+    orderName: (p: { sort: "natural" | "high" | "low" | "label"; date: boolean }) => string;
+    /** How many groups a visual keeps, the rest folding into Other. */
+    keepFirst: () => string;
+    /** Under it, what its empty box keeps. */
+    keepFirstHelp: () => string;
     /** The rest of a group past its first N, folded. */
     other: () => string;
     /** A quarter, as a chart's axis or a table's row names its bucket — `Q3 2026`. */
@@ -399,6 +531,17 @@ export interface StudioMessages {
 }
 
 /** The Studio's English messages — the default table. */
+/** What each chart kind is for, under its segments: the spec's words for a column, and the Chart chapter's for the rest. */
+const KIND_SAYS: Readonly<Record<string, string>> = {
+    column: "categories or periods side by side",
+    bar: "categories compared by length",
+    line: "a value over time",
+    area: "a value over time, filled to its base",
+    combo: "columns and lines on one x axis",
+    scatter: "one point per group, at two values",
+    pie: "one value's shares of its total",
+};
+
 export const studioMessages: StudioMessages = {
     statusDraft: () => "Draft",
     statusLive: () => "Live",
@@ -426,7 +569,7 @@ export const studioMessages: StudioMessages = {
     noSource: ({ key }) => `No source "${key}" is listed`,
     noSourceHint: () => "This surface lists no source with this key.",
     wellsEmpty: () => "Add fields to draw it",
-    wellNeeded: ({ well }) => (well === "values" ? "A number in Values" : well === "columns" ? "A field in Columns" : well === "rows" ? "A field in Rows" : `A field in ${well}`),
+    wellNeeded: ({ label, value }) => (value ? `A number in ${label}` : `A field in ${label}`),
     sourcePicked: () => "Pick a source",
     noField: ({ source }) => `${source} has no field`,
     pickAnotherField: () => "Pick another field",
@@ -479,6 +622,102 @@ export const studioMessages: StudioMessages = {
     showRows: () => "Show rows",
     exportCsv: () => "Export CSV",
     duplicate: () => "Duplicate",
+    editVisual: () => "Edit visual",
+    configure: () => "Configure",
+    configuredBy: () => "Configured by",
+    paletteVisuals: () => "Visuals · you configure",
+    paletteDevelopers: () => "Built by developers",
+    visualsCategory: () => "Visuals",
+    textCard: () => "Text",
+    textHeading: () => "Heading",
+    textBody: () => "Body",
+    newText: () => "Write here what the page says.",
+    source: () => "Source",
+    findSource: () => "Find a source",
+    sourcesListed: () => "Sources",
+    kind: () => "Kind",
+    options: () => "Options",
+    onClick: () => "On click",
+    clickName: ({ click }) => (click === "select" ? "Select it" : click === "filter" ? "Filter this page" : click === "open" ? "Open a page" : "Nothing"),
+    pageToOpen: () => "Page to open",
+    findPage: () => "Find a page",
+    cannotSet: ({ label }) => `${label} cannot take that value`,
+    wells: () => "Wells",
+    addToWell: ({ value }) => (value ? "Add a value" : "Add a field"),
+    findField: () => "Find a field",
+    fieldGroup: ({ numbers }) => (numbers ? "Numbers" : "Dimensions"),
+    fieldKind: () => "Kind",
+    fields: () => "Fields",
+    fieldNoun: () => ({ singular: "field", plural: "fields" }),
+    fieldInUse: () => "In use",
+    fieldsOf: ({ source }) => `${source} fields`,
+    dragFields: () => "Drag a field onto a well.",
+    noFieldFound: () => "No field matches.",
+    viewHint: () => "Switching view resets the wells.",
+    kindHint: ({ label, kind }) => {
+        const says = KIND_SAYS[kind];
+        return says === undefined ? label : `${label} · ${says}`;
+    },
+    dropOn: ({ field, well }) => `Drop ${field} on ${well}`,
+    openPage: ({ page }) => `Open ${page}`,
+    clickOpens: () => "Opens the page narrowed to what is clicked.",
+    pillTop: ({ top }) => `top ${top} + Other`,
+    editPill: ({ label }) => `Edit ${label}`,
+    removeFromWell: ({ label, well }) => `Remove ${label} from ${well}`,
+    movePill: ({ label }) => `Move ${label}`,
+    changeField: ({ label }) => `Change ${label}`,
+    wellMissing: ({ source, field }) => `${source} has no field ${field}. Pick another or remove it.`,
+    wellTakesFirst: ({ well }) => `${well} takes the first value only`,
+    dropInto: ({ field, well }) => `Add ${field} to ${well}`,
+    dropRefused: ({ field, well }) => `${well} cannot take ${field}`,
+    wellFull: ({ well }) => `${well} takes no more`,
+    aggregate: ({ measure, per }) => {
+        switch (measure) {
+            case "count": return "Count";
+            case "sum": return "Sum";
+            case "mean": return "Mean";
+            case "min": return "Min";
+            case "max": return "Max";
+            case "distinct": return "Distinct";
+            case "ratio": return `Per ${per}`;
+        }
+    },
+    aggregates: () => "Aggregate",
+    perAnother: () => "Per another field…",
+    perField: () => "Per",
+    period: () => "Period",
+    periodName: ({ period }) => (period === "current" ? "Current" : period === "previous" ? "Prev" : "Yr ago"),
+    goal: () => "Goal",
+    better: () => "Better",
+    betterName: ({ better }) => (better === "higher" ? "Higher" : "Lower"),
+    valueLabel: () => "Label",
+    axis: () => "Axis",
+    axisSide: ({ right }) => (right ? "Right" : "Left"),
+    pillGoal: ({ goal }) => `goal ${goal}`,
+    pillPeriod: ({ period }) => (period === "previous" ? "previous" : "year ago"),
+    bucket: () => "Period",
+    bucketName: ({ unit }) => {
+        switch (unit) {
+            case "auto": return "Auto";
+            case "hour": return "Hour";
+            case "day": return "Day";
+            case "week": return "Week";
+            case "month": return "Month";
+            case "quarter": return "Qtr";
+            case "year": return "Year";
+        }
+    },
+    order: () => "Order",
+    orderName: ({ sort, date }) => {
+        switch (sort) {
+            case "natural": return date ? "Time order" : "Value order";
+            case "high": return "High first";
+            case "low": return "Low first";
+            case "label": return "A to Z";
+        }
+    },
+    keepFirst: () => "Keep the first",
+    keepFirstHelp: () => "Empty keeps every group; the rest fold into Other.",
     other: () => "Other",
     quarterOf: ({ quarter, year }) => `Q${quarter} ${year}`,
     groupsShown: ({ shown, of, n }) => `Showing ${shown} of ${of} ${n === 1 ? "group" : "groups"}`,

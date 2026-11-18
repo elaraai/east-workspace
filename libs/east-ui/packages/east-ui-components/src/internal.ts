@@ -66,6 +66,8 @@ export { capturePointer, useSurfaceGestures, type SurfaceGestures, type SurfaceO
 export { followPointer, type PointerFollow, type PointerPress } from "./pointer/follow-pointer.js";
 export { makeTouches, pinchMoves, type PinchStep, type TouchBegan, type TouchPoint, type Touches } from "./pointer/touches.js";
 export { dateTimeSlot, numberSlot, stringSlot } from "./dnd/slot-key.js";
+// The dashed mark of an empty place that takes a drop, its words the host's: a Studio visual's empty well (#1672).
+export { DropHint, type DropHintProps } from "./dnd/drop-hint.js";
 // The date field's parts and its conversions — the Sheet's date editor.
 export { CompoundDateField, CompoundDateInput, CompoundDateSegment } from "./forms/input/date/index.js";
 export { dateToCalendarDate, dateValueToDate } from "./forms/input/index.js";

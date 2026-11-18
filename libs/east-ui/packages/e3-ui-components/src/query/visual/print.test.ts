@@ -264,6 +264,18 @@ describe("printVisual", () => {
         expect(printVisual(visualOf(v.of("orders", v.slicer(["range"]))), SOURCE, { filters: [] })).toEqual({ kind: "none" });
     });
 
+    it("says a group of no field is a well to fill, by its kind's field — what a dropped visual starts with (#1672)", () => {
+        const empty = (content: ReturnType<typeof v.of>) => printVisual(visualOf(content), SOURCE, { filters: [] });
+        const nothing = v.group("");
+        expect(empty(v.of("orders", v.column({ x: nothing, values: [] })))).toEqual({ kind: "empty", wells: ["x", "values"] });
+        expect(empty(v.of("orders", v.combo({ x: nothing, columns: [], lines: [] })))).toEqual({ kind: "empty", wells: ["x", "columns"] });
+        expect(empty(v.of("orders", v.scatter({ point: "", x: v.count(), y: v.count() })))).toEqual({ kind: "empty", wells: ["point"] });
+        expect(empty(v.of("orders", v.pie({ slice: nothing, value: v.count() })))).toEqual({ kind: "empty", wells: ["slice"] });
+        expect(empty(v.of("orders", v.pivot({ rows: v.group("region"), columns: nothing, value: v.count() })))).toEqual({ kind: "empty", wells: ["columns"] });
+        expect(empty(v.of("orders", v.list({ item: nothing, values: [] })))).toEqual({ kind: "empty", wells: ["item"] });
+        expect(empty(v.of("orders", v.summary({ rows: [], values: [] })))).toEqual({ kind: "empty", wells: ["rows", "values"] });
+    });
+
     it("says a source with no date range has none to compare periods by, whatever the page's window", () => {
         const undated = printSourceOf(sourceOver(ArrayType(Row), none))!;
         const kpi = visualOf(v.of("orders", v.kpi({ value: v.sum("revenue"), compare: v.sum("revenue", { period: "year_ago" }) })));

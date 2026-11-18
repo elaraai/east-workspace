@@ -18,11 +18,18 @@
  *   of room (#1229), once the canvas's own items have folded, folds Save as
  *   template, Preview and Publish into one ⋯ chip, whose menu holds the three
  *   — Save as template… opening its popover from the chip — then the status.
- * - **The palette** ({@link useStudioPalette}) is the pane before it, **the
- *   inspector** ({@link StudioInspector}) the body of the pane after it; the
- *   inspector's edits are requests the canvas takes as one gesture each. Both
- *   are pane descriptions the canvas's builder frame draws (#1125), `auto`:
- *   pinned beside the canvas on a desktop, over it on a narrow screen.
+ * - **The palette** ({@link useStudioPalette}) is the pane before it: a
+ *   visual dropped from it is placed at its kind's span, empty, over the
+ *   source the page's visuals read most (#1672, BLD-2); a text block at the
+ *   full width. **The inspector** is the pane after it, two tabs: Configure
+ *   ({@link StudioConfigure}), what the selected placement holds, edited — the
+ *   tab a visual or a text block opens on as it is selected, and the one the
+ *   canvas's Edit and a visual's Edit visual open (EDT-1) — and Layout
+ *   ({@link StudioInspector}). The inspector's edits are requests the canvas
+ *   takes as one gesture each; a visual's menu's Duplicate is the canvas's
+ *   copy. Both panes are pane descriptions the canvas's builder frame draws
+ *   (#1125), `auto`: pinned beside the canvas on a desktop, over it on a
+ *   narrow screen.
  * - **The publish preview** ({@link StudioPublishPreview}) takes the canvas's
  *   place while it shows. The canvas stays mounted, so its drafts stay its own,
  *   and it applies them when the preview asks before it publishes.
@@ -53,7 +60,7 @@ import {
 } from "@elaraai/east";
 import { Editing, EditingDraftFieldType, SnapGrid } from "@elaraai/east-ui/internal";
 import {
-    StudioBuilderComponent, StudioCellType, StudioComponentType, StudioContentType, StudioEntryType, StudioKeyType, builderKeys,
+    Studio, StudioBuilderComponent, StudioCellType, StudioContentType, StudioEntryType, StudioKeyType, builderKeys, studioEditors,
 } from "@elaraai/e3-ui/internal";
 import {
     BannerView,
@@ -76,10 +83,11 @@ import {
 
 import { VisualAnswersProvider } from "../query/visual/answers.js";
 import { openCodec, useOpen } from "../shared/open.js";
+import { StudioConfigure } from "./configure.js";
 import { StudioInspector } from "./inspector.js";
 import { useStudioMessages } from "./messages.js";
 import { StudioLayout, StudioPlacement, useListedByKey } from "./page.js";
-import { useStudioPalette } from "./palette.js";
+import { useStudioPalette, visualCards, type PlacedCard } from "./palette.js";
 import { StudioPhoneBar } from "./phone.js";
 import { StudioPublishPreview } from "./publish.js";
 import { StudioSaveTemplate } from "./save-template.js";
@@ -89,8 +97,6 @@ type Styles = Record<string, SystemStyleObject>;
 
 /** The renderer's payload, decoded. */
 type StudioBuilderValue = ValueTypeOf<typeof StudioBuilderComponent.schema>;
-/** A listed component. */
-type Component = ValueTypeOf<typeof StudioComponentType>;
 /** A page's key. */
 type StudioKey = ValueTypeOf<typeof StudioKeyType>;
 /** One placement. */
@@ -204,6 +210,8 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
     const [previewTab, setPreviewTab] = useState<"page" | "changes">("page");
     const [placing, setPlacing] = useState<SnapGridPlacing | undefined>(undefined);
     const [collapsed, setCollapsed] = useState({ start: false, end: false });
+    // The inspector's open tab: Configure, what the placement holds, or Layout (#1672).
+    const [inspectorTab, setInspectorTab] = useState<"configure" | "layout">("configure");
     // Save as template's popover, opened from the ⋯ chip's menu (#1229).
     const [naming, setNaming] = useState(false);
     // A page opened from anywhere — the palette, the host — opens with nothing selected, nothing being placed, and in a
@@ -223,6 +231,12 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
     const saved = useMemo((): readonly Cell[] => (entry === undefined ? [] : entry.type === "page" ? entry.value.draft.cells : entry.value.cells), [entry]);
     const cells = drafted !== undefined && drafted.page === openName ? drafted.cells : saved;
     const title = entry === undefined ? "" : entry.type === "page" ? entry.value.draft.title : entry.value.title;
+    // The placements the canvas draws, as a dropped visual reads them for its source.
+    const cellsRef = useRef(cells);
+    cellsRef.current = cells;
+    // The palette's visuals: each kind's, while a source is listed for them to read, and the text block (BLD-1).
+    const listedComponents = useMemo(() => components.filter((c) => !c.deprecated), [components]);
+    const visuals = useMemo(() => visualCards(studioEditors, sources.length, listedComponents, m.textCard()), [sources.length, listedComponents, m]);
 
     // ── The canvas ────────────────────────────────────────────────────────
     const tiles = useMemo(() => east.canvasTiles(components), [east, components]);
@@ -273,20 +287,20 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
         toDraft: none,
         fields: { key: "key", row: "row", span: "span", height: some("height"), align: some("align") },
         derive: (bytes: Uint8Array) => decodeCells(bytes).map(cellView),
-        // A component dropped from the palette: a placement at its span; the
-        // canvas fits the span to the row.
+        // A card dropped from the palette: a component's placement at its span; a visual's at its kind's, empty, over the
+        // source the page's visuals read most (BLD-2); a text block's at the full width. The canvas fits the span to the row.
         create: some((card: { library: string; key: string }, at: { key: string; row: string }) => {
-            const component = components.find((c) => c.key === card.key);
-            if (component === undefined) throw new Error(`No component "${card.key}" is listed`);
-            return encodeCell({
-                key: at.key,
-                row: at.row,
-                span: component.span,
-                height: none,
-                align: variant("top", null),
-                title: none,
-                content: variant("component", component.key),
+            const placement = (span: bigint, content: Content) => encodeCell({
+                key: at.key, row: at.row, span, height: none, align: variant("top", null), title: none, content,
             });
+            const component = components.find((c) => c.key === card.key);
+            if (component !== undefined) return placement(component.span, variant("component", component.key));
+            const visual = visuals.find((v) => v.key === card.key);
+            if (visual === undefined) throw new Error(`No component "${card.key}" is listed`);
+            if (visual.kind === undefined) return placement(visual.span, Studio.visual.text(m.newText()));
+            const source = east.mostUsedSource([...cellsRef.current], sources);
+            if (source.type === "none") throw new Error("No source is listed for a visual to read");
+            return placement(visual.span, Studio.visual.of(source.value, east.emptyView(visual.kind)));
         }),
         ready: none,
         // The rows the canvas draws, for the palette's counts, the inspector and the preview.
@@ -294,7 +308,7 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
             setDrafted({ page: openName, cells: decodeCells(bytes) });
             return null;
         }),
-    }), [openName, snapshot, saved, east, handle, open, cellView, components]);
+    }), [openName, snapshot, saved, east, handle, open, cellView, components, visuals, sources, m]);
     const uiBind = useMemo(() => ({
         read: () => ui,
         write: (next: UiState) => { setUi(next); return null; },
@@ -329,17 +343,30 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
         surface: some(variant("shell", null)),
     }), [saved, cellView, editing, uiBind, applyBind, keys.components, m]);
 
+    // A placement opened for editing — the canvas's Edit, a visual's Edit visual: selected, its Configure tab shown (EDT-1).
+    const editPlacement = useCallback((key: string) => {
+        setUi({ selected: some(key), request: none });
+        setInspectorTab("configure");
+        setCollapsed((was) => (was.end ? { ...was, end: false } : was));
+    }, []);
+    // A visual's Duplicate: the canvas's copy of it, after it, selected.
+    const duplicatePlacement = useCallback((key: string) => {
+        setUi({ selected: some(key), request: some({ key, change: variant("duplicate", null) }) });
+    }, []);
+
     // Each tile's content: what its placement holds — its component's own UI, its text, its visual — or its placeholder.
     const listedByKey = useListedByKey(components);
     const renderContent = useCallback((cell: SnapGridEditorCell) => {
         const placed = placedOf.current.get(cell.key);
         if (placed === undefined) return null;
-        // A visual's tile is named by its placement's own title, else by its wells — as the page draws it.
+        // A visual's tile is named by its placement's own title, else by its wells — as the page draws it — and its menu
+        // edits and copies it.
         return (
             <StudioPlacement content={placed.content} listed={listedByKey} sources={sourceNames} storageKey={`${storageKey}.canvas.${cell.key}`}
-                title={placed.title.type === "some" ? placed.title.value : undefined} />
+                title={placed.title.type === "some" ? placed.title.value : undefined}
+                edit={{ onEdit: () => editPlacement(cell.key), onDuplicate: () => duplicatePlacement(cell.key) }} />
         );
-    }, [listedByKey, sourceNames, storageKey]);
+    }, [listedByKey, sourceNames, storageKey, editPlacement, duplicatePlacement]);
 
     // ── The toolbar: the page's status, Save as template, Preview and Publish ──
     const status = entry === undefined ? undefined
@@ -426,7 +453,7 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
     };
 
     // ── The palette, before the canvas ───────────────────────────────────
-    const listed = useMemo(() => components.filter((c) => !c.deprecated), [components]);
+    const listed = listedComponents;
     const cards = useMemo(() => east.paletteCards(listed, [...cells], phone ? none : ui.selected), [east, listed, cells, ui.selected, phone]);
     const projectPages = useMemo(() => (pages === undefined ? [] : east.palettePages(pages, project)), [east, pages, project]);
     // A card's click selects its component's first placement on the page.
@@ -448,28 +475,42 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
     const onPage = useMemo(() => new Set(cells.flatMap((c) => (c.content.type === "component" ? [c.content.value] : []))), [cells]);
     const palettePhone = useMemo(() => (!phone ? undefined : {
         onPage,
-        onPlace: (component: Component) => {
+        onPlace: (card: PlacedCard) => {
             setUi(NOTHING_SELECTED);
-            setPlacing({ kind: "add", card: { library: keys.components, key: component.key }, label: component.name, span: Number(component.span) });
+            setPlacing({ kind: "add", card: { library: keys.components, key: card.key }, label: card.label, span: card.span });
             setCollapsed((was) => ({ ...was, start: true }));
         },
     }), [phone, onPage, keys.components]);
     const paletteIds = useMemo(() => ({ components: keys.components, pages: keys.pages }), [keys.components, keys.pages]);
     const palette = useStudioPalette({
-        components: listed, cards, pages: projectPages, open: stringEqual(open.project, project) ? open.page : "", ids: paletteIds,
+        visuals, components: listed, cards, pages: projectPages, open: stringEqual(open.project, project) ? open.page : "", ids: paletteIds,
         onSelect: selectFirst, onOpen: openPage, storageKey, phone: palettePhone,
     });
 
     // ── The inspector, after it ──────────────────────────────────────────
     const selection = useMemo(() => east.inspectorSelection(components, sourceNames, [...cells], ui.selected),
         [east, components, sourceNames, cells, ui.selected]);
-    // A layout edit is a request on the selection: the canvas takes it as one gesture.
+    // An edit — of the layout, or of what it holds — is a request on the selection: the canvas takes it as one gesture.
     const onRequest = useCallback((request: Request) => {
         setUi({ selected: some(request.key), request: some(request) });
         return null;
     }, []);
-    const inspector = useMemo(() => ({ selection, onRequest }), [selection, onRequest]);
+    const inspector = useMemo(() => ({ selection, sources, editors: [...studioEditors], onRequest }), [selection, sources, onRequest]);
     const selected = selection.type === "some" ? selection.value : undefined;
+    // A visual or a text block selected anew opens the Configure tab (EDT-1); a component leaves the tab as it was.
+    const shownSelection = useRef<string | undefined>(undefined);
+    useEffect(() => {
+        const key = selected?.key;
+        if (key === shownSelection.current) return;
+        shownSelection.current = key;
+        if (selected !== undefined && selected.cell.content.type !== "component") setInspectorTab("configure");
+    }, [selected]);
+    // What the selected placement holds as the page is saved — what the Configure tab tints its changes against — and the
+    // project's pages, which a click may open.
+    const savedContent = useMemo(() => saved.find((c) => c.key === selected?.key)?.content, [saved, selected?.key]);
+    const configurePages = useMemo(() => projectPages.map((page) => ({ key: { project, page: page.page }, title: page.title })), [projectPages, project]);
+    // A visual's wells, and the Fields list they take fields from: their own drags, apart from the canvas's.
+    const wellsDnd = useMemo(() => ({ wells: `${keys.components}.wells`, fields: `${keys.components}.fields` }), [keys.components]);
     // Where the selected placement stands, for a phone's inspector (ST24).
     const inspectorPhone = useMemo(() => {
         if (!phone) return undefined;
@@ -490,24 +531,37 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
             },
         };
     }, [phone, cells, saved, selected?.key]);
-    // One body, 300px wide; its rail names the selected placement, in the brand while there is one.
-    const inspectorBody = <StudioInspector value={inspector} phone={inspectorPhone} />;
+    // Two tabs, 320px wide as the spec's builder draws it — Configure and Layout (#1672); its rail names the selected placement, in the brand
+    // while there is one.
+    const inspectorTabs = [
+        {
+            key: "configure", label: m.configure(),
+            body: <StudioConfigure value={inspector} saved={savedContent} pages={configurePages} dnd={wellsDnd}
+                phone={inspectorPhone} />,
+        },
+        { key: "layout", label: m.layout(), body: <StudioInspector value={inspector} phone={inspectorPhone} /> },
+    ];
+    const onInspectorTab = useCallback((key: string) => setInspectorTab(key === "layout" ? "layout" : "configure"), []);
     const inspectorPane = useMemo((): BuilderFrameDock => (inspectorPhone !== undefined ? {
         label: m.inspector(),
         icon: "sliders",
         // The strip's meta: its row, while something is selected (ST21).
         ...(selected === undefined ? {} : { detail: m.phoneRowMeta({ row: words.number(Number(selected.layout.row)) }) }),
-        tabs: [{ key: "details", label: m.phoneDetails(), body: inspectorBody }],
+        tabs: inspectorTabs,
+        tab: inspectorTab,
+        onTabChange: onInspectorTab,
     } : {
         label: m.inspector(),
         icon: "sliders",
         badge: selected === undefined ? "" : m.spanBadge({ span: words.number(Number(selected.layout.span)) }),
         active: selected !== undefined,
         detail: selected === undefined ? m.nothingSelected() : selected.name,
-        size: "300px",
-        body: inspectorBody,
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- the body is made again with what it reads.
-    }), [m, words, selected, inspector, inspectorPhone]);
+        size: "320px",
+        tabs: inspectorTabs,
+        tab: inspectorTab,
+        onTabChange: onInspectorTab,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the tabs' bodies are made again with what they read.
+    }), [m, words, selected, inspector, inspectorPhone, inspectorTab, savedContent, configurePages, wellsDnd, storageKey, onInspectorTab]);
     // The panes' collapse is the builder's, so a card's tap can close its view; every width's goes through here.
     const panePaletteCollapse = (next: boolean) => {
         setCollapsed((was) => (was.start === next ? was : { ...was, start: next }));
@@ -564,6 +618,7 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
                         storageKey={`${storageKey}.canvas`}
                         toolbar={toolbar}
                         renderContent={renderContent}
+                        onEdit={editPlacement}
                         panes={{
                             start: { ...palette, collapsed: collapsed.start, onCollapsedChange: panePaletteCollapse },
                             end: { ...inspectorPane, collapsed: collapsed.end, onCollapsedChange: paneInspectorCollapse },

@@ -8,9 +8,11 @@
  * component, what it reads and its description; its visual's view and source;
  * or its text block (#1669) — and its layout, computed in East for the
  * `StudioBuilder` renderer, which draws the inspector in its pane after the
- * canvas. It writes no page: a layout edit is a request the canvas takes as
- * one gesture of the page's editing session, undone, redone, discarded and
- * applied with the rest.
+ * canvas: its Configure tab over the placement itself, the sources the
+ * surface lists and each view's editors (#1672), and its Layout tab. It
+ * writes no page: an edit — of its layout, or of what it holds — is a request
+ * the canvas takes as one gesture of the page's editing session, undone,
+ * redone, discarded and applied with the rest.
  *
  * @packageDocumentation
  */
@@ -34,8 +36,9 @@ import {
 import { SnapGrid } from "@elaraai/east-ui/internal";
 import { StudioComponentType, componentNames, readNames } from "./component.js";
 import { contentWords, viewWords } from "./content.js";
+import { StudioViewEditorType } from "./editors.js";
 import { StudioCellType } from "./pages.js";
-import { sourceName } from "./source.js";
+import { StudioSourceType, sourceName } from "./source.js";
 
 // ============================================================================
 // What the inspector shows
@@ -92,12 +95,14 @@ export type InspectorContentType = typeof InspectorContentType;
  *   source; "Text"
  * @property content - What it holds ({@link InspectorContentType})
  * @property layout - Its layout ({@link InspectorLayoutType})
+ * @property cell - The placement itself, as the canvas draws it — what the Configure tab edits (#1672)
  */
 export const InspectorSelectionType = StructType({
     key: StringType,
     name: StringType,
     content: InspectorContentType,
     layout: InspectorLayoutType,
+    cell: StudioCellType,
 });
 
 /** Type representing the selected placement, as the inspector shows it. */
@@ -107,10 +112,14 @@ export type InspectorSelectionType = typeof InspectorSelectionType;
  * The inspector, as the `StudioBuilder` renderer draws it.
  *
  * @property selection - The selected placement; `none` when nothing is selected
- * @property onRequest - Asks the canvas for a layout change, which it takes as one gesture
+ * @property sources - The sources the surface lists, in order: what a visual's source is picked from, and its fields placed from (#1672)
+ * @property editors - Each view's editors, which the Configure tab draws a visual's from (`studioEditors`, #1672)
+ * @property onRequest - Asks the canvas for a change — of the placement's layout, or a field of it — which it takes as one gesture
  */
 export const StudioInspectorPayloadType = StructType({
     selection: OptionType(InspectorSelectionType),
+    sources: ArrayType(StudioSourceType),
+    editors: ArrayType(StudioViewEditorType),
     onRequest: FunctionType([SnapGrid.Types.Request], NullType),
 });
 
@@ -205,6 +214,7 @@ export const inspectorSelection = East.function(
                 height: cell.height,
                 align: cell.align,
             },
+            cell,
         }), OptionType(InspectorSelectionType));
     },
 );

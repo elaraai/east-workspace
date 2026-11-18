@@ -88,7 +88,8 @@ describe("the conflict ring", () => {
         expect(shadow(slot(recordSlotRecipe, "cell"), "&[data-conflict][data-active]")).toBe(`inset 0 0 0 2px {colors.brand.solid}, ${CONFLICT_RING_INSIDE_FOCUS}`);
         expect(outlineOffset(slot(rosterBuilderSlotRecipe, "tile"), "&[data-selected]:is([data-conflict], [data-bounds])")).toBe("1px");
         expect(outlineOffset(slot(schematicSlotRecipe, "item"), "&[data-selected]:is([data-conflict], [data-bounds])")).toBe("1px");
-        expect(shadow(slot(snapGridSlotRecipe, "frame"), "[data-selected][data-conflict] > &")).toBe(`${CONFLICT_RING}, {shadows.focus}`);
+        // The grid's selected tile is outlined 4px out (#1672): past the warn its frame wears at its own edge.
+        expect([outlineOffset(slot(snapGridSlotRecipe, "tile"), "&[data-selected]"), shadow(slot(snapGridSlotRecipe, "frame"), "[data-conflict] > &")]).toEqual(["4px", CONFLICT_RING]);
     });
 
     test("over a state's own ring: an overlap's, a match's; a drafted tile's, a confirmed mark's and a diamond's edge inside it", () => {
