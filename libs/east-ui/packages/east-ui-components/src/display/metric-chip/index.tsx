@@ -4,7 +4,7 @@
  */
 
 import { memo, useMemo, type ReactNode } from "react";
-import { Box, HStack, Text as ChakraText, useSlotRecipe } from "@chakra-ui/react";
+import { Box, Text as ChakraText, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-svg-core";
 import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
@@ -31,12 +31,12 @@ const TONE_PALETTE: Record<string, { fg: string; outlineBg: string; outlineBorde
     info:     { fg: "brand.solid", outlineBg: "bg.panel",      outlineBorder: "border.strong", solidBg: "status.info", solidFg: "white" },
 };
 
-/** The sizes around the default — `sm` is the recipe's own, the design system's 20px pill. */
-const SIZE_PADDING: Record<string, { px: string; py: string; fontSize: string }> = {
-    xs: { px: "1.5", py: "0", fontSize: "body.sm" },
-    md: { px: "2.5", py: "1", fontSize: "body.lg" },
-    lg: { px: "3", py: "1.5", fontSize: "body.lg" },
-    xl: { px: "3.5", py: "2", fontSize: "body.lg" },
+/** The sizes around the default — `sm` is the recipe's own, the design system's 20px pill; each other is as tall as its line and padding make it. */
+const SIZE_PADDING: Record<string, { px: string; py: string; fontSize: string; height: string }> = {
+    xs: { px: "1.5", py: "0", fontSize: "body.sm", height: "auto" },
+    md: { px: "2.5", py: "1", fontSize: "body.lg", height: "auto" },
+    lg: { px: "3", py: "1.5", fontSize: "body.lg", height: "auto" },
+    xl: { px: "3.5", py: "2", fontSize: "body.lg", height: "auto" },
 };
 
 export interface EastChakraMetricChipProps {
@@ -59,7 +59,7 @@ export type MetricChipTone = "positive" | "negative" | "neutral" | "info";
 export interface MetricChipFrameProps {
     /** Its tone. */
     readonly tone: MetricChipTone;
-    /** How it is filled; `subtle` unless given — `outline` is the design system's DeltaPill. */
+    /** How it is filled; `subtle` unless given — the design system's DeltaPill, its valence's 6% wash; `outline` adds the valence's edge, `solid` fills it. */
     readonly emphasis?: "subtle" | "outline" | "solid";
     /** Its size; the recipe's own `sm`, the 20px pill, unless given. */
     readonly size?: "xs" | "sm" | "md" | "lg" | "xl";
@@ -104,21 +104,19 @@ export function MetricChipFrame({ tone, emphasis = "subtle", size = "sm", densit
     return (
         <Box
             css={styles.root}
-            {...(sizeProps !== undefined ? { px: sizeProps.px, py: sizeProps.py, fontSize: sizeProps.fontSize } : {})}
+            {...(sizeProps !== undefined ? { px: sizeProps.px, py: sizeProps.py, fontSize: sizeProps.fontSize, height: sizeProps.height } : {})}
             {...(colorOverride !== undefined ? { color: colorOverride } : {})}
             {...(backgroundOverride !== undefined ? { bg: backgroundOverride } : {})}
             {...(borderColorOverride !== undefined ? { borderColor: borderColorOverride } : {})}
             {...(emphasis === "solid" ? { borderColor: "transparent" } : {})}
         >
-            <HStack gap="1" align="center">
-                {icon && (
-                    <Box color={iconColor}>
-                        <FontAwesomeIcon icon={[icon.prefix as IconPrefix, icon.name as IconName]} aria-hidden />
-                    </Box>
-                )}
-                <Box css={styles.value}>{children}</Box>
-                {unit && <ChakraText as="span" opacity={0.75}>{unit}</ChakraText>}
-            </HStack>
+            {icon && (
+                <Box css={styles.indicator} color={iconColor}>
+                    <FontAwesomeIcon icon={[icon.prefix as IconPrefix, icon.name as IconName]} aria-hidden />
+                </Box>
+            )}
+            <Box css={styles.value}>{children}</Box>
+            {unit && <ChakraText as="span" opacity={0.75}>{unit}</ChakraText>}
         </Box>
     );
 }

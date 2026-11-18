@@ -124,6 +124,8 @@ export interface StudioMessages {
     trendBy: (p: { unit: string }) => string;
     /** After what a KPI's change is against, when less is better. */
     lowerBetter: () => string;
+    /** A ratio's unit, beside its number — `AUD/unit`: what it is of, per one of what it is per, mid-sentence and in the singular. */
+    unitPer: (p: { unit: string; per: string }) => string;
     /** How far a KPI stands from its goal — `0.66M to go`, `300 over`. */
     goalGap: (p: { gap: string; over: boolean }) => string;
     /** How far a KPI is to its goal, beside its progress — `85% of goal 4.50M`. */
@@ -429,6 +431,7 @@ export const studioMessages: StudioMessages = {
         (period === "year_ago" ? `vs year ago ${value}` : period === "previous" ? `vs previous period ${value}` : `vs ${name} ${value}`),
     trendBy: ({ unit }) => `by ${unit}`,
     lowerBetter: () => "lower is better",
+    unitPer: ({ unit, per }) => `${unit}/${per}`,
     goalGap: ({ gap, over }) => (over ? `${gap} over` : `${gap} to go`),
     goalShare: ({ share, goal }) => `${share} of goal ${goal}`,
     goalOf: ({ goal }) => `Goal ${goal}`,

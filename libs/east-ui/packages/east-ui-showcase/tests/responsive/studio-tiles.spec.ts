@@ -18,6 +18,12 @@
  *    its name's line 16, its caption's 15 a pixel under, padded 10 — over a
  *    square 4px bar of its first value against the largest, and its words
  *    start a whole number of pixels under its top edge (LST-1, LST-2).
+ *  - T3 a KPI is its mock (KPI-1, KPI-3): its number mono 26 / 600 at the
+ *    body's top with its unit a small label 4px after it; its change a
+ *    DeltaPill at the end of that row — 20 tall, no edge, on its valence's
+ *    wash, a 10px caret; then its goal's square 6px bar with a 1 × 12 tick at
+ *    its end, its trend 36 tall, and ONE line of annotation in mono 10
+ *    `--ink-4` — each 8px under the last.
  *
  * Every measurement is taken from the laid-out page, at rest.
  *
@@ -95,5 +101,58 @@ test.describe("Studio tiles, as designed (#1671)", () => {
         for (const row of rows) {
             expect(row).toEqual({ height: 63, words: [10, 27], pad: ["10px", "20px"], name: 16, caption: 15, bar: [4, "0px"], fill: [4, "0px", true] });
         }
+    });
+
+    test("T3: a KPI is its number and unit, its change a pill at the row's end, its goal bar, its trend and one line of annotation, 8 apart", async ({ page }) => {
+        const grid = await openVisuals(page, "light");
+        // The KPI that draws every part: a goal, a change and a trend.
+        const kpi = grid.locator("[data-studio-kpi]", { has: page.locator("[data-studio-kpi-goal]") }).filter({ has: page.locator("[data-studio-kpi-change]") }).first();
+        await expect(kpi.locator("[data-studio-kpi-trend] svg path").first()).toBeVisible();
+        const read = await kpi.evaluate((root) => {
+            const probe = (color: string) => { const el = document.createElement("span"); el.style.color = color; root.append(el); const out = getComputedStyle(el).color; el.remove(); return out; };
+            const subtle = probe("var(--chakra-colors-fg-subtle)");
+            const box = (el: Element) => el.getBoundingClientRect();
+            const body = root.closest("[data-studio-visual-body]")!;
+            const number = root.querySelector("[data-studio-kpi-value]")!;
+            const unit = root.querySelector("[data-studio-kpi-unit]")!;
+            const row = number.parentElement!.parentElement!;
+            const pill = root.querySelector("[data-studio-kpi-change]")!.firstElementChild!;
+            const goal = root.querySelector("[data-studio-kpi-goal]")!;
+            const track = goal.querySelector("[data-part=track]") ?? goal.firstElementChild!.firstElementChild!;
+            const tick = root.querySelector("[data-studio-kpi-goal-tick]")!;
+            const trend = root.querySelector("[data-studio-kpi-trend]")!;
+            const note = root.querySelector("[data-studio-kpi-note]")!;
+            const type = (el: Element) => { const s = getComputedStyle(el); return [s.fontFamily.includes("Mono"), s.fontSize, s.fontWeight]; };
+            const pillLook = getComputedStyle(pill);
+            return {
+                // At the body's top, inside its 20px of padding.
+                top: Math.round((box(row).top - box(body).top) * 64) / 64,
+                number: [...type(number), getComputedStyle(number).lineHeight],
+                unit: [...type(unit), getComputedStyle(unit).color === subtle, Math.round(box(unit).left - box(number).right)],
+                pill: {
+                    atEnd: Math.round(box(row).right - box(pill).right), height: box(pill).height, type: type(pill),
+                    edge: pillLook.borderTopColor, washed: pillLook.backgroundColor !== "rgba(0, 0, 0, 0)",
+                    icon: Math.round(box(pill.querySelector("svg")!).height),
+                },
+                goal: { height: box(track).height, radius: getComputedStyle(track).borderTopLeftRadius, tick: [box(tick).width, box(tick).height, Math.round(box(track).right - box(tick).right), box(tick).top - box(track).top] },
+                trend: box(trend).height,
+                note: [...type(note), getComputedStyle(note).color === subtle],
+                // Each part 8px under the last: the row, the bar, the trend, the annotation.
+                gaps: [box(track).top - box(row).bottom, box(trend).top - box(track).bottom, box(note).top - box(trend).bottom].map((gap) => Math.round(gap * 64) / 64),
+                // Nothing else says anything: the number, the unit, the pill and the one line.
+                words: [...root.querySelectorAll("*")].filter((el) => el.children.length === 0 && (el.textContent ?? "").trim() !== "" && el.closest("svg") === null).length,
+            };
+        });
+        expect(read).toEqual({
+            top: 20,
+            number: [true, "26px", "600", "26px"],
+            unit: [true, "10.5px", "400", true, 4],
+            pill: { atEnd: 0, height: 20, type: [true, "10.5px", "600"], edge: "rgba(0, 0, 0, 0)", washed: true, icon: 10 },
+            goal: { height: 6, radius: "0px", tick: [1, 12, 0, -3] },
+            trend: 36,
+            note: [true, "10px", "400", true],
+            gaps: [8, 8, 8],
+            words: 4,
+        });
     });
 });

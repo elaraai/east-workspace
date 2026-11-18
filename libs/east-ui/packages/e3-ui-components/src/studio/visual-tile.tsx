@@ -110,7 +110,7 @@ export function StudioVisualTile({ content, names, storageKey, title }: StudioVi
                     )}
                 </Box>
             </Box>
-            <Box css={styles.body} data-flush={flush(visual) ? "" : undefined}>
+            <Box css={styles.body} data-studio-visual-body="" data-flush={flush(visual) ? "" : undefined}>
                 {failed !== undefined && (
                     <BannerView status="error" title={m.exportFailed()} description={failed}
                         actions={<Button size="xs" variant="outline" onClick={() => setFailed(undefined)}>{m.dismiss()}</Button>} />
@@ -268,7 +268,7 @@ function AskedVisual({ asks, visual, listed, read, sourceName, icon, storageKey 
             }
             const view = visual.view;
             switch (view.type) {
-                case "kpi": return <KpiVisual kpi={view.value} asks={asks} answers={asked.answers} source={listed} storageKey={storageKey} />;
+                case "kpi": return <KpiVisual kpi={view.value} asks={asks} answers={asked.answers} source={listed} />;
                 case "chart": return <ChartVisual chart={view.value} asks={asks} answers={asked.answers} source={listed} />;
                 case "table":
                     switch (view.value.type) {

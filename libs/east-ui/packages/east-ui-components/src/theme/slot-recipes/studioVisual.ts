@@ -7,8 +7,9 @@
  * Studio visual slot recipe — the parts a Studio visual's tile lays out
  * around the parts it draws with (#1671): its eyebrow strip, the spec's frame
  * eyebrow — its name, then its meta and its menu at the end (TIL-1, TIL-2) —
- * over its body; a KPI's value, its change and what it is against, its trend
- * and its goal with the gap; a pivot's heat legend — its five steps on the
+ * over its body; a KPI's number and unit, its change at their row's end, its
+ * goal's bar with its tick, its trend and its one line of annotation; a
+ * pivot's heat legend — its five steps on the
  * heat tokens, each 40 × 12 inside a `--rule`, their lower edges under them in
  * mono 9.5 `--ink-4` (TBL-4); and the line that says what a visual holds of
  * how many. Every numeral is mono and tabular, every label mono at the label
@@ -26,7 +27,8 @@ const HEAD_ROOM = 34;
 export const studioVisualSlotRecipe = defineSlotRecipe({
     className: "elara-studio-visual",
     slots: [
-        "tile", "head", "name", "end", "meta", "body", "root", "note", "table", "foot", "kpi", "change", "against", "trend", "goal", "gap",
+        "tile", "head", "name", "end", "meta", "body", "root", "note", "table", "foot",
+        "kpi", "kpiRow", "kpiValue", "kpiNumber", "kpiUnit", "kpiChange", "absent", "goal", "goalTick", "trend", "anno",
         "heat", "heatRamp", "heatSwatch", "heatTicks",
         "list", "listRow", "listLine", "listText", "listName", "listCaption", "listValue", "listUnit", "listBar", "listBarFill",
     ],
@@ -68,13 +70,25 @@ export const studioVisualSlotRecipe = defineSlotRecipe({
             paddingInline: "{spacing.5}", paddingBlock: "{spacing.2}",
             background: "bg.canvas", borderTopWidth: "1px", borderTopStyle: "solid", borderTopColor: "border.subtle",
         },
-        /* A KPI: the Stat's value, then its change, its trend and its goal, each gone with its well (KPI-3). */
+        /* A KPI (KPI-1, KPI-3): its number's row, its goal's bar, its trend and its annotation, 8 apart, each gone with its well. */
         kpi: { display: "flex", flexDirection: "column", gap: "{spacing.2}", minWidth: "0" },
-        change: { display: "flex", alignItems: "center", flexWrap: "wrap", gap: "{spacing.1.5}" },
-        against: { textStyle: "mono.xs", color: "fg.muted" },
-        trend: { height: "32px", width: "100%" },
-        goal: { display: "flex", flexDirection: "column", gap: "{spacing.1}" },
-        gap: { textStyle: "mono.xs", color: "fg.muted" },
+        /* The number's row: the number with its unit, and the change at the row's end, on one baseline. */
+        kpiRow: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: "{spacing.2}", minWidth: "0" },
+        kpiValue: { display: "flex", alignItems: "baseline", gap: "{spacing.1}", minWidth: "0" },
+        /* The number: mono 26 / 600, tabular, on its own 26px line at the body's top. */
+        kpiNumber: { textStyle: "num-lg", fontSize: "{fontSizes.num}", lineHeight: "26px", color: "fg", whiteSpace: "nowrap" },
+        /* Its unit: a small label, mono 10.5 `--ink-4`, 4 after it. */
+        kpiUnit: { fontFamily: "mono", fontSize: "label.md", lineHeight: "13px", color: "fg.subtle", whiteSpace: "nowrap" },
+        /* The change: the DeltaPill, kept whole. */
+        kpiChange: { display: "inline-flex", flexShrink: "0" },
+        /* A value with none to show, in words: mono 14 italic `--ink-4`, on the number's line. */
+        absent: { fontFamily: "mono", fontSize: "14px", fontStyle: "italic", fontWeight: "400", lineHeight: "26px", color: "fg.subtle", whiteSpace: "nowrap" },
+        /* The goal: the progress bar's square 6px track, a 1 × 12 `--ink-3` tick at the goal — the track's end — 3 past it either way. */
+        goal: { position: "relative", flexShrink: "0" },
+        goalTick: { position: "absolute", insetInlineEnd: "0", top: "-3px", width: "1px", height: "12px", background: "fg.muted", pointerEvents: "none" },
+        trend: { height: "36px", width: "100%", flexShrink: "0" },
+        /* The annotation: one line, mono 10 `--ink-4`, on a 15px line. */
+        anno: { fontFamily: "mono", fontSize: "label.sm", lineHeight: "15px", color: "fg.subtle" },
         /* A pivot's heat legend (TBL-4): its ramp over its steps' lower edges. */
         heat: { display: "flex", flexDirection: "column", gap: "{spacing.1}", flexShrink: "0" },
         heatRamp: { display: "flex", width: "max-content", borderWidth: "1px", borderStyle: "solid", borderColor: "border.subtle" },
