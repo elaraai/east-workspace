@@ -127,15 +127,15 @@ A `file` source:
   naming the input and the first differing field) and again at deploy, before
   the workspace is touched;
 - is hashed first, so a delivery the store already holds costs that one read;
-- is taken in without being read whole or modified — so replace a delivery with
-  a new file, never edit it in place. A collection is taken in on the runners —
+- is taken in without being read whole or modified. A collection is taken in on the runners —
   east-c, or east-node where there is no east-c — in pieces of its segments, as
   many at once as the budget allows: each row is walked, the bytes the Writer
   writes for it kept as they stand and any other row written again, so the
   delivery is stored as the Writer's value whichever writer wrote it, and a new
   delivery stores only the segments that changed. A deploy or an upload
   stopped part way takes up again from the pieces it finished. Any other value
-  is taken in by reflink, hard link or one copy;
+  is taken in as a copy, unless the store holds it already, so the file stays
+  its user's to write again;
 - may hold no segment of more than 64 MiB, the most a collection is read in at
   once. A value encoded whole is one such segment, and so can be a segment of
   wide rows from an older Writer, which bounded a segment by its element count

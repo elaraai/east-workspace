@@ -6,7 +6,7 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { chmodSync, chownSync, linkSync, lstatSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, chownSync, linkSync, lstatSync, mkdirSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { createTempDir, removeTempDir } from '../../test-helpers.js';
@@ -38,7 +38,7 @@ describe('writeOutputFile', () => {
   it('replaces the file that is there and never writes into it: another name of the old file keeps its bytes', async () => {
     const file = join(dir, 'model.beast2');
     writeFileSync(file, 'the first model');
-    // A store that took the file in by a hard link holds it as an object
+    // A store an earlier e3 took the file into by a hard link holds it as an object
     const object = join(dir, 'object');
     linkSync(file, object);
     await writeOutputFile(file, 'the second model');
@@ -131,6 +131,40 @@ describe('writeOutputFile', () => {
     assert.equal(readFileSync(file, 'utf8'), 'kept');
     assert.equal(statSync(file).mode & 0o777, 0o444);
     assert.deepEqual(readdirSync(dir), ['kept.beast2']);
+  });
+
+  it('writes into a file nothing else links to in a directory its user may not write, and refuses, naming the file, one another name links to or one not there', {
+    skip: posix || (root ? 'root may write any directory' : false),
+  }, async () => {
+    const shared = join(dir, 'shared');
+    mkdirSync(shared);
+    const file = join(shared, 'out.beast2');
+    writeFileSync(file, 'the first model');
+    const linked = join(shared, 'linked.beast2');
+    writeFileSync(linked, 'kept');
+    linkSync(linked, join(shared, 'object'));
+    const inode = statSync(file, { bigint: true }).ino;
+    chmodSync(shared, 0o555);
+    try {
+      await writeOutputFile(file, 'the second model');
+      assert.equal(readFileSync(file, 'utf8'), 'the second model');
+      assert.equal(statSync(file, { bigint: true }).ino, inode, 'written into, as nothing could be made beside it');
+
+      const refused = (named: string, why: RegExp) => (err: unknown): boolean => {
+        assert.ok(err instanceof Error, String(err));
+        assert.ok(err.message.startsWith(`Cannot write ${named}: its directory ${shared} is not this user's to write`), err.message);
+        assert.match(err.message, why);
+        assert.ok(!err.message.includes('.partial'), 'the refusal names the file, not a file beside it');
+        return true;
+      };
+      await assert.rejects(() => writeOutputFile(linked, 'new'), refused(linked, /another name links to it/));
+      assert.equal(readFileSync(join(shared, 'object'), 'utf8'), 'kept', 'the other name keeps its bytes');
+      const missing = join(shared, 'missing.beast2');
+      await assert.rejects(() => writeOutputFile(missing, 'new'), refused(missing, /write$/));
+      assert.deepEqual(readdirSync(shared).sort(), ['linked.beast2', 'object', 'out.beast2']);
+    } finally {
+      chmodSync(shared, 0o755);
+    }
   });
 
   it('writes where a link leads, and leaves the link', { skip: posix }, async () => {

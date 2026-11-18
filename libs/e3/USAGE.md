@@ -129,7 +129,7 @@ Defines an input dataset. CLI users address it as `<ws>.${name}`; the on-disk st
 The third argument says where the initial value comes from, and is always a variant:
 
 - `variant('value', v)` — an inline value, carried in the package.
-- `variant('file', path)` — a beast2 file on the machine that deploys the package. Only the path travels in the package; `e3 workspace deploy` takes the file into the object store as the value it holds — a collection by intake units on the runners, in pieces, as the store's own segment objects; any other value by a reflink, hard link or one kernel copy. The file is never read whole and never modified. Relative paths resolve against the working directory at export.
+- `variant('file', path)` — a beast2 file on the machine that deploys the package. Only the path travels in the package; `e3 workspace deploy` takes the file into the object store as the value it holds — a collection by intake units on the runners, in pieces, as the store's own segment objects; any other value as a copy, unless the store holds it already. The file is never read whole and never modified, and stays yours to write again. Relative paths resolve against the working directory at export.
 - omitted — unassigned until set.
 
 ```typescript
@@ -168,8 +168,8 @@ which bounded a segment by its element count alone; either is refused with a
 message saying to write it again with a current Writer, whose segments stay
 under 8 MiB. Either way the store holds its own segments, so a new delivery
 that differs from the last in a few rows stores only the segments around them.
-Any other value's object may be a hard link to the file, so publish a new file
-rather than editing one in place.
+Any other value is stored as a copy of the file, so a later write into the file
+leaves the stored value alone.
 
 The file is read on the machine that runs `e3 workspace deploy`, whichever
 repository it deploys to. Against a remote repository — a package spec,
@@ -725,7 +725,8 @@ and the first differing field. `--from-file` never holds the file whole: its
 hash is streamed and its header checked by ranged reads; a collection is then
 taken in by intake units on the runners, as a deploy takes a file source in —
 bytes the store has taken before cost only their hash — and any other value
-enters the object store by reflink, hard link or one kernel copy. It says how
+enters the object store as a copy, unless the store holds it already, so the
+file stays yours to write again. It says how
 far it has got, as a deploy does, and `-j` and `--memory` set the budget its
 intake units run under. Against a remote
 repository the file is streamed through the transfer protocol and checked the
@@ -966,8 +967,9 @@ merges, as a dataflow run does, and ends with the rack summary. A call is a
 lease of its own, sized as a whole task is: its arguments past 192 KiB, and a
 value past 192 KiB, travel as objects of the repository through the lease's
 data path. A call's lines go to stderr, so its value can be piped. A call has
-the CLI's ten minutes, counted from when its lease is queued, unless a rack
-rule that matches `fn:<name>` sets a timeout, which it then has instead. Ctrl-C
+the CLI's ten minutes, unless a rack rule that matches `fn:<name>` sets a
+timeout, which it then has instead: its drafts and its function share it, the
+function's part counted from when its lease is queued. Ctrl-C
 leaves a call's lease, or a run's, and its rack is told to stop it. A local
 API server's calls stay local.
 
@@ -998,7 +1000,9 @@ as a copy of the file, which stays yours to write again. Each is checked by
 its header, as a delivery is, and is not decoded whole. The output is written
 to `-o` as the value itself, a collection from its segments a segment at a
 time: the file at `-o` is replaced, never written into, as `e3 call -o` and
-`e3 convert -o` replace theirs.
+`e3 convert -o` replace theirs. In a directory you may not write, where nothing
+can be made beside it, a file nothing else links to is written into, and one
+another name links to is refused.
 
 ### Call (named functions)
 

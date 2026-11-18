@@ -353,10 +353,13 @@ stderr, its value to stdout: `[RACK] fn:train_once → workshop (cap 32 GB)`, or
 A call is a lease of its own, never joined to another's, sized as a whole task
 is, its program and any argument past 192 KiB staged as objects with its
 closure. Its value comes back with its completion, or past 192 KiB as the
-object the completion commits. Its time is its rule's timeout when a rule
-that matches `fn:<name>` sets one, longer or shorter than its caller's, and
-else its caller's own (ten minutes from the CLI); it is counted from when its
-lease is first queued, and may be longer than the 24.8 days one timer waits.
+object the completion commits. Its time is the one its caller's spec gives it,
+counted from when its lease is first queued, and may be longer than the 24.8
+days one timer waits. The CLI gives a call its rule's timeout when a rule that
+matches `fn:<name>` sets one (`rackCallTimeoutMs`), longer or shorter than its
+own ten minutes, and else those ten minutes; the call's drafts and its function
+share that time. A call no rack may run is judged before any session opens,
+and runs here at once, starting no hub.
 Ctrl-C leaves the lease of a call, and the leases of an ad-hoc run, whose
 output file is then left as it was. A call or a run that had finished as
 Ctrl-C came answers as it would have: nothing was stopped. An ad-hoc run the
@@ -676,7 +679,8 @@ with a release:
   before any credential, in JSON: `{ "protocol": 3, "e3": "<release>",
   "limits": { "transfersAtOnce": 8 }, "features": ["call-value-objects"] }`. An
   agent asks it before it spends an enrollment token. `features` names what the
-  source takes beyond the protocol: a source from before it names none.
+  source takes beyond the protocol: a source from before it names none, and an
+  entry a reader does not know, a word or of another form, is passed over.
 - **Requests.** Every request names its protocol in the `x-e3-rack-protocol`
   header and carries the BEAST2 of the route's request type. One that names
   another protocol, or none, is answered `426 upgrade-required` before its body

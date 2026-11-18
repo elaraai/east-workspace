@@ -81,6 +81,19 @@ async function takeAfter(handle: FileHandle, existing: Stats): Promise<void> {
   await handle.chmod(existing.mode & 0o777);
 }
 
+/** Whether this user may make a file in a directory, as a replacement is made
+ *  beside the file it replaces. */
+async function mayMakeIn(dir: string): Promise<boolean> {
+  try {
+    await access(dir, constants.W_OK | constants.X_OK);
+    return true;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException | null)?.code;
+    if (code === 'EACCES' || code === 'EPERM') return false;
+    throw err;
+  }
+}
+
 /**
  * Writes bytes to an open file from where it stands, whole or as they come,
  * until its signal stops it.
@@ -97,33 +110,51 @@ async function writeBytes(handle: FileHandle, bytes: Uint8Array | string | Async
   }
 }
 
+/** Writes bytes into what a path names, opened for writing as any tool opens
+ *  it: a file is emptied first. */
+async function writeInto(path: string, bytes: Uint8Array | string | AsyncIterable<Uint8Array>, signal: AbortSignal | undefined): Promise<void> {
+  signal?.throwIfAborted();
+  const handle = await open(path, 'w');
+  try {
+    await writeBytes(handle, bytes, signal);
+  } finally {
+    await handle.close();
+  }
+}
+
 /**
  * Writes a file its caller named, replacing the file that is there: the bytes
  * are written to a new file beside it, which is renamed over it once it is
  * whole.
  *
  * @remarks
- * A file a store took in may be an object of the store by a hard link
- * (`ObjectStore.adoptFile`), and a write into it would change the bytes kept
- * under its hash. A file replaced is a new one, and the object keeps its
- * bytes: so every command writes its `-o` this way, the path of an earlier
- * delivery among them. A write that fails, or that its signal stops, leaves
- * the file as it was.
+ * A write that fails, or that its signal stops, leaves the file as it was. And
+ * a file may be an object of a store by another name: one an earlier e3 took
+ * in by a hard link, or an object's own path in a repository. A write into it
+ * would change the bytes kept under its hash; a file replaced is a new one,
+ * and the object keeps its bytes.
  *
  * What a write into the file would do, replacing it does:
  * - a path that names a link is written where the link leads, the link left
  *   in place, one that leads nowhere yet among them;
  * - the file written keeps the mode of the one it replaces, and its owner and
- *   group where this process may give them;
+ *   group where this process may give them, though not its ACLs or extended
+ *   attributes;
  * - a file its user may not write is refused, as a write into it is;
  * - what is no regular file — a terminal, a pipe, `/dev/stdout` on either —
  *   cannot be replaced or be a store's object, and is opened by the path
  *   given and written into, as far as its kind can be opened by a path.
  *
+ * In a directory its user may not write, where nothing can be made beside the
+ * file, a file nothing else links to is written into, as any tool writes it,
+ * so a write that fails or is stopped leaves it part written; a file another
+ * name links to is refused, and a file that is not there cannot be made.
+ *
  * @param file - Where the bytes are written; its directory must exist
  * @param bytes - The bytes: whole, or as they come
  * @param options - The signal that stops the write
- * @throws {Error} When the file cannot be written; nothing is left beside it
+ * @throws {Error} When the file cannot be written, naming it; nothing is left
+ *   beside it
  * @throws The signal's reason, once it has aborted
  * @example
  * await writeOutputFile('model.beast2', encoded);
@@ -137,16 +168,20 @@ export async function writeOutputFile(
   // As the kernel leads there: /dev/stdout on a pipe names no path of its own
   const existing = await found(stat(file));
   if (existing !== undefined && !existing.isFile()) {
-    const handle = await open(file, 'w');
-    try {
-      await writeBytes(handle, bytes, signal);
-    } finally {
-      await handle.close();
-    }
+    await writeInto(file, bytes, signal);
     return;
   }
   const target = existing === undefined ? await leadsTo(file) : await realpath(file);
   if (existing !== undefined) await access(target, constants.W_OK);
+  if (!(await mayMakeIn(dirname(target)))) {
+    const where = `its directory ${dirname(target)} is not this user's to write`;
+    if (existing === undefined) throw new Error(`Cannot write ${file}: ${where}`);
+    if (existing.nlink > 1) {
+      throw new Error(`Cannot write ${file}: ${where}, so it would be written into, and another name links to it, which would change too`);
+    }
+    await writeInto(target, bytes, signal);
+    return;
+  }
   await replaceFileWith(target, async (stagingPath) => {
     const handle = await open(stagingPath, 'wx');
     try {

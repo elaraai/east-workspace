@@ -16,7 +16,7 @@ import type { LeaseHandle } from '../client/session.js';
 import { detachedClosure, recordClosure } from '../lease/closure.js';
 import { RACK_INLINE_ARGS_MAX, RACK_LEASE_VERSION, type RackFunctionResult, type RackLeaseEvent, type RackReason } from '../protocol/task-envelope.js';
 import { detachedSpecToWire } from '../runner-event.js';
-import { selectTask } from '../routing/policy.js';
+import { selectTask, type RackPolicy } from '../routing/policy.js';
 import { RackPlacementReport, admitWork, awaitLease, fallbackReason, hostBound, leaveLease, outgrownCap, readDelegation, thrownFallback, transferFailed,
   wholeResources, type RackDelegationOptions } from './rack-lease.js';
 
@@ -65,6 +65,24 @@ async function valueOf(storage: StorageBackend, repo: string, outcome: RackFunct
 }
 
 /**
+ * The time a rack rule gives a call: the timeout of the rule that matches its
+ * name (`fn:<name>`), when that rule sets one, longer or shorter than its
+ * caller's own. It is the call's whole time, which its caller sets before
+ * anything of the call runs: the drafts a call lays here run under it, and
+ * its function under what they leave.
+ *
+ * @param policy - The repository's rack policy
+ * @param functionName - The function's name, or its IR file's
+ * @returns The rule's time in ms, or null when no rule sets one
+ * @example
+ * const timeoutMs = rackCallTimeoutMs(await loadPolicy(repoPath), 'jobs_on') ?? 600_000;
+ */
+export function rackCallTimeoutMs(policy: RackPolicy, functionName: string): number | null {
+  const minutes = selectTask(policy, `fn:${functionName}`).ruleTimeoutMinutes;
+  return minutes === null ? null : minutes * 60_000;
+}
+
+/**
  * Delegates a detached call to a rack through the shared hub, when it is fit
  * for one, and runs it here otherwise: by `local`, which takes the runner's
  * budget grant and process settings exactly as a call with no executor does.
@@ -81,12 +99,13 @@ async function valueOf(storage: StorageBackend, repo: string, outcome: RackFunct
  * the lease's closure, as a stored dataset argument is: the caller holds off
  * a sweep while it runs (`withRunningWork`).
  *
- * The call's time is its rule's, when a rule that matches its name sets one,
- * longer or shorter than its caller's; else its caller's own. It is counted
- * from when its lease is first queued, on the host's clock: a call the rack
- * has not answered by then is `timed_out`, and one that falls back to run
- * here runs with the time it has left. A call that is never leased runs here
- * with the same time.
+ * The call's time is the one its spec's limits hold: a caller that keeps a
+ * call for a rack gives it its rule's ({@link rackCallTimeoutMs}) before
+ * anything of it runs. It is counted from when its lease is first queued, on
+ * the host's clock: a call the rack has not answered by then is `timed_out`,
+ * and one that falls back to run here runs with the time it has left, and is
+ * said to run here only when some is left. A call that is never leased runs
+ * here with the same time.
  *
  * What each end does:
  * - a value, inline or the object its completion committed, is the call's
@@ -113,9 +132,8 @@ export function createRackCall(options: RackDelegationOptions): DetachedCallExec
     const { repo } = request;
     const signal = request.options.signal;
     const taskName = `fn:${request.options.functionName ?? 'anonymous'}`;
-    // The call's time: its rule's when its rule sets one, else its caller's
-    const ruled = request.options.functionName === undefined ? null : selectTask(policy, taskName).ruleTimeoutMinutes;
-    const spec: DetachedSpec = ruled === null ? request.spec : { ...request.spec, limits: { ...request.spec.limits, timeoutMs: ruled * 60_000 } };
+    // The call's time is its caller's: a rule's, when its caller gave it one
+    const spec: DetachedSpec = request.spec;
     const report = new RackPlacementReport(options.onPlacement, { taskName, role: 'call' });
     let handle: LeaseHandle | undefined;
     let leavingRack = false;
@@ -128,14 +146,11 @@ export function createRackCall(options: RackDelegationOptions): DetachedCallExec
     const runLocal = async (reason: string, detail?: RackReason, said?: string): Promise<DetachedResult> => {
       leavingRack = true;
       await leaveLease(handle);
+      // A call whose time ran out runs nowhere, and is not said to run here
+      const left = deadline === undefined ? undefined : deadline - Date.now();
+      if (left !== undefined && left <= 0) return timedOut();
       report.local(reason, detail);
-      let result: DetachedResult;
-      if (deadline === undefined) result = await local(spec);
-      else {
-        const left = deadline - Date.now();
-        if (left <= 0) return timedOut();
-        result = await local({ ...spec, limits: { ...spec.limits, timeoutMs: left } });
-      }
+      const result = await local(left === undefined ? spec : { ...spec, limits: { ...spec.limits, timeoutMs: left } });
       if (said === undefined) return result;
       return { ...result, stderr: `e3: the environment was not built for a rack (${reason}): ${said} — running locally\n${result.stderr}` };
     };

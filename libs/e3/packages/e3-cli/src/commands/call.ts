@@ -48,9 +48,11 @@
  *
  * With --rack a call of a local repository runs on an enrolled rack, whatever
  * the repository's rack policy selects: a rule that names it (`fn:<name>`)
- * still sizes it. A call no rack can run runs here, and a line on the
- * terminal's stderr says where it ran and why. Its drafts are laid here, over
- * this repository's records, and its function runs on the rack.
+ * still sizes it, and gives it its time, which its drafts and its function
+ * share. A call no rack can run runs here, judged before any rack session is
+ * opened for it, and a line on the terminal's stderr says where it ran and
+ * why. Its drafts are laid here, over this repository's records, and its
+ * function runs on the rack.
  *
  * Calls are graph-free: the result is printed (or written with -o), and the
  * function's stdout and stderr go to the terminal's stderr, so the value can
@@ -76,7 +78,7 @@ import {
   type EastTypeValue,
   type EastType,
 } from '@elaraai/east';
-import { STANDARD_PLATFORM_BY_RUNNER } from '@elaraai/e3';
+import { STANDARD_PLATFORM_BY_RUNNER, runnerToVariant } from '@elaraai/e3';
 import {
   packageObjectRead,
   packageRead,
@@ -113,7 +115,8 @@ import {
 import { parseRepoLocation, resolvePackageVersion, formatError, exitError } from '../utils.js';
 import { parseTaskSpec } from './run.js';
 import { commandBudget, refuseRemoteBudget, type BudgetFlags } from './budget.js';
-import { openCommandRack, rackAsked, refuseRemoteRack, unattachedLine, type RackFlags } from './rack-options.js';
+import { openCommandRack, planRackCall, rackAsked, refuseRemoteRack, unattachedLine, type RackFlags } from './rack-options.js';
+import type { RackPolicy } from '@elaraai/e3-rack';
 import { arityRefusal, parseMutationSpec } from './mutation-spec.js';
 import { untilInterrupted } from '../interrupt.js';
 
@@ -149,9 +152,10 @@ interface CallProgram {
    *  (`fn:<name>`): a named function's own, or its IR file's without its
    *  extension */
   name: string;
-  /** Whether it is a package's function, which a call through a workspace
-   *  resolves by its name in the package the workspace runs */
-  named: boolean;
+  /** The package a named function is of, as `name@version`: a call through a
+   *  workspace resolves it by its name in the package the workspace runs.
+   *  None for an IR file's function */
+  pkg?: string;
   /** Its IR bundle */
   bodyIr: Uint8Array;
   /** The runner it runs on */
@@ -226,8 +230,12 @@ export function parseFunctionSpec(
   return { name, version, fn: task };
 }
 
-/** The runtimes `--runner` names, by their wire tag. */
-const RUNTIMES = { 'east-node': 'east_node', 'east-c': 'east_c', 'east-py': 'east_py' } as const;
+/** The runtimes `--runner` names, each with its standard platform package. */
+const RUNTIMES = {
+  'east-node': STANDARD_PLATFORM_BY_RUNNER.east_node,
+  'east-c': STANDARD_PLATFORM_BY_RUNNER.east_c,
+  'east-py': STANDARD_PLATFORM_BY_RUNNER.east_py,
+} as const;
 
 /**
  * The runner an IR file's function runs on: a stock runtime, east-node unless
@@ -237,20 +245,15 @@ const RUNTIMES = { 'east-node': 'east_node', 'east-c': 'east_c', 'east-py': 'eas
  *
  * @param runtime - `east-node`, `east-c` or `east-py`
  * @param platforms - The packages it loads, in place of its standard one; `none` alone for none
- * @returns The runner
+ * @returns The runner, as `e3.function` writes one ({@link runnerToVariant})
  * @throws {Error} For another runtime, and for `none` named beside a package
  */
 export function irRunner(runtime = 'east-node', platforms?: readonly string[]): RunnerValue {
   if (!Object.hasOwn(RUNTIMES, runtime)) throw new Error(`--runner names east-node, east-c or east-py, not '${runtime}'`);
-  const tag = RUNTIMES[runtime as keyof typeof RUNTIMES];
+  const name = runtime as keyof typeof RUNTIMES;
   if (platforms?.includes('none') === true && platforms.length > 1) throw new Error('--platform none loads no package, and is named alone');
-  const named = platforms === undefined ? [STANDARD_PLATFORM_BY_RUNNER[tag]] : platforms.includes('none') ? [] : [...platforms];
-  const decode = variant('lazy', null);
-  switch (tag) {
-    case 'east_node': return variant('east_node', { platforms: named, decode });
-    case 'east_c': return variant('east_c', { platforms: named, decode });
-    case 'east_py': return variant('east_py', { platforms: named, decode });
-  }
+  const named = platforms === undefined ? [RUNTIMES[name]] : platforms.includes('none') ? [] : [...platforms];
+  return runnerToVariant({ runtime: name, platforms: named.map((custom) => ({ custom })) });
 }
 
 /**
@@ -273,7 +276,7 @@ export async function irProgram(path: string, runtime?: string, platforms?: read
   } catch (err) {
     throw new Error(`${path} holds no function's IR: ${err instanceof Error ? err.message : String(err)}`);
   }
-  return { name: basename(path, extname(path)), named: false, bodyIr: program.bodyIr, runner,
+  return { name: basename(path, extname(path)), bodyIr: program.bodyIr, runner,
     signature: { inputs: [], argTypes: program.argTypes, outputType: program.outputType } };
 }
 
@@ -546,7 +549,6 @@ async function namedProgram(
   const fnObj: FunctionObject = decodeFunctionObject(Buffer.from(await storage.objects.read(repoPath, fnHash)));
   return {
     name: spec.fn,
-    named: true,
     pkg: `${pkgName}@${version}`,
     bodyIr: await storage.objects.read(repoPath, fnObj.bodyIr),
     runner: fnObj.runner as RunnerValue,
@@ -565,6 +567,7 @@ async function namedProgram(
  *
  * @param label - What the rack's activity view names the call by: the
  *   workspace, the package, or nothing for an IR file's call
+ * @param policy - The repository's rack policy, read for the call already
  * @param run - Runs the call's function on the rack's runner, which the
  *   signal stops
  * @param finished - Whether what `run` answered is a value in hand, which a
@@ -578,6 +581,7 @@ async function callOnRack<T>(
   label: string,
   budget: Budget,
   options: CallOptions,
+  policy: RackPolicy,
   run: (runner: TaskRunner, signal: AbortSignal) => Promise<T>,
   finished: (result: T) => boolean,
 ): Promise<T | null> {
@@ -585,7 +589,7 @@ async function callOnRack<T>(
   // its session opens
   return untilInterrupted(async (signal) => {
     const rack = await openCommandRack({ repoPath, workspace: label, storage, label: `e3 call ${program.name} (pid ${process.pid})`, budget,
-      rackOnly: options.rackOnly, signal, print: (line) => console.error(line) });
+      rackOnly: options.rackOnly, signal, policy, print: (line) => console.error(line) });
     try {
       // A call always runs: with no session, here
       const unattached = unattachedLine(rack, `fn:${program.name}`, true);
@@ -601,24 +605,38 @@ async function callOnRack<T>(
 /**
  * Call a function in a local repository (no server round trip): here, or
  * with --rack on an enrolled rack.
+ *
+ * @remarks
+ * With --rack the repository's rack policy is read before anything of the
+ * call runs ({@link planRackCall}): a call no rack may run runs here at once,
+ * saying why, and a rule that names the call gives it its time, which its
+ * drafts and its function share, wherever it runs.
  */
 async function callLocal(
   storage: LocalStorage,
   repoPath: string,
   program: CallProgram,
-  label: string,
-  workspace: string | undefined,
   rawArgs: string[],
   draftWords: readonly string[],
   budget: Budget,
   options: CallOptions,
 ): Promise<void> {
   const { signature } = program;
+  const workspace = options.workspace;
+  // What the rack's activity view names the call by: the workspace, the
+  // package, or nothing for an IR file's call through no workspace
+  const label = workspace ?? program.pkg ?? '';
   checkCallArguments(program.name, signature, rawArgs, workspace, draftWords.length > 0);
-  const onRack = rackAsked(options);
   const local = new LocalTaskRunner(repoPath, budget);
+  const plan = rackAsked(options)
+    ? await planRackCall(repoPath, storage, program.name, { bodyIr: program.bodyIr, args: [], runner: program.runner, limits: LOCAL_LIMITS,
+      ...(program.environment !== undefined && { environment: program.environment }) })
+    : undefined;
+  if (plan?.kind === 'here') console.error(plan.line);
+  const policy = plan?.kind === 'rack' ? plan.policy : undefined;
+  const limits = { ...LOCAL_LIMITS, timeoutMs: plan?.timeoutMs ?? LOCAL_LIMITS.timeoutMs };
 
-  if (workspace !== undefined && program.named) {
+  if (workspace !== undefined && program.pkg !== undefined) {
     const args = await serverArgs(signature, rawArgs);
     const drafts = await readDrafts(draftWords, workspace, (record) => recordDescribe(storage, repoPath, workspace, record));
     // Through a workspace the function is resolved again, its inputs and an
@@ -630,13 +648,13 @@ async function callLocal(
     // runs on the rack
     const call = (functionRunner?: TaskRunner, signal?: AbortSignal): Promise<ExecuteResult> =>
       functionCallUnkept(storage, local, repoPath, workspace, program.name, { args, drafts }, {
-        limits: LOCAL_LIMITS,
+        limits,
         ...(options.verbose !== undefined && { verbose: options.verbose }),
         ...(functionRunner !== undefined && { functionRunner }),
         ...(signal !== undefined && { signal }),
       });
-    const result = onRack
-      ? await callOnRack(storage, repoPath, program, label, budget, options, call, (answer) => answer.outcome.type === 'success')
+    const result = policy !== undefined
+      ? await callOnRack(storage, repoPath, program, label, budget, options, policy, call, (answer) => answer.outcome.type === 'success')
       : await call();
     if (result !== null) await renderResult(result, signature.outputType, options.output);
     return;
@@ -655,6 +673,10 @@ async function callLocal(
     }
     pinned = { args: values, inputs: [] };
   } else {
+    // The workspace is the call's whatever its arguments are: one it does not
+    // name is refused as a named function's call through it is, though no
+    // argument reads it
+    await workspaceGetPackage(storage, repoPath, workspace);
     pinned = await pinCallArguments(storage, repoPath, workspace, await serverArgs(signature, rawArgs), { inputs: signature.inputs });
   }
   if (!('args' in pinned)) {
@@ -663,10 +685,10 @@ async function callLocal(
     return;
   }
 
-  const spec: DetachedSpec = { bodyIr: program.bodyIr, args: pinned.args, runner: program.runner, limits: LOCAL_LIMITS,
+  const spec: DetachedSpec = { bodyIr: program.bodyIr, args: pinned.args, runner: program.runner, limits,
     ...(program.environment !== undefined && { environment: program.environment }) };
-  const detached = onRack
-    ? await callOnRack(storage, repoPath, program, label, budget, options, (runner, signal) => runner.runDetached(spec, { storage, functionName: program.name, signal,
+  const detached = policy !== undefined
+    ? await callOnRack(storage, repoPath, program, label, budget, options, policy, (runner, signal) => runner.runDetached(spec, { storage, functionName: program.name, signal,
       ...(options.verbose !== undefined && { verbose: options.verbose }) }), (answer) => answer.kind === 'success')
     : await local.runDetached(spec, { storage, verbose: options.verbose });
   if (detached === null) return;
@@ -809,26 +831,24 @@ export async function callCommand(
     if (dataset !== -1 && options.workspace === undefined) {
       throw new Error(`Argument ${dataset + 1} (${positional[dataset]}) is a dataset, which a call reads from the workspace it runs in: pass -w <ws>`);
     }
-    // A draft is laid over a record of the workspace, and a call through the
-    // package reads none: it is refused the same way
+    // A function from its IR file reads no record, whatever workspace is
+    // named: a draft is refused first by that
     const drafts = options.draft ?? [];
-    if (drafts.length > 0 && options.workspace === undefined) {
-      throw new Error(`A draft (--draft ${drafts[0]}) is laid over a record of the workspace the call runs in: pass -w <ws>`);
-    }
-    // A function from its IR file reads no record
     if (drafts.length > 0 && options.ir !== undefined) {
       throw new Error(`A draft (--draft ${drafts[0]}) is laid over a record a named function reads: a function from its IR file reads none`);
+    }
+    // A draft is laid over a record of the workspace, and a call through the
+    // package reads none: it is refused the same way
+    if (drafts.length > 0 && options.workspace === undefined) {
+      throw new Error(`A draft (--draft ${drafts[0]}) is laid over a record of the workspace the call runs in: pass -w <ws>`);
     }
     const location = await parseRepoLocation(repoArg);
     if (location.type === 'local') {
       const storage = new LocalStorage();
-      if (spec === undefined) {
-        const program = await irProgram(options.ir!, options.runner, options.platform);
-        await callLocal(storage, location.path, program, options.workspace ?? '', options.workspace, positional, drafts, commandBudget(options), options);
-      } else {
-        const program = await namedProgram(storage, location.path, spec, options.workspace);
-        await callLocal(storage, location.path, program, options.workspace ?? program.pkg, options.workspace, positional, drafts, commandBudget(options), options);
-      }
+      const program = spec === undefined
+        ? await irProgram(options.ir!, options.runner, options.platform)
+        : await namedProgram(storage, location.path, spec, options.workspace);
+      await callLocal(storage, location.path, program, positional, drafts, commandBudget(options), options);
     } else {
       refuseRemoteBudget(options);
       if (spec === undefined) {

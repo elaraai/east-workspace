@@ -107,7 +107,7 @@ async function takeInInputs(storage: LocalStorage, repoPath: string, inputs: rea
       // An input is its user's working file, written again between runs: the
       // store takes a copy of a value, never the file itself by a hard link
       hashes.push((await adoptFileReported(intake, storage, repoPath, files[i]!, input, sources,
-        { runner, link: false, ...(signal !== undefined && { signal }) })).hash);
+        { runner, ...(signal !== undefined && { signal }) })).hash);
     } catch (err) {
       throw new Error(`Input ${input}: ${err instanceof Error ? err.message : String(err)}`);
     }

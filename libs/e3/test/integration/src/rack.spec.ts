@@ -396,11 +396,15 @@ it('lays a call\'s drafts here and runs its function on a rack, with --rack, sav
   // Deployed as a user deploys it: its record's index is built here
   ok(await f.cli('workspace', 'create', '.', 'drafted'));
   ok(await f.cli('workspace', 'deploy', '.', 'drafted', 'rack_drafts@1.0.0'));
+  // A rule that names the call gives it a minute, which its draft and its function share
+  ok(await f.cli('rack', 'policy', '.', 'set', 'fn:jobs_on', 'rack', '--timeout', '1'));
   const p = (text: string) => printFor(StringType)(text);
   const calling = f.cli('call', '.', '-w', 'drafted', 'jobs_on', p('P1'), '--rack', '--draft', 'jobs.move', p('j2'), p('P1'));
   // The function's run is the call's one lease: its draft is laid here
   const grant = await f.agent.claim(); assert(grant);
-  assert.equal((JSON.parse(grant.eventJson) as { runnerEvent: { mode: string } }).runnerEvent.mode, 'run-detached', 'a call\'s lease');
+  const event = (JSON.parse(grant.eventJson) as { runnerEvent: { mode: string; timeoutMs: number } }).runnerEvent;
+  assert.equal(event.mode, 'run-detached', 'a call\'s lease');
+  assert.ok(event.timeoutMs > 0 && event.timeoutMs < 60_000, `the function has what its draft left of the rule's minute: ${event.timeoutMs} ms`);
   assert.equal((await f.agent.execute(grant)).status, 'success');
   const result = await calling; assert.equal(result.exitCode, 0, result.stderr);
   assert.match(result.stdout, /^3$/m, 'the function on the rack read j2 moved to P1');
@@ -409,14 +413,17 @@ it('lays a call\'s drafts here and runs its function on a rack, with --rack, sav
   assert.match(ok(await f.cli('call', '.', '-w', 'drafted', 'jobs_on', p('P1'))), /^2$/m, 'and the record reads as it was saved');
 });
 
-it('runs here a call no rack may run, under --rack, and says why', async () => {
+it('runs here at once a call no rack may run, under --rack, says why, and starts no hub for it', async () => {
   const f = await enrolled(); await withCalls(f); await asProject(f);
+  // Judged before any rack session is opened: with no hub running, none is started
+  ok(await f.cli('rack', 'stop'));
   const config = join(f.home, 'config.txt'); await writeFile(config, 'mode=fast');
   const result = await f.cli('call', '.', 'cli_calls.read_config', printFor(StringType)(config), '--rack');
   assert.equal(result.exitCode, 0, result.stderr);
   assert.equal(result.stdout, `${printFor(StringType)('mode=fast')}\n`);
   assert.match(result.stderr, /^ {2}\[LOCAL\] fn:read_config \(host-coupled:fs_read_file\)$/m);
-  assert.equal((await f.client.status()).capacity.queued, 0n, 'nothing was leased');
+  assert.doesNotMatch(result.stderr, /starting rack hub|no-rack-session/);
+  assert.match(ok(await f.cli('rack', 'status')), /no rack hub running/, 'nothing was leased, and no hub started');
 });
 
 it('leaves a call\'s lease on Ctrl-C and tells its rack to stop', {

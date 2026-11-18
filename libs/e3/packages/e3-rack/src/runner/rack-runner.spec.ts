@@ -27,7 +27,7 @@ import { DEFAULT_RACK_POLICY, setMode, setRule, type RackPolicy } from '../routi
 import { openRackRunner, type OpenRackRunnerOptions } from './rack-runner.js';
 import { ranLocally, type RackPlacementEvent } from '../protocol/placement.js';
 import { createRackBody } from './rack-body.js';
-import { createRackCall } from './rack-call.js';
+import { createRackCall, rackCallTimeoutMs } from './rack-call.js';
 import { RACK_INLINE_ARGS_MAX, RACK_INLINE_VALUE_MAX, type RackLeaseEvent } from '../protocol/task-envelope.js';
 import { RackHeartbeatRequestType, type RackLeaseGrant } from '../protocol/rack-wire.js';
 import { sameLeaseRefs } from '../testing/lease-refs.js';
@@ -834,20 +834,25 @@ it('answers a call timed_out once its own timeout has passed on a rack that has 
   assert.equal(f.budget.peak, 0);
 });
 
-it('gives a call its rule\'s time, longer or shorter than its caller\'s, on its lease and where it runs here; with no rule, its caller\'s', async () => {
+it('gives a call\'s caller its rule\'s time, longer or shorter than its own, and leases and runs it here with the time its caller gave it', async () => {
   const f = await fixture(); const agent = await f.agent();
-  for (const [minutes, own, expected] of [[5, 60_000, 300_000], [1, 600_000, 60_000], [undefined, 90_000, 90_000]] as const) {
-    const policy = minutes === undefined ? f.policy : setRule(f.policy, 'fn:double', 'rack', { timeoutMinutes: minutes });
-    const rack = await f.open({ selected: true, policy });
-    const running = rack.runner.runDetached(callOf(double, [encodeInt(5n)], { ...callLimits, timeoutMs: own }), { storage: f.storage, functionName: 'double' });
-    const grant = await agent.claim(); assert(grant);
-    const event = leaseOf(grant).runnerEvent; assert(event.mode === 'run-detached');
-    assert.equal(event.timeoutMs, expected, 'the time its rack is given');
-    assert.equal(event.spec.limits.timeoutMs, expected, 'the time its runner is given');
-    assert.equal((await agent.execute(grant)).status, 'success');
-    assert.equal(valueOf(await running, IntegerType), 10n);
-  }
-  // A call that is never leased runs here with the same time: no rack is enrolled
+  // The rule's time, which a caller gives the call before anything of it
+  // runs: none where no rule sets one
+  assert.equal(rackCallTimeoutMs(setRule(f.policy, 'fn:double', 'rack', { timeoutMinutes: 5 }), 'double'), 300_000);
+  assert.equal(rackCallTimeoutMs(setRule(f.policy, 'fn:double', 'rack', { timeoutMinutes: 1 }), 'double'), 60_000);
+  assert.equal(rackCallTimeoutMs(f.policy, 'double'), null);
+  // The executor runs the call under the time it was given, whatever a rule
+  // says: what its caller spent of it, laying drafts, is not given again
+  const ruled = setRule(f.policy, 'fn:double', 'rack', { timeoutMinutes: 5 });
+  const rack = await f.open({ selected: true, policy: ruled });
+  const running = rack.runner.runDetached(callOf(double, [encodeInt(5n)], { ...callLimits, timeoutMs: 90_000 }), { storage: f.storage, functionName: 'double' });
+  const grant = await agent.claim(); assert(grant);
+  const event = leaseOf(grant).runnerEvent; assert(event.mode === 'run-detached');
+  assert.equal(event.timeoutMs, 90_000, 'the time its rack is given');
+  assert.equal(event.spec.limits.timeoutMs, 90_000, 'the time its runner is given');
+  assert.equal((await agent.execute(grant)).status, 'success');
+  assert.equal(valueOf(await running, IntegerType), 10n);
+  // A call that is never leased runs here as it was given: no rack is enrolled
   const g = await fixture();
   const session = await RackSession.open(g.client, { storage: g.storage, repoPath: g.repo, workspace: 'dev', label: 'call time test' });
   cleanup.push(() => session.close());
@@ -859,15 +864,26 @@ it('gives a call its rule\'s time, longer or shorter than its caller\'s, on its 
   };
   const request = { repo: g.repo, spec, options: { storage: g.storage, functionName: 'double' }, settings: {} };
   await createRackCall({ session, policy: setRule(g.policy, 'fn:double', 'rack', { timeoutMinutes: 5 }), workspace: 'dev', selected: true })(request, here);
-  await createRackCall({ session, policy: g.policy, workspace: 'dev', selected: true })(request, here);
-  assert.deepEqual(ran.map((given) => given.limits.timeoutMs), [300_000, 60_000]);
-  // Nothing else of the call changes: its runner, as East compares one, and
-  // its program, arguments, environment and other limits
-  const plain = ({ bodyIr, args, environment, limits }: DetachedSpec) => ({ bodyIr, args, environment, maxResultBytes: limits.maxResultBytes, maxLogBytes: limits.maxLogBytes });
-  for (const given of ran) {
-    assert.ok(equalFor(RunnerType)(given.runner, spec.runner));
-    assert.deepEqual(plain(given), plain(spec));
-  }
+  assert.equal(ran.length, 1);
+  // Nothing of the call changes: its runner, as East compares one, and its
+  // program, arguments, environment and limits
+  const plain = ({ bodyIr, args, environment, limits }: DetachedSpec) => ({ bodyIr, args, environment, limits });
+  assert.ok(equalFor(RunnerType)(ran[0]!.runner, spec.runner));
+  assert.deepEqual(plain(ran[0]!), plain(spec));
+});
+
+it('answers timed_out a call with no time left to run here, and does not say it runs here', async () => {
+  const f = await fixture(); const agent = await f.agent(); const rack = await f.open({ selected: true });
+  // The rack's one slot is held, so the next call is spilled here; its time
+  // was used up as its lease was first queued
+  const holding = rack.runner.runDetached(callOf(double, [encodeInt(1n)]), { storage: f.storage, functionName: 'double' });
+  const grant = await agent.claim(); assert(grant);
+  const spilled = await rack.runner.runDetached(callOf(double, [encodeInt(2n)], { ...callLimits, timeoutMs: 0 }), { storage: f.storage, functionName: 'double' });
+  assert.deepEqual(spilled, { kind: 'timed_out', ms: 0, stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false });
+  assert.deepEqual(placed(f.placements).filter(([where]) => where === 'local'), [], 'it ran nowhere, and is not said to run here');
+  assert.equal(f.budget.peak, 0);
+  assert.equal((await agent.execute(grant)).status, 'success');
+  assert.equal(valueOf(await holding, IntegerType), 2n);
 });
 
 it('says an opening its caller stopped as the stop, and of no work that it runs locally', async () => {

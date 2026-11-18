@@ -660,6 +660,11 @@ export class RackFleet {
    * @param options - Whether it may join other work, whether it may spill,
    *   and what is told when it waits
    * @returns The queued lease, or null when the work spills here
+   * @throws {RackHubError} When the hub refuses the lease or its attach (a
+   *   hub that is draining, a queue that is full) or does not answer; its
+   *   caller runs the work here by what it says
+   * @throws {RackHubUnavailableError} When the session is closed or its hub
+   *   is gone
    */
   async submit(lease: CreateLease, needs: RackLeaseResources, options: RackSubmitOptions): Promise<RackSubmitted | null> {
     const full = this.room(needs) <= 0;
@@ -827,6 +832,9 @@ function wait(next: Promise<LeaseUpdate>, ms: number, signal?: AbortSignal): Pro
  * @param handle - The lease
  * @param watch - The fleet, the policy, the deadline and the claims
  * @returns How the wait ended; the lease is left, when the work leaves it
+ * @throws {Error} What the lease's subscription rejects with (its session's
+ *   connection to the hub failing, say); its caller runs the work here by
+ *   what it says
  */
 export async function awaitLease(handle: LeaseHandle, watch: RackLeaseWatch): Promise<RackLeaseEnd> {
   const { session, fleet, policy, signal } = watch;

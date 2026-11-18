@@ -273,10 +273,9 @@ describe('e3 dataset set', () => {
       '',
     ].join('\n');
 
-    /** Replace the delivery with a NEW file. Never rewrite it in place: the
-     *  store may hold a hard link to it, which is the delivery contract. */
+    /** Writes a delivery into the file, as a supplier's tool does: the store
+     *  holds a copy of what it took, never the file itself. */
     function deliver(bytes: Uint8Array): void {
-      rmSync(delivery, { force: true });
       writeFileSync(delivery, bytes);
     }
 

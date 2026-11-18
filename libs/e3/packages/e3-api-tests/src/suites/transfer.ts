@@ -172,6 +172,8 @@ export function transferTests(
             assert.match(result.stdout, /Exported bare-name-pkg@1\.10\.0 to /, where);
 
             const wsName = `bare-name-${where}-${Date.now()}`;
+            // The local repository goes whole with its cleanup
+            if (where === 'remote') removeWorkspaceAfter(t, remoteUrl, wsName, getCredentialsEnv);
             result = await runE3Command(['workspace', 'create', repo, wsName], workDir, options);
             assert.strictEqual(result.exitCode, 0, `${where} workspace create failed: ${result.stderr}`);
             result = await runE3Command(['workspace', 'deploy', repo, wsName, 'bare-name-pkg'], workDir, options);
@@ -180,8 +182,6 @@ export function transferTests(
             result = await runE3Command(['workspace', 'list', repo], workDir, options);
             assert.strictEqual(result.exitCode, 0, `${where} workspace list failed: ${result.stderr}`);
             assert.ok(result.stdout.includes(`${wsName} (bare-name-pkg@1.10.0)`), `${where}: ${result.stdout}`);
-
-            await runE3Command(['workspace', 'remove', repo, wsName], workDir, options);
           }
 
           const absent = await runE3Command(['package', 'export', localRepo, 'no-such-pkg', join(ctx.tempDir, 'absent.zip')], workDir);

@@ -292,16 +292,21 @@ describe('e3 call (local repository)', { timeout: 120_000, concurrency: false },
       assert.match(free.stdout, /^5$/m);
     });
 
-    it('refuses arguments its signature does not take before anything runs, a file holding no function, --runner for a named function, and a draft', async () => {
+    it('refuses arguments its signature does not take before anything runs, a file holding no function, --runner for a named function, a draft, and a workspace that does not exist', async () => {
       for (const [args, message] of [
         [['--ir', file('add.beast2'), '1'], /Function 'add' expects 2 argument\(s\), got 1/],
         [['--ir', file('add.beast2'), 'one', '2'], /Argument 1: failed to parse 'one'/],
         [['--ir', file('five.beast2'), '1'], /five\.beast2 holds no function's IR/],
         [['local-fn-pkg.add', '2', '3', '--runner', 'east-c'], /--runner and --platform say what a function from its IR file runs on/],
         [[], /Name the function to call, as pkg\.fn \(or fn with -w\), or call one from its IR file with --ir <file>/],
-        // A function from its IR file reads no record: a draft is refused before the repository is read
+        // A function from its IR file reads no record: a draft is refused before the repository is read,
+        // and refused so whether or not a workspace is named, which would not help
         [['-w', 'ir-ws', '--ir', file('add.beast2'), '2', '3', '--draft', 'tally.add', '1'],
           /A draft \(--draft tally\.add\) is laid over a record a named function reads: a function from its IR file reads none/],
+        [['--ir', file('add.beast2'), '2', '3', '--draft', 'tally.add', '1'],
+          /A draft \(--draft tally\.add\) is laid over a record a named function reads: a function from its IR file reads none/],
+        // The workspace is the call's whatever its arguments are, as a named function's call through it is
+        [['-w', 'no-such-ws', '--ir', file('add.beast2'), '2', '3'], /Workspace 'no-such-ws' does not exist/],
       ] as const) {
         const result = await runE3Command(['call', repoPath, ...args], process.cwd());
         assert.notEqual(result.exitCode, 0, args.join(' '));

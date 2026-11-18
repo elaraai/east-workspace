@@ -129,6 +129,8 @@ export function cliTests(
       it('workspace remove via remote URL', async (t) => {
         const { remoteUrl, workDir } = await withCli(t);
         const wsName = `cli-remove-ws-${Date.now()}`;
+        // Gone already when the remove under test works
+        removeAfter(t, remoteUrl, wsName);
 
         // Create first
         await runE3Command(['workspace', 'create', remoteUrl, wsName], workDir, { env: getCredentialsEnv() });
@@ -422,6 +424,7 @@ export function cliTests(
         const ctx = await withFunctionPackage(t);
         const { remoteUrl, workDir, env } = ctx;
         const wsName = `call-cli-ir-ws-${Date.now()}`;
+        removeAfter(t, remoteUrl, wsName);
         for (const command of [['workspace', 'create', remoteUrl, wsName], ['workspace', 'deploy', remoteUrl, wsName, 'call-cli-pkg@1.0.0']]) {
           const setup = await runE3Command(command, workDir, { env });
           assert.strictEqual(setup.exitCode, 0, `${command[0]} ${command[1]} failed: ${setup.stderr}`);
@@ -448,8 +451,6 @@ export function cliTests(
         const denied = await runE3Command(['call', remoteUrl, '-w', wsName, '--ir', ir, '@.inputs.value', '5'], workDir, { env: reader });
         assert.notStrictEqual(denied.exitCode, 0);
         assert.match(denied.stderr, /Permission denied: .*one-shot/);
-
-        await runE3Command(['workspace', 'remove', remoteUrl, wsName], workDir, { env });
       });
     });
 

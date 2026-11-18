@@ -3,7 +3,8 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import type { OpenRackRunnerOptions, RackEnvironmentEvent, RackPlacementEvent, RackRunnerHandle } from '@elaraai/e3-rack';
+import type { DetachedSpec, StorageBackend } from '@elaraai/e3-core';
+import type { OpenRackRunnerOptions, RackEnvironmentEvent, RackPlacementEvent, RackPolicy, RackRunnerHandle } from '@elaraai/e3-rack';
 // The protocol's entry alone, which loads no hub, route or TLS
 import { leaseReserve, ranLocally } from '@elaraai/e3-rack/protocol';
 import { formatSize } from '../format.js';
@@ -146,20 +147,64 @@ export function commandPlacement(print: (line: string) => void): (event: RackPla
  *
  * @param options - The repository, what the rack's activity view names the
  *   work by, the session's label, the command's budget, whether the work is
- *   kept for a rack, the signal that ends its wait and its lease, and where a
- *   line goes: a run's progress, or, for a call whose value goes to stdout,
- *   the terminal's stderr
+ *   kept for a rack, the signal that ends its wait and its lease, the policy
+ *   when the command has read it already, and where a line goes: a run's
+ *   progress, or, for a call whose value goes to stdout, the terminal's stderr
  * @returns The session's handle
  * @throws The signal's reason, when it stopped the session's opening: the
  *   command's work then runs nowhere, and is not said to run here
  */
 export async function openCommandRack(
-  options: Pick<OpenRackRunnerOptions, 'repoPath' | 'workspace' | 'storage' | 'label' | 'budget' | 'rackOnly' | 'signal'> & { print: (line: string) => void },
+  options: Pick<OpenRackRunnerOptions, 'repoPath' | 'workspace' | 'storage' | 'label' | 'budget' | 'rackOnly' | 'signal' | 'policy'> & { print: (line: string) => void },
 ): Promise<RackRunnerHandle> {
   const { print, ...session } = options;
   const rack = await openRack({ ...session, selected: true, onPlacement: commandPlacement(print), onEnvironment: (event) => print(rackEnvironmentLine(event)), log: print });
   if (rack.unattached !== undefined) options.signal?.throwIfAborted();
   return rack;
+}
+
+/** Where `e3 call --rack` takes a call, read before anything of it runs. */
+export type RackCallPlan =
+  /** To a rack, under the policy its session is opened with, and with the
+   *  time a rule that names it gives it, when one does */
+  | { readonly kind: 'rack'; readonly policy: RackPolicy; readonly timeoutMs: number | null }
+  /** Here, as the line says, with the time a rule gives it, when one does */
+  | { readonly kind: 'here'; readonly line: string; readonly timeoutMs: number | null };
+
+/**
+ * Where a call kept for a rack (`e3 call --rack`) goes, read from the
+ * repository's rack policy before anything of the call runs or any rack
+ * session is opened: a call no rack may run (a program that reaches the host,
+ * a custom runner, an environment no rack installs) runs here at once,
+ * saying why, and starts no hub and waits for no rack. A rule that names the
+ * call (`fn:<name>`) gives it its time, which the drafts it lays here and its
+ * function share, wherever it runs.
+ *
+ * @param repoPath - The repository
+ * @param storage - Its storage, which holds the environment the call declares
+ * @param name - The function's name, or its IR file's
+ * @param spec - The call: its program, runner and environment are judged
+ * @returns Where it goes, and its rule's time
+ * @example
+ * const plan = await planRackCall(repoPath, storage, 'score', spec);
+ * if (plan.kind === 'here') console.error(plan.line);
+ */
+export async function planRackCall(repoPath: string, storage: StorageBackend, name: string, spec: DetachedSpec): Promise<RackCallPlan> {
+  const taskName = `fn:${name}`;
+  const here = (reason: string, timeoutMs: number | null = null): RackCallPlan =>
+    ({ kind: 'here', line: rackPlacementLine({ kind: 'placed', taskName, role: 'call', where: 'local', reason }, true)!, timeoutMs });
+  const { EligibilityEvaluator, loadPolicy, rackCallTimeoutMs } = await import('@elaraai/e3-rack');
+  let policy: RackPolicy;
+  try {
+    policy = await loadPolicy(repoPath);
+  } catch (error) {
+    // A policy that does not read opens no session, as a session's opening says
+    return here(`no-rack-session: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const timeoutMs = rackCallTimeoutMs(policy, name);
+  const verdict = await new EligibilityEvaluator(policy, { selected: true })
+    .evaluateCall({ repo: repoPath, spec, options: { storage, functionName: name }, settings: {} }, storage);
+  return verdict.eligible ? { kind: 'rack', policy, timeoutMs } : here(verdict.reason, timeoutMs);
 }
 
 /**

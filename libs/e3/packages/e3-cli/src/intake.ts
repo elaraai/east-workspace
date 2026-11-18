@@ -171,8 +171,9 @@ export function intakeReporter(progress: Progress, now: () => number = Date.now)
 /**
  * Takes a file into a local repository's store as a dataset's file is taken in
  * (`objectAdoptFile`) — a collection by intake units on the runner, a piece of
- * its segments each, never read whole, and any other value as the object the
- * file is — telling `intake` how far it has got, and once it is in, how.
+ * its segments each, never read whole, and any other value as a copy of the
+ * file, which stays its user's to write again — telling `intake` how far it
+ * has got, and once it is in, how.
  *
  * @param intake - The reporter of the files taken in together
  * @param storage - Storage backend
@@ -182,8 +183,7 @@ export function intakeReporter(progress: Progress, now: () => number = Date.now)
  *   lines call it: a dataset's path, or the file's path as it was given
  * @param sources - Every file taken in together: how many, and their bytes
  * @param options - The type the destination declares, when it declares one,
- *   the runner that takes a collection in, `link: false` for a file its user
- *   may write into again, and a signal that stops the intake
+ *   the runner that takes a collection in, and a signal that stops the intake
  * @returns What the file was taken in as
  * @throws What `objectAdoptFile` throws, once the live line has ended
  */
@@ -194,7 +194,7 @@ export async function adoptFileReported(
   file: string,
   path: string,
   sources: DeploySourceProgress['sources'],
-  options: { declared?: { subject: string; type: EastTypeValue }; runner: TaskRunner; link?: boolean; signal?: AbortSignal },
+  options: { declared?: { subject: string; type: EastTypeValue }; runner: TaskRunner; signal?: AbortSignal },
 ): Promise<ObjectAdoptResult> {
   let adopted: ObjectAdoptResult;
   try {
