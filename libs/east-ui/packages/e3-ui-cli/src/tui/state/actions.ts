@@ -21,6 +21,7 @@ import type {
     DataflowBudget,
     DataflowEvent,
     DataflowExecutionState,
+    DataflowGraph,
     DatasetStatusDetail,
     ExecutionListItem,
     ListEntry,
@@ -354,6 +355,8 @@ export interface DataState {
     datasets: Record<string, ListEntry[]>;
     /** Per workspace: the task list (with roles). */
     taskList: Record<string, TaskListItem[]>;
+    /** Per workspace: the nodes a run steps through — its tasks, and the load of each composite record's source a dataset feeds. */
+    graph: Record<string, DataflowGraph>;
     /** Per workspace, per task: task details. */
     taskDetails: Record<string, Record<string, TaskDetails>>;
     /** Per workspace, per task: execution history. */
@@ -380,6 +383,7 @@ export const emptyData = (): DataState => ({
     budget: {},
     datasets: {},
     taskList: {},
+    graph: {},
     taskDetails: {},
     executions: {},
     dataset: {},
@@ -523,6 +527,7 @@ export type Action =
     | { type: 'data/budget'; ws: string; budget: DataflowBudget | null }
     | { type: 'data/datasets'; ws: string; entries: ListEntry[] }
     | { type: 'data/taskList'; ws: string; tasks: TaskListItem[] }
+    | { type: 'data/graph'; ws: string; graph: DataflowGraph }
     | { type: 'data/taskDetails'; ws: string; task: string; details: TaskDetails }
     | { type: 'data/executions'; ws: string; task: string; executions: ExecutionListItem[] }
     | { type: 'data/dataset'; ws: string; path: string; data: DatasetData }

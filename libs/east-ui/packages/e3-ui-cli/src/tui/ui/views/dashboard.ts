@@ -24,20 +24,20 @@
  * @packageDocumentation
  */
 
-import type { DataflowEvent, RecordCommitInfo } from '@elaraai/e3-api-client';
+import type { RecordCommitInfo } from '@elaraai/e3-api-client';
 import { breakpoint, scrollIntoView } from '../../render/layout.js';
 import { agoShort, formatDuration, formatSize, padEnd, padStart, timeAgo } from '../../render/text.js';
 import type { NavOp, TuiState } from '../../state/actions.js';
 import { layoutOf, registerListModel } from '../../model/index.js';
 import { executionDuration, executionStatusCell } from '../../model/status.js';
 import { registerViewHooks, type Controller } from '../../controller.js';
-import { isRunLive, lockHolderText } from '../../data/dataflow.js';
+import { isRunLive, lockHolderText, runProgressText } from '../../data/dataflow.js';
 import type { Hit, Pane } from '../frame.js';
 import { b, blank, d, lineWidth, lrLine, t, type Line, type RenderCtx } from '../lines.js';
 import { sectionLine, tableLine, withScrollbar } from '../shell/widgets.js';
 import {
     MAX_EVENT_ROWS, dashboardCtx, dashboardModel, deployOf, deployProgressOf,
-    type DashboardCtx, type DashboardModel, type DashboardRow, type TaskInfo,
+    type DashboardCtx, type DashboardModel, type DashboardRow, type TaskRowModel,
 } from './dashboard-model.js';
 import { registerView } from './index.js';
 
@@ -103,7 +103,6 @@ function executionLines(model: DashboardModel, sel: DashboardRow | undefined, dc
     const width = dctx.columns - 1;
     const spin = g.spinner[dctx.spinner % g.spinner.length]!;
     const execution = model.execution;
-    const tasksTotal = model.status?.tasks.length ?? 0;
     const lines: Line[] = [];
     let title = 'LAST EXECUTION';
     let right: Line;
@@ -125,7 +124,7 @@ function executionLines(model: DashboardModel, sel: DashboardRow | undefined, dc
             room = ` ${sep} cores ${budget.coresInUse} of ${budget.cores} ${sep} memory ${inUse.endsWith(unit) ? inUse.slice(0, -unit.length) : inUse} of ${memory}`;
         }
         const age = ` ${sep} started ${timeAgo(execution.state.startedAt, dctx.now)}`;
-        const count = ` ${sep} ${model.done} of ${tasksTotal} tasks`;
+        const count = ` ${sep} ${runProgressText({ done: model.done, total: model.steps, loads: model.loads })}`;
         const end = ` ${sep} ${spin}`;
         // Short of room, the run's age gives way to the budget (each feed row carries its own age), then the budget to the age.
         const detail = [age + count + room, count + room, age + count].find(text => lineWidth([t(` ${title} `), head, t(`${text}${end} `)]) <= width) ?? age + count;
@@ -168,25 +167,24 @@ function executionLines(model: DashboardModel, sel: DashboardRow | undefined, dc
     return lines;
 }
 
-/** The `SIZE · LAST RUN` cell of a task row. */
-function lastRunText(task: TaskInfo, event: DataflowEvent | undefined, size: string, dctx: DashboardCtx): string {
+/** The `SIZE · LAST RUN` cell of a row of the tasks table: a task's, or a load's. */
+function lastRunText(row: TaskRowModel, dctx: DashboardCtx): string {
     const g = dctx.g;
     const spin = g.spinner[dctx.spinner % g.spinner.length]!;
-    switch (task.status.type) {
-        case 'in-progress': {
-            const since = task.status.value.startedAt.type === 'some' ? task.status.value.startedAt.value : event?.type === 'start' ? event.value.timestamp : null;
-            return `${spin} ${since !== null ? ageBare(since, dctx.now) : 'running'}`;
-        }
+    const { phase, event } = row;
+    switch (phase.kind) {
+        case 'running':
+            return `${spin} ${phase.since !== null ? ageBare(phase.since, dctx.now) : 'running'}`;
         case 'waiting':
-            return `— ${g.sep} ${lowerFirst(task.status.value.reason)}`;
+            return `— ${g.sep} ${lowerFirst(phase.reason)}`;
         default: {
-            const run = event === undefined ? (task.status.type === 'ready' ? 'never' : '—')
+            const run = event === undefined ? (phase.never ? 'never' : '—')
                 : event.type === 'complete' || event.type === 'failed' ? formatDuration(event.value.duration)
                 : event.type === 'cached' ? 'cached'
                 : event.type === 'error' ? 'error'
                 : event.type === 'input_unavailable' ? 'skipped'
                 : '—';
-            return `${size} ${g.sep} ${run}`;
+            return `${row.size} ${g.sep} ${run}`;
         }
     }
 }
@@ -217,7 +215,7 @@ export function dashboardLines(model: DashboardModel, dctx: DashboardCtx, sel: n
     if (model.status === undefined) return model.placeholder.slice(first, end);
     const selected = model.rows[Math.max(0, Math.min(sel, model.rows.length - 1))];
     const panel = executionLines(model, selected, dctx);
-    const taskSel = selected?.kind === 'task' ? model.tasks.findIndex(row => row.task.name === selected.name) : -1;
+    const taskSel = selected?.kind === 'task' || selected?.kind === 'load' ? model.tasks.findIndex(row => row.name === selected.name) : -1;
     const inputSel = selected?.kind === 'input' ? model.inputNames.indexOf(selected.name) : -1;
     const recordSel = selected?.kind === 'record' ? model.recordNames.indexOf(selected.name) : -1;
     const tasksFirst = model.tasksAt + 2;
@@ -234,7 +232,7 @@ export function dashboardLines(model: DashboardModel, dctx: DashboardCtx, sel: n
         else if (i < model.inputsAt - 1) {
             const row = model.tasks[i - tasksFirst];
             if (row === undefined) out.push([t('  '), d('no tasks')]);
-            else out.push(tableLine(model.taskPlan, { cells: { ...row.cells, size: lastRunText(row.task, row.event, row.size, dctx) } }, i - tasksFirst === taskSel, width, g));
+            else out.push(tableLine(model.taskPlan, { cells: { ...row.cells, size: lastRunText(row, dctx) } }, i - tasksFirst === taskSel, width, g));
         }
         else if (i < model.inputsAt) out.push(blank(width));
         else if (i === model.inputsAt) out.push(sectionLine('INPUTS', '', width));
@@ -430,6 +428,11 @@ registerViewHooks('dashboard', {
         const ws = state.view.ws;
         if (row.kind === 'logs') controller.openTask(ws, row.name, 'stdout');
         else if (row.kind === 'task') controller.openTask(ws, row.name);
+        else if (row.kind === 'load') {
+            // A load is no task, and has no page of its own: its row opens the record it loads.
+            const load = nav.model.tasks.find(step => step.name === row.name)?.load;
+            if (load !== undefined) controller.openRecord(ws, load.record);
+        }
         else if (row.kind === 'record') controller.openRecord(ws, row.name);
         else controller.openInput(ws, row.name);
     },

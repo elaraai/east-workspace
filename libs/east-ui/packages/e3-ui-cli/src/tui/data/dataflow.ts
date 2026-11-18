@@ -43,6 +43,38 @@ export function isRunLive(state: TuiState, ws: string): boolean {
 }
 
 /**
+ * How far a workspace's latest run has got: the steps it has ended, of the
+ * steps a run has — the workspace's tasks, and its loads, each the load of a
+ * composite record's source that a dataset feeds.
+ *
+ * @remarks
+ * The status lists the tasks and the run's graph the loads: a load's events
+ * are counted among the steps ended, so the loads are counted among the steps
+ * a run has. Until the graph is read the loads are none.
+ *
+ * @param state - The store state
+ * @param ws - The workspace
+ * @returns The steps ended, the steps a run has, and how many of them are loads
+ */
+export function runProgress(state: TuiState, ws: string): { done: number; total: number; loads: number } {
+    const loads = (state.data.graph[ws]?.tasks ?? []).filter(node => node.load.type === 'some').length;
+    // A requeue is a unit's, and ends no step.
+    const done = (state.data.execution[ws]?.events ?? []).filter(e => e.type !== 'start' && e.type !== 'requeued').length;
+    return { done, total: (state.data.status[ws]?.result.tasks.length ?? 0) + loads, loads };
+}
+
+/**
+ * The count of a live run, as the dashboard's header says it: `2 of 6 tasks`,
+ * and `3 of 7 steps` where some of the steps are loads.
+ *
+ * @param progress - How far the run has got
+ * @returns The words
+ */
+export function runProgressText(progress: { done: number; total: number; loads: number }): string {
+    return `${progress.done} of ${progress.total} ${progress.loads > 0 ? 'steps' : 'tasks'}`;
+}
+
+/**
  * The lock holder line: `pid 4242 · e3 dataflow run · 12s ago`.
  *
  * @param holder - The holder

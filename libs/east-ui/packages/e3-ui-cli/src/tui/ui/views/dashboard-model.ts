@@ -9,22 +9,25 @@
  * and the INPUTS and RECORDS tables with the step it is at with each file
  * source and record. Otherwise it is the counts with the accounted bar, the
  * execution panel's rows (the last run's failures; while it runs, each
- * task's latest event, the units requeued and what waits for room), and the
- * tasks, inputs and records tables.
+ * step's latest event, the units requeued and what waits for room), and the
+ * tasks, inputs and records tables. The tasks table lists the steps of a
+ * run: each task, and after the task that writes its feed, each load of a
+ * composite record's source that a dataset feeds (`orders.erp`).
  *
  * {@link dashboardModel} derives it from the data and the width — the
- * counts, the rows the panel lists, the latest event per task, the dataset
+ * counts, the rows the panel lists, the latest event per step, the dataset
  * map, the fitted table plans, each row's cells and where each selectable
  * row sits — once per data change: a single-entry cache keyed on the
  * identity of the status, the execution, the dataset list, the task list,
- * the records read, the width and the breakpoint. The view
+ * the run's graph, the records read, the width and the breakpoint. The view
  * (`dashboard.ts`) renders only the lines on screen from it.
  *
  * @packageDocumentation
  */
 
+import { StringType, equalFor } from '@elaraai/east';
 import type { DataflowEvent, DeployProgress, LockStatus, RecordCommitInfo, WorkspaceStatusResult } from '@elaraai/e3-api-client';
-import type { WorkspaceState } from '@elaraai/e3-types';
+import type { DataflowGraphTask, DataflowLoad, WorkspaceState } from '@elaraai/e3-types';
 import type { Glyphs } from '../../render/glyphs.js';
 import { breakpoint, columnPlan, type Breakpoint, type ColumnSpec } from '../../render/layout.js';
 import { compareInstants, formatDuration, formatInt, formatSize, hashShort, padEnd, padStart } from '../../render/text.js';
@@ -32,13 +35,18 @@ import type { Tone } from '../../render/theme.js';
 import type { DataState, ExecutionData, TuiState } from '../../state/actions.js';
 import { datasetEntries } from '../../model/catalogue.js';
 import {
-    datasetStatusCell, eventCell, intakeCell, recordDeployCell, splitPlace, statusText, taskStatusCell, unitPlace, waitCell, type StatusCell,
+    datasetStatusCell, eventCell, intakeCell, loadStatusCell, recordDeployCell, splitPlace, statusText, taskStatusCell, unitPlace, waitCell,
+    type StatusCell,
 } from '../../model/status.js';
+import { runProgress } from '../../data/dataflow.js';
 import { recordEntries } from '../../data/records.js';
 import { b, blank, d, lineWidth, lrLine, t, type Line, type RenderCtx } from '../lines.js';
 import { centredBlock, sectionLine, tableLine, tablePlan, type TableRow } from '../shell/widgets.js';
 
 export type TaskInfo = WorkspaceStatusResult['tasks'][number];
+
+/** Whether two names East holds are the same name. */
+const sameName = equalFor(StringType);
 
 /** What the column builder needs from the render context. */
 export interface DashboardCtx {
@@ -49,9 +57,13 @@ export interface DashboardCtx {
     spinner: number;
 }
 
-/** A selectable row of the column: what `⏎` opens, and its line index. */
+/**
+ * A selectable row of the column: what `⏎` opens, and its line index. A
+ * `load` row is named as its step of a run is (`orders.erp`), and opens the
+ * record it loads.
+ */
 export interface DashboardRow {
-    kind: 'logs' | 'task' | 'input' | 'record';
+    kind: 'logs' | 'task' | 'load' | 'input' | 'record';
     name: string;
     line: number;
 }
@@ -353,15 +365,34 @@ export function liveRows(execution: ExecutionData, latest: readonly DataflowEven
     return rows.sort((a, c) => compareInstants(a.timestamp, c.timestamp));
 }
 
-/** A task's row: the cells that follow from the data, and what the `SIZE · LAST RUN` cell is stamped from per frame. */
+/**
+ * Where a step stands, as its `SIZE · LAST RUN` cell is stamped from it:
+ * running and since when, waiting and on what, or at rest — `never` when it
+ * has not run and nothing holds it back.
+ */
+export type StepPhase =
+    | { kind: 'running'; since: Date | null }
+    | { kind: 'waiting'; reason: string }
+    | { kind: 'rest'; never: boolean };
+
+/**
+ * A row of the tasks table — a step of a run: a task, or the load of a
+ * composite record's source. It holds the cells that follow from the data,
+ * and what the `SIZE · LAST RUN` cell is stamped from per frame.
+ */
 export interface TaskRowModel {
-    task: TaskInfo;
-    /** The cells the data decides (`size` is stamped at render — it carries the clock and the spinner while the task runs). */
+    /** The step's name: a task's, or a load's `<record>.<source>`. */
+    name: string;
+    /** The record and source a load loads; undefined for a task. */
+    load: DataflowLoad | undefined;
+    /** The cells the data decides (`size` is stamped at render — it carries the clock and the spinner while the step runs). */
     cells: TableRow['cells'];
-    /** The output's size text (`12.1 MB` / `—`). */
+    /** The output's size text (`12.1 MB` / `—`): a load's is its record's. */
     size: string;
-    /** The task's latest dataflow event, if any. */
+    /** The step's latest dataflow event, if any. */
     event: DataflowEvent | undefined;
+    /** Where the step stands. */
+    phase: StepPhase;
 }
 
 /** A record's row: the cells the data decides, and the newest commit the `LAST COMMIT` cell is stamped from per frame. */
@@ -382,18 +413,22 @@ export interface RecordRowModel {
  * @property counts - The counts block (the two stat groups and the accounted bar)
  * @property execution - The execution the panel shows
  * @property live - Whether the panel shows the live feed
- * @property done - Tasks the run has ended (the live feed's `N of M tasks`)
- * @property feed - The rows the panel lists: while live, the last of the rows {@link liveRows} gives; after, each task's failure
- * @property latest - The latest event per task
+ * @property done - Steps the run has ended (the live feed's `N of M tasks`)
+ * @property steps - Steps a run has: the workspace's tasks and its loads
+ * @property loads - How many of the steps are loads
+ * @property feed - The rows the panel lists: while live, the last of the rows {@link liveRows} gives; after, each step's
+ *   failure — a load's opens no logs, as no log is kept under a load's name
+ * @property latest - The latest event per step
  * @property taskPlan - The tasks table's fitted column plan
- * @property tasks - The task rows
+ * @property tasks - The tasks table's rows: each task, and each load after the task that writes its feed — after the
+ *   tasks, when no task writes it
  * @property inputPlan - The inputs table's fitted column plan
  * @property inputs - The input rows
  * @property inputNames - The input names, in row order
  * @property recordPlan - The records table's fitted column plan
  * @property records - The record rows
  * @property recordNames - The record names, in row order
- * @property rows - The selectable rows in column order (failures, tasks, inputs, records) with their line indices
+ * @property rows - The selectable rows in column order (failures, tasks and loads, inputs, records) with their line indices
  * @property total - Lines in the column
  * @property panelAt - The execution panel's first line
  * @property tasksAt - The TASKS section line (the header follows, then the rows)
@@ -407,6 +442,8 @@ export interface DashboardModel {
     execution: ExecutionData | undefined;
     live: boolean;
     done: number;
+    steps: number;
+    loads: number;
     feed: FeedRow[];
     latest: ReadonlyMap<string, DataflowEvent>;
     taskPlan: ColumnSpec[];
@@ -436,6 +473,8 @@ interface DashboardKey {
     execution: ExecutionData | undefined;
     datasets: DataState['datasets'][string] | undefined;
     taskList: DataState['taskList'][string] | undefined;
+    /** The steps a run has: the tasks table lists its loads. */
+    graph: DataState['graph'][string] | undefined;
     records: DataState['records'][string] | undefined;
     columns: number;
     bp: Breakpoint;
@@ -446,15 +485,15 @@ let cached: { key: DashboardKey; model: DashboardModel } | null = null;
 
 function sameKey(a: DashboardKey, b: DashboardKey): boolean {
     return a.ws === b.ws && a.status === b.status && a.statusError === b.statusError && a.workspaceState === b.workspaceState
-        && a.lock === b.lock && a.execution === b.execution && a.datasets === b.datasets && a.taskList === b.taskList && a.records === b.records
-        && a.columns === b.columns && a.bp === b.bp && a.g === b.g;
+        && a.lock === b.lock && a.execution === b.execution && a.datasets === b.datasets && a.taskList === b.taskList && a.graph === b.graph
+        && a.records === b.records && a.columns === b.columns && a.bp === b.bp && a.g === b.g;
 }
 
 /**
  * The dashboard model for a workspace — built once per data change and
  * returned as the same object until the status, the execution, the
- * dataset list, the task list, the records read, the width or the
- * breakpoint changes. The
+ * dataset list, the task list, the run's graph, the records read, the width
+ * or the breakpoint changes. The
  * clock, the spinner and the selection are not inputs: they restyle lines
  * at render ({@link dashboardLines}).
  *
@@ -473,6 +512,7 @@ export function dashboardModel(state: TuiState, ws: string, dctx: DashboardCtx):
         execution: state.data.execution[ws],
         datasets: state.data.datasets[ws],
         taskList: state.data.taskList[ws],
+        graph: state.data.graph[ws],
         records: state.data.records[ws],
         columns: dctx.columns,
         bp: dctx.bp,
@@ -491,7 +531,7 @@ function buildModel(state: TuiState, ws: string, dctx: DashboardCtx, key: Dashbo
     const status = key.status;
     const execution = key.execution;
     const empty: DashboardModel = {
-        status, placeholder: [], counts: [], execution, live: false, done: 0, feed: [], latest: new Map(),
+        status, placeholder: [], counts: [], execution, live: false, done: 0, steps: 0, loads: 0, feed: [], latest: new Map(),
         taskPlan: [], tasks: [], inputPlan: [], inputs: [], inputNames: [], recordPlan: [], records: [], recordNames: [],
         rows: [], total: 0, panelAt: 0, tasksAt: 0, inputsAt: 0, recordsAt: -1,
     };
@@ -518,31 +558,79 @@ function buildModel(state: TuiState, ws: string, dctx: DashboardCtx, key: Dashbo
     const latestEvents = latestPerTask(execution?.events ?? []);
     const latest = new Map(latestEvents.map(e => [e.value.task, e] as const));
     const live = isLive(execution);
-    // A requeue is a unit's, and ends no task.
-    const done = execution === undefined ? 0 : execution.events.filter(e => e.type !== 'start' && e.type !== 'requeued').length;
-    const feed = execution === undefined || execution.state === null ? []
+    const { done, total: steps, loads } = runProgress(state, ws);
+    // The loads a run steps through beside the tasks: no log is kept under a load's name, so its failure opens none.
+    const loadNodes = (key.graph?.tasks ?? []).filter(node => node.load.type === 'some');
+    const isLoad = (step: string): boolean => loadNodes.some(node => sameName(node.name, step));
+    const feed = (execution === undefined || execution.state === null ? []
         : live ? liveRows(execution, latestEvents, g).slice(-MAX_EVENT_ROWS)
-        : latestEvents.filter(opensLogs).map(event => eventRow(event, g));
-    const tasks: TaskRowModel[] = status.tasks.map(task => {
+        : latestEvents.filter(opensLogs).map(event => eventRow(event, g))
+    ).map(row => (row.logs && isLoad(row.task) ? { ...row, logs: false } : row));
+    /** The names of the inputs among a step's inputs, which the INPUTS column lists. */
+    const inputsOf = (paths: readonly string[]): string => {
+        const names = paths.filter(p => p.startsWith('.inputs.')).map(p => p.slice('.inputs.'.length));
+        return names.length > 0 ? names.join(', ') : '—';
+    };
+    const taskRow = (task: TaskInfo): TaskRowModel => {
         const cell = taskStatusCell(task.status, g);
         // The reason / pid / cached detail lives in the last column; only a failure's exit code / message stays inline.
         const bare = task.status.type !== 'failed' && task.status.type !== 'error';
-        const inputs = task.inputs.filter(p => p.startsWith('.inputs.')).map(p => p.slice('.inputs.'.length));
         const entry = entries.get(task.output);
+        const event = latest.get(task.name);
         return {
-            task,
-            event: latest.get(task.name),
+            name: task.name,
+            load: undefined,
+            event,
             size: entry?.size != null ? formatSize(entry.size) : '—',
+            phase: task.status.type === 'in-progress'
+                ? { kind: 'running', since: task.status.value.startedAt.type === 'some' ? task.status.value.startedAt.value : event?.type === 'start' ? event.value.timestamp : null }
+                : task.status.type === 'waiting' ? { kind: 'waiting', reason: task.status.value.reason }
+                : { kind: 'rest', never: task.status.type === 'ready' },
             cells: {
                 name: task.name,
                 status: { text: bare ? `${cell.glyph} ${cell.word}` : statusText(cell), tone: cell.tone },
                 dependsOn: task.dependsOn.length > 0 ? task.dependsOn.join(', ') : '—',
-                inputs: inputs.length > 0 ? inputs.join(', ') : '—',
+                inputs: inputsOf(task.inputs),
                 output: entry?.type ?? '—',
                 peak: task.peakBytes.type === 'some' ? formatSize(Number(task.peakBytes.value)) : '—',
             },
         };
-    });
+    };
+    // A load's row: what the latest run said of the step, else whether its source holds a delivery; its feed in
+    // DEPENDS ON or INPUTS as a task's are, and its record as its output.
+    const loadRow = (node: DataflowGraphTask, load: DataflowLoad): TaskRowModel => {
+        const source = key.records?.[load.record]?.signature?.sources.find(named => sameName(named.name, load.source));
+        const event = latest.get(node.name);
+        const cell = loadStatusCell(event, live, source, g);
+        const bare = event?.type !== 'failed' && event?.type !== 'error';
+        const entry = entries.get(node.output);
+        return {
+            name: node.name,
+            load,
+            event,
+            size: entry?.size != null ? formatSize(entry.size) : '—',
+            phase: event?.type === 'start' && live ? { kind: 'running', since: event.value.timestamp }
+                : event?.type === 'input_unavailable' ? { kind: 'waiting', reason: event.value.reason }
+                : { kind: 'rest', never: event === undefined && source !== undefined && source.last.type === 'none' },
+            cells: {
+                name: node.name,
+                status: { text: bare ? `${cell.glyph} ${cell.word}` : statusText(cell), tone: cell.tone },
+                dependsOn: node.dependsOn.length > 0 ? node.dependsOn.join(', ') : '—',
+                inputs: inputsOf(node.inputs),
+                output: entry?.type ?? '—',
+                peak: event?.type === 'complete' && event.value.peakBytes.type === 'some' ? formatSize(Number(event.value.peakBytes.value)) : '—',
+            },
+        };
+    };
+    // Each load sits after the task that writes its feed; one a dataset no task writes feeds, after the tasks.
+    const feeds = (task: TaskInfo, node: DataflowGraphTask): boolean => node.dependsOn.some(name => sameName(name, task.name));
+    const tasks: TaskRowModel[] = [];
+    const rowsOf = (nodes: readonly DataflowGraphTask[]): TaskRowModel[] =>
+        nodes.flatMap(node => (node.load.type === 'some' ? [loadRow(node, node.load.value)] : []));
+    for (const task of status.tasks) {
+        tasks.push(taskRow(task), ...rowsOf(loadNodes.filter(node => feeds(task, node))));
+    }
+    tasks.push(...rowsOf(loadNodes.filter(node => !status.tasks.some(task => feeds(task, node)))));
     const inputDatasets = status.datasets.filter(ds => !ds.isTaskOutput && ds.path.startsWith('.inputs.'));
     const inputNames = inputDatasets.map(ds => ds.path.slice('.inputs.'.length));
     const inputs: TableRow[] = inputDatasets.map((ds, i) => {
@@ -578,7 +666,7 @@ function buildModel(state: TuiState, ws: string, dctx: DashboardCtx, key: Dashbo
     const inputPlan = tablePlan(columnPlan('inputs', dctx.bp), inputs, width);
     const recordPlan = records.length > 0 ? tablePlan(columnPlan('records', dctx.bp), records, width) : [];
     const counts = countsLines(status, dctx);
-    // The geometry: every selectable row's line, numbered in column order — failures, tasks, inputs, records.
+    // The geometry: every selectable row's line, numbered in column order — failures, tasks and loads, inputs, records.
     const rows: DashboardRow[] = [];
     let line = counts.length + 1;
     const panelAt = line;
@@ -589,7 +677,7 @@ function buildModel(state: TuiState, ws: string, dctx: DashboardCtx, key: Dashbo
     line += 1 + shown.length + (feed.length > shown.length ? 1 : 0) + 1;
     const tasksAt = line;
     line += 2;
-    status.tasks.forEach((task, i) => rows.push({ kind: 'task', name: task.name, line: line + i }));
+    tasks.forEach((row, i) => rows.push({ kind: row.load === undefined ? 'task' : 'load', name: row.name, line: line + i }));
     line += Math.max(1, tasks.length) + 1;
     const inputsAt = line;
     line += 2;
@@ -605,7 +693,7 @@ function buildModel(state: TuiState, ws: string, dctx: DashboardCtx, key: Dashbo
         line += records.length;
     }
     return {
-        ...empty, counts, live, done, feed, latest, taskPlan, tasks, inputPlan, inputs, inputNames, recordPlan, records, recordNames,
+        ...empty, counts, live, done, steps, loads, feed, latest, taskPlan, tasks, inputPlan, inputs, inputNames, recordPlan, records, recordNames,
         rows, total: line, panelAt, tasksAt, inputsAt, recordsAt,
     };
 }
