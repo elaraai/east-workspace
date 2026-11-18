@@ -81,6 +81,9 @@ const TAKEN = "[data-drop-active]:not([data-drop-invalid])";
  */
 const TILE_BODY = {
     "& > *": { flex: "1 1 auto", minHeight: "0" },
+    // Held to a least height — a stretched tile's (`natural.ts`): its content has no height of its own, so the tile adds
+    // its least height to its row's, never what it holds, and its content fills whatever height the row leaves it.
+    "&[data-least-height] > *": { flexBasis: "0" },
 } as const;
 
 /** The toolbar's mono micro-labels — the grid chip and the saved time. */
