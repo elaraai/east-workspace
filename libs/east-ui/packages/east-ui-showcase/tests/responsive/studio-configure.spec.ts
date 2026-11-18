@@ -28,11 +28,15 @@
  *    the chosen one tinted — a 1px rule and its form, a choice of three a
  *    24px segment group.
  *  - C5 the source's fields (EDT-3): under their label and a 16px count, a
- *    32px search box, then 32px rows — a 7px grip, the kind's 11px mark in a
- *    14px box, the name in Inter 13, and a 12px check in `--pos` once a well
- *    holds the field.
+ *    32px search box — focused, the box wears the one focus ring and what is
+ *    typed in it none of its own — then 32px rows: a 7px grip, the kind's
+ *    11px mark in a 14px box, the name in Inter 13, and a 12px check in
+ *    `--pos` once a well holds the field.
  *  - C6 every part stands a whole number of pixels under the tab's top
  *    (#1638), so no line of its words is painted between two rows.
+ *  - C7 a group of names never cuts one: a table's three kinds stand side by
+ *    side while they fit, and in a pane a scroll bar narrows they stack, a
+ *    28px row each.
  *
  * Every measurement is taken from the laid-out page, at rest.
  *
@@ -228,6 +232,39 @@ test.describe("The Studio's Configure tab, as designed (#1672)", () => {
         expect([check!.w, check!.h, check!.color]).toEqual([12, 12, await token(page, "--chakra-colors-status-pos")]);
         const groups = await read(tab, "[data-fields-group]");
         expect(groups.map((group) => [group.size, group.caps, group.h])).toEqual(groups.map(() => ["10px", "uppercase", 18]));
+        // Focused, the box carries the focus ring; the input inside it draws none.
+        await tab.locator("[data-fields-search]").focus();
+        await settled(page);
+        const rings = await tab.locator("[data-fields-search]").evaluate((input) => {
+            const own = getComputedStyle(input);
+            const box = getComputedStyle(input.parentElement!);
+            return { input: [own.boxShadow, own.outlineStyle], box: box.boxShadow !== "none" };
+        });
+        expect(rings).toEqual({ input: ["none", "none"], box: true });
+    });
+
+    test("C7: a group of names never cuts one — a table's kinds side by side while they fit, a 28px row each in a pane a scroll bar narrows", async ({ page }) => {
+        const tab = await openConfigure(page);
+        await tab.locator("[data-seg-strip=views]").getByRole("button", { name: "Table" }).click();
+        const kinds = tab.locator("[data-seg-strip=kinds]");
+        await expect(kinds.locator("button")).toHaveCount(3);
+        await settled(page);
+        /** How many of its names are cut, whether it is stacked, and its rows. */
+        const state = () => kinds.evaluate((group) => ({
+            cut: [...group.querySelectorAll("[data-seg-name]")].filter((said) => said.scrollWidth > said.clientWidth).length,
+            stacked: group.hasAttribute("data-stack"),
+            rows: [...group.querySelectorAll("button")].map((button) => Math.round(button.getBoundingClientRect().height)),
+            height: group.getBoundingClientRect().height,
+        }));
+        expect(await state()).toEqual({ cut: 0, stacked: false, rows: [22, 22, 22], height: 24 });
+        // A classic scroll bar takes 16px of the pane.
+        await tab.evaluate((el) => { (el as HTMLElement).style.width = "303px"; });
+        await expect(kinds).toHaveAttribute("data-stack", "");
+        await settled(page);
+        // Three 28px rows ruled apart, inside the group's edge.
+        expect(await state()).toEqual({ cut: 0, stacked: true, rows: [28, 29, 29], height: 88 });
+        await tab.evaluate((el) => { (el as HTMLElement).style.width = ""; });
+        await expect(kinds).not.toHaveAttribute("data-stack", "");
     });
 
     test("C6: every part of the tab stands a whole number of pixels under its top", async ({ page }) => {

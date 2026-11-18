@@ -20,6 +20,8 @@
  *   its words and a chevron.
  * - **seg** — a segment group filling its row: 32px of icons, or 24px of mono
  *   10.5 / 600 capitals; the chosen segment on `--brand-tint` in `--brand-dd`.
+ *   A group whose names do not fit its row — a pane narrowed by its scroll bar
+ *   — stacks them, one 28px row each, so no name is ever cut.
  * - **pill** — what a well holds: 32px, its field's kind, its name, a note in
  *   mono 10, its aggregate on `--paper-3` and its remove; a field its source
  *   lacks dashed in `--neg`. An empty place is the dashed **wellSlot**, which
@@ -41,6 +43,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { fieldFocusRing, fieldInRingedControl } from "../field-chrome.js";
 import { centredLine, oneLineBox } from "../one-line-box.js";
 
 /** One of the body's sections, ruled off from the next. */
@@ -56,13 +59,14 @@ const SECTION = {
 /**
  * A field or a well an edit changed, until the page is saved (EDT-10): tinted
  * with the brand as a changed field of a form is (the `fieldForm` recipe), the
- * tint spread past it without moving it.
+ * tint spread past it without moving it — 4px, inside the 12px between the
+ * tab's fields, so two changed fields' tints never meet.
  */
 const CHANGED = {
     borderRadius: "{radii.sm}",
     "&[data-changed]": {
         background: "brandTint",
-        boxShadow: "0 0 0 6px {colors.brandTint}",
+        boxShadow: "0 0 0 4px {colors.brandTint}",
     },
 } as const;
 
@@ -248,8 +252,9 @@ export const studioInspectorSlotRecipe = defineSlotRecipe({
             textAlign: "start",
             cursor: "pointer",
             _hover: { background: "bg.canvas" },
-            _focusVisible: { outline: "none", borderColor: "brandMark", boxShadow: "focus" },
-            "&[aria-expanded=true]": { borderColor: "brandMark", boxShadow: "focus" },
+            /* The one focus ring, as every field of a form wears it — and while its choices are open. */
+            _focusVisible: fieldFocusRing,
+            "&[aria-expanded=true]": fieldFocusRing,
         },
         boxIcon: { ...icon("14px"), color: "fg.subtle" },
         /* Its words: Inter 13 on a 16px line, 7px under the box's edge. */
@@ -274,6 +279,8 @@ export const studioInspectorSlotRecipe = defineSlotRecipe({
             "&[data-size=sm]": { height: "{spacing.6}" },
             /* Inside a pill — a combo's value's side — it is as wide as its words. */
             "&[data-fit]": { width: "auto", flex: "none", gridAutoColumns: "auto" },
+            /* Its names wider than its row: one row a segment. */
+            "&[data-stack]": { display: "flex", flexDirection: "column", height: "auto" },
         },
         segItem: {
             display: "flex",
@@ -286,8 +293,9 @@ export const studioInspectorSlotRecipe = defineSlotRecipe({
             fontSize: "{fontSizes.label.md}",
             fontWeight: "{fontWeights.semibold}",
             letterSpacing: "0.16em",
-            /* One line of words at the middle of the 22px inside a small group's edge, or the 30px inside a group of icons'. */
-            lineHeight: centredLine([22, 30], 14),
+            /* One line of words at the middle of the 22px inside a small group's edge, the 30px inside a group of icons', or a
+             * stacked group's 28px row. */
+            lineHeight: centredLine([22, 28, 30], 14),
             textTransform: "uppercase",
             whiteSpace: "nowrap",
             color: "fg.subtle",
@@ -305,6 +313,17 @@ export const studioInspectorSlotRecipe = defineSlotRecipe({
             /* The segments sit edge to edge inside the group's edge: the ring is drawn inside the segment. */
             "&:focus-visible": { outlineWidth: "2px", outlineStyle: "solid", outlineColor: "border.focus", outlineOffset: "-2px" },
             "[data-fit] > &": { paddingInline: "6px" },
+            /* Stacked: a 28px row, its icon and name from the start, ruled from the row over it; the group's corners on its
+             * first and last rows. */
+            "[data-stack] > &": {
+                flex: "none", height: "28px", justifyContent: "flex-start", paddingInline: "10px", borderRadius: "0",
+                /* A row under another: its rule over its own 28px, so its name still starts on a whole pixel. */
+                "&:not(:first-of-type)": {
+                    height: "29px", borderInlineStartWidth: "0", borderTopWidth: "1px", borderTopStyle: "solid", borderTopColor: "border.strong",
+                },
+                "&:first-of-type": { borderStartStartRadius: "5px", borderStartEndRadius: "5px" },
+                "&:last-of-type": { borderEndStartRadius: "5px", borderEndEndRadius: "5px" },
+            },
         },
         /* A visual's wells: one section, 14px apart. */
         wells: { ...SECTION, gap: "14px" },
@@ -461,13 +480,16 @@ export const studioInspectorSlotRecipe = defineSlotRecipe({
             borderColor: "border.strong",
             borderRadius: "{radii.md}",
             background: "bg.surface",
-            _focusWithin: { borderColor: "brandMark", boxShadow: "focus" },
+            _focusWithin: fieldFocusRing,
         },
         fieldSearchIcon: { ...icon("14px"), color: "fg.subtle" },
+        /* What is typed: the box around it carries the one focus ring, so it draws none of its own. */
         fieldSearchInput: {
-            flex: 1, minWidth: 0, alignSelf: "stretch", background: "transparent", outline: "none",
+            flex: 1, minWidth: 0, alignSelf: "stretch", background: "transparent", outline: "none", appearance: "none",
             fontFamily: "body", fontSize: "{fontSizes.body}", color: "fg",
             _placeholder: { color: "fg.subtle" },
+            ...fieldInRingedControl,
+            "&::-webkit-search-cancel-button": { display: "none" },
         },
         fieldRows: { display: "flex", flexDirection: "column", minWidth: 0, margin: "0", padding: "0", listStyle: "none" },
         /* One field: 32px — its grip, its kind, its name, its unit and a check once a well holds it. */
