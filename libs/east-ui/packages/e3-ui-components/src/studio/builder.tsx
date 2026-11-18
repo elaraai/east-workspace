@@ -49,7 +49,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box, Button as ChakraButton, HStack as ChakraHStack, Menu as ChakraMenu, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { faEllipsis } from "@fortawesome/free-solid-svg-icons";
 import {
-    ArrayType, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, toEastTypeValue, variant, type ValueTypeOf,
+    ArrayType, StringType, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, toEastTypeValue, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { Editing, EditingDraftFieldType, SnapGrid } from "@elaraai/east-ui/internal";
 import {
@@ -112,6 +112,7 @@ const decodeBatch = decodeBeast2For(Editing.Types.ChangeSet(StudioCellType));
 const CELL_TYPE = toEastTypeValue(StudioCellType);
 const CELL_DRAFT_TYPE = toEastTypeValue(EditingDraftFieldType(StudioCellType));
 const keyEqual = equalFor(StudioKeyType);
+const stringEqual = equalFor(StringType);
 const printKey = printFor(StudioKeyType);
 /** How the builder's own open page is kept, and one page told from another. */
 const OPEN_PAGE = openCodec(StudioKeyType);
@@ -161,19 +162,13 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
     const first = useMemo((): StudioKey => {
         if (pages !== undefined) {
             for (const [key, entry] of pages) {
-                if (key.project === project && entry.type === "page") return key;
+                if (stringEqual(key.project, project) && entry.type === "page") return key;
             }
         }
         return { project, page: "" };
     }, [pages, project]);
-    // The page it kept stands while the record holds it in this project.
-    const stands = useCallback((kept: StudioKey) => {
-        if (pages === undefined || kept.project !== project) return false;
-        for (const [key] of pages) {
-            if (keyEqual(key, kept)) return true;
-        }
-        return false;
-    }, [pages, project]);
+    // The page it kept from before stands while the record holds it in this project.
+    const stands = useCallback((kept: StudioKey) => pages !== undefined && stringEqual(kept.project, project) && pages.has(kept), [pages, project]);
     const [open, openAnother] = useOpen({
         codec: OPEN_PAGE, storageKey: `${storageKey}.page`, given: value.page, first, stands,
         onOpen: value.onOpen.type === "some" ? value.onOpen.value : undefined,
@@ -204,13 +199,17 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
     const [collapsed, setCollapsed] = useState({ start: false, end: false });
     // Save as template's popover, opened from the ⋯ chip's menu (#1229).
     const [naming, setNaming] = useState(false);
-    // A page opened from anywhere — the palette, the host — opens with nothing selected.
+    // A page opened from anywhere — the palette, the host — opens with nothing selected, nothing being placed, and in a
+    // phone's frame its palette's view closed. A page asked for moves nothing until it opens: a host that holds the page
+    // may open it later, or not at all.
     const shown = useRef(openName);
     useEffect(() => {
         if (shown.current === openName) return;
         shown.current = openName;
         setUi(NOTHING_SELECTED);
-    }, [openName]);
+        setPlacing(undefined);
+        if (phone) setCollapsed((was) => (was.start ? was : { ...was, start: true }));
+    }, [openName, phone]);
 
     // The open page's placements as saved, and as the canvas draws them (its
     // drafts in place).
@@ -426,13 +425,16 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
         const placement = cells.find((c) => c.component === component);
         if (placement !== undefined) setUi({ selected: some(placement.key), request: none });
     }, [cells]);
-    // A page's click asks for it: the builder's own opens, a host's is the host's to change — with nothing selected.
+    // A page's click asks for it: the builder's own opens, a host's is the host's to change. What follows a page opening —
+    // nothing selected, the phone's view closed — follows once it has, above; the page already open has nothing to wait
+    // for, so a phone's tap on it closes the view at once.
     const openPage = useCallback((page: string) => {
+        if (keyEqual(open, { project, page })) {
+            if (phone) setCollapsed((was) => (was.start ? was : { ...was, start: true }));
+            return;
+        }
         openAnother({ project, page });
-        setUi(NOTHING_SELECTED);
-        setPlacing(undefined);
-        setCollapsed((was) => (phone ? { ...was, start: true } : was));
-    }, [openAnother, project, phone]);
+    }, [openAnother, open, project, phone]);
     // A card's tap on a phone: the view closes and placing starts (ST22).
     const onPage = useMemo(() => new Set(cells.map((c) => c.component)), [cells]);
     const palettePhone = useMemo(() => (!phone ? undefined : {
@@ -445,7 +447,7 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
     }), [phone, onPage, keys.components]);
     const paletteIds = useMemo(() => ({ components: keys.components, pages: keys.pages }), [keys.components, keys.pages]);
     const palette = useStudioPalette({
-        components: listed, cards, pages: projectPages, open: open.project === project ? open.page : "", ids: paletteIds,
+        components: listed, cards, pages: projectPages, open: stringEqual(open.project, project) ? open.page : "", ids: paletteIds,
         onSelect: selectFirst, onOpen: openPage, storageKey, phone: palettePhone,
     });
 

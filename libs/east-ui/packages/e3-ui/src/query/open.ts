@@ -14,12 +14,14 @@
 
 import {
     East,
+    Expr,
     OptionType,
     StringType,
     StructType,
     VariantType,
     none,
     variant,
+    type EastType,
     type ExprType,
     type SubtypeExprOrValue,
 } from "@elaraai/east";
@@ -58,20 +60,58 @@ function openSaved(name: SubtypeExprOrValue<StringType>): ExprType<QueryOpenType
 }
 
 /**
+ * The new query on a data source: one a data source, its `id` made from the
+ * source's name — `on:orders` — so it is the same query each time, the drafts
+ * made in it are found again, and it is no other new query: neither one a
+ * page started itself, nor the one on a data source of another name.
+ *
+ * @remarks
+ * `Query.open.on(source)` is this, and so is the query a builder that holds
+ * its own open query begins with, on its first data source — its renderer
+ * compiles this — so the two are one query.
+ */
+export const openOnSource = East.function([StringType], QueryOpenType, (_$, source) => East.value(variant("new", {
+    id: East.str`on:${source}`,
+    source,
+    from: none,
+}), QueryOpenType));
+
+/**
  * A new query on a data source, as the query open in a builder. It is the
  * same new query each time for one data source, so the drafts made in it are
- * found again.
+ * found again ({@link openOnSource}).
  *
  * @param source - The data source's name, as a query reads it (`orders` for `.orders`)
  * @returns The open query: a new one on the data source
  *
  * @example
  * ```tsx
- * <Query.Builder queries={saved} datasets={{ orders, customers }} query={Query.open.on("customers")} />
+ * // The surface holds the open query: a new one on customers to begin with.
+ * const open = $.let(State.bind([Query.Types.Open], "queries.open", Query.open.on("customers")));
+ * const go   = $.const(East.function([Query.Types.Open], NullType, ($2, next) => { $2(open.write(next)); }));
+ * return <Query.Builder queries={saved} datasets={{ orders, customers }} query={open.read()} onOpen={go} />;
  * ```
  */
 function openOn(source: SubtypeExprOrValue<StringType>): ExprType<QueryOpenType> {
-    return East.value(variant("new", { id: source, source, from: none }), QueryOpenType);
+    return openOnSource(source);
+}
+
+/**
+ * The query a host gives a builder or a query library, as the open query it
+ * is: a name — text, or an expression of it — is the saved query of that
+ * name; anything else is the open query as given.
+ *
+ * @param query - A saved query's name, or the open query
+ * @returns The open query
+ */
+export function openOf(query: SubtypeExprOrValue<StringType | QueryOpenType>): ExprType<QueryOpenType> {
+    if (typeof query === "string") return openSaved(query);
+    if (query instanceof Expr) {
+        return (Expr.type(query as unknown as Expr) as EastType).type === "String"
+            ? openSaved(query as unknown as ExprType<StringType>)
+            : query as unknown as ExprType<QueryOpenType>;
+    }
+    return East.value(query, QueryOpenType);
 }
 
 /**

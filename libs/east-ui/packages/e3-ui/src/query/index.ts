@@ -14,7 +14,7 @@ import { DataSourceType } from "../bind/sources.js";
 import { nameWriteRefusal } from "../studio/library.js";
 import { QueryBuilder, QueryBuilderComponent, QueryBuilderPayloadType, QueryResultViewType, QueryViewType } from "./builder.js";
 import { QueryLibrary, QueryLibraryComponent, QueryLibraryPayloadType } from "./library.js";
-import { QueryOpenType, queryOpen } from "./open.js";
+import { QueryOpenType, openOnSource, queryOpen } from "./open.js";
 import { QueriesHandleType, QueryRootBoundType, rootBound, saveQuery } from "./queries.js";
 import { savedQueriesValue } from "./saved.js";
 import {
@@ -73,7 +73,7 @@ export {
     QueryLibraryPayloadType,
     type QueryLibraryOptions,
 } from "./library.js";
-export { QueryOpenType, queryOpen } from "./open.js";
+export { QueryOpenType, openOnSource, queryOpen } from "./open.js";
 
 /** The query builder's East types — what a solution declares its saved queries record with. */
 export interface QueryTypes {
@@ -173,6 +173,8 @@ export interface QueryInternalNamespace extends Omit<QueryNamespace, "Types"> {
     nameWriteRefusal: typeof nameWriteRefusal;
     /** Whether a saved query's data sources are bound where it would open, and if not, why not ({@link rootBound}). */
     rootBound: typeof rootBound;
+    /** The new query on a data source — what `Query.open.on` gives, and a builder that holds its own begins with ({@link openOnSource}). */
+    openOn: typeof openOnSource;
     /** The `QueryBuilder` carrier ({@link QueryBuilderComponent}). */
     BuilderComponent: typeof QueryBuilderComponent;
     /** The `QueryLibrary` carrier ({@link QueryLibraryComponent}). */
@@ -204,6 +206,7 @@ export const QueryInternal: QueryInternalNamespace = {
     save: saveQuery,
     nameWriteRefusal,
     rootBound,
+    openOn: openOnSource,
     BuilderComponent: QueryBuilderComponent,
     LibraryComponent: QueryLibraryComponent,
     Types: {

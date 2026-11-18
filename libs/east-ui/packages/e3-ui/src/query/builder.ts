@@ -20,8 +20,6 @@
 
 import {
     ArrayType,
-    East,
-    Expr,
     FunctionType,
     OptionType,
     StringType,
@@ -30,7 +28,6 @@ import {
     VariantType,
     none,
     some,
-    type EastType,
     type ExprType,
     type SubtypeExprOrValue,
 } from "@elaraai/east";
@@ -43,7 +40,7 @@ import {
 } from "@elaraai/east-ui/internal";
 import { DataSourceType, dataSources, type BoundSource } from "../bind/sources.js";
 import { viewsProp, type ViewsProp } from "../utils/views.js";
-import { QueryOpenType, queryOpen } from "./open.js";
+import { QueryOpenType, openOf } from "./open.js";
 import { QueriesHandleType, type QueriesHandle } from "./queries.js";
 
 // ============================================================================
@@ -124,24 +121,6 @@ export const QueryBuilderComponent = EastUI.component("QueryBuilder", QueryBuild
 // ============================================================================
 // <Query.Builder>
 // ============================================================================
-
-/**
- * The query a builder is given, as the open query it is: a name — text, or an
- * expression of it — is the saved query of that name; anything else is the
- * open query as given.
- *
- * @param query - A saved query's name, or the open query
- * @returns The open query
- */
-function openOf(query: SubtypeExprOrValue<StringType | QueryOpenType>): ExprType<QueryOpenType> {
-    if (typeof query === "string") return queryOpen.saved(query);
-    if (query instanceof Expr) {
-        return (Expr.type(query as unknown as Expr) as EastType).type === "String"
-            ? queryOpen.saved(query as unknown as ExprType<StringType>)
-            : query as unknown as ExprType<QueryOpenType>;
-    }
-    return East.value(query, QueryOpenType);
-}
 
 /**
  * `<Query.Builder>` options.

@@ -67,6 +67,7 @@ import type { QueryRoot } from "./one-shot.js";
 import { newQuery, type QueryOpen } from "./open-query.js";
 import type { SavedQueries, SavedQuery } from "./session.js";
 import { useQueryWords } from "./words.js";
+import { tellHost } from "../shared/open.js";
 
 // A step's icon is a Font Awesome name; register the free-solid set so it resolves by name (idempotent).
 iconLibrary.add(fas);
@@ -294,7 +295,7 @@ function QueryLibraryView({ value, record, root, words, storageKey }: QueryLibra
     const id = useId();
     const builder = value.id.type === "some" ? value.id.value : undefined;
     const keys = useMemo(() => queryKeys(builder), [builder]);
-    const tellHost = value.onOpen;
+    const onOpen = value.onOpen;
 
     // This viewer's recent runs, the builder's; and the query its host says is open in the builder.
     const { recent } = useRecentQueries(keys.recent);
@@ -353,7 +354,7 @@ function QueryLibraryView({ value, record, root, words, storageKey }: QueryLibra
     const isOpenRun = useCallback((run: SavedQuery) => open.type === "some" && open.value.type === "new" && open.value.value.from.type === "some"
         && runEqual({ ...open.value.value.from.value, saved_at: run.saved_at }, run), [open]);
 
-    // A card's click tells the host the query asked for, which shows it in its builder.
+    // A card's click tells the host the query asked for — in a turn of its own — which shows it in its builder.
     const onOpenCard = useCallback((key: string) => {
         const card = byKey.get(key);
         if (card === undefined) return;
@@ -363,16 +364,16 @@ function QueryLibraryView({ value, record, root, words, storageKey }: QueryLibra
         }
         setNotice(undefined);
         const target = card.run ? card.opens : card.query;
-        tellHost(target !== undefined ? variant("saved", target.name) : newQuery(card.about.source, card.query));
-    }, [byKey, tellHost]);
+        tellHost(onOpen, target !== undefined ? variant("saved", target.name) : newQuery(card.about.source, card.query));
+    }, [byKey, onOpen]);
 
     // "+ New query on …": the data source the pane shows, else the first bound.
     const startOn = shown.kind === "source" ? shown.name : firstSource;
     const onNew = useCallback(() => {
         if (startOn === "") return;
         setNotice(undefined);
-        tellHost(newQuery(startOn));
-    }, [startOn, tellHost]);
+        tellHost(onOpen, newQuery(startOn));
+    }, [startOn, onOpen]);
 
     // Each card: its name, its description, what it reads and gives, and its action; the reason it can't open, in the warning tone.
     const items = useMemo(() => {

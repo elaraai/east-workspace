@@ -48,7 +48,7 @@ import {
     faArrowDownAZ, faArrowDownZA, faCaretDown, faCheck, faChevronDown, faFolder, faFolderOpen, faMagnifyingGlass, faPlus, faXmark,
     type IconDefinition,
 } from "@fortawesome/free-solid-svg-icons";
-import { none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { StringType, equalFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { StudioCellType, StudioLibraryComponent } from "@elaraai/e3-ui/internal";
 import {
     BannerView, EastChakraLibrary, LibraryLayoutSwitch, SnapGridTiles, Toolbar, implementUIComponent, useFormatters,
@@ -56,6 +56,7 @@ import {
 } from "@elaraai/east-ui-components";
 
 import { NamePopover } from "../shared/name-popover.js";
+import { tellHost } from "../shared/open.js";
 import { useStudioMessages, type StudioMessages } from "./messages.js";
 import { studioEast } from "./studio-east.js";
 
@@ -83,6 +84,8 @@ const SORTS: ReadonlyArray<{ key: Sort; icon: IconDefinition; name: (m: StudioMe
 
 /** The template picker's value for Blank grid — no template's name can be it. */
 const BLANK = "\u0000blank";
+
+const stringEqual = equalFor(StringType);
 
 /** Props of {@link EastChakraStudioLibrary}. */
 export interface EastChakraStudioLibraryProps {
@@ -161,7 +164,7 @@ export const EastChakraStudioLibrary = memo(function EastChakraStudioLibrary({ v
     const east = studioEast();
     const { pages: handle, components } = value;
     const home = value.project;
-    const tellHost = value.onOpen;
+    const onOpen = value.onOpen;
 
     // The record, read where the page library renders, and again when it moves.
     const read = useCallback(() => handle.read(), [handle]);
@@ -204,14 +207,14 @@ export const EastChakraStudioLibrary = memo(function EastChakraStudioLibrary({ v
         const names = new Set<string>();
         if (records !== undefined) {
             for (const [key] of records) {
-                if (key.project === project) names.add(key.page);
+                if (stringEqual(key.project, project)) names.add(key.page);
             }
         }
         return names;
     }, [records, project]);
 
-    // "Open in builder →": the host is told, and shows the page in its builder.
-    const openPage = useCallback((name: string) => { tellHost({ project, page: name }); }, [project, tellHost]);
+    // "Open in builder →": the host is told, in a turn of its own, and shows the page in its builder.
+    const openPage = useCallback((name: string) => { tellHost(onOpen, { project, page: name }); }, [project, onOpen]);
 
     // A template's card starts a new page from it, Blank grid's from nothing,
     // and the dashed card from nothing too — each opening the popover under
@@ -314,7 +317,7 @@ export const EastChakraStudioLibrary = memo(function EastChakraStudioLibrary({ v
     const nt = everyTemplate.length + 1;
     const shown = pageRows.length;
     // The page the host says is open in its builder, while this is its project.
-    const current = value.page.type === "some" && value.page.value.project === project ? value.page.value.page : "";
+    const current = value.page.type === "some" && stringEqual(value.page.value.project, project) ? value.page.value.page : "";
 
     // The search box at a width the toolbar folds it to — one element in
     // every form, so the field keeps its focus and its text as the row folds.

@@ -88,7 +88,7 @@ describe("<Query.Builder> — the shell (#935)", () => {
     test("it shows the query its host holds — a new query on the first data source here — and a saved query its host opens, from the record it reads", async () => {
         const { container } = await h.mountBuilder();
         const builder = () => container.querySelector<HTMLElement>("[data-query-builder]")!;
-        expect(builder().getAttribute("data-query-open")).toBe(querySourceId(variant("new", { id: "first", source: "orders", from: none })));
+        expect(builder().getAttribute("data-query-open")).toBe(`query.new:"on:orders"`);
         // The pane's rail counts the open query's steps.
         const rail = () => builder().querySelector<HTMLElement>("[data-collapsed] [title=Query]")!.textContent;
         await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Collapse Query" })); });
@@ -147,9 +147,21 @@ describe("<Query.Builder> — the query it shows (#1668)", () => {
         expect(sharedEntry()).toBeUndefined();
     });
 
+    test("a tab's notice is that opening's alone: the same query its host opens again later arrives with the builder's own words", async () => {
+        await h.mountBuilder({ query: "Big orders" });
+        await pressSaved("Order count");
+        expect(notices()).toEqual(["Opened “Order count” from the library."]);
+        // The host opens another, then the first again: no tab asked for it this time.
+        await openQuery(variant("saved", "Big orders"));
+        expect([shown(), notices()]).toEqual([`query.saved:"Big orders"`, ["Opened “Big orders”."]]);
+        await openQuery(variant("saved", "Order count"));
+        expect([shown(), notices()]).toEqual([`query.saved:"Order count"`, ["Opened “Order count”."]]);
+    });
+
     test("given no query, it holds its own — a new query on the first data source to begin with: its Library tab opens a query in it, and a reload shows that query again", async () => {
         await h.mountBuilder({ own: true });
-        expect(shown()).toBe(querySourceId(firstQuery("orders")));
+        // The new query on its first data source: the one `Query.open.on("orders")` gives a host.
+        expect(shown()).toBe(`query.new:"on:orders"`);
         await pressSaved("Order count");
         expect([shown(), notices()]).toEqual([`query.saved:"Order count"`, ["Opened “Order count” from the library."]]);
         // Its own, never a host's or a shared entry.
@@ -170,6 +182,17 @@ describe("<Query.Builder> — the query it shows (#1668)", () => {
         await h.seed([BIG_ORDERS]);
         await h.mountBuilder({ own: true });
         expect(shown()).toBe(querySourceId(firstQuery("orders")));
+    });
+
+    test("the query it holds open stays open when it is deleted elsewhere: the builder says it is gone, never that a new one was started", async () => {
+        await h.mountBuilder({ own: true });
+        await pressSaved("Order count");
+        expect(shown()).toBe(`query.saved:"Order count"`);
+        // Another session removes Order count while it is open here.
+        await h.seed([BIG_ORDERS]);
+        await settle();
+        expect(screen.getByText("“Order count” isn't saved here")).toBeTruthy();
+        expect(document.querySelector("[data-query-builder]")).toBeNull();
     });
 });
 
@@ -295,7 +318,7 @@ describe("<Query.Builder> — the editing session (#935)", () => {
 
     test("E6: a query never saved is named on its first Apply, rather than saved", async () => {
         const { state, container } = await mountSession();
-        expect(container.querySelector("[data-open]")!.getAttribute("data-open")).toBe(`query.new:"first"`);
+        expect(container.querySelector("[data-open]")!.getAttribute("data-open")).toBe(`query.new:"on:orders"`);
         await gesture(state, withStep(state(), "limit"), "Keep the first");
         expect(enabled("Save")).toBe(true);
         await press("Save");

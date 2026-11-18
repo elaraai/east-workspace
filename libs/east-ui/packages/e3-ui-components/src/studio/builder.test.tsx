@@ -28,7 +28,7 @@
 import { describe, test, expect, beforeEach, afterEach, beforeAll, afterAll, vi } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { East, NullType, SortedMap, applyFor, compareFor, decodeBeast2For, encodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
-import { Reactive, State, Text, UIComponentType } from "@elaraai/east-ui/internal";
+import { Reactive, Stack, State, Text, UIComponentType } from "@elaraai/east-ui/internal";
 import { StateRuntime, editingMessages } from "@elaraai/east-ui-components";
 import { foreignIcons, markOf } from "@elaraai/east-ui-components/testing";
 import { Record, Studio, StudioKeyType, StudioPagesType, builderKeys } from "@elaraai/e3-ui/internal";
@@ -189,6 +189,18 @@ const ownBuilder = {
         const asked = $.let(State.bind([StudioKeyType], ASKED, { project: "", page: "" }));
         const note = $.const(East.function([StudioKeyType], NullType, ($2, key) => { $2(asked.write(key)); }));
         return Studio.Builder({ pages: record, components: listed, project: "ops", onOpen: note });
+    }))),
+};
+
+/** Two builders on one surface, each named and given no page: each holds its own. */
+const twoBuilders = {
+    fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+        const listed = $.let(components);
+        const record = $.let(Record.bind(ex.studioPages, ["patch"]));
+        return Stack.VStack([
+            Studio.Builder({ pages: record, components: listed, project: "ops", id: "left" }),
+            Studio.Builder({ pages: record, components: listed, project: "ops", id: "right" }),
+        ]);
     }))),
 };
 
@@ -406,9 +418,12 @@ describe("<Studio.Builder> — the page it shows (#1668)", () => {
     test("given its page, it shows that page and changes only when its host changes it: its palette's Pages tab tells the host the page asked for, and opens nothing itself", async () => {
         const { container } = await h.mount(heldBuilder, { storageKey: "studio-builder" });
         expect(tiles(container)).toEqual(["p-kpi", "p-trend", "p-bars"]);
+        await select(container, "p-trend");
         await pressPage(container, "Weekly");
         // The host is told, once, the page asked for.
         expect(held(ASKED)).toEqual({ project: "ops", page: "b-weekly" });
+        // No page opened, so nothing else moved: what was selected is selected still.
+        expect(tile(container, "p-trend").hasAttribute("data-selected")).toBe(true);
         // It holds its page still, so the builder shows the Regional yet, and marks it open.
         expect(tiles(container)).toEqual(["p-kpi", "p-trend", "p-bars"]);
         expect(cardOf(container, "Regional").hasAttribute("data-placed")).toBe(true);
@@ -457,14 +472,17 @@ describe("<Studio.Builder> — the page it shows (#1668)", () => {
         expect(tiles(again.container)).toEqual(["c-kpi", "c-trend"]);
     });
 
-    test("two builders on one surface, each given no page, each hold their own", async () => {
-        const first = await h.mount(ownBuilder, { storageKey: "studio-builder-a" });
-        await pressPage(first.container, "Weekly");
-        expect(tiles(first.container)).toEqual(["w-orders"]);
+    test("two builders on one surface, each given no page, each hold their own: a page one opens is not the other's, then or after a reload", async () => {
+        /** Each builder's tiles, in the surface's order. */
+        const shown = (c: HTMLElement) => [...c.querySelectorAll<HTMLElement>("[data-studio-builder]")].map(tiles);
+        const { container } = await h.mount(twoBuilders, { storageKey: "studio-builders" });
+        expect(shown(container)).toEqual([["c-kpi", "c-trend"], ["c-kpi", "c-trend"]]);
+        // The first opens the Weekly: the second, beside it, hears nothing of it.
+        await pressPage(container.querySelector<HTMLElement>("[data-studio-builder]")!, "Weekly");
+        expect(shown(container)).toEqual([["w-orders"], ["c-kpi", "c-trend"]]);
         reloadPage();
-        // Another builder, under a storage key of its own, starts at the project's first.
-        const second = await h.mount(ownBuilder, { storageKey: "studio-builder-b" });
-        expect(tiles(second.container)).toEqual(["c-kpi", "c-trend"]);
+        const again = await h.mount(twoBuilders, { storageKey: "studio-builders" });
+        expect(shown(again.container)).toEqual([["w-orders"], ["c-kpi", "c-trend"]]);
     });
 });
 
