@@ -55,7 +55,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
-import { StringType, checkJq, equalFor, equivalentFor, none, variant, type ValueTypeOf, type option } from "@elaraai/east";
+import { StringType, checkJq, equalFor, equivalentFor, variant, type ValueTypeOf, type option } from "@elaraai/east";
 import { QueryBuilderComponent, QueryBuilderPayloadType, queryKeys } from "@elaraai/e3-ui/internal";
 import {
     BannerView, BuilderFrame, EmptyStateView, NARROW_FRAME, SessionBanners, historyShortcut, historyToolbarItem, implementUIComponent, sessionErrorText, typedInto, useContainerWidth, usePersistedState,
@@ -77,6 +77,7 @@ import type { QueryResult, QueryRoot } from "./one-shot.js";
 import { LibraryTab } from "./library-tab.js";
 import { OPEN_QUERY, newQuery, querySourceId, type OpenQueryWrite, type QueryArrival, type QueryOpen } from "./open-query.js";
 import { usePartStyles, type Styles } from "./parts.js";
+import { queryEast } from "./query-east.js";
 import { QueryTabPanel } from "./query-tab.js";
 import { QueryLiveBand, phoneQueryToolbar } from "./phone.js";
 import { QueryPhoneView } from "./phone-steps.js";
@@ -164,10 +165,11 @@ export const EastChakraQueryBuilder = memo(function EastChakraQueryBuilder({ val
     // The root: each bound data source, by its name.
     const root = useQueryRoot(datasets, words);
 
-    // The open query: its host's, else its own — a new query on the first data source until another is opened.
+    // The open query: its host's, else its own — the new query on the first data source until another is opened, the one
+    // `Query.open.on` gives a host for that source.
     const firstSource = datasets[0]?.name ?? "";
-    const first = useMemo((): QueryOpen => variant("new", { id: "first", source: firstSource, from: none }), [firstSource]);
-    // The query it kept stands while it is still saved, or its data source still bound.
+    const first = useMemo((): QueryOpen => queryEast().openOn(firstSource), [firstSource]);
+    // The query it kept from before stands while it is still saved, or its data source still bound.
     const stands = useCallback((kept: QueryOpen) => {
         if (record === undefined || typeof root === "string") return false;
         return kept.type === "saved" ? record.has(kept.value) : root.entries.some((entry) => nameEqual(entry.name, kept.value.source));
@@ -183,6 +185,11 @@ export const EastChakraQueryBuilder = memo(function EastChakraQueryBuilder({ val
         setAsked({ sourceId: querySourceId(next), text: notice });
         openAnother(next);
     }, [openAnother]);
+    // What a tab asked for is that opening's alone: once another query opens it is forgotten, so the same query opened
+    // again later — by its host — arrives with the builder's own words, never an old tab's.
+    useEffect(() => {
+        setAsked((was) => (was !== undefined && was.sourceId !== sourceId ? undefined : was));
+    }, [sourceId]);
     // The notice the open query arrives with: its own tab's when one of them asked for it, else — its host opened it —
     // the builder's own words.
     const arrival = useMemo((): QueryArrival | undefined => {

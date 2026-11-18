@@ -184,7 +184,7 @@ describe("<Query.Builder> (#935)", () => {
             payloadOf(({ queries, customers }) => Query.Builder({ queries, datasets: { customers }, query, onOpen: heard })).query;
         assert.ok(opens(given(East.value("Order count", StringType)), some(variant("saved", "Order count"))), "an expression of a name");
         assert.ok(opens(given(Query.open.saved("Big orders")), some(variant("saved", "Big orders"))), "Query.open.saved");
-        assert.ok(opens(given(Query.open.on("customers")), some(variant("new", { id: "customers", source: "customers", from: none }))), "Query.open.on");
+        assert.ok(opens(given(Query.open.on("customers")), some(variant("new", { id: "on:customers", source: "customers", from: none }))), "Query.open.on");
         assert.ok(opens(given(variant("saved", "Big orders")), some(variant("saved", "Big orders"))), "the open query, as a value");
     });
 

@@ -65,21 +65,27 @@ changes or removes one runs no migration.
 
 ```tsx
 // The builder, for operators: it reads the pages and writes their patch.
+// The surface holds the open page, and changes it when the builder's Pages tab asks for another.
 export const builder = ui("builder", [], East.function([], UIComponentType, _$ => (
     <Reactive>{$ => {
         const components = $.let([kpiRail, breakdownBars, revenueTrend, ordersByWeek, visitsSparkline, assignmentBoard, shiftRoster]);
         const record     = $.let(Record.bind(pages, [pagesPatch]));
-        return <Studio.Builder pages={record} components={components} project="Ops console"
+        const open       = $.let(State.bind([Studio.Types.Key], "studio.open", { project: "Ops console", page: "Overview" }));
+        const go         = $.const(East.function([Studio.Types.Key], NullType, ($2, key) => { $2(open.write(key)); }));
+        return <Studio.Builder pages={record} components={components} project="Ops console" page={open.read()} onOpen={go}
             env="Staging" audience="Field ops · 24 users" rollout="Immediate" />;
     }}</Reactive>
 )));
 
-// The page library: the project's pages and templates, and where new pages start.
+// The page library: the project's pages and templates, and where new pages start. It marks the open page,
+// and tells the surface which is asked for next — here the State the builder reads; across routes, a navigation.
 export const library = ui("library", [], East.function([], UIComponentType, _$ => (
     <Reactive>{$ => {
         const components = $.let([kpiRail, breakdownBars, revenueTrend, ordersByWeek, visitsSparkline, assignmentBoard, shiftRoster]);
         const record     = $.let(Record.bind(pages, [pagesPatch]));
-        return <Studio.Library pages={record} components={components} project="Ops console" />;
+        const open       = $.let(State.bind([Studio.Types.Key], "studio.open", { project: "Ops console", page: "Overview" }));
+        const go         = $.const(East.function([Studio.Types.Key], NullType, ($2, key) => { $2(open.write(key)); }));
+        return <Studio.Library pages={record} components={components} project="Ops console" page={open.read()} onOpen={go} />;
     }}</Reactive>
 )));
 
