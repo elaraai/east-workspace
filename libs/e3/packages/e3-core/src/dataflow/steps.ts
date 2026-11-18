@@ -48,7 +48,7 @@ import {
   type ResolveInputsOptions,
 } from '../dataflow.js';
 import { recordSourceRun } from '../record-load.js';
-import { executionSlot, sourceExecution, sourceLoadSlots } from '../record-slots.js';
+import { executionSlot, sourceExecution, sourceHoldsDelivery, sourceLoadSlots } from '../record-slots.js';
 import { resolveRecord } from '../records.js';
 import { workspaceSetDatasetByHash } from '../trees.js';
 import {
@@ -1292,12 +1292,7 @@ export async function stepPrepareLoad(
   const loadHash = declared.value;
   const held = await storage.datasets.read(state.repo, state.workspace, record.refPath);
   if (held === null || held.type !== 'value') throw new Error(`record ${record.selfKeypath} holds no state`);
-  const slots = sourceLoadSlots(source);
-  const heldDelivery = held.value.versions.get(slots.delivery);
-  const heldLoad = held.value.versions.get(slots.load);
-  const loadedBy = heldDelivery !== undefined && heldLoad !== undefined && sameObject(heldDelivery, delivery) && sameObject(heldLoad, loadHash)
-    ? sourceExecution(held.value.versions, source)
-    : null;
+  const loadedBy = sourceHoldsDelivery(held.value.versions, source, delivery, loadHash) ? sourceExecution(held.value.versions, source) : null;
   const base = held.value.versions.get(record.selfKeypath);
 
   // 2. The record holds this delivery already, under this load

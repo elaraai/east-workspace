@@ -245,6 +245,34 @@ export function sourceLastDelivery(versions: ReadonlyMap<string, string>, source
   };
 }
 
+/**
+ * Whether a record holds a delivery of a source already, loaded under a load:
+ * its ref's `$load.<source>` names the delivery, and `$load.<source>.load`
+ * the load. The same delivery under another load is loaded again, since a
+ * changed load function may make other rows of it.
+ *
+ * @remarks
+ * What answers a delivery sent again (`again`), and a dataflow's load whose
+ * feed has not moved: the one test of what holding a delivery means.
+ *
+ * @param versions - The record ref's version vector
+ * @param source - The source's name
+ * @param delivery - The delivery's stored hash
+ * @param load - The hash of the load object
+ * @returns True when the source's last delivery is this one, under this load
+ *
+ * @example
+ * ```ts
+ * if (sourceHoldsDelivery(ref.value.versions, 'erp', delivery, loadHash)) console.log('nothing to load');
+ * ```
+ */
+export function sourceHoldsDelivery(versions: ReadonlyMap<string, string>, source: string, delivery: string, load: string): boolean {
+  const slots = sourceLoadSlots(source);
+  const held = versions.get(slots.delivery);
+  const under = versions.get(slots.load);
+  return held !== undefined && under !== undefined && sameField(held, delivery) && sameField(under, load);
+}
+
 /** The case of a composite record's key: the source its entry is of. */
 function caseOf(key: unknown): string {
   if (!isVariant(key)) throw new Error('a record with sources is keyed by a variant of them, and this state\'s keys are none');

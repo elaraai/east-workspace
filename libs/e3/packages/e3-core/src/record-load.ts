@@ -29,7 +29,7 @@ import {
   type RecordLoadResult, type RecordSignature, type VersionVector,
 } from '@elaraai/e3-types';
 import { DeltaStoppedError, applyDeltaWhere, summarizeDelta, type DeltaApply, type DeltaArmSummary } from './record-apply.js';
-import { PENDING_SLOT, executionSlot, pendingSources, sourceEntriesIn, sourceLoadSlots, sourceSegments, sourcesSlot } from './record-slots.js';
+import { PENDING_SLOT, executionSlot, pendingSources, sourceEntriesIn, sourceHoldsDelivery, sourceLoadSlots, sourceSegments, sourcesSlot } from './record-slots.js';
 import {
   casBackoffMs, encodeMutationArgs, named, nextVersions, readRecordState, resolveRecord, stateTargets, stateWritten, storeCommit,
   type RecordStateRefs, type ResolvedRecord,
@@ -1063,10 +1063,8 @@ async function answeredAlready(
   if (held === null || held.type !== 'value') return null;
   const { versions } = held.value;
   const slots = sourceLoadSlots(source);
-  const last = versions.get(slots.delivery);
-  const lastLoad = versions.get(slots.load);
   const none0 = { set: 0n, deleted: 0n, unchanged: 0n };
-  if (last !== undefined && lastLoad !== undefined && sameObject(last, delivery) && sameObject(lastLoad, declared.loadHash)) {
+  if (sourceHoldsDelivery(versions, source, delivery, declared.loadHash)) {
     // The commit that applied it, unless a compaction cut it from the chain
     const commit = versions.get(slots.commit);
     const state = commit === undefined || commit.length === 0 ? null : await commitState(storage, repo, commit);
