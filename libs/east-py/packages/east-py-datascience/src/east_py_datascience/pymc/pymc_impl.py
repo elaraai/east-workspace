@@ -390,14 +390,14 @@ PyMCModelBlobType = VariantType(
 
 Cases:
 - ``pymc_regression`` - Bayesian linear regression blob:
-  ``data`` (cloudpickled ``InferenceData``), ``n_features``,
+  ``data`` (the cloudpickled trace, an ArviZ ``DataTree``), ``n_features``,
   ``n_targets``, ``include_intercept``.
 - ``pymc_hierarchical`` - hierarchical model blob:
-  ``data`` (cloudpickled ``InferenceData``), ``n_features``,
+  ``data`` (the cloudpickled trace, an ArviZ ``DataTree``), ``n_features``,
   ``n_targets``, ``n_groups`` (distinct group count after remapping).
 - ``pymc_multi_layer`` - multi-layer joint model blob:
-  ``data`` (cloudpickled ``InferenceData`` or L1 point-estimate
-  coefficients), ``layer_names``, ``parameter_names``
+  ``data`` (the cloudpickled trace, an ArviZ ``DataTree``, or L1
+  point-estimate coefficients), ``layer_names``, ``parameter_names``
   (``Array<String>`` - ordered lists from the layer specs).
 """
 
@@ -558,12 +558,11 @@ def _convergence(idata, name: str) -> tuple[np.ndarray, np.ndarray]:
     """
     import arviz as az
 
-    subset = idata.posterior[[name]]
-    ess = np.asarray(az.ess(subset)[name].values, dtype=float)
+    ess = np.asarray(az.ess(idata, var_names=[name])[name].values, dtype=float)
     if idata.posterior.sizes["chain"] < 2:
         rhat = np.full(ess.shape, np.nan)
     else:
-        rhat = np.asarray(az.rhat(subset)[name].values, dtype=float)
+        rhat = np.asarray(az.rhat(idata, var_names=[name])[name].values, dtype=float)
     return rhat, ess
 
 
@@ -910,7 +909,8 @@ def pymc_train_multi_layer(
         ``PyMCModelBlobType`` (``EastVariant`` tagged ``pymc_multi_layer``):
         ``{data: Blob (cloudpickle), layer_names: Array<String>,
         parameter_names: Array<String>}``. The blob encodes either a
-        full MCMC ``InferenceData`` or L1 point-estimate coefficients.
+        full MCMC trace (an ArviZ ``DataTree``) or L1 point-estimate
+        coefficients.
 
     Raises:
         NotImplementedError: the ``pymc`` extra is not installed.

@@ -25,6 +25,12 @@ elaraai-east-py = { workspace = true }
 # torch pins. An earlier xgboost asks for `nvidia-nccl-cu12`, which installs
 # the same file, `nvidia/nccl/lib/libnccl.so.2`; with it on top `import torch`
 # fails (`undefined symbol: ncclCommResume`).
+#
+# pymc is 6.3.2 or later, with arviz 1.1 or later: pymc 5 reads
+# `arviz.InferenceData` as it is imported, which arviz 1.0 removed, and asks
+# for no arviz below 1.0, so beside arviz 1.x it does not import. Below Python
+# 3.13 the lock holds pymc 6.3.2, not 6.4: pymc 6.4 needs scipy 1.18, and dowhy
+# holds scipy at 1.15.3 there.
 [project.optional-dependencies]
 mads = ["PyNomadBBO>=4.4.0"]
 optuna = ["optuna>=4.0.0"]
@@ -79,8 +85,8 @@ google-or = [
     "ortools>=9.9",
 ]
 pymc = [
-    "pymc>=5.0.0",
-    "arviz>=0.15.0",
+    "pymc>=6.3.2",
+    "arviz>=1.1.0",
     "cloudpickle>=3.0.0",
 ]
 causal = [
@@ -110,8 +116,8 @@ all = [
     "mapie>=1.2.0",
     "alns>=6.0.0",
     "ortools>=9.9",
-    "pymc>=5.0.0",
-    "arviz>=0.15.0",
+    "pymc>=6.3.2",
+    "arviz>=1.1.0",
     "dowhy>=0.12",
     "econml>=0.15.0",
     "PyALE>=1.2.0",
