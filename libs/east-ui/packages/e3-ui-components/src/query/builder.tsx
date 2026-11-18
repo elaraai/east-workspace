@@ -71,7 +71,8 @@ import {
     useQueryCall, useQueryCollection, useQueryPlanOptions, useQueryRoot, useQuerySourceStatus, useQuerySplitCall, useQuerySplitExplain, useQuerySummaries, useRecentQueries,
 } from "./hooks.js";
 import { downloadResult } from "./downloads.js";
-import { describeQuery, type QueryWords } from "./model/words.js";
+import { describeQuery } from "./model/step-words.js";
+import type { QueryWords } from "./model/words.js";
 import type { Card } from "./model/cards.js";
 import type { QueryResult, QueryRoot } from "./one-shot.js";
 import { LibraryTab } from "./library-tab.js";

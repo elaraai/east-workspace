@@ -33,12 +33,14 @@ import { checkJq, describeJqType, none, some, type CheckJqResult } from "@elaraa
 import type { Origin } from "@elaraai/east-ui-components";
 import { cardsFor, sourceCard, type Card, type SourceCard } from "./model/cards.js";
 import type { ActionRef, InputRef, RemoveRef, SlotRef } from "./model/refs.js";
+import { parseErrorWords } from "./model/problem-words.js";
+import { applyAction, applyInput, applyRemove, applySlot } from "./model/slot-edits.js";
 import {
-    activeItem, applyAction, applyInput, applyRemove, applySlot, quickAddOptions, slotEmpty, slotHint, slotItems, slotLabel, slotPlaceholder,
+    activeItem, quickAddOptions, slotEmpty, slotHint, slotItems, slotLabel, slotPlaceholder,
     type SavedOffer, type SlotItem, type StepOption,
 } from "./model/slots.js";
 import { summaryAt, summaryNeeded, withMinute, type SummaryCache } from "./model/summaries.js";
-import { fieldLabels, parseErrorWords, shapeWords, type QueryWords } from "./model/words.js";
+import { fieldLabels, shapeWords, type QueryWords } from "./model/words.js";
 import { NOW_FIELD, type QueryRoot } from "./one-shot.js";
 import { slotKey } from "./parts.js";
 import { entriesQuery, queryEntries, queryProgram, type QueryEntry, type QueryHeader } from "./session.js";

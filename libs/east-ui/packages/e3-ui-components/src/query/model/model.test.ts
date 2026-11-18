@@ -32,9 +32,12 @@ import { parseSteps } from "../steps/parse.js";
 import type { Aggregate, ComparisonKind, Condition, PickField, Step, StepQuery, StepValue } from "../steps/values.js";
 import { cardsFor, firstEmptySlot, outlineOf, sourceCard, type Card, type CardLine, type CardPart } from "./cards.js";
 import type { SlotRef } from "./refs.js";
-import { activeItem, applyAction, applyInput, applyRemove, applySlot, quickAddOptions, slotItems, stepOptions, type SlotItem } from "./slots.js";
+import { applyAction, applyInput, applyRemove, applySlot } from "./slot-edits.js";
+import { activeItem, quickAddOptions, slotItems, stepOptions, type SlotItem } from "./slots.js";
 import { SummaryCache, summaryAt, summaryNeeded, withMinute, type Summary, type SummaryRequest } from "./summaries.js";
-import { DESCRIPTION_MAX, describeQuery, parseErrorWords, plural, problemWords, queryWords, shapeWords } from "./words.js";
+import { parseErrorWords, problemWords } from "./problem-words.js";
+import { DESCRIPTION_MAX, describeQuery } from "./step-words.js";
+import { plural, queryWords, shapeWords } from "./words.js";
 
 /** The shared fixture: its root type and its value. */
 const fixture = decodeBeast2(readFileSync(join(import.meta.dirname, "../../../../../../east/test/fixtures/query-fixture.beast2")));

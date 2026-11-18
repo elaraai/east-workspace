@@ -46,7 +46,8 @@ import {
     type ToolbarItem, type ValueTreePagedRow, type ValueTreePaging, type ValueTreeValue,
 } from "@elaraai/east-ui-components";
 import { emptyOf, pageRows } from "../components/PagedDatasetPreview.js";
-import { byteWords, countWords, fieldLabels, planProgressWords, shapeWords, type QueryWords } from "./model/words.js";
+import { planProgressWords } from "./model/plan-words.js";
+import { byteWords, countWords, fieldLabels, shapeWords, type QueryWords } from "./model/words.js";
 import { Tip, type Styles } from "./parts.js";
 import { RESULT_PAGE_ROWS, resultWindows, usePagedResult, type PagedResult } from "./paged-result.js";
 import { QueryPlanReadout } from "./plan-popover.js";
