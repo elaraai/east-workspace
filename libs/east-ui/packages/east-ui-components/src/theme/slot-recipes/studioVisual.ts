@@ -18,32 +18,39 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { centredLine } from "../one-line-box.js";
+
+/** The room a tile's eyebrow strip centres its row in: its 36px less its rule and the pixel of padding over the row. */
+const HEAD_ROOM = 34;
 
 export const studioVisualSlotRecipe = defineSlotRecipe({
     className: "elara-studio-visual",
     slots: [
         "tile", "head", "name", "end", "meta", "body", "root", "note", "table", "foot", "kpi", "change", "against", "trend", "goal", "gap",
         "heat", "heatRamp", "heatSwatch", "heatTicks",
-        "list", "listRow", "listLine", "listText", "listName", "listCaption", "listValue", "listUnit",
+        "list", "listRow", "listLine", "listText", "listName", "listCaption", "listValue", "listUnit", "listBar", "listBarFill",
     ],
     base: {
         /* A visual's tile: its eyebrow strip over its body, filling the frame, edge to edge. */
         tile: { display: "flex", flexDirection: "column", minWidth: "0", minHeight: "0", height: "100%" },
-        /* The eyebrow strip: 36 on `--paper-2` over a `--rule`, padded 0 20. */
+        /* The eyebrow strip: 36 on `--paper-2` over a `--rule`, padded 0 20. A pixel of padding over its row balances
+           the rule under it (#1638), as a builder's toolbar does: its row is centred in an even 34px, so its 24px menu
+           stands 6px under the strip's top edge and its words 12px. Centred in the 35px over the rule, as the mock
+           draws it, each stood half a pixel off, and a page painted it a row higher or lower by where it stood the tile. */
         head: {
             display: "flex", alignItems: "center", justifyContent: "space-between", gap: "{spacing.3}",
-            height: "36px", boxSizing: "border-box", paddingInline: "{spacing.5}", flexShrink: "0", minWidth: "0",
+            height: "36px", boxSizing: "border-box", paddingInline: "{spacing.5}", paddingTop: "1px", flexShrink: "0", minWidth: "0",
             background: "bg.canvas", borderBottomWidth: "1px", borderBottomStyle: "solid", borderBottomColor: "border.subtle",
         },
-        /* Its name: mono 10 / 600, tracked 0.14em, uppercase, `--ink`, cut with an ellipsis. */
+        /* Its name: mono 10 / 600, tracked 0.14em, uppercase, `--ink`, cut with an ellipsis; on a whole, even line. */
         name: {
-            fontFamily: "mono", fontSize: "label.sm", fontWeight: "semibold", letterSpacing: "label", textTransform: "uppercase",
+            fontFamily: "mono", fontSize: "label.sm", fontWeight: "semibold", letterSpacing: "label", textTransform: "uppercase", lineHeight: centredLine(HEAD_ROOM, 12),
             color: "fg", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: "0",
         },
         /* Its meta and its menu, at the end. */
         end: { display: "flex", alignItems: "center", gap: "{spacing.1}", flexShrink: "0" },
-        /* Its meta: mono 9.5, `--ink-4`. */
-        meta: { fontFamily: "mono", fontSize: "label.xs", color: "fg.subtle", whiteSpace: "nowrap" },
+        /* Its meta: mono 9.5, `--ink-4`, on the name's line. */
+        meta: { fontFamily: "mono", fontSize: "label.xs", lineHeight: centredLine(HEAD_ROOM, 12), color: "fg.subtle", whiteSpace: "nowrap" },
         /* Its body, padded 20; its parts 12 apart. A table's or a list's rows run edge to edge, under the strip. */
         body: {
             display: "flex", flexDirection: "column", gap: "{spacing.3}", flex: "1", minWidth: "0", minHeight: "0", padding: "{spacing.5}",
@@ -86,21 +93,29 @@ export const studioVisualSlotRecipe = defineSlotRecipe({
         },
         /* A list (LST-1): its rows, edge to edge, scrolling inside its tile. */
         list: { display: "flex", flexDirection: "column", flex: "1", minWidth: "0", minHeight: "0", overflowY: "auto" },
-        /* A row: 48 at least, padded 0 20, over a `--rule`; with the ranking bar (LST-2), its line over the bar, 6 apart, padded 10 20. */
+        /* A row: 48 at least, padded 0 20, over a `--rule`; with the ranking bar (LST-2), its line over the bar, 6 apart, padded 10 20.
+           Its words stand a whole number of pixels under its top edge, never centred (#1638): a name alone 16 under it, a
+           name over its caption 8 — the middle of the 47 over the rule for the 16px line and for the 31px pair. Centred,
+           the 32px pair of an Inter name stood half a pixel off, and so did every pair in the last row, which has no rule. */
         listRow: {
-            display: "flex", flexDirection: "column", justifyContent: "center", gap: "6px", flexShrink: "0", minHeight: "48px", boxSizing: "border-box",
-            paddingInline: "{spacing.5}", borderBottomWidth: "1px", borderBottomStyle: "solid", borderBottomColor: "border.subtle",
+            display: "flex", flexDirection: "column", justifyContent: "flex-start", gap: "6px", flexShrink: "0", minHeight: "48px", boxSizing: "border-box",
+            paddingInline: "{spacing.5}", paddingTop: "16px", borderBottomWidth: "1px", borderBottomStyle: "solid", borderBottomColor: "border.subtle",
+            "&[data-caption]": { paddingTop: "8px" },
             "&:last-of-type": { borderBottomWidth: "0" },
             "&[data-bar]": { paddingBlock: "10px" },
         },
         /* Its line: its name and caption, then its values with their units, 12 apart. */
         listLine: { display: "flex", alignItems: "baseline", gap: "{spacing.3}", minWidth: "0" },
         listText: { display: "flex", flexDirection: "column", gap: "1px", flex: "1", minWidth: "0" },
-        /* Its name: 13 / 500, `--ink`; its caption 12.5, `--ink-4`; each cut with an ellipsis. */
-        listName: { fontSize: "body", fontWeight: "500", color: "fg", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
-        listCaption: { fontSize: "12.5px", color: "fg.subtle", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
-        /* A value: mono 13 / 500, tabular; its unit mono 10.5, `--ink-4`. */
-        listValue: { fontFamily: "mono", fontSize: "body", fontWeight: "500", fontVariantNumeric: "tabular-nums", color: "fg", whiteSpace: "nowrap" },
-        listUnit: { fontFamily: "mono", fontSize: "label.md", color: "fg.subtle", whiteSpace: "nowrap" },
+        /* Its name: 13 / 500 on a 16px line, `--ink`; its caption 12.5 on a 15px line, `--ink-4`; each cut with an ellipsis. */
+        listName: { fontSize: "body", lineHeight: "16px", fontWeight: "500", color: "fg", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+        listCaption: { fontSize: "12.5px", lineHeight: "15px", color: "fg.subtle", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+        /* The ranking bar (LST-2): 4px, square, its first value against the largest in `--brand-d` on `--paper-3`. */
+        listBar: { height: "4px", flexShrink: "0", background: "bg.subtle" },
+        listBarFill: { height: "100%", background: "brand.solid" },
+        /* A value: mono 13 / 500 on a 15px line, tabular; its unit mono 10.5 on a 13px line, `--ink-4`. Each on its
+           face's own whole line, on the name's baseline: a taller line stood the row a pixel over its 63. */
+        listValue: { fontFamily: "mono", fontSize: "body", lineHeight: "15px", fontWeight: "500", fontVariantNumeric: "tabular-nums", color: "fg", whiteSpace: "nowrap" },
+        listUnit: { fontFamily: "mono", fontSize: "label.md", lineHeight: "13px", color: "fg.subtle", whiteSpace: "nowrap" },
     },
 });

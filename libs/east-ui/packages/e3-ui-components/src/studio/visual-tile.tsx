@@ -180,7 +180,7 @@ function VisualMenu({ visual, name, source, read, storageKey, onFailed }: Visual
     const csv: ReactNode = <Button size="xs" variant="outline" onClick={() => { void exportRows(); }} data-studio-export="">{m.exportCsv()}</Button>;
     return (
         <>
-            <ChipMenu label={m.visualMenu()} icon={faEllipsis} data="data-studio-visual-menu" onSelect={(picked) => {
+            <ChipMenu label={m.visualMenu()} icon={faEllipsis} bare data="data-studio-visual-menu" onSelect={(picked) => {
                 if (picked === "rows") setShowing(true);
                 else if (picked === "csv") void exportRows();
             }}>

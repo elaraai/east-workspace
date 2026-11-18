@@ -45,7 +45,7 @@
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { coarseHitArea } from "../../style/hit-area.js";
 import { fontAwesomeSize } from "../icon-size.js";
-import { centredLine } from "../one-line-box.js";
+import { centredLine, oneLineBox } from "../one-line-box.js";
 import { tokens } from "../tokens.js";
 
 /** A header's padding over and under its content at each size, in px: what the size variants pad it by. */
@@ -278,9 +278,11 @@ export const tableSlotRecipe = defineSlotRecipe({
         },
         /* A negative cell's mark: the exclamation before its value, in `--neg`, so colour is never its only sign. */
         cellMark: { display: "inline-flex", alignItems: "center", flexShrink: 0, marginInlineEnd: "6px", color: "status.neg", "& svg": fontAwesomeSize("10px") },
-        /* A group head's count, after its label: the count chip. */
+        /* A group head's count, after its label: the count chip — a one-line box with no edge, its line its own
+           16px (#1638): the 9.5px face's own line centred its numeral at a fraction of a pixel under the chip's top. */
         rowCount: {
-            display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, minWidth: "16px", height: "16px", paddingX: "4px", marginInlineStart: "6px",
+            ...oneLineBox(16, 0),
+            display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, minWidth: "16px", paddingX: "4px", marginInlineStart: "6px",
             boxSizing: "border-box", background: "bg.subtle", borderRadius: "sm", fontFamily: "mono", fontSize: "label.xs", fontWeight: "500", letterSpacing: "0",
             color: "fg.muted",
         },

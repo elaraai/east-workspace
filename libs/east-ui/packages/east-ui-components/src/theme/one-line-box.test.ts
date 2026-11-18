@@ -67,6 +67,7 @@ import { statusSlotRecipe } from "./slot-recipes/status.js";
 import { stepperSlotRecipe } from "./slot-recipes/stepper.js";
 import { studioLibrarySlotRecipe } from "./slot-recipes/studioLibrary.js";
 import { studioPhoneSlotRecipe } from "./slot-recipes/studioPhone.js";
+import { studioVisualSlotRecipe } from "./slot-recipes/studioVisual.js";
 import { tableSlotRecipe } from "./slot-recipes/table.js";
 import { tagSlotRecipe } from "./slot-recipes/tag.js";
 import { tagsInputSlotRecipe } from "./slot-recipes/tagsInput.js";
@@ -373,6 +374,7 @@ describe("the small boxes whose words are centred in them (#1638)", () => {
         ["a Roster agency badge", at(roster, "agencyBadge"), "16px", "14px"],
         ["a Roster skill tag", at(roster, "skillTag"), "16px", "14px"],
         ["an Allocation band's count", at(allocation, "bandCount"), "16px", "16px"],
+        ["a Table group head's count", at(tableSlotRecipe.base, "rowCount"), "16px", "16px"],
         ["the Allocation inspector's resource field", at(allocationInspectorSlotRecipe.base, "resourceField"), "32px", "30px"],
         ["the Studio preview's device", at(studioPublishSlotRecipe.base, "device"), "26px", "26px"],
         ["the Studio preview's environment", at(studioPublishSlotRecipe.base, "env"), "26px", "24px"],
@@ -454,6 +456,24 @@ describe("the small boxes whose words are centred in them (#1638)", () => {
         }
         // The header's box, a pixel above its row's middle: its margin leaves an even number of pixels over at either pointer.
         expect([at(record, "tick", "[data-tick] > &").marginBottom, at(record, "tick", "[data-tick] > &", "_coarse").marginBottom]).toEqual(["2px", "1px"]);
+    });
+
+    test("a Studio tile's eyebrow strip centres its row in an even room: a pixel of padding over it balances its rule (#1671)", () => {
+        const tile = studioVisualSlotRecipe.base;
+        expect([at(tile, "head").height, at(tile, "head").borderBottomWidth, at(tile, "head").paddingTop]).toEqual(["36px", "1px", "1px"]);
+        // Its name and its meta on a whole, even line: 12 in the 34, and in the 24 of the menu the meta stands beside.
+        expect([at(tile, "name").lineHeight, at(tile, "meta").lineHeight]).toEqual(["12px", "12px"]);
+    });
+
+    test("a Studio list's row pads its words a whole number of pixels under its edge, and centres none (#1671)", () => {
+        const list = studioVisualSlotRecipe.base;
+        // A name alone 16 under the row's top, a name over its caption 8; with the ranking bar, 10.
+        expect([at(list, "listRow").justifyContent, at(list, "listRow").paddingTop]).toEqual(["flex-start", "16px"]);
+        expect(at(list, "listRow", "&[data-caption]").paddingTop).toBe("8px");
+        expect(at(list, "listRow", "&[data-bar]").paddingBlock).toBe("10px");
+        // Each of its words on a whole line: the name's 16, the caption's 15 a pixel under it, a value's 15 and its unit's 13.
+        expect(["listName", "listCaption", "listValue", "listUnit"].map((slot) => at(list, slot).lineHeight)).toEqual(["16px", "15px", "15px", "13px"]);
+        expect(at(list, "listText").gap).toBe("1px");
     });
 
     test("a rail's chip has a whole padding and a whole line at every density: 15, 22 and 33 tall in its edge", () => {
