@@ -26,6 +26,7 @@ import { AxisBottom, AxisLeft, AxisRight, type AxisScale } from "@visx/axis";
 import { getSomeorUndefined } from "../../utils";
 import { usePlotGutter, gutterPx } from "../../contracts/plot-gutter.js";
 import { pieSlicesOf, type PieSlice, type PieValue } from "./pie.js";
+import { barSlots } from "./bars.js";
 import { markAt, type PlotGeometry } from "./hit.js";
 import { stackBoundsOf } from "./stack.js";
 
@@ -195,10 +196,63 @@ function titleTextCss(style: ChartStyle, s: AxisTextStyleValue | undefined): CSS
     return axisTextCss(style, s, { weight: 500, family: style.titleFont, color: style.titleColor });
 }
 
-/** Tick defaults: the mono chrome, its numerals tabular, so an axis's values
- *  stand in columns (the chart rules; #1671, TIL-5). Overrides still win. */
+/** Tick defaults: the mono chrome at weight 500, its numerals tabular, so an
+ *  axis's values stand in columns (the chart rules; #1671, TIL-5). Overrides
+ *  still win. */
 function tickTextCss(style: ChartStyle, s: AxisTextStyleValue | undefined): CSSProperties {
-    return { ...axisTextCss(style, s), fontVariantNumeric: "tabular-nums" };
+    return { ...axisTextCss(style, s, { weight: 500 }), fontVariantNumeric: "tabular-nums" };
+}
+
+/** A tick label's font size in px, as its style resolves — the chrome's when it names no px size. */
+function tickPx(style: ChartStyle, s: AxisTextStyleValue | undefined): number {
+    const size = /^(\d+(?:\.\d+)?)px$/.exec(String(axisTextCss(style, s).fontSize));
+    return size ? Number(size[1]) : 11;
+}
+
+/** How wide a mono label draws, in px: its glyphs at their advance, which a
+ *  browser draws on whole pixels (a 0.6em advance is 7px at 11px, not 6.6). */
+function labelWidth(text: string, px: number): number {
+    return text.length * Math.ceil(px * MONO_ADVANCE);
+}
+
+/**
+ * The ticks of an axis that keep their labels, so that no two labels overlap
+ * whatever their length (the chart rules; #1671).
+ *
+ * @param ticks - The ticks, each with its position along the axis and its label's extent about it, in px
+ * @returns The ticks that keep their labels, in the order given
+ *
+ * @remarks
+ * - Ticks a steady step apart — a band's categories, a date axis's points, a
+ *   scale's own ticks — keep every one where they fit; else the first, the
+ *   last and those evenly between, as far apart as the widest label needs.
+ * - Ticks at uneven positions — a numeric axis pinned to its points — keep
+ *   each one, from the start, that clears the one kept before it.
+ */
+function ticksThatFit<V>(ticks: readonly { readonly value: V; readonly at: number; readonly from: number; readonly to: number }[]): V[] {
+    if (ticks.length < 2) return ticks.map(tick => tick.value);
+    const steps = ticks.slice(1).map((tick, i) => tick.at - ticks[i]!.at);
+    const step = steps[0]!;
+    const steady = step > 0 && steps.every(s => Math.abs(s - step) < 0.5);
+    if (!steady) {
+        // By position: each label that starts clear of the last one kept.
+        const along = [...ticks].sort((a, b) => a.at - b.at);
+        const kept = new Set<V>();
+        let edge = -Infinity;
+        for (const tick of along) {
+            if (tick.from < edge + LABEL_GAP) continue;
+            kept.add(tick.value);
+            edge = tick.to;
+        }
+        return ticks.filter(tick => kept.has(tick.value)).map(tick => tick.value);
+    }
+    // The most ticks, evenly spread from the first to the last, whose labels clear one another.
+    const last = ticks.length - 1;
+    for (let spans = last; spans >= 1; spans--) {
+        const kept = Array.from({ length: spans + 1 }, (_, i) => ticks[Math.round((i * last) / spans)]!);
+        if (kept.every((tick, i) => i === 0 || tick.from >= kept[i - 1]!.to + LABEL_GAP)) return kept.map(tick => tick.value);
+    }
+    return [ticks[0]!.value];
 }
 
 /** Resolve an optional curve variant to its visx curve fn (default monotoneX). */
@@ -435,10 +489,22 @@ const FILL_NATURAL_HEIGHT = 134;
 /** A mono tick glyph's advance, as a fraction of its font size. */
 const MONO_ADVANCE = 0.6;
 
-/** The room a left tick label needs beyond its glyphs: its offset from the
- *  axis (the tick length and the label's own inset), and an inset from the
- *  frame's edge. */
+/** The room a left or right tick label needs beyond its glyphs: its offset
+ *  from the axis (the tick length and the label's own inset), and an inset
+ *  from the frame's edge. */
 const LEFT_LABEL_ROOM = 15;
+
+/** The least room between two labels along an axis, in px. */
+const LABEL_GAP = 8;
+
+/** The chart rules' grid margins (`guidelines/charts.md`): what a frame given none takes. */
+const RULE_MARGIN: Margin = { top: 24, right: 24, bottom: 28, left: 44 };
+
+/** The room an axis after the plot takes: the chart rules' left margin, mirrored. */
+const RIGHT_AXIS_ROOM = 44;
+
+/** The legend's block over the plot: its 13px line and the 12px under it. */
+const LEGEND_HEIGHT = 25;
 
 /** Hover-tooltip payload: the focused x and each series' value there. */
 interface TooltipDatum { x: string; rows: Array<{ key: string; color: string; value: number }> }
@@ -474,9 +540,11 @@ function BarsMark({ value }: { value: ValueTypeOf<typeof T.Bars> }): ReactNode {
     if (horizontal) {
         // #249 — bars grow along x from the plot's left edge; the y band
         // carries the coordinate (see BarSeries for the mirrored geometry).
-        return <>{value.points.map((p, i) => { const pc = getSomeorUndefined(p.color); const fill = pc !== undefined ? style.color(pc) : baseFill; return <Bar key={i} x={0} y={cxKey(xKeyOf(p.x)) - bandWidth / 2} width={Math.max(0, y(p.value))} height={bandWidth} fill={fill} fillOpacity={op} rx={style.barRadius} />; })}</>;
+        const bar = barSlots(bandWidth, 1, true);
+        return <>{value.points.map((p, i) => { const pc = getSomeorUndefined(p.color); const fill = pc !== undefined ? style.color(pc) : baseFill; return <Bar key={i} x={0} y={cxKey(xKeyOf(p.x)) + bar.start} width={Math.max(0, y(p.value))} height={bar.size} fill={fill} fillOpacity={op} rx={style.barRadius} />; })}</>;
     }
-    return <>{value.points.map((p, i) => { const top = y(p.value); const pc = getSomeorUndefined(p.color); const fill = pc !== undefined ? style.color(pc) : baseFill; return <Bar key={i} x={cx(p) - bandWidth / 2} y={top} width={bandWidth} height={Math.max(0, innerH - top)} fill={fill} fillOpacity={op} rx={style.barRadius} />; })}</>;
+    const bar = barSlots(bandWidth, 1, false);
+    return <>{value.points.map((p, i) => { const top = y(p.value); const pc = getSomeorUndefined(p.color); const fill = pc !== undefined ? style.color(pc) : baseFill; return <Bar key={i} x={cx(p) + bar.start} y={top} width={bar.size} height={Math.max(0, innerH - top)} fill={fill} fillOpacity={op} />; })}</>;
 }
 function PointsMark({ value }: { value: ValueTypeOf<typeof T.Points> }): ReactNode {
     const cx = useCx(); const { y, style } = useScales();
@@ -543,23 +611,24 @@ function BarSeries({ series, index, count, stacked, bounds, yScale, layer }: { s
         // the plot's left edge (the measure scale's zero-anchored min) and the
         // y band carries the category; `yScale` here is the measure → screen-x
         // scale, and stacked segments span [lo, hi] along it.
-        const bandTop = (p: Point) => cxKey(xKeyOf(p.x)) - bandWidth / 2;
+        // The bars at a category: at most 12px thick, side by side about its centre (`bars.ts`).
+        const bar = barSlots(bandWidth, count, true);
+        const barTop = (p: Point) => cxKey(xKeyOf(p.x)) + bar.start + (stacked ? 0 : index) * bar.slot;
         if (stacked) {
-            return <>{series.points.map((p, i) => { const [lo, hi] = bounds(p); const x0 = yScale(lo); const x1 = yScale(hi); return <Bar key={i} x={Math.min(x0, x1)} y={bandTop(p)} width={Math.abs(x1 - x0)} height={bandWidth} fill={fillFor(p)} fillOpacity={op} rx={style.barRadius} />; })}</>;
+            return <>{series.points.map((p, i) => { const [lo, hi] = bounds(p); const x0 = yScale(lo); const x1 = yScale(hi); return <Bar key={i} x={Math.min(x0, x1)} y={barTop(p)} width={Math.abs(x1 - x0)} height={bar.size} fill={fillFor(p)} fillOpacity={op} rx={style.barRadius} />; })}</>;
         }
-        const hSlot = bandWidth / count;                       // one sub-slot per series
-        const h = Math.max(1, hSlot - (count > 1 ? 1.5 : 0));  // hairline gap between grouped bars
-        return <>{series.points.map((p, i) => <Bar key={i} x={0} y={bandTop(p) + index * hSlot} width={Math.max(0, yScale(p.value))} height={h} fill={fillFor(p)} fillOpacity={op} rx={style.barRadius} />)}</>;
+        return <>{series.points.map((p, i) => <Bar key={i} x={0} y={barTop(p)} width={Math.max(0, yScale(p.value))} height={bar.size} fill={fillFor(p)} fillOpacity={op} rx={style.barRadius} />)}</>;
     }
+    // The columns at an x: at most 18px wide, side by side about its centre, square (`bars.ts`).
+    const bar = barSlots(bandWidth, count, false);
+    const barLeft = (p: Point) => cx(p) + bar.start + (stacked ? 0 : index) * bar.slot;
     if (stacked) {
         // `Math.min` + `Math.abs` so a NEGATIVE stack (hi < lo ⇒ yScale(hi) below
         // yScale(lo)) still draws — a bare `bot - top` goes negative and the bar
         // collapses to zero height (mirrors the horizontal path above).
-        return <>{series.points.map((p, i) => { const [lo, hi] = bounds(p); const top = yScale(hi); const bot = yScale(lo); return <Bar key={i} x={cx(p) - bandWidth / 2} y={Math.min(top, bot)} width={bandWidth} height={Math.abs(bot - top)} fill={fillFor(p)} fillOpacity={op} rx={style.barRadius} />; })}</>;
+        return <>{series.points.map((p, i) => { const [lo, hi] = bounds(p); const top = yScale(hi); const bot = yScale(lo); return <Bar key={i} x={barLeft(p)} y={Math.min(top, bot)} width={bar.size} height={Math.abs(bot - top)} fill={fillFor(p)} fillOpacity={op} />; })}</>;
     }
-    const slot = bandWidth / count;                       // one sub-slot per series
-    const w = Math.max(1, slot - (count > 1 ? 1.5 : 0));  // hairline gap between grouped bars
-    return <>{series.points.map((p, i) => { const top = yScale(p.value); return <Bar key={i} x={cx(p) - bandWidth / 2 + index * slot} y={top} width={w} height={Math.max(0, innerH - top)} fill={fillFor(p)} fillOpacity={op} rx={style.barRadius} />; })}</>;
+    return <>{series.points.map((p, i) => { const top = yScale(p.value); return <Bar key={i} x={barLeft(p)} y={top} width={bar.size} height={Math.max(0, innerH - top)} fill={fillFor(p)} fillOpacity={op} />; })}</>;
 }
 function AreaSeries({ series, bounds, yScale, layer }: { series: Series; bounds: (p: Point) => [number, number]; yScale: YScale; layer: LayerStyle }): ReactNode {
     const cx = useCx(); const { style } = useScales(); const stroke = style.color(series.color);
@@ -578,7 +647,7 @@ function ScatterSeries({ series, yScale, layer }: { series: Series; yScale: YSca
     return <>{series.points.map((p, i) => {
         const ps = getSomeorUndefined(p.size);                       // per-point bubble magnitude
         const r = ps !== undefined && sizeR ? sizeR(ps) : base;
-        return <Circle key={i} cx={cx(p)} cy={yScale(p.value)} r={r} fill={fill} stroke={style.pointFill} strokeWidth={style.pointStrokeWidth} strokeOpacity={layer.opacity ?? 1} />;
+        return <Circle key={i} cx={cx(p)} cy={yScale(p.value)} r={r} fill={fill} fillOpacity={layer.opacity ?? 1} />;
     })}</>;
 }
 
@@ -693,23 +762,39 @@ function AxisBMark({ value }: { value: Axis }): ReactNode {
     // #318 — tickValues is a scale-kind variant (number | time); both arms
     // decode to arrays visx maps directly onto the linear / time scale.
     const explicitTicks = getSomeorUndefined(value.tickValues);
-    const tickValuesRaw = (explicitTicks !== undefined ? [...explicitTicks.value] : undefined) ?? (numTicks !== undefined ? undefined : xTickValues);
-    // #354 — width-adaptive default, COMPACT PLOTS ONLY (innerW < 480):
-    // colliding per-point labels thin by stride to ~one per 64px. Regular
-    // and wide plots keep the exact pre-#354 default (every data-point
-    // position) — desktop output is unchanged. Explicit tickValues /
-    // numTicks (#149) always win.
-    const tickValues = (explicitTicks === undefined && numTicks === undefined && tickValuesRaw !== undefined && innerW < 480)
-        ? (() => {
-            const maxLabels = Math.max(2, Math.floor(innerW / 64));
-            if (tickValuesRaw.length <= maxLabels) return tickValuesRaw;
-            const stride = Math.ceil(tickValuesRaw.length / maxLabels);
-            return tickValuesRaw.filter((_, i) => i % stride === 0);
-        })()
-        : tickValuesRaw;
+    const tickStyle = getSomeorUndefined(value.tickStyle);
+    const px = tickPx(style, tickStyle);
+    // The ticks the axis would label: the author's as given; a tick count's
+    // from the scale (a band's categories sampled to it, as visx samples
+    // them); else every data point of a continuous x, or every category.
+    const scale = xAxisScale as unknown as { (v: unknown): number; domain: () => unknown[]; ticks?: (count: number) => unknown[]; bandwidth?: () => number };
+    const counted = (count: number): unknown[] => {
+        if (scale.ticks !== undefined) return scale.ticks(count);
+        const all = scale.domain();
+        const stride = Math.max(1, Math.round((all.length - 1) / count));
+        return all.length <= count ? all : all.filter((_, i) => i % stride === 0);
+    };
+    const wanted: unknown[] = explicitTicks !== undefined ? [...explicitTicks.value]
+        : numTicks !== undefined ? counted(Number(numTicks))
+            : xTickValues ?? scale.domain();
+    // The chart rules (#1671): no two labels overlap — as many as fit side by
+    // side keep theirs, the first and the last among them, whatever their
+    // length and the plot's width (#354 thinned only compact plots, by a fixed
+    // 64px a label). The author's own tick values stand as given.
+    // A label that would cross the chart's edge is drawn from that edge in:
+    // the first from its tick on, the last up to its tick.
+    const placed = (v: unknown) => {
+        const at = Number(scale(v)) + (scale.bandwidth?.() ?? 0) / 2;
+        const width = labelWidth(fmt(v), px);
+        const anchor = at - width / 2 < -margin.left ? "start" as const : at + width / 2 > innerW + margin.right ? "end" as const : "middle" as const;
+        const from = anchor === "start" ? at : anchor === "end" ? at - width : at - width / 2;
+        return { value: v, at, from, to: from + width, anchor };
+    };
+    const tickValues = explicitTicks !== undefined ? wanted : ticksThatFit(wanted.map(placed));
+    const anchorOf = (v: unknown): "start" | "middle" | "end" => placed(v).anchor;
     const hideTicks = getSomeorUndefined(value.hideTicks) ?? true;
     const hideLine = getSomeorUndefined(value.hideLine) ?? horizontal;
-    const tickCss = tickTextCss(style, getSomeorUndefined(value.tickStyle));
+    const tickCss = tickTextCss(style, tickStyle);
     const titleCss = titleTextCss(style, getSomeorUndefined(value.titleStyle));
     return (
         <>
@@ -719,10 +804,9 @@ function AxisBMark({ value }: { value: Axis }): ReactNode {
                 stroke={style.axisStroke}
                 hideTicks={hideTicks}
                 hideAxisLine={hideLine}
-                {...(numTicks !== undefined ? { numTicks: Number(numTicks) } : {})}
-                {...(tickValues ? { tickValues } : {})}
+                tickValues={tickValues as never[]}
                 tickFormat={v => fmt(v)}
-                tickLabelProps={() => ({ textAnchor: "middle", dy: "0.25em", style: tickCss })}
+                tickLabelProps={v => ({ textAnchor: anchorOf(v), dy: "0.25em", style: tickCss })}
             />
             {label && <text x={innerW / 2} y={innerH + margin.bottom - 2} textAnchor="middle" style={titleCss}>{label}</text>}
         </>
@@ -951,7 +1035,7 @@ function Frame({ node, brush, onBrushEnd, brushKey, onMark }: { node: Spec; brus
         pointFill: system.token("colors.bg.surface", "#ffffff"),
         pointStrokeWidth: 1.4,
         dotRadius: 2.6,
-        scatterRadius: 3.4,
+        scatterRadius: 3.5,
         barRadius: 2,
         accent: system.token("colors.fg", "#111b22"),
         tooltipZIndex: Number(system.token("zIndex.tooltip", 1800)),
@@ -989,6 +1073,7 @@ function Plot({ node, style, brush, onBrushEnd, brushKey, onMark }: { node: Spec
     const ctxGutter = usePlotGutter();
     const gutterLeft = gutterPx(ctxGutter?.left);
     const gutterRight = gutterPx(ctxGutter?.right);
+    const legendStyles = useSlotRecipe({ key: "chartLegend" })();
     return match(node, {
         frame: f => {
             // A pie is the only node of its frame (#1671): no scales, no axes.
@@ -1028,11 +1113,11 @@ function Plot({ node, style, brush, onBrushEnd, brushKey, onMark }: { node: Spec
             // to that axis's OWN margin band below (never the shared gutter), so a
             // title nudge can't shift a gutter-aligned lane.
             let xTitleGap = 0, yTitleGap = 0, y2TitleGap = 0;
-            let leftAxis: Axis | undefined;
+            const axes: { left?: Axis; right?: Axis; bottom?: Axis } = {};
             for (const c of f.children) match(c, {
-                axisLeft: (v: Axis) => { leftAxis = v; const d = getSomeorUndefined(v.domain); if (d) leftDomain = domainBounds(d); if (getSomeorUndefined(v.label)) yLabel = true; yTitleGap = getSomeorUndefined(v.titleGap) ?? 0; },
-                axisRight: (v: Axis) => { const d = getSomeorUndefined(v.domain); if (d) rightDomain = domainBounds(d); if (getSomeorUndefined(v.label)) y2Label = true; y2TitleGap = getSomeorUndefined(v.titleGap) ?? 0; },
-                axisBottom: (v: Axis) => { const d = getSomeorUndefined(v.domain); if (d) bottomDomain = domainBounds(d); if (getSomeorUndefined(v.label)) xLabel = true; xTitleGap = getSomeorUndefined(v.titleGap) ?? 0; },
+                axisLeft: (v: Axis) => { axes.left = v; const d = getSomeorUndefined(v.domain); if (d) leftDomain = domainBounds(d); if (getSomeorUndefined(v.label)) yLabel = true; yTitleGap = getSomeorUndefined(v.titleGap) ?? 0; },
+                axisRight: (v: Axis) => { axes.right = v; const d = getSomeorUndefined(v.domain); if (d) rightDomain = domainBounds(d); if (getSomeorUndefined(v.label)) y2Label = true; y2TitleGap = getSomeorUndefined(v.titleGap) ?? 0; },
+                axisBottom: (v: Axis) => { axes.bottom = v; const d = getSomeorUndefined(v.domain); if (d) bottomDomain = domainBounds(d); if (getSomeorUndefined(v.label)) xLabel = true; xTitleGap = getSomeorUndefined(v.titleGap) ?? 0; },
             }, undefined);
 
             // Margins: base, widened for axis titles + the right axis. A shared
@@ -1041,32 +1126,60 @@ function Plot({ node, style, brush, onBrushEnd, brushKey, onMark }: { node: Spec
             // (The gutter wins unconditionally: the Chart factory always fills
             // `margin` with a default, so there's no renderer-visible signal for an
             // author-set margin to defer to — `gutterLeft ?? base.left` is correct.)
-            const base = getSomeorUndefined(f.margin) ?? { top: 8, right: 8, bottom: 24, left: 40 };
-            // A horizontal frame's left axis names its categories, which are
-            // data of any length: its margin grows to hold the widest, so a
-            // parent that clips never cuts one.
+            const base = getSomeorUndefined(f.margin) ?? RULE_MARGIN;
+            // The chart rules (#1671): an axis's labels are data of any length —
+            // a category's name, a value in its format — so the margin that
+            // holds them grows to the widest, and a parent that clips never
+            // cuts one. A label is mono: its width is its glyphs at their advance.
+            const widestOf = (labels: readonly string[], axis: Axis): number => {
+                const px = tickPx(style, getSomeorUndefined(axis.tickStyle));
+                return labels.reduce((widest, label) => Math.max(widest, labelWidth(label, px)), 0);
+            };
+            // The labels a measure axis draws: its own tick values, else the
+            // scale's for its tick count — over the domain the plot will use.
+            const measureLabels = (axis: Axis, domain: [number, number] | undefined, lo: number, hi: number): string[] => {
+                const fmt = tickFormatter(getSomeorUndefined(axis.tickFormat), "linear", words.locale);
+                const own = getSomeorUndefined(axis.tickValues);
+                const ticks: unknown[] = own !== undefined ? [...own.value]
+                    : (domain ? scaleLinear<number>({ domain, range: [0, 1] }) : scaleLinear<number>({ domain: [Math.min(0, lo), hi || 1], range: [0, 1], nice: true }))
+                        .ticks(Number(getSomeorUndefined(axis.numTicks) ?? 4));
+                return ticks.map(t => fmt(t));
+            };
             let leftBase = base.left;
-            if (horizontal && leftAxis !== undefined) {
-                const fmt = tickFormatter(getSomeorUndefined(leftAxis.tickFormat), "band", words.locale);
-                const size = /^(\d+(?:\.\d+)?)px$/.exec(String(axisTextCss(style, getSomeorUndefined(leftAxis.tickStyle)).fontSize));
-                let widest = 0;
-                for (const k of xDomain) widest = Math.max(widest, fmt(k).length);
-                leftBase = Math.max(base.left, Math.ceil(widest * (size ? Number(size[1]) : 11) * MONO_ADVANCE + LEFT_LABEL_ROOM));
+            if (axes.left !== undefined) {
+                const labels = horizontal
+                    ? xDomain.map(tickFormatter(getSomeorUndefined(axes.left.tickFormat), "band", words.locale))
+                    : measureLabels(axes.left, leftDomain, yMin, yMax);
+                leftBase = Math.max(base.left, Math.ceil(widestOf(labels, axes.left) + LEFT_LABEL_ROOM));
+            }
+            let rightBase = Math.max(base.right, hasY2 ? RIGHT_AXIS_ROOM : 0);
+            if (!horizontal && hasY2 && axes.right !== undefined) {
+                rightBase = Math.max(rightBase, Math.ceil(widestOf(measureLabels(axes.right, rightDomain, y2Min, y2Max), axes.right) + LEFT_LABEL_ROOM));
+            }
+            // A horizontal frame's measure ends at the plot's end, where its
+            // last label is centred: half of it is past the plot.
+            if (horizontal && axes.bottom !== undefined) {
+                rightBase = Math.max(rightBase, Math.ceil(widestOf(measureLabels(axes.bottom, bottomDomain, yMin, yMax), axes.bottom) / 2) + 2);
             }
             const margin: Margin = {
                 top: base.top,
-                right: gutterRight ?? (Math.max(base.right, hasY2 ? 44 : 8) + (y2Label ? 14 + y2TitleGap : 0)),
+                right: gutterRight ?? (rightBase + (y2Label ? 14 + y2TitleGap : 0)),
                 bottom: base.bottom + (xLabel ? 16 + xTitleGap : 0),
                 left: gutterLeft ?? (leftBase + (yLabel ? 14 + yTitleGap : 0)),
             };
 
-            const legendOn = getSomeorUndefined(f.legend) !== undefined;
+            // The legend sits over the plot, from the chart's start (the chart
+            // rules); under it when its `position` says `bottom`.
+            const legendSpec = getSomeorUndefined(f.legend);
+            const legendOn = legendSpec !== undefined;
+            const legendBelow = legendSpec !== undefined && getSomeorUndefined(legendSpec.position)?.type === "bottom";
             const legendRaw: Array<{ key: string; color: string }> = [];
             if (legendOn) for (const c of f.children) collectLegend(c, legendRaw);
             const legend: Array<{ key: string; color: string }> = [];
             { const seen = new Set<string>(); for (const e of legendRaw) if (!seen.has(e.key)) { seen.add(e.key); legend.push(e); } }
             const showLegend = legendOn && legend.length > 0;
-            const legendH = showLegend ? 24 : 0;
+            const legendH = showLegend ? LEGEND_HEIGHT : 0;
+            const legendAbove = legendBelow ? 0 : legendH;
 
             const tooltipOn = getSomeorUndefined(f.tooltip) !== undefined;
             const explicitW = getSomeorUndefined(f.width);
@@ -1088,7 +1201,7 @@ function Plot({ node, style, brush, onBrushEnd, brushKey, onMark }: { node: Spec
                 // the gutter-widened `margin.left/right` — so a shared plotGutter keeps
                 // the rotated y / y2 titles by their axis instead of the lane edge (#147).
                 const yTitleX = -((leftBase + (yLabel ? 14 + yTitleGap : 0)) - 11);
-                const y2TitleX = innerW + ((Math.max(base.right, hasY2 ? 44 : 8) + (y2Label ? 14 + y2TitleGap : 0)) - 11);
+                const y2TitleX = innerW + ((rightBase + (y2Label ? 14 + y2TitleGap : 0)) - 11);
 
                 // The measure scale: values → screen y normally; values →
                 // screen x in a horizontal frame (#249). The measure domain
@@ -1164,7 +1277,7 @@ function Plot({ node, style, brush, onBrushEnd, brushKey, onMark }: { node: Spec
                     showTooltip({
                         tooltipData: { x: focus, rows },
                         tooltipLeft: margin.left + (horizontal ? px : cxKey(focus)),
-                        tooltipTop: margin.top + (horizontal ? cxKey(focus) : py),
+                        tooltipTop: legendAbove + margin.top + (horizontal ? cxKey(focus) : py),
                     });
                 };
                 // A click on the plot: the mark it falls on, which the host is told (CHT-8).
@@ -1188,8 +1301,21 @@ function Plot({ node, style, brush, onBrushEnd, brushKey, onMark }: { node: Spec
                         : xKind === "time" ? words.numericDate(instantOfKey(key))
                             : words.number(numberOfKey(key));
 
+                const legendRow = showLegend && (
+                    <Box css={legendStyles.root} data-chart-legend="" {...(legendBelow ? { "data-below": "" } : {})}>
+                        {legend.map((e, i) => (
+                            // A legend row a click reaches tells the host its series (CHT-8).
+                            <Box key={i} css={legendStyles.entry} data-chart-legend-entry={e.key}
+                                {...(onMark !== undefined ? { as: "button" as const, type: "button" as const, onClick: () => onMark({ series: e.key, x: undefined, other: false }) } : {})}>
+                                <Box as="span" css={legendStyles.swatch} background={style.color(e.color)} />
+                                <Box as="span" css={legendStyles.label}>{e.key}</Box>
+                            </Box>
+                        ))}
+                    </Box>
+                );
                 return (
                     <Box position="relative" ref={containerRef}>
+                        {!legendBelow && legendRow}
                         <svg width={w} height={svgH} style={{ display: "block", overflow: "visible" }}>
                             <Group left={margin.left} top={margin.top}>
                                 {/* #152 — plot-rect clip for the series marks (userSpaceOnUse:
@@ -1242,18 +1368,7 @@ function Plot({ node, style, brush, onBrushEnd, brushKey, onMark }: { node: Spec
                                 )}
                             </Group>
                         </svg>
-                        {showLegend && (
-                            <Box display="flex" flexWrap="wrap" gap="{spacing.3}" justifyContent="center" paddingTop="{spacing.1}" height={`${legendH}px`} fontFamily="mono" fontSize="11px" color="fg.muted">
-                                {legend.map((e, i) => (
-                                    // A legend row a click reaches tells the host its series (CHT-8).
-                                    <Box key={i} display="flex" alignItems="center" gap="{spacing.1.5}" data-chart-legend-entry={e.key}
-                                        {...(onMark !== undefined ? { as: "button" as const, type: "button" as const, onClick: () => onMark({ series: e.key, x: undefined, other: false }) } : {})}>
-                                        <Box as="span" width="9px" height="9px" borderRadius="2px" background={style.color(e.color)} flexShrink="0" />
-                                        <Box as="span">{e.key}</Box>
-                                    </Box>
-                                ))}
-                            </Box>
-                        )}
+                        {legendBelow && legendRow}
                         {tooltipOn && tooltipData !== undefined && tooltipLeft != null && tooltipTop != null && (
                             // `zIndex` must sit on the tooltip's OWN (position:absolute) content —
                             // visx puts the `useTooltipInPortal` zIndex on the portal's wrapper div,

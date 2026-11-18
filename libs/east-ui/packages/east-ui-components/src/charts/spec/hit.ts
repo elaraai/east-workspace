@@ -19,6 +19,7 @@
 import { getSomeorUndefined } from "../../utils";
 import type { ValueTypeOf } from "@elaraai/east";
 import { Chart } from "@elaraai/east-ui/internal";
+import { barSlots } from "./bars.js";
 import { stackBoundsOf, type SeriesLayer } from "./stack.js";
 
 /** An x coordinate of a chart, decoded. */
@@ -33,7 +34,7 @@ export interface PlotGeometry {
     readonly keys: readonly string[];
     /** A key's centre along the domain axis. */
     readonly centre: (key: string) => number;
-    /** A band's width along the domain axis: a bar's slot is its share of it. */
+    /** A band's width along the domain axis: the room the bars at an x have (`bars.ts`). */
     readonly bandWidth: number;
     /** Whether the domain runs along y: a horizontal bar chart. */
     readonly horizontal: boolean;
@@ -82,11 +83,14 @@ function layerHit(layer: SeriesLayer, key: string, along: number, across: number
     const pointAt = (s: SeriesLayer["data"][number]) => s.points.find((p) => g.keyOf(p.x) === key);
     switch (layer.mark.type) {
         case "bar": {
-            if (stacked) return segmentsAt(layer, key, g).find((seg) => between(across, at(seg.lo), at(seg.hi)))?.series;
-            // Grouped: one slot a series, side by side across the band.
-            const start = g.centre(key) - g.bandWidth / 2;
-            const slot = g.bandWidth / Math.max(1, layer.data.length);
-            const series = layer.data[Math.floor((along - start) / slot)];
+            // The bars at the x, as they are drawn: a stack is one bar, grouped series side by side.
+            const bars = barSlots(g.bandWidth, stacked ? 1 : layer.data.length, g.horizontal);
+            const from = along - (g.centre(key) + bars.start);
+            const index = Math.floor(from / bars.slot);
+            // Beside the bars, or in the hairline between two, is on none.
+            if (from < 0 || from - index * bars.slot > bars.size) return undefined;
+            if (stacked) return index === 0 ? segmentsAt(layer, key, g).find((seg) => between(across, at(seg.lo), at(seg.hi)))?.series : undefined;
+            const series = layer.data[index];
             const point = series === undefined ? undefined : pointAt(series);
             if (series === undefined || point === undefined) return undefined;
             return between(across, g.baseline, at(point.value)) ? series.key : undefined;

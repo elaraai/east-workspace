@@ -1,0 +1,47 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ */
+
+/**
+ * Chart legend slot recipe — a chart's legend, as the chart rules have it
+ * (`guidelines/charts.md`, Legend; #1671): over the plot, from the chart's
+ * start, one 13px line with 12px under it; each entry a 14 × 3 swatch and its
+ * name in mono 10.5 / 600 `--ink`, 6px apart, the entries 16px apart. Under
+ * the plot (`data-below`) the 12px is above it. An entry a click reaches is a
+ * button.
+ */
+
+import { defineSlotRecipe } from "@chakra-ui/react";
+
+export const chartLegendSlotRecipe = defineSlotRecipe({
+    className: "elara-chart-legend",
+    slots: ["root", "entry", "swatch", "label"],
+    base: {
+        root: {
+            display: "flex",
+            flexWrap: "wrap",
+            alignItems: "flex-start",
+            columnGap: "{spacing.4}",
+            height: "25px",
+            boxSizing: "border-box",
+            overflow: "hidden",
+            "&[data-below]": { paddingTop: "{spacing.3}" },
+        },
+        entry: {
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "{spacing.1.5}",
+            height: "13px",
+            fontFamily: "mono",
+            fontSize: "10.5px",
+            fontWeight: "600",
+            lineHeight: "13px",
+            color: "fg",
+            whiteSpace: "nowrap",
+            "&:is(button)": { cursor: "pointer" },
+        },
+        swatch: { width: "14px", height: "3px", flexShrink: "0" },
+        label: {},
+    },
+});

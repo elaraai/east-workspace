@@ -52,15 +52,18 @@ const vertical: PlotGeometry = {
 };
 
 describe("markAt", () => {
-    test("a grouped bar: the slot across its band, and the bar's height along the measure", () => {
+    test("a grouped bar: its column about the x's centre, and the bar's height along the measure", () => {
         const bars = [layer("bar", [["s0", [["A", 100], ["B", 40]]], ["s1", [["A", 60], ["B", 80]]]])];
-        // A's band runs 10–90: s0's slot 10–50, s1's 50–90.
-        expect(markAt(bars, vertical, 20, 150)).toEqual({ key: "A", series: "s0" });
-        expect(markAt(bars, vertical, 80, 150)).toEqual({ key: "A", series: "s1" });
+        // A's columns, 18 wide, sit side by side about its centre, 50: s0's 30.5–48.5, s1's 50–68.
+        expect(markAt(bars, vertical, 40, 150)).toEqual({ key: "A", series: "s0" });
+        expect(markAt(bars, vertical, 60, 150)).toEqual({ key: "A", series: "s1" });
         // Above s1's bar (its top at 140): the x alone.
-        expect(markAt(bars, vertical, 80, 120)).toEqual({ key: "A", series: undefined });
-        // The nearest x: 120 is B's.
-        expect(markAt(bars, vertical, 120, 190)).toEqual({ key: "B", series: "s0" });
+        expect(markAt(bars, vertical, 60, 120)).toEqual({ key: "A", series: undefined });
+        // In the band, beside the columns, and in the hairline between them: the x alone.
+        expect(markAt(bars, vertical, 20, 150)).toEqual({ key: "A", series: undefined });
+        expect(markAt(bars, vertical, 49.2, 150)).toEqual({ key: "A", series: undefined });
+        // The nearest x: 140 is B's, on s0's column there (130.5–148.5).
+        expect(markAt(bars, vertical, 140, 190)).toEqual({ key: "B", series: "s0" });
     });
 
     test("a stacked bar: the segment the point is in, the series before it below", () => {
@@ -69,6 +72,8 @@ describe("markAt", () => {
         expect(markAt(stacked, vertical, 50, 185)).toEqual({ key: "A", series: "low" });
         expect(markAt(stacked, vertical, 50, 150)).toEqual({ key: "A", series: "high" });
         expect(markAt(stacked, vertical, 50, 100)).toEqual({ key: "A", series: undefined });
+        // A stack is one column, 18 wide about the centre (41–59): beside it is the x alone.
+        expect(markAt(stacked, vertical, 30, 185)).toEqual({ key: "A", series: undefined });
     });
 
     test("a stack to 100%: the segments are shares of the x's total", () => {
@@ -110,8 +115,10 @@ describe("markAt", () => {
     test("a horizontal frame bands its keys down the side and measures across", () => {
         const horizontal: PlotGeometry = { ...vertical, horizontal: true, measure: () => (v) => v, baseline: 0 };
         const bars = [layer("bar", [["s0", [["A", 100]]], ["s1", [["A", 60]]]])];
-        // A's band runs 10–90 down the side: s0's slot 10–50; its bar runs 0–100 across.
-        expect(markAt(bars, horizontal, 70, 20)).toEqual({ key: "A", series: "s0" });
+        // A's bars, 12 thick, sit about its centre, 50, down the side: s0's 36.5–48.5, running 0–100 across; s1's 50–62, running 0–60.
+        expect(markAt(bars, horizontal, 70, 40)).toEqual({ key: "A", series: "s0" });
+        expect(markAt(bars, horizontal, 70, 55)).toEqual({ key: "A", series: undefined });
+        expect(markAt(bars, horizontal, 40, 55)).toEqual({ key: "A", series: "s1" });
         expect(markAt(bars, horizontal, 70, 80)).toEqual({ key: "A", series: undefined });
     });
 
