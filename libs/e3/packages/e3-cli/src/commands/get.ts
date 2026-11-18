@@ -81,13 +81,17 @@ async function writeOut(chunks: AsyncIterable<Uint8Array>): Promise<void> {
 export async function fileWrittenWhole(path: string, fill: (sink: DatasetSink) => Promise<void>): Promise<void> {
   // Beside the path, so on its filesystem: the rename replaces the path in one step
   const partial = `${path}.${randomUUID().slice(0, 8)}.partial`;
-  // Appending, so a write after a truncation starts the file again
-  const file = await open(partial, 'a');
+  let file = await open(partial, 'w');
   try {
     try {
       await fill({
-        write: async (chunk) => { await file.appendFile(chunk); },
-        restart: async () => { await file.truncate(0); },
+        write: async (chunk) => { await file.writeFile(chunk); },
+        // Opened again, which empties it and puts the next write at its
+        // start: Windows refuses to truncate a file opened for appending
+        restart: async () => {
+          await file.close();
+          file = await open(partial, 'w');
+        },
       });
     } finally {
       await file.close();
