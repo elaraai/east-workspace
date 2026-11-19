@@ -1038,3 +1038,35 @@ describe('stepTaskCompleted', () => {
     assert.strictEqual(state.tasks.get('k')!.status, 'pending');
   });
 });
+
+describe('stepTaskFailed', () => {
+  // a → b → c
+  const graph: DataflowGraph = {
+    tasks: [
+      { name: 'a', hash: 'hash-a', inputs: ['.input'], output: '.a_out', dependsOn: [] },
+      { name: 'b', hash: 'hash-b', inputs: ['.a_out'], output: '.b_out', dependsOn: ['a'] },
+      { name: 'c', hash: 'hash-c', inputs: ['.b_out'], output: '.c_out', dependsOn: ['b'] },
+    ],
+  };
+
+  it('leaves a dependent that has failed as it failed: one that ran beside its producer, due again, is not skipped when the producer fails too', () => {
+    // a is due again and runs again; b runs on the result a holds, and c waits for b
+    const state = makeState(graph, new Map([
+      ['a', { ...makeCompleted('a', 'a-out'), status: 'in_progress' } as TaskState],
+      ['b', makeTaskState('b', 'in_progress')],
+      ['c', makeTaskState('c', 'pending')],
+    ]), { executed: 1n });
+
+    // b fails first, and c is skipped for it
+    const first = stepTaskFailed(state, 'b', 'the model did not converge', 1, 10);
+    assert.deepStrictEqual(first.result.toSkip, ['c']);
+    stepTasksSkipped(state, first.result.toSkip, 'b');
+
+    // Then a fails: b has failed, and c is skipped already
+    const { result } = stepTaskFailed(state, 'a', 'the source went away', 1, 10);
+    assert.deepStrictEqual(result.toSkip, [], 'no task is skipped a second time, and none that failed is skipped');
+    assert.deepStrictEqual(stepTasksSkipped(state, result.toSkip, 'a'), [], 'no skip is recorded over b\'s failure');
+    assert.deepStrictEqual([state.tasks.get('b')!.status, state.tasks.get('c')!.status], ['failed', 'skipped']);
+    assert.deepStrictEqual([state.executed, state.failed, state.skipped], [0n, 2n, 1n], 'each task is counted once, as it ended');
+  });
+});

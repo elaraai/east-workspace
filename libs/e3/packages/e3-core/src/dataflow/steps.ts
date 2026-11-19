@@ -1309,7 +1309,9 @@ export function stepTaskCompleted(
 /**
  * Mark a task as failed.
  *
- * Mutates the execution state and returns tasks that should be skipped.
+ * Mutates the execution state and returns tasks that should be skipped: its
+ * transitive dependents, but those completed or skipped already, those in
+ * flight, and those that have failed themselves.
  *
  * @param state - Execution state to mutate
  * @param taskName - Name of the failed task
@@ -1362,9 +1364,11 @@ export function stepTaskFailed(
     completedSet,
     skippedSet
   ).filter(name => {
-    // Also exclude in-progress tasks and apply filter
+    // A dependent in flight is settled as it lands. One that has failed stays
+    // failed: it ran beside this task on the result this task held, and is
+    // counted, and was told of, as it failed. The filter applies too.
     const ts = state.tasks.get(name);
-    if (!ts || ts.status === 'in_progress') return false;
+    if (!ts || ts.status === 'in_progress' || ts.status === 'failed') return false;
     if (runSet !== null && !runSet.has(name)) return false;
     return true;
   });
