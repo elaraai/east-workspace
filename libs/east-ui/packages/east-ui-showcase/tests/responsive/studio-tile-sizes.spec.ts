@@ -4,15 +4,17 @@
  */
 
 /**
- * Studio tiles at every size (#1692), measured in a real browser over the
- * showcase's pages of tiles — each tile the Studio draws, in its
- * configurations, at a narrow, a small and a wide span — with the page's grid
- * set to each width a page could give it, a wide desktop's to a phone's (the
- * showcase's own frame, which holds an example to under a thousand pixels,
- * aside). From 960px the grid gives a tile its span — a narrow one 153px wide
- * at 960 — and under it half the grid or all of it, then under 480px all of
- * it: every width a tile can be drawn at on a page is read. In every tile,
- * every part:
+ * Studio tiles at every size (#1692), measured in a real browser: the
+ * showcase's page of visuals, over which the spec writes a page of its own as
+ * another session's publish would — each tile the Studio draws, in its
+ * configurations, at a narrow, a small and a wide span. The page is the test's
+ * alone: the showcase lists the page of visuals, never this one. The page's
+ * grid is set to each width a page could give it, a wide desktop's to a
+ * phone's (the showcase's own frame, which holds an example to under a
+ * thousand pixels, aside). From 960px the grid gives a tile its span — a
+ * narrow one 153px wide at 960 — and under it half the grid or all of it,
+ * then under 480px all of it: every width a tile can be drawn at on a page is
+ * read. In every tile, every part:
  *
  *  - T1 lies inside its tile's frame;
  *  - T2 lies over no other part;
@@ -29,21 +31,84 @@
  */
 
 import { expect, type Locator, type Page } from "playwright/test";
+import { PatchType, SortedMap, compareFor, diffFor, encodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { Studio } from "@elaraai/e3-ui";
+import * as studio from "@elaraai/e3-ui/examples/studio/studio";
+import { installE3Faults, mutateE3 } from "./e3-faults";
 import { test } from "./kept-page";
 import { settled } from "./settle";
 
 /** The widths a page's grid is read at: a wide desktop's, through the grid's half and whole tiers, to a phone's. */
 const WIDTHS = [1800, 1600, 1440, 1320, 1200, 1120, 1040, 960, 900, 800, 700, 600, 520, 480, 440, 390, 360, 320] as const;
 
-/** A page of tiles: its example, how many tiles it places, and what a tile drawn from its answer is. */
+/** The showcase's page of visuals, over which the spec writes its own. */
+const HASH = "e3/studio/studio/studioVisuals";
+
+type Key = ValueTypeOf<typeof Studio.Types.Key>;
+type Entry = ValueTypeOf<typeof Studio.Types.Entry>;
+/** A page's placements. */
+type Cells = ValueTypeOf<typeof Studio.Types.Page>["cells"];
+
+const vis = Studio.visual;
+
+/**
+ * Each KPI the spec's page places, on a row of its own: its value alone — a
+ * count, an amount, a percentage, a ratio; its change against what it
+ * compares to, up, down, flat and long; lower is better; its goal; its trend;
+ * and every part at once under a long name.
+ */
+const KPIS = {
+    count: vis.kpi({ value: vis.count() }),
+    amount: vis.kpi({ value: vis.sum("revenue") }),
+    percent: vis.kpi({ value: vis.mean("margin") }),
+    ratio: vis.kpi({ value: vis.ratio("revenue", "units") }),
+    up: vis.kpi({ value: vis.sum("revenue"), compare: vis.mean("revenue") }),
+    down: vis.kpi({ value: vis.mean("revenue"), compare: vis.sum("revenue") }),
+    flat: vis.kpi({ value: vis.sum("revenue"), compare: vis.sum("revenue") }),
+    long: vis.kpi({ value: vis.count(), compare: vis.sum("revenue") }),
+    lower: vis.kpi({ value: vis.sum("units", { better: "lower" }), compare: vis.mean("units") }),
+    goal: vis.kpi({ value: vis.sum("revenue", { goal: 24000 }) }),
+    trend: vis.kpi({ value: vis.count(), trend: "ordered_at" }),
+    every: vis.kpi({
+        value: vis.sum("revenue", { goal: 24000, label: "Revenue across every region this quarter" }),
+        compare: vis.mean("revenue"), trend: "ordered_at",
+    }),
+};
+
+/** The spans each KPI is placed at, on its row: narrow, small and wide. */
+const SPANS = [2n, 3n, 7n];
+
+/** A page of tiles the spec writes: its placements, how many tiles they are, and what a tile drawn from its answer is. */
 interface TilePage {
-    readonly hash: string;
+    readonly cells: Cells;
     readonly tiles: number;
     readonly drawn: string;
 }
 
-/** Every KPI configuration, each at a narrow, a small and a wide span. */
-const KPI_SIZES: TilePage = { hash: "e3/studio/tiles/studioKpiSizes", tiles: 36, drawn: "[data-studio-kpi]" };
+/** Every KPI configuration, each at a narrow, a small and a wide span, over the page of visuals' orders. */
+const KPI_CELLS: Cells = Object.entries(KPIS).flatMap(([name, kpi]) => SPANS.map((span) => ({
+    key: `kpi-${name}-${span}`, row: `r-${name}`, span, height: none, align: variant("stretch", null), title: none,
+    content: vis.of("orders", kpi),
+})));
+const KPI_SIZES: TilePage = { cells: KPI_CELLS, tiles: KPI_CELLS.length, drawn: "[data-studio-kpi]" };
+
+/**
+ * Writes a page of tiles over the page of visuals, as another session's publish would: its draft and its live
+ * version, through its pages record's patch.
+ *
+ * @param page - The browser's page
+ * @param cells - The page's placements
+ */
+async function writePage(page: Page, cells: Cells): Promise<void> {
+    const { type, name, default: seeded } = studio.studioVisualPages;
+    if (seeded === undefined) throw new Error("the visuals' pages are seeded");
+    const before = new SortedMap<Key, Entry>(seeded, compareFor(Studio.Types.Key));
+    const written = { title: "Tiles", cells };
+    const after = new SortedMap<Key, Entry>([...before].map(([key, entry]): [Key, Entry] => [
+        key, entry.type === "page" ? variant("page", { draft: written, live: some({ version: 2n, page: written }) }) : entry,
+    ]), compareFor(Studio.Types.Key));
+    await mutateE3(page, "studio", name, "patch", [encodeBeast2For(PatchType(type))(diffFor(type)(before, after))]);
+}
 
 /** The parts of a tile the rules read, by name: its eyebrow's, and a KPI's. */
 const PARTS: Readonly<Record<string, string>> = {
@@ -65,20 +130,23 @@ const NUMBERS: readonly string[] = ["value", "change"];
 const DRAWINGS: readonly string[] = ["menu", "goal", "trend"];
 
 /**
- * Opens a page of tiles on a wide screen, every tile drawn from its answer, at rest.
+ * Opens the page of visuals on a wide screen and writes a page of tiles over it, every tile drawn from its answer, at
+ * rest.
  *
  * @param page - The browser's page
  * @param at - The page of tiles
  * @returns The page's grid
  */
 async function openTiles(page: Page, at: TilePage): Promise<Locator> {
+    await installE3Faults(page);
     await page.setViewportSize({ width: 1920, height: 1000 });
-    await page.goto(`/?theme=light#${at.hash}`);
+    await page.goto(`/?theme=light#${HASH}`);
     await page.waitForSelector("header", { timeout: 20_000 });
-    const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${at.hash}"]`) });
+    const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${HASH}"]`) });
     await entry.scrollIntoViewIfNeeded();
     const grid = entry.locator("[data-snap-grid]").first();
     await expect(grid).toBeVisible({ timeout: 30_000 });
+    await writePage(page, at.cells);
     // e3 in the page answers each tile's programs: every tile drawn.
     await expect.poll(() => grid.evaluate((root, drawn) => root.querySelectorAll(drawn).length, at.drawn), { timeout: 120_000 }).toBe(at.tiles);
     await settled(page);
