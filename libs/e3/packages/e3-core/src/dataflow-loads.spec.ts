@@ -9,7 +9,9 @@
  * record, whose readers run after it in the same run; the record's slots
  * answer a delivery it holds already; a load that cannot run holds its
  * record's readers; one that fails leaves its run going; and its commit runs
- * outside the run's lock on its state. On the real runner, a load runs its
+ * outside the run's lock on its state. A load is found by the name it has as
+ * a step of a run, with its runs and its log, as a task is by its own
+ * (ruling 41). On the real runner, a load runs its
  * program. A case that needs a step to happen while another runs holds it — a
  * task's execution at a gated runner, a commit's call at a held store — so no
  * case waits on a clock.
@@ -24,7 +26,8 @@ import { DatasetRefType, VersionVectorType, type TreePath } from '@elaraai/e3-ty
 import { dataflowGetGraph } from './dataflow.js';
 import type { OrchestratorStartOptions } from './dataflow/orchestrator/interfaces.js';
 import type { DeferReason, FinalizeResult, InputWait } from './dataflow/types.js';
-import { DataflowAbortedError, ObjectNotFoundError } from './errors.js';
+import { DataflowAbortedError, ObjectNotFoundError, TaskNotFoundError } from './errors.js';
+import { executionFindCurrent, executionReadLog } from './executions.js';
 import type { TaskRunner } from './execution/interfaces.js';
 import { LocalOrchestrator } from './execution/local-orchestrator.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
@@ -35,6 +38,7 @@ import { pruneHistory } from './history.js';
 import { sourceExecution, sourceLoadSlots } from './record-slots.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { StorageBackend } from './storage/interfaces.js';
+import { workspaceFindTask, workspaceGetTaskHash, workspaceListTasks } from './tasks.js';
 import { workspaceGetDataset, workspaceSetDataset } from './trees.js';
 import { workspaceBundleExport, workspaceBundleImport } from './workspace-bundle.js';
 import { workspaceCreate, workspaceDeploy } from './workspaces.js';
@@ -910,5 +914,63 @@ describe('a source the dataflow loads', () => {
     assert.equal(status?.type, 'success', 'the load\'s execution is kept');
     const { lines, told } = await run();
     assert.ok(lines.includes('cached orders.erp'), told);
+  });
+
+  /** The execution `orders` names as the one that made a source's last delta. */
+  async function named(source: string) {
+    const execution = sourceExecution((await refOf('orders')).versions, source);
+    if (execution === null) assert.fail(`orders names no execution for ${source}`);
+    return execution;
+  }
+
+  it('ruling 41 — a load is found by its step\'s name, `<record>.<source>`, with the task object its runs are kept under and what it loads; the list of tasks lists no load', async () => {
+    await loadedOnce();
+    const node = (await dataflowGetGraph(storage, repo, WS)).tasks.find((step) => step.name === 'orders.erp')!;
+
+    const found = await workspaceFindTask(storage, repo, WS, 'orders.erp');
+    assert.deepEqual([found.name, found.hash, found.load], ['orders.erp', node.hash, { record: 'orders', source: 'erp', refPath: ORDERS_REF }]);
+    assert.equal(await workspaceGetTaskHash(storage, repo, WS, 'orders.erp'), node.hash);
+    // A task is found as it was, and is no load
+    assert.equal((await workspaceFindTask(storage, repo, WS, 'combine_erp')).load, undefined);
+    assert.ok(!(await workspaceListTasks(storage, repo, WS)).some((task) => task.startsWith('orders.')), 'a task list lists tasks alone');
+  });
+
+  it('ruling 41 — a load\'s execution is its latest run, current while the record names it: a load the dataflow ran, and one `e3 load` delivered, which is no step of a run', async () => {
+    await loadedOnce();
+
+    for (const source of ['erp', 'wms']) {
+      const current = await executionFindCurrent(storage, repo, WS, `orders.${source}`);
+      const { inputsHash, executionId } = await named(source);
+      assert.deepEqual(
+        current === null ? null : [current.inputsHash, current.executionId, current.isCurrent, current.status.type],
+        [inputsHash, executionId, true, 'success'], source,
+      );
+    }
+    assert.ok(!(await dataflowGetGraph(storage, repo, WS)).tasks.some((step) => step.name === 'orders.wms'), 'the warehouse\'s load is no step of a run');
+  });
+
+  it('ruling 41 — a load that fails is read by its step\'s name: its latest run is the one that failed, not the one the record names, and its log says why', async () => {
+    await loadedOnce({ failsOn: 'SO-9' });
+    const loaded = await named('erp');
+    await setRows(ERP_ROWS, { 'SO-1': ['Acme', 5n], 'SO-9': ['Nobody', 1n] });
+    const failed = await run();
+    assert.equal(failed.result.success, false, failed.told);
+
+    const current = await executionFindCurrent(storage, repo, WS, 'orders.erp');
+    assert.ok(current !== null);
+    assert.deepEqual([current.status.type, current.isCurrent], ['failed', false]);
+    assert.notEqual(current.executionId, loaded.executionId, 'the run that failed, after the one that loaded');
+    assert.deepEqual(await named('erp'), loaded, 'the record names the run that loaded, as before');
+    const log = await executionReadLog(storage, repo, current.taskHash, current.inputsHash, current.executionId, 'stderr');
+    assert.match(log.data, /the ERP sent order SO-9, which no order book holds/);
+  });
+
+  it('ruling 41 — a name that is no task\'s and no load\'s is refused as before: a source the record\'s mutations write, a source it does not declare, a record the package does not', async () => {
+    await loadedOnce();
+    for (const name of ['orders.own', 'orders.nobody', 'orders', 'nothing.erp']) {
+      await assert.rejects(workspaceFindTask(storage, repo, WS, name), TaskNotFoundError, name);
+      await assert.rejects(workspaceGetTaskHash(storage, repo, WS, name), TaskNotFoundError, name);
+      await assert.rejects(executionFindCurrent(storage, repo, WS, name), TaskNotFoundError, name);
+    }
   });
 });

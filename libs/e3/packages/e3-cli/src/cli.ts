@@ -303,9 +303,9 @@ program
   )
   .addCommand(
     new Command('logs')
-      .description('View logs for a task')
+      .description("View logs for a task, or for the load of a composite record's source")
       .argument('[repo]', 'Repository path or URL (default: $E3_REPO or .)')
-      .argument('[path]', 'Task path (<ws>.<task>)')
+      .argument('[path]', "Task path (<ws>.<task>); a load's is <ws>.<record>.<source>, the name it has as a step of a run")
       .option('-n, --lines <n>', `Show the last <n> lines (default: ${DEFAULT_TAIL_LINES})`)
       .option('--all', 'Show the whole log instead of the last lines')
       .option('--follow', 'Follow log output')

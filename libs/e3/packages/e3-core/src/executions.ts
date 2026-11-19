@@ -15,11 +15,15 @@
  * Note: Local process execution is in execution/LocalTaskRunner.ts
  */
 
-import { decodeEastIR } from '@elaraai/east';
+import { StringType, decodeEastIR, equalFor } from '@elaraai/east';
 import { treePathToRefPath, type ExecutionStatus } from '@elaraai/e3-types';
 import type { StorageBackend, LogChunk } from './storage/interfaces.js';
 import { inputObject } from './dataset-open.js';
 import { computeHash } from './objects.js';
+import { sourceExecution } from './record-slots.js';
+
+/** Whether two hashes, or two execution ids, name one thing. */
+const sameObject = equalFor(StringType);
 
 // ============================================================================
 // Execution Identity
@@ -186,10 +190,16 @@ export interface CurrentExecutionRef {
  * record's state, which is read once and then from memory (`inputObject`), as
  * the dataflow keys the task's executions.
  *
+ * A load, named as its step of a run is (`orders.erp`), reads no dataset of
+ * the workspace as a task does: its inputs are a delivery and its source's
+ * entries. Its execution is its latest run, the one that says why it failed
+ * when it did, and it is current when the record names it as the execution
+ * that made its source's last delta (`sourceExecution`).
+ *
  * @param storage - Storage backend
  * @param repo - Repository identifier (for local storage, the path to e3 repository directory)
  * @param ws - Workspace name
- * @param taskName - Task name
+ * @param taskName - Task name, or a load's `<record>.<source>`
  * @returns Execution reference or null if no executions exist
  */
 export async function executionFindCurrent(
@@ -201,7 +211,16 @@ export async function executionFindCurrent(
   // Import here to avoid circular dependency
   const { workspaceFindTask } = await import('./tasks.js');
 
-  const { hash: taskHash, task } = await workspaceFindTask(storage, repo, ws, taskName);
+  const { hash: taskHash, task, load } = await workspaceFindTask(storage, repo, ws, taskName);
+
+  if (load !== undefined) {
+    const [latest] = await storage.refs.executionListRuns(repo, taskHash, { limit: 1 });
+    if (latest === undefined) return null;
+    const held = await storage.datasets.read(repo, ws, load.refPath);
+    const named = held !== null && held.type === 'value' ? sourceExecution(held.value.versions, load.source) : null;
+    const isCurrent = named !== null && sameObject(named.inputsHash, latest.inputsHash) && sameObject(named.executionId, latest.executionId);
+    return { taskHash, inputsHash: latest.inputsHash, executionId: latest.executionId, isCurrent, status: latest.status };
+  }
 
   // The current input hashes from the workspace: the inputs' refs, in one
   // read, as the store keys them (`inputs/sales` for `.inputs.sales`)
