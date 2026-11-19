@@ -20,7 +20,8 @@
  * declared spans, Mobile stacking its placements in row order at 390px (E2).
  * The canvas's Mobile does as the preview's: the canvas 390px wide, every tile
  * its rows' width in row order, no column ruler, and a selected tile with no
- * handles (B14).
+ * handles (B14). The design widths' icons and the preview's devices' stand at
+ * their segments' middles on whole pixels, as an icon button's do (I1, I2).
  * The builder is set to the Studio's width, 1440px, and measured on the page
  * it opens at rest. Its builder frame (#1125 F3): on a desktop the palette
  * and the inspector are pinned, main between them; on a phone each rests on
@@ -36,6 +37,7 @@
 import { expect, type Locator, type Page } from "playwright/test";
 import { expectWholeBoxWords } from "./box-words";
 import { test } from "./kept-page";
+import { iconRows, offCentre } from "./segment-rows";
 import { settled } from "./settle";
 import { frameAt, type Box } from "./builder-frame";
 
@@ -250,6 +252,26 @@ test.describe("Studio builder (#1000)", () => {
             const at = await laidOut();
             return { canvas: at.canvas > 390, ruler: at.ruler, full: at.full, stacked: at.stacked };
         }).toEqual({ canvas: true, ruler: true, full: false, stacked: false });
+    });
+
+    test("I1: the design widths, Desktop · Tablet · Mobile, in the toolbar's row: each icon at its segment's middle on whole pixels — a 10px glyph, 8 rows either side", async ({ page }) => {
+        const builder = await openBuilder(page, 1600);
+        const widths = builder.locator("[data-snap-grid-widths]").first();
+        await expect(widths).toBeVisible();
+        const rows = await iconRows(widths, "button");
+        expect(rows.map((row) => row.label.trim()), "every width, each with its icon").toEqual(["Desktop", "Tablet", "Mobile"]);
+        expect(offCentre(rows)).toEqual([]);
+        expect(rows.map((row) => [row.glyph, row.above])).toEqual([[10, 8], [10, 8], [10, 8]]);
+    });
+
+    test("I2: the preview's devices: each icon at its segment's middle on whole pixels — a 10px glyph in its 26px, 8 rows either side", async ({ page }) => {
+        const preview = await openPreview(page);
+        const devices = preview.locator("[data-publish-devices]").first();
+        await expect(devices).toBeVisible();
+        const rows = await iconRows(devices, "[data-publish-device]");
+        expect(rows.length).toBe(3);
+        expect(offCentre(rows)).toEqual([]);
+        expect(rows.map((row) => [row.glyph, row.above])).toEqual([[10, 8], [10, 8], [10, 8]]);
     });
 });
 

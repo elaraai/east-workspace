@@ -19,8 +19,8 @@ const componentSpecs = {
     // narrowing, loading and eye; its toolbar's fit and its keys run in the shared suites with every builder's.
     allocation: [
         "allocation-cards.spec.ts", "allocation-fit.spec.ts", "allocation-frame.spec.ts", "allocation-inspector.spec.ts", "allocation-library.spec.ts",
-        "allocation-loading.spec.ts", "allocation-narrowing.spec.ts", "allocation-search.spec.ts", "allocation-split.spec.ts", "allocation-table.spec.ts",
-        "allocation-timeline.spec.ts", "optimise-allocation.spec.ts",
+        "allocation-loading.spec.ts", "allocation-narrowing.spec.ts", "allocation-search.spec.ts", "allocation-segments.spec.ts", "allocation-split.spec.ts",
+        "allocation-table.spec.ts", "allocation-timeline.spec.ts", "optimise-allocation.spec.ts",
     ],
     calendar: [
         "calendar.spec.ts", "calendar-loading.spec.ts", "calendar-narrowing.spec.ts", "calendar-paged-columns.spec.ts", "calendar-records.spec.ts",
