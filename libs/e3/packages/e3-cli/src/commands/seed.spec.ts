@@ -15,10 +15,10 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
-import { East, IntegerType, SortedMap, StringType, compareFor, encodeBeast2For, variant } from '@elaraai/east';
+import { East, IntegerType, PatchType, SortedMap, StringType, compareFor, encodeBeast2For, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { LocalStorage, recordHistory, packageImport, workspaceCreate, workspaceDeploy, workspaceGetDataset } from '@elaraai/e3-core';
-import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, ordersOverSources } from '@elaraai/e3-core/test';
+import { ErpDeliveryType, SourcedOrderType, createTestRepo, removeTestRepo, createTempDir, removeTempDir, ordersOverSources } from '@elaraai/e3-core/test';
 import { compositeSeedRefusal, seedCommand } from './seed.js';
 
 const encodeInt = encodeBeast2For(IntegerType);
@@ -122,9 +122,31 @@ describe('seedCommand', () => {
     assert.deepEqual(await recordHistory(storage, repo, 'sales', 'orders'), before, 'nothing was written');
 
     // Several external sources are named together, and a composite with none is pointed at its mutations alone
-    assert.match(compositeSeedRefusal('stock', 'main', ['erp', 'wms']), /Load a delivery into one of erp, wms \(e3 load <repo> stock\.<source> <file> -w main\), and write/);
-    assert.equal(compositeSeedRefusal('plan', 'main', []), 'Record \'plan\' is a composite, and takes no state from e3 seed: each entry is one of its sources\'. '
+    assert.match(compositeSeedRefusal('stock', 'main', ['erp', 'wms'], true), /Load a delivery into one of erp, wms \(e3 load <repo> stock\.<source> <file> -w main\), and write/);
+    assert.equal(compositeSeedRefusal('plan', 'main', [], true), 'Record \'plan\' is a composite, and takes no state from e3 seed: each entry is one of its sources\'. '
       + 'Write the solution\'s own entries by the record\'s mutations (e3 mutate <repo> plan.<mutation> -w main).');
+  });
+
+  it('ruling 46 — the refusal of a composite whose sources are all external names e3 load alone: such a record has no mutation', async () => {
+    // `stock`: erp and wms, each loaded from a delivery, and no source of the solution's own
+    const load = East.function([ErpDeliveryType, ErpDeliveryType], PatchType(ErpDeliveryType), (_$, delivery, current) => East.diff(current, delivery));
+    const stock = e3.recordComposite('stock', SourcedOrderType, {
+      sources: (source) => ({ erp: source.load(StringType, ErpDeliveryType, load), wms: source.load(StringType, ErpDeliveryType, load) }),
+    });
+    const zip = join(tempDir, 'stock.zip');
+    await e3.export(e3.package('stock', '1.0.0', stock), zip);
+    await packageImport(storage, repo, zip);
+    await workspaceCreate(storage, repo, 'stock');
+    await workspaceDeploy(storage, repo, 'stock', 'stock', '1.0.0');
+
+    const file = join(tempDir, 'stock.beast2');
+    writeFileSync(file, encodeBeast2For(stock.type)(new SortedMap([], compareFor(stock.type.key))));
+    const said: string[] = [];
+    await assert.rejects(withExitStub(() => seedCommand(repo, 'stock', file, { workspace: 'stock' }), said));
+    assert.equal(said[0], 'Error: Record \'stock\' is a composite, and takes no state from e3 seed: each entry is one of its sources\'. '
+      + 'Load a delivery into one of erp, wms (e3 load <repo> stock.<source> <file> -w stock).');
+    assert.equal(compositeSeedRefusal('stock', 'main', ['erp'], false), 'Record \'stock\' is a composite, and takes no state from e3 seed: each entry is one of its sources\'. '
+      + 'Load a delivery into erp (e3 load <repo> stock.erp <file> -w main).');
   });
 
   it('refuses a file of another type, writing nothing', async () => {

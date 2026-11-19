@@ -68,20 +68,32 @@ function renderOutcome(record: string, file: string, outcome: MutationOutcome): 
 /**
  * Why `e3 seed` refuses a composite record: none of its entries is seeded
  * from a file. An external source takes a delivery, and the record's
- * mutations write the rest.
+ * mutations write the entries of a source of the solution's own. The refusal
+ * names only what the record has: a record whose sources are all external
+ * has no mutation to name.
  *
  * @param record - The record's name
  * @param ws - The workspace
  * @param external - The record's external sources, by name
+ * @param own - Whether the record has a source its mutations write
  * @returns The refusal's words
+ *
+ * @example
+ * ```ts
+ * compositeSeedRefusal('stock', 'main', ['erp'], false);
+ * // Record 'stock' is a composite, and takes no state from e3 seed: each entry is one of its sources'.
+ * // Load a delivery into erp (e3 load <repo> stock.erp <file> -w main).
+ * ```
  */
-export function compositeSeedRefusal(record: string, ws: string, external: readonly string[]): string {
-  const load = external.length === 0 ? ''
-    : external.length === 1
-      ? ` Load a delivery into ${external[0]} (e3 load <repo> ${record}.${external[0]} <file> -w ${ws}), and write`
-      : ` Load a delivery into one of ${external.join(', ')} (e3 load <repo> ${record}.<source> <file> -w ${ws}), and write`;
-  return `Record '${record}' is a composite, and takes no state from e3 seed: each entry is one of its sources'.`
-    + `${load === '' ? ' Write' : load} the solution's own entries by the record's mutations (e3 mutate <repo> ${record}.<mutation> -w ${ws}).`;
+export function compositeSeedRefusal(record: string, ws: string, external: readonly string[], own: boolean): string {
+  const remedies = [
+    ...(external.length === 0 ? [] : [external.length === 1
+      ? `load a delivery into ${external[0]} (e3 load <repo> ${record}.${external[0]} <file> -w ${ws})`
+      : `load a delivery into one of ${external.join(', ')} (e3 load <repo> ${record}.<source> <file> -w ${ws})`]),
+    ...(own ? [`write the solution's own entries by the record's mutations (e3 mutate <repo> ${record}.<mutation> -w ${ws})`] : []),
+  ].join(', and ');
+  return `Record '${record}' is a composite, and takes no state from e3 seed: each entry is one of its sources'. `
+    + `${remedies.charAt(0).toUpperCase()}${remedies.slice(1)}.`;
 }
 
 /** `e3 seed` entry point. */
@@ -104,7 +116,10 @@ export async function seedCommand(
     const resolved = await resolveRecord(storage, location.path, ws, record);
     if (!resolved) exitError(`Record '${record}' not found in workspace '${ws}'`);
     // A composite's entries are its sources': delivered, or written by its mutations
-    if (resolved.sources.size > 0) exitError(compositeSeedRefusal(record, ws, externalSources(resolved)));
+    if (resolved.sources.size > 0) {
+      const external = externalSources(resolved);
+      exitError(compositeSeedRefusal(record, ws, external, resolved.sources.size > external.length));
+    }
     // A record that holds a state already is refused before the file is
     // read, not after it has been taken in: the commit would refuse it then
     const held = await storage.datasets.read(location.path, ws, resolved.refPath);

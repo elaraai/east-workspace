@@ -610,7 +610,9 @@ export function waitLine(task: string, waits: readonly InputWait[]): string {
 
 /**
  * What a run that left tasks waiting says after its summary: what they wait
- * on, and what to do about it.
+ * on, and what to do about it. It names every remedy: an input is set, a
+ * record declared with no first value is seeded, and a composite record's
+ * sources are loaded.
  *
  * @param waiting - How many tasks the run left waiting
  * @returns The line
@@ -622,7 +624,7 @@ export function waitLine(task: string, waits: readonly InputWait[]): string {
  */
 export function waitingLine(waiting: number): string {
   return `${waiting} ${waiting === 1 ? 'task waits' : 'tasks wait'} on an input that is not set, or on a record's load: `
-    + 'set the input, or load the record\'s sources, and run again.';
+    + 'set the input, seed the record, or load the record\'s sources, and run again.';
 }
 
 /** Names as a sentence lists them: `a`, `a and b`, `a, b and c`. */

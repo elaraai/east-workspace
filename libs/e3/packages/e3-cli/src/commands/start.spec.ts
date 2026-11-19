@@ -243,7 +243,7 @@ describe('a remote run', () => {
     assert.deepEqual(asked, { cancels: 0, outputs: 1 });
   });
 
-  it('R27 — says, after the summary of a run that left tasks waiting, what they wait on and what to do', async (t) => {
+  it('R27, ruling 46 — says, after the summary of a run that left tasks waiting, what they wait on and every remedy: set, seed or load', async (t) => {
     const lines = printedLines(t);
     const { api } = server(variant('started', null), capacity, 'completed', 0n, 3n);
     assert.equal(await runRemote(api, 'main', () => false, async () => {}), 0, 'a task left waiting fails nothing');
@@ -251,9 +251,10 @@ describe('a remote run', () => {
       '  Waiting:  3',
       '  Duration: 1500ms',
       '',
-      '3 tasks wait on an input that is not set, or on a record\'s load: set the input, or load the record\'s sources, and run again.',
+      '3 tasks wait on an input that is not set, or on a record\'s load: set the input, seed the record, or load the record\'s sources, and run again.',
     ]);
-    assert.equal(waitingLine(1), '1 task waits on an input that is not set, or on a record\'s load: set the input, or load the record\'s sources, and run again.');
+    assert.equal(waitingLine(1),
+      '1 task waits on an input that is not set, or on a record\'s load: set the input, seed the record, or load the record\'s sources, and run again.');
   });
 
   it('says a run in flight took the start in, and follows that run from the cursor the start was given', async (t) => {
