@@ -7,8 +7,9 @@
  * A page's filters, held for React (#1673): a reader's filters of a page live
  * in the UI store under the page's own key (e3-ui's `studioFiltersKey`), as
  * a builder's own view is (`shared/stored-value.ts`), so the builder's
- * canvas, the preview beside it and the published page narrow alike, and a
- * surface's East may read and write them. One
+ * preview and the published page narrow alike, and a surface's East may read
+ * and write them. The builder's canvas, the page as designed, stands under no
+ * provider: no reader's filter narrows it (ruled 19 November 2026). One
  * {@link PageFiltersProvider} a page; each tile reads its state through
  * {@link usePageState}.
  *

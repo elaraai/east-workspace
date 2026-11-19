@@ -32,7 +32,11 @@
  *   narrow screen.
  * - **The publish preview** ({@link StudioPublishPreview}) takes the canvas's
  *   place while it shows. The canvas stays mounted, so its drafts stay its own,
- *   and it applies them when the preview asks before it publishes.
+ *   and it applies them when the preview asks before it publishes. The preview
+ *   is the page as its readers see it — the rail of their filters over its
+ *   grid, its clicks running — where the canvas is the page as designed: the
+ *   builder's toolbar holds no filter rail, and no reader's filter narrows the
+ *   canvas (ruled 19 November 2026).
  *
  * What each part shows is e3-ui's East, compiled once ({@link studioEast}).
  * The page open in the builder is its host's when it gives one — the builder
@@ -87,11 +91,9 @@ import { StudioConfigure } from "./configure.js";
 import { StudioInspector } from "./inspector.js";
 import { useStudioMessages } from "./messages.js";
 import { StudioLayout, StudioPlacement, useListedByKey } from "./page.js";
-import { sourcesRead, useStudioFilterItems } from "./filter-rail.js";
 import { clickFields } from "../query/visual/links.js";
 import { useLinking } from "./linking.js";
 import { PageClicksProvider } from "./page-clicks.js";
-import { PageFiltersProvider } from "./page-filters.js";
 import { visualName } from "./visual/values.js";
 import { useStudioPalette, visualCards, type PlacedCard } from "./palette.js";
 import { StudioPhoneBar } from "./phone.js";
@@ -491,12 +493,9 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
             </ChipMenu>
         } />
     );
-    // The reader's filters of the open page, among the toolbar's items as other builders place their rail.
-    const filtered = useMemo(() => sourcesRead(cells), [cells]);
-    const filterItems = useStudioFilterItems(open, sources, filtered);
+    // No filter rail: the page's filters are its readers', which its Preview shows over the page (ruled 19 November 2026).
     const toolbar = phone ? {
-        // On a phone the page's filters are the rail's Filters button, which opens its view over the builder (#1673).
-        end: [...filterItems, {
+        end: [{
             key: "studio.phone", forms: [null], phone: {
                 grow: true,
                 form: <StudioPhoneBar status={status} saveTemplate={saveTemplate} project={open.project}
@@ -516,7 +515,7 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
                 </ChakraHStack>,
                 null,
             ],
-        } satisfies ToolbarItem, ...filterItems],
+        } satisfies ToolbarItem],
         end: [
             {
                 key: "save-template", side: "end", rank: RANK_MORE, bundle: MORE_BUNDLE,
@@ -695,10 +694,9 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
             {/* The canvas's visuals ask their programs over the sources the surface lists (#1670); the preview
                 beside it asks through the same answers, so what the canvas has answered it draws at once. */}
             <VisualAnswersProvider sources={sources}>
-                {/* The reader's filters of the open page narrow the canvas's visuals as they do the page's. */}
-                <PageFiltersProvider page={open}>
-                {/* On the canvas a click edits: a visual's own click does not run, and one that follows another reads
-                    what the preview's reader selected (#1673). */}
+                {/* The canvas is the page as designed: no reader's filter narrows it (ruled 19 November 2026), and a click
+                    edits — a visual's own click does not run, and one that follows another reads what the preview's reader
+                    selected (#1673). */}
                 <PageClicksProvider page={open} cells={cells} live={false}>
                 <Box css={styles.canvas} hidden={previewing} data-studio-canvas="" data-linking={linking.active ? "" : undefined}>
                     {linking.surface}
@@ -732,7 +730,6 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
                             })),
                         }} />
                 )}
-                </PageFiltersProvider>
             </VisualAnswersProvider>
         </Box>
     );

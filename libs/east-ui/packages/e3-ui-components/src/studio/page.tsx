@@ -187,8 +187,9 @@ export interface StudioLayoutProps {
  * A layout's placements on the snap grid, each what it holds — a frameless
  * component and a text block bare; a visual, and a placement the surface
  * cannot draw, in a tile. Under a narrow container the tiles stack in row
- * order. Its visuals are narrowed by the reader's filters of its page, and
- * their clicks run: they select, filter and open, as each visual says.
+ * order. Its visuals are narrowed by the reader's filters of its page, whose
+ * rail stands over the grid, the two one box in whatever its host holds it
+ * in; and their clicks run: they select, filter and open, as each visual says.
  *
  * @param props - The placements, the listed components, the listed sources, the page and who is told a click opens another
  * @returns The grid
@@ -218,14 +219,17 @@ export function StudioLayout({ cells, components, sources, page, storageKey, onO
         <VisualAnswersProvider sources={sources}>
             <PageFiltersProvider page={page}>
                 <PageClicksProvider page={page} cells={cells} live onOpen={onOpen}>
-                    {filterItems.length > 0 && <Box css={filterStyles.row} data-studio-filters=""><Toolbar items={filterItems} /></Box>}
-                    <SnapGridTiles
-                        cells={tiles}
-                        content={(tile) => (
-                            <StudioPlacement content={tile.cell.content} listed={listed} sources={names} storageKey={`${storageKey}.${tile.key}`}
-                                title={tile.cell.title.type === "some" ? tile.cell.title.value : undefined} placement={tile.key} />
-                        )}
-                    />
+                    {/* One box, the rail over the grid: no gap of its host's layout comes between them. */}
+                    <Box css={filterStyles.page} data-studio-layout="">
+                        {filterItems.length > 0 && <Box css={filterStyles.row} data-studio-filters=""><Toolbar items={filterItems} /></Box>}
+                        <SnapGridTiles
+                            cells={tiles}
+                            content={(tile) => (
+                                <StudioPlacement content={tile.cell.content} listed={listed} sources={names} storageKey={`${storageKey}.${tile.key}`}
+                                    title={tile.cell.title.type === "some" ? tile.cell.title.value : undefined} placement={tile.key} />
+                            )}
+                        />
+                    </Box>
                 </PageClicksProvider>
             </PageFiltersProvider>
         </VisualAnswersProvider>
