@@ -96,6 +96,8 @@ export {
     type RecordApplyInsideOptions,
     recordBindPlatformFn,
 } from './bind/record.js';
+// A composite record's sources, as a record's binding names them (east-workspace#1465): `binding.sources`.
+export { RecordBindingSourceType, RecordBindingSourcesType } from './bind/record-composite.js';
 // The Record: `<Record>`, the table for a system of records, and the record
 // binding beside it — `Record.bind`, `Record.onApply`, `Record.toDraft`, its columns, registers,
 // hints, patches and types (`Record.column.*`, `Record.register.*`,

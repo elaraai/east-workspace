@@ -7,7 +7,8 @@
  * What a UI writes and calls, read from its IR (#1226): the datasets its
  * `Data.bind` handles may write, by what it does with each and by the
  * binding's mode and patch dataset, and each record it binds, with the
- * mutations it binds and the indexes it reads through.
+ * mutations it binds, the indexes it reads through and, of a composite
+ * record, the sources its binding names (east-workspace#1465).
  */
 
 import { describe, test } from "node:test";
@@ -15,10 +16,10 @@ import assert from "node:assert/strict";
 
 import {
     ArrayType, DictType, East, FloatType, IRType, NullType, PatchType, StringType, StructType,
-    decodeBeast2For, encodeBeast2For, equalFor, printFor, toEastTypeValue, variant, type IR,
+    decodeBeast2For, encodeBeast2For, equalFor, printFor, toEastTypeValue, variant, walkIR, type IR,
 } from "@elaraai/east";
 import { type TreePath } from "@elaraai/e3-types";
-import { input, record } from "@elaraai/e3";
+import { input, record, recordComposite } from "@elaraai/e3";
 import { Button, Reactive, Text, UIComponentType } from "@elaraai/east-ui/internal";
 import {
     Data, DataBindHandleType, Decision, DecisionType, JudgementsType, Record, UiAccessType, deriveUiAccess, type UiAccess,
@@ -54,6 +55,20 @@ const plans = record("plans", PlansType, {
     mutations: (mutation) => ({
         reassign: mutation.reduce(East.function([PlansType, StringType, StringType], PlansType, (_$, state, _id, _owner) => state)),
     }),
+});
+
+// A composite record: the ERP's orders, which its load alone writes, beside the planner's own. Its sources are
+// declared out of the order of their names, which is the order of the key's cases.
+const Order = StructType({ customer: StringType, status: StringType });
+const ErpOrdersType = DictType(StringType, Order);
+const orders = recordComposite("orders", Order, {
+    sources: (source) => ({
+        own: source.mutations(StringType),
+        erp: source.load(StringType, ErpOrdersType, East.function([ErpOrdersType, ErpOrdersType], PatchType(ErpOrdersType),
+            (_$, delivery, current) => East.diff(current, delivery))),
+    }),
+    initial: { own: new Map() },
+    mutations: (mutation) => ({ patch: mutation.patch() }),
 });
 
 const decisions = input("decisions", ArrayType(DecisionType), variant("value", []));
@@ -97,7 +112,7 @@ describe("deriveUiAccess", () => {
         const string = toEastTypeValue(StringType);
         assertAccess(accessOf(ui), {
             writes: [],
-            records: [{ name: "plans", mutations: [{ name: "reassign", argTypes: [string, string] }], indexes: ["by_owner"] }],
+            records: [{ name: "plans", mutations: [{ name: "reassign", argTypes: [string, string] }], indexes: ["by_owner"], sources: [] }],
         });
     });
 
@@ -112,7 +127,7 @@ describe("deriveUiAccess", () => {
             })));
             const expected: UiAccess = {
                 writes: [],
-                records: [{ name: "plans", mutations: [], indexes: ["by_owner", "by_title"] }],
+                records: [{ name: "plans", mutations: [], indexes: ["by_owner", "by_title"], sources: [] }],
             };
             const ir = ui.toIR().ir;
             assertAccess(deriveUiAccess(ir), expected);
@@ -126,7 +141,83 @@ describe("deriveUiAccess", () => {
             const paged = $.let(Data.bindPaged(plans));
             return Text.Root(East.print(paged.page(0n, 10n).hasTag("some")));
         })));
-        assertAccess(accessOf(ui), { writes: [], records: [{ name: "plans", mutations: [], indexes: [] }] });
+        assertAccess(accessOf(ui), { writes: [], records: [{ name: "plans", mutations: [], indexes: [], sources: [] }] });
+    });
+});
+
+describe("deriveUiAccess: a composite record's sources (east-workspace#1465, R73)", () => {
+    const boundOrders = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+        const bound = $.let(Record.bind(orders));
+        return Text.Root(East.print(bound.read().size()));
+    })));
+    const patch = toEastTypeValue(PatchType(orders.type));
+
+    test("a composite record's binding names its sources, in the order of its key's cases, built here and decoded off the wire", () => {
+        const expected: UiAccess = {
+            writes: [],
+            records: [{
+                name: "orders", mutations: [{ name: "patch", argTypes: [patch] }], indexes: [],
+                sources: [{ name: "erp", external: true }, { name: "own", external: false }],
+            }],
+        };
+        const ir = boundOrders.toIR().ir;
+        assertAccess(deriveUiAccess(ir), expected);
+        const decoded = decodeBeast2For(IRType)(encodeBeast2For(IRType)(ir)) as IR;
+        assertAccess(deriveUiAccess(decoded), expected);
+    });
+
+    test("a record bound twice names each source once, and one paged through and never bound names none", () => {
+        const twice = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+            const all = $.let(Record.bind(orders));
+            const none = $.let(Record.bind(orders, []));
+            return Text.Root(East.print(all.read().size().add(none.read().size())));
+        })));
+        assertAccess(accessOf(twice), {
+            writes: [],
+            records: [{
+                name: "orders", mutations: [{ name: "patch", argTypes: [patch] }], indexes: [],
+                sources: [{ name: "erp", external: true }, { name: "own", external: false }],
+            }],
+        });
+
+        const paged = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+            const window = $.let(Data.bindPaged(orders));
+            return Text.Root(East.print(window.page(0n, 10n).hasTag("some")));
+        })));
+        assertAccess(accessOf(paged), { writes: [], records: [{ name: "orders", mutations: [], indexes: [], sources: [] }] });
+    });
+
+    test("R73 — two bindings of one record that name its sources differently are refused, naming the record and both: a host is not told one of them", () => {
+        // The record declared again, its ERP source the mutations' to write: as a module holding another declaration of it binds it.
+        const ordersOwned = recordComposite("orders", Order, {
+            sources: (source) => ({ own: source.mutations(StringType), erp: source.mutations(StringType) }),
+            initial: { own: new Map(), erp: new Map() },
+            mutations: (mutation) => ({ patch: mutation.patch() }),
+        });
+        const twoWays = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+            const loaded = $.let(Record.bind(orders));
+            const owned = $.let(Record.bind(ordersOwned));
+            return Text.Root(East.print(loaded.read().size().add(owned.read().size())));
+        })));
+        assert.throws(() => accessOf(twoWays), {
+            message: 'record_bind names the sources of record "orders" two ways, [(name="erp", external=true), (name="own", external=false)] and '
+                + '[(name="erp", external=false), (name="own", external=false)]: every binding of a record names its sources alike',
+        });
+    });
+
+    test("a UI whose Record.bind names no sources, one an e3-ui before composite records exported, is refused, saying to export it again", () => {
+        // The binding as it was exported before it named its sources: the record's name, its one argument.
+        const before = decodeBeast2For(IRType)(encodeBeast2For(IRType)(boundOrders.toIR().ir)) as IR;
+        let bindings = 0;
+        walkIR(before, (node) => {
+            if (node.type !== "Platform" || node.value.name !== "record_bind") return;
+            (node.value.arguments as IR[]).pop();
+            bindings += 1;
+        });
+        assert.equal(bindings, 1);
+        assert.throws(() => deriveUiAccess(before), {
+            message: 'record_bind names no sources for record "orders": an e3-ui from before composite records exported this UI — export its package again',
+        });
     });
 });
 

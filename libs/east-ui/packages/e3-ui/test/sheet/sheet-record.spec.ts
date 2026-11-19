@@ -18,7 +18,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, AsyncFunctionType, BlobType, BooleanType, DateTimeType, DictType, East, EastTypeType, Expr, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap, SortedSet, StringType, StructType,
+    ArrayType, AsyncFunctionType, BlobType, BooleanType, DateTimeType, DictType, East, EastTypeType, Expr, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap, SortedSet, StringType, StructType, VariantType,
     compareFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, isTypeEqual, none, parseFor, some, toEastTypeValue, variant, type BlockBuilder, type EastType, type ValueTypeOf,
 } from "@elaraai/east";
 import { Editing, EditingToDraftResultTypeFor, LiveSourceType, PinnedSourceType } from "@elaraai/east-ui/internal";
@@ -26,6 +26,7 @@ import { DatasetStatusType, RecordCommitInfoType } from "@elaraai/e3-types";
 import { FuncDraftType, RecordBindHandleType, RecordErrorType, RecordMutateStatusType, RecordOutcomeType, RecordSaveTypeFor } from "@elaraai/e3-ui";
 import { Data, Record, Sheet, createSheetRootWith, recordRows, type SheetInternalOptions } from "@elaraai/e3-ui/internal";
 import e3 from "@elaraai/e3";
+import { recordHandle } from "../record-handles.js";
 
 const JobType = StructType({ task: StringType, qty: IntegerType });
 const COLUMNS = {
@@ -375,7 +376,7 @@ const jobSheets = East.compile(East.function([], JobSheets, ($) => {
                 ({ record: "sheet_draft_jobs", mutation: "patch", args: [East.Blob.encodeBeast(patch, "v2")] })),
         },
         start: East.function([], NullType, (_$2) => null),
-        binding: { name: "sheet_draft_jobs", mutations: ["patch"] },
+        binding: { name: "sheet_draft_jobs", mutations: ["patch"], sources: [] },
     }, RecordBindHandleType(textJobs, { patch: [PatchType(textJobs)] }));
     const rows = recordRows(record);
     const jobs = $.const(BY_TEXT, textJobs);
@@ -418,7 +419,7 @@ const weekSheets = East.compile(East.function([], WeekSheets, ($) => {
                 ({ record: "sheet_draft_weeks", mutation: "patch", args: [East.Blob.encodeBeast(patch, "v2")] })),
         },
         start: East.function([], NullType, (_$2) => null),
-        binding: { name: "sheet_draft_weeks", mutations: ["patch"] },
+        binding: { name: "sheet_draft_weeks", mutations: ["patch"], sources: [] },
     }, RecordBindHandleType(DraftWeeks, { patch: [PatchType(DraftWeeks)] }));
     const rows = recordRows(record, { entry: { key: "2026-W42", rows: "rows", id: "id" } });
     const held = $.const(W42_ROWS, ArrayType(DraftRow));
@@ -528,5 +529,28 @@ describe("a sheet's Save as a draft (#1620)", () => {
         assert.equal(weekSheets().own.editing.toDraft.type, "none");
         assert.equal(weekSheets().unsaved.editing.toDraft.type, "none");
         assert.equal(textSheet().editing.toDraft.type, "none");
+    });
+});
+
+// ============================================================================
+// One entry's rows of a composite record (east-workspace#1465)
+// ============================================================================
+
+describe("one entry's rows of a composite record (east-workspace#1465)", () => {
+    /** The weeks of a composite record: those an upstream system delivers, which its load alone writes, and the planner's own. */
+    const WeekKey = VariantType({ erp: StringType, own: StringType });
+    const CompositeWeeks = DictType(WeekKey, DraftWeek);
+    const W42 = { starts: new Date("2026-10-12T00:00:00Z"), rows: W42_ROWS };
+    const HELD = new SortedMap<ValueTypeOf<typeof WeekKey>, ValueTypeOf<typeof DraftWeek>>(
+        [[variant("erp", "2026-W42"), W42], [variant("own", "2026-W42"), W42]], compareFor(WeekKey));
+
+    test("read only where the entry is an external source's, its load's, as while the record does not hold the entry; the solution's own entry is edited", () => {
+        const readOnly = East.compile(East.function([WeekKey], BooleanType, ($, key) => {
+            const record = $.let(recordHandle(CompositeWeeks, HELD, "sheet_composite_weeks", true, [{ name: "erp", external: true }, { name: "own", external: false }])());
+            return recordRows(record, { entry: { key, rows: "rows", id: "id" } }).options.readOnly!;
+        }), []);
+        assert.equal(readOnly(variant("erp", "2026-W42")), true, "the upstream system's week is its load's");
+        assert.equal(readOnly(variant("own", "2026-W42")), false, "the planner's own week is edited");
+        assert.equal(readOnly(variant("own", "2026-W43")), true, "a week the record does not hold");
     });
 });

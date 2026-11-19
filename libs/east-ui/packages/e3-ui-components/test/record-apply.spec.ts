@@ -20,6 +20,10 @@
  * refusals that Save's. What `Record.onApply` answers is the Save with that
  * draft form beside it: each Save here is its `apply`, and the draft form it
  * carries answers what `Record.toDraft` does.
+ *
+ * Over a composite record (east-workspace#1465): a batch that names an entry
+ * only its source's load writes is refused before any commit, and e3 refuses
+ * the same write behind it.
  */
 
 import assert from "node:assert/strict";
@@ -27,7 +31,7 @@ import { describe, test } from "node:test";
 
 import {
     ArrayType, DictType, East, OptionType, PatchType, SortedMap, StringType, StructType,
-    compareFor, decodeBeast2For, diffFor, equalFor, none, some, variant,
+    compareFor, decodeBeast2For, diffFor, equalFor, none, printFor, some, variant,
     type ValueTypeOf,
 } from "@elaraai/east";
 import { Editing } from "@elaraai/east-ui";
@@ -540,5 +544,75 @@ describe("Record.onApply — over a Sheet's groups and loose rows inside one ent
         assert.equal((await entriesApply(runtime)(handle, batch)).type, "applied");
         const [sent] = sentPatches(ex.plannedWeeks);
         assert.ok(equalFor(PatchType(WeeksType))(drafted, sent!.patch), "one patch for one batch");
+    });
+});
+
+describe("Record.onApply — over a composite record, an entry only its source's load writes (east-workspace#1465, R74)", () => {
+    const OrdersType = ex.orders.type;
+    const OrderKey = OrdersType.key;
+    const OrdersHandle = RecordBindHandleType(OrdersType, { patch: [PatchType(OrdersType)] });
+    type Order = ValueTypeOf<typeof ex.OrderType>;
+    type OrderKeyValue = ValueTypeOf<typeof OrderKey>;
+    const orderKeys = compareFor(OrderKey);
+    const keyText = printFor(OrderKey);
+    const orderPatch = diffFor(OptionType(ex.OrderType));
+    const ordersEqual = equalFor(OrdersType);
+
+    /** An order the ERP holds, and one the planner adds: each change names its entry by its key, as East prints it. */
+    const ERP = keyText(variant("erp", "SO-1001"));
+    const OWN = keyText(variant("own", "N-1"));
+    const SO_1001: Order = { customer: "Acme", status: "open" };
+    const N_1: Order = { customer: "Brightside", status: "draft" };
+    const addErp = { id: ERP, patch: orderPatch(none, some(SO_1001)), place: some(variant("keyOrder", null)) };
+    const addOwn = { id: OWN, patch: orderPatch(none, some(N_1)), place: some(variant("keyOrder", null)) };
+    const batchOf = (...changes: unknown[]) => ({ requestId: "orders-1", base: variant("revision", "r0"), label: "Edit orders", changes });
+    /** The words a write of the ERP's entry is refused in, before any commit. */
+    const refused = (entry: string) => ({ entry, row: none, field: none, message: `entry ${entry} is source erp's, which only its load writes` });
+
+    /** A Plan's keyed Save over the orders, and the draft form it carries, compiled against the runtime. */
+    function ordersApply(runtime: RecordRuntime): Apply {
+        return East.compileAsync(East.asyncFunction([OrdersHandle, Editing.Types.ChangeSet(ex.OrderType, OrderKey)], Editing.Types.ApplyResult, ($, record, batch) => {
+            const save = $.const(Record.onApply(record, { keyed: true }));
+            return save.apply(batch);
+        }), runtime.buildPrimitives()) as unknown as Apply;
+    }
+    function ordersDraft(runtime: RecordRuntime): ToDraft {
+        return East.compile(East.function([OrdersHandle, Editing.Types.ChangeSet(ex.OrderType, OrderKey)], RecordToDraftResultType, ($, record, batch) => {
+            const save = $.const(Record.onApply(record, { keyed: true }));
+            return save.toDraft(batch);
+        }), runtime.buildPrimitives()) as unknown as ToDraft;
+    }
+
+    test("a batch that names an external entry is rejected before any commit, naming the entry and its source: nothing is sent, the record stays as it was, and the batch's own entry is not written either; its draft is refused in the same words", async () => {
+        const { runtime, handle } = await h.bindRecord(ex.orders, OrdersHandle);
+        const saved = (await h.history(ex.orders)).commits.length;
+        assert.equal(ERP, '.erp "SO-1001"');
+
+        const result = await ordersApply(runtime)(handle, batchOf(addOwn, addErp));
+        assert.equal(result.type, "rejected");
+        assert.ok(issuesEqual(result.value as ValueTypeOf<ArrayType<typeof Editing.Types.Issue>>, [refused(ERP)]));
+        assert.equal(refused(ERP).message, 'entry .erp "SO-1001" is source erp\'s, which only its load writes');
+        assertSameRefusal(ordersDraft(runtime)(handle, batchOf(addOwn, addErp)), result, "rejected");
+        assert.deepEqual(h.requests("mutate"), [], "nothing was sent");
+        assert.equal((await h.history(ex.orders)).commits.length, saved, "no commit was made");
+        assert.equal((await h.read(ex.orders)).size, 0);
+    });
+
+    test("the solution's own entries are saved, each under its source's case", async () => {
+        const { runtime, handle } = await h.bindRecord(ex.orders, OrdersHandle);
+        const result = await ordersApply(runtime)(handle, batchOf(addOwn));
+        assert.equal(result.type, "applied");
+        assert.ok(ordersEqual(await h.read(ex.orders), new SortedMap<OrderKeyValue, Order>([[variant("own", "N-1"), N_1]], orderKeys)));
+    });
+
+    test("e3 stands behind it: a patch of an external entry sent through the record's own door is invalid, in the record's words, and writes nothing", async () => {
+        const { handle } = await h.bindRecord(ex.orders, OrdersHandle);
+        const door = handle as ValueTypeOf<typeof OrdersHandle>;
+        const empty = new SortedMap<OrderKeyValue, Order>([], orderKeys);
+        const loaded = new SortedMap<OrderKeyValue, Order>([[variant("erp", "SO-1001"), SO_1001]], orderKeys);
+        const outcome = await door.commit.patch("orders-erp", diffFor(OrdersType)(empty, loaded));
+        if (outcome.type !== "invalid") assert.fail(`expected e3 to refuse the write as invalid, got ${outcome.type}`);
+        assert.equal(outcome.value.message, 'mutation \'patch\' writes .erp "SO-1001", an entry of source \'erp\', which only its load writes');
+        assert.equal((await h.read(ex.orders)).size, 0);
     });
 });

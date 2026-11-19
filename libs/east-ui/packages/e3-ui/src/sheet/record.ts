@@ -15,7 +15,9 @@
  *   batches to `Record.onApply(record, { keyed: true })` as they are.
  * - **One entry's rows** (`entry`): the entry's Array field, in its own
  *   order, identified by a String field. Apply is one diff of that entry,
- *   reaching its rows and nothing else.
+ *   reaching its rows and nothing else. An entry of a composite record's
+ *   external source is its load's, so its rows are read only
+ *   (east-workspace#1465).
  * - **The rows of a rail's `rows` source** (`slice` beside `record`,
  *   east-workspace#1622): the source pages the record's rows, and the record
  *   is handed beside it as in every other form ({@link railRecord}) — the
@@ -47,6 +49,7 @@ import {
 } from "@elaraai/east";
 import { resolveRowSource } from "@elaraai/east-ui/internal";
 import { Record } from "../bind/record.js";
+import { externalSourceOf, sourcesOfHandle } from "../bind/record-composite.js";
 import type { SheetSaves } from "./optimise.js";
 import type { SheetInternalOptions } from "./root.js";
 
@@ -81,7 +84,7 @@ export interface SheetRecordRowsOptions<K extends EastType> {
 export interface SheetRecordRows {
     /** The rows: the record handle, read whole; the window; or one entry's rows. */
     data: unknown;
-    /** The options the form fixes: one entry's identity field and its Apply, and read-only while the record does not hold the entry. */
+    /** The options the form fixes: one entry's identity field and its Apply, and read-only while the record does not hold the entry, or where the entry is an external source's. */
     options: { id?: string; onApply?: unknown; readOnly?: ExprType<BooleanType> };
     /** The root's own options: the keyed Apply, key order, and the session's source. */
     internal: SheetInternalOptions;
@@ -255,12 +258,19 @@ export function recordRows(record: unknown, options: SheetRecordRowsOptions<East
     const held = handle.read().tryGet(key);
     // A String key is its own text; any other key its `.east` printing.
     const keyText = keyType.type === "String" ? key as ExprType<StringType> : East.print(key);
+    // An entry of a composite record's external source is its load's, rows and all (east-workspace#1465): read only,
+    // as while the record does not hold the entry — asked of the one check of whose an entry is.
+    const named = sourcesOfHandle(handle);
+    const absent = held.hasTag("none");
+    const readOnly = named === undefined
+        ? absent
+        : absent.or((_$) => externalSourceOf(named.keyType)(key, named.sources).hasTag("some"));
     return {
         data: held.match({
             some: (_$, entry) => (entry as unknown as Record<string, ExprType<EastType>>)[rows]!,
             none: (_$) => East.value([], rowsType),
         }),
-        options: { id, onApply, readOnly: held.hasTag("none") },
+        options: { id, onApply, readOnly },
         internal: { sourceId: East.str`${name}#${keyText}` },
         // The Save reaches the entry's rows, which the optimiser's patch is of by their identity field.
         saves: { record: name, rows: DictType(StringType, element), entry: keyType, key },

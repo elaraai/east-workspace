@@ -24,8 +24,9 @@
  *
  * `deriveUiAccess` reads what the UI writes and calls: the bound datasets it
  * may write, by what it does with each `Data.bind` handle, and for each record
- * it binds, the mutations it binds and the indexes it reads through. A host
- * checks a UI against a package with it before deploying the UI.
+ * it binds, the mutations it binds, the indexes it reads through and the
+ * sources its binding names. A host checks a UI against a package with it
+ * before deploying the UI.
  *
  * Every such argument is required to be a JS-side constant — the public
  * factories enforce this through their TS signatures and `East.value`.
@@ -37,10 +38,11 @@
 
 import type { EastTypeValue, IR, NullType as NullTypeOf, OptionType, PlatformIR, StringType as StringTypeOf, StructType as StructTypeOf, ValueTypeOf, VariableIR } from '@elaraai/east';
 import {
-    ArrayType, EastTypeType, StringType, StructType, constValueOf, equalFor, none, variant, walkIR,
+    ArrayType, EastTypeType, StringType, StructType, constValueOf, equalFor, none, printFor, variant, walkIR,
 } from '@elaraai/east';
 import { TreePathType, type TreePath } from '@elaraai/e3-types';
 import type { DataBindModeType } from '../bind/data.js';
+import { RecordBindingSourcesType, bindingNamesNoSources } from '../bind/record-composite.js';
 import type { DataManifest } from './manifest.js';
 
 /** Platform-fn name we extract paths from. */
@@ -144,8 +146,11 @@ const DECISION_BIND = "decision_bind";
  * @property records - Each record the UI binds or pages through, in the order
  *   its IR first names it: the mutations its `Record.bind` calls bind, each
  *   with the argument types it takes after the record's state, as a record's
- *   signature names them (`argTypes`), and the indexes its paged reads go
- *   through
+ *   signature names them (`argTypes`); the indexes its paged reads go
+ *   through; and the sources its `Record.bind` calls name, each with whether
+ *   its load alone writes its entries (east-workspace#1465) — none for a
+ *   plain record, and for a record the UI pages through and never binds.
+ *   Every binding of a record names its sources alike
  */
 export const UiAccessType = StructType({
     writes: ArrayType(TreePathType),
@@ -153,6 +158,7 @@ export const UiAccessType = StructType({
         name: StringType,
         mutations: ArrayType(StructType({ name: StringType, argTypes: ArrayType(EastTypeType) })),
         indexes: ArrayType(StringType),
+        sources: RecordBindingSourcesType,
     })),
 });
 /** Type alias for {@link UiAccessType}. */
@@ -161,6 +167,9 @@ export type UiAccessType = typeof UiAccessType;
 export type UiAccess = ValueTypeOf<typeof UiAccessType>;
 
 const pathEqual = equalFor(TreePathType);
+const sameName = equalFor(StringType);
+const sameSources = equalFor(RecordBindingSourcesType);
+const printSources = printFor(RecordBindingSourcesType);
 
 /** The path every record's dataset lies under. */
 const RECORDS: TreePath = [variant('field', 'records')];
@@ -203,14 +212,17 @@ interface Scope {
 
 /**
  * Read what a UI writes and calls from its IR: the bound datasets it may
- * write, and for each record it binds, the mutations it binds and the indexes
- * it reads through.
+ * write, and for each record it binds, the mutations it binds, the indexes
+ * it reads through and the sources its binding names.
  *
  * @remarks
  * A host runs it on a UI before deploying it, to check the UI against the
- * package: a dataset the UI writes must be writable, and a mutation it binds
- * must exist with its argument types. Nothing is stored for it: it reads the
- * IR as it stands, so a UI built here and one decoded off the wire read alike.
+ * package: a dataset the UI writes must be writable, a mutation it binds
+ * must exist with its argument types, and the sources a binding names — which
+ * of a composite record's entries a load writes, and so which the UI draws
+ * locked and never saves — must be the record's. Nothing is stored for it: it
+ * reads the IR as it stands, so a UI built here and one decoded off the wire
+ * read alike.
  *
  * A `Data.bind` writes by what the UI does with its handle, and by the
  * binding's mode and patch dataset:
@@ -234,8 +246,12 @@ interface Scope {
  * @param ir - The UI's IR: its function's, as `fn.toIR().ir` gives it, or as
  *   decoded from a package
  * @returns What the UI writes, and of each record it binds, what it calls
- * @throws {Error} When a binding's path, mode, record name or index name is
- *   not a literal, as {@link deriveManifest} throws
+ * @throws {Error} When a binding's path, mode, record name, sources or index
+ *   name is not a literal, as {@link deriveManifest} throws; and for a
+ *   `Record.bind` that names no sources — a UI an e3-ui from before composite
+ *   records exported — saying to export its package again; and for two
+ *   bindings of one record that name its sources differently, which no
+ *   `Record.bind` of a declared record builds
  *
  * @example
  * ```ts
@@ -248,12 +264,13 @@ interface Scope {
 export function deriveUiAccess(ir: IR): UiAccess {
     const bindings: Binding[] = [];
     const made = new Map<IR, Binding>();
-    const records: { name: string; mutations: Map<string, EastTypeValue[]>; indexes: string[] }[] = [];
+    // A record's sources are those its first binding names; `null` until a `Record.bind` names them.
+    const records: { name: string; mutations: Map<string, EastTypeValue[]>; indexes: string[]; sources: ValueTypeOf<RecordBindingSourcesType> | null }[] = [];
 
     const recordNamed = (name: string) => {
-        let record = records.find((r) => r.name === name);
+        let record = records.find((r) => sameName(r.name, name));
         if (record === undefined) {
-            record = { name, mutations: new Map(), indexes: [] };
+            record = { name, mutations: new Map(), indexes: [], sources: null };
             records.push(record);
         }
         return record;
@@ -319,6 +336,15 @@ export function deriveUiAccess(ir: IR): UiAccess {
                             record.mutations.set(name, type.value.inputs as EastTypeValue[]);
                         }
                     }
+                }
+                // The record's sources, the binding's second literal. They are the record's, so every binding of it
+                // names them alike: a UI that names them two ways says two things of which entries a load writes,
+                // and a host could check only one against the package.
+                if (args[1] === undefined) throw new Error(bindingNamesNoSources(record.name));
+                const sources = constValueOf(args[1]) as ValueTypeOf<RecordBindingSourcesType>;
+                if (record.sources === null) record.sources = sources;
+                else if (!sameSources(record.sources, sources)) {
+                    throw new Error(`record_bind names the sources of record "${record.name}" two ways, ${printSources(record.sources)} and ${printSources(sources)}: every binding of a record names its sources alike`);
                 }
                 return;
             }
@@ -526,10 +552,11 @@ export function deriveUiAccess(ir: IR): UiAccess {
     }
     return {
         writes,
-        records: records.map(({ name, mutations, indexes }) => ({
+        records: records.map(({ name, mutations, indexes, sources }) => ({
             name,
             mutations: [...mutations].map(([mutation, argTypes]) => ({ name: mutation, argTypes })),
             indexes,
+            sources: sources ?? [],
         })),
     };
 }

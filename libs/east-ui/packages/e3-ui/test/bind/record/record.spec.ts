@@ -37,6 +37,7 @@ describeEast("Record", (test) => {
         recordBindHistory: ex.recordBindHistory,
         recordSheetApply: ex.recordSheetApply,
         recordBindDraft: ex.recordBindDraft,
+        recordBindComposite: ex.recordBindComposite,
     });
 
     test("Record.bind exposes read + a typed mutate closure inside Reactive.Root", $ => {

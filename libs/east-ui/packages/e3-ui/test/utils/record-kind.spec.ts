@@ -122,7 +122,7 @@ const steps = East.compile(East.function([], StepKind, ($) => {
                 ({ record: "spec_steps", mutation: "patch", args: [East.Blob.encodeBeast(patch, "v2")] })),
         },
         start: East.function([], NullType, (_$2) => null),
-        binding: { name: "spec_steps", mutations: ["patch"] },
+        binding: { name: "spec_steps", mutations: ["patch"], sources: [] },
     }, RecordBindHandleType(Steps, { patch: [PatchType(Steps)] }));
     const bound = { form: "record", handle: handle as unknown as ExprType<EastType>, keyType: IntegerType, rowType: Step } as const;
     const next = $.const(accessorRole(IntegerType, Step, "Spec.steps", "next", IntegerType, "an Integer",
@@ -166,7 +166,7 @@ const moves = East.compile(East.function([], MoveKind, ($) => {
                 ({ record: "spec_moves", mutation: "patch", args: [East.Blob.encodeBeast(patch, "v2")] })),
         },
         start: East.function([], NullType, (_$2) => null),
-        binding: { name: "spec_moves", mutations: ["patch"] },
+        binding: { name: "spec_moves", mutations: ["patch"], sources: [] },
     }, RecordBindHandleType(Moves, { patch: [PatchType(Moves)] }));
     const bound = { form: "record", handle: handle as unknown as ExprType<EastType>, keyType: MoveKey, rowType: Move } as const;
     const from = $.const(accessorRole(MoveKey, Move, "Spec.moves", "from", IntegerType, "an Integer",

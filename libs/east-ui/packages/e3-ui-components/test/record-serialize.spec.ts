@@ -85,20 +85,20 @@ async function waitFor(cond: () => boolean, what: string): Promise<void> {
 }
 
 test("#106 — a Record.bind handle ENCODES (top-level + nested mutate.* carry IR)", () => {
-    const handle = newRuntime({ seed: 0n }).buildHandle(handleTypeValue, "counter");
+    const handle = newRuntime({ seed: 0n }).buildHandle(handleTypeValue, "counter", []);
     // Today: throws "Cannot serialize function: no IR attached" (top-level AND nested mutate.*).
     assert.doesNotThrow(() => encodeBeast2For(HandleType)(handle as never));
 });
 
 test("#106 — read() round-trips and re-binds to the DECODER's cache", () => {
-    const bytes = encodeBeast2For(HandleType)(newRuntime({ seed: 0n }).buildHandle(handleTypeValue, "counter") as never);
+    const bytes = encodeBeast2For(HandleType)(newRuntime({ seed: 0n }).buildHandle(handleTypeValue, "counter", []) as never);
     const runtimeDec = newRuntime({ seed: 7n }); // decoder cache seeded with 7
     const decoded = decodeBeast2For(HandleType, { platform: runtimeDec.buildPrimitives() })(bytes) as unknown as { read: () => bigint };
     assert.equal(decoded.read(), 7n);
 });
 
 test("#106 — mutate.<name> round-trips and re-binds to the DECODER's api", async () => {
-    const bytes = encodeBeast2For(HandleType)(newRuntime({ seed: 0n }).buildHandle(handleTypeValue, "counter") as never);
+    const bytes = encodeBeast2For(HandleType)(newRuntime({ seed: 0n }).buildHandle(handleTypeValue, "counter", []) as never);
     const mutateCalls: { record: string; mutation: string; args: Uint8Array[] }[] = [];
     const runtimeDec = newRuntime({ seed: 0n, mutateCalls });
     const decoded = decodeBeast2For(HandleType, { platform: runtimeDec.buildPrimitives() })(bytes) as unknown as { mutate: { increment: (n: bigint) => null } };
@@ -111,7 +111,7 @@ test("#106 — mutate.<name> round-trips and re-binds to the DECODER's api", asy
 });
 
 test("#106 — commit.<name> round-trips and awaits the DECODER's api, request id and all", async () => {
-    const bytes = encodeBeast2For(HandleType)(newRuntime({ seed: 0n }).buildHandle(handleTypeValue, "counter") as never);
+    const bytes = encodeBeast2For(HandleType)(newRuntime({ seed: 0n }).buildHandle(handleTypeValue, "counter", []) as never);
     const mutateCalls: { record: string; mutation: string; args: Uint8Array[]; idempotencyKey?: string }[] = [];
     const runtimeDec = newRuntime({ seed: 0n, mutateCalls });
     const decoded = decodeBeast2For(HandleType, { platform: runtimeDec.buildPrimitives() })(bytes) as unknown as {
@@ -126,7 +126,7 @@ test("#106 — commit.<name> round-trips and awaits the DECODER's api, request i
 });
 
 test("#106 — draft.<name> round-trips and is made on the DECODER's runtime, which sends nothing", () => {
-    const bytes = encodeBeast2For(HandleType)(newRuntime({ seed: 0n }).buildHandle(handleTypeValue, "counter") as never);
+    const bytes = encodeBeast2For(HandleType)(newRuntime({ seed: 0n }).buildHandle(handleTypeValue, "counter", []) as never);
     const mutateCalls: { record: string; mutation: string; args: Uint8Array[] }[] = [];
     const runtimeDec = newRuntime({ seed: 0n, mutateCalls });
     const decoded = decodeBeast2For(HandleType, { platform: runtimeDec.buildPrimitives() })(bytes) as unknown as {
@@ -138,7 +138,7 @@ test("#106 — draft.<name> round-trips and is made on the DECODER's runtime, wh
 });
 
 test("#106 — nested mutate.* lifecycle survives decode (idle on a fresh runtime)", () => {
-    const bytes = encodeBeast2For(HandleType)(newRuntime({ seed: 0n }).buildHandle(handleTypeValue, "counter") as never);
+    const bytes = encodeBeast2For(HandleType)(newRuntime({ seed: 0n }).buildHandle(handleTypeValue, "counter", []) as never);
     const runtimeDec = newRuntime({ seed: 0n });
     const decoded = decodeBeast2For(HandleType, { platform: runtimeDec.buildPrimitives() })(bytes) as unknown as {
         mutate: { pending: () => boolean; status: () => { type: string } };

@@ -39,9 +39,10 @@ import {
     printFor,
     toEastTypeValue,
     variant,
+    type EastTypeValue,
     type ValueTypeOf,
 } from "@elaraai/east";
-import { FuncDraftType, RecordBindHandleType } from "@elaraai/e3-ui/internal";
+import { FuncDraftType, RecordBindHandleType, RecordBindingSourcesType } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/bind/record/record";
 import * as fixtures from "@elaraai/e3-ui/fixtures/bind/record/record";
 import { MutationCallRequestType, RecordCommitInfoType, type TreePath } from "@elaraai/e3-types";
@@ -74,6 +75,12 @@ const OutlineType = fixtures.outline.type;
 const OutlineHandleType = RecordBindHandleType(OutlineType, { patch: [PatchType(OutlineType)] });
 /** A handle on the outline, a tree, through its patch door. */
 type OutlineHandle = ValueTypeOf<typeof OutlineHandleType>;
+const OrdersHandleType = RecordBindHandleType(ex.orders.type, { patch: [PatchType(ex.orders.type)] });
+/** A handle on the orders, a composite record (east-workspace#1465), through its patch door. */
+type OrdersHandle = ValueTypeOf<typeof OrdersHandleType>;
+/** The orders' sources, as their binding names them: the ERP's, which its load alone writes, and the planner's own. */
+const ORDER_SOURCES: ValueTypeOf<RecordBindingSourcesType> = [{ name: "erp", external: true }, { name: "own", external: false }];
+const sourcesEqual = equalFor(RecordBindingSourcesType);
 
 /** A patch of the jobs that takes job `a` from `before` to `after`, as a client drafts it from what it read. */
 function jobUpdate(before: Job, after: Job): unknown {
@@ -170,6 +177,36 @@ describe("RecordRuntime — read side", () => {
         const { handle } = await newRuntime();
         assert.equal(handle.binding.name, "counter");
         assert.deepEqual(handle.binding.mutations, ["increment", "take"]);
+        assert.ok(sourcesEqual(handle.binding.sources, []), "a plain record's binding names no sources");
+    });
+
+    test("R73 — a composite record's handle carries the sources its bind names, and reads the record e3 holds; each bind's binding is its own, over the cached methods", async () => {
+        const bound = await h.bindRecord(ex.orders, OrdersHandleType, { whole: true });
+        const handle = bound.handle as OrdersHandle;
+        assert.equal(handle.binding.name, "orders");
+        assert.ok(sourcesEqual(handle.binding.sources, ORDER_SOURCES));
+        // Deployed, the record holds its own source's entries, none yet, and waits on no delivery to be read.
+        assert.equal(handle.read().size, 0);
+        // A second bind of the record, given other sources: its binding is its own, and the first bind's stands.
+        const again = bound.runtime.buildHandle(toEastTypeValue(OrdersHandleType), ex.orders.name, []) as unknown as OrdersHandle;
+        assert.ok(sourcesEqual(again.binding.sources, []));
+        assert.ok(sourcesEqual(handle.binding.sources, ORDER_SOURCES));
+        assert.equal(again.read, handle.read, "the compiled methods are the cached ones");
+    });
+
+    test("R73 — a bind that names no sources, as a UI an e3-ui from before composite records exported makes, is refused naming the record, in the words deriveUiAccess refuses it in", () => {
+        // The bind as that UI's IR calls it: the record's name, its one argument.
+        const bind = (new RecordRuntime().buildPlatform(null).fn as (handle: EastTypeValue) => (...args: unknown[]) => unknown)(toEastTypeValue(CounterHandle));
+        assert.throws(() => bind("counter"), {
+            message: 'record_bind names no sources for record "counter": an e3-ui from before composite records exported this UI — export its package again',
+        });
+    });
+
+    test("R73 — the binding's sources survive the handle's encoding: a handle decoded elsewhere names them still", async () => {
+        const bound = await h.bindRecord(ex.orders, OrdersHandleType);
+        const bytes = encodeBeast2For(OrdersHandleType)(bound.handle as never);
+        const decoded = decodeBeast2For(OrdersHandleType, { platform: bound.runtime.buildPrimitives() })(bytes);
+        assert.ok(sourcesEqual(decoded.binding.sources, ORDER_SOURCES));
     });
 });
 
@@ -328,7 +365,7 @@ describe("RecordRuntime — the awaited write", () => {
         assert.equal(lost.type, "transport");
         assert.match(lost.value["message"] as string, /fetch failed/);
 
-        const undescribed = runtime.buildHandle(toEastTypeValue(CounterHandle), "no_such_record") as unknown as Handle;
+        const undescribed = runtime.buildHandle(toEastTypeValue(CounterHandle), "no_such_record", []) as unknown as Handle;
         assert.equal((await undescribed.commit.increment("", 1n)).type, "transport");
     });
 
@@ -344,7 +381,7 @@ describe("RecordRuntime — the awaited write", () => {
         const { runtime } = await newRuntime();
         const fields = RecordBindHandleType(IntegerType, { increment: [IntegerType] }).fields;
         const { commit: _commit, draft: _draft, ...released } = fields;
-        const handle = runtime.buildHandle(toEastTypeValue(StructType(released)), "counter-before") as Record<string, unknown>;
+        const handle = runtime.buildHandle(toEastTypeValue(StructType(released)), "counter-before", []) as Record<string, unknown>;
         assert.equal("commit" in handle, false);
         assert.equal(typeof (handle["mutate"] as Record<string, unknown>)["increment"], "function");
     });
@@ -402,14 +439,14 @@ describe("RecordRuntime — the write not made (#1620)", () => {
         assert.ok(draftEqual(draft, { record: "jobs", mutation: "increment", args: [integerBytes(1n)] }));
         assert.deepEqual([h.requests("describe"), h.requests("mutate")], [[], []]);
 
-        const unbound = new RecordRuntime().buildHandle(toEastTypeValue(CounterHandle), ex.counter.name) as unknown as Handle;
+        const unbound = new RecordRuntime().buildHandle(toEastTypeValue(CounterHandle), ex.counter.name, []) as unknown as Handle;
         assert.ok(draftEqual(unbound.draft.take(2n), { record: "counter", mutation: "take", args: [integerBytes(2n)] }));
     });
 
     test("a handle type exported before drafts binds without them, its writes as they were", async () => {
         const { runtime } = await newRuntime();
         const { draft: _draft, ...released } = RecordBindHandleType(IntegerType, { increment: [IntegerType] }).fields;
-        const handle = runtime.buildHandle(toEastTypeValue(StructType(released)), "counter-before-drafts") as Record<string, unknown>;
+        const handle = runtime.buildHandle(toEastTypeValue(StructType(released)), "counter-before-drafts", []) as Record<string, unknown>;
         assert.equal("draft" in handle, false);
         assert.equal(typeof (handle["commit"] as Record<string, unknown>)["increment"], "function");
         assert.equal(typeof (handle["mutate"] as Record<string, unknown>)["increment"], "function");
@@ -492,7 +529,7 @@ describe("RecordRuntime — validation", () => {
 
         const runtime = new RecordRuntime();
         runtime.initialize(elsewhere, bound.cache, h.workspace);
-        const handle = runtime.buildHandle(toEastTypeValue(OutlineHandleType), fixtures.outline.name) as unknown as OutlineHandle;
+        const handle = runtime.buildHandle(toEastTypeValue(OutlineHandleType), fixtures.outline.name, []) as unknown as OutlineHandle;
         const renamed = new SortedMap([["intro", { title: "Introduction", children: [] }]], compareFor(StringType));
         handle.mutate.patch(diffFor(OutlineType)(fixtures.outline.default!, renamed));
         await h.settle();
@@ -619,7 +656,7 @@ describe("RecordRuntime — tracking, scoping, lifecycle", () => {
 
     test("calling a mutation without a workspace throws a clear error", () => {
         const runtime = new RecordRuntime();
-        const handle = runtime.buildHandle(toEastTypeValue(CounterHandle), ex.counter.name) as unknown as Handle;
+        const handle = runtime.buildHandle(toEastTypeValue(CounterHandle), ex.counter.name, []) as unknown as Handle;
         assert.throws(() => handle.mutate.increment(1n), /no workspace configured/);
     });
 });

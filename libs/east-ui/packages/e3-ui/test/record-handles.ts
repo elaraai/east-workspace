@@ -18,7 +18,10 @@ import {
     type EastType, type ValueTypeOf,
 } from "@elaraai/east";
 import { DatasetStatusType, RecordCommitInfoType } from "@elaraai/e3-types";
-import { DataBindHandleType, FuncDraftType, RecordBindHandleType, RecordErrorType, RecordMutateStatusType, RecordOutcomeType } from "@elaraai/e3-ui";
+import {
+    DataBindHandleType, FuncDraftType, RecordBindHandleType, RecordErrorType, RecordMutateStatusType, RecordOutcomeType,
+    type RecordBindingSourcesType,
+} from "@elaraai/e3-ui";
 
 /**
  * A `Record.bind` handle over a record of `type`, as `Record.bind` gives one.
@@ -28,9 +31,10 @@ import { DataBindHandleType, FuncDraftType, RecordBindHandleType, RecordErrorTyp
  * @param value - What its read answers
  * @param name - The record's name, as its binding carries it
  * @param patch - Whether it is bound with its patch door: its commit answers committed, and its draft the patch as a draft
+ * @param sources - A composite record's sources, as its binding names them; none for a plain record
  * @returns `()` → the handle
  */
-export function recordHandle<T extends EastType>(type: T, value: ValueTypeOf<T>, name: string, patch = true) {
+export function recordHandle<T extends EastType>(type: T, value: ValueTypeOf<T>, name: string, patch = true, sources: ValueTypeOf<RecordBindingSourcesType> = []) {
     const handleType = RecordBindHandleType(type, patch ? { patch: [PatchType(type)] } : {});
     return East.function([], handleType, (_$) => ({
         read: East.function([], type, (_$2) => value as never),
@@ -50,7 +54,7 @@ export function recordHandle<T extends EastType>(type: T, value: ValueTypeOf<T>,
             ? { patch: East.function([PatchType(type)], FuncDraftType, (_$2, change) => ({ record: name, mutation: "patch", args: [East.Blob.encodeBeast(change as never, "v2")] })) }
             : {},
         start: East.function([], NullType, (_$2) => null),
-        binding: { name, mutations: patch ? ["patch"] : [] },
+        binding: { name, mutations: patch ? ["patch"] : [], sources },
     }) as never);
 }
 

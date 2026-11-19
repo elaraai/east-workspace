@@ -637,7 +637,7 @@ const recordHarness = East.function([], RecordRoots, ($) => {
                 ({ record: "spec_halls", mutation: "patch", args: [East.Blob.encodeBeast(patch, "v2")] })),
         },
         start: East.function([], NullType, (_$2) => null),
-        binding: { name: "spec_halls", mutations: ["patch"] },
+        binding: { name: "spec_halls", mutations: ["patch"], sources: [] },
     }, RecordBindHandleType(Halls, { patch: [PatchType(Halls)] }));
     const data = $.const(SEED, Halls);
     // The Save as an author may hold it: a copy, bound in a block.
