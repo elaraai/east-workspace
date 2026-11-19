@@ -58,7 +58,7 @@ const encodeFilters = encodeBeast2For(StudioFiltersType);
 /** Sets the reader's filters of the page, as its rail does: in the UI store, under the page's key. */
 export async function filterPage(...conditions: string[]) {
     await act(async () => {
-        StateRuntime.getStore().write(studioFiltersKey(PAGE), conditions.length === 0 ? undefined : encodeFilters(conditions.map((where) => ({ source: "orders", where: condition(where) }))));
+        StateRuntime.getStore().write(studioFiltersKey(PAGE), conditions.length === 0 ? undefined : encodeFilters(conditions.map((where) => ({ source: "orders", where: condition(where), from: none }))));
     });
 }
 

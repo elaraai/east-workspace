@@ -130,6 +130,8 @@ export {
     // A click on a chart's mark, as its host is told it (#1671)
     type ChartMark,
     type ChartMarkHandler,
+    // What a chart's host marks of its marks (#1673)
+    type ChartMarkedTest,
     // How a host prints a chart's numbers where room is short (#1671)
     type ChartNumberText,
 } from "./charts/index.js";

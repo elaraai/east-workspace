@@ -20,7 +20,9 @@
  *
  * A click on its mark, its row or its cell does what its visual says (#1673,
  * LNK-1): its body's parts tell the groups clicked (`visual/clicks.tsx`), and
- * the page's clicks (`page-clicks.tsx`) select, filter or open by them. A
+ * the page's clicks (`page-clicks.tsx`) select, filter or open by them. The
+ * filter its own click made narrows every other visual of its source, and it
+ * marks the groups that filter holds, never narrowing itself to them. A
  * visual that follows another narrows to what its leader has selected, its
  * eyebrow saying so — the link icon and the selected value — or, with
  * nothing selected, shows everything or asks for a pick (LNK-4, LNK-5).
@@ -217,7 +219,7 @@ export function StudioVisualTile({ content, names, storageKey, title, edit, plac
                     )}
                     <Box as="span" css={styles.meta} data-studio-visual-meta="" ref={setMetaSlot} />
                     {((source !== undefined && read !== undefined) || edit !== undefined) && (
-                        <VisualMenu visual={visual} name={name} source={source} read={read} storageKey={storageKey} onFailed={setFailed} edit={edit} />
+                        <VisualMenu visual={visual} name={name} source={source} read={read} storageKey={storageKey} onFailed={setFailed} edit={edit} placement={placement} />
                     )}
                 </Box>
             </Box>
@@ -238,7 +240,7 @@ export function StudioVisualTile({ content, names, storageKey, title, edit, plac
                                         : <FollowPrompt following={following} leader={leader} visual={visual} />}
                                 </>
                             )
-                            : <VisualBody visual={visual} source={source} read={read} sourceName={sourceName} storageKey={storageKey} onPick={edit?.onEdit} />}
+                            : <VisualBody visual={visual} source={source} read={read} sourceName={sourceName} storageKey={storageKey} onPick={edit?.onEdit} placement={placement} />}
                     </VisualClicksProvider>
                 </TileMetaSlot>
             </Box>
@@ -262,6 +264,8 @@ interface VisualMenuProps {
     onFailed: (message: string | undefined) => void;
     /** On the builder's canvas, its Edit visual and Duplicate. */
     edit: VisualEdit | undefined;
+    /** Its placement's key: the filter its own click made is no narrowing of its rows; `undefined` outside a layout. */
+    placement: string | undefined;
 }
 
 /**
@@ -274,12 +278,12 @@ interface VisualMenuProps {
  * The rows open in a popover, never a drawer: the app's design keeps the
  * Drawer for its rail on a phone.
  */
-function VisualMenu({ visual, name, source, read, storageKey, onFailed, edit }: VisualMenuProps) {
+function VisualMenu({ visual, name, source, read, storageKey, onFailed, edit, placement }: VisualMenuProps) {
     const m = useStudioMessages();
     const words = useQueryWords();
     const f = useFormatters();
     const ask = useVisualAsk(visual.source);
-    const state = useTileState(visual, read);
+    const state = useTileState(visual, read, placement);
     const [showing, setShowing] = useState(false);
     const rows = useMemo(() => (source === undefined || read === undefined ? undefined : rowsVisual(visual, source, read)), [visual, source, read]);
     // Every row, asked once through the page's answers, written as CSV.
@@ -350,13 +354,15 @@ interface VisualBodyProps {
     storageKey: string;
     /** Opens its fields, to pick another for one its source lacks: on the builder's canvas, its Configure tab; `undefined` on a published page. */
     onPick: (() => void) | undefined;
+    /** Its placement's key: the filter its own click made is no narrowing of it; `undefined` outside a layout. */
+    placement: string | undefined;
 }
 
 /** A visual's body: its state, as its programs print and answer. */
-function VisualBody({ visual, source, read, sourceName, storageKey, onPick }: VisualBodyProps) {
+function VisualBody({ visual, source, read, sourceName, storageKey, onPick, placement }: VisualBodyProps) {
     const m = useStudioMessages();
     const east = studioEast();
-    const state = useTileState(visual, read);
+    const state = useTileState(visual, read, placement);
     const printed = useMemo(() => (read === undefined ? undefined : printVisual(visual, read, state)), [visual, read, state]);
     const icon = east.viewIcon(visual.view);
     // Until a visual draws, its meta is its source's name — but for a missing field, which it says.
@@ -381,7 +387,7 @@ function VisualBody({ visual, source, read, sourceName, storageKey, onPick }: Vi
         case "window":
             return <>{named}<EmptyStateView icon={{ prefix: "fas", name: "calendar" }} title={m.needsWindow({ source: sourceName })} description={m.needsWindowHint()} /></>;
         case "asks":
-            return <AskedVisual asks={printed.asks} visual={visual} listed={source} read={read} sourceName={sourceName} icon={icon} storageKey={storageKey} />;
+            return <AskedVisual asks={printed.asks} visual={visual} listed={source} read={read} sourceName={sourceName} icon={icon} storageKey={storageKey} placement={placement} />;
     }
 }
 
@@ -394,14 +400,15 @@ interface AskedVisualProps {
     sourceName: string;
     icon: string;
     storageKey: string;
+    placement: string | undefined;
 }
 
 /** A visual whose programs are asked: waiting, failed, no rows, or its answer drawn. */
-function AskedVisual({ asks, visual, listed, read, sourceName, icon, storageKey }: AskedVisualProps) {
+function AskedVisual({ asks, visual, listed, read, sourceName, icon, storageKey, placement }: AskedVisualProps) {
     const m = useStudioMessages();
     const words = useFormatters();
     const asked = useVisualAnswers(asks, visual.source);
-    const state = useTileState(visual, read);
+    const state = useTileState(visual, read, placement);
     const shown = useLoadingReveal(asked.status === "waiting");
     switch (asked.status) {
         case "waiting":

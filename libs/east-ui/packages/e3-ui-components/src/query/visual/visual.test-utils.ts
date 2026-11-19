@@ -81,7 +81,7 @@ export const QUARTER_NOW = at("2026-09-15T12:00:00");
 
 /** A page's state whose one filter holds the orders' date to the quarter from July 2026. */
 export const QUARTER: PrintState = printStateOf(
-    [{ source: "orders", where: condition(`.ordered_at >= "2026-07-01" and .ordered_at < "2026-10-01"`) }], "orders", ORDERS_SOURCE, QUARTER_NOW,
+    [{ source: "orders", where: condition(`.ordered_at >= "2026-07-01" and .ordered_at < "2026-10-01"`), from: none }], "orders", ORDERS_SOURCE, QUARTER_NOW,
 );
 
 /** A visual's asks, their answers as e3 gives them, and the values the asks' indexes name. */

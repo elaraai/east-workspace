@@ -8,7 +8,10 @@
  * marks (a line, an area, bars, points), the series marks a `series` layer
  * expands to — one per series, in its colour, stacked and side by side as
  * the layer says — and the annotations: a band, a reference dot, a reference
- * area, a rule and a text label.
+ * area, a rule and a text label. A series' marks are drawn by what the host
+ * marks (`marking.ts`, #1673): one it leaves unmarked while it marks another
+ * in the muted mark, a line none of whose points it marks too, and a line's
+ * or an area's marked point with a dot.
  *
  * @packageDocumentation
  */
@@ -22,9 +25,10 @@ import { getSomeorUndefined } from "../../utils";
 import { barSlots } from "./bars.js";
 import {
     T, numberOfKey, sideOf, useCx, useScales, xKeyOf,
-    type Anchor, type BandSeries, type Curve, type LayerStyle, type Point, type Series, type SeriesMark, type YScale,
+    type Anchor, type BandSeries, type ChartMark, type Curve, type LayerStyle, type Point, type Series, type SeriesMark, type YScale,
 } from "./context.js";
 import { MARK_LABEL_GAP } from "./labels.js";
+import { markAttributes } from "./marking.js";
 import { stackBoundsOf } from "./stack.js";
 
 /** Resolve an optional curve variant to its visx curve fn (default monotoneX). */
@@ -94,6 +98,11 @@ export function PointsMark({ value }: { value: ValueTypeOf<typeof T.Points> }): 
 
 // ── series marks (high-level; per-layer style + stacking + dual-axis) ───────
 
+/** A series' mark at a point, as the host's marking reads it. */
+function markOf(series: Series, p: Point): ChartMark {
+    return { series: series.key, x: p.x, other: false };
+}
+
 /** One mark per series, in its assigned colour. Bars group side-by-side within
  * each band unless stacked; areas/bars accumulate when a `stackId` is set. */
 export function SeriesMarks({ value }: { value: SeriesMark }): ReactNode {
@@ -128,21 +137,34 @@ export function SeriesMarks({ value }: { value: SeriesMark }): ReactNode {
     }))}</>;
 }
 function LineSeries({ series, yScale, layer }: { series: Series; yScale: YScale; layer: LayerStyle }): ReactNode {
-    const cx = useCx(); const { style } = useScales(); const stroke = style.color(series.color);
+    const cx = useCx(); const { marking, style } = useScales();
+    // While the host marks another's points, a line none of whose points it marks is the muted mark; a marked point a dot.
+    const states = series.points.map((p) => marking?.(markOf(series, p)));
+    const faded = states.length > 0 && states.every((state) => state === "dimmed");
+    const stroke = faded ? style.muted : style.color(series.color);
     const dash = layer.dashArray;
     const showDots = layer.dots ?? true;
     return (
         <>
-            <LinePath<Point> data={series.points} x={cx} y={p => yScale(p.value)} curve={curveFor(layer.curve)} stroke={stroke} strokeWidth={layer.strokeWidth ?? style.lineWidth} {...(dash ? { strokeDasharray: dash } : {})} strokeOpacity={layer.opacity ?? 1} />
-            {showDots && series.points.map((p, i) => <Circle key={i} cx={cx(p)} cy={yScale(p.value)} r={style.dotRadius} fill={style.pointFill} stroke={stroke} strokeWidth={style.pointStrokeWidth} />)}
+            <LinePath<Point> data={series.points} x={cx} y={p => yScale(p.value)} curve={curveFor(layer.curve)} stroke={stroke} strokeWidth={layer.strokeWidth ?? style.lineWidth} {...(dash ? { strokeDasharray: dash } : {})} strokeOpacity={layer.opacity ?? 1}
+                {...markAttributes(faded ? "dimmed" : undefined)} />
+            {series.points.map((p, i) => (showDots || states[i] === "marked") && (
+                <Circle key={i} cx={cx(p)} cy={yScale(p.value)} r={style.dotRadius} fill={style.pointFill} stroke={states[i] === "dimmed" ? style.muted : stroke} strokeWidth={style.pointStrokeWidth}
+                    {...markAttributes(states[i])} />
+            ))}
         </>
     );
 }
 function BarSeries({ series, index, count, stacked, bounds, yScale, layer }: { series: Series; index: number; count: number; stacked: boolean; bounds: (p: Point) => [number, number]; yScale: YScale; layer: LayerStyle }): ReactNode {
-    const { cx, cxKey, bandWidth, innerH, horizontal, style } = useScales(); const seriesFill = style.color(series.color);
+    const { cx, cxKey, bandWidth, innerH, horizontal, marking, style } = useScales(); const seriesFill = style.color(series.color);
     const op = layer.fillOpacity ?? 1;
-    // A per-point colour (a per-category fill) wins over the series colour.
-    const fillFor = (p: Point): string => { const pc = getSomeorUndefined(p.color); return pc !== undefined ? style.color(pc) : seriesFill; };
+    // A per-point colour (a per-category fill) wins over the series colour; a bar the host leaves unmarked while it
+    // marks another is the muted mark (#1673).
+    const look = (p: Point) => {
+        const state = marking?.(markOf(series, p));
+        const pc = getSomeorUndefined(p.color);
+        return { fill: state === "dimmed" ? style.muted : pc !== undefined ? style.color(pc) : seriesFill, ...markAttributes(state) };
+    };
     if (horizontal) {
         // #249 — the mirror of the vertical geometry: bars grow along x from
         // the plot's left edge (the measure scale's zero-anchored min) and the
@@ -152,9 +174,9 @@ function BarSeries({ series, index, count, stacked, bounds, yScale, layer }: { s
         const bar = barSlots(bandWidth, count, true);
         const barTop = (p: Point) => cxKey(xKeyOf(p.x)) + bar.start + (stacked ? 0 : index) * bar.slot;
         if (stacked) {
-            return <>{series.points.map((p, i) => { const [lo, hi] = bounds(p); const x0 = yScale(lo); const x1 = yScale(hi); return <Bar key={i} x={Math.min(x0, x1)} y={barTop(p)} width={Math.abs(x1 - x0)} height={bar.size} fill={fillFor(p)} fillOpacity={op} rx={style.barRadius} />; })}</>;
+            return <>{series.points.map((p, i) => { const [lo, hi] = bounds(p); const x0 = yScale(lo); const x1 = yScale(hi); return <Bar key={i} x={Math.min(x0, x1)} y={barTop(p)} width={Math.abs(x1 - x0)} height={bar.size} {...look(p)} fillOpacity={op} rx={style.barRadius} />; })}</>;
         }
-        return <>{series.points.map((p, i) => <Bar key={i} x={0} y={barTop(p)} width={Math.max(0, yScale(p.value))} height={bar.size} fill={fillFor(p)} fillOpacity={op} rx={style.barRadius} />)}</>;
+        return <>{series.points.map((p, i) => <Bar key={i} x={0} y={barTop(p)} width={Math.max(0, yScale(p.value))} height={bar.size} {...look(p)} fillOpacity={op} rx={style.barRadius} />)}</>;
     }
     // The columns at an x: at most 18px wide, side by side about its centre, square (`bars.ts`).
     const bar = barSlots(bandWidth, count, false);
@@ -163,28 +185,38 @@ function BarSeries({ series, index, count, stacked, bounds, yScale, layer }: { s
         // `Math.min` + `Math.abs` so a NEGATIVE stack (hi < lo ⇒ yScale(hi) below
         // yScale(lo)) still draws — a bare `bot - top` goes negative and the bar
         // collapses to zero height (mirrors the horizontal path above).
-        return <>{series.points.map((p, i) => { const [lo, hi] = bounds(p); const top = yScale(hi); const bot = yScale(lo); return <Bar key={i} x={barLeft(p)} y={Math.min(top, bot)} width={bar.size} height={Math.abs(bot - top)} fill={fillFor(p)} fillOpacity={op} />; })}</>;
+        return <>{series.points.map((p, i) => { const [lo, hi] = bounds(p); const top = yScale(hi); const bot = yScale(lo); return <Bar key={i} x={barLeft(p)} y={Math.min(top, bot)} width={bar.size} height={Math.abs(bot - top)} {...look(p)} fillOpacity={op} />; })}</>;
     }
-    return <>{series.points.map((p, i) => { const top = yScale(p.value); return <Bar key={i} x={barLeft(p)} y={top} width={bar.size} height={Math.max(0, innerH - top)} fill={fillFor(p)} fillOpacity={op} />; })}</>;
+    return <>{series.points.map((p, i) => { const top = yScale(p.value); return <Bar key={i} x={barLeft(p)} y={top} width={bar.size} height={Math.max(0, innerH - top)} {...look(p)} fillOpacity={op} />; })}</>;
 }
 function AreaSeries({ series, bounds, yScale, layer }: { series: Series; bounds: (p: Point) => [number, number]; yScale: YScale; layer: LayerStyle }): ReactNode {
-    const cx = useCx(); const { style } = useScales(); const stroke = style.color(series.color);
+    const cx = useCx(); const { marking, style } = useScales();
+    // As a line's: none of its points marked while another's are, the muted mark; a marked point a dot on its edge.
+    const states = series.points.map((p) => marking?.(markOf(series, p)));
+    const faded = states.length > 0 && states.every((state) => state === "dimmed");
+    const stroke = faded ? style.muted : style.color(series.color);
     const curve = curveFor(layer.curve);
     const op = layer.fillOpacity ?? style.areaOpacity;
     return (
         <>
-            <Area<Point> data={series.points} x={cx} y0={p => yScale(bounds(p)[0])} y1={p => yScale(bounds(p)[1])} curve={curve} fill={stroke} fillOpacity={op} stroke="transparent" />
+            <Area<Point> data={series.points} x={cx} y0={p => yScale(bounds(p)[0])} y1={p => yScale(bounds(p)[1])} curve={curve} fill={stroke} fillOpacity={op} stroke="transparent"
+                {...markAttributes(faded ? "dimmed" : undefined)} />
             <LinePath<Point> data={series.points} x={cx} y={p => yScale(bounds(p)[1])} curve={curve} stroke={stroke} strokeWidth={layer.strokeWidth ?? style.lineWidth} strokeOpacity={layer.opacity ?? 1} />
+            {series.points.map((p, i) => states[i] === "marked" && (
+                <Circle key={i} cx={cx(p)} cy={yScale(bounds(p)[1])} r={style.dotRadius} fill={style.pointFill} stroke={stroke} strokeWidth={style.pointStrokeWidth} {...markAttributes("marked")} />
+            ))}
         </>
     );
 }
 function ScatterSeries({ series, yScale, layer }: { series: Series; yScale: YScale; layer: LayerStyle }): ReactNode {
-    const cx = useCx(); const { style, sizeR } = useScales(); const fill = style.color(series.color);
+    const cx = useCx(); const { marking, style, sizeR } = useScales(); const fill = style.color(series.color);
     const base = layer.radius ?? style.scatterRadius;
     return <>{series.points.map((p, i) => {
         const ps = getSomeorUndefined(p.size);                       // per-point bubble magnitude
         const r = ps !== undefined && sizeR ? sizeR(ps) : base;
-        return <Circle key={i} cx={cx(p)} cy={yScale(p.value)} r={r} fill={fill} fillOpacity={layer.opacity ?? 1} />;
+        // A point the host leaves unmarked while it marks another is the muted mark (#1673).
+        const state = marking?.(markOf(series, p));
+        return <Circle key={i} cx={cx(p)} cy={yScale(p.value)} r={r} fill={state === "dimmed" ? style.muted : fill} fillOpacity={layer.opacity ?? 1} {...markAttributes(state)} />;
     })}</>;
 }
 

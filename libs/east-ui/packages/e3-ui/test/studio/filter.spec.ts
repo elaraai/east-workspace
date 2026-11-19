@@ -5,7 +5,8 @@
 
 /**
  * A page's filters and selections (#1673): `Studio.Types.Filter` — a jq
- * condition on one listed source's rows — the list a page holds of them, the
+ * condition on one listed source's rows, and the placement whose click made
+ * it — the list a page holds of them, the
  * groups a reader clicked on each placement, and the UI-store keys both are
  * kept under: the page's, one a page and apart for every page.
  */
@@ -27,10 +28,12 @@ function jq(text: string): JqNode {
 }
 
 describe("A page's filters and selections (#1673)", () => {
-    test("a filter is a source's key and a jq condition over one of its rows; a page's filters are a list of them, kept as they are written", () => {
-        const filter = { source: "orders", where: jq(`.region == "SA"`) };
+    test("a filter is a source's key, a jq condition over one of its rows, and the placement whose click made it — none for one the reader wrote; a page's filters are a list of them, kept as they are written", () => {
+        const filter = { source: "orders", where: jq(`.region == "SA"`), from: none };
         assert.ok(isValueOf(filter, Studio.Types.Filter));
-        const filters = [filter, { source: "orders", where: jq(".units > 1") }, { source: "assets", where: jq(`.site == "North"`) }];
+        const clicked = { source: "orders", where: jq(`.region == "NSW" or .region == "VIC"`), from: some("c-regions") };
+        assert.ok(isValueOf(clicked, Studio.Types.Filter));
+        const filters = [filter, { source: "orders", where: jq(".units > 1"), from: none }, { source: "assets", where: jq(`.site == "North"`), from: none }, clicked];
         assert.ok(isValueOf(filters, StudioFiltersType));
         const kept = decodeBeast2For(StudioFiltersType)(encodeBeast2For(StudioFiltersType)(filters));
         assert.ok(equalFor(StudioFiltersType)(kept, filters));

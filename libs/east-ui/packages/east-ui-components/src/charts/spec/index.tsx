@@ -9,7 +9,9 @@
  * A `frame` derives the shared scales from the data under it (`collect.ts`),
  * provides them to its marks (`context.ts`, `marks.tsx`, `axes.tsx`), and
  * adds the hover tooltip, the legend and the click a host is told
- * (`hit.ts`); a pie is a frame of its own (`pie-frame.tsx`).
+ * (`hit.ts`); a pie is a frame of its own (`pie-frame.tsx`). What its host
+ * marks — a click's selection, a filter its click made — it draws by
+ * (`marking.ts`): the rest of its marks in the muted mark.
  *
  * @packageDocumentation
  */
@@ -37,10 +39,12 @@ import { AxisBMark, AxisLMark, AxisRMark, GridColsMark, GridRowsMark } from "./a
 import { collectLayers, collectLegend, collectScatterSizes, collectSeries, collectXKeys, walkY } from "./collect.js";
 import {
     ScaleContext, T, domainBounds, instantOfKey, numberOfKey, xKeyOf,
-    type Axis, type ChartMarkHandler, type ChartNumberText, type ChartStyle, type Margin, type Point, type ScaleKind, type Series, type SeriesMark, type Spec, type XCoord, type YScale,
+    type Axis, type ChartMark, type ChartMarkHandler, type ChartMarkedTest, type ChartNumberText, type ChartStyle, type Margin, type Point, type ScaleKind, type Series, type SeriesMark, type Spec,
+    type XCoord, type YScale,
 } from "./context.js";
 import { markAt, type PlotGeometry } from "./hit.js";
 import { LEFT_LABEL_ROOM, LEGEND_HEIGHT, MARK_LABEL_GAP, RIGHT_AXIS_ROOM, RULE_MARGIN, labelWidth, tickPx } from "./labels.js";
+import { chartMarking, markAttributes } from "./marking.js";
 import { AreaMark, BandAreaMark, BarsMark, LinePathMark, PointsMark, RefAreaMark, RefDotMark, RuleMark, SeriesMarks, TextMark } from "./marks.js";
 import { measuredFrame } from "./measured.js";
 import { PieFrame } from "./pie-frame.js";
@@ -77,8 +81,18 @@ function renderNode(node: Spec, k: string | number, clipId?: string): ReactNode 
     }, null);
 }
 
+/** What a frame is drawn with, beside its node: a brush, the host's click, its numbers and what it marks. */
+interface FrameOptions {
+    brush?: boolean | undefined;
+    onBrushEnd?: BrushEnd | undefined;
+    brushKey?: string | undefined;
+    onMark?: ChartMarkHandler | undefined;
+    numberText?: ChartNumberText | undefined;
+    marked?: ChartMarkedTest | undefined;
+}
+
 /** The `frame`: derive scales from descendant data, then render children. */
-function Frame({ node, brush, onBrushEnd, brushKey, onMark, numberText }: { node: Spec; brush?: boolean | undefined; onBrushEnd?: BrushEnd | undefined; brushKey?: string | undefined; onMark?: ChartMarkHandler | undefined; numberText?: ChartNumberText | undefined }): ReactNode {
+function Frame({ node, brush, onBrushEnd, brushKey, onMark, numberText, marked }: { node: Spec } & FrameOptions): ReactNode {
     const system = useChakraContext();
     // Chrome resolved through Chakra's own token resolver (`"colors.fg.muted"` →
     // its CSS var), so the chart re-themes off the design tokens.
@@ -100,6 +114,8 @@ function Frame({ node, brush, onBrushEnd, brushKey, onMark, numberText }: { node
         scatterRadius: 3.5,
         barRadius: 2,
         accent: system.token("colors.fg", "#111b22"),
+        // The muted mark: what a host leaves unmarked while it marks another (#1673).
+        muted: system.token("colors.fg.faint", "#9bb0b0"),
         tooltipZIndex: Number(system.token("zIndex.tooltip", 1800)),
         color: (t: string) => {
             const k = t.replace(/[{}]/g, "");
@@ -108,16 +124,17 @@ function Frame({ node, brush, onBrushEnd, brushKey, onMark, numberText }: { node
         // The theme's face for a family, as Box, Text and Heading take it (#315).
         fontFor: (tag: string) => themeFontFamily(system, tag),
     }), [system]);
-    return <Plot node={node} style={style} brush={brush} onBrushEnd={onBrushEnd} brushKey={brushKey} onMark={onMark} numberText={numberText} />;
+    return <Plot node={node} style={style} brush={brush} onBrushEnd={onBrushEnd} brushKey={brushKey} onMark={onMark} numberText={numberText} marked={marked} />;
 }
 
 /**
  * Renders a `frame`: derives the shared scales (incl. a right scale for dual-axis
  * layers) from descendant data, lays out the children, and — when the frame
  * carries a `tooltip` / `legend` — adds the hover crosshair + tooltip and the
- * colour-matched legend.
+ * colour-matched legend. While its host marks any of its marks, the rest that
+ * stand for groups are drawn in the muted mark, and their legend rows off.
  */
-function Plot({ node, style, brush, onBrushEnd, brushKey, onMark, numberText }: { node: Spec; style: ChartStyle; brush?: boolean | undefined; onBrushEnd?: BrushEnd | undefined; brushKey?: string | undefined; onMark?: ChartMarkHandler | undefined; numberText?: ChartNumberText | undefined }): ReactNode {
+function Plot({ node, style, brush, onBrushEnd, brushKey, onMark, numberText, marked }: { node: Spec; style: ChartStyle } & FrameOptions): ReactNode {
     const { tooltipData, tooltipLeft, tooltipTop, showTooltip, hideTooltip } = useTooltip<TooltipDatum>();
     // The tooltip's date and values, in the app's locale (#850).
     const words = useFormatters();
@@ -141,7 +158,7 @@ function Plot({ node, style, brush, onBrushEnd, brushKey, onMark, numberText }: 
             // A pie is the only node of its frame (#1671): no scales, no axes.
             const only = f.children.length === 1 ? f.children[0] : undefined;
             if (only?.type === "pie") {
-                return <PieFrame pie={only.value} height={f.height} width={getSomeorUndefined(f.width)} style={style} onMark={onMark} numberText={numberText} />;
+                return <PieFrame pie={only.value} height={f.height} width={getSomeorUndefined(f.width)} style={style} onMark={onMark} numberText={numberText} marked={marked} />;
             }
             // #249 — a band yScale flips the frame horizontal: the band domain
             // (the points' coordinate keys) runs along y and the numeric measure
@@ -257,6 +274,11 @@ function Plot({ node, style, brush, onBrushEnd, brushKey, onMark, numberText }: 
             const legend: Array<{ key: string; color: string }> = [];
             { const seen = new Set<string>(); for (const e of legendRaw) if (!seen.has(e.key)) { seen.add(e.key); legend.push(e); } }
             const showLegend = legendOn && legend.length > 0;
+            // What the host marks, over the marks a click reaches: each series' point and each legend row (#1673).
+            const marking = chartMarking(marked, [
+                ...layers.flatMap((layer) => layer.data.flatMap((s) => s.points.map((p): ChartMark => ({ series: s.key, x: p.x, other: false })))),
+                ...(showLegend ? legend.map((e): ChartMark => ({ series: e.key, x: undefined, other: false })) : []),
+            ]);
             const legendH = showLegend ? LEGEND_HEIGHT : 0;
             const legendAbove = legendBelow ? 0 : legendH;
 
@@ -382,14 +404,18 @@ function Plot({ node, style, brush, onBrushEnd, brushKey, onMark, numberText }: 
 
                 const legendRow = showLegend && (
                     <Box css={legendStyles.root} data-chart-legend="" {...(legendBelow ? { "data-below": "" } : {})}>
-                        {legend.map((e, i) => (
-                            // A legend row a click reaches tells the host its series (CHT-8).
-                            <Box key={i} css={legendStyles.entry} data-chart-legend-entry={e.key}
-                                {...(onMark !== undefined ? { as: "button" as const, type: "button" as const, onClick: () => onMark({ series: e.key, x: undefined, other: false }) } : {})}>
-                                <Box as="span" css={legendStyles.swatch} background={style.color(e.color)} />
-                                <Box as="span" css={legendStyles.label}>{e.key}</Box>
-                            </Box>
-                        ))}
+                        {legend.map((e, i) => {
+                            // A row off while the host marks another: its swatch the muted mark, its words the recipe's (#1673).
+                            const state = marking?.({ series: e.key, x: undefined, other: false });
+                            return (
+                                // A legend row a click reaches tells the host its series (CHT-8).
+                                <Box key={i} css={legendStyles.entry} data-chart-legend-entry={e.key} {...markAttributes(state)}
+                                    {...(onMark !== undefined ? { as: "button" as const, type: "button" as const, onClick: () => onMark({ series: e.key, x: undefined, other: false }) } : {})}>
+                                    <Box as="span" css={legendStyles.swatch} background={state === "dimmed" ? style.muted : style.color(e.color)} />
+                                    <Box as="span" css={legendStyles.label}>{e.key}</Box>
+                                </Box>
+                            );
+                        })}
                     </Box>
                 );
                 return (
@@ -408,7 +434,7 @@ function Plot({ node, style, brush, onBrushEnd, brushKey, onMark, numberText }: 
                                         <rect x={0} y={0} width={innerW} height={innerH} />
                                     </clipPath>
                                 </defs>
-                                <ScaleContext.Provider value={{ cx, cxKey, bandWidth, xAxisScale, yAxisScale, xTickValues, xKind, horizontal, y, y2, sizeR, innerW, innerH, margin, yTitleX, y2TitleX, numberText, leftTicks, bottomTicks, style }}>
+                                <ScaleContext.Provider value={{ cx, cxKey, bandWidth, xAxisScale, yAxisScale, xTickValues, xKind, horizontal, y, y2, sizeR, innerW, innerH, margin, yTitleX, y2TitleX, numberText, leftTicks, bottomTicks, marking, style }}>
                                     {f.children.map((c, i) => renderNode(c, i, clipId))}
                                 </ScaleContext.Provider>
                                 {!brush && tooltipOn && focusX !== undefined && (horizontal
@@ -507,6 +533,16 @@ export interface EastVisxChartProps {
      * through its declared format.
      */
     numberText?: ChartNumberText;
+    /**
+     * What the host marks of the chart's marks (#1673): a click's selection,
+     * or the groups a filter its click made holds. While it marks any mark the
+     * chart draws, the rest that stand for groups — a bar, a point, a slice —
+     * are drawn in the muted mark (`--ink-5`), and their legend rows off: the
+     * swatch muted, the words `--ink-4` at 500. A line's marked point is
+     * marked with a dot. Without it, or with nothing marked, a chart draws as
+     * before.
+     */
+    marked?: ChartMarkedTest;
 }
 
 const chartEqual = equivalentFor(T.Spec);
@@ -525,7 +561,7 @@ function brushableKind(kind: string | undefined): kind is "datetime" | "integer"
  * `brush` affordance listed) the drag-to-range brush wired to `setRange`.
  * Chrome only: the layers' data was fed explicitly upstream.
  */
-function SliceChromeFrame({ node, chrome, onMark, numberText }: { node: Spec; chrome: ValueTypeOf<typeof SliceChromeType>; onMark?: ChartMarkHandler | undefined; numberText?: ChartNumberText | undefined }): ReactNode {
+function SliceChromeFrame({ node, chrome, onMark, numberText, marked }: { node: Spec; chrome: ValueTypeOf<typeof SliceChromeType> } & Pick<FrameOptions, "onMark" | "numberText" | "marked">): ReactNode {
     const { slice } = chrome;
     useSliceReactivity(slice.key);
     const frameStyles = useSlotRecipe({ key: "sliceFrame" })();
@@ -575,6 +611,7 @@ function SliceChromeFrame({ node, chrome, onMark, numberText }: { node: Spec; ch
                     brushKey={brushKey}
                     onMark={onMark}
                     numberText={numberText}
+                    marked={marked}
                 />
                 {legendEnabled && breakdownActive && <EastChakraSliceLegend value={{ slice } as never} />}
             </Box>
@@ -583,8 +620,9 @@ function SliceChromeFrame({ node, chrome, onMark, numberText }: { node: Spec; ch
 }
 
 /** Renders an East `ChartSpec` (visx-primitive tree). The root is a `frame`. */
-export const EastVisxChart = memo(function EastVisxChart({ value, brush, onBrushEnd, brushKey, onMark, numberText }: EastVisxChartProps) {
+export const EastVisxChart = memo(function EastVisxChart({ value, brush, onBrushEnd, brushKey, onMark, numberText, marked }: EastVisxChartProps) {
     const chrome = value.type === "frame" ? getSomeorUndefined(value.value.slice) : undefined;
-    if (chrome !== undefined) return <SliceChromeFrame node={value} chrome={chrome} onMark={onMark} numberText={numberText} />;
-    return <Frame node={value} brush={brush} onBrushEnd={onBrushEnd} brushKey={brushKey} onMark={onMark} numberText={numberText} />;
-}, (a, b) => chartEqual(a.value, b.value) && a.brush === b.brush && a.onBrushEnd === b.onBrushEnd && a.brushKey === b.brushKey && a.onMark === b.onMark && a.numberText === b.numberText);
+    if (chrome !== undefined) return <SliceChromeFrame node={value} chrome={chrome} onMark={onMark} numberText={numberText} marked={marked} />;
+    return <Frame node={value} brush={brush} onBrushEnd={onBrushEnd} brushKey={brushKey} onMark={onMark} numberText={numberText} marked={marked} />;
+}, (a, b) => chartEqual(a.value, b.value) && a.brush === b.brush && a.onBrushEnd === b.onBrushEnd && a.brushKey === b.brushKey && a.onMark === b.onMark
+    && a.numberText === b.numberText && a.marked === b.marked);

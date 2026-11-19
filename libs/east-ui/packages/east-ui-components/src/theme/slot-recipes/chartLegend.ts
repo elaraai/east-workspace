@@ -9,7 +9,9 @@
  * start, one 13px line with 12px under it; each entry a 14 × 3 swatch and its
  * name in mono 10.5 / 600 `--ink`, 6px apart, the entries 16px apart. Under
  * the plot (`data-below`) the 12px is above it. An entry a click reaches is a
- * button.
+ * button. An entry off while the chart's host marks another (`data-dimmed`,
+ * #1673) is the design system's off row: its name `--ink-4` at 500, its
+ * swatch the muted mark, which the renderer draws.
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
@@ -40,6 +42,7 @@ export const chartLegendSlotRecipe = defineSlotRecipe({
             color: "fg",
             whiteSpace: "nowrap",
             "&:is(button)": { cursor: "pointer" },
+            "&[data-dimmed]": { color: "fg.subtle", fontWeight: "500" },
         },
         swatch: { width: "14px", height: "3px", flexShrink: "0" },
         label: {},

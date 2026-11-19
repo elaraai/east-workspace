@@ -9,8 +9,9 @@
  * follows another narrows to what its leader has selected, on e3, and says
  * so in its eyebrow; with nothing selected it shows everything, or asks for a
  * pick; ⌘-click selects several; Esc, or a click on the selection again,
- * clears it; and a page a click opens holds the clicked group as its filter
- * when its host is told.
+ * clears it; a click that filters narrows every other visual of the source and
+ * marks the group on the visual clicked; and a page a click opens holds the
+ * clicked group as its filter when its host is told.
  */
 
 import { describe, expect, test } from "vitest";
@@ -45,10 +46,11 @@ const tag = (container: HTMLElement) => {
 };
 /** A click on a row, as a pointer makes it. */
 const click = async (row: HTMLElement, init: { metaKey?: boolean } = {}) => { await act(async () => { fireEvent.click(row, init); }); };
-/** The page's filters, as the UI store holds them under a page's key. */
+/** The page's filters, as the UI store holds them under a page's key: each one's source, its jq, and the placement whose click made it. */
 const filtersOf = (key: { project: string; page: string }) => {
     const bytes = StateRuntime.getStore().read(studioFiltersKey(key));
-    return bytes === undefined ? [] : decodeBeast2For(StudioFiltersType)(bytes).map((filter) => [filter.source, printJq(filter.where).text]);
+    return bytes === undefined ? [] : decodeBeast2For(StudioFiltersType)(bytes)
+        .map((filter) => [filter.source, printJq(filter.where).text, filter.from.type === "some" ? filter.from.value : undefined]);
 };
 
 describe("a click that selects, and a visual that follows it (LNK-1 to LNK-5)", () => {
@@ -167,16 +169,34 @@ describe("a click that selects, and a visual that follows it (LNK-1 to LNK-5)", 
 });
 
 describe("a click that filters, opens, or does nothing (LNK-1, LNK-9)", () => {
-    test("filters: the clicked group joins the page's filters as a chip, every visual of the source narrows, and the row is no selection", async () => {
+    test("filters: the clicked group is the filter the list's click made, a chip on the rail; every other visual of the source narrows to it, and the list marks it, never narrowing itself; ⌘-click adds one, a click on it again clears it, and so does its chip's × (#1673)", async () => {
         const { container } = page([cell("c-regions", regions({ click: variant("filter", null) })), cell("c-orders", orders())], createInMemoryQueryCall(DATASETS));
+        const chips = () => [...container.querySelectorAll("[data-studio-filters] [data-slice-clause]")].map((chip) => chip.getAttribute("title"));
         await waitFor(() => expect(rows(container)).toHaveLength(2));
         await click(rowOf(container, "SA"));
-        expect(filtersOf(PAGE)).toEqual([["orders", `.region == "SA"`]]);
+        expect(filtersOf(PAGE)).toEqual([["orders", `.region == "SA"`, "c-regions"]]);
         await waitFor(() => expect(count(container)).toBe("2"));
-        // The list reads the page's filters too: South Australia alone, and its chip on the rail.
-        await waitFor(() => expect(rows(container)).toHaveLength(1));
-        expect([...container.querySelectorAll("[data-studio-filters] [data-slice-clause]")].map((chip) => chip.getAttribute("title"))).toEqual(["region is SA"]);
-        expect(selected(container)).toEqual([]);
+        // The list keeps every region, the one clicked marked; its chip on the rail.
+        expect([rows(container).length, selected(container), chips()]).toEqual([2, ["SA"], ["region is SA"]]);
+        // ⌘-click adds a region: any of them a row may pass.
+        await click(rowOf(container, "NSW"), { metaKey: true });
+        expect(filtersOf(PAGE)).toEqual([["orders", `.region == "SA" or .region == "NSW"`, "c-regions"]]);
+        await waitFor(() => expect(count(container)).toBe("3"));
+        expect(selected(container)).toEqual(["SA", "NSW"]);
+        // A plain click takes one alone; a click on it again clears it.
+        await click(rowOf(container, "NSW"));
+        await waitFor(() => expect(count(container)).toBe("1"));
+        expect(selected(container)).toEqual(["NSW"]);
+        await click(rowOf(container, "NSW"));
+        expect(filtersOf(PAGE)).toEqual([]);
+        await waitFor(() => expect(count(container)).toBe("3"));
+        expect([selected(container), chips()]).toEqual([[], []]);
+        // The chip's × clears the mark with the filter.
+        await click(rowOf(container, "SA"));
+        expect(selected(container)).toEqual(["SA"]);
+        await act(async () => { fireEvent.click(container.querySelector("[data-studio-filters] [data-slice-clause] [data-chip-remove]")!); });
+        expect([filtersOf(PAGE), selected(container)]).toEqual([[], []]);
+        await waitFor(() => expect(count(container)).toBe("3"));
     });
 
     test("opens: the clicked group is the target page's filter on the source — in place of what it held there — and its host is told the page's key, once", async () => {
@@ -186,12 +206,12 @@ describe("a click that filters, opens, or does nothing (LNK-1, LNK-9)", () => {
         await waitFor(() => expect(rows(container)).toHaveLength(2));
         await click(rowOf(container, "NSW"));
         expect(opened).toEqual([detail]);
-        expect(filtersOf(detail)).toEqual([["orders", `.region == "NSW"`]]);
+        expect(filtersOf(detail)).toEqual([["orders", `.region == "NSW"`, undefined]]);
         // This page's own filters are as they were.
         expect(filtersOf(PAGE)).toEqual([]);
         await click(rowOf(container, "SA"));
         expect(opened).toEqual([detail, detail]);
-        expect(filtersOf(detail)).toEqual([["orders", `.region == "SA"`]]);
+        expect(filtersOf(detail)).toEqual([["orders", `.region == "SA"`, undefined]]);
     });
 
     test("a click that opens a page no host is told of, and one that does nothing, make no button of a row", async () => {

@@ -9,7 +9,8 @@
  * What a click on a visual stands for (`clicks.ts`, #1673): a clicked group
  * as a jq condition over its source's rows — in the query builder's own forms
  * where one says it, so it reads as a chip in words — and one that keeps
- * exactly the rows the group was made of.
+ * exactly the rows the group was made of; a click's selection, the filter a
+ * visual's click makes, which it marks, and what a follower reads.
  */
 
 import { describe, expect, it } from "vitest";
@@ -19,11 +20,11 @@ import { StudioClickedType } from "@elaraai/e3-ui/internal";
 import { formatters } from "@elaraai/east-ui-components";
 import { queryWords } from "../model/words.js";
 import {
-    canLead, clickDone, clickedCondition, clickedOf, followCondition, followCycles, followersOf, followingOf, groupCondition, isSelected,
+    canLead, clickDone, clickedCondition, clickedOf, followCondition, followCycles, followersOf, followingOf, groupCondition, isMarked, isSelected,
     openedFilters, pickCondition, pickOf, selectedOf, selectionAfter, withCondition,
     type ClickGroup, type Clicked,
 } from "./clicks.js";
-import { filterWords } from "./filters.js";
+import { filterWords, markedBy, type PageFilter } from "./filters.js";
 import { ORDERS, ORDERS_ROOT, ORDERS_SOURCE, condition } from "./visual.test-utils.js";
 
 const words = queryWords(formatters("en-AU"));
@@ -173,30 +174,58 @@ describe("a follower's condition (LNK-4)", () => {
 describe("what a click does (LNK-1)", () => {
     const sa = clickedOf([{ group: by("region"), key: "SA", type: StringType }])!;
     const nsw = clickedOf([{ group: by("region"), key: "NSW", type: StringType }])!;
-    const nothing = { selection: [], filters: [] };
+    const nothing = { placement: "c-regions", selection: [], filters: [] };
     const detail = { project: "ops", page: "detail" };
+    /** The page's filters as each one's source, its jq and the placement whose click made it. */
+    const listed = (filters: readonly PageFilter[]) => filters.map((filter) => [filter.source, printJq(filter.where).text, filter.from.type === "some" ? filter.from.value : undefined]);
+    /** The page's filters after a click on a group of the regions list, whose click filters. */
+    const filtering = (held: readonly PageFilter[], clicked: Clicked, add = false, placement = "c-regions") => {
+        const done = clickDone(variant("filter", null), "orders", clicked, { placement, selection: [], filters: held }, add);
+        if (done?.type !== "filter") throw new Error("expected the filters");
+        return done.filters;
+    };
 
     it("selects: the group is the placement's selection, and the page's filters are left alone", () => {
         const done = clickDone(variant("select", null), "orders", sa, nothing, false);
         expect(done?.type === "select" && done.selection).toEqual([sa]);
-        const again = clickDone(variant("select", null), "orders", sa, { selection: [sa], filters: [] }, false);
+        const again = clickDone(variant("select", null), "orders", sa, { placement: "c-regions", selection: [sa], filters: [] }, false);
         expect(again?.type === "select" && again.selection).toEqual([]);
     });
 
-    it("filters: the group joins the page's filters on the visual's source, once", () => {
-        const done = clickDone(variant("filter", null), "orders", sa, nothing, false);
-        if (done?.type !== "filter") throw new Error("expected the filters");
-        expect(done.filters.map((filter) => [filter.source, printJq(filter.where).text])).toEqual([["orders", `.region == "SA"`]]);
-        // The same group again adds nothing; another group, or the same on another source, is another filter.
-        expect(clickDone(variant("filter", null), "orders", sa, { selection: [], filters: done.filters }, false)).toBeUndefined();
-        expect(clickDone(variant("filter", null), "orders", nsw, { selection: [], filters: done.filters }, false)?.type).toBe("filter");
-        expect(clickDone(variant("filter", null), "returns", sa, { selection: [], filters: done.filters }, false)?.type).toBe("filter");
+    it("filters: the group is the filter the visual's click made on its source; another group takes its place, ⌘-click adds one, and a click on the one it held alone clears it (#1673)", () => {
+        const reader: PageFilter = { source: "orders", where: condition(".units > 1"), from: none };
+        const one = filtering([reader], sa);
+        expect(listed(one)).toEqual([["orders", ".units > 1", undefined], ["orders", `.region == "SA"`, "c-regions"]]);
+        expect(listed(filtering(one, nsw))).toEqual([["orders", ".units > 1", undefined], ["orders", `.region == "NSW"`, "c-regions"]]);
+        // ⌘-click adds a group — any of them a row may pass — and takes out one that was in.
+        const two = filtering(one, nsw, true);
+        expect(listed(two)[1]).toEqual(["orders", `.region == "SA" or .region == "NSW"`, "c-regions"]);
+        expect(listed(filtering(two, sa, true))[1]).toEqual(["orders", `.region == "NSW"`, "c-regions"]);
+        // A plain click on one of several takes it alone; on the one it held alone, clears it, the reader's left.
+        expect(listed(filtering(two, sa))[1]).toEqual(["orders", `.region == "SA"`, "c-regions"]);
+        expect(listed(filtering(one, sa))).toEqual([["orders", ".units > 1", undefined]]);
+        // Another visual's click makes a filter of its own, after the rest.
+        expect(listed(filtering(one, sa, false, "c-months")).map(([, , from]) => from)).toEqual([undefined, "c-regions", "c-months"]);
     });
 
-    it("opens: the page it names, and the group as a filter on the source", () => {
+    it("marks what the visual's own filter holds: a group in it, or one within one of them, whatever order its fields come in (#1673)", () => {
+        const quarter = { group: by("ordered_at", "quarter"), key: 2026n * 4n + 2n, type: IntegerType };
+        const region = (key: string) => ({ group: by("region"), key, type: StringType });
+        const marks = markedBy(filtering([], sa), "orders", "c-regions");
+        expect([isMarked(marks, sa), isMarked(marks, nsw), isMarked([], sa)]).toEqual([true, false, false]);
+        // A column of the third quarter in South Australia lies within South Australia: the quarter's two bounds among its parts.
+        expect(isMarked(marks, clickedOf([quarter, region("SA")])!)).toBe(true);
+        expect(isMarked(marks, clickedOf([region("SA"), quarter])!)).toBe(true);
+        expect(isMarked(marks, clickedOf([quarter, region("NSW")])!)).toBe(false);
+        // Where the filter holds that column, South Australia alone is no group within it.
+        const column = markedBy(filtering([], clickedOf([quarter, region("SA")])!), "orders", "c-regions");
+        expect([isMarked(column, sa), isMarked(column, clickedOf([region("SA"), quarter])!)]).toEqual([false, true]);
+    });
+
+    it("opens: the page it names, and the group as a filter on the source — no visual's of that page", () => {
         const done = clickDone(variant("open", detail), "orders", sa, nothing, false);
         if (done?.type !== "open") throw new Error("expected the page");
-        expect([done.page, done.filter.source, printJq(done.filter.where).text]).toEqual([detail, "orders", `.region == "SA"`]);
+        expect([done.page, ...listed([done.filter])[0]!]).toEqual([detail, "orders", `.region == "SA"`, undefined]);
     });
 
     it("does nothing where the visual's click is none", () => {
@@ -204,11 +233,11 @@ describe("what a click does (LNK-1)", () => {
     });
 
     it("leaves a page it opens with the clicked group in place of what it held on that source, and its other sources' filters as they were (LNK-9)", () => {
-        const held = [
-            { source: "orders", where: condition(`.region == "NSW"`) }, { source: "returns", where: condition(".units > 1") },
-            { source: "orders", where: condition(".units > 2") },
+        const held: PageFilter[] = [
+            { source: "orders", where: condition(`.region == "NSW"`), from: none }, { source: "returns", where: condition(".units > 1"), from: none },
+            { source: "orders", where: condition(".units > 2"), from: none },
         ];
-        const opened = openedFilters(held, { source: "orders", where: condition(`.region == "SA"`) });
+        const opened = openedFilters(held, { source: "orders", where: condition(`.region == "SA"`), from: none });
         expect(opened.map((filter) => [filter.source, printJq(filter.where).text])).toEqual([["returns", ".units > 1"], ["orders", `.region == "SA"`]]);
     });
 });

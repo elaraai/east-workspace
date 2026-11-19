@@ -59,7 +59,7 @@ const NOW = at("2026-09-15T12:00:00");
 /** A page's state: a filter that holds the orders' date to the quarter from July 2026, then the conditions given, a filter each. */
 function quarter(...more: readonly JqNode[]): PrintState {
     const held = [condition(`.ordered_at >= "2026-07-01" and .ordered_at < "2026-10-01"`), ...more];
-    return printStateOf(held.map((where) => ({ source: "orders", where })), "orders", SOURCE, NOW);
+    return printStateOf(held.map((where) => ({ source: "orders", where, from: none })), "orders", SOURCE, NOW);
 }
 
 /** A visual's content's visual. */
@@ -309,7 +309,7 @@ describe("printVisual", () => {
 
     it("moves a window the page's filters count back from now: the current period's program reads `.now`, another period's is of fixed dates and does not", () => {
         // The last 60 days to 15 September: from 17 July, so the previous 60 days are from 18 May.
-        const last = printStateOf([{ source: "orders", where: condition(`.ordered_at >= ($now | datetime_add(-60; "day"))`) }], "orders", SOURCE, NOW);
+        const last = printStateOf([{ source: "orders", where: condition(`.ordered_at >= ($now | datetime_add(-60; "day"))`), from: none }], "orders", SOURCE, NOW);
         expect(last.range).toEqual({ window: { from: at("2026-07-17T12:00:00"), to: NOW }, rest: [] });
         const kpi = visualOf(v.of("orders", v.kpi({ value: v.count(), compare: v.count({ period: "previous" }) })));
         const [current, before] = asksOf(printVisual(kpi, SOURCE, last));
@@ -322,7 +322,7 @@ describe("printVisual", () => {
 
     it("asks a value over another period of a page whose filters hold its date to no window nothing: it says the page has none", () => {
         const kpi = visualOf(v.of("orders", v.kpi({ value: v.sum("revenue", { period: "previous" }) })));
-        const region = printStateOf([{ source: "orders", where: condition(`.region == "SA"`) }], "orders", SOURCE, NOW);
+        const region = printStateOf([{ source: "orders", where: condition(`.region == "SA"`), from: none }], "orders", SOURCE, NOW);
         expect([region.range, printVisual(kpi, SOURCE, region)]).toEqual([undefined, { kind: "window" }]);
     });
 });

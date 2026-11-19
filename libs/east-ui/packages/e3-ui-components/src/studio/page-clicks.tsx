@@ -14,7 +14,9 @@
  * (a page's and the preview's do; on the builder's canvas a click edits), and
  * who is told a click opens another page. A tile reads what its own clicks do
  * ({@link useTileClicks}) and what it follows ({@link useFollowing}); the
- * rules are `query/visual/clicks.ts`'s.
+ * rules are `query/visual/clicks.ts`'s. A visual whose click filters marks
+ * what the filter its click made holds, and is never narrowed by it
+ * ({@link useTileState}).
  *
  * @packageDocumentation
  */
@@ -25,9 +27,9 @@ import {
     StudioFiltersType, StudioSelectionsType, studioFiltersKey, studioSelectionsKey, type StudioCellType, type StudioContentType,
 } from "@elaraai/e3-ui/internal";
 import {
-    clickDone, clickedOf, followingOf, isSelected, openedFilters, withCondition, type Clicked, type ClickedGroup, type Following,
+    clickDone, clickedOf, followingOf, isMarked, isSelected, openedFilters, withCondition, type Clicked, type ClickedGroup, type Following,
 } from "../query/visual/clicks.js";
-import type { PageFilter } from "../query/visual/filters.js";
+import { markedBy, type PageFilter } from "../query/visual/filters.js";
 import type { PrintSource, PrintState } from "../query/visual/print.js";
 import { changeStoredValue, storedCodec, useStoredValue } from "../shared/stored-value.js";
 import { usePageFilters, usePageState, type PageKey } from "./page-filters.js";
@@ -52,6 +54,8 @@ const OWN_ESCAPE = "[role=dialog], [role=menu], [role=listbox], input, textarea,
 const NO_SELECTIONS: ReadonlyMap<string, readonly Clicked[]> = new Map();
 /** No selection: what a placement with none holds. */
 const NO_SELECTION: readonly Clicked[] = [];
+/** No groups marked: what a visual whose click made no filter holds. */
+const NO_MARKS: readonly JqNode[] = [];
 
 /**
  * A page's clicks.
@@ -146,8 +150,9 @@ export function usePageClicks(): PageClicks | undefined {
 
 /**
  * What a tile's clicks do (LNK-1), as its body's parts raise them: by its
- * visual's click, the clicked group becomes its placement's selection, joins
- * the page's filters, or opens a page.
+ * visual's click, the clicked group becomes its placement's selection, is the
+ * filter its click made on the page's filters (#1673), or opens a page; and
+ * which groups its parts mark — its selection, or what that filter holds.
  *
  * @param placement - The tile's placement's key; `undefined` for a tile outside a layout
  * @param visual - The visual
@@ -157,11 +162,14 @@ export function useTileClicks(placement: string | undefined, visual: Visual): Vi
     const clicks = usePageClicks();
     const filters = usePageFilters();
     const selection = (placement === undefined ? undefined : clicks?.selections.get(placement)) ?? NO_SELECTION;
+    // The groups the filter its click made holds: what a visual whose click filters marks, never narrowing to them (#1673).
+    const marks = useMemo(() => (visual.click.type !== "filter" || placement === undefined || filters === undefined ? NO_MARKS
+        : markedBy(filters.filters, visual.source, placement)), [visual.click.type, visual.source, placement, filters]);
     return useMemo((): VisualClicks => {
-        const selecting = visual.click.type === "select";
         const selected = (groups: readonly ClickedGroup[]) => {
-            const clicked = selecting ? clickedOf(groups) : undefined;
-            return clicked !== undefined && isSelected(selection, clicked);
+            const clicked = clickedOf(groups);
+            if (clicked === undefined) return false;
+            return visual.click.type === "select" ? isSelected(selection, clicked) : isMarked(marks, clicked);
         };
         const runs = clicks !== undefined && filters !== undefined && placement !== undefined && clicks.live
             && visual.click.type !== "none" && (visual.click.type !== "open" || clicks.open !== undefined);
@@ -171,7 +179,7 @@ export function useTileClicks(placement: string | undefined, visual: Visual): Vi
             onClick: (groups, add) => {
                 const clicked = clickedOf(groups);
                 if (clicked === undefined) return;
-                const done = clickDone(visual.click, visual.source, clicked, { selection, filters: filters.filters }, add);
+                const done = clickDone(visual.click, visual.source, clicked, { placement, selection, filters: filters.filters }, add);
                 if (done === undefined) return;
                 switch (done.type) {
                     case "select": clicks.select(placement, done.selection); break;
@@ -180,7 +188,7 @@ export function useTileClicks(placement: string | undefined, visual: Visual): Vi
                 }
             },
         };
-    }, [clicks, filters, placement, visual.click, visual.source, selection]);
+    }, [clicks, filters, placement, visual.click, visual.source, selection, marks]);
 }
 
 /**
@@ -198,16 +206,18 @@ export function useFollowing(visual: Visual): Following | undefined {
 
 /**
  * The page's state as a tile's visual reads it: the page's filters on its
- * source (`usePageState`), and — for a visual that follows another — its
- * field against what its leader has selected, one more condition every
- * program of it carries (LNK-4).
+ * source (`usePageState`) — all but the one its own click made, whose groups
+ * it marks (#1673) — and, for a visual that follows another, its field
+ * against what its leader has selected, one more condition every program of
+ * it carries (LNK-4).
  *
  * @param visual - The visual
  * @param read - Its source, as the printer reads it; `undefined` for one the surface does not list
+ * @param placement - Its placement's key; `undefined` outside a layout, where every filter on its source narrows it
  * @returns The state
  */
-export function useTileState(visual: Visual, read: PrintSource | undefined): PrintState {
-    const state = usePageState(visual.source, read);
+export function useTileState(visual: Visual, read: PrintSource | undefined, placement: string | undefined): PrintState {
+    const state = usePageState(visual.source, read, placement);
     const following = useFollowing(visual);
     // The condition by its value: a selection made elsewhere on the page leaves this visual's programs as they are.
     const held = useRef<JqNode | undefined>(undefined);

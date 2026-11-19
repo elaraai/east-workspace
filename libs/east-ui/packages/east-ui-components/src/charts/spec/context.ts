@@ -58,6 +58,23 @@ export interface ChartMark {
 export type ChartMarkHandler = (mark: ChartMark) => void;
 
 /**
+ * Whether a chart's host marks one of its marks (#1673): a click's selection,
+ * or the groups a filter its click made holds.
+ *
+ * @param mark - The mark: a bar, a point or a line's point, a legend row, a pie's slice or its legend row
+ * @returns `true` for a mark the host marks; `false` for one it leaves
+ *   unmarked; `undefined` for one that stands for no group — a legend row that
+ *   names a value — which is drawn as it is whatever is marked
+ */
+export type ChartMarkedTest = (mark: ChartMark) => boolean | undefined;
+
+/** How a chart draws a mark by what its host marks (`marking.ts`): `marked`, `dimmed` — in the muted mark — or as it is. */
+export type ChartMarkState = "marked" | "dimmed" | undefined;
+
+/** A chart's marking while its host marks any of its marks (`marking.ts`): how each mark is drawn. */
+export type ChartMarking = (mark: ChartMark) => ChartMarkState;
+
+/**
  * How a host prints a number a chart shows where room is short (#1671): a
  * measure axis's tick, a pie's values and its total. A chart given none
  * prints through its axis's declared format (`tick-format.ts`).
@@ -145,6 +162,8 @@ export interface ChartStyle {
     barRadius: number;
     /** Emphasis colour for annotation marks (reference dot / labels). */
     accent: string;
+    /** The muted mark (`--ink-5`): a mark its host leaves unmarked while it marks another (#1673). */
+    muted: string;
     /** Stacking tier for the hover tooltip's portal — the design system's `zIndex.tooltip`
      *  token (top of the overlay stack), so the tooltip sits above sticky chart-chrome
      *  (Plan / Table sticky headers), drawers, dialogs and popovers rather than under them. */
@@ -217,6 +236,8 @@ interface ScaleCtx {
     leftTicks: number[] | undefined;
     /** A horizontal frame's bottom axis's own tick values, which the grid's columns are drawn at; `undefined` leaves them to the scale. */
     bottomTicks: number[] | undefined;
+    /** How each mark is drawn by what the host marks (#1673); `undefined` while it marks none. */
+    marking: ChartMarking | undefined;
     style: ChartStyle;
 }
 export const ScaleContext = createContext<ScaleCtx | null>(null);

@@ -129,19 +129,20 @@ describe("Studio.visual — a visual's parts, each with its defaults (#1669)", (
         // A variant's cases are held in name order.
         assert.deepEqual(Object.keys(Studio.Types.Content.cases), ["component", "text", "visual"]);
         assert.deepEqual(Object.keys(Studio.Types.View.cases), ["chart", "kpi", "list", "table"]);
-        // A page's filter: a jq condition on one source's rows.
-        assert.deepEqual(Object.keys(Studio.Types.Filter.fields), ["source", "where"]);
+        // A page's filter: a jq condition on one source's rows, and the placement whose click made it.
+        assert.deepEqual(Object.keys(Studio.Types.Filter.fields), ["source", "where", "from"]);
         assert.deepEqual(Object.keys(Studio.Types.Chart.cases), ["area", "bar", "column", "combo", "line", "pie", "scatter"]);
         assert.deepEqual(Object.keys(Studio.Types.Table.cases), ["pivot", "records", "summary"]);
         assert.deepEqual(Object.keys(Studio.Types.Cell.fields), ["key", "row", "span", "height", "align", "title", "content"]);
     });
 });
 
-/** Contents the East tests read: a column and a line over the listed source, a KPI over one not listed, a listed and an unlisted component, a text block. */
+/** Contents the East tests read: a column and a line over the listed source, a KPI over one not listed, two listed components and an unlisted one, a text block. */
 const COLUMN = v.of("orders", v.column({ x: month, values: [revenue] }));
 const LINE = v.of("orders", v.line({ x: month, values: [revenue] }));
 const UNLISTED_KPI = v.of("stock", v.kpi({ value: revenue }));
 const RAIL = v.component("kpi_rail");
+const TREND = v.component("revenue_trend");
 const RETIRED = v.component("retired");
 const NOTE = v.text("A note");
 /** Each form's view, words and icon, in order. */
@@ -202,7 +203,7 @@ describeEast("A placement's content, in words (#1669)", (test) => {
         const frames = $.let(componentFrames([kpiRail, trend]));
         $(Assert.equal(frames, new Map([["kpi_rail", false], ["revenue_trend", true]])));
         $(Assert.equal(contentFramed(RAIL, frames), false));
-        $(Assert.equal(contentFramed(v.component("revenue_trend"), frames), true));
+        $(Assert.equal(contentFramed(TREND, frames), true));
         $(Assert.equal(contentFramed(RETIRED, frames), true));
         $(Assert.equal(contentFramed(LINE, frames), true));
         $(Assert.equal(contentFramed(NOTE, frames), false));
