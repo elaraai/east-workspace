@@ -25,6 +25,7 @@ import { getSomeorUndefined } from "../../utils";
 import { parseCssSize } from "../../style/parse-size.js";
 import { SnapGridEditor } from "./editor.js";
 import { LEAST_HEIGHT, frameHeight } from "./natural.js";
+import { SNAP_GRID_STACKED_BELOW } from "./model.js";
 import { useTileGrows } from "./tile-grows.js";
 
 const snapGridEqual = equivalentFor(SnapGrid.Types.Root);
@@ -131,8 +132,7 @@ function SnapGridView({ value, storageKey }: EastChakraSnapGridProps) {
 }
 
 /** Whether a page's cell stands on the stacked grid: its row's width under the recipe's first breakpoint. */
-const STACKED_BELOW = 480;
-const isStacked = (el: HTMLElement) => (el.parentElement?.clientWidth ?? Infinity) < STACKED_BELOW;
+const isStacked = (el: HTMLElement) => (el.parentElement?.clientWidth ?? Infinity) < SNAP_GRID_STACKED_BELOW;
 
 /** One cell of the grid: its spans and its height — a stretched one's the least it takes — a stacked one's giving way to what it holds. */
 function SnapGridCellBox<C extends SnapGridLayoutCell>({ cell, styles, wireframe, children }: { cell: C; styles: Record<string, SystemStyleObject>; wireframe: boolean; children: ReactNode }) {

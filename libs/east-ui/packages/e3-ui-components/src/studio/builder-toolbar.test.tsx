@@ -156,7 +156,7 @@ describe("<Studio.Builder> — the toolbar on a row short of room (#1229)", () =
         }
         await openMenu(viewChipOf(container)!);
         expect(menuItems(viewChipOf(container)!).map((el) => `${el.textContent}${el.getAttribute("aria-checked") === "true" ? " (checked)" : ""}`))
-            .toEqual(["Zoom out", "Zoom in", "Desktop (checked)", "Tablet"]);
+            .toEqual(["Zoom out", "Zoom in", "Desktop (checked)", "Tablet", "Mobile"]);
         await pick(viewChipOf(container)!, "Tablet");
         expect(container.querySelector<HTMLElement>("[data-snap-grid-canvas]")!.style.maxWidth).toBe("1024px");
     });

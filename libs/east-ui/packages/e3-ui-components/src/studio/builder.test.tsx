@@ -16,8 +16,8 @@
  * for a reload while it stands. The canvas (#995): the one toolbar and the
  * page's status (B8), the selection bar (B9), the grid panel (B10), a dropped
  * card's cell (B11), Save as one patch commit and a save another session's
- * overtakes (B12), the panes (B13), Preview, Publish, Desktop and Tablet
- * (B14). The inspector (#996): its pane and rail (B15), the selected placement
+ * overtakes (B12), the panes (B13), Preview, Publish, Desktop, Tablet and
+ * Mobile — the page laid out as a phone shows it (B14). The inspector (#996): its pane and rail (B15), the selected placement
  * (B16–B18), its layout edits (B20, B12) — the height select's chevron and
  * check Font Awesome's (#1263) — nothing selected (B21), and the palette
  * counting unsaved drafts.
@@ -237,7 +237,7 @@ describe("<Studio.Builder> — the page it shows (#1668)", () => {
 });
 
 describe("<Studio.Builder> — the canvas (#995)", () => {
-    test("B8: one toolbar — the page's status and the grid chip; the width readout, the zoom, the history item, Desktop · Tablet, Save as template, Preview and Publish", async () => {
+    test("B8: one toolbar — the page's status and the grid chip; the width readout, the zoom, the history item, Desktop · Tablet · Mobile, Save as template, Preview and Publish", async () => {
         const { container } = await mountBuilder();
         expect(toolbarItems(container)).toEqual(["status", "grid", "readout", "zoom", "rule", "history", "widths", "save-template", "preview", "publish"]);
         expect(item(container, "status").textContent).toBe("Draft");
@@ -245,7 +245,7 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
         expect(item(container, "readout").textContent).toBe("1440 px");
         expect(item(container, "zoom").textContent).toBe("100%");
         expect(within(item(container, "widths")).getAllByRole("button").map((b) => [b.textContent, b.getAttribute("aria-pressed")]))
-            .toEqual([["Desktop", "true"], ["Tablet", "false"]]);
+            .toEqual([["Desktop", "true"], ["Tablet", "false"], ["Mobile", "false"]]);
         expect(["save-template", "preview", "publish"].map((key) => item(container, key).textContent)).toEqual(["Save as template", "Preview", "Publish"]);
         // Headerless: nothing above the toolbar in the canvas's frame — the builder frame (#1125).
         const frame = container.querySelector("[data-snap-grid-editor]")!.firstElementChild!;
@@ -366,7 +366,7 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
         expect(body.querySelector("[data-snap-grid-main] [data-snap-grid-tile]")).not.toBeNull();
     });
 
-    test("B14: Preview and Publish open the publish preview in the canvas's place, the canvas kept as it was; Tablet draws the canvas at 1024px", async () => {
+    test("B14: Preview and Publish open the publish preview in the canvas's place, the canvas kept as it was; Tablet draws the canvas at 1024px, and Mobile at 390px, stacked as a phone shows the page", async () => {
         const { container } = await mountBuilder();
         const canvas = () => container.querySelector<HTMLElement>("[data-studio-canvas]")!;
         expect(container.querySelector("[data-studio-publish]")).toBeNull();
@@ -389,6 +389,11 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
         await settle();
         expect(width()).toBe("1024px");
         expect(item(container, "readout").textContent).toBe("1024 px");
+        await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Mobile" })); });
+        await settle();
+        const canvasEl = container.querySelector<HTMLElement>("[data-snap-grid-canvas]")!;
+        expect([width(), item(container, "readout").textContent, canvasEl.hasAttribute("data-stacked"), canvasEl.querySelector("[data-snap-grid-ruler]")])
+            .toEqual(["390px", "390 px", true, null]);
     });
 });
 

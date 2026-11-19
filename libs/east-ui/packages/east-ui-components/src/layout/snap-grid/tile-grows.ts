@@ -15,6 +15,9 @@
 
 import { useLayoutEffect, useRef, useState, type RefObject } from "react";
 
+/** For a tile that always stands stacked: a phone's canvas, and the canvas at a phone's design width. */
+export const ALWAYS_STACKED = (): boolean => true;
+
 /**
  * A stacked tile's height, given way to what it holds.
  *

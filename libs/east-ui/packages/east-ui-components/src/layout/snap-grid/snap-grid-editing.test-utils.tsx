@@ -107,7 +107,7 @@ export interface CanvasOptions {
     creates?: boolean;
     /**
      * The builder's frame (#995), default `false`: the view bound at
-     * {@link VIEW_KEY}, a 1440px design width with Desktop and Tablet, the
+     * {@link VIEW_KEY}, a 1440px design width with Desktop, Tablet and Mobile, the
      * host's toolbar items ("Draft" at the start, "Publish" at the end), its
      * panes ("Palette" and "Inspector"), and each tile's icon and meta.
      */
@@ -149,6 +149,7 @@ function compileCanvas(o: Resolved): () => ValueTypeOf<typeof UIComponentType> {
                 widths: [
                     { label: "Desktop", icon: "desktop", width: "1440px" },
                     { label: "Tablet", icon: "tablet-screen-button", width: "1024px" },
+                    { label: "Mobile", icon: "mobile-screen", width: "390px" },
                 ],
                 toolbar: { start: [Text.Root("Draft")], end: [Text.Root("Publish")] },
                 panes: { start: Text.Root("Palette"), end: Text.Root("Inspector") },

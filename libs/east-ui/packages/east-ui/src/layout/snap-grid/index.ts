@@ -408,8 +408,12 @@ export interface SnapGridConfig<R extends EastType> {
     canDrop?: SubtypeExprOrValue<FunctionType<[DragEventType], BooleanType>>;
     /**
      * The design widths the editing canvas's toolbar offers (#995) — a device
-     * each, such as Desktop and Tablet. The one the canvas draws at is
-     * pressed, and pressing another draws it at that width.
+     * each, such as Desktop, Tablet and Mobile. The one the canvas draws at is
+     * pressed, and pressing another draws it at that width. Under 480px — a
+     * phone's — the canvas lays the page out as a phone shows it: every tile
+     * the full width, stacked in reading order. A tile is selected and edited
+     * there, but neither dragged nor resized, and a card lands only between
+     * rows, a row of its own.
      */
     widths?: SnapGridWidthInput[];
     /**

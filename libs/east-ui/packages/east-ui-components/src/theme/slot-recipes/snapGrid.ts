@@ -44,7 +44,9 @@
  * selection bar over the grid panel. The toolbar's own items — the grid chip,
  * the saved time and the width readout — are the mock's toolbar markup; its
  * zoom is the shared `stepper` and its design widths the shared `seg` strip
- * (#996), each icon the strip's (`data-seg-icon`).
+ * (#996), each icon the strip's (`data-seg-icon`). At a phone's design width
+ * the canvas stands stacked (`data-stacked`): every tile the full width, in
+ * reading order, as the grid lays a page out under 480px.
  *
  * @packageDocumentation
  */
@@ -337,6 +339,8 @@ export const snapGridSlotRecipe = defineSlotRecipe({
             "&[data-dragging]": { cursor: "grabbing" },
             // Selected: a 1px `--ink` outline, 4px out (#1672, BLD-3).
             "&[data-selected]": { outlineWidth: "1px", outlineStyle: "solid", outlineColor: "fg", outlineOffset: "4px" },
+            // On a stacked canvas, as a phone shows the page: the full width, and nothing to drag.
+            "[data-stacked] &": { gridColumn: "1 / -1", cursor: "default" },
         },
         frame: {
             height: "100%",

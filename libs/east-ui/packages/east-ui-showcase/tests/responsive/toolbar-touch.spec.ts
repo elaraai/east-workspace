@@ -468,21 +468,24 @@ async function narrowUntil(entry: Locator, page: Page, selector: string): Promis
     await expect(target).toBeVisible();
 }
 
-/** The frame narrowed until the design widths fold to their icons: two segments of an icon each, edge to edge, which the edge check reaches. */
-const widthsToIcons: Gesture = {
+/**
+ * The frame narrowed until the design widths fold to their icons: the widths
+ * named, a segment of an icon each, edge to edge, which the edge check reaches.
+ */
+const widthsToIcons = (names: readonly string[]): Gesture => ({
     what: "the frame narrowed until the widths fold to their icons",
     run: async (entry, page) => {
         await narrowUntil(entry, page, "[data-toolbar-item='widths'][data-toolbar-form='1']");
         await expect.poll(() => inRow(entry, "[data-snap-grid-widths]").evaluate((strip) => {
             const segments = [...strip.querySelectorAll("button")];
-            const [a, b] = segments.map((s) => s.getBoundingClientRect());
+            const boxes = segments.map((s) => s.getBoundingClientRect());
             return {
                 icons: segments.map((s) => [s.getAttribute("aria-label"), s.textContent, s.querySelectorAll("svg").length]),
-                apart: Math.abs(Math.round((b!.left - a!.right) * 10) / 10),
+                apart: boxes.slice(1).map((b, i) => Math.abs(Math.round((b.left - boxes[i]!.right) * 10) / 10)),
             };
-        })).toEqual({ icons: [["Desktop", "", 1], ["Tablet", "", 1]], apart: 0 });
+        })).toEqual({ icons: names.map((name) => [name, "", 1]), apart: names.slice(1).map(() => 0) });
     },
-};
+});
 
 /** The Flowchart's lane headers' anchors (#1245): middle across the top in LR, start down the side in TD. */
 const laneAnchors = (entry: Locator) => entry.locator("[data-flowchart-lane]").evaluateAll((els) => els.map((el) => el.getAttribute("text-anchor")));
@@ -542,13 +545,13 @@ const CHIPS: ReadonlyArray<{ name: string; hash: string; chips: readonly string[
         name: "studioBuilder", hash: "e3/studio/studio/studioBuilder",
         chips: [],
         phone: [],
-        wide: [widthsToIcons],
+        wide: [widthsToIcons(["Desktop", "Tablet", "Mobile"])],
     },
     {
         name: "snapGridEditor", hash: "layout/snap-grid/snapGridEditor",
         chips: [],
         phone: [],
-        wide: [widthsToIcons],
+        wide: [widthsToIcons(["Desktop", "Tablet"])],
     },
     {
         name: "queryBuilder", hash: "e3/query/query/queryBuilder",

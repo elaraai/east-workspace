@@ -52,6 +52,14 @@
  * items and the history; a host adds the page's head and Add a component through
  * `phone`.
  *
+ * At a design width under a phone's 480 px — a host's Mobile — the canvas lays
+ * the page out as a phone shows it, as the page itself does there: every tile
+ * the full width, in reading order, its height given way to what it holds, and
+ * no column ruler. A tile is selected and edited there — its pane, its bar,
+ * up and down through the column — but its span and its place are the wider
+ * layout's, which a phone only stacks: nothing drags or resizes, and a card
+ * lands only between rows, a row of its own.
+ *
  * @packageDocumentation
  */
 
@@ -92,8 +100,9 @@ import { useIRCanDrop, type CanDropFn } from "../../dnd/ir-can-drop";
 import { followPointer } from "../../pointer/follow-pointer.js";
 import { useSnapGridEditing, type SnapGridDraftMark } from "./use-snap-grid-editing.js";
 import { useSnapGridWords, type SnapGridWords } from "./messages.js";
+import { ALWAYS_STACKED, useTileGrows } from "./tile-grows.js";
 import {
-    MAX_HEIGHT, MAX_TILES, SNAP_GRID_COLUMNS, dropAt, heightAt, heldSpan, joinStops, landingOf, neighbourOf, rowsOf, spanAt, startColumn,
+    MAX_HEIGHT, MAX_TILES, SNAP_GRID_COLUMNS, SNAP_GRID_STACKED_BELOW, dropAt, heightAt, heldSpan, joinStops, landingOf, neighbourOf, rowsOf, spanAt, startColumn,
     type SnapGridBox, type SnapGridDrop, type SnapGridRowModel, type SnapGridTile,
 } from "./model.js";
 import type { SnapGridEditorCell, SnapGridEditorValue } from "./index.js";
@@ -242,6 +251,8 @@ interface TileProps {
     movable: boolean;
     /** Its height is edited. */
     heights: boolean;
+    /** Laid out as a phone shows the page: the full width, its height given way to what it holds, and no handles. */
+    stacked: boolean;
     preview: ResizePreview | undefined;
     onSelect: (key: string) => void;
     onResizeStart: (e: ReactPointerEvent, key: string, kind: ResizeKind) => void;
@@ -270,8 +281,10 @@ const SnapGridTileBox = memo(function SnapGridTileBox(p: TileProps) {
     const span = p.preview?.span ?? tile.span;
     const height = p.preview !== undefined && p.preview.height !== undefined ? p.preview.height : tile.height;
     const style = { "--snap-grid-span": String(span) } as CSSProperties;
+    // Stacked, as a phone shows the page, its height gives way to what it holds, as the page's own tile does there.
+    const grows = useTileGrows<HTMLDivElement>(p.stacked ? height ?? undefined : undefined, ALWAYS_STACKED);
     // A stretched tile is as tall as its row: its height is the least it takes.
-    const held = frameHeight(height, cell.align.type === "stretch");
+    const held = frameHeight(p.stacked ? grows.height : height, cell.align.type === "stretch");
     const { onResizeStart, onRemove, onDuplicate, onEdit, onSelect } = p;
     return (
         <Box
@@ -292,25 +305,30 @@ const SnapGridTileBox = memo(function SnapGridTileBox(p: TileProps) {
             data-draggable={drag !== undefined ? "" : undefined}
             onClick={(e: ReactMouseEvent) => { e.stopPropagation(); onSelect(key); }}
         >
-            <Box css={styles.frame} style={held.style} data-frame={cell.frame ? "" : undefined} {...(held.least ? { [LEAST_HEIGHT]: "" } : {})}>
+            <Box ref={grows.ref} css={styles.frame} style={held.style} data-frame={cell.frame ? "" : undefined} {...(held.least ? { [LEAST_HEIGHT]: "" } : {})}>
                 {p.renderContent !== undefined ? p.renderContent(cell)
                     : cell.content !== undefined ? <EastChakraComponent value={cell.content} storageKey={`${p.storageKey}.${cell.key}`} />
                         : null}
             </Box>
             {p.selected && (
                 <>
-                    <Box as="span" css={styles.handle} data-handle="top-left" aria-hidden />
-                    <Box as="span" css={styles.handle} data-handle="top-right" aria-hidden />
-                    <Box as="span" css={styles.handle} data-handle="bottom-left" aria-hidden />
-                    {p.heights && (
-                        <Box as="span" css={styles.handle} data-handle="both" title={m.bothHandle()} aria-hidden
-                            onPointerDown={(e: ReactPointerEvent) => onResizeStart(e, key, "both")} />
-                    )}
-                    <Box as="span" css={styles.handle} data-handle="span" title={m.spanHandle()} aria-hidden
-                        onPointerDown={(e: ReactPointerEvent) => onResizeStart(e, key, "span")} />
-                    {p.heights && (
-                        <Box as="span" css={styles.handle} data-handle="height" title={m.heightHandle()} aria-hidden
-                            onPointerDown={(e: ReactPointerEvent) => onResizeStart(e, key, "height")} />
+                    {/* Its handles: stacked, as a phone shows the page, its span and height are the wider layout's, and it has none. */}
+                    {!p.stacked && (
+                        <>
+                            <Box as="span" css={styles.handle} data-handle="top-left" aria-hidden />
+                            <Box as="span" css={styles.handle} data-handle="top-right" aria-hidden />
+                            <Box as="span" css={styles.handle} data-handle="bottom-left" aria-hidden />
+                            {p.heights && (
+                                <Box as="span" css={styles.handle} data-handle="both" title={m.bothHandle()} aria-hidden
+                                    onPointerDown={(e: ReactPointerEvent) => onResizeStart(e, key, "both")} />
+                            )}
+                            <Box as="span" css={styles.handle} data-handle="span" title={m.spanHandle()} aria-hidden
+                                onPointerDown={(e: ReactPointerEvent) => onResizeStart(e, key, "span")} />
+                            {p.heights && (
+                                <Box as="span" css={styles.handle} data-handle="height" title={m.heightHandle()} aria-hidden
+                                    onPointerDown={(e: ReactPointerEvent) => onResizeStart(e, key, "height")} />
+                            )}
+                        </>
                     )}
                     {/* Its name and span over its top edge, and its toolbar at the other end (#1672, BLD-3); the tile's own name says both. */}
                     <Box as="span" css={styles.tileBadge} aria-hidden data-snap-grid-badge="">{m.tileBadge({ label: tile.label, span: words.number(span), of: words.number(SNAP_GRID_COLUMNS) })}</Box>
@@ -602,9 +620,13 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
     const surface = getSomeorUndefined(value.id) ?? `snap-grid${ownId}`;
     const canDropFn = useMemo(() => getSomeorUndefined(value.canDrop) as CanDropFn | undefined, [value.canDrop]);
     const irVeto = useIRCanDrop(canDropFn);
-    // A row holding its most tiles takes no other: the ⊘ stage. Then the host's word.
+    // Whether the canvas stands stacked, as a phone shows the page: this render's, for the drag layer's callbacks.
+    const stackedRef = useRef(false);
+    // A row holding its most tiles takes no other: the ⊘ stage. Stacked, a row's columns are the wider layout's, and a
+    // drop lands only between rows. Then the host's word.
     const veto = useCallback<DropVeto>((event) => {
         const into = event.type === "add" ? event.value.into : event.type === "move" ? event.value.to : undefined;
+        if (stackedRef.current && into !== undefined && into.row !== "") return false;
         if (into !== undefined && into.row !== "") {
             const moving = event.type === "move" && event.value.from.event.type === "some" ? event.value.from.event.value : undefined;
             const row = rowsRef.current.find((r) => r.key === into.row);
@@ -904,7 +926,7 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
                 return;
             case "ArrowLeft": case "ArrowRight": case "ArrowUp": case "ArrowDown": {
                 const arrow = e.key === "ArrowLeft" ? "left" : e.key === "ArrowRight" ? "right" : e.key === "ArrowUp" ? "up" : "down";
-                const next = tile === undefined ? tiles[0]?.key : neighbourOf(rows, tile.key, arrow);
+                const next = tile === undefined ? tiles[0]?.key : neighbourOf(rows, tile.key, arrow, stacked);
                 const to = next !== undefined ? tiles.find((x) => x.key === next) : undefined;
                 if (to === undefined) return;
                 e.preventDefault();
@@ -914,7 +936,8 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
                 return;
             }
             case "[": case "]": {
-                if (tile === undefined) return;
+                // Stacked, its span is the wider layout's: the keys leave it.
+                if (tile === undefined || stacked) return;
                 e.preventDefault();
                 const span = heldSpan(tiles, tile.key, tile.span + (e.key === "]" ? 1 : -1));
                 if (resize(tile.key, span)) announce(m.announceSpan({ label: tile.label, span: words.number(span) }));
@@ -993,10 +1016,13 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
     // The design width is the most the grid lays out at: a narrower column
     // lays it out at the column's width, a wider one centres it at its own.
     const canvasStyle: CSSProperties = { ...(width !== undefined ? { maxWidth: width, marginInline: "auto" } : {}), ...(zoom !== 1 ? { zoom } : {}) };
+    const widthPx = pxOf(width);
+    // A design width under a phone's lays the page out as a phone shows it (see the module docs).
+    const stacked = widthPx !== undefined && widthPx < SNAP_GRID_STACKED_BELOW;
+    stackedRef.current = stacked;
     const tabStop = selected ?? tiles[0]?.key;
 
     // ── The toolbar: the host's start items, the canvas's own, the history item, the host's end items ──
-    const widthPx = pxOf(width);
     const zoomControl = (
         <Box css={stepper.root} role="group" aria-label={m.zoomLabel()} data-snap-grid-zoom="">
             <chakra.button type="button" css={stepper.button} aria-label={m.zoomOut()} title={m.zoomOut()}
@@ -1168,8 +1194,9 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
                         )}
                     </Box>
                     <Box css={styles.viewport} onKeyDown={onKeyDown} onPointerDown={onPointerDown} onClick={onClick}>
-                        <Box css={styles.canvas} style={canvasStyle} role="group" aria-label={m.canvasLabel()} data-snap-grid-canvas="">
-                            {guides && (
+                        <Box css={styles.canvas} style={canvasStyle} role="group" aria-label={m.canvasLabel()} data-snap-grid-canvas=""
+                            data-stacked={stacked ? "" : undefined}>
+                            {guides && !stacked && (
                                 <Box css={styles.ruler} aria-hidden data-snap-grid-ruler="">
                                     {Array.from({ length: SNAP_GRID_COLUMNS }, (_, i) => (
                                         <Box key={i} css={styles.rulerMark} data-on={on !== undefined && i + 1 >= on.first && i + 1 <= on.last ? "" : undefined}>
@@ -1178,7 +1205,7 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
                                     ))}
                                 </Box>
                             )}
-                            {guides && (
+                            {guides && !stacked && (
                                 <Box css={styles.bands} aria-hidden data-snap-grid-bands="">
                                     {Array.from({ length: SNAP_GRID_COLUMNS }, (_, i) => <Box key={i} css={styles.band} />)}
                                 </Box>
@@ -1204,8 +1231,9 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
                                                     tabStop={tile.key === tabStop}
                                                     mark={marks.get(tile.key)}
                                                     conflict={session.conflicts.has(tile.id)}
-                                                    movable={available}
+                                                    movable={available && !stacked}
                                                     heights={heights}
+                                                    stacked={stacked}
                                                     preview={preview?.key === tile.key ? preview : undefined}
                                                     onSelect={select}
                                                     onResizeStart={onResizeStart}
