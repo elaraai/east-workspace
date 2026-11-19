@@ -163,9 +163,9 @@ export interface DataflowResult {
   /** Number of tasks skipped due to upstream failure */
   skipped: number;
   /** Number of tasks left waiting on an input they cannot read — an
-   *  unassigned one, or an index its record's state does not hold — and of
-   *  their dependents, which the run went on without: they run once it can be
-   *  read */
+   *  unassigned one, an index its record's state does not hold, or a composite
+   *  record that waits for an external source's first delivery — and of their
+   *  dependents, which the run went on without: they run once it can be read */
   waiting: number;
   /** Number of tasks re-executed due to input changes */
   reexecuted: number;

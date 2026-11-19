@@ -877,8 +877,10 @@ export const TaskExecutionResultType = StructType({
  * @property cached - Number of tasks that used cached results
  * @property failed - Number of tasks that failed
  * @property skipped - Number of tasks that were skipped
- * @property waiting - Number of tasks left waiting on an unassigned input,
- *   and of their dependents, which the run went on without
+ * @property waiting - Number of tasks left waiting on an input they cannot
+ *   read — an unassigned one, or a composite record that waits for an external
+ *   source's first delivery — and of their dependents, which the run went on
+ *   without
  * @property tasks - Per-task execution results
  * @property duration - Total execution time in seconds
  */
@@ -987,10 +989,11 @@ export const ApiExecutionStatusType = VariantType({
  * @property cached - Tasks served from the execution cache
  * @property failed - Tasks that failed
  * @property skipped - Tasks skipped because a task they depend on failed
- * @property waiting - Tasks left waiting on an unassigned input — one nothing
- *   has set, or a record whose first state is not yet committed — and their
- *   dependents, which the run went on without: they run once the input is
- *   assigned
+ * @property waiting - Tasks left waiting on an input they cannot read — one
+ *   nothing has set, a record whose first state is not yet committed, or a
+ *   composite record that waits for an external source's first delivery — and
+ *   their dependents, which the run went on without: they run once the input
+ *   is assigned, or the source has delivered
  * @property duration - Total execution time in milliseconds
  */
 export const DataflowExecutionSummaryType = StructType({
