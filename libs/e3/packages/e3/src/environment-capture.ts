@@ -31,12 +31,12 @@ import { StringType, compareFor, variant, none, encodeBeast2For } from '@elaraai
 import type { EnvironmentSpec } from '@elaraai/e3-types';
 import { EnvironmentSpecType } from '@elaraai/e3-types';
 import { validateEnvironmentDecl, type EnvironmentDecl } from './environment.js';
-import { canonicalPath, canonicalPythonName, discoverPythonRoot, findUvLock, localSource, pythonClosure, pythonRequires, requiredStart,
+import { canonicalPath, canonicalPythonName, discoverPythonRoot, findUvLock, ownPackage, pythonClosure, pythonRequires, requiredStart,
   type UvLock } from './environment-uv-lock.js';
 import { discoverNodeRoot, findNpmRoot, npmClosure } from './environment-npm-lock.js';
 
 export { canonicalPythonName, pythonInstalls, pythonLeftOut, pythonLockSettings, pythonMemberSources, pythonRequires, pythonWorkspaceMember, readRequiredDistribution,
-  type UvLock, type UvLockPackage } from './environment-uv-lock.js';
+  type PythonSync, type UvLock, type UvLockPackage } from './environment-uv-lock.js';
 export { nodeWorkspaceMember } from './environment-npm-lock.js';
 
 /**
@@ -146,7 +146,7 @@ function captureWorkspacePython(
   onEvent?: CaptureEventFn,
   built?: BuiltSdists,
 ): Uint8Array {
-  const requires = pythonRequires(root, lock, platforms, owner);
+  const requires = pythonRequires(lock, platforms, owner);
   // Walked as each is installed: with its extras
   const members = pythonClosure(lock, root, subjects, owner, requires.map(requiredStart));
   const pyproject = addBlob(readProjectFile(root, 'pyproject.toml', owner));
@@ -191,7 +191,7 @@ function capturePythonPlatforms(
       .map((name) => {
         const canon = canonicalPythonName(name);
         const pkg = (lock.package ?? []).find((p) => canonicalPythonName(p.name) === canon);
-        return pkg !== undefined && localSource(root, pkg.source) !== null ? pkg.name : null;
+        return pkg !== undefined && ownPackage(pkg) ? pkg.name : null;
       })
       .filter((n): n is string => n !== null),
   )];

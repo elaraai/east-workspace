@@ -90,9 +90,12 @@ launching machine), `no-rack-for-environment:<tier>` (no rack composes them),
 11, for another platform), `environment:build-failed` (the tool's message is
 in `e3 task logs`; a watch's next run builds it again). A task's tier is its runner's: an `east-py` task runs
 on `py-datascience` when its platforms name `east-py-datascience`, when the
-environment it declares installs that platform (`elaraai-east-py-datascience`),
-or when its rule says `--gpu`, and on `py` otherwise. Only `--gpu` asks for the
-rack's GPU, and it is refused for another runner (`gpu-not-east-py`).
+environment it declares installs that platform or torch, as its sync installs
+them (`elaraai-east-py-datascience`, `torch`), or when its rule says `--gpu`,
+and on `py` otherwise. Only `--gpu` asks for the rack's GPU, and it is refused
+for another runner (`gpu-not-east-py`). Work no rack of its tier takes runs
+here, at once, or under `--rack-only` once two minutes have passed
+(`no-rack-for-tier:<tier>`): it never falls back to `py`, which would send torch.
 
 The listener serves HTTPS with the hub's own self-signed certificate, made on
 first use and kept in `hub-tls.beast2`; a rack pins it by its SHA-256, which

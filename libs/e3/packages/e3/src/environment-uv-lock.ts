@@ -107,17 +107,34 @@ export function canonicalPythonName(name: string): string {
  *  root, and a directory one of them names. */
 const OWN_SOURCE_KINDS = ['editable', 'directory', 'virtual'] as const;
 
+/** The kind of source a lock holds one of a workspace's own packages from, or
+ *  null for any other package's source. */
+function ownSourceKind(source: Record<string, string> | undefined): (typeof OWN_SOURCE_KINDS)[number] | null {
+  return OWN_SOURCE_KINDS.find((kind) => typeof source?.[kind] === 'string') ?? null;
+}
+
+/**
+ * Whether a lock holds a package as one of its workspace's own: a member, the
+ * root, or a directory one of them names. An install takes every other
+ * package from an index, a repository, a URL or a local archive.
+ *
+ * @internal
+ * @param pkg - The package, as the lock holds it
+ * @returns Whether it is the workspace's own
+ */
+export function ownPackage(pkg: UvLockPackage): boolean {
+  return ownSourceKind(pkg.source) !== null;
+}
+
 /** The on-disk directory a lock `source` points at, with its kind — or null
  *  for registry/git/url sources (installed by uv sync, not captured), and for
  *  a local archive (`path`), which no environment takes.
  *  @internal */
 export function localSource(root: string, source: Record<string, string> | undefined):
   { dir: string; kind: 'editable' | 'directory' | 'virtual' } | null {
-  if (!source) return null;
-  for (const kind of OWN_SOURCE_KINDS) {
-    if (typeof source[kind] === 'string') return { dir: path.resolve(root, source[kind]!), kind };
-  }
-  return null;
+  const kind = ownSourceKind(source);
+  const dir = kind === null ? undefined : source?.[kind];
+  return kind === null || dir === undefined ? null : { dir: path.resolve(root, dir), kind };
 }
 
 /** The refusal of a package the lock holds as a local archive (`path`), which
@@ -146,10 +163,12 @@ export interface LockStart {
  * the optional groups of the extras the dependency that reached it asked for;
  * an extra another dependency asks for is walked when that one reaches it. So
  * an extra of a registry package that nothing asks for is never walked, nor
- * what only it names. A package `whole` says so of is walked through every
- * group it names, its development groups among them, whatever reached it: a
- * workspace's own package, whose walk may over-reach, since over-capture only
- * over-invalidates.
+ * what only it names. A package `groups` names development groups of is
+ * walked through those too, as a sync of a project that is its own root
+ * takes its packages' default groups. A package `whole` says so of is walked
+ * through every group it names, its development groups among them, whatever
+ * reached it: a workspace's own package, whose walk may over-reach, since
+ * over-capture only over-invalidates.
  *
  * A registry package's dependency may be a local package: the lock resolves a
  * name the workspace holds to the workspace's package.
@@ -159,13 +178,16 @@ export interface LockStart {
  * @param starts - The packages to start from, with their extras
  * @param whole - Whether a package is walked through every group it names;
  *   none is unless given
+ * @param groups - The development groups a package is walked through beside
+ *   what an install takes of it, by name, or `'all'` of them; none unless
+ *   given
  * @returns Each package reached, by its PEP 503 name, with its entries; none
  *   for a name the lock does not hold
  * @example
  * for (const { name, packages } of lockWalk(lock, [{ name: 'elaraai-east-py-datascience', extras: ['torch'] }])) needed.add(name);
  */
-export function* lockWalk(lock: UvLock, starts: Iterable<LockStart>, whole: (pkg: UvLockPackage) => boolean = () => false):
-  Generator<{ name: string; packages: UvLockPackage[] }> {
+export function* lockWalk(lock: UvLock, starts: Iterable<LockStart>, whole: (pkg: UvLockPackage) => boolean = () => false,
+  groups: (pkg: UvLockPackage) => readonly string[] | 'all' = () => []): Generator<{ name: string; packages: UvLockPackage[] }> {
   const byName = new Map<string, UvLockPackage[]>();
   for (const pkg of lock.package ?? []) {
     const name = canonicalPythonName(pkg.name);
@@ -186,12 +208,21 @@ export function* lockWalk(lock: UvLock, starts: Iterable<LockStart>, whole: (pkg
     const fresh = [...(walked.has(name) ? [] : ['']), ...(start.extras ?? []).filter((extra) => !walked.has(`${name}[${extra}]`))];
     for (const part of fresh) walked.add(part === '' ? name : `${name}[${part}]`);
     for (const pkg of packages) {
-      const edges = !whole(pkg) ? fresh.flatMap((part) => part === '' ? pkg.dependencies ?? [] : pkg['optional-dependencies']?.[part] ?? [])
-        : !fresh.includes('') ? []
-          : [...pkg.dependencies ?? [], ...Object.values(pkg['optional-dependencies'] ?? {}).flat(), ...Object.values(pkg['dev-dependencies'] ?? {}).flat()];
+      const edges = whole(pkg)
+        ? (fresh.includes('') ? [...pkg.dependencies ?? [], ...Object.values(pkg['optional-dependencies'] ?? {}).flat(), ...groupDependencies(pkg, 'all')] : [])
+        : [...fresh.flatMap((part) => part === '' ? pkg.dependencies ?? [] : pkg['optional-dependencies']?.[part] ?? []),
+          ...(fresh.includes('') ? groupDependencies(pkg, groups(pkg)) : [])];
       for (const edge of edges) queue.push({ name: edge.name, extras: edge.extra ?? [] });
     }
   }
+}
+
+/** What a package's development groups depend on: those named, by their
+ *  names as PEP 735 normalizes them, or all it has. */
+function groupDependencies(pkg: UvLockPackage, named: readonly string[] | 'all'): Array<{ name: string; extra?: string[] }> {
+  const groups = Object.entries(pkg['dev-dependencies'] ?? {});
+  const wanted = named === 'all' ? null : new Set(named.map(canonicalPythonName));
+  return groups.filter(([group]) => wanted === null || wanted.has(canonicalPythonName(group))).flatMap(([, dependencies]) => dependencies);
 }
 
 /**
@@ -264,8 +295,7 @@ export function pythonClosure(lock: UvLock, root: string, subjects: readonly str
   required: readonly LockStart[] = []): Array<{ name: string; dir: string }> {
   const build = new Map<string, string>();
   const own = new Set(subjects.map(canonicalPythonName));
-  const local = (pkg: UvLockPackage): boolean => localSource(root, pkg.source) !== null;
-  for (const { name, packages } of lockWalk(lock, [...subjects.map((subject) => ({ name: subject })), ...required], local)) {
+  for (const { name, packages } of lockWalk(lock, [...subjects.map((subject) => ({ name: subject })), ...required], ownPackage)) {
     if (packages.length === 0) {
       if (own.has(name)) throw new Error(`Environment for '${owner}': subject '${name}' not in uv.lock`);
       throw new Error(`Environment for '${owner}': uv.lock is inconsistent — depends on unknown '${name}'; run 'uv lock'`);
@@ -337,21 +367,20 @@ const PYTHON_RUNTIME_DISTRIBUTIONS = ['elaraai-east-py', 'elaraai-east-py-cli'];
  * own is: an install would otherwise take a registry's copy of it.
  *
  * @internal
- * @param root - The workspace root
- * @param lock - Its lock
+ * @param lock - The workspace's lock
  * @param platforms - The platform packages the runner names
  * @param owner - The declaring task or function, which a refusal names
  * @returns The distributions, by PEP 503 name and with their extras, sorted
  * @throws {Error} When the lock holds one of them as a local archive
  */
-export function pythonRequires(root: string, lock: UvLock, platforms: readonly string[], owner: string): string[] {
+export function pythonRequires(lock: UvLock, platforms: readonly string[], owner: string): string[] {
   const stock: readonly string[] = STOCK_PLATFORMS_BY_RUNNER.east_py;
   const wanted = new Set([...PYTHON_RUNTIME_DISTRIBUTIONS, ...platforms.filter((name) => stock.includes(name)).map((name) => `elaraai-${name}`)]
     .map(canonicalPythonName));
   // The extras the workspace's own packages declare each with
   const extras = new Map<string, Set<string>>();
   for (const pkg of lock.package ?? []) {
-    if (localSource(root, pkg.source) === null) continue;
+    if (!ownPackage(pkg)) continue;
     for (const dependency of pkg.dependencies ?? []) {
       const name = canonicalPythonName(dependency.name);
       if (!wanted.has(name)) continue;
@@ -363,7 +392,7 @@ export function pythonRequires(root: string, lock: UvLock, platforms: readonly s
   const held = (lock.package ?? []).filter((pkg) => wanted.has(canonicalPythonName(pkg.name)));
   for (const pkg of held) if (typeof pkg.source?.path === 'string') throw localArchiveRefused(owner, pkg.name);
   return held
-    .filter((pkg) => localSource(root, pkg.source) === null)
+    .filter((pkg) => !ownPackage(pkg))
     .map((pkg) => {
       const name = canonicalPythonName(pkg.name);
       const declared = [...(extras.get(name) ?? [])].sort(byCodePoint);
@@ -388,15 +417,12 @@ export function readRequiredDistribution(required: string): { name: string; extr
   return parts === null ? null : { name: parts[1]!, extras: parts[2]?.split(',') ?? [] };
 }
 
-/** The sources a lock installs a package from that are this machine's: what
- *  a sync told `--no-install-local` and `--no-install-workspace` installs
- *  nothing of. */
-const LOCAL_SOURCE_KINDS = [...OWN_SOURCE_KINDS, 'path'] as const;
-
 /** Whether a sync installs a package of a lock from an index, a repository or
- *  a URL: not from this machine. */
+ *  a URL: not from this machine, as the workspace's own packages and a local
+ *  archive are, which a sync told `--no-install-workspace` and
+ *  `--no-install-local` installs nothing of. */
 function installedFromElsewhere(pkg: UvLockPackage): boolean {
-  return !LOCAL_SOURCE_KINDS.some((kind) => typeof pkg.source?.[kind] === 'string');
+  return !ownPackage(pkg) && typeof pkg.source?.path !== 'string';
 }
 
 /**
@@ -438,39 +464,76 @@ export function pythonLeftOut(lockText: string, requires: readonly string[]): st
 }
 
 /**
- * The distributions a python environment installs from an index, a
- * repository or a URL: for a project that is its own root, whose sync takes
- * the whole lock, what its own packages reach; for members of a workspace,
- * what they and the distributions required beside them reach (#1654).
+ * How the sync of a python environment takes its lock: a project that is its
+ * own root (a `python` spec) takes every one of its packages with their
+ * default development groups (`uv sync --all-packages`), which its
+ * `pyproject.toml` says; members of a workspace (a `workspace_python` spec)
+ * take theirs alone (`--no-default-groups --package <member>`), and the
+ * distributions required beside them.
+ */
+export type PythonSync =
+  | { readonly kind: 'project'; readonly pyproject: string }
+  | { readonly kind: 'members'; readonly subjects: readonly string[]; readonly requires: readonly string[] };
+
+/**
+ * The development groups a sync of a project installs unless told otherwise:
+ * those its `[tool.uv] default-groups` names, or all of them for `"all"`, or
+ * uv's own default, `dev`. No lock records them.
+ *
+ * @throws {Error} When the setting is neither `"all"` nor a list of names
+ */
+function defaultGroups(pyprojectText: string): readonly string[] | 'all' {
+  const project = parseToml(pyprojectText) as { tool?: { uv?: { 'default-groups'?: unknown } } };
+  const groups = project.tool?.uv?.['default-groups'];
+  if (groups === undefined) return ['dev'];
+  if (groups === 'all') return 'all';
+  if (Array.isArray(groups) && groups.every((group): group is string => typeof group === 'string')) return groups;
+  throw new Error('the project\'s [tool.uv] default-groups is neither "all" nor a list of group names');
+}
+
+/**
+ * The distributions a python environment installs, by PEP 503 name: what its
+ * sync takes of its lock ({@link PythonSync}), and the workspace's own
+ * packages it builds from their sdists (#1654).
  *
  * @remarks
- * Read as the environment's capture walks the lock ({@link lockWalk}): a
- * workspace's own package through every group it names. So it may name a
- * distribution a sync leaves out, one only a development group or an extra
- * nothing asks for reaches, and never misses one a sync installs. What it
- * names decides where the environment's work runs: on a rack, an `east-py`
- * task whose environment installs `elaraai-east-py-datascience` runs over the
- * image that holds it.
+ * A package is taken as an install takes it ({@link lockWalk}): through its
+ * dependencies and the extras asked of it, so no extra nothing asks for, a
+ * workspace's own extras among them. No development group is installed for
+ * members, and a project that is its own root installs its packages' default
+ * groups. A name counts whatever the source an install takes it from: an
+ * index, a repository, a URL, or the workspace, a local checkout of a
+ * registry's package among them. A virtual package installs nothing of its
+ * own.
  *
- * @internal
+ * What it names decides where the environment's work runs: on a rack, an
+ * `east-py` task whose environment installs what only the datascience image
+ * holds runs over that image.
+ *
  * @param lockText - The lock, as `uv.lock` holds it
- * @param subjects - The members the environment is of, by the lock's names;
- *   `'all'` for a project that is its own root
- * @param requires - The distributions required beside the members, each a
+ * @param sync - How the environment's sync takes it: a project's with its
+ *   `pyproject.toml`, or members' with what is required beside them, each a
  *   name or a name with its extras, as {@link pythonRequires} names them
- * @returns The names, by PEP 503, sorted
- * @throws {Error} When the lock is not of the version this reads, or a
- *   required distribution is not a name with or without extras
+ * @returns The names, sorted
+ * @throws {Error} When the lock is not of the version this reads, a required
+ *   distribution is not a name with or without extras, or a project's
+ *   default groups are neither `"all"` nor a list of names
  * @example
- * pythonInstalls(await readFile('uv.lock', 'utf8'), ['trainer'], ['elaraai-east-py']).includes('elaraai-east-py-datascience');
+ * pythonInstalls(lockText, { kind: 'members', subjects: ['trainer'], requires: ['elaraai-east-py'] }).includes('torch');
  */
-export function pythonInstalls(lockText: string, subjects: readonly string[] | 'all', requires: readonly string[] = []): string[] {
+export function pythonInstalls(lockText: string, sync: PythonSync): string[] {
   const lock = readUvLock(lockText);
-  const own = (pkg: UvLockPackage): boolean => OWN_SOURCE_KINDS.some((kind) => typeof pkg.source?.[kind] === 'string');
-  const starts = subjects === 'all' ? (lock.package ?? []).filter(own).map((pkg) => ({ name: pkg.name })) : subjects.map((name) => ({ name }));
+  let walk: Iterable<{ name: string; packages: UvLockPackage[] }>;
+  if (sync.kind === 'members') {
+    walk = lockWalk(lock, [...sync.subjects.map((name) => ({ name })), ...sync.requires.map(requiredStart)]);
+  } else {
+    const groups = defaultGroups(sync.pyproject);
+    walk = lockWalk(lock, (lock.package ?? []).filter(ownPackage).map((pkg) => ({ name: pkg.name })), () => false,
+      (pkg) => ownPackage(pkg) ? groups : []);
+  }
   const installed = new Set<string>();
-  for (const { name, packages } of lockWalk(lock, [...starts, ...requires.map(requiredStart)], own)) {
-    if (packages.some(installedFromElsewhere)) installed.add(name);
+  for (const { name, packages } of walk) {
+    if (packages.some((pkg) => typeof pkg.source?.virtual !== 'string')) installed.add(name);
   }
   return [...installed].sort(byCodePoint);
 }
@@ -572,10 +635,10 @@ export function pythonMemberSources(name: string, anchorDir: string, owner: stri
   const { root, lock } = found;
   const canon = canonicalPythonName(name);
   const subject = (lock.package ?? []).find((p) => canonicalPythonName(p.name) === canon);
-  if (subject === undefined || localSource(root, subject.source) === null) return null;
+  if (subject === undefined || !ownPackage(subject)) return null;
   // Through registry packages too: one may depend on a local package
   const dirs = new Set<string>();
-  for (const { packages } of lockWalk(lock, [{ name: subject.name }], (pkg) => localSource(root, pkg.source) !== null)) {
+  for (const { packages } of lockWalk(lock, [{ name: subject.name }], ownPackage)) {
     for (const pkg of packages) {
       const local = localSource(root, pkg.source);
       if (local !== null) dirs.add(local.dir);

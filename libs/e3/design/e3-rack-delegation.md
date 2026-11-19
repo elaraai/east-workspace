@@ -227,16 +227,23 @@ also enforce health, approval and the lease's bundled-e3 version floor.
 
 A task's tier is its runner's (`east-node` → `node`, `east-c` → `c`,
 `east-py` → `py`), `py-datascience` when its platforms name
-`east-py-datascience` or the environment it declares installs that platform's
-distribution, and `py-datascience` when its rule asks for a GPU, the tier a
-rack gives its GPU to. What an environment installs is read from its lock as
-its build installs it (`@elaraai/e3`'s `pythonInstalls`): a project platform
-package that asks for `elaraai-east-py-datascience[torch]` puts its task over
-the image that holds the platform and torch, so an environment built over it
-leaves them to the image, whatever platforms the runner names. Such work takes
-a GPU only when its rule asks for one (its lease's `resources.gpu`). Only an
-`east-py` task may ask for one (`gpu-not-east-py` otherwise); with no GPU on
-any rack the task runs locally (`no-rack-holds:gpu`).
+`east-py-datascience` or the environment it declares installs that platform or
+torch, which that image alone holds, and `py-datascience` when its rule asks
+for a GPU, the tier a rack gives its GPU to (`rackTierFor`, which takes what
+the environment installs). What an environment installs is read from its lock
+as its sync takes it (`@elaraai/e3`'s `pythonInstalls`): a member's
+dependencies and what is required beside it, or a project's own packages with
+their default groups, which its `pyproject.toml` says, and no extra nothing
+asks for. It is read only for work the slim image would otherwise take, once
+for each environment in a run. So a project platform package that asks for
+`elaraai-east-py-datascience[torch]` puts its task over the image that holds
+the platform and torch, and an environment built over it leaves them to the
+image, whatever platforms the runner names. Such work takes a GPU only when
+its rule asks for one (its lease's `resources.gpu`). It never falls back to
+`py`, which would send torch with the environment: work no rack of its tier
+takes runs here (`no-rack-for-tier:py-datascience`). Only an `east-py` task
+may ask for a GPU (`gpu-not-east-py` otherwise); with no GPU on any rack the
+task runs locally (`no-rack-holds:gpu`).
 
 ## Environments
 

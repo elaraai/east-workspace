@@ -137,12 +137,12 @@ describe('python closure capture (#278)', () => {
       { name: 'elaraai-east-py-io', source: { editable: 'vendor/io' } },
       { name: 'six', source: registry },
     ] };
-    assert.deepStrictEqual(pythonRequires('/ws', lock, ['east-py-std'], 'test'),
+    assert.deepStrictEqual(pythonRequires(lock, ['east-py-std'], 'test'),
       ['elaraai-east-py', 'elaraai-east-py-cli', 'elaraai-east-py-std'], 'not the datascience package its runner does not name');
-    assert.deepStrictEqual(pythonRequires('/ws', lock, ['east-py-datascience', 'east-py-io', 'east-py-std', 'six'], 'test'),
+    assert.deepStrictEqual(pythonRequires(lock, ['east-py-datascience', 'east-py-io', 'east-py-std', 'six'], 'test'),
       ['elaraai-east-py', 'elaraai-east-py-cli', 'elaraai-east-py-datascience', 'elaraai-east-py-std'], 'a stock package alone, and none held locally');
-    assert.deepStrictEqual(pythonRequires('/ws', lock, [], 'test'), ['elaraai-east-py', 'elaraai-east-py-cli'], 'the runtime, whatever the runner names');
-    assert.deepStrictEqual(pythonRequires('/ws', { version: 1, package: [{ name: 'six', source: registry }] }, ['east-py-std'], 'test'), [],
+    assert.deepStrictEqual(pythonRequires(lock, [], 'test'), ['elaraai-east-py', 'elaraai-east-py-cli'], 'the runtime, whatever the runner names');
+    assert.deepStrictEqual(pythonRequires({ version: 1, package: [{ name: 'six', source: registry }] }, ['east-py-std'], 'test'), [],
       'a lock that holds none of them requires none: they come from where the task runs');
 
     // With the extras the workspace declares each with, on its root or a
@@ -156,16 +156,16 @@ describe('python closure capture (#278)', () => {
       // A registry package's own extras are its own: no declaration of the workspace's
       { name: 'some-plugin', source: registry, dependencies: [{ name: 'elaraai-east-py-std', extra: ['theirs'] }] },
     ] };
-    assert.deepStrictEqual(pythonRequires('/ws', declared, ['east-py-datascience', 'east-py-std'], 'test'),
+    assert.deepStrictEqual(pythonRequires(declared, ['east-py-datascience', 'east-py-std'], 'test'),
       ['elaraai-east-py', 'elaraai-east-py-cli', 'elaraai-east-py-datascience[lightning,torch]', 'elaraai-east-py-std']);
-    assert.deepStrictEqual(pythonRequires('/ws', declared, ['east-py-std'], 'test'), ['elaraai-east-py', 'elaraai-east-py-cli', 'elaraai-east-py-std'],
+    assert.deepStrictEqual(pythonRequires(declared, ['east-py-std'], 'test'), ['elaraai-east-py', 'elaraai-east-py-cli', 'elaraai-east-py-std'],
       'only of what the runner names');
 
     // One the lock holds as a local archive is refused, as a member's own is:
     // an install would otherwise take a registry's copy of it
     const archived: UvLock = { version: 1, package: [{ name: 'elaraai-east-py', source: { path: 'wheels/elaraai_east_py-1.0.0-py3-none-any.whl' } },
       { name: 'elaraai-east-py-cli', source: registry }] };
-    assert.throws(() => pythonRequires('/ws', archived, [], 'score'),
+    assert.throws(() => pythonRequires(archived, [], 'score'),
       /Environment for 'score': local archive dependency 'elaraai-east-py' is not supported/);
     assert.strictEqual(canonicalPythonName('Elaraai_East.Py--Std'), 'elaraai-east-py-std');
   });
@@ -215,44 +215,81 @@ describe('python closure capture (#278)', () => {
     assert.throws(() => pythonLeftOut('version = 2\n', []), /unsupported uv\.lock version 2/);
   });
 
-  it('names what a python environment installs from a registry: what a member reaches and what is required beside it, or what the whole lock of a project that is its own root reaches', () => {
+  it('names what a python environment installs as its sync takes the lock: a member\'s dependencies and what is required beside it, or a project\'s own packages with their default groups, and never an extra nothing asks for', () => {
     const registry = 'source = { registry = "https://pypi.org/simple" }';
     const lock = [
       'version = 1',
       'requires-python = ">=3.12"',
       '',
+      // A virtual root, with an extra of its own, uv's default group and another group
       '[[package]]', 'name = "ws-root"', 'version = "0.1.0"', 'source = { virtual = "." }',
       'dependencies = [{ name = "pandas" }]',
-      '[package.dev-dependencies]', 'dev = [{ name = "pytest" }]',
+      '[package.optional-dependencies]', 'gpu = [{ name = "cupy" }]',
+      '[package.dev-dependencies]', 'dev = [{ name = "pytest" }]', 'docs = [{ name = "sphinx" }]',
       '',
-      // A member that asks for the datascience platform with its torch extra, by another spelling of its name, and one that does not
+      // A member that asks for the datascience platform with its torch extra, by another spelling of its name
       '[[package]]', 'name = "trainer"', 'version = "0.1.0"', 'source = { editable = "packages/trainer" }',
       'dependencies = [{ name = "Elaraai_East_Py_Datascience", extra = ["torch"] }]',
       '',
+      // Members that name it only where a member's sync takes nothing: its development
+      // group, an extra of its own nothing asks for, and a local dependency's group
       '[[package]]', 'name = "scorer"', 'version = "0.1.0"', 'source = { editable = "packages/scorer" }',
       'dependencies = [{ name = "pandas" }]',
+      '[package.dev-dependencies]', 'dev = [{ name = "elaraai-east-py-datascience" }]',
+      '',
+      '[[package]]', 'name = "pricer"', 'version = "0.1.0"', 'source = { editable = "packages/pricer" }',
+      'dependencies = [{ name = "pandas" }]',
+      '[package.optional-dependencies]', 'ml = [{ name = "elaraai-east-py-datascience", extra = ["lightning"] }]',
+      '',
+      '[[package]]', 'name = "planner"', 'version = "0.1.0"', 'source = { editable = "packages/planner" }',
+      'dependencies = [{ name = "common" }]',
+      '',
+      '[[package]]', 'name = "common"', 'version = "0.1.0"', 'source = { editable = "packages/common" }',
+      'dependencies = [{ name = "numpy" }]',
+      '[package.dev-dependencies]', 'dev = [{ name = "elaraai-east-py-datascience" }]',
       '',
       '[[package]]', 'name = "elaraai-east-py-datascience"', 'version = "1.0.110"', registry,
       'dependencies = [{ name = "numpy" }]',
-      '[package.optional-dependencies]', 'torch = [{ name = "torch" }]',
+      '[package.optional-dependencies]', 'torch = [{ name = "torch" }]', 'lightning = [{ name = "pytorch-lightning" }]',
       '',
       '[[package]]', 'name = "torch"', 'version = "2.15.0"', registry, 'dependencies = [{ name = "nvidia-nccl-cu13" }]',
       '[[package]]', 'name = "nvidia-nccl-cu13"', 'version = "2.30.7"', registry,
+      '[[package]]', 'name = "pytorch-lightning"', 'version = "2.6.6"', registry,
       '[[package]]', 'name = "pandas"', 'version = "2.3.0"', registry, 'dependencies = [{ name = "numpy" }]',
       '[[package]]', 'name = "numpy"', 'version = "2.3.5"', registry,
+      '[[package]]', 'name = "cupy"', 'version = "13.0.0"', registry,
       '[[package]]', 'name = "pytest"', 'version = "8.0.0"', registry,
+      '[[package]]', 'name = "sphinx"', 'version = "8.0.0"', registry,
       '[[package]]', 'name = "elaraai-east-py"', 'version = "1.0.110"', registry,
       '',
     ].join('\n');
-    assert.deepStrictEqual(pythonInstalls(lock, ['trainer']), ['elaraai-east-py-datascience', 'numpy', 'nvidia-nccl-cu13', 'torch'],
-      'the platform it asks for, by its PEP 503 name, with the extra it asks of it and what that depends on');
-    assert.deepStrictEqual(pythonInstalls(lock, ['scorer']), ['numpy', 'pandas'], 'nothing of the root\'s or another member\'s');
-    assert.deepStrictEqual(pythonInstalls(lock, ['scorer'], ['elaraai-east-py', 'elaraai-east-py-datascience']),
-      ['elaraai-east-py', 'elaraai-east-py-datascience', 'numpy', 'pandas'], 'what is required beside it, with no extra nothing asks for');
-    assert.deepStrictEqual(pythonInstalls(lock, 'all'), ['elaraai-east-py-datascience', 'numpy', 'nvidia-nccl-cu13', 'pandas', 'pytest', 'torch'],
-      'a project that is its own root: what each of its own packages reaches, its development group among it');
-    assert.throws(() => pythonInstalls(lock, ['scorer'], ['numpy[x']), /'numpy\[x' is not a package's name/);
-    assert.throws(() => pythonInstalls('version = 2\n', 'all'), /unsupported uv\.lock version 2/);
+    const members = (subjects: string[], requires: string[] = []) => pythonInstalls(lock, { kind: 'members', subjects, requires });
+    assert.deepStrictEqual(members(['trainer']), ['elaraai-east-py-datascience', 'numpy', 'nvidia-nccl-cu13', 'torch', 'trainer'],
+      'the member, and the platform it asks for, by its PEP 503 name, with the extra it asks of it and what that depends on');
+    assert.deepStrictEqual(members(['scorer']), ['numpy', 'pandas', 'scorer'], 'nothing of its development group, nor of the root\'s or another member\'s');
+    assert.deepStrictEqual(members(['pricer']), ['numpy', 'pandas', 'pricer'], 'no extra of its own that nothing asks for');
+    assert.deepStrictEqual(members(['planner']), ['common', 'numpy', 'planner'], 'the local package it depends on, and nothing of that one\'s development group');
+    assert.deepStrictEqual(members(['scorer'], ['elaraai-east-py', 'elaraai-east-py-datascience']),
+      ['elaraai-east-py', 'elaraai-east-py-datascience', 'numpy', 'pandas', 'scorer'], 'what is required beside it, with no extra nothing asks for');
+
+    // A project that is its own root: every one of its packages, with their default
+    // groups, which its pyproject says and no lock records; no extra of its own
+    const project = (pyproject: string) => pythonInstalls(lock, { kind: 'project', pyproject });
+    assert.deepStrictEqual(project('[project]\nname = "ws-root"\n'),
+      ['common', 'elaraai-east-py-datascience', 'numpy', 'nvidia-nccl-cu13', 'pandas', 'planner', 'pricer', 'pytest', 'scorer', 'torch', 'trainer'],
+      'uv\'s default group, dev, and not docs');
+    assert.deepStrictEqual(project('[tool.uv]\ndefault-groups = ["dev", "Docs"]\n'),
+      ['common', 'elaraai-east-py-datascience', 'numpy', 'nvidia-nccl-cu13', 'pandas', 'planner', 'pricer', 'pytest', 'scorer', 'sphinx', 'torch', 'trainer'],
+      'the groups it names, by their normalized names');
+    assert.deepStrictEqual(project('[tool.uv]\ndefault-groups = "all"\n'),
+      ['common', 'elaraai-east-py-datascience', 'numpy', 'nvidia-nccl-cu13', 'pandas', 'planner', 'pricer', 'pytest', 'scorer', 'sphinx', 'torch', 'trainer'],
+      'every group');
+    assert.deepStrictEqual(project('[tool.uv]\ndefault-groups = []\n'),
+      ['common', 'elaraai-east-py-datascience', 'numpy', 'nvidia-nccl-cu13', 'pandas', 'planner', 'pricer', 'scorer', 'torch', 'trainer'], 'none');
+    assert.throws(() => project('[tool.uv]\ndefault-groups = 3\n'), /default-groups is neither "all" nor a list of group names/);
+
+    assert.throws(() => members(['scorer'], ['numpy[x']), /'numpy\[x' is not a package's name/);
+    assert.throws(() => pythonInstalls('version = 2\n', { kind: 'project', pyproject: '' }), /unsupported uv\.lock version 2/);
   });
 
   it('reads the settings a lock was resolved under that resolve a distribution otherwise than its dependents ask: what its workspace overrides, and what it excludes', () => {

@@ -160,7 +160,8 @@ export { tasksTree } from './task.js';
 
 // Utility exports
 export { type EnvironmentDecl, validateEnvironmentDecl } from './environment.js';
-export { captureEnvironment, canonicalPythonName, pythonInstalls, pythonLeftOut, pythonLockSettings, readRequiredDistribution, type BuiltSdists } from './environment-capture.js';
+export { captureEnvironment, canonicalPythonName, pythonInstalls, pythonLeftOut, pythonLockSettings, readRequiredDistribution, type BuiltSdists,
+  type PythonSync } from './environment-capture.js';
 export { sha256File, sha256Bytes, hashToPath } from './sha256.js';
 export {
   readDatasetFileHeader,
