@@ -125,6 +125,18 @@ export function binary(left: JqNode, op: string, right: JqNode): JqNode {
 }
 
 /**
+ * `if condition then then else otherwise end`
+ *
+ * @param condition - what it tests
+ * @param then - its output where the test holds
+ * @param otherwise - its output where it does not
+ * @returns the node
+ */
+export function ifElse(condition: JqNode, then: JqNode, otherwise: JqNode): JqNode {
+    return variant("if", { branches: [{ condition, then }], otherwise: some(otherwise) });
+}
+
+/**
  * Operands joined by one operator, as the parser nests them: `(a and b) and c`.
  *
  * @param operands - the operands, one or more
@@ -335,6 +347,18 @@ export function readStepValue(node: JqNode): StepValue | undefined {
         case "boolean": return variant("boolean", literal.value);
         case "null": return variant("null", null);
     }
+}
+
+/**
+ * An `if … then … else … end` of one test, as {@link ifElse} builds it.
+ *
+ * @param node - the node
+ * @returns its test, its output where the test holds and its output where it does not; `undefined` when the node is no such `if`
+ */
+export function readIfElse(node: JqNode): { condition: JqNode; then: JqNode; otherwise: JqNode } | undefined {
+    if (node.type !== "if" || node.value.branches.length !== 1 || node.value.otherwise.type !== "some") return undefined;
+    const branch = node.value.branches[0]!;
+    return { condition: branch.condition, then: branch.then, otherwise: node.value.otherwise.value };
 }
 
 /**

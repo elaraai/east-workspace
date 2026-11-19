@@ -39,9 +39,9 @@ import {
     activeItem, quickAddOptions, slotEmpty, slotHint, slotItems, slotLabel, slotPlaceholder,
     type SavedOffer, type SlotItem, type StepOption,
 } from "./model/slots.js";
-import { summaryAt, summaryNeeded, withMinute, type SummaryCache } from "./model/summaries.js";
+import { summaryAt, summaryHashes, summaryNeeded, type SummaryCache } from "./model/summaries.js";
 import { fieldLabels, shapeWords, type QueryWords } from "./model/words.js";
-import { NOW_FIELD, type QueryRoot } from "./one-shot.js";
+import type { QueryRoot } from "./one-shot.js";
 import { slotKey } from "./parts.js";
 import { entriesQuery, queryEntries, queryProgram, type QueryEntry, type QueryHeader } from "./session.js";
 import type { CardActions } from "./step-card.js";
@@ -458,8 +458,7 @@ export function useQueryEditor(options: QueryEditorOptions): QueryEditor {
     const request = useMemo(() => (openRef === undefined || openStep < 0 || !summaryNeeded(openRef.kind) || isJq ? undefined
         : summaryAt(query, openStep, root.type)), [openRef, openStep, query, root, isJq]);
     // Rows narrowed by "is in the last" are the minute's (#1670): a slot opened in a later minute fetches them again.
-    const asked = useMemo(() => (request?.reads.includes(NOW_FIELD) === true ? withMinute(summaries.hashes, new Date()) : summaries.hashes),
-        [request, summaries.hashes]);
+    const asked = useMemo(() => (request === undefined ? summaries.hashes : summaryHashes(request, summaries.hashes)), [request, summaries.hashes]);
     const { cache } = summaries;
     const [arrived, setArrived] = useState(0);
     useEffect(() => {

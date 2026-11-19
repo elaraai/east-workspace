@@ -230,7 +230,9 @@ export type RunState =
     }
     /**
      * A run answered — a result, or the checker's, the runner's or e3's
-     * refusal — how it read its data; how many pieces it cut, once e3 says —
+     * refusal — how it read its data, and what its answer was read by: the
+     * call that ran, as the checker typed it, none where nothing ran — the
+     * call that answered, for a re-keyed join; how many pieces it cut, once e3 says —
      * its report, or for a host's split call that reports none, its explain,
      * after the answer (#1132); and how its split call ran, as e3 reports it,
      * for a call that gave its output: the units it ran and the cache served
@@ -239,7 +241,8 @@ export type RunState =
     | {
         readonly status: "done"; readonly n: number; readonly plan: RunPlan; readonly result: QueryResult;
         readonly output: RunOutput | undefined; readonly at: Date; readonly ms: number;
-        readonly planned: QueryPlan | undefined; readonly pieces: number | undefined; readonly report: SplitCallReport | undefined;
+        readonly planned: QueryPlan | undefined; readonly reading: QueryReading | undefined;
+        readonly pieces: number | undefined; readonly report: SplitCallReport | undefined;
     }
     /** A call that never answered: unreachable, or refused by the server — and how it was to read its data. */
     | {
@@ -354,7 +357,7 @@ export function useQueryRun(
             return;
         }
         if ("result" in drafted) {
-            ended({ status: "done", n, plan, result: drafted.result, output: undefined, at: new Date(), ms: 0, planned: undefined, pieces: undefined, report: undefined });
+            ended({ status: "done", n, plan, result: drafted.result, output: undefined, at: new Date(), ms: 0, planned: undefined, reading: undefined, pieces: undefined, report: undefined });
             return;
         }
         const draft = drafted.draft;
@@ -376,7 +379,7 @@ export function useQueryRun(
                 failed("refused", messageOf(err), planned);
                 return false;
             }
-            ended({ status: "done", n, plan, result, output, at: new Date(), ms: performance.now() - started, planned, pieces, report });
+            ended({ status: "done", n, plan, result, output, at: new Date(), ms: performance.now() - started, planned, reading, pieces, report });
             if (onRan !== undefined) queueMicrotask(() => onRan(result, plan));
             return true;
         };
@@ -410,7 +413,7 @@ export function useQueryRun(
                 case "abandoned":
                     return;
                 case "refused":
-                    ended({ status: "done", n, plan, result: ran.result, output: undefined, at: new Date(), ms: 0, planned: undefined, pieces: undefined, report: undefined });
+                    ended({ status: "done", n, plan, result: ran.result, output: undefined, at: new Date(), ms: 0, planned: undefined, reading: undefined, pieces: undefined, report: undefined });
                     return;
                 case "failed":
                     failed(ran.reason, ran.message, ran.planned);

@@ -8,7 +8,8 @@
  * query with no query code on the server. The query is checked once against
  * the whole root its data sources make, translated to East IR here, and run
  * as a function, as one-shot runs any caller's IR (#1031), with one dataset
- * argument per data source it reads (`devdocs/QUERY.md` §17). The call is
+ * argument per data source it reads (`devdocs/QUERY.md` §17), and the minute
+ * it is asked as a value beside them where it reads `.now` (#1670). The call is
  * platform-free — east-c given no platform package, and a body that calls no
  * platform function — so a caller who may read the workspace may run it.
  *
@@ -237,7 +238,8 @@ export function programChecks(checked: CheckJqResult): checked is CheckedProgram
  * A query's one-shot call, ready to send, and what reading its answer needs.
  *
  * @property checked - What the checker made of the program: the program as written, the type of each output and how many there are, and the spans a runtime error is placed by
- * @property entries - The data sources the query reads, one per argument of the call, in its order
+ * @property entries - The data sources the query reads, one per dataset argument of the call, in its order: `.now`'s value is none of them
+ * @property args - Each argument of the call, in order: its data source, by name, or `null` for `.now`'s value — what e3 numbers a refused argument by
  * @property request - The call, which e3-api-client's `oneShotExecute` sends
  * @property maxOutputs - The most outputs a `many` query returns
  */
@@ -265,7 +267,8 @@ export interface PreparedQuery {
 /**
  * What reading a call's answer needs ({@link queryResultOf}): the checker's
  * record of the query that ran — the type of each output, and how many there
- * are — the data sources in the call's argument order, and its most outputs. A
+ * are — the data sources it read, in the call's argument order, each
+ * argument's source, which e3 numbers a refused one by, and its most outputs. A
  * one-shot call's {@link PreparedQuery} is one; so is a split call's, which
  * the planner gives (`plan.ts`).
  */
@@ -327,8 +330,12 @@ export function queryLimits(options: QueryOptions = {}): QueryLimits {
  *   datasets it reads, in the order it first reads them.
  * - **The request.** `bodyIr` is the translation as an East function, its IR
  *   encoded with its source map, so a runtime error names its place in the
- *   jq; `args` is one `dataset` argument per dataset read, in the
- *   translation's order; `runner` is east-c given no platform package, unless
+ *   jq; `args` is one argument per root field the query reads, in the
+ *   translation's order: a `dataset` argument at its data source's path, and
+ *   for `.now` a `value` argument, the minute the options name, else the
+ *   current one (#1670) — so the prepared call's `entries`, the data sources
+ *   alone, are not numbered as `args` are once `.now` is read before one of
+ *   them, and its `args` say each argument's source; `runner` is east-c given no platform package, unless
  *   the options name another; `limits` holds `maxBytes` as `maxResultBytes`,
  *   and `timeoutMs` when the options give one. A call that names no time limit
  *   runs under the server's: its default for a call that names none, under

@@ -33,7 +33,8 @@
  *         // A re-keyed join (#942): the re-key call, then the join call over its output, by its hash.
  *         const first = await splitCall(url, repo, workspace, plan.first, { token });
  *         const join = first.output === null ? undefined : (await splitCall(url, repo, workspace, plan.join(first.output), { token })).result;
- *         return queryResultOf(plan.reading, plan.answer(first.result, join));
+ *         const { result, reading } = plan.answer(first.result, join);
+ *         return queryResultOf(reading, result);
  *     }
  *     case "one_shot":
  *         return queryResultOf(plan.prepared, await oneShotExecute(url, repo, workspace, plan.prepared.request, { token }));

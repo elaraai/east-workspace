@@ -84,17 +84,16 @@ function findTest(query: StepQuery, stepId: string, condId: string): TestConditi
     return visit(step.value.conds);
 }
 
-/**
- * Whether a comparison takes a value of its own kind — a year, a month, a
- * count of items, a count of hours, days or weeks — which another comparison
- * would misread; the "is in the last" comparisons read each other's count.
- */
-const OWN_VALUE: ReadonlySet<ComparisonKind> = new Set(["inYear", "inMonth", "lengthAtLeast", "inLastHours", "inLastDays", "inLastWeeks"]);
+/** The comparisons that take a value of their own kind — a year, a month, a count of items — which another would misread. */
+const OWN_VALUE: ReadonlySet<ComparisonKind> = new Set(["inYear", "inMonth", "lengthAtLeast"]);
+
+/** Whether a comparison takes a value of its own kind: one of {@link OWN_VALUE}, or a count of the unit an "is in the last" counts back in. */
+const ownValue = (kind: ComparisonKind): boolean => OWN_VALUE.has(kind) || lastUnit(kind) !== undefined;
 
 /** Whether a value kept from one comparison reads right under another: neither takes its own kind, or both count back from now. */
 function keepsValue(from: ComparisonKind | undefined, to: ComparisonKind): boolean {
     if (from !== undefined && lastUnit(from) !== undefined && lastUnit(to) !== undefined) return true;
-    return !OWN_VALUE.has(to) && (from === undefined || !OWN_VALUE.has(from));
+    return !ownValue(to) && (from === undefined || !ownValue(from));
 }
 
 /** The slot a test opens next: its inner condition's field, or its value, while empty. */

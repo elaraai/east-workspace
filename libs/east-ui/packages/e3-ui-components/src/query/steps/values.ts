@@ -81,10 +81,19 @@ export function comparison(kind: ComparisonKind): Comparison {
     return variant(kind, null) as Comparison;
 }
 
-/** A unit `datetime_add` moves a date by: the unit of an "is in the last" comparison (#1670). */
-export type LastUnit = "hour" | "day" | "week";
+/**
+ * Each "is in the last" comparison by the unit it counts back in, the unit
+ * `datetime_add` moves a date by (#1670): the one place the two are paired.
+ * The parser reads back the units it names, and the words and the counts a
+ * slot offers are kept by its units, so a unit added here is asked for there.
+ */
+const LAST_COMPARISON = { hour: "inLastHours", day: "inLastDays", week: "inLastWeeks" } as const satisfies Readonly<Record<string, ComparisonKind>>;
 
-const LAST_UNIT: Readonly<Partial<Record<ComparisonKind, LastUnit>>> = { inLastHours: "hour", inLastDays: "day", inLastWeeks: "week" };
+/** A unit `datetime_add` moves a date by: the unit of an "is in the last" comparison (#1670). */
+export type LastUnit = keyof typeof LAST_COMPARISON;
+
+/** The pairs, each unit with its comparison. */
+const LAST_PAIRS = Object.entries(LAST_COMPARISON) as readonly (readonly [LastUnit, ComparisonKind])[];
 
 /**
  * The unit an "is in the last" comparison counts in.
@@ -93,7 +102,7 @@ const LAST_UNIT: Readonly<Partial<Record<ComparisonKind, LastUnit>>> = { inLastH
  * @returns `hour`, `day` or `week`; `undefined` for any other comparison
  */
 export function lastUnit(kind: ComparisonKind): LastUnit | undefined {
-    return LAST_UNIT[kind];
+    return LAST_PAIRS.find(([, cmp]) => cmp === kind)?.[0];
 }
 
 /**
@@ -103,7 +112,18 @@ export function lastUnit(kind: ComparisonKind): LastUnit | undefined {
  * @returns the comparison
  */
 export function lastComparison(unit: LastUnit): ComparisonKind {
-    return unit === "hour" ? "inLastHours" : unit === "day" ? "inLastDays" : "inLastWeeks";
+    return LAST_COMPARISON[unit];
+}
+
+/**
+ * Whether a name is a unit an "is in the last" comparison counts in: how
+ * `datetime_add`'s unit is read back.
+ *
+ * @param name - the unit's name, as the jq writes it
+ * @returns whether it is one
+ */
+export function isLastUnit(name: string): name is LastUnit {
+    return LAST_PAIRS.some(([unit]) => unit === name);
 }
 
 /** What a Group and total step groups by: a field, several, all rows together, or nothing chosen yet. */
