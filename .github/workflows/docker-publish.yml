@@ -103,7 +103,14 @@ jobs:
           echo "EAST_RELEASE_VERSION=${VERSION}" >> "$GITHUB_ENV"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "pinned=${PINNED}" >> "$GITHUB_OUTPUT"
-          echo "Every package at ${VERSION} (${PINNED:-the ${{ inputs.release_type || 'latest' }} channel's})"
+          # No quote inside a ${…} expansion: bash pairs quotes there even
+          # within double quotes, and one left open is a parse error that
+          # ends the step (v1.0.110's run, after its packages were served).
+          if [[ -n "$PINNED" ]]; then
+            echo "Every package at ${VERSION}, the version this run names"
+          else
+            echo "Every package at ${VERSION}, the current version of the ${{ inputs.release_type || 'latest' }} channel"
+          fi
 
       - name: Run tests (quick)
         run: bash docker/tests/test-docker-builds.sh
