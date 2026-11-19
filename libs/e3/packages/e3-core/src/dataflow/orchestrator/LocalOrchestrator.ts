@@ -1318,11 +1318,12 @@ export class LocalOrchestrator implements DataflowOrchestrator {
 
           // Mark as started (event added by step function), under the mutex
           // as every other change of the run's state is. A completion that
-          // had its turn first may have settled the task, or failed the run:
-          // a task a failure skipped is not started over its skip, and none
-          // starts once a task has failed
+          // had its turn first may have settled the task: one a failure
+          // skipped is not started over its skip. A task the failure left
+          // ready — one beside the task that failed, decided in the same pass
+          // — starts as it always has, and its result lands
           const started = await execution.mutex.runExclusive(async () => {
-            if (execution.hasFailure || !this.stillReady(execution, taskName)) return false;
+            if (!this.stillReady(execution, taskName)) return false;
             stepTaskStarted(state, taskName);
             await this.persistState(execution, state);
             return true;
@@ -1781,7 +1782,8 @@ export class LocalOrchestrator implements DataflowOrchestrator {
    * task it decided on — leaves it waiting, lands the result the cache
    * answered, or starts it — asks here first, and a task that moved stays as
    * what settled it left it: started or landed over its skip, it would be
-   * counted twice, and launched though the run had failed.
+   * counted twice. A task a failure elsewhere left ready is still the loop's:
+   * one decided in the same pass as the task that failed runs, and lands.
    */
   private stillReady(execution: RunningExecution, taskName: string): boolean {
     const status = execution.state.tasks.get(taskName)?.status;
