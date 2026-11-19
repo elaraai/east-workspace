@@ -1,6 +1,6 @@
 [project]
 name = "elaraai-east-py"
-version = "1.0.109"
+version = "1.0.110"
 description = "Python runtime for the East programming language"
 readme = "README.md"
 requires-python = ">=3.12"

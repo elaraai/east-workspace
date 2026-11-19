@@ -1,4 +1,4 @@
-# The overrides the east-py packages of release 1.0.109 were tested with: their
+# The overrides the east-py packages of release 1.0.110 were tested with: their
 # workspace's override-dependencies. Not edited by hand. Used beside east-py-constraints.txt:
 #   uv pip install --constraint east-py-constraints.txt --override east-py-overrides.txt ...
 shap>=0.51.0
