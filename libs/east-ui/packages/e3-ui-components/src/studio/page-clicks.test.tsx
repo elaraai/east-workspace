@@ -22,6 +22,7 @@ import { decodeBeast2For } from "@elaraai/east/internal";
 import { Studio, StudioFiltersType, StudioSourceType, studioFiltersKey } from "@elaraai/e3-ui/internal";
 import * as tiles from "@elaraai/e3-ui/examples/studio/tiles";
 import { StateRuntime } from "@elaraai/east-ui-components";
+import { markOf } from "@elaraai/east-ui-components/testing";
 import { act } from "../e3-web-mount.test-utils.js";
 import { PAGE, SOURCE, cell, page, sized, tileHarness } from "./tile.test-utils.js";
 
@@ -48,6 +49,14 @@ const tag = (container: HTMLElement) => {
     const el = container.querySelector<HTMLElement>("[data-studio-visual-follow]");
     return el === null ? undefined : [el.getAttribute("data-following"), el.textContent];
 };
+/** A follower's prompt (LNK-5), as it is drawn: its icon, its title and what it says under it. */
+const prompted = (container: HTMLElement, state: "prompt" | "leader-removed") => {
+    const prompt = container.querySelector<HTMLElement>(`[data-studio-visual=${state}]`)!;
+    const title = prompt.querySelector("h4")!;
+    return [markOf(title.previousElementSibling)?.split(" ").slice(0, 2).join(" "), title.textContent, prompt.querySelector("[data-studio-visual-hint]")!.textContent];
+};
+/** What a placement's eyebrow says in its meta. */
+const meta = (container: HTMLElement, placement: string) => container.querySelector(`[data-studio-placement="${placement}"] [data-studio-visual-meta]`)!.textContent;
 /** A click on a row, as a pointer makes it. */
 const click = async (row: HTMLElement, init: { metaKey?: boolean } = {}) => { await act(async () => { fireEvent.click(row, init); }); };
 /** The page's filters, as the UI store holds them under a page's key: each one's source, its jq, and the placement whose click made it. */
@@ -146,16 +155,16 @@ describe("a click that selects, and a visual that follows it (LNK-1 to LNK-5)", 
         await waitFor(() => expect(marked()).toEqual([]));
     }));
 
-    test("a follower that asks for a pick draws its prompt, naming the field and its leader, until one is picked (LNK-5)", async () => {
+    test("a follower that asks for a pick draws its prompt — a pointer's hand, what to pick in which visual, what it then shows — its eyebrow saying nothing selected and no more, until one is picked (LNK-5)", async () => {
         const { container } = await page([cell("c-regions", regions()), cell("c-orders", orders(following("prompt")))]);
         await waitFor(() => expect(rows(container)).toHaveLength(2));
         expect(count(container)).toBeUndefined();
-        // A list is named by what its rows stand for: Regions.
-        expect(container.textContent).toContain("Pick a region in Regions");
-        expect(container.textContent).toContain("This visual shows the region you select.");
+        // A list is named by what its rows stand for, Regions; the follower by what it draws.
+        expect(prompted(container, "prompt")).toEqual(["fas hand-pointer", "Pick a region in Regions", "This KPI shows the region you select."]);
+        expect([tag(container), meta(container, "c-orders")]).toEqual([["nothing", "nothing selected"], ""]);
         await click(rowOf(container, "NSW"));
         await waitFor(() => expect(count(container)).toBe("1"));
-        expect(container.textContent).not.toContain("Pick a region");
+        expect(container.querySelector("[data-studio-visual=prompt]")).toBeNull();
     });
 
     test("a follower whose leader is no longer on the page falls back to what it shows with nothing selected, and says its leader is removed (LNK-5)", async () => {
@@ -165,7 +174,8 @@ describe("a click that selects, and a visual that follows it (LNK-1 to LNK-5)", 
         all.unmount();
         const prompt = await page([cell("c-orders", orders(following("prompt")))]);
         expect(count(prompt.container)).toBeUndefined();
-        expect(prompt.container.textContent).toContain("The visual this one follows was removed");
+        expect(prompted(prompt.container, "leader-removed")).toEqual(["fas link-slash", "The visual this one follows was removed", "Link it to another visual, or stop following."]);
+        expect([tag(prompt.container), meta(prompt.container, "c-orders")]).toEqual([["removed", "leader removed"], ""]);
     });
 });
 

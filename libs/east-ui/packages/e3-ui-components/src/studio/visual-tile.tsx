@@ -33,7 +33,7 @@
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { Box, Button, Menu as ChakraMenu } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faEllipsis, faLink } from "@fortawesome/free-solid-svg-icons";
+import { faEllipsis, faHandPointer, faLink, faLinkSlash } from "@fortawesome/free-solid-svg-icons";
 import type { ValueTypeOf } from "@elaraai/east";
 import { kindEditor, type StudioCellType, type StudioContentType } from "@elaraai/e3-ui/internal";
 import { BannerView, ChipMenu, EmptyStateView, SliceEditPopover, downloadFile, useFormatters } from "@elaraai/east-ui-components";
@@ -59,7 +59,7 @@ import { TileMeta, TileMetaSlot } from "./visual/meta.js";
 import { SourceFailed, VisualNote, problemOf } from "./visual/notes.js";
 import { PivotVisual } from "./visual/pivot.js";
 import { RowsTree } from "./visual/rows.js";
-import { FieldMissing, NoRows, VisualLoading, WellsEmpty } from "./visual/states.js";
+import { FieldMissing, NoRows, PickPrompt, VisualLoading, WellsEmpty } from "./visual/states.js";
 import { SummaryVisual } from "./visual/summary.js";
 import { fieldLabel, midSentence, pickLabel, visualName, type VisualSource } from "./visual/values.js";
 
@@ -156,7 +156,10 @@ function FollowTag({ following, leader, visual, live }: FollowProps) {
     );
 }
 
-/** A follower that asks for a pick, with nothing selected on its leader (LNK-5): what to pick, and where. */
+/**
+ * A follower that asks for a pick, with nothing selected on its leader (LNK-5): a pointer's hand, what to pick and
+ * where, and what it then shows, named by what it draws.
+ */
 function FollowPrompt({ following, leader, visual }: FollowProps) {
     const m = useStudioMessages();
     const cell = following.leader;
@@ -164,7 +167,7 @@ function FollowPrompt({ following, leader, visual }: FollowProps) {
     const source = useVisualSource(leader.source);
     const from = visual.follow.type === "some" ? visual.follow.value.from : "";
     const field = midSentence(source === undefined ? from : fieldLabel(source, from));
-    return <EmptyStateView icon={{ prefix: "fas", name: "link" }} title={m.followPrompt({ field, leader: name })} description={m.followPromptHint({ field })} />;
+    return <PickPrompt state="prompt" icon={faHandPointer} title={m.followPrompt({ field, leader: name })} hint={m.followPromptHint({ field, view: visual.view.type })} />;
 }
 
 /**
@@ -230,16 +233,12 @@ export function StudioVisualTile({ content, names, storageKey, title, edit, plac
                 )}
                 <TileMetaSlot value={metaSlot}>
                     <VisualClicksProvider value={clicks}>
-                        {/* A follower that asks for a pick draws its prompt until its leader has one (LNK-5). */}
+                        {/* A follower that asks for a pick draws its prompt until its leader has one (LNK-5); its eyebrow says what
+                            it follows, and nothing more. */}
                         {following !== undefined && following.kind !== "selected" && visual.follow.type === "some" && visual.follow.value.empty.type === "prompt"
-                            ? (
-                                <>
-                                    <TileMeta>{sourceName}</TileMeta>
-                                    {following.kind === "removed" || leader === undefined
-                                        ? <EmptyStateView icon={{ prefix: "fas", name: "link-slash" }} title={m.followGone()} description={m.followGoneHint()} />
-                                        : <FollowPrompt following={following} leader={leader} visual={visual} />}
-                                </>
-                            )
+                            ? (following.kind === "removed" || leader === undefined
+                                ? <PickPrompt state="leader-removed" icon={faLinkSlash} title={m.followGone()} hint={m.followGoneHint()} />
+                                : <FollowPrompt following={following} leader={leader} visual={visual} />)
                             : <VisualBody visual={visual} source={source} read={read} sourceName={sourceName} storageKey={storageKey} onPick={edit?.onEdit} placement={placement} />}
                     </VisualClicksProvider>
                 </TileMetaSlot>

@@ -28,6 +28,11 @@
  *  - C6 a records table's row takes a click: a pointer's hand over it. The
  *    clicked row is marked — `--paper-3`, as a list's is, with no checkbox —
  *    its height kept, and a click on it again clears the mark.
+ *  - C7 the margin's prompt is the spec's (LNK-5): a pointer's hand at 24 in
+ *    `--rule-strong`, 28 under its eyebrow; what to pick, in which visual;
+ *    and what it then shows, named by what it draws — 10 apart, each centred.
+ *    Its eyebrow says nothing selected after the link, its 10px icon 6 before
+ *    the words, and nothing more.
  *
  * Every measurement is taken from the laid-out page.
  *
@@ -71,6 +76,14 @@ const followOf = (entry: Locator, key: string) => tile(entry, key).locator("[dat
 const chartWords = (entry: Locator, key: string) => tile(entry, key).locator("[data-studio-chart]").evaluate((el) => [...el.querySelectorAll("svg text")].map((t) => t.textContent).join("|"));
 /** The rail's chips, by their words. */
 const chips = (entry: Locator) => entry.locator("[data-studio-filters] [data-slice-clause]").evaluateAll((els) => els.map((el) => el.getAttribute("title")));
+/** Colours of the theme's, as the page computes them: each token by its variable's name after `--chakra-colors-`. */
+const colours = (entry: Locator, tokens: readonly string[]) => entry.evaluate((el, names) => names.map((token) => {
+    const probe = el.appendChild(document.createElement("span"));
+    probe.style.color = `var(--chakra-colors-${token})`;
+    const color = getComputedStyle(probe).color;
+    probe.remove();
+    return color;
+}), tokens);
 
 /** `--brand-d` and `--ink-4`, as the light theme computes them. */
 const BRAND = "rgb(58, 119, 128)";
@@ -92,7 +105,7 @@ test.describe("A Studio page's clicks (#1673)", () => {
         const margin = tile(entry, "k-margin");
         expect(await margin.locator("[data-studio-kpi-value]").count()).toBe(0);
         await expect(margin.locator("[data-studio-visual-body]")).toContainText("Pick a customer in Customers");
-        await expect(margin.locator("[data-studio-visual-body]")).toContainText("This visual shows the customer you select.");
+        await expect(margin.locator("[data-studio-visual-body]")).toContainText("This KPI shows the customer you select.");
     });
 
     test("C2, C3: a click selects the row and every follower narrows to it on e3, saying whom in --brand-d; ⌘-click adds one; Esc clears, and they show every customer again", async ({ page }) => {
@@ -140,13 +153,7 @@ test.describe("A Studio page's clicks (#1673)", () => {
         const legend = donut.locator("[data-clickable]");
         const slice = (await legend.first().textContent())!;
         /** The muted mark (`--ink-5`) and `--ink-4`, as the light theme computes them. */
-        const [muted, ink4] = await entry.evaluate((el) => ["fg-faint", "fg-subtle"].map((token) => {
-            const probe = el.appendChild(document.createElement("span"));
-            probe.style.color = `var(--chakra-colors-${token})`;
-            const color = getComputedStyle(probe).color;
-            probe.remove();
-            return color;
-        }));
+        const [muted, ink4] = await colours(entry, ["fg-faint", "fg-subtle"]);
         /** Each slice and each legend row as drawn: its state; a slice's fill; a row's label, its colour and weight. */
         const drawn = () => donut.evaluate((el) => {
             const state = (part: Element) => (part.hasAttribute("data-marked") ? "marked" : part.hasAttribute("data-dimmed") ? "dimmed" : "as is");
@@ -248,5 +255,42 @@ test.describe("A Studio page's clicks (#1673)", () => {
         // Its × clears the filter: the page holds every order again.
         await entry.locator("[data-studio-filters] [data-slice-clause] [data-chip-remove]").click();
         await expect.poll(async () => Number(await tile(entry, "g-orders").locator("[data-studio-kpi-value]").textContent())).toBeGreaterThan(orders);
+    });
+
+    test("C7: the margin's prompt is the spec's — a pointer's hand at 24 in the strong rule, 28 under its eyebrow; what to pick, and in which visual; what it then shows; 10 apart, each centred — its eyebrow nothing selected after the link, and no more", async ({ page }) => {
+        const entry = await openClicks(page);
+        const [strong, subtle] = await colours(entry, ["border-strong", "fg-subtle"]);
+        const read = await tile(entry, "k-margin").evaluate((el) => {
+            const body = el.querySelector("[data-studio-visual-body]")!.getBoundingClientRect();
+            const prompt = el.querySelector("[data-studio-visual=prompt]")!;
+            const icon = prompt.querySelector("svg")!;
+            const title = prompt.querySelector("h4")!;
+            const hint = prompt.querySelector("[data-studio-visual-hint]")!;
+            const [mark, head, line] = [icon, title, hint].map((part) => part.getBoundingClientRect());
+            const middle = (body.left + body.right) / 2;
+            const type = (part: Element) => {
+                const look = getComputedStyle(part);
+                return [look.fontSize, look.lineHeight, look.fontWeight];
+            };
+            const tag = el.querySelector("[data-studio-visual-follow]")!;
+            const [link, said] = [tag.querySelector("svg")!.getBoundingClientRect(), tag.querySelector("span")!.getBoundingClientRect()];
+            return {
+                icon: [icon.getAttribute("data-icon"), mark!.height, mark!.top - body.top, getComputedStyle(icon).color],
+                gaps: [head!.top - mark!.bottom, line!.top - head!.bottom],
+                centred: [mark!, head!, line!].map((box) => Math.abs((box.left + box.right) / 2 - middle) <= 0.5),
+                title: [title.textContent, ...type(title)],
+                hint: [hint.textContent, ...type(hint), getComputedStyle(hint).color],
+                eyebrow: [tag.textContent, el.querySelector("[data-studio-visual-meta]")!.textContent],
+                tag: [link.height, said.left - link.right],
+            };
+        });
+        expect(read.icon).toEqual(["hand-pointer", 24, 28, strong]);
+        expect(read.gaps).toEqual([10, 10]);
+        expect(read.centred).toEqual([true, true, true]);
+        // The leader is named by what its rows stand for; the field mid-sentence.
+        expect(read.title).toEqual(["Pick a customer in Customers", "15px", "20px", "700"]);
+        expect(read.hint).toEqual(["This KPI shows the customer you select.", "12.5px", "15px", "400", subtle]);
+        expect(read.eyebrow).toEqual(["nothing selected", ""]);
+        expect(read.tag).toEqual([10, 6]);
     });
 });
