@@ -28,6 +28,12 @@
  *  - F7 on a phone the builder's toolbar holds the rail's Filters button, a
  *    44px target named by what is set; it opens the Filters view over the
  *    whole builder, whose Filters row opens the chips and `+ add filter`.
+ *  - F8 in place the rows keep their columns at every level of a filter of
+ *    two conditions and a group: the head's first word and each joiner on one
+ *    edge; each condition's first slot, the foot's add and a group's box on
+ *    another; each row's × at its line's end, in line with its group's. With
+ *    a field's list open, the list is the one thing in the popover that
+ *    scrolls.
  *
  * Every measurement is taken from the laid-out page.
  *
@@ -124,6 +130,86 @@ test.describe("A Studio page's filter rail (#1673)", () => {
         await rail.locator("[data-slice-clause] [data-chip-remove]").click();
         await expect(rail.locator("[data-slice-clause]")).toHaveCount(0);
         await expect(revenue(grid)).toHaveText(all ?? "");
+    });
+
+    test("F8: in place the rows keep their columns at every level — head word and joiners on one edge; slots, the foot's add and a group's box on another; each × at its line's end — and with a field's list open the list is the one thing that scrolls", async ({ page }) => {
+        await page.setViewportSize({ width: 1440, height: 1100 });
+        const grid = await openVisuals(page, "light");
+        const rail = grid.locator("xpath=..").locator("[data-studio-filters]");
+        await rail.locator("[data-slice-add=filter]").click();
+        const rows = page.locator("[data-studio-filter-rows]");
+        const chooser = rows.locator("[data-chooser]");
+        /** Closes the open field's list, where one is open: the list takes the Esc, and the popover stays. */
+        const closeList = async () => {
+            if (await chooser.count() === 0) return;
+            await page.keyboard.press("Escape");
+            await expect(chooser).toHaveCount(0);
+        };
+        // A condition, a second still to be written, and a group of two.
+        await chooser.locator("[role=option]", { hasText: "region" }).first().click();
+        await expect(chooser.locator("[role=option]", { hasText: "SA" })).toBeVisible({ timeout: 20_000 });
+        await chooser.locator("[role=option]", { hasText: "SA" }).first().click();
+        await expect(chooser).toHaveCount(0);
+        // A lone condition: its first word on its foot's add, its × at its line's end.
+        const lone = await rows.locator("[data-condition-rows]").evaluate((root) => {
+            const left = (el: Element | null) => (el === null ? null : Math.round(el.getBoundingClientRect().left * 2) / 2);
+            const row = root.querySelector(":scope > [data-query-line=row]")!;
+            return {
+                words: left(row.querySelector("[data-slot-key] > span")) === left(root.querySelector(":scope > [data-query-line=foot] button svg")),
+                end: Math.round(row.querySelector(":scope > button:last-child")!.getBoundingClientRect().right * 2) / 2 === Math.round(root.getBoundingClientRect().right * 2) / 2,
+            };
+        });
+        expect(lone).toEqual({ words: true, end: true });
+        const top = rows.locator("[data-condition-rows] > [data-query-line=foot]");
+        await top.getByRole("button", { name: "Add condition" }).click();
+        await closeList();
+        // A group is added with its two conditions.
+        await top.getByRole("button", { name: "Add group" }).click();
+        await closeList();
+        await expect(rows.locator("[data-query-group-box] > [data-query-line=row]")).toHaveCount(2);
+        await settled(page);
+        /** Each level's columns: its head's first word and its joiners; its rows' first slots, its foot's add and a group's box; its ×s' ends. */
+        const columns = () => rows.locator("[data-condition-rows]").evaluate((root) => {
+            const at = (n: number) => Math.round(n * 2) / 2;
+            const words = (line: Element | null) => line?.querySelector("[data-slot-key] > span") ?? null;
+            const level = (box: Element, head: Element | null) => {
+                const lines = [...box.children];
+                const of = (kind: string) => lines.filter((line) => line.matches(`[data-query-line=${kind}]`));
+                const joiners = [...of("row"), ...of("group")].map((line) => line.querySelector(":scope > [data-query-joiner]"))
+                    .filter((joiner): joiner is Element => joiner !== null && joiner.textContent !== "");
+                const add = of("foot")[0]?.querySelector("button svg") ?? null;
+                return {
+                    words: [words(head), ...joiners].map((el) => (el === null ? null : at(el.getBoundingClientRect().left))),
+                    slots: [...of("row").map(words), add, ...of("group").map((g) => g.querySelector("[data-query-group-box]"))]
+                        .map((el) => (el === null ? null : at(el.getBoundingClientRect().left))),
+                    ends: [head?.querySelector(":scope > button:last-child") ?? null, ...of("row").map((row) => row.querySelector(":scope > button:last-child"))]
+                        .filter((el): el is Element => el !== null).map((el) => at(el.getBoundingClientRect().right)),
+                };
+            };
+            const group = root.querySelector("[data-query-group-box]")!;
+            return {
+                top: { ...level(root, root.querySelector(":scope > [data-query-line=head]")), edge: at(root.getBoundingClientRect().right) },
+                group: level(group, group.querySelector(":scope > [data-query-group-head]")),
+            };
+        });
+        const read = await columns();
+        /** One edge: every value the same. */
+        const one = (xs: readonly (number | null)[]) => xs.every((x) => x !== null && x === xs[0]);
+        expect({
+            topWords: one(read.top.words), topSlots: one(read.top.slots), topEnds: read.top.ends.every((x) => x === read.top.edge),
+            groupWords: one(read.group.words), groupSlots: one(read.group.slots), groupEnds: one(read.group.ends),
+        }, JSON.stringify(read)).toEqual({ topWords: true, topSlots: true, topEnds: true, groupWords: true, groupSlots: true, groupEnds: true });
+        // A field's list open under rows this tall: the list is the one thing that scrolls — the popover's body fits.
+        await rows.locator("[data-condition-rows] > [data-query-line=row] [data-slot-key][data-empty]").first().click();
+        await expect(chooser).toBeVisible();
+        await settled(page);
+        const scrollers = await rows.evaluate((el) => [...el.closest("[data-scope='popover'][data-part='content']")!.querySelectorAll("*")]
+            .filter((node) => {
+                const look = getComputedStyle(node);
+                return (look.overflowY === "auto" || look.overflowY === "scroll") && node.scrollHeight > node.clientHeight + 1;
+            }).map((node) => node.getAttribute("role") ?? node.tagName.toLowerCase()));
+        expect(scrollers).toEqual(["listbox"]);
+        expect(await chooser.locator("[role=option]").count()).toBeGreaterThan(3);
     });
 
     test("F5: in the builder the rail is an item of its one toolbar, before the row's end items, 28px as every control of the row — its chips, or its Filters chip where the row is short of room", async ({ page }) => {

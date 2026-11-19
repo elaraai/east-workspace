@@ -188,8 +188,12 @@ export interface StudioMessages {
     followGoneHint: () => string;
     /** A visual that read no rows — where its value would be. */
     noData: () => string;
-    /** Under it, why: none of its source's rows, named mid-sentence — `No orders`. */
-    noDataReason: (p: { rows: string }) => string;
+    /**
+     * Under it, why (#1673): what emptied it — its own filter, the page's filters on its source and what it follows,
+     * each in words — after its source's rows, named mid-sentence: `No orders for region is NSW · units is less than 0`;
+     * with none, that its source has no rows: `Orders has no rows`.
+     */
+    noDataReason: (p: { rows: string; source: string; causes: readonly string[] }) => string;
     /** A visual whose source could not be read — the banner's title. */
     sourceError: (p: { source: string }) => string;
     /** The banner's action, which asks the visual's programs again. */
@@ -717,7 +721,7 @@ export const studioMessages: StudioMessages = {
     followGone: () => "The visual this one follows was removed",
     followGoneHint: () => "Link it to another visual, or stop following.",
     noData: () => "no data",
-    noDataReason: ({ rows }) => `No ${rows}`,
+    noDataReason: ({ rows, source, causes }) => (causes.length === 0 ? `${source} has no rows` : `No ${rows} for ${causes.join(" · ")}`),
     sourceError: ({ source }) => `${source} could not be read`,
     retry: () => "Retry",
     answerGroups: ({ n, groups, nr, rows }) => `${groups} ${n === 1 ? "group" : "groups"} from ${rows} ${nr === 1 ? "row" : "rows"}`,

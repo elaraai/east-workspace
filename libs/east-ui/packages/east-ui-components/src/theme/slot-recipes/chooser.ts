@@ -13,7 +13,10 @@
  * In a `SliceEditPopover` (`surface="popover"`) the popover is the frame; laid
  * in a pane (`surface="inline"`, the inspector's) the Chooser draws its own
  * border and stops 20px shorter; bare (`surface="bare"`, #1673) in a body its
- * host frames — a filter's condition rows — it draws no edge and no foot.
+ * host frames — a filter's condition rows — it draws no edge and no foot, and
+ * takes the height the body has left it, so its list is the one thing that
+ * scrolls; never less than its first three options (`--chooser-floor`, which
+ * the Chooser sets), so it is never squeezed away.
  *
  * A label before the search says what the list is of, in the label voice
  * (`FIELD`); an option may lead with its icon in a 14px column, and a label
@@ -36,6 +39,24 @@
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 
+/** The search box's height, and a coarse pointer's. */
+const BOX = 32;
+const BOX_COARSE = 44;
+/** The band's padding round the box. */
+const BAND_PAD = 8;
+/** An option's least height, and a coarse pointer's. */
+const OPTION = 40;
+const OPTION_COARSE = 44;
+/** The list's padding above and under its options. */
+const LIST_PAD = 4;
+
+/**
+ * The least a bare Chooser is: its search band (its padding, its box and the rule under it) and its list's first
+ * options, as many as `--chooser-floor` says.
+ */
+const floor = (box: number, option: number): string =>
+    `calc(${BAND_PAD * 2 + box + 1}px + var(--chooser-floor, 0) * ${option}px + ${LIST_PAD * 2}px)`;
+
 export const chooserSlotRecipe = defineSlotRecipe({
     className: "elara-chooser",
     slots: ["root", "search", "searchLabel", "searchBox", "searchIcon", "searchInput", "list", "section", "option", "mark", "icon", "text", "label", "line", "range", "empty", "foot"],
@@ -54,7 +75,7 @@ export const chooserSlotRecipe = defineSlotRecipe({
             display: "flex",
             alignItems: "center",
             gap: "8px",
-            padding: "8px",
+            padding: `${BAND_PAD}px`,
             borderBottomWidth: "1px",
             borderBottomColor: "border.subtle",
         },
@@ -74,7 +95,7 @@ export const chooserSlotRecipe = defineSlotRecipe({
             display: "flex",
             alignItems: "center",
             gap: "8px",
-            height: "32px",
+            height: `${BOX}px`,
             boxSizing: "border-box",
             paddingX: "12px",
             borderWidth: "1px",
@@ -82,7 +103,7 @@ export const chooserSlotRecipe = defineSlotRecipe({
             borderRadius: "md",
             background: "bg.surface",
             _focusWithin: { outline: "2px solid", outlineColor: "brand.solid", outlineOffset: "-1px" },
-            _coarse: { height: "44px" },
+            _coarse: { height: `${BOX_COARSE}px` },
         },
         searchIcon: { flex: "none", fontSize: "body.lg", color: "fg.subtle" },
         searchInput: {
@@ -99,7 +120,7 @@ export const chooserSlotRecipe = defineSlotRecipe({
             flex: 1,
             minHeight: 0,
             overflowY: "auto",
-            paddingY: "4px",
+            paddingY: `${LIST_PAD}px`,
         },
         section: {
             height: "24px",
@@ -121,7 +142,7 @@ export const chooserSlotRecipe = defineSlotRecipe({
             gridTemplateColumns: "14px minmax(0, 1fr) auto",
             alignItems: "center",
             gap: "8px",
-            minHeight: "40px",
+            minHeight: `${OPTION}px`,
             boxSizing: "border-box",
             paddingX: "12px",
             paddingY: "4px",
@@ -134,7 +155,7 @@ export const chooserSlotRecipe = defineSlotRecipe({
             "&[data-state='refused'], &[data-state='disabled']": { cursor: "default", _hover: { background: "transparent" } },
             // An option with its icon: the icon's 14px column after the mark's.
             "&[data-icon]": { gridTemplateColumns: "14px 14px minmax(0, 1fr) auto" },
-            _coarse: { minHeight: "44px" },
+            _coarse: { minHeight: `${OPTION_COARSE}px` },
         },
         mark: {
             display: "flex",
@@ -218,9 +239,16 @@ export const chooserSlotRecipe = defineSlotRecipe({
             inline: {
                 root: { maxHeight: "340px", borderWidth: "1px", borderColor: "border.strong", borderRadius: "md" },
             },
-            // In a body its host frames: no edge, and no foot (the component draws none).
+            // In a body its host frames: no edge, and no foot (the component draws none); the height the body leaves it, its
+            // list scrolling, down to its search band and its first three options (`floor`), which its host shrinks it no
+            // further than.
             bare: {
-                root: { background: "transparent" },
+                root: {
+                    background: "transparent",
+                    maxHeight: "none",
+                    minHeight: floor(BOX, OPTION),
+                    _coarse: { minHeight: floor(BOX_COARSE, OPTION_COARSE) },
+                },
             },
         },
     },

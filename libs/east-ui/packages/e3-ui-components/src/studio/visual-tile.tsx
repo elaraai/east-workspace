@@ -422,7 +422,7 @@ function AskedVisual({ asks, visual, listed, read, sourceName, icon, storageKey,
             // No data when no program read a row — every period's, not the first's alone.
             const read_ = asked.answers.find((answer) => answer.kind === "answered" && answer.n > 0);
             if (!visualReadRows(asked.answers) || read_ === undefined || read_.kind !== "answered") {
-                return <NoRows reason={m.noDataReason({ rows: midSentence(sourceName) })} />;
+                return <NoRows visual={visual} state={state} read={read} source={sourceName} />;
             }
             const view = visual.view;
             switch (view.type) {

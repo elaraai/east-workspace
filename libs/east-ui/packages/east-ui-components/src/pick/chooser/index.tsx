@@ -8,9 +8,10 @@
  * with its line and its range, one that doesn't fit disabled with its reason —
  * driven by ↑↓ Enter Esc. A host lays it in a `SliceEditPopover` anchored
  * under a cell (`flush`), in a pane under a field (`surface="inline"`), or in a
- * body it frames itself (`surface="bare"`, #1673: no border, no foot); its
- * sections and options are data, and the host runs the choice. It is the one
- * picker: the query builder's slots and a filter's condition rows draw it too.
+ * body it frames itself (`surface="bare"`, #1673: no border, no foot, the
+ * height the body leaves it down to its first three options); its sections
+ * and options are data, and the host runs the choice. It is the one picker: the
+ * query builder's slots and a filter's condition rows draw it too.
  *
  * - Search filters by each option's label and line (or its own `match`); a
  *   section left empty goes, and nothing left says `no match`. A host that
@@ -33,7 +34,7 @@
  * @packageDocumentation
  */
 
-import { memo, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { memo, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { Box, chakra, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconProp } from "@fortawesome/fontawesome-svg-core";
@@ -119,6 +120,9 @@ export interface ChooserProps {
 /** Whether a choice can take an option. */
 const choosable = (o: ChooserOption): boolean => o.state === "enabled" || o.state === "current";
 
+/** How many options a bare Chooser's list keeps in view, however little room its host's body leaves it. */
+const FLOOR_OPTIONS = 3;
+
 /**
  * The Chooser — a searchable, sectioned single-choice list (see the module docs).
  *
@@ -180,7 +184,8 @@ export const Chooser = memo(function Chooser({
     };
     return (
         // Given `onClose`, it takes Esc itself, and says so: a frame's overlay pane it is laid in leaves the key to it.
-        <Box css={styles.root} data-chooser="" data-surface={surface} data-escape-layer={onClose !== undefined ? "" : undefined}>
+        <Box css={styles.root} data-chooser="" data-surface={surface} data-escape-layer={onClose !== undefined ? "" : undefined}
+            style={surface === "bare" ? { "--chooser-floor": Math.min(FLOOR_OPTIONS, shown.reduce((n, s) => n + s.options.length, 0)) } as CSSProperties : undefined}>
             <Box css={styles.search}>
                 {label !== undefined && <Box as="span" css={styles.searchLabel} data-chooser-label="">{label}</Box>}
                 <chakra.label css={styles.searchBox}>
