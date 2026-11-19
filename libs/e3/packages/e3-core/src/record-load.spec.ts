@@ -36,7 +36,7 @@ import { repoGc } from './gc.js';
 import { packageImport } from './package-files.js';
 import { loadQueueLock, recordLoad, type RecordLoadOptions } from './record-load.js';
 import { PENDING_SLOT, sourceLoadSlots } from './record-slots.js';
-import { recordHistory, recordMutate, recordSystemCommit, resolveRecord } from './records.js';
+import { recordHistory, recordMutate, recordReindex, recordSystemCommit, resolveRecord } from './records.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { LockHandle, StorageBackend } from './storage/interfaces.js';
 import {
@@ -788,5 +788,24 @@ describe('a load of a delivery', () => {
     await rollback(ws, minted);
     assert.equal(await waiting(), 'erp,wms');
     await holds(ws, [['own', 'P-1', birch]]);
+  });
+
+  it('ruling 33 — a rollback past a reindex of one index reads what waits as it does past any reindex: a source whose first delivery was empty waits for nothing', async () => {
+    const ws = await fresh();
+    await load(ws, 'erp', await deliver([['SO-3302', acme]]));
+    // The warehouse's first delivery holds no order: it has delivered, and the record holds no entry of it
+    await load(ws, 'wms', await deliver([]));
+    assert.equal((await ref(ws)).versions.has(PENDING_SLOT), false, 'every source has delivered');
+    const delivered = (await ref(ws)).versions.get('.records.orders')!;
+
+    const reindexed = await recordReindex(storage, runner, repoDir, ws, 'orders', { actor: 'ada@example.com', index: 'by_customer' });
+    assert.equal(reindexed.kind, 'committed');
+    await save(ws, 'P-2', cedar);
+    assert.deepEqual((await chain(ws)).slice(0, 2), ['plan', '$reindex:by_customer']);
+
+    // Rolled back past the reindex: it kept the record's rows, so no source's entries changed with no load
+    await rollback(ws, delivered);
+    assert.equal((await ref(ws)).versions.has(PENDING_SLOT), false, 'the warehouse delivered, and waits for nothing');
+    await holds(ws, [['erp', 'SO-3302', acme], ['own', 'P-1', birch]]);
   });
 });

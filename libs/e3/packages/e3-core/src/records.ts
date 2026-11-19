@@ -2837,13 +2837,13 @@ async function systemCommitState(
  * record's sources hold entries: a deploy, which can hand a source to its
  * load or back to the mutations and drop its rows, and a state an operator
  * committed, which a restore brings from outside the history. A save writes
- * the solution's own entries alone, and a reindex and a compaction keep the
- * record's rows.
+ * the solution's own entries alone, and a reindex, of every index or of the
+ * one its commit is named for, and a compaction keep the record's rows.
  *
  * @param mutation - The commit's name
  */
 function changesEntriesUnloaded(mutation: string): boolean {
-  if (!mutation.startsWith('$')) return false;
+  if (!mutation.startsWith('$') || mutation.startsWith('$reindex:')) return false;
   return mutation === '$deploy' || !OWN_COMMIT_NAMES.includes(mutation);
 }
 
