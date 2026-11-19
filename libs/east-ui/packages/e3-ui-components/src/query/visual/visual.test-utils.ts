@@ -4,18 +4,18 @@
  */
 
 /**
- * The visual tests' orders (#1671): a quarter of them and two a year before,
- * listed as a surface lists a source — each field's label, revenue in
- * dollars and margin a percent — and a visual's answers as e3 gives them:
- * each program it prints, asked in memory.
+ * The visual tests' orders (#1671): a quarter of them and two a year before —
+ * the e3-ui tiles examples' `tile_test_quarter`, which a renderer test reads
+ * on e3 itself (#1673) — listed as a surface lists a source — each field's
+ * label, revenue in dollars and margin a percent — and a visual's answers as
+ * e3 gives them: each program it prints, asked in memory, for the tests of
+ * what a renderer makes of an answer.
  */
 
-import {
-    ArrayType, DateTimeType, FloatType, IntegerType, OptionType, StringType, StructType, none, parseJq, some, toEastTypeValue, variant,
-    type JqNode, type ValueTypeOf,
-} from "@elaraai/east";
+import { ArrayType, none, parseJq, some, toEastTypeValue, variant, type JqNode, type ValueTypeOf } from "@elaraai/east";
 import { toValueFormat } from "@elaraai/east-ui/internal";
 import type { Studio, StudioSourceType } from "@elaraai/e3-ui/internal";
+import * as tiles from "@elaraai/e3-ui/examples/studio/tiles";
 import { utcAt as at } from "../../plan/plan.test-utils.js";
 import { createInMemoryQueryCall } from "../in-memory-call.js";
 import { queryRoot } from "../one-shot.js";
@@ -25,20 +25,13 @@ import { printVisual, visualValues, type PrintState, type RecordsPage, type Visu
 import { printSourceOf } from "./source.js";
 
 /** An order. */
-export const OrderRow = StructType({ ordered_at: DateTimeType, region: StringType, customer: StringType, revenue: FloatType, units: IntegerType, margin: OptionType(FloatType) });
+export const OrderRow = tiles.TileTestQuarterRow;
 
 /** The orders: five in the quarter from July 2026, and two a year before — Victoria's, and Queensland's, which the quarter has none of. */
-export const ORDERS: ValueTypeOf<typeof OrderRow>[] = [
-    { ordered_at: at("2026-07-03T10:00:00"), region: "SA", customer: "Northwind", revenue: 100, units: 3n, margin: some(0.2) },
-    { ordered_at: at("2026-07-20T10:00:00"), region: "NSW", customer: "Harbour", revenue: 50, units: 1n, margin: none },
-    { ordered_at: at("2026-08-02T10:00:00"), region: "SA", customer: "Summit", revenue: 70, units: 2n, margin: some(0.1) },
-    { ordered_at: at("2026-08-15T10:00:00"), region: "VIC", customer: "Northwind", revenue: 30, units: 5n, margin: some(0.3) },
-    { ordered_at: at("2026-09-01T10:00:00"), region: "WA", customer: "Summit", revenue: 20, units: 1n, margin: some(0.4) },
-    { ordered_at: at("2025-07-10T10:00:00"), region: "VIC", customer: "Northwind", revenue: 40, units: 4n, margin: some(0.3) },
-    { ordered_at: at("2025-08-10T10:00:00"), region: "QLD", customer: "Harbour", revenue: 10, units: 1n, margin: none },
-];
+export const ORDERS: ValueTypeOf<typeof OrderRow>[] = tiles.tileTestQuarterRows;
 
-const PATH = [variant("field", "inputs"), variant("field", "orders")];
+/** Where e3 holds them. */
+const PATH = tiles.tileTestQuarter.path;
 
 /** The orders, as a surface lists them: each field labelled, revenue in Australian dollars, margin a percent, ranged by the order's date. */
 export const LISTED_ORDERS: ValueTypeOf<typeof StudioSourceType> = {
