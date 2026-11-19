@@ -24,13 +24,14 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { dirname, join } from 'node:path';
 import {
-  DictType, East, IntegerType, NullType, PatchType, SortedMap, StringType, StructType, VariantType,
-  compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, variant,
+  DictType, East, IntegerType, NullType, PatchType, SortedMap, SortedSet, StringType, StructType, VariantType,
+  compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, some, variant,
   type PatchTypeOf, type ValueTypeOf,
 } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import {
-  ExecuteResultType, MutationObjectType, decodeRecordLoadObject, decodeTaskObject, type ExecuteResult, type FunctionDraft, type RecordSource,
+  ExecuteResultType, MutationObjectType, decodeRecordLoadObject, decodeTaskObject,
+  type ExecuteResult, type FunctionDraft, type MutationObject, type RecordSource,
 } from '@elaraai/e3-types';
 import type { InputWait } from './dataflow/types.js';
 import { readDatasetWhole } from './dataset-open.js';
@@ -266,6 +267,28 @@ describe('a composite record: an external entry is never written (no program run
       { invalid: 'mutation \'rewrite\' writes record \'notes\' whole, and the record has sources: re-export its package' });
     assert.deepEqual(await recordDraftMutation(storage, REPO, { mutations: new Map([['rewrite', whole]]), indexes: new Map(), sources: new Map() }, 'count', 'rewrite', []),
       { mutation: whole }, 'a record with no sources, and no index, is written whole as before');
+  });
+
+  it('R4 — a mutation that names no source it may write, or one the record\'s mutations do not write, is refused before anything runs: the record\'s sources say which entries only a load writes', async () => {
+    // What e3.recordComposite never exports, another exporter could write: a delta mutation whose cases are not its record's own sources
+    const sources = new Map<string, RecordSource>([['erp', variant('load', 'c'.repeat(64))], ['own', variant('mutations', null)]]);
+    const checked = async (cases: MutationObject['cases']) => {
+      const mutation = await storage.objects.write(REPO, encodeBeast2For(MutationObjectType)({
+        bodyIr: 'b'.repeat(64), argTypes: [], runner: variant('east_c', { platforms: [], decode: variant('lazy', null) }),
+        form: variant('patch', null), programIr: 'd'.repeat(64), cases,
+      }));
+      return { mutation, answer: await recordDraftMutation(storage, REPO, { mutations: new Map([['patch', mutation]]), indexes: new Map(), sources }, 'notes', 'patch', []) };
+    };
+    const named = (...names: string[]) => some(new SortedSet<string>(names, compareFor(StringType)));
+
+    assert.deepEqual((await checked(none)).answer,
+      { invalid: 'mutation \'patch\' of record \'notes\' names no source it may write: re-export its package' }, 'held to no source, it would write the ERP\'s entries');
+    assert.deepEqual((await checked(named('erp', 'own'))).answer,
+      { invalid: 'mutation \'patch\' of record \'notes\' may write source \'erp\', which the record\'s mutations do not write: re-export its package' });
+    assert.deepEqual((await checked(named('wms'))).answer,
+      { invalid: 'mutation \'patch\' of record \'notes\' may write source \'wms\', which the record\'s mutations do not write: re-export its package' });
+    const own = await checked(named('own'));
+    assert.deepEqual(own.answer, { mutation: own.mutation }, 'a mutation held to the solution\'s own source is the record\'s');
   });
 
   it('R79 — a source handed to its load while it holds rows counts as delivered, and one handed over holding none waits for its first delivery', async () => {

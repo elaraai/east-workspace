@@ -816,8 +816,9 @@ export async function recordOfPackage(
 /**
  * A record's mutation by its name, checked as every write of the record checks
  * it before anything runs: the record declares it, the write passes as many
- * arguments as it takes, and it is no whole-state write of a record with
- * indexes or with sources.
+ * arguments as it takes, it is no whole-state write of a record with indexes
+ * or with sources, and, for a record with sources, each source it may write
+ * is one the record's mutations write.
  *
  * @remarks
  * What a Save resolves its mutation with ({@link recordMutate}) and what a
@@ -859,6 +860,22 @@ async function resolveMutation(
   // a package that mixes two builds, and it could write an external entry.
   if (mutation.programIr === '' && record.sources.size > 0) {
     return { invalid: `mutation '${mutationName}' writes record '${recordName}' whole, and the record has sources: re-export its package` };
+  }
+  // A composite's mutation names the sources it may write, and the apply holds
+  // its write to them. Which those may be is the record's to say, not the
+  // mutation's alone: each is a source the record's mutations write. One that
+  // names none, or names another — an external one's, which only its load
+  // writes — is no build's of this record, and would write such an entry.
+  if (record.sources.size > 0) {
+    const named = mutation.cases.type === 'some' ? [...mutation.cases.value] : null;
+    const other = named?.find((source) => record.sources.get(source)?.type !== 'mutations');
+    if (named === null || other !== undefined) {
+      return {
+        invalid: `mutation '${mutationName}' of record '${recordName}' `
+          + (named === null ? 'names no source it may write' : `may write source '${other}', which the record's mutations do not write`)
+          + ': re-export its package',
+      };
+    }
   }
   return { hash, mutation };
 }
