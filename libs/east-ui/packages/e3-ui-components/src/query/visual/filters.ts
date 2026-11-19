@@ -32,7 +32,7 @@
 import { ArrayType, DateTimeType, compareFor, parseJq, printJq, variant, type EastType, type JqNode, type ValueTypeOf } from "@elaraai/east";
 import { isoDateTime } from "@elaraai/east/internal";
 import type { StudioFilterType } from "@elaraai/e3-ui/internal";
-import { conditionWords } from "../model/step-words.js";
+import { conditionChip, conditionWords } from "../model/step-words.js";
 import type { QueryWords } from "../model/words.js";
 import { newStep } from "../steps/edit.js";
 import { chain, pathNode, readCall, readChain, readPipe } from "../steps/jq.js";
@@ -156,11 +156,53 @@ function rowsShape(source: PrintSource): Shape {
     return shapeOf(ArrayType(source.row), "one", { noun: singular(source.key) });
 }
 
+/** A filter as its chip says it (#1673): short, and whole. */
+export interface FilterChip {
+    /** Its first condition, short — `Region: NSW` — and how many more it holds — `Region: NSW +1`. */
+    readonly words: string;
+    /** Every condition it holds, each once, in the query builder's words — `region is NSW and ordered at is in 2026`: what its hover says. */
+    readonly whole: string;
+}
+
 /**
- * A filter in words, as its chip says it: the query builder's words for its
- * condition — `region is SA`, `ordered at is in the last 30 days`, several
- * side by side as a Keep rows where step says its own — or its jq, where it
- * is no form the builder's rows write.
+ * A filter as its chip says it (#1673): its first condition short, its field
+ * then what it holds — `Region: NSW` — with how many more it holds — `+1`;
+ * and whole, as its hover says it, in the query builder's words — `region is
+ * NSW and ordered at is in 2026`, its conditions side by side as a Keep rows
+ * where step says its own. A condition it holds twice is said once. A filter
+ * in no form the builder's rows write is its jq, both ways.
+ *
+ * @param where - The filter's condition over one row
+ * @param source - Its source, as the printer reads it
+ * @param words - The query builder's words
+ * @returns Its words, short and whole
+ */
+export function filterChip(where: JqNode, source: PrintSource, words: QueryWords): FilterChip {
+    const shape = rowsShape(source);
+    const condition = readCondition(where, shape);
+    const jq = printJq(where).text;
+    if (condition === undefined) return { words: jq, whole: jq };
+    // Each condition once, in the order it holds them — brackets are for a group inside one.
+    const said: { readonly short: string; readonly whole: string }[] = [];
+    for (const part of condition.type === "group" ? condition.value.conds : [condition]) {
+        const whole = conditionWords(part, shape, words);
+        if (whole !== "" && !said.some((held) => held.whole === whole)) said.push({ short: conditionChip(part, shape, words), whole });
+    }
+    const [first] = said;
+    if (first === undefined) return { words: jq, whole: jq };
+    const m = words.messages;
+    const more = said.length - 1;
+    return {
+        words: more === 0 ? first.short : `${first.short} ${m.chipMore({ n: more, count: words.formatters.number(more) })}`,
+        whole: condition.type === "group" ? m.describeConditions({ match: condition.value.match.type, conditions: said.map((held) => held.whole) }) : first.whole,
+    };
+}
+
+/**
+ * A filter in words: the query builder's words for its condition — `region
+ * is SA`, `ordered at is in the last 30 days`, several side by side as a Keep
+ * rows where step says its own, each once — or its jq, where it is no form
+ * the builder's rows write. What its chip's hover says ({@link filterChip}).
  *
  * @param where - The filter's condition over one row
  * @param source - Its source, as the printer reads it
@@ -168,17 +210,7 @@ function rowsShape(source: PrintSource): Shape {
  * @returns The words
  */
 export function filterWords(where: JqNode, source: PrintSource, words: QueryWords): string {
-    const shape = rowsShape(source);
-    const condition = readCondition(where, shape);
-    if (condition === undefined) return printJq(where).text;
-    // Its conditions side by side, as a Keep rows where step says its own: brackets are for a group inside one.
-    const said = condition.type === "group"
-        ? words.messages.describeConditions({
-            match: condition.value.match.type,
-            conditions: condition.value.conds.map((part) => conditionWords(part, shape, words)).filter((part) => part !== ""),
-        })
-        : conditionWords(condition, shape, words);
-    return said === "" ? printJq(where).text : said;
+    return filterChip(where, source, words).whole;
 }
 
 /**

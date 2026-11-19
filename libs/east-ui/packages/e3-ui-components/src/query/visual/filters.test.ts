@@ -25,7 +25,8 @@ import { visualAnswerType } from "./ask.js";
 import { formatters } from "@elaraai/east-ui-components";
 import { queryWords } from "../model/words.js";
 import {
-    addFilter, changeFilter, clearFilters, filterQuery, filterWords, filtersOn, markedBy, ownFilterAt, pageRange, printStateOf, removeFilter, selectOf, whereOf,
+    addFilter, changeFilter, clearFilters, filterChip, filterQuery, filterWords, filtersOn, markedBy, ownFilterAt, pageRange, printStateOf, removeFilter, selectOf,
+    whereOf,
     type PageFilter,
 } from "./filters.js";
 import { printVisual } from "./print.js";
@@ -249,6 +250,34 @@ describe("a filter in words, as its chip says it", () => {
     it("is its jq where the condition is no form the rows write", () => {
         expect(said(`.region | IN("SA", "NSW")`)).toBe(`.region | IN("SA", "NSW")`);
         expect(said(".revenue / .units > 20")).toBe(".revenue / .units > 20");
+    });
+
+    it("says a condition the filter holds twice once", () => {
+        expect(said(`.region == "NSW" and (.ordered_at | year) == 2026 and .region == "NSW"`)).toBe("region is NSW and ordered at is in 2026");
+    });
+});
+
+describe("a filter's chip: short, and whole on hover (#1673)", () => {
+    const words = queryWords(formatters("en-AU"));
+    const chip = (where: string) => {
+        const held = filterChip(condition(where), ORDERS_SOURCE, words);
+        return [held.words, held.whole];
+    };
+
+    it("says its first condition short — its field, then what it holds — with how many more it holds, each once; whole in the query builder's words", () => {
+        expect(chip(`.region == "SA"`)).toEqual(["Region: SA", "region is SA"]);
+        expect(chip(`.region != "SA"`)).toEqual(["Region: not SA", "region is not SA"]);
+        expect(chip(".revenue >= 1000")).toEqual(["Revenue: at least 1,000", "revenue is at least 1,000"]);
+        expect(chip(".units > 1")).toEqual(["Units: more than 1", "units is more than 1"]);
+        expect(chip(`.ordered_at >= ($now | datetime_add(-1; "day"))`)).toEqual(["Ordered at: in the last 1 day", "ordered at is in the last 1 day"]);
+        expect(chip("(.ordered_at | year) == 2026")).toEqual(["Ordered at: in 2026", "ordered at is in 2026"]);
+        // Three conditions, one of them twice: two said, the first short.
+        expect(chip(`.region == "NSW" and (.ordered_at | year) == 2026 and .region == "NSW"`)).toEqual(["Region: NSW +1", "region is NSW and ordered at is in 2026"]);
+        expect(chip(`.region == "SA" or .region == "WA" or .region == "NSW"`)).toEqual(["Region: SA +2", "region is SA or region is WA or region is NSW"]);
+    });
+
+    it("is its jq both ways where the condition is no form the rows write", () => {
+        expect(chip(`.region | IN("SA", "NSW")`)).toEqual([`.region | IN("SA", "NSW")`, `.region | IN("SA", "NSW")`]);
     });
 });
 

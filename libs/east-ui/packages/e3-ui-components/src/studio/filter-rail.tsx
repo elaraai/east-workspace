@@ -5,9 +5,10 @@
 
 /**
  * A Studio page's filter rail (#1673): the reader's filters of the page as
- * chips — each its condition in words, its source's name first where the
- * page reads more than one — a `+ FILTER` chip, and each chip's editor: the
- * query builder's condition rows over its source (`./filter-editor.tsx`).
+ * chips — each its condition in short words, `Region: NSW +1`, and whole on
+ * its hover, its source's name first where the page reads more than one — a
+ * `+ FILTER` chip, and each chip's editor: the query builder's condition rows
+ * over its source (`./filter-editor.tsx`).
  *
  * It is a model for the rail both it and Slice draw (`useSliceRailItems`, on
  * the rail engine): its one affordance is the filters, whose chips fold one
@@ -28,7 +29,7 @@ import type { StudioCellType, StudioSourceType } from "@elaraai/e3-ui/internal";
 import { useFormatters, type ToolbarItem } from "@elaraai/east-ui-components";
 import { SliceChoiceGroup, SliceFilterChips, useSliceDensity, useSliceRailItems, type SliceFilterChip, type SliceRailModel } from "@elaraai/east-ui-components/internal";
 import { useVisualRoot } from "../query/visual/answers.js";
-import { addFilter, changeFilter, filterWords, removeFilter, type PageFilter } from "../query/visual/filters.js";
+import { addFilter, changeFilter, filterChip, removeFilter, type PageFilter } from "../query/visual/filters.js";
 import type { PrintSource } from "../query/visual/print.js";
 import { printSourceOf } from "../query/visual/source.js";
 import { useQueryWords } from "../query/words.js";
@@ -134,10 +135,14 @@ function StudioFilterChips({ sources, page, foldChips }: StudioFilterChipsProps)
     const density = useSliceDensity();
     const chips = page.filters.map((filter, i): SliceFilterChip => {
         const on = sources.find((held) => held.source.key === filter.source);
-        const said = on === undefined ? printJq(filter.where).text : filterWords(filter.where, on.read, words);
+        // Short on the chip — `Region: NSW +1` — and whole on its hover (#1673).
+        const jq = printJq(filter.where).text;
+        const said = on === undefined ? { words: jq, whole: jq } : filterChip(filter.where, on.read, words);
         const name = on?.source.name ?? filter.source;
+        const named = (text: string) => (sources.length > 1 ? m.filterOn({ source: name, filter: text }) : text);
         return {
-            label: sources.length > 1 ? m.filterOn({ source: name, filter: said }) : said,
+            label: named(said.words),
+            whole: named(said.whole),
             editLabel: m.filterOf({ source: name }),
             large: true,
             editor: (): ReactNode => (on === undefined
