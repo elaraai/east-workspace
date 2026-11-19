@@ -51,9 +51,10 @@ function within(file: string, places: readonly string[]): boolean {
 /**
  * The local backend and the local runner, which are local by what they are:
  * the modules that run a unit as a process on this machine and judge its
- * processes here. The rest of `execution/` — the engine and its drivers, the
- * planners, the runner interface — is shared, and every backend's driver runs
- * it.
+ * processes here, and those that apply a large delta on a thread of this
+ * process, over the repository's files. The rest of `execution/` — the engine
+ * and its drivers, the planners, the runner interface — is shared, and every
+ * backend's driver runs it.
  */
 const LOCAL = [
   'storage/local/',
@@ -61,6 +62,7 @@ const LOCAL = [
   'execution/intake.ts', 'execution/units.ts', 'execution/environment.ts', 'execution/environment-build.ts', 'execution/environment-install.ts',
   'execution/environment-target.ts', 'execution/scratch.ts', 'execution/budget.ts',
   'execution/cgroups.ts', 'execution/memory.ts', 'execution/segment-fetch.ts', 'execution/local-orchestrator.ts',
+  'execution/delta-thread.ts', 'execution/delta-thread-worker.ts',
 ];
 
 /** Test support: it creates local repositories and temporary files for tests. */

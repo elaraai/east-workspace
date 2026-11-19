@@ -218,12 +218,15 @@ export async function createServer(config: ServerConfig): Promise<Server> {
   // backend) and one-shot calls, record
   // mutations, a deploy job's migrations and index builds, and an upload's
   // intake units, all on the server's one budget (cached — the runner holds its
-  // repo anchor, the budget, and which runner it found cannot run an intake)
+  // repo anchor, the budget, and which runner it found cannot run an intake).
+  // It applies a large load's or save's delta on a thread of its own, since
+  // this process answers every request on one: applied here, a load of a few
+  // hundred thousand rows held every other request for seconds
   const runners = new Map<string, TaskRunner>();
   const getRunner = (repoPath: string): TaskRunner => {
     let runner = runners.get(repoPath);
     if (!runner) {
-      runner = new LocalTaskRunner(repoPath, budget);
+      runner = new LocalTaskRunner(repoPath, budget, { deltaThreads: true });
       runners.set(repoPath, runner);
     }
     return runner;

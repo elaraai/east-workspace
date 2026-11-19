@@ -28,7 +28,7 @@ import {
   type LockOperation, type PartitionProgress, type RecordCommit, type RecordLoadArgs, type RecordLoadObject, type RecordLoadProgress,
   type RecordLoadResult, type RecordSignature,
 } from '@elaraai/e3-types';
-import { DeltaStoppedError, applyDelta, applyDeltaSummarized, type DeltaArmSummary } from './record-apply.js';
+import { DeltaStoppedError, applyDeltaWhere, type DeltaApply, type DeltaArmSummary } from './record-apply.js';
 import { PENDING_SLOT, pendingSources, sourceEntriesIn, sourceLoadSlots, sourceSegments, sourcesSlot } from './record-slots.js';
 import {
   casBackoffMs, encodeMutationArgs, named, nextVersions, readRecordState, resolveRecord, stateTargets, stateWritten, storeCommit,
@@ -146,6 +146,10 @@ export interface RecordLoadCommitOptions {
   /** Stops the commit before its next attempt, between two segments of the
    *  delta as it is applied and counted, and before its write. */
   readonly signal?: AbortSignal;
+  /** Where the commit applies a large delta, the load's own or one it folds
+   *  in: its host's runner's place for it (`TaskRunner.applyDelta`), when the
+   *  runner names one. Absent, every delta is applied where the commit runs. */
+  readonly apply?: DeltaApply;
 }
 
 /**
@@ -213,7 +217,7 @@ export async function recordLoadCommit(
   let result: { readonly refs: RecordStateRefs; readonly counts: Pick<RecordLoadArgs, 'set' | 'deleted' | 'unchanged'> } | undefined;
   // The load's own delta applied to a state, held to its source's entries, and counted in that one read of it
   const ownApplied = async (state: RecordStateRefs): Promise<NonNullable<typeof result>> => {
-    const { written, summary } = await applyDeltaSummarized(storage, repo, stateTargets(state), delta, { cases: own, ...(signal !== undefined && { signal }) });
+    const { written, summary } = await applyDeltaWhere(options.apply, storage, repo, stateTargets(state), delta, { cases: own, ...(signal !== undefined && { signal }) });
     return { refs: stateWritten(state, written), counts: await loadCounts(storage, repo, summary, run) };
   };
   for (let attempt = 1; ; attempt++) {
@@ -232,7 +236,7 @@ export async function recordLoadCommit(
       if (Array.isArray(passed) && passed.every((commit) => replays(commit, source))) {
         if (result === undefined) result = await ownApplied(await readRecordState(storage, repo, stateHash));
         // Oldest first, as they landed: each a save's few ops, or another source's load
-        else for (const commit of passed.reverse()) if (commit.delta.type === 'some') result = { ...result, refs: await applied(storage, repo, result.refs, commit.delta.value, signal) };
+        else for (const commit of passed.reverse()) if (commit.delta.type === 'some') result = { ...result, refs: await applied(storage, repo, result.refs, commit.delta.value, signal, options.apply) };
       } else {
         if (!sameObject(await recordSourceRun(storage, repo, stateHash, source), run)) {
           return { kind: 'restart', reason: `the entries of source '${source}' changed under its load` };
@@ -330,11 +334,13 @@ function replays(commit: RecordCommit, source: string): boolean {
  * @param state - The targets the delta applies to
  * @param delta - The delta
  * @param signal - Stops the apply between two of the delta's segments
+ * @param apply - Where a large delta is applied, when the commit's host names
+ *   a place: another source's load is as large as this one's
  */
 async function applied(
-  storage: StorageBackend, repo: string, state: RecordStateRefs, delta: string, signal: AbortSignal | undefined,
+  storage: StorageBackend, repo: string, state: RecordStateRefs, delta: string, signal: AbortSignal | undefined, apply: DeltaApply | undefined,
 ): Promise<RecordStateRefs> {
-  return stateWritten(state, await applyDelta(storage, repo, stateTargets(state), delta, signal === undefined ? {} : { signal }));
+  return stateWritten(state, (await applyDeltaWhere(apply, storage, repo, stateTargets(state), delta, signal === undefined ? {} : { signal })).written);
 }
 
 /**
@@ -1110,6 +1116,7 @@ async function loadHeld(
       execution: { inputsHash: inputsHash([adopted.hash, run]), executionId: ran.executionId },
       actor: options.actor,
       signal: work,
+      ...(runner.applyDelta !== undefined && { apply: runner.applyDelta }),
     });
     if (committed.kind === 'stopped') return null;
     if (committed.kind === 'committed') {

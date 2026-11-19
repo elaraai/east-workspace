@@ -36,6 +36,7 @@ import { materializeEnvironment } from './environment.js';
 import { runDetached } from './runDetached.js';
 import { executionScratchDir } from './scratch.js';
 import { unitThreads, type Budget, type Grant, type GrantKind } from './budget.js';
+import { applyDeltaOnThread } from './delta-thread.js';
 import { unitCap, unitCgroups } from './cgroups.js';
 import {
   clearUnitOutput, readUnitResult, runnerEnded, stageMergeUnit, stageOutputMerge, stageRunUnit, storeUnitOutput, unitArgv,
@@ -172,6 +173,13 @@ export interface LocalTaskRunnerOptions extends ProcessSettings {
   /** Replaces a detached call — a function's, or a one-shot's — before
    *  anything of it runs here. Intake units still run locally. */
   detached?: DetachedCallExecutor;
+  /** Whether the runner applies a large mutation delta on a thread of its
+   *  own (`TaskRunner.applyDelta`, `applyDeltaOnThread`): for a process that
+   *  answers requests on the thread that would otherwise apply it, a server,
+   *  so a large load or save holds no other request up. Absent, the runner
+   *  names no place, and a delta is applied where it is asked: a command has
+   *  no request to keep waiting. */
+  deltaThreads?: boolean;
 }
 
 declare module './cache.js' {
@@ -253,7 +261,15 @@ export class LocalTaskRunner implements TaskRunner {
    */
   constructor(private readonly repo: string, private readonly budget?: Budget, private readonly settings: LocalTaskRunnerOptions = {}) {
     checkProcessSettings(settings);
+    if (settings.deltaThreads === true) {
+      this.applyDelta = (storage, repo, targets, deltaHash, options) => applyDeltaOnThread(storage, repo, targets, deltaHash, options, budget);
+    }
   }
+
+  /** Where a large mutation delta is applied, when the runner was asked to
+   *  apply them on threads of their own (`LocalTaskRunnerOptions.deltaThreads`):
+   *  each on a thread, as many at once as the runner's budget has cores. */
+  readonly applyDelta?: TaskRunner['applyDelta'];
 
   /** The runners, by command, that could not run an intake unit at all, with
    *  why: not tried again by this runner. */

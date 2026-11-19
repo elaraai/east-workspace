@@ -28,7 +28,13 @@ import {
 import { DELTA_CONFLICT, RecordSummaryTotalsType, encodeDatasetBlob, mutationDeltaType, type DeltaTarget } from '@elaraai/e3-types';
 import { DatasetSegments } from './dataset-open.js';
 import { datasetWrite } from './trees.js';
-import { DeltaConflictError, ExternalEntryError, SummaryIntegrityError, applyDelta, applyDeltaEntries } from './record-apply.js';
+import {
+  DELTA_OPS_APPLIED_IN_PLACE, DeltaConflictError, DeltaStoppedError, ExternalEntryError, SummaryIntegrityError, applyDelta, applyDeltaEntries,
+  applyDeltaSummarized, applyDeltaWhere, type DeltaApply,
+} from './record-apply.js';
+import { applyDeltaOnThread } from './execution/delta-thread.js';
+import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
+import { Budget } from './execution/budget.js';
 import { createTestRepo, encodeInSegmentsOf, removeTestRepo, seededStream, storeSegmentsOf } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { StorageBackend } from './index.js';
@@ -407,20 +413,20 @@ describe('applying a mutation delta', () => {
       /does not hold/);
   });
 
-  describe('a write held to some cases of a composite record\'s key', () => {
-    const SourceKeyType = VariantType({ erp: StringType, own: StringType });
-    const OrdersType = DictType(SourceKeyType, RowType);
-    type SourceKey = ValueTypeOf<typeof SourceKeyType>;
-    const ordersOrder = compareFor(SourceKeyType);
-    /** The record: an entry of each source. */
-    const orders = (): SortedMap<SourceKey, Row> => new SortedMap<SourceKey, Row>(
-      [[variant('erp', 'SO-1001'), row(1)], [variant('own', 'P-1'), row(2)]], ordersOrder);
-    const OWN = { cases: new Set(['own']) };
-    /** The refusal of an op on the ERP's entry: the key, its source, and the words. */
-    const refused = (key: string) => (err: unknown) => err instanceof ExternalEntryError && err.source === 'erp' && err.printed === `.erp "${key}"`
-      && ordersOrder(err.key as SourceKey, variant('erp', key)) === 0
-      && err.message === `.erp "${key}" is an entry of source 'erp', which this write may not write`;
+  const SourceKeyType = VariantType({ erp: StringType, own: StringType });
+  const OrdersType = DictType(SourceKeyType, RowType);
+  type SourceKey = ValueTypeOf<typeof SourceKeyType>;
+  const ordersOrder = compareFor(SourceKeyType);
+  /** A composite record of two sources: an entry of each. */
+  const orders = (): SortedMap<SourceKey, Row> => new SortedMap<SourceKey, Row>(
+    [[variant('erp', 'SO-1001'), row(1)], [variant('own', 'P-1'), row(2)]], ordersOrder);
+  const OWN = { cases: new Set(['own']) };
+  /** The refusal of an op on the ERP's entry: the key, its source, and the words. */
+  const refused = (key: string) => (err: unknown) => err instanceof ExternalEntryError && err.source === 'erp' && err.printed === `.erp "${key}"`
+    && ordersOrder(err.key as SourceKey, variant('erp', key)) === 0
+    && err.message === `.erp "${key}" is an entry of source 'erp', which this write may not write`;
 
+  describe('a write held to some cases of a composite record\'s key', () => {
     it('takes every op on a key of its cases, and writes what the door writes', async () => {
       const hash = await store(OrdersType, orders());
       const after = orders();
@@ -569,6 +575,114 @@ describe('applying a mutation delta', () => {
         { target: 'by_week', key: weekOf(5, pressOf(2)), op: variant('delete', { count: 3n, ms: 3n * HOUR }) },
       ]), (err: unknown) => err instanceof SummaryIntegrityError
         && /^by_week: a summary's arm carries 'delete' under \(ik=\(on=\(\), tile=5, key="P-1002"\), k=null\), where every op adds to a total$/.test(err.message));
+    });
+  });
+
+  describe('a delta applied elsewhere than where it is asked', () => {
+    /** A delta of `count` retitles of a stored record's first rows, and the record they leave. */
+    async function retitles(before: SortedMap<string, Row>, count: number): Promise<{ deltaHash: string; after: SortedMap<string, Row> }> {
+      const after = new SortedMap(before, compareFor(StringType));
+      const ops: Array<[unknown, unknown]> = [];
+      for (let i = 0; i < count; i++) {
+        after.set(id(i), { due: BigInt(i), title: `Retitled ${i}` });
+        ops.push([id(i), variant('update', variant('patch', {
+          due: variant('unchanged', null), title: variant('replace', { before: `Plan ${i}`, after: `Retitled ${i}` }),
+        }))]);
+      }
+      return { deltaHash: await delta('primary', StringType, PlansType, ops), after };
+    }
+
+    it('ruling 56 — a delta of more ops than are applied in place goes where the runner applies deltas, and a smaller one, or one of a runner that names no place, is applied where it is asked', async () => {
+      const before = plansOf(DELTA_OPS_APPLIED_IN_PLACE + 500);
+      const hash = await store(PlansType, before);
+      const targets = new Map([['primary', hash]]);
+      const sent: string[] = [];
+      const elsewhere: DeltaApply = (...asked) => {
+        sent.push(asked[3]);
+        return applyDeltaSummarized(...asked);
+      };
+      const small = await retitles(before, DELTA_OPS_APPLIED_IN_PLACE);
+      const large = await retitles(before, DELTA_OPS_APPLIED_IN_PLACE + 1);
+
+      assert.equal((await applyDeltaWhere(elsewhere, storage, repo, targets, small.deltaHash)).written.get('primary'), await store(PlansType, small.after));
+      assert.deepEqual(sent, [], 'a delta of as many ops as are applied in place is applied where it is asked');
+      const applied = await applyDeltaWhere(elsewhere, storage, repo, targets, large.deltaHash);
+      assert.deepEqual(sent, [large.deltaHash], 'one op more, and it is sent where the runner applies deltas');
+      assert.equal(applied.written.get('primary'), await store(PlansType, large.after));
+      assert.deepEqual(applied.summary, [{ target: 'primary', insert: 0, update: DELTA_OPS_APPLIED_IN_PLACE + 1, delete: 0, add: 0 }]);
+      assert.equal((await applyDeltaWhere(undefined, storage, repo, targets, large.deltaHash)).written.get('primary'), applied.written.get('primary'),
+        'a runner that names no place has every delta applied where it is asked');
+    });
+
+    it('ruling 56 — on a thread of its own a delta applies as it does in place: the same manifests, which are the door\'s, and the same count of what it did', async () => {
+      const before = plansOf(6_000);
+      const hash = await store(PlansType, before);
+      const { deltaHash, after } = await retitles(before, 5_000);
+      const targets = new Map([['primary', hash]]);
+      const inPlace = await applyDeltaSummarized(storage, repo, targets, deltaHash);
+      const onThread = await applyDeltaOnThread(storage, repo, targets, deltaHash);
+      assert.deepEqual([...onThread.written], [...inPlace.written]);
+      assert.deepEqual(onThread.summary, inPlace.summary);
+      assert.equal(onThread.written.get('primary'), await store(PlansType, after), 'the manifest the thread wrote IS the rebuilt manifest');
+    });
+
+    it('ruling 56 — a thread refuses as the apply refuses, by the same classes and in the same words: a stale write, an entry of another source, a delta the record holds no target of', async () => {
+      const hash = await store(PlansType, plansOf(600));
+      const targets = new Map([['primary', hash]]);
+      await assert.rejects(
+        applyDeltaOnThread(storage, repo, targets, await delta('primary', StringType, PlansType, [['p-999999', variant('delete', row(9))]])),
+        (err: unknown) => err instanceof DeltaConflictError && /p-999999/.test(err.message));
+      await assert.rejects(
+        applyDeltaOnThread(storage, repo, targets, await delta('by_nothing', StringType, PlansType, [[id(0), variant('delete', row(0))]])),
+        (err: unknown) => err instanceof Error && !(err instanceof DeltaConflictError)
+          && err.message === "the mutation delta names target 'by_nothing', which this record does not hold — it has primary");
+
+      const orders0 = await store(OrdersType, orders());
+      await assert.rejects(
+        applyDeltaOnThread(storage, repo, new Map([['primary', orders0]]),
+          await delta('primary', SourceKeyType, OrdersType, [[variant('erp', 'SO-9'), variant('insert', row(9))]]), OWN),
+        refused('SO-9'), 'the entry\'s key crosses with its source and its words');
+    });
+
+    it('ruling 56 — a signal that fires stops the apply on its thread: before the apply is asked, while it waits its turn among as many as the budget has cores, and while it runs', async () => {
+      const before = plansOf(6_000);
+      const hash = await store(PlansType, before);
+      const { deltaHash } = await retitles(before, 5_000);
+      const targets = new Map([['primary', hash]]);
+      const stopped = (err: unknown) => err instanceof DeltaStoppedError;
+
+      const asked = new AbortController();
+      asked.abort();
+      await assert.rejects(applyDeltaOnThread(storage, repo, targets, deltaHash, { signal: asked.signal }), stopped);
+
+      // A budget of one core: one apply has its thread, and the next waits its turn, where a stop reaches it
+      const budget = new Budget({ cores: 1, memory: 1024 ** 3 });
+      const first = applyDeltaOnThread(storage, repo, targets, deltaHash, {}, budget);
+      const waiting = new AbortController();
+      const second = applyDeltaOnThread(storage, repo, targets, deltaHash, { signal: waiting.signal }, budget);
+      const third = applyDeltaOnThread(storage, repo, targets, deltaHash, {}, budget);
+      waiting.abort();
+      await assert.rejects(second, stopped);
+      // The turn it gave up goes to the one behind it, once the first has ended
+      assert.deepEqual([...(await third).written], [...(await first).written]);
+
+      // Stopped once its thread has been started, long before a thread has loaded and applied five thousand ops
+      const running = new AbortController();
+      const applying = applyDeltaOnThread(storage, repo, targets, deltaHash, { signal: running.signal }, budget);
+      setImmediate(() => running.abort());
+      await assert.rejects(applying, stopped);
+      // Its turn is let go, and nothing it wrote is named: the record applies the delta afresh
+      assert.ok((await applyDeltaOnThread(storage, repo, targets, deltaHash, {}, budget)).written.has('primary'));
+    });
+
+    it('ruling 56 — the local runner names a place for a large delta only when it is asked to apply them on threads: a server asks, and a command, which keeps no request waiting, does not', async () => {
+      assert.equal(new LocalTaskRunner(repo).applyDelta, undefined);
+      const runner = new LocalTaskRunner(repo, undefined, { deltaThreads: true });
+      const before = plansOf(6_000);
+      const hash = await store(PlansType, before);
+      const { deltaHash, after } = await retitles(before, 5_000);
+      const applied = await applyDeltaWhere(runner.applyDelta, storage, repo, new Map([['primary', hash]]), deltaHash);
+      assert.equal(applied.written.get('primary'), await store(PlansType, after));
     });
   });
 });

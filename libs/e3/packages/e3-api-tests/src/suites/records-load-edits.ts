@@ -15,7 +15,10 @@
  * The cases come from a practical run of the same things by hand, with real
  * commands in separate processes. Each drives the API alone, so a server runs
  * them whatever runs its loads; and each sizes what it does by what the
- * server did, never by a time, so a slow server runs the same cases.
+ * server did, never by a time, so a slow server runs the same cases. One case
+ * reads a clock, since what it holds a server to is time: a large load holds
+ * up no other request while it is applied (ruling 56), so quick edits saved
+ * while one runs take what they take on their own.
  */
 
 import { describe, it } from 'node:test';
@@ -32,11 +35,17 @@ import {
 
 import type { TestContext } from '../context.js';
 import type { TestSetup } from '../setup.js';
-import { COMPOSITE_ORDERS_PATH, YardByCustomerType, YardKeyType, YardOrdersType, createYardPackageZip } from '../fixtures.js';
+import {
+  COMPOSITE_ORDERS_PATH, CompositeOrderKeyType, CompositeOrdersType, YardByCustomerType, YardKeyType, YardOrdersType,
+  createCompositeRecordPackageZip, createYardPackageZip,
+} from '../fixtures.js';
 import { erpDelivery, type ErpOrder } from './object-upload.js';
 
 const PKG = 'yard-pkg';
 const WS = 'yard-ws';
+/** A second workspace, of a record with no index: a patch of it runs no program, so saving one is the server's own work and nothing else. */
+const QUICK_PKG = 'quick-pkg';
+const QUICK_WS = 'quick-ws';
 
 type YardKey = ValueTypeOf<typeof YardKeyType>;
 type YardOrders = ValueTypeOf<typeof YardOrdersType>;
@@ -53,7 +62,11 @@ const sameKey = equalFor(YardKeyType);
 const sameOrders = equalFor(YardOrdersType);
 const sameIndex = equalFor(YardByCustomerType);
 const byIndexKey = compareFor(YardByCustomerType.key);
+const encodeQuickPatch = encodeBeast2For(PatchType(CompositeOrdersType));
+const byQuickKey = compareFor(CompositeOrderKeyType);
 
+/** How many orders a large load's delivery holds: enough that applying it is seconds of a thread's work. */
+const LARGE = 250_000;
 /** How many orders a long load's delivery holds: enough that edits are saved while it runs. */
 const LONG = 60_000;
 /** How many a load of middling length holds. */
@@ -187,7 +200,10 @@ export function recordLoadEditTests(setup: TestSetup<TestContext>): void {
       const end = await ended(ctx, 'erp', id);
       assert.ok(end.type === 'completed' && end.value.outcome.type === 'loaded', `the load ended ${end.type}`);
       assert.equal(end.value.set, BigInt(LONG));
-      assert.ok(during > 0, `an edit was saved and answered while the load still ran: ${edits.length} saved, none before it ended — the delivery is too short for this server`);
+      // A server that answers its requests on the thread its loads run on answers an edit once the load lets it
+      if (ctx.applyHoldsNoRequest) {
+        assert.ok(during > 0, `an edit was saved and answered while the load still ran: ${edits.length} saved, none before it ended — the delivery is too short for this server`);
+      }
 
       const commits = await chain(ctx);
       assert.deepEqual([count(commits, '$load:erp'), count(commits, '$load:wms'), count(commits, 'patch')], [1, 1, edits.length],
@@ -290,6 +306,47 @@ export function recordLoadEditTests(setup: TestSetup<TestContext>): void {
       assert.equal(again.outcome.type, end.type === 'cancelled' ? 'loaded' : 'again', 'the same delivery asked again');
       assert.equal(count(await chain(ctx), '$load:erp'), 1, 'loaded once');
       await holdsWithItsIndex(ctx, { erp, wms }, edits);
+    });
+
+    it('ruling 56 — a large load holds up no other request while it is applied: quick edits of another workspace, saved one after another while it runs, each take what such an edit takes on its own', async (t) => {
+      const ctx = await setup(t);
+      if (!ctx.applyHoldsNoRequest) {
+        t.skip('this server applies a load on the thread that answers its requests');
+        return;
+      }
+      await deployYard(ctx);
+      await ctx.importPackage(await createCompositeRecordPackageZip(ctx.tempDir, QUICK_PKG, '1.0.0'));
+      await ctx.createWorkspace(QUICK_WS);
+      await ctx.deployPackage(QUICK_WS, `${QUICK_PKG}@1.0.0`);
+      /** Saves one order of the quick workspace's record, and answers how long the save took, in milliseconds. */
+      const quick = async (n: number): Promise<number> => {
+        const patch = variant('patch', new SortedMap([[variant('own', `Q-${n}`), variant('insert', edited(n))]], byQuickKey));
+        const began = performance.now();
+        const saved = await workspaceRecordMutate(ctx.config.baseUrl, ctx.repoName, QUICK_WS, 'orders', 'patch',
+          { args: [encodeQuickPatch(patch as ValueTypeOf<ReturnType<typeof PatchType<typeof CompositeOrdersType>>>)], actor: none, limits: none }, await ctx.opts());
+        committed(saved, `the quick edit Q-${n}`);
+        return performance.now() - began;
+      };
+
+      // What a quick edit takes with nothing else running: the middle of nine
+      const alone: number[] = [];
+      for (let n = 0; n < 9; n++) alone.push(await quick(n));
+      const usual = alone.sort((a, b) => a - b)[4]!;
+
+      const id = await launch(ctx, 'erp', await delivered(ctx, book(LARGE, 1)));
+      const beside: number[] = [];
+      while ((await status(ctx, 'erp', id)).type === 'processing' && beside.length < 5_000) beside.push(await quick(alone.length + beside.length));
+      const end = await ended(ctx, 'erp', id);
+      assert.ok(end.type === 'completed' && end.value.outcome.type === 'loaded', `the load ended ${end.type}`);
+      assert.equal(end.value.set, BigInt(LARGE));
+      assert.ok(beside.length > 0, 'a quick edit was saved while the load ran');
+
+      // A load applied on the thread that answers requests holds an edit for seconds, a hundred times what it takes
+      // alone. Twenty-five times, and never under three quarters of a second, leaves a busy machine its noise.
+      const slowest = Math.max(...beside);
+      t.diagnostic(`${beside.length} quick edits beside the load: the slowest ${Math.round(slowest)} ms, where one alone takes ${Math.round(usual)} ms`);
+      assert.ok(slowest <= Math.max(25 * usual, 750),
+        `the slowest of ${beside.length} quick edits saved while ${LARGE} orders loaded took ${Math.round(slowest)} ms, where one takes ${Math.round(usual)} ms on its own: the load held it up`);
     });
   });
 }

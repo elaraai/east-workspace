@@ -130,6 +130,8 @@ export function apiSuitesInChromium(file: string): void {
           return fetch(input, init);
         },
         commands: false,
+        // The page's e3 worker applies a load on the thread that answers its requests
+        applyHoldsNoRequest: false,
       });
       t.after(() => ctx.cleanup());
       return ctx;

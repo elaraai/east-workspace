@@ -57,7 +57,9 @@ import {
   type RecordSource,
   type Structure,
 } from '@elaraai/e3-types';
-import { DeltaConflictError, ExternalEntryError, SummaryIntegrityError, applyDelta, applyDeltaEntries, type DeltaEntry } from './record-apply.js';
+import {
+  DELTA_OPS_APPLIED_IN_PLACE, DeltaConflictError, ExternalEntryError, SummaryIntegrityError, applyDeltaEntries, applyDeltaWhere, type DeltaEntry,
+} from './record-apply.js';
 import {
   compactedSourceSlots, deploySourceSlots, genesisSourceSlots, pendingSources, slotNames, sourceLastDelivery, systemCommitSourceSlots,
 } from './record-slots.js';
@@ -1301,6 +1303,12 @@ async function writeWholeState(
  * there is no user East to run. That is the interactive door — its cost is the
  * rows the edit touched, with no process anywhere.
  *
+ * A delta of more ops than are applied in place (`applyDeltaWhere`) is
+ * applied where the runner applies deltas, when it names a place: a save of
+ * hundreds of thousands of rows is seconds of a thread's work, which a server
+ * that answers every request on one thread gives a thread of its own. A
+ * client's patch that large is stored first and applied from the store.
+ *
  * A composite record's mutation names the sources it may write (its object's
  * `cases`), and the apply holds the write to them on both paths: an op on an
  * entry of any other source — an external one, which only its load writes —
@@ -1335,7 +1343,7 @@ async function writeDelta(
   let deltaHash: string;
   let written: Map<string, string>;
   try {
-    if (patch !== null) {
+    if (patch !== null && (runner.applyDelta === undefined || patch.ops.size <= DELTA_OPS_APPLIED_IN_PLACE)) {
       // The client's patch is the delta, held here: it is applied from the
       // entries in hand while it is stored, and never read back
       [written, deltaHash] = await bothSettled(
@@ -1343,11 +1351,19 @@ async function writeDelta(
         storeDelta(storage, repo, patch),
       );
     } else {
-      const [taskHash, ...argHashes] = await (program ?? storeProgram(storage, repo, mutObj, args));
-      const ran = await runUnit(storage, runner, repo, taskHash!, [state.primary, ...argHashes], run);
-      if ('failure' in ran) return ran;
-      deltaHash = ran.output;
-      written = await applyDelta(storage, repo, targets, deltaHash, held);
+      if (patch !== null) {
+        // A patch of more ops than are applied here is stored first, and
+        // applied from the store, where the runner applies deltas
+        deltaHash = await storeDelta(storage, repo, patch);
+      } else {
+        const [taskHash, ...argHashes] = await (program ?? storeProgram(storage, repo, mutObj, args));
+        const ran = await runUnit(storage, runner, repo, taskHash!, [state.primary, ...argHashes], run);
+        if ('failure' in ran) return ran;
+        deltaHash = ran.output;
+      }
+      // A large delta holds no other request up where the runner has a place
+      // of its own to apply it
+      written = (await applyDeltaWhere(runner.applyDelta, storage, repo, targets, deltaHash, held)).written;
     }
   } catch (err) {
     if (err instanceof DeltaConflictError) return { conflictDetail: err.message };

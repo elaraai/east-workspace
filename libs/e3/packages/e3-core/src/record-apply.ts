@@ -66,6 +66,15 @@ const DELTA_SEGMENTS_AHEAD = 4;
 /** The delta's target that is the record's own collection. */
 const PRIMARY_TARGET = 'primary';
 
+/**
+ * The most ops of a delta that are applied where the apply is asked, when its
+ * caller names another place ({@link DeltaApply}): about a tenth of a second
+ * of a thread's work, less than taking the apply elsewhere costs. A delta of
+ * more is applied there, so a thread that answers requests is never held for
+ * as long as a large load or save takes to apply.
+ */
+export const DELTA_OPS_APPLIED_IN_PLACE = 4096;
+
 /** One entry of a delta: the target it changes, the key, and the op. */
 export interface DeltaEntry {
   /** `primary`, an index name, or {@link DELTA_CONFLICT}. */
@@ -249,10 +258,85 @@ export async function applyDeltaSummarized(
   targets: Map<string, string>,
   deltaHash: string,
   options: ApplyDeltaOptions = {},
-): Promise<{ written: Map<string, string>; summary: DeltaArmSummary[] }> {
+): Promise<DeltaApplied> {
   const summary: DeltaArmSummary[] = [];
   const written = await applyDeltaEntries(storage, repo, targets, summarized(deltaEntries(storage, repo, deltaHash, options.signal), summary), options);
   return { written, summary };
+}
+
+/** A delta applied: what {@link applyDeltaSummarized} answers. */
+export interface DeltaApplied {
+  /** Target name -> its new manifest hash, for the targets that changed. */
+  written: Map<string, string>;
+  /** What the delta did to each target, in canonical order. */
+  summary: DeltaArmSummary[];
+}
+
+/**
+ * Applies a mutation delta as {@link applyDeltaSummarized} does, somewhere of
+ * its own: what a runner gives as `TaskRunner.applyDelta`.
+ *
+ * @remarks
+ * It answers, refuses and stops as the apply does — the same manifests, the
+ * same errors by their classes, and {@link DeltaStoppedError} once its signal
+ * fires — so its caller cannot tell where the delta was applied. It writes
+ * the objects the apply writes and nothing else: no ref, and nothing that
+ * names them.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param targets - target name -> the manifest hash it currently holds
+ * @param deltaHash - the delta object's content hash
+ * @param options - The cases the write may touch, and a signal that stops it
+ * @returns As {@link applyDeltaSummarized} does
+ */
+export type DeltaApply = (
+  storage: StorageBackend,
+  repo: string,
+  targets: Map<string, string>,
+  deltaHash: string,
+  options?: ApplyDeltaOptions,
+) => Promise<DeltaApplied>;
+
+/**
+ * Applies a mutation delta where its size says: here, or where the caller's
+ * runner applies deltas.
+ *
+ * @remarks
+ * Applying a delta is a thread's work for as long as the delta is large:
+ * seconds for a load of a few hundred thousand rows, or a save of as many. A
+ * host that answers every request on one thread gives a place of its own for
+ * it (`TaskRunner.applyDelta`), and a delta of more than
+ * {@link DELTA_OPS_APPLIED_IN_PLACE} ops is applied there. A smaller one, and
+ * every delta of a host that names no place, is applied here.
+ *
+ * @param elsewhere - Where the caller's runner applies deltas, when it names a
+ *   place
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param targets - target name -> the manifest hash it currently holds
+ * @param deltaHash - the delta object's content hash
+ * @param options - The cases the write may touch, and a signal that stops it
+ * @returns As {@link applyDeltaSummarized} does
+ * @throws As {@link applyDeltaSummarized} does.
+ *
+ * @example
+ * ```ts
+ * const { written } = await applyDeltaWhere(runner.applyDelta, storage, repo, stateTargets(state), delta, { cases });
+ * ```
+ */
+export async function applyDeltaWhere(
+  elsewhere: DeltaApply | undefined,
+  storage: StorageBackend,
+  repo: string,
+  targets: Map<string, string>,
+  deltaHash: string,
+  options: ApplyDeltaOptions = {},
+): Promise<DeltaApplied> {
+  if (elsewhere !== undefined && (await DatasetSegments.open(storage, repo, deltaHash)).elementCount > DELTA_OPS_APPLIED_IN_PLACE) {
+    return elsewhere(storage, repo, targets, deltaHash, options);
+  }
+  return applyDeltaSummarized(storage, repo, targets, deltaHash, options);
 }
 
 /**

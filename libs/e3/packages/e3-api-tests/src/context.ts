@@ -96,6 +96,19 @@ export interface TestConfig {
    * next task ends.
    */
   wakesRuns?: boolean;
+
+  /**
+   * Whether a large load holds up no other request of the server while it is
+   * applied (default true). The suite of record loads beside edits then holds
+   * quick edits of another workspace, saved while a large load runs, to what
+   * such an edit takes on its own.
+   *
+   * @remarks
+   * A harness whose server applies a load on the one thread that answers its
+   * requests — e3 running in a page — sets it false, and the case is skipped
+   * there: such a server answers the edits once the load is applied.
+   */
+  applyHoldsNoRequest?: boolean;
 }
 
 /**
@@ -129,6 +142,11 @@ export interface TestContext {
   /** Whether the server's start reaches a run in flight:
    *  {@link TestConfig.wakesRuns}, or true when the harness does not say. */
   wakesRuns: boolean;
+
+  /** Whether a large load holds up no other request of the server:
+   *  {@link TestConfig.applyHoldsNoRequest}, or true when the harness does not
+   *  say. */
+  applyHoldsNoRequest: boolean;
 
   /** Create a test package and return path to zip file */
   createPackage: (name: string, version: string) => Promise<string>;
@@ -247,6 +265,8 @@ export async function createTestContext(config: TestConfig): Promise<TestContext
     commands: config.commands ?? true,
 
     wakesRuns: config.wakesRuns ?? true,
+
+    applyHoldsNoRequest: config.applyHoldsNoRequest ?? true,
 
     createPackage: async (name: string, version: string) => {
       const zipPath = await createPackageZip(tempDir, name, version);

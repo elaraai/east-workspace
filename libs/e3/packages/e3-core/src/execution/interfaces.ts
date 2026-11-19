@@ -13,6 +13,7 @@
 
 import type { EastTypeValue } from '@elaraai/east';
 import type { ExecutionStatus, PartitionProgress, RunnerValue, StopReason } from '@elaraai/e3-types';
+import type { DeltaApply } from '../record-apply.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 
 // =============================================================================
@@ -454,4 +455,20 @@ export interface TaskRunner {
    *   without saying why the delivery is refused.
    */
   intake(storage: StorageBackend, spec: IntakeSpec, options?: IntakeOptions): Promise<IntakeResult>;
+
+  /**
+   * Where a large mutation delta is applied to a record's collections, when
+   * the host has a place for it other than the thread that asks
+   * ({@link DeltaApply}).
+   *
+   * @remarks
+   * A load's commit and a save apply their deltas through `applyDeltaWhere`,
+   * which sends one of more than `DELTA_OPS_APPLIED_IN_PLACE` ops here. A
+   * host that answers every request on one thread gives a place, so a large
+   * load or save holds no other request up: the local server's runner applies
+   * it on a thread of its own. A host that answers each request in a process
+   * of its own has no thread to share and gives none, and every delta is then
+   * applied where it is asked.
+   */
+  readonly applyDelta?: DeltaApply;
 }

@@ -401,9 +401,12 @@ export {
   applyDelta,
   summarizeDelta,
   DeltaConflictError,
+  DELTA_OPS_APPLIED_IN_PLACE,
   DeltaStoppedError,
   ExternalEntryError,
   type ApplyDeltaOptions,
+  type DeltaApplied,
+  type DeltaApply,
   type DeltaArmSummary,
 } from './record-apply.js';
 
