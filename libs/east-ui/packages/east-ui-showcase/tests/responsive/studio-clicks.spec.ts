@@ -10,8 +10,9 @@
  *
  *  - C1 a list's row is a button where its click does something: a pointer's
  *    hand over it, its 48px kept. A follower with nothing selected says so in
- *    its eyebrow, on its meta's line; one that asks for a pick draws its
- *    prompt, naming the leader's field and the leader.
+ *    its eyebrow, on its name's line, its tag in place of its meta; one that
+ *    asks for a pick draws its prompt, naming the leader's field and the
+ *    leader.
  *  - C2 a click selects the row — `--paper-3` — and every visual that follows
  *    narrows to it, on e3: revenue by month redraws, the margin its number,
  *    each eyebrow the customer in `--brand-d` after the link icon.
@@ -32,7 +33,7 @@
  *    `--rule-strong`, 28 under its eyebrow; what to pick, in which visual;
  *    and what it then shows, named by what it draws — 10 apart, each centred.
  *    Its eyebrow says nothing selected after the link, its 10px icon 6 before
- *    the words, and nothing more.
+ *    the words, and nothing more: its menu 4 after them.
  *
  * Every measurement is taken from the laid-out page.
  *
@@ -62,14 +63,16 @@ async function openClicks(page: Page): Promise<Locator> {
 
 /** A placement's tile, by its key. */
 const tile = (entry: Locator, key: string) => entry.locator(`[data-studio-placement="${key}"]`);
-/** A follower's tag: what it reads of its leader, its words, and how it is drawn. */
+/** A follower's tag: what it reads of its leader, its words, how it is drawn, and whether its eyebrow draws a meta beside it. */
 const followOf = (entry: Locator, key: string) => tile(entry, key).locator("[data-studio-visual-follow]").evaluate((el) => {
-    const meta = el.parentElement!.querySelector("[data-studio-visual-meta]")!.getBoundingClientRect();
+    const head = el.closest("[data-studio-visual-head]")!;
+    const name = head.querySelector("[data-studio-visual-name]")!.getBoundingClientRect();
     const box = el.getBoundingClientRect();
     return {
         kind: el.getAttribute("data-following"), text: el.textContent, icon: el.querySelector("svg") !== null, color: getComputedStyle(el).color,
-        // On its meta's line: its box's middle on the meta's.
-        onLine: Math.abs((box.top + box.bottom) / 2 - (meta.top + meta.bottom) / 2) <= 0.5,
+        // On its name's line: its box's middle on the name's.
+        onLine: Math.abs((box.top + box.bottom) / 2 - (name.top + name.bottom) / 2) <= 0.5,
+        meta: head.querySelector("[data-studio-visual-meta]") !== null,
     };
 });
 /** A chart's axis and label words, in order. */
@@ -91,7 +94,7 @@ const BRAND = "rgb(58, 119, 128)";
 test.describe("A Studio page's clicks (#1673)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "read once, at the desktop width");
 
-    test("C1: a list's row is a button with a pointer's hand, 48px; a follower with nothing selected says so on its meta's line, and one that asks for a pick draws its prompt", async ({ page }) => {
+    test("C1: a list's row is a button with a pointer's hand, 48px; a follower with nothing selected says so on its name's line, in place of its meta, and one that asks for a pick draws its prompt", async ({ page }) => {
         const entry = await openClicks(page);
         const rows = await tile(entry, "k-customers").locator("[data-studio-list-row]").evaluateAll((els) => els.map((el) => ({
             role: el.getAttribute("role"), pressed: el.getAttribute("aria-pressed"), cursor: getComputedStyle(el).cursor, h: el.getBoundingClientRect().height, tab: el.getAttribute("tabindex"),
@@ -99,7 +102,7 @@ test.describe("A Studio page's clicks (#1673)", () => {
         expect(rows.length).toBeGreaterThan(3);
         for (const row of rows) expect(row).toEqual({ role: "button", pressed: "false", cursor: "pointer", h: 48, tab: "0" });
         const months = await followOf(entry, "k-months");
-        expect([months.kind, months.text, months.icon, months.onLine]).toEqual(["nothing", "nothing selected", true, true]);
+        expect([months.kind, months.text, months.icon, months.onLine, months.meta]).toEqual(["nothing", "nothing selected", true, true, false]);
         expect(months.color).not.toBe(BRAND);
         // The margin asks for a pick: no number, a prompt naming the field and the leader.
         const margin = tile(entry, "k-margin");
@@ -125,7 +128,7 @@ test.describe("A Studio page's clicks (#1673)", () => {
         // Each follower says whom, and draws that customer's alone: the chart's axis is another, the margin a number.
         for (const key of ["k-months", "k-margin"]) {
             const follow = await followOf(entry, key);
-            expect([follow.kind, follow.text, follow.color, follow.onLine], key).toEqual(["selected", first, BRAND, true]);
+            expect([follow.kind, follow.text, follow.color, follow.onLine, follow.meta], key).toEqual(["selected", first, BRAND, true, false]);
         }
         await expect.poll(() => chartWords(entry, "k-months")).not.toBe(every);
         await expect(tile(entry, "k-margin").locator("[data-studio-kpi-value]")).toHaveText(/\d+%/);
@@ -274,14 +277,15 @@ test.describe("A Studio page's clicks (#1673)", () => {
             };
             const tag = el.querySelector("[data-studio-visual-follow]")!;
             const [link, said] = [tag.querySelector("svg")!.getBoundingClientRect(), tag.querySelector("span")!.getBoundingClientRect()];
+            const menu = el.querySelector("[data-studio-visual-menu]")!.getBoundingClientRect();
             return {
                 icon: [icon.getAttribute("data-icon"), mark!.height, mark!.top - body.top, getComputedStyle(icon).color],
                 gaps: [head!.top - mark!.bottom, line!.top - head!.bottom],
                 centred: [mark!, head!, line!].map((box) => Math.abs((box.left + box.right) / 2 - middle) <= 0.5),
                 title: [title.textContent, ...type(title)],
                 hint: [hint.textContent, ...type(hint), getComputedStyle(hint).color],
-                eyebrow: [tag.textContent, el.querySelector("[data-studio-visual-meta]")!.textContent],
-                tag: [link.height, said.left - link.right],
+                eyebrow: [tag.textContent, el.querySelector("[data-studio-visual-meta]")?.textContent ?? null],
+                tag: [link.height, said.left - link.right, menu.left - tag.getBoundingClientRect().right],
             };
         });
         expect(read.icon).toEqual(["hand-pointer", 24, 28, strong]);
@@ -290,7 +294,7 @@ test.describe("A Studio page's clicks (#1673)", () => {
         // The leader is named by what its rows stand for; the field mid-sentence.
         expect(read.title).toEqual(["Pick a customer in Customers", "15px", "20px", "700"]);
         expect(read.hint).toEqual(["This KPI shows the customer you select.", "12.5px", "15px", "400", subtle]);
-        expect(read.eyebrow).toEqual(["nothing selected", ""]);
-        expect(read.tag).toEqual([10, 6]);
+        expect(read.eyebrow).toEqual(["nothing selected", null]);
+        expect(read.tag).toEqual([10, 6, 4]);
     });
 });

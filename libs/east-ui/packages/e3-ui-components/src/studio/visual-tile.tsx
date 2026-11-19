@@ -24,8 +24,9 @@
  * filter its own click made narrows every other visual of its source, and it
  * marks the groups that filter holds, never narrowing itself to them. A
  * visual that follows another narrows to what its leader has selected, its
- * eyebrow saying so — the link icon and the selected value — or, with
- * nothing selected, shows everything or asks for a pick (LNK-4, LNK-5).
+ * eyebrow saying so in place of its meta — the link icon and the selected
+ * value, and nothing more — or, with nothing selected, shows everything or
+ * asks for a pick (LNK-4, LNK-5).
  *
  * @packageDocumentation
  */
@@ -197,6 +198,8 @@ export function StudioVisualTile({ content, names, storageKey, title, edit, plac
     const led = page === undefined || page.live || placement === undefined ? 0 : followersOf(page.cells, placement).length;
     const f = useFormatters();
     const leader = following === undefined || following.kind === "removed" ? undefined : leaderVisual(following.leader);
+    // A follower's eyebrow says what it follows, and nothing more: its tag stands in place of its meta (LNK-4).
+    const tag = following === undefined ? undefined : following.kind === "removed" ? "removed" : leader === undefined ? undefined : "following";
     // An export that failed, said over the body until it is put away.
     const [failed, setFailed] = useState<string | undefined>(undefined);
     // The eyebrow's meta slot, which the body's part draws its meta in.
@@ -213,14 +216,15 @@ export function StudioVisualTile({ content, names, storageKey, title, edit, plac
                             <span>{m.leads({ count: f.number(led) })}</span>
                         </Box>
                     )}
-                    {following !== undefined && following.kind !== "removed" && leader !== undefined && <FollowTag following={following} leader={leader} visual={visual} live={live} />}
-                    {following?.kind === "removed" && (
+                    {tag === "following" && following !== undefined && following.kind !== "removed" && leader !== undefined
+                        && <FollowTag following={following} leader={leader} visual={visual} live={live} />}
+                    {tag === "removed" && (
                         <Box as="span" css={styles.follow} data-studio-visual-follow="" data-following="removed">
                             <FontAwesomeIcon icon={faLink} />
                             <span>{m.followRemoved()}</span>
                         </Box>
                     )}
-                    <Box as="span" css={styles.meta} data-studio-visual-meta="" ref={setMetaSlot} />
+                    {tag === undefined && <Box as="span" css={styles.meta} data-studio-visual-meta="" ref={setMetaSlot} />}
                     {((source !== undefined && read !== undefined) || edit !== undefined) && (
                         <VisualMenu visual={visual} name={name} source={source} read={read} storageKey={storageKey} onFailed={setFailed} edit={edit} placement={placement} />
                     )}
@@ -231,7 +235,7 @@ export function StudioVisualTile({ content, names, storageKey, title, edit, plac
                     <BannerView status="error" title={m.exportFailed()} description={failed}
                         actions={<Button size="xs" variant="outline" onClick={() => setFailed(undefined)}>{m.dismiss()}</Button>} />
                 )}
-                <TileMetaSlot value={metaSlot}>
+                <TileMetaSlot value={tag === undefined ? metaSlot : null}>
                     <VisualClicksProvider value={clicks}>
                         {/* A follower that asks for a pick draws its prompt until its leader has one (LNK-5); its eyebrow says what
                             it follows, and nothing more. */}

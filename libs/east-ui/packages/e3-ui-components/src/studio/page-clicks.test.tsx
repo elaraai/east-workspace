@@ -55,8 +55,8 @@ const prompted = (container: HTMLElement, state: "prompt" | "leader-removed") =>
     const title = prompt.querySelector("h4")!;
     return [markOf(title.previousElementSibling)?.split(" ").slice(0, 2).join(" "), title.textContent, prompt.querySelector("[data-studio-visual-hint]")!.textContent];
 };
-/** What a placement's eyebrow says in its meta. */
-const meta = (container: HTMLElement, placement: string) => container.querySelector(`[data-studio-placement="${placement}"] [data-studio-visual-meta]`)!.textContent;
+/** What a placement's eyebrow says in its meta; `null` where it draws none — a follower's, whose tag stands in its place. */
+const meta = (container: HTMLElement, placement: string) => container.querySelector(`[data-studio-placement="${placement}"] [data-studio-visual-meta]`)?.textContent ?? null;
 /** A click on a row, as a pointer makes it. */
 const click = async (row: HTMLElement, init: { metaKey?: boolean } = {}) => { await act(async () => { fireEvent.click(row, init); }); };
 /** The page's filters, as the UI store holds them under a page's key: each one's source, its jq, and the placement whose click made it. */
@@ -67,18 +67,20 @@ const filtersOf = (key: { project: string; page: string }) => {
 };
 
 describe("a click that selects, and a visual that follows it (LNK-1 to LNK-5)", () => {
-    test("a list's row is a button; a click selects it — `--paper-3` by its mark — and the visual that follows narrows to it, on e3, its eyebrow saying the value", async () => {
+    test("a list's row is a button; a click selects it — `--paper-3` by its mark — and the visual that follows narrows to it, on e3, its eyebrow saying the value and nothing more", async () => {
         const { container } = await page([cell("c-regions", regions()), cell("c-orders", orders(following("all")))]);
         await waitFor(() => expect(rows(container)).toHaveLength(2));
-        // With nothing selected a follower that shows all counts every order, and says so.
+        // With nothing selected a follower that shows all counts every order, and says so: its tag in place of its meta.
         await waitFor(() => expect(count(container)).toBe("3"));
-        expect(tag(container)).toEqual(["nothing", "nothing selected"]);
+        expect([tag(container), meta(container, "c-orders")]).toEqual([["nothing", "nothing selected"], null]);
         expect([rowOf(container, "SA").getAttribute("role"), rowOf(container, "SA").getAttribute("aria-pressed")]).toEqual(["button", "false"]);
         await click(rowOf(container, "SA"));
         expect(selected(container)).toEqual(["SA"]);
         expect(rowOf(container, "SA").getAttribute("aria-pressed")).toBe("true");
         await waitFor(() => expect(count(container)).toBe("2"));
-        expect(tag(container)).toEqual(["selected", "SA"]);
+        expect([tag(container), meta(container, "c-orders")]).toEqual([["selected", "SA"], null]);
+        // The leader's eyebrow keeps its meta.
+        expect(meta(container, "c-regions")).not.toBeNull();
     });
 
     test("a list on one source leads a visual on another: its click narrows the follower's own rows on its own field (LNK-4)", async () => {
@@ -161,7 +163,7 @@ describe("a click that selects, and a visual that follows it (LNK-1 to LNK-5)", 
         expect(count(container)).toBeUndefined();
         // A list is named by what its rows stand for, Regions; the follower by what it draws.
         expect(prompted(container, "prompt")).toEqual(["fas hand-pointer", "Pick a region in Regions", "This KPI shows the region you select."]);
-        expect([tag(container), meta(container, "c-orders")]).toEqual([["nothing", "nothing selected"], ""]);
+        expect([tag(container), meta(container, "c-orders")]).toEqual([["nothing", "nothing selected"], null]);
         await click(rowOf(container, "NSW"));
         await waitFor(() => expect(count(container)).toBe("1"));
         expect(container.querySelector("[data-studio-visual=prompt]")).toBeNull();
@@ -175,7 +177,7 @@ describe("a click that selects, and a visual that follows it (LNK-1 to LNK-5)", 
         const prompt = await page([cell("c-orders", orders(following("prompt")))]);
         expect(count(prompt.container)).toBeUndefined();
         expect(prompted(prompt.container, "leader-removed")).toEqual(["fas link-slash", "The visual this one follows was removed", "Link it to another visual, or stop following."]);
-        expect([tag(prompt.container), meta(prompt.container, "c-orders")]).toEqual([["removed", "leader removed"], ""]);
+        expect([tag(prompt.container), meta(prompt.container, "c-orders")]).toEqual([["removed", "leader removed"], null]);
     });
 });
 
