@@ -117,6 +117,12 @@ export interface StudioMessages {
     filterSource: () => string;
     /** A filter on a source the page no longer lists, in its editor. */
     filterSourceGone: (p: { source: string }) => string;
+    /** The Configure tab's Filter field: a visual's own filter, the condition its rows pass before the page's filters (ruled 19 November 2026). */
+    ownFilter: () => string;
+    /** Under it: what it narrows, and when. */
+    ownFilterHint: () => string;
+    /** Takes a visual's own filter off. */
+    removeFilter: () => string;
     /** A follower's tag on the builder's canvas: the visual it follows (LNK-4). */
     followsLeader: (p: { leader: string }) => string;
     /** A leader's tag on the builder's canvas: how many visuals follow it; `count` is formatted. */

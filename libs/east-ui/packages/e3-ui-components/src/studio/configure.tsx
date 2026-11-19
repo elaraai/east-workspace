@@ -17,15 +17,16 @@
  *   EDT-2): its source, picked from those the surface lists (EDT-9); its
  *   view, then its kind — a change of kind keeps every well that fits, a
  *   change of view starts the kind empty (EDT-8); its wells
- *   ({@link StudioWells}); its options, a form over its kind's struct; what a
- *   click on it does; and its source's fields, which drag onto its wells
- *   ({@link StudioFieldsList}).
+ *   ({@link StudioWells}); its own filter, written with the condition rows
+ *   in place ({@link StudioOwnFilter}, ruled 19 November 2026); its options, a
+ *   form over its kind's struct; what a click on it does; and its source's
+ *   fields, which drag onto its wells ({@link StudioFieldsList}).
  *
  * Every edit is the placement's content written whole through `onRequest` —
  * a `field` request the canvas takes as one gesture of the page's session,
  * undone and saved with the rest — and drawn live on the canvas (EDT-10). A
  * part an edit changed from what is saved is tinted until the page is saved:
- * the source, the view, the kind and the click by `changedParts` — each control
+ * the source, the view, the kind, the filter and the click by `changedParts` — each control
  * naming its part (`data-changed="kind"`) — an option and a text's field by its
  * form's own baseline (`data-dirty`).
  *
@@ -58,6 +59,7 @@ import { StudioFieldsList } from "./fields-list.js";
 import { StudioFollows, type ConfigurePlacement } from "./follows.js";
 import { InspectorEmpty, InspectorHead, type InspectorPhone, type Selection, type StudioInspectorValue } from "./inspector.js";
 import { useStudioMessages } from "./messages.js";
+import { StudioOwnFilter } from "./own-filter.js";
 import { PickBox } from "./pick-box.js";
 import { SegStrip, segControls } from "./seg.js";
 import { studioEast } from "./studio-east.js";
@@ -271,7 +273,7 @@ interface VisualEditorProps {
     onLink: ((placement: string) => void) | undefined;
 }
 
-/** A visual's stack: its source, its view and kind, its wells, its options, its click, the visual it follows and its source's fields. */
+/** A visual's stack: its source, its view and kind, its wells, its own filter, its options, its click, the visual it follows and its source's fields. */
 function VisualEditor({ placement, placements, visual, saved, sources, editors, pages, dnd, onEdit, onLink }: VisualEditorProps) {
     const styles = useSlotRecipe({ key: "studioInspector" })() as Styles;
     const m = useStudioMessages();
@@ -331,6 +333,10 @@ function VisualEditor({ placement, placements, visual, saved, sources, editors, 
             {editor !== undefined && (
                 <StudioWells view={visual.view} editor={editor} source={source} sourceKey={visual.source} changed={parts} dnd={dnd} onView={onView} />
             )}
+            <Box css={styles.part} data-configure-section="filter">
+                <StudioOwnFilter placement={placement} visual={visual} source={source} onEdit={onEdit}
+                    field={({ label, part, hint, children }) => <Fld key={label} label={label} part={part} changed={changed(part)} hint={hint}>{children}</Fld>} />
+            </Box>
             <Box css={styles.part} data-configure-section="options">
                 {specs.length > 0 && at !== undefined && (
                     <Box css={styles.form} data-configure="options" role="group" aria-label={m.options()}>
