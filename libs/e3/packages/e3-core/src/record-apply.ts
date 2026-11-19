@@ -223,6 +223,39 @@ export async function applyDelta(
 }
 
 /**
+ * Apply a mutation delta, and say what it changed per target, in the one read
+ * of it: what {@link applyDelta} and {@link summarizeDelta} answer of the same
+ * delta, for a caller that wants both.
+ *
+ * @remarks
+ * Each entry is counted as the apply takes it, so a delta of millions of ops
+ * is read and decoded once. An apply that throws leaves a summary of the
+ * entries it had taken.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param targets - target name -> the manifest hash it currently holds
+ * @param deltaHash - the delta object's content hash
+ * @param options - The cases of a composite record's key the write may touch,
+ *   and a signal that stops the apply
+ * @returns `written`, as {@link applyDelta} answers; and `summary`, as
+ *   {@link summarizeDelta} does
+ * @throws As {@link applyDelta} does.
+ * @internal
+ */
+export async function applyDeltaSummarized(
+  storage: StorageBackend,
+  repo: string,
+  targets: Map<string, string>,
+  deltaHash: string,
+  options: ApplyDeltaOptions = {},
+): Promise<{ written: Map<string, string>; summary: DeltaArmSummary[] }> {
+  const summary: DeltaArmSummary[] = [];
+  const written = await applyDeltaEntries(storage, repo, targets, summarized(deltaEntries(storage, repo, deltaHash, options.signal), summary), options);
+  return { written, summary };
+}
+
+/**
  * Apply a mutation delta given as its entries: how a caller that holds the
  * delta applies it, rather than reading back the object it stored.
  *
@@ -428,7 +461,22 @@ export async function summarizeDelta(
   options: { readonly signal?: AbortSignal } = {},
 ): Promise<DeltaArmSummary[]> {
   const summaries: DeltaArmSummary[] = [];
-  for await (const entry of deltaEntries(storage, repo, deltaHash, options.signal)) {
+  // Each entry is counted as it passes
+  for await (const entry of summarized(deltaEntries(storage, repo, deltaHash, options.signal), summaries)) void entry;
+  return summaries;
+}
+
+/**
+ * A delta's entries as they are read, each counted into its target's arm of
+ * `summaries` as it passes: a delta's ops arrive a target at a time.
+ */
+async function* summarized(entries: AsyncIterable<DeltaEntry>, summaries: DeltaArmSummary[]): AsyncGenerator<DeltaEntry> {
+  for await (const entry of entries) {
+    // A conflict is no target's, and its op is none: whatever applies the delta refuses it
+    if (entry.target === DELTA_CONFLICT) {
+      yield entry;
+      continue;
+    }
     let summary = summaries.at(-1);
     if (summary === undefined || summary.target !== entry.target) {
       summary = { target: entry.target, insert: 0, update: 0, delete: 0, add: 0 };
@@ -436,8 +484,8 @@ export async function summarizeDelta(
     }
     const tag = (entry.op as { type: string }).type;
     if (tag === 'insert' || tag === 'update' || tag === 'delete' || tag === 'add') summary[tag]++;
+    yield entry;
   }
-  return summaries;
 }
 
 /**

@@ -28,7 +28,7 @@ import {
   type LockOperation, type PartitionProgress, type RecordCommit, type RecordLoadArgs, type RecordLoadObject, type RecordLoadProgress,
   type RecordLoadResult,
 } from '@elaraai/e3-types';
-import { DeltaStoppedError, applyDelta, summarizeDelta } from './record-apply.js';
+import { DeltaStoppedError, applyDelta, applyDeltaSummarized, type DeltaArmSummary } from './record-apply.js';
 import { PENDING_SLOT, pendingSources, sourceEntriesIn, sourceLoadSlots, sourceSegments, sourcesSlot } from './record-slots.js';
 import {
   casBackoffMs, encodeMutationArgs, named, nextVersions, readRecordState, resolveRecord, stateTargets, stateWritten, storeCommit,
@@ -203,10 +203,14 @@ export async function recordLoadCommit(
   // Read afresh each time: a stop comes while the commit awaits the store
   const stopped = (): boolean => signal?.aborted === true;
   const own = new Set([source]);
-  // The last head the result holds on, and the result: the record's targets with the load applied
+  // The last head the result holds on, and the result: the record's targets with the load applied, and what it did
   let checked = options.base;
-  let result: RecordStateRefs | undefined;
-  let counts: Pick<RecordLoadArgs, 'set' | 'deleted' | 'unchanged'> | undefined;
+  let result: { readonly refs: RecordStateRefs; readonly counts: Pick<RecordLoadArgs, 'set' | 'deleted' | 'unchanged'> } | undefined;
+  // The load's own delta applied to a state, held to its source's entries, and counted in that one read of it
+  const ownApplied = async (state: RecordStateRefs): Promise<NonNullable<typeof result>> => {
+    const { written, summary } = await applyDeltaSummarized(storage, repo, stateTargets(state), delta, { cases: own, ...(signal !== undefined && { signal }) });
+    return { refs: stateWritten(state, written), counts: await loadCounts(storage, repo, summary, run) };
+  };
   for (let attempt = 1; ; attempt++) {
     if (stopped()) return { kind: 'stopped' };
     const read = await storage.datasets.readVersioned(repo, ws, record.refPath);
@@ -215,23 +219,22 @@ export async function recordLoadCommit(
     const head = versions.get(record.selfKeypath);
     if (head === undefined) throw new Error(`record ${record.selfKeypath} names no head commit`);
 
-    // Bringing the result to the head reads the delta, and counting it does:
-    // each is stopped between two of the delta's segments, so a load whose
-    // delta is millions of ops lets its workspace go as soon as it is asked
+    // Bringing the result to the head reads the delta, and counts it as it is
+    // read: stopped between two of the delta's segments, so a load whose delta
+    // is millions of ops lets its workspace go as soon as it is asked
     try {
       const passed = checked === undefined ? null : await commitsSince(storage, repo, head, checked);
       if (passed !== null && passed.every((commit) => replays(commit, source))) {
-        if (result === undefined) result = await applied(storage, repo, await readRecordState(storage, repo, stateHash), delta, signal, own);
+        if (result === undefined) result = await ownApplied(await readRecordState(storage, repo, stateHash));
         // Oldest first, as they landed: each a save's few ops, or another source's load
-        else for (const commit of passed.reverse()) if (commit.delta.type === 'some') result = await applied(storage, repo, result, commit.delta.value, signal);
+        else for (const commit of passed.reverse()) if (commit.delta.type === 'some') result = { ...result, refs: await applied(storage, repo, result.refs, commit.delta.value, signal) };
       } else {
         if (!sameObject(await recordSourceRun(storage, repo, stateHash, source), run)) {
           return { kind: 'restart', reason: `the entries of source '${source}' changed under its load` };
         }
-        result = await applied(storage, repo, await readRecordState(storage, repo, stateHash), delta, signal, own);
+        result = await ownApplied(await readRecordState(storage, repo, stateHash));
       }
       checked = head;
-      counts ??= await loadCounts(storage, repo, delta, run, signal);
     } catch (err) {
       if (err instanceof DeltaStoppedError) return { kind: 'stopped' };
       throw err;
@@ -244,9 +247,9 @@ export async function recordLoadCommit(
       asOf: options.asOf === undefined ? none : some(options.asOf),
       first: pending.some((name) => sameName(name, source)),
       execution: { ...options.execution },
-      ...counts,
+      ...result.counts,
     };
-    const { stateHash: committed, commitHash } = await storeCommit(storage, repo, result,
+    const { stateHash: committed, commitHash } = await storeCommit(storage, repo, result.refs,
       { parent: some(head), mutation: loadCommitName(source), actor: options.actor, at: new Date(), delta: some(delta) },
       named(encodeMutationArgs([encodeLoadArgs(args)])));
     const slots = sourceLoadSlots(source);
@@ -309,32 +312,32 @@ function replays(commit: RecordCommit, source: string): boolean {
 }
 
 /**
- * A record's targets once a delta is applied to them.
+ * A record's targets once the delta of a commit that landed is applied to
+ * them: a replay, held to no source, since the commit was checked when it
+ * committed.
  *
  * @param state - The targets the delta applies to
  * @param delta - The delta
  * @param signal - Stops the apply between two of the delta's segments
- * @param cases - The sources the delta may write, for the load's own; none
- *   for a replay of a commit checked when it committed
  */
 async function applied(
-  storage: StorageBackend, repo: string, state: RecordStateRefs, delta: string, signal: AbortSignal | undefined, cases?: ReadonlySet<string>,
+  storage: StorageBackend, repo: string, state: RecordStateRefs, delta: string, signal: AbortSignal | undefined,
 ): Promise<RecordStateRefs> {
-  return stateWritten(state, await applyDelta(storage, repo, stateTargets(state), delta, {
-    ...(cases !== undefined && { cases }),
-    ...(signal !== undefined && { signal }),
-  }));
+  return stateWritten(state, await applyDelta(storage, repo, stateTargets(state), delta, signal === undefined ? {} : { signal }));
 }
 
 /**
  * What a load's delta does to its source's entries: those it sets, those it
- * deletes, and those of the run it leaves as they were. The count reads the
- * whole delta, and is stopped as the apply is.
+ * deletes, and those of the run it leaves as they were.
+ *
+ * @param summary - What the delta did to each target, counted as it was
+ *   applied
+ * @param run - The source's run the delta was computed from
  */
 async function loadCounts(
-  storage: StorageBackend, repo: string, delta: string, run: string, signal: AbortSignal | undefined,
+  storage: StorageBackend, repo: string, summary: readonly DeltaArmSummary[], run: string,
 ): Promise<Pick<RecordLoadArgs, 'set' | 'deleted' | 'unchanged'>> {
-  const primary = (await summarizeDelta(storage, repo, delta, signal === undefined ? {} : { signal })).find((arm) => sameName(arm.target, 'primary'));
+  const primary = summary.find((arm) => sameName(arm.target, 'primary'));
   const [inserted, updated, deleted] = [primary?.insert ?? 0, primary?.update ?? 0, primary?.delete ?? 0];
   const held = (await DatasetSegments.open(storage, repo, run)).elementCount;
   return { set: BigInt(inserted + updated), deleted: BigInt(deleted), unchanged: BigInt(held - updated - deleted) };

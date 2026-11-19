@@ -272,8 +272,8 @@ describe('a load\'s commit', () => {
     await holds(ws, [
       ['erp', 'SO-1001', acme], ['erp', 'SO-1002', birch], ['own', 'P-1', birch], ['own', 'P-2', acme], ['own', 'P-3', cedar], ['own', 'P-4', birch],
     ]);
-    // Read once to apply it, once to count what it did: never again for an attempt
-    assert.equal(counted.reads(), 2, 'the load\'s delta was applied once, over every attempt');
+    // Read once, to apply it and to count what it did as it is applied: never again for an attempt
+    assert.equal(counted.reads(), 1, 'the load\'s delta was read once, over every attempt');
   });
 
   it('R16 — another source\'s load that lands while a load runs is folded in the same way', async () => {
