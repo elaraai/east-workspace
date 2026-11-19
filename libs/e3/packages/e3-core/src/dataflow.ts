@@ -928,6 +928,19 @@ export async function recordCommitOrder(
 }
 
 /**
+ * A catch-up run's key: what a run tracks it in flight under, keeps its
+ * output under once it has landed, and tells it from another by among the
+ * runs a task waits for. A task's own run over the same inputs has the same.
+ *
+ * @param run - The run's task, and the hash of the inputs it runs over
+ * @returns The key
+ * @internal
+ */
+export function catchUpKey(run: Pick<CatchUpRun, 'task' | 'inputsHash'>): string {
+  return `${run.task}@${run.inputsHash}`;
+}
+
+/**
  * A task's inputs at the versions it reads: each input's object, the inputs
  * it cannot read, or the catch-up runs that make what is missing.
  */
@@ -1076,7 +1089,8 @@ export async function dataflowResolveInputs(
           const wanted = versions.get(root);
           if (wanted !== undefined) at.set(root, wanted);
         }
-        runs.set(`${of.name}@${inHash}`, { task: of.name, taskHash: of.hash, inputHashes, inputsHash: inHash, versions: at });
+        const run: CatchUpRun = { task: of.name, taskHash: of.hash, inputHashes, inputsHash: inHash, versions: at };
+        runs.set(catchUpKey(run), run);
         return { kind: 'behind' };
       })();
       outputs.set(of.name, read);

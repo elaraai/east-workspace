@@ -41,7 +41,7 @@ import { DataflowError, TaskNotFoundError } from '../errors.js';
 import * as root from '../index.js';
 import * as portable from '../portable.js';
 import type { DataflowExecutionState, TaskState, Mutable } from './types.js';
-import { dataflowRootsHeld, dataflowSnapshotTaken, recordCommitOrder, type DataflowGraph } from '../dataflow.js';
+import { catchUpKey, dataflowRootsHeld, dataflowSnapshotTaken, recordCommitOrder, type DataflowGraph } from '../dataflow.js';
 import { createTestRepo, removeTestRepo, writableStrings } from '../test-helpers.js';
 import { LocalStorage } from '../storage/local/index.js';
 import { workspaceDeploy } from '../workspaces.js';
@@ -1129,5 +1129,13 @@ describe('a task due again behind a task left waiting', () => {
     (state.tasks.get('a') as Mutable<TaskState>).status = 'in_progress';
     const { result } = stepTaskCompleted(state, 'a', 'a-out-2', false, 10, { inputsHash: 'inputs-a2', executionId: 'execution-a2' }, new Map([['.input', 'i1']]));
     assert.deepStrictEqual(result.newlyReady, ['b']);
+  });
+});
+
+describe('catchUpKey', () => {
+  it('keys a catch-up run by its task and the hash of its inputs, the one key the run\'s loop and its resolver of inputs both use', () => {
+    assert.strictEqual(catchUpKey({ task: 'capacity', inputsHash: 'inputs-at-c1' }), 'capacity@inputs-at-c1');
+    assert.notStrictEqual(catchUpKey({ task: 'capacity', inputsHash: 'inputs-at-c1' }), catchUpKey({ task: 'capacity', inputsHash: 'inputs-at-c2' }));
+    assert.notStrictEqual(catchUpKey({ task: 'capacity', inputsHash: 'inputs-at-c1' }), catchUpKey({ task: 'forecast', inputsHash: 'inputs-at-c1' }));
   });
 });

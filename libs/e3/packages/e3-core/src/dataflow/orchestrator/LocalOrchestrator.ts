@@ -38,7 +38,7 @@ import type { ExecutionResult } from '../../execution/cache.js';
 import { SplitTask, isSplitTask, type ThrownUnit } from '../../execution/engine.js';
 import { WorkspaceLockError, DataflowAbortedError, DataflowError, DataflowSupersededError, checkName } from '../../errors.js';
 import { INTENT_PROBE_MS, acquireWorkspaceShared, announcedIntent, intentWords, workspaceLockRefusal } from '../../deploy-lock.js';
-import type { TaskExecutionResult } from '../../dataflow.js';
+import { catchUpKey, type TaskExecutionResult } from '../../dataflow.js';
 import { inputsHash } from '../../executions.js';
 import { uuidv7 } from '../../uuid.js';
 import type {
@@ -474,13 +474,6 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve!: () => void;
   const promise = new Promise<void>((settle) => { resolve = settle; });
   return { promise, resolve };
-}
-
-/** A catch-up run's key: what it is tracked in flight under, and what its
- *  output is kept under once it has landed. A task's own run over the same
- *  inputs would have the same. */
-function catchUpKey(run: Pick<CatchUpRun, 'task' | 'inputsHash'>): string {
-  return `${run.task}@${run.inputsHash}`;
 }
 
 /**
