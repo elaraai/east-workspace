@@ -283,11 +283,11 @@ const CATALOGUE: readonly (readonly [name: string, root: EastType, build: () => 
     ]), `.orders
 | group_by({customer_id, status: .status.type})
 | map({customer_id: .[0].customer_id, status: .[0].status.type, n: length, total: map(.total) | add})`],
-    ["a ratio total: one field added up over another", ROOT, () => query("orders", [
+    ["a ratio total: one field added up over another, nothing where that adds up to nothing", ROOT, () => query("orders", [
         groupBy("customer_id", [ratio("total", "id", "total_per_id")]),
     ]), `.orders
 | group_by(.customer_id)
-| map({customer_id: .[0].customer_id, total_per_id: (map(.total) | add) / (map(.id) | add)})`],
+| map({customer_id: .[0].customer_id, total_per_id: if (map(.id) | add) == 0 then null else (map(.total) | add) / (map(.id) | add) end})`],
 ];
 
 /** A query with every id renumbered by position: two queries equal ids aside are then equal. */
@@ -426,6 +426,20 @@ describe("S1: printSteps ↔ parseSteps", () => {
         // Minutes are no "is in the last": that select stays jq, and the minute bound for jq alone keeps the program jq, as a dataset's does.
         const minutes = parseSteps(".now as $now\n| .orders\n| map(select(.status.type == \"shipped\") | select(.status.value.date >= ($now | datetime_add(-7; \"minute\"))))", ROOT_NOW);
         assert.ok("error" in minutes && minutes.error.code === "unsupported" && /\$now is bound/.test(minutes.error.message));
+    });
+
+    test("a count with no minus moves the minute on: no \"is in the last\", and the minute bound for jq alone keeps the program jq, saying what would read it (#1670)", () => {
+        const ahead = parseSteps(".now as $now\n| .orders\n| map(select(.status.type == \"shipped\") | select(.status.value.date >= ($now | datetime_add(7; \"day\"))))", ROOT_NOW);
+        if (!("error" in ahead)) assert.fail("a bound to come read as steps");
+        assert.equal(ahead.error.message, "unsupported: $now is bound but no \"is in the last\" condition reads it, so the visual editor cannot keep it.");
+    });
+
+    test("a ratio of a field that adds up to nothing in a group is nothing there, never a division by it: the query answers (#1670)", () => {
+        const printed = printSteps(query("orders", [groupBy("customer_id", [ratio("total", "discount", "total_per_discount")])]), ROOT).text;
+        assert.deepEqual(errorsOf(printed), []);
+        /** How many groups' ratio is nothing, or something, as jq counts them over the fixture. */
+        const groups = (test: string) => Number(evaluateJq(`${printed}\n| map(select(.total_per_discount ${test})) | length`, fixture.value, { inputType: ROOT, root: true }));
+        assert.ok(groups("== null") > 0 && groups("!= null") > 0, `${groups("== null")} with nothing, ${groups("!= null")} with a ratio`);
     });
 
     test("unfinished steps are left out of the program", () => {

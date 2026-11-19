@@ -745,13 +745,13 @@ describe("#1670's steps and .now: each splits over the pieces, and answers as it
     const STEPS: readonly (readonly [name: string, program: string])[] = [
         ["a date in the last 30 days", ".now as $now\n| .orders\n| map(select(.status.type == \"shipped\") | select(.status.value.date >= ($now | datetime_add(-30; \"day\"))))"],
         ["several group fields", ".orders\n| group_by({customer_id, status: .status.type})\n| map({customer_id: .[0].customer_id, status: .[0].status.type, n: length, total: map(.total) | add})"],
-        ["a ratio total", ".orders\n| group_by(.customer_id)\n| map({customer_id: .[0].customer_id, total_per_id: (map(.total) | add) / (map(.id) | add)})"],
+        ["a ratio total", ".orders\n| group_by(.customer_id)\n| map({customer_id: .[0].customer_id, total_per_id: if (map(.id) | add) == 0 then null else (map(.total) | add) / (map(.id) | add) end})"],
         ["all three", [
             ".now as $now",
             ".orders",
             "map(select(.status.type == \"shipped\") | select(.status.value.date >= ($now | datetime_add(-12; \"week\"))))",
             "group_by({customer_id, status: .status.type})",
-            "map({customer_id: .[0].customer_id, status: .[0].status.type, total_per_id: (map(.total) | add) / (map(.id) | add)})",
+            "map({customer_id: .[0].customer_id, status: .[0].status.type, total_per_id: if (map(.id) | add) == 0 then null else (map(.total) | add) / (map(.id) | add) end})",
         ].join("\n| ")],
     ];
     const oneShot = createInMemoryQueryCall(IN_MEMORY);
@@ -787,6 +787,9 @@ describe("#1670's steps and .now: each splits over the pieces, and answers as it
         ]);
         expect(planned.plan.reading.args).toEqual([null, "orders"]);
         expect(planned.plan.reading.entries.map(e => e.name)).toEqual(["orders"]);
+        // The minute is no data source: no piece reads it whole, and the explanation says none does.
+        expect(planned.plan.explanation.path.kind === "split" ? planned.plan.explanation.path.broadcast : undefined).toEqual([]);
+        expect(explained(planned.plan.explanation)).not.toMatch(/reads now whole/);
     });
 });
 
@@ -898,8 +901,6 @@ describe("joins (#942): two dicts keyed alike cut at the same keys, and two larg
         ]);
         expect([join.output.type, join.limits]).toEqual(["set", some({ timeoutMs: none, maxResultBytes: some(1_048_576n), maxLogBytes: none })]);
         for (const ir of [p.first.bodyIr, join.bodyIr, ...(join.then.type === "some" ? [join.then.value] : [])]) expect(platformCalls(ir)).toEqual([]);
-        // What the run reads: the orders, which the re-key call reads, then the customers.
-        expect(p.reading.entries.map(e => e.name)).toEqual(["orders", "customers"]);
     });
 
     test("a time limit the options name reaches both calls of a re-keyed join, as a split call's (#1131)", () => {
@@ -931,10 +932,12 @@ describe("joins (#942): two dicts keyed alike cut at the same keys, and two larg
                 // Its answer too large for one byte, its output kept by its hash.
                 expect([first.result.outcome.type, first.output?.length], `${pieces} pieces: the re-key call`).toEqual(["too_large", 64]);
                 const joined = await call(p.join(first.output!), QUIET);
-                const result = queryResultOf(p.reading, p.answer(first.result, joined.result));
+                const { result: answer, reading } = p.answer(first.result, joined.result);
+                const result = queryResultOf(reading, answer);
                 const got = decoded(result);
                 expect(isTypeEqual(got.type, want.type), `${pieces} pieces: the type`).toBe(true);
                 expect(close(want.type, got.value, want.value), `${pieces} pieces: the value`).toBe(true);
+                // What it read: the orders, which the re-key call reads, then the customers.
                 expect(result.inputs.map(i => i.name), `${pieces} pieces: what it read`).toEqual(["orders", "customers"]);
             }
         });
@@ -944,8 +947,25 @@ describe("joins (#942): two dicts keyed alike cut at the same keys, and two larg
         const p = rekeyOf(REKEYED[1]!);
         const first = await createInMemorySplitCall(IN_MEMORY.filter(d => !equalFor(TreePathType)(d.path, pathOf("orders"))), { pieces: 3 })(p.first, QUIET);
         expect([first.result.outcome.type, first.output]).toEqual(["invalid", null]);
-        const result = queryResultOf(p.reading, p.answer(first.result, undefined));
+        const { result: answer, reading } = p.answer(first.result, undefined);
+        const result = queryResultOf(reading, answer);
         if (result.outcome.type !== "error") throw new Error(`expected a refusal, got ${result.outcome.type}`);
         expect(result.outcome.value.map(d => d.message)).toEqual(["no_value: orders has no value yet."]);
+    });
+
+    test("a join call refused names its own argument's data source, as the join call numbers them — the minute's value among them, the binds either way round (#1670)", async () => {
+        const shipped = `.orders | map(select(.status.type == "shipped") | select(.status.value.date <= $now) | $c[.customer_id].region) | unique`;
+        for (const program of [`.now as $now | .customers as $c | ${shipped}`, `.customers as $c | .now as $now | ${shipped}`]) {
+            const p = rekeyOf(program);
+            // The customers unassigned: the re-key call, which reads the orders alone, answers, and the join call is refused.
+            const call = createInMemorySplitCall(IN_MEMORY.filter(d => !equalFor(TreePathType)(d.path, pathOf("customers"))), { pieces: 3 });
+            const first = await call(p.first, QUIET);
+            const joined = await call(p.join(first.output!), QUIET);
+            expect(joined.result.outcome.type, program).toBe("invalid");
+            const { result: answer, reading } = p.answer(first.result, joined.result);
+            const result = queryResultOf(reading, answer);
+            if (result.outcome.type !== "error") throw new Error(`expected a refusal, got ${result.outcome.type}`);
+            expect(result.outcome.value.map(d => d.message), program).toEqual(["no_value: customers has no value yet."]);
+        }
     });
 });

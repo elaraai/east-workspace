@@ -231,7 +231,8 @@ describe("createInMemorySplitCall (#941)", () => {
         const call = createInMemorySplitCall(DATASETS, { pieces: 3 });
         const first = await call(p.first, QUIET);
         const joined = await call(p.join(first.output!), QUIET);
-        const [got, want] = [valueOf(queryResultOf(p.reading, p.answer(first.result, joined.result))), valueOf(await oneShot(program))];
+        const { result: answer, reading } = p.answer(first.result, joined.result);
+        const [got, want] = [valueOf(queryResultOf(reading, answer)), valueOf(await oneShot(program))];
         expect(equalFor(want.type)(got.value as never, want.value as never)).toBe(true);
         // Another stand-in assembled nothing: the hash names nothing it holds.
         const elsewhere = await createInMemorySplitCall(DATASETS, { pieces: 3 })(p.join(first.output!), QUIET);
