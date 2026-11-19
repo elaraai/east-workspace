@@ -21,6 +21,11 @@
  * its programs carry one more condition, its field against what is selected
  * ({@link selectedOf}, {@link followCondition}, {@link withCondition}).
  *
+ * A click that filters writes the group to the filter the visual's own click
+ * made on its source ({@link filtersAfter}): every other visual of the source
+ * narrows to it, and the visual clicked marks it, as a selection is marked
+ * ({@link isMarked}), never narrowing itself to the group it shows.
+ *
  * It imports neither React nor the renderers, and reaches e3-ui for its types
  * alone.
  *
@@ -28,7 +33,7 @@
  */
 
 import {
-    BooleanType, DateTimeType, FloatType, IntegerType, JqType, StringType, equalFor, isValueOf, toJSONFor,
+    BooleanType, DateTimeType, FloatType, IntegerType, JqType, StringType, equalFor, isValueOf, none, some, toJSONFor,
     type EastType, type JqNode, type ValueTypeOf, type option,
 } from "@elaraai/east";
 import type { StudioCellType, StudioClickType, StudioClickedType, StudioKeyType, StudioPickType } from "@elaraai/e3-ui/internal";
@@ -36,7 +41,7 @@ import {
     binary, booleanLiteral, call, chain, commaAll, integerLiteral, nullLiteral, numberLiteral, pathNode, pipe, readLiteral, stringLiteral,
 } from "../steps/jq.js";
 import { optionPayload } from "../steps/shape.js";
-import type { PageFilter } from "./filters.js";
+import { addFilter, changeFilter, markedBy, ownFilterAt, removeFilter, type PageFilter } from "./filters.js";
 import type { PrintState } from "./print.js";
 import { bucketStart } from "./read.js";
 
@@ -308,6 +313,60 @@ export function withCondition(state: PrintState, condition: JqNode | undefined):
     };
 }
 
+// ─── A visual's own filter ───────────────────────────────────────────────────
+
+/** A condition's parts every row must pass: each side of every `and` in it, read down both sides. */
+function conjuncts(node: JqNode): JqNode[] {
+    return node.type === "binary" && node.value.op === "and" ? [...conjuncts(node.value.left), ...conjuncts(node.value.right)] : [node];
+}
+
+/**
+ * Whether a group is among those a visual's own filter holds (#1673): what a
+ * visual whose click filters marks, as one whose click selects marks its
+ * selection. A group within one held is marked — its every condition among the
+ * group's: a column of July in South Australia, where the filter holds South
+ * Australia.
+ *
+ * @param marks - The groups the filter holds, each a condition ({@link markedBy})
+ * @param clicked - The group
+ * @returns Whether it is marked
+ */
+export function isMarked(marks: readonly JqNode[], clicked: Clicked): boolean {
+    if (marks.length === 0) return false;
+    const own = clickedCondition(clicked);
+    if (own === undefined) return false;
+    const parts = conjuncts(own);
+    return marks.some((mark) => conjuncts(mark).every((part) => parts.some((held) => sameLiteral(held, part))));
+}
+
+/**
+ * A page's filters after a click on a group of a visual whose click filters
+ * (#1673): the filter the visual's click made on its source — which every
+ * other visual of the source narrows to, and the visual marks
+ * ({@link isMarked}) — holds the group alone, or nothing when it held that
+ * group alone: a click on it again clears it, and one on another takes that
+ * one instead. With `add`, the groups it held with the group put in, or taken
+ * out when it was in; any of them a row may pass.
+ *
+ * @param filters - The page's filters
+ * @param source - The visual's source's key
+ * @param placement - The visual's placement's key
+ * @param where - The group clicked, as a condition ({@link clickedCondition})
+ * @param add - Whether the click adds a group: ⌘-click, or Ctrl-click
+ * @returns The filters: the visual's own in its place among them, after the rest when it is new, gone when it holds no group
+ */
+export function filtersAfter(filters: readonly PageFilter[], source: string, placement: string, where: JqNode, add: boolean): PageFilter[] {
+    const held = markedBy(filters, source, placement);
+    const isIn = held.some((other) => sameLiteral(other, where));
+    const groups = add
+        ? (isIn ? held.filter((other) => !sameLiteral(other, where)) : [...held, where])
+        : (isIn && held.length === 1 ? [] : [where]);
+    const at = ownFilterAt(filters, source, placement);
+    if (groups.length === 0) return at < 0 ? [...filters] : removeFilter(filters, at);
+    const own: PageFilter = { source, where: chain(groups, "or"), from: some(placement) };
+    return at < 0 ? addFilter(filters, own) : changeFilter(filters, at, own);
+}
+
 // ─── What a click does ───────────────────────────────────────────────────────
 
 /**
@@ -326,26 +385,24 @@ export type ClickDone =
  * @param click - What a click on the visual does
  * @param source - The visual's source's key
  * @param clicked - The group clicked
- * @param held - The placement's selection and the page's filters, as they are
- * @param add - Whether the click adds to a selection: ⌘-click, or Ctrl-click
+ * @param held - The visual's placement's key, its selection and the page's filters, as they are
+ * @param add - Whether the click adds a group: ⌘-click, or Ctrl-click
  * @returns `select`: the selection after it ({@link selectionAfter});
- *   `filter`: the page's filters with the group added on the source —
- *   `undefined` when they hold it already; `open`: the page, and the group as
- *   a filter on the source; `undefined` for a click that does nothing, and for
- *   a group no condition says
+ *   `filter`: the page's filters with the visual's own after it
+ *   ({@link filtersAfter}); `open`: the page, and the group as a filter on
+ *   the source, no visual's of that page; `undefined` for a click that does
+ *   nothing, and for a group no condition says
  */
 export function clickDone(
     click: Click, source: string, clicked: Clicked,
-    held: { readonly selection: readonly Clicked[]; readonly filters: readonly PageFilter[] }, add: boolean,
+    held: { readonly placement: string; readonly selection: readonly Clicked[]; readonly filters: readonly PageFilter[] }, add: boolean,
 ): ClickDone | undefined {
     if (click.type === "none") return undefined;
     if (click.type === "select") return { type: "select", selection: selectionAfter(held.selection, clicked, add) };
     const where = clickedCondition(clicked);
     if (where === undefined) return undefined;
-    const filter: PageFilter = { source, where };
-    if (click.type === "open") return { type: "open", page: click.value, filter };
-    if (held.filters.some((other) => other.source === source && sameLiteral(other.where, where))) return undefined;
-    return { type: "filter", filters: [...held.filters, filter] };
+    if (click.type === "open") return { type: "open", page: click.value, filter: { source, where, from: none } };
+    return { type: "filter", filters: filtersAfter(held.filters, source, held.placement, where, add) };
 }
 
 /**

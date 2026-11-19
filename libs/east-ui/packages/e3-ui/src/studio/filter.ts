@@ -10,7 +10,9 @@
  * that source on the page reads through it, and no other. A page holds a list
  * of them. They are the reader's — kept with the page's view in the UI store,
  * not saved with the page — and a click that filters, or opens a page, adds to
- * them.
+ * them. A filter a visual's click made knows the visual's placement: that
+ * visual marks the groups it holds rather than narrowing to them, so the
+ * reader can click them again.
  *
  * A filter on its source's range field is the page's range on that source: a
  * value over the previous period, or a year ago, moves it.
@@ -32,10 +34,13 @@ import { StudioKeyType } from "./pages.js";
  *
  * @property source - The key of a listed source
  * @property where - A jq condition over one of its rows
+ * @property from - The key of the placement whose click made it, which marks the groups it holds rather than narrowing
+ *   to them; `none` for a filter the reader wrote, or a click that opened the page made
  */
 export const StudioFilterType = StructType({
     source: StringType,
     where: JqType,
+    from: OptionType(StringType),
 });
 
 /** Type representing one filter of a page. */

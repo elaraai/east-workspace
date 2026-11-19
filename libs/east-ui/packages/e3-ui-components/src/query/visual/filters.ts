@@ -10,7 +10,8 @@
  * were added.
  *
  * The rules are here, never a renderer's: adding, changing, removing and
- * clearing a filter; which filters apply to a source; the one condition
+ * clearing a filter; which filters apply to a source — a visual's own click's
+ * filter none of them for it, whose groups it marks ({@link markedBy}); the one condition
  * they are in a visual's program ({@link selectOf}) — every filter on the
  * visual's source, each of which a row must pass; a filter in words, as its
  * chip says it ({@link filterWords}); a filter as the query its condition
@@ -89,15 +90,49 @@ export function clearFilters(filters: readonly PageFilter[], source?: string): P
     return source === undefined ? [] : filters.filter((held) => held.source !== source);
 }
 
+/** Whether a filter is the one a placement's click made. */
+const madeBy = (filter: PageFilter, placement: string): boolean => filter.from.type === "some" && filter.from.value === placement;
+
 /**
- * The filters that apply to a source: its own, in the page's order.
+ * Where among a page's filters the one a placement's click made on a source
+ * stands.
+ *
+ * @param filters - The page's filters
+ * @param source - The placement's visual's source's key
+ * @param placement - The placement's key
+ * @returns Its place, from 0; -1 when its click made none
+ */
+export function ownFilterAt(filters: readonly PageFilter[], source: string, placement: string): number {
+    return filters.findIndex((held) => held.source === source && madeBy(held, placement));
+}
+
+/**
+ * The filters that apply to a source: its own, in the page's order — for a
+ * visual, all but the one its own click made, whose groups it marks
+ * ({@link markedBy}) rather than narrowing to them.
  *
  * @param filters - The page's filters
  * @param source - The source's key
+ * @param placement - The placement of the visual that reads them; every filter on the source when omitted
  * @returns The source's filters
  */
-export function filtersOn(filters: readonly PageFilter[], source: string): PageFilter[] {
-    return filters.filter((held) => held.source === source);
+export function filtersOn(filters: readonly PageFilter[], source: string, placement?: string): PageFilter[] {
+    return filters.filter((held) => held.source === source && (placement === undefined || !madeBy(held, placement)));
+}
+
+/**
+ * The groups a placement marks: each condition its own click's filter on its
+ * source holds, any of which a row may pass — the groups clicked, or what the
+ * reader made of them in the filter's rows.
+ *
+ * @param filters - The page's filters
+ * @param source - The placement's visual's source's key
+ * @param placement - The placement's key
+ * @returns Each condition; none when its click made no filter on the source
+ */
+export function markedBy(filters: readonly PageFilter[], source: string, placement: string): JqNode[] {
+    const at = ownFilterAt(filters, source, placement);
+    return at < 0 ? [] : readChain(filters[at]!.where, "or");
 }
 
 /**
@@ -296,12 +331,14 @@ export function pageRange(conditions: readonly JqNode[], source: PrintSource, no
 
 /**
  * The page's state as a visual's printer reads it: the page's filters on the
- * visual's source, and the range they hold its date to.
+ * visual's source — all but the one its own click made — and the range they
+ * hold its date to.
  *
  * @param filters - The page's filters
  * @param source - The visual's source's key
  * @param read - The source, as the printer reads it
  * @param now - The page's minute
+ * @param placement - The visual's placement; every filter on the source when omitted
  * @returns The state `printVisual` takes
  *
  * @example
@@ -310,8 +347,8 @@ export function pageRange(conditions: readonly JqNode[], source: PrintSource, no
  * const printed = printVisual(visual, printSourceOf(source)!, state);
  * ```
  */
-export function printStateOf(filters: readonly PageFilter[], source: string, read: PrintSource, now: Date): PrintState {
-    const conditions = filtersOn(filters, source).map((held) => held.where);
+export function printStateOf(filters: readonly PageFilter[], source: string, read: PrintSource, now: Date, placement?: string): PrintState {
+    const conditions = filtersOn(filters, source, placement).map((held) => held.where);
     const range = pageRange(conditions, read, now);
     return range === undefined ? { filters: conditions } : { filters: conditions, range };
 }

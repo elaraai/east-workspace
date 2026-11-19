@@ -7,7 +7,8 @@
  * @vitest-environment jsdom
  *
  * A page's filters' rules (`filters.ts`, #1673): adding, changing, removing
- * and clearing; which apply to a source; the one condition a visual of a
+ * and clearing; which apply to a source — for a visual, all but the one its
+ * own click made, whose groups it marks; the one condition a visual of a
  * source prints them as — which narrows its program as each filter would;
  * the window they hold a source's date to, with what they say besides; and
  * a filter in words, as its chip says it.
@@ -16,19 +17,22 @@
 import { describe, expect, it } from "vitest";
 import {
     ArrayType, BooleanType, DateTimeType, FloatType, StringType, StructType, checkJq, evaluateJq, isValueOf, none, printJq, some,
-    toEastTypeValue, variant, type ValueTypeOf,
+    toEastTypeValue, variant, type JqNode, type ValueTypeOf,
 } from "@elaraai/east";
 import { Studio } from "@elaraai/e3-ui";
 import { utcAt as at } from "../../plan/plan.test-utils.js";
 import { visualAnswerType } from "./ask.js";
 import { formatters } from "@elaraai/east-ui-components";
 import { queryWords } from "../model/words.js";
-import { addFilter, changeFilter, clearFilters, filterQuery, filterWords, filtersOn, pageRange, printStateOf, removeFilter, selectOf, whereOf, type PageFilter } from "./filters.js";
+import {
+    addFilter, changeFilter, clearFilters, filterQuery, filterWords, filtersOn, markedBy, ownFilterAt, pageRange, printStateOf, removeFilter, selectOf, whereOf,
+    type PageFilter,
+} from "./filters.js";
 import { printVisual } from "./print.js";
 import { printSourceOf } from "./source.js";
 import { ORDERS_ROOT, ORDERS_SOURCE, condition } from "./visual.test-utils.js";
-/** A filter on a source. */
-const on = (source: string, where: string): PageFilter => ({ source, where: condition(where) });
+/** A filter the reader wrote on a source. */
+const on = (source: string, where: string): PageFilter => ({ source, where: condition(where), from: none });
 /** A list of filters, as their sources and their conditions' text. */
 const said = (filters: readonly PageFilter[]) => filters.map((held) => `${held.source}: ${printJq(held.where).text}`);
 
@@ -76,6 +80,36 @@ describe("the filters on a source", () => {
         expect(said(filtersOn(PAGE, "orders"))).toEqual([`orders: .region == "SA"`, "orders: .export"]);
         expect(said(filtersOn(PAGE, "assets"))).toEqual(["assets: .running"]);
         expect(filtersOn(PAGE, "stock")).toEqual([]);
+    });
+});
+
+describe("a visual's own filter: the one its click made (#1673)", () => {
+    /** The regions list's: two regions it marks. */
+    const CLICKED: PageFilter = { source: "orders", where: condition(`.region == "SA" or .region == "WA"`), from: some("c-regions") };
+    const HELD = [SA, CLICKED, RUNNING, EXPORT];
+    const NOW = at("2026-09-15T12:00:00");
+    const texts = (nodes: readonly JqNode[]) => nodes.map((node) => printJq(node).text);
+
+    it("is no narrowing of the visual whose click made it, and is every other visual's of its source", () => {
+        expect(said(filtersOn(HELD, "orders", "c-regions"))).toEqual([`orders: .region == "SA"`, "orders: .export"]);
+        expect(said(filtersOn(HELD, "orders", "c-months"))).toEqual([`orders: .region == "SA"`, `orders: .region == "SA" or .region == "WA"`, "orders: .export"]);
+        expect(said(filtersOn(HELD, "orders"))).toEqual(said(filtersOn(HELD, "orders", "c-months")));
+    });
+
+    it("holds the groups the visual marks, each a condition any of which a row may pass; none where its click made none, or on another source", () => {
+        expect(ownFilterAt(HELD, "orders", "c-regions")).toBe(1);
+        expect(texts(markedBy(HELD, "orders", "c-regions"))).toEqual([`.region == "SA"`, `.region == "WA"`]);
+        expect([ownFilterAt(HELD, "orders", "c-months"), markedBy(HELD, "orders", "c-months")]).toEqual([-1, []]);
+        expect(ownFilterAt(HELD, "assets", "c-regions")).toBe(-1);
+    });
+
+    it("leaves the visual's state the page's other filters; every other visual's holds it, a month its window", () => {
+        const july: PageFilter = { source: "orders", where: condition(`(.ordered_at | strftime("%Y-%m")) == "2026-07"`), from: some("c-months") };
+        const held = [july, on("orders", `.region == "SA"`)];
+        const own = printStateOf(held, "orders", ORDERS_SOURCE, NOW, "c-months");
+        expect([texts(own.filters), own.range]).toEqual([[`.region == "SA"`], undefined]);
+        const other = printStateOf(held, "orders", ORDERS_SOURCE, NOW, "c-regions");
+        expect([texts(other.filters).length, other.range?.window]).toEqual([2, { from: at("2026-07-01T00:00:00"), to: at("2026-08-01T00:00:00") }]);
     });
 });
 

@@ -13,7 +13,10 @@
  * row (#1638). Under the rows, the legend's note in mono 10 `--ink-4`. A
  * donut's total is the 26px numeral, over its caption in mono 10 / 500
  * `--ink-4`. An entry a click reaches is a button, whose hover steps one paper
- * darker. A legend of names alone is the swatch and the label. The pie's
+ * darker. A legend of names alone is the swatch and the label. A row off
+ * while the chart's host marks another slice (`data-dimmed`, #1673) is the
+ * design system's off row: its label and value `--ink-4` at 500, its swatch
+ * the muted mark, which the renderer draws. The pie's
  * frame places the pie a whole number of pixels from its edges — beside its
  * legend in the middle of its height, over one in the middle of its width,
  * alone in the middle of both — so the recipe leaves it at the frame's start.
@@ -96,6 +99,7 @@ export const chartPieSlotRecipe = defineSlotRecipe({
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
+            "[data-dimmed] > &": { color: "fg.subtle", fontWeight: "500" },
         },
         value: {
             fontSize: "12px",
@@ -103,6 +107,7 @@ export const chartPieSlotRecipe = defineSlotRecipe({
             color: "fg",
             fontVariantNumeric: "tabular-nums",
             textAlign: "right",
+            "[data-dimmed] > &": { color: "fg.subtle" },
         },
         share: {
             fontWeight: "400",

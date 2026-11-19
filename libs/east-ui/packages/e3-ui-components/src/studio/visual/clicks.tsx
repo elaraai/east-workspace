@@ -9,7 +9,9 @@
  * group is selected ({@link VisualClicksProvider}); a chart's mark, a table's
  * row or cell and a list's row tell it the groups they stand for. What the
  * click does — select, filter, open — is the tile's, by the rules in
- * `query/visual/clicks.ts`; a part only says what was clicked.
+ * `query/visual/clicks.ts`; a part only says what was clicked, and marks the
+ * groups the tile marks: its selection, or what the filter its click made
+ * holds (#1673).
  *
  * @packageDocumentation
  */
@@ -21,12 +23,12 @@ import type { ClickedGroup } from "../../query/visual/clicks.js";
  * What a visual's parts raise their clicks through.
  *
  * @property onClick - Tells a click on the groups a mark, a row or a cell stands for; `undefined` where a click does nothing
- * @property selected - Whether the groups are in the placement's selection
+ * @property selected - Whether the groups are marked: in the placement's selection, or among those the filter its click made holds
  */
 export interface VisualClicks {
     /** Tells a click on the groups a mark, a row or a cell stands for, and whether it adds to a selection (⌘-click); `undefined` where a click does nothing. */
     readonly onClick: ((groups: readonly ClickedGroup[], add: boolean) => void) | undefined;
-    /** Whether the groups are in the placement's selection. */
+    /** Whether the groups are marked: in the placement's selection, or among those the filter its click made holds (#1673). */
     readonly selected: (groups: readonly ClickedGroup[]) => boolean;
 }
 

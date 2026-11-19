@@ -14,6 +14,8 @@
  * at a time into `+N more`, then into the rail's summary chip, then — on a
  * phone — its Filters button and view. The chips are the shared row
  * (`SliceFilterChips`); the filters' rules are `query/visual/filters.ts`'s.
+ * A filter the rail adds is the reader's; one a visual's click made stays
+ * that visual's as it is edited, which goes on marking what it holds (#1673).
  *
  * @packageDocumentation
  */
@@ -21,7 +23,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { Box } from "@chakra-ui/react";
 import { faFilter } from "@fortawesome/free-solid-svg-icons";
-import { printJq, type JqNode, type ValueTypeOf } from "@elaraai/east";
+import { none, printJq, type JqNode, type ValueTypeOf } from "@elaraai/east";
 import type { StudioCellType, StudioSourceType } from "@elaraai/e3-ui/internal";
 import { useFormatters, type ToolbarItem } from "@elaraai/east-ui-components";
 import { SliceChoiceGroup, SliceFilterChips, useSliceDensity, useSliceRailItems, type SliceFilterChip, type SliceRailModel } from "@elaraai/east-ui-components/internal";
@@ -92,7 +94,7 @@ function NewFilter({ sources, page }: NewFilterProps) {
     const on = sources.find((held) => held.source.key === picked) ?? sources[0];
     if (on === undefined) return null;
     const write = (where: JqNode) => {
-        const filter: PageFilter = { source: on.source.key, where };
+        const filter: PageFilter = { source: on.source.key, where, from: none };
         if (added === undefined) {
             setAdded(page.filters.length);
             page.set(addFilter(page.filters, filter));
@@ -141,7 +143,7 @@ function StudioFilterChips({ sources, page, foldChips }: StudioFilterChipsProps)
             editor: (): ReactNode => (on === undefined
                 ? <VisualNote>{m.filterSourceGone({ source: filter.source })}</VisualNote>
                 : <FilterEditor id={`${i}:${filter.source}`} where={filter.where} read={on.read}
-                    onChange={(where) => page.set(changeFilter(page.filters, i, { source: filter.source, where }))} />),
+                    onChange={(where) => page.set(changeFilter(page.filters, i, { ...filter, where }))} />),
         };
     });
     // Each finished condition is the page's at once: the popovers say no Done or Cancel.

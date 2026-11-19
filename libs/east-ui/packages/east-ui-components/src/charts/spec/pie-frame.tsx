@@ -8,6 +8,8 @@
  * legend, as `pie.ts` gives its slices — a row a slice, then the legend's
  * note; a donut's total in its centre, over its caption. Its legend shows
  * each slice's value and share, its name alone, or nothing, as the pie says.
+ * While its host marks a slice (#1673), every other slice is the muted mark
+ * and its legend row off.
  *
  * @packageDocumentation
  */
@@ -19,7 +21,8 @@ import { Group } from "@visx/group";
 import { Pie } from "@visx/shape";
 import { useFormatters } from "../../format/index.js";
 import { getSomeorUndefined } from "../../utils";
-import type { ChartMark, ChartMarkHandler, ChartNumberText, ChartStyle } from "./context.js";
+import type { ChartMark, ChartMarkHandler, ChartMarkedTest, ChartNumberText, ChartStyle } from "./context.js";
+import { chartMarking, markAttributes } from "./marking.js";
 import { measuredFrame } from "./measured.js";
 import { pieSlicesOf, type PieSlice, type PieValue } from "./pie.js";
 import { tickFormatter } from "./tick-format.js";
@@ -63,12 +66,18 @@ function sliceMark(slice: PieSlice): ChartMark {
  * alone is the swatch and the name; with no legend the pie stands alone in
  * the middle of its frame. Where the legend does not say a slice's value, the
  * slice says it — its name, its value and its share — where the pointer
- * rests. A slice and its legend row tell the host when clicked.
+ * rests. A slice and its legend row tell the host when clicked. While the host
+ * marks a slice, every other — Other with them — is the muted mark, and its
+ * legend row off: the swatch muted, the words the recipe's.
  */
-export function PieFrame({ pie, height, width, style, onMark, numberText }: { pie: PieValue; height: number; width: number | undefined; style: ChartStyle; onMark: ChartMarkHandler | undefined; numberText: ChartNumberText | undefined }): ReactNode {
+export function PieFrame({ pie, height, width, style, onMark, numberText, marked }: {
+    pie: PieValue; height: number; width: number | undefined; style: ChartStyle; onMark: ChartMarkHandler | undefined; numberText: ChartNumberText | undefined; marked: ChartMarkedTest | undefined;
+}): ReactNode {
     const words = useFormatters();
     const recipe = useSlotRecipe({ key: "chartPie" });
     const shown = useMemo(() => pieSlicesOf(pie, "Other"), [pie]);
+    // What the host marks of its slices (#1673).
+    const marking = useMemo(() => chartMarking(marked, shown.slices.map(sliceMark)), [marked, shown]);
     const format = getSomeorUndefined(pie.format);
     const fmt = tickFormatter(format, "linear", words.locale);
     // A value as the host prints it beside the largest it is read with, else through the pie's own format.
@@ -98,13 +107,16 @@ export function PieFrame({ pie, height, width, style, onMark, numberText }: { pi
                     <Group top={outer} left={outer}>
                         <Pie<PieSlice> data={[...shown.slices]} pieValue={s => s.value} pieSort={null} pieSortValues={null}
                             outerRadius={outer} innerRadius={inner} startAngle={0} endAngle={Math.PI * 2}>
-                            {p => p.arcs.map(arc => (
-                                <path key={arc.data.key} d={p.path(arc) ?? ""} fill={style.color(arc.data.color)} stroke={style.pointFill} strokeWidth={1.5}
-                                    data-chart-slice={arc.data.key} {...(arc.data.other ? { "data-other": "" } : {})}
-                                    {...(onMark !== undefined ? { cursor: "pointer", onClick: () => onMark(sliceMark(arc.data)) } : {})}>
-                                    {legend !== "values" && <title>{`${arc.data.key} · ${said(arc.data.value, largest)} · ${words.percent(arc.data.share)}`}</title>}
-                                </path>
-                            ))}
+                            {p => p.arcs.map(arc => {
+                                const state = marking?.(sliceMark(arc.data));
+                                return (
+                                    <path key={arc.data.key} d={p.path(arc) ?? ""} fill={state === "dimmed" ? style.muted : style.color(arc.data.color)} stroke={style.pointFill} strokeWidth={1.5}
+                                        data-chart-slice={arc.data.key} {...(arc.data.other ? { "data-other": "" } : {})} {...markAttributes(state)}
+                                        {...(onMark !== undefined ? { cursor: "pointer", onClick: () => onMark(sliceMark(arc.data)) } : {})}>
+                                        {legend !== "values" && <title>{`${arc.data.key} · ${said(arc.data.value, largest)} · ${words.percent(arc.data.share)}`}</title>}
+                                    </path>
+                                );
+                            })}
                         </Pie>
                         {pie.donut && <SvgText css={styles.total} y={caption !== undefined ? DONUT_TOTAL_Y : 0} textAnchor="middle" dominantBaseline="central" data-chart-pie-total="">{said(shown.total, shown.total)}</SvgText>}
                         {pie.donut && caption !== undefined && <SvgText css={styles.caption} y={DONUT_CAPTION_Y} textAnchor="middle" dominantBaseline="central" data-chart-pie-caption="">{caption}</SvgText>}
@@ -112,16 +124,19 @@ export function PieFrame({ pie, height, width, style, onMark, numberText }: { pi
                 </Box>
                 {legend !== "hidden" && (
                     <Box css={styles.legend} data-chart-pie-legend={legend}>
-                        {shown.slices.map(s => (
-                            <Box key={s.key} css={styles.entry} data-chart-slice-entry={s.key} {...(s.other ? { "data-other": "" } : {})}
-                                {...(legend === "names" ? { "data-names": "" } : {})}
-                                {...(onMark !== undefined ? { as: "button" as const, type: "button" as const, "data-clickable": "", onClick: () => onMark(sliceMark(s)) } : {})}>
-                                <Box as="span" css={styles.swatch} background={style.color(s.color)} />
-                                <Box as="span" css={styles.label}>{s.key}</Box>
-                                {legend === "values" && <Box as="span" css={styles.value}>{said(s.value, largest)}</Box>}
-                                {legend === "values" && <Box as="span" css={styles.share}>{words.percent(s.share)}</Box>}
-                            </Box>
-                        ))}
+                        {shown.slices.map(s => {
+                            const state = marking?.(sliceMark(s));
+                            return (
+                                <Box key={s.key} css={styles.entry} data-chart-slice-entry={s.key} {...(s.other ? { "data-other": "" } : {})} {...markAttributes(state)}
+                                    {...(legend === "names" ? { "data-names": "" } : {})}
+                                    {...(onMark !== undefined ? { as: "button" as const, type: "button" as const, "data-clickable": "", onClick: () => onMark(sliceMark(s)) } : {})}>
+                                    <Box as="span" css={styles.swatch} background={state === "dimmed" ? style.muted : style.color(s.color)} />
+                                    <Box as="span" css={styles.label}>{s.key}</Box>
+                                    {legend === "values" && <Box as="span" css={styles.value}>{said(s.value, largest)}</Box>}
+                                    {legend === "values" && <Box as="span" css={styles.share}>{words.percent(s.share)}</Box>}
+                                </Box>
+                            );
+                        })}
                         {note !== undefined && <Box css={styles.note} data-chart-pie-note="">{note}</Box>}
                     </Box>
                 )}

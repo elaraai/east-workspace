@@ -98,18 +98,20 @@ export function usePageFilters(): PageFilters | undefined {
 
 /**
  * The page's state as a visual's printer reads it (`printStateOf`): the
- * page's filters on the visual's source, and the range they hold its date to,
- * counted from the page's minute.
+ * page's filters on the visual's source — all but the one its own click made
+ * (#1673) — and the range they hold its date to, counted from the page's
+ * minute.
  *
  * @param source - The visual's source's key
  * @param read - The source, as the printer reads it; `undefined` for one the surface does not list
+ * @param placement - The visual's placement's key; every filter on the source when omitted
  * @returns The state; no filters outside a page, or for a source not listed
  */
-export function usePageState(source: string, read: PrintSource | undefined): PrintState {
+export function usePageState(source: string, read: PrintSource | undefined, placement?: string): PrintState {
     const filters = useContext(PageFiltersContext)?.filters ?? NO_FILTERS;
     const minute = useVisualMinute();
     return useMemo(
-        () => (read === undefined || minute === undefined || filters.length === 0 ? NO_STATE : printStateOf(filters, source, read, minute)),
-        [filters, source, read, minute],
+        () => (read === undefined || minute === undefined || filters.length === 0 ? NO_STATE : printStateOf(filters, source, read, minute, placement)),
+        [filters, source, read, minute, placement],
     );
 }
