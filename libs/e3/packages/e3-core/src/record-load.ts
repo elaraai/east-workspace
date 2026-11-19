@@ -41,6 +41,7 @@ import { inputsHash } from './executions.js';
 import { touchReachable } from './gc-graph.js';
 import { withRunningWork } from './running-work.js';
 import { storeCollection, type CollectionSource } from './store-collection.js';
+import { workspaceGetState } from './workspaces.js';
 import {
   DatasetRefConflictError, ObjectNotFoundError, RecordLoadRefusedError, RecordLoadStoppedError,
 } from './errors.js';
@@ -57,6 +58,10 @@ const sameName = equalFor(StringType);
 
 /** Whether two objects are one, by their hashes. */
 const sameObject = equalFor(StringType);
+
+/** The name of the root commit a compaction leaves, which cuts every commit
+ *  before it from the record's chain. */
+const COMPACT_COMMIT = '$compact';
 
 /**
  * Stores a composite record's entries of one source as a collection of its
@@ -224,7 +229,7 @@ export async function recordLoadCommit(
     // is millions of ops lets its workspace go as soon as it is asked
     try {
       const passed = checked === undefined ? null : await commitsSince(storage, repo, head, checked);
-      if (passed !== null && passed.every((commit) => replays(commit, source))) {
+      if (Array.isArray(passed) && passed.every((commit) => replays(commit, source))) {
         if (result === undefined) result = await ownApplied(await readRecordState(storage, repo, stateHash));
         // Oldest first, as they landed: each a save's few ops, or another source's load
         else for (const commit of passed.reverse()) if (commit.delta.type === 'some') result = { ...result, refs: await applied(storage, repo, result.refs, commit.delta.value, signal) };
@@ -274,25 +279,31 @@ export async function recordLoadCommit(
   }
 }
 
+/** Where a walk back from a record's head ended without reaching the commit
+ *  it looked for: at a compaction, which cut what came before it from the
+ *  chain, or anywhere else — another root, or a commit the store no longer
+ *  holds. */
+type ChainEnd = 'compacted' | 'elsewhere';
+
 /**
  * The commits since a head, newest first: those a walk back from `head`
  * passes before it reaches `since`.
  *
- * @returns The commits; none when `head` is `since`; `null` when the chain
- *   never reaches it — a compaction cut it, or a commit is gone
+ * @returns The commits; none when `head` is `since`; and, when the chain never
+ *   reaches it, where the walk ended
  */
-async function commitsSince(storage: StorageBackend, repo: string, head: string, since: string): Promise<RecordCommit[] | null> {
+async function commitsSince(storage: StorageBackend, repo: string, head: string, since: string): Promise<RecordCommit[] | ChainEnd> {
   const passed: RecordCommit[] = [];
   for (let at = head; !sameObject(at, since);) {
     let commit: RecordCommit;
     try {
       commit = decodeRecordCommit(await storage.objects.read(repo, at));
     } catch (err) {
-      if (err instanceof ObjectNotFoundError) return null;
+      if (err instanceof ObjectNotFoundError) return 'elsewhere';
       throw err;
     }
     passed.push(commit);
-    if (commit.parent.type === 'none') return null;
+    if (commit.parent.type === 'none') return sameName(commit.mutation, COMPACT_COMMIT) ? 'compacted' : 'elsewhere';
     at = commit.parent.value;
   }
   return passed;
@@ -508,9 +519,9 @@ export async function recordLoad(
   return withRunningWork(storage, repo, async () => {
     await reference(storage, repo, delivery);
     const began = await sourceToLoad(storage, repo, ws, record, source);
-    // The record's head as the load last saw it, with nothing announced on
-    // the workspace: what a removal or a copy it waits out is judged against
-    let head = await recordHead(storage, repo, ws, began.record);
+    // The workspace as the load last saw it, with nothing announced on it:
+    // what a removal or a copy it waits out is judged against
+    let stood = await workspaceSeen(storage, repo, ws, began.record);
     const queue = await queueTaken(storage, repo, ws, record, source, delivery, name, signal, report, options.onAsked);
     try {
       stopIfAsked();
@@ -527,7 +538,7 @@ export async function recordLoad(
         told = undefined;
         // It has ended: the load fails where it took the workspace, and goes on where it left it
         if (taking !== null) {
-          if (head === undefined || await workspaceTaken(storage, repo, ws, began.record, head)) throw new Error(intentStop(taking, ws).took);
+          if (await workspaceTaken(storage, repo, ws, began.record, stood)) throw new Error(intentStop(taking, ws).took);
           taking = null;
         }
         const lock = await acquireWorkspaceShared(storage, repo, ws, variant('dataset_write', null));
@@ -536,7 +547,7 @@ export async function recordLoad(
         const watch = watchIntent(storage, repo, ws, signal);
         try {
           const declared = await sourceToLoad(storage, repo, ws, record, source, began);
-          head = await recordHead(storage, repo, ws, declared.record);
+          stood = await workspaceSeen(storage, repo, ws, declared.record);
           // Asked again of the workspace as it is held: a deploy since may have made the record forget the delivery
           const repeat = answered === null ? null : await answeredAlready(storage, repo, ws, declared, source, delivery, options.asOf);
           if (repeat !== null) {
@@ -827,39 +838,64 @@ function stoppedFor(operation: LockOperation, ws: string, told: string | undefin
   return stop.words;
 }
 
+/** A workspace as a load last saw it: which deployment it was, and where its
+ *  record stood. */
+interface WorkspaceSeen {
+  /** The package deployed, by its hash, and when; `null` for a workspace that
+   *  is gone, or has none deployed. */
+  readonly deployment: { readonly packageHash: string; readonly deployedAt: Date } | null;
+  /** The record's head commit; none for a record that holds no state. */
+  readonly head: string | undefined;
+}
+
+/** A workspace as it stands: its deployment, and its record's head. */
+async function workspaceSeen(
+  storage: StorageBackend, repo: string, ws: string, record: Pick<ResolvedRecord, 'refPath' | 'selfKeypath'>,
+): Promise<WorkspaceSeen> {
+  const state = await workspaceGetState(storage, repo, ws);
+  const read = await storage.datasets.readVersioned(repo, ws, record.refPath);
+  return {
+    deployment: state === null ? null : { packageHash: state.packageHash, deployedAt: state.deployedAt },
+    head: read !== null && read.ref.type === 'value' ? read.ref.value.versions.get(record.selfKeypath) : undefined,
+  };
+}
+
 /**
  * Whether a removal of the workspace, or a copy onto it, that the load waited
- * out took the workspace: it then holds the record no more, or holds another
- * than the one the load began on.
+ * out took the workspace: it is then gone, or is another than the one the
+ * load began on (rulings 34 and 49).
  *
  * @remarks
  * A copy's wait for its target, or a removal's for the workspace, may run
  * out once it has announced itself, so either can announce itself and then
- * leave the workspace as it was: the load goes on. Nothing writes the workspace
- * while its intent is held but what held it before, so the record's head is
- * then the one the load last saw, or a commit made onto it. A workspace
- * removed holds no record, and one copied onto holds its source's record,
- * whose history does not pass through that head.
+ * leave the workspace as it was: the load goes on. A workspace is taken when:
+ *
+ * - it is gone, or holds the record no more: a removal took it;
+ * - it is another deployment: a copy gives its target its source's package
+ *   and the time of its source's deploy, so either differs from the ones the
+ *   load saw;
+ * - its record's history does not pass through the head the load saw: a copy
+ *   gives its target its source's record.
+ *
+ * A compaction is a root commit, which cuts what came before it from the
+ * chain. One that landed since the load's last look leaves a history that
+ * cannot say whether it passed through that head, and the load goes on: its
+ * commit reads the source's entries again in that case, and loads again when
+ * they changed. So too where a copy's source is the same deployment and holds
+ * a record that descends from that head: it reads as commits made onto it.
  *
  * @param record - The record, as the load resolved it
- * @param head - The record's head commit as the load last saw it
- * @returns True when the record is gone, or its head is not a commit made
- *   onto `head`
+ * @param seen - The workspace as the load last saw it
+ * @returns True when the workspace is gone or another deployment, or its
+ *   record is gone or of another history
  */
 async function workspaceTaken(
-  storage: StorageBackend, repo: string, ws: string, record: Pick<ResolvedRecord, 'refPath' | 'selfKeypath'>, head: string,
+  storage: StorageBackend, repo: string, ws: string, record: Pick<ResolvedRecord, 'refPath' | 'selfKeypath'>, seen: WorkspaceSeen,
 ): Promise<boolean> {
-  if (await storage.refs.workspaceRead(repo, ws) === null) return true;
-  const now = await recordHead(storage, repo, ws, record);
-  return now === undefined || await commitsSince(storage, repo, now, head) === null;
-}
-
-/** The record's head commit, as its ref names it; none for a record that holds no state. */
-async function recordHead(
-  storage: StorageBackend, repo: string, ws: string, record: Pick<ResolvedRecord, 'refPath' | 'selfKeypath'>,
-): Promise<string | undefined> {
-  const read = await storage.datasets.readVersioned(repo, ws, record.refPath);
-  return read !== null && read.ref.type === 'value' ? read.ref.value.versions.get(record.selfKeypath) : undefined;
+  const now = await workspaceSeen(storage, repo, ws, record);
+  if (now.deployment === null || now.head === undefined || seen.deployment === null || seen.head === undefined) return true;
+  if (!sameObject(now.deployment.packageHash, seen.deployment.packageHash) || byTime(now.deployment.deployedAt, seen.deployment.deployedAt) !== 0) return true;
+  return await commitsSince(storage, repo, now.head, seen.head) === 'elsewhere';
 }
 
 /**

@@ -36,7 +36,7 @@ import { repoGc } from './gc.js';
 import { packageImport } from './package-files.js';
 import { loadQueueLock, recordLoad, recordLoadRefusal, type RecordLoadOptions } from './record-load.js';
 import { PENDING_SLOT, sourceLoadSlots } from './record-slots.js';
-import { recordDescribe, recordHistory, recordMutate, recordReindex, recordSystemCommit, resolveRecord } from './records.js';
+import { recordCompact, recordDescribe, recordHistory, recordMutate, recordReindex, recordSystemCommit, resolveRecord } from './records.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { LockHandle, StorageBackend } from './storage/interfaces.js';
 import {
@@ -640,6 +640,31 @@ describe('a load of a delivery', () => {
     assert.ok('result' in refused && refused.result.outcome.type === 'loaded', 'it loaded');
     assert.deepEqual(stops(refused.steps), [`a removal of ${refused.ws} started. The load goes on once it is done, unless it removes the workspace…`]);
     await holds(refused.ws, [['erp', 'SO-3402', cedar], ['own', 'P-1', birch]]);
+  });
+
+  it('ruling 49 — a compaction that lands while a load runs does not make a removal that was refused look as if it took the workspace: the load goes on', async () => {
+    // The compaction is a root commit: the record's history no longer reaches the head the load saw
+    const compacted = await loadMeeting(async (ws) => {
+      const outcome = await recordCompact(storage, repoDir, ws, 'orders', { actor: 'ada@example.com' });
+      assert.equal(outcome.kind, 'committed');
+      await announcing(variant('removal', null))(ws);
+    }, [['SO-4901', acme]]);
+    assert.ok('result' in compacted && compacted.result.outcome.type === 'loaded', `it loaded: ${'error' in compacted ? String(compacted.error) : ''}`);
+    assert.deepEqual(await chain(compacted.ws), ['$load:erp', '$compact']);
+    await holds(compacted.ws, [['erp', 'SO-4901', acme], ['own', 'P-1', birch]]);
+  });
+
+  it('ruling 49 — a copy from a workspace deployed since replaces the workspace, though its record descends from the head the load saw: the load fails, naming it', async () => {
+    const staging = `${await fresh()}-staging`;
+    const copied = await loadMeeting(async (ws) => {
+      // Staging is copied from the workspace, deployed again, and copied back over it
+      await workspaceCopy(storage, repoDir, ws, staging);
+      await workspaceDeploy(storage, repoDir, staging, 'ledger', '1.1.0', { runner });
+      await workspaceCopy(storage, repoDir, staging, ws);
+    }, [['SO-4902', cedar]]);
+    assert.ok('error' in copied && copied.error instanceof Error, 'it failed');
+    assert.equal(copied.error.message, `a copy onto ${copied.ws} replaced the workspace: nothing loaded`);
+    assert.equal((await chain(copied.ws)).includes('$load:erp'), false, 'nothing was loaded into the copy');
   });
 
   it('R69 — gc while a load waits its turn, or waits out a deploy, is refused, and the load\'s delivery is kept', async () => {
