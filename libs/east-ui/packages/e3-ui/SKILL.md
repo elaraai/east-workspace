@@ -130,10 +130,11 @@ Task → What do you need?
     │   ├─ Store the pages operators build                  → e3.record("pages", Studio.Types.Pages, { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }), migrations: (migration) => [migration.rows("cell_content", Studio.migrations.cellContent)] })
     │   ├─ List the data a page's visuals may read          → sources={{ orders: Studio.source(handle, { name, icon, description?, fields?, range?, search?, split? }) }} on the builder and the page (range: a date field every row has, never an optional one)
     │   ├─ Seed a page: a component, a visual, a text block → a placement's content: Studio.visual.component(key) · Studio.visual.of("orders", Studio.visual.column({ x: Studio.visual.group("ordered_at", { bucket: "month" }), values: [Studio.visual.sum("revenue")] })) · Studio.visual.text(body, heading?)
+    │   ├─ What a click on a visual does, and who follows it → Studio.visual.of(source, view, { click?: variant("select" | "filter" | "none", null) or variant("open", pageKey), follow?: { leader, from, to, empty: variant("all" | "prompt", null) } })
     │   ├─ The builder: canvas, palette, inspector, preview → <Studio.Builder pages components project sources? page? onOpen? env? audience? rollout? id? />
     │   ├─ Templates, pages, and where new pages start      → <Studio.Library pages components project onOpen page? />
     │   ├─ Open a page from the library in the builder      → hold the open page (a route's params, or State.bind([Studio.Types.Key], …)); give it to both as `page`, change it in `onOpen`
-    │   └─ Show one page, live or draft, with no chrome     → <Studio.Page pages components page sources? version? />
+    │   └─ Show one page, live or draft, with no chrome     → <Studio.Page pages components page sources? version? onOpen? /> (onOpen: a click that opens a page)
     │
     ├─ Let users query the bound datasets and save their queries (typed jq)
     │   ├─ Store the queries they save                    → e3.record("queries", Query.Types.Saved, { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }) })
@@ -483,8 +484,17 @@ start and end are `Option<DateTime>` when it can wait in the backlog. A
   records a page at a time; a summary's heads over its groups, with the
   query's own totals; a pivot on the heat ramp; a list with its ranking bar.
   Its eyebrow names it — its placement's title, else its wells (`Revenue by
-  month`) — and its menu shows its rows in a drawer, or exports them as CSV.
-  `e3-ui:studio.examples.tsx:studioVisuals` is a page of every form. A visual whose filter reads `$now` ("in the last 7
+  month`) — and its menu shows its rows as a value tree in a popover, or
+  exports them as CSV. `e3-ui:studio.examples.tsx:studioVisuals` is a page of
+  every form. A click on a visual's row or mark selects (a list's and a
+  table's, unless it says otherwise), filters the page (a chart's and a KPI's)
+  or opens another page narrowed to it, which the page's `onOpen` is told. A
+  filter is a chip on the page's rail, read by every visual of its source; one
+  a click made keeps its placement (`from`), which marks the groups and is not
+  narrowed. A visual that `follow`s one whose click selects narrows to the
+  selection, its eyebrow saying what; with nothing selected it shows every
+  row (`all`) or asks for a pick (`prompt`): `e3-ui:studio.examples.tsx:studioClicks`.
+  A visual whose filter reads `$now` ("in the last 7
   days") is asked for the page's minute, and again as it moves on. The calls run as the reader: a host that admits its
   readers only what their pages bind must admit their platform-free calls over
   those datasets. A text block draws. A pages record written before a placement
