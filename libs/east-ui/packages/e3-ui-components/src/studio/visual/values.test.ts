@@ -17,7 +17,7 @@ import { describe, expect, it } from "vitest";
 import { Studio } from "@elaraai/e3-ui";
 import { formatters } from "@elaraai/east-ui-components";
 import { LISTED_ORDERS, answered } from "../../query/visual/visual.test-utils.js";
-import { studioMessages } from "../messages.js";
+import { studioMessages } from "../messages-en.js";
 import { some, variant } from "@elaraai/east";
 import { queryWords } from "../../query/model/words.js";
 import { CHANGE_FORMAT, changeOf, fieldLabel, goalOf, kpiModel, shortNumber, shortValue, unitLabel, valueFieldFormat, valueFormat, valueHead, valueName, valueUnit, visualMeta, visualName, type KpiView } from "./values.js";

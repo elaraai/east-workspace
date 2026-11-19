@@ -28,7 +28,8 @@ import type { VisualAnswer } from "../../query/visual/ask.js";
 import type { ClickedGroup } from "../../query/visual/clicks.js";
 import type { VisualAsk } from "../../query/visual/print.js";
 import { bucketStart, foldGroups, partsAt, readGroups, type ReadGroup } from "../../query/visual/read.js";
-import { capitalised, type StudioMessages } from "../messages.js";
+import { capitalised } from "../../shared/capital.js";
+import type { StudioMessages } from "../messages.js";
 import {
     axisLabel, bucketSpan, groupWords, shortNumber, valueFieldFormat, visualWords,
     type VisualGroup, type VisualShown, type VisualSource, type VisualView,

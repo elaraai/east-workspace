@@ -11,6 +11,7 @@
  */
 
 import { withArticle } from "../../shared/article.js";
+import { capitalised } from "../../shared/capital.js";
 import { lastUnit, type ComparisonKind, type LastUnit, type StepKind } from "../steps/values.js";
 import type { PlanCombineKind, PlanTotalRule, QueryMessages, SlotKind } from "./messages.js";
 import type { InputKind } from "./refs.js";
@@ -162,11 +163,6 @@ const takesField = (slot: SlotKind): boolean =>
 function englishList(items: readonly string[]): string {
     if (items.length < 2) return items[0] ?? "";
     return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
-}
-
-/** A sentence's first letter in capitals. */
-function capital(text: string): string {
-    return text.length === 0 ? text : text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 /** The query builder's English messages — the default table. */
@@ -363,10 +359,10 @@ export const queryMessages: QueryMessages = {
     noRowsHere: ({ shape, verb }) => `${shape} — there are no rows to ${verb} here.`,
     choose: ({ what }) => `Choose ${withArticle(what)}.`,
     what: ({ what }) => what,
-    wrongKind: ({ label, kind, what }) => `${capital(label)} is ${kind} — pick ${withArticle(what)}.`,
+    wrongKind: ({ label, kind, what }) => `${capitalised(label)} is ${kind} — pick ${withArticle(what)}.`,
     unknownField: ({ name, labels, more }) => `There's no “${name}” here. The rows have ${labels}${more ? "…" : "."}`,
     onlyCaseHas: ({ rows, label }) => `Only ${rows} have a ${label}.`,
-    unknownCase: ({ label, cases, value }) => `${capital(label)} can be ${cases} — not “${value}”.`,
+    unknownCase: ({ label, cases, value }) => `${capitalised(label)} can be ${cases} — not “${value}”.`,
     wholeVariant: ({ label }) => `Compare the ${label} case, not the whole value.`,
     chooseComparison: () => "Choose how to compare.",
     enterValue: () => "Enter a value.",
@@ -376,20 +372,20 @@ export const queryMessages: QueryMessages = {
     enterMonth: () => "Enter a month, like 2026-03.",
     enterDate: () => "Enter a date, like 2026-03-01.",
     enterLast: ({ unit }) => `Enter a whole number of ${unit}.`,
-    notANumber: ({ label, kind, value }) => `${capital(label)} is a ${kind} — “${value}” isn't one.`,
-    neverEqual: ({ label, value }) => `${capital(label)} is a whole number, so it can never equal ${value}.`,
+    notANumber: ({ label, kind, value }) => `${capitalised(label)} is a ${kind} — “${value}” isn't one.`,
+    neverEqual: ({ label, value }) => `${capitalised(label)} is a whole number, so it can never equal ${value}.`,
     finishInner: () => "Finish the inner condition.",
     emptyGroup: () => "This group is empty.",
     emptyFilter: () => "Add a condition, or remove this step.",
-    notLookupTable: ({ dataset }) => `${capital(dataset)} can't be looked up by key.`,
-    keyKind: ({ dataset, kind, label, keyKind }) => `${capital(dataset)} are found by ${kind} ids, but ${label} is ${withArticle(keyKind)}.`,
-    noRecordField: ({ noun, field }) => `${capital(noun)} records have no “${field}”.`,
+    notLookupTable: ({ dataset }) => `${capitalised(dataset)} can't be looked up by key.`,
+    keyKind: ({ dataset, kind, label, keyKind }) => `${capitalised(dataset)} are found by ${kind} ids, but ${label} is ${withArticle(keyKind)}.`,
+    noRecordField: ({ noun, field }) => `${capitalised(noun)} records have no “${field}”.`,
     chooseGroupBy: () => "Choose what to group by.",
     cannotAddUp: ({ label, kind }) => `Can't add up ${label} — it's ${kind}. Pick a number, or count instead.`,
-    noLowestHighest: ({ label }) => `${capital(label)} has no lowest or highest.`,
+    noLowestHighest: ({ label }) => `${capitalised(label)} has no lowest or highest.`,
     duplicateName: ({ name }) => `Two fields are called ${name}; the last one wins.`,
     keepFirstCount: () => "Keep the first needs a whole number, 1 or more.",
-    neverMissing: ({ label }) => `${capital(label)} is never missing, so this changes nothing.`,
+    neverMissing: ({ label }) => `${capitalised(label)} is never missing, so this changes nothing.`,
     noTree: () => "There is no tree to walk here.",
     noCalculation: () => "There is no calculation to try here.",
     emptyRange: () => "The range needs a start below the end and a step above 0.",
@@ -411,14 +407,14 @@ export const queryMessages: QueryMessages = {
     fixRemoveStep: () => "Remove this step",
 
     describeModel: ({ result, input, from, to, step, fixed }) =>
-        `${capital(result)} over ${input} from ${from} to ${to} in steps of ${step}${fixed.map(f => `, ${f}`).join("")}`,
+        `${capitalised(result)} over ${input} from ${from} to ${to} in steps of ${step}${fixed.map(f => `, ${f}`).join("")}`,
     describeFixed: ({ name, value }) => `${name} ${value}`,
-    describeAllTotals: ({ totals, source, where }) => `${capital(totals)} across ${source}${where}`,
+    describeAllTotals: ({ totals, source, where }) => `${capitalised(totals)} across ${source}${where}`,
     describeTopGroups: ({ n, groups, sort, source, where }) => `Top ${n} ${groups} by ${sort} from ${source}${where}`,
-    describeGroups: ({ totals, group, source, where, sorted }) => `${capital(totals)} per ${group} from ${source}${where}${sorted}`,
+    describeGroups: ({ totals, group, source, where, sorted }) => `${capitalised(totals)} per ${group} from ${source}${where}${sorted}`,
     describeCount: ({ source, where }) => `Count of ${source}${where}`,
     describeFirst: ({ top, n, source, sort, where, with: withs }) => `${top ? "Top" : "First"} ${n} ${source}${sort}${where}${withs}`,
-    describeRows: ({ source, where, with: withs, sorted }) => `${capital(source)}${where}${withs}${sorted}`,
+    describeRows: ({ source, where, with: withs, sorted }) => `${capitalised(source)}${where}${withs}${sorted}`,
     describeWhere: ({ conditions }) => (conditions.length === 0 ? "" : ` where ${conditions.join(" and ")}`),
     describeConditions: ({ match, conditions }) => (match === "any" ? conditions.join(" or ") : englishList(conditions)),
     describeGroup: ({ match, conditions }) => (conditions.length > 1 ? `(${conditions.join(match === "any" ? " or " : " and ")})` : conditions[0] ?? ""),
@@ -436,7 +432,7 @@ export const queryMessages: QueryMessages = {
         const held = unit !== undefined ? `in the last ${value} ${unit[n === 1 ? 0 : 1]}`
             : cmp === "eq" ? value
             : `${(cmp === "inYear" || cmp === "inMonth" ? "is in" : COMPARISON[cmp]).replace(/^is /, "")}${value === "" ? "" : ` ${value}`}`;
-        return `${capital(field)}: ${held}`;
+        return `${capitalised(field)}: ${held}`;
     },
     chipMore: ({ count }) => `+${count}`,
     describeWith: ({ lookups }) => (lookups.length === 0 ? "" : `, with ${lookups.map(l => `${l.fields} from ${l.dataset}`).join(" and ")}`),
@@ -500,8 +496,8 @@ export const queryMessages: QueryMessages = {
     savedUnreadable: ({ message }) => `The saved queries couldn't be read: ${message}`,
     queryGone: ({ name }) => `“${name}” isn't saved here`,
     queryGoneHint: () => "It was renamed or removed. Open another from the Library tab, or start a new query from the Datasets tab.",
-    sourceThroughIndex: ({ name, index }) => `${capital(name)} reads through the index ${index}; bind the record itself to query it.`,
-    sourceUnbound: ({ name }) => `${capital(name)} isn't bound on this page yet.`,
+    sourceThroughIndex: ({ name, index }) => `${capitalised(name)} reads through the index ${index}; bind the record itself to query it.`,
+    sourceUnbound: ({ name }) => `${capitalised(name)} isn't bound on this page yet.`,
     rootMissing: ({ name }) => `Reads ${name}, which isn't here`,
     rootElsewhere: ({ path, name }) => `Reads ${path}, not this builder's ${name}`,
     nameTaken: ({ name }) => `Another query took the name ${name} first — choose another.`,
@@ -618,7 +614,7 @@ export const queryMessages: QueryMessages = {
     planSplit: ({ over, heaviest, bytes, piece }) => (heaviest === over
         ? `Split call over ${over}: it weighs ${bytes}, more than one piece (${piece}).`
         : `Split call over ${over}: ${heaviest}, cut with it, weighs ${bytes}, more than one piece (${piece}).`),
-    planCopartitioned: ({ over, names, n }) => `${capital(names)} ${n === 1 ? "is" : "are"} cut at the same keys as ${over}: each piece reads only its own keys of ${n === 1 ? "it" : "them"}.`,
+    planCopartitioned: ({ over, names, n }) => `${capitalised(names)} ${n === 1 ? "is" : "are"} cut at the same keys as ${over}: each piece reads only its own keys of ${n === 1 ? "it" : "them"}.`,
     planRekey: ({ name }) => `Re-key: both sides large and unaligned — ${name} weighs more than one piece too.`,
     planRekeyStage: ({ over, name, bytes }) => `First, ${over} is re-keyed by this, about ${bytes}, and each piece then reads ${name} cut at the same keys:`,
     planTop: ({ count, n }) => (n === 1
@@ -677,7 +673,7 @@ export const queryMessages: QueryMessages = {
     planTotal: ({ rule }) => PLAN_TOTAL[rule],
     planThen: () => "Then, once, over what they combine to:",
     planBroadcast: ({ names }) => `Every piece reads ${names} whole.`,
-    planPieces: ({ over, count, n, size }) => `${capital(over)} is cut into ${count} ${n === 1 ? "piece" : "pieces"}, about ${size} each.`,
+    planPieces: ({ over, count, n, size }) => `${capitalised(over)} is cut into ${count} ${n === 1 ? "piece" : "pieces"}, about ${size} each.`,
     planPieceCount: ({ count, n }) => `${count} ${n === 1 ? "piece" : "pieces"}`,
     planCachedCount: ({ count, n, whole }) => (whole ? "all cached" : `${count} ${n === 1 ? "unit" : "units"} cached`),
     planUnits: ({ kind, cached, ran, units, n }) => {

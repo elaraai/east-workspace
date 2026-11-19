@@ -69,12 +69,12 @@ export { EastChakraStudioBuilder, type EastChakraStudioBuilderProps } from './st
 export { EastChakraStudioLibrary, type EastChakraStudioLibraryProps } from './studio/library.js';
 export { EastChakraStudioPage, type EastChakraStudioPageProps } from './studio/page.js';
 export {
-    studioMessages,
     useStudioMessages,
     StudioMessagesProvider,
     type StudioMessages,
     type StudioMessagesProviderProps,
 } from './studio/messages.js';
+export { studioMessages } from './studio/messages-en.js';
 
 // The query builder and the query library (#875) — each renderer registers
 // itself against its extension on import — their words, how the builder makes
