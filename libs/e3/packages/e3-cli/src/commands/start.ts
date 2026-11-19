@@ -274,6 +274,7 @@ async function executeLocal(
       skipped: result.skipped,
       waiting: result.waiting,
       duration: result.duration,
+      reran: result.reexecuted,
     });
     if (rack !== undefined) await printRackSummary(rack);
 
@@ -403,7 +404,15 @@ export async function runRemote(
   const handed = started.type === 'handed';
   if (handed) console.log(`A run is in flight on ${ws}: it takes your changes in now.`);
 
-  const ended = await followRemoteRun(api.poll, handed ? started.value.since : 0n, isAborted, wait);
+  // The server's summary counts the tasks that ran, not how often: a run followed from its first event is counted
+  // here, by its completions
+  let completions = 0;
+  const counted = async (since: bigint): Promise<DataflowExecutionState> => {
+    const state = await api.poll(since);
+    completions += state.events.filter((event) => event.type === 'complete').length;
+    return state;
+  };
+  const ended = await followRemoteRun(counted, handed ? started.value.since : 0n, isAborted, wait);
   const lastStatus: DataflowExecutionState['status']['type'] | null = ended?.status.type ?? null;
   if (ended !== null) {
     // Print summary if available
@@ -416,6 +425,7 @@ export async function runRemote(
         skipped: Number(summary.skipped),
         waiting: Number(summary.waiting),
         duration: summary.duration,
+        ...(handed ? {} : { reran: Math.max(0, completions - Number(summary.executed)) }),
       });
     }
 
@@ -564,6 +574,9 @@ interface Summary {
    *  hear from a source, and their dependents */
   waiting: number;
   duration: number;
+  /** How many more times tasks ran than once each, as the run followed its
+   *  inputs changing; absent where the command did not see the whole run */
+  reran?: number;
 }
 
 /**
@@ -673,6 +686,11 @@ function printSummary(summary: Summary): void {
   console.log('');
   console.log('Summary:');
   console.log(`  Executed: ${summary.executed}`);
+  // A run follows the edits and loads that land while it runs, and runs a task again for each: said, so the count of
+  // tasks above is not read as the work the run did
+  if (summary.reran !== undefined && summary.reran > 0) {
+    console.log(`  Re-run:   ${summary.reran} (${summary.reran === 1 ? 'a task run' : 'tasks run'} again as their inputs changed during the run)`);
+  }
   console.log(`  Cached:   ${summary.cached}`);
   console.log(`  Failed:   ${summary.failed}`);
   console.log(`  Skipped:  ${summary.skipped}`);
