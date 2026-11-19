@@ -302,6 +302,12 @@ const refreshes = new Map<string, Promise<string>>();
  * keeps the login: a token that has not yet expired serves the request, and
  * the next asks for a refresh again.
  *
+ * The credentials file is shared by every e3 process of its user, and this
+ * one dedups only its own refreshes. So a refusal is read against the file as
+ * it stands: where another process stored a login meanwhile — it refreshed
+ * first, and the provider rotated the token this one held — that login is the
+ * session's, and is sent, or refreshed in its turn, and never removed.
+ *
  * @param serverUrl - The server
  * @returns The access token to send
  * @throws {Error} When no login is stored for the server; when its refresh
@@ -334,8 +340,13 @@ async function refreshedToken(serverUrl: string, creds: CredentialEntry): Promis
     tokens = await refreshAccessToken(serverUrl, creds.refreshToken);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'unknown error';
-    // Refused: the session is over, and only a login makes another
     if (err instanceof TokenRefusedError) {
+      // Refused for a token another process spent: the login it stored stands
+      const stored = getCredential(serverUrl);
+      if (stored !== null && stored.refreshToken !== creds.refreshToken) {
+        return new Date(stored.expiresAt).getTime() - Date.now() > TOKEN_REFRESH_MARGIN_MS ? stored.accessToken : refreshedToken(serverUrl, stored);
+      }
+      // Refused: the session is over, and only a login makes another
       removeCredential(serverUrl);
       throw new Error(`Session expired and refresh failed: ${message}. Run: e3 login ${serverUrl}`);
     }

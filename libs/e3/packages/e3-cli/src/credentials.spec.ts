@@ -6,9 +6,9 @@
 /**
  * A server's token as a command sends it: refreshed near its expiry, one
  * refresh at a time for a server, the login kept through a refresh that fails
- * to be answered and removed by one the token endpoint refuses. The token
- * endpoint is the test's own, and rotates its refresh tokens: one used twice
- * is refused.
+ * to be answered and removed by one the token endpoint refuses, unless another
+ * process renewed it meanwhile. The token endpoint is the test's own, and
+ * rotates its refresh tokens: one used twice is refused.
  */
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
@@ -32,6 +32,8 @@ describe('getValidToken', () => {
   let answer: Answer;
   /** The refresh token the endpoint takes next. */
   let current: string;
+  /** What happens as the endpoint is asked, before it answers: another process's doing. */
+  let meanwhile: () => void;
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'e3-credentials-'));
@@ -41,6 +43,7 @@ describe('getValidToken', () => {
     sent = [];
     answer = 'rotate';
     current = 'refresh-1';
+    meanwhile = () => undefined;
     globalThis.fetch = (async (input: Parameters<typeof globalThis.fetch>[0], init?: Parameters<typeof globalThis.fetch>[1]) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
       if (url.endsWith('/.well-known/openid-configuration')) return Response.json({ token_endpoint: `${SERVER}/token` });
@@ -48,6 +51,7 @@ describe('getValidToken', () => {
       await new Promise((resolve) => { setImmediate(resolve); });
       const refresh = new URLSearchParams(String(init?.body)).get('refresh_token') ?? '';
       sent.push(refresh);
+      meanwhile();
       if (answer === 'unavailable') return Response.json({ error: 'temporarily_unavailable' }, { status: 503 });
       if (refresh !== current) return Response.json({ error: 'invalid_grant', error_description: 'the refresh token was used' }, { status: 400 });
       current = `refresh-${sent.length + 1}`;
@@ -106,5 +110,28 @@ describe('getValidToken', () => {
     current = 'another';
     await assert.rejects(getValidToken(SERVER), /^Error: Session expired and refresh failed: .*invalid_grant.*Run: e3 login https:\/\/e3\.example\.com$/);
     assert.equal(getCredential(SERVER), null);
+  });
+
+  it('keeps a login another process renewed while this one\'s refresh was refused: the token that process stored is sent, and the login stands', async () => {
+    login(30_000);
+    // Another process sharing the credentials file refreshed first: the endpoint rotated the token this one holds,
+    // and that process stored the login it was given
+    const renewed = { accessToken: 'access-theirs', refreshToken: 'refresh-theirs', expiresAt: new Date(Date.now() + 3600_000).toISOString() };
+    current = renewed.refreshToken;
+    meanwhile = () => setCredential(SERVER, renewed);
+    assert.equal(await getValidToken(SERVER), 'access-theirs');
+    assert.deepEqual(sent, ['refresh-1'], 'the refused refresh was not asked again');
+    assert.deepEqual(getCredential(SERVER), renewed, 'the other process\'s login is kept');
+
+    // One that process stored near its own expiry is refreshed in its turn, with its refresh token
+    meanwhile = () => undefined;
+    login(30_000);
+    meanwhile = () => {
+      meanwhile = () => undefined;
+      setCredential(SERVER, { ...renewed, expiresAt: new Date(Date.now() + 30_000).toISOString() });
+    };
+    assert.equal(await getValidToken(SERVER), 'access-4');
+    assert.deepEqual(sent.slice(1), ['refresh-1', 'refresh-theirs']);
+    assert.equal(getCredential(SERVER)?.refreshToken, 'refresh-4');
   });
 });
