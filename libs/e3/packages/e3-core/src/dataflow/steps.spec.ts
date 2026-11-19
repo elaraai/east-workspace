@@ -950,6 +950,31 @@ describe('stepTaskCommits', () => {
     }
   });
 
+  it('asks the store for no commit as it defers a task: a plain input read at two values is found first, whatever its records are read at', async () => {
+    const c1 = await commit(null, '$init');
+    const c2 = await commit(c1, 'edit');
+    // plan's inputs name the record at two commits, and the plain input at two values
+    const state = run({ orders: c1, rates: 'r1' }, { orders: c2, rates: 'r2' });
+    state.inputSnapshot.set('.records.orders', c1);
+    dataflowSnapshotTaken(state, [{ path: '.records.orders', version: c2 }]);
+
+    // Each commit the store is asked for, which re-references it
+    const touch = storage.objects.touch.bind(storage.objects);
+    const touched: string[] = [];
+    storage.objects.touch = async (repo, hashes) => {
+      touched.push(...hashes);
+      return touch(repo, hashes);
+    };
+    try {
+      assert.deepStrictEqual(await stepTaskCommits(storage, state, 'plan'), {
+        kind: 'deferred', reason: { kind: 'plain', input: '.rates', through: ['x', 'y'] },
+      });
+      assert.deepStrictEqual(touched, [], 'a deferred task launches nothing: no commit is re-referenced for it');
+    } finally {
+      storage.objects.touch = touch;
+    }
+  });
+
   it('takes no order from a read of the history that failed: it is raised, and the history is read again by the next to ask', async () => {
     const before = await commit(null, '$init');
     const between = await commit(before, 'edit');

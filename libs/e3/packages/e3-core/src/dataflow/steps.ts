@@ -574,20 +574,27 @@ export async function stepTaskCommits(
     }
   }
 
+  // A plain input read at two values defers the task, whatever its records
+  // are read at. It is found before any commit is asked of the store: the
+  // ask re-references a commit for the task's launch, and a deferred task
+  // launches nothing, however often it is decided again
+  const agreed = (names: ReadonlyArray<{ version: string }>): boolean => names.every((each) => sameVersion(each.version, names[0]!.version));
+  const disagreed = [...named].filter(([, names]) => !agreed(names));
+  const records = disagreed.length === 0 ? null : await dataflowRecords(storage, state);
+  for (const [root, names] of disagreed) {
+    if (records!.has(root)) continue;
+    const through = [...new Set(names.map((each) => each.through))];
+    return {
+      kind: 'deferred',
+      reason: { kind: 'plain', input: root, through: [...through.filter((each) => sameInput(each, root)), ...through.filter((each) => !sameInput(each, root))] },
+    };
+  }
+
   const versions = new Map<string, string>();
   for (const [root, names] of named) {
-    let version = names[0]!.version;
-    if (names.some((each) => !sameVersion(each.version, version))) {
-      if (!(await dataflowRecords(storage, state)).has(root)) {
-        const through = [...new Set(names.map((each) => each.through))];
-        return {
-          kind: 'deferred',
-          reason: { kind: 'plain', input: root, through: [...through.filter((each) => sameInput(each, root)), ...through.filter((each) => !sameInput(each, root))] },
-        };
-      }
-      version = await oldestHeld(storage, state, root, names.map((each) => each.version), options.hold !== false);
-    }
-    versions.set(root, version);
+    versions.set(root, agreed(names)
+      ? names[0]!.version
+      : await oldestHeld(storage, state, root, names.map((each) => each.version), options.hold !== false));
   }
   return { kind: 'commits', versions };
 }
