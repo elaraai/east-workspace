@@ -10,3 +10,5 @@ export type { ProjectNames } from "./names.js";
 export { runCreateCli } from "./cli.js";
 export { updateStack } from "./update.js";
 export type { UpdateOptions, UpdateResult, UpdatedDep } from "./update.js";
+// Where create-e3's build puts the release's python pins in its template
+export { PINS_DIR, PINS_FILES } from "./pins.js";

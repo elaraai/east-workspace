@@ -9,6 +9,7 @@ import { spawnSync } from "node:child_process";
 
 import { deriveNames, type ProjectNames } from "./names.js";
 import { generatePackages, type PackageSpec } from "./packages.js";
+import { readReleasePins, withReleasePins } from "./pins.js";
 
 export type ProjectKind = "e3" | "east";
 
@@ -265,6 +266,9 @@ export function scaffold(options: ScaffoldOptions): ScaffoldResult {
   }
   mkdirSync(projectDir, { recursive: true });
 
+  // Whether this scaffold wrote the root pyproject.toml: one a scaffold into
+  // the current directory finds there, and leaves, is the project's own.
+  let wrotePyproject = false;
   for (const srcPath of walk(templateDir)) {
     const rel = relative(templateDir, srcPath).replaceAll("\\", "/");
     if (rel === MANIFEST_FILE) continue;
@@ -274,6 +278,7 @@ export function scaffold(options: ScaffoldOptions): ScaffoldResult {
     if (skip.has(rel)) continue;
 
     const destRel = renames[rel] ?? rel;
+    if (destRel === "pyproject.toml") wrotePyproject = true;
     const segments = destRel.split("/");
     const last = segments[segments.length - 1]!;
     segments[segments.length - 1] = DOTFILE_RENAMES[last] ?? last;
@@ -297,7 +302,19 @@ export function scaffold(options: ScaffoldOptions): ScaffoldResult {
   // The value-list half: split platform code into per-runtime workspace
   // packages, each with its own captured execution environment.
   if (options.packages) {
-    generatePackages({ projectDir, templateDir, names, version, spec: options.packages, log });
+    if (generatePackages({ projectDir, templateDir, names, version, spec: options.packages, log })) wrotePyproject = true;
+  }
+
+  // The python project locks under its release's pins, which a template of a
+  // built create-e3 carries: a rack's tier image of that release then holds
+  // nearly all its environments install. Written into the root pyproject this
+  // scaffold wrote, once it is final: generatePackages rewrites it as a
+  // workspace root.
+  const pins = readReleasePins(templateDir);
+  if (pins !== null && wrotePyproject) {
+    const pyproject = join(projectDir, "pyproject.toml");
+    writeFileSync(pyproject, withReleasePins(readFileSync(pyproject, "utf8"), pins));
+    log(`Pinned the python dependencies to east release ${pins.release}'s (${pins.constraints.length} pins).`);
   }
 
   if (options.install) {
@@ -307,7 +324,8 @@ export function scaffold(options: ScaffoldOptions): ScaffoldResult {
   return { ...names, projectDir, inPlace };
 }
 
-function hasCommand(cmd: string): boolean {
+/** Whether a command is on PATH. */
+export function hasCommand(cmd: string): boolean {
   const probe = process.platform === "win32" ? "where" : "which";
   return spawnSync(probe, [cmd], { stdio: "ignore" }).status === 0;
 }

@@ -7,6 +7,9 @@ import { existsSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 
+import { withReleasePins, type ReleasePins } from "./pins.js";
+import { hasCommand } from "./scaffold.js";
+
 const DEP_BUCKETS = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"] as const;
 
 /** A single `@elaraai/*` dependency whose pin was rewritten. */
@@ -23,6 +26,10 @@ export interface UpdateResult {
   changed: UpdatedDep[];
   /** Total `@elaraai/*` deps seen across all dependency buckets. */
   found: number;
+  /** Whether the project's `pyproject.toml` was given the release's python pins. */
+  pythonPinned: boolean;
+  /** Whether `uv sync` locked the python dependencies again under them. */
+  pythonLocked: boolean;
   /** Whether a reinstall ran. */
   installed: boolean;
 }
@@ -33,8 +40,13 @@ export interface UpdateOptions {
   cwd: string;
   /** Target version — every `@elaraai/*` pin is set to this exact version. */
   version: string;
-  /** Reinstall (drop the stale lock + `npm install`) after rewriting pins. */
+  /** Reinstall (drop the stale lock + `npm install`, then `uv sync` when the
+   *  python pins changed) after rewriting pins. */
   install?: boolean;
+  /** The release's python pins (`readReleasePins`), which a python project's
+   *  `pyproject.toml` takes in place of an earlier release's; none leaves its
+   *  python as it is. */
+  pins?: ReleasePins | null;
   /** Progress sink; defaults to `console.log`. */
   log?: (msg: string) => void;
 }
@@ -49,8 +61,13 @@ export interface UpdateOptions {
  * npm resolve the whole stack in a single consistent pass — replacing the
  * `rm -rf node_modules package-lock.json` workaround.
  *
- * @param options - Target directory, version, and install/log controls
- * @returns Which deps changed, how many `@elaraai/*` deps were found, and whether install ran
+ * A python project's `pyproject.toml` takes the release's pins too
+ * ({@link withReleasePins}), so its next lock resolves what the release's
+ * images hold. One that sets uv's constraints or overrides itself is left as
+ * it is, and the log says why.
+ *
+ * @param options - Target directory, version, the release's python pins, and install/log controls
+ * @returns Which deps changed, how many `@elaraai/*` deps were found, whether the python pins were written and locked, and whether install ran
  * @throws {Error} If there is no package.json, it has no `@elaraai/*` dependencies, or install fails
  */
 export function updateStack(options: UpdateOptions): UpdateResult {
@@ -100,7 +117,25 @@ export function updateStack(options: UpdateOptions): UpdateResult {
     rmSync(join(cwd, "package-lock.json"), { force: true });
   }
 
+  let pythonPinned = false;
+  const pyprojectPath = join(cwd, "pyproject.toml");
+  if (options.pins && existsSync(pyprojectPath)) {
+    const before = readFileSync(pyprojectPath, "utf8");
+    let after: string | null = null;
+    try {
+      after = withReleasePins(before, options.pins);
+    } catch (err) {
+      log(`Python pins not written: ${err instanceof Error ? err.message : String(err)}.`);
+    }
+    if (after !== null && after !== before) {
+      writeFileSync(pyprojectPath, after);
+      pythonPinned = true;
+      log(`Pinned the python dependencies to east release ${options.pins.release}'s.`);
+    }
+  }
+
   let installed = false;
+  let pythonLocked = false;
   if (install) {
     log("Reinstalling (npm install)...");
     const npm = spawnSync("npm", ["install"], { cwd, stdio: "inherit", shell: process.platform === "win32" });
@@ -108,7 +143,18 @@ export function updateStack(options: UpdateOptions): UpdateResult {
       throw new Error(`npm install failed (exit ${npm.status ?? "unknown"})`);
     }
     installed = true;
+    // The lock holds the earlier release's pins: a sync locks again under these.
+    if (pythonPinned && hasCommand("uv")) {
+      log("Locking the python dependencies again (uv sync)...");
+      const uv = spawnSync("uv", ["sync"], { cwd, stdio: "inherit", shell: process.platform === "win32" });
+      if (uv.status !== 0) {
+        throw new Error(`uv sync failed (exit ${uv.status ?? "unknown"})`);
+      }
+      pythonLocked = true;
+    } else if (pythonPinned) {
+      log("uv not found — install it (https://docs.astral.sh/uv/) then run `uv sync`.");
+    }
   }
 
-  return { projectName: pkg.name ?? "project", changed, found, installed };
+  return { projectName: pkg.name ?? "project", changed, found, pythonPinned, pythonLocked, installed };
 }

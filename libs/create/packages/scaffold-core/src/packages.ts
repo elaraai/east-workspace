@@ -36,6 +36,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import { join, relative } from "node:path";
 
 import type { ProjectNames } from "./names.js";
+import { EAST_PY_DISTRIBUTIONS } from "./pins.js";
 
 /** Named packages to generate, grouped by runtime. */
 export interface PackageSpec {
@@ -165,9 +166,7 @@ function writePythonWorkspaceRoot(projectDir: string, names: ProjectNames, membe
     `version = "0.1.0"\n` +
     `description = "${names.displayName}"\n` +
     `requires-python = ">=3.12"\n` +
-    `dependencies = [\n` +
-    `  "elaraai-east-py",\n  "elaraai-east-py-std",\n  "elaraai-east-py-io",\n` +
-    `  "elaraai-east-py-datascience",\n  "elaraai-east-py-cli",\n]\n\n` +
+    `dependencies = [\n${EAST_PY_DISTRIBUTIONS.map((name) => `  "${name}",\n`).join("")}]\n\n` +
     `# This project is a uv workspace root: each package under packages/python/*\n` +
     `# is its own member with its own dependency closure (and its own captured\n` +
     `# execution environment). No [build-system] — the root is not itself a\n` +
@@ -274,6 +273,8 @@ function writeAppWiring(projectDir: string, names: ProjectNames, members: Genera
  * @param options.names - Derived project names for token substitution.
  * @param options.spec - The packages to generate, grouped by runtime.
  * @param options.log - Progress logger.
+ * @returns Whether it wrote the root `pyproject.toml`: a uv workspace root
+ *   over the python members.
  * @throws {Error} if a package name is empty, malformed for its runtime, or
  *   collides with another package (names must be unique across all runtimes).
  */
@@ -284,7 +285,7 @@ export function generatePackages(options: {
   version: string;
   spec: PackageSpec;
   log: (msg: string) => void;
-}): void {
+}): boolean {
   const { projectDir, templateDir, names, version, spec, log } = options;
   const templateRoot = join(templateDir, "_packages");
 
@@ -308,7 +309,7 @@ export function generatePackages(options: {
       members.push({ name, ident: toIdent(name), runtime });
     }
   }
-  if (members.length === 0) return;
+  if (members.length === 0) return false;
 
   // A requested runtime must have a member template shipped. (Guards partial
   // rollout: python ships first; node/C templates land next.)
@@ -339,4 +340,5 @@ export function generatePackages(options: {
     .map((x) => `${x.n} ${RUNTIMES[x.r].label}`)
     .join(", ");
   log(`Generated ${members.length} workspace package${members.length === 1 ? "" : "s"} (${summary}).`);
+  return py.length > 0;
 }

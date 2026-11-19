@@ -43,6 +43,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
+      # The specs read the pyproject.toml a scaffold writes with Python's
+      # tomllib, run by uv. Astral's mirror, not GitHub's releases, whose
+      # downloads time out; its cache stays off, as elsewhere.
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: false
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
       - name: Build scaffold-core + create-* bins
         run: pnpm --filter @elaraai/scaffold-core --filter @elaraai/create-e3 --filter @elaraai/create-east run build
 
@@ -66,6 +77,10 @@ jobs:
           test -f smoke-e3/pyproject.toml
           test -f smoke-e3/src/index.ts
           grep -q "export default" smoke-e3/src/index.ts
+          # The built bin carries its release's python pins, and writes them
+          grep -q "^# >>> east release pins" smoke-e3/pyproject.toml
+          grep -q '"elaraai-east-py-datascience==' smoke-e3/pyproject.toml
+          test ! -e smoke-e3/_pins
 
       # NOTE: a full "install + run the generated project's commands" e2e is
       # intentionally omitted here. Emitted projects pin *published* @elaraai/*

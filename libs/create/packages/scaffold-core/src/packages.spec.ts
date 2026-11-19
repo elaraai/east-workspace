@@ -10,19 +10,17 @@ import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { scaffold } from "./scaffold.js";
 import type { PackageSpec } from "./packages.js";
 import { deriveNames } from "./names.js";
-
-const TEMPLATES = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "templates");
+import { PINNED_UV_TABLE, TEMPLATES, readToml, templateWithPins } from "./spec-fixtures.js";
 
 /** Scaffold an e3 project with workspace packages into a fresh tmpdir. */
-function scaffoldPackages(name: string, packages: PackageSpec): string {
+function scaffoldPackages(name: string, packages: PackageSpec, templateDir = join(TEMPLATES, "e3")): string {
   const cwd = mkdtempSync(join(tmpdir(), "create-pkg-test-"));
   scaffold({
-    kind: "e3", name, cwd, templateDir: join(TEMPLATES, "e3"), version: "9.9.9", log: () => {},
+    kind: "e3", name, cwd, templateDir, version: "9.9.9", log: () => {},
     features: {
       "platform": false, "tests": false, "ui": false, "eslint": false, "editor-diagnostics": false,
       "runner:east-py": Boolean(packages.python?.length),
@@ -63,6 +61,21 @@ test("python packages: root pyproject becomes a uv workspace root over the membe
   assert.ok(pyproject.includes("common = { workspace = true }"), "common workspace source");
   assert.ok(!/^\[build-system\]/m.test(pyproject), "workspace root is not itself a package (no [build-system] section)");
   rmSync(dirname(dir), { recursive: true, force: true });
+});
+
+test("python packages: the workspace root takes the release's pins, when the template carries them, beside its workspace", () => {
+  const template = templateWithPins();
+  const dir = scaffoldPackages("shop", { python: ["pricing"] }, template);
+  const pyproject = read(dir, "pyproject.toml");
+  assert.ok(pyproject.includes('members = ["packages/python/*"]'), "the workspace stays");
+  assert.match(pyproject, PINNED_UV_TABLE, "a [tool.uv] table holds the pins block");
+  assert.ok(!read(dir, join("packages", "python", "pricing", "pyproject.toml")).includes("east release pins"), "a member's own pyproject takes none");
+  const toml = readToml(pyproject) as { tool: { uv: { workspace: { members: string[] }; sources: Record<string, unknown>; "constraint-dependencies": string[] } } };
+  assert.deepEqual(toml.tool.uv.workspace.members, ["packages/python/*"], "a TOML reader takes the table after its sub-tables, as uv does");
+  assert.deepEqual(Object.keys(toml.tool.uv.sources), ["pricing"]);
+  assert.ok(toml.tool.uv["constraint-dependencies"].some((pin) => pin.startsWith("elaraai-east-py-datascience==")));
+  rmSync(dirname(dir), { recursive: true, force: true });
+  rmSync(dirname(template), { recursive: true, force: true });
 });
 
 test("python packages: app wiring references the platform but declares NO environment (auto-derived)", () => {

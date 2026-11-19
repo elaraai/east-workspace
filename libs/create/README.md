@@ -41,6 +41,12 @@ the prompts.
   exactly the transform pnpm applies at publish time.
 - Dotfiles are stored without the leading dot (`gitignore`, npm publish mangles
   a real `.gitignore`) and written back on emit.
+- A python project's root `pyproject.toml` takes the release's python pins, in
+  a marked block of its `[tool.uv]` table: the versions the release's python
+  images hold, so its environments built over a rack's tier image leave nearly
+  all they install to the image. create-e3's build copies them from
+  `@elaraai/e3-core`'s `tier/` into its template (`_pins/`, never scaffolded),
+  and `--update` replaces the block with its own release's.
 - Each `create-*` bin is esbuild-bundled with `scaffold-core` inlined and its
   one template tree copied in, so the published package is self-contained and
   dependency-free.
