@@ -80,6 +80,46 @@ const BOUND_FIXTURE = [
   '',
 ].join('\n');
 
+// An import written over several lines, as a file importing many names writes
+// it, then one after a section divider: a scan of the file's lines kept the
+// first's opening line alone (`import {`) and stopped at the divider.
+const WIDE_FIXTURE = [
+  '/** @jsxImportSource @elaraai/east-ui */',
+  'import {',
+  '    ArrayType, East, FloatType, StructType,',
+  '    example, type ValueTypeOf,',
+  '} from "@elaraai/east";',
+  '',
+  '// ---',
+  '// Wide',
+  '// ---',
+  '',
+  'import { Text, UIComponentType } from "@elaraai/east-ui";',
+  '',
+  'export const wide = example({',
+  '    keywords: ["Text"],',
+  '    description: "A file of wide imports",',
+  '    fn: East.function([], UIComponentType, (_$) => <Text>wide</Text>),',
+  '    inputs: [],',
+  '});',
+  '',
+].join('\n');
+
+test('an example carries each of its file\'s imports whole, as written — one over several lines too, and one after a divider', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'east-examples-'));
+  try {
+    const file = join(dir, 'wide.examples.tsx');
+    writeFileSync(file, WIDE_FIXTURE);
+    const [wide] = parseExamplesFile(file);
+    assert.deepEqual(wide!.imports, [
+      ['import {', '    ArrayType, East, FloatType, StructType,', '    example, type ValueTypeOf,', '} from "@elaraai/east";'].join('\n'),
+      'import { Text, UIComponentType } from "@elaraai/east-ui";',
+    ]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('an example\'s source carries the module-scope declarations its fn reaches, under their doc comments', () => {
   const dir = mkdtempSync(join(tmpdir(), 'east-examples-'));
   try {
