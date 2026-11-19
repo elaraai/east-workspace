@@ -2046,9 +2046,10 @@ export type DeployRecordCommit =
  *
  * And to the slots of a composite record's external sources
  * (`record-slots.ts`):
- * - `$init` and `$reset` name every external source in `$pending` and
- *   `$external`: its readers wait for each one's first delivery. A `$reset`
- *   drops every delivery the ref remembered;
+ * - `$init` and `$reset` name every external source in `$external`, and in
+ *   `$pending` each one the state committed holds no entry of
+ *   ({@link genesisSourceSlots}): its readers wait for that source's first
+ *   delivery. A `$reset` drops every delivery the ref remembered;
  * - `$deploy` and `$migrate` reconcile them ({@link deploySourceSlots}): a
  *   source new to the external set waits only when the state committed holds
  *   no entry of it, one no longer external has its delivery forgotten, and a
@@ -2092,7 +2093,7 @@ export async function commitDeployRecords(
           versions: nextVersions(undefined, selfKeypath, head, {
             [SCHEMA_SLOT]: schema,
             [MIGRATIONS_SLOT]: migrationsSlot(commit.applied.map((name) => [name, { at, commit: head }] as const)),
-            ...genesisSourceSlots(undefined, commit.external),
+            ...await genesisSourceSlots(storage, repo, undefined, commit.external, commit.state),
           }),
         }));
         break;
@@ -2139,7 +2140,7 @@ export async function commitDeployRecords(
             [IDEM_COMMIT_SLOT]: undefined,
             [SCHEMA_SLOT]: schema,
             [MIGRATIONS_SLOT]: migrationsSlot(commit.applied.map((name) => [name, { at, commit: head }] as const)),
-            ...genesisSourceSlots(commit.prior.versions, commit.external),
+            ...await genesisSourceSlots(storage, repo, commit.prior.versions, commit.external, commit.state),
           }, []),
         }));
         break;

@@ -251,28 +251,51 @@ export async function sourceHoldsEntries(storage: StorageBackend, repo: string, 
 
 /**
  * The slots a deploy writes on a record it mints, or resets to the package's
- * initial value: every external source waits for its first delivery, and no
- * delivery is remembered.
+ * initial value: no delivery is remembered, and an external source waits for
+ * its first delivery unless the state committed holds an entry of it.
  *
  * @remarks
+ * A package's initial value may hold an external source's entries: a
+ * workspace exported as a package carries the rows its sources had delivered.
+ * Such a source counts as delivered ({@link sourceHoldsEntries}), as one new
+ * to the external set does at a keep or a migrate ({@link deploySourceSlots}),
+ * and its readers run on the rows.
+ *
  * Every `$load.` slot the ref held is named, each to be dropped, since a
  * commit drops only the slots it names.
  *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
  * @param prior - The version vector of the ref being replaced; `undefined`
  *   for a record the workspace does not hold
  * @param external - The record's external sources, as the package being
  *   deployed declares them
+ * @param state - The state the deploy commits
  * @returns The slots to write: a value writes one, `undefined` drops it
+ *
+ * @example
+ * ```ts
+ * // A mint of `orders` from a state that holds erp's rows and none of wms's
+ * await genesisSourceSlots(storage, repo, undefined, ['erp', 'wms'], state);
+ * // { $pending: 'wms', $external: 'erp,wms' }
+ * ```
  */
-export function genesisSourceSlots(
+export async function genesisSourceSlots(
+  storage: StorageBackend,
+  repo: string,
   prior: ReadonlyMap<string, string> | undefined,
   external: readonly string[],
-): Record<string, string | undefined> {
+  state: string,
+): Promise<Record<string, string | undefined>> {
   const owned: Record<string, string | undefined> = {};
   for (const slot of prior?.keys() ?? []) {
     if (slot.startsWith(LOAD_SLOTS)) owned[slot] = undefined;
   }
-  owned[PENDING_SLOT] = sourcesSlot(external);
+  const pending: string[] = [];
+  for (const source of external) {
+    if (!(await sourceHoldsEntries(storage, repo, state, source))) pending.push(source);
+  }
+  owned[PENDING_SLOT] = sourcesSlot(pending);
   owned[EXTERNAL_SLOT] = sourcesSlot(external);
   return owned;
 }

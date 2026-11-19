@@ -121,16 +121,31 @@ describe('a composite record\'s source slots', () => {
       return [[slots.delivery, 'd'.repeat(64)], [slots.load, 'l'.repeat(64)], [slots.commit, 'c'.repeat(64)], [slots.execution, 'i/e'], [slots.asOf, asOf]];
     };
 
-    it('at a mint and a reset: every external source waits, and every delivery the ref remembered is dropped', () => {
-      assert.deepEqual(genesisSourceSlots(undefined, ['erp', 'wms']), { [PENDING_SLOT]: 'erp,wms', [EXTERNAL_SLOT]: 'erp,wms' });
-      assert.deepEqual(genesisSourceSlots(undefined, []), { [PENDING_SLOT]: undefined, [EXTERNAL_SLOT]: undefined }, 'a record with no external source');
+    it('at a mint and a reset: an external source the state holds no entry of waits, and every delivery the ref remembered is dropped', async () => {
+      const own = await stateOf(entries('own', 1), 2);
+      assert.deepEqual(await genesisSourceSlots(storage, REPO, undefined, ['erp', 'wms'], own), { [PENDING_SLOT]: 'erp,wms', [EXTERNAL_SLOT]: 'erp,wms' });
+      assert.deepEqual(await genesisSourceSlots(storage, REPO, undefined, [], own), { [PENDING_SLOT]: undefined, [EXTERNAL_SLOT]: undefined },
+        'a record with no external source');
       const prior = new Map([['.records.orders', 'h'.repeat(64)], ['$schema', 'a'], [EXTERNAL_SLOT, 'erp'], ...delivered('erp', '2026-11-02T03:00:00.000')]);
-      const reset = genesisSourceSlots(prior, ['erp']);
+      const reset = await genesisSourceSlots(storage, REPO, prior, ['erp'], own);
       for (const slot of Object.values(sourceLoadSlots('erp'))) {
         if (prior.has(slot)) assert.ok(slot in reset && reset[slot] === undefined, `${slot} is named, to be dropped`);
       }
       assert.deepEqual([reset[PENDING_SLOT], reset[EXTERNAL_SLOT]], ['erp', 'erp']);
       assert.ok(!('$schema' in reset), 'it names no slot of another writer');
+    });
+
+    it('ruling 44 — at a mint and a reset: an external source the state holds entries of counts as delivered, and the rest wait', async () => {
+      // The state a workspace's export carries: erp's rows, delivered there, and none of wms's
+      const exported = await stateOf([...entries('erp', 2), ...entries('own', 1)], 2);
+      assert.deepEqual(await genesisSourceSlots(storage, REPO, undefined, ['erp', 'wms'], exported), { [PENDING_SLOT]: 'wms', [EXTERNAL_SLOT]: 'erp,wms' });
+      assert.deepEqual(await genesisSourceSlots(storage, REPO, undefined, ['erp'], exported), { [PENDING_SLOT]: undefined, [EXTERNAL_SLOT]: 'erp' },
+        'a record whose every external source holds rows waits for nothing');
+      // A reset to such a state forgets the deliveries the ref remembered, and does not wait for a source it holds rows of
+      const prior = new Map([[EXTERNAL_SLOT, 'erp,wms'], [PENDING_SLOT, 'wms'], ...delivered('erp', '2026-11-02T03:00:00.000')]);
+      const reset = await genesisSourceSlots(storage, REPO, prior, ['erp', 'wms'], exported);
+      assert.deepEqual([reset[PENDING_SLOT], reset[EXTERNAL_SLOT]], ['wms', 'erp,wms']);
+      assert.ok(sourceLoadSlots('erp').delivery in reset && reset[sourceLoadSlots('erp').delivery] === undefined, 'no delivery is remembered');
     });
 
     it('at a keep and a migrate: a source new to the external set waits unless the state holds its rows, and one that waited still waits', async () => {

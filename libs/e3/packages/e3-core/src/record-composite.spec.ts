@@ -45,6 +45,7 @@ import { InMemoryStorage } from './storage/in-memory/InMemoryStorage.js';
 import type { StorageBackend } from './storage/interfaces.js';
 import { LocalStorage } from './storage/local/index.js';
 import { createTempDir, createTestRepo, ran, removeTempDir, removeTestRepo, sourceDelivered } from './test-helpers.js';
+import { workspaceExport } from './workspace-files.js';
 import { workspaceCreate, workspaceDeploy } from './workspaces.js';
 import { workspaceStatus } from './workspaceStatus.js';
 import { dataflowExecute } from './execution/local-orchestrator.js';
@@ -306,6 +307,24 @@ describe('a composite record: an external entry is never written (no program run
     await workspaceDeploy(storage, REPO, other, 'notes', '2.0.0');
     const emptied = (await heldRef(storage, REPO, other, 'notes')).versions;
     assert.deepEqual([emptied.get(PENDING_SLOT), emptied.get(EXTERNAL_SLOT)], ['erp', 'erp']);
+  });
+
+  it('ruling 44 — a record minted from a state that holds an external source\'s rows counts the source as delivered: a workspace\'s export deployed afresh waits for nothing', async () => {
+    // The workspace's ERP source was handed to its load holding a row. The workspace is exported as a package of its own, and deployed afresh
+    const zip = join(dir, 'notes-exported.zip');
+    await workspaceExport(storage, REPO, WS, zip, 'notes-exported', '1.0.0');
+    await packageImport(storage, REPO, zip);
+    const copy = 'copy';
+    await workspaceDeploy(storage, REPO, copy, 'notes-exported', '1.0.0');
+
+    assert.deepEqual((await recordHistory(storage, REPO, copy, 'notes')).map(({ commit }) => commit.mutation), ['$init'], 'the record is minted from the exported state');
+    const minted = await heldRef(storage, REPO, copy, 'notes');
+    const rows = decodeOrders(await readDatasetWhole(storage, REPO, (await readRecordState(storage, REPO, minted.hash)).primary));
+    assert.ok(rows.has(ERP_ORDER), 'which holds the ERP\'s order');
+    assert.deepEqual([minted.versions.has(PENDING_SLOT), minted.versions.get(EXTERNAL_SLOT)], [false, 'erp'], 'the order came with the export: nothing waits');
+    // Every reader of the record decides the same: its task's input can be read now
+    const tally = (await dataflowGetGraph(storage, REPO, copy)).tasks.find((task) => task.name === 'tally')!;
+    assert.deepEqual(await dataflowResolveInputHashes(storage, REPO, copy, tally), [minted.hash]);
   });
 
   it('R32 — a compaction empties the commit a source\'s last delivery names, and keeps the delivery', async () => {
