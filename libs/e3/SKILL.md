@@ -85,7 +85,7 @@ What do you need?
 │   ├─ A UI task                 → ui(name, [inputs], fn) from @elaraai/e3-ui (the e3-ui skill)
 │   ├─ A function written in python or another node package → East.importFunction(pkg, name, FunctionType) in the body
 │   └─ Bundle and export         → e3.package(name, version, ...items); e3.export(pkg, zipPath)
-├─ Operate it from the shell     → the e3 CLI (reference/cli.md): deploy, run, read and write datasets, call functions (named, or `call --ir` a function's IR file), mutate records, gc
+├─ Operate it from the shell     → the e3 CLI (reference/cli.md): deploy, run, read and write datasets, call functions (named, or `call --ir` a function's IR file), mutate records, load a composite's source, gc
 ├─ Delegate local task bodies to a rack → e3 rack enroll + policy; dataflow run --rack, watch --start --rack; one task or one call: run --rack, call --rack (reference/rack.md)
 │   ├─ A split task's pieces fill the rack → booked by what each reserves, capped half as much again; --memory-limit bounds the cap, --gpu asks for the GPU
 │   └─ A task with its own python/node environment → nothing new in the package: its layers are built for the rack's platform
@@ -522,7 +522,7 @@ Read the one a task needs; each holds its subject whole.
 |---|---|
 | [reference/record-indexes.md](reference/record-indexes.md) | Secondary indexes, interval and area indexes, series and summary indexes, nested series indexes, entries indexes, and reading an index inside a task or a function (`e3.index`) |
 | [reference/record-migrations.md](reference/record-migrations.md) | `migration.value` / `rows` / `rekey`, and how a record's type changes |
-| [reference/record-composite.md](reference/record-composite.md) | `e3.recordComposite`: a record over several sources, the refusal of a write to an entry only a load writes, and what waits until each external source has delivered once |
+| [reference/record-composite.md](reference/record-composite.md) | `e3.recordComposite`: a record over several sources, the refusal of a write to an entry only a load writes, what waits until each external source has delivered once, and loading a delivery (`e3 load`, `--as-of`, `workspaceRecordLoad`), with what a rollback, a restore and a compaction keep of one |
 | [reference/cli.md](reference/cli.md) | Every `e3` command: repositories, packages, workspaces, datasets, tasks, runs, calls (named, or from an IR file), records, watch, convert, auth, gc |
 | [reference/from-code.md](reference/from-code.md) | `@elaraai/e3-api-client`, `@elaraai/e3-core`, `e3-api-server` |
 | [reference/browser.md](reference/browser.md) | `@elaraai/e3-web`: serveUnits, serveE3, createWebE3, and what a browser cannot do |

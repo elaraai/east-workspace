@@ -207,15 +207,67 @@ function caseOf(key: unknown): string {
 }
 
 /**
- * Whether a state of a composite record holds any entry of a source.
+ * Where a source's entries lie among a composite record's segments.
  *
  * @remarks
  * A record's rows are in key order, and a variant key orders by its case's
- * name first, so a source's entries are one run of them. The run is looked for
- * among the fences the state's manifest holds, which costs no read: a segment
- * whose first key is of the source says yes. When no segment starts inside the
- * run, it lies, if anywhere, within the one segment before it, which is read
- * and scanned up to the run.
+ * name first, so a source's entries are one run of them. Its bounds are found
+ * among the fences the manifest holds, which costs no read: the segments
+ * `[from, to)` each start with an entry of the source. The run may begin in
+ * the segment before `from`, and the last of them may hold the next source's
+ * first entries; when no segment starts inside the run (`from` equals `to`),
+ * it lies, if anywhere, within the one segment before `from`.
+ *
+ * @param segments - The record's rows, opened
+ * @param source - The source's name: a case of the record's key
+ * @returns The first segment whose first key is of the source or after it,
+ *   and the first whose first key is after it
+ * @throws {Error} When the record's keys are not a variant's
+ */
+export async function sourceSegments(segments: DatasetSegments, source: string): Promise<{ from: number; to: number }> {
+  const caseAt = async (i: number): Promise<string> => caseOf(await segments.fence(i));
+  // The first segment whose first key's case answers `at`
+  const first = async (at: (order: number) => boolean): Promise<number> => {
+    let before = -1;
+    let found = segments.segmentCount;
+    while (found - before > 1) {
+      const mid = (before + found) >> 1;
+      if (at(byName(await caseAt(mid), source))) found = mid;
+      else before = mid;
+    }
+    return found;
+  };
+  return { from: await first((order) => order >= 0), to: await first((order) => order > 0) };
+}
+
+/**
+ * The entries of a source one segment of a composite record holds, in order.
+ *
+ * @param segments - The record's rows, opened
+ * @param segment - The segment
+ * @param source - The source's name: a case of the record's key
+ * @returns Each of its entries of the source, as the segment holds it: a
+ *   `[key, value]` pair of a Dict, or an element of a Set
+ * @throws {Error} When the record's keys are not a variant's
+ */
+export async function* sourceEntriesIn(segments: DatasetSegments, segment: number, source: string): AsyncGenerator<unknown> {
+  const keyed = segments.typeValue.type === 'Dict';
+  for await (const element of decodeBeast2ElementsFor(segments.typeValue)([await segments.segment(segment)])) {
+    const order = byName(caseOf(keyed ? (element as [unknown, unknown])[0] : element), source);
+    if (order === 0) yield element;
+    // The source's entries are one run: none comes after a later case
+    if (order > 0) return;
+  }
+}
+
+/**
+ * Whether a state of a composite record holds any entry of a source.
+ *
+ * @remarks
+ * Found among the fences the state's manifest holds ({@link sourceSegments}),
+ * which costs no read: a segment whose first key is of the source says yes.
+ * When no segment starts inside the run, it lies, if anywhere, within the one
+ * segment before it, which is read and scanned up to the run.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -227,25 +279,11 @@ function caseOf(key: unknown): string {
  */
 export async function sourceHoldsEntries(storage: StorageBackend, repo: string, state: string, source: string): Promise<boolean> {
   const segments = await DatasetSegments.open(storage, repo, state);
-  const count = segments.segmentCount;
-  const caseAt = async (i: number): Promise<string> => caseOf(await segments.fence(i));
-  // The first segment whose first key is of the source, or of one after it
-  let before = -1;
-  let from = count;
-  while (from - before > 1) {
-    const mid = (before + from) >> 1;
-    if (byName(await caseAt(mid), source) < 0) before = mid;
-    else from = mid;
-  }
-  if (from < count && byName(await caseAt(from), source) === 0) return true;
+  const { from, to } = await sourceSegments(segments, source);
+  if (to > from) return true;
   // No segment starts inside the run, so it lies within the one before, if anywhere
-  if (before < 0) return false;
-  const keyed = segments.typeValue.type === 'Dict';
-  for await (const element of decodeBeast2ElementsFor(segments.typeValue)([await segments.segment(before)])) {
-    const order = byName(caseOf(keyed ? (element as [unknown, unknown])[0] : element), source);
-    if (order === 0) return true;
-    if (order > 0) return false;
-  }
+  if (from === 0) return false;
+  for await (const _entry of sourceEntriesIn(segments, from - 1, source)) return true;
   return false;
 }
 
@@ -367,5 +405,68 @@ export function compactedSourceSlots(versions: ReadonlyMap<string, string>): Rec
     const { commit } = sourceLoadSlots(source);
     if (versions.has(commit)) owned[commit] = '';
   }
+  return owned;
+}
+
+/**
+ * The slots a rollback or a restore writes on a composite record: the
+ * deliveries it undoes are forgotten, and of the sources that might wait,
+ * those wait that the state it commits holds no entry of.
+ *
+ * @remarks
+ * - A rollback forgets each delivery it undoes — every slot of it, its as-of
+ *   too, since the record no longer holds what the source sent. A source
+ *   whose first delivery it undid waits again, beside those that waited, and
+ *   of all these one the state holds entries of does not
+ *   ({@link sourceHoldsEntries}): a rollback through an earlier rollback brings
+ *   rows back, and their readers run on them. It brings back none of a
+ *   delivery's slots, since a commit keeps no copy of them.
+ * - A restore commits a state from outside the history, which says nothing of
+ *   what each source sent: every delivery is forgotten, and every external
+ *   source waits that the state holds no entry of.
+ * - A rollback past a deploy, or past a state an operator committed, sets
+ *   what waits as a restore does (ruling 33): either can change which sources
+ *   hold entries with no load, so the sources that waited before, and the
+ *   first loads the walk passed, no longer say which have never delivered.
+ *
+ * Only a source that is external now can wait: one a deploy since handed to
+ * the mutations has no load to deliver it, and would wait for ever.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param prior - The version vector of the ref being replaced
+ * @param external - The record's external sources, as its package declares
+ *   them now
+ * @param state - The state the commit commits: a record state, or its rows'
+ *   manifest
+ * @param undone - For a rollback, each source whose delivery it undoes, and
+ *   whether it undid the source's first; `null` for a restore
+ * @param byState - For a rollback, whether what waits is read from the state
+ *   alone, as a restore reads it: its walk passed a deploy, or a state an
+ *   operator committed
+ * @returns The slots to write: a value writes one, `undefined` drops it
+ */
+export async function systemCommitSourceSlots(
+  storage: StorageBackend,
+  repo: string,
+  prior: ReadonlyMap<string, string>,
+  external: readonly string[],
+  state: string,
+  undone: ReadonlyMap<string, boolean> | null,
+  byState = false,
+): Promise<Record<string, string | undefined>> {
+  const owned: Record<string, string | undefined> = {};
+  for (const source of undone === null ? external : undone.keys()) {
+    for (const slot of Object.values(sourceLoadSlots(source))) owned[slot] = undefined;
+  }
+  const waited = pendingSources(prior);
+  const mayWait = undone === null || byState
+    ? external
+    : external.filter((source) => waited.some((each) => sameField(each, source)) || undone.get(source) === true);
+  const pending: string[] = [];
+  for (const source of mayWait) {
+    if (!(await sourceHoldsEntries(storage, repo, state, source))) pending.push(source);
+  }
+  owned[PENDING_SLOT] = sourcesSlot(pending);
   return owned;
 }

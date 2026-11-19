@@ -30,11 +30,13 @@ import {
 } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import {
-  ExecuteResultType, MutationObjectType, decodeRecordLoadObject, decodeTaskObject,
+  ExecuteResultType, MutationObjectType, decodeRecordCommit, decodeRecordLoadObject, decodeTaskObject,
   type ExecuteResult, type FunctionDraft, type MutationObject, type RecordSource,
 } from '@elaraai/e3-types';
 import { dataflowGetGraph, dataflowResolveInputHashes } from './dataflow.js';
 import type { InputWait } from './dataflow/types.js';
+import { stepDetectInputChanges, stepInitialize } from './dataflow/steps.js';
+import { dataflowResolveInputs } from './dataflow.js';
 import { readDatasetWhole } from './dataset-open.js';
 import { packageImport } from './package-files.js';
 import { packageRead } from './packages.js';
@@ -44,7 +46,7 @@ import { readRecordState, recordCompact, recordDraftMutation, recordHistory, rec
 import { InMemoryStorage } from './storage/in-memory/InMemoryStorage.js';
 import type { StorageBackend } from './storage/interfaces.js';
 import { LocalStorage } from './storage/local/index.js';
-import { createTempDir, createTestRepo, ran, removeTempDir, removeTestRepo, sourceDelivered } from './test-helpers.js';
+import { createTempDir, createTestRepo, ran, removeTempDir, removeTestRepo, sourceLoaded } from './test-helpers.js';
 import { workspaceExport } from './workspace-files.js';
 import { workspaceCreate, workspaceDeploy } from './workspaces.js';
 import { workspaceStatus } from './workspaceStatus.js';
@@ -93,6 +95,8 @@ const birch: OrderRow = { customer: 'Birch', qty: 2n };
 /** An order of the ERP's, as the design's refusal names it, and one of the solution's own. */
 const ERP_ORDER: OrderKey = variant('erp', 'SO-1001');
 const OWN_ORDER: OrderKey = variant('own', 'P-1');
+/** The time the ERP's delivery says its data is as of, as East prints it. */
+const AS_OF = '2026-11-02T03:00:00.000';
 
 /** The words every door refuses a write of the ERP's order in. */
 const refusal = (mutation: string): string =>
@@ -165,7 +169,9 @@ function ordersPackage(): ReturnType<typeof e3.package> {
   const byCustomer = e3.index(orders.indexes.by_customer);
   const customers = e3.function('customers', { inputs: [byCustomer], args: [], output: IntegerType }, ($, entries) => entries.size());
   const served = e3.task('served', [byCustomer], East.function([byCustomer.type], IntegerType, ($, entries) => entries.size()));
-  return e3.package('orders', '1.0.0', orders, customers, served);
+  // And a task over the record itself
+  const counted = e3.task('counted', [orders], East.function([Orders], IntegerType, ($, held) => held.size()));
+  return e3.package('orders', '1.0.0', orders, customers, served, counted);
 }
 
 /** The key of `book` once it is a composite: the source each order is of. */
@@ -331,24 +337,6 @@ describe('a composite record: an external entry is never written (no program run
     assert.deepEqual(await dataflowResolveInputHashes(storage, REPO, copy, tally), [minted.hash]);
   });
 
-  it('R32 — a compaction empties the commit a source\'s last delivery names, and keeps the delivery', async () => {
-    const applied = await sourceDelivered(storage, REPO, WS, 'records/notes', 'erp', '2026-11-02T03:00:00.000');
-    const saved = await patch([[variant('own', 'P-2'), variant('insert', acme)]]);
-    assert.equal(saved.kind, 'committed', JSON.stringify(saved));
-    const slots = sourceLoadSlots('erp');
-    const before = (await heldRef(storage, REPO, WS, 'notes')).versions;
-    assert.equal(before.get(slots.commit), applied, 'a Save carries the delivery\'s slots as they are');
-
-    const compacted = await recordCompact(storage, REPO, WS, 'notes', { actor: 'ada@example.com' });
-    assert.equal(compacted.kind, 'committed', JSON.stringify(compacted));
-    const after = (await heldRef(storage, REPO, WS, 'notes')).versions;
-    assert.equal(after.get(slots.commit), '', 'the chain no longer holds the commit, and the slot names none');
-    for (const slot of [slots.delivery, slots.load, slots.execution, slots.asOf, EXTERNAL_SLOT]) {
-      assert.equal(after.get(slot), before.get(slot), `${slot} is carried`);
-    }
-    assert.deepEqual((await recordHistory(storage, REPO, WS, 'notes')).map(({ commit }) => commit.mutation), ['$compact']);
-  });
-
   describe('while a record waits for a source\'s first delivery', () => {
     const LIMITS = { timeoutMs: 600_000, maxResultBytes: 1024, maxLogBytes: 64 };
     /** A workspace that deploys the loaded ERP source from the first: nothing has been delivered. */
@@ -377,7 +365,7 @@ describe('a composite record: an external entry is never written (no program run
       assert.equal(ran.outcome.type, 'success');
     });
 
-    it('R27 — a task that reads the record waits, naming the sources yet to deliver, and the run goes on without it; it runs once the source has delivered', async () => {
+    it('R27 — a task that reads the record waits, naming the sources yet to deliver, and the run goes on without it; over a source handed to its load holding a row, it never waits', async () => {
       const tally = (await packageRead(storage, REPO, 'notes', '2.0.0')).tasks.get('tally')!;
       runner.setResult(tally, { state: 'success', cached: false, outputHash: 'tally-out' });
       const waiting: Array<[string, InputWait[]]> = [];
@@ -393,17 +381,14 @@ describe('a composite record: an external entry is never written (no program run
       const graphed = (await dataflowGetGraph(storage, REPO, FRESH)).tasks.find((task) => task.name === 'tally')!;
       assert.deepEqual(await dataflowResolveInputHashes(storage, REPO, FRESH, graphed), [null], 'the record cannot be read now');
 
-      // The ERP delivers: the ref written as a load's commit leaves it, until a load does
-      await sourceDelivered(storage, REPO, FRESH, 'records/notes', 'erp', '2026-11-02T03:00:00.000');
-      assert.deepEqual(await dataflowResolveInputHashes(storage, REPO, FRESH, graphed), [(await heldRef(storage, REPO, FRESH, 'notes')).hash]);
-      const next = await dataflowExecute(storage, REPO, FRESH, { runner });
-      assert.deepEqual([next.success, next.executed, next.waiting], [true, 1, 0], JSON.stringify(next.tasks));
-      assert.deepEqual(runner.getCalls().map(({ taskHash, inputHashes }) => [taskHash, inputHashes]), [[tally, [(await heldRef(storage, REPO, FRESH, 'notes')).hash]]],
-        'the task reads the record at the state it holds');
+      // It runs once a load has delivered the source: a load runs programs, so the real runner's case below shows it
 
       // In the workspace whose ERP source was handed to its load holding a row, the task never waited
       const held = await dataflowExecute(storage, REPO, WS, { runner });
       assert.deepEqual([held.success, held.executed, held.waiting], [true, 1, 0], JSON.stringify(held.tasks));
+      assert.deepEqual(runner.getCalls().map(({ taskHash, inputHashes }) => [taskHash, inputHashes]), [[tally, [(await heldRef(storage, REPO, WS, 'notes')).hash]]],
+        'the task reads the record at the state it holds');
+      assert.deepEqual(await dataflowResolveInputHashes(storage, REPO, WS, graphed), [(await heldRef(storage, REPO, WS, 'notes')).hash], 'as every reader of its inputs does');
     });
 
     it('R82 — a caller that names the record as a dataset argument reads it as it stands', async () => {
@@ -564,8 +549,9 @@ describe('a composite record: an external entry is never written (the mutation\'
       ['The function\'s input .records.orders waits for the first delivery of erp: a task reading it would wait too, and nothing ran']);
   });
 
-  it('R83 — a task whose input is an index of a record waiting for a first delivery waits, as one that reads the record does, before the index is looked for', async () => {
-    const waited = [['served', [{ input: '.records.orders', kind: 'pending', sources: ['erp'] }]]];
+  it('R27, R83 — a task that reads a record waiting for a first delivery waits, and one whose input is an index of it waits too, before the index is looked for; once a load delivers, each runs over the state the load committed', async () => {
+    const pending = { input: '.records.orders', kind: 'pending', sources: ['erp'] };
+    const waited = [['counted', [pending]], ['served', [pending]]];
     const reason = { type: 'waiting', reason: 'record \'orders\' waits for the first delivery of erp' };
     /** A run of the workspace, and what it left waiting. */
     const run = async () => {
@@ -573,32 +559,114 @@ describe('a composite record: an external entry is never written (the mutation\'
       const result = await dataflowExecute(storage, repo, WS, { runner, onTaskWaiting: (task, waits) => waiting.push([task, waits]) });
       return { result, waiting };
     };
+    /** What the workspace's status says of each task. */
+    const statuses = async () => {
+      const { tasks } = await workspaceStatus(storage, runner, repo, WS);
+      return ['counted', 'served'].map((name) => tasks.find((task) => task.name === name)?.status);
+    };
 
-    // The state holds the index, built at the deploy over the solution's own order: the task is not run on it
+    // The state holds the index, built at the deploy over the solution's own order: neither task is run on it
     const ref = await heldRef(storage, repo, WS, 'orders');
     assert.ok((await readRecordState(storage, repo, ref.hash)).indexes.has('by_customer'));
     const first = await run();
-    assert.deepEqual([first.result.success, first.result.executed, first.result.waiting], [true, 0, 1], JSON.stringify(first.result.tasks));
+    assert.deepEqual([first.result.success, first.result.executed, first.result.waiting], [true, 0, 2], JSON.stringify(first.result.tasks));
     assert.deepEqual(first.waiting, waited);
-    assert.deepEqual((await workspaceStatus(storage, runner, repo, WS)).tasks.find((task) => task.name === 'served')?.status, reason);
+    assert.deepEqual(await statuses(), [reason, reason]);
 
-    // A state that holds no such index: the task still waits for the delivery, which is asked first
+    // A state that holds no such index: the task over it still waits for the delivery, which is asked first
     const { primary } = await readRecordState(storage, repo, ref.hash);
     await storage.datasets.write(repo, WS, 'records/orders', variant('value', { ...ref, hash: primary }));
     try {
       assert.deepEqual((await run()).waiting, waited);
-      assert.deepEqual((await workspaceStatus(storage, runner, repo, WS)).tasks.find((task) => task.name === 'served')?.status, reason);
+      assert.deepEqual(await statuses(), [reason, reason]);
     } finally {
       await storage.datasets.write(repo, WS, 'records/orders', variant('value', ref));
     }
 
-    // The ERP delivers: the ref written as a load's commit leaves it, until a load does. The task runs over the index
-    await sourceDelivered(storage, repo, WS, 'records/orders', 'erp', '2026-11-02T03:00:00.000');
+    // The ERP delivers its order book, and a load takes it in: each task runs, over the record and its index as the load left them
+    await sourceLoaded(storage, runner, repo, WS, 'orders', 'erp', { type: Entries, value: new Map([['SO-1001', acme]]) }, AS_OF);
     const next = await run();
-    assert.deepEqual([next.result.success, next.result.executed, next.result.waiting], [true, 1, 0], JSON.stringify(next.result.tasks));
-    const output = await storage.datasets.read(repo, WS, 'tasks/served/output');
-    if (output?.type !== 'value') assert.fail('served wrote its output');
-    assert.equal(decodeBeast2For(IntegerType)(await readDatasetWhole(storage, repo, output.value.hash)), 1n, 'one order, the solution\'s own');
+    assert.deepEqual([next.result.success, next.result.executed, next.result.waiting], [true, 2, 0], JSON.stringify(next.result.tasks));
+    for (const task of ['counted', 'served']) {
+      const output = await storage.datasets.read(repo, WS, `tasks/${task}/output`);
+      if (output?.type !== 'value') assert.fail(`${task} wrote its output`);
+      assert.equal(decodeBeast2For(IntegerType)(await readDatasetWhole(storage, repo, output.value.hash)), 2n,
+        `${task} counts two orders: the solution's own, and the ERP's`);
+    }
+  });
+
+  it('R27, R28 — a first delivery that lands after a run took the record leaves its readers waiting until the run looks again, so none reads the record as it stood before', async () => {
+    // The run takes the record as it stands: waiting for erp's first delivery
+    const { state } = await stepInitialize(storage, repo, WS, 'run-1');
+    if (state.graph.type !== 'some') assert.fail('the run holds its graph');
+    const counted = state.graph.value.tasks.find((task) => task.name === 'counted')!;
+    const at = (commit: string): Map<string, string> => new Map([['.records.orders', commit]]);
+    const waits = { kind: 'unassigned', waits: [{ input: '.records.orders', kind: 'pending', sources: ['erp'] }] };
+    const taken = (await heldRef(storage, repo, WS, 'orders')).versions.get('.records.orders')!;
+    assert.deepEqual(await dataflowResolveInputs(storage, state, counted, at(taken)), waits);
+
+    // The ERP delivers. Until the run looks again it reads the record at the commit it took, at which the record waited
+    await sourceLoaded(storage, runner, repo, WS, 'orders', 'erp', { type: Entries, value: new Map([['SO-1001', acme]]) }, AS_OF);
+    assert.equal((await heldRef(storage, repo, WS, 'orders')).versions.has(PENDING_SLOT), false, 'the ref waits no more');
+    assert.deepEqual(await dataflowResolveInputs(storage, state, counted, at(taken)), waits,
+      'the task waits, rather than read the record as it stood before the delivery');
+
+    // The run looks, and takes the delivery in: the task reads the record as the load left it
+    const { changes } = await stepDetectInputChanges(storage, state);
+    assert.deepEqual(changes.map(({ path }) => path), ['.records.orders']);
+    const loaded = await heldRef(storage, repo, WS, 'orders');
+    assert.deepEqual(await dataflowResolveInputs(storage, state, counted, at(loaded.versions.get('.records.orders')!)),
+      { kind: 'resolved', hashes: [loaded.hash] });
+  });
+
+  it('ruling 48 — a run that holds no memory of the version it read reads what the record waited for there from the record\'s history: a host that runs a step an invocation leaves the task waiting too', async () => {
+    const { state } = await stepInitialize(storage, repo, WS, 'run-1');
+    if (state.graph.type !== 'some') assert.fail('the run holds its graph');
+    const counted = state.graph.value.tasks.find((task) => task.name === 'counted')!;
+    const at = (commit: string): Map<string, string> => new Map([['.records.orders', commit]]);
+    const waits = { kind: 'unassigned', waits: [{ input: '.records.orders', kind: 'pending', sources: ['erp'] }] };
+    const head = async (): Promise<string> => (await heldRef(storage, repo, WS, 'orders')).versions.get('.records.orders')!;
+    /** The run's state as another invocation reads it from its store: the same state, and none of this process's memory of it. */
+    const nextStep = (): typeof state => ({ ...state });
+    const taken = await head();
+
+    // The ERP delivers for the first time, and a person saves, before the next step runs
+    await sourceLoaded(storage, runner, repo, WS, 'orders', 'erp', { type: Entries, value: new Map([['SO-1001', acme]]) }, AS_OF);
+    const delivered = await head();
+    assert.equal((await mutate('plan', [encodeString('P-2'), encodeOrder(acme)])).kind, 'committed');
+    assert.equal((await heldRef(storage, repo, WS, 'orders')).versions.has(PENDING_SLOT), false, 'the ref waits no more');
+    assert.deepEqual(await dataflowResolveInputs(storage, nextStep(), counted, at(taken)), waits,
+      'the load committed since was erp\'s first: at the commit the run took, the record waited for it');
+    // At the load's own commit the record waited for nothing: the save since changed no wait
+    const then = decodeRecordCommit(await storage.objects.read(repo, delivered)).state;
+    assert.deepEqual(await dataflowResolveInputs(storage, nextStep(), counted, at(delivered)), { kind: 'resolved', hashes: [then] });
+
+    // A compaction cuts the history: it cannot say what the record waited for before it, so the task waits until the run looks again
+    assert.equal((await recordCompact(storage, repo, WS, 'orders', { actor: 'ada@example.com' })).kind, 'committed');
+    assert.deepEqual(await dataflowResolveInputs(storage, nextStep(), counted, at(delivered)), waits);
+    const stepped = nextStep();
+    await stepDetectInputChanges(storage, stepped);
+    const now = await heldRef(storage, repo, WS, 'orders');
+    assert.deepEqual(await dataflowResolveInputs(storage, stepped, counted, at(now.versions.get('.records.orders')!)), { kind: 'resolved', hashes: [now.hash] });
+  });
+
+  it('R32 — a compaction empties the commit a source\'s last delivery names, and keeps the delivery', async () => {
+    const loaded = await sourceLoaded(storage, runner, repo, WS, 'orders', 'erp', { type: Entries, value: new Map([['SO-1001', acme]]) }, AS_OF);
+    const saved = await mutate('plan', [encodeString('P-2'), encodeOrder(acme)]);
+    assert.equal(saved.kind, 'committed', JSON.stringify(saved));
+    const slots = sourceLoadSlots('erp');
+    const before = (await heldRef(storage, repo, WS, 'orders')).versions;
+    assert.deepEqual([before.get(slots.delivery), before.get(slots.commit), before.get(slots.asOf)], [loaded.delivery, loaded.commit, AS_OF],
+      'a Save carries the delivery\'s slots as the load wrote them');
+
+    const compacted = await recordCompact(storage, repo, WS, 'orders', { actor: 'ada@example.com' });
+    assert.equal(compacted.kind, 'committed', JSON.stringify(compacted));
+    const after = (await heldRef(storage, repo, WS, 'orders')).versions;
+    assert.equal(after.get(slots.commit), '', 'the chain no longer holds the commit, and the slot names none');
+    for (const slot of [slots.delivery, slots.load, slots.execution, slots.asOf, EXTERNAL_SLOT]) {
+      assert.equal(after.get(slot), before.get(slot), `${slot} is carried`);
+    }
+    assert.deepEqual((await recordHistory(storage, repo, WS, 'orders')).map(({ commit }) => commit.mutation), ['$compact']);
   });
 
   it('R70 — a collection keeps what a composite\'s load runs: its load object, the task object it names, the load\'s program and its merge', async () => {

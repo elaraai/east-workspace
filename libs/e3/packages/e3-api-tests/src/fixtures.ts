@@ -1263,6 +1263,65 @@ export async function createCompositeRecordPackageZip(
   return zipPath;
 }
 
+/** The key of the yard fixture's record: an order of the ERP's, a note, one of the planners' own, or one of the warehouse's. */
+export const YardKeyType = VariantType({ erp: StringType, notes: StringType, own: StringType, wms: StringType });
+/** The yard fixture's record: orders, each under the source it is of. */
+export const YardOrdersType = DictType(YardKeyType, CompositeOrderRowType);
+/** The yard fixture's index as a function reads it: an entry for each order, under its customer. */
+export const YardByCustomerType = DictType(StructType({ ik: StringType, k: YardKeyType }), NullType);
+
+/**
+ * Create a package whose record is loaded and edited at once: one record over
+ * two sources a delivery loads and two the solution writes.
+ *
+ * Creates a package with:
+ * - Record: "orders" ({@link YardOrdersType}), a composite over the sources
+ *   `erp` and `wms`, each loaded from a delivery of its whole order book
+ *   ({@link ErpOrdersType}), and `own` and `notes`, written by its `patch`
+ *   door and empty to begin with
+ * - Index: "by_customer" of the record, an entry for each order
+ * - Function: "customer_index" - reads the index and returns it whole
+ *   ({@link YardByCustomerType}): what a case holds the index to its rows by
+ * - Task: "tally" - how many orders the record holds
+ *
+ * Every body is East, so every server runs them.
+ *
+ * @param tempDir - Directory to write the zip file
+ * @param name - Package name
+ * @param version - Package version
+ * @returns Path to the created zip file
+ */
+export async function createYardPackageZip(
+  tempDir: string,
+  name: string,
+  version: string
+): Promise<string> {
+  mkdirSync(tempDir, { recursive: true });
+
+  // A source's whole order book: the load answers what takes its entries to it
+  const loadWhole = East.function([ErpOrdersType, ErpOrdersType], PatchType(ErpOrdersType), (_$, delivery, current) => East.diff(current, delivery));
+  const orders = e3.recordComposite('orders', CompositeOrderRowType, {
+    sources: (source) => ({
+      erp: source.load(StringType, ErpOrdersType, loadWhole),
+      wms: source.load(StringType, ErpOrdersType, loadWhole),
+      own: source.mutations(StringType),
+      notes: source.mutations(StringType),
+    }),
+    initial: { own: new Map(), notes: new Map() },
+    indexes: (index) => ({ by_customer: index.on(['customer']) }),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+  });
+  const byCustomer = e3.index(orders.indexes.by_customer);
+  const customerIndex = e3.function('customer_index', { inputs: [byCustomer], args: [], output: byCustomer.type }, (_$, entries) => entries);
+  const tally = e3.task('tally', [orders], East.function([YardOrdersType], IntegerType, (_$, held) => held.size()));
+  const pkg = e3.package(name, version, orders, customerIndex, tally);
+
+  const zipPath = join(tempDir, `${name}-${version}.zip`);
+  await e3.export(pkg, zipPath);
+
+  return zipPath;
+}
+
 /**
  * Create a package one input of which nothing has set, for a run that leaves
  * the tasks over it waiting.

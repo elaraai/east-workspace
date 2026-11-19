@@ -19,39 +19,11 @@ import { East, IntegerType, PatchType, SortedMap, StringType, compareFor, encode
 import e3 from '@elaraai/e3';
 import { LocalStorage, recordHistory, packageImport, workspaceCreate, workspaceDeploy, workspaceGetDataset } from '@elaraai/e3-core';
 import { ErpDeliveryType, SourcedOrderType, createTestRepo, removeTestRepo, createTempDir, removeTempDir, ordersOverSources } from '@elaraai/e3-core/test';
+import { captured, withExitStub } from '../cli-test-helpers.js';
 import { compositeSeedRefusal, seedCommand } from './seed.js';
 
 const encodeInt = encodeBeast2For(IntegerType);
 const counterPath = [variant('field', 'records'), variant('field', 'counter')];
-
-/** Run `fn` with process.exit stubbed to throw (so exitError surfaces as a
- *  rejection instead of killing the test runner) and console.error kept from
- *  the terminal: each line it was given goes to `said`. */
-async function withExitStub(fn: () => Promise<void>, said: string[] = []): Promise<void> {
-  const origExit = process.exit;
-  const origErr = console.error;
-  process.exit = ((code?: number) => { throw new Error(`exit ${code ?? 0}`); }) as never;
-  console.error = (...a: unknown[]) => { said.push(a.map(String).join(' ')); };
-  try {
-    await fn();
-  } finally {
-    process.exit = origExit;
-    console.error = origErr;
-  }
-}
-
-/** Run `fn` with console.log captured. */
-async function captured(fn: () => Promise<void>): Promise<string> {
-  const lines: string[] = [];
-  const origLog = console.log;
-  console.log = (...a: unknown[]) => { lines.push(a.map(String).join(' ')); };
-  try {
-    await fn();
-  } finally {
-    console.log = origLog;
-  }
-  return lines.join('\n');
-}
 
 describe('seedCommand', () => {
   let repo: string;

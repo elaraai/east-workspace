@@ -18,17 +18,16 @@
 
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { encodeBeast2For, variant, type EastType, type ValueTypeOf } from '@elaraai/east';
+import { variant, type ValueTypeOf } from '@elaraai/east';
 import {
-  BEAST2_CONTENT_TYPE,
   PackageExportStatusType,
   PackageImportResultType,
   PackageImportStatusType,
   PackageJobResponseType,
   PackageTransferInitResponseType,
-  ResponseType,
 } from '@elaraai/e3-types';
 import { packageExport, packageImport } from './packages.js';
+import { success } from './test-helpers.js';
 import { workspaceExport } from './workspaces.js';
 
 const realFetch = globalThis.fetch;
@@ -67,12 +66,6 @@ function givenServer(
     return answer(method, url);
   }) as typeof globalThis.fetch;
   return { calls, fetch };
-}
-
-/** A BEAST2 success envelope, as the server sends one. */
-function success<T extends EastType>(type: T, value: ValueTypeOf<T>): globalThis.Response {
-  const body = encodeBeast2For(ResponseType(type))(variant('success', value) as never);
-  return new Response(body, { status: 200, headers: { 'Content-Type': BEAST2_CONTENT_TYPE } });
 }
 
 /** A package zip's bytes, as far as a transfer is concerned. */

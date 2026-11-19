@@ -111,9 +111,11 @@ function heldPackage(): ReturnType<typeof e3.package> {
 /**
  * Exports a package as `e3.export` writes it.
  *
+ * @param pkg - The package
+ * @param name - What its zip is called while it is written
  * @returns The zip's bytes
  */
-async function exported(pkg: ReturnType<typeof e3.package>, name: string): Promise<Uint8Array> {
+export async function packageZip(pkg: ReturnType<typeof e3.package>, name: string): Promise<Uint8Array> {
   const dir = mkdtempSync(join(tmpdir(), 'e3-web-fixtures-'));
   try {
     const zip = join(dir, `${name}.zip`);
@@ -131,7 +133,7 @@ async function exported(pkg: ReturnType<typeof e3.package>, name: string): Promi
  */
 export async function buildE3Fixtures(): Promise<{ readonly platform: Uint8Array; readonly held: Uint8Array }> {
   return {
-    platform: await exported(platformPackage(), PLATFORM_PACKAGE),
-    held: await exported(heldPackage(), HELD_PACKAGE),
+    platform: await packageZip(platformPackage(), PLATFORM_PACKAGE),
+    held: await packageZip(heldPackage(), HELD_PACKAGE),
   };
 }

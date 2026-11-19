@@ -310,6 +310,7 @@ export {
   externalWriteRefusal,
   encodeMutationArgs,
   decodeMutationArgs,
+  loadCommitArgs,
   withSharedWorkspaceLock,
   RECORD_KEYS_REMEMBERED,
   type RecordRef,
@@ -329,6 +330,18 @@ export {
 } from './records.js';
 // What a composite record's readers wait for: the external sources yet to deliver
 export { PENDING_SLOT, pendingSources, pendingWaitWords } from './record-slots.js';
+// A load of a delivery into an external source of a composite record: the load, its source's run, and its commit
+export {
+  LOAD_WAIT_TURN_MS,
+  loadQueueLock,
+  recordLoad,
+  recordLoadCommit,
+  recordLoadRefusal,
+  recordSourceRun,
+  type RecordLoadCommitOptions,
+  type RecordLoadCommitOutcome,
+  type RecordLoadOptions,
+} from './record-load.js';
 
 // Tree and dataset operations: low-level, by hash, and high-level, by path
 export {
@@ -388,8 +401,12 @@ export {
   applyDelta,
   summarizeDelta,
   DeltaConflictError,
+  DELTA_OPS_APPLIED_IN_PLACE,
+  DeltaStoppedError,
   ExternalEntryError,
   type ApplyDeltaOptions,
+  type DeltaApplied,
+  type DeltaApply,
   type DeltaArmSummary,
 } from './record-apply.js';
 
@@ -793,6 +810,8 @@ export {
   WorkspaceExistsError,
   WorkspaceLockError,
   RecordDeployRefusedError,
+  RecordLoadRefusedError,
+  RecordLoadStoppedError,
   lockStateToHolderInfo,
   type LockHolderInfo,
   // Package
@@ -855,6 +874,12 @@ export {
   SplitCallJobStatusType,
   SplitCallJobType,
   type SplitCallJob,
+  RecordLoadJobType,
+  type RecordLoadJob,
+  ObjectUploadJobType,
+  type ObjectUploadJob,
+  ObjectCommitStatusType,
+  type ObjectCommitStatus,
 } from './transfer/types.js';
 
 export type {
@@ -866,6 +891,8 @@ export type {
   WorkspaceDeployStore,
   RepoGcStore,
   SplitCallStore,
+  RecordLoadStore,
+  ObjectUploadStore,
   FunctionCallDispatch,
   TransferBackend,
 } from './transfer/interfaces.js';
@@ -878,13 +905,16 @@ export {
 } from './transfer/in-process-calls.js';
 
 // The jobs: an import, whose zip is read by ranges where it lies, an export,
-// written to a stream, a deploy, gc, and a split call
+// written to a stream, a deploy, gc, a split call and a record's load
 export {
   handleProcessImport,
   handleProcessExport,
   handleProcessDeploy,
   handleProcessGc,
   handleProcessSplitCall,
+  handleProcessRecordLoad,
+  handleProcessRecordLoadInOrder,
+  LOAD_CANCEL_POLL_MS,
   type ProcessImportDeps,
   type ProcessImportInput,
   type ProcessExportDeps,
@@ -895,4 +925,7 @@ export {
   type ProcessGcInput,
   type ProcessSplitCallDeps,
   type ProcessSplitCallInput,
+  type ProcessRecordLoadDeps,
+  type ProcessRecordLoadInput,
 } from './transfer/process.js';
+export { JobOrder, loadJobKey, type JobPlace } from './transfer/job-progress.js';

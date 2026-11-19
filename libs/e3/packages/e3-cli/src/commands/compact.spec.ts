@@ -17,24 +17,10 @@ import e3 from '@elaraai/e3';
 import { LocalStorage, recordHistory, recordMutate, packageImport, workspaceCreate, workspaceDeploy } from '@elaraai/e3-core';
 import type { TaskRunner } from '@elaraai/e3-core';
 import { createTestRepo, removeTestRepo, createTempDir, removeTempDir } from '@elaraai/e3-core/test';
+import { captured, withExitStub } from '../cli-test-helpers.js';
 import { compactCommand } from './compact.js';
 
 const encodeInt = encodeBeast2For(IntegerType);
-
-/** Run `fn` with process.exit stubbed to throw (so exitError surfaces as a
- *  rejection instead of killing the test runner) and console.error silenced. */
-async function withExitStub(fn: () => Promise<void>): Promise<void> {
-  const origExit = process.exit;
-  const origErr = console.error;
-  process.exit = ((code?: number) => { throw new Error(`exit ${code ?? 0}`); }) as never;
-  console.error = () => {};
-  try {
-    await fn();
-  } finally {
-    process.exit = origExit;
-    console.error = origErr;
-  }
-}
 
 describe('compactCommand', () => {
   let repo: string;
@@ -74,16 +60,9 @@ describe('compactCommand', () => {
   it('compacts a local record, collapsing the chain to a $compact root', async () => {
     assert.equal((await recordHistory(storage, repo, 'main', 'counter')).length, 2); // $init + increment
 
-    const lines: string[] = [];
-    const origLog = console.log;
-    console.log = (...a: unknown[]) => { lines.push(a.map(String).join(' ')); };
-    try {
-      await compactCommand(repo, 'counter', { workspace: 'main' });
-    } finally {
-      console.log = origLog;
-    }
+    const output = await captured(() => compactCommand(repo, 'counter', { workspace: 'main' }));
 
-    assert.match(lines.join('\n'), /Compacted 'counter'/);
+    assert.match(output, /Compacted 'counter'/);
     const history = await recordHistory(storage, repo, 'main', 'counter');
     assert.equal(history.length, 1);
     assert.equal(history[0]!.commit.mutation, '$compact');

@@ -1011,6 +1011,21 @@ export interface LockHandle {
  */
 export interface LockService {
   /**
+   * Whether the service keeps a queue of its waiters. When true:
+   * - an exclusive acquire that waits with no bound (`wait`, with
+   *   `timeout: Infinity`) is given the lock in the order such waits were
+   *   asked, and holds its place for as long as it waits;
+   * - an exclusive acquire that holds no place is refused while one waits.
+   *
+   * A caller that must be served in the order it asked — a source's loads —
+   * makes one such wait of a service that queues. Of a service that does not,
+   * where this is absent or false, it asks in bounded turns, and is served in
+   * no set order: a backend whose jobs run through a queue of its own needs
+   * none here.
+   */
+  readonly queuesWaiters?: boolean;
+
+  /**
    * Acquire a lock on a resource in the requested mode (default `exclusive`).
    *
    * Returns null if the mode is incompatible with a current holder per the

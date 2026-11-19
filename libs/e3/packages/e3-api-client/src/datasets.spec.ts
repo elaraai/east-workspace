@@ -23,8 +23,9 @@
  *
  * A dataset can move while it is read, and the old value's objects then be
  * refused: these tests pin that `datasetGet` starts over from the new content,
- * at most 3 times, and that `datasetGetStream` starts over only before it
- * returns, raising the move once it has handed out a hash. A dataset that has
+ * at most 3 times, as `datasetGetInto` has its sink start over, and that
+ * `datasetGetStream` starts over only before it returns, raising the move
+ * once it has handed out a hash. A dataset that has
  * not moved raises the read's own error, and a manifest above level 0 is
  * refused before a segment is read.
  *
@@ -46,7 +47,7 @@ import {
   type Beast2ElementOf, type EastType, type ValueTypeOf,
 } from '@elaraai/east';
 import { BEAST2_CONTENT_TYPE } from '@elaraai/e3-types';
-import { datasetFindKey, datasetGet, datasetGetPage, datasetGetStream } from './datasets.js';
+import { datasetFindKey, datasetGet, datasetGetInto, datasetGetPage, datasetGetStream } from './datasets.js';
 import { ApiError, AuthError, DatasetHashMismatchError } from './http.js';
 // Through the root entry, as a host reaches them.
 import { collectionGetStream, collectionOpen, objectGet, parsePage } from './index.js';
@@ -453,6 +454,30 @@ describe('a read of a dataset that moves while it is read', () => {
     const given = new Uint8Array(Buffer.concat(taken));
     assert.ok(given.length > 0 && given.length < before.blob.length, `some of the value was given, ${given.length} bytes`);
     assert.deepEqual(given, before.blob.subarray(0, given.length), 'what was given is the old value\'s, and nothing else');
+  });
+
+  it('datasetGetInto tells its sink to start over when the dataset moves part way, so the sink holds the new value and none of the old', async () => {
+    const [before, after] = [storedCollection(), storedCollection({ first: 1 })];
+    const server = movingServer([before, after]);
+    // A run writes the new value once some of the old one's bytes are in the sink
+    let parts: Uint8Array[] = [];
+    let restarts = 0;
+    let discarded = 0;
+    const result = await datasetGetInto(BASE, 'r', 'ws', lookupPath, { token: null, fetch: server.fetch }, {
+      write: (chunk) => {
+        parts.push(chunk);
+        if (restarts === 0) server.at = 1;
+      },
+      restart: () => {
+        discarded = parts.reduce((bytes, part) => bytes + part.length, 0);
+        parts = [];
+        restarts++;
+      },
+    });
+    assert.equal(restarts, 1, 'the sink was told to start over, once');
+    assert.ok(discarded > 0 && discarded < before.blob.length, `it had been given part of the old value, ${discarded} bytes`);
+    assert.deepEqual(new Uint8Array(Buffer.concat(parts)), after.blob, 'it holds the new value, whole');
+    assert.deepEqual([result.hash, result.size], [after.manifest, after.blob.length]);
   });
 
   it('raises the read\'s own error when the dataset has not moved', async () => {

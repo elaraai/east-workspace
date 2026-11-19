@@ -243,6 +243,27 @@ describe('a remote run', () => {
     assert.deepEqual(asked, { cancels: 0, outputs: 1 });
   });
 
+  it('ruling 54 — the summary of a run that followed edits says how many more times its tasks ran; one handed to the command part way, which it did not see whole, does not', async (t) => {
+    // Two tasks, each run once, and one of them three times more as its record was edited
+    const followed: DataflowEvent[] = ['capacity', 'forecast', 'forecast', 'forecast', 'forecast'].flatMap((task): DataflowEvent[] => [
+      variant('start', { task, timestamp: AT }),
+      variant('complete', { task, timestamp: AT, duration: 10, peakBytes: none }),
+    ]);
+    const lines = printedLines(t);
+    const { api } = server(variant('started', null), followed, 'completed');
+    assert.equal(await runRemote(api, 'main', () => false, async () => {}), 0);
+    assert.deepEqual(lines().slice(-8), [
+      'Summary:', '  Executed: 2', '  Re-run:   3 (tasks run again as their inputs changed during the run)',
+      '  Cached:   0', '  Failed:   0', '  Skipped:  0', '  Waiting:  0', '  Duration: 1500ms',
+    ]);
+
+    // Handed to a run in flight after its first two completions: the command saw the rest alone
+    const before = lines().length;
+    const handed = server(variant('handed', { since: 4n }), followed.slice(4), 'completed', 4n);
+    assert.equal(await runRemote(handed.api, 'main', () => false, async () => {}), 0);
+    assert.deepEqual(lines().slice(before).filter((line) => line.startsWith('  Re-run:')), [], 'a run followed from part way is not counted');
+  });
+
   it('R27, ruling 46 — says, after the summary of a run that left tasks waiting, what they wait on and every remedy: set, seed or load', async (t) => {
     const lines = printedLines(t);
     const { api } = server(variant('started', null), capacity, 'completed', 0n, 3n);

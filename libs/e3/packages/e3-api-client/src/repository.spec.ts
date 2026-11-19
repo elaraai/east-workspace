@@ -11,24 +11,13 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { NullType, encodeBeast2For, variant, type EastType, type ValueTypeOf } from '@elaraai/east';
-import { BEAST2_CONTENT_TYPE, RepositoryRemovalType, ResponseType, type Error as ApiErrorValue, type RepositoryRemoval } from '@elaraai/e3-types';
+import { NullType, variant } from '@elaraai/east';
+import { RepositoryRemovalType, type RepositoryRemoval } from '@elaraai/e3-types';
 import { ApiError } from './http.js';
 import { repoRemove } from './repository.js';
+import { refusal, success } from './test-helpers.js';
 
 const BASE = 'https://e3.test';
-
-/** A BEAST2 success, as the server sends one. */
-function success<T extends EastType>(type: T, value: ValueTypeOf<T>, status = 200, headers: Record<string, string> = {}): globalThis.Response {
-  const body = encodeBeast2For(ResponseType(type))(variant('success', value) as never);
-  return new Response(body, { status, headers: { 'Content-Type': BEAST2_CONTENT_TYPE, ...headers } });
-}
-
-/** A BEAST2 refusal, as the server sends one. */
-function refusal<T extends EastType>(type: T, error: ApiErrorValue): globalThis.Response {
-  const body = encodeBeast2For(ResponseType(type))(variant('error', error) as never);
-  return new Response(body, { status: 200, headers: { 'Content-Type': BEAST2_CONTENT_TYPE } });
-}
 
 /**
  * A server that removes repository `r`: within the request when `answers` is

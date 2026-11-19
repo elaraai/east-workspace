@@ -41,7 +41,9 @@ import {
   indexCollectionType,
   indexWindowType,
   isCollectionRoot,
+  loadCommitSource,
   mutationDeltaType,
+  RecordLoadArgsType,
   type DeltaTarget,
   type MutationObject,
   type PackageObject,
@@ -50,13 +52,16 @@ import {
   type RecordCommitArgs,
   type RecordIndexObject,
   type RecordIndexPlan,
+  type RecordLoadArgs,
   type RecordSignature,
   type RecordSource,
   type Structure,
 } from '@elaraai/e3-types';
-import { DeltaConflictError, ExternalEntryError, SummaryIntegrityError, applyDelta, applyDeltaEntries, type DeltaEntry } from './record-apply.js';
 import {
-  compactedSourceSlots, deploySourceSlots, genesisSourceSlots, pendingSources, slotNames, sourceLastDelivery,
+  DELTA_OPS_APPLIED_IN_PLACE, DeltaConflictError, ExternalEntryError, SummaryIntegrityError, applyDeltaEntries, applyDeltaWhere, type DeltaEntry,
+} from './record-apply.js';
+import {
+  compactedSourceSlots, deploySourceSlots, genesisSourceSlots, pendingSources, slotNames, sourceLastDelivery, systemCommitSourceSlots,
 } from './record-slots.js';
 import { readManifest, readRecordStateObject } from './dataset-open.js';
 import { storedDatasetValue } from './dataset-adopt.js';
@@ -66,7 +71,7 @@ import { computeHash } from './objects.js';
 import { inputsHash } from './executions.js';
 import { workspaceGetPackage } from './workspaces.js';
 import { refPathToKeypath } from './dataset-refs.js';
-import { DatasetRefConflictError, checkName } from './errors.js';
+import { DatasetRefConflictError, ObjectNotFoundError, checkName } from './errors.js';
 import { acquireWorkspaceShared, workspaceLockRefusal } from './deploy-lock.js';
 import { touchReachable } from './gc-graph.js';
 import { acquireRunningWork } from './running-work.js';
@@ -466,8 +471,9 @@ export async function withSharedWorkspaceLock<T>(
 }
 
 /** Jittered exponential backoff (ms) before a compare-and-swap retry, so hot
- *  records don't lock-step their (expensive) reducer re-runs under contention. */
-function casBackoffMs(attempt: number): number {
+ *  records don't lock-step their (expensive) reducer re-runs under contention.
+ *  @internal */
+export function casBackoffMs(attempt: number): number {
   return Math.min(2 ** attempt, 64) * (0.5 + Math.random());
 }
 
@@ -557,6 +563,38 @@ export interface RecordStateRefs {
   primary: string;
   /** Index name -> `{ manifest, index }`. */
   indexes: Map<string, { manifest: string; index: string }>;
+}
+
+/**
+ * A record state's collections, by the names a delta's entries target them
+ * by: `primary`, and each index's.
+ *
+ * @param state - The state
+ * @returns Each collection's manifest, by its target's name
+ * @internal
+ */
+export function stateTargets(state: RecordStateRefs): Map<string, string> {
+  const targets = new Map<string, string>([['primary', state.primary]]);
+  for (const [name, entry] of state.indexes) targets.set(name, entry.manifest);
+  return targets;
+}
+
+/**
+ * A record state once an apply wrote some of its collections
+ * ({@link stateTargets}): each written replaced, every other as it was.
+ *
+ * @param state - The state the apply wrote over
+ * @param written - The manifests it wrote, by their targets' names
+ * @returns The state it left
+ * @internal
+ */
+export function stateWritten(state: RecordStateRefs, written: ReadonlyMap<string, string>): RecordStateRefs {
+  const indexes = new Map(state.indexes);
+  for (const [name, manifest] of written) {
+    if (name === 'primary') continue;
+    indexes.set(name, { manifest, index: state.indexes.get(name)!.index });
+  }
+  return { primary: written.get('primary') ?? state.primary, indexes };
 }
 
 /**
@@ -672,14 +710,14 @@ async function keptObject<T>(storage: StorageBackend, repo: string, hash: string
 }
 
 /** An object's bytes, and the hash its content gives it before it is
- *  stored. */
-interface NamedObject {
+ *  stored. @internal */
+export interface NamedObject {
   bytes: Uint8Array;
   hash: string;
 }
 
-/** An object named by its content's hash. */
-function named(bytes: Uint8Array): NamedObject {
+/** An object named by its content's hash. @internal */
+export function named(bytes: Uint8Array): NamedObject {
   return { bytes, hash: computeHash(bytes) };
 }
 
@@ -718,8 +756,9 @@ async function storeNamed(storage: StorageBackend, repo: string, objects: readon
  * @param commit - The commit, but for the state and the arguments it names
  * @param args - The arguments' tuple, when the commit has arguments
  * @returns The state's hash, which the ref names, and the commit's
+ * @internal
  */
-async function storeCommit(
+export async function storeCommit(
   storage: StorageBackend,
   repo: string,
   state: RecordStateRefs,
@@ -1166,8 +1205,9 @@ export async function recordMutate(
  *   once this commit is its head, newest first: those the ref being replaced
  *   remembers, unless given
  * @returns the vector to write
+ * @internal
  */
-function nextVersions(
+export function nextVersions(
   previous: ReadonlyMap<string, string> | undefined,
   selfKeypath: string,
   commitHash: string,
@@ -1263,6 +1303,12 @@ async function writeWholeState(
  * there is no user East to run. That is the interactive door — its cost is the
  * rows the edit touched, with no process anywhere.
  *
+ * A delta of more ops than are applied in place (`applyDeltaWhere`) is
+ * applied where the runner applies deltas, when it names a place: a save of
+ * hundreds of thousands of rows is seconds of a thread's work, which a server
+ * that answers every request on one thread gives a thread of its own. A
+ * client's patch that large is stored first and applied from the store.
+ *
  * A composite record's mutation names the sources it may write (its object's
  * `cases`), and the apply holds the write to them on both paths: an op on an
  * entry of any other source — an external one, which only its load writes —
@@ -1282,8 +1328,7 @@ async function writeDelta(
   run: RunContext,
   program: Promise<string[]> | undefined,
 ): Promise<MutationWrite> {
-  const targets = new Map<string, string>([['primary', state.primary]]);
-  for (const [name, entry] of state.indexes) targets.set(name, entry.manifest);
+  const targets = stateTargets(state);
 
   const patch = mutObj.form.type === 'patch' && state.indexes.size === 0 && args[0] !== undefined
     ? await patchDelta(storage, repo, state.primary, args[0])
@@ -1298,7 +1343,7 @@ async function writeDelta(
   let deltaHash: string;
   let written: Map<string, string>;
   try {
-    if (patch !== null) {
+    if (patch !== null && (runner.applyDelta === undefined || patch.ops.size <= DELTA_OPS_APPLIED_IN_PLACE)) {
       // The client's patch is the delta, held here: it is applied from the
       // entries in hand while it is stored, and never read back
       [written, deltaHash] = await bothSettled(
@@ -1306,11 +1351,19 @@ async function writeDelta(
         storeDelta(storage, repo, patch),
       );
     } else {
-      const [taskHash, ...argHashes] = await (program ?? storeProgram(storage, repo, mutObj, args));
-      const ran = await runUnit(storage, runner, repo, taskHash!, [state.primary, ...argHashes], run);
-      if ('failure' in ran) return ran;
-      deltaHash = ran.output;
-      written = await applyDelta(storage, repo, targets, deltaHash, held);
+      if (patch !== null) {
+        // A patch of more ops than are applied here is stored first, and
+        // applied from the store, where the runner applies deltas
+        deltaHash = await storeDelta(storage, repo, patch);
+      } else {
+        const [taskHash, ...argHashes] = await (program ?? storeProgram(storage, repo, mutObj, args));
+        const ran = await runUnit(storage, runner, repo, taskHash!, [state.primary, ...argHashes], run);
+        if ('failure' in ran) return ran;
+        deltaHash = ran.output;
+      }
+      // A large delta holds no other request up where the runner has a place
+      // of its own to apply it
+      written = (await applyDeltaWhere(runner.applyDelta, storage, repo, targets, deltaHash, held)).written;
     }
   } catch (err) {
     if (err instanceof DeltaConflictError) return { conflictDetail: err.message };
@@ -1321,12 +1374,7 @@ async function writeDelta(
     throw err;
   }
 
-  const indexes = new Map(state.indexes);
-  for (const [name, manifest] of written) {
-    if (name === 'primary') continue;
-    indexes.set(name, { manifest, index: state.indexes.get(name)!.index });
-  }
-  return { primary: written.get('primary') ?? state.primary, indexes, delta: deltaHash };
+  return { ...stateWritten(state, written), delta: deltaHash };
 }
 
 /** A delta held in memory: its type and its entries, keyed as the delta
@@ -2527,6 +2575,12 @@ export interface RecordSystemCommitOptions {
  * rollback is answered by the write the operator rolled back rather than
  * applied again.
  *
+ * A composite record's deliveries are the exception: a rollback forgets each
+ * delivery it undoes, and a restore every delivery, since the record no longer
+ * holds what was sent; and which external sources wait for a first delivery
+ * is read from the state it commits ({@link systemCommitSourceSlots}). The
+ * same delivery sent again is then loaded again, its pieces from the cache.
+ *
  * Migrations run forward only. A rollback past a `$migrate` or `$reset` commit
  * is refused: the state it would go back to is not at the migrations the
  * record has applied, and a `rekey`, or a `rows` step, can keep the record's
@@ -2609,7 +2663,7 @@ export async function recordSystemCommit(
       if (opts.expectedHead !== undefined && head !== opts.expectedHead) {
         return { kind: 'invalid', message: `record '${recordName}' has moved on from the head expected, ${opts.expectedHead}: read its history again` };
       }
-      const target = current === null
+      const target: { state: string; undone?: ReadonlyMap<string, boolean> | null; byState?: boolean } | { refusal: string } = current === null
         ? await genesisState(storage, repo, recordName, chain, opts.target)
         : await systemCommitState(storage, repo, recordName, head, current.versions, opts.target);
       if ('refusal' in target) return { kind: 'invalid', message: target.refusal };
@@ -2617,6 +2671,11 @@ export async function recordSystemCommit(
       const state = await readRecordState(storage, repo, target.state);
       const refusal = await stateRefusal(storage, repo, recordName, target.state, state.primary, resolved.type);
       if (refusal !== null) return { kind: 'invalid', message: refusal };
+      // A composite's deliveries the commit undoes are forgotten, and which of
+      // its sources wait is read from the state it commits
+      const external = externalSources(resolved);
+      const sourceSlots = current === null || external.length === 0 ? {}
+        : await systemCommitSourceSlots(storage, repo, current.versions, external, state.primary, target.undone ?? null, target.byState === true);
 
       const build = new Map<string, string>();
       for (const [name, indexHash] of resolved.indexes) {
@@ -2646,7 +2705,7 @@ export async function recordSystemCommit(
           [SCHEMA_SLOT]: chain.length === 0 ? undefined : chain.join(','),
           [MIGRATIONS_SLOT]: migrationsSlot(chain.map((name) => [name, { at, commit: commitHash }] as const)),
         })
-        : nextVersions(current.versions, resolved.selfKeypath, commitHash);
+        : nextVersions(current.versions, resolved.selfKeypath, commitHash, sourceSlots);
       try {
         await storage.datasets.writeIf(
           repo, ws, resolved.refPath,
@@ -2717,13 +2776,23 @@ async function genesisState(
  * re-referenced with everything it names (`touchReachable`) before the commit
  * roots it: gc beside running work leaves it meanwhile.
  *
+ * A rollback's walk reads each load's commit it passes: a delivery of a
+ * composite record's source the rollback undoes, which the source forgets.
+ * It notes too whether it passes a deploy, or a state an operator committed —
+ * a restore or an earlier rollback, which a commit does not tell apart: either
+ * can change which sources hold entries with no load, so what waits after the
+ * rollback is then read from the state it commits (`byState`, ruling 33).
+ *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param recordName - The record, as a refusal names it
  * @param head - The record's head commit
  * @param versions - The record ref's version vector
  * @param target - What the commit points the record at
- * @returns The state to commit, or the refusal
+ * @returns The state to commit, and, for a rollback, each source whose
+ *   delivery it undoes and whether it undid the source's first (`null` for a
+ *   restore, which undoes every delivery), and whether what waits is read
+ *   from the state alone; or the refusal
  */
 async function systemCommitState(
   storage: StorageBackend,
@@ -2732,7 +2801,7 @@ async function systemCommitState(
   head: string | undefined,
   versions: ReadonlyMap<string, string>,
   target: RecordSystemCommitTarget,
-): Promise<{ state: string } | { refusal: string }> {
+): Promise<{ state: string; undone: ReadonlyMap<string, boolean> | null; byState?: boolean } | { refusal: string }> {
   if ('state' in target) {
     const applied = appliedMigrations(versions);
     if (target.applied.length !== applied.length || target.applied.some((name, i) => applied[i] !== name)) {
@@ -2744,9 +2813,14 @@ async function systemCommitState(
     if (!await touchReachable(storage, repo, [target.state])) {
       return { refusal: `the state ${target.state} is not in the repository, whole` };
     }
-    return { state: target.state };
+    return { state: target.state, undone: null };
   }
   const seen = new Set<string>();
+  // Each source a load's commit the walk passes loaded: a delivery the
+  // rollback undoes, and whether it undid the source's first
+  const undone = new Map<string, boolean>();
+  // Whether the walk passed a deploy, or a state an operator committed
+  let byState = false;
   let at = head;
   while (at !== undefined && !seen.has(at)) {
     seen.add(at);
@@ -2756,19 +2830,150 @@ async function systemCommitState(
     } catch {
       break;
     }
-    if (at === target.commit) return { state: commit.state };
+    if (at === target.commit) return { state: commit.state, undone, byState };
     if (commit.mutation === '$reset' || commit.mutation.startsWith('$migrate:')) {
       return {
         refusal: `rolling record '${recordName}' back to ${target.commit} goes past its '${commit.mutation}' commit: ` +
           `migrations run forward only, so a record rolls back no further than its last migration or reset`,
       };
     }
+    const loaded = loadCommitSource(commit.mutation);
+    if (loaded !== null) undone.set(loaded, (undone.get(loaded) ?? false) || await loadWasFirst(storage, repo, commit));
+    else if (changesEntriesUnloaded(commit.mutation)) byState = true;
     at = commit.parent.type === 'some' ? commit.parent.value : undefined;
   }
   return {
     refusal: `commit ${target.commit} is not in record '${recordName}''s history: ` +
       `a compaction has cut it from the chain, or it is another record's`,
   };
+}
+
+/**
+ * Whether a commit that is no load's can change which of a composite
+ * record's sources hold entries: a deploy, which can hand a source to its
+ * load or back to the mutations and drop its rows, and a state an operator
+ * committed, which a restore brings from outside the history. A save writes
+ * the solution's own entries alone, and a reindex, of every index or of the
+ * one its commit is named for, and a compaction keep the record's rows.
+ *
+ * @param mutation - The commit's name
+ */
+function changesEntriesUnloaded(mutation: string): boolean {
+  if (!mutation.startsWith('$') || mutation.startsWith('$reindex:')) return false;
+  return mutation === '$deploy' || !OWN_COMMIT_NAMES.includes(mutation);
+}
+
+/** Reads the one value of a load's commit's arguments. */
+const decodeLoadArgs = decodeBeast2For(RecordLoadArgsType);
+
+/**
+ * What a load's commit records of its delivery: the one value of its
+ * arguments, read from the arguments' object.
+ *
+ * @param tuple - The commit's arguments, as their object holds them
+ * @returns What the load recorded — its delivery, its load, its as-of, whether
+ *   it was its source's first, its execution and its counts — or `null` for
+ *   arguments that hold no value
+ *
+ * @example
+ * ```ts
+ * const [{ commit }] = await recordHistory(storage, repo, 'main', 'orders', { limit: 1 });
+ * if (loadCommitSource(commit.mutation) !== null && commit.args.type === 'some') {
+ *   const loaded = loadCommitArgs(await storage.objects.read(repo, commit.args.value));
+ *   console.log(`${loaded?.set} set, ${loaded?.deleted} deleted`);
+ * }
+ * ```
+ */
+export function loadCommitArgs(tuple: Uint8Array): RecordLoadArgs | null {
+  const [args] = decodeMutationArgs(tuple);
+  return args === undefined ? null : decodeLoadArgs(args);
+}
+
+/**
+ * Whether a load's commit took its source out of the sources its record
+ * waited on: what a rollback that undoes it reads, so the source waits again.
+ *
+ * @remarks
+ * A commit whose arguments the store no longer holds is taken as the
+ * source's first, so a rollback errs toward waiting: the state it commits
+ * then says whether the source holds entries, and one that does waits for
+ * nothing.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param commit - The load's commit
+ * @returns Whether it was its source's first delivery
+ */
+async function loadWasFirst(storage: StorageBackend, repo: string, commit: RecordCommit): Promise<boolean> {
+  if (commit.args.type !== 'some') return true;
+  let tuple: Uint8Array;
+  try {
+    tuple = await storage.objects.read(repo, commit.args.value);
+  } catch (err) {
+    if (err instanceof ObjectNotFoundError) return true;
+    throw err;
+  }
+  return loadCommitArgs(tuple)?.first ?? true;
+}
+
+/**
+ * The external sources a composite record waited on for a first delivery at
+ * a commit of its history, read back from the commits made since.
+ *
+ * @remarks
+ * What a run asks of a version it read whose wait it holds no memory of: a
+ * host that runs a step an invocation keeps none between two steps. A source
+ * waited at the commit when it waits now, or when a load of it committed
+ * since was its first ({@link loadWasFirst}). A save and a reindex leave what
+ * a record waits on as it was. A deploy, and a state an operator committed,
+ * may change it with no load ({@link changesEntriesUnloaded}), and a
+ * compaction cuts the chain: past any of them, and where the chain does not
+ * reach the commit, the history cannot say.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param versions - The record ref's version vector, as it stands
+ * @param selfKeypath - The record's own keypath, which names its head
+ * @param commit - A commit of the record's history
+ * @returns The sources, sorted; `null` when the history cannot say
+ *
+ * @example
+ * ```ts
+ * const ref = await storage.datasets.read(repo, 'main', 'records/orders');
+ * if (ref?.type === 'value') {
+ *   // ['erp'] where erp's first load committed after `taken`; [] where every source had delivered by then
+ *   const waited = await recordPendingAt(storage, repo, ref.value.versions, '.records.orders', taken);
+ * }
+ * ```
+ */
+export async function recordPendingAt(
+  storage: StorageBackend,
+  repo: string,
+  versions: ReadonlyMap<string, string>,
+  selfKeypath: string,
+  commit: string,
+): Promise<string[] | null> {
+  const waited = new Set(pendingSources(versions));
+  const seen = new Set<string>();
+  let at = versions.get(selfKeypath);
+  while (at !== undefined && !seen.has(at)) {
+    if (sameSource(at, commit)) return [...waited].sort(bySourceName);
+    seen.add(at);
+    let made: RecordCommit;
+    try {
+      made = decodeRecordCommit(await storage.objects.read(repo, at));
+    } catch (err) {
+      if (err instanceof ObjectNotFoundError) return null;
+      throw err;
+    }
+    const loaded = loadCommitSource(made.mutation);
+    if (loaded !== null) {
+      if (await loadWasFirst(storage, repo, made)) waited.add(loaded);
+    } else if (changesEntriesUnloaded(made.mutation)) return null;
+    at = made.parent.type === 'some' ? made.parent.value : undefined;
+  }
+  // A root the walk passed: a compaction cut the commit from the chain
+  return null;
 }
 
 /**

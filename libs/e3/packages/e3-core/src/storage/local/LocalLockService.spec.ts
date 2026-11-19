@@ -382,6 +382,155 @@ describe('LocalLockService', () => {
     });
   });
 
+  describe('a queue of waiters (ruling 37)', () => {
+    const turn = variant('dataset_write', null);
+    /** The places waiting for a resource's lock, by file name, in order. */
+    const places = async (resource: string): Promise<string[]> => {
+      try {
+        return (await fs.readdir(path.dirname(workspaceLockPath(repoPath, resource)))).filter((name) => name.startsWith('wait.')).sort();
+      } catch {
+        return [];
+      }
+    };
+    /** Settles once `count` places wait for the resource. */
+    const placed = async (resource: string, count: number): Promise<void> => {
+      while ((await places(resource)).length !== count) await new Promise((resolve) => setTimeout(resolve, 5));
+    };
+
+    it('gives exclusive waits with no bound the lock in the order they asked, and refuses an acquire that holds no place while one waits', async () => {
+      const held = await acquireWorkspaceLock(repoPath, 'orders-turn', turn);
+      const served: string[] = [];
+      const waiters: Promise<void>[] = [];
+      for (const [nth, name] of ['first', 'second', 'third', 'fourth', 'fifth'].entries()) {
+        waiters.push(acquireWorkspaceLock(repoPath, 'orders-turn', turn, { wait: true, timeout: Infinity }).then(async (lock) => {
+          served.push(name);
+          await lock.release();
+        }));
+        await placed('orders-turn', nth + 1);
+      }
+
+      // The lock is let go: it is the first waiter's, and no acquire that holds no place takes it ahead of the queue
+      await held.release();
+      await assert.rejects(acquireWorkspaceLock(repoPath, 'orders-turn', turn), WorkspaceLockError);
+      await assert.rejects(acquireWorkspaceLock(repoPath, 'orders-turn', turn, { wait: true, timeout: 1 }), WorkspaceLockError);
+      await Promise.all(waiters);
+      assert.deepStrictEqual(served, ['first', 'second', 'third', 'fourth', 'fifth']);
+      assert.deepStrictEqual(await places('orders-turn'), [], 'each place went as its waiter was given the lock');
+
+      // The queue empty, the lock is taken at once as before
+      await (await acquireWorkspaceLock(repoPath, 'orders-turn', turn)).release();
+    });
+
+    it('removes a place whose process has exited, so the waiter after it is served', async () => {
+      // A place left by a process that no longer runs, older than any this process takes
+      const dir = path.dirname(workspaceLockPath(repoPath, 'orders-turn'));
+      await fs.mkdir(dir, { recursive: true });
+      const left: LockState = {
+        operation: turn,
+        holder: variant('process', { pid: 99999999n, bootId: 'fake-boot-id', startTime: 0n, command: 'e3 load' }),
+        acquiredAt: new Date(),
+        expiresAt: none,
+      };
+      await fs.writeFile(path.join(dir, 'wait.000000000000001.000000000.99999999.abcd1234.beast2'), encodeBeast2For(LockStateType)(left));
+
+      const lock = await acquireWorkspaceLock(repoPath, 'orders-turn', turn, { wait: true, timeout: Infinity });
+      assert.deepStrictEqual(await places('orders-turn'), []);
+      await lock.release();
+    });
+
+    it('a place whose file would not go as its waiter left it keeps no later asker of this process out, and goes once the filesystem lets it', async () => {
+      // The filesystem refuses to remove a place, as Windows does of a file a scanner holds open
+      const fsPromises = process.getBuiltinModule('node:fs/promises');
+      const unlink = fsPromises.unlink;
+      let refusing = true;
+      const mocked = mock.method(fsPromises, 'unlink', async (file: string) => {
+        if (refusing && path.basename(file).startsWith('wait.')) {
+          throw Object.assign(new Error(`EPERM: operation not permitted, unlink '${file}'`), { code: 'EPERM', syscall: 'unlink', path: file });
+        }
+        return unlink(file);
+      });
+      syncBuiltinESMExports();
+      try {
+        // A waiter is given the lock at once, and its place stays where it was
+        const first = await acquireWorkspaceLock(repoPath, 'orders-turn', turn, { wait: true, timeout: Infinity });
+        assert.strictEqual((await places('orders-turn')).length, 1, 'its place would not go');
+        await first.release();
+
+        // No waiter waits: an acquire that holds no place is served, and so is a waiter after it
+        await (await acquireWorkspaceLock(repoPath, 'orders-turn', turn)).release();
+        await (await acquireWorkspaceLock(repoPath, 'orders-turn', turn, { wait: true, timeout: Infinity })).release();
+        assert.strictEqual((await places('orders-turn')).length, 2, 'nor would the second waiter\'s');
+
+        // The filesystem lets go: both go, with no asker to look at the queue, and the resource's directory after them
+        refusing = false;
+        const gone = await Promise.race([
+          placed('orders-turn', 0).then(() => true),
+          new Promise<boolean>((resolve) => { setTimeout(() => resolve(false), 10_000).unref(); }),
+        ]);
+        assert.ok(gone, 'each place was removed once it would go');
+        const dir = path.dirname(workspaceLockPath(repoPath, 'orders-turn'));
+        while (await fs.access(dir).then(() => true, () => false)) await new Promise((resolve) => setTimeout(resolve, 5));
+      } finally {
+        refusing = false;
+        mocked.mock.restore();
+        syncBuiltinESMExports();
+      }
+    });
+
+    it('reads a queue as far as its first waiter, and reads no directory for the queue of a resource that has none', async () => {
+      // Five places of waiters that still wait: each holds this process, as the lock's own file does
+      const held = await acquireWorkspaceLock(repoPath, 'orders-turn', turn);
+      const waiter = await fs.readFile(held.lockPath);
+      const dir = path.dirname(held.lockPath);
+      for (let nth = 1; nth <= 5; nth++) await fs.writeFile(path.join(dir, `wait.00000000000000${nth}.000000000.${process.pid}.abcd123${nth}.beast2`), waiter);
+      await held.release();
+
+      const fsPromises = process.getBuiltinModule('node:fs/promises');
+      const { readFile, readdir } = fsPromises;
+      const placeReads: string[] = [];
+      const listed: string[] = [];
+      // Each passes on every argument it was given: what says a holder still runs reads files as text
+      const mockedReadFile = mock.method(fsPromises, 'readFile', async (...args: Parameters<typeof readFile>) => {
+        if (typeof args[0] === 'string' && path.basename(args[0]).startsWith('wait.')) placeReads.push(path.basename(args[0]));
+        return readFile(...args);
+      });
+      const mockedReaddir = mock.method(fsPromises, 'readdir', async (listing: string) => {
+        listed.push(path.basename(listing));
+        return readdir(listing);
+      });
+      syncBuiltinESMExports();
+      try {
+        // An acquire the queue refuses reads the first place, which still waits, and no other
+        await assert.rejects(acquireWorkspaceLock(repoPath, 'orders-turn', turn), WorkspaceLockError);
+        assert.strictEqual(placeReads.length, 1, `it read ${placeReads.join(', ')}`);
+        assert.strictEqual(listed.filter((name) => name === 'orders-turn').length, 1, 'by one read of the directory');
+
+        // An acquire of a resource with no queue reads its directory as often as one did before queues: before its create, and after it
+        const free = await acquireWorkspaceLock(repoPath, 'free-turn', turn);
+        assert.strictEqual(listed.filter((name) => name === 'free-turn').length, 2);
+        await free.release();
+      } finally {
+        mockedReadFile.mock.restore();
+        mockedReaddir.mock.restore();
+        syncBuiltinESMExports();
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('says it queues its waiters, and leaves a wait with a bound, and a shared one, out of the queue', async () => {
+      const locks = new LocalLockService();
+      assert.strictEqual(locks.queuesWaiters, true);
+      const held = await locks.acquire(repoPath, 'orders-turn', turn);
+      assert.ok(held !== null);
+      const bounded = locks.acquire(repoPath, 'orders-turn', turn, { wait: true, timeout: 400 });
+      const shared = locks.acquire(repoPath, 'orders-turn', turn, { wait: true, timeout: 400, mode: 'shared' });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      assert.deepStrictEqual(await places('orders-turn'), [], 'neither took a place');
+      await held.release();
+      for (const lock of await Promise.all([bounded, shared])) await lock?.release();
+    });
+  });
+
   // Regression guard for the Windows-only lost-update flake (records.spec.ts:217
   // "N concurrent increments"). An exclusive lock is created atomically *with its
   // holder bytes*, so it is never observed empty and a concurrent acquirer can

@@ -699,6 +699,39 @@
       ],
       "imports": [],
       "source": "# The file holds a function's IR: a .beast2 bundle, as TypeScript writes one with\n#   writeFileSync('score.beast2', encodeEastIR(score.toIR()))\n# or the .json / .east a runner's CLI reads. Its signature is read from the IR, and\n# each argument is read against it as a named call's is.\ne3 call . --ir ./score.beast2 '[1.0, 2.0]' 5\ne3 call . -w dev --ir ./score.beast2 @.inputs.sales 5             # a dataset of the workspace\ne3 call . --ir ./score.beast2 --runner east-c --platform none 5   # on east-c, given no platform package\ne3 call https://e3.example.com/repos/acme -w dev --ir ./score.beast2 @.inputs.sales 5\n# --runner east-node|east-c|east-py (east-node by default) loads that runtime's standard\n# platform package. --platform <package>, repeated, names the packages in its place, and\n# --platform none names none: a platform-free call.\n# Through a server the call needs -w and is one of the workspace's one-shot calls, kept and\n# polled as a workspace function's call is, under the grant the server gives you: a reader\n# runs a platform-free call alone, and is refused any other with the server's reason."
+    },
+    {
+      "id": "e3:static:record-load",
+      "skill": "e3",
+      "package": "e3",
+      "file": "static",
+      "suite": "e3 load",
+      "test": "Load a delivery into an external source of a composite record, from the shell and from code",
+      "keywords": [
+        "e3",
+        "load",
+        "e3 load",
+        "composite",
+        "recordComposite",
+        "source",
+        "external",
+        "delivery",
+        "as-of",
+        "superseded",
+        "workspaceRecordLoad",
+        "objectUpload",
+        "recordLoad",
+        "upload",
+        "cancel",
+        "history"
+      ],
+      "imports": [
+        "import { createHash } from 'node:crypto';",
+        "import { readFileSync } from 'node:fs';",
+        "import { none, some } from '@elaraai/east';",
+        "import { objectUpload, workspaceRecordLoad } from '@elaraai/e3-api-client';"
+      ],
+      "source": "// From the shell: a .beast2 file of the source's delivery type, never read whole or modified,\n// or #<sha256> of a value the repository already holds. It is committed once, as $load:erp.\n//   $ e3 load ./repo orders.erp ./erp-orders.beast2 -w main --as-of 2026-11-02T03:00:00\n//   Taking the delivery in… done\n//   Pieces 37/37\n//   Loaded orders.erp at 3f2a9c1e5d7b, as of 2026-11-02T03:00:00.000: 1,204 set, 31 deleted, 98,112 unchanged\n// The same delivery again: `orders.erp already holds this delivery`; an older --as-of: `superseded`.\n// Ctrl-C asks the load to cancel: `Cancelled: nothing loaded.` (exit 130). `e3 history` says what each load loaded.\n\n// From code, against a server: the file sent as the object it is, writing no ref, then loaded as a job\nconst url = 'http://localhost:3000';\nconst opts = { token: null };\nconst bytes = readFileSync('erp-orders.beast2');   // a large file is sliced from disk instead\nconst file = { size: bytes.length, hash: createHash('sha256').update(bytes).digest('hex'), slice: (start: number, end: number) => bytes.subarray(start, end) };\nconst delivery = await objectUpload(url, 'demo', 'main', file, opts);\nconst loaded = await workspaceRecordLoad(url, 'demo', 'main', 'orders', 'erp',\n  { delivery, actor: none, asOf: some(new Date('2026-11-02T03:00:00Z')) }, opts,\n  { onProgress: (progress) => console.log(progress.type) });   // queued, intake, pieces, commit, restarted, stopped\nconsole.log(loaded.outcome.type, loaded.set, loaded.deleted);   // 'loaded' 1204n 31n — or 'again', 'superseded'"
     }
   ]
 }

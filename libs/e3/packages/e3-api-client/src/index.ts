@@ -104,6 +104,10 @@ export type {
   RecordCommitArgs,
   RecordHistoryCommit,
   RecordHistoryResult,
+  RecordLoadRequest,
+  RecordLoadResult,
+  RecordLoadProgress,
+  RecordLoadStatus,
 } from './types.js';
 
 // HTTP utilities and auth
@@ -166,7 +170,9 @@ export {
   datasetListRecursivePaths,
   datasetListWithStatus,
   datasetGet,
+  datasetGetInto,
   datasetGetStream,
+  type DatasetSink,
   datasetGetPage,
   datasetGetStatus,
   datasetFindKey,
@@ -179,6 +185,7 @@ export {
   datasetSet,
   datasetSetStream,
   objectGet,
+  objectUpload,
   collectionGetStream,
   collectionOpen,
   type RemoteCollection,
@@ -245,8 +252,12 @@ export {
 // timeout, read from its result's `draftEnd`, never its stderr
 export { functionDraftEnded, functionDraftsOutlasted, type FunctionDraftEnd, type FunctionDraftFailure } from '@elaraai/e3-types';
 
-// Records (describe + mutations + history + compaction)
-export { workspaceRecordDescribe, workspaceRecordMutate, workspaceRecordCompact, workspaceRecordHistory } from './records.js';
+// Records (describe + mutations + history + compaction), and the loads of a
+// composite record's deliveries
+export {
+  workspaceRecordDescribe, workspaceRecordMutate, workspaceRecordCompact, workspaceRecordHistory, workspaceRecordLoadLaunch,
+  workspaceRecordLoadStatus, workspaceRecordLoadCancel, workspaceRecordLoad, type RecordLoadOptions,
+} from './records.js';
 
 // Executions
 export {

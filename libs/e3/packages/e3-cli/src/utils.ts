@@ -19,7 +19,7 @@ export function shortHash(hash: string): string {
 
 import { LocalStorage, PackageNotFoundError, comparePackageVersions, packageGetLatestVersion, repoGet, repositoryOpen } from '@elaraai/e3-core';
 import { parseDatasetPath, parsePackageRef } from '@elaraai/e3-types';
-import { ApiError, packageList } from '@elaraai/e3-api-client';
+import { ApiError, packageList, workspaceRecordDescribe, type RecordSignature, type RequestOptions } from '@elaraai/e3-api-client';
 import { getValidToken } from './credentials.js';
 
 /**
@@ -186,6 +186,34 @@ export async function resolvePackageVersion(location: RepoLocation, name: string
   }
   if (latest === undefined) throw new PackageNotFoundError(name);
   return latest;
+}
+
+/**
+ * A record of a workspace a server holds, as the server describes it: what
+ * e3-core's `recordDescribe` answers of a local repository's.
+ *
+ * @param baseUrl - The server
+ * @param repo - The repository
+ * @param ws - The workspace
+ * @param record - The record's name
+ * @param opts - The request's token and fetch
+ * @returns The record's description, or `null` when the workspace has no such
+ *   record
+ * @throws {ApiError} When the server refuses the request any other way
+ * @example
+ * const described = await remoteRecordDescribe(baseUrl, repo, 'main', 'orders', { token });
+ * if (described === null) throw new Error("record 'orders' not found");
+ */
+export async function remoteRecordDescribe(
+  baseUrl: string, repo: string, ws: string, record: string, opts: RequestOptions,
+): Promise<RecordSignature | null> {
+  try {
+    return await workspaceRecordDescribe(baseUrl, repo, ws, record, opts);
+  } catch (err) {
+    // The workspace has no such record
+    if (err instanceof ApiError && err.code === 'dataset_not_found') return null;
+    throw err;
+  }
 }
 
 /**

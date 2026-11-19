@@ -16,6 +16,9 @@ import { Hono } from 'hono';
 import { checkName, type DataflowOrchestrator, type ExecutionStateStore, type TaskRunner } from '@elaraai/e3-core/portable';
 import {
   allowEveryDraft,
+  allowEveryLoad,
+  createObjectUploadRoutes,
+  createRecordLoadRoutes,
   createDatasetRoutes,
   createExecutionRoutes,
   createObjectRoutes,
@@ -189,6 +192,12 @@ export function createWebApp(seams: WebAppSeams): WebApp {
   app.route('/api/repos/:repo/workspaces/:ws/calls', createWorkspaceCallRoutes(storage, repositoryOf, transfer));
   app.route('/api/repos/:repo/workspaces/:ws/one-shot', createOneShotRoutes(storage, repositoryOf, transfer, getRunner, { access }));
   app.route('/api/repos/:repo/workspaces/:ws/records', createWorkspaceRecordRoutes(storage, repositoryOf, getRunner));
+  // The loads of records' sources, and the uploads a delivery arrives by: every caller may load, as every caller may mutate
+  app.route('/api/repos/:repo/workspaces/:ws/records', createRecordLoadRoutes(transfer, { access: allowEveryLoad }));
+  app.route('/api/repos/:repo/workspaces/:ws/objects', createObjectUploadRoutes(storage, repositoryOf, transfer, {
+    access: allowEveryLoad,
+    ...(commitWaitMs !== undefined && { commitWaitMs }),
+  }));
 
   // The dataflow: run, polled and cancelled through the orchestrator, whose
   // runs keep their state in the store.

@@ -89,17 +89,19 @@ const decodeProgressRecord = decodeBeast2For(LockProgressRecordType);
  * no-lost-update invariant), so the final failure is swallowed rather than
  * thrown — but the bounded retry clears the common transient case promptly so a
  * just-released lock doesn't stall the next acquirer to the 30s timeout.
+ *
+ * @returns Whether the file is gone
  */
-async function unlinkWithRetry(targetPath: string): Promise<void> {
+async function unlinkWithRetry(targetPath: string): Promise<boolean> {
   for (let attempt = 0; ; attempt++) {
     try {
       await fs.unlink(targetPath);
-      return;
+      return true;
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
-      if (code === 'ENOENT') return; // already gone
+      if (code === 'ENOENT') return true; // already gone
       // Non-transient, or budget spent: give up (stale-detection will reclaim).
-      if (!isTransientFsError(err) || attempt >= UNLINK_MAX_ATTEMPTS - 1) return;
+      if (!isTransientFsError(err) || attempt >= UNLINK_MAX_ATTEMPTS - 1) return false;
       await sleep(Math.min(2 ** attempt, 100));
     }
   }
@@ -174,7 +176,9 @@ export interface WorkspaceLockHandle {
 export interface AcquireLockOptions {
   /** If true, wait for the lock to become available. Default: false */
   wait?: boolean;
-  /** Timeout in milliseconds when wait=true. Default: 30000 */
+  /** Timeout in milliseconds when wait=true. Default: 30000. `Infinity` waits
+   *  with no bound, and an exclusive wait then takes a place in the
+   *  resource's queue. */
   timeout?: number;
   /** Lock mode. Default: 'exclusive' */
   mode?: 'shared' | 'exclusive';
@@ -202,6 +206,12 @@ export function workspaceLockPath(repoPath: string, resource: string): string {
 /** Whether a file of a resource's directory is a shared holder's. */
 function isSharedLock(name: string): boolean {
   return name.startsWith('shared.') && name.endsWith('.beast2');
+}
+
+/** Whether a file of a resource's directory is a waiter's place in the
+ *  resource's queue. */
+function isWaiterPlace(name: string): boolean {
+  return name.startsWith('wait.') && name.endsWith('.beast2');
 }
 
 // =============================================================================
@@ -274,16 +284,19 @@ async function cleanIfStale(lockPath: string): Promise<void> {
   }
 }
 
-/** Return paths of all live shared lock files for a resource, cleaning the
- *  stale ones. */
-async function liveSharedLocks(repoPath: string, resource: string): Promise<string[]> {
-  const dir = lockDir(repoPath, resource);
-  let entries: string[];
+/** The files of a resource's directory, by name; none for a resource that
+ *  has no directory. */
+async function lockFiles(dir: string): Promise<string[]> {
   try {
-    entries = await fs.readdir(dir);
+    return await fs.readdir(dir);
   } catch {
     return [];
   }
+}
+
+/** Return paths of all live shared lock files among a resource's files,
+ *  cleaning the stale ones. */
+async function liveSharedLocks(dir: string, entries: readonly string[]): Promise<string[]> {
   const shared = entries.filter(isSharedLock).map((name) => path.join(dir, name));
   await Promise.all(shared.map((file) => cleanIfStale(file)));
   const live: string[] = [];
@@ -322,7 +335,8 @@ export async function removeStaleLocks(repoPath: string, owns: (resource: string
     } catch {
       continue; // Released meanwhile
     }
-    await Promise.all(files.filter((file) => file === EXCLUSIVE || isSharedLock(file)).map((file) => cleanIfStale(path.join(dir, file))));
+    await Promise.all(files.filter((file) => file === EXCLUSIVE || isSharedLock(file) || isWaiterPlace(file))
+      .map((file) => cleanIfStale(path.join(dir, file))));
     // A report outlives its holder only when the holder did not release.
     if (files.includes(PROGRESS)) {
       try {
@@ -420,15 +434,129 @@ interface Held {
   state: LockState | null;
 }
 
-/** Try once to acquire an exclusive lock. Returns what was taken, or null. */
-async function tryExclusiveOnce(repoPath: string, resource: string, operation: LockOperation): Promise<Held | null> {
-  const lockPath = workspaceLockPath(repoPath, resource);
+/** How many places this process has taken in queues: it orders two of its own
+ *  waiters that began to wait in one millisecond. */
+let placesTaken = 0;
+
+/**
+ * Takes a place at the end of a resource's queue: a file of the resource's
+ * directory, whole the moment it exists, named so that the places sort in the
+ * order they were taken — by the millisecond, then by the order this process
+ * took its own — and holding who waits, as a lock's file holds who holds.
+ *
+ * @returns The place's file name
+ */
+async function queuePlace(repoPath: string, resource: string, operation: LockOperation): Promise<string> {
+  const at = String(Date.now()).padStart(15, '0');
+  const nth = String(placesTaken++).padStart(9, '0');
+  const name = `wait.${at}.${nth}.${process.pid}.${randomBytes(4).toString('hex')}.beast2`;
+  const file = path.join(lockDir(repoPath, resource), name);
+  const data = encodeLockState(await buildLockState(operation));
+  await writeInto(path.dirname(file), () => atomicWriteFile(file, data));
+  return name;
+}
+
+/** How often a place its waiter left, whose file would not go, is removed
+ *  again. */
+const LEFT_PLACE_RETRY_MS = 1_000;
+
+/**
+ * The places this process's waiters left whose files would not go, by path:
+ * Windows refuses to remove a file a scanner holds open, for longer than an
+ * unlink's retries.
+ *
+ * @remarks
+ * A place's file keeps every later asker out of its resource, and stale
+ * detection never reclaims one while its process lives. So a place left is
+ * counted in no queue by this process ({@link waiterAhead}), and removed again
+ * every {@link LEFT_PLACE_RETRY_MS} until it goes, when the processes that
+ * share the repository count it no longer either.
+ */
+const leftPlaces = new Set<string>();
+
+/** What removes the places left again, while there are any. */
+let leftPlacesTimer: ReturnType<typeof setInterval> | undefined;
+
+/** Removes each place left that will now go, and its resource's directory
+ *  once that is empty. */
+async function removeLeftPlaces(): Promise<void> {
+  for (const file of [...leftPlaces]) {
+    if (!(await unlinkWithRetry(file))) continue;
+    leftPlaces.delete(file);
+    await removeIfEmpty(path.dirname(file));
+  }
+  if (leftPlaces.size === 0) {
+    clearInterval(leftPlacesTimer);
+    leftPlacesTimer = undefined;
+  }
+}
+
+/**
+ * Leaves a place in a resource's queue: its waiter holds the lock, or its wait
+ * has failed. Its file goes now, or as soon as the filesystem lets it
+ * ({@link leftPlaces}).
+ */
+async function leavePlace(file: string): Promise<void> {
+  if (await unlinkWithRetry(file)) return;
+  leftPlaces.add(file);
+  leftPlacesTimer ??= setInterval(() => { void removeLeftPlaces(); }, LEFT_PLACE_RETRY_MS);
+  // Never what keeps the process alive: once it exits its place is stale, and reclaimed as one
+  leftPlacesTimer.unref();
+}
+
+/**
+ * Whether a waiter is ahead of an asker in a resource's queue: any waiter, for
+ * an asker that holds no place, and otherwise one whose place is older.
+ *
+ * @remarks
+ * The places are read oldest first, and only as far as the first whose waiter
+ * still waits: a queue of many waiters costs each one's look one place's read,
+ * not every place's. A place whose process has exited is removed on the way.
+ *
+ * @param dir - The resource's directory
+ * @param entries - Its files, by name
+ * @param own - The asker's place, or `null` when it holds none
+ */
+async function waiterAhead(dir: string, entries: readonly string[], own: string | null): Promise<boolean> {
+  for (const name of entries.filter(isWaiterPlace).sort()) {
+    if (name === own) return false;
+    const file = path.join(dir, name);
+    if (leftPlaces.has(file)) continue;
+    await cleanIfStale(file);
+    try {
+      await fs.access(file);
+      return true;
+    } catch {
+      // Cleaned as stale, or its waiter was given the lock.
+    }
+  }
+  return false;
+}
+
+/**
+ * Try once to acquire an exclusive lock. Returns what was taken, or null.
+ *
+ * @remarks
+ * One read of the resource's directory answers both of what refuses it before
+ * anything is created: a waiter ahead in the resource's queue, and a shared
+ * holder. A resource that never has a queue pays no read for one.
+ *
+ * @param place - The asker's place in the resource's queue, or `null` when it
+ *   holds none
+ */
+async function tryExclusiveOnce(repoPath: string, resource: string, operation: LockOperation, place: string | null): Promise<Held | null> {
+  const dir = lockDir(repoPath, resource);
+  const lockPath = path.join(dir, EXCLUSIVE);
+  const entries = await lockFiles(dir);
+
+  // Fail if a waiter is ahead in the resource's queue
+  if (await waiterAhead(dir, entries, place)) return null;
 
   // Clean stale exclusive lock
   await cleanIfStale(lockPath);
 
   // Fail if any live shared locks exist
-  if ((await liveSharedLocks(repoPath, resource)).length > 0) return null;
+  if ((await liveSharedLocks(dir, entries)).length > 0) return null;
 
   // Atomic create-with-content — false (not us) if another holder beat us to it.
   const state = await buildLockState(operation);
@@ -438,7 +566,7 @@ async function tryExclusiveOnce(repoPath: string, resource: string, operation: L
   // looked for ours before it existed, and so holds the lock. Each side
   // checks for the other only after its own file exists, so at most one of
   // them finds nothing, and one that finds the other backs out.
-  if ((await liveSharedLocks(repoPath, resource)).length > 0) {
+  if ((await liveSharedLocks(dir, await lockFiles(dir))).length > 0) {
     await unlinkWithRetry(lockPath);
     return null;
   }
@@ -482,6 +610,15 @@ const POLL_INTERVAL_MS = 100;
  * in the resource's directory. Works on Linux, macOS, and Windows without
  * external commands.
  *
+ * An exclusive wait with no bound (`wait`, `timeout: Infinity`) takes a place
+ * in the resource's queue, and is given the lock once every place taken before
+ * it has gone: such waiters, of this process and of others, are served in the
+ * order they asked. While one waits, an exclusive acquire that holds no place
+ * is refused, so none is served ahead of the queue. A place goes as its
+ * waiter is given the lock, and when its process exits; one whose file the
+ * filesystem would not let go then is counted by this process no longer, and
+ * removed as soon as it will go.
+ *
  * @throws {WorkspaceLockError} If the lock cannot be acquired
  * @throws {InvalidNameError} If the resource cannot be one path segment
  */
@@ -493,18 +630,25 @@ export async function acquireWorkspaceLock(
 ): Promise<WorkspaceLockHandle> {
   const isShared = options.mode === 'shared';
   const deadline = Date.now() + (options.wait ? (options.timeout ?? 30000) : 0);
+  const place = !isShared && options.wait === true && options.timeout === Infinity ? await queuePlace(repoPath, resource, operation) : null;
 
   const tryOnce = isShared
     ? () => trySharedOnce(repoPath, resource, operation)
-    : () => tryExclusiveOnce(repoPath, resource, operation);
+    : () => tryExclusiveOnce(repoPath, resource, operation, place);
 
-  let taken = await tryOnce();
-
-  while (taken === null && Date.now() < deadline) {
-    // Jitter the poll so a herd of losers released together don't re-stampede
-    // the create in lock-step (which on Windows maximises sharing-violation churn).
-    await sleep(POLL_INTERVAL_MS * (0.5 + Math.random()));
+  let taken: Held | null;
+  try {
     taken = await tryOnce();
+
+    while (taken === null && Date.now() < deadline) {
+      // Jitter the poll so a herd of losers released together don't re-stampede
+      // the create in lock-step (which on Windows maximises sharing-violation churn).
+      await sleep(POLL_INTERVAL_MS * (0.5 + Math.random()));
+      taken = await tryOnce();
+    }
+  } finally {
+    // Its place goes once it holds the lock, or its wait has failed
+    if (place !== null) await leavePlace(path.join(lockDir(repoPath, resource), place));
   }
 
   if (taken === null) {
@@ -575,12 +719,18 @@ export async function getWorkspaceLockHolder(
 // =============================================================================
 
 export class LocalLockService implements LockService {
+  /** Its exclusive waits with no bound are served in the order they asked,
+   *  across the processes that share the repository: each takes a place in
+   *  the resource's directory ({@link acquireWorkspaceLock}). */
+  readonly queuesWaiters = true;
+
   /**
    * Acquires a lock on a resource.
    *
    * @remarks
    * `null` means another holder has the resource in a mode this one cannot
-   * share, as {@link LockService.acquire} says. Anything else that keeps the
+   * share, or that a waiter is ahead in its queue, as
+   * {@link LockService.acquire} says. Anything else that keeps the
    * lock from being taken — a filesystem error, a name no path can hold — is
    * thrown as it is, never reported as a lock held elsewhere, which would name
    * the wrong cause: a holder that does not exist.

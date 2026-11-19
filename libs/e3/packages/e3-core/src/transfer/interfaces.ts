@@ -13,8 +13,11 @@
  * - S3DynamoTransferBackend (AWS cloud, future)
  */
 
-import type { FunctionCallStatus } from '@elaraai/e3-types';
-import type { DatasetCommitStatus, DatasetUpload, PackageImport, PackageExport, RepoGcJob, SplitCallJob, WorkspaceDeployJob } from './types.js';
+import type { FunctionCallCancel, FunctionCallStatus } from '@elaraai/e3-types';
+import type {
+  DatasetCommitStatus, DatasetUpload, ObjectCommitStatus, ObjectUploadJob, PackageImport, PackageExport, RecordLoadJob, RepoGcJob, SplitCallJob,
+  WorkspaceDeployJob,
+} from './types.js';
 
 // =============================================================================
 // Dataset Upload Store
@@ -291,6 +294,156 @@ export interface SplitCallStore {
 }
 
 // =============================================================================
+// Record Load Store
+// =============================================================================
+
+/**
+ * Manages load jobs: launch → process → poll (→ cancel).
+ *
+ * @remarks
+ * A load of a delivery into an external source of a composite record waits
+ * its turn among the source's loads, waits out a deploy, and runs as long as
+ * its delivery is large, which outlasts a request. So it runs as a job in the
+ * compute the store dispatches it to, and the client polls its status from
+ * the store, whichever instance answers the poll. A job's record holds names
+ * and hashes, never the delivery, and is forgotten a while after the job ends.
+ *
+ * Only the job writes its end, `completed`, `failed` or `cancelled`. A cancel
+ * records a request ({@link RecordLoadStore.cancel}), which the job reads once
+ * a second, as it waits for an earlier load of its source and as it runs
+ * (`handleProcessRecordLoad`): it ends `cancelled` when it stops before its
+ * commit writes the record's ref, and `completed` once its commit has written,
+ * since a commit that has written has landed.
+ *
+ * One source's loads apply one at a time, in the order asked. The load's turn
+ * is a lock (`loadQueueLock`). A store whose jobs run in its own process has
+ * each source's jobs ask for it in the order they were filed, by
+ * `handleProcessRecordLoadInOrder`: where the storage's lock service queues
+ * its waiters, each job waits inside its load, holding its place among the
+ * source's waiters, so a job filed before another process asks is given the
+ * turn before it; over a lock service that keeps no queue, a job's load starts
+ * once the job filed before it has ended. A store with a queue of its own
+ * keeps the order there. A job waiting for an earlier load of its source says
+ * so (`queued`), and holds the repository's running work from when it is
+ * dispatched, so no sweep takes its delivery meanwhile. What a store's jobs do
+ * once dispatched is part of its contract (`recordLoadStoreTests`).
+ *
+ * Flow: create → execute → poll get (→ cancel) → delete
+ */
+export interface RecordLoadStore {
+  create(id: string, record: RecordLoadJob): Promise<void>;
+  get(id: string): Promise<RecordLoadJob | null>;
+  /**
+   * Records a job's status, unless the job has ended: once it is
+   * `completed`, `failed` or `cancelled`, the store never moves it to another
+   * status. The check and the write are one atomic step.
+   *
+   * @param id - The job's id
+   * @param status - Its new status
+   * @returns Whether the status was recorded: `false` when the job had ended
+   * @throws {Error} When there is no such job
+   */
+  updateStatus(id: string, status: RecordLoadJob['status']): Promise<boolean>;
+  /**
+   * Records a request to cancel a job, which the job acts on. A job that has
+   * ended, or that was asked already, is left as it is. The check and the
+   * write are one atomic step.
+   *
+   * @param id - The job's id
+   * @param cancel - Who asked, and when
+   * @returns The job as it stands; null when there is none
+   */
+  cancel(id: string, cancel: FunctionCallCancel): Promise<RecordLoadJob | null>;
+  delete(id: string): Promise<void>;
+
+  /**
+   * Dispatch processing.
+   * Local: runs `handleProcessRecordLoadInOrder` in the background, on the
+   * server's runner, each source's jobs in the order they were filed.
+   * Cloud: invokes its own compute, which runs `handleProcessRecordLoad` on its runner.
+   */
+  execute(id: string, repo: string): Promise<void>;
+}
+
+// =============================================================================
+// Object Upload Store
+// =============================================================================
+
+/**
+ * Manages staged uploads that write no ref: a file a load delivers, or a split
+ * call's `object` argument, stored as the object it hashes to, which the
+ * caller then names by its hash.
+ *
+ * @remarks
+ * The dataset upload's protocol ({@link DatasetUploadStore}), with no dataset:
+ * create → createParts → getPartUpload per part → (the client uploads the
+ * parts) → commit → poll getCommitStatus. The commit checks the staged bytes
+ * are the upload's size and hash, and stores them as that object, whole; it
+ * points nothing at it. The store forgets an upload a while after its commit
+ * finishes.
+ */
+export interface ObjectUploadStore {
+  create(id: string, record: ObjectUploadJob): Promise<void>;
+  get(id: string): Promise<ObjectUploadJob | null>;
+  delete(id: string): Promise<void>;
+
+  /**
+   * Plan a created upload as parts, as {@link DatasetUploadStore.createParts}
+   * does.
+   *
+   * @param id - The upload's id
+   * @param record - The upload, as created
+   * @returns The byte size of every part but the last
+   */
+  createParts(id: string, record: ObjectUploadJob): Promise<bigint>;
+
+  /**
+   * The part size {@link ObjectUploadStore.createParts} planned for an upload.
+   *
+   * @param id - The upload's id
+   * @returns The part size, or `null` when the upload was not planned as parts
+   */
+  getPartBytes(id: string): Promise<bigint | null>;
+
+  /**
+   * Where and how the client sends one part of an upload planned as parts.
+   *
+   * @param id - The upload's id
+   * @param record - The upload, as created
+   * @param part - The part's number, from 1
+   * @returns The part's URL and the headers its PUT must carry
+   */
+  getPartUpload(id: string, record: ObjectUploadJob, part: number): Promise<DatasetPartUpload>;
+
+  /**
+   * Commit an upload whose parts have all been sent: check the staged bytes
+   * are the upload's size and hash, and store them as the object they are.
+   *
+   * @remarks
+   * As a dataset upload's commit: it runs where the store runs it, outlives
+   * the request that asked for it, and asked for again starts nothing new and
+   * answers as it did. Once it has been asked for, the upload takes no more
+   * parts. It never rejects for the bytes' sake: how it finished is its
+   * status.
+   *
+   * @param id - The upload's id
+   * @param record - The upload, as created
+   * @returns How the commit finished, once it has; a store that runs it
+   *   elsewhere may answer `processing` at once, for the client to poll
+   */
+  commit(id: string, record: ObjectUploadJob): Promise<ObjectCommitStatus>;
+
+  /**
+   * How an upload's commit stands, which a poll reads whichever instance
+   * answers it, for a while after it finished.
+   *
+   * @param id - The upload's id
+   * @returns The status, or `null` when no commit of the upload was asked for
+   */
+  getCommitStatus(id: string): Promise<ObjectCommitStatus | null>;
+}
+
+// =============================================================================
 // Function Call Dispatch
 // =============================================================================
 
@@ -372,6 +525,10 @@ export interface TransferBackend {
   readonly workspaceDeploy: WorkspaceDeployStore;
   readonly repoGc: RepoGcStore;
   readonly splitCall: SplitCallStore;
+  /** Runs the loads of deliveries into composite records' external sources */
+  readonly recordLoad: RecordLoadStore;
+  /** Takes in files uploaded as objects, which no ref names */
+  readonly objectUpload: ObjectUploadStore;
   /** Runs the calls of named functions a server files, outliving its requests */
   readonly functionCalls: FunctionCallDispatch;
 }

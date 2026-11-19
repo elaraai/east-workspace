@@ -286,6 +286,43 @@ export class RecordDeployRefusedError extends E3Error {
   }
 }
 
+/**
+ * Thrown when a load is refused before anything of it runs: its record or its
+ * source is not in the workspace, the source is not one a delivery is loaded
+ * into — a solution's source, which its mutations write — or the dataflow
+ * loads it from its feed.
+ *
+ * @remarks
+ * Nothing was taken in, run or committed. The API answers it `invalid`.
+ */
+export class RecordLoadRefusedError extends E3Error {
+  constructor(
+    /** The load, as `<record>.<source>` */
+    public readonly load: string,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * Thrown by a load its caller stopped — Ctrl-C, or its job's signal — before
+ * its commit wrote the record's ref.
+ *
+ * @remarks
+ * Nothing was committed. The pieces that finished are kept in the execution
+ * cache, and the delivery's intake remembers the pieces it took in, so the
+ * same load asked again takes up from them.
+ */
+export class RecordLoadStoppedError extends E3Error {
+  constructor(
+    /** The load, as `<record>.<source>` */
+    public readonly load: string,
+  ) {
+    super(`the load of ${load} was stopped before it committed: nothing loaded`);
+  }
+}
+
 // =============================================================================
 // Package Errors
 // =============================================================================

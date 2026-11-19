@@ -99,19 +99,21 @@ export function createWebDataEndpoints(transfer: WebTransferBackend, storage: We
     return new Response(null, { status: 200 });
   });
 
-  // PUT /api/uploads/:id/parts/:part — one part of a dataset upload, staged
-  // whole in its own blob
+  // PUT /api/uploads/:id/parts/:part — one part of an upload, a dataset's or
+  // one that writes no ref, staged whole in its own blob
   uploads.put('/:id/parts/:part', async (c) => {
     const rejected = rejectAuthHeader(c);
     if (rejected !== null) return rejected;
 
     const id = c.req.param('id');
-    const record = await transfer.datasetUpload.get(id);
-    const partBytes = record === null ? null : await transfer.datasetUpload.getPartBytes(id);
+    const dataset = await transfer.datasetUpload.get(id);
+    const store = dataset !== null ? transfer.datasetUpload : transfer.objectUpload;
+    const record = dataset ?? await transfer.objectUpload.get(id);
+    const partBytes = record === null ? null : await store.getPartBytes(id);
     if (record === null || partBytes === null) return notFound();
     // A part sent once the commit is under way could change the bytes it
     // verifies.
-    if ((await transfer.datasetUpload.getCommitStatus(id)) !== null) {
+    if ((await store.getCommitStatus(id)) !== null) {
       return new Response('the upload is committed: it takes no more parts', { status: 409 });
     }
     const part = Number(c.req.param('part'));
@@ -127,7 +129,7 @@ export function createWebDataEndpoints(transfer: WebTransferBackend, storage: We
     if (body.byteLength < expected) {
       return new Response(`part ${part} is ${expected} bytes, got ${body.byteLength}`, { status: 400 });
     }
-    await transfer.datasetUpload.stagePart(id, record.repo, part, body);
+    await store.stagePart(id, record.repo, part, body);
     return new Response(null, { status: 200 });
   });
 

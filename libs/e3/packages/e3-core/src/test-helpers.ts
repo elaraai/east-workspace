@@ -8,15 +8,16 @@
  * Provides utilities for setting up and tearing down test repositories
  */
 
+import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  DateTimeType, DictType, East, IntegerType, PatchType, StringType, StructType, carveBeast2, compareFor, encodeBeast2For, encodeBeast2FenceFor,
-  encodeBeast2SegmentsFor, isVariant, openBeast2PagesFor, parseFor, printType, readBeast2Extents, readBeast2Type, segmentKeyTypeOf,
-  toEastTypeValue, variant, type EastType, type EastTypeValue, type ValueTypeOf,
+  DateTimeType, DictType, East, IntegerType, NullType, PatchType, SortedMap, StringType, StructType, VariantType, carveBeast2, compareFor,
+  decodeBeast2For, encodeBeast2For, encodeBeast2FenceFor, encodeBeast2SegmentsFor, equalFor, isVariant, openBeast2PagesFor, parseFor, printFor,
+  printType, readBeast2Extents, readBeast2Type, segmentKeyTypeOf, toEastTypeValue, variant, type EastType, type EastTypeValue, type ValueTypeOf,
 } from '@elaraai/east';
 import e3, { type PartRunner } from '@elaraai/e3';
 import {
@@ -24,9 +25,12 @@ import {
 } from '@elaraai/e3-types';
 import type { BackendDamage } from './contract/index.js';
 import { checkHash, checkId } from './errors.js';
-import type { DetachedResult } from './execution/interfaces.js';
+import { readDatasetWhole } from './dataset-open.js';
+import type { DetachedResult, TaskRunner } from './execution/interfaces.js';
 import { openZip } from './package-files.js';
-import { PENDING_SLOT, pendingSources, sourceLoadSlots, sourcesSlot } from './record-slots.js';
+import { recordLoad } from './record-load.js';
+import { readRecordState, recordHistory } from './records.js';
+import { workspaceCreate, workspaceDeploy } from './workspaces.js';
 import type { InMemoryStorage } from './storage/in-memory/InMemoryStorage.js';
 import { executionPath } from './storage/local/localHelpers.js';
 import { repoInit } from './storage/local/repository.js';
@@ -255,6 +259,36 @@ export function watchObjects(storage: StorageBackend, asked: (method: string, ha
 }
 
 /**
+ * A store that is `store` with some of its methods replaced, so a spec counts,
+ * delays or fails one call and leaves the rest as they are.
+ *
+ * @param store - The store, such as a backend's objects or its datasets
+ * @param overrides - The methods replaced, each of which may call `store`'s own
+ * @returns The store
+ */
+export function overriding<T extends object>(store: T, overrides: Partial<T>): T {
+  return new Proxy(store, {
+    get(target, property) {
+      if (Object.hasOwn(overrides, property)) return (overrides as Record<PropertyKey, unknown>)[property];
+      const value: unknown = Reflect.get(target, property, target);
+      return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+    },
+  });
+}
+
+/**
+ * A backend that is `storage` with some of its stores replaced: those of
+ * {@link overriding}, say.
+ *
+ * @param storage - The backend
+ * @param stores - The stores replaced
+ * @returns The backend
+ */
+export function withStores(storage: StorageBackend, stores: Partial<Pick<StorageBackend, 'objects' | 'datasets' | 'locks'>>): StorageBackend {
+  return { ...withLogStore(storage, storage.logs), ...stores };
+}
+
+/**
  * What a reader read of an execution's log as a record of how it ended was
  * written.
  */
@@ -373,46 +407,202 @@ export function ordersOverSources() {
   });
 }
 
+/** The key of {@link ledgerOrders}: the source each order is of. */
+export const LedgerKeyType = VariantType({ erp: StringType, own: StringType, wms: StringType });
+
+/** {@link ledgerOrders}' rows: every order, by its source and its own id. */
+export const LedgerOrdersType = DictType(LedgerKeyType, SourcedOrderType);
+
 /**
- * Writes a composite record's ref as a load's commit leaves it for one of its
- * external sources: the source's last delivery named — by the record's state
- * and its head commit, which stand in for the delivery's objects — as of
- * `asOf`, and the source no longer waited for.
+ * Rows of {@link ledgerOrders}, as the record holds them.
  *
- * @remarks
- * For a spec of what a deploy or a compaction does to the slots of a
- * delivery, which needs no load to have run: the record's rows and its
- * history are left as they are.
+ * @param rows - Each order: its source, its id, and itself
+ * @returns The rows, keyed by their source and id
+ */
+export function ledgerRows(
+  rows: ReadonlyArray<readonly [ValueTypeOf<typeof LedgerKeyType>['type'], string, ValueTypeOf<typeof SourcedOrderType>]>,
+): ValueTypeOf<typeof LedgerOrdersType> {
+  return new SortedMap<ValueTypeOf<typeof LedgerKeyType>, ValueTypeOf<typeof SourcedOrderType>>(
+    rows.map(([source, id, row]) => [variant(source, id), row]), compareFor(LedgerKeyType));
+}
+
+/** The orders the ledger's specs deliver and save. */
+export const LEDGER_ORDERS = {
+  acme: { customer: 'Acme', qty: 5n },
+  birch: { customer: 'Birch', qty: 2n },
+  cedar: { customer: 'Cedar', qty: 7n },
+} as const satisfies Record<string, ValueTypeOf<typeof SourcedOrderType>>;
+
+/** The commits a deploy of the ledger writes on `orders`, newest first: its
+ *  `$init`, and the `$reindex` that builds its index. */
+export const LEDGER_DEPLOYED: readonly string[] = ['$reindex', '$init'];
+
+/** What a spec of the ledger's loads does to a repository, and reads of it. */
+export interface LedgerWorkspaces {
+  /** A workspace of its own for a case, a version of the `ledger` package (`1.0.0` when omitted) deployed to it. */
+  fresh(version?: string): Promise<string>;
+  /** The ref of `orders` in a workspace: its state's hash, and its version vector. */
+  ref(ws: string): Promise<{ readonly hash: string; readonly versions: Map<string, string> }>;
+  /** The commits of `orders` in a workspace, newest first, by name. */
+  chain(ws: string): Promise<string[]>;
+  /** Asserts `orders` holds these rows in a workspace, and no other. */
+  holds(ws: string, rows: Parameters<typeof ledgerRows>[0]): Promise<void>;
+}
+
+/**
+ * The workspaces a spec of the ledger's loads makes in a repository that holds
+ * the `ledger` package ({@link ledgerOrders}), each deployed on `runner`.
+ *
+ * @param storage - The repository's storage
+ * @param repo - The repository
+ * @param runner - What the deploys build the index on
+ * @returns What the spec does and reads
+ */
+export function ledgerWorkspaces(storage: StorageBackend, repo: string, runner: TaskRunner): LedgerWorkspaces {
+  let made = 0;
+  const decodeOrders = decodeBeast2For(LedgerOrdersType);
+  const sameOrders = equalFor(LedgerOrdersType);
+  const printOrders = printFor(LedgerOrdersType);
+  const ref = async (ws: string) => {
+    const held = await storage.datasets.read(repo, ws, 'records/orders');
+    if (held === null || held.type !== 'value') assert.fail('the record holds no state');
+    return held.value;
+  };
+  return {
+    fresh: async (version = '1.0.0') => {
+      const ws = `ws${++made}`;
+      await workspaceCreate(storage, repo, ws);
+      await workspaceDeploy(storage, repo, ws, 'ledger', version, { runner });
+      return ws;
+    },
+    ref,
+    chain: async (ws) => (await recordHistory(storage, repo, ws, 'orders')).map(({ commit }) => commit.mutation),
+    holds: async (ws, rows) => {
+      const got = decodeOrders(await readDatasetWhole(storage, repo, (await readRecordState(storage, repo, (await ref(ws)).hash)).primary));
+      assert.ok(sameOrders(got, ledgerRows(rows)), `the record holds ${printOrders(got)}`);
+    },
+  };
+}
+
+/** What {@link ledgerOrders}' `erp` is delivered when it is loaded `noted`: its order book, a note on each order. */
+export const NotedDeliveryType = DictType(StringType, StructType({ customer: StringType, qty: IntegerType, note: StringType }));
+
+/** A source's entries become what it is delivered: its whole order book. */
+const loadBook = East.function([ErpDeliveryType, ErpDeliveryType], PatchType(ErpDeliveryType), (_$, delivery, current) => East.diff(current, delivery));
+
+/** The same, each order's quantity doubled: another load function over the same delivery. */
+const loadDoubled = East.function([ErpDeliveryType, ErpDeliveryType], PatchType(ErpDeliveryType), ($, delivery, current) => {
+  const doubled = $.let(delivery.map(($, order) => ({ customer: order.customer, qty: order.qty.multiply(2n) })));
+  return East.diff(current, doubled);
+});
+
+/** An order book with a note on each order, the note dropped: another delivery type. */
+const loadNoted = East.function([NotedDeliveryType, ErpDeliveryType], PatchType(ErpDeliveryType), ($, delivery, current) => {
+  const orders = $.let(delivery.map(($, order) => ({ customer: order.customer, qty: order.qty })));
+  return East.diff(current, orders);
+});
+
+/** A load whose patch names an order of neither its delivery nor its entries, which the commit refuses by its key. */
+const loadStray = East.function([ErpDeliveryType, ErpDeliveryType], PatchType(ErpDeliveryType), ($, delivery, current) => {
+  const stray = $.let(delivery.copy());
+  $(stray.insert('ZZ-9', { customer: 'Nobody', qty: 0n }));
+  return East.diff(current, stray);
+});
+
+/**
+ * How {@link ledgerOrders}' `erp` is loaded:
+ * - `book`: its whole order book, its entries becoming it
+ * - `doubled`: the same, each order's quantity doubled: another load function
+ * - `noted`: its order book with a note on each order: another delivery type
+ * - `stray`: its order book, and an order of neither, which the commit refuses
+ */
+export type LedgerErpLoad = 'book' | 'doubled' | 'noted' | 'stray';
+
+/**
+ * A composite record for a load's spec: `orders`, delivered from the ERP
+ * (`erp`) and the warehouse (`wms`), each its whole order book by its own id
+ * ({@link ErpDeliveryType}), beside the solution's own orders (`own`), which
+ * the mutation `plan` writes by id. Indexed by customer, so each write runs
+ * its program.
+ *
+ * @param options - How `erp` is loaded (`book` when omitted), and the
+ *   solution's own orders from the deploy (order `P-1`, Birch, 2, when
+ *   omitted)
+ * @returns The record's definition, for a spec's package
+ */
+export function ledgerOrders(options: { readonly erp?: LedgerErpLoad; readonly own?: ReadonlyMap<string, ValueTypeOf<typeof SourcedOrderType>> } = {}) {
+  const erp = options.erp ?? 'book';
+  return e3.recordComposite('orders', SourcedOrderType, {
+    sources: (source) => ({
+      erp: erp === 'noted' ? source.load(StringType, NotedDeliveryType, loadNoted)
+        : source.load(StringType, ErpDeliveryType, erp === 'doubled' ? loadDoubled : erp === 'stray' ? loadStray : loadBook),
+      own: source.mutations(StringType),
+      wms: source.load(StringType, ErpDeliveryType, loadBook),
+    }),
+    initial: { own: new Map(options.own ?? [['P-1', { customer: 'Birch', qty: 2n }]]) },
+    indexes: (index) => ({ by_customer: index.on(['customer']) }),
+    mutations: (mutation, { state, edit }) => ({
+      plan: mutation.edit(East.function([state, StringType, SourcedOrderType, edit], NullType, ($, _orders, id, order, edit) => {
+        $(edit.set(variant('own', id), order));
+      })),
+    }),
+  });
+}
+
+/**
+ * Runs `body` in a project whose runners e3 finds before any other — its
+ * runners are searched for from its directory, where it puts them first:
+ * east-node, and an east-c launcher that finds no native binary to start, as
+ * one whose platform's package was not installed does, so no east-c runs
+ * whatever this machine has installed.
+ *
+ * @param dir - The directory the project is made in
+ * @param body - What runs in the project
+ * @returns Once `body` has settled, back in the directory it was called from
+ */
+export async function inProjectWithoutEastC(dir: string, body: () => Promise<void>): Promise<void> {
+  const project = join(dir, 'project');
+  const bin = join(project, 'node_modules', '.bin');
+  mkdirSync(bin, { recursive: true });
+  const eastNode = join(dirname(fileURLToPath(import.meta.resolve('@elaraai/east-node-cli'))), '..', 'bin', 'east-node.mjs');
+  writeFileSync(join(bin, 'east-node'), `#!/bin/sh\nexec node ${JSON.stringify(eastNode)} "$@"\n`, { mode: 0o755 });
+  writeFileSync(join(bin, 'east-c'), '#!/bin/sh\necho "east-c: the native binary for this platform is not installed" >&2\nexit 1\n', { mode: 0o755 });
+  const cwd = process.cwd();
+  process.chdir(project);
+  try {
+    await body();
+  } finally {
+    process.chdir(cwd);
+  }
+}
+
+/**
+ * Loads a delivery into an external source of a composite record, as
+ * `e3 load` loads a file: the delivery stored as the object its bytes are,
+ * then loaded ({@link recordLoad}) on `runner`, as of `asOf`.
  *
  * @param storage - Storage backend
+ * @param runner - The runner the delivery is taken in on and the load's pieces run on
  * @param repo - Repository identifier
  * @param ws - The workspace
- * @param refPath - The record's ref path, such as `records/orders`
+ * @param record - The composite record
  * @param source - The external source
+ * @param delivery - The source's delivery type, and what it is delivered
  * @param asOf - The time the delivery says its data is as of, as East prints
  *   a DateTime
- * @returns The commit the slots name as the one that applied the delivery
- * @throws {Error} When the record holds no state
+ * @returns The commit the load wrote, and the delivery's hash, which the
+ *   source's slot names
+ * @throws {AssertionError} When the load wrote no commit: the delivery was the
+ *   source's last, or older than it
  */
-export async function sourceDelivered(
-  storage: StorageBackend, repo: string, ws: string, refPath: string, source: string, asOf: string,
-): Promise<string> {
-  const held = await storage.datasets.read(repo, ws, refPath);
-  if (held === null || held.type !== 'value') throw new Error(`record '${refPath}' holds no state`);
-  const head = held.value.versions.get(`.${refPath.split('/').join('.')}`);
-  if (head === undefined) throw new Error(`record '${refPath}' names no head commit`);
-  const slots = sourceLoadSlots(source);
-  const versions = new Map(held.value.versions);
-  versions.set(slots.delivery, held.value.hash);
-  versions.set(slots.load, held.value.hash);
-  versions.set(slots.commit, head);
-  versions.set(slots.execution, `${held.value.hash}/${head}`);
-  versions.set(slots.asOf, asOf);
-  const waiting = sourcesSlot(pendingSources(versions).filter((name) => name !== source));
-  if (waiting === undefined) versions.delete(PENDING_SLOT);
-  else versions.set(PENDING_SLOT, waiting);
-  await storage.datasets.write(repo, ws, refPath, variant('value', { hash: held.value.hash, versions }));
-  return head;
+export async function sourceLoaded<T extends EastType>(
+  storage: StorageBackend, runner: TaskRunner, repo: string, ws: string, record: string, source: string,
+  delivery: { readonly type: T; readonly value: ValueTypeOf<T> }, asOf: string,
+): Promise<{ readonly commit: string; readonly delivery: string }> {
+  const hash = await storage.objects.write(repo, encodeBeast2For(delivery.type)(delivery.value));
+  const loaded = await recordLoad(storage, runner, repo, ws, record, source, hash, { actor: 'cli:test', asOf: at(asOf) });
+  if (loaded.commit.type !== 'some') assert.fail(`the load of ${record}.${source} wrote no commit: it was answered ${loaded.outcome.type}`);
+  return { commit: loaded.commit.value, delivery: hash };
 }
 
 /**

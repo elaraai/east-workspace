@@ -82,23 +82,25 @@ export function createDataEndpoints(
     return new Response('Not found', { status: 404 });
   });
 
-  // PUT /api/uploads/:id/parts/:part — One part of a dataset upload. The staged
-  // file sits in the repository, far larger than this process's heap if need
-  // be, because the commit turns it into an object by link or rename, which
-  // only works on the repository's device.
+  // PUT /api/uploads/:id/parts/:part — One part of an upload: a dataset's, or
+  // one that writes no ref. The staged file sits in the repository, far larger
+  // than this process's heap if need be, because the commit turns it into an
+  // object by link or rename, which only works on the repository's device.
   uploads.put('/:id/parts/:part', async (c) => {
     const rejected = rejectAuthHeader(c);
     if (rejected) return rejected;
 
     const id = c.req.param('id')!;
-    const record = await transferBackend.datasetUpload.get(id);
-    const partBytes = record ? await transferBackend.datasetUpload.getPartBytes(id) : null;
+    const dataset = await transferBackend.datasetUpload.get(id);
+    const store = dataset !== null ? transferBackend.datasetUpload : transferBackend.objectUpload;
+    const record = dataset ?? await transferBackend.objectUpload.get(id);
+    const partBytes = record ? await store.getPartBytes(id) : null;
     if (!record || partBytes === null) {
       return new Response('Not found', { status: 404 });
     }
     // A part sent once the commit is under way could rewrite the bytes it
     // verifies.
-    if ((await transferBackend.datasetUpload.getCommitStatus(id)) !== null) {
+    if ((await store.getCommitStatus(id)) !== null) {
       return new Response('the upload is committed: it takes no more parts', { status: 409 });
     }
     const part = Number(c.req.param('part'));

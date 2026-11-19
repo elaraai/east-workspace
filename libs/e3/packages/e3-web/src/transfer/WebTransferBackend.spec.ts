@@ -12,16 +12,20 @@
  * what a closed tab left, recorded failed and never run again, and
  * what a live one runs, left to it; a job or a commit asked for twice at once,
  * run once; what a transfer staged, swept by gc and forgotten past its
- * retention; and gc as a job. Every store and its byte endpoints run under the
- * shared API suites too, in `libs/e3/test/integration`'s
- * `web-compliance.spec.ts` and in Chromium.
+ * retention; and gc as a job. Its load store runs e3-core's contract, its
+ * jobs loading into a workspace of the ledger's package on the tab's own
+ * runner. Every store and its byte endpoints run under the shared API suites
+ * too, in `libs/e3/test/integration`'s `web-compliance.spec.ts` and in
+ * Chromium.
  */
 
 import { afterEach, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { DateTimeType, StringType, encodeBeast2For, equalFor, none, printFor, some, variant } from '@elaraai/east';
+import e3 from '@elaraai/e3';
 import { LockStateType } from '@elaraai/e3-types';
 import {
+  TASKS_LOCK,
   WorkspaceLockError,
   announcedIntent,
   computeHash,
@@ -32,14 +36,18 @@ import {
   workspaceGetDataset,
   workspaceSetDataset,
   type DatasetUpload,
+  type TaskRunner,
 } from '@elaraai/e3-core/portable';
+import {
+  ErpDeliveryType, GatedTaskRunner, LEDGER_ORDERS, encodeInSegmentsOf, ledgerOrders, objectUploadStoreTests, recordLoadStoreTests,
+} from '@elaraai/e3-core/test';
 import { AdapterClosedError, type BlobKey, type BlobsAdapter, type ByteSource, type RecordKey } from '../storage/adapters.js';
 import { MemoryBlobs, MemoryFiles, MemoryLockSpace, MemoryRecordStore, openMemoryRecords, type MemoryLocks } from '../storage/memory.js';
 import { WebStorage } from '../storage/WebStorage.js';
 import { UnitPool } from '../execution/pool.js';
 import { inProcessUnits } from '../execution/in-process.js';
 import { WebTaskRunner } from '../execution/WebTaskRunner.js';
-import { FIXTURE_VERSION, HELD_PACKAGE, PLATFORM_PACKAGE, buildE3Fixtures } from '../testing/e3-fixtures.js';
+import { FIXTURE_VERSION, HELD_PACKAGE, PLATFORM_PACKAGE, buildE3Fixtures, packageZip } from '../testing/e3-fixtures.js';
 import { WebTransferBackend, type WebTransferBackendOptions } from './WebTransferBackend.js';
 
 const REPO = 'default';
@@ -98,14 +106,19 @@ function untilClosed(blobs: BlobsAdapter, closed: () => boolean): BlobsAdapter {
  * @param options - The backend's part and round sizes and its retention
  * @param blobs - The blobs the tab reads and writes through: the origin's
  *   unless given
+ * @param over - What the backend's jobs run on, given the tab's own runner:
+ *   that runner unless given
  */
-async function openTab(origin: Origin, options: Partial<WebTransferBackendOptions> = {}, blobs: BlobsAdapter = origin.blobs): Promise<Tab> {
+async function openTab(
+  origin: Origin, options: Partial<WebTransferBackendOptions> = {}, blobs: BlobsAdapter = origin.blobs,
+  over: (runner: TaskRunner) => TaskRunner = (runner) => runner,
+): Promise<Tab> {
   const session = await origin.locks.open();
   const records = openMemoryRecords(origin.records);
   let closed = false;
   const storage = new WebStorage({ records, blobs: untilClosed(blobs, () => closed), locks: session, files: origin.files });
   const pool = new UnitPool({ units: inProcessUnits(), width: 2 });
-  const runner = new WebTaskRunner({ repo: REPO, pool, locks: session });
+  const runner = over(new WebTaskRunner({ repo: REPO, pool, locks: session }));
   const transfer = new WebTransferBackend({ storage, getRunner: () => runner, ...options });
   const tab: Tab = {
     session,
@@ -280,6 +293,48 @@ async function commitStatus(tab: Tab, id: string): Promise<{ readonly status: st
   if (status === null) return { status: 'none', message: '' };
   return { status: status.type, message: status.type === 'failed' ? status.value.message : '' };
 }
+
+/** The ledger's package, whose record `orders` the load store's cases load
+ *  into: its zip, made by the first case that asks. */
+let ledgerZip: Promise<Uint8Array> | undefined;
+
+// Its jobs load into a workspace of the ledger's package, on a runner that
+// holds a task's executions when a case asks it to
+recordLoadStoreTests('e3-web', async () => {
+  ledgerZip ??= packageZip(e3.package('ledger', FIXTURE_VERSION, ledgerOrders()), 'ledger');
+  let held!: GatedTaskRunner;
+  const origin = newOrigin();
+  const tab = await openTab(origin, {}, origin.blobs, (runner) => (held = new GatedTaskRunner(runner)));
+  await tab.storage.repos.create(REPO);
+  await importPackage(tab, await ledgerZip);
+  await workspaceCreate(tab.storage, REPO, WORKSPACE);
+  await workspaceDeploy(tab.storage, REPO, WORKSPACE, 'ledger', FIXTURE_VERSION, { runner: held });
+  let delivered = 0;
+  return {
+    store: tab.transfer.recordLoad,
+    teardown: () => tab.close(),
+    loads: {
+      storage: tab.storage, repo: REPO, workspace: WORKSPACE, record: 'orders', source: 'erp', runner: held,
+      // An order no delivery before it holds
+      deliver: () => tab.storage.objects.write(REPO, encodeInSegmentsOf(ErpDeliveryType, 2)(new Map([[`SO-${++delivered}`, LEDGER_ORDERS.acme]]))),
+      working: async () => (await tab.session.held(JSON.stringify([REPO, TASKS_LOCK]))).length,
+    },
+  };
+});
+
+objectUploadStoreTests('e3-web', async () => {
+  const tab = await openTab(newOrigin(), { partBytes: 256 });
+  await tab.storage.repos.create(REPO);
+  return {
+    store: tab.transfer.objectUpload,
+    storage: tab.storage,
+    repo: REPO,
+    sendPart: async (id, record, part, bytes) => {
+      await tab.transfer.objectUpload.stagePart(id, record.repo, part, bytes);
+    },
+    teardown: () => tab.close(),
+  };
+});
 
 describe('WebTransferBackend', () => {
   let fixtures: Awaited<ReturnType<typeof buildE3Fixtures>>;
@@ -548,6 +603,27 @@ describe('WebTransferBackend', () => {
       const { id } = await stagedUpload(tab, 'forgotten');
       await until(async () => ((await tab.transfer.datasetUpload.get(id)) === null ? true : null), 'the upload no one committed to be forgotten', 5_000);
       assert.deepEqual(await stagedBy(origin, id), [], 'what it staged went with it');
+    });
+
+    it('R72 — forgets, in a tab that lives, a load that ended and an upload that writes no ref no one committed, past their retention', async () => {
+      const origin = newOrigin();
+      const tab = await openTab(origin, { retention: { resultTtlMs: 50, recordMs: 50, intervalMs: 20 } });
+      await tab.storage.repos.create(REPO);
+      const load = crypto.randomUUID();
+      await tab.transfer.recordLoad.create(load, {
+        repo: REPO, workspace: WORKSPACE, record: 'orders', source: 'erp', delivery: 'd'.repeat(64), actor: 'ada@example.com', asOf: none,
+        cancel: none, status: variant('failed', { message: 'the load of orders.erp failed' }), createdAt: new Date(),
+      });
+      const upload = crypto.randomUUID();
+      const record = { repo: REPO, workspace: WORKSPACE, hash: computeHash(new Uint8Array([1, 2, 3])), size: 3n };
+      await tab.transfer.objectUpload.create(upload, record);
+      await tab.transfer.objectUpload.createParts(upload, record);
+      await tab.transfer.objectUpload.stagePart(upload, REPO, 1, new Uint8Array([1, 2, 3]));
+      assert.notDeepEqual(await stagedBy(origin, upload), [], 'the upload staged its part');
+      await tab.transfer.start();
+      await until(async () => ((await tab.transfer.recordLoad.get(load)) === null && (await tab.transfer.objectUpload.get(upload)) === null ? true : null),
+        'the load and the upload to be forgotten', 5_000);
+      assert.deepEqual(await stagedBy(origin, upload), [], 'what the upload staged went with it');
     });
 
     it('deletes a record that does not decode, with what its transfer staged', async () => {

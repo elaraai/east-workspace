@@ -35,7 +35,8 @@ import {
 } from './executions.js';
 import { taskInputRead, type InputHeld } from './input-read.js';
 import { packageObjectRead } from './packages.js';
-import { pendingSources } from './record-slots.js';
+import { EXTERNAL_SLOT, pendingSources, slotNames } from './record-slots.js';
+import { recordPendingAt } from './records.js';
 import { taskObjectRead } from './tasks.js';
 import type { TaskRunner } from './execution/interfaces.js';
 import {
@@ -667,6 +668,10 @@ interface RunRoots {
   /** The commits of each record the store was found to hold no more, as a
    *  task was launched: the store is not asked for one again */
   gone: Map<string, Set<string>>;
+  /** What each root waited for at a version a look of the run took, by the
+   *  root and the version: the external sources a composite record waited
+   *  for, as that look read its ref, and none for any other */
+  waited: Map<string, Map<string, readonly string[]>>;
 }
 
 const runRoots = new WeakMap<DataflowExecutionState, RunRoots>();
@@ -686,7 +691,7 @@ function numberVersion(roots: RunRoots, path: string, version: string): void {
 function rootsOf(state: DataflowExecutionState): RunRoots {
   let roots = runRoots.get(state);
   if (roots === undefined) {
-    roots = { records: null, taken: new Map(), next: 0, older: new Map(), gone: new Map() };
+    roots = { records: null, taken: new Map(), next: 0, older: new Map(), gone: new Map(), waited: new Map() };
     runRoots.set(state, roots);
     for (const [path, version] of state.inputSnapshot) numberVersion(roots, path, version);
   }
@@ -731,6 +736,44 @@ export function dataflowSnapshotTaken(
   letGoVersions(state, roots);
 }
 
+/**
+ * Notes what a look of the run read of each root's wait, at the version of
+ * it the run's snapshot now holds: the external sources a composite record
+ * waited for, and none for any other root.
+ *
+ * @remarks
+ * A run reads a record at a version it took, which the record's ref may have
+ * moved on from by the time a task reads it: a source may have delivered for
+ * the first time since. So whether the record waits is judged at that
+ * version, as the look that took it read it ({@link dataflowResolveInputs}):
+ * no task reads the record as it stood before a source first delivered, and
+ * the record's readers run once the run looks again and takes the delivery
+ * in. Called after each look, once the run's state holds what it took.
+ *
+ * @param state - The run's state, holding the look's snapshot
+ * @param waited - The sources each composite record waited for at the
+ *   version the look read, by its keypath; a root not named waited for none
+ * @internal
+ */
+export function dataflowSnapshotLooked(state: DataflowExecutionState, waited: ReadonlyMap<string, readonly string[]>): void {
+  const roots = rootsOf(state);
+  for (const [path, version] of state.inputSnapshot) {
+    let at = roots.waited.get(path);
+    if (at === undefined) {
+      at = new Map();
+      roots.waited.set(path, at);
+    }
+    at.set(version, waited.get(path) ?? []);
+  }
+}
+
+/** What a root waited for at a version of it, as the look of the run that
+ *  took that version read it; `undefined` for a version no look of the run
+ *  read, such as one a result made before the run names. */
+function waitedAt(state: DataflowExecutionState, path: string, version: string): readonly string[] | undefined {
+  return runRoots.get(state)?.waited.get(path)?.get(version);
+}
+
 /** Lets go of the versions older than every one the run's state names, and of
  *  the order of each pair of commits it never took that it names no more. */
 function letGoVersions(state: DataflowExecutionState, roots: RunRoots): void {
@@ -756,6 +799,13 @@ function letGoVersions(state: DataflowExecutionState, roots: RunRoots): void {
     if (least === undefined) continue;
     for (const [version, number] of [...taken]) {
       if (number < least) taken.delete(version);
+    }
+  }
+  // What a look read of a version's wait goes with the version
+  for (const [root, waited] of roots.waited) {
+    const taken = roots.taken.get(root);
+    for (const version of [...waited.keys()]) {
+      if (taken?.has(version) !== true) waited.delete(version);
     }
   }
   for (const key of [...roots.older.keys()]) {
@@ -1008,12 +1058,21 @@ type RootAt = ({ readonly kind: 'object' } & InputHeld) | { readonly kind: 'unas
  *
  * A composite record that waits for an external source's first delivery
  * (`$pending`, in its ref's version vector) cannot be read, though it holds a
- * state: the solution's own entries alone. Its ref says so as it stands now,
- * whichever version of the record the task would read, and is asked before an
- * index of it is looked for (`taskInputRead`, where every reader of an input
- * decides): so a task reading the record, or an index of it, waits naming the
- * sources yet to deliver, and a task reading that task's output waits on an
- * output not set.
+ * state: the solution's own entries alone. Its ref says so, and that is asked
+ * before an index of it is looked for (`taskInputRead`, where every reader of
+ * an input decides): so a task reading the record, or an index of it, waits
+ * naming the sources yet to deliver, and a task reading that task's output
+ * waits on an output not set. It is asked at the version the task reads, as
+ * the run's look that took that version read the ref
+ * ({@link dataflowSnapshotLooked}): a first delivery that landed since leaves
+ * the task waiting until the run looks again and takes it in, so no task
+ * reads the record as it stood before. The run's memory of its looks is this
+ * process's alone: a version it holds no look of — one a result made before
+ * the run names, or any version in a host that runs a step an invocation — is
+ * asked of the ref where the ref still stands at it, and otherwise read back
+ * from the record's history, by the loads committed since
+ * (`recordPendingAt`). Where the history cannot say, the record is taken to
+ * wait for each of its external sources until the run looks again.
  *
  * @param storage - Storage backend
  * @param state - The run's state
@@ -1038,8 +1097,8 @@ export async function dataflowResolveInputs(
   const outputs = new Map<string, Promise<ReadAt>>();
   const runs = new Map<string, CatchUpRun>();
 
-  // A root's dataset object at its version, with the sources its ref says it
-  // waits for; or that it has no value
+  // A root's dataset object at its version, with the sources it waits for
+  // there; or that it has no value
   const rootAt = (path: string): Promise<RootAt> => {
     let read = roots.get(path);
     if (read === undefined) {
@@ -1048,11 +1107,23 @@ export async function dataflowResolveInputs(
         if (wanted === undefined) return { kind: 'unassigned' };
         const ref = await storage.datasets.read(repo, workspace, keypathToRefPath(path));
         const held = ref !== null && ref.type === 'value' ? ref.value : null;
-        const pending = held === null ? [] : pendingSources(held.versions);
-        if (held !== null && sameVersion(held.versions.get(path) ?? held.hash, wanted)) return { kind: 'object', hash: held.hash, pending };
+        // What the record waits for is judged at the version read, as the look
+        // that took it read its ref: a delivery that landed since is the run's
+        // once it looks again
+        const looked = waitedAt(state, path, wanted);
+        if (held !== null && sameVersion(held.versions.get(path) ?? held.hash, wanted)) {
+          return { kind: 'object', hash: held.hash, pending: looked ?? pendingSources(held.versions) };
+        }
         // It has moved on since the run's snapshot: a record's commit is
         // read from its history, and a plain input's version is its value
-        const hash = (await dataflowRecords(storage, state)).has(path) ? decodeRecordCommit(await storage.objects.read(repo, wanted)).state : wanted;
+        const record = (await dataflowRecords(storage, state)).has(path);
+        const hash = record ? decodeRecordCommit(await storage.objects.read(repo, wanted)).state : wanted;
+        if (looked !== undefined || !record || held === null) return { kind: 'object', hash, pending: looked ?? [] };
+        // A version this process holds no look of: what the record waited for
+        // there is read back from its history, and where that cannot say, it
+        // is taken to wait for each external source until the run looks again
+        const external = slotNames(held.versions, EXTERNAL_SLOT);
+        const pending = external.length === 0 ? [] : await recordPendingAt(storage, repo, held.versions, path, wanted) ?? external;
         return { kind: 'object', hash, pending };
       })();
       roots.set(path, read);

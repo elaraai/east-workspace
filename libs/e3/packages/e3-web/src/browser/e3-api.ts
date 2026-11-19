@@ -37,8 +37,8 @@ import { Harness, type HarnessPage } from './harness.js';
  */
 export const API_SUITE_PARTS: ReadonlyArray<readonly string[]> = [
   ['repository', 'packages', 'workspaces', 'datasets', 'datasetPages', 'datasetBatches', 'datasetTransfer', 'packageTransfer', 'platform'],
-  ['dataflow', 'calls', 'functionDrafts', 'indexInputs'],
-  ['functions', 'records', 'keyedRecords', 'areaRecords', 'placeRecords', 'seriesRecords', 'recordDeploy', 'inputDeploy'],
+  ['dataflow', 'calls', 'functionDrafts', 'indexInputs', 'recordLoadEdits'],
+  ['functions', 'records', 'keyedRecords', 'areaRecords', 'placeRecords', 'seriesRecords', 'recordDeploy', 'inputDeploy', 'recordLoads', 'objectUpload'],
 ];
 
 /** The pages and workers a part's harness serves. */
@@ -130,6 +130,8 @@ export function apiSuitesInChromium(file: string): void {
           return fetch(input, init);
         },
         commands: false,
+        // The page's e3 worker applies a load on the thread that answers its requests
+        applyHoldsNoRequest: false,
       });
       t.after(() => ctx.cleanup());
       return ctx;

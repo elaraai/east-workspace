@@ -234,7 +234,23 @@ export async function pollForTokens(
 }
 
 /**
+ * A refresh the token endpoint refused: the refresh token is spent, revoked
+ * or expired, and asking again would be refused again. Any other failure of a
+ * refresh — the endpoint not reached, or failing to answer — may pass.
+ */
+export class TokenRefusedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'TokenRefusedError';
+  }
+}
+
+/**
  * Refresh an access token using a refresh token.
+ *
+ * @throws {TokenRefusedError} When the token endpoint refuses the refresh
+ *   token: a client error other than a timeout (408) or a rate limit (429)
+ * @throws {Error} When the endpoint cannot be reached, or fails to answer
  */
 export async function refreshAccessToken(
   serverUrl: string,
@@ -253,18 +269,14 @@ export async function refreshAccessToken(
 
   if (!response.ok) {
     const error = await response.json() as TokenErrorResponse;
-    throw new Error(`Token refresh failed: ${error.error} - ${error.error_description ?? ''}`);
+    const message = `Token refresh failed: ${error.error} - ${error.error_description ?? ''}`;
+    const refused = response.status >= 400 && response.status < 500 && response.status !== 408 && response.status !== 429;
+    throw refused ? new TokenRefusedError(message) : new Error(message);
   }
 
   return response.json() as Promise<TokenResponse>;
 }
 
-/**
- * Get a valid access token for a server.
- *
- * If the current token is expired, attempts to refresh it.
- * Throws if not logged in or refresh fails.
- */
 /**
  * Refresh a token this many ms before it actually expires. The margin covers
  * clock skew and a request that is still in flight when the token would lapse,
@@ -273,6 +285,34 @@ export async function refreshAccessToken(
  */
 const TOKEN_REFRESH_MARGIN_MS = 60_000;
 
+/** The refresh under way for each server, by its URL as credentials are kept under it. */
+const refreshes = new Map<string, Promise<string>>();
+
+/**
+ * Get a valid access token for a server.
+ *
+ * @remarks
+ * A token within {@link TOKEN_REFRESH_MARGIN_MS} of its expiry is refreshed,
+ * one refresh at a time for a server: requests that find it so together —
+ * an upload's senders, each asking for a part's URL — share the one refresh,
+ * since a provider that rotates refresh tokens refuses one used twice.
+ *
+ * A refresh the endpoint refuses ends the session: the stored login is
+ * removed, and the error says to log in again. One that fails any other way
+ * keeps the login: a token that has not yet expired serves the request, and
+ * the next asks for a refresh again.
+ *
+ * The credentials file is shared by every e3 process of its user, and this
+ * one dedups only its own refreshes. So a refusal is read against the file as
+ * it stands: where another process stored a login meanwhile — it refreshed
+ * first, and the provider rotated the token this one held — that login is the
+ * session's, and is sent, or refreshed in its turn, and never removed.
+ *
+ * @param serverUrl - The server
+ * @returns The access token to send
+ * @throws {Error} When no login is stored for the server; when its refresh
+ *   is refused; or when its refresh fails and its token has expired
+ */
 export async function getValidToken(serverUrl: string): Promise<string> {
   const creds = getCredential(serverUrl);
   if (!creds) {
@@ -284,22 +324,43 @@ export async function getValidToken(serverUrl: string): Promise<string> {
     return creds.accessToken;
   }
 
-  // Attempt to refresh
-  try {
-    const tokens = await refreshAccessToken(serverUrl, creds.refreshToken);
-    const newEntry: CredentialEntry = {
-      accessToken: tokens.access_token,
-      refreshToken: tokens.refresh_token,
-      expiresAt: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
-    };
-    setCredential(serverUrl, newEntry);
-    return tokens.access_token;
-  } catch (err) {
-    // Refresh failed, need to re-login
-    removeCredential(serverUrl);
-    const message = err instanceof Error ? err.message : 'unknown error';
-    throw new Error(`Session expired and refresh failed: ${message}. Run: e3 login ${serverUrl}`);
+  const server = normalizeServerUrl(serverUrl);
+  let refresh = refreshes.get(server);
+  if (refresh === undefined) {
+    refresh = refreshedToken(serverUrl, creds).finally(() => { refreshes.delete(server); });
+    refreshes.set(server, refresh);
   }
+  return refresh;
+}
+
+/** Refreshes a server's token, and stores the login it is given. */
+async function refreshedToken(serverUrl: string, creds: CredentialEntry): Promise<string> {
+  let tokens: TokenResponse;
+  try {
+    tokens = await refreshAccessToken(serverUrl, creds.refreshToken);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'unknown error';
+    if (err instanceof TokenRefusedError) {
+      // Refused for a token another process spent: the login it stored stands
+      const stored = getCredential(serverUrl);
+      if (stored !== null && stored.refreshToken !== creds.refreshToken) {
+        return new Date(stored.expiresAt).getTime() - Date.now() > TOKEN_REFRESH_MARGIN_MS ? stored.accessToken : refreshedToken(serverUrl, stored);
+      }
+      // Refused: the session is over, and only a login makes another
+      removeCredential(serverUrl);
+      throw new Error(`Session expired and refresh failed: ${message}. Run: e3 login ${serverUrl}`);
+    }
+    // Not reached, or no answer: the login stands, and a token that has not
+    // expired serves until a refresh passes
+    if (new Date(creds.expiresAt).getTime() > Date.now()) return creds.accessToken;
+    throw new Error(`Session expired and its refresh failed: ${message}. The login is kept: run the command again`);
+  }
+  setCredential(serverUrl, {
+    accessToken: tokens.access_token,
+    refreshToken: tokens.refresh_token,
+    expiresAt: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
+  });
+  return tokens.access_token;
 }
 
 /**

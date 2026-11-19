@@ -124,8 +124,10 @@ function blobKey(repo: string, blob: string): BlobKey {
 // Where each transfer is
 // =============================================================================
 
-/** The kinds of record a transfer backend over a `WebStorage` keeps. */
-export type TransferKind = 'upload' | 'download' | 'import' | 'export' | 'deploy' | 'gc' | 'split';
+/** The kinds of record a transfer backend over a `WebStorage` keeps: a
+ *  dataset's upload, a download, an import, an export, a deploy, gc, a split
+ *  call, a record's load, and an upload that writes no ref. */
+export type TransferKind = 'upload' | 'download' | 'import' | 'export' | 'deploy' | 'gc' | 'split' | 'load' | 'object';
 
 /**
  * The key of each record a transfer backend over a `WebStorage` keeps, in its
@@ -154,7 +156,7 @@ export const stagedKeys = {
   all: (repo: string): BlobKey => [repo, 'transfer'],
   /** Everything a transfer staged */
   of: (repo: string, id: string): BlobKey => [repo, 'transfer', id],
-  /** A part of a dataset upload, from 1 */
+  /** A part of an upload — a dataset's, or one that writes no ref — from 1 */
   part: (repo: string, id: string, part: number): BlobKey => [repo, 'transfer', id, `part-${String(part).padStart(6, '0')}`],
   /** A package import's zip */
   zip: (repo: string, id: string): BlobKey => [repo, 'transfer', id, 'zip'],
@@ -961,6 +963,11 @@ function statusOf(taskHash: string, inputsHash: string, data: Uint8Array): Execu
  * as its `bootId`.
  */
 class WebLockService implements LockService {
+  /** A wait with no bound stays one request of the locks adapter, which
+   *  grants waiting requests in the order they were made and refuses one that
+   *  does not wait while one waits: across the tabs that share the storage. */
+  readonly queuesWaiters = true;
+
   constructor(private readonly records: RecordsAdapter, private readonly locks: LocksAdapter) {}
 
   /** The adapter's name for a repository's resource. */
@@ -981,8 +988,10 @@ class WebLockService implements LockService {
   ): Promise<LockHandle | null> {
     checkName('lock', resource);
     const mode = options?.mode ?? 'exclusive';
-    // A waiting acquire waits 30 s unless told otherwise, as every service's does.
-    const wait = options?.wait === true ? { wait: true, timeout: options.timeout ?? 30_000 } : {};
+    // A waiting acquire waits 30 s unless told otherwise, as every service's
+    // does; told to wait with no bound, it waits until the lock is free
+    const bound = options?.timeout === Infinity ? {} : { timeout: options?.timeout ?? 30_000 };
+    const wait = options?.wait === true ? { wait: true, ...bound } : {};
     const hold = await this.locks.acquire(this.nameOf(repo, resource), mode, wait);
     if (hold === null) return null;
     if (mode === 'shared') {

@@ -700,7 +700,7 @@ copied as it stood before the run wrote it or after.
 Dataset paths use the flat form `<ws>.<name>`. The CLI resolves `<name>` against the workspace's inputs and task outputs automatically — no `.tasks.X.output` or `.inputs.X` ceremony.
 
 ```bash
-e3 dataset get <repo> <ws.name> [-f east|json|beast2]
+e3 dataset get <repo> <ws.name> [-f east|json|beast2]   # -f beast2: the value as stored, streamed to stdout, never held whole
 e3 dataset set <repo> <ws.name> <file> [--type <spec>] [--type-file <path>]
 e3 dataset set <repo> <ws.name> --from-file <path.beast2> [-j <n>] [--memory <size>]   # Take a beast2 file in as the value
 e3 dataset list <repo> <ws> [-l]                 # List paths (with -l for type/status/size table)
@@ -752,10 +752,24 @@ refused — and `-w` names the workspace that holds it. Read its state with
 ```bash
 e3 mutate <repo> <record.mutation> [args...] -w <ws> [-v]    # Apply a mutation; args are .east literals or .beast2/.json/.east files
 e3 seed <repo> <record> <file.beast2> -w <ws> [-j <n>] [--memory <size>]   # Commit a record's first state from a beast2 file, as its $init (a record declared with no initial value; local repositories)
+e3 load <repo> <record.source> <file.beast2|#hash> -w <ws> [--as-of <time>] [-j <n>] [--memory <size>]   # Load a delivery into an external source of a composite record, committed once as $load:<source>
 e3 history <repo> <record> -w <ws> [--limit <n>] [--from <hash>] [--delta]   # The commit chain, newest first (--delta: local repositories)
 e3 reindex <repo> <record> -w <ws> [--index <name>]          # Rebuild an index from the record (every one by default)
 e3 compact <repo> <record> -w <ws>                           # Collapse the history to a $compact root; the state is kept
 ```
+
+`e3 load` takes a `.beast2` file of the source's delivery type — checked
+against it, then stored as the object its bytes are, never read whole or
+modified — or `#<hash>`, a value the repository holds, and says how far it has
+got: `Waiting for an earlier load of orders.erp to finish…`, `Taking the
+delivery in… done`, `Pieces 37/37`, then `Loaded orders.erp at 3f2a9c1e5d7b, as
+of 2026-11-02T03:00:00.000: 1,204 set, 31 deleted, 98,112 unchanged`. The same
+delivery again is answered `orders.erp already holds this delivery`, and one
+older than the source's `--as-of` is `superseded`, nothing loaded. Against a
+server the file is uploaded as an object and the load runs as a job the
+command follows; Ctrl-C asks it to cancel (`Cancelled: nothing loaded.`, exit
+130). `e3 history` says what a load's commit loaded. A composite record's
+sources and their loads are in the e3 skill's `reference/record-composite.md`.
 
 ### Task Commands
 
@@ -812,7 +826,8 @@ taking its file sources in `-j` at a time, and a source deploy or a watch
 exporting its workspace packages' functions `-j` at a time, a process each (on
 this machine whatever the repository: against a server, as many at once as
 this machine has CPUs); `e3 dataset set --from-file` and
-`e3 seed` take both for their intake units. Against a server the CLI refuses them, since the
+`e3 seed` take both for their intake units, and `e3 load` for its intake and
+its pieces. Against a server the CLI refuses them, since the
 server runs the work under its own budget (`e3-api-server -j` / `--memory`).
 
 A local run gives every execution a scratch directory — its inputs are marshalled

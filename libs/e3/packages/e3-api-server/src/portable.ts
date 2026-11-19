@@ -92,6 +92,16 @@ export {
 
 // Record mutations and history, under the host's deadline and history page
 export { createWorkspaceRecordRoutes, type RecordRoutesOptions } from './routes/records.js';
+// The loads of composite records' deliveries, and the uploads that write no ref they arrive by
+export {
+  allowEveryLoad,
+  createObjectUploadRoutes,
+  createRecordLoadRoutes,
+  type LoadAccess,
+  type LoadAction,
+  type ObjectUploadRoutesOptions,
+  type RecordLoadRoutesOptions,
+} from './routes/record-loads.js';
 
 // What a route reads from a query — a window's offset and limit, the dataset
 // paths a status names — and the 400 that refuses one: what a host's own

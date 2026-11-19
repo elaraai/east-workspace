@@ -66,6 +66,15 @@ const DELTA_SEGMENTS_AHEAD = 4;
 /** The delta's target that is the record's own collection. */
 const PRIMARY_TARGET = 'primary';
 
+/**
+ * The most ops of a delta that are applied where the apply is asked, when its
+ * caller names another place ({@link DeltaApply}): about a tenth of a second
+ * of a thread's work, less than taking the apply elsewhere costs. A delta of
+ * more is applied there, so a thread that answers requests is never held for
+ * as long as a large load or save takes to apply.
+ */
+export const DELTA_OPS_APPLIED_IN_PLACE = 4096;
+
 /** One entry of a delta: the target it changes, the key, and the op. */
 export interface DeltaEntry {
   /** `primary`, an index name, or {@link DELTA_CONFLICT}. */
@@ -121,7 +130,19 @@ export class ExternalEntryError extends Error {
   }
 }
 
-/** What holds an apply to the entries it may write. */
+/**
+ * A read of a delta was stopped by its caller's signal, between two of the
+ * delta's segments: an apply of it wrote nothing that anything names, and a
+ * summary of it counted part. No failure of the delta, so never retried.
+ */
+export class DeltaStoppedError extends Error {
+  constructor() {
+    super('the read of the delta was stopped');
+    this.name = 'DeltaStoppedError';
+  }
+}
+
+/** What holds an apply to the entries it may write, and stops it. */
 export interface ApplyDeltaOptions {
   /**
    * The cases of the record's key the write may touch: a composite record's
@@ -131,6 +152,13 @@ export interface ApplyDeltaOptions {
    * when it committed: every key may be written.
    */
   readonly cases?: ReadonlySet<string>;
+  /**
+   * Stops the apply before it reads the delta's next segment: it then throws
+   * {@link DeltaStoppedError}. A delta of a few million ops is minutes of
+   * work, and what holds its record's workspace meanwhile — a load, which a
+   * deploy waits on — lets go within a segment's work of being asked.
+   */
+  readonly signal?: AbortSignal;
 }
 
 /** A summary's totals for one key, decoded. */
@@ -183,12 +211,14 @@ class DeltaCursor {
  * @param repo - Repository identifier
  * @param targets - target name -> the manifest hash it currently holds
  * @param deltaHash - the delta object's content hash
- * @param options - The cases of a composite record's key the write may touch
+ * @param options - The cases of a composite record's key the write may touch,
+ *   and a signal that stops the apply
  * @returns target name -> its new manifest hash, for the targets that changed
  * @throws {DeltaConflictError} When the delta says the write is stale, or an op
  *   disagrees with the state it lands on — never a silent clobber.
  * @throws {ExternalEntryError} When a `primary` op names a key of a case the
  *   write may not touch.
+ * @throws {DeltaStoppedError} When `options.signal` stopped it.
  * @throws {Error} When the delta names a target the record does not have.
  */
 export async function applyDelta(
@@ -198,7 +228,115 @@ export async function applyDelta(
   deltaHash: string,
   options: ApplyDeltaOptions = {},
 ): Promise<Map<string, string>> {
-  return applyDeltaEntries(storage, repo, targets, deltaEntries(storage, repo, deltaHash), options);
+  return applyDeltaEntries(storage, repo, targets, deltaEntries(storage, repo, deltaHash, options.signal), options);
+}
+
+/**
+ * Apply a mutation delta, and say what it changed per target, in the one read
+ * of it: what {@link applyDelta} and {@link summarizeDelta} answer of the same
+ * delta, for a caller that wants both.
+ *
+ * @remarks
+ * Each entry is counted as the apply takes it, so a delta of millions of ops
+ * is read and decoded once. An apply that throws leaves a summary of the
+ * entries it had taken.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param targets - target name -> the manifest hash it currently holds
+ * @param deltaHash - the delta object's content hash
+ * @param options - The cases of a composite record's key the write may touch,
+ *   and a signal that stops the apply
+ * @returns `written`, as {@link applyDelta} answers; and `summary`, as
+ *   {@link summarizeDelta} does
+ * @throws As {@link applyDelta} does.
+ * @internal
+ */
+export async function applyDeltaSummarized(
+  storage: StorageBackend,
+  repo: string,
+  targets: Map<string, string>,
+  deltaHash: string,
+  options: ApplyDeltaOptions = {},
+): Promise<DeltaApplied> {
+  const summary: DeltaArmSummary[] = [];
+  const written = await applyDeltaEntries(storage, repo, targets, summarized(deltaEntries(storage, repo, deltaHash, options.signal), summary), options);
+  return { written, summary };
+}
+
+/** A delta applied: what {@link applyDeltaSummarized} answers. */
+export interface DeltaApplied {
+  /** Target name -> its new manifest hash, for the targets that changed. */
+  written: Map<string, string>;
+  /** What the delta did to each target, in canonical order. */
+  summary: DeltaArmSummary[];
+}
+
+/**
+ * Applies a mutation delta as {@link applyDeltaSummarized} does, somewhere of
+ * its own: what a runner gives as `TaskRunner.applyDelta`.
+ *
+ * @remarks
+ * It answers, refuses and stops as the apply does — the same manifests, the
+ * same errors by their classes, and {@link DeltaStoppedError} once its signal
+ * fires — so its caller cannot tell where the delta was applied. It writes
+ * the objects the apply writes and nothing else: no ref, and nothing that
+ * names them.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param targets - target name -> the manifest hash it currently holds
+ * @param deltaHash - the delta object's content hash
+ * @param options - The cases the write may touch, and a signal that stops it
+ * @returns As {@link applyDeltaSummarized} does
+ */
+export type DeltaApply = (
+  storage: StorageBackend,
+  repo: string,
+  targets: Map<string, string>,
+  deltaHash: string,
+  options?: ApplyDeltaOptions,
+) => Promise<DeltaApplied>;
+
+/**
+ * Applies a mutation delta where its size says: here, or where the caller's
+ * runner applies deltas.
+ *
+ * @remarks
+ * Applying a delta is a thread's work for as long as the delta is large:
+ * seconds for a load of a few hundred thousand rows, or a save of as many. A
+ * host that answers every request on one thread gives a place of its own for
+ * it (`TaskRunner.applyDelta`), and a delta of more than
+ * {@link DELTA_OPS_APPLIED_IN_PLACE} ops is applied there. A smaller one, and
+ * every delta of a host that names no place, is applied here.
+ *
+ * @param elsewhere - Where the caller's runner applies deltas, when it names a
+ *   place
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param targets - target name -> the manifest hash it currently holds
+ * @param deltaHash - the delta object's content hash
+ * @param options - The cases the write may touch, and a signal that stops it
+ * @returns As {@link applyDeltaSummarized} does
+ * @throws As {@link applyDeltaSummarized} does.
+ *
+ * @example
+ * ```ts
+ * const { written } = await applyDeltaWhere(runner.applyDelta, storage, repo, stateTargets(state), delta, { cases });
+ * ```
+ */
+export async function applyDeltaWhere(
+  elsewhere: DeltaApply | undefined,
+  storage: StorageBackend,
+  repo: string,
+  targets: Map<string, string>,
+  deltaHash: string,
+  options: ApplyDeltaOptions = {},
+): Promise<DeltaApplied> {
+  if (elsewhere !== undefined && (await DatasetSegments.open(storage, repo, deltaHash)).elementCount > DELTA_OPS_APPLIED_IN_PLACE) {
+    return elsewhere(storage, repo, targets, deltaHash, options);
+  }
+  return applyDeltaSummarized(storage, repo, targets, deltaHash, options);
 }
 
 /**
@@ -347,16 +485,25 @@ async function* inOrder(entries: Iterable<DeltaEntry> | AsyncIterable<DeltaEntry
  * A delta's key is `variant(target, key)` and variant values order by case
  * NAME, so every target's ops are one contiguous ascending run, in the order
  * the target's own segments are laid out.
+ *
+ * A signal stops the read before each segment is taken, with
+ * {@link DeltaStoppedError}: whatever reads the delta is stopped within one
+ * segment's work.
  */
 async function* deltaEntries(
   storage: StorageBackend,
   repo: string,
   deltaHash: string,
+  signal?: AbortSignal,
 ): AsyncGenerator<DeltaEntry> {
+  // Read afresh each time: a stop comes while the read awaits the store
+  const stopped = (): boolean => signal?.aborted === true;
+  if (stopped()) throw new DeltaStoppedError();
   const delta = await DatasetSegments.open(storage, repo, deltaHash);
   const decode = decodeBeast2For(delta.typeValue);
   // Its segments are read a few ahead of the one taken from (#1573)
   for await (const segment of readInOrder(delta.segmentCount, DELTA_SEGMENTS_AHEAD, (i) => delta.segment(i))) {
+    if (stopped()) throw new DeltaStoppedError();
     const entries: SortedMap<unknown, unknown> = decode(segment);
     for (const [key, op] of entries) {
       // Each entry is a target's: its key and its op are variants of the target's name.
@@ -387,15 +534,33 @@ export interface DeltaArmSummary {
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param deltaHash - the delta object's content hash
+ * @param options - `signal`: stops the read before the delta's next segment
  * @returns one summary per target the delta names, in canonical order
+ * @throws {DeltaStoppedError} When `options.signal` stopped it.
  */
 export async function summarizeDelta(
   storage: StorageBackend,
   repo: string,
   deltaHash: string,
+  options: { readonly signal?: AbortSignal } = {},
 ): Promise<DeltaArmSummary[]> {
   const summaries: DeltaArmSummary[] = [];
-  for await (const entry of deltaEntries(storage, repo, deltaHash)) {
+  // Each entry is counted as it passes
+  for await (const entry of summarized(deltaEntries(storage, repo, deltaHash, options.signal), summaries)) void entry;
+  return summaries;
+}
+
+/**
+ * A delta's entries as they are read, each counted into its target's arm of
+ * `summaries` as it passes: a delta's ops arrive a target at a time.
+ */
+async function* summarized(entries: AsyncIterable<DeltaEntry>, summaries: DeltaArmSummary[]): AsyncGenerator<DeltaEntry> {
+  for await (const entry of entries) {
+    // A conflict is no target's, and its op is none: whatever applies the delta refuses it
+    if (entry.target === DELTA_CONFLICT) {
+      yield entry;
+      continue;
+    }
     let summary = summaries.at(-1);
     if (summary === undefined || summary.target !== entry.target) {
       summary = { target: entry.target, insert: 0, update: 0, delete: 0, add: 0 };
@@ -403,8 +568,8 @@ export async function summarizeDelta(
     }
     const tag = (entry.op as { type: string }).type;
     if (tag === 'insert' || tag === 'update' || tag === 'delete' || tag === 'add') summary[tag]++;
+    yield entry;
   }
-  return summaries;
 }
 
 /**

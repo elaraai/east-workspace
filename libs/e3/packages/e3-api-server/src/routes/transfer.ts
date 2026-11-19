@@ -10,6 +10,7 @@ import { E3_RELEASE, TRANSFER_PROTOCOL_VERSION, transferPartCount, urlPathToTree
 import {
   datasetAdoptKnown,
   type DatasetCommitStatus,
+  type DatasetPartUpload,
   type DatasetUpload,
   type StorageBackend,
   type TransferBackend,
@@ -34,7 +35,9 @@ export interface TransferRouteOptions {
   commitWaitMs?: number;
 }
 
-const DEFAULT_COMMIT_WAIT_MS = 5_000;
+/** How long an upload's commit is waited for unless the host says: the
+ *  dataset upload's and the object upload's alike. @internal */
+export const DEFAULT_COMMIT_WAIT_MS = 5_000;
 
 /**
  * Why a request does not speak this server's transfer protocol, or `null`
@@ -43,7 +46,7 @@ const DEFAULT_COMMIT_WAIT_MS = 5_000;
  * release beside it (`&release=`), which decides nothing: a refusal names it
  * beside this server's.
  */
-function protocolProblem(c: Context): string | null {
+export function protocolProblem(c: Context): string | null {
   const named = c.req.query('protocol');
   if (named === String(TRANSFER_PROTOCOL_VERSION)) return null;
   const release = c.req.query('release');
@@ -54,7 +57,7 @@ function protocolProblem(c: Context): string | null {
 }
 
 /** A backend's URL as the client can use it: a relative one resolves against the request's origin. */
-function resolveUrl(c: Context, url: string): string {
+export function resolveUrl(c: Context, url: string): string {
   return url.startsWith('/') ? `${new URL(c.req.url).origin}${url}` : url;
 }
 
@@ -89,6 +92,97 @@ function sendCommitStatus(transfer: DatasetUpload, status: DatasetCommitStatus):
         message: status.value.message,
       }));
   }
+}
+
+/** What the part, commit and poll answers of a staged upload need of its
+ *  store: a dataset's, or one that writes no ref. */
+export interface StagedUploads<U extends { readonly size: bigint }, S extends { readonly type: string }> {
+  getPartBytes(id: string): Promise<bigint | null>;
+  getPartUpload(id: string, record: U, part: number): Promise<DatasetPartUpload>;
+  commit(id: string, record: U): Promise<S>;
+  getCommitStatus(id: string): Promise<S | null>;
+}
+
+/**
+ * The answers to a staged upload's requests, each given the upload the
+ * request addresses, or `null` when it addresses none: where to send a part,
+ * its commit — waited for up to `commitWaitMs`, then answered as it stands —
+ * and a poll of the commit.
+ *
+ * @param uploads - The uploads' store
+ * @param commitWaitMs - How long a commit is waited for before it answers
+ * @param processing - How a commit under way stands before its store says
+ * @param send - A commit's status, as the API answers it
+ * @returns The answers
+ */
+export function stagedUploadAnswers<U extends { readonly size: bigint }, S extends { readonly type: string }>(
+  uploads: StagedUploads<U, S>,
+  commitWaitMs: number,
+  processing: S,
+  send: (upload: U, status: S) => Response,
+) {
+  return {
+    async part(c: Context, id: string, transfer: U | null, part: number): Promise<Response> {
+      if (!transfer) {
+        return sendError(TransferPartResponseType, variant('internal', { message: 'transfer not found' }));
+      }
+      // A part sent once the commit is under way could rewrite the bytes it
+      // verifies.
+      if ((await uploads.getCommitStatus(id)) !== null) {
+        return sendError(TransferPartResponseType, variant('internal', { message: 'the upload is committed: it takes no more parts' }));
+      }
+      const partBytes = await uploads.getPartBytes(id);
+      if (partBytes === null) {
+        return sendError(TransferPartResponseType, variant('internal', { message: 'transfer was not planned as parts' }));
+      }
+      const count = transferPartCount(transfer.size, partBytes);
+      if (part < 1 || part > count) {
+        return sendError(TransferPartResponseType, variant('internal', {
+          message: `no part ${part}: the upload has ${count} part${count === 1 ? '' : 's'}`,
+        }));
+      }
+      const target = await uploads.getPartUpload(id, transfer, part);
+      return sendSuccess(TransferPartResponseType, {
+        url: resolveUrl(c, target.url),
+        headers: new Map(Object.entries(target.headers)),
+      });
+    },
+
+    async commit(c: Context, id: string, transfer: U | null): Promise<Response> {
+      const problem = protocolProblem(c);
+      if (problem !== null) {
+        return sendError(TransferDoneResponseType, variant('internal', { message: problem }));
+      }
+      if (!transfer) {
+        return sendError(TransferDoneResponseType, variant('internal', { message: 'transfer not found' }));
+      }
+      // A commit asked for again, as a client whose answer was lost asks, is
+      // answered as the first was: at once, when it has finished.
+      let status: S | null;
+      try {
+        status = await uploads.getCommitStatus(id);
+        if (status === null || status.type === 'processing') {
+          status = await within(uploads.commit(id, transfer), commitWaitMs);
+        }
+        // Still running once the wait is up: how far it has got, as the store says.
+        status ??= await uploads.getCommitStatus(id);
+      } catch (err) {
+        return sendError(TransferDoneResponseType, errorToVariant(err));
+      }
+      return send(transfer, status ?? processing);
+    },
+
+    async poll(id: string, transfer: U | null): Promise<Response> {
+      if (!transfer) {
+        return sendError(TransferDoneResponseType, variant('internal', { message: 'transfer not found' }));
+      }
+      const status = await uploads.getCommitStatus(id);
+      if (status === null) {
+        return sendError(TransferDoneResponseType, variant('internal', { message: 'transfer not committed' }));
+      }
+      return send(transfer, status);
+    },
+  };
 }
 
 /**
@@ -132,6 +226,7 @@ export function createTransferRoutes(
   const api = new Hono();
   const commitWaitMs = options.commitWaitMs ?? DEFAULT_COMMIT_WAIT_MS;
   const uploads = transferBackend.datasetUpload;
+  const answers = stagedUploadAnswers(uploads, commitWaitMs, variant('processing', none) as DatasetCommitStatus, sendCommitStatus);
 
   /** Whether an upload was created for the repository, workspace and dataset
    *  this request addresses: its path read as the init's was. */
@@ -232,67 +327,17 @@ export function createTransferRoutes(
   }
 
   async function handlePart(c: Context, id: string, part: number, suffix: string) {
-    const transfer = await uploadAt(c, id, suffix);
-    if (!transfer) {
-      return sendError(TransferPartResponseType, variant('internal', { message: 'transfer not found' }));
-    }
-    // A part sent once the commit is under way could rewrite the bytes it
-    // verifies.
-    if ((await uploads.getCommitStatus(id)) !== null) {
-      return sendError(TransferPartResponseType, variant('internal', { message: 'the upload is committed: it takes no more parts' }));
-    }
-    const partBytes = await uploads.getPartBytes(id);
-    if (partBytes === null) {
-      return sendError(TransferPartResponseType, variant('internal', { message: 'transfer was not planned as parts' }));
-    }
-    const count = transferPartCount(transfer.size, partBytes);
-    if (part < 1 || part > count) {
-      return sendError(TransferPartResponseType, variant('internal', {
-        message: `no part ${part}: the upload has ${count} part${count === 1 ? '' : 's'}`,
-      }));
-    }
-    const target = await uploads.getPartUpload(id, transfer, part);
-    return sendSuccess(TransferPartResponseType, {
-      url: resolveUrl(c, target.url),
-      headers: new Map(Object.entries(target.headers)),
-    });
+    return answers.part(c, id, await uploadAt(c, id, suffix), part);
   }
 
   async function handleCommit(c: Context, id: string, suffix: string) {
-    const problem = protocolProblem(c);
-    if (problem !== null) {
-      return sendError(TransferDoneResponseType, variant('internal', { message: problem }));
-    }
-    const transfer = await uploadAt(c, id, suffix);
-    if (!transfer) {
-      return sendError(TransferDoneResponseType, variant('internal', { message: 'transfer not found' }));
-    }
-    // A commit asked for again, as a client whose answer was lost asks, is
-    // answered as the first was: at once, when it has finished.
-    let status: DatasetCommitStatus | null;
-    try {
-      status = await uploads.getCommitStatus(id);
-      if (status === null || status.type === 'processing') {
-        status = await within(uploads.commit(id, transfer), commitWaitMs);
-      }
-      // Still running once the wait is up: how far it has got, as the store says.
-      status ??= await uploads.getCommitStatus(id);
-    } catch (err) {
-      return sendError(TransferDoneResponseType, errorToVariant(err));
-    }
-    return sendCommitStatus(transfer, status ?? variant('processing', none));
+    // The protocol is checked before the upload is looked for
+    if (protocolProblem(c) !== null) return answers.commit(c, id, null);
+    return answers.commit(c, id, await uploadAt(c, id, suffix));
   }
 
   async function handlePoll(c: Context, id: string, suffix: string) {
-    const transfer = await uploadAt(c, id, suffix);
-    if (!transfer) {
-      return sendError(TransferDoneResponseType, variant('internal', { message: 'transfer not found' }));
-    }
-    const status = await uploads.getCommitStatus(id);
-    if (status === null) {
-      return sendError(TransferDoneResponseType, variant('internal', { message: 'transfer not committed' }));
-    }
-    return sendCommitStatus(transfer, status);
+    return answers.poll(id, await uploadAt(c, id, suffix));
   }
 
   return { api };
