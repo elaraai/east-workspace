@@ -187,6 +187,24 @@ describe("deriveUiAccess: a composite record's sources (east-workspace#1465, R73
         assertAccess(accessOf(paged), { writes: [], records: [{ name: "orders", mutations: [], indexes: [], sources: [] }] });
     });
 
+    test("R73 — two bindings of one record that name its sources differently are refused, naming the record and both: a host is not told one of them", () => {
+        // The record declared again, its ERP source the mutations' to write: as a module holding another declaration of it binds it.
+        const ordersOwned = recordComposite("orders", Order, {
+            sources: (source) => ({ own: source.mutations(StringType), erp: source.mutations(StringType) }),
+            initial: { own: new Map(), erp: new Map() },
+            mutations: (mutation) => ({ patch: mutation.patch() }),
+        });
+        const twoWays = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+            const loaded = $.let(Record.bind(orders));
+            const owned = $.let(Record.bind(ordersOwned));
+            return Text.Root(East.print(loaded.read().size().add(owned.read().size())));
+        })));
+        assert.throws(() => accessOf(twoWays), {
+            message: 'record_bind names the sources of record "orders" two ways, [(name="erp", external=true), (name="own", external=false)] and '
+                + '[(name="erp", external=false), (name="own", external=false)]: every binding of a record names its sources alike',
+        });
+    });
+
     test("a UI whose Record.bind names no sources, one an e3-ui before composite records exported, is refused, saying to export it again", () => {
         // The binding as it was exported before it named its sources: the record's name, its one argument.
         const before = decodeBeast2For(IRType)(encodeBeast2For(IRType)(boundOrders.toIR().ir)) as IR;

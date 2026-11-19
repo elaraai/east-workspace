@@ -38,7 +38,7 @@
 
 import type { EastTypeValue, IR, NullType as NullTypeOf, OptionType, PlatformIR, StringType as StringTypeOf, StructType as StructTypeOf, ValueTypeOf, VariableIR } from '@elaraai/east';
 import {
-    ArrayType, EastTypeType, StringType, StructType, constValueOf, equalFor, none, variant, walkIR,
+    ArrayType, EastTypeType, StringType, StructType, constValueOf, equalFor, none, printFor, variant, walkIR,
 } from '@elaraai/east';
 import { TreePathType, type TreePath } from '@elaraai/e3-types';
 import type { DataBindModeType } from '../bind/data.js';
@@ -149,7 +149,8 @@ const DECISION_BIND = "decision_bind";
  *   signature names them (`argTypes`); the indexes its paged reads go
  *   through; and the sources its `Record.bind` calls name, each with whether
  *   its load alone writes its entries (east-workspace#1465) — none for a
- *   plain record, and for a record the UI pages through and never binds
+ *   plain record, and for a record the UI pages through and never binds.
+ *   Every binding of a record names its sources alike
  */
 export const UiAccessType = StructType({
     writes: ArrayType(TreePathType),
@@ -166,6 +167,9 @@ export type UiAccessType = typeof UiAccessType;
 export type UiAccess = ValueTypeOf<typeof UiAccessType>;
 
 const pathEqual = equalFor(TreePathType);
+const sameName = equalFor(StringType);
+const sameSources = equalFor(RecordBindingSourcesType);
+const printSources = printFor(RecordBindingSourcesType);
 
 /** The path every record's dataset lies under. */
 const RECORDS: TreePath = [variant('field', 'records')];
@@ -245,7 +249,9 @@ interface Scope {
  * @throws {Error} When a binding's path, mode, record name, sources or index
  *   name is not a literal, as {@link deriveManifest} throws; and for a
  *   `Record.bind` that names no sources — a UI an e3-ui from before composite
- *   records exported — saying to export its package again
+ *   records exported — saying to export its package again; and for two
+ *   bindings of one record that name its sources differently, which no
+ *   `Record.bind` of a declared record builds
  *
  * @example
  * ```ts
@@ -258,12 +264,13 @@ interface Scope {
 export function deriveUiAccess(ir: IR): UiAccess {
     const bindings: Binding[] = [];
     const made = new Map<IR, Binding>();
-    const records: { name: string; mutations: Map<string, EastTypeValue[]>; indexes: string[]; sources: ValueTypeOf<RecordBindingSourcesType> }[] = [];
+    // A record's sources are those its first binding names; `null` until a `Record.bind` names them.
+    const records: { name: string; mutations: Map<string, EastTypeValue[]>; indexes: string[]; sources: ValueTypeOf<RecordBindingSourcesType> | null }[] = [];
 
     const recordNamed = (name: string) => {
-        let record = records.find((r) => r.name === name);
+        let record = records.find((r) => sameName(r.name, name));
         if (record === undefined) {
-            record = { name, mutations: new Map(), indexes: [], sources: [] };
+            record = { name, mutations: new Map(), indexes: [], sources: null };
             records.push(record);
         }
         return record;
@@ -330,12 +337,16 @@ export function deriveUiAccess(ir: IR): UiAccess {
                         }
                     }
                 }
-                // The record's sources, the binding's second literal: each named once, as its first binding names it.
+                // The record's sources, the binding's second literal. They are the record's, so every binding of it
+                // names them alike: a UI that names them two ways says two things of which entries a load writes,
+                // and a host could check only one against the package.
                 if (args[1] === undefined) {
                     throw new Error(`record_bind names no sources for record "${record.name}": an e3-ui from before composite records exported this UI — export its package again`);
                 }
-                for (const source of constValueOf(args[1]) as ValueTypeOf<RecordBindingSourcesType>) {
-                    if (!record.sources.some((named) => named.name === source.name)) record.sources.push(source);
+                const sources = constValueOf(args[1]) as ValueTypeOf<RecordBindingSourcesType>;
+                if (record.sources === null) record.sources = sources;
+                else if (!sameSources(record.sources, sources)) {
+                    throw new Error(`record_bind names the sources of record "${record.name}" two ways, ${printSources(record.sources)} and ${printSources(sources)}: every binding of a record names its sources alike`);
                 }
                 return;
             }
@@ -547,7 +558,7 @@ export function deriveUiAccess(ir: IR): UiAccess {
             name,
             mutations: [...mutations].map(([mutation, argTypes]) => ({ name: mutation, argTypes })),
             indexes,
-            sources,
+            sources: sources ?? [],
         })),
     };
 }
