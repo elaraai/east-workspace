@@ -245,6 +245,60 @@ describe('a load run as a job on the in-memory transfer backend', () => {
     assert.equal((await history(ws))[0]![0], '$load:erp', 'the record holds the delivery');
   });
 
+  it('a job whose hold of the running work fails to let go still leaves its source\'s turn, and one that cannot say it waits lets the running work go: the next job runs, gc is not refused, and no rejection goes unhandled', async () => {
+    const ws = await fresh();
+    const unhandled: unknown[] = [];
+    const note = (reason: unknown): void => { unhandled.push(reason); };
+    process.on('unhandledRejection', note);
+    try {
+      // The first job's own hold of the running work lets go, and then says it failed to, as a lock service over a network can
+      let asks = 0;
+      const locks = overriding(storage.locks, {
+        acquire: async (...args: Parameters<StorageBackend['locks']['acquire']>) => {
+          const handle = await storage.locks.acquire(...args);
+          if (handle === null || args[1] !== TASKS_LOCK || asks++ !== 0) return handle;
+          return overriding(handle, {
+            release: async () => {
+              await handle.release();
+              throw new Error('the lock service did not answer');
+            },
+          });
+        },
+      });
+      const held = new GatedTaskRunner(runner, ['orders.erp']);
+      const backend = backendOn(held, withStores(storage, { locks }));
+      const first = await launch(backend, ws, await storage.objects.write(repoDir, delivery([['SO-1101', acme]])));
+      await held.launched('orders.erp');
+
+      // A second job of the source is dispatched while the first runs, and its store fails the write that says it waits
+      const update = backend.recordLoad.updateStatus.bind(backend.recordLoad);
+      backend.recordLoad.updateStatus = async (id, status) => {
+        if (status.type === 'processing' && status.value.type === 'some' && status.value.value.type === 'queued') throw new Error('the store is throttling');
+        return update(id, status);
+      };
+      const second = uuidv7();
+      await assert.rejects(launch(backend, ws, await storage.objects.write(repoDir, delivery([['SO-1102', birch]])), second), /the store is throttling/);
+      backend.recordLoad.updateStatus = update;
+
+      held.pass('orders.erp');
+      held.release('orders.erp');
+      assert.equal((await ended(backend, first)).status.type, 'completed');
+      // Both jobs have let the running work go: a garbage collection takes the repository
+      const gc = await storage.locks.acquire(repoDir, TASKS_LOCK, variant('dataflow', null), { wait: true, timeout: 5_000 });
+      assert.ok(gc !== null, 'no job holds the running work');
+      await gc.release();
+
+      // The first left its source's turn, and the second may be dispatched again: it runs
+      await backend.recordLoad.execute(second, repoDir);
+      const waited = await Promise.race([ended(backend, second), new Promise<null>((resolve) => { setTimeout(() => resolve(null), 10_000).unref(); })]);
+      assert.equal(waited?.status.type, 'completed', 'the second ran once the first had left its turn');
+      await new Promise((resolve) => { setImmediate(resolve); });
+      assert.deepEqual(unhandled, [], 'the failed release was handled');
+    } finally {
+      process.off('unhandledRejection', note);
+    }
+  });
+
   it('R21 — a file uploaded as an object, writing no ref, is loaded by its hash', async () => {
     const ws = await fresh();
     const backend = backendOn(runner);

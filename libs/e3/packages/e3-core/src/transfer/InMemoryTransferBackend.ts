@@ -701,6 +701,12 @@ abstract class InMemoryEndedJobs<J extends { readonly status: { readonly type: s
     this.forget(id);
   }
 
+  /** A job taken that did not start is let go as it was: it has not ended,
+   *  and may be taken again. */
+  protected untaken(id: string): void {
+    this.executing.delete(id);
+  }
+
   private forget(id: string): void {
     setTimeout(() => { this.records.delete(id); }, this.ttlMs).unref();
   }
@@ -790,6 +796,16 @@ class InMemoryRecordLoadStore extends InMemoryEndedJobs<RecordLoadJob> implement
     // the order the jobs are asked to run in is the order they were filed
     const filed = this.records.get(id);
     const place = filed === undefined ? null : this.order.take(loadJobKey(filed));
+    // The job's hold of the repository's running work, once it has one
+    let work: LockHandle | undefined;
+    // What a job that holds the running work lets go of, however it ends: its
+    // source's turn, which the next job has, and then the running work. A
+    // release that fails is the lock service's to clean up: nothing is left
+    // waiting on it
+    const letsGo = async (held: LockHandle): Promise<void> => {
+      place?.leave();
+      await held.release().catch(() => undefined);
+    };
     let runs = false;
     try {
       const job = await this.taken(id, repo, 'this backend runs no load: it was given no storage or runner');
@@ -797,13 +813,13 @@ class InMemoryRecordLoadStore extends InMemoryEndedJobs<RecordLoadJob> implement
       const { storage, repoPath, runner } = job;
       // Held from now until the job ends, so no sweep takes its delivery while
       // it waits for an earlier load of its source
-      let work: LockHandle;
       try {
         work = await acquireRunningWork(storage, repoPath);
       } catch (err) {
         await this.failed(id, err instanceof Error ? err.message : String(err));
         return;
       }
+      const held = work;
       // Waiting for an earlier load of its source, the job says so
       if (place.waits) await this.updateStatus(id, variant('processing', some(variant('queued', null))));
       const turn = Promise.race([place.before, new Promise<void>((resolve) => { this.waiting.set(id, resolve); })]);
@@ -818,13 +834,20 @@ class InMemoryRecordLoadStore extends InMemoryEndedJobs<RecordLoadJob> implement
         .catch(() => {
           // Its end is recorded in the job's status by handleProcessRecordLoad
         })
-        .finally(async () => {
-          await work.release();
+        .finally(() => {
           this.settled(id);
-          place.leave();
+          return letsGo(held);
         });
     } finally {
-      if (!runs) place?.leave();
+      // A job that did not start: one that holds the running work lets it go,
+      // and may be dispatched again; any other only leaves its place
+      if (!runs) {
+        if (work === undefined) place?.leave();
+        else {
+          this.untaken(id);
+          await letsGo(work);
+        }
+      }
     }
   }
 }
