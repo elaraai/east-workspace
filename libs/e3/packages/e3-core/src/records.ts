@@ -17,9 +17,9 @@
  */
 
 import {
-  variant, some, none, isVariant, ArrayType, BlobType, DateTimeType, NullType, PatchType, SortedMap, compareFor, decodeBeast2, encodeBeast2For,
-  decodeBeast2For, fromEastTypeValue, isTypeValueStructurallyEqual, parseFor, printFor, printTypeValueSummary, readBeast2Type,
-  toEastTypeValue, type EastType, type EastTypeValue,
+  variant, some, none, isVariant, ArrayType, BlobType, DateTimeType, NullType, PatchType, SortedMap, StringType, compareFor, decodeBeast2,
+  encodeBeast2For, decodeBeast2For, equalFor, fromEastTypeValue, isTypeValueStructurallyEqual, parseFor, printFor, printTypeValueSummary,
+  readBeast2Type, toEastTypeValue, type EastType, type EastTypeValue,
 } from '@elaraai/east';
 import {
   RECORD_ARGS_READ_BYTES,
@@ -80,6 +80,10 @@ const decodeArgsTuple = decodeBeast2For(ArrayType(BlobType));
 const encodeTaskObject = encodeBeast2For(TaskObjectType);
 const printTime = printFor(DateTimeType);
 const parseTime = parseFor(DateTimeType);
+
+/** How East orders two sources' names, and whether they are one. */
+const bySourceName = compareFor(StringType);
+const sameSource = equalFor(StringType);
 
 /** How long a mutation's program may run, and how much of its stderr a
  *  failure returns. Its output is stored as segments and never read whole, so
@@ -515,7 +519,7 @@ export interface ResolvedRecord {
  * @returns Their names, sorted; none for a record that has no sources
  */
 export function externalSources(record: Pick<ResolvedRecord, 'sources'>): string[] {
-  return [...record.sources].filter(([, source]) => source.type === 'load').map(([name]) => name).sort();
+  return [...record.sources].filter(([, source]) => source.type === 'load').map(([name]) => name).sort(bySourceName);
 }
 
 /**
@@ -2340,7 +2344,7 @@ export async function recordDescribe(
         commit: last.commit === undefined ? none : some(last.commit),
         asOf: last.asOf === undefined ? none : some(last.asOf),
       }),
-      pending: waits.includes(name),
+      pending: waits.some((each) => sameSource(each, name)),
     });
   }
   return { name: recordName, mutations, indexes, migrations, sources };

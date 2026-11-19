@@ -42,6 +42,9 @@ const parseTime = parseFor(DateTimeType);
 /** Whether a keypath's field is the one named. */
 const sameField = equalFor(StringType);
 
+/** Whether two sources' names are one. */
+const sameSource = equalFor(StringType);
+
 /** Reserved slot naming the external sources a record's readers wait for the
  *  first delivery of, sorted and separated by commas; absent when none waits. */
 export const PENDING_SLOT = '$pending';
@@ -312,12 +315,13 @@ export async function deploySourceSlots(
   const was = slotNames(prior, EXTERNAL_SLOT);
   const owned: Record<string, string | undefined> = {};
   for (const source of was) {
-    if (external.includes(source)) continue;
+    if (external.some((each) => sameSource(each, source))) continue;
     for (const slot of Object.values(sourceLoadSlots(source))) owned[slot] = undefined;
   }
   const pending: string[] = [];
   for (const source of external) {
-    if (waited.includes(source) || (!was.includes(source) && !(await sourceHoldsEntries(storage, repo, state, source)))) pending.push(source);
+    const named = (names: readonly string[]): boolean => names.some((each) => sameSource(each, source));
+    if (named(waited) || (!named(was) && !(await sourceHoldsEntries(storage, repo, state, source)))) pending.push(source);
     if (!migrated) continue;
     const { delivery, load, commit, execution, feed } = sourceLoadSlots(source);
     for (const slot of [delivery, load, commit, execution, feed]) owned[slot] = undefined;
