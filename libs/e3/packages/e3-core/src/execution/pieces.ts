@@ -175,8 +175,12 @@ type CutStep = { readonly field: string } | { readonly through: string };
  *
  * A step of a path that meets a variant names one of its cases, and reads that
  * case's value: `['erp']` cuts a key of `Variant{ erp: K, … }` by its `K`, as
- * an input keyed by `K` with no `by` is cut. Every key of such an input is of
- * that case: a key of another refuses the plan.
+ * an input keyed by `K` with no `by` is cut. Such an input is meant to hold
+ * keys of that case alone. The plan refuses a key of another where it reads
+ * one — a boundary's fence, or a row a search for a boundary passes — and
+ * reads no key for the check's sake: an entry of another case that no
+ * boundary's search reaches is carried into its piece, for the piece's program
+ * to refuse.
  *
  * @param keyType - The input's key type
  * @param by - The fields, as `e3.partition` names them
@@ -267,7 +271,7 @@ export interface PiecePlan {
  * @throws {Error} When no input is partitioned, a partitioned input is not a
  *   stored collection, co-partitioned inputs are not all Sets or Dicts cut by
  *   fields of the same types, an input cut through a case of its key holds an
- *   entry of another, or a read fails.
+ *   entry of another where the plan reads its key, or a read fails.
  * @throws The signal's reason, once it has aborted.
  */
 export async function planPieces(

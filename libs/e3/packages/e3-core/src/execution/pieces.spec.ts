@@ -586,6 +586,23 @@ describe('planning the pieces of an input', () => {
         { message: 'partitioned input 2 is cut through the case \'erp\' of its key, and holds an entry of case \'own\'' });
     });
 
+    it('ruling 47 — refuses an entry of another case only where it reads its key: one no boundary\'s search reaches is carried into its piece', async () => {
+      // The source's entries in one segment, the last of another case. The delivery's rows are wide, so it outweighs them and
+      // spans several segments: every boundary falls among erp's rows, and no search reads as far as the other case's entry
+      const mixed = await entriesOfSource([...erpEntries(0, 100), [variant('own', 1n), 'planned']]);
+      assert.equal((await entriesOf(mixed)).length, 1);
+      const wide = await datasetWrite(storage, repo,
+        new SortedMap(Array.from({ length: 100 }, (_, i) => [BigInt(i), `delivered-${i}-${'x'.repeat(100_000)}`] as [bigint, string]), compareFor(IntegerType)), TableType);
+      const segments = (await entriesOf(wide)).length;
+      assert.ok(segments > 2, `the delivery spans several segments, got ${segments}`);
+
+      const plan = await planPieces(storage, repo, [delivery, held], [wide, mixed], EVERY_SEGMENT);
+      assert.deepEqual([plan.primary, plan.pieces.length], [0, segments], 'the delivery is the input cut, a piece for each of its segments');
+      const last = [...decodeEntries(await readDatasetWhole(storage, repo, plan.pieces.at(-1)![1]!)).keys()];
+      assert.equal(last.at(-1)?.type, 'own', 'the last piece carries the other case\'s entry, which the load\'s program refuses');
+      assert.ok(last.length > 1 && last.slice(0, -1).every((key) => key.type === 'erp'), 'after the erp entries the piece is cut at');
+    });
+
     it('refuses a `by` naming a case the key does not have', async () => {
       const hash = await entriesOfSource(erpEntries(0, 10));
       await assert.rejects(
