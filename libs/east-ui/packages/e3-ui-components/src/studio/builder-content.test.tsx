@@ -13,16 +13,21 @@
 
 import { describe, test, expect } from "vitest";
 import { waitFor, within } from "@testing-library/react";
-import { East, NullType, some, variant } from "@elaraai/east";
+import { East, NullType, encodeBeast2For, none, some, variant } from "@elaraai/east";
 import { Reactive, State, UIComponentType } from "@elaraai/east-ui/internal";
+import { StateRuntime } from "@elaraai/east-ui-components";
 import { markOf } from "@elaraai/east-ui-components/testing";
-import { Data, Record, Studio, StudioKeyType } from "@elaraai/e3-ui/internal";
+import { Data, Record, Studio, StudioFiltersType, StudioKeyType, studioFiltersKey } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/studio/studio";
-import { settle } from "../e3-web-mount.test-utils.js";
+import { act, settle } from "../e3-web-mount.test-utils.js";
+import { condition } from "../query/visual/visual.test-utils.js";
 import {
     components, PAGES, h, ASKED, withEntry, readRecord, tile, inspector, openTabName, openTab, spanOf, textIn, placed, select, keyOn, press, type Key,
     type Entry,
 } from "./builder.test-utils.js";
+
+/** A page's reader's filters, as the UI store holds them. */
+const encodeFilters = encodeBeast2For(StudioFiltersType);
 
 describe("<Studio.Builder> — what a placement holds (#1669)", () => {
     const NOTES: Key = { project: "ops", page: "g-notes" };
@@ -166,6 +171,24 @@ describe("<Studio.Builder> — what a placement holds (#1669)", () => {
             ["added", "Added KPI railrow 3 · span 12"],
         ]);
         expect(markOf(container.querySelector('[data-publish-change="configured"] [data-sign]'))).toBe("fas plus-minus");
+    });
+
+    test("the builder's toolbar holds no filter rail, and its canvas is the page as designed: a reader's filter narrows its Preview, never its canvas (ruled 19 November 2026)", async () => {
+        const { container } = await mountNotes();
+        // A reader's filter of the Notes page that no sale passes, as its Preview's rail sets it.
+        await act(async () => {
+            StateRuntime.getStore().write(studioFiltersKey(NOTES), encodeFilters([{ source: "sales", where: condition(`.region == "Nowhere"`), from: none }]));
+        });
+        await settle();
+        expect(container.querySelector("[data-frame-slot=toolbar] [data-slice-rail='studio-filters']")).toBeNull();
+        // The canvas's tile draws the sales whole.
+        await waitFor(() => expect(tile(container, "n-sales").querySelector("[data-studio-chart]")).not.toBeNull());
+        expect(tile(container, "n-sales").querySelector("[data-studio-visual=no-rows]")).toBeNull();
+        // Its Preview is the page as a reader sees it: the rail over its grid, and the reader's filter narrowing it.
+        await press("Preview");
+        const frame = container.querySelector<HTMLElement>("[data-studio-publish] [data-publish-frame]")!;
+        expect(frame.querySelector("[data-studio-filters] [data-slice-rail='studio-filters']")).not.toBeNull();
+        await waitFor(() => expect(frame.querySelector('[data-snap-grid-cell="n-sales"] [data-studio-visual=no-rows]')).not.toBeNull());
     });
 
     test("the publish preview's change list says a component by its name, never its key: one swapped for another names both", async () => {

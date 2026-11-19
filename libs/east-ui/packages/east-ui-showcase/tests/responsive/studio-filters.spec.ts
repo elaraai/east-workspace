@@ -19,15 +19,18 @@
  *  - F3 the filter is a chip in the rows' words, and every visual of its
  *    source narrows: the tiles ask again, on e3.
  *  - F4 the chip's × takes the filter out, and the tiles are as they were.
- *  - F5 in the builder the rail is an item of its one toolbar, before the
- *    row's end items, 28px as every control of the row.
+ *  - F5 the builder's toolbar holds no filter rail — its canvas is the page as
+ *    designed — and its Preview is the page as a reader sees it: the rail
+ *    over its grid, measured as F1 measures a page's (ruled 19 November 2026).
  *  - F6 as the page narrows the rail folds its chips one at a time into
  *    `+N more` — every filter a chip or counted, the row 28px and never wider
  *    than its page — and `+N more` opens one popover that lists them all,
  *    whose Clear all takes every one out.
- *  - F7 on a phone the builder's toolbar holds the rail's Filters button, a
- *    44px target named by what is set; it opens the Filters view over the
- *    whole builder, whose Filters row opens the chips and `+ add filter`.
+ *  - F7 on a phone the builder's toolbar holds no Filters button; its
+ *    Preview's page, on Mobile, draws the rail over its grid as a reader's page
+ *    does — measured as F1 measures it, inside the builder — and the editor it
+ *    opens stands inside the screen. A page is one box, its rail over its
+ *    grid, so no gap of the Preview's frame comes between them.
  *  - F8 in place the rows keep their columns at every level of a filter of
  *    two conditions and a group: the head's first word and each joiner on one
  *    edge; each condition's first slot, the foot's add and a group's box on
@@ -47,7 +50,7 @@
  * `pnpm exec playwright test studio-filters --project desktop`.
  */
 
-import { expect, type Locator } from "playwright/test";
+import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
 import { settled } from "./settle";
 import { openVisuals } from "./studio-visuals-page";
@@ -60,21 +63,47 @@ const revenue = (grid: Locator) => grid.locator('[data-snap-grid-cell="v-revenue
 
 test.describe("A Studio page's filter rail (#1673)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "read once, at the desktop width");
+/**
+ * Opens the showcase's builder, its entry in view.
+ *
+ * @param page - The browser's page
+ * @returns The builder
+ */
+async function openBuilder(page: Page): Promise<Locator> {
+    await page.goto(`/?theme=light#${BUILDER}`);
+    await page.waitForSelector("header", { timeout: 20_000 });
+    const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${BUILDER}"]`) });
+    await entry.scrollIntoViewIfNeeded();
+    return entry.locator("[data-studio-builder]");
+}
+
+/**
+ * A rail at rest, over the grid it narrows: its height, how far above the grid
+ * it stands and whether it starts where the grid does, its borders, its chips,
+ * and its `+ FILTER` chip's height and whether it stands after the rail's icon.
+ *
+ * @param rail - The rail's row
+ * @returns What it measures
+ */
+const railAtRest = (rail: Locator) => rail.evaluate((el) => {
+    const box = el.getBoundingClientRect();
+    const grid = el.parentElement!.querySelector("[data-snap-grid]")!.getBoundingClientRect();
+    const style = getComputedStyle(el);
+    const add = el.querySelector("[data-slice-add=filter]")!.getBoundingClientRect();
+    return {
+        h: box.height, toGrid: grid.top - box.bottom, sameStart: box.left === grid.left,
+        borders: [style.borderTopWidth, style.borderBottomWidth, style.borderLeftWidth, style.borderRightWidth],
+        chips: el.querySelectorAll("[data-slice-clause]").length, add: [add.height, add.left > box.left],
+    };
+});
+
+/** What {@link railAtRest} reads of a rail with no filter: F1's page, and the Preview's at F5 and F7. */
+const AT_REST = { h: 28, toGrid: 12, sameStart: true, borders: ["0px", "0px", "0px", "0px"], chips: 0, add: [28, true] };
+
 
     test("F1: on a page the rail is a 28px toolbar row over the grid, 12 above it, with no border; with no filter, its + FILTER chip after its icon", async ({ page }) => {
         const grid = await openVisuals(page, "light");
-        const read = await grid.evaluate((root) => {
-            const rail = root.parentElement!.querySelector("[data-studio-filters]")!;
-            const box = rail.getBoundingClientRect();
-            const style = getComputedStyle(rail);
-            const add = rail.querySelector("[data-slice-add=filter]")!.getBoundingClientRect();
-            return {
-                h: box.height, toGrid: root.getBoundingClientRect().top - box.bottom, sameStart: box.left === root.getBoundingClientRect().left,
-                borders: [style.borderTopWidth, style.borderBottomWidth, style.borderLeftWidth, style.borderRightWidth],
-                chips: rail.querySelectorAll("[data-slice-clause]").length, add: [add.height, add.left > box.left],
-            };
-        });
-        expect(read).toEqual({ h: 28, toGrid: 12, sameStart: true, borders: ["0px", "0px", "0px", "0px"], chips: 0, add: [28, true] });
+        expect(await railAtRest(grid.locator("xpath=..").locator("[data-studio-filters]"))).toEqual(AT_REST);
     });
 
     test("F2, F3, F4: a filter written with the condition rows — a field, a value from the source's own with its count, the chooser whole inside the popover — is a chip in words that narrows every visual of its source; its × puts them back", async ({ page }) => {
@@ -280,26 +309,18 @@ test.describe("A Studio page's filter rail (#1673)", () => {
         await expect(chip).toHaveAttribute("title", "region is SA and category is Tools");
     });
 
-    test("F5: in the builder the rail is an item of its one toolbar, before the row's end items, 28px as every control of the row — its chips, or its Filters chip where the row is short of room", async ({ page }) => {
+    test("F5: the builder's toolbar holds no filter rail — its canvas is the page as designed — and its Preview is the page as a reader sees it: the rail a 28px row over its grid, 12 above it, with no border, its + FILTER chip after its icon", async ({ page }) => {
         await page.setViewportSize({ width: 1440, height: 1100 });
-        await page.goto(`/?theme=light#${BUILDER}`);
-        await page.waitForSelector("header", { timeout: 20_000 });
-        const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${BUILDER}"]`) });
-        await entry.scrollIntoViewIfNeeded();
-        await expect(entry.locator("[data-slice-rail='studio-filters']")).toBeVisible({ timeout: 30_000 });
+        const builder = await openBuilder(page);
+        const preview = builder.locator("[data-studio-preview]");
+        await expect(preview).toBeVisible({ timeout: 30_000 });
         await settled(page);
-        const read = await entry.evaluate((root) => {
-            const rail = root.querySelector<HTMLElement>("[data-slice-rail='studio-filters']")!;
-            const box = rail.getBoundingClientRect();
-            // The row's end: Preview, or the chip the end items fold into.
-            const end = (root.querySelector<HTMLElement>("[data-studio-preview]") ?? root.querySelector<HTMLElement>("[data-studio-more]"))!.getBoundingClientRect();
-            return {
-                h: box.height, beforeEnd: box.right <= end.left,
-                sameRow: Math.abs((box.top + box.bottom) / 2 - (end.top + end.bottom) / 2) <= 0.5,
-                drawn: rail.querySelector("[data-slice-add=filter], [data-slot=railTrigger]") !== null,
-            };
-        });
-        expect(read).toEqual({ h: 28, beforeEnd: true, sameRow: true, drawn: true });
+        await expect(builder.locator("[data-slice-rail='studio-filters']")).toHaveCount(0);
+        await preview.click();
+        const rail = builder.locator("[data-studio-publish] [data-publish-frame] [data-studio-filters]");
+        await expect(rail.locator("[data-slice-add=filter]")).toBeVisible({ timeout: 30_000 });
+        await settled(page);
+        expect(await railAtRest(rail)).toEqual(AT_REST);
     });
     test("F6: as the page narrows the rail folds its chips one at a time into +N more, 28px and never wider than its page; +N more lists every filter, and its Clear all takes them out", async ({ page }) => {
         await page.setViewportSize({ width: 1440, height: 1100 });
@@ -356,39 +377,33 @@ test.describe("A Studio page's filter rail (#1673)", () => {
         await expect.poll(async () => { const now = await read(); return [now.chips, now.folded]; }).toEqual([0, 0]);
     });
 
-    test("F7: on a phone the builder's toolbar holds the rail's Filters button — 44px, named by what is set — which opens the Filters view over the builder, its Filters row opening the chips' editor", async ({ page }) => {
+    test("F7: on a phone the builder's toolbar holds no Filters button; its Preview's page, on Mobile, draws the rail over its grid as a reader's page does — measured as F1 measures it, inside the builder — and the editor it opens stands inside the screen", async ({ page }) => {
         await page.setViewportSize({ width: 390, height: 844 });
-        await page.goto(`/?theme=light#${BUILDER}`);
-        await page.waitForSelector("header", { timeout: 20_000 });
-        const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${BUILDER}"]`) });
-        await entry.scrollIntoViewIfNeeded();
-        const builder = entry.locator("[data-studio-builder]");
-        const button = builder.locator("[data-slice-rail='studio-filters'] [data-rail-phone]");
-        await expect(button).toBeVisible({ timeout: 30_000 });
+        const builder = await openBuilder(page);
+        const bar = builder.locator("[data-studio-phone-bar]");
+        await expect(bar).toBeVisible({ timeout: 30_000 });
         await settled(page);
-        const drawn = await button.evaluate((el) => {
+        await expect(builder.locator("[data-slice-rail='studio-filters']")).toHaveCount(0);
+        await bar.locator("[data-studio-preview]").click();
+        const rail = builder.locator("[data-publish-phone] [data-publish-frame=mobile] [data-studio-filters]");
+        await expect(rail.locator("[data-slice-add=filter]")).toBeVisible({ timeout: 30_000 });
+        await settled(page);
+        expect(await railAtRest(rail)).toEqual(AT_REST);
+        const drawn = await rail.evaluate((el) => {
             const box = el.getBoundingClientRect();
             const frame = el.closest("[data-studio-builder]")!.getBoundingClientRect();
-            return { w: box.width, h: box.height, name: el.getAttribute("aria-label"), inside: box.left >= frame.left && box.right <= frame.right, fits: document.documentElement.scrollWidth <= document.documentElement.clientWidth };
+            return { inside: box.left >= frame.left && box.right <= frame.right, fits: document.documentElement.scrollWidth <= document.documentElement.clientWidth };
         });
-        expect(drawn).toEqual({ w: 44, h: 44, name: "Filters: No filters", inside: true, fits: true });
-        await button.click();
-        const view = page.locator("[data-slice-filters-view]");
-        await expect(view).toBeVisible();
+        expect(drawn).toEqual({ inside: true, fits: true });
+        // + FILTER opens its editor there, inside the screen.
+        await rail.locator("[data-slice-add=filter]").click();
+        const rows = page.locator("[data-studio-filter-rows]");
+        await expect(rows).toBeVisible();
         await settled(page);
-        // The view covers the builder: as wide as it, its head saying nothing is set.
-        const frame = await builder.boundingBox();
-        const panel = await view.boundingBox();
-        expect([Math.round(panel!.width), Math.round(panel!.x)]).toEqual([Math.round(frame!.width), Math.round(frame!.x)]);
-        await expect(view.locator("[data-filters-active]")).toHaveText("none active");
-        // Its one field, Filters: Any until one is set; opened, the chips' editor with its add.
-        const row = view.locator("[data-slice-section=filter]");
-        await expect(row).toContainText("Any");
-        await row.click();
-        const editor = view.locator("[data-slice-filters-editor=filter]");
-        await expect(editor.locator("[data-slice-add=filter]")).toBeVisible();
-        expect(await editor.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
-        await view.locator("[data-filters-done]").click();
-        await expect(view).toHaveCount(0);
+        const editor = await rows.evaluate((el) => {
+            const box = el.closest("[data-scope='popover'][data-part='content']")!.getBoundingClientRect();
+            return { inside: box.left >= 0 && box.right <= document.documentElement.clientWidth, fits: document.documentElement.scrollWidth <= document.documentElement.clientWidth };
+        });
+        expect(editor).toEqual({ inside: true, fits: true });
     });
 });
