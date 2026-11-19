@@ -13,9 +13,11 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, sep } from 'node:path';
-import { createTestDir, removeHeldTestDir, runE3Command, spawnE3Command, waitFor } from './helpers.js';
+import { dirname, join, sep } from 'node:path';
+import { createTestDir, getE3CliPath, removeHeldTestDir, runE3Command, spawnE3Command, waitFor } from './helpers.js';
 
 // SDK imports
 import e3 from '@elaraai/e3';
@@ -337,6 +339,60 @@ describe('signal handling', () => {
       // Clean up
       proc2.kill('SIGINT');
       await proc2.result;
+    });
+  });
+
+  describe('the e3 command itself', () => {
+    // Skipped on Windows: Node's `child.kill` ends the process there, whatever signal it names.
+    // The launcher becomes the command where the platform can replace a process, and runs it as a child elsewhere:
+    // the second is run here by a Node that is told it cannot.
+    const launches: ReadonlyArray<readonly [string, readonly string[]]> = [
+      ['the launcher become the command', []],
+      ['the command a child of the launcher', ['--import', 'data:text/javascript,process.execve=undefined;']],
+    ];
+    for (const [how, nodeArgs] of launches) it(`ruling 53 — a stop signal sent to the e3 command alone reaches the command it runs, ${how}: a run started through the launcher is cancelled, and the launcher exits as the command did`, { skip: process.platform === 'win32' }, async () => {
+      const input = e3.input('input', StringType, variant('value', 'hello'));
+      const slowTask = e3.customTask(
+        'slow',
+        [input],
+        StringType,
+        ($, inputs, output) => {
+          const holdPath = $.const(holdForBash);
+          return East.str`while [ -e '${holdPath}' ]; do sleep 0.1; done; cp ${inputs.get(0n)} ${output}`;
+        }
+      );
+      await e3.export(e3.package('slow-test-launcher', '1.0.0', slowTask), packageZipPath);
+      await runE3Command(['repo', 'create', repoDir], testDir);
+      await runE3Command(['package', 'import', repoDir, packageZipPath], testDir);
+      await runE3Command(['workspace', 'create', repoDir, 'ws'], testDir);
+      await runE3Command(['workspace', 'deploy', repoDir, 'ws', 'slow-test-launcher@1.0.0'], testDir);
+
+      // The command as a person's shell runs it: `e3`, the package's bin, which starts the built CLI
+      const launcher = join(dirname(getE3CliPath()), '..', '..', 'bin', 'e3.mjs');
+      const child = spawn(process.execPath, [...nodeArgs, launcher, 'dataflow', 'run', repoDir, 'ws'], { cwd: testDir, stdio: ['ignore', 'pipe', 'pipe'] });
+      let stdout = '';
+      child.stdout.on('data', (data: Buffer) => { stdout += data.toString(); });
+      const exited = once(child, 'exit') as Promise<[number | null, NodeJS.Signals | null]>;
+      await waitFor(() => stdout.includes('[START]'), 30000);
+
+      // As a timeout, a supervisor or a script stops a command: a signal to its process alone
+      child.kill('SIGTERM');
+      const [code] = await exited;
+      assert.strictEqual(code, 130, `the launcher exits as the command it ran did. Got: ${String(code)}, output: ${stdout}`);
+      assert.ok(stdout.includes('Received SIGTERM, aborting...'), `the command itself was told. Got: ${stdout}`);
+
+      const statePath = join(repoDir, 'workspaces', 'ws', 'execution.beast2');
+      const decode = decodeBeast2For(DataflowExecutionStateType);
+      const readStatus = (): string | null => {
+        if (!existsSync(statePath)) return null;
+        try {
+          return decode(readFileSync(statePath)).status;
+        } catch {
+          return null; // partially-written file
+        }
+      };
+      await waitFor(() => readStatus() === 'cancelled', 10000);
+      assert.strictEqual(readStatus(), 'cancelled', 'the run was cancelled, not left going');
     });
   });
 
