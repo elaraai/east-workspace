@@ -356,7 +356,7 @@ describe('draft access', () => {
       migrations: [],
       sources: new Map(),
     }));
-    const planned =await storage.objects.write(REPO, encodeBeast2For(FunctionObjectType)({
+    const planned = await storage.objects.write(REPO, encodeBeast2For(FunctionObjectType)({
       bodyIr: ir, inputs: [{ path: JOBS_PATH, index: none }], drafts: ['jobs'], argTypes: [], outputType: toEastTypeValue(IntegerType), runner: STOCK, environment: none,
     }));
     const structure = variant('struct', new Map([
