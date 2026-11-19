@@ -13,9 +13,10 @@
  * heat tokens, each 40 × 12 inside a `--rule`, their lower edges under them in
  * mono 9.5 `--ink-4` (TBL-4); the line that says what a visual holds of
  * how many; and its states (TIL-3) — the checklist of the wells it needs, a
- * field its source lacks, and the blocks that stand in its shape while its
- * answer is awaited. Every numeral is mono and tabular, every label mono at the label
- * sizes (TIL-5); colour is the theme's alone.
+ * follower's prompt to pick on its leader (LNK-5), a field its source lacks,
+ * and the blocks that stand in its shape while its answer is awaited. Every
+ * numeral is mono and tabular, every label mono at the label sizes (TIL-5);
+ * colour is the theme's alone.
  *
  * A KPI stands whole at every width a page gives its tile (#1692): its
  * number's row wraps — the change on a line of its own under the number, the
@@ -49,7 +50,7 @@ export const studioVisualSlotRecipe = defineSlotRecipe({
         "kpi", "kpiRow", "kpiValue", "kpiNumber", "kpiUnit", "kpiChange", "absent", "goal", "goalTick", "trend", "anno",
         "heat", "heatRamp", "heatSwatch", "heatTicks",
         "list", "listRow", "listLine", "listText", "listName", "listCaption", "listValue", "listUnit", "listBar", "listBarFill",
-        "state", "empty", "emptyIcon", "emptyTitle", "checks", "check", "checkMark", "missing", "missingLine", "missingIcon", "code", "link", "load", "loadBlock",
+        "state", "empty", "emptyIcon", "emptyTitle", "emptyHint", "checks", "check", "checkMark", "missing", "missingLine", "missingIcon", "code", "link", "load", "loadBlock",
     ],
     base: {
         /* A visual's tile: its eyebrow strip over its body, filling the frame, edge to edge. */
@@ -72,13 +73,13 @@ export const studioVisualSlotRecipe = defineSlotRecipe({
         end: { display: "flex", alignItems: "center", gap: "{spacing.1}", flexShrink: "0" },
         /* Its meta: mono 9.5, `--ink-4`, on the name's line. */
         meta: { fontFamily: "mono", fontSize: "label.xs", lineHeight: centredLine(HEAD_ROOM, 12), color: "fg.subtle", whiteSpace: "nowrap" },
-        /* What it follows (LNK-4): the link icon, then the selected value, as its meta is set — in `--brand-d` while it
-           is narrowed, `--ink-4` with nothing selected or its leader removed; cut with an ellipsis before its meta. */
+        /* What it follows (LNK-4): the 10px link icon, 6 before the selected value, as its meta is set — in `--brand-d`
+           while it is narrowed, `--ink-4` with nothing selected or its leader removed; cut with an ellipsis before its meta. */
         follow: {
-            display: "inline-flex", alignItems: "center", gap: "{spacing.1}", minWidth: "0", maxWidth: "160px",
+            display: "inline-flex", alignItems: "center", gap: "6px", minWidth: "0", maxWidth: "160px",
             fontFamily: "mono", fontSize: "label.xs", lineHeight: centredLine(HEAD_ROOM, 12), color: "fg.subtle", whiteSpace: "nowrap",
             "& > span": { overflow: "hidden", textOverflow: "ellipsis" },
-            "& svg": { fontSize: "9px", flexShrink: "0" },
+            "& svg": { fontSize: "10px", flexShrink: "0" },
             "&[data-following='selected']": { color: "brand.solid" },
         },
         /* Its body, padded 20; its parts 12 apart. A table's or a list's rows run edge to edge, under the strip. */
@@ -155,10 +156,16 @@ export const studioVisualSlotRecipe = defineSlotRecipe({
         /* A state in a tile's body (TIL-3). A table's or a list's body runs edge to edge: its state pads itself as any other body is padded. */
         state: { display: "flex", flexDirection: "column", minWidth: "0", "[data-flush] > &": { padding: "{spacing.5}" } },
         /* Wells it needs: the view's icon at 28 in `--rule-strong`, the words, and the checklist — centred, 12 apart, 32 from the
-           body's top and bottom (12 past its padding). */
-        empty: { display: "flex", flexDirection: "column", alignItems: "center", gap: "{spacing.3}", paddingBlock: "{spacing.3}" },
-        emptyIcon: { color: "border.strong", ...fontAwesomeSize("28px") },
+           body's top and bottom (12 past its padding). A follower's prompt (LNK-5) is the smaller of the two: a pointer's hand
+           at 24, what to pick and what it then shows — 10 apart, 28 from the body's top and bottom, each line centred. */
+        empty: {
+            display: "flex", flexDirection: "column", alignItems: "center", gap: "{spacing.3}", paddingBlock: "{spacing.3}",
+            "&[data-prompt]": { gap: "10px", paddingBlock: "{spacing.2}", textAlign: "center" },
+        },
+        emptyIcon: { color: "border.strong", ...fontAwesomeSize("28px"), "[data-prompt] > &": fontAwesomeSize("24px") },
         emptyTitle: { fontFamily: "heading", fontSize: "{fontSizes.title.xs}", fontWeight: "700", letterSpacing: "-0.01em", lineHeight: "20px", color: "fg", margin: "0" },
+        /* What a prompt's visual then shows: 12.5 on a whole 15px line, `--ink-4`. */
+        emptyHint: { fontSize: "{fontSizes.body.sm}", lineHeight: "15px", color: "fg.subtle", margin: "0" },
         /* The checklist: a 16px line each, 6 apart — what is chosen in `--ink` after a 14px `--pos` check, what is missing in
            `--ink-3` after a 10px `--ink-5` dot, each mark centred in 14. */
         checks: { display: "flex", flexDirection: "column", gap: "6px", margin: "0", padding: "0", listStyle: "none" },

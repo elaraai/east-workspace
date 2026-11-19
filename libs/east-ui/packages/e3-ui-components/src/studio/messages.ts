@@ -130,8 +130,8 @@ export interface StudioMessages {
     followsName: (p: { leader: string; selected: string }) => string;
     /** A follower that asks for a pick, with nothing selected: its title, naming the leader's field and the leader (LNK-5). */
     followPrompt: (p: { field: string; leader: string }) => string;
-    /** Under it. */
-    followPromptHint: (p: { field: string }) => string;
+    /** Under it: what the follower then shows, named by what it draws — `This chart shows the machine you select.` */
+    followPromptHint: (p: { field: string; view: "kpi" | "chart" | "table" | "list" }) => string;
     /** The Configure tab's Follows field: the visual a visual follows (LNK-3). */
     follows: () => string;
     /** Its choice for following none. */
@@ -638,6 +638,9 @@ const KIND_SAYS: Readonly<Record<string, string>> = {
     pie: "one value's shares of its total",
 };
 
+/** What a visual draws, mid-sentence: what a follower's prompt names it by. */
+const VIEW_NOUN: Readonly<Record<"kpi" | "chart" | "table" | "list", string>> = { kpi: "KPI", chart: "chart", table: "table", list: "list" };
+
 export const studioMessages: StudioMessages = {
     statusDraft: () => "Draft",
     statusLive: () => "Live",
@@ -689,7 +692,7 @@ export const studioMessages: StudioMessages = {
     followRemoved: () => "leader removed",
     followsName: ({ leader, selected }) => `Follows ${leader}: ${selected}`,
     followPrompt: ({ field, leader }) => `Pick ${/^[aeiou]/i.test(field) ? "an" : "a"} ${field} in ${leader}`,
-    followPromptHint: ({ field }) => `This visual shows the ${field} you select.`,
+    followPromptHint: ({ field, view }) => `This ${VIEW_NOUN[view]} shows the ${field} you select.`,
     addLinked: () => "Add a linked visual",
     linkOnCanvas: () => "Link on the canvas",
     linkPick: ({ follower }) => `Click the visual ${follower} should follow`,

@@ -8,7 +8,8 @@
  * needs — its view's icon, "Add fields to draw it", and a checklist, a check
  * for what is chosen and a dot for what is missing; no rows — `no data` where
  * its value would be, and on the annotation line what emptied it, or that its
- * source has none; a field its source
+ * source has none; a follower that asks for a pick — what to pick, in which
+ * visual, and what it then shows (#1673, LNK-5); a field its source
  * does not have — its name, as code, and the link that opens its fields; and,
  * while its answer is awaited, Skeleton blocks in its own shape.
  *
@@ -17,7 +18,7 @@
 
 import { Box, Skeleton } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faCircle, faCircleCheck, faCircleExclamation, type IconName } from "@fortawesome/free-solid-svg-icons";
+import { faCircle, faCircleCheck, faCircleExclamation, type IconDefinition, type IconName } from "@fortawesome/free-solid-svg-icons";
 import { useSlotStyles } from "@elaraai/east-ui-components/internal";
 import { filterWords } from "../../query/visual/filters.js";
 import type { PrintSource, PrintState } from "../../query/visual/print.js";
@@ -60,6 +61,39 @@ export function WellsEmpty({ icon, needed }: WellsEmptyProps) {
                         </Box>
                     ))}
                 </Box>
+            </Box>
+        </Box>
+    );
+}
+
+/** Props of {@link PickPrompt}. */
+export interface PickPromptProps {
+    /** Which: a pick asked for on its leader, or a leader no longer on the page. */
+    readonly state: "prompt" | "leader-removed";
+    /** Its icon: Font Awesome's, solid. */
+    readonly icon: IconDefinition;
+    /** What to do — `Pick a customer in Customers`. */
+    readonly title: string;
+    /** What the visual then shows — `This chart shows the customer you select.` */
+    readonly hint: string;
+}
+
+/**
+ * A follower that asks for a pick (LNK-5): with nothing selected on its
+ * leader, what to pick and in which visual, or that its leader is gone — over
+ * what it then shows, under its icon.
+ *
+ * @param props - Which, its icon, and its words
+ * @returns The state
+ */
+export function PickPrompt({ state, icon, title, hint }: PickPromptProps) {
+    const styles = useSlotStyles("studioVisual");
+    return (
+        <Box css={styles.state} data-studio-visual={state}>
+            <Box css={styles.empty} data-prompt="">
+                <Box as="span" css={styles.emptyIcon} aria-hidden><FontAwesomeIcon icon={icon} /></Box>
+                <Box as="h4" css={styles.emptyTitle}>{title}</Box>
+                <Box as="span" css={styles.emptyHint} data-studio-visual-hint="">{hint}</Box>
             </Box>
         </Box>
     );
