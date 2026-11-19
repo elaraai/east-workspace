@@ -16,7 +16,7 @@
 import type { DictType, EastType, FunctionType, NullType, PatchTypeOf, SetType, StructType, ValueTypeOf } from '@elaraai/east';
 import { isValueOf, printType, variant } from '@elaraai/east';
 import { editTypeOf } from '@elaraai/e3-types';
-import type { DataTreeDef, MigrationDef, MutationDef, RecordDef, RecordIndexDef, RecordSourceDef } from './types.js';
+import type { DataTreeDef, DatasetDef, MigrationDef, MutationDef, RecordDef, RecordIndexDef, RecordSourceDef, TaskDef } from './types.js';
 import {
   INDEX_BUILDER, MIGRATION_BUILDER, MUTATION_BUILDER, RECORD_PART,
   type IndexBuilder, type IndexDraft, type IndexesOf, type MigrationBuilder, type MigrationDraft, type MutationBuilder, type MutationDraft, type MutationsOf,
@@ -268,7 +268,11 @@ export function declareRecord(
     indexes: {} as Record<string, RecordIndexDef>,
     migrations: [] as MigrationDef[],
     ...(extras !== undefined && { sources: extras.sources }),
-    deps: new Set([...recordsTree.deps, recordsTree]),
+    // A fed source's dataset, which the dataflow loads into the record: a package that takes the record takes it.
+    deps: new Set<DataTreeDef | DatasetDef | TaskDef>([
+      ...recordsTree.deps, recordsTree,
+      ...Object.values(extras?.sources ?? {}).flatMap((source) => (source.load?.feed === undefined ? [] : [source.load.feed])),
+    ]),
   };
   if (made) {
     let state: { readonly value: unknown } | undefined;

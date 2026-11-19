@@ -30,7 +30,8 @@ import { recordHistory, recordSystemCommit } from '../records.js';
 import { REPOSITORY_UPGRADES, repositoryOpen, repositoryUpgradeStep } from '../repository-record.js';
 import { withRunningWork } from '../running-work.js';
 import { DATAFLOW_EVENTS_APART, dataflowEventsApart } from '../upgrades/dataflow-events-apart.js';
-import { DATAFLOW_FORCE_TASKS, DataflowStateBeforeForceTasksType, dataflowForceTasks } from '../upgrades/dataflow-force-tasks.js';
+import { DATAFLOW_FORCE_TASKS, DataflowStateBeforeForceTasksType, DataflowStateWithForceTasksType, dataflowForceTasks } from '../upgrades/dataflow-force-tasks.js';
+import { DATAFLOW_GRAPH_LOADS, dataflowGraphLoads } from '../upgrades/dataflow-graph-loads.js';
 import { EXECUTION_STOP_REASONS, ExecutionStatusBeforeReasonsType, executionStopReasons } from '../upgrades/execution-stop-reasons.js';
 import { FUNCTION_CALL_DRAFTS, FunctionCallJobBeforeDraftsType, FunctionCallJobWithDraftsType, functionCallDrafts } from '../upgrades/function-call-drafts.js';
 import { FUNCTION_CALL_INDEX_INPUTS, functionCallIndexInputs } from '../upgrades/function-call-index-inputs.js';
@@ -218,6 +219,22 @@ function watchCallReplaces(storage: StorageBackend): { replaced: string[]; stop:
       storage.calls.readStored = readStored;
     },
   };
+}
+
+/**
+ * Applies a step a part at a time, each part with no time to spare and taking
+ * up where the last stopped, until it is done or has run `most` parts.
+ *
+ * @returns Where each part stopped: `null` for the part that finished the step
+ */
+async function partStops(step: RepositoryUpgrade, storage: StorageBackend, repo: string, most: number): Promise<(string | null)[]> {
+  const stops: (string | null)[] = [];
+  let stopped: string | null = null;
+  do {
+    stopped = await step.apply(storage, repo, stopped, 0);
+    stops.push(stopped);
+  } while (stopped !== null && stops.length < most);
+  return stops;
 }
 
 /**
@@ -719,11 +736,12 @@ export function repositoryRecordTests(setup: BackendSetup): void {
       }
     });
 
-    it('carries every dataflow run an earlier release stored into the form that names the tasks a run forces, and leaves the rest as they are', async (t) => {
+    it('carries every dataflow run an earlier release stored into the form that names the tasks a run forces, and on into the form whose graph says what each node loads, and leaves the rest as they are', async (t) => {
       const { storage, repo } = await setup(t);
       const record = await repositoryOpen(storage, repo);
-      // A repository an earlier release wrote, which has not had the upgrade.
-      const before = { release: '1.0.84', upgrades: record.upgrades.filter(({ name }) => name !== DATAFLOW_FORCE_TASKS) };
+      // A repository an earlier release wrote, which has had neither upgrade
+      // of a run's form since.
+      const before = { release: '1.0.84', upgrades: record.upgrades.filter(({ name }) => name !== DATAFLOW_FORCE_TASKS && name !== DATAFLOW_GRAPH_LOADS) };
       await storage.refs.repositoryWrite(repo, before);
 
       // A run in each of four workspaces, each the workspace's latest, as
@@ -732,7 +750,7 @@ export function repositoryRecordTests(setup: BackendSetup): void {
       // in the current form; and one in neither, which a crash left.
       const run = (workspace: string, force: DataflowForce, status: string): DataflowExecutionState => ({
         release: '1.0.84', id: uuidv7(), repo, workspace, startedAt: new Date(1_000), force, filter: none,
-        graph: some({ tasks: [{ name: 'etl', hash: 'a'.repeat(64), inputs: ['.inputs.sales'], output: '.tasks.etl.output', dependsOn: [] }] }),
+        graph: some({ tasks: [{ name: 'etl', hash: 'a'.repeat(64), inputs: ['.inputs.sales'], output: '.tasks.etl.output', dependsOn: [], load: none }] }),
         graphHash: none, tasks: new Map(), executed: 1n, cached: 0n, failed: 0n, skipped: 0n, status,
         completedAt: status === 'running' ? none : some(new Date(2_000)), error: none, versionVectors: new Map(),
         inputSnapshot: new Map([['.inputs.sales', 'b'.repeat(64)]]), taskOutputPaths: ['.tasks.etl.output'], reexecuted: 0n,
@@ -774,8 +792,11 @@ export function repositoryRecordTests(setup: BackendSetup): void {
       };
       try {
         const opened = await repositoryOpen(storage, repo);
-        assert.deepEqual(opened.upgrades, [...before.upgrades, { name: DATAFLOW_FORCE_TASKS, release: E3_RELEASE }]);
-        assert.deepEqual([...replaced].sort(), ['forced', 'unforced'], 'every run in the earlier form is rewritten, and no other');
+        assert.deepEqual(opened.upgrades, [
+          ...before.upgrades, { name: DATAFLOW_FORCE_TASKS, release: E3_RELEASE }, { name: DATAFLOW_GRAPH_LOADS, release: E3_RELEASE },
+        ]);
+        assert.deepEqual([...replaced].sort(), ['forced', 'forced', 'unforced', 'unforced'],
+          'every run in the earlier form is rewritten by each step, and no other');
 
         const equal = equalFor(DataflowExecutionStateType);
         const print = printFor(DataflowExecutionStateType);
@@ -799,14 +820,18 @@ export function repositoryRecordTests(setup: BackendSetup): void {
         await (await stored('forced')).replace(encodeEarlier({ ...forced, force: true }));
         await (await stored('unforced')).replace(encodeEarlier({ ...unforced, force: false }));
         replaced.length = 0;
-        const stops: (string | null)[] = [];
-        let stopped: string | null = null;
-        do {
-          stopped = await dataflowForceTasks.apply(storage, repo, stopped, 0);
-          stops.push(stopped);
-        } while (stopped !== null && stops.length < 4);
-        assert.deepEqual(stops, ['crashed', 'current', 'forced', null]);
+        assert.deepEqual(await partStops(dataflowForceTasks, storage, repo, 4), ['crashed', 'current', 'forced', null]);
         assert.deepEqual(replaced, ['forced', 'unforced']);
+
+        // The step after it carries them on in parts the same way, into the
+        // form this release reads.
+        replaced.length = 0;
+        assert.deepEqual(await partStops(dataflowGraphLoads, storage, repo, 4), ['crashed', 'current', 'forced', null]);
+        assert.deepEqual(replaced, ['forced', 'unforced']);
+        for (const [state, force] of [[forced, dataflowForce(true)], [unforced, dataflowForce(false)]] as const) {
+          const read = await runStates(repo).read(repo, state.workspace, state.id);
+          assert.ok(read !== null && equal(read, { ...state, force }), `the ${state.workspace} run reads in the current form: ${read === null ? 'none' : print(read)}`);
+        }
       } finally {
         storage.runStates = runStates;
       }
@@ -815,8 +840,9 @@ export function repositoryRecordTests(setup: BackendSetup): void {
     it('moves every dataflow run\'s events out of its state, as its store keeps them apart, and leaves the rest as they are', async (t) => {
       const { storage, repo } = await setup(t);
       const record = await repositoryOpen(storage, repo);
-      // A repository an earlier release wrote, which has not had the upgrade.
-      const before = { release: '1.0.85', upgrades: record.upgrades.filter(({ name }) => name !== DATAFLOW_EVENTS_APART) };
+      // A repository an earlier release wrote, which has had neither the
+      // upgrade nor the one after it that changes a run's form.
+      const before = { release: '1.0.85', upgrades: record.upgrades.filter(({ name }) => name !== DATAFLOW_EVENTS_APART && name !== DATAFLOW_GRAPH_LOADS) };
       await storage.refs.repositoryWrite(repo, before);
 
       // A run in each of four workspaces, each the workspace's latest, as an
@@ -837,7 +863,8 @@ export function repositoryRecordTests(setup: BackendSetup): void {
       const crashed = run('crashed', [event(1n)]);
       for (const each of [few, many, idle, crashed]) await storage.runStates(repo).create({ ...each, events: [] });
       const stored = async (workspace: string) => (await storage.runStates(repo).readStored(repo)).find((each) => each.workspace === workspace)!;
-      const encodeState = encodeBeast2For(DataflowExecutionStateType);
+      // The form the step reads, as the releases before it stored it
+      const encodeState = encodeBeast2For(DataflowStateWithForceTasksType);
       const storedInline = async () => {
         for (const each of [few, many]) await (await stored(each.workspace)).replace(encodeState(each));
       };
@@ -872,8 +899,11 @@ export function repositoryRecordTests(setup: BackendSetup): void {
       };
       try {
         const opened = await repositoryOpen(storage, repo);
-        assert.deepEqual(opened.upgrades, [...before.upgrades, { name: DATAFLOW_EVENTS_APART, release: E3_RELEASE }]);
-        assert.deepEqual([...replaced].sort(), ['few', 'many'], 'every run whose state holds events is rewritten, and no other');
+        assert.deepEqual(opened.upgrades, [
+          ...before.upgrades, { name: DATAFLOW_EVENTS_APART, release: E3_RELEASE }, { name: DATAFLOW_GRAPH_LOADS, release: E3_RELEASE },
+        ]);
+        // The step after it carries each into the form this release reads
+        assert.deepEqual([...replaced].sort(), ['few', 'few', 'many', 'many'], 'every run whose state holds events is rewritten by each step, and no other');
         assert.deepEqual(segments.filter((workspace) => workspace === 'many').length, 3, 'its events in segments of a thousand');
 
         const equal = equalFor(DataflowExecutionStateType);
@@ -896,20 +926,14 @@ export function repositoryRecordTests(setup: BackendSetup): void {
         await storage.refs.repositoryWrite(repo, before);
         replaced.length = 0;
         await repositoryOpen(storage, repo);
-        assert.deepEqual(replaced, ['few']);
+        assert.deepEqual(replaced, ['few', 'few']);
         assert.ok(sameEvents(await runStates(repo).getEventsSince(repo, 'few', few.id, 0), few.events), 'the events, once');
 
         // In parts, a workspace at a time in the order of their names, each
         // part taking up where the last stopped: at most a part a workspace.
         await storedInline();
         replaced.length = 0;
-        const stops: (string | null)[] = [];
-        let stopped: string | null = null;
-        do {
-          stopped = await dataflowEventsApart.apply(storage, repo, stopped, 0);
-          stops.push(stopped);
-        } while (stopped !== null && stops.length < 4);
-        assert.deepEqual(stops, ['crashed', 'few', 'idle', null]);
+        assert.deepEqual(await partStops(dataflowEventsApart, storage, repo, 4), ['crashed', 'few', 'idle', null]);
         assert.deepEqual(replaced, ['few', 'many']);
       } finally {
         storage.runStates = runStates;

@@ -391,7 +391,8 @@ export async function getDataflowStatus(
 }
 
 /**
- * Get dependency graph.
+ * Get dependency graph: each node as a run's graph holds it, a load node
+ * naming the record and source it loads.
  */
 export async function getDataflowGraph(
   storage: StorageBackend,
@@ -399,16 +400,7 @@ export async function getDataflowGraph(
   workspace: string
 ): Promise<Response> {
   try {
-    const graph = await dataflowGetGraph(storage, repoPath, workspace);
-    return sendSuccess(DataflowGraphType, {
-      tasks: graph.tasks.map((t) => ({
-        name: t.name,
-        hash: t.hash,
-        inputs: t.inputs,
-        output: t.output,
-        dependsOn: t.dependsOn,
-      })),
-    });
+    return sendSuccess(DataflowGraphType, await dataflowGetGraph(storage, repoPath, workspace));
   } catch (err) {
     return sendError(DataflowGraphType, errorToVariant(err));
   }

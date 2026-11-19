@@ -430,8 +430,13 @@ export interface RecordSourceDef<
  * entries to a patch of them.
  */
 export interface RecordLoadDef {
-  /** The type of what the source is delivered. */
+  /** The type of what the source is delivered: its feed's type, for a source
+   *  the dataflow loads. */
   readonly delivery: EastType;
+  /** The dataset of the package the dataflow loads the source from — a task's
+   *  output, an input or a record — which the record depends on, so a package
+   *  collects it with the record; undefined for a source `e3 load` delivers. */
+  readonly feed: DatasetDef | undefined;
   /** The author's function, `(delivery, Dict<key, Row>) -> Patch(Dict<key,
    *  Row>)`, as its IR bundle. */
   readonly body: IRBundle;

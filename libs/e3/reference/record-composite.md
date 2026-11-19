@@ -21,6 +21,7 @@ takes the type of a row, and builds the record's type from its sources:
 |---|---|
 | `sources: (source) => ({ … })` | Each source by name, declared first: the parts after it are handed the types it makes. A name is an identifier: it is a case of the record's key. |
 | `source.load(key, delivery, fn, { runner? })` | An **external** source: its key type, the type of what it is delivered, and the load, `fn: (delivery, Dict<key, Row>) -> PatchType(Dict<key, Row>)`. The function sees the source's own keys; e3 puts the source's case on each. It is pure and synchronous, as a mutation's body is, and must give the right entries from one delivery alone, whatever was loaded before, as `East.diff(current, delivery)` does. |
+| `source.load(key, feed, fn, { runner? })` | An external source the **dataflow** loads: a task (its output feeds the load), an input or a record of the package, whose type is what the load is delivered. Each run loads it (below). |
 | `source.mutations(key)` | A source of the solution's own, written by the record's mutations. |
 | `initial: { <source>: entries }` | The entries of each source of the solution's own, by the source's own key. An external source has none: its entries come from its load. |
 | `indexes`, `mutations`, `migrations` | As `e3.record`'s, each builder handed the record's types as a second argument: `(mutation, { state, key, edit }) => …`. `state` is the record's type, `key` its key's, and `edit` the type of an edit body's last parameter, which writes the solution's own entries alone. `e3.record`'s builders are handed the same argument. |
@@ -28,6 +29,7 @@ takes the type of a row, and builds the record's type from its sources:
 Refused where the record is declared, naming it: no `sources`, or none
 declared; a source named by no identifier, or keyed by a type no Dict is keyed
 by; a load whose function is not `(delivery, entries) -> patch of the entries`;
+a feed that is an index of a record, a partition, or the record itself;
 `initial` naming no source, or an external one, or holding anything but the
 source's entries by its own key; and mutations declared on a record whose
 every source is a load's, which has no entry for them to write.
@@ -130,8 +132,8 @@ orders.erp holds a delivery as of 2026-11-02T03:00:00.000, later than this one's
   did, when its commit had written. A second Ctrl-C stops following a
   server's load, which goes on.
 - **Refused** before anything is stored or sent: a record or source the
-  workspace does not hold, a source of the solution's own, and a file of
-  another type, each named.
+  workspace does not hold, a source of the solution's own, a source the
+  dataflow loads (below), and a file of another type, each named.
 
 `e3 history` says what a load's commit loaded, and `--delta` what it changed,
 per target, as a mutation's:
@@ -139,6 +141,99 @@ per target, as a mutation's:
 ```
 3f2a9c1e5d7b  $load:erp           cli:ada           2026-11-02T03:00:12.000Z  delivery 5e7a3b0c9d1f as of 2026-11-02T03:00:00.000: 1,204 set, 31 deleted, 98,112 unchanged
 ```
+
+## Sources the dataflow loads
+
+```ts
+// The ERP's whole order book, made from what it exports
+const combineErp = e3.task('combine_erp', [erpBook], East.function([ErpBook], ErpDelivery, ($, book) => /* … */));
+
+export const orders = e3.recordComposite('orders', Order, {
+  sources: (source) => ({
+    erp: source.load(StringType, combineErp, loadErp),   // each run loads combine_erp's output
+    own: source.mutations(StringType),
+  }),
+});
+```
+
+A source fed by a dataset of the package — a task's output, an input or a
+record — is loaded by the dataflow. Each run loads the value its feed holds
+once the run reaches it, in a step of the run named `<record>.<source>`, which
+runs after the task that writes its feed and commits once, as
+`$load:<source>` by `system:dataflow`. Its pieces are cached as a task's are,
+and a run whose feed has not moved since the last load answers it from the
+record, `[CACHED] orders.erp`. The record's readers run on the record as it
+stands while the load runs, and again after its commit, in the same run:
+
+```
+$ e3 dataflow run . main
+  [START] combine_erp
+  [DONE] combine_erp [1840ms]
+  [START] orders.erp
+  [DONE] orders.erp [5080ms]
+  [START] forecast                       # the load's commit is a change of orders
+  [DONE] forecast [930ms]
+```
+
+- **The function** is delivered the feed's value, and must give the right
+  entries from it alone: a run loads only the value the feed holds when the
+  run reaches it, never one it held between two runs. A system that sends its
+  changes, each the changes since the last, is loaded with `e3 load`.
+- **A load that cannot run** — its feed has no value, is a record yet to
+  deliver, or is an input that holds its package's value — waits, and the
+  record's readers wait with it, before the source's first delivery and after
+  it:
+
+  ```
+    [WAIT] orders.erp: input 'erp_extract' holds its package's value: set it, and orders.erp loads it
+    [WAIT] forecast: record 'orders' waits on its load orders.erp
+  ```
+
+- **A reader of the record and of what feeds it** reads the feed's upstream at
+  the versions the record's delivery was made from, which the load's commit
+  keeps, from its history. Where nothing says which version to read, the
+  reader is deferred until the load catches up:
+
+  ```
+    [DEFER] reconcile: orders.erp's delivery was forgotten, so nothing says which erpOrders orders holds: it runs once orders.erp loads again
+    [DEFER] audit: orders and invoices hold deliveries made from different versions of erpOrders: it runs once their loads catch up
+    [DEFER] check: orders holds a delivery made from an earlier value of input 'erp_extract': it runs once orders.erp loads the new one
+  ```
+
+  Two sources of one record can hold deliveries made from different versions
+  of an upstream too, and are then named as their loads are:
+  `orders.erp and orders.wms hold deliveries made from different versions of
+  erpOrders`. A version of the upstream that a compaction cut and a sweep
+  took is read as a forgotten delivery's is. A task that reads a fed record
+  alone is never deferred, whatever its sources hold.
+
+  Where the load such a reader is deferred for cannot commit in the run — it
+  failed, it waits, or `--filter` leaves it out — the reader waits on the load
+  instead, and the run ends without it:
+  `[WAIT] check: record 'orders' waits on its load orders.erp`.
+- **A load that fails** says so as it fails, `[FAIL] orders.erp [412ms] (exit
+  code 1)`, and the record keeps its last commit. The run goes on, and the
+  load runs again when its feed moves. A run whose load still stands failed at
+  its end ends failed, naming it; one whose load then loaded its feed's next
+  output ends completed.
+- **A deploy** keeps a value someone set in an input that feeds a load,
+  whatever `--inputs` says, while its type is unchanged: `keep input
+  inputs/erp_extract, as it was set: it feeds orders.erp, which a deploy
+  never resets`. One whose type changed is reset, and the load waits until it
+  is set again.
+- **`e3 load`** of a fed source is refused, naming its feed: `orders.erp is
+  fed by .tasks.combine_erp.output, and the dataflow loads it: e3 dataflow
+  run . main --filter orders.erp`.
+- **A rollback** that forgets the source's delivery has the next run load the
+  feed again, its pieces from the cache.
+- **Refused** as the package is built: a task named `<record>.<source>`, and a
+  cycle — what feeds the load reading the record it loads, directly or through
+  other datasets, tasks and loads — naming each step: `record 'orders' → task
+  'extract' → load orders.erp → record 'orders'`.
+
+The run's graph (`dataflowGraph`) names each load node, its input the feed and
+its output the record, with the record and source it loads (`load`). No node
+depends on a load node: the record stays a root input of the run.
 
 ## Rollbacks, restores and compactions
 

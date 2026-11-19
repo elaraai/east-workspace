@@ -321,6 +321,7 @@ export { E3_RELEASE, compareReleases } from './release.js';
 
 // The names e3 makes paths of, and the hashes and ids
 export { type NamedKind, type HashKind, type IdKind, type IdentifierKind, nameProblem } from './names.js';
+export { type DataflowStep, loadNodeName, loadStepProblem } from './dataflow-loads.js';
 
 // Dataset transfer types
 export {
@@ -626,6 +627,8 @@ export {
   type TaskStatus,
   TaskStateType,
   type TaskState,
+  DataflowLoadType,
+  type DataflowLoad,
   DataflowGraphTaskType,
   type DataflowGraphTask,
   DataflowGraphType,

@@ -16,26 +16,33 @@
  * by `dataflow/orchestrator/LocalOrchestrator.ts`.
  */
 
-import { StringType, compareFor, decodeBeast2For, variant } from '@elaraai/east';
+import { StringType, compareFor, decodeBeast2For, equalFor, none, parseFor, some, variant } from '@elaraai/east';
 import {
+  VersionVectorType,
   WorkspaceRecordType,
   decodeRecordCommit,
+  decodeRecordLoadObject,
   decodeRecordObject,
+  loadNodeName,
+  loadStepProblem,
   pathToString,
+  type DataflowGraph,
+  type DataflowLoad,
+  type PackageObject,
   type TaskObject,
   type TreePath,
   type VersionVector,
 } from '@elaraai/e3-types';
 import { OBJECT_CONCURRENCY, eachAtMost } from './concurrency.js';
 import type { CatchUpRun, DataflowExecutionState, DeferReason, InputWait } from './dataflow/types.js';
-import { keypathToRefPath, madeAt, refPathToKeypath, sameVersion, versionRoots } from './dataset-refs.js';
+import { keypathToRefPath, madeAt, refPathToKeypath, sameVersion, versionRoots, type RootRead } from './dataset-refs.js';
 import {
   executionGetOutput,
   inputsHash,
 } from './executions.js';
 import { taskInputRead, type InputHeld } from './input-read.js';
 import { packageObjectRead } from './packages.js';
-import { EXTERNAL_SLOT, pendingSources, slotNames } from './record-slots.js';
+import { EXTERNAL_SLOT, pendingSources, slotNames, sourceLoadSlots } from './record-slots.js';
 import { recordPendingAt } from './records.js';
 import { taskObjectRead } from './tasks.js';
 import type { TaskRunner } from './execution/interfaces.js';
@@ -109,21 +116,20 @@ export function parsePathString(pathStr: string): TreePath {
 // =============================================================================
 
 /**
- * Information about a task in the dependency graph.
+ * A node of the dependency graph: a task of the package, or the load of a
+ * composite record's fed source.
  */
-interface TaskNode {
-  /** Task name */
-  name: string;
-  /** Hash of the TaskObject in object store */
-  hash: string;
-  /** The decoded TaskObject */
-  task: TaskObject;
-  /** Input dataset paths */
-  inputPaths: TreePath[];
-  /** Output dataset path */
-  outputPath: TreePath;
-  /** Number of unresolved dependencies (inputs that are unassigned) */
-  unresolvedCount: number;
+interface GraphNode {
+  /** The task's name, or the load's `<record>.<source>` */
+  readonly name: string;
+  /** Hash of its task object: the load's own, for a load */
+  readonly hash: string;
+  /** Input dataset paths: a load's feed alone */
+  readonly inputPaths: readonly TreePath[];
+  /** Output dataset path: a load's record */
+  readonly outputPath: TreePath;
+  /** The record and source a load loads; undefined for a task */
+  readonly load?: DataflowLoad;
 }
 
 /**
@@ -258,16 +264,27 @@ async function readWorkspaceState(storage: StorageBackend, repo: string, ws: str
 // =============================================================================
 
 /**
- * Build the dependency graph for a workspace.
+ * Build the dependency graph for a workspace: a node for each task of its
+ * package, and after them one for each fed source of its composite records,
+ * the source's load.
+ *
+ * @remarks
+ * A load node reads its feed and writes its record, and the record stays a
+ * root of the run: no node depends on a load node, and `outputToTask` names
+ * none. A load named as a task is, and a cycle through a load — what feeds it
+ * reading its record — are refused as the SDK refuses them
+ * ({@link loadStepProblem}), for a package built otherwise.
+ *
+ * @throws {DataflowError} Naming the task that has a load's name, or the
+ *   cycle's steps
  */
 async function buildDependencyGraph(
   storage: StorageBackend,
   repo: string,
   ws: string
 ): Promise<{
-  taskNodes: Map<string, TaskNode>;
+  nodes: Map<string, GraphNode>;
   outputToTask: Map<string, string>;
-  taskDependents: Map<string, Set<string>>;
 }> {
   const state = await readWorkspaceState(storage, repo, ws);
 
@@ -280,48 +297,94 @@ async function buildDependencyGraph(
     tasks[i] = await taskObjectRead(storage, repo, packaged[i]![1]);
   });
 
-  const taskNodes = new Map<string, TaskNode>();
+  const nodes = new Map<string, GraphNode>();
   const outputToTask = new Map<string, string>();
 
   packaged.forEach(([taskName, taskHash], i) => {
     const task = tasks[i]!;
-
-    const outputPathStr = pathToString(task.output.path);
-    outputToTask.set(outputPathStr, taskName);
-
-    taskNodes.set(taskName, {
+    outputToTask.set(pathToString(task.output.path), taskName);
+    nodes.set(taskName, {
       name: taskName,
       hash: taskHash,
-      task,
       inputPaths: task.inputs.map((input) => input.path),
       outputPath: task.output.path,
-      unresolvedCount: 0,
     });
   });
 
-  const taskDependents = new Map<string, Set<string>>();
-  for (const taskName of taskNodes.keys()) {
-    taskDependents.set(taskName, new Set());
+  const loads = await loadNodesOf(storage, repo, pkgObject);
+  const problem = loadStepProblem([...nodes.values(), ...loads].map((node) => ({
+    inputs: node.inputPaths.map(pathToString),
+    output: pathToString(node.outputPath),
+    ...(node.load === undefined ? { task: node.name } : { load: node.load }),
+  })));
+  if (problem !== null) throw new DataflowError(problem);
+  for (const node of loads) nodes.set(node.name, node);
+
+  return { nodes, outputToTask };
+}
+
+/**
+ * The task objects of a package's load nodes: what a workspace's executions
+ * name beside its package's tasks.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param pkg - The package
+ * @returns The hash of each fed source's load task
+ * @internal
+ */
+export async function packageLoadTasks(storage: StorageBackend, repo: string, pkg: PackageObject): Promise<Set<string>> {
+  return new Set((await loadNodesOf(storage, repo, pkg)).map((node) => node.hash));
+}
+
+/**
+ * What feeds a package's loads: each fed source's feed, by its ref path, to
+ * the loads it feeds, `<record>.<source>`, joined with commas where it feeds
+ * several. A deploy reads its inputs' entries (`planInputDeployments`).
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param pkg - The package
+ * @returns The loads each feed feeds, by the feed's ref path (`inputs/erp_extract`)
+ * @internal
+ */
+export async function packageLoadFeeds(storage: StorageBackend, repo: string, pkg: PackageObject): Promise<Map<string, string>> {
+  const feeds = new Map<string, string>();
+  for (const node of await loadNodesOf(storage, repo, pkg)) {
+    const feed = keypathToRefPath(pathToString(node.inputPaths[0]!));
+    const fed = feeds.get(feed);
+    feeds.set(feed, fed === undefined ? node.name : `${fed}, ${node.name}`);
   }
+  return feeds;
+}
 
-  for (const [taskName, node] of taskNodes) {
-    for (const inputPath of node.inputPaths) {
-      const inputPathStr = pathToString(inputPath);
-      const producerTask = outputToTask.get(inputPathStr);
-
-      if (producerTask) {
-        taskDependents.get(producerTask)!.add(taskName);
-        node.unresolvedCount++;
-      } else {
-        const { refType } = await workspaceGetDatasetHash(storage, repo, ws, inputPath);
-        if (refType === 'unassigned') {
-          node.unresolvedCount++;
-        }
-      }
+/**
+ * The load nodes of a package: one for each fed source of each of its
+ * composite records, in the order of the records' names and then the
+ * sources'. A source `e3 load` delivers has none.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param pkg - The deployed package
+ * @returns The nodes, each reading its feed and writing its record
+ */
+async function loadNodesOf(storage: StorageBackend, repo: string, pkg: PackageObject): Promise<GraphNode[]> {
+  const records = [...pkg.records];
+  const fed: GraphNode[][] = new Array<GraphNode[]>(records.length);
+  await eachAtMost(records.map((_, i) => i), OBJECT_CONCURRENCY, async (i) => {
+    const [record, hash] = records[i]!;
+    const object = decodeRecordObject(await storage.objects.read(repo, hash));
+    const outputPath = parsePathString(refPathToKeypath(object.path));
+    const nodes: GraphNode[] = [];
+    for (const [source, writer] of object.sources) {
+      if (writer.type !== 'load') continue;
+      const load = decodeRecordLoadObject(await storage.objects.read(repo, writer.value));
+      if (load.feed.type === 'none') continue;
+      nodes.push({ name: loadNodeName(record, source), hash: load.task, inputPaths: [load.feed.value], outputPath, load: { record, source } });
     }
-  }
-
-  return { taskNodes, outputToTask, taskDependents };
+    fed[i] = nodes;
+  });
+  return fed.flat();
 }
 
 // =============================================================================
@@ -344,52 +407,37 @@ export async function dataflowGetGraph(
   storage: StorageBackend,
   repo: string,
   ws: string
-): Promise<{
-  tasks: Array<{
-    name: string;
-    hash: string;
-    inputs: string[];
-    output: string;
-    dependsOn: string[];
-  }>;
-}> {
-  let taskNodes: Map<string, TaskNode>;
+): Promise<DataflowGraph> {
+  let nodes: Map<string, GraphNode>;
   let outputToTask: Map<string, string>;
 
   try {
     const graph = await buildDependencyGraph(storage, repo, ws);
-    taskNodes = graph.taskNodes;
+    nodes = graph.nodes;
     outputToTask = graph.outputToTask;
   } catch (err) {
     if (err instanceof E3Error) throw err;
     throw new DataflowError(`Failed to build dependency graph: ${err instanceof Error ? err.message : err}`);
   }
 
-  const tasks: Array<{
-    name: string;
-    hash: string;
-    inputs: string[];
-    output: string;
-    dependsOn: string[];
-  }> = [];
+  const tasks: DataflowGraph['tasks'] = [];
 
-  for (const [taskName, node] of taskNodes) {
+  for (const [name, node] of nodes) {
+    // The tasks that write what it reads: a load node's feed's, when a task writes it. No load writes what a node
+    // depends on, so the record a load writes stays a root.
     const dependsOn: string[] = [];
-
     for (const inputPath of node.inputPaths) {
-      const inputPathStr = pathToString(inputPath);
-      const producerTask = outputToTask.get(inputPathStr);
-      if (producerTask) {
-        dependsOn.push(producerTask);
-      }
+      const producerTask = outputToTask.get(pathToString(inputPath));
+      if (producerTask) dependsOn.push(producerTask);
     }
 
     tasks.push({
-      name: taskName,
+      name,
       hash: node.hash,
       inputs: node.inputPaths.map(pathToString),
       output: pathToString(node.outputPath),
       dependsOn,
+      load: node.load === undefined ? none : some(node.load),
     });
   }
 
@@ -401,17 +449,10 @@ export async function dataflowGetGraph(
 // =============================================================================
 
 /**
- * Graph structure returned by dataflowGetGraph.
+ * Graph structure returned by dataflowGetGraph: a run's graph, as its state
+ * stores it (e3-types' `DataflowGraphType`).
  */
-export interface DataflowGraph {
-  tasks: Array<{
-    name: string;
-    hash: string;
-    inputs: string[];
-    output: string;
-    dependsOn: string[];
-  }>;
-}
+export type { DataflowGraph };
 
 /**
  * Get tasks that are ready to execute given the tasks that have completed and
@@ -491,7 +532,8 @@ const producersOf = new WeakMap<DataflowGraph, ReadonlyMap<string, DataflowGraph
  * @remarks
  * Built once for a graph and kept with it, so a run that asks for it at every
  * decision — a task's commits, its inputs, the tasks left waiting with it —
- * builds it once, however many tasks land.
+ * builds it once, however many tasks land. A load node is not among them: the
+ * record it writes stays a root.
  *
  * @param graph - The run's graph
  * @returns Each task, by its output's keypath
@@ -499,10 +541,116 @@ const producersOf = new WeakMap<DataflowGraph, ReadonlyMap<string, DataflowGraph
 export function taskProducers(graph: DataflowGraph): ReadonlyMap<string, DataflowGraph['tasks'][number]> {
   let producers = producersOf.get(graph);
   if (producers === undefined) {
-    producers = new Map(graph.tasks.map((task) => [task.output, task] as const));
+    producers = new Map(graph.tasks.filter((task) => task.load.type === 'none').map((task) => [task.output, task] as const));
     producersOf.set(graph, producers);
   }
   return producers;
+}
+
+/** Each graph's load nodes by the record each writes, built once for the graph. */
+const loadNodesByRecord = new WeakMap<DataflowGraph, ReadonlyMap<string, readonly DataflowGraph['tasks'][number][]>>();
+
+/**
+ * The load nodes of a run's graph by the record each loads: what a task that
+ * reads a record waits on while one of them waits, and what the record
+ * carries of the roots their feeds read ({@link dataflowCarried}). No node
+ * depends on a load node.
+ *
+ * @remarks
+ * Built once for a graph and kept with it, as {@link taskProducers} is.
+ *
+ * @param graph - The run's graph
+ * @returns Each record's load nodes, by the record's keypath (`.records.orders`); a record no load writes is not in it
+ */
+export function loadsOf(graph: DataflowGraph): ReadonlyMap<string, readonly DataflowGraph['tasks'][number][]> {
+  let loads = loadNodesByRecord.get(graph);
+  if (loads === undefined) {
+    const byRecord = new Map<string, DataflowGraph['tasks'][number][]>();
+    for (const task of graph.tasks) {
+      if (task.load.type === 'some') byRecord.set(task.output, [...(byRecord.get(task.output) ?? []), task]);
+    }
+    loads = byRecord;
+    loadNodesByRecord.set(graph, loads);
+  }
+  return loads;
+}
+
+/** What a run asks of its graph's shape at every decision, built once for the graph. */
+interface GraphShape {
+  readonly byName: ReadonlyMap<string, DataflowGraph['tasks'][number]>;
+  readonly dependents: ReadonlyMap<string, readonly DataflowGraph['tasks'][number][]>;
+  readonly readers: ReadonlyMap<string, readonly DataflowGraph['tasks'][number][]>;
+}
+
+const shapes = new WeakMap<DataflowGraph, GraphShape>();
+
+/** A graph's shape, built in one pass over its nodes and kept with it. */
+function shapeOf(graph: DataflowGraph): GraphShape {
+  let shape = shapes.get(graph);
+  if (shape === undefined) {
+    const byName = new Map<string, DataflowGraph['tasks'][number]>();
+    const dependents = new Map<string, DataflowGraph['tasks'][number][]>();
+    const readers = new Map<string, DataflowGraph['tasks'][number][]>();
+    const listed = (lists: Map<string, DataflowGraph['tasks'][number][]>, key: string, node: DataflowGraph['tasks'][number]): void => {
+      const list = lists.get(key);
+      if (list === undefined) lists.set(key, [node]);
+      else list.push(node);
+    };
+    for (const node of graph.tasks) {
+      byName.set(node.name, node);
+      for (const dependency of new Set(node.dependsOn)) listed(dependents, dependency, node);
+      for (const input of new Set(node.inputs)) listed(readers, input, node);
+    }
+    shape = { byName, dependents, readers };
+    shapes.set(graph, shape);
+  }
+  return shape;
+}
+
+/**
+ * The nodes of a run's graph by name: its tasks and its load nodes.
+ *
+ * @remarks
+ * Built once for a graph and kept with it, as {@link taskProducers} is: a run
+ * asks for a node by its name for every node it prepares and every unit it
+ * launches.
+ *
+ * @param graph - The run's graph
+ * @returns Each node, by its name
+ */
+export function graphNodes(graph: DataflowGraph): ReadonlyMap<string, DataflowGraph['tasks'][number]> {
+  return shapeOf(graph).byName;
+}
+
+/**
+ * The nodes of a run's graph that depend on each task: what cannot run while
+ * the task has not, and is decided again as it settles.
+ *
+ * @remarks
+ * Built once for a graph and kept with it, as {@link taskProducers} is.
+ *
+ * @param graph - The run's graph
+ * @returns The nodes naming each task in their `dependsOn`, by the task's
+ *   name, in the graph's order; a task nothing depends on is not in it
+ */
+export function taskDependents(graph: DataflowGraph): ReadonlyMap<string, readonly DataflowGraph['tasks'][number][]> {
+  return shapeOf(graph).dependents;
+}
+
+/**
+ * The nodes of a run's graph that read each dataset directly: a record's
+ * readers, which wait while its load waits and are decided again as it
+ * settles.
+ *
+ * @remarks
+ * Built once for a graph and kept with it, as {@link taskProducers} is.
+ *
+ * @param graph - The run's graph
+ * @returns The nodes naming each dataset among their inputs, by the dataset's
+ *   keypath, in the graph's order; a dataset nothing reads is not in it
+ */
+export function datasetReaders(graph: DataflowGraph): ReadonlyMap<string, readonly DataflowGraph['tasks'][number][]> {
+  return shapeOf(graph).readers;
 }
 
 /**
@@ -668,10 +816,10 @@ interface RunRoots {
   /** The commits of each record the store was found to hold no more, as a
    *  task was launched: the store is not asked for one again */
   gone: Map<string, Set<string>>;
-  /** What each root waited for at a version a look of the run took, by the
-   *  root and the version: the external sources a composite record waited
-   *  for, as that look read its ref, and none for any other */
-  waited: Map<string, Map<string, readonly string[]>>;
+  /** What each root's ref held at a version a look of the run took, by the
+   *  root and the version: its hash, and its version vector, whose slots say
+   *  what a composite record waited for and what its loads read */
+  looked: Map<string, Map<string, RootRead>>;
 }
 
 const runRoots = new WeakMap<DataflowExecutionState, RunRoots>();
@@ -691,7 +839,7 @@ function numberVersion(roots: RunRoots, path: string, version: string): void {
 function rootsOf(state: DataflowExecutionState): RunRoots {
   let roots = runRoots.get(state);
   if (roots === undefined) {
-    roots = { records: null, taken: new Map(), next: 0, older: new Map(), gone: new Map(), waited: new Map() };
+    roots = { records: null, taken: new Map(), next: 0, older: new Map(), gone: new Map(), looked: new Map() };
     runRoots.set(state, roots);
     for (const [path, version] of state.inputSnapshot) numberVersion(roots, path, version);
   }
@@ -737,41 +885,169 @@ export function dataflowSnapshotTaken(
 }
 
 /**
- * Notes what a look of the run read of each root's wait, at the version of
- * it the run's snapshot now holds: the external sources a composite record
- * waited for, and none for any other root.
+ * Notes what a look of the run read of each root's ref, at the version of it
+ * the run's snapshot now holds: its hash and its version vector, whose slots
+ * say what a composite record waited for and what its loads read.
  *
  * @remarks
  * A run reads a record at a version it took, which the record's ref may have
  * moved on from by the time a task reads it: a source may have delivered for
- * the first time since. So whether the record waits is judged at that
- * version, as the look that took it read it ({@link dataflowResolveInputs}):
- * no task reads the record as it stood before a source first delivered, and
- * the record's readers run once the run looks again and takes the delivery
- * in. Called after each look, once the run's state holds what it took.
+ * the first time since, or loaded again. So the record is judged at that
+ * version, as the look that took it read it: whether it waits
+ * ({@link dataflowResolveInputs}), and what it carries of the roots its loads'
+ * feeds read ({@link dataflowCarried}). No task reads the record as it stood
+ * before a source first delivered, and the record's readers run once the run
+ * looks again and takes the delivery in. Called after each look, once the
+ * run's state holds what it took.
  *
  * @param state - The run's state, holding the look's snapshot
- * @param waited - The sources each composite record waited for at the
- *   version the look read, by its keypath; a root not named waited for none
+ * @param looked - What each root's ref held at the version the look read, by
+ *   its keypath
  * @internal
  */
-export function dataflowSnapshotLooked(state: DataflowExecutionState, waited: ReadonlyMap<string, readonly string[]>): void {
+export function dataflowSnapshotLooked(state: DataflowExecutionState, looked: ReadonlyMap<string, RootRead>): void {
   const roots = rootsOf(state);
   for (const [path, version] of state.inputSnapshot) {
-    let at = roots.waited.get(path);
+    const read = looked.get(path);
+    if (read === undefined) continue;
+    let at = roots.looked.get(path);
     if (at === undefined) {
       at = new Map();
-      roots.waited.set(path, at);
+      roots.looked.set(path, at);
     }
-    at.set(version, waited.get(path) ?? []);
+    at.set(version, read);
   }
 }
 
-/** What a root waited for at a version of it, as the look of the run that
+/** What a root's ref held at a version of it, as the look of the run that
  *  took that version read it; `undefined` for a version no look of the run
  *  read, such as one a result made before the run names. */
+function lookedAt(state: DataflowExecutionState, path: string, version: string): RootRead | undefined {
+  return runRoots.get(state)?.looked.get(path)?.get(version);
+}
+
+/** What a root waited for at a version of it, as the look of the run that
+ *  took that version read it ({@link lookedAt}): the external sources a
+ *  composite record waited for, and none for any other root. */
 function waitedAt(state: DataflowExecutionState, path: string, version: string): readonly string[] | undefined {
-  return runRoots.get(state)?.waited.get(path)?.get(version);
+  const read = lookedAt(state, path, version);
+  return read === undefined ? undefined : pendingSources(read.versions);
+}
+
+/** The version a fed record carries of a root its feed reads when nothing
+ *  says which version its delivery was made from: a rollback, a restore or a
+ *  migration made it forget the delivery. */
+export const UNKNOWN_VERSION = '$unknown';
+
+/** What one source the dataflow loads carries, at a version of its record. */
+export interface CarriedFeed {
+  /** The source, by name */
+  readonly source: string;
+  /** The version of each root its feed reads that the record's delivery was
+   *  made from: {@link UNKNOWN_VERSION} for each, where nothing says */
+  readonly versions: VersionVector;
+}
+
+/** Whether two objects, or two names, are one. */
+const sameText = equalFor(StringType);
+
+/** Reads a version vector as a `.feed` slot holds it: as East prints it. */
+const parseVersionVector = parseFor(VersionVectorType);
+
+/**
+ * What a fed record carries at a version of it a look of the run read: for
+ * each of its sources the dataflow loads, the version vector of the feed its
+ * delivery was made from.
+ *
+ * @remarks
+ * - **The slot.** `$load.<source>.feed`, as the look that took the version
+ *   read the record's ref, read through East.
+ * - **The feed in the run.** When the feed's output in the run is the
+ *   source's delivery (`$load.<source>`), the feed's vector in the run
+ *   instead: the same value, from versions of its roots at least as new, so a
+ *   feed whose roots moved without changing the delivery leaves the record's
+ *   readers reading them as they are now.
+ * - **A forgotten delivery.** A source the record holds no delivery of — a
+ *   rollback, a restore or a migration made it forget it — carries
+ *   {@link UNKNOWN_VERSION} for each root its feed reads, through the graph;
+ *   and so does one whose slot says nothing of its feed.
+ * - **A source yet to deliver** carries nothing: the record's readers wait.
+ *
+ * A version no look of the run read carries nothing.
+ *
+ * @param state - The run's state
+ * @param record - The record's keypath
+ * @param version - Its version: a commit a look of the run took
+ * @returns What each of its fed sources carries, in the graph's order
+ * @internal
+ */
+export function dataflowCarried(state: DataflowExecutionState, record: string, version: string): CarriedFeed[] {
+  const graph = state.graph.type === 'some' ? state.graph.value : null;
+  const read = lookedAt(state, record, version);
+  if (graph === null || read === undefined) return [];
+  const waits = pendingSources(read.versions);
+  const carried: CarriedFeed[] = [];
+  for (const node of loadsOf(graph).get(record) ?? []) {
+    if (node.load.type !== 'some') continue;
+    const { source } = node.load.value;
+    if (waits.some((name) => sameText(name, source))) continue;
+    const feed = node.inputs[0]!;
+    const slots = sourceLoadSlots(source);
+    const delivery = read.versions.get(slots.delivery);
+    const inRun = delivery === undefined ? null : feedInRun(state, graph, feed);
+    if (delivery !== undefined && inRun !== null && sameText(inRun.hash, delivery)) {
+      carried.push({ source, versions: inRun.versions });
+      continue;
+    }
+    const slot = delivery === undefined ? undefined : read.versions.get(slots.feed);
+    const parsed = slot === undefined ? null : parseVersionVector(slot);
+    carried.push({ source, versions: parsed?.success === true ? parsed.value : unknownRoots(graph, feed) });
+  }
+  return carried;
+}
+
+/** A feed's output in the run, and the versions it was made from: a task's
+ *  result; or a root's value as the run's snapshot holds it, read by the look
+ *  that took it. `null` while the run holds neither. */
+function feedInRun(state: DataflowExecutionState, graph: DataflowGraph, feed: string): RootRead | null {
+  const producer = taskProducers(graph).get(feed);
+  if (producer !== undefined) {
+    const output = state.tasks.get(producer.name)?.outputHash;
+    const made = state.versionVectors.get(feed);
+    return output?.type === 'some' && made !== undefined ? { hash: output.value, versions: made } : null;
+  }
+  const version = state.inputSnapshot.get(feed);
+  const read = version === undefined ? undefined : lookedAt(state, feed, version);
+  return version === undefined || read === undefined ? null : { hash: read.hash, versions: new Map([[feed, version]]) };
+}
+
+/** Each root a feed reads, through the graph's tasks, at {@link UNKNOWN_VERSION}. */
+function unknownRoots(graph: DataflowGraph, feed: string): VersionVector {
+  return new Map(feedRoots(graph, feed).map((root) => [root, UNKNOWN_VERSION]));
+}
+
+/**
+ * The roots a dataset of a run's graph is made from, through the tasks that
+ * write it and those they read: a root itself, a task's output its task's.
+ *
+ * @param graph - The run's graph
+ * @param path - The dataset's keypath: a load's feed, say
+ * @returns The roots' keypaths, each once, in the order they are first met
+ * @internal
+ */
+export function feedRoots(graph: DataflowGraph, path: string): string[] {
+  const producers = taskProducers(graph);
+  const roots: string[] = [];
+  const seen = new Set<string>();
+  const walk = (at: string): void => {
+    if (seen.has(at)) return;
+    seen.add(at);
+    const producer = producers.get(at);
+    if (producer === undefined) roots.push(at);
+    else for (const input of producer.inputs) walk(input);
+  };
+  walk(path);
+  return roots;
 }
 
 /** Lets go of the versions older than every one the run's state names, and of
@@ -801,11 +1077,11 @@ function letGoVersions(state: DataflowExecutionState, roots: RunRoots): void {
       if (number < least) taken.delete(version);
     }
   }
-  // What a look read of a version's wait goes with the version
-  for (const [root, waited] of roots.waited) {
+  // What a look read of a version's ref goes with the version
+  for (const [root, looked] of roots.looked) {
     const taken = roots.taken.get(root);
-    for (const version of [...waited.keys()]) {
-      if (taken?.has(version) !== true) waited.delete(version);
+    for (const version of [...looked.keys()]) {
+      if (taken?.has(version) !== true) looked.delete(version);
     }
   }
   for (const key of [...roots.older.keys()]) {

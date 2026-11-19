@@ -162,15 +162,33 @@ export type DeferReason =
   /** A plain input the task's inputs read at different values: `through`
    *  names those inputs, each a task by its name, or the input's own keypath
    *  where the task reads it directly, which comes first */
-  { kind: 'plain'; input: string; through: string[] };
+  | { kind: 'plain'; input: string; through: string[] }
+  /** A fed record, by its keypath, whose delivery from `source` a rollback, a
+   *  restore or a migration made it forget, so nothing says which versions of
+   *  the roots its feed reads it holds: `roots` names those another input of
+   *  the task names */
+  | { kind: 'forgotten'; record: string; source: string; roots: string[] }
+  /** Two fed sources holding deliveries made from different versions of one
+   *  root: each by its record's keypath (`records`) and its name (`sources`),
+   *  in the same order. They are two records' sources, or two sources of one
+   *  record that the task reads beside the root */
+  | { kind: 'carried'; records: [string, string]; sources: [string, string]; root: string }
+  /** A fed record, by its keypath, read beside the plain input that feeds its
+   *  source, which has moved on from the value its delivery was made from */
+  | { kind: 'feed'; record: string; source: string; input: string };
 
 /**
  * What stepTaskCommits answers: the version of each root the task reads —
- * for a record, the commit — or why it is deferred.
+ * for a record, the commit — or why it is deferred; or, where only a load's
+ * commit would end the deferral and that load cannot commit in the run, the
+ * load it waits on.
  */
 export type TaskCommits =
   | { kind: 'commits'; versions: Map<string, string> }
-  | { kind: 'deferred'; reason: DeferReason };
+  | { kind: 'deferred'; reason: DeferReason }
+  /** The task waits on a record's load (`upstream`), as a reader of a load
+   *  that cannot run does: it is left waiting (stepTasksWaiting) */
+  | { kind: 'waiting'; waits: InputWait[] };
 
 /**
  * An input a task waits on, by its keypath, and why the task cannot read it
@@ -189,7 +207,15 @@ export type InputWait =
   /** The input is a composite record, or an index of one, that has yet to
    *  hear from these external sources: it holds the solution's own entries
    *  alone until each has delivered once */
-  | { input: string; kind: 'pending'; sources: string[] };
+  | { input: string; kind: 'pending'; sources: string[] }
+  /** The input feeds a load, and holds the value the deployed package gave
+   *  it: a load waits until someone sets it */
+  | { input: string; kind: 'package' }
+  /** The input is a composite record whose load node `task` waits: its
+   *  readers wait with it. So does a reader that only that load's commit
+   *  would decide, where the load cannot commit in the run: it failed, or
+   *  the run's filter leaves it out */
+  | { input: string; kind: 'upstream'; task: string };
 
 /**
  * What stepPrepareTask answers for a task that cannot run yet: an input of it
@@ -207,6 +233,52 @@ export interface PrepareTaskWaiting {
   /** The task's inputs it cannot read, in the task's input order, each with
    *  why */
   waits: InputWait[];
+}
+
+/**
+ * What stepPrepareLoad answers for a load node that runs: its inputs — the
+ * delivery its feed holds, and its source's run of the record's head — the
+ * execution the cache serves, and what its commit needs.
+ */
+export interface PrepareLoadResult extends PrepareTaskResult {
+  /** What the node's commit applies, and to what */
+  load: {
+    /** The record, as its ref is read and its commit names it */
+    record: { refPath: string; selfKeypath: string };
+    /** The source the node loads */
+    source: string;
+    /** The hash of the source's load object, which its `.load` slot names */
+    loadHash: string;
+    /** The record's head when the source's run was read: what the delta
+     *  holds on; undefined for a record whose ref names none */
+    base: string | undefined;
+    /** The delivery: the object the feed holds at the node's versions */
+    delivery: string;
+    /** The source's run of the record at `base` */
+    run: string;
+    /** The execution the record's `.execution` slot names, when its slots
+     *  name this delivery under this load already; null otherwise. A forced
+     *  node commits only a delta that changes something, and completes with
+     *  this execution when its delta changes nothing, as the record holds it */
+    loadedBy: { inputsHash: string; executionId: string } | null;
+  };
+}
+
+/**
+ * What stepPrepareLoad answers for a load node whose record holds its feed's
+ * delivery already, under the same load: it completes at once, served from
+ * the record's slots, and nothing commits.
+ */
+export interface PrepareLoadAnswered {
+  /** The record's slots answer the node */
+  kind: 'answered';
+  /** Node name, `<record>.<source>` */
+  task: string;
+  /** The record's head commit: the node's output */
+  commit: string;
+  /** The execution the record's `.execution` slot names, which made the
+   *  delta its last load committed */
+  execution: { inputsHash: string; executionId: string };
 }
 
 /**

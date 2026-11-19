@@ -588,24 +588,38 @@ interface Summary {
  * - A record that has yet to hear from external sources is said once, however
  *   many of the task's inputs read it or an index of it: `record 'orders'
  *   waits for the first delivery of erp`.
+ * - A load's feed input that holds its package's value: `input 'erp_extract'
+ *   holds its package's value: set it, and orders.erp loads it`.
+ * - A record whose load waits, for its readers: `record 'orders' waits on its
+ *   load orders.erp`.
+ *
+ * Inputs and records named by their own words are named as they were
+ * declared.
  *
  * @param waits - The task's inputs it cannot read, each with why
+ * @param task - The task, or the load, that waits: what loads a feed input
  * @returns The words after the task's name
  *
  * @example
  * ```ts
- * describeWaits([{ input: '.records.orders', kind: 'pending', sources: ['erp'] }]);
+ * describeWaits([{ input: '.records.orders', kind: 'pending', sources: ['erp'] }], 'forecast');
  * // "record 'orders' waits for the first delivery of erp"
  * ```
  */
-export function describeWaits(waits: readonly InputWait[]): string {
+export function describeWaits(waits: readonly InputWait[], task: string): string {
   const said: string[] = [];
+  const say = (words: string): void => {
+    if (!said.includes(words)) said.push(words);
+  };
   const unset = waits.filter((wait) => wait.kind === 'unset').map((wait) => wait.input);
   if (unset.length > 0) said.push(`${unset.length === 1 ? 'input' : 'inputs'} ${unset.map((input) => `'${input}'`).join(', ')} not set`);
   for (const wait of waits) {
-    if (wait.kind !== 'pending') continue;
-    const words = pendingWaitWords(wait.input, wait.sources);
-    if (!said.includes(words)) said.push(words);
+    switch (wait.kind) {
+      case 'unset': break;
+      case 'pending': say(pendingWaitWords(wait.input, wait.sources)); break;
+      case 'package': say(`input '${declaredName(wait.input)}' holds its package's value: set it, and ${task} loads it`); break;
+      case 'upstream': say(`record '${declaredName(wait.input)}' waits on its load ${wait.task}`); break;
+    }
   }
   return said.join('; ');
 }
@@ -618,7 +632,7 @@ export function describeWaits(waits: readonly InputWait[]): string {
  * @returns The line, without its indent
  */
 export function waitLine(task: string, waits: readonly InputWait[]): string {
-  return `[WAIT] ${task}: ${describeWaits(waits)}`;
+  return `[WAIT] ${task}: ${describeWaits(waits, task)}`;
 }
 
 /**
@@ -646,8 +660,33 @@ function listed(names: readonly string[]): string {
 }
 
 /**
+ * A root as it was declared: an input's or a record's name, its path's last
+ * field under `.inputs` or `.records`; any other by its keypath.
+ */
+function declaredName(keypath: string): string {
+  const path = parseKeypath(keypath);
+  return path.length === 2 && (sameName(path[0]!.value, 'inputs') || sameName(path[0]!.value, 'records')) ? path[1]!.value : keypath;
+}
+
+/**
  * Why a run deferred a task, as its `[DEFER]` line and the watch's say it:
  * what its inputs disagree on, and what the task runs after.
+ *
+ * @remarks
+ * - `plain`: an input its inputs read at two values, and through what: the
+ *   input itself, said `directly` and first, and the tasks whose results were
+ *   made from it.
+ * - `forgotten`: a fed record's delivery that a rollback, a restore or a
+ *   migration made it forget, and the roots its feed reads that the task
+ *   reads too.
+ * - `carried`: two fed records holding deliveries made from different
+ *   versions of one root; or one record's two sources, each named as its
+ *   load is.
+ * - `feed`: a fed record read beside the input that feeds it, which has moved
+ *   on since the record's delivery was made from it.
+ *
+ * Inputs and records are named as they were declared; a load as its step in
+ * the run is, `<record>.<source>`.
  *
  * @param reason - The deferral's reason, as the run tells it
  * @returns The words after the task's name
@@ -656,17 +695,33 @@ function listed(names: readonly string[]): string {
  * ```ts
  * describeDeferral({ kind: 'plain', input: '.inputs.rates', through: ['forecast', 'capacity'] });
  * // "input 'rates' is read at two values (through forecast and capacity): it runs once they agree"
+ * describeDeferral({ kind: 'feed', record: '.records.orders', source: 'erp', input: '.inputs.erp_extract' });
+ * // "orders holds a delivery made from an earlier value of input 'erp_extract': it runs once orders.erp loads the new one"
  * ```
  */
 export function describeDeferral(reason: DeferReason): string {
-  // An input is named as it was declared: its path's last field, under `.inputs`
-  const path = parseKeypath(reason.input);
-  const input = path.length === 2 && sameName(path[0]!.value, 'inputs') ? path[1]!.value : reason.input;
-  // The task's inputs that read it: the input itself, said first, and the
-  // tasks whose results were made from it
-  const tasks = reason.through.filter((each) => !sameName(each, reason.input));
-  const how = [...(tasks.length < reason.through.length ? ['directly'] : []), ...(tasks.length > 0 ? [`through ${listed(tasks)}`] : [])];
-  return `input '${input}' is read at two values (${how.join(' and ')}): it runs once they agree`;
+  switch (reason.kind) {
+    case 'plain': {
+      const tasks = reason.through.filter((each) => !sameName(each, reason.input));
+      const how = [...(tasks.length < reason.through.length ? ['directly'] : []), ...(tasks.length > 0 ? [`through ${listed(tasks)}`] : [])];
+      return `input '${declaredName(reason.input)}' is read at two values (${how.join(' and ')}): it runs once they agree`;
+    }
+    case 'forgotten': {
+      const record = declaredName(reason.record);
+      const load = `${record}.${reason.source}`;
+      return `${load}'s delivery was forgotten, so nothing says which ${listed(reason.roots.map(declaredName))} ${record} holds: it runs once ${load} loads again`;
+    }
+    case 'carried': {
+      // Two sources of one record are told apart by their loads' names
+      const records = reason.records.map(declaredName);
+      const holders = sameName(reason.records[0], reason.records[1]) ? records.map((record, at) => `${record}.${reason.sources[at]}`) : records;
+      return `${listed(holders)} hold deliveries made from different versions of ${declaredName(reason.root)}: it runs once their loads catch up`;
+    }
+    case 'feed': {
+      const record = declaredName(reason.record);
+      return `${record} holds a delivery made from an earlier value of input '${declaredName(reason.input)}': it runs once ${record}.${reason.source} loads the new one`;
+    }
+  }
 }
 
 /**

@@ -25,7 +25,7 @@ import type { TestSetup } from '../setup.js';
 import { removeWorkspaceAfter, runE3Command, writeCliCredentials } from '../cli.js';
 import {
   createPackageZip, createFunctionPackageZip, createDraftsPackageZip, createKeyedRecordPackageZip, createMigrationPackageZip,
-  createCompositeRecordPackageZip, DraftJobsType, ErpOrdersType, PlansType,
+  createCompositeRecordPackageZip, createFedRecordPackageZip, DraftJobsType, ErpOrdersType, PlansType,
 } from '../fixtures.js';
 
 /** What one touched key of a plans patch carries — derived from the patch type
@@ -543,6 +543,32 @@ export function cliTests(
         assert.strictEqual(history.exitCode, 0, `history failed: ${history.stderr}`);
         assert.match(history.stdout, new RegExp(
           `^${commit}  \\$load:erp .*  delivery ${hash.slice(0, 12)} as of 2026-11-02T03:00:00\\.000: 2 set, 0 deleted, 0 unchanged$`, 'm'));
+      });
+
+      it('R20 — refuses a source the dataflow loads before anything is sent, naming its feed and the run that loads it', async (t) => {
+        const ctx = await withCli(t);
+        const { remoteUrl, workDir } = ctx;
+        const env = getCredentialsEnv();
+        const wsName = `load-fed-cli-ws-${Date.now()}`;
+        removeAfter(t, remoteUrl, wsName);
+        const zipPath = await createFedRecordPackageZip(ctx.tempDir, 'load-fed-cli-pkg', '1.0.0');
+        for (const command of [
+          ['package', 'import', remoteUrl, zipPath], ['workspace', 'create', remoteUrl, wsName], ['workspace', 'deploy', remoteUrl, wsName, 'load-fed-cli-pkg@1.0.0'],
+        ]) {
+          const setup = await runE3Command(command, workDir, { env });
+          assert.strictEqual(setup.exitCode, 0, `${command[0]} ${command[1]} failed: ${setup.stderr}`);
+        }
+
+        const file = join(workDir, 'erp.beast2');
+        writeFileSync(file, encodeBeast2For(ErpOrdersType)(new Map([['SO-1001', { customer: 'Acme', qty: 5n }]])));
+        const refused = await runE3Command(['load', remoteUrl, 'orders.erp', file, '-w', wsName], workDir, { env });
+        assert.notStrictEqual(refused.exitCode, 0);
+        const words = `orders.erp is fed by .tasks.combine_erp.output, and the dataflow loads it: e3 dataflow run ${remoteUrl} ${wsName} --filter orders.erp`;
+        assert.ok(refused.stderr.includes(words), `the refusal: ${refused.stderr}`);
+
+        const history = await runE3Command(['history', remoteUrl, 'orders', '-w', wsName], workDir, { env });
+        assert.strictEqual(history.exitCode, 0, `history failed: ${history.stderr}`);
+        assert.doesNotMatch(history.stdout, /\$load:/, 'nothing loaded');
       });
     });
   });

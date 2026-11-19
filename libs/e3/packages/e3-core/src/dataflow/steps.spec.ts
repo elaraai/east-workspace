@@ -30,6 +30,7 @@ import {
   stepTaskMergeCompleted,
   stepTaskCompleted,
   stepTaskFailed,
+  stepLoadFailed,
   stepTaskForced,
   stepTasksSkipped,
   stepTasksWaiting,
@@ -42,6 +43,7 @@ import * as root from '../index.js';
 import * as portable from '../portable.js';
 import type { DataflowExecutionState, InputWait, TaskState, Mutable } from './types.js';
 import { catchUpKey, dataflowRootsHeld, dataflowSnapshotTaken, recordCommitOrder, type DataflowGraph } from '../dataflow.js';
+import { sourceLoadSlots } from '../record-slots.js';
 import { createTestRepo, removeTestRepo, writableStrings } from '../test-helpers.js';
 import { LocalStorage } from '../storage/local/index.js';
 import { workspaceDeploy } from '../workspaces.js';
@@ -137,9 +139,9 @@ const unread = new LocalStorage();
 describe('stepYield', () => {
   const graph: DataflowGraph = {
     tasks: [
-      { name: 'task-a', hash: 'hash-a', inputs: ['.input'], output: '.out_a', dependsOn: [] },
-      { name: 'task-b', hash: 'hash-b', inputs: ['.out_a'], output: '.out_b', dependsOn: ['task-a'] },
-      { name: 'task-c', hash: 'hash-c', inputs: ['.out_b'], output: '.out_c', dependsOn: ['task-b'] },
+      { name: 'task-a', hash: 'hash-a', inputs: ['.input'], output: '.out_a', dependsOn: [], load: none },
+      { name: 'task-b', hash: 'hash-b', inputs: ['.out_a'], output: '.out_b', dependsOn: ['task-a'], load: none },
+      { name: 'task-c', hash: 'hash-c', inputs: ['.out_b'], output: '.out_c', dependsOn: ['task-b'], load: none },
     ],
   };
 
@@ -205,9 +207,9 @@ describe('stepYield', () => {
 describe('stepTaskForced', () => {
   const graph: DataflowGraph = {
     tasks: [
-      { name: 'extract', hash: 'hash-a', inputs: ['.input'], output: '.out_a', dependsOn: [] },
-      { name: 'model', hash: 'hash-b', inputs: ['.out_a'], output: '.out_b', dependsOn: ['extract'] },
-      { name: 'report', hash: 'hash-c', inputs: ['.out_b'], output: '.out_c', dependsOn: ['model'] },
+      { name: 'extract', hash: 'hash-a', inputs: ['.input'], output: '.out_a', dependsOn: [], load: none },
+      { name: 'model', hash: 'hash-b', inputs: ['.out_a'], output: '.out_b', dependsOn: ['extract'], load: none },
+      { name: 'report', hash: 'hash-c', inputs: ['.out_b'], output: '.out_c', dependsOn: ['model'], load: none },
     ],
   };
 
@@ -235,9 +237,9 @@ describe('stepTaskForced', () => {
 describe('checkDataflowStart', () => {
   const graph: DataflowGraph = {
     tasks: [
-      { name: 'extract', hash: 'hash-a', inputs: ['.input'], output: '.out_a', dependsOn: [] },
-      { name: 'model', hash: 'hash-b', inputs: ['.out_a'], output: '.out_b', dependsOn: ['extract'] },
-      { name: 'report', hash: 'hash-c', inputs: ['.out_b'], output: '.out_c', dependsOn: ['model'] },
+      { name: 'extract', hash: 'hash-a', inputs: ['.input'], output: '.out_a', dependsOn: [], load: none },
+      { name: 'model', hash: 'hash-b', inputs: ['.out_a'], output: '.out_b', dependsOn: ['extract'], load: none },
+      { name: 'report', hash: 'hash-c', inputs: ['.out_b'], output: '.out_c', dependsOn: ['model'], load: none },
     ],
   };
 
@@ -262,10 +264,10 @@ describe('tasks waiting on an unassigned input', () => {
   // input → a → b → c, b reading another input too; d reads that input alone
   const graph: DataflowGraph = {
     tasks: [
-      { name: 'a', hash: 'hash-a', inputs: ['.input'], output: '.out_a', dependsOn: [] },
-      { name: 'b', hash: 'hash-b', inputs: ['.out_a', '.other'], output: '.out_b', dependsOn: ['a'] },
-      { name: 'c', hash: 'hash-c', inputs: ['.out_b'], output: '.out_c', dependsOn: ['b'] },
-      { name: 'd', hash: 'hash-d', inputs: ['.other'], output: '.out_d', dependsOn: [] },
+      { name: 'a', hash: 'hash-a', inputs: ['.input'], output: '.out_a', dependsOn: [], load: none },
+      { name: 'b', hash: 'hash-b', inputs: ['.out_a', '.other'], output: '.out_b', dependsOn: ['a'], load: none },
+      { name: 'c', hash: 'hash-c', inputs: ['.out_b'], output: '.out_c', dependsOn: ['b'], load: none },
+      { name: 'd', hash: 'hash-d', inputs: ['.other'], output: '.out_d', dependsOn: [], load: none },
     ],
   };
   /** Every task pending, under `filter` when given. */
@@ -360,8 +362,8 @@ describe('tasks waiting on an unassigned input', () => {
 describe('split task stages', () => {
   const graph: DataflowGraph = {
     tasks: [
-      { name: 'task-a', hash: 'hash-a', inputs: ['.input'], output: '.out_a', dependsOn: [] },
-      { name: 'task-b', hash: 'hash-b', inputs: ['.input'], output: '.out_b', dependsOn: [] },
+      { name: 'task-a', hash: 'hash-a', inputs: ['.input'], output: '.out_a', dependsOn: [], load: none },
+      { name: 'task-b', hash: 'hash-b', inputs: ['.input'], output: '.out_b', dependsOn: [], load: none },
     ],
   };
 
@@ -410,8 +412,8 @@ describe('stepTasksDue', () => {
   // input → a → b: b reads a's output alone
   const graph: DataflowGraph = {
     tasks: [
-      { name: 'a', hash: 'hash-a', inputs: ['.input'], output: '.a_out', dependsOn: [] },
-      { name: 'b', hash: 'hash-b', inputs: ['.a_out'], output: '.b_out', dependsOn: ['a'] },
+      { name: 'a', hash: 'hash-a', inputs: ['.input'], output: '.a_out', dependsOn: [], load: none },
+      { name: 'b', hash: 'hash-b', inputs: ['.a_out'], output: '.b_out', dependsOn: ['a'], load: none },
     ],
   };
 
@@ -443,6 +445,40 @@ describe('stepTasksDue', () => {
     assert.strictEqual(events.length, 1);
     assert.ok(events[0]!.type === 'task_invalidated');
     assert.deepStrictEqual([events[0].value.task, events[0].value.reason], ['a', 'input changed: .input']);
+  });
+
+  it('ruling 32 — a feed that moves releases its load that waited and the readers waiting on that load, and leaves a reader waiting for a first delivery', async () => {
+    const reads = (name: string, inputs: string[]) => ({ name, hash: `hash-${name}`, inputs, output: `.${name}_out`, dependsOn: [], load: none });
+    const loads: DataflowGraph = {
+      tasks: [
+        reads('forecast', ['.records.orders']),
+        reads('count', ['.records.stock']),
+        reads('both', ['.records.orders', '.records.parts']),
+        { name: 'orders.erp', hash: 'hash-erp', inputs: ['.erp_rows'], output: '.records.orders', dependsOn: [], load: some({ record: 'orders', source: 'erp' }) },
+        { name: 'stock.wms', hash: 'hash-wms', inputs: ['.wms_rows'], output: '.records.stock', dependsOn: [], load: some({ record: 'stock', source: 'wms' }) },
+        { name: 'parts.mrp', hash: 'hash-mrp', inputs: ['.mrp_rows'], output: '.records.parts', dependsOn: [], load: some({ record: 'parts', source: 'mrp' }) },
+      ],
+    };
+    // orders' load waited, and so does parts'; stock's is ready to run, and stock's reader waits for its first delivery
+    const waiting = (): DataflowExecutionState => makeState(loads, new Map<string, TaskState>([
+      ['forecast', makeTaskState('forecast', 'waiting')],
+      ['count', makeTaskState('count', 'waiting')],
+      ['both', makeTaskState('both', 'waiting')],
+      ['orders.erp', makeTaskState('orders.erp', 'waiting')],
+      ['stock.wms', makeTaskState('stock.wms', 'ready')],
+      ['parts.mrp', makeTaskState('parts.mrp', 'waiting')],
+    ]));
+    const statuses = (state: DataflowExecutionState) => ['forecast', 'count', 'both', 'orders.erp', 'stock.wms', 'parts.mrp'].map((name) => state.tasks.get(name)!.status);
+
+    const state = waiting();
+    assert.deepStrictEqual(await stepTasksDue(unread, state, [{ path: '.erp_rows' }, { path: '.wms_rows' }]), { due: [], events: [] });
+    assert.deepStrictEqual(statuses(state), ['pending', 'waiting', 'waiting', 'pending', 'ready', 'waiting'],
+      'forecast waited on the load the move released; count waits for stock\'s first delivery; both reads a record whose load still waits');
+
+    // The record itself changed, a delivery's commit among its changes: its waiting reader is decided again
+    const committed = waiting();
+    await stepTasksDue(unread, committed, [{ path: '.records.stock' }]);
+    assert.strictEqual(committed.tasks.get('count')!.status, 'pending');
   });
 
   it('leaves its dependents as they are: a change travels a step at a time, and they are asked once its next result lands', async () => {
@@ -534,7 +570,7 @@ describe('stepTasksDue', () => {
 
 describe('stepTaskDueAgain', () => {
   const graph: DataflowGraph = {
-    tasks: [{ name: 'a', hash: 'hash-a', inputs: ['.input'], output: '.a_out', dependsOn: [] }],
+    tasks: [{ name: 'a', hash: 'hash-a', inputs: ['.input'], output: '.a_out', dependsOn: [], load: none }],
   };
 
   /** a's result has just landed, made from `launched`, the input now at `input`. */
@@ -573,9 +609,9 @@ describe('stepGetReady', () => {
   // a → b → c
   const graph: DataflowGraph = {
     tasks: [
-      { name: 'a', hash: 'hash-a', inputs: ['.input'], output: '.a_out', dependsOn: [] },
-      { name: 'b', hash: 'hash-b', inputs: ['.a_out'], output: '.b_out', dependsOn: ['a'] },
-      { name: 'c', hash: 'hash-c', inputs: ['.b_out'], output: '.c_out', dependsOn: ['b'] },
+      { name: 'a', hash: 'hash-a', inputs: ['.input'], output: '.a_out', dependsOn: [], load: none },
+      { name: 'b', hash: 'hash-b', inputs: ['.a_out'], output: '.b_out', dependsOn: ['a'], load: none },
+      { name: 'c', hash: 'hash-c', inputs: ['.b_out'], output: '.c_out', dependsOn: ['b'], load: none },
     ],
   };
 
@@ -690,7 +726,7 @@ describe('stepDetectInputChanges', () => {
     // Build a minimal state that mirrors what stepInitialize would produce
     const graph: DataflowGraph = {
       tasks: [
-        { name: 'task-a', hash: 'hash-a', inputs: ['.input'], output: '.output', dependsOn: [] },
+        { name: 'task-a', hash: 'hash-a', inputs: ['.input'], output: '.output', dependsOn: [], load: none },
       ],
     };
     const tasks = new Map<string, TaskState>();
@@ -731,7 +767,7 @@ describe('stepDetectInputChanges', () => {
     await workspaceSetDataset(storage, testRepo, 'test-ws', a, 'one', StringType);
     await workspaceSetDataset(storage, testRepo, 'test-ws', b, 'two', StringType);
     const graph: DataflowGraph = {
-      tasks: [{ name: 'task-a', hash: 'hash-a', inputs: ['.a', '.b'], output: '.output', dependsOn: [] }],
+      tasks: [{ name: 'task-a', hash: 'hash-a', inputs: ['.a', '.b'], output: '.output', dependsOn: [], load: none }],
     };
     const state = makeState(graph, new Map([['task-a', makeTaskState('task-a', 'pending')]]), {
       repo: testRepo,
@@ -762,10 +798,10 @@ describe('stepTaskCommits', () => {
   // The task reads two results, x and y, and the record itself
   const graph: DataflowGraph = {
     tasks: [
-      { name: 'x', hash: 'hash-x', inputs: ['.records.orders', '.rates'], output: '.x_out', dependsOn: [] },
-      { name: 'y', hash: 'hash-y', inputs: ['.records.orders', '.rates'], output: '.y_out', dependsOn: [] },
-      { name: 'plan', hash: 'hash-plan', inputs: ['.x_out', '.y_out'], output: '.plan_out', dependsOn: ['x', 'y'] },
-      { name: 'direct', hash: 'hash-direct', inputs: ['.rates', '.x_out'], output: '.direct_out', dependsOn: ['x'] },
+      { name: 'x', hash: 'hash-x', inputs: ['.records.orders', '.rates'], output: '.x_out', dependsOn: [], load: none },
+      { name: 'y', hash: 'hash-y', inputs: ['.records.orders', '.rates'], output: '.y_out', dependsOn: [], load: none },
+      { name: 'plan', hash: 'hash-plan', inputs: ['.x_out', '.y_out'], output: '.plan_out', dependsOn: ['x', 'y'], load: none },
+      { name: 'direct', hash: 'hash-direct', inputs: ['.rates', '.x_out'], output: '.direct_out', dependsOn: ['x'], load: none },
     ],
   };
 
@@ -1026,8 +1062,112 @@ describe('stepTaskCommits', () => {
     });
   });
 
-  it('names the input a deferral is for, which its event records', () => {
+  it('names the root a deferral is for, which its event records', () => {
     assert.strictEqual(deferralPath({ kind: 'plain', input: '.rates', through: ['x', 'y'] }), '.rates');
+    assert.strictEqual(deferralPath({ kind: 'feed', record: '.records.orders', source: 'erp', input: '.rates' }), '.rates');
+    assert.strictEqual(
+      deferralPath({ kind: 'carried', records: ['.records.orders', '.records.stock'], sources: ['erp', 'wms'], root: '.records.book' }), '.records.book');
+    assert.strictEqual(
+      deferralPath({ kind: 'forgotten', record: '.records.orders', source: 'erp', roots: ['.records.book', '.rates'] }), '.records.book',
+      'the first root its feed reads that another input names');
+  });
+
+  it('asks a load node as a run resumes: one whose record forgot its delivery loads again, and so does a failed one whose feed moved', async () => {
+    // A feed over the plain input, and the node that loads its output into the record
+    const loads: DataflowGraph = {
+      tasks: [
+        { name: 'feed', hash: 'hash-feed', inputs: ['.rates'], output: '.feed_out', dependsOn: [], load: none },
+        { name: 'orders.erp', hash: 'hash-load', inputs: ['.feed_out'], output: '.records.orders', dependsOn: ['feed'], load: some({ record: 'orders', source: 'erp' }) },
+      ],
+    };
+    /** A resumed run whose input stands at `rates`: the feed's result was made there, and the load's at r1 */
+    const resumed = (status: TaskState['status'], rates = 'r1'): DataflowExecutionState => {
+      const state = makeState(loads, new Map([
+        ['feed', makeCompleted('feed', 'feed-out')],
+        ['orders.erp', { ...makeCompleted('orders.erp', 'a-delivery'), status } as TaskState],
+      ]), { repo: testRepo, workspace: 'test-ws', executed: 2n });
+      state.versionVectors.set('.rates', new Map([['.rates', rates]]));
+      state.versionVectors.set('.feed_out', new Map([['.rates', rates]]));
+      state.versionVectors.set('orders.erp', new Map([['.rates', 'r1']]));
+      return state;
+    };
+    /** The record's ref, naming the execution whose delivery it holds */
+    const holds = (execution: string): Promise<void> => storage.datasets.write(testRepo, 'test-ws', 'records/orders', variant('value', {
+      hash: 'a-state', versions: new Map([['.records.orders', 'c1'], [sourceLoadSlots('erp').execution, execution]]),
+    }));
+
+    // The record names the execution the node completed with: nothing is due
+    await holds('inputs-orders.erp/execution-orders.erp');
+    assert.deepStrictEqual(await stepResumedTasksDue(storage, resumed('completed')), { due: [], events: [] });
+
+    // A rollback left the record naming another: the node loads again
+    await holds('inputs-orders.erp/an-earlier-execution');
+    const { due, events } = await stepResumedTasksDue(storage, resumed('completed'));
+    assert.deepStrictEqual(due, ['orders.erp']);
+    assert.ok(events[0]?.type === 'task_invalidated');
+    assert.strictEqual(events[0].value.reason, 'its record forgot its delivery: .records.orders');
+
+    // A load that failed, whose feed has landed anew since: back to pending, out of the failed count
+    const failed = resumed('failed', 'r2');
+    (failed as Mutable<DataflowExecutionState>).failed = 1n;
+    const again = await stepResumedTasksDue(storage, failed);
+    assert.deepStrictEqual([again.due, again.events.length, failed.tasks.get('orders.erp')!.status, failed.failed], [[], 1, 'pending', 0n]);
+  });
+
+  it('counts a load node once that fails, is due again as its feed moves, and then loads: the result it held left the counts as it failed', async () => {
+    const loads: DataflowGraph = {
+      tasks: [
+        { name: 'feed', hash: 'hash-feed', inputs: ['.rates'], output: '.feed_out', dependsOn: [], load: none },
+        { name: 'orders.erp', hash: 'hash-load', inputs: ['.feed_out'], output: '.records.orders', dependsOn: ['feed'], load: some({ record: 'orders', source: 'erp' }) },
+      ],
+    };
+    // The node was answered from its record's slots, counted cached, and is in flight again on the feed's next output
+    const state = makeState(loads, new Map([
+      ['feed', makeCompleted('feed', 'feed-out')],
+      ['orders.erp', { ...makeCompleted('orders.erp', 'c1', true), status: 'in_progress' } as TaskState],
+    ]), { repo: testRepo, workspace: 'test-ws', executed: 1n, cached: 1n });
+    const counts = (): bigint[] => [state.executed, state.cached, state.failed];
+    state.versionVectors.set('.rates', new Map([['.rates', 'r2']]));
+    state.versionVectors.set('.feed_out', new Map([['.rates', 'r2']]));
+
+    stepLoadFailed(state, 'orders.erp', 'the ERP sent an order no book holds', undefined, 5, new Map([['.rates', 'r2']]));
+    assert.deepStrictEqual(counts(), [1n, 0n, 1n], 'failed: the result it held is counted no more');
+
+    // Its feed lands anew: due again, out of the failed count
+    state.versionVectors.set('.rates', new Map([['.rates', 'r3']]));
+    state.versionVectors.set('.feed_out', new Map([['.rates', 'r3']]));
+    assert.ok((await stepTaskDueAgain(storage, state, 'orders.erp'))?.type === 'task_invalidated');
+    assert.deepStrictEqual(counts(), [1n, 0n, 0n]);
+
+    stepTaskCompleted(state, 'orders.erp', 'c2', false, 5, { inputsHash: 'inputs', executionId: 'execution' }, new Map([['.rates', 'r3']]));
+    assert.deepStrictEqual(counts(), [2n, 0n, 0n], 'its landing counts it once: no count goes below what the run holds');
+  });
+
+  it('a load that fails has its record\'s readers decided again: one left waiting on it, and one deferred until it commits, unless another load holds it', () => {
+    const reads = (name: string, inputs: string[]) => ({ name, hash: `hash-${name}`, inputs, output: `.${name}_out`, dependsOn: [], load: none });
+    const loads: DataflowGraph = {
+      tasks: [
+        reads('forecast', ['.records.orders']),
+        reads('check', ['.records.orders', '.rates']),
+        reads('audit', ['.records.orders', '.records.stock']),
+        reads('other', ['.rates']),
+        { name: 'orders.erp', hash: 'hash-erp', inputs: ['.erp_rows'], output: '.records.orders', dependsOn: [], load: some({ record: 'orders', source: 'erp' }) },
+        { name: 'stock.wms', hash: 'hash-wms', inputs: ['.wms_rows'], output: '.records.stock', dependsOn: [], load: some({ record: 'stock', source: 'wms' }) },
+      ],
+    };
+    const state = makeState(loads, new Map<string, TaskState>([
+      ['forecast', makeTaskState('forecast', 'waiting')],
+      ['check', makeTaskState('check', 'deferred')],
+      ['audit', makeTaskState('audit', 'waiting')],
+      ['other', makeTaskState('other', 'waiting')],
+      ['orders.erp', makeTaskState('orders.erp', 'in_progress')],
+      ['stock.wms', makeTaskState('stock.wms', 'waiting')],
+    ]));
+
+    stepLoadFailed(state, 'orders.erp', 'the ERP sent an order no book holds', undefined, 5, new Map([['.erp_rows', 'e1']]));
+    const status = (name: string) => state.tasks.get(name)!.status;
+    assert.deepStrictEqual(['forecast', 'check', 'audit', 'other'].map(status), ['pending', 'pending', 'waiting', 'waiting'],
+      'forecast waited on the load, and check for its commit; audit reads a record whose load still waits; other reads neither record');
   });
 
   it('throws for a task the graph lacks, and is the step every entry exports', async () => {
@@ -1044,10 +1184,10 @@ describe('stepTaskCompleted', () => {
   // b, c → k; d reads the input alone
   const graph: DataflowGraph = {
     tasks: [
-      { name: 'b', hash: 'hash-b', inputs: ['.input'], output: '.b_out', dependsOn: [] },
-      { name: 'c', hash: 'hash-c', inputs: ['.input'], output: '.c_out', dependsOn: [] },
-      { name: 'k', hash: 'hash-k', inputs: ['.b_out', '.c_out'], output: '.k_out', dependsOn: ['b', 'c'] },
-      { name: 'd', hash: 'hash-d', inputs: ['.input'], output: '.d_out', dependsOn: [] },
+      { name: 'b', hash: 'hash-b', inputs: ['.input'], output: '.b_out', dependsOn: [], load: none },
+      { name: 'c', hash: 'hash-c', inputs: ['.input'], output: '.c_out', dependsOn: [], load: none },
+      { name: 'k', hash: 'hash-k', inputs: ['.b_out', '.c_out'], output: '.k_out', dependsOn: ['b', 'c'], load: none },
+      { name: 'd', hash: 'hash-d', inputs: ['.input'], output: '.d_out', dependsOn: [], load: none },
     ],
   };
   const execution = { inputsHash: 'inputs-c', executionId: 'execution-c' };
@@ -1082,9 +1222,9 @@ describe('stepTaskFailed', () => {
   // a → b → c
   const graph: DataflowGraph = {
     tasks: [
-      { name: 'a', hash: 'hash-a', inputs: ['.input'], output: '.a_out', dependsOn: [] },
-      { name: 'b', hash: 'hash-b', inputs: ['.a_out'], output: '.b_out', dependsOn: ['a'] },
-      { name: 'c', hash: 'hash-c', inputs: ['.b_out'], output: '.c_out', dependsOn: ['b'] },
+      { name: 'a', hash: 'hash-a', inputs: ['.input'], output: '.a_out', dependsOn: [], load: none },
+      { name: 'b', hash: 'hash-b', inputs: ['.a_out'], output: '.b_out', dependsOn: ['a'], load: none },
+      { name: 'c', hash: 'hash-c', inputs: ['.b_out'], output: '.c_out', dependsOn: ['b'], load: none },
     ],
   };
 
@@ -1114,8 +1254,8 @@ describe('a task due again behind a task left waiting', () => {
   // input → a → b, b reading another input too
   const graph: DataflowGraph = {
     tasks: [
-      { name: 'a', hash: 'hash-a', inputs: ['.input'], output: '.out_a', dependsOn: [] },
-      { name: 'b', hash: 'hash-b', inputs: ['.out_a', '.other'], output: '.out_b', dependsOn: ['a'] },
+      { name: 'a', hash: 'hash-a', inputs: ['.input'], output: '.out_a', dependsOn: [], load: none },
+      { name: 'b', hash: 'hash-b', inputs: ['.out_a', '.other'], output: '.out_b', dependsOn: ['a'], load: none },
     ],
   };
 

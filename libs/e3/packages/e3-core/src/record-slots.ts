@@ -97,6 +97,51 @@ export function sourceLoadSlots(source: string): SourceLoadSlots {
   };
 }
 
+/** The execution a `$load.<source>.execution` slot names: the one that made
+ *  the source's last delta, by its inputs' hash and its id. */
+export interface SlotExecution {
+  /** The hash of the inputs it ran over */
+  readonly inputsHash: string;
+  /** Its id */
+  readonly executionId: string;
+}
+
+/**
+ * A `$load.<source>.execution` slot's text: `<inputsHash>/<executionId>`.
+ *
+ * @param execution - The execution that made the load's delta
+ * @returns The slot's text
+ */
+export function executionSlot(execution: SlotExecution): string {
+  return `${execution.inputsHash}/${execution.executionId}`;
+}
+
+/**
+ * The execution a `$load.<source>.execution` slot names
+ * ({@link executionSlot}).
+ *
+ * @param slot - The slot's text, or `undefined` for a ref that holds none
+ * @returns The execution; `null` for no slot, or one of no such form
+ */
+export function slotExecution(slot: string | undefined): SlotExecution | null {
+  const at = slot === undefined ? -1 : slot.indexOf('/');
+  if (slot === undefined || at <= 0 || at === slot.length - 1) return null;
+  return { inputsHash: slot.slice(0, at), executionId: slot.slice(at + 1) };
+}
+
+/**
+ * The execution a record's ref names as the one that made a source's last
+ * delta: its `$load.<source>.execution` slot.
+ *
+ * @param versions - The record ref's version vector, or `undefined` for a
+ *   record that holds no state
+ * @param source - The source's name
+ * @returns The execution; `null` for a source the ref names none for
+ */
+export function sourceExecution(versions: ReadonlyMap<string, string> | undefined, source: string): SlotExecution | null {
+  return slotExecution(versions?.get(sourceLoadSlots(source).execution));
+}
+
 /**
  * The names a slot lists, separated by commas.
  *
@@ -198,6 +243,34 @@ export function sourceLastDelivery(versions: ReadonlyMap<string, string>, source
     ...(commit !== undefined && commit.length > 0 && { commit }),
     ...(asOf?.success === true && { asOf: asOf.value }),
   };
+}
+
+/**
+ * Whether a record holds a delivery of a source already, loaded under a load:
+ * its ref's `$load.<source>` names the delivery, and `$load.<source>.load`
+ * the load. The same delivery under another load is loaded again, since a
+ * changed load function may make other rows of it.
+ *
+ * @remarks
+ * What answers a delivery sent again (`again`), and a dataflow's load whose
+ * feed has not moved: the one test of what holding a delivery means.
+ *
+ * @param versions - The record ref's version vector
+ * @param source - The source's name
+ * @param delivery - The delivery's stored hash
+ * @param load - The hash of the load object
+ * @returns True when the source's last delivery is this one, under this load
+ *
+ * @example
+ * ```ts
+ * if (sourceHoldsDelivery(ref.value.versions, 'erp', delivery, loadHash)) console.log('nothing to load');
+ * ```
+ */
+export function sourceHoldsDelivery(versions: ReadonlyMap<string, string>, source: string, delivery: string, load: string): boolean {
+  const slots = sourceLoadSlots(source);
+  const held = versions.get(slots.delivery);
+  const under = versions.get(slots.load);
+  return held !== undefined && under !== undefined && sameField(held, delivery) && sameField(under, load);
 }
 
 /** The case of a composite record's key: the source its entry is of. */

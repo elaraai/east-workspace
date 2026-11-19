@@ -96,7 +96,7 @@ export function executionStateStoreTests(setup: ExecutionStateStoreSetup): void 
       const id = uuidv7();
       const state: DataflowExecutionState = {
         release: E3_RELEASE, id, repo, workspace: 'ws', startedAt: new Date('2026-09-28T00:00:00.000Z'), force: dataflowForce(false), filter: none,
-        graph: some({ tasks: [{ name: 'etl', hash: 'a'.repeat(64), inputs: ['.inputs.sales'], output: '.tasks.etl.output', dependsOn: [] }] }),
+        graph: some({ tasks: [{ name: 'etl', hash: 'a'.repeat(64), inputs: ['.inputs.sales'], output: '.tasks.etl.output', dependsOn: [], load: none }] }),
         graphHash: none,
         tasks: new Map([['etl', {
           name: 'etl', status: 'pending', cached: none, outputHash: none, error: none, exitCode: none,

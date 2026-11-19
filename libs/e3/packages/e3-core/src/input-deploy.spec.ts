@@ -14,17 +14,18 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { dirname } from 'node:path';
-import { SortedMap, StringType, encodeBeast2For, toEastTypeValue, variant } from '@elaraai/east';
-import type { DatasetRef, PackageObject } from '@elaraai/e3-types';
+import { IntegerType, SortedMap, StringType, encodeBeast2For, equalFor, toEastTypeValue, variant, type EastType } from '@elaraai/east';
+import { DatasetRefType, type DatasetRef, type PackageObject } from '@elaraai/e3-types';
 import { planInputDeployments } from './input-deploy.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { StorageBackend } from './storage/interfaces.js';
 import { createTestRepo, removeTestRepo } from './test-helpers.js';
 
-/** A package declaring `inputs/x` as a dataset people set or not, its value
- *  `ref`; or declaring nothing, when `ref` is null. */
-function pkg(writable: boolean, ref: DatasetRef | null): PackageObject {
-  const x = variant('value', { type: toEastTypeValue(StringType), writable });
+/** A package declaring `inputs/x` as a dataset people set or not, of the
+ *  type given (a String when omitted), its value `ref`; or declaring nothing,
+ *  when `ref` is null. */
+function pkg(writable: boolean, ref: DatasetRef | null, type: EastType = StringType): PackageObject {
+  const x = variant('value', { type: toEastTypeValue(type), writable });
   return {
     tasks: new Map(),
     data: {
@@ -36,6 +37,9 @@ function pkg(writable: boolean, ref: DatasetRef | null): PackageObject {
     sources: new Map(),
   };
 }
+
+/** Whether two refs are one, as East compares them. */
+const sameRef = equalFor(DatasetRefType);
 
 describe('planInputDeployments', () => {
   let repo: string;
@@ -68,6 +72,27 @@ describe('planInputDeployments', () => {
         variant('reset', { reason: 'is no longer an input of the new package, which gives it its value', policy: false }));
       assert.equal(deployment?.kept, undefined, 'the package\'s value is written');
     }
+  });
+
+  it('R68 — keeps an input someone set that feeds a load, under the reset policy too, naming the load; a changed type resets it, saying the load waits', async () => {
+    const feeds = new Map([['inputs/x', 'orders.erp']]);
+    await storage.datasets.write(repo, 'fed', 'inputs/x', other);
+    const [retained] = await planInputDeployments(storage, repo, 'fed', pkg(true, given), pkg(true, given), 'reset', true, feeds);
+    assert.deepEqual(retained?.plan.action, variant('retained', { load: 'orders.erp' }));
+    assert.ok(retained?.kept !== undefined && sameRef(retained.kept, other), 'the workspace keeps what was set');
+    const [kept] = await planInputDeployments(storage, repo, 'fed', pkg(true, given), pkg(true, given), 'keep-edited', true, feeds);
+    assert.deepEqual(kept?.plan.action, variant('keep', null), 'as any input under keep-edited');
+    assert.ok(kept?.kept !== undefined && sameRef(kept.kept, other));
+
+    const [changed] = await planInputDeployments(storage, repo, 'fed', pkg(true, given, IntegerType), pkg(true, given), 'reset', true, feeds);
+    assert.equal(changed?.plan.action.type, 'reset');
+    assert.match(changed?.plan.action.type === 'reset' ? changed.plan.action.value.reason : '', /^was set in the workspace, and changed type:\n[\s\S]*\norders\.erp waits until it is set again$/);
+    assert.equal(changed?.kept, undefined, 'the package\'s value is written');
+
+    // One that holds its package's value is the package's, as before: the load waits on it
+    await storage.datasets.write(repo, 'given', 'inputs/x', given);
+    const [packaged] = await planInputDeployments(storage, repo, 'given', pkg(true, given), pkg(true, given), 'reset', true, feeds);
+    assert.deepEqual(packaged?.plan.action, variant('package', null));
   });
 
   it('drops one the new package does not declare at all', async () => {

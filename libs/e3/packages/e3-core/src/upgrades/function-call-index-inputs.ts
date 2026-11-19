@@ -23,14 +23,11 @@
  * @packageDocumentation
  */
 
-import {
-  ArrayType, OptionType, StringType, StructType, VariantType,
-  decodeBeast2For, encodeBeast2For, isTypeValueEqual, none, readBeast2Type, toEastTypeValue,
-  type EastTypeValue, type ValueTypeOf,
-} from '@elaraai/east';
+import { ArrayType, OptionType, StringType, StructType, VariantType, encodeBeast2For, none, toEastTypeValue, type ValueTypeOf } from '@elaraai/east';
 import { OBJECT_CONCURRENCY } from '../concurrency.js';
 import type { RepositoryUpgrade } from '../storage/interfaces.js';
 import { FunctionCallJobWithDraftsType } from './function-call-drafts.js';
+import { isStoredForm, storedFormReader } from './forms.js';
 import { workInParts } from './parts.js';
 
 /** A dataset a call read, as this upgrade's form holds it: its path, the index
@@ -57,34 +54,15 @@ type JobBeforeIndexInputs = ValueTypeOf<typeof FunctionCallJobWithDraftsType>;
 /** A kept call in the form this upgrade writes. */
 type JobWithIndexInputs = ValueTypeOf<typeof FunctionCallJobWithIndexInputsType>;
 
-const BEFORE_TYPE = toEastTypeValue(FunctionCallJobWithDraftsType);
 const WITH_TYPE = toEastTypeValue(FunctionCallJobWithIndexInputsType);
-const decodeBefore = decodeBeast2For(FunctionCallJobWithDraftsType);
 const encodeWith = encodeBeast2For(FunctionCallJobWithIndexInputsType);
 
 /** The name a repository's record keeps once the upgrade is applied. */
 export const FUNCTION_CALL_INDEX_INPUTS = 'function-call-index-inputs';
 
-/** Whether a stored call's header names a form's type; false for bytes whose
- *  header does not read. */
-function isForm(bytes: Uint8Array, type: EastTypeValue): boolean {
-  try {
-    return isTypeValueEqual(readBeast2Type(bytes), type);
-  } catch {
-    return false;
-  }
-}
-
 /** A kept call in the form before this upgrade, or null for bytes of any
  *  other form, or that do not decode. */
-function beforeIndexInputs(bytes: Uint8Array): JobBeforeIndexInputs | null {
-  if (!isForm(bytes, BEFORE_TYPE)) return null;
-  try {
-    return decodeBefore(bytes);
-  } catch {
-    return null;
-  }
-}
+const beforeIndexInputs = storedFormReader(FunctionCallJobWithDraftsType);
 
 /** A call of the form before this upgrade, in the form it writes: each of its
  *  inputs was a dataset itself, and names no index. */
@@ -117,7 +95,7 @@ export const functionCallIndexInputs: RepositoryUpgrade = {
     const units = (await storage.calls.readStored(repo)).map((stored) => ({ key: `${stored.workspace}/${stored.id}`, unit: stored }));
     return workInParts(units, at, until, OBJECT_CONCURRENCY, async (stored) => {
       const bytes = await stored.read();
-      if (bytes === null || isForm(bytes, WITH_TYPE)) return;
+      if (bytes === null || isStoredForm(bytes, WITH_TYPE)) return;
       const earlier = beforeIndexInputs(bytes);
       if (earlier !== null) await stored.replace(encodeWith(withIndexInputs(earlier)));
     });

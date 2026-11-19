@@ -6,7 +6,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { none, some, variant } from '@elaraai/east';
-import { inputPlanLine, remoteTaskStatus } from './workspace.js';
+import { deploySaysInput, inputPlanLine, remoteTaskStatus } from './workspace.js';
 
 describe('inputPlanLine', () => {
   it('takes an input from its file when the deploy reads it', () => {
@@ -28,6 +28,24 @@ describe('inputPlanLine', () => {
       inputPlanLine({ input: 'inputs/note', action: variant('reset', { reason: 'was set in the workspace', policy: true }) }),
       'reset input inputs/note: it was set in the workspace',
     );
+  });
+
+  it('keeps one someone set that feeds a load, naming the load, which no deploy resets', () => {
+    assert.strictEqual(
+      inputPlanLine({ input: 'inputs/erp_extract', action: variant('retained', { load: 'orders.erp' }) }),
+      'keep input inputs/erp_extract, as it was set: it feeds orders.erp, which a deploy never resets',
+    );
+  });
+});
+
+describe('deploySaysInput', () => {
+  it('R68 — says an input it keeps, or loses, and every one under --plan', () => {
+    const retained = { input: 'inputs/erp_extract', action: variant('retained', { load: 'orders.erp' }) } as const;
+    const given = { input: 'inputs/rates', action: variant('package', null) } as const;
+    assert.equal(deploySaysInput(retained, false), true, 'an input kept for a load is said');
+    assert.equal(deploySaysInput({ input: 'inputs/note', action: variant('keep', null) }, false), true);
+    assert.equal(deploySaysInput(given, false), false, 'an input given its package\'s value is not');
+    assert.equal(deploySaysInput(given, true), true, 'a plan says every input');
   });
 });
 

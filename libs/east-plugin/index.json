@@ -1,7 +1,7 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1387,
+    "totalEntries": 1388,
     "totalFiles": 226,
     "packages": {
       "east": 595,
@@ -10,7 +10,7 @@
       "east-py-datascience": 94,
       "east-ui": 308,
       "e3-ui": 220,
-      "e3": 38,
+      "e3": 39,
       "e3-ui-cli": 8,
       "e3-create": 6
     }
@@ -48686,6 +48686,38 @@
         "typescript"
       ],
       "source": "// Declare a composite record: one record over several sources, each the authority for its own entries — `source.load` for the entries another system delivers, which only its load writes, and `source.mutations` for the solution's own — keyed by a Variant with a case for each source\n() => {\n    const OrderType = StructType({ customer: StringType, status: StringType, qty: IntegerType });\n    // What the ERP sends: its whole order book, keyed by its own order id.\n    const ErpOrderType = StructType({ cust: StringType, state: StringType, qty: IntegerType });\n    const ErpDeliveryType = DictType(StringType, ErpOrderType);\n    const ErpEntriesType = DictType(StringType, OrderType);\n    // The load: the delivery and the source's entries as they stand, to a patch of them. It sees the ERP's own ids:\n    // e3 puts the source's case on each key. It gives the right entries from one delivery alone, whatever was loaded before.\n    const loadErp = East.function([ErpDeliveryType, ErpEntriesType], PatchType(ErpEntriesType),\n      ($, delivery, current) => East.diff(current, delivery.map(($, sent) => ({ customer: sent.cust, status: sent.state, qty: sent.qty }))));\n    const orders = e3.recordComposite('orders', OrderType, {\n      // Declared first: the parts after it are handed the types it makes.\n      sources: (source) => ({\n        erp: source.load(StringType, ErpDeliveryType, loadErp),   // the ERP's orders: written by this load alone\n        own: source.mutations(StringType),                        // the solution's own: written by the mutations\n      }),\n      initial: { own: new Map() },                                // a solution source's entries, by its own key\n      indexes: (index) => ({ by_customer: index.on(['customer']) }),\n      // `state` is the record's type, Dict<Variant{ erp: String, own: String }, Order>, and `edit` writes the\n      // solution's own entries alone: a write of an ERP entry does not compile, and is refused where it is tried.\n      mutations: (mutation, { state, edit }) => ({\n        plan_order: mutation.edit(East.function([state, StringType, OrderType, edit], NullType,\n          ($, _current, id, order, edit) => { $(edit.set(variant('own', id), order)); })),\n        patch: mutation.patch(),\n      }),\n    });\n    // Read, paged, indexed and bound as any record is: a task over it reads every order, whichever source it is of.\n    // It waits until the ERP has delivered once, so it never computes on the solution's own entries alone.\n    const openOrders = e3.task('open_orders', [orders], East.function([orders.type], IntegerType,\n      ($, held) => held.filter(($, order) => East.equal(order.status, 'open')).size()));\n    return e3.package('order_book', '1.0.0', openOrders);\n  }"
+    },
+    {
+      "id": "e3:records.examples.ts:recordCompositeFed",
+      "skill": "e3",
+      "package": "e3",
+      "file": "e3/test/integration/src/examples/records.examples.ts",
+      "suite": "e3.recordComposite",
+      "test": "A composite record whose source the dataflow loads: `source.load(key, feed, fn)` names a task, an input or a record of the package in place of a delivery type, and each run loads the value it holds, as a step of the run named `<record>.<source>`, after the task that writes it",
+      "keywords": [
+        "e3",
+        "record",
+        "recordComposite",
+        "composite",
+        "source.load",
+        "feed",
+        "fed source",
+        "dataflow",
+        "load node",
+        "task output",
+        "input",
+        "ERP",
+        "extract"
+      ],
+      "imports": [
+        "import {",
+        "import e3 from '@elaraai/e3';",
+        "import { example } from './example.js';"
+      ],
+      "languages": [
+        "typescript"
+      ],
+      "source": "// A composite record whose source the dataflow loads: `source.load(key, feed, fn)` names a task, an input or a record of the package in place of a delivery type, and each run loads the value it holds, as a step of the run named `<record>.<source>`, after the task that writes it\n() => {\n    const OrderType = StructType({ customer: StringType, status: StringType, qty: IntegerType });\n    const ErpOrderType = StructType({ cust: StringType, state: StringType, qty: IntegerType });\n    const ErpBookType = DictType(StringType, ErpOrderType);\n    const ErpEntriesType = DictType(StringType, OrderType);\n    // What the ERP exports, set by an integration or a person, and a task that keeps the orders it has not cancelled.\n    const erpExport = e3.input('erp_export', ErpBookType);\n    const erpOrders = e3.task('erp_orders', [erpExport], East.function([ErpBookType], ErpBookType,\n      ($, book) => book.filter(($, sent) => East.notEqual(sent.state, 'cancelled'))));\n    // The load is delivered the feed's value, and gives the right entries from it alone: each run loads only the value\n    // the feed holds when the run reaches it.\n    const loadErp = East.function([ErpBookType, ErpEntriesType], PatchType(ErpEntriesType),\n      ($, book, current) => East.diff(current, book.map(($, sent) => ({ customer: sent.cust, status: sent.state, qty: sent.qty }))));\n    const orders = e3.recordComposite('orders', OrderType, {\n      sources: (source) => ({\n        erp: source.load(StringType, erpOrders, loadErp),   // fed by erp_orders' output: each run loads it, as orders.erp\n        own: source.mutations(StringType),\n      }),\n      initial: { own: new Map() },\n      mutations: (mutation) => ({ patch: mutation.patch() }),\n    });\n    // A reader of the record runs on it as it stands, and again after the load's commit, in the same run. While the\n    // load cannot run — erp_export not yet set — it waits with it: `[WAIT] orders_open: record 'orders' waits on its\n    // load orders.erp`.\n    const ordersOpen = e3.task('orders_open', [orders], East.function([orders.type], IntegerType,\n      ($, held) => held.filter(($, order) => East.equal(order.status, 'open')).size()));\n    // The package takes the record's feed with it, and the task that writes it.\n    return e3.package('order_book_fed', '1.0.0', ordersOpen);\n  }"
     },
     {
       "id": "e3:records.examples.ts:recordReadPlainIndex",

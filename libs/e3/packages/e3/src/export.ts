@@ -497,8 +497,8 @@ export async function export_<D extends Record<string, unknown>>(pkg: PackageDef
         kind: RECORD_LOAD_KIND,
         key: toEastTypeValue(source.key),
         delivery: toEastTypeValue(load.delivery),
-        // A delivery handed to `e3 load`: no dataset of the package feeds the source.
-        feed: none,
+        // The dataset of the package the dataflow loads the source from; none for one `e3 load` delivers.
+        feed: load.feed === undefined ? none : some(load.feed.path),
         task: addObject(zipfile, Buffer.from(taskEncoder(loadTask))),
       };
       recordSources.set(source.name, variant('load', addObject(zipfile, Buffer.from(loadEncoder(loadObject)))));

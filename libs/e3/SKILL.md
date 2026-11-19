@@ -72,7 +72,7 @@ What do you need?
 │   ├─ A named function (RPC)    → e3.function(name, fn, config?) — called by name; a call through a workspace is kept for its lifetime
 │   │   ├─ It reads workspace data too → e3.function(name, { inputs, args, output, runner? }, fn) — inputs read at each call
 │   │   └─ Over a page's unsaved edits → add drafts: [record, …] — a call lays mutation calls over those records, and saves nothing
-│   ├─ Audited state             → e3.record(name, type, { initial?, indexes?, mutations?, migrations? }), declared whole; over several sources, some delivered by another system → e3.recordComposite (reference/record-composite.md)
+│   ├─ Audited state             → e3.record(name, type, { initial?, indexes?, mutations?, migrations? }), declared whole; over several sources, some delivered by another system or loaded by the dataflow from a task's output → e3.recordComposite (reference/record-composite.md)
 │   │   ├─ Its writes            → mutations: (mutation) => ({ name: mutation.reduce | edit | patch })
 │   │   ├─ An order to page in   → indexes: (index) => ({ name: index.on([...fields]) | index.key(fn) | index.keys(fn) }) (reference/record-indexes.md)
 │   │   ├─ Read by a time window or a 2D window → index.interval | index.area
@@ -522,7 +522,7 @@ Read the one a task needs; each holds its subject whole.
 |---|---|
 | [reference/record-indexes.md](reference/record-indexes.md) | Secondary indexes, interval and area indexes, series and summary indexes, nested series indexes, entries indexes, and reading an index inside a task or a function (`e3.index`) |
 | [reference/record-migrations.md](reference/record-migrations.md) | `migration.value` / `rows` / `rekey`, and how a record's type changes |
-| [reference/record-composite.md](reference/record-composite.md) | `e3.recordComposite`: a record over several sources, the refusal of a write to an entry only a load writes, what waits until each external source has delivered once, and loading a delivery (`e3 load`, `--as-of`, `workspaceRecordLoad`), with what a rollback, a restore and a compaction keep of one |
+| [reference/record-composite.md](reference/record-composite.md) | `e3.recordComposite`: a record over several sources, the refusal of a write to an entry only a load writes, what waits until each external source has delivered once, loading a delivery (`e3 load`, `--as-of`, `workspaceRecordLoad`), with what a rollback, a restore and a compaction keep of one, and a source the dataflow loads from a task, an input or a record: its waits, deferrals and failures, and a deploy keeping its feed |
 | [reference/cli.md](reference/cli.md) | Every `e3` command: repositories, packages, workspaces, datasets, tasks, runs, calls (named, or from an IR file), records, watch, convert, auth, gc |
 | [reference/from-code.md](reference/from-code.md) | `@elaraai/e3-api-client`, `@elaraai/e3-core`, `e3-api-server` |
 | [reference/browser.md](reference/browser.md) | `@elaraai/e3-web`: serveUnits, serveE3, createWebE3, and what a browser cannot do |

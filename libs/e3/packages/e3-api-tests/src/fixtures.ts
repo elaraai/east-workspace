@@ -1175,7 +1175,7 @@ export const CompositeOrderRowType = StructType({ customer: StringType, qty: Int
 export const CompositeOrderKeyType = VariantType({ erp: StringType, own: StringType });
 /** The composite fixture's record: orders, each under the source it is of. */
 export const CompositeOrdersType = DictType(CompositeOrderKeyType, CompositeOrderRowType);
-/** Where a workspace holds the composite fixture's record. */
+/** Where a workspace holds the composite fixtures' record, `orders`. */
 export const COMPOSITE_ORDERS_PATH: TreePath = [variant('field', 'records'), variant('field', 'orders')];
 /** What the composite fixture's ERP delivers: its whole order book, by its own order id. */
 export const ErpOrdersType = DictType(StringType, CompositeOrderRowType);
@@ -1315,6 +1315,73 @@ export async function createYardPackageZip(
   const customerIndex = e3.function('customer_index', { inputs: [byCustomer], args: [], output: byCustomer.type }, (_$, entries) => entries);
   const tally = e3.task('tally', [orders], East.function([YardOrdersType], IntegerType, (_$, held) => held.size()));
   const pkg = e3.package(name, version, orders, customerIndex, tally);
+
+  const zipPath = join(tempDir, `${name}-${version}.zip`);
+  await e3.export(pkg, zipPath);
+
+  return zipPath;
+}
+
+/** The key of the fed fixture's record: an order of the ERP's, one of the warehouse's, or one of the solution's own. */
+export const FedOrderKeyType = VariantType({ erp: StringType, wms: StringType, own: StringType });
+/** The fed fixture's record: orders, each under the source it is of. */
+export const FedOrdersType = DictType(FedOrderKeyType, CompositeOrderRowType);
+
+/**
+ * Create a package whose composite record the dataflow loads (#1465): each of
+ * its external sources is fed by a dataset of the package, one by a task's
+ * output and one by an input.
+ *
+ * Creates a package with:
+ * - Input "erp_book" ({@link ErpOrdersType}): the ERP's order book, `SO-1001`
+ *   (Acme, 5) and `SO-1002` (Cedar, 0)
+ * - Task "combine_erp": the book's orders that ask for some, which feeds the
+ *   source `erp`
+ * - Input "wms_extract" ({@link ErpOrdersType}): the warehouse's orders, its
+ *   package's value empty, which feeds the source `wms`
+ * - Record "orders" ({@link FedOrdersType}): `erp` and `wms` each loaded by
+ *   the dataflow as the whole of its feed, `East.diff(current, delivery)`, and
+ *   `own` the solution's, holding `P-1` (Birch, 2); its `patch` door
+ * - Task "tally": how many orders the record holds
+ *
+ * A run loads `orders.erp` once "combine_erp" has run. `orders.wms` waits while
+ * its input holds its package's value, and "tally" waits with it, until
+ * someone sets the input.
+ *
+ * Every body is East, so every server runs them.
+ *
+ * @param tempDir - Directory to write the zip file
+ * @param name - Package name
+ * @param version - Package version
+ * @returns Path to the created zip file
+ */
+export async function createFedRecordPackageZip(
+  tempDir: string,
+  name: string,
+  version: string
+): Promise<string> {
+  mkdirSync(tempDir, { recursive: true });
+
+  // Each feed is its source's whole order book: the load answers what takes the source's entries to it
+  const loadOrders = East.function([ErpOrdersType, ErpOrdersType], PatchType(ErpOrdersType), (_$, delivery, current) => East.diff(current, delivery));
+  const book = e3.input('erp_book', ErpOrdersType, variant('value', new Map([
+    ['SO-1001', { customer: 'Acme', qty: 5n }],
+    ['SO-1002', { customer: 'Cedar', qty: 0n }],
+  ])));
+  const combineErp = e3.task('combine_erp', [book],
+    East.function([ErpOrdersType], ErpOrdersType, ($, orders) => orders.filter(($, order) => East.greater(order.qty, 0n))));
+  const wmsExtract = e3.input('wms_extract', ErpOrdersType, variant('value', new Map()));
+  const orders = e3.recordComposite('orders', CompositeOrderRowType, {
+    sources: (source) => ({
+      erp: source.load(StringType, combineErp, loadOrders),
+      wms: source.load(StringType, wmsExtract, loadOrders),
+      own: source.mutations(StringType),
+    }),
+    initial: { own: new Map([['P-1', { customer: 'Birch', qty: 2n }]]) },
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+  });
+  const tally = e3.task('tally', [orders], East.function([FedOrdersType], IntegerType, ($, held) => held.size()));
+  const pkg = e3.package(name, version, orders, tally);
 
   const zipPath = join(tempDir, `${name}-${version}.zip`);
   await e3.export(pkg, zipPath);

@@ -79,8 +79,11 @@ Each input takes the new package's value, and so does one someone set, unless
 `--inputs keep-edited`, which keeps it while its type is the new package's. One
 whose type changed takes the new package's value, and the deploy says why. An
 input the new package takes from a file takes its file, and one the package no
-longer declares goes. A deploy prints each input it keeps, resets or drops, and
-`--plan` prints every input's fate.
+longer declares goes. An input someone set that feeds a load the dataflow runs
+is kept whatever `--inputs` says, while its type is unchanged: `keep input
+inputs/erp_extract, as it was set: it feeds orders.erp, which a deploy never
+resets`. A deploy prints each input it keeps, resets or drops, and `--plan`
+prints every input's fate.
 
 `workspace copy` makes `<to>` the workspace `<from>` is now — its package and
 every input, record and task output, so nothing needs to run again — writing
@@ -138,7 +141,9 @@ holds; it says how far it has got, and what it did:
 `Loaded orders.erp at 3f2a9c1e5d7b, as of 2026-11-02T03:00:00.000: 1,204 set,
 31 deleted, 98,112 unchanged`. Against a server the file is uploaded as an
 object and the load runs as a job the command follows, which Ctrl-C asks to
-cancel (exit 130). `e3 history` says what a load's commit loaded.
+cancel (exit 130). `e3 history` says what a load's commit loaded. A source fed
+by a dataset of the package is the dataflow's to load, so `e3 load` refuses it,
+naming its feed.
 
 ### Tasks
 
@@ -212,6 +217,17 @@ the solution's own entries alone until each has delivered once, and the line
 names the sources it waits for (`[WAIT] forecast: record 'orders' waits for
 the first delivery of erp`).
 
+A source fed by a dataset of the package is loaded as a step of the run,
+`<record>.<source>`, after the task that writes its feed, and committed once.
+While its load cannot run — its feed unset, a record yet to deliver, or an
+input that holds its package's value — the load waits, and the record's
+readers with it:
+
+```
+  [WAIT] orders.erp: input 'erp_extract' holds its package's value: set it, and orders.erp loads it
+  [WAIT] forecast: record 'orders' waits on its load orders.erp
+```
+
 After a successful run, the CLI prints the task output paths so you can read them straight away:
 
 ```
@@ -270,7 +286,8 @@ e3 watch <source.ts> <repo> <ws> [--start] [--schema <policy>] [--inputs <policy
 
 `--schema` and `--inputs` are the deploy's (`e3 workspace deploy`); a record
 whose type changes with no migration stops the watch, naming `--schema=reset`,
-and each save says which inputs someone set it resets.
+and each save says which inputs someone set it resets, and which it keeps
+because they feed a load.
 
 ### Authentication
 

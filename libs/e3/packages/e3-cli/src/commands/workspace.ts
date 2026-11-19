@@ -548,12 +548,27 @@ export function inputPlanLine(plan: InputPlan): string {
   switch (action.type) {
     case 'package': return `give input ${plan.input} the package's value`;
     case 'keep': return `keep input ${plan.input}, as it was set in the workspace`;
+    case 'retained': return `keep input ${plan.input}, as it was set: it feeds ${action.value.load}, which a deploy never resets`;
     case 'reset': return `reset input ${plan.input}: it ${action.value.reason}`;
     case 'file': return action.value.taken
       ? `take input ${plan.input} from its file, ${action.value.path}`
       : `leave input ${plan.input} unset for its file, ${action.value.path}, which this deploy does not read`;
     case 'drop': return `drop input ${plan.input}, with its value`;
   }
+}
+
+/**
+ * Whether a deploy says what it decided for an input: every decision under
+ * `--plan`; otherwise one that keeps what someone set — `keep`, and
+ * `retained` for an input that feeds a load — or loses it, `reset` and `drop`.
+ *
+ * @param plan - What the deploy decided for the input
+ * @param all - Whether the deploy is a plan, which says every decision
+ * @returns Whether its line is printed
+ */
+export function deploySaysInput(plan: InputPlan, all: boolean): boolean {
+  const action = plan.action.type;
+  return all || action === 'keep' || action === 'retained' || action === 'reset' || action === 'drop';
 }
 
 /**
@@ -600,9 +615,8 @@ function deployReporter(target: DeployTarget): {
       if (target.plan || plan.action.type !== 'keep') console.log(`  ${plan.action.type} index ${plan.record}.${plan.index}`);
     },
     onInputPlan: (plan) => {
-      const action = plan.action.type;
       if (plan.action.type === 'reset' && plan.action.value.policy) resetByPolicy++;
-      if (target.plan || action === 'keep' || action === 'reset' || action === 'drop') console.log(`  ${inputPlanLine(plan)}`);
+      if (deploySaysInput(plan, target.plan)) console.log(`  ${inputPlanLine(plan)}`);
     },
     endDeploy,
     endPlan: () => {

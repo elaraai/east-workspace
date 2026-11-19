@@ -392,6 +392,34 @@ its holds the setup reads from its locks; and a job dispatched while gc holds
 the repository fails, naming it. A route's behaviour is the `records-load` and `object-upload`
 suites of e3-api-tests, and `e3 load` against a server, `cliTests`.
 
+**A source the dataflow loads adds no seam either.** Its load is a node of the
+run's graph, named `<record>.<source>` (`loadNodesOf`), whose task is the
+load's own task object: the loop launches it as it launches a task, a split one
+through the same driver, its units on the backend's `TaskRunner`, and commits
+its delta outside the run's lock (`recordLoadCommit`, given the versions the
+node was launched with as its `feed`), which a cancel or a yield aborts. A
+deploy keeps a value someone set in an input that feeds a load
+(`packageLoadFeeds`, which `planInputDeployments` takes), gc's history prune
+keeps a load node's execution by its record's `.execution` slot, and a
+workspace's bundle names it so: all shared, so a backend writes nothing for
+them. A host that runs its own loop in place of the shared class takes the
+steps as they are: `stepGetReady` takes load nodes first; `stepPrepareLoad`
+prepares one, or answers it from its record's slots before any runner is
+asked (`PrepareLoadAnswered`); `stepLoadFailed` records a load's failure,
+which stops no launch, and `stepTasksDue` puts the node back once its feed
+moves; `stepTasksWaiting` names the waits a load adds (`InputWait`'s
+`package` and `upstream`); and `stepTaskCommits` reads a fed record's carried
+versions (`dataflowCarried`) and defers a task where nothing says which to
+read (`DeferReason`'s `forgotten`, `carried` and `feed`). Where the load such
+a deferral waits for cannot commit in the run, it answers `waiting` instead,
+naming the load, and the host leaves the task waiting (`stepTasksWaiting`) as
+it does for an input a task cannot read. A load's landing, answered,
+committed or failed, is a change to what tasks are decided on: a host that
+decides a task while one lands decides it again. The loop's contract
+suite pins a load's failure over every backend, and the `dataflow` and
+`records-load` suites of e3-api-tests a fed source's graph, its runs, its
+deploy's plan and a load into it refused.
+
 **A route factory takes its seams as arguments.** Each is exported from
 e3-api-server and given the storage, a repository's identifier from its name,
 and, as it needs them, the transfer backend, each repository's runner, for
@@ -536,8 +564,9 @@ landing though its input moved, a change travelling a task at a time, a
 catch-up run and two tasks sharing one, a deferral, a wake, a deploy, an
 export, a copy and a removal stopping a run, and a run that yielded taken up
 by a second orchestrator. Beside them, on the mock runner, are a task left
-waiting on an input nothing has set, and one left waiting on a composite
-record until each external source has delivered once.
+waiting on an input nothing has set, one left waiting on a composite record
+until each external source has delivered once, and a load the dataflow runs
+that fails.
 
 - A behaviour every backend must have is a case in the suite, not in one
   implementation's spec. A case only one implementation needs — the file

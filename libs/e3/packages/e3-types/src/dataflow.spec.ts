@@ -182,8 +182,9 @@ const STATE_1_0_79 = Buffer.from(
 );
 
 /** The release 1.0.79 state as release 1.0.85 writes it: `force` names the
- *  tasks the run forces, `double`. */
-const STATE = Buffer.from(
+ *  tasks the run forces, `double`. The nodes of its graph say nothing of
+ *  loads, which a repository upgrade carries forward (`dataflow-graph-loads`). */
+const STATE_1_0_85 = Buffer.from(
   'iUVhc3QNCgUAsgspKgEFAAoACAMDYWxsAgRub25lAgV0YXNrcwMIAgRub25lAgRzb21lAAkFBG5hbWUABGhhc2gABmlucHV0' +
   'cwMGb3V0cHV0AAlkZXBlbmRzT24DCgYJAQV0YXNrcwcIAgRub25lAgRzb21lCAQIAgRub25lAgRzb21lCgIIAgRub25lAgRz' +
   'b21lDAgCBG5vbmUCBHNvbWUBCQIKaW5wdXRzSGFzaAALZXhlY3V0aW9uSWQACAIEbm9uZQIEc29tZQ8JCwRuYW1lAAZzdGF0' +
@@ -212,6 +213,37 @@ const STATE = Buffer.from(
   'base64',
 );
 
+/** The release 1.0.85 state as the repository upgrade `dataflow-graph-loads`
+ *  carries it: each node of its graph, `double` and `sum`, loads nothing. */
+const STATE = Buffer.from(
+  'iUVhc3QNCgUA2AsrLAEFAAoACAMDYWxsAgRub25lAgV0YXNrcwMIAgRub25lAgRzb21lAAkCBnJlY29yZAAGc291cmNlAAgC' +
+  'BG5vbmUCBHNvbWUGCQYEbmFtZQAEaGFzaAAGaW5wdXRzAwZvdXRwdXQACWRlcGVuZHNPbgMEbG9hZAcKCAkBBXRhc2tzCQgC' +
+  'BG5vbmUCBHNvbWUKBAgCBG5vbmUCBHNvbWUMAggCBG5vbmUCBHNvbWUOCAIEbm9uZQIEc29tZQEJAgppbnB1dHNIYXNoAAtl' +
+  'eGVjdXRpb25JZAAIAgRub25lAgRzb21lEQkLBG5hbWUABnN0YXR1cwAGY2FjaGVkDQpvdXRwdXRIYXNoBQVlcnJvcgUIZXhp' +
+  'dENvZGUPCXN0YXJ0ZWRBdBALY29tcGxldGVkQXQQCGR1cmF0aW9uDwRwbGFuBQlleGVjdXRpb24SCwATCwAACwAVCQMDc2Vx' +
+  'Dgl0aW1lc3RhbXABBnJlYXNvbgUJCANzZXEOCXRpbWVzdGFtcAEHc3VjY2VzcwwIZXhlY3V0ZWQOBmNhY2hlZA4GZmFpbGVk' +
+  'Dgdza2lwcGVkDghkdXJhdGlvbg4JBANzZXEOCXRpbWVzdGFtcAELZXhlY3V0aW9uSWQACnRvdGFsVGFza3MOCQUDc2VxDgl0' +
+  'aW1lc3RhbXABBHBhdGgADHByZXZpb3VzSGFzaAAHbmV3SGFzaAAJBwNzZXEOCXRpbWVzdGFtcAEEdGFzawAGY2FjaGVkDApv' +
+  'dXRwdXRIYXNoAAhkdXJhdGlvbg4JcGVha0J5dGVzDwkEA3NlcQ4JdGltZXN0YW1wAQR0YXNrAAxjb25mbGljdFBhdGgACQYD' +
+  'c2VxDgl0aW1lc3RhbXABBHRhc2sABWVycm9yBQhleGl0Q29kZQ8IZHVyYXRpb24OCQQDc2VxDgl0aW1lc3RhbXABBHRhc2sA' +
+  'BnJlYXNvbgAJBQNzZXEOCXRpbWVzdGFtcAEEdGFzawAFbGV2ZWwOBmxldmVscw4JBgNzZXEOCXRpbWVzdGFtcAEEdGFzawAF' +
+  'bGV2ZWwOBmxldmVscw4FdW5pdHMOCQMDc2VxDgl0aW1lc3RhbXABBHRhc2sACQQDc2VxDgl0aW1lc3RhbXABBHRhc2sABWNh' +
+  'dXNlAAkEA3NlcQ4JdGltZXN0YW1wAQR0YXNrAAZwaWVjZXMOCQIFbGV2ZWwOBmxldmVscw4IAgRub25lAgRzb21lJAkDBW1l' +
+  'cmdlJQVpbmRleA4FdW5pdHMOCAMGYnVkZ2V0AgNjYXACB21hY2hpbmUCCQcDc2VxDgl0aW1lc3RhbXABBHRhc2sABHVuaXQm' +
+  'BnJlYXNvbicEcGVhaw4IcmVzZXJ2ZXMOCA8TZXhlY3V0aW9uX2NhbmNlbGxlZBcTZXhlY3V0aW9uX2NvbXBsZXRlZBgRZXhl' +
+  'Y3V0aW9uX3N0YXJ0ZWQZDWlucHV0X2NoYW5nZWQaDnRhc2tfY29tcGxldGVkGw10YXNrX2RlZmVycmVkHAt0YXNrX2ZhaWxl' +
+  'ZB0QdGFza19pbnZhbGlkYXRlZB4UdGFza19tZXJnZV9jb21wbGV0ZWQfEnRhc2tfbWVyZ2Vfc3RhcnRlZCAKdGFza19yZWFk' +
+  'eSEMdGFza19za2lwcGVkIgp0YXNrX3NwbGl0Iwx0YXNrX3N0YXJ0ZWQhDXVuaXRfcmVxdWV1ZWQoCikJFwdyZWxlYXNlAAJp' +
+  'ZAAEcmVwbwAJd29ya3NwYWNlAAlzdGFydGVkQXQBBWZvcmNlBAZmaWx0ZXIFBWdyYXBoCwlncmFwaEhhc2gFBXRhc2tzFAhl' +
+  'eGVjdXRlZA4GY2FjaGVkDgZmYWlsZWQOB3NraXBwZWQOBnN0YXR1cwALY29tcGxldGVkQXQQBWVycm9yBQ52ZXJzaW9uVmVj' +
+  'dG9ycxYNaW5wdXRTbmFwc2hvdBUPdGFza091dHB1dFBhdGhzAwpyZWV4ZWN1dGVkDgZldmVudHMqCGV2ZW50U2VxDgEAAfEG' +
+  'mwJjM9Qz0LMwVTEwtDRINEgy0LUAAl1zAwMgC0QAMRywFKUW5DOVFzc8OX3qfRoTAyNbSn5pUk4qAwMjAxOU7ZBIIWBg5NTL' +
+  'zCsoLSnWq2Dg1StJLM4u1oPZw8BcXJrrkEIhYGBEM5cLygUajuQpIID5CkpxJufnFuSklqSmMDIwOiRTCIDBduEzKCQZFzSf' +
+  'AVESQEOTKATERKQhKBRBmDszL76gKD+9KLW4GORdxg+TQA4BMphSTYG+BwqxF5Xm5WXmpYODAylqHNIoBEDjUWMBORKA9jIx' +
+  'QZIZcSmTlwUSlNCIYmGDBCksLimOKwnGhoaGBF4OSACBwo6HC8Fm4eM5sAjGYWBiYQAqngbSMY2Rk2/CJpgMExMTAx8A',
+  'base64',
+);
+
 const NEW_FORM = 'a change to the execution state\'s type is a new form: ship a repository upgrade step that carries a repository\'s states into it, move this state to the refusals, and add one the new form writes';
 
 describe('decodeDataflowExecutionState', () => {
@@ -228,6 +260,8 @@ describe('decodeDataflowExecutionState', () => {
     assert.doesNotThrow(() => decodeDataflowExecutionState(STATE), NEW_FORM);
     const state = decodeDataflowExecutionState(STATE);
     assert.equal(state.release, '1.0.85');
+    assert.ok(state.graph.type === 'some' && state.graph.value.tasks.length === 2, 'its graph holds its two tasks');
+    assert.deepEqual(state.graph.value.tasks.map((task) => task.load), [none, none], 'and neither loads anything');
     const forced = variant('tasks', ['double']);
     assert.ok(equalFor(DataflowForceType)(state.force, forced), `it forces double, not ${printFor(DataflowForceType)(state.force)}`);
     assert.deepEqual(state.tasks.get('sum')!.plan, some('e5'));
@@ -245,11 +279,13 @@ describe('decodeDataflowExecutionState', () => {
     });
   });
 
-  it('refuses a state an earlier release wrote, which a repository upgrade carries forward: release 1.0.79\'s Boolean force', () => {
-    assert.throws(
-      () => decodeDataflowExecutionState(STATE_1_0_79),
-      { message: `the execution state was written by e3 1.0.79, in a form this e3, ${E3_RELEASE}, does not read — re-create the repository: deploy again and import its data again` },
-    );
+  it('refuses a state an earlier release wrote, which a repository upgrade carries forward: release 1.0.79\'s Boolean force, and release 1.0.85\'s graph, which says nothing of loads', () => {
+    for (const [state, release] of [[STATE_1_0_79, '1.0.79'], [STATE_1_0_85, '1.0.85']] as const) {
+      assert.throws(
+        () => decodeDataflowExecutionState(state),
+        { message: `the execution state was written by e3 ${release}, in a form this e3, ${E3_RELEASE}, does not read — re-create the repository: deploy again and import its data again` },
+      );
+    }
   });
 
   it('refuses a state a newer release wrote, naming it', () => {

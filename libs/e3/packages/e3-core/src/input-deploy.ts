@@ -21,6 +21,11 @@
  * policy, and the plan says it was reset, and why. So does an input someone
  * set that the new package declares as a dataset people do not set.
  *
+ * An input someone set that feeds a load is kept under either policy while
+ * its type is the new package's — `retained` under `reset`, naming the load —
+ * since resetting it would have the next run load the package's value, and
+ * the load waits on an input that holds its package's value.
+ *
  * @packageDocumentation
  */
 
@@ -138,6 +143,10 @@ async function heldValue(
  * - someone set it, and its type changed: `reset`, under either policy. Types
  *   compare by their structure, as a record's do
  *   ({@link isTypeValueStructurallyEqual});
+ * - someone set it, it feeds a load, and its type is unchanged: `retained`
+ *   under `reset`, naming the load, and `keep` under `keep-edited`. A changed
+ *   type resets it, as any input, the reason saying the load waits until it
+ *   is set again;
  * - someone set it, under `reset`: `reset`, its `policy` true, since
  *   `keep-edited` would keep it;
  * - someone set it, under `keep-edited`: `keep`.
@@ -160,6 +169,8 @@ async function heldValue(
  * @param resolveFileSources - Whether this deploy reads the new package's
  *   `file` sources; one that does not leaves each unassigned, for its client
  *   to complete
+ * @param feeds - The loads each of the new package's feeds feeds, by the
+ *   feed's ref path (`packageLoadFeeds`); none when omitted
  * @returns One deployment per input: the new package's, in its structure's
  *   order, and then each the deployed package declares that the new one does
  *   not, in that package's
@@ -172,6 +183,7 @@ export async function planInputDeployments(
   prior: PackageObject | null,
   policy: InputPolicy,
   resolveFileSources = true,
+  feeds: ReadonlyMap<string, string> = new Map(),
 ): Promise<InputDeployment[]> {
   const declared = structureInputs(pkg.data.structure);
   const datasets = structureDatasets(pkg.data.structure);
@@ -200,7 +212,11 @@ export async function planInputDeployments(
     } else if (value.kind === 'file') {
       deployments.push(reset(input, RESET_FROM_FILE));
     } else if (!isTypeValueStructurallyEqual(was, type)) {
-      deployments.push(reset(input, `was set in the workspace, and changed type:\n${typeChange(was, type).replace(/^/gm, '    ')}`));
+      const load = feeds.get(input);
+      const waits = load === undefined ? '' : `\n${load} waits until it is set again`;
+      deployments.push(reset(input, `was set in the workspace, and changed type:\n${typeChange(was, type).replace(/^/gm, '    ')}${waits}`));
+    } else if (policy === 'reset' && feeds.has(input)) {
+      deployments.push({ plan: { input, action: variant('retained', { load: feeds.get(input)! }) }, kept: value.ref });
     } else if (policy === 'reset') {
       deployments.push(reset(input, RESET_BY_POLICY, true));
     } else {

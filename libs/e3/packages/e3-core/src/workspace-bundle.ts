@@ -22,7 +22,7 @@ import {
   type DatasetRef, type WorkspaceBundleEntry, type WorkspaceBundleHead,
 } from '@elaraai/e3-types';
 import { OBJECT_CONCURRENCY, TOUCH_BATCH, eachAtMost, readInOrder } from './concurrency.js';
-import { dataflowGetGraph } from './dataflow.js';
+import { dataflowGetGraph, packageLoadTasks } from './dataflow.js';
 import { inputObject } from './dataset-open.js';
 import { collectLeafPaths, keypathToRefPath, refPathToKeypath } from './dataset-refs.js';
 import { acquireWorkspaceShared, workspaceLockRefusal } from './deploy-lock.js';
@@ -33,6 +33,7 @@ import {
 import { inputsHash } from './executions.js';
 import { gcObjectReaders, markReachable, touchReachable } from './gc-graph.js';
 import { packageObjectRead } from './packages.js';
+import { sourceExecution } from './record-slots.js';
 import { withRunningWork } from './running-work.js';
 import type { StorageBackend } from './storage/interfaces.js';
 import { taskObjectRead } from './tasks.js';
@@ -192,8 +193,18 @@ async function headOf(storage: StorageBackend, repo: string, ws: string): Promis
   // output the workspace holds: what the workspace's status reads it up to
   // date by. An input that is an index of a record is the index's manifest,
   // found in the record's state, as the dataflow keys the task's executions.
+  // A load node's is the execution its record's `.execution` slot names: it
+  // runs over its delivery and its source's run, not its feed, and the slot
+  // is what answers it once the workspace is made again.
   const current: { taskHash: string; inputsHash: string; output: string }[] = [];
+  const loaded: { taskHash: string; inputsHash: string; executionId: string }[] = [];
   for (const task of (await dataflowGetGraph(storage, repo, ws)).tasks) {
+    if (task.load.type === 'some') {
+      const record = datasets.get(keypathToRefPath(task.output));
+      const execution = sourceExecution(record?.type === 'value' ? record.value.versions : undefined, task.load.value.source);
+      if (execution !== null) loaded.push({ taskHash: task.hash, ...execution });
+      continue;
+    }
     const output = valueHash(datasets.get(keypathToRefPath(task.output)));
     const declaredInputs = (await taskObjectRead(storage, repo, task.hash)).inputs;
     const inputs: string[] = [];
@@ -210,6 +221,15 @@ async function headOf(storage: StorageBackend, repo: string, ws: string): Promis
   const executions = current.flatMap(({ taskHash, inputsHash, output }, i) => {
     const status = latest[i] ?? null;
     return status?.type === 'success' && status.value.outputHash === output ? [{ taskHash, inputsHash, status }] : [];
+  });
+  const named = new Array<Awaited<ReturnType<StorageBackend['refs']['executionGet']>>>(loaded.length);
+  await eachAtMost(loaded.map((_, i) => i), OBJECT_CONCURRENCY, async (i) => {
+    const { taskHash, inputsHash, executionId } = loaded[i]!;
+    named[i] = await storage.refs.executionGet(repo, taskHash, inputsHash, executionId);
+  });
+  loaded.forEach(({ taskHash, inputsHash }, i) => {
+    const status = named[i] ?? null;
+    if (status?.type === 'success') executions.push({ taskHash, inputsHash, status });
   });
 
   return {
@@ -548,7 +568,8 @@ async function packageHeldAs(storage: StorageBackend, repo: string, head: Worksp
  * Refuses a bundle whose workspace the repository cannot hold whole: it names
  * an object the repository does not hold, or one each of those names; or it
  * holds a ref of a dataset its package does not declare, or an execution of a
- * task its package does not have.
+ * task its package does not have: one of its tasks, or of a load of one of
+ * its records' fed sources.
  *
  * @throws {WorkspaceBundleInvalidError} Naming what is missing or not its
  *   package's
@@ -562,7 +583,8 @@ async function checkHeld(storage: StorageBackend, repo: string, head: WorkspaceB
   try {
     const pkg = await packageObjectRead(storage, repo, head.package.hash);
     declared = new Set(collectLeafPaths(pkg.data.structure).map(keypathToRefPath));
-    tasks = new Set(pkg.tasks.values());
+    // Its tasks, and its records' loads the dataflow runs
+    tasks = new Set([...pkg.tasks.values(), ...(await packageLoadTasks(storage, repo, pkg))]);
   } catch (err) {
     if (err instanceof ObjectNotFoundError) throw err;
     throw new WorkspaceBundleInvalidError(`its package is no package: ${err instanceof Error ? err.message : String(err)}`);

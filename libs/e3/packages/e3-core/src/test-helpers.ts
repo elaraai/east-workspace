@@ -19,7 +19,7 @@ import {
   decodeBeast2For, encodeBeast2For, encodeBeast2FenceFor, encodeBeast2SegmentsFor, equalFor, isVariant, openBeast2PagesFor, parseFor, printFor,
   printType, readBeast2Extents, readBeast2Type, segmentKeyTypeOf, toEastTypeValue, variant, type EastType, type EastTypeValue, type ValueTypeOf,
 } from '@elaraai/east';
-import e3, { type PartRunner } from '@elaraai/e3';
+import e3, { type DatasetDef, type PartRunner, type TaskDef } from '@elaraai/e3';
 import {
   COLLECTION_MANIFEST_KIND, encodeCollectionManifest, type CollectionManifestEntry, type ExecutionStatus, type Structure,
 } from '@elaraai/e3-types';
@@ -547,6 +547,158 @@ export function ledgerOrders(options: { readonly erp?: LedgerErpLoad; readonly o
       })),
     }),
   });
+}
+
+/** A load that fails for a delivery holding the order `id`, naming the order,
+ *  and loads any other as {@link loadBook} does. */
+function loadFailingOn(id: string) {
+  return East.function([ErpDeliveryType, ErpDeliveryType], PatchType(ErpDeliveryType), ($, delivery, current) => {
+    $.if(delivery.has(id), ($) => $.error(East.str`the ERP sent order ${East.value(id)}, which no order book holds`));
+    return East.diff(current, delivery);
+  });
+}
+
+/**
+ * A package for a fed load's spec, after the design's §4.4: `orders`, a
+ * composite record whose `erp` source the dataflow loads from its feed, beside
+ * the warehouse's (`wms`) and the solution's own (`own`), which holds order
+ * `P-1` (Birch, 2) and which the mutation `plan` writes by id; and
+ * `forecast`, a task over `orders` that counts its entries.
+ *
+ * `erp`'s feed is, as asked:
+ * - `task` (the default): `combine_erp`, a task that makes the ERP's order
+ *   book from the ERP's rows (`erp_rows`, an input with no value);
+ * - `packaged`: `erp_extract`, an input the package gives a placeholder book,
+ *   order `SO-0`, which a load waits on until someone sets it.
+ *
+ * `wms` is, as asked, delivered by `e3 load` (the default), or `fed` too:
+ * loaded from `combine_wms`, a task that makes the warehouse's book from its
+ * rows (`wms_rows`, an input with no value).
+ *
+ * With `beside`, the package holds `combine_erp` and `combine_wms` whatever
+ * feeds the sources: two tasks, each over an input of its own, that a spec
+ * holds in flight beside a load neither feeds.
+ *
+ * @param options - `erp`'s feed, `wms`'s, an order id whose delivery makes
+ *   `erp`'s load fail, naming the order, and whether the two tasks are held
+ *   beside
+ * @returns Each part, and the package of them (`fed`, at the version given,
+ *   `1.0.0` when omitted)
+ */
+export function fedOrders(options: {
+  readonly feed?: 'task' | 'packaged'; readonly wms?: 'delivered' | 'fed'; readonly failsOn?: string; readonly beside?: boolean;
+} = {}) {
+  const erpRows = e3.input('erp_rows', ErpDeliveryType);
+  const combineErp = e3.task('combine_erp', [erpRows], East.function([ErpDeliveryType], ErpDeliveryType, (_$, rows) => rows));
+  const erpExtract = e3.input('erp_extract', ErpDeliveryType, variant('value', new Map([['SO-0', { customer: 'Placeholder', qty: 0n }]])));
+  const wmsRows = e3.input('wms_rows', ErpDeliveryType);
+  const combineWms = e3.task('combine_wms', [wmsRows], East.function([ErpDeliveryType], ErpDeliveryType, (_$, rows) => rows));
+  const loadErp = options.failsOn === undefined ? loadBook : loadFailingOn(options.failsOn);
+  const fedBy = (feed: typeof combineErp | typeof erpExtract) => e3.recordComposite('orders', SourcedOrderType, {
+    sources: (source) => ({
+      erp: source.load(StringType, feed, loadErp),
+      own: source.mutations(StringType),
+      wms: options.wms === 'fed' ? source.load(StringType, combineWms, loadBook) : source.load(StringType, ErpDeliveryType, loadBook),
+    }),
+    initial: { own: new Map([['P-1', { customer: 'Birch', qty: 2n }]]) },
+    mutations: (mutation, { state, edit }) => ({
+      plan: mutation.edit(East.function([state, StringType, SourcedOrderType, edit], NullType, ($, _orders, id, order, edit) => {
+        $(edit.set(variant('own', id), order));
+      })),
+    }),
+  });
+  const orders = options.feed === 'packaged' ? fedBy(erpExtract) : fedBy(combineErp);
+  const forecast = e3.task('forecast', [orders], East.function([orders.type], IntegerType, (_$, held) => held.size()));
+  return {
+    erpRows, combineErp, erpExtract, wmsRows, combineWms, orders, forecast,
+    pkg: (version = '1.0.0') => e3.package('fed', version, forecast, ...(options.beside === true ? [combineErp, combineWms] : [])),
+  };
+}
+
+/**
+ * A package for the specs of what a fed record carries (the design's §4.6,
+ * §4.9 and §4.10): the ERP's order book kept as a record, `erp_book`, holding
+ * order `SO-1` (Acme, 5) from its deploy, which the mutation `put` writes by
+ * id; `orders`, a composite record whose `erp` source the dataflow loads,
+ * beside its own (`own`, order `P-1`), which the mutation `plan` writes; and
+ * its readers, each saying how many entries it read: the first input's count
+ * times 100, plus the second's.
+ *
+ * As asked, `orders.erp` is fed by:
+ * - `book` (the default): `combine_erp`, a task over `erp_book` that keeps its
+ *   orders of a quantity above 0. `invoices`, a second composite record, is
+ *   fed every order of `erp_book` by `combine_inv`. `reconcile` reads
+ *   `erp_book` and `orders`; `audit` reads `orders` and `invoices`.
+ * - `extract`: the input `erp_extract`, which nothing sets until a spec does;
+ *   `check` reads `erp_extract` and `orders`.
+ * - `twice`: `combine_erp`, beside a second fed source of `orders`, `inv`,
+ *   fed every order of `erp_book` by `combine_inv`: one record whose two
+ *   sources each carry a version of the book. `reconcile` reads `erp_book` and
+ *   `orders`.
+ *
+ * `forecast` reads `orders` alone, and counts its entries.
+ *
+ * `combine_inv` writes each customer's name in capitals, so what it feeds is
+ * never the delivery `combine_erp` feeds. The two loads run one load function
+ * over sources that hold the same orders: fed one delivery they would be one
+ * execution, and whichever started second would be answered by the first's,
+ * never reaching the runner a spec holds it at.
+ *
+ * @param options - What feeds `orders.erp`, and an order id whose delivery
+ *   makes its load fail, naming the order
+ * @returns The package (`book`, at `1.0.0`)
+ */
+export function bookFed(options: { readonly feed?: 'book' | 'extract' | 'twice'; readonly failsOn?: string } = {}) {
+  const erpBook = e3.record('erp_book', ErpDeliveryType, {
+    initial: new Map([['SO-1', { customer: 'Acme', qty: 5n }]]),
+    mutations: (mutation, { state, edit }) => ({
+      put: mutation.edit(East.function([state, StringType, SourcedOrderType, edit], NullType, ($, _book, id, order, edit) => {
+        $(edit.set(id, order));
+      })),
+    }),
+  });
+  const combineErp = e3.task('combine_erp', [erpBook], East.function([ErpDeliveryType], ErpDeliveryType,
+    ($, rows) => rows.filter(($, order) => order.qty.greater(0n))));
+  const combineInv = e3.task('combine_inv', [erpBook], East.function([ErpDeliveryType], ErpDeliveryType,
+    ($, rows) => rows.map(($, order) => ({ customer: order.customer.upperCase(), qty: order.qty }))));
+  const erpExtract = e3.input('erp_extract', ErpDeliveryType);
+  const loadErp = options.failsOn === undefined ? loadBook : loadFailingOn(options.failsOn);
+  if (options.feed === 'twice') {
+    const twice = e3.recordComposite('orders', SourcedOrderType, {
+      sources: (source) => ({
+        erp: source.load(StringType, combineErp, loadBook),
+        inv: source.load(StringType, combineInv, loadBook),
+        own: source.mutations(StringType),
+      }),
+      initial: { own: new Map([['P-1', { customer: 'Birch', qty: 2n }]]) },
+    });
+    return e3.package('book', '1.0.0',
+      e3.task('forecast', [twice], East.function([twice.type], IntegerType, (_$, held) => held.size())),
+      e3.task('reconcile', [erpBook, twice],
+        East.function([ErpDeliveryType, twice.type], IntegerType, (_$, held, orders) => held.size().multiply(100n).add(orders.size()))));
+  }
+  const composite = (name: string, feed: TaskDef<typeof ErpDeliveryType> | DatasetDef<typeof ErpDeliveryType>) => e3.recordComposite(name, SourcedOrderType, {
+    sources: (source) => ({
+      erp: source.load(StringType, feed, name === 'orders' ? loadErp : loadBook),
+      own: source.mutations(StringType),
+    }),
+    initial: { own: new Map(name === 'orders' ? [['P-1', { customer: 'Birch', qty: 2n }]] : []) },
+    mutations: (mutation, { state, edit }) => ({
+      plan: mutation.edit(East.function([state, StringType, SourcedOrderType, edit], NullType, ($, _orders, id, order, edit) => {
+        $(edit.set(variant('own', id), order));
+      })),
+    }),
+  });
+  const counted = (name: string, first: typeof erpBook | typeof orders, second: typeof orders) => e3.task(name, [first, second],
+    East.function([first.type, second.type], IntegerType, (_$, a, b) => a.size().multiply(100n).add(b.size())));
+  const orders = options.feed === 'extract' ? composite('orders', erpExtract) : composite('orders', combineErp);
+  const forecast = e3.task('forecast', [orders], East.function([orders.type], IntegerType, (_$, held) => held.size()));
+  if (options.feed === 'extract') {
+    return e3.package('book', '1.0.0', forecast, e3.task('check', [erpExtract, orders],
+      East.function([ErpDeliveryType, orders.type], IntegerType, (_$, extract, held) => extract.size().multiply(100n).add(held.size()))));
+  }
+  const invoices = composite('invoices', combineInv);
+  return e3.package('book', '1.0.0', forecast, counted('reconcile', erpBook, orders), counted('audit', orders, invoices));
 }
 
 /**
