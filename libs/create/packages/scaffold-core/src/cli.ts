@@ -46,7 +46,8 @@ export async function runCreateCli(kind: ProjectKind, moduleUrl: string): Promis
         ? true
         : Boolean(process.stdout.isTTY);
     try {
-      const pins = readReleasePins(join(pkgRoot, "templates", kind));
+      // Read only for a project that carries a release's python pins
+      const pins = (): ReturnType<typeof readReleasePins> => readReleasePins(join(pkgRoot, "templates", kind));
       const result = updateStack({ cwd: resolve(target), version, install, pins });
       printUpdateNextSteps(result, install);
     } catch (err) {
@@ -211,8 +212,10 @@ function printHelp(kind: ProjectKind): void {
   console.log("  Rewrites every @elaraai/* dependency to <version> and regenerates the lock,");
   console.log("  keeping the stack in lockstep without an ERESOLVE on bump.");
   if (kind === "e3") {
-    console.log("  A python project's pyproject.toml takes <version>'s python pins too: the");
-    console.log("  versions its python images hold, which a scaffold writes at its own release.");
+    console.log("  A python project's east release pins in pyproject.toml, which a scaffold");
+    console.log("  writes, take <version>'s too.");
+  } else {
+    console.log("  A python project's east release pins in pyproject.toml are create-e3's to move.");
   }
   console.log("");
   console.log("Options:");

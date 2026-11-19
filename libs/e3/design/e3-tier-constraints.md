@@ -315,10 +315,11 @@ incompatibility the lock's own settings explain, and fails every other (8.5).
 
 ## 4. What this does not do
 
-- **Pin anything else.** xgboost, pymc and the rest float in a project's
-  lock, and ship when they differ from the tier's. Section 3.6 holds them.
-- **Write a project's settings for it.** Section 3.6 was by hand here. The
-  scaffolder writes them since (9).
+- **Pin anything else in the extras.** xgboost, pymc and the rest float in a
+  project's lock unless it takes the release's settings (3.6), and ship when
+  they differ from the tier's.
+- **Write a project's settings for it.** Section 3.6 was by hand here; a
+  change that followed makes the scaffolder write them (9).
 - **Change the project template's dependencies.** It lists the package with
   no extras, and a member that wants torch asks for the extras itself. Its
   `requires-python` moves to 3.12 (8.1).
@@ -545,9 +546,13 @@ release's settings (3.6) was sent 1.3 MB. So create-e3 writes them:
   `override-dependencies`, the lines of `east-py-overrides.txt`.
 - The east distributions are pinned with them: a later lock would otherwise
   take a newer east-py, one these pins were not tested with.
-- create-e3's build copies the two files from `@elaraai/e3-core`'s `tier/` into
-  its template, so a create-e3 of a release writes that release's: the drift
-  check holds the files and create-e3 to the one version.
-- `npm create @elaraai/e3@<version> -- --update` replaces the block with that
-  release's, and gives one to a project from before. A project that sets uv's
-  constraints or overrides itself keeps them, and is told so.
+- create-e3's build reads the two files from `@elaraai/e3-core`'s `tier/`,
+  refuses them unless they are of its own version, and ships what it read in
+  its template: a create-e3 of a release writes that release's, and a change
+  of the files' form fails its build, not a scaffold.
+- The release publishes to npm only once PyPI serves its python packages, so
+  a create-e3 is never out before the east distributions its pins name.
+- `npm create @elaraai/e3@<version> -- --update` replaces a project's block
+  with that release's. A project without one, from before or one whose
+  author removed it or pins by hand, is left as it is: adding some 200 exact
+  pins under a project's own dependencies can make its lock unsatisfiable.

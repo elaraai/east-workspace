@@ -7,8 +7,8 @@ import { existsSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 
-import { withReleasePins, type ReleasePins } from "./pins.js";
-import { hasCommand } from "./scaffold.js";
+import { hasReleasePins, withReleasePins, type ReleasePins } from "./pins.js";
+import { uvSync } from "./scaffold.js";
 
 const DEP_BUCKETS = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"] as const;
 
@@ -26,9 +26,10 @@ export interface UpdateResult {
   changed: UpdatedDep[];
   /** Total `@elaraai/*` deps seen across all dependency buckets. */
   found: number;
-  /** Whether the project's `pyproject.toml` was given the release's python pins. */
+  /** Whether the project's `pyproject.toml` carries this release's python
+   *  pins: given them by this update, or holding them already. */
   pythonPinned: boolean;
-  /** Whether `uv sync` locked the python dependencies again under them. */
+  /** Whether `uv sync` locked the python dependencies under them in this update. */
   pythonLocked: boolean;
   /** Whether a reinstall ran. */
   installed: boolean;
@@ -40,13 +41,15 @@ export interface UpdateOptions {
   cwd: string;
   /** Target version — every `@elaraai/*` pin is set to this exact version. */
   version: string;
-  /** Reinstall (drop the stale lock + `npm install`, then `uv sync` when the
-   *  python pins changed) after rewriting pins. */
+  /** Reinstall after rewriting pins: drop the stale lock and `npm install`,
+   *  then `uv sync` a project that carries the release's python pins. */
   install?: boolean;
-  /** The release's python pins (`readReleasePins`), which a python project's
-   *  `pyproject.toml` takes in place of an earlier release's; none leaves its
-   *  python as it is. */
-  pins?: ReleasePins | null;
+  /**
+   * Reads the release's python pins (`readReleasePins`): called only for a
+   * project whose `pyproject.toml` carries a release's pins, which then take
+   * these. One that finds none (create-east's) leaves them, and says so.
+   */
+  pins?: () => ReleasePins | null;
   /** Progress sink; defaults to `console.log`. */
   log?: (msg: string) => void;
 }
@@ -61,13 +64,13 @@ export interface UpdateOptions {
  * npm resolve the whole stack in a single consistent pass — replacing the
  * `rm -rf node_modules package-lock.json` workaround.
  *
- * A python project's `pyproject.toml` takes the release's pins too
- * ({@link withReleasePins}), so its next lock resolves what the release's
- * images hold. One that sets uv's constraints or overrides itself is left as
- * it is, and the log says why.
+ * A python project whose `pyproject.toml` carries a release's pins, the block
+ * a scaffold writes, takes this release's ({@link withReleasePins}), so its
+ * next lock resolves what the release's images hold. A project without the
+ * block is left as it is: its author never took the pins, or removed them.
  *
  * @param options - Target directory, version, the release's python pins, and install/log controls
- * @returns Which deps changed, how many `@elaraai/*` deps were found, whether the python pins were written and locked, and whether install ran
+ * @returns Which deps changed, how many `@elaraai/*` deps were found, whether the project carries this release's python pins and they were locked, and whether install ran
  * @throws {Error} If there is no package.json, it has no `@elaraai/*` dependencies, or install fails
  */
 export function updateStack(options: UpdateOptions): UpdateResult {
@@ -117,22 +120,7 @@ export function updateStack(options: UpdateOptions): UpdateResult {
     rmSync(join(cwd, "package-lock.json"), { force: true });
   }
 
-  let pythonPinned = false;
-  const pyprojectPath = join(cwd, "pyproject.toml");
-  if (options.pins && existsSync(pyprojectPath)) {
-    const before = readFileSync(pyprojectPath, "utf8");
-    let after: string | null = null;
-    try {
-      after = withReleasePins(before, options.pins);
-    } catch (err) {
-      log(`Python pins not written: ${err instanceof Error ? err.message : String(err)}.`);
-    }
-    if (after !== null && after !== before) {
-      writeFileSync(pyprojectPath, after);
-      pythonPinned = true;
-      log(`Pinned the python dependencies to east release ${options.pins.release}'s.`);
-    }
-  }
+  const pythonPinned = pinPython(cwd, version, options.pins, log);
 
   let installed = false;
   let pythonLocked = false;
@@ -143,18 +131,53 @@ export function updateStack(options: UpdateOptions): UpdateResult {
       throw new Error(`npm install failed (exit ${npm.status ?? "unknown"})`);
     }
     installed = true;
-    // The lock holds the earlier release's pins: a sync locks again under these.
-    if (pythonPinned && hasCommand("uv")) {
-      log("Locking the python dependencies again (uv sync)...");
-      const uv = spawnSync("uv", ["sync"], { cwd, stdio: "inherit", shell: process.platform === "win32" });
-      if (uv.status !== 0) {
-        throw new Error(`uv sync failed (exit ${uv.status ?? "unknown"})`);
+    // Its lock may be of an earlier release's pins, or never synced under
+    // these: a sync locks again where it is stale.
+    if (pythonPinned) {
+      const synced = uvSync(cwd, log);
+      if (synced === "failed") {
+        throw new Error("uv sync failed. Where uv says the project's dependencies conflict with the release's pins, those " +
+          "are the `# >>> east release pins` block of pyproject.toml: change the dependency, or replace the block with " +
+          "constraint-dependencies of your own");
       }
-      pythonLocked = true;
-    } else if (pythonPinned) {
-      log("uv not found — install it (https://docs.astral.sh/uv/) then run `uv sync`.");
+      pythonLocked = synced === "synced";
     }
   }
 
   return { projectName: pkg.name ?? "project", changed, found, pythonPinned, pythonLocked, installed };
+}
+
+/**
+ * Gives a project's block of a release's python pins this release's. A
+ * project with no block is left as it is, and so is one whose pins this
+ * initializer does not carry, or that cannot take them: the log says why.
+ *
+ * @returns Whether its `pyproject.toml` carries this release's pins now
+ */
+function pinPython(cwd: string, version: string, loadPins: (() => ReleasePins | null) | undefined, log: (msg: string) => void): boolean {
+  const path = join(cwd, "pyproject.toml");
+  if (!existsSync(path)) return false;
+  const before = readFileSync(path, "utf8");
+  try {
+    if (!hasReleasePins(before)) {
+      log("pyproject.toml carries no east release pins (a project create-e3 scaffolds does): its python dependencies are left as they are.");
+      return false;
+    }
+    const pins = loadPins?.() ?? null;
+    if (pins === null) {
+      log(`pyproject.toml's east release pins are left as they are: run \`npm create @elaraai/e3@${version} -- --update\` to move them.`);
+      return false;
+    }
+    const after = withReleasePins(before, pins);
+    if (after === before) {
+      log(`The python dependencies are pinned to east release ${pins.release}'s already.`);
+    } else {
+      writeFileSync(path, after);
+      log(`Pinned the python dependencies to east release ${pins.release}'s.`);
+    }
+    return true;
+  } catch (err) {
+    log(`Python pins not written: ${err instanceof Error ? err.message : String(err)}.`);
+    return false;
+  }
 }

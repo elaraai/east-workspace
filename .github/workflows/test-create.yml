@@ -6,12 +6,19 @@ on:
     paths:
       - "libs/create/**"
       - ".github/workflows/test-create.yml"
+      # create-e3's build reads the release's python pins from these
+      - "libs/e3/packages/e3-core/tier/**"
+      - "scripts/set-python-version.mjs"
+      - "scripts/east-py-constraints.py"
   # Every PR, whatever its base: a PR stacked on another PR's branch is
   # checked as one into main is.
   pull_request:
     paths:
       - "libs/create/**"
       - ".github/workflows/test-create.yml"
+      - "libs/e3/packages/e3-core/tier/**"
+      - "scripts/set-python-version.mjs"
+      - "scripts/east-py-constraints.py"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -42,17 +49,6 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install
-
-      # The specs read the pyproject.toml a scaffold writes with Python's
-      # tomllib, run by uv. Astral's mirror, not GitHub's releases, whose
-      # downloads time out; its cache stays off, as elsewhere.
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: false
-
-      - name: Set up Python 3.12
-        run: uv python install 3.12
 
       - name: Build scaffold-core + create-* bins
         run: pnpm --filter @elaraai/scaffold-core --filter @elaraai/create-e3 --filter @elaraai/create-east run build

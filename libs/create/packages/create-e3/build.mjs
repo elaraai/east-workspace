@@ -1,10 +1,10 @@
 import * as esbuild from "esbuild";
-import { cpSync, rmSync, mkdirSync, chmodSync } from "node:fs";
+import { cpSync, rmSync, mkdirSync, chmodSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
-import { PINS_DIR, PINS_FILES } from "@elaraai/scaffold-core";
-import { EAST_PY_PINS_DIR } from "../../../../scripts/set-python-version.mjs";
+import { RELEASE_PINS_FILE, parseReleasePins } from "@elaraai/scaffold-core";
+import { EAST_PY_CONSTRAINTS, EAST_PY_OVERRIDES, EAST_PY_PINS_DIR, semverToPep440 } from "../../../../scripts/set-python-version.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, "..", "..", "..", "..");
@@ -31,10 +31,17 @@ rmSync(join(here, "templates"), { recursive: true, force: true });
 cpSync(src, dest, { recursive: true });
 
 // The release's python pins, which a scaffold writes into a python project's
-// pyproject.toml and `--update` replaces: @elaraai/e3-core's copy, which the
-// release's images install under, and which the version drift check holds to
-// this package's version (scripts/check-version-drift.mjs).
-mkdirSync(join(dest, PINS_DIR));
-for (const name of Object.values(PINS_FILES)) cpSync(join(repoRoot, EAST_PY_PINS_DIR, name), join(dest, PINS_DIR, name));
+// pyproject.toml and `--update` gives in place of an earlier release's. Read
+// here, once, from @elaraai/e3-core's tier/, which the release's images
+// install under, and held to this package's version: a change of the files'
+// form, or pins of another release, fail this build and not a scaffold.
+const tier = join(repoRoot, EAST_PY_PINS_DIR);
+const pins = parseReleasePins({
+  constraints: readFileSync(join(tier, EAST_PY_CONSTRAINTS), "utf8"),
+  overrides: readFileSync(join(tier, EAST_PY_OVERRIDES), "utf8"),
+});
+const release = semverToPep440(JSON.parse(readFileSync(join(here, "package.json"), "utf8")).version);
+if (pins.release !== release) throw new Error(`${EAST_PY_PINS_DIR}'s pins are of release ${pins.release}, and create-${KIND} is ${release}`);
+writeFileSync(join(dest, RELEASE_PINS_FILE), `${JSON.stringify(pins, null, 2)}\n`);
 
-console.log(`built create-${KIND}: dist/index.js + templates/${KIND} + the release's python pins`);
+console.log(`built create-${KIND}: dist/index.js + templates/${KIND} + release ${release}'s python pins`);

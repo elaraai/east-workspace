@@ -222,6 +222,9 @@ export function scaffold(options: ScaffoldOptions): ScaffoldResult {
   }
 
   const manifest = loadManifest(templateDir);
+  // The release's python pins a built create-e3's template carries: read
+  // before anything is written, so pins it cannot read leave no project.
+  const pins = readReleasePins(templateDir);
   const enabled = (feature: string): boolean => {
     const spec = manifest?.features[feature];
     // A derived feature is on iff all of its `allOf` features are on; it is
@@ -305,12 +308,10 @@ export function scaffold(options: ScaffoldOptions): ScaffoldResult {
     if (generatePackages({ projectDir, templateDir, names, version, spec: options.packages, log })) wrotePyproject = true;
   }
 
-  // The python project locks under its release's pins, which a template of a
-  // built create-e3 carries: a rack's tier image of that release then holds
-  // nearly all its environments install. Written into the root pyproject this
-  // scaffold wrote, once it is final: generatePackages rewrites it as a
-  // workspace root.
-  const pins = readReleasePins(templateDir);
+  // The python project locks under its release's pins: a rack's tier image of
+  // that release then holds nearly all its environments install. Written into
+  // the root pyproject this scaffold wrote, once it is final: generatePackages
+  // rewrites it as a workspace root.
   if (pins !== null && wrotePyproject) {
     const pyproject = join(projectDir, "pyproject.toml");
     writeFileSync(pyproject, withReleasePins(readFileSync(pyproject, "utf8"), pins));
@@ -325,9 +326,32 @@ export function scaffold(options: ScaffoldOptions): ScaffoldResult {
 }
 
 /** Whether a command is on PATH. */
-export function hasCommand(cmd: string): boolean {
+function hasCommand(cmd: string): boolean {
   const probe = process.platform === "win32" ? "where" : "which";
   return spawnSync(probe, [cmd], { stdio: "ignore" }).status === 0;
+}
+
+/** How {@link uvSync} went. */
+export type UvSyncOutcome = "synced" | "no-uv" | "failed";
+
+/**
+ * Installs a python project's dependencies with `uv sync`, which first locks
+ * them again where the lock is not of the project's `pyproject.toml`. A
+ * scaffold's install and `--update`'s both run it, and each decides what a
+ * failure means.
+ *
+ * @param cwd - The project
+ * @param log - Progress sink, told when uv is not on PATH
+ * @returns Whether it synced, found no uv, or failed
+ */
+export function uvSync(cwd: string, log: (m: string) => void): UvSyncOutcome {
+  if (!hasCommand("uv")) {
+    log("uv not found — install it (https://docs.astral.sh/uv/) then run `uv sync` to set up Python.");
+    return "no-uv";
+  }
+  log("Installing Python dependencies (uv sync)...");
+  const uv = spawnSync("uv", ["sync"], { cwd, stdio: "inherit", shell: process.platform === "win32" });
+  return uv.status === 0 ? "synced" : "failed";
 }
 
 function runInstall(
@@ -343,13 +367,7 @@ function runInstall(
     return;
   }
 
-  if (kind === "e3" && enabled("runner:east-py")) {
-    if (hasCommand("uv")) {
-      log("Installing Python dependencies (uv sync)...");
-      const uv = spawnSync("uv", ["sync"], { cwd: projectDir, stdio: "inherit", shell: process.platform === "win32" });
-      if (uv.status !== 0) log("uv sync failed — fix the issue and re-run `uv sync`.");
-    } else {
-      log("uv not found — install it (https://docs.astral.sh/uv/) then run `uv sync` to set up Python.");
-    }
+  if (kind === "e3" && enabled("runner:east-py") && uvSync(projectDir, log) === "failed") {
+    log("uv sync failed — fix the issue and re-run `uv sync`.");
   }
 }

@@ -4,27 +4,64 @@
  */
 
 /**
- * The specs' shared fixtures: the source tree's templates, a template that
- * carries an east release's pins as create-e3's build gives its template, and
- * a reading of TOML as uv's own reader would take it. Not part of the scaffold.
+ * The specs' shared fixtures: the source tree's templates, the repository's
+ * own release pin files, a template that carries a release's pins as
+ * create-e3's build gives its template, a release's pins to write, and
+ * reading what a scaffold wrote. Not part of the scaffold.
  */
 
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { cpSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { parse as parseToml } from "smol-toml";
 
-import { PINS_DIR, PINS_FILES } from "./pins.js";
+import { RELEASE_PINS_FILE, parseReleasePins, type ReleasePins } from "./pins.js";
 
 /** The source tree's template roots. */
 export const TEMPLATES = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "templates");
 
-/** The repository's release pins: `@elaraai/e3-core`'s `tier/`, which create-e3's build copies. */
-export const TIER_DIR = join(TEMPLATES, "..", "..", "..", "libs", "e3", "packages", "e3-core", "tier");
+/** The repository's root. */
+const REPO_ROOT = join(TEMPLATES, "..", "..", "..");
+
+/** Where the release keeps its pin files, and their names: the release script's own, which create-e3's build reads them by. */
+const PIN_FILES = await import(pathToFileURL(join(REPO_ROOT, "scripts", "set-python-version.mjs")).href) as {
+  EAST_PY_PINS_DIR: string;
+  EAST_PY_CONSTRAINTS: string;
+  EAST_PY_OVERRIDES: string;
+};
+
+/** The texts of the repository's own release pin files: `@elaraai/e3-core`'s `tier/`. */
+export function repositoryPinTexts(): { constraints: string; overrides: string } {
+  const dir = join(REPO_ROOT, PIN_FILES.EAST_PY_PINS_DIR);
+  return {
+    constraints: readFileSync(join(dir, PIN_FILES.EAST_PY_CONSTRAINTS), "utf8"),
+    overrides: readFileSync(join(dir, PIN_FILES.EAST_PY_OVERRIDES), "utf8"),
+  };
+}
 
 /** A `[tool.uv]` table a scaffold gave the release's pins, LF-normalized: its header, then their block. */
 export const PINNED_UV_TABLE = /\n\[tool\.uv\]\n# >>> east release pins/;
+
+/** A release's pins, small: its east-py, and one pin and one override of what it depends on. */
+export const pinsOf = (release: string): ReleasePins => ({
+  release, constraints: [`elaraai-east-py==${release}`, "numpy==2.4.4"], overrides: ["shap>=0.51.0"],
+});
+
+/**
+ * A copy of the e3 template carrying a release's pins, as create-e3's build
+ * gives its own.
+ *
+ * @param pins - The pins, or the text of the file that holds them; the
+ *   repository's own release pins when not given
+ * @returns The template root, in a directory of its own
+ */
+export function templateWithPins(pins: ReleasePins | string = parseReleasePins(repositoryPinTexts())): string {
+  const template = join(mkdtempSync(join(tmpdir(), "create-pins-")), "e3");
+  cpSync(join(TEMPLATES, "e3"), template, { recursive: true });
+  writeFileSync(join(template, RELEASE_PINS_FILE), typeof pins === "string" ? pins : JSON.stringify(pins));
+  return template;
+}
 
 /**
  * A file a scaffold wrote, LF-normalized: a Windows checkout carries the
@@ -40,35 +77,11 @@ export function readScaffolded(dir: string, rel: string): string {
 }
 
 /**
- * A copy of the e3 template carrying pins: the repository's release pins, or
- * the files given.
+ * A TOML document, read as e3 reads a project's `pyproject.toml` (smol-toml,
+ * which holds to the specification as uv does, and refuses what it refuses).
  *
- * @param files - The pins files' texts; the repository's when not given
- * @returns The template root, in a directory of its own
- */
-export function templateWithPins(files?: { constraints: string; overrides: string }): string {
-  const template = join(mkdtempSync(join(tmpdir(), "create-pins-")), "e3");
-  cpSync(join(TEMPLATES, "e3"), template, { recursive: true });
-  mkdirSync(join(template, PINS_DIR));
-  if (files === undefined) {
-    for (const name of Object.values(PINS_FILES)) cpSync(join(TIER_DIR, name), join(template, PINS_DIR, name));
-  } else {
-    writeFileSync(join(template, PINS_DIR, PINS_FILES.constraints), files.constraints);
-    writeFileSync(join(template, PINS_DIR, PINS_FILES.overrides), files.overrides);
-  }
-  return template;
-}
-
-/**
- * A TOML document as python's `tomllib` reads it, which holds to the
- * specification as uv's own reader does, and refuses what it refuses: run by
- * uv on Python 3.12, the uv and Python the repository's suites take.
- *
- * @returns The document
- * @throws {Error} When `tomllib` refuses it, with what it said, or uv cannot run it
+ * @throws {Error} When it is not TOML
  */
 export function readToml(text: string): Record<string, unknown> {
-  const read = "import json, sys, tomllib; print(json.dumps(tomllib.loads(sys.stdin.read())))";
-  const out = execFileSync("uv", ["run", "--no-project", "--python", "3.12", "python", "-c", read], { input: text, encoding: "utf8" });
-  return JSON.parse(out) as Record<string, unknown>;
+  return parseToml(text) as Record<string, unknown>;
 }

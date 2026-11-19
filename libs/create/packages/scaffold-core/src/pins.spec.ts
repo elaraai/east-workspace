@@ -8,10 +8,10 @@ import assert from "node:assert/strict";
 import { rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { EAST_PY_DISTRIBUTIONS, readReleasePins, withReleasePins, type ReleasePins } from "./pins.js";
-import { PINNED_UV_TABLE, TEMPLATES, readToml, templateWithPins } from "./spec-fixtures.js";
+import { EAST_PY_DISTRIBUTIONS, hasReleasePins, parseReleasePins, readReleasePins, withReleasePins } from "./pins.js";
+import { PINNED_UV_TABLE, TEMPLATES, pinsOf, readToml, repositoryPinTexts, templateWithPins } from "./spec-fixtures.js";
 
-/** Pins files as `scripts/east-py-constraints.py` writes them: a lock, exported. */
+/** Pin files as `scripts/east-py-constraints.py` writes them: a lock, exported. */
 const CONSTRAINTS = [
   "# The pins the east-py packages of release 1.2.3b1 were tested with: their",
   "# workspace's lock, exported by scripts/east-py-constraints.py. Not edited by hand.",
@@ -34,69 +34,53 @@ const OVERRIDES = [
   "",
 ].join("\n");
 
-/** A release's pins, as a template carries them. */
-const pinsOf = (release: string): ReleasePins => ({
-  release, constraints: [`elaraai-east-py==${release}`, `numpy==${release === "1.0.1" ? "2.3.5" : "2.4.4"}`], overrides: ["shap>=0.51.0"],
-});
-
-/** The keys of a pyproject's `[tool.uv]` table, as a TOML reader takes them. */
+/** The keys of a pyproject's `[tool.uv]` table, read as TOML. */
 const uvKeys = (pyproject: string): string[] =>
   Object.keys((readToml(pyproject) as { tool: { uv: Record<string, unknown> } }).tool.uv).sort();
 
-test("reads a template's release pins: the east distributions at its release, then its pins without their hashes or notes, and its overrides", () => {
+test("parses a release's pin files: the east distributions at its release, then its pins without their hashes or notes, and its overrides", () => {
   for (const eol of ["\n", "\r\n"]) {
-    const template = templateWithPins({ constraints: CONSTRAINTS.replaceAll("\n", eol), overrides: OVERRIDES.replaceAll("\n", eol) });
-    try {
-      assert.deepEqual(readReleasePins(template), {
-        release: "1.2.3b1",
-        constraints: [
-          ...EAST_PY_DISTRIBUTIONS.map((name) => `${name}==1.2.3b1`),
-          "numpy==2.3.5 ; platform_machine == 'x86_64' and sys_platform == 'darwin'",
-          "numpy==2.4.4 ; platform_machine != 'x86_64' or sys_platform != 'darwin'",
-          "torch==2.15.0",
-        ],
-        overrides: ["shap>=0.51.0"],
-      }, `each pin of a name, with its marker, of files written with ${JSON.stringify(eol)}`);
-    } finally {
-      rmSync(dirname(template), { recursive: true, force: true });
-    }
+    assert.deepEqual(parseReleasePins({ constraints: CONSTRAINTS.replaceAll("\n", eol), overrides: OVERRIDES.replaceAll("\n", eol) }), {
+      release: "1.2.3b1",
+      constraints: [
+        ...EAST_PY_DISTRIBUTIONS.map((name) => `${name}==1.2.3b1`),
+        "numpy==2.3.5 ; platform_machine == 'x86_64' and sys_platform == 'darwin'",
+        "numpy==2.4.4 ; platform_machine != 'x86_64' or sys_platform != 'darwin'",
+        "torch==2.15.0",
+      ],
+      overrides: ["shap>=0.51.0"],
+    }, `each pin of a name, with its marker, of files written with ${JSON.stringify(eol)}`);
   }
 });
 
-test("reads the repository's own release pins: one release, each pin a requirement", () => {
-  const template = templateWithPins();
-  try {
-    const pins = readReleasePins(template);
-    assert.ok(pins !== null);
-    assert.match(pins.release, /^\d+\.\d+\.\d+((a|b|rc)\d+)?$/, "as python writes the release's version");
-    assert.deepEqual(pins.constraints.slice(0, EAST_PY_DISTRIBUTIONS.length), EAST_PY_DISTRIBUTIONS.map((name) => `${name}==${pins.release}`));
-    for (const pin of pins.constraints) assert.match(pin, /^[A-Za-z0-9][A-Za-z0-9._-]*==\S+( ; .+)?$/, pin);
-    assert.ok(pins.overrides.length > 0);
-  } finally {
-    rmSync(dirname(template), { recursive: true, force: true });
-  }
+test("parses the repository's own pin files, as create-e3's build does: one release, each pin a requirement", () => {
+  const pins = parseReleasePins(repositoryPinTexts());
+  assert.match(pins.release, /^\d+\.\d+\.\d+((a|b|rc)\d+)?$/, "as python writes the release's version");
+  assert.deepEqual(pins.constraints.slice(0, EAST_PY_DISTRIBUTIONS.length), EAST_PY_DISTRIBUTIONS.map((name) => `${name}==${pins.release}`));
+  assert.ok(pins.constraints.length > 100 && pins.overrides.length > 0);
 });
 
-test("reads no pins of a template its build gave none, and refuses one file alone, or files of two releases, or of none", () => {
-  assert.equal(readReleasePins(join(TEMPLATES, "e3")), null, "the source tree's template carries none");
-  assert.equal(readReleasePins(join(TEMPLATES, "east")), null, "nor does create-east's, which has no python");
+test("refuses pin files of two releases, of none, or with a pin that is not name==version", () => {
   for (const [files, refusal] of [
     [{ constraints: CONSTRAINTS, overrides: OVERRIDES.replace("1.2.3b1", "1.2.4") }, /different releases/],
-    [{ constraints: CONSTRAINTS.replace(/^# The pins [^\n]*\n/, ""), overrides: OVERRIDES }, /names no release/],
+    [{ constraints: CONSTRAINTS.replace(/^# The pins [^\n]*\n/, ""), overrides: OVERRIDES }, /constraints name no release/],
+    [{ constraints: `${CONSTRAINTS}torch @ https://example.org/torch.whl\n`, overrides: OVERRIDES }, /not name==version.*torch @/],
   ] as const) {
-    const template = templateWithPins(files);
+    assert.throws(() => parseReleasePins(files), refusal);
+  }
+});
+
+test("reads the pins a template carries, none of one its build gave none, and refuses a file that is not a release's pins", () => {
+  assert.equal(readReleasePins(join(TEMPLATES, "e3")), null, "the source tree's template carries none");
+  assert.equal(readReleasePins(join(TEMPLATES, "east")), null, "nor does create-east's, which has no python");
+  for (const [pins, expected] of [[pinsOf("1.0.1"), pinsOf("1.0.1")], ['{"release":"1.0.1"}', null], ["[]", null]] as const) {
+    const template = templateWithPins(pins);
     try {
-      assert.throws(() => readReleasePins(template), refusal);
+      if (expected === null) assert.throws(() => readReleasePins(template), /not a release's pins/);
+      else assert.deepEqual(readReleasePins(template), expected);
     } finally {
       rmSync(dirname(template), { recursive: true, force: true });
     }
-  }
-  const alone = templateWithPins();
-  try {
-    rmSync(join(alone, "_pins", "east-py-overrides.txt"));
-    assert.throws(() => readReleasePins(alone), /holds east-py-constraints\.txt alone/);
-  } finally {
-    rmSync(dirname(alone), { recursive: true, force: true });
   }
 });
 
@@ -107,19 +91,19 @@ test("writes the pins into a pyproject's [tool.uv] table, or a new one, and repl
   assert.match(first, PINNED_UV_TABLE);
   assert.match(first, /# >>> east release pins[^\n]*\n(#[^\n]*\n)+constraint-dependencies = \[\n {2}"elaraai-east-py==1\.0\.1",\n/);
   assert.ok(first.endsWith("override-dependencies = [\n  \"shap>=0.51.0\",\n]\n# <<< east release pins\n"));
-  assert.deepEqual(uvKeys(first), ["constraint-dependencies", "override-dependencies"], "a TOML reader takes it");
+  assert.deepEqual(uvKeys(first), ["constraint-dependencies", "override-dependencies"]);
+  assert.ok(hasReleasePins(first) && !hasReleasePins(project));
 
   const second = withReleasePins(`${first}\n[tool.pytest.ini_options]\naddopts = "-q"\n`, pinsOf("1.0.2"));
   assert.ok(second.includes('"elaraai-east-py==1.0.2"') && !second.includes("1.0.1"), "the later release's pins in place of the earlier's");
   assert.ok(second.startsWith(project) && second.endsWith('[tool.pytest.ini_options]\naddopts = "-q"\n'), "and nothing else moves");
   assert.equal(withReleasePins(second, pinsOf("1.0.2")), second, "the same release's pins again change nothing");
 
-  // A [tool.uv] table of the project's own, however spaced: the block goes in it, after its header
-  for (const header of ["[tool.uv]", "[ tool.uv ]  # uv's settings"]) {
+  // A [tool.uv] table of the project's own, however spaced or quoted: the block goes in it, after its header
+  for (const header of ["[tool.uv]", "[ tool.uv ]  # uv's settings", "[tool.\"uv\"]"]) {
     const own = withReleasePins(`[project]\nname = "demo"\n\n${header}\nindex-strategy = "unsafe-best-match"\n`, pinsOf("1.0.1"));
     assert.ok(own.includes(`${header}\n# >>> east release pins`), header);
     assert.ok(own.endsWith('# <<< east release pins\nindex-strategy = "unsafe-best-match"\n'), header);
-    assert.equal(own.split("\n").filter((line) => line.includes("tool.uv")).length, 1, "the one table");
     assert.deepEqual(uvKeys(own), ["constraint-dependencies", "index-strategy", "override-dependencies"], header);
   }
 });
@@ -134,20 +118,48 @@ test("writes the pins after a workspace's sub-tables, which TOML allows, and kee
   assert.ok(!pinned.replaceAll("\r\n", "").includes("\n"), "every line ends as the file's do");
   assert.equal(withReleasePins(pinned, pinsOf("1.0.1")), pinned, "and the same pins again change nothing");
   assert.equal(withReleasePins(pinned, pinsOf("1.0.2")), withReleasePins(crlf, pinsOf("1.0.2")), "a later release's replace them in place");
-  assert.deepEqual(uvKeys(pinned), ["constraint-dependencies", "override-dependencies", "sources", "workspace"]);
+  assert.ok(hasReleasePins(pinned));
 });
 
-test("refuses a project that sets uv's constraints or overrides itself, outside the block, or whose block lost its last line", () => {
-  for (const own of [
-    '[tool.uv]\nconstraint-dependencies = ["numpy<3"]\n',
-    '[tool.uv]\noverride-dependencies = ["numpy<3"]\n',
-    'tool.uv.constraint-dependencies = ["numpy<3"]\n',
-    '[tool.uv]\n"override-dependencies" = ["numpy<3"]\n',
-  ]) {
-    assert.throws(() => withReleasePins(`[project]\nname = "demo"\n\n${own}`, pinsOf("1.0.1")), /sets its own/, own);
-  }
-  // Within the block they are the release's, and are replaced
+test("finds the block a formatter indented, and replaces it in place", () => {
   const pinned = withReleasePins('[project]\nname = "demo"\n', pinsOf("1.0.1"));
-  assert.doesNotThrow(() => withReleasePins(pinned, pinsOf("1.0.2")));
+  const indented = pinned.replace(/^(# |constraint-|override-|\]|  ")/gm, (line) => `  ${line}`);
+  assert.ok(indented.includes("  # >>> east release pins") && indented.includes("  # <<< east release pins"));
+  const again = withReleasePins(indented, pinsOf("1.0.2"));
+  assert.ok(again.includes('"elaraai-east-py==1.0.2"') && !again.includes("1.0.1"), "the indented block is the release's, not the project's own");
+  assert.equal(again.match(/# >>> east release pins/g)?.length, 1, "replaced, not given a second");
+});
+
+test("refuses a project that sets uv's constraints or overrides itself, in any form TOML allows, outside the block", () => {
+  const project = '[project]\nname = "demo"\n';
+  for (const own of [
+    `${project}\n[tool.uv]\nconstraint-dependencies = ["numpy<3"]\n`,
+    `${project}\n[tool.uv]\noverride-dependencies = ["numpy<3"]\n`,
+    `tool.uv.constraint-dependencies = ["numpy<3"]\n\n${project}`,
+    `${project}\n[tool]\nuv.constraint-dependencies = ["numpy<3"]\n`,
+    `${project}\n[tool]\nuv = { override-dependencies = ["numpy<3"] }\n`,
+    `${project}\n[tool.uv]\n"override-dependencies" = ["numpy<3"]\n`,
+  ]) {
+    assert.throws(() => withReleasePins(own, pinsOf("1.0.1")), /sets its own/, own);
+  }
+  // A key of that name in another table is not uv's: [project]'s own `tool.uv…`
+  const elsewhere = `${project}tool.uv.constraint-dependencies = ["numpy<3"]\n`;
+  assert.deepEqual(uvKeys(withReleasePins(elsewhere, pinsOf("1.0.1"))), ["constraint-dependencies", "override-dependencies"]);
+});
+
+test("refuses a [tool.uv] it cannot add the block to, a file that is not TOML, and a block that lost its last line", () => {
+  for (const form of ['[tool]\nuv.package = false\n', 'tool.uv.index-url = "https://example.org"\n', '[tool]\nuv = { package = false }\n']) {
+    assert.throws(() => withReleasePins(`${form}\n[project]\nname = "demo"\n`, pinsOf("1.0.1")), /cannot be added to/, form);
+  }
+  assert.throws(() => withReleasePins('[project\nname = "demo"\n', pinsOf("1.0.1")), /not TOML/);
+  const pinned = withReleasePins('[project]\nname = "demo"\n', pinsOf("1.0.1"));
   assert.throws(() => withReleasePins(pinned.replace("# <<< east release pins\n", ""), pinsOf("1.0.2")), /lost their last line/);
+  assert.throws(() => hasReleasePins(pinned.replace("# <<< east release pins\n", "")), /lost their last line/);
+});
+
+test("takes a [tool.uv] line inside a multi-line string for what it is, and gives the block a table of its own", () => {
+  const project = '[project]\nname = "demo"\ndescription = """\n[tool.uv]\n"""\n';
+  const pinned = withReleasePins(project, pinsOf("1.0.1"));
+  assert.equal((readToml(pinned) as { project: { description: string } }).project.description, "[tool.uv]\n", "the string as it was");
+  assert.deepEqual(uvKeys(pinned), ["constraint-dependencies", "override-dependencies"]);
 });

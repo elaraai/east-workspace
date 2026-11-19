@@ -20,8 +20,14 @@ export function semverToPep440(semver) {
  *  a directory of @elaraai/e3-core, which ships it. */
 export const EAST_PY_PINS_DIR = 'libs/e3/packages/e3-core/tier';
 
+/** The release's pins of what its python packages depend on: their lock, exported. */
+export const EAST_PY_CONSTRAINTS = 'east-py-constraints.txt';
+
+/** The release's overrides, which its packages' resolution takes over what a dependent asks. */
+export const EAST_PY_OVERRIDES = 'east-py-overrides.txt';
+
 /** The pin files, each of which names the release it is of in its first line. */
-export const EAST_PY_PINS = ['east-py-constraints.txt', 'east-py-overrides.txt'];
+export const EAST_PY_PINS = [EAST_PY_CONSTRAINTS, EAST_PY_OVERRIDES];
 
 export const PYPROJECTS = [
   'libs/east-py/packages/east-py/pyproject.toml',

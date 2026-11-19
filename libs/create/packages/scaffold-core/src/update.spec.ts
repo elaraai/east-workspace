@@ -10,7 +10,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { updateStack } from "./update.js";
-import { withReleasePins, type ReleasePins } from "./pins.js";
+import { withReleasePins } from "./pins.js";
+import { pinsOf } from "./spec-fixtures.js";
 
 function projectDir(pkg: Record<string, unknown>, opts?: { lock?: boolean; pyproject?: string }): string {
   const dir = mkdtempSync(join(tmpdir(), "update-test-"));
@@ -20,10 +21,11 @@ function projectDir(pkg: Record<string, unknown>, opts?: { lock?: boolean; pypro
   return dir;
 }
 
-/** A release's python pins, as create-e3's template carries them. */
-const pinsOf = (release: string): ReleasePins => ({ release, constraints: [`elaraai-east-py==${release}`, "numpy==2.4.4"], overrides: ["shap>=0.51.0"] });
-
 const PYPROJECT = '[project]\nname = "demo"\ndependencies = ["elaraai-east-py"]\n';
+
+/** A project of release 1.0.35, with a pyproject.toml as given. */
+const e3Project = (pyproject?: string): string =>
+  projectDir({ name: "demo", dependencies: { "@elaraai/e3": "1.0.35" } }, pyproject === undefined ? undefined : { pyproject });
 
 function readPkg(dir: string): Record<string, Record<string, string>> {
   return JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
@@ -98,49 +100,76 @@ test("throws when the project has no @elaraai/* dependencies", () => {
   }
 });
 
-test("gives a python project the release's pins in place of an earlier release's, and a project from before pins a block of them", () => {
-  const dir = projectDir({ name: "demo", dependencies: { "@elaraai/e3": "1.0.35" } }, { pyproject: withReleasePins(PYPROJECT, pinsOf("1.0.35")) });
-  const before = projectDir({ name: "demo", dependencies: { "@elaraai/e3": "1.0.35" } }, { pyproject: PYPROJECT });
+test("gives a project's block of an earlier release's python pins this release's, and keeps uv sync the next step while it carries them", () => {
+  const dir = e3Project(withReleasePins(PYPROJECT, pinsOf("1.0.35")));
   try {
-    const result = updateStack({ cwd: dir, version: "1.0.42", ...silent, pins: pinsOf("1.0.42") });
-    const pinned = readFileSync(join(dir, "pyproject.toml"), "utf8");
-    assert.ok(pinned.includes('"elaraai-east-py==1.0.42"') && !pinned.includes("1.0.35"), "the release's pins in place of the earlier's");
+    const result = updateStack({ cwd: dir, version: "1.0.42", ...silent, pins: () => pinsOf("1.0.42") });
+    assert.equal(readFileSync(join(dir, "pyproject.toml"), "utf8"), withReleasePins(PYPROJECT, pinsOf("1.0.42")), "the release's pins in place of the earlier's");
     assert.equal(result.pythonPinned, true);
     assert.equal(result.pythonLocked, false, "without an install, uv sync is the next step");
-    assert.equal(updateStack({ cwd: dir, version: "1.0.42", ...silent, pins: pinsOf("1.0.42") }).pythonPinned, false, "the same release again changes nothing");
-
-    assert.equal(updateStack({ cwd: before, version: "1.0.42", ...silent, pins: pinsOf("1.0.42") }).pythonPinned, true);
-    assert.equal(readFileSync(join(before, "pyproject.toml"), "utf8"), withReleasePins(PYPROJECT, pinsOf("1.0.42")), "a block, as a scaffold of the release writes it");
-  } finally {
-    for (const done of [dir, before]) rmSync(done, { recursive: true, force: true });
-  }
-});
-
-test("leaves a python project that sets uv's constraints itself as it is, says why, and updates the rest", () => {
-  const own = `${PYPROJECT}\n[tool.uv]\nconstraint-dependencies = ["numpy<3"]\n`;
-  const dir = projectDir({ name: "demo", dependencies: { "@elaraai/e3": "1.0.35" } }, { pyproject: own });
-  try {
-    const said: string[] = [];
-    const result = updateStack({ cwd: dir, version: "1.0.42", install: false, log: (msg) => said.push(msg), pins: pinsOf("1.0.42") });
-    assert.equal(readFileSync(join(dir, "pyproject.toml"), "utf8"), own);
-    assert.equal(result.pythonPinned, false);
-    assert.ok(said.some((msg) => msg.startsWith("Python pins not written: ") && msg.includes("sets its own")), said.join("\n"));
-    assert.equal(readPkg(dir).dependencies["@elaraai/e3"], "1.0.42", "its npm stack is updated all the same");
+    // Run again with the block current: it still carries the pins, so uv sync
+    // stays the next step until a sync locks under them
+    const again = updateStack({ cwd: dir, version: "1.0.42", ...silent, pins: () => pinsOf("1.0.42") });
+    assert.equal(again.pythonPinned, true);
+    assert.equal(again.pythonLocked, false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("leaves python as it is given no pins, and pins nothing of a project with no pyproject", () => {
-  const python = projectDir({ name: "demo", dependencies: { "@elaraai/e3": "1.0.35" } }, { pyproject: PYPROJECT });
-  const nodeOnly = projectDir({ name: "demo", dependencies: { "@elaraai/e3": "1.0.35" } });
+test("leaves a project without the block as it is: one from before pins, one whose author removed them, one with constraints of its own", () => {
+  for (const pyproject of [PYPROJECT, `${PYPROJECT}\n[tool.ruff]\nline-length = 100\n`, `${PYPROJECT}\n[tool.uv]\nconstraint-dependencies = ["numpy<3"]\n`]) {
+    const dir = e3Project(pyproject);
+    try {
+      const said: string[] = [];
+      const result = updateStack({ cwd: dir, version: "1.0.42", install: false, log: (msg) => said.push(msg), pins: () => pinsOf("1.0.42") });
+      assert.equal(readFileSync(join(dir, "pyproject.toml"), "utf8"), pyproject);
+      assert.equal(result.pythonPinned, false);
+      assert.ok(said.some((msg) => msg.startsWith("pyproject.toml carries no east release pins")), said.join("\n"));
+      assert.equal(readPkg(dir).dependencies["@elaraai/e3"], "1.0.42", "its npm stack is updated all the same");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+test("reads the release's pins only for a project that carries a block of them", () => {
+  const unread = (): never => { throw new Error("the pins were read"); };
+  for (const pyproject of [undefined, PYPROJECT]) {
+    const dir = e3Project(pyproject);
+    try {
+      assert.equal(updateStack({ cwd: dir, version: "1.0.42", ...silent, pins: unread }).pythonPinned, false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+test("an initializer that carries no pins (create-east's) leaves the block, and says how to move it", () => {
+  const pinned = withReleasePins(PYPROJECT, pinsOf("1.0.35"));
+  const dir = e3Project(pinned);
   try {
-    assert.equal(updateStack({ cwd: python, version: "1.0.42", ...silent, pins: null }).pythonPinned, false);
-    assert.equal(readFileSync(join(python, "pyproject.toml"), "utf8"), PYPROJECT);
-    assert.equal(updateStack({ cwd: nodeOnly, version: "1.0.42", ...silent, pins: pinsOf("1.0.42") }).pythonPinned, false);
-    assert.ok(!existsSync(join(nodeOnly, "pyproject.toml")));
+    const said: string[] = [];
+    const result = updateStack({ cwd: dir, version: "1.0.42", install: false, log: (msg) => said.push(msg), pins: () => null });
+    assert.equal(readFileSync(join(dir, "pyproject.toml"), "utf8"), pinned);
+    assert.equal(result.pythonPinned, false);
+    assert.ok(said.some((msg) => msg.includes("npm create @elaraai/e3@1.0.42 -- --update")), said.join("\n"));
   } finally {
-    for (const done of [python, nodeOnly]) rmSync(done, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a block that cannot take the pins is left as it is, and the log says why", () => {
+  const lost = withReleasePins(PYPROJECT, pinsOf("1.0.35")).replace("# <<< east release pins\n", "");
+  const dir = e3Project(lost);
+  try {
+    const said: string[] = [];
+    const result = updateStack({ cwd: dir, version: "1.0.42", install: false, log: (msg) => said.push(msg), pins: () => pinsOf("1.0.42") });
+    assert.equal(readFileSync(join(dir, "pyproject.toml"), "utf8"), lost);
+    assert.equal(result.pythonPinned, false);
+    assert.ok(said.some((msg) => msg.startsWith("Python pins not written: ") && msg.includes("lost their last line")), said.join("\n"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 

@@ -44,9 +44,11 @@ the prompts.
 - A python project's root `pyproject.toml` takes the release's python pins, in
   a marked block of its `[tool.uv]` table: the versions the release's python
   images hold, so its environments built over a rack's tier image leave nearly
-  all they install to the image. create-e3's build copies them from
-  `@elaraai/e3-core`'s `tier/` into its template (`_pins/`, never scaffolded),
-  and `--update` replaces the block with its own release's.
+  all they install to the image. create-e3's build reads them from
+  `@elaraai/e3-core`'s `tier/`, refuses them unless they are of its own
+  version, and ships them in its template (`_release-pins.json`, never
+  scaffolded). `--update` replaces a project's block with its own release's,
+  and leaves a project without one as it is.
 - Each `create-*` bin is esbuild-bundled with `scaffold-core` inlined and its
   one template tree copied in, so the published package is self-contained and
   dependency-free.

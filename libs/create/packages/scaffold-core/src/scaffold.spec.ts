@@ -11,7 +11,7 @@ import { join, dirname } from "node:path";
 
 import { scaffold, type Features, type ProjectKind } from "./scaffold.js";
 import { deriveNames } from "./names.js";
-import { PINS_DIR } from "./pins.js";
+import { RELEASE_PINS_FILE } from "./pins.js";
 import { PINNED_UV_TABLE, TEMPLATES, readScaffolded, readToml, templateWithPins } from "./spec-fixtures.js";
 
 function scaffoldInto(kind: ProjectKind, name: string, version: string, features?: Features, templateDir = join(TEMPLATES, kind)): string {
@@ -131,36 +131,54 @@ test("scaffold e3: pyproject + index default export are emitted", () => {
 
 test("scaffold e3: a template that carries its release's pins writes them into the python project's pyproject, and nothing else of them", () => {
   const template = templateWithPins();
-  const dir = scaffoldInto("e3", "my-proj", "1.0.0", undefined, template);
-  const pyproject = readScaffolded(dir, "pyproject.toml");
-  assert.ok(pyproject.includes("[tool.east-py]"), "the template's own content stays");
-  assert.match(pyproject, PINNED_UV_TABLE, "a [tool.uv] table holds the pins block");
-  assert.match(pyproject, /"elaraai-east-py==\d[^"]*",/, "the east distributions at the release's version");
-  assert.match(pyproject, /override-dependencies = \[\n {2}"shap>=/, "and the release's overrides");
-  assert.ok(!pyproject.includes("--hash") && !pyproject.includes("# via"), "no hash or note of the pins files");
-  assert.ok(!existsSync(join(dir, PINS_DIR)), "the pins files are the template's, not the project's");
-  const toml = readToml(pyproject) as { tool: { uv: { "constraint-dependencies": string[] } } };
-  assert.ok(toml.tool.uv["constraint-dependencies"].length > 100, "a TOML reader takes every pin");
+  const made: string[] = [dirname(template)];
+  try {
+    const dir = scaffoldInto("e3", "my-proj", "1.0.0", undefined, template);
+    made.push(dirname(dir));
+    const pyproject = readScaffolded(dir, "pyproject.toml");
+    assert.ok(pyproject.includes("[tool.east-py]"), "the template's own content stays");
+    assert.match(pyproject, PINNED_UV_TABLE, "a [tool.uv] table holds the pins block");
+    assert.match(pyproject, /"elaraai-east-py==\d[^"]*",/, "the east distributions at the release's version");
+    assert.match(pyproject, /override-dependencies = \[\n {2}"shap>=/, "and the release's overrides");
+    assert.ok(!pyproject.includes("--hash") && !pyproject.includes("# via"), "no hash or note of the pin files");
+    assert.ok(!existsSync(join(dir, RELEASE_PINS_FILE)), "the pins are the template's, not the project's");
+    const toml = readToml(pyproject) as { tool: { uv: { "constraint-dependencies": string[] } } };
+    assert.ok(toml.tool.uv["constraint-dependencies"].length > 100, "a TOML reader takes every pin");
 
-  // The --platform variant, a package with its build tables, takes them after those
-  const platform = scaffoldInto("e3", "my-proj", "1.0.0", { platform: true }, template);
-  const built = readToml(readScaffolded(platform, "pyproject.toml")) as { tool: { setuptools: { packages: string[] }; uv: Record<string, unknown> } };
-  assert.deepEqual(built.tool.setuptools.packages, ["platform_module"]);
-  assert.deepEqual(Object.keys(built.tool.uv).sort(), ["constraint-dependencies", "override-dependencies"]);
+    // The --platform variant, a package with its build tables, takes them after those
+    const platform = scaffoldInto("e3", "my-proj", "1.0.0", { platform: true }, template);
+    made.push(dirname(platform));
+    const built = readToml(readScaffolded(platform, "pyproject.toml")) as { tool: { setuptools: { packages: string[] }; uv: Record<string, unknown> } };
+    assert.deepEqual(built.tool.setuptools.packages, ["platform_module"]);
+    assert.deepEqual(Object.keys(built.tool.uv).sort(), ["constraint-dependencies", "override-dependencies"]);
 
-  // A project with no python has nothing to pin
-  const nodeOnly = scaffoldInto("e3", "my-proj", "1.0.0", { "runner:east-py": false }, template);
-  assert.ok(!existsSync(join(nodeOnly, "pyproject.toml")));
+    // A project with no python has nothing to pin
+    const nodeOnly = scaffoldInto("e3", "my-proj", "1.0.0", { "runner:east-py": false }, template);
+    made.push(dirname(nodeOnly));
+    assert.ok(!existsSync(join(nodeOnly, "pyproject.toml")));
 
-  // Nor does a scaffold with no python into a directory that holds a pyproject of its own
-  const here = mkdtempSync(join(tmpdir(), "create-test-"));
-  const theirs = '[project]\nname = "theirs"\n';
-  writeFileSync(join(here, "pyproject.toml"), theirs);
-  scaffold({ kind: "e3", name: ".", cwd: here, templateDir: template, version: "1.0.0", features: { "runner:east-py": false }, log: () => {} });
-  assert.equal(readFileSync(join(here, "pyproject.toml"), "utf8"), theirs, "the directory's own pyproject, as it was");
+    // Nor does a scaffold with no python into a directory that holds a pyproject of its own
+    const here = mkdtempSync(join(tmpdir(), "create-test-"));
+    made.push(here);
+    const theirs = '[project]\nname = "theirs"\n';
+    writeFileSync(join(here, "pyproject.toml"), theirs);
+    scaffold({ kind: "e3", name: ".", cwd: here, templateDir: template, version: "1.0.0", features: { "runner:east-py": false }, log: () => {} });
+    assert.equal(readFileSync(join(here, "pyproject.toml"), "utf8"), theirs, "the directory's own pyproject, as it was");
+  } finally {
+    for (const done of made) rmSync(done, { recursive: true, force: true });
+  }
+});
 
-  for (const done of [dir, platform, nodeOnly, template]) rmSync(dirname(done), { recursive: true, force: true });
-  rmSync(here, { recursive: true, force: true });
+test("scaffold e3: pins a template's build left unreadable stop the scaffold before it writes anything", () => {
+  const template = templateWithPins('{"release":"1.0.1"}');
+  const cwd = mkdtempSync(join(tmpdir(), "create-test-"));
+  try {
+    assert.throws(() => scaffold({ kind: "e3", name: "my-proj", cwd, templateDir: template, version: "1.0.0", log: () => {} }), /not a release's pins/);
+    assert.ok(!existsSync(join(cwd, "my-proj")), "no half-made project");
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+    rmSync(dirname(template), { recursive: true, force: true });
+  }
 });
 
 test("scaffold e3: defaults omit UI and never emit the manifest", () => {
