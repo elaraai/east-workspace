@@ -5,7 +5,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, readFileSync, existsSync, symlinkSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, existsSync, symlinkSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -14,7 +14,7 @@ import { join, dirname } from "node:path";
 import { scaffold } from "./scaffold.js";
 import type { PackageSpec } from "./packages.js";
 import { deriveNames } from "./names.js";
-import { PINNED_UV_TABLE, TEMPLATES, readToml, templateWithPins } from "./spec-fixtures.js";
+import { PINNED_UV_TABLE, TEMPLATES, readScaffolded, readToml, templateWithPins } from "./spec-fixtures.js";
 
 /** Scaffold an e3 project with workspace packages into a fresh tmpdir. */
 function scaffoldPackages(name: string, packages: PackageSpec, templateDir = join(TEMPLATES, "e3")): string {
@@ -32,9 +32,8 @@ function scaffoldPackages(name: string, packages: PackageSpec, templateDir = joi
   return join(cwd, deriveNames(name, cwd).projectName);
 }
 
-// A Windows checkout carries the templates with CRLF and the scaffold copies
-// their bodies verbatim, so the multi-line assertions below read LF-normalized.
-const read = (dir: string, rel: string): string => readFileSync(join(dir, rel), "utf8").replaceAll("\r\n", "\n");
+// The multi-line assertions below read what the scaffold wrote LF-normalized:
+// a Windows checkout carries the templates with CRLF (readScaffolded).
 
 test("python packages: generates each member with an __init__ and example platform fn", () => {
   const dir = scaffoldPackages("shop", { python: ["pricing", "common"] });
@@ -42,20 +41,20 @@ test("python packages: generates each member with an __init__ and example platfo
     const base = join("packages", "python", name);
     assert.ok(existsSync(join(dir, base, "pyproject.toml")), `${name} pyproject`);
     assert.ok(existsSync(join(dir, base, "src", name, "__init__.py")), `${name} __init__.py must survive (dunder is a member file, not a companion)`);
-    const example = read(dir, join(base, "src", name, "example.py"));
+    const example = readScaffolded(dir,join(base, "src", name, "example.py"));
     assert.ok(example.includes(`name="${name}.example"`), `${name}.example dotted name`);
     // The other way across the boundary: an East function the package exports.
-    assert.ok(read(dir, join(base, "src", name, "functions.py")).includes("East.function("), `${name} functions.py builds an East function`);
-    assert.ok(read(dir, join(base, "src", name, "__init__.py")).includes('east_functions = {"scale": scale}'), `${name} root module declares east_functions`);
+    assert.ok(readScaffolded(dir,join(base, "src", name, "functions.py")).includes("East.function("), `${name} functions.py builds an East function`);
+    assert.ok(readScaffolded(dir,join(base, "src", name, "__init__.py")).includes('east_functions = {"scale": scale}'), `${name} root module declares east_functions`);
     // Hatchling keeps the sdist byte-reproducible → stable env hash.
-    assert.ok(read(dir, join(base, "pyproject.toml")).includes("hatchling"), `${name} must use hatchling`);
+    assert.ok(readScaffolded(dir,join(base, "pyproject.toml")).includes("hatchling"), `${name} must use hatchling`);
   }
   rmSync(dirname(dir), { recursive: true, force: true });
 });
 
 test("python packages: root pyproject becomes a uv workspace root over the members", () => {
   const dir = scaffoldPackages("shop", { python: ["pricing", "common"] });
-  const pyproject = read(dir, "pyproject.toml");
+  const pyproject = readScaffolded(dir,"pyproject.toml");
   assert.ok(pyproject.includes('members = ["packages/python/*"]'), "uv workspace members glob");
   assert.ok(pyproject.includes("pricing = { workspace = true }"), "pricing workspace source");
   assert.ok(pyproject.includes("common = { workspace = true }"), "common workspace source");
@@ -66,10 +65,10 @@ test("python packages: root pyproject becomes a uv workspace root over the membe
 test("python packages: the workspace root takes the release's pins, when the template carries them, beside its workspace", () => {
   const template = templateWithPins();
   const dir = scaffoldPackages("shop", { python: ["pricing"] }, template);
-  const pyproject = read(dir, "pyproject.toml");
+  const pyproject = readScaffolded(dir,"pyproject.toml");
   assert.ok(pyproject.includes('members = ["packages/python/*"]'), "the workspace stays");
   assert.match(pyproject, PINNED_UV_TABLE, "a [tool.uv] table holds the pins block");
-  assert.ok(!read(dir, join("packages", "python", "pricing", "pyproject.toml")).includes("east release pins"), "a member's own pyproject takes none");
+  assert.ok(!readScaffolded(dir,join("packages", "python", "pricing", "pyproject.toml")).includes("east release pins"), "a member's own pyproject takes none");
   const toml = readToml(pyproject) as { tool: { uv: { workspace: { members: string[] }; sources: Record<string, unknown>; "constraint-dependencies": string[] } } };
   assert.deepEqual(toml.tool.uv.workspace.members, ["packages/python/*"], "a TOML reader takes the table after its sub-tables, as uv does");
   assert.deepEqual(Object.keys(toml.tool.uv.sources), ["pricing"]);
@@ -80,7 +79,7 @@ test("python packages: the workspace root takes the release's pins, when the tem
 
 test("python packages: app wiring references the platform but declares NO environment (auto-derived)", () => {
   const dir = scaffoldPackages("shop", { python: ["pricing"] });
-  const wiring = read(dir, join("src", "packages", "pricing.ts"));
+  const wiring = readScaffolded(dir,join("src", "packages", "pricing.ts"));
   assert.ok(wiring.includes('platforms: [{ custom: "pricing" }'), "must reference the package as a custom platform");
   assert.ok(!/\n\s*environment:\s*\{/.test(wiring), "no explicit environment field — e3 derives it from the platform reference");
   // The East function the package exports is imported by package + name + type
@@ -89,8 +88,8 @@ test("python packages: app wiring references the platform but declares NO enviro
   assert.ok(/e3\.task\(\n  "pricing_scaled",[\s\S]*?\$\.return\(scale\(v, f\)\);\n  \}\),\n\);/.test(wiring), "the importing task takes no runner config");
   assert.ok(wiring.includes("export const pricing_tasks = [pricing_task, pricing_scaled_task];"), "exports every task the package contributes");
   // The barrel + app index collect the member tasks.
-  assert.ok(read(dir, join("src", "packages", "index.ts")).includes("...pricing_tasks"), "barrel spreads the package's tasks");
-  assert.ok(read(dir, join("src", "index.ts")).includes("...packageTasks"), "app spreads the package tasks");
+  assert.ok(readScaffolded(dir,join("src", "packages", "index.ts")).includes("...pricing_tasks"), "barrel spreads the package's tasks");
+  assert.ok(readScaffolded(dir,join("src", "index.ts")).includes("...packageTasks"), "app spreads the package tasks");
   rmSync(dirname(dir), { recursive: true, force: true });
 });
 
@@ -104,16 +103,16 @@ test("node packages: npm workspace members with a ./platform export; root worksp
   const dir = scaffoldPackages("shop", { node: ["api"] });
   const base = join("packages", "node", "api");
   assert.ok(existsSync(join(dir, base, "src", "platform.ts")), "member platform.ts");
-  const pkg = JSON.parse(read(dir, join(base, "package.json")));
+  const pkg = JSON.parse(readScaffolded(dir,join(base, "package.json")));
   assert.equal(pkg.name, "@shop/api", "member is named @<project>/<name>");
   assert.equal(pkg.exports["./platform"], "./dist/platform.js", "exposes the ./platform subpath the runner loads");
   assert.equal(pkg.exports["./functions"], "./dist/functions.js", "exposes the ./functions subpath e3 exports East functions from");
-  assert.ok(read(dir, join(base, "src", "functions.ts")).includes("export const eastFunctions = { scale };"), "member functions.ts exports its East functions");
+  assert.ok(readScaffolded(dir,join(base, "src", "functions.ts")).includes("export const eastFunctions = { scale };"), "member functions.ts exports its East functions");
   assert.equal(pkg.dependencies["@elaraai/east"], "^9.9.9", "deps pinned to the scaffold version (__VERSION__)");
-  const root = JSON.parse(read(dir, "package.json"));
+  const root = JSON.parse(readScaffolded(dir,"package.json"));
   assert.ok((root.workspaces as string[]).includes("packages/node/*"), "root is an npm workspace over node members");
   assert.equal(root.private, true, "npm workspace root must be private");
-  const wiring = read(dir, join("src", "packages", "api.ts"));
+  const wiring = readScaffolded(dir,join("src", "packages", "api.ts"));
   assert.ok(wiring.includes('custom: "@shop/api"'), "app references the member by its npm name");
   assert.ok(!/\n\s*environment:\s*\{/.test(wiring), "no explicit environment — e3 derives it from the platform reference");
   assert.ok(wiring.includes('East.importFunction(\n  "@shop/api",\n  "scale",'), "imports the member's East function by its npm name");
@@ -125,9 +124,9 @@ test("mixed python + node packages coexist (uv + npm workspaces, one barrel)", (
   const dir = scaffoldPackages("shop", { python: ["pricing"], node: ["api"] });
   assert.ok(existsSync(join(dir, "packages", "python", "pricing", "pyproject.toml")), "python member");
   assert.ok(existsSync(join(dir, "packages", "node", "api", "package.json")), "node member");
-  assert.ok(read(dir, "pyproject.toml").includes('members = ["packages/python/*"]'), "uv workspace over python members");
-  assert.ok((JSON.parse(read(dir, "package.json")).workspaces as string[]).includes("packages/node/*"), "npm workspace over node members");
-  const barrel = read(dir, join("src", "packages", "index.ts"));
+  assert.ok(readScaffolded(dir,"pyproject.toml").includes('members = ["packages/python/*"]'), "uv workspace over python members");
+  assert.ok((JSON.parse(readScaffolded(dir,"package.json")).workspaces as string[]).includes("packages/node/*"), "npm workspace over node members");
+  const barrel = readScaffolded(dir,join("src", "packages", "index.ts"));
   assert.ok(barrel.includes("...pricing_tasks") && barrel.includes("...api_tasks"), "barrel collects tasks from both runtimes");
   rmSync(dirname(dir), { recursive: true, force: true });
 });
@@ -137,7 +136,7 @@ test("C packages: native dir with a Makefile + a tools-wired customTask (explici
   const base = join("packages", "native", "solver");
   assert.ok(existsSync(join(dir, base, "Makefile")), "Makefile");
   assert.ok(existsSync(join(dir, base, "src", "solver.c")), "src/solver.c (token-substituted filename)");
-  const wiring = read(dir, join("src", "packages", "solver.ts"));
+  const wiring = readScaffolded(dir,join("src", "packages", "solver.ts"));
   assert.ok(wiring.includes("e3.customTask"), "C is wired as a customTask, not an auto-derived platform");
   assert.ok(wiring.includes('files: ["packages/native/solver/build/solver"]'), "explicit tools env points at the built binary");
   assert.ok(wiring.includes("export const solver_tasks = [solver_task];"), "a C package contributes its one tool task");
@@ -147,10 +146,10 @@ test("C packages: native dir with a Makefile + a tools-wired customTask (explici
 test("the generated smoke spec pins the task count the wiring files actually define", () => {
   const dir = scaffoldPackagesDefaultFeatures("shop", { python: ["pricing"], node: ["api"], c: ["solver"] });
   const defined = ["pricing", "api", "solver"]
-    .map((name) => (read(dir, join("src", "packages", `${name}.ts`)).match(/e3\.(task|customTask)\(/g) ?? []).length)
+    .map((name) => (readScaffolded(dir,join("src", "packages", `${name}.ts`)).match(/e3\.(task|customTask)\(/g) ?? []).length)
     .reduce((a, b) => a + b, 0);
   assert.equal(defined, 5, "python 2 (platform + imported East fn), node 2, C 1");
-  assert.ok(read(dir, join("src", "index.spec.ts")).includes("East.value(5n)"), "the smoke spec expects exactly the tasks the wiring defines");
+  assert.ok(readScaffolded(dir,join("src", "index.spec.ts")).includes("East.value(5n)"), "the smoke spec expects exactly the tasks the wiring defines");
   rmSync(dirname(dir), { recursive: true, force: true });
 });
 
@@ -174,7 +173,7 @@ function scaffoldPackagesDefaultFeatures(name: string, packages: PackageSpec): s
 
 test("member-flag scaffold with default features rewrites index.spec.ts against the generated app (#301)", () => {
   const dir = scaffoldPackagesDefaultFeatures("envpy", { python: ["calc"] });
-  const spec = read(dir, join("src", "index.spec.ts"));
+  const spec = readScaffolded(dir,join("src", "index.spec.ts"));
   assert.ok(!spec.includes("reorderFn"), "spec must not import the example app the wiring replaced");
   assert.ok(spec.includes('from "./packages/index.js"'), "spec smoke-tests the generated barrel");
   assert.ok(spec.includes("packageTasks"), "spec asserts the per-package task wiring");

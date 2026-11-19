@@ -9,7 +9,7 @@
  * a reading of TOML as uv's own reader would take it. Not part of the scaffold.
  */
 
-import { cpSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -23,8 +23,21 @@ export const TEMPLATES = join(dirname(fileURLToPath(import.meta.url)), "..", "..
 /** The repository's release pins: `@elaraai/e3-core`'s `tier/`, which create-e3's build copies. */
 export const TIER_DIR = join(TEMPLATES, "..", "..", "..", "libs", "e3", "packages", "e3-core", "tier");
 
-/** A `[tool.uv]` table a scaffold gave the release's pins: its header, then their block. */
+/** A `[tool.uv]` table a scaffold gave the release's pins, LF-normalized: its header, then their block. */
 export const PINNED_UV_TABLE = /\n\[tool\.uv\]\n# >>> east release pins/;
+
+/**
+ * A file a scaffold wrote, LF-normalized: a Windows checkout carries the
+ * templates with CRLF, and the scaffold copies their bodies verbatim and
+ * writes what it adds in the file's own line endings.
+ *
+ * @param dir - The scaffolded project
+ * @param rel - The file, relative to it
+ * @returns Its text, every line ending `\n`
+ */
+export function readScaffolded(dir: string, rel: string): string {
+  return readFileSync(join(dir, rel), "utf8").replaceAll("\r\n", "\n");
+}
 
 /**
  * A copy of the e3 template carrying pins: the repository's release pins, or
