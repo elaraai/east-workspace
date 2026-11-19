@@ -1,7 +1,7 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1388,
+    "totalEntries": 1389,
     "totalFiles": 226,
     "packages": {
       "east": 595,
@@ -9,7 +9,7 @@
       "east-node-io": 63,
       "east-py-datascience": 94,
       "east-ui": 308,
-      "e3-ui": 220,
+      "e3-ui": 221,
       "e3": 39,
       "e3-ui-cli": 8,
       "e3-create": 6
@@ -41802,7 +41802,7 @@
         "system of record"
       ],
       "imports": [
-        "import { ArrayType, BooleanType, DictType, East, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { ArrayType, BooleanType, DictType, East, IntegerType, NullType, PatchType, StringType, StructType, example } from \"@elaraai/east\";",
         "import { Box, Button, Editing, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Func, Record, Sheet } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -41828,7 +41828,7 @@
         "mutate"
       ],
       "imports": [
-        "import { ArrayType, BooleanType, DictType, East, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { ArrayType, BooleanType, DictType, East, IntegerType, NullType, PatchType, StringType, StructType, example } from \"@elaraai/east\";",
         "import { Box, Button, Editing, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Func, Record, Sheet } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -41858,7 +41858,7 @@
         "FuncDraftType"
       ],
       "imports": [
-        "import { ArrayType, BooleanType, DictType, East, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { ArrayType, BooleanType, DictType, East, IntegerType, NullType, PatchType, StringType, StructType, example } from \"@elaraai/east\";",
         "import { Box, Button, Editing, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Func, Record, Sheet } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -41889,7 +41889,7 @@
         "system of record"
       ],
       "imports": [
-        "import { ArrayType, BooleanType, DictType, East, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { ArrayType, BooleanType, DictType, East, IntegerType, NullType, PatchType, StringType, StructType, example } from \"@elaraai/east\";",
         "import { Box, Button, Editing, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Func, Record, Sheet } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -41898,6 +41898,36 @@
         "tsx"
       ],
       "source": "// A Sheet over a record: its rows paged from the record, each Save one commit through the record's patch door — a stale Save is a conflict naming the entry, and nothing is overwritten\n// inputs: []\nexport const JobType = StructType({ task: StringType, qty: IntegerType });\n\nexport const jobs = e3.record(\"jobs\", DictType(StringType, JobType), {\n    initial: new Map(),\n    mutations: (mutation) => ({\n        patch: mutation.patch(),\n    }),\n});\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const rows = $.let(Data.bindPaged(jobs));\n            const record = $.let(Record.bind(jobs));\n            return (\n                <Box height=\"360px\">\n                    <Sheet\n                        data={rows}\n                        columns={{\n                            task: Sheet.column.text(JobType, { header: \"Task\", width: \"220px\" }),\n                            qty:  Sheet.column.integer(JobType, { header: \"Qty\", width: \"96px\" }),\n                        }}\n                        onApply={Record.onApply(record)}\n                    />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:record.examples.tsx:recordBindComposite",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/bind/record/record.examples.tsx",
+      "suite": "",
+      "test": "Bind a composite record — one record over an external system's entries, which its load alone writes, and the solution's own — as any record is bound: the binding names each source and whether it is external, so a view tells a loaded entry from one saved here",
+      "keywords": [
+        "Record",
+        "bind",
+        "recordComposite",
+        "composite",
+        "sources",
+        "external",
+        "load",
+        "binding",
+        "ERP",
+        "system of record"
+      ],
+      "imports": [
+        "import { ArrayType, BooleanType, DictType, East, IntegerType, NullType, PatchType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { Box, Button, Editing, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { Data, Func, Record, Sheet } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// Bind a composite record — one record over an external system's entries, which its load alone writes, and the solution's own — as any record is bound: the binding names each source and whether it is external, so a view tells a loaded entry from one saved here\n// inputs: []\nexport const OrderType = StructType({ customer: StringType, status: StringType });\n\nexport const ErpOrdersType = DictType(StringType, OrderType);\n\nexport const orders = e3.recordComposite(\"orders\", OrderType, {\n    sources: (source) => ({\n        // The ERP delivers its whole order book: the load answers the patch that makes the source's entries it.\n        erp: source.load(StringType, ErpOrdersType, East.function([ErpOrdersType, ErpOrdersType], PatchType(ErpOrdersType),\n            (_$, delivery, current) => East.diff(current, delivery))),\n        own: source.mutations(StringType),\n    }),\n    initial: { own: new Map() },\n    mutations: (mutation) => ({\n        patch: mutation.patch(),\n    }),\n});\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const r = $.let(Record.bind(orders));\n            // Each source is a case of the record's key; an external one's entries are its load's, and no Save writes them.\n            const whose = $.let(r.binding.sources.map((_$, source) => source.external.ifElse(\n                (_$) => East.str`${source.name}: loaded`,\n                (_$) => East.str`${source.name}: saved here`,\n            )).stringJoin(\" · \"));\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <Stat label=\"Orders\" value={East.print(r.read().size())} />\n                    <Text.MonoLabel>{whose}</Text.MonoLabel>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:record.examples.tsx:recordBindHistory",
@@ -41915,7 +41945,7 @@
         "chain"
       ],
       "imports": [
-        "import { ArrayType, BooleanType, DictType, East, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { ArrayType, BooleanType, DictType, East, IntegerType, NullType, PatchType, StringType, StructType, example } from \"@elaraai/east\";",
         "import { Box, Button, Editing, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Func, Record, Sheet } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
