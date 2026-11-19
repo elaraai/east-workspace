@@ -6,12 +6,12 @@
 /**
  * A pie's slices as it draws them (#1671, CHT-7): largest first, the first
  * `top` then Other, the total's rest in Other, shares, and the series colours
- * by rank.
+ * by rank. And a donut's ring and what of its centre its hole holds (#1692).
  */
 
 import { describe, expect, test } from "vitest";
 import { none, some, variant } from "@elaraai/east";
-import { PIE_OTHER_COLOR, PIE_SERIES_COLORS, pieSlicesOf, type PieValue } from "./pie.js";
+import { PIE_OTHER_COLOR, PIE_SERIES_COLORS, donutCaptionY, donutCentre, donutRing, pieSlicesOf, type PieValue } from "./pie.js";
 
 /** A pie of the given slices, with its options. */
 function pie(data: readonly [string, number, string?][], options: { top?: bigint; total?: number; other?: string } = {}): PieValue {
@@ -84,5 +84,34 @@ describe("pieSlicesOf", () => {
     test("is the pie a variant names: the decoded node's arm", () => {
         const node = variant("pie", pie([["a", 1]]));
         expect(pieSlicesOf(node.value, "Other").slices).toHaveLength(1);
+    });
+});
+
+describe("a donut's ring and centre (#1692)", () => {
+    test("its ring is the mock's 26 px at its 176 across and wider, and that share of a smaller donut's width", () => {
+        expect([donutRing(176), donutRing(300), donutRing(122), donutRing(83), donutRing(0)]).toEqual([26, 26, 18, 12, 0]);
+    });
+
+    test("its centre holds its total over its caption where both lie inside the hole; smaller, the total steps down over it, then alone; then nothing", () => {
+        // The mock's 176 donut: a 62 px hole.
+        expect(donutCentre(62, "3.84M", "AUD · total")).toEqual({ size: 26, caption: true });
+        expect(donutCentre(44, "20.4k", "AUD · total")).toEqual({ size: 20, caption: true });
+        // The caption too long for a 43 px hole under either size: the total at 20, alone.
+        expect(donutCentre(43, "100", "units · total")).toEqual({ size: 20, caption: false });
+        // An 83 donut's hole: the total at 16, alone.
+        expect(donutCentre(29.5, "20.4k", "AUD · total")).toEqual({ size: 16, caption: false });
+        // A hole too small for its total at 16: nothing.
+        expect(donutCentre(15.5, "20.4k", "AUD · total")).toBeUndefined();
+        expect(donutCentre(0, "1", undefined)).toBeUndefined();
+    });
+
+    test("with no caption its total steps down alone: 26, 20, then 16", () => {
+        expect(donutCentre(62, "20.4k", undefined)).toEqual({ size: 26, caption: false });
+        expect(donutCentre(44, "20.4k", undefined)).toEqual({ size: 20, caption: false });
+        expect(donutCentre(29.5, "20.4k", undefined)).toEqual({ size: 16, caption: false });
+    });
+
+    test("stands a caption 5 px under the total's line: 17 under a 26 px total, 14 under a 20 px one", () => {
+        expect([donutCaptionY(26), donutCaptionY(20)]).toEqual([17, 14]);
     });
 });

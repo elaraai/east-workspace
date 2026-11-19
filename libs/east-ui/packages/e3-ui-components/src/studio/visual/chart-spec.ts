@@ -607,7 +607,8 @@ function scatterChart(chart: ScatterChart, read: ReadGroups, made: Made): ChartM
  * count or a sum makes: a pie of any other value draws every slice, and says
  * what it holds of how many past the groups its program answered. Under its
  * legend, what its values are and the total they are shares of; a donut's
- * total stands over what it is.
+ * total stands over what it is, and its legend says so only where its hole
+ * cannot hold that (#1692).
  */
 function pieChart(chart: PieChart, read: ReadGroups, total: number | undefined, made: Made): ChartModel {
     const additive = chart.value.measure.type === "count" || chart.value.measure.type === "sum";
@@ -631,9 +632,10 @@ function pieChart(chart: PieChart, read: ReadGroups, total: number | undefined, 
         other: some(rest > 0 ? made.m.otherCount({ n: f.number(rest) }) : made.m.other()),
         donut: chart.donut,
         format: format === undefined ? none : some(format),
-        // A donut's total says what it is under it; a pie's legend says what its values are shares of.
+        // A donut's total says what it is under it; a pie's legend says what its values are shares of — and a donut's,
+        // where its hole cannot hold its caption (#1692): the chart draws one or the other.
         caption: chart.donut ? some(made.m.pieCaption({ unit: unit ?? midSentence(valueName(chart.value, made.source, made.m)) })) : none,
-        note: chart.donut ? none : some(made.m.pieNote({ unit, total: shortNumber(sum, format, f) })),
+        note: some(made.m.pieNote({ unit, total: shortNumber(sum, format, f) })),
         // What its legend shows: each slice's value and share, its name alone, or nothing — as the pie says.
         legend: some(chart.legend),
     });

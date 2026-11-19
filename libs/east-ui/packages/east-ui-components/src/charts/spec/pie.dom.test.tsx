@@ -136,11 +136,37 @@ describe("Chart renderer — a pie as its mock draws it (#1671, CHT-7)", () => {
         const { container } = ui(<EastVisxChart value={pieOf({ donut: true, caption: "units · total" }) as never} />);
         const total = container.querySelector("[data-chart-pie-total]")!;
         const caption = container.querySelector("[data-chart-pie-caption]")!;
-        expect([total.textContent, total.getAttribute("y"), caption.textContent, caption.getAttribute("y")]).toEqual(["100", "-6", "units · total", "17"]);
+        // The caption stands where its group places it, 17 under the hole's centre.
+        expect([total.textContent, total.getAttribute("y"), caption.textContent, caption.parentElement!.getAttribute("transform")])
+            .toEqual(["100", "-6", "units · total", "translate(0 17)"]);
         const bare = ui(<EastVisxChart value={pieOf({ donut: true }) as never} />).container;
         expect([bare.querySelector("[data-chart-pie-total]")!.getAttribute("y"), bare.querySelector("[data-chart-pie-caption]")]).toEqual(["0", null]);
         // A pie that is no donut has no centre to caption.
         expect(ui(<EastVisxChart value={pieOf({ caption: "units · total" }) as never} />).container.querySelector("[data-chart-pie-caption]")).toBeNull();
+    });
+
+    test("a donut smaller than the mock's narrows its ring, its plot says its hole, and its centre holds what the hole does: its total smaller and alone, or nothing (#1692)", () => {
+        const centre = (container: HTMLElement) => {
+            const total = container.querySelector("[data-chart-pie-total]");
+            return [
+                container.querySelector("[data-chart-pie] svg")!.getAttribute("data-chart-pie-hole"),
+                total?.getAttribute("data-total-size") ?? null, total?.getAttribute("y") ?? null,
+                container.querySelector("[data-chart-pie-caption]")?.textContent ?? null,
+            ];
+        };
+        // The mock's 176 donut: its 26 px ring leaves a 62 px hole, which holds the total over its caption.
+        expect(centre(ui(<EastVisxChart value={pieOf({ donut: true, caption: "units · total" }) as never} />).container)).toEqual(["62", "26", "-6", "units · total"]);
+        // 120 wide over its legend and its note: a 120 donut, an 18 px ring and a 42 px hole — the total at 20, alone.
+        const narrow = pieOf({ donut: true, caption: "units · total", note: "share of 100", width: 120 });
+        expect(centre(ui(<EastVisxChart value={narrow as never} />).container)).toEqual(["42", "20", "0", null]);
+        // A total too long for that hole at 16: no centre.
+        const long = (n: number) => (n === 100 ? "1,234,567" : `${n}`);
+        expect(centre(ui(<EastVisxChart value={narrow as never} numberText={long} />).container)).toEqual(["42", null, null, null]);
+        // Its note says under its legend what its caption would have, where its hole cannot hold the caption — and only there.
+        const noteOf = (value: unknown) => ui(<EastVisxChart value={value as never} />).container.querySelector("[data-chart-pie-note]")?.textContent ?? null;
+        expect([noteOf(narrow), noteOf(pieOf({ donut: true, caption: "units · total", note: "share of 100" }))]).toEqual(["share of 100", null]);
+        // A pie that is no donut has no hole.
+        expect(ui(<EastVisxChart value={pieOf({}) as never} />).container.querySelector("[data-chart-pie] svg")!.hasAttribute("data-chart-pie-hole")).toBe(false);
     });
 
     test("a legend of values is the legend a pie draws unless it says otherwise: its slices say nothing more", () => {

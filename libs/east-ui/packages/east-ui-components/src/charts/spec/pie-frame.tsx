@@ -6,10 +6,10 @@
 /**
  * A pie's frame (#1671, CHT-7), as its mock draws it: the pie beside its
  * legend, as `pie.ts` gives its slices — a row a slice, then the legend's
- * note; a donut's total in its centre, over its caption. Its legend shows
- * each slice's value and share, its name alone, or nothing, as the pie says.
- * While its host marks a slice (#1673), every other slice is the muted mark
- * and its legend row off.
+ * note; a donut's total in its centre, over its caption, as much of them as
+ * its hole holds at its size (#1692). Its legend shows each slice's value and
+ * share, its name alone, or nothing, as the pie says. While its host marks a
+ * slice (#1673), every other slice is the muted mark and its legend row off.
  *
  * @packageDocumentation
  */
@@ -24,7 +24,7 @@ import { getSomeorUndefined } from "../../utils";
 import type { ChartMark, ChartMarkHandler, ChartMarkedTest, ChartNumberText, ChartStyle } from "./context.js";
 import { chartMarking, markAttributes } from "./marking.js";
 import { measuredFrame } from "./measured.js";
-import { pieSlicesOf, type PieSlice, type PieValue } from "./pie.js";
+import { DONUT_TOTAL_Y, donutCaptionY, donutCentre, donutRing, pieSlicesOf, type PieSlice, type PieValue } from "./pie.js";
 import { tickFormatter } from "./tick-format.js";
 
 /** The narrowest a pie sits beside its legend; narrower, the legend goes under it. */
@@ -38,13 +38,6 @@ const PIE_NOTE_LINE = 19;
 
 /** The most of its frame's height a pie beside its legend takes: 176 of the mock's 220. */
 const PIE_SIDE_SHARE = 0.8;
-
-/** A donut's total and its caption, about the centre: the total 6 over it, the caption 17 under. */
-const DONUT_TOTAL_Y = -6;
-const DONUT_CAPTION_Y = 17;
-
-/** A donut's ring, in px (CHT-7). */
-const DONUT_RING = 26;
 
 /** SVG text a recipe styles: the donut's total. */
 const SvgText = chakra("text");
@@ -62,11 +55,18 @@ function sliceMark(slice: PieSlice): ChartMark {
  * twelve o'clock with a 1.5 px gap of the surface between, no labels; a donut
  * a 26 px ring with the total in its centre, over its caption. Each legend row
  * carries the slice's value and share, the values on one scale where the host
- * prints them; the legend's note says what they are. A legend of names
+ * prints them, its name cut where the row is short of room and whole on hover;
+ * the legend's note says what they are. A legend of names
  * alone is the swatch and the name; with no legend the pie stands alone in
  * the middle of its frame. Where the legend does not say a slice's value, the
  * slice says it — its name, its value and its share — where the pointer
- * rests. A slice and its legend row tell the host when clicked. While the host
+ * rests. A donut's ring narrows with a donut smaller than the mock's, and its
+ * centre holds as much as its hole does: the total over its caption, the
+ * total smaller, or nothing (`donutCentre`); its plot says the hole's radius
+ * (`data-chart-pie-hole`), which a reader of the page measures the centre
+ * against. A donut says in its caption what a pie's note says, and draws its
+ * note under its legend only where its hole cannot hold the caption. A slice
+ * and its legend row tell the host when clicked. While the host
  * marks a slice, every other — Other with them — is the muted mark, and its
  * legend row off: the swatch muted, the words the recipe's.
  */
@@ -88,22 +88,32 @@ export function PieFrame({ pie, height, width, style, onMark, numberText, marked
     const legend = getSomeorUndefined(pie.legend)?.type ?? "values";
     // The note says what the legend's values are: it goes with them.
     const note = legend === "values" ? getSomeorUndefined(pie.note) : undefined;
+    const total = said(shown.total, shown.total);
     const draw = (w: number, h: number) => {
         // With no legend the pie has the frame to itself; else beside its legend where there is room, over it where not.
         const layout = legend !== "hidden" && w >= PIE_SIDE_MIN ? "side" : "below";
         const styles = recipe({ layout });
         const rows = legend === "hidden" ? 0 : shown.slices.length;
-        const legendH = layout === "below" ? rows * PIE_LEGEND_ROW + (note !== undefined ? PIE_NOTE_LINE : 0) : 0;
-        // An even number of pixels across, a whole number from its frame's edges: its centre stands on a whole pixel.
-        const diameter = 2 * Math.floor(Math.max(0, Math.min(layout === "side" ? Math.min(w * 0.45, h * PIE_SIDE_SHARE) : w, h - legendH)) / 2);
+        // The pie at its size, its note under its legend or not: its width, its hole, and as much of a donut's centre as the hole holds (#1692).
+        const placed = (noted: boolean) => {
+            const legendH = layout === "below" ? rows * PIE_LEGEND_ROW + (noted ? PIE_NOTE_LINE : 0) : 0;
+            // An even number of pixels across, a whole number from its frame's edges: its centre stands on a whole pixel.
+            const across = 2 * Math.floor(Math.max(0, Math.min(layout === "side" ? Math.min(w * 0.45, h * PIE_SIDE_SHARE) : w, h - legendH)) / 2);
+            const hole = pie.donut ? Math.max(0, across / 2 - donutRing(across)) : 0;
+            return { across, hole, centre: pie.donut ? donutCentre(hole, total, caption) : undefined };
+        };
+        // A pie draws its note; a donut says in its centre what its note would, and draws the note only where its hole cannot hold the caption.
+        const bare = placed(note !== undefined && !pie.donut);
+        const noted = note !== undefined && (!pie.donut || bare.centre?.caption !== true);
+        const { across: diameter, hole: inner, centre } = noted && pie.donut ? placed(true) : bare;
         // Beside its legend, in the middle of its frame's height; over one, of its width; alone, of both.
         const fromTop = layout === "side" || legend === "hidden" ? Math.max(0, Math.floor((h - diameter) / 2)) : 0;
         const fromStart = layout === "below" ? Math.max(0, Math.floor((w - diameter) / 2)) : 0;
         const outer = diameter / 2;
-        const inner = pie.donut ? Math.max(0, outer - DONUT_RING) : 0;
         return (
             <Box css={styles.root} data-chart-pie="" data-layout={layout} data-legend={legend} style={{ height: `${h}px` }}>
-                <Box as="svg" css={styles.plot} style={{ width: `${diameter}px`, height: `${diameter}px`, marginTop: `${fromTop}px`, marginInlineStart: `${fromStart}px` }}>
+                <Box as="svg" css={styles.plot} data-chart-pie-hole={pie.donut ? inner : undefined}
+                    style={{ width: `${diameter}px`, height: `${diameter}px`, marginTop: `${fromTop}px`, marginInlineStart: `${fromStart}px` }}>
                     <Group top={outer} left={outer}>
                         <Pie<PieSlice> data={[...shown.slices]} pieValue={s => s.value} pieSort={null} pieSortValues={null}
                             outerRadius={outer} innerRadius={inner} startAngle={0} endAngle={Math.PI * 2}>
@@ -118,8 +128,16 @@ export function PieFrame({ pie, height, width, style, onMark, numberText, marked
                                 );
                             })}
                         </Pie>
-                        {pie.donut && <SvgText css={styles.total} y={caption !== undefined ? DONUT_TOTAL_Y : 0} textAnchor="middle" dominantBaseline="central" data-chart-pie-total="">{said(shown.total, shown.total)}</SvgText>}
-                        {pie.donut && caption !== undefined && <SvgText css={styles.caption} y={DONUT_CAPTION_Y} textAnchor="middle" dominantBaseline="central" data-chart-pie-caption="">{caption}</SvgText>}
+                        {centre !== undefined && (
+                            <SvgText css={styles.total} y={centre.caption ? DONUT_TOTAL_Y : 0} textAnchor="middle" dominantBaseline="central"
+                                data-chart-pie-total="" data-total-size={centre.size}>{total}</SvgText>
+                        )}
+                        {centre?.caption === true && (
+                            // Placed by its group: the caption's place is the hole's geometry, its type the recipe's.
+                            <g transform={`translate(0 ${donutCaptionY(centre.size)})`}>
+                                <SvgText css={styles.caption} textAnchor="middle" dominantBaseline="central" data-chart-pie-caption="">{caption}</SvgText>
+                            </g>
+                        )}
                     </Group>
                 </Box>
                 {legend !== "hidden" && (
@@ -131,13 +149,15 @@ export function PieFrame({ pie, height, width, style, onMark, numberText, marked
                                     {...(legend === "names" ? { "data-names": "" } : {})}
                                     {...(onMark !== undefined ? { as: "button" as const, type: "button" as const, "data-clickable": "", onClick: () => onMark(sliceMark(s)) } : {})}>
                                     <Box as="span" css={styles.swatch} background={state === "dimmed" ? style.muted : style.color(s.color)} />
-                                    <Box as="span" css={styles.label}>{s.key}</Box>
+                                    {/* Cut with an ellipsis where its row is short of room: whole on hover. */}
+                                    <Box as="span" css={styles.label} title={s.key}>{s.key}</Box>
                                     {legend === "values" && <Box as="span" css={styles.value}>{said(s.value, largest)}</Box>}
                                     {legend === "values" && <Box as="span" css={styles.share}>{words.percent(s.share)}</Box>}
                                 </Box>
                             );
                         })}
-                        {note !== undefined && <Box css={styles.note} data-chart-pie-note="">{note}</Box>}
+                        {/* On its one line, cut where it runs past: whole on hover. */}
+                        {noted && <Box css={styles.note} data-chart-pie-note="" title={note}>{note}</Box>}
                     </Box>
                 )}
             </Box>

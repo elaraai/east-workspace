@@ -8,9 +8,10 @@
  * value, largest first; the first `top` of them; then one Other slice for the
  * rest — and for whatever the pie's total holds past them — each with its
  * share of the total and its colour, by the chart rules: the series order by
- * rank, `--brand-d` first, and Other in `--ink-5`.
+ * rank, `--brand-d` first, and Other in `--ink-5`. And a donut's ring and
+ * what of its centre fits its hole at its size (#1692).
  *
- * It draws nothing: the renderer (`index.tsx`) draws what this gives.
+ * It draws nothing: the renderer (`pie-frame.tsx`) draws what this gives.
  *
  * @packageDocumentation
  */
@@ -90,4 +91,84 @@ export function pieSlicesOf(pie: PieValue, otherLabel: string): PieShown {
         slices.push({ key: pie.other.type === "some" ? pie.other.value : otherLabel, value: rest, share: shareOf(rest), color: PIE_OTHER_COLOR, other: true });
     }
     return { slices, total };
+}
+
+/** A donut's ring as its mock draws it (CHT-7): 26 px across its 176. */
+export const DONUT_RING = 26;
+
+/** The share of a donut's width its ring takes: the mock's. */
+const DONUT_RING_SHARE = DONUT_RING / 176;
+
+/**
+ * A donut's ring (#1692): the mock's 26 px, and in a donut smaller than the
+ * mock's its share of that donut's width, so a small donut keeps a hole its
+ * total can stand in.
+ *
+ * @param diameter - The donut's width, in px
+ * @returns Its ring's width, in whole px
+ */
+export function donutRing(diameter: number): number {
+    return Math.min(DONUT_RING, Math.round(diameter * DONUT_RING_SHARE));
+}
+
+/** The sizes a donut's total steps down through, in px, as a KPI's number does: 26, 20, then 16. */
+export type DonutTotalSize = 26 | 20 | 16;
+
+/** What of its centre a donut draws: its total at a size, and whether its caption stands under it. */
+export interface DonutCentre {
+    readonly size: DonutTotalSize;
+    readonly caption: boolean;
+}
+
+/** A mono face's advance, of its size: what a line of a donut's centre is measured by, as a KPI's number is. */
+const MONO_ADVANCE = 0.615;
+
+/** The caption's size, in px: mono 10. */
+const CAPTION_PX = 10;
+
+/** Between the total's line and the caption's, in px. */
+const CAPTION_GAP = 5;
+
+/** What a centre's lines keep clear of its ring, in px. */
+const RING_CLEAR = 2;
+
+/** A total's centre over its caption, about the hole's: 6 px over it. Alone, a total is on it. */
+export const DONUT_TOTAL_Y = -6;
+
+/**
+ * Where a caption stands under a total of a size, about the hole's centre: 5 px under the total's line.
+ *
+ * @param size - The total's size
+ * @returns The caption's centre, in px down from the hole's
+ */
+export function donutCaptionY(size: DonutTotalSize): number {
+    return DONUT_TOTAL_Y + size / 2 + CAPTION_GAP + CAPTION_PX / 2;
+}
+
+/**
+ * What of a donut's centre fits in its hole (#1692): its total at 26 px over
+ * its caption, then at 20 px over it, then at 20 px alone, then at 16 px alone
+ * — the largest whose every line lies inside the hole, clear of the ring, at
+ * each corner of its line's box. A donut too small for even its smallest total
+ * leaves its centre empty; its legend's note, where it has one, says the total.
+ *
+ * @param hole - The hole's radius, in px
+ * @param total - The total, as it prints
+ * @param caption - Its caption, where it has one
+ * @returns What of its centre it draws; `undefined` for nothing
+ */
+export function donutCentre(hole: number, total: string, caption: string | undefined): DonutCentre | undefined {
+    const room = hole - RING_CLEAR;
+    // A line of glyphs centred across, its em box about a height: inside the hole at its corners.
+    const inside = (chars: number, px: number, y: number) => {
+        const half = (chars * MONO_ADVANCE * px) / 2;
+        const far = Math.abs(y) + px / 2;
+        return room > 0 && half * half + far * far <= room * room;
+    };
+    const steps: readonly DonutCentre[] = caption === undefined
+        ? [{ size: 26, caption: false }, { size: 20, caption: false }, { size: 16, caption: false }]
+        : [{ size: 26, caption: true }, { size: 20, caption: true }, { size: 20, caption: false }, { size: 16, caption: false }];
+    return steps.find((step) => (step.caption
+        ? inside(total.length, step.size, DONUT_TOTAL_Y) && inside((caption ?? "").length, CAPTION_PX, donutCaptionY(step.size))
+        : inside(total.length, step.size, 0)));
 }

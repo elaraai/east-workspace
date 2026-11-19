@@ -14,14 +14,18 @@
  * thousand pixels, aside). From 960px the grid gives a tile its span — a
  * narrow one 153px wide at 960 — and under it half the grid or all of it,
  * then under 480px all of it: every width a tile can be drawn at on a page is
- * read. In every tile, every part:
+ * read. Its pages: every KPI configuration, and every kind of donut — its
+ * legend of values, of names or none, Other among its slices — at a narrow, a
+ * small, a mid and a wide span. In every tile, every part:
  *
  *  - T1 lies inside its tile's frame;
  *  - T2 lies over no other part;
  *  - T3 stands on one line, its words whole, or ended in an ellipsis with
  *    the whole on hover;
  *  - T4 a number stands whole: never cut, never ended in an ellipsis;
- *  - T5 neither the tile nor anything in it scrolls sideways.
+ *  - T5 neither the tile nor anything in it scrolls sideways;
+ *  - D1 a donut's total and its caption lie inside its hole (#1692), as its
+ *    plot says the hole's radius.
  *
  * Every measurement is taken from the laid-out page; a failure names the
  * tile, the page width, the rule and the part.
@@ -78,11 +82,24 @@ const KPIS = {
 /** The spans each KPI is placed at, on its row: narrow, small and wide. */
 const SPANS = [2n, 3n, 7n];
 
-/** A page of tiles the spec writes: its placements, how many tiles they are, and what a tile drawn from its answer is. */
+/** The parts of a tile's eyebrow the rules read, by name. */
+const EYEBROW: Readonly<Record<string, string>> = {
+    name: "[data-studio-visual-name]",
+    meta: "[data-studio-visual-meta]",
+    menu: "[data-studio-visual-menu]",
+};
+
+/**
+ * A page of tiles the spec writes: its placements, how many tiles they are, what a tile drawn from its answer is, and
+ * the parts the rules read of each — by name, those whose words are numbers (T4), and those drawn, not written.
+ */
 interface TilePage {
     readonly cells: Cells;
     readonly tiles: number;
     readonly drawn: string;
+    readonly parts: Readonly<Record<string, string>>;
+    readonly numbers: readonly string[];
+    readonly drawings: readonly string[];
 }
 
 /** Every KPI configuration, each at a narrow, a small and a wide span, over the page of visuals' orders. */
@@ -90,7 +107,53 @@ const KPI_CELLS: Cells = Object.entries(KPIS).flatMap(([name, kpi]) => SPANS.map
     key: `kpi-${name}-${span}`, row: `r-${name}`, span, height: none, align: variant("stretch", null), title: none,
     content: vis.of("orders", kpi),
 })));
-const KPI_SIZES: TilePage = { cells: KPI_CELLS, tiles: KPI_CELLS.length, drawn: "[data-studio-kpi]" };
+const KPI_SIZES: TilePage = {
+    cells: KPI_CELLS, tiles: KPI_CELLS.length, drawn: "[data-studio-kpi]",
+    parts: {
+        ...EYEBROW,
+        value: "[data-studio-kpi-value]",
+        unit: "[data-studio-kpi-unit]",
+        change: "[data-studio-kpi-change]",
+        goal: "[data-studio-kpi-goal]",
+        trend: "[data-studio-kpi-trend]",
+        note: "[data-studio-kpi-note]",
+    },
+    numbers: ["value", "change"],
+    drawings: ["menu", "goal", "trend"],
+};
+
+/**
+ * Each donut the spec's page places, on a row of its own: revenue's shares of its categories — a caption with its
+ * unit — of its regions, past four of them in Other, and the customers' orders, a count; a legend of names alone; and
+ * none.
+ */
+const DONUTS = {
+    categories: vis.pie({ slice: vis.group("category"), value: vis.sum("revenue"), donut: true }),
+    regions: vis.pie({ slice: vis.group("region"), value: vis.sum("revenue"), donut: true }),
+    customers: vis.pie({ slice: vis.group("customer"), value: vis.count(), donut: true }),
+    names: vis.pie({ slice: vis.group("category"), value: vis.sum("units"), donut: true, legend: "names" }),
+    alone: vis.pie({ slice: vis.group("region"), value: vis.sum("revenue"), donut: true, legend: "hidden" }),
+};
+
+/** Every donut, each at a narrow, a small, a mid and a wide span, 240 tall, over the page of visuals' orders. */
+const DONUT_CELLS: Cells = Object.entries(DONUTS).flatMap(([name, pie]) => [2n, 3n, 4n, 7n].map((span) => ({
+    key: `donut-${name}-${span}`, row: `r-${name}`, span, height: some(240n), align: variant("stretch", null), title: none,
+    content: vis.of("orders", pie),
+})));
+const DONUT_SIZES: TilePage = {
+    cells: DONUT_CELLS, tiles: DONUT_CELLS.length, drawn: "[data-chart-pie]",
+    parts: {
+        ...EYEBROW,
+        total: "[data-chart-pie-total]",
+        caption: "[data-chart-pie-caption]",
+        label: "[data-chart-slice-entry] > span:nth-of-type(2)",
+        value: "[data-chart-slice-entry] > span:nth-of-type(3)",
+        share: "[data-chart-slice-entry] > span:nth-of-type(4)",
+        note: "[data-chart-pie-note]",
+    },
+    numbers: ["total", "value", "share"],
+    drawings: ["menu"],
+};
 
 /**
  * Writes a page of tiles over the page of visuals, as another session's publish would: its draft and its live
@@ -109,25 +172,6 @@ async function writePage(page: Page, cells: Cells): Promise<void> {
     ]), compareFor(Studio.Types.Key));
     await mutateE3(page, "studio", name, "patch", [encodeBeast2For(PatchType(type))(diffFor(type)(before, after))]);
 }
-
-/** The parts of a tile the rules read, by name: its eyebrow's, and a KPI's. */
-const PARTS: Readonly<Record<string, string>> = {
-    name: "[data-studio-visual-name]",
-    meta: "[data-studio-visual-meta]",
-    menu: "[data-studio-visual-menu]",
-    value: "[data-studio-kpi-value]",
-    unit: "[data-studio-kpi-unit]",
-    change: "[data-studio-kpi-change]",
-    goal: "[data-studio-kpi-goal]",
-    trend: "[data-studio-kpi-trend]",
-    note: "[data-studio-kpi-note]",
-};
-
-/** The parts whose words are numbers (T4). */
-const NUMBERS: readonly string[] = ["value", "change"];
-
-/** The parts drawn, not written: no line of words to read. */
-const DRAWINGS: readonly string[] = ["menu", "goal", "trend"];
 
 /**
  * Opens the page of visuals on a wide screen and writes a page of tiles over it, every tile drawn from its answer, at
@@ -158,10 +202,11 @@ async function openTiles(page: Page, at: TilePage): Promise<Locator> {
  * tile, the width, the rule and the part — none when every tile stands whole.
  *
  * @param grid - The page's grid
+ * @param at - The page of tiles: the parts the rules read
  * @param width - The grid's width, as each line names it
  * @returns The faults
  */
-function faultsOf(grid: Locator, width: number): Promise<string[]> {
+function faultsOf(grid: Locator, at: TilePage, width: number): Promise<string[]> {
     return grid.evaluate((root, { parts, numbers, drawings, width }) => {
         const bad: string[] = [];
         const r = (n: number) => Math.round(n * 10) / 10;
@@ -203,7 +248,8 @@ function faultsOf(grid: Locator, width: number): Promise<string[]> {
                 // T3, T4: its words on one line, whole — or, words not a number, ended in an ellipsis with the whole on hover.
                 const n = lines(el);
                 if (n > 1) bad.push(`${tile}: T3 ${name} “${el.textContent}” on ${n} lines`);
-                if (el.scrollWidth > el.clientWidth + 0.5) {
+                // An SVG text's scroll and client widths are no box's: a donut's words are D1's to read.
+                if (!(el instanceof SVGElement) && el.scrollWidth > el.clientWidth + 0.5) {
                     const look = getComputedStyle(el);
                     const ended = look.textOverflow === "ellipsis" && look.overflowX !== "visible";
                     const whole = (el.closest("[title]")?.getAttribute("title") ?? "").includes((el.textContent ?? "").trim());
@@ -229,9 +275,21 @@ function faultsOf(grid: Locator, width: number): Promise<string[]> {
                     bad.push(`${tile}: T5 ${el === cell ? "the tile" : el.tagName.toLowerCase()} scrolls sideways, ${r(el.scrollWidth)} in ${r(el.clientWidth)}`);
                 }
             }
+            // D1: a donut's total and caption inside its hole, every corner of each within the radius its plot says.
+            for (const plot of cell.querySelectorAll<SVGElement>("svg[data-chart-pie-hole]")) {
+                const hole = Number(plot.getAttribute("data-chart-pie-hole"));
+                const disc = plot.getBoundingClientRect();
+                const [cx, cy] = [disc.left + disc.width / 2, disc.top + disc.height / 2];
+                for (const words of plot.querySelectorAll<SVGTextElement>("[data-chart-pie-total], [data-chart-pie-caption]")) {
+                    const at = words.getBoundingClientRect();
+                    const far = Math.max(...[[at.left, at.top], [at.right, at.top], [at.left, at.bottom], [at.right, at.bottom]]
+                        .map(([x, y]) => Math.hypot(x! - cx, y! - cy)));
+                    if (far > hole + 0.5) bad.push(`${tile}: D1 “${words.textContent}” at ${box(at)} reaches ${r(far)} from the centre of a ${r(hole)} hole`);
+                }
+            }
         }
         return bad;
-    }, { parts: PARTS, numbers: NUMBERS, drawings: DRAWINGS, width });
+    }, { parts: at.parts, numbers: at.numbers, drawings: at.drawings, width });
 }
 
 /**
@@ -248,7 +306,7 @@ async function readEveryWidth(page: Page, at: TilePage): Promise<string[]> {
         // The grid at the width a page that wide gives it: its tiers answer the grid's own width.
         await grid.evaluate((root, w) => { root.querySelector<HTMLElement>("[data-snap-grid-body]")!.style.width = `${w}px`; }, width);
         await settled(page);
-        found.push(...await faultsOf(grid, width));
+        found.push(...await faultsOf(grid, at, width));
     }
     return found;
 }
@@ -258,5 +316,9 @@ test.describe("Studio tiles at every size (#1692)", () => {
 
     test("KPIs: every configuration at every span and grid width — inside its tile, over no other part, on one line whole or ended with the whole on hover, its numbers whole, nothing scrolling sideways", async ({ page }) => {
         expect(await readEveryWidth(page, KPI_SIZES)).toEqual([]);
+    });
+
+    test("Donuts: every kind at every span and grid width — the same rules, and its total and caption inside its hole", async ({ page }) => {
+        expect(await readEveryWidth(page, DONUT_SIZES)).toEqual([]);
     });
 });

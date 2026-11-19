@@ -12,7 +12,8 @@
  * its share in mono 10.5 `--ink-4`, each tabular, on a whole 16px line in the
  * row (#1638). Under the rows, the legend's note in mono 10 `--ink-4`. A
  * donut's total is the 26px numeral, over its caption in mono 10 / 500
- * `--ink-4`. An entry a click reaches is a button, whose hover steps one paper
+ * `--ink-4` — in a hole too small for them 20, then 16 alone, as the pie's
+ * frame steps it (#1692). An entry a click reaches is a button, whose hover steps one paper
  * darker. A legend of names alone is the swatch and the label. A row off
  * while the chart's host marks another slice (`data-dimmed`, #1673) is the
  * design system's off row: its label and value `--ink-4` at 500, its swatch
@@ -46,13 +47,16 @@ export const chartPieSlotRecipe = defineSlotRecipe({
             display: "block",
             alignSelf: "flex-start",
         },
-        /* A donut's total, in its centre: the 26px numeral, mono and tabular. */
+        /* A donut's total, in its centre: the 26px numeral, mono and tabular; in a smaller hole 20, then 16, as the frame
+           steps it (`data-total-size`, #1692) — the steps a KPI's number takes. */
         total: {
             fontFamily: "mono",
             fontSize: "{fontSizes.num}",
             fontWeight: "600",
             fill: "fg",
             fontVariantNumeric: "tabular-nums",
+            "&[data-total-size='20']": { fontSize: "{fontSizes.title.lg}" },
+            "&[data-total-size='16']": { fontSize: "{fontSizes.title.sm}" },
         },
         /* What the total is, under it: mono 10 / 500, `--ink-4`. */
         caption: {
@@ -115,13 +119,18 @@ export const chartPieSlotRecipe = defineSlotRecipe({
             fontVariantNumeric: "tabular-nums",
             textAlign: "right",
         },
-        /* The legend's note, under its rows: mono 10 `--ink-4`, 4 under the last row. */
+        /* The legend's note, under its rows: mono 10 `--ink-4`, 4 under the last row — on its one 15px line, the line the
+           pie's frame leaves it, cut where it runs past and whole on hover (#1692). */
         note: {
             paddingTop: "{spacing.1}",
             fontFamily: "mono",
             fontSize: "10px",
             lineHeight: "15px",
             color: "fg.subtle",
+            minWidth: "0",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
         },
     },
     variants: {
