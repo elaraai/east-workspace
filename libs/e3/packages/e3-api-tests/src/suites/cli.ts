@@ -485,11 +485,12 @@ export function cliTests(
     });
 
     describe('load command', { concurrency: false }, () => {
-      it('R21 — uploads a delivery\'s file as an object, follows its load to its end, and answers the same delivery named by its hash again', async (t) => {
+      /** A workspace of the composite fixture's second version: `orders`, whose
+       *  `erp` its load writes and whose `own` its mutations write. */
+      const withOrders = async (t: Parameters<typeof withCli>[0], wsName: string) => {
         const ctx = await withCli(t);
         const { remoteUrl, workDir } = ctx;
         const env = getCredentialsEnv();
-        const wsName = `load-cli-ws-${Date.now()}`;
         removeAfter(t, remoteUrl, wsName);
         const zipPath = await createCompositeRecordPackageZip(ctx.tempDir, 'load-cli-pkg', '2.0.0');
         for (const command of [
@@ -498,6 +499,29 @@ export function cliTests(
           const setup = await runE3Command(command, workDir, { env });
           assert.strictEqual(setup.exitCode, 0, `${command[0]} ${command[1]} failed: ${setup.stderr}`);
         }
+        return { remoteUrl, workDir, env };
+      };
+
+      it('R20 — refuses a load into a record or a source no delivery is loaded into before its file is hashed or sent, in the load\'s words', async (t) => {
+        const wsName = `load-refused-ws-${Date.now()}`;
+        const { remoteUrl, workDir, env } = await withOrders(t, wsName);
+        const file = join(workDir, 'erp-refused.beast2');
+        writeFileSync(file, encodeBeast2For(ErpOrdersType)(new Map([['SO-2001', { customer: 'Acme', qty: 5n }]])));
+        for (const [spec, words] of [
+          ['orders.ftp', 'record \'orders\' has no source \'ftp\''],
+          ['orders.own', 'source \'own\' of record \'orders\' is the solution\'s: its mutations write it, and no delivery is loaded into it'],
+          ['nope.erp', 'record \'nope\' not found'],
+        ] as const) {
+          const refused = await runE3Command(['load', remoteUrl, spec, file, '-w', wsName], workDir, { env });
+          assert.notStrictEqual(refused.exitCode, 0, `${spec} was not refused`);
+          // The upload's line, which starts as the file's hash does, is not among what it said
+          assert.strictEqual(refused.stderr.trim(), `Error: ${words}`, `${spec}: refused in the load's words, with nothing of its file hashed or sent`);
+        }
+      });
+
+      it('R21 — uploads a delivery\'s file as an object, follows its load to its end, and answers the same delivery named by its hash again', async (t) => {
+        const wsName = `load-cli-ws-${Date.now()}`;
+        const { remoteUrl, workDir, env } = await withOrders(t, wsName);
 
         // The ERP's order book, as a file of it holds it
         const delivery = encodeBeast2For(ErpOrdersType)(new Map([['SO-1001', { customer: 'Acme', qty: 5n }], ['SO-1002', { customer: 'Cedar', qty: 7n }]]));

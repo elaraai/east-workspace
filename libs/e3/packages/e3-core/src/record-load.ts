@@ -26,7 +26,7 @@ import {
 import {
   RecordLoadArgsType, decodeRecordCommit, decodeRecordLoadObject, loadCommitName, loadCommitSource, pathToString,
   type LockOperation, type PartitionProgress, type RecordCommit, type RecordLoadArgs, type RecordLoadObject, type RecordLoadProgress,
-  type RecordLoadResult,
+  type RecordLoadResult, type RecordSignature,
 } from '@elaraai/e3-types';
 import { DeltaStoppedError, applyDelta, applyDeltaSummarized, type DeltaArmSummary } from './record-apply.js';
 import { PENDING_SLOT, pendingSources, sourceEntriesIn, sourceLoadSlots, sourceSegments, sourcesSlot } from './record-slots.js';
@@ -615,6 +615,33 @@ function refusalWords(declared: Exclude<Declared, { kind: 'loaded' }>, record: s
     case 'mutations': return `source '${source}' of record '${record}' is the solution's: its mutations write it, and no delivery is loaded into it`;
     case 'fed': return `${record}.${source} is fed by ${declared.feed}, and the dataflow loads it`;
   }
+}
+
+/**
+ * Why no delivery is loaded into a source, read from its record's
+ * description: what a load refuses at its start ({@link recordLoad}), in the
+ * same words, for a caller that holds the description and would refuse before
+ * it stores or sends a delivery.
+ *
+ * @param record - The record's name
+ * @param source - The source's name
+ * @param described - The record, as `recordDescribe` or a server's describe
+ *   route answers it; `null` when the workspace has no such record
+ * @returns The refusal's words; `null` for a source a delivery is loaded into
+ *
+ * @example
+ * ```ts
+ * const refusal = recordLoadRefusal('orders', 'own', await recordDescribe(storage, repo, 'main', 'orders'));
+ * // source 'own' of record 'orders' is the solution's: its mutations write it, and no delivery is loaded into it
+ * if (refusal !== null) throw new RecordLoadRefusedError('orders.own', refusal);
+ * ```
+ */
+export function recordLoadRefusal(record: string, source: string, described: Pick<RecordSignature, 'sources'> | null): string | null {
+  if (described === null) return refusalWords({ kind: 'no_record' }, record, source);
+  const declared = described.sources.find((each) => sameName(each.name, source));
+  if (declared === undefined) return refusalWords({ kind: 'no_source' }, record, source);
+  if (!declared.external) return refusalWords({ kind: 'mutations' }, record, source);
+  return declared.feed.type === 'some' ? refusalWords({ kind: 'fed', feed: pathToString(declared.feed.value) }, record, source) : null;
 }
 
 /** Why a load that has begun fails once a deploy changed its source. */

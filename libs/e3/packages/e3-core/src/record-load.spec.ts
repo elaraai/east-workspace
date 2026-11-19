@@ -34,9 +34,9 @@ import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
 import type { TaskRunner } from './execution/interfaces.js';
 import { repoGc } from './gc.js';
 import { packageImport } from './package-files.js';
-import { loadQueueLock, recordLoad, type RecordLoadOptions } from './record-load.js';
+import { loadQueueLock, recordLoad, recordLoadRefusal, type RecordLoadOptions } from './record-load.js';
 import { PENDING_SLOT, sourceLoadSlots } from './record-slots.js';
-import { recordHistory, recordMutate, recordReindex, recordSystemCommit, resolveRecord } from './records.js';
+import { recordDescribe, recordHistory, recordMutate, recordReindex, recordSystemCommit, resolveRecord } from './records.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { LockHandle, StorageBackend } from './storage/interfaces.js';
 import {
@@ -327,9 +327,13 @@ describe('a load of a delivery', () => {
   it('R20 — a load is refused before anything runs for a record or source it cannot load, and for a source the dataflow loads', async () => {
     const ws = await fresh();
     const delivery = await deliver([['SO-1001', acme]]);
-    const refused = (record: string, source: string, words: string, over: StorageBackend = storage) =>
-      assert.rejects(recordLoad(over, runner, repoDir, ws, record, source, delivery, { actor: 'cli:ada' }),
+    const refused = async (record: string, source: string, words: string, over: StorageBackend = storage): Promise<void> => {
+      await assert.rejects(recordLoad(over, runner, repoDir, ws, record, source, delivery, { actor: 'cli:ada' }),
         (err: unknown) => err instanceof RecordLoadRefusedError && err.message === words);
+      // What holds the record's description refuses in the same words, before it stores or sends a delivery
+      assert.equal(recordLoadRefusal(record, source, await recordDescribe(over, repoDir, ws, record)), words);
+    };
+    assert.equal(recordLoadRefusal('orders', 'erp', await recordDescribe(storage, repoDir, ws, 'orders')), null, 'erp is one a delivery is loaded into');
     await refused('nope', 'erp', 'record \'nope\' not found');
     await refused('orders', 'ftp', 'record \'orders\' has no source \'ftp\'');
     await refused('orders', 'own', 'source \'own\' of record \'orders\' is the solution\'s: its mutations write it, and no delivery is loaded into it');

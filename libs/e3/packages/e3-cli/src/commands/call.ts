@@ -102,17 +102,15 @@ import {
   decodeFunctionObject, functionDraftEnded, functionDraftsOutlasted, inputLabel, parseKeypath,
 } from '@elaraai/e3-types';
 import {
-  ApiError,
   functionDescribe,
   functionCall,
   oneShotCall,
   workspaceFunctionDescribe,
   workspaceFunctionCall,
-  workspaceRecordDescribe,
   type ExecuteResult,
   type WorkspaceFunctionCallOptions,
 } from '@elaraai/e3-api-client';
-import { parseRepoLocation, resolvePackageVersion, formatError, exitError } from '../utils.js';
+import { parseRepoLocation, remoteRecordDescribe, resolvePackageVersion, formatError, exitError } from '../utils.js';
 import { parseTaskSpec } from './run.js';
 import { commandBudget, refuseRemoteBudget, type BudgetFlags } from './budget.js';
 import { openCommandRack, planRackCall, rackAsked, refuseRemoteRack, unattachedLine, type RackFlags } from './rack-options.js';
@@ -754,15 +752,8 @@ async function callRemote(
   const args = await serverArgs(signature, rawArgs);
   // The server lays the drafts; each is read here against its mutation's
   // types, which the server describes (`callCommand` refuses one without -w)
-  const drafts = workspace === undefined ? [] : await readDrafts(draftWords, workspace, async (record) => {
-    try {
-      return await workspaceRecordDescribe(baseUrl, repo, workspace, record, opts);
-    } catch (err) {
-      // The workspace has no such record
-      if (err instanceof ApiError && err.code === 'dataset_not_found') return null;
-      throw err;
-    }
-  });
+  const drafts = workspace === undefined ? []
+    : await readDrafts(draftWords, workspace, (record) => remoteRecordDescribe(baseUrl, repo, workspace, record, opts));
 
   const request = { args, runner: none, limits: none, drafts };
   if (!workspace) {

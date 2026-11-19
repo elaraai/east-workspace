@@ -336,6 +336,7 @@ export {
   loadQueueLock,
   recordLoad,
   recordLoadCommit,
+  recordLoadRefusal,
   recordSourceRun,
   type RecordLoadCommitOptions,
   type RecordLoadCommitOutcome,

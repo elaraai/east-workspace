@@ -20,8 +20,9 @@
  * source's last delivery again, which runs nothing; or a delivery older than
  * the source's, superseded, which runs nothing and exits 0.
  *
- * A source the dataflow loads from its feed is refused before anything is
- * stored or sent, naming the run that loads it. Ctrl-C cancels the load: one
+ * A record or a source no delivery is loaded into is refused before anything
+ * is stored or sent, in the load's own words, and a source the dataflow loads
+ * from its feed naming the run that loads it. Ctrl-C cancels the load: one
  * stopped before its commit wrote has loaded nothing, and the command exits
  * 130; once its commit has written, the load has landed, and the command says
  * what it did. A second Ctrl-C stops following a load a server runs.
@@ -36,9 +37,12 @@ import { readDatasetFileHeader } from '@elaraai/e3';
 import {
   RecordLoadProgressType, pathToString, type IntakeFile, type RecordLoadArgs, type RecordLoadProgress, type RecordLoadResult,
 } from '@elaraai/e3-types';
-import { LocalStorage, LocalTaskRunner, RecordLoadStoppedError, recordDescribe, recordLoad, withRunningWork, type Budget } from '@elaraai/e3-core';
-import { objectUpload, workspaceRecordDescribe, workspaceRecordLoad, type RecordSignature, type RequestOptions } from '@elaraai/e3-api-client';
-import { actor, exitError, formatError, parseRepoLocation } from '../utils.js';
+import {
+  LocalStorage, LocalTaskRunner, RecordLoadRefusedError, RecordLoadStoppedError, recordDescribe, recordLoad, recordLoadRefusal, withRunningWork,
+  type Budget,
+} from '@elaraai/e3-core';
+import { objectUpload, workspaceRecordLoad, type RecordSignature, type RequestOptions } from '@elaraai/e3-api-client';
+import { actor, exitError, formatError, parseRepoLocation, remoteRecordDescribe } from '../utils.js';
 import { getValidToken } from '../credentials.js';
 import { fileTransferSource } from '../file-transfer-source.js';
 import { createProgress } from '../progress.js';
@@ -296,20 +300,24 @@ interface LoadAsked {
 
 /**
  * Refuses, before a delivery is stored or sent, what the record's description
- * rules out: a source the dataflow loads from its feed, and a file of a type
- * other than the source's delivery's. A record or source no delivery is loaded
- * into is the load's to refuse, in its words.
+ * rules out: a source the dataflow loads from its feed, naming the run that
+ * loads it; a record or a source no delivery is loaded into, in the words the
+ * load refuses it with; and a file of a type other than the source's
+ * delivery's.
  *
  * @param repoArg - The repository, as the command was given it
  * @param asked - The load
  * @param signature - The record's description, or `null` when the workspace
  *   holds no such record
+ * @throws {RecordLoadRefusedError} For a record or a source no delivery is
+ *   loaded into
  */
 function checkSource(repoArg: string, asked: LoadAsked, signature: RecordSignature | null): void {
   const info = signature?.sources.find((each) => sameName(each.name, asked.source));
-  if (info === undefined) return;
-  if (info.feed.type === 'some') throw new Error(fedRefusal(repoArg, asked.ws, asked.record, asked.source, pathToString(info.feed.value)));
-  if (asked.delivery.kind === 'file' && info.delivery.type === 'some') {
+  if (info?.feed.type === 'some') throw new Error(fedRefusal(repoArg, asked.ws, asked.record, asked.source, pathToString(info.feed.value)));
+  const refusal = recordLoadRefusal(asked.record, asked.source, signature);
+  if (refusal !== null) throw new RecordLoadRefusedError(`${asked.record}.${asked.source}`, refusal);
+  if (asked.delivery.kind === 'file' && info?.delivery.type === 'some') {
     readDatasetFileHeader(asked.delivery.file, `source '${asked.source}' of record '${asked.record}'`, info.delivery.value);
   }
 }
@@ -371,7 +379,7 @@ async function uploadDelivery(baseUrl: string, repo: string, ws: string, file: s
 /** A load into a repository a server holds: a file uploaded as an object, then the load's job followed. */
 async function loadRemote(baseUrl: string, repo: string, token: string, repoArg: string, asked: LoadAsked): Promise<RecordLoadResult> {
   const opts: RequestOptions = { token, fetch: freshTokenFetch(baseUrl) };
-  checkSource(repoArg, asked, await workspaceRecordDescribe(baseUrl, repo, asked.ws, asked.record, opts));
+  checkSource(repoArg, asked, await remoteRecordDescribe(baseUrl, repo, asked.ws, asked.record, opts));
   const delivery = asked.delivery.kind === 'stored' ? asked.delivery.hash : await uploadDelivery(baseUrl, repo, asked.ws, asked.delivery.file, opts);
   asked.launched();
   return workspaceRecordLoad(baseUrl, repo, asked.ws, asked.record, asked.source, {
