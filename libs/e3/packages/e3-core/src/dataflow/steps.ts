@@ -680,10 +680,16 @@ async function wouldReadOther(storage: StorageBackend, state: DataflowExecutionS
  * result — its output, its execution and its output's versions — which stays
  * in the workspace and which its dependents go on reading, and it stays
  * counted by that result until its next lands ({@link uncountResult}).
+ *
+ * A task it depends on may itself be due again, and left waiting on an input
+ * it cannot read now. The task cannot run before that one has, so it waits
+ * with it, as a dependent that had not run does ({@link stepTasksWaiting}),
+ * and is decided again as that task completes ({@link stepTaskCompleted}).
+ * Left pending it would never be ready, and the run would end stuck on it.
  */
 function taskDue(state: DataflowExecutionState, taskState: Mutable<TaskState>, reason: string): ExecutionEvent {
   const mutableState = state as Mutable<DataflowExecutionState>;
-  taskState.status = 'pending';
+  taskState.status = waitsOnDependency(state, getGraph(state), taskState.name) ? 'waiting' : 'pending';
   mutableState.reexecuted = state.reexecuted + 1n;
 
   mutableState.eventSeq = state.eventSeq + 1n;
@@ -709,7 +715,8 @@ function taskDue(state: DataflowExecutionState, taskState: Mutable<TaskState>, r
  *   made from — back to pending, to run once on the newest commits for every
  *   change that arrived meanwhile, counted a re-execution, `task_invalidated`
  *   emitted. It keeps its result, which stays in the workspace and which its
- *   dependents go on reading
+ *   dependents go on reading. One that depends on a task left waiting waits
+ *   with it, and is decided again as that task completes
  * - in_progress: left — it is asked as it lands ({@link stepTaskDueAgain})
  * - deferred: reset to pending, and decided again as it next launches
  * - waiting: reset to pending — the input it waited on may be the one that

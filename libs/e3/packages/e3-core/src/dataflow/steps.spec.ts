@@ -1070,3 +1070,39 @@ describe('stepTaskFailed', () => {
     assert.deepStrictEqual([state.executed, state.failed, state.skipped], [0n, 2n, 1n], 'each task is counted once, as it ended');
   });
 });
+
+describe('a task due again behind a task left waiting', () => {
+  // input → a → b, b reading another input too
+  const graph: DataflowGraph = {
+    tasks: [
+      { name: 'a', hash: 'hash-a', inputs: ['.input'], output: '.out_a', dependsOn: [] },
+      { name: 'b', hash: 'hash-b', inputs: ['.out_a', '.other'], output: '.out_b', dependsOn: ['a'] },
+    ],
+  };
+
+  it('waits with it, keeping its result, and is decided again as that task completes: the run does not end stuck on it', async () => {
+    // a was due again, launched again and left waiting, holding the result it made; then b's own input moves
+    const state = makeState(graph, new Map([
+      ['a', { ...makeCompleted('a', 'a-out'), status: 'waiting' } as TaskState],
+      ['b', makeCompleted('b', 'b-out')],
+    ]), { executed: 2n });
+    state.versionVectors.set('.input', new Map([['.input', 'i1']]));
+    state.versionVectors.set('.other', new Map([['.other', 'o2']]));
+    state.versionVectors.set('.out_a', new Map([['.input', 'i1']]));
+    state.versionVectors.set('.out_b', new Map([['.input', 'i1'], ['.other', 'o1']]));
+
+    const { due, events } = await stepTasksDue(unread, state, [{ path: '.other' }]);
+    assert.deepStrictEqual([due, events.length], [['b'], 1], 'b would read another value of its input: it is due');
+    const b = state.tasks.get('b')!;
+    assert.deepStrictEqual([b.status, b.outputHash], ['waiting', some('b-out')], 'it waits with a, which it cannot run before, and keeps its result');
+    assert.deepStrictEqual(stepGetReady(state), []);
+    assert.strictEqual(stepIsComplete(state), true, 'the run ends with both waiting');
+    assert.deepStrictEqual([...state.tasks.values()].filter((task) => task.status === 'pending' || task.status === 'ready'), [],
+      'and with none pending, which a run reports as stuck');
+
+    // a's input is assigned, and a runs: b is decided again
+    (state.tasks.get('a') as Mutable<TaskState>).status = 'in_progress';
+    const { result } = stepTaskCompleted(state, 'a', 'a-out-2', false, 10, { inputsHash: 'inputs-a2', executionId: 'execution-a2' }, new Map([['.input', 'i1']]));
+    assert.deepStrictEqual(result.newlyReady, ['b']);
+  });
+});
