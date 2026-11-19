@@ -4,51 +4,45 @@
  */
 
 /**
- * What the Studio's tile tests draw a page with (#1670, #1673): a source of
- * orders answered in memory, a page of placements over it, and the reader's
- * filters of the page set as its rail sets them — for the tests of a tile,
- * and of a page's clicks.
+ * What the Studio's tile tests draw a page with (#1670, #1673), on e3 itself:
+ * a source of the tile tests' own three orders, deployed with the Studio's
+ * tiles examples (`tiles.examples.tsx`); a page of placements over it, mounted
+ * as the showcase mounts the tiles' example; and the reader's filters of the
+ * page set as its rail sets them — for the tests of a tile, of a page's
+ * clicks and of a filter's conditions. A file that draws with them calls
+ * {@link tileHarness} once, at its top.
  *
  * @packageDocumentation
  */
 
 import type { ReactNode } from "react";
-import { afterEach, beforeEach } from "vitest";
-import { act, cleanup, render, type RenderResult } from "@testing-library/react";
+import { render, type RenderResult } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
-import {
-    ArrayType, DateTimeType, FloatType, IntegerType, StringType, StructType, none, some, toEastTypeValue, variant, type ValueTypeOf,
-} from "@elaraai/east";
+import { none, some, toEastTypeValue, variant, type ValueTypeOf } from "@elaraai/east";
 import { encodeBeast2For } from "@elaraai/east/internal";
 import { StudioFiltersType, studioFiltersKey, type StudioCellType, type StudioKeyType, type StudioSourceType } from "@elaraai/e3-ui/internal";
-import { StateRuntime, UIStore, system } from "@elaraai/east-ui-components";
-import { utcAt as at } from "../plan/plan.test-utils.js";
-import { QueryCallProvider, QuerySourceStatusProvider, type QueryCall } from "../query/hooks.js";
-import { createInMemorySourceStatus } from "../query/in-memory-call.js";
+import * as studio from "@elaraai/e3-ui/examples/studio/studio";
+import * as tiles from "@elaraai/e3-ui/examples/studio/tiles";
+import { StateRuntime, system } from "@elaraai/east-ui-components";
+import { act, currentHarness, e3Harness, type E3Harness, type MountOptions } from "../e3-web-mount.test-utils.js";
 import { condition } from "../query/visual/visual.test-utils.js";
 import { StudioLayout } from "./page.js";
 
-class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
-(globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
-(globalThis as { matchMedia?: unknown }).matchMedia ??= (query: string) => ({
-    matches: false, media: query, onchange: null,
-    addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent() { return false; },
-});
+/**
+ * The file's e3: the Studio's tiles examples deployed — the tile tests' own
+ * data among them — with the Studio examples' orders the tiles' example
+ * reads, a workspace of its own each test.
+ *
+ * @returns The harness
+ */
+export function tileHarness(): E3Harness {
+    return e3Harness({ "studio/studio": studio, "studio/tiles": tiles }, { measure: false });
+}
 
-beforeEach(() => { StateRuntime.initializeStore(new UIStore()); });
-afterEach(() => { cleanup(); });
-
-export const Row = StructType({ ordered_at: DateTimeType, region: StringType, revenue: FloatType, units: IntegerType });
-export const PATH = [variant("field", "inputs"), variant("field", "orders")];
-export const ORDERS: ValueTypeOf<typeof Row>[] = [
-    { ordered_at: at("2026-07-03T10:00:00"), region: "SA", revenue: 100, units: 4n },
-    { ordered_at: at("2026-07-20T10:00:00"), region: "NSW", revenue: 50, units: 1n },
-    { ordered_at: at("2026-08-02T10:00:00"), region: "SA", revenue: 60, units: 2n },
-];
-export const DATASETS = [{ path: PATH, type: ArrayType(Row), value: ORDERS }];
+/** The tile tests' three orders, as a page lists them. */
 export const SOURCE: ValueTypeOf<typeof StudioSourceType> = {
     key: "orders", name: "Orders", icon: "receipt", description: none,
-    binding: { name: "orders", source: variant("value", PATH), type: toEastTypeValue(ArrayType(Row)) },
+    binding: { name: "orders", source: variant("value", tiles.tileTestOrders.path), type: toEastTypeValue(tiles.tileTestOrders.type) },
     fields: [], range: some("ordered_at"),
 };
 
@@ -67,25 +61,30 @@ export function cell(key: string, content: ValueTypeOf<typeof StudioCellType>["c
     return { key, row: "r1", span: 6n, height: none, align: variant("top", null), title: none, content };
 }
 
-/** What a page draws in: the theme, and — given a call — its calls, its sources' status read in memory. */
-export function host(children: ReactNode, call?: QueryCall) {
-    return (
-        <ChakraProvider value={system}>
-            {call === undefined ? children : (
-                <QueryCallProvider call={call}>
-                    <QuerySourceStatusProvider status={createInMemorySourceStatus(DATASETS)}>{children}</QuerySourceStatusProvider>
-                </QueryCallProvider>
-            )}
-        </ChakraProvider>
-    );
+/**
+ * Mounts what a page draws on e3, as the showcase mounts an example — the
+ * test's workspace, its calls, its sources' status read from it — and settles
+ * once it has rendered.
+ *
+ * @param view - What the page draws
+ * @param host - What the host holds the page in, inside e3's providers: its own `E3Provider`, say
+ * @returns What Testing Library rendered
+ */
+export function onE3(view: ReactNode, host?: MountOptions["host"]): Promise<RenderResult> {
+    return currentHarness().mount(tiles.studioKpiSizes, { view, ...(host === undefined ? {} : { host }) });
 }
 
-/** A page of placements over the sources — the orders unless given — its calls the given one's, and who it tells a click opens another page. */
+/** A page of placements over the sources — the orders unless given — on e3, and who it tells a click opens another page. */
 export function page(
-    cells: ValueTypeOf<typeof StudioCellType>[], call?: QueryCall, sources: ValueTypeOf<typeof StudioSourceType>[] = [SOURCE],
+    cells: ValueTypeOf<typeof StudioCellType>[], sources: ValueTypeOf<typeof StudioSourceType>[] = [SOURCE],
     onOpen?: (page: ValueTypeOf<typeof StudioKeyType>) => void,
-): RenderResult {
-    return render(host(<StudioLayout cells={cells} components={[]} sources={sources} page={PAGE} storageKey="tile" onOpen={onOpen} />, call));
+): Promise<RenderResult> {
+    return onE3(<StudioLayout cells={cells} components={[]} sources={sources} page={PAGE} storageKey="tile" onOpen={onOpen} />);
+}
+
+/** A page of placements drawn with no server to ask: in the theme alone, no calls at all. */
+export function pageWithoutServer(cells: ValueTypeOf<typeof StudioCellType>[]): RenderResult {
+    return render(<ChakraProvider value={system}><StudioLayout cells={cells} components={[]} sources={[SOURCE]} page={PAGE} storageKey="tile" /></ChakraProvider>);
 }
 
 /**

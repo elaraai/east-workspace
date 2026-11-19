@@ -6,7 +6,8 @@
 /**
  * @vitest-environment jsdom
  *
- * A visual's tile (#1670): it asks its programs through the query builder's
+ * A visual's tile (#1670), on e3 itself over the tile tests' own three orders
+ * (`tile.test-utils.tsx`): it asks its programs through the query builder's
  * calls and draws each of its states — waiting, a well empty, a field
  * missing, a source with no date to compare periods by, its source's error
  * with a Retry, a source the page cannot query, no rows — and its answer; two
@@ -14,26 +15,41 @@
  * sources, one inside the other; an answer outlives its calls' identity.
  */
 
+import { useState, type ReactNode } from "react";
 import { describe, expect, test, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { ArrayType, none, some, toEastTypeValue, variant, type ValueTypeOf } from "@elaraai/east";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Studio, type StudioSourceType } from "@elaraai/e3-ui/internal";
+import * as tiles from "@elaraai/e3-ui/examples/studio/tiles";
 import { markOf } from "@elaraai/east-ui-components/testing";
-import { utcAt as at } from "../plan/plan.test-utils.js";
-import { type QueryCall } from "../query/hooks.js";
-import { createInMemoryQueryCall } from "../query/in-memory-call.js";
+import { act, settle } from "../e3-web-mount.test-utils.js";
+import { E3Provider } from "../platform/index.js";
 import { VisualAnswersProvider } from "../query/visual/answers.js";
 import { condition } from "../query/visual/visual.test-utils.js";
 import { StudioLayout } from "./page.js";
-import { DATASETS, PAGE, Row, SOURCE, cell, filterPage, host, page, sized } from "./tile.test-utils.js";
+import { PAGE, SOURCE, cell, filterPage, onE3, page, pageWithoutServer, sized, tileHarness } from "./tile.test-utils.js";
+
+const h = tileHarness();
 
 const v = Studio.visual;
 
-/** The in-memory call, counting its calls. */
-function counting(): { call: QueryCall; calls: () => number } {
-    let n = 0;
-    const inMemory = createInMemoryQueryCall(DATASETS);
-    return { call: (request, options) => { n += 1; return inMemory(request, options); }, calls: () => n };
+/** The one-shot calls the page has launched of e3: each a call started, or run within one request. */
+const launched = () => h.requests("one-shot").filter((request) => request.method === "POST").length;
+
+/** Shows what it is given once the test says so: a page that mounts, its reads loaded, and draws later. */
+let show: (() => void) | undefined;
+function Later({ children }: { children: ReactNode }) {
+    const [shown, setShown] = useState(false);
+    show = () => setShown(true);
+    return shown ? children : null;
+}
+
+/** Refreshes the host's token: its `E3Provider` drawn with a new config. */
+let refresh: ((token: string) => void) | undefined;
+function Tokened({ children }: { children: ReactNode }) {
+    const [token, setToken] = useState("first");
+    refresh = setToken;
+    return <E3Provider config={{ apiUrl: h.e3.apiUrl, fetch: h.e3.fetch, repo: h.e3.repo, workspace: h.workspace, token }}>{children}</E3Provider>;
 }
 
 /** The charts a page has drawn its answers as, by kind, in order (#1671). */
@@ -45,27 +61,29 @@ const eyebrow = (container: HTMLElement) =>
 
 describe("a visual's tile", () => {
     test("asks its program and draws what it answered, under its eyebrow: a name made from its wells, and a meta that says what it groups by (TIL-1)", async () => {
-        const { container } = page([cell("c1", v.of("orders", v.column({ x: v.group("region"), values: [v.sum("revenue")] })))], createInMemoryQueryCall(DATASETS));
+        const { container } = await page([cell("c1", v.of("orders", v.column({ x: v.group("region"), values: [v.sum("revenue")] })))]);
         await waitFor(() => expect(charts(container)).toEqual(["column"]));
         expect(eyebrow(container)).toEqual(["Revenue by region", "by region"]);
     });
 
-    test("names a tile by its placement's own title before its wells, and by its view while its wells are empty (TIL-1)", () => {
-        const { container } = page([
+    test("names a tile by its placement's own title before its wells, and by its view while its wells are empty (TIL-1)", async () => {
+        const { container } = await page([
             { ...cell("c1", v.of("orders", v.kpi({ value: v.count() }))), title: some("Orders this quarter") },
             cell("c2", v.of("orders", v.column({ x: v.group("region"), values: [] }))),
-        ], createInMemoryQueryCall(DATASETS));
+        ]);
         const names = [...container.querySelectorAll("[data-studio-visual-name]")].map((el) => el.textContent);
         expect(names).toEqual(["Orders this quarter", "Column chart"]);
     });
 
     test("waits on the shared loading clock: once the wait passes the delay its meta says loading over blocks in its own shape", async () => {
-        const never: QueryCall = () => new Promise(() => {});
-        const { container } = page([
+        const { container } = await onE3(<Later><StudioLayout cells={[
             cell("c1", v.of("orders", v.kpi({ value: v.count() }))),
             cell("c2", v.of("orders", v.column({ x: v.group("region"), values: [v.count()] }))),
             cell("c3", v.of("orders", v.list({ item: v.group("region"), values: [v.count()] }))),
-        ], never);
+        ]} components={[]} sources={[SOURCE]} page={PAGE} storageKey="tile" /></Later>);
+        // Its calls held at e3, never answered: the page shown, its wait begins.
+        h.e3.hold((request) => request.kind === "one-shot");
+        await act(async () => { show!(); });
         expect(container.querySelector("[data-studio-visual=waiting]")).toBeNull();
         // Until then its eyebrow says nothing of it.
         expect(eyebrow(container)).toEqual(["Orders", ""]);
@@ -76,8 +94,8 @@ describe("a visual's tile", () => {
         expect(blocks).toEqual([["number", "line"], ["line", "plot"], ["row", "row", "row", "row"]]);
     });
 
-    test("lists the wells it needs filled as a checklist — its source chosen, each well it needs missing — under its source's name (TIL-3)", () => {
-        const { container } = page([cell("c1", v.of("orders", v.column({ x: v.group("region"), values: [] })))], createInMemoryQueryCall(DATASETS));
+    test("lists the wells it needs filled as a checklist — its source chosen, each well it needs missing — under its source's name (TIL-3)", async () => {
+        const { container } = await page([cell("c1", v.of("orders", v.column({ x: v.group("region"), values: [] })))]);
         const state = container.querySelector<HTMLElement>("[data-studio-visual=empty]")!;
         expect(within(state).getByRole("heading", { name: "Add fields to draw it" })).toBeTruthy();
         // A check for what is chosen, a dot for what is missing; the view's icon over them.
@@ -88,8 +106,8 @@ describe("a visual's tile", () => {
         expect(eyebrow(container)).toEqual(["Column chart", "Orders"]);
     });
 
-    test("names a field its source does not have, as code, and its meta says it needs a field; a published page offers no link to pick another (TIL-3)", () => {
-        const { container } = page([cell("c1", v.of("orders", v.kpi({ value: v.sum("net_revenue") })))], createInMemoryQueryCall(DATASETS));
+    test("names a field its source does not have, as code, and its meta says it needs a field; a published page offers no link to pick another (TIL-3)", async () => {
+        const { container } = await page([cell("c1", v.of("orders", v.kpi({ value: v.sum("net_revenue") })))]);
         const state = container.querySelector<HTMLElement>("[data-studio-visual=missing]")!;
         expect([state.textContent, state.querySelector("code")?.textContent, markOf(state)?.split(" ").slice(0, 2).join(" ")]).toEqual(["Orders has no field net_revenue", "net_revenue", "fas circle-exclamation"]);
         expect(state.querySelector("button")).toBeNull();
@@ -101,92 +119,96 @@ describe("a visual's tile", () => {
             const state = container.querySelector<HTMLElement>("[data-studio-visual=no-rows]");
             return state === null ? undefined : [...state.firstElementChild!.children].map((part) => [part.textContent, part.getAttribute("title")]);
         };
-        const own = page([cell("c1", v.of("orders", v.kpi({ value: v.sum("revenue") }), { where: condition(`.region == "WA"`) }))], createInMemoryQueryCall(DATASETS));
+        const own = await page([cell("c1", v.of("orders", v.kpi({ value: v.sum("revenue") }), { where: condition(`.region == "WA"`) }))]);
         await waitFor(() => expect(said(own.container)).toEqual([["no data", null], ["No orders for region is WA", "No orders for region is WA"]]));
         own.unmount();
-        const filtered = page([cell("c1", v.of("orders", v.kpi({ value: v.count() }), { where: condition(".units > 1") }))], createInMemoryQueryCall(DATASETS));
+        const filtered = await page([cell("c1", v.of("orders", v.kpi({ value: v.count() }), { where: condition(".units > 1") }))]);
         await filterPage(`.region == "NSW"`, `.region == "NSW"`);
         await waitFor(() => expect(said(filtered.container)?.[1]?.[0]).toBe("No orders for units is more than 1 · region is NSW"));
         filtered.unmount();
         await filterPage();
         // A source with no rows: nothing emptied it.
-        const none_ = page([cell("c1", v.of("orders", v.kpi({ value: v.count() })))], createInMemoryQueryCall([{ ...DATASETS[0]!, value: [] }]));
+        await h.write(tiles.tileTestOrders, []);
+        const none_ = await page([cell("c1", v.of("orders", v.kpi({ value: v.count() })))]);
         await waitFor(() => expect(said(none_.container)?.[1]?.[0]).toBe("Orders has no rows"));
     });
 
     test("shows its source's error when there is no server to ask", async () => {
-        page([cell("c1", v.of("orders", v.kpi({ value: v.count() })))]);
+        pageWithoutServer([cell("c1", v.of("orders", v.kpi({ value: v.count() })))]);
         expect(await screen.findByText("Orders could not be read")).toBeTruthy();
     });
 
     test("two tiles with one program make one call", async () => {
-        const { call, calls } = counting();
         const content = v.of("orders", v.bar({ x: v.group("region"), values: [v.count()] }));
-        const { container } = page([cell("c1", content), cell("c2", content)], call);
+        const { container } = await page([cell("c1", content), cell("c2", content)]);
         await waitFor(() => expect(charts(container)).toEqual(["bar", "bar"]));
-        expect(calls()).toBe(1);
+        await settle();
+        expect(launched()).toBe(1);
     });
 
     test("offers Retry when its call failed, and asks again", async () => {
-        let tries = 0;
-        const inMemory = createInMemoryQueryCall(DATASETS);
-        // e3 unreachable once, then back.
-        const flaky: QueryCall = (request, options) => {
-            tries += 1;
-            return tries === 1 ? Promise.reject(new TypeError("fetch failed")) : inMemory(request, options);
-        };
-        const { container } = page([cell("c1", v.of("orders", v.bar({ x: v.group("region"), values: [v.count()] })))], flaky);
-        expect(await screen.findByText("Orders could not be read")).toBeTruthy();
-        fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+        // e3 unreachable, then back: the network fails each try, and e3's client tries again after a pause, a timer the
+        // harness's settle cannot see, so the test waits for what the user sees then.
+        const down = h.e3.fail((request) => request.kind === "one-shot", "network");
+        const { container } = await page([cell("c1", v.of("orders", v.bar({ x: v.group("region"), values: [v.count()] })))]);
+        expect(await screen.findByText("Orders could not be read", {}, { timeout: 10_000 })).toBeTruthy();
+        down();
+        const asked = launched();
+        await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Retry" })); });
         await waitFor(() => expect(charts(container)).toEqual(["bar"]));
-        expect(tries).toBe(2);
+        expect(launched()).toBeGreaterThan(asked);
     });
 
-    test("says a source with no date range has no date to compare periods by", () => {
-        page([cell("c1", v.of("orders", v.kpi({ value: v.sum("revenue", { period: "previous" }) })))], createInMemoryQueryCall(DATASETS), [{ ...SOURCE, range: none }]);
+    test("says a source with no date range has no date to compare periods by", async () => {
+        await page([cell("c1", v.of("orders", v.kpi({ value: v.sum("revenue", { period: "previous" }) })))], [{ ...SOURCE, range: none }]);
         expect(screen.getByText("Orders has no date to compare periods by")).toBeTruthy();
     });
 
     test("a source the page cannot query fails only the visuals that read it, with no Retry", async () => {
         const lines: ValueTypeOf<typeof StudioSourceType> = {
             ...SOURCE, key: "lines", name: "Lines",
-            binding: { name: "lines", source: variant("paged", "not-bound"), type: toEastTypeValue(ArrayType(Row)) },
+            binding: { name: "lines", source: variant("paged", "not-bound"), type: SOURCE.binding.type },
         };
-        const { container } = page([
+        const { container } = await page([
             cell("c1", v.of("orders", v.bar({ x: v.group("region"), values: [v.count()] }))),
             cell("c2", v.of("lines", v.bar({ x: v.group("region"), values: [v.count()] }))),
-        ], createInMemoryQueryCall(DATASETS), [SOURCE, lines]);
+        ], [SOURCE, lines]);
         await waitFor(() => expect(charts(container)).toEqual(["bar"]));
         expect(await screen.findByText("Lines could not be read")).toBeTruthy();
         expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
     });
 
     test("a page inside another over the same sources asks through it: what one has answered, the other draws", async () => {
-        const { call, calls } = counting();
         const content = v.of("orders", v.bar({ x: v.group("region"), values: [v.count()] }));
         // A builder's canvas, and its preview beside it.
-        const { container } = render(host(
+        const { container } = await onE3(
             <VisualAnswersProvider sources={[SOURCE]}>
                 <StudioLayout cells={[cell("c1", content)]} components={[]} sources={[SOURCE]} page={PAGE} storageKey="canvas" />
                 <StudioLayout cells={[cell("c1", content)]} components={[]} sources={[SOURCE]} page={PAGE} storageKey="preview" />
             </VisualAnswersProvider>,
-            call,
-        ));
+        );
         await waitFor(() => expect(charts(container)).toEqual(["bar", "bar"]));
-        expect(calls()).toBe(1);
+        await settle();
+        expect(launched()).toBe(1);
     });
 
-    test("keeps its answer when the host's calls change identity — a token refreshed — and asks nothing again", async () => {
-        const first = counting();
+    test("keeps its answer when the host's calls change identity — a token refreshed — and asks nothing again; what it asks next goes with the new token", async () => {
         const content = v.of("orders", v.bar({ x: v.group("region"), values: [v.count()] }));
         const layout = <StudioLayout cells={[cell("c1", content)]} components={[]} sources={[SOURCE]} page={PAGE} storageKey="tile" />;
-        const { container, rerender } = render(host(layout, first.call));
+        // The host's own E3Provider, nearest the page, whose token it refreshes.
+        const { container } = await onE3(layout, (example) => <Tokened>{example}</Tokened>);
         await waitFor(() => expect(charts(container)).toEqual(["bar"]));
-        const second = counting();
-        rerender(host(layout, second.call));
-        // Still drawn as it was: no answer dropped, so no wait.
+        await settle();
+        expect(launched()).toBe(1);
+        await act(async () => { refresh!("second"); });
+        // Still drawn as it was: no answer dropped, so no wait, and nothing asked again.
         expect(charts(container)).toEqual(["bar"]);
-        expect([first.calls(), second.calls()]).toEqual([1, 0]);
+        await settle();
+        expect(launched()).toBe(1);
+        // A program of its own — a filter set — is asked through the refreshed calls.
+        await filterPage(`.region == "SA"`);
+        await settle();
+        expect(h.requests("one-shot").filter((request) => request.method === "POST").map((request) => request.authorization)).toEqual(["Bearer first", "Bearer second"]);
     });
 });
 
@@ -194,7 +216,7 @@ describe("a KPI's tile (#1671)", () => {
     test("draws its value and unit under its name, its change a pill in its valence with a caret at their row's end, its goal, its trend and one line of annotation", async () => {
         // Revenue: 210 against an average order of 70; a goal of 300; a month a bucket, July's and August's.
         const kpi = v.kpi({ value: v.sum("revenue", { goal: 300 }), compare: v.mean("revenue"), trend: "ordered_at" });
-        const { container } = page([cell("c1", v.of("orders", kpi))], createInMemoryQueryCall(DATASETS));
+        const { container } = await page([cell("c1", v.of("orders", kpi))]);
         expect(await screen.findByText("210")).toBeTruthy();
         // The eyebrow names it; the KPI draws no label of its own.
         // A KPI's unit stands beside its number: its meta says nothing more.
@@ -215,17 +237,17 @@ describe("a KPI's tile (#1671)", () => {
     });
 
     test("says a count's unit beside its number: its source, mid-sentence", async () => {
-        const { container } = page([cell("c1", v.of("orders", v.kpi({ value: v.count() })))], createInMemoryQueryCall(DATASETS));
+        const { container } = await page([cell("c1", v.of("orders", v.kpi({ value: v.count() })))]);
         await waitFor(() => expect(container.querySelector("[data-studio-kpi-unit]")).not.toBeNull());
         const value = container.querySelector("[data-studio-kpi-value]")!;
         expect([...value.parentElement!.children].map((part) => [part === value, part.textContent === "orders"])).toEqual([[true, false], [false, true]]);
     });
 
     test("is narrowed by the reader's filters of its page, held in the UI store under the page's key: set, changed and cleared, every visual of the source follows (#1673)", async () => {
-        const { container } = page([
+        const { container } = await page([
             cell("c1", v.of("orders", v.kpi({ value: v.count() }))),
             cell("c2", v.of("orders", v.kpi({ value: v.sum("revenue") }), { where: condition(".units > 1") })),
-        ], createInMemoryQueryCall(DATASETS));
+        ]);
         const values = () => [...container.querySelectorAll("[data-studio-kpi-value]")].map((el) => el.textContent);
         // Three orders; two of more than one unit, 160 between them.
         await waitFor(() => expect(values()).toEqual(["3", "160"]));
@@ -240,7 +262,7 @@ describe("a KPI's tile (#1671)", () => {
     });
 
     test("compares a value with another period once the page's filters hold its date to a window, and says it needs one until they do (#1673)", async () => {
-        const { container } = page([cell("c1", v.of("orders", v.kpi({ value: v.count(), compare: v.count({ period: "previous" }) })))], createInMemoryQueryCall(DATASETS));
+        const { container } = await page([cell("c1", v.of("orders", v.kpi({ value: v.count(), compare: v.count({ period: "previous" }) })))]);
         expect(await screen.findByText("Comparing periods needs a date filter on Orders")).toBeTruthy();
         // August, against July: one order against two.
         await filterPage(`(.ordered_at | strftime("%Y-%m")) == "2026-08"`);
@@ -254,13 +276,12 @@ describe("a KPI's tile (#1671)", () => {
     test("a page's filters are its own: another page's tiles, over the same sources, are not narrowed by them (#1673)", async () => {
         const content = v.of("orders", v.kpi({ value: v.count() }));
         const other = { project: "Sales desk", page: "Stock" };
-        const { container } = render(host(
+        const { container } = await onE3(
             <VisualAnswersProvider sources={[SOURCE]}>
                 <StudioLayout cells={[cell("c1", content)]} components={[]} sources={[SOURCE]} page={PAGE} storageKey="one" />
                 <StudioLayout cells={[cell("c1", content)]} components={[]} sources={[SOURCE]} page={other} storageKey="two" />
             </VisualAnswersProvider>,
-            createInMemoryQueryCall(DATASETS),
-        ));
+        );
         const values = () => [...container.querySelectorAll("[data-studio-kpi-value]")].map((el) => el.textContent);
         await waitFor(() => expect(values()).toEqual(["3", "3"]));
         await filterPage(`.region == "NSW"`);
@@ -268,7 +289,7 @@ describe("a KPI's tile (#1671)", () => {
     });
 
     test("the page's rail says each filter as a chip in the query builder's words, over the grid; its × takes the filter out, and every visual follows (#1673)", async () => {
-        const { container } = page([cell("c1", v.of("orders", v.kpi({ value: v.count() })))], createInMemoryQueryCall(DATASETS));
+        const { container } = await page([cell("c1", v.of("orders", v.kpi({ value: v.count() })))]);
         const rail = () => container.querySelector<HTMLElement>("[data-studio-filters]")!;
         const chips = () => [...rail().querySelectorAll<HTMLElement>("[data-slice-clause]")].map((chip) => chip.getAttribute("title"));
         await waitFor(() => expect(container.querySelector("[data-studio-kpi-value]")?.textContent).toBe("3"));
@@ -285,13 +306,13 @@ describe("a KPI's tile (#1671)", () => {
         await waitFor(() => expect(chips()).toEqual(["units is more than 1"]));
     });
 
-    test("a page whose placements read no source has no rail (#1673)", () => {
-        const { container } = page([cell("c1", v.text("Notes"))], createInMemoryQueryCall(DATASETS));
+    test("a page whose placements read no source has no rail (#1673)", async () => {
+        const { container } = await page([cell("c1", v.text("Notes"))]);
         expect(container.querySelector("[data-studio-filters]")).toBeNull();
     });
 
     test("draws only its value when its compare, trend and goal are empty, and says an absent value in words", async () => {
-        const { container } = page([cell("c1", v.of("orders", v.kpi({ value: v.max("units") }), { where: condition(`.region == "SA"`) }))], createInMemoryQueryCall(DATASETS));
+        const { container } = await page([cell("c1", v.of("orders", v.kpi({ value: v.max("units") }), { where: condition(`.region == "SA"`) }))]);
         expect(await screen.findByText("4")).toBeTruthy();
         expect(container.querySelector("[data-studio-kpi-change], [data-studio-kpi-trend], [data-studio-kpi-goal], [data-studio-kpi-note], [data-studio-kpi-unit]")).toBeNull();
     });
@@ -334,7 +355,7 @@ function capturing(): { saved: { name: string; blob: Blob }[]; restore: () => vo
 describe("a records table's tile, and a tile's menu (#1671)", () => {
     test("draws a page of its rows in the Table, its columns in their well order under their labels, and where the page stands (TBL-1)", async () => {
         const records = v.records({ columns: ["region", "revenue"], sort: "revenue", descending: true });
-        const { container } = page([cell("c1", v.of("orders", records))], createInMemoryQueryCall(DATASETS));
+        const { container } = await page([cell("c1", v.of("orders", records))]);
         await waitFor(() => expect(container.querySelector("[data-studio-records='']")).not.toBeNull());
         const records_ = container.querySelector<HTMLElement>("[data-studio-records]")!;
         expect([...records_.querySelectorAll("thead th")].map((th) => th.textContent)).toEqual(["Region", "Revenue"]);
@@ -346,7 +367,7 @@ describe("a records table's tile, and a tile's menu (#1671)", () => {
     test("Show rows lists the rows under a visual as a value tree in a popover hanging from its menu — never a drawer — newest first, how many at its foot; its Export CSV writes every one, named after the visual (TIL-2)", () => sized(async () => {
         const downloads = capturing();
         try {
-            const { container } = page([cell("c1", v.of("orders", v.column({ x: v.group("region"), values: [v.sum("revenue")] })))], createInMemoryQueryCall(DATASETS));
+            const { container } = await page([cell("c1", v.of("orders", v.column({ x: v.group("region"), values: [v.sum("revenue")] })))]);
             await waitFor(() => expect(charts(container)).toEqual(["column"]));
             const chip = container.querySelector<HTMLElement>("[data-studio-visual-menu]")!;
             await openMenu(chip);
@@ -378,7 +399,7 @@ describe("a records table's tile, and a tile's menu (#1671)", () => {
 
     test("a summary draws each region's head over its months, with its count; the total row after its function; a cell short of its goal marked (TBL-2, TBL-3)", () => sized(async () => {
         const summary = v.summary({ rows: [v.group("region"), v.group("ordered_at", { bucket: "month" })], values: [v.sum("revenue", { goal: 80 })], total: true });
-        const { container } = page([cell("c1", v.of("orders", summary))], createInMemoryQueryCall(DATASETS));
+        const { container } = await page([cell("c1", v.of("orders", summary))]);
         await waitFor(() => expect(container.querySelector("[data-studio-summary] tbody tr")).not.toBeNull());
         const table = container.querySelector<HTMLElement>("[data-studio-summary]")!;
         // Each head its label alone; the value's goal a small label of its own after it.
@@ -394,7 +415,7 @@ describe("a records table's tile, and a tile's menu (#1671)", () => {
 
     test("a pivot puts each region's month in the Matrix, shaded on the heat steps — paper on the top two — a pair with no rows in words, the legend under it (TBL-4)", () => sized(async () => {
         const pivot = v.pivot({ rows: v.group("region"), columns: v.group("ordered_at", { bucket: "month" }), value: v.sum("revenue"), heat: true });
-        const { container } = page([cell("c1", v.of("orders", pivot))], createInMemoryQueryCall(DATASETS));
+        const { container } = await page([cell("c1", v.of("orders", pivot))]);
         await waitFor(() => expect(container.querySelector("[data-studio-pivot] [data-slot=seg]")).not.toBeNull());
         const grid = container.querySelector<HTMLElement>("[data-studio-pivot]")!;
         const rows = [...grid.querySelectorAll("[data-row-key]")].map((row) => [
@@ -410,7 +431,7 @@ describe("a records table's tile, and a tile's menu (#1671)", () => {
 
     test("a list draws a two-line row an item, its values at the end, and its ranking bar against the largest (LST-1, LST-2)", async () => {
         const list = v.list({ item: v.group("region", { sort: "high" }), values: [v.sum("revenue")], bar: true });
-        const { container } = page([cell("c1", v.of("orders", list))], createInMemoryQueryCall(DATASETS));
+        const { container } = await page([cell("c1", v.of("orders", list))]);
         await waitFor(() => expect(container.querySelector("[data-studio-list-row]")).not.toBeNull());
         const rows = [...container.querySelectorAll<HTMLElement>("[data-studio-list-row]")].map((row) => [
             row.querySelector("[data-studio-list-name]")!.textContent,
@@ -426,26 +447,21 @@ describe("a records table's tile, and a tile's menu (#1671)", () => {
     test("a visual holding fewer groups than its source has says how many of how many under it (CHT-9)", async () => {
         // A list keeps its first N, with no Other: South Australia, of two regions.
         const list = v.list({ item: v.group("region", { sort: "high", top: 1n }), values: [v.sum("revenue")] });
-        const { container } = page([cell("c1", v.of("orders", list))], createInMemoryQueryCall(DATASETS));
+        const { container } = await page([cell("c1", v.of("orders", list))]);
         await waitFor(() => expect(container.querySelector("[data-studio-list-row]")).not.toBeNull());
         expect([container.querySelectorAll("[data-studio-list-row]").length, container.querySelector("[data-studio-visual-note]")?.textContent])
             .toEqual([1, "Showing 1 of 2 groups"]);
     });
 
     test("an export that could not be made says why over the tile's body, until it is put away", async () => {
-        const inMemory = createInMemoryQueryCall(DATASETS);
-        let calls = 0;
-        // The tile's call answers; the export's, the next, finds e3 unreachable.
-        const call: QueryCall = (request, options) => {
-            calls += 1;
-            return calls > 1 ? Promise.reject(new TypeError("fetch failed")) : inMemory(request, options);
-        };
-        const { container } = page([cell("c1", v.of("orders", v.kpi({ value: v.count() })))], call);
+        const { container } = await page([cell("c1", v.of("orders", v.kpi({ value: v.count() })))]);
         expect(await screen.findByText("3")).toBeTruthy();
+        // The tile's call answered; the export's finds e3 unreachable.
+        h.e3.fail((request) => request.kind === "one-shot", "network");
         const chip = container.querySelector<HTMLElement>("[data-studio-visual-menu]")!;
         await openMenu(chip);
         await pick(chip, "Export CSV");
-        expect(await screen.findByText("The rows could not be exported")).toBeTruthy();
+        expect(await screen.findByText("The rows could not be exported", {}, { timeout: 10_000 })).toBeTruthy();
         await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Dismiss" })); });
         expect(screen.queryByText("The rows could not be exported")).toBeNull();
     });

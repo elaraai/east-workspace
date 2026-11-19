@@ -11,17 +11,21 @@
  * pick; ⌘-click selects several; Esc, or a click on the selection again,
  * clears it; a click that filters narrows every other visual of the source and
  * marks the group on the visual clicked; and a page a click opens holds the
- * clicked group as its filter when its host is told.
+ * clicked group as its filter when its host is told. On e3 itself, over the
+ * tile tests' own orders (`tile.test-utils.tsx`).
  */
 
 import { describe, expect, test } from "vitest";
-import { act, fireEvent, waitFor } from "@testing-library/react";
-import { ArrayType, StringType, StructType, none, printJq, toEastTypeValue, variant, type ValueTypeOf } from "@elaraai/east";
+import { fireEvent, waitFor } from "@testing-library/react";
+import { none, printJq, toEastTypeValue, variant, type ValueTypeOf } from "@elaraai/east";
 import { decodeBeast2For } from "@elaraai/east/internal";
 import { Studio, StudioFiltersType, StudioSourceType, studioFiltersKey } from "@elaraai/e3-ui/internal";
+import * as tiles from "@elaraai/e3-ui/examples/studio/tiles";
 import { StateRuntime } from "@elaraai/east-ui-components";
-import { createInMemoryQueryCall } from "../query/in-memory-call.js";
-import { DATASETS, PAGE, SOURCE, cell, page, sized } from "./tile.test-utils.js";
+import { act } from "../e3-web-mount.test-utils.js";
+import { PAGE, SOURCE, cell, page, sized, tileHarness } from "./tile.test-utils.js";
+
+tileHarness();
 
 const v = Studio.visual;
 
@@ -55,7 +59,7 @@ const filtersOf = (key: { project: string; page: string }) => {
 
 describe("a click that selects, and a visual that follows it (LNK-1 to LNK-5)", () => {
     test("a list's row is a button; a click selects it — `--paper-3` by its mark — and the visual that follows narrows to it, on e3, its eyebrow saying the value", async () => {
-        const { container } = page([cell("c-regions", regions()), cell("c-orders", orders(following("all")))], createInMemoryQueryCall(DATASETS));
+        const { container } = await page([cell("c-regions", regions()), cell("c-orders", orders(following("all")))]);
         await waitFor(() => expect(rows(container)).toHaveLength(2));
         // With nothing selected a follower that shows all counts every order, and says so.
         await waitFor(() => expect(count(container)).toBe("3"));
@@ -70,16 +74,13 @@ describe("a click that selects, and a visual that follows it (LNK-1 to LNK-5)", 
 
     test("a list on one source leads a visual on another: its click narrows the follower's own rows on its own field (LNK-4)", async () => {
         // A second source: each region and who manages it. The orders count follows its list on the region.
-        const Manager = StructType({ region: StringType, manager: StringType });
-        const path = [variant("field", "inputs"), variant("field", "managers")];
         const managers: ValueTypeOf<typeof StudioSourceType> = {
             key: "managers", name: "Managers", icon: "user", description: none,
-            binding: { name: "managers", source: variant("value", path), type: toEastTypeValue(ArrayType(Manager)) },
+            binding: { name: "managers", source: variant("value", tiles.tileTestManagers.path), type: toEastTypeValue(tiles.tileTestManagers.type) },
             fields: [], range: none,
         };
-        const datasets = [...DATASETS, { path, type: ArrayType(Manager), value: [{ region: "SA", manager: "Avery" }, { region: "NSW", manager: "Blake" }] }];
         const leader = v.of("managers", v.list({ item: v.group("region"), values: [v.count()] }));
-        const { container } = page([cell("c-regions", leader), cell("c-orders", orders(following("all")))], createInMemoryQueryCall(datasets), [SOURCE, managers]);
+        const { container } = await page([cell("c-regions", leader), cell("c-orders", orders(following("all")))], [SOURCE, managers]);
         await waitFor(() => expect(rows(container)).toHaveLength(2));
         await waitFor(() => expect(count(container)).toBe("3"));
         await click(rowOf(container, "NSW"));
@@ -92,7 +93,7 @@ describe("a click that selects, and a visual that follows it (LNK-1 to LNK-5)", 
     });
 
     test("⌘-click adds to the selection, and the follower narrows to them all; a click on one of several selects it alone; a click on the selection again clears it (LNK-2)", async () => {
-        const { container } = page([cell("c-regions", regions()), cell("c-orders", orders(following("all")))], createInMemoryQueryCall(DATASETS));
+        const { container } = await page([cell("c-regions", regions()), cell("c-orders", orders(following("all")))]);
         await waitFor(() => expect(rows(container)).toHaveLength(2));
         await click(rowOf(container, "NSW"));
         await waitFor(() => expect(count(container)).toBe("1"));
@@ -108,7 +109,7 @@ describe("a click that selects, and a visual that follows it (LNK-1 to LNK-5)", 
     });
 
     test("Esc clears the selection — the one of the tile it is pressed in — and never an Esc a field takes for itself (LNK-2)", async () => {
-        const { container } = page([cell("c-regions", regions()), cell("c-orders", orders(following("all")))], createInMemoryQueryCall(DATASETS));
+        const { container } = await page([cell("c-regions", regions()), cell("c-orders", orders(following("all")))]);
         await waitFor(() => expect(rows(container)).toHaveLength(2));
         await click(rowOf(container, "SA"));
         expect(selected(container)).toEqual(["SA"]);
@@ -128,7 +129,7 @@ describe("a click that selects, and a visual that follows it (LNK-1 to LNK-5)", 
 
     test("a summary table's row takes the click and is marked — the selected row's ground, no checkbox — and what follows it narrows (TBL-6)", () => sized(async () => {
         const regionsTable = v.of("orders", v.summary({ rows: [v.group("region", { sort: "high" })], values: [v.sum("revenue")] }));
-        const { container } = page([cell("c-regions", regionsTable), cell("c-orders", orders(following("all")))], createInMemoryQueryCall(DATASETS));
+        const { container } = await page([cell("c-regions", regionsTable), cell("c-orders", orders(following("all")))]);
         const tableRows = () => [...container.querySelectorAll<HTMLElement>("[data-studio-summary] tbody tr")];
         await waitFor(() => expect(tableRows()).toHaveLength(2));
         await waitFor(() => expect(count(container)).toBe("3"));
@@ -146,7 +147,7 @@ describe("a click that selects, and a visual that follows it (LNK-1 to LNK-5)", 
     }));
 
     test("a follower that asks for a pick draws its prompt, naming the field and its leader, until one is picked (LNK-5)", async () => {
-        const { container } = page([cell("c-regions", regions()), cell("c-orders", orders(following("prompt")))], createInMemoryQueryCall(DATASETS));
+        const { container } = await page([cell("c-regions", regions()), cell("c-orders", orders(following("prompt")))]);
         await waitFor(() => expect(rows(container)).toHaveLength(2));
         expect(count(container)).toBeUndefined();
         // A list is named by what its rows stand for: Regions.
@@ -158,11 +159,11 @@ describe("a click that selects, and a visual that follows it (LNK-1 to LNK-5)", 
     });
 
     test("a follower whose leader is no longer on the page falls back to what it shows with nothing selected, and says its leader is removed (LNK-5)", async () => {
-        const all = page([cell("c-orders", orders(following("all")))], createInMemoryQueryCall(DATASETS));
+        const all = await page([cell("c-orders", orders(following("all")))]);
         await waitFor(() => expect(count(all.container)).toBe("3"));
         expect(tag(all.container)).toEqual(["removed", "leader removed"]);
         all.unmount();
-        const prompt = page([cell("c-orders", orders(following("prompt")))], createInMemoryQueryCall(DATASETS));
+        const prompt = await page([cell("c-orders", orders(following("prompt")))]);
         expect(count(prompt.container)).toBeUndefined();
         expect(prompt.container.textContent).toContain("The visual this one follows was removed");
     });
@@ -170,7 +171,7 @@ describe("a click that selects, and a visual that follows it (LNK-1 to LNK-5)", 
 
 describe("a click that filters, opens, or does nothing (LNK-1, LNK-9)", () => {
     test("filters: the clicked group is the filter the list's click made, a chip on the rail; every other visual of the source narrows to it, and the list marks it, never narrowing itself; ⌘-click adds one, a click on it again clears it, and so does its chip's × (#1673)", async () => {
-        const { container } = page([cell("c-regions", regions({ click: variant("filter", null) })), cell("c-orders", orders())], createInMemoryQueryCall(DATASETS));
+        const { container } = await page([cell("c-regions", regions({ click: variant("filter", null) })), cell("c-orders", orders())]);
         const chips = () => [...container.querySelectorAll("[data-studio-filters] [data-slice-clause]")].map((chip) => chip.getAttribute("title"));
         await waitFor(() => expect(rows(container)).toHaveLength(2));
         await click(rowOf(container, "SA"));
@@ -202,7 +203,7 @@ describe("a click that filters, opens, or does nothing (LNK-1, LNK-9)", () => {
     test("opens: the clicked group is the target page's filter on the source — in place of what it held there — and its host is told the page's key, once", async () => {
         const detail = { project: "Sales desk", page: "Region detail" };
         const opened: unknown[] = [];
-        const { container } = page([cell("c-regions", regions({ click: variant("open", detail) }))], createInMemoryQueryCall(DATASETS), undefined, (key) => { opened.push(key); });
+        const { container } = await page([cell("c-regions", regions({ click: variant("open", detail) }))], undefined, (key) => { opened.push(key); });
         await waitFor(() => expect(rows(container)).toHaveLength(2));
         await click(rowOf(container, "NSW"));
         expect(opened).toEqual([detail]);
@@ -216,10 +217,10 @@ describe("a click that filters, opens, or does nothing (LNK-1, LNK-9)", () => {
 
     test("a click that opens a page no host is told of, and one that does nothing, make no button of a row", async () => {
         const detail = { project: "Sales desk", page: "Region detail" };
-        const { container } = page([
+        const { container } = await page([
             cell("c-regions", regions({ click: variant("open", detail) })),
             cell("c-quiet", v.of("orders", v.list({ item: v.group("units"), values: [v.count()] }), { click: variant("none", null) })),
-        ], createInMemoryQueryCall(DATASETS));
+        ]);
         await waitFor(() => expect(rows(container).length).toBeGreaterThan(2));
         expect(rows(container).filter((row) => row.getAttribute("role") === "button")).toEqual([]);
     });
