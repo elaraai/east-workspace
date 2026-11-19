@@ -227,10 +227,16 @@ also enforce health, approval and the lease's bundled-e3 version floor.
 
 A task's tier is its runner's (`east-node` → `node`, `east-c` → `c`,
 `east-py` → `py`), `py-datascience` when its platforms name
-`east-py-datascience`, and `py-datascience` when its rule asks for a GPU, the
-tier a rack gives its GPU to. Only an `east-py` task may ask for one
-(`gpu-not-east-py` otherwise); with no GPU on any rack the task runs locally
-(`no-rack-holds:gpu`).
+`east-py-datascience` or the environment it declares installs that platform's
+distribution, and `py-datascience` when its rule asks for a GPU, the tier a
+rack gives its GPU to. What an environment installs is read from its lock as
+its build installs it (`@elaraai/e3`'s `pythonInstalls`): a project platform
+package that asks for `elaraai-east-py-datascience[torch]` puts its task over
+the image that holds the platform and torch, so an environment built over it
+leaves them to the image, whatever platforms the runner names. Such work takes
+a GPU only when its rule asks for one (its lease's `resources.gpu`). Only an
+`east-py` task may ask for one (`gpu-not-east-py` otherwise); with no GPU on
+any rack the task runs locally (`no-rack-holds:gpu`).
 
 ## Environments
 

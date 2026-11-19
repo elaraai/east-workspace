@@ -24,6 +24,10 @@ export interface RackTierAsks {
   /** Whether the task declares an environment, which carries the platform
    *  packages its runner names */
   environment?: boolean;
+  /** Whether the environment it declares installs the datascience platform's
+   *  distribution, `elaraai-east-py-datascience`, which the `py-datascience`
+   *  image holds */
+  datascience?: boolean;
   /** Whether its rule asks for a rack's GPU */
   gpu?: boolean;
 }
@@ -34,11 +38,17 @@ export interface RackTierAsks {
  * find: one named by a task that declares no environment.
  *
  * A task's tier is its runner's. An `east-py` task runs on `py-datascience`
- * when its platforms name `east-py-datascience`, or its rule asks for a GPU:
- * the tier a rack gives its GPU to. Only an `east-py` task may ask for one.
+ * when its platforms name `east-py-datascience`, the environment it declares
+ * installs that platform's distribution, or its rule asks for a GPU. That
+ * image holds the platform and what it installs, torch among it, so an
+ * environment built over it leaves them to the image; it is also the tier a
+ * rack gives its GPU to, which the work takes only when its rule asks for
+ * one. Only an `east-py` task may ask for one.
  *
  * @param runner - The task's wire runner
- * @param asks - Whether the task declares an environment, and asks for a GPU
+ * @param asks - Whether the task declares an environment, whether that
+ *   environment installs the datascience platform, and whether it asks for a
+ *   GPU
  * @returns Its tier, or the reason it cannot run on the rack
  * @example
  * const route = rackTierFor(task.runner, { environment: task.environment.type === 'some' });
@@ -54,6 +64,6 @@ export function rackTierFor(runner: RunnerValue, asks: RackTierAsks = {}): { tie
   switch (runner.type) {
     case 'east_node': return { tier: 'node' };
     case 'east_c': return { tier: 'c' };
-    case 'east_py': return { tier: asks.gpu === true || runner.value.platforms.includes('east-py-datascience') ? 'py-datascience' : 'py' };
+    case 'east_py': return { tier: asks.gpu === true || asks.datascience === true || runner.value.platforms.includes('east-py-datascience') ? 'py-datascience' : 'py' };
   }
 }

@@ -25,8 +25,8 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { decodeBeast2For } from '@elaraai/east';
 import { EnvironmentSpecType } from '@elaraai/e3-types';
-import { captureEnvironment, captureAutoEnvironment, canonicalPythonName, pythonLeftOut, pythonLockSettings, pythonRequires, type BuiltSdists, type UvLock,
-  type UvLockPackage } from './environment-capture.js';
+import { captureEnvironment, captureAutoEnvironment, canonicalPythonName, pythonInstalls, pythonLeftOut, pythonLockSettings, pythonRequires, type BuiltSdists,
+  type UvLock, type UvLockPackage } from './environment-capture.js';
 import { pythonClosure } from './environment-uv-lock.js';
 
 function toolAvailable(cmd: string): boolean {
@@ -213,6 +213,46 @@ describe('python closure capture (#278)', () => {
     assert.deepStrictEqual(pythonLeftOut(lock, []), ['extra-x', 'extra-y', 'forked', 'from-git', 'helper-dep', 'needed-a', 'own-only', 'with-extras']);
     assert.throws(() => pythonLeftOut(lock, ['needed-a[x']), /'needed-a\[x' is not a package's name/);
     assert.throws(() => pythonLeftOut('version = 2\n', []), /unsupported uv\.lock version 2/);
+  });
+
+  it('names what a python environment installs from a registry: what a member reaches and what is required beside it, or what the whole lock of a project that is its own root reaches', () => {
+    const registry = 'source = { registry = "https://pypi.org/simple" }';
+    const lock = [
+      'version = 1',
+      'requires-python = ">=3.12"',
+      '',
+      '[[package]]', 'name = "ws-root"', 'version = "0.1.0"', 'source = { virtual = "." }',
+      'dependencies = [{ name = "pandas" }]',
+      '[package.dev-dependencies]', 'dev = [{ name = "pytest" }]',
+      '',
+      // A member that asks for the datascience platform with its torch extra, by another spelling of its name, and one that does not
+      '[[package]]', 'name = "trainer"', 'version = "0.1.0"', 'source = { editable = "packages/trainer" }',
+      'dependencies = [{ name = "Elaraai_East_Py_Datascience", extra = ["torch"] }]',
+      '',
+      '[[package]]', 'name = "scorer"', 'version = "0.1.0"', 'source = { editable = "packages/scorer" }',
+      'dependencies = [{ name = "pandas" }]',
+      '',
+      '[[package]]', 'name = "elaraai-east-py-datascience"', 'version = "1.0.110"', registry,
+      'dependencies = [{ name = "numpy" }]',
+      '[package.optional-dependencies]', 'torch = [{ name = "torch" }]',
+      '',
+      '[[package]]', 'name = "torch"', 'version = "2.15.0"', registry, 'dependencies = [{ name = "nvidia-nccl-cu13" }]',
+      '[[package]]', 'name = "nvidia-nccl-cu13"', 'version = "2.30.7"', registry,
+      '[[package]]', 'name = "pandas"', 'version = "2.3.0"', registry, 'dependencies = [{ name = "numpy" }]',
+      '[[package]]', 'name = "numpy"', 'version = "2.3.5"', registry,
+      '[[package]]', 'name = "pytest"', 'version = "8.0.0"', registry,
+      '[[package]]', 'name = "elaraai-east-py"', 'version = "1.0.110"', registry,
+      '',
+    ].join('\n');
+    assert.deepStrictEqual(pythonInstalls(lock, ['trainer']), ['elaraai-east-py-datascience', 'numpy', 'nvidia-nccl-cu13', 'torch'],
+      'the platform it asks for, by its PEP 503 name, with the extra it asks of it and what that depends on');
+    assert.deepStrictEqual(pythonInstalls(lock, ['scorer']), ['numpy', 'pandas'], 'nothing of the root\'s or another member\'s');
+    assert.deepStrictEqual(pythonInstalls(lock, ['scorer'], ['elaraai-east-py', 'elaraai-east-py-datascience']),
+      ['elaraai-east-py', 'elaraai-east-py-datascience', 'numpy', 'pandas'], 'what is required beside it, with no extra nothing asks for');
+    assert.deepStrictEqual(pythonInstalls(lock, 'all'), ['elaraai-east-py-datascience', 'numpy', 'nvidia-nccl-cu13', 'pandas', 'pytest', 'torch'],
+      'a project that is its own root: what each of its own packages reaches, its development group among it');
+    assert.throws(() => pythonInstalls(lock, ['scorer'], ['numpy[x']), /'numpy\[x' is not a package's name/);
+    assert.throws(() => pythonInstalls('version = 2\n', 'all'), /unsupported uv\.lock version 2/);
   });
 
   it('reads the settings a lock was resolved under that resolve a distribution otherwise than its dependents ask: what its workspace overrides, and what it excludes', () => {

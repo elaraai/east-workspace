@@ -3,7 +3,8 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import type { DetachedCallRequest, StorageBackend, TaskBodyRequest } from '@elaraai/e3-core';
+import { pythonInstalls } from '@elaraai/e3';
+import { decodeEnvironmentFile, type DetachedCallRequest, type StorageBackend, type TaskBodyRequest } from '@elaraai/e3-core';
 import { decodeEnvironmentSpec, decodeTaskObject } from '@elaraai/e3-types';
 import { selectTask, type RackComputeSize, type RackPolicy, type TaskSelection } from './policy.js';
 import { rackTierFor, type IneligibleReason, type RackTier } from './tiers.js';
@@ -30,20 +31,36 @@ export interface EligibilityOptions {
   readonly selected?: boolean;
 }
 
+/** The distribution of the datascience platform package, which the
+ *  `py-datascience` image holds with what it installs, torch among it. */
+const DATASCIENCE_DISTRIBUTION = 'elaraai-east-py-datascience';
+
 /**
- * Why the environment work declares cannot go to a rack, or null when it can:
- * an environment that is files of the launching machine's platform, or a
+ * What routing reads of the environment work declares: why it cannot go to a
+ * rack, or whether it installs the datascience platform's distribution, which
+ * puts an `east-py` task over the image that holds it ({@link rackTierFor}).
+ *
+ * @remarks
+ * An environment that is files of the launching machine's platform, or a
  * server's image, is not installed for a rack's; nor is one built on Windows,
  * whose built environments have another layout. A spec of another type than
  * this release's is refused by the one decoder every reader goes through, and
- * the work stays here, where running it says why.
+ * the work stays here, where running it says why. What a python environment
+ * installs is read from its lock as its build installs it ({@link pythonInstalls}),
+ * the lock decoded as every reader of an environment's files decodes one
+ * (e3-core's `decodeEnvironmentFile`), which refuses a file an older SDK
+ * stored raw.
  */
-async function environmentRefusal(storage: StorageBackend, repo: string, environment: string | null): Promise<IneligibleReason | null> {
-  if (environment === null) return null;
+async function readEnvironment(storage: StorageBackend, repo: string, environment: string | null):
+  Promise<{ refused: IneligibleReason } | { datascience: boolean }> {
+  if (environment === null) return { datascience: false };
   const spec = decodeEnvironmentSpec(await storage.objects.read(repo, environment), environment);
-  if (spec.type === 'tools' || spec.type === 'image') return `environment:${spec.type}`;
-  if (process.platform === 'win32') return 'environment:windows-host';
-  return null;
+  if (spec.type === 'tools' || spec.type === 'image') return { refused: `environment:${spec.type}` };
+  if (process.platform === 'win32') return { refused: 'environment:windows-host' };
+  if (spec.type !== 'python' && spec.type !== 'workspace_python') return { datascience: false };
+  const lock = new TextDecoder().decode(decodeEnvironmentFile(await storage.objects.read(repo, spec.value.lock), spec.value.lock));
+  const installs = spec.type === 'python' ? pythonInstalls(lock, 'all') : pythonInstalls(lock, spec.value.subjects, spec.value.requires);
+  return { datascience: installs.includes(DATASCIENCE_DISTRIBUTION) };
 }
 
 /** The refusal of a program that calls platform functions reaching the host, or null for one that calls none. */
@@ -111,9 +128,9 @@ export class EligibilityEvaluator {
     if (selection === null) return { eligible: false, reason: 'not-selected' };
     try {
       const environment = request.spec.environment ?? null;
-      const refused = await environmentRefusal(storage, request.repo, environment);
-      if (refused !== null) return { eligible: false, reason: refused };
-      const tier = rackTierFor(request.spec.runner, { environment: environment !== null, gpu: selection.gpu });
+      const read = await readEnvironment(storage, request.repo, environment);
+      if ('refused' in read) return { eligible: false, reason: read.refused };
+      const tier = rackTierFor(request.spec.runner, { environment: environment !== null, datascience: read.datascience, gpu: selection.gpu });
       if ('ineligible' in tier) return { eligible: false, reason: tier.ineligible };
       if (!selection.allowHostCoupled) {
         const coupled = hostCoupling(hostCoupledPlatforms(collectPlatformNames(request.spec.bodyIr)));
@@ -137,9 +154,9 @@ export class EligibilityEvaluator {
     try {
       const task = logicalHash === request.taskHash ? request.task : decodeTaskObject(await request.storage.objects.read(request.repo, logicalHash));
       const environment = task.environment.type === 'some' ? task.environment.value : null;
-      const refused = await environmentRefusal(request.storage, request.repo, environment);
-      if (refused !== null) return { eligible: false, reason: refused };
-      const tier = rackTierFor(task.runner, { environment: environment !== null, gpu: selection.gpu });
+      const read = await readEnvironment(request.storage, request.repo, environment);
+      if ('refused' in read) return { eligible: false, reason: read.refused };
+      const tier = rackTierFor(task.runner, { environment: environment !== null, datascience: read.datascience, gpu: selection.gpu });
       if ('ineligible' in tier) return { eligible: false, reason: tier.ineligible };
       if (task.body.type !== 'east') return { eligible: false, reason: 'custom-runner' };
       if (!selection.allowHostCoupled) {

@@ -8,13 +8,59 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { East, IntegerType, StringType, encodeBeast2For, encodeEastIR, equalFor, none, some, variant } from '@elaraai/east';
+import { BlobType, East, IntegerType, StringType, encodeBeast2For, encodeEastIR, equalFor, none, some, variant } from '@elaraai/east';
 import { InMemoryStorage, LocalStorage, repoInit, uuidv7, type DetachedCallRequest, type TaskBodyRequest } from '@elaraai/e3-core';
-import { EnvironmentSpecType, TASK_OBJECT_KIND, TaskObjectType, type RunnerValue, type TaskObject } from '@elaraai/e3-types';
+import { EnvironmentSpecType, TASK_OBJECT_KIND, TaskObjectType, type EnvironmentSpec, type RunnerValue, type TaskObject } from '@elaraai/e3-types';
 import { DEFAULT_RACK_POLICY, RACK_SIZES, RackPolicyError, RackPolicyType, loadPolicy, policyPath, removeRule, savePolicy, selectTask, setEnabled, setMode, setRule } from './policy.js';
 import { rackTierFor } from './tiers.js';
 import { collectPlatformNames, hostCoupledPlatforms } from './host-coupling.js';
 import { EligibilityEvaluator } from './eligibility.js';
+
+const REGISTRY = 'source = { registry = "https://pypi.org/simple" }';
+/** A uv workspace's lock: its member `trainer` asks for the datascience
+ *  platform with its torch extra, and its member `scorer` does not. */
+const WORKSPACE_LOCK = [
+  'version = 1', 'requires-python = ">=3.12"', '',
+  '[[package]]', 'name = "ws-root"', 'version = "0.1.0"', 'source = { virtual = "." }', '',
+  '[[package]]', 'name = "trainer"', 'version = "0.1.0"', 'source = { editable = "packages/trainer" }',
+  'dependencies = [{ name = "elaraai-east-py-datascience", extra = ["torch"] }]', '',
+  '[[package]]', 'name = "scorer"', 'version = "0.1.0"', 'source = { editable = "packages/scorer" }', 'dependencies = [{ name = "pandas" }]', '',
+  '[[package]]', 'name = "elaraai-east-py-datascience"', 'version = "1.0.110"', REGISTRY, '[package.optional-dependencies]', 'torch = [{ name = "torch" }]', '',
+  '[[package]]', 'name = "torch"', 'version = "2.15.0"', REGISTRY,
+  '[[package]]', 'name = "pandas"', 'version = "2.3.0"', REGISTRY, '',
+].join('\n');
+/** The lock of a project that is its own root, which installs no datascience platform. */
+const PROJECT_LOCK = [
+  'version = 1', 'requires-python = ">=3.12"', '',
+  '[[package]]', 'name = "pricing"', 'version = "0.1.0"', 'source = { editable = "." }', 'dependencies = [{ name = "pandas" }]', '',
+  '[[package]]', 'name = "pandas"', 'version = "2.3.0"', REGISTRY, '',
+].join('\n');
+
+/** Stores an environment's spec, and returns its hash. */
+function storeSpec(storage: InMemoryStorage, spec: EnvironmentSpec): Promise<string> {
+  return storage.objects.write('repo', encodeBeast2For(EnvironmentSpecType)(spec));
+}
+
+/** Stores a lock's text as an export stores an environment's file, a beast2
+ *  Blob, and returns its hash. */
+function storeLock(storage: InMemoryStorage, text: string): Promise<string> {
+  return storage.objects.write('repo', encodeBeast2For(BlobType)(new TextEncoder().encode(text)));
+}
+
+/**
+ * Judges a task named `train`, which runs the program on an east-py runner
+ * that names the platforms and declares the environment, under a rule that
+ * selects it.
+ */
+async function judgeTask(storage: InMemoryStorage, program: string, environment: string, platforms: string[], rule: Parameters<typeof setRule>[3] = {}) {
+  const task: TaskObject = {
+    kind: TASK_OBJECT_KIND, body: variant('east', { program }), runner: variant('east_py', { platforms, decode: variant('lazy', null) }),
+    inputs: [], output: { path: [], kind: variant('value', null) }, role: variant('data', null), environment: some(environment),
+  };
+  const hash = await storage.objects.write('repo', encodeBeast2For(TaskObjectType)(task));
+  return new EligibilityEvaluator(setRule(DEFAULT_RACK_POLICY, 'train', 'rack', rule)).evaluate({ storage, repo: 'repo', taskHash: hash, task, inputHashes: [],
+    ids: { inHash: 'a'.repeat(64), executionId: uuidv7(), startTime: Date.now() }, options: { taskName: 'train' }, role: 'task' });
+}
 
 it('matches whole names, literal punctuation, wildcards, and first-rule precedence', () => {
   let policy = setRule(DEFAULT_RACK_POLICY, 'train', 'rack');
@@ -71,6 +117,9 @@ it('takes a platform package a task\'s environment carries, and gives a GPU to a
   assert.deepEqual(rackTierFor(mine, { environment: true }), { tier: 'py' }, 'its environment carries it');
   assert.deepEqual(rackTierFor(variant('east_node', { platforms: ['@acme/pricing'], decode }), { environment: true }), { tier: 'node' });
   assert.deepEqual(rackTierFor(variant('east_py', { platforms: ['mine', 'east-py-datascience'], decode }), { environment: true }), { tier: 'py-datascience' });
+  assert.deepEqual(rackTierFor(mine, { environment: true, datascience: true }), { tier: 'py-datascience' }, 'its environment installs the datascience platform');
+  assert.deepEqual(rackTierFor(variant('east_node', { platforms: ['@acme/pricing'], decode }), { environment: true, datascience: true }), { tier: 'node' },
+    'a runner of another runtime keeps its own tier');
   assert.deepEqual(rackTierFor(variant('custom', { command: ['mine'] }), { environment: true }), { ineligible: 'custom-runner' });
   assert.deepEqual(rackTierFor(mine, { environment: true, gpu: true }), { tier: 'py-datascience' });
   assert.deepEqual(rackTierFor(variant('east_py', { platforms: ['east-py-std'], decode }), { gpu: true }), { tier: 'py-datascience' });
@@ -131,17 +180,9 @@ it('takes a task that declares an environment with the platform package it carri
   await storage.repos.create('repo');
   const pure = East.function([IntegerType], IntegerType, ($, value) => value.add(1n));
   const program = await storage.objects.write('repo', encodeEastIR(pure.toIR()));
-  const spec = (value: Parameters<ReturnType<typeof encodeBeast2For<typeof EnvironmentSpecType>>>[0]) => storage.objects.write('repo', encodeBeast2For(EnvironmentSpecType)(value));
-  const python = await spec(variant('python', { pyproject: 'a'.repeat(64), lock: 'b'.repeat(64), sdists: [] }));
-  const evaluate = async (environment: string, platforms: string[] = ['mine'], rule: Parameters<typeof setRule>[3] = {}) => {
-    const task: TaskObject = {
-      kind: TASK_OBJECT_KIND, body: variant('east', { program }), runner: variant('east_py', { platforms, decode: variant('lazy', null) }),
-      inputs: [], output: { path: [], kind: variant('value', null) }, role: variant('data', null), environment: some(environment),
-    };
-    const hash = await storage.objects.write('repo', encodeBeast2For(TaskObjectType)(task));
-    return new EligibilityEvaluator(setRule(DEFAULT_RACK_POLICY, 'train', 'rack', rule)).evaluate({ storage, repo: 'repo', taskHash: hash, task, inputHashes: [],
-      ids: { inHash: 'a'.repeat(64), executionId: uuidv7(), startTime: Date.now() }, options: { taskName: 'train' }, role: 'task' });
-  };
+  const spec = (value: EnvironmentSpec) => storeSpec(storage, value);
+  const python = await spec(variant('python', { pyproject: 'a'.repeat(64), lock: await storeLock(storage, PROJECT_LOCK), sdists: [] }));
+  const evaluate = (environment: string, platforms: string[] = ['mine'], rule: Parameters<typeof setRule>[3] = {}) => judgeTask(storage, program, environment, platforms, rule);
   if (process.platform === 'win32') {
     assert.deepEqual(await evaluate(python), { eligible: false, reason: 'environment:windows-host' });
   } else {
@@ -152,6 +193,35 @@ it('takes a task that declares an environment with the platform package it carri
   assert.deepEqual(await evaluate(await spec(variant('tools', { files: [] }))), { eligible: false, reason: 'environment:tools' });
   assert.deepEqual(await evaluate(await spec(variant('image', { digest: 'sha256:' + 'c'.repeat(64) }))), { eligible: false, reason: 'environment:image' });
   assert.deepEqual(await evaluate('d'.repeat(64)), { eligible: false, reason: 'unscannable' }, 'an environment whose spec the store lacks');
+});
+
+it('runs an east-py task whose environment installs the datascience platform over the image that holds it, torch among it, and gives it a GPU only when its rule asks for one', {
+  skip: process.platform === 'win32' ? 'an environment stays local on Windows' : false,
+}, async () => {
+  const storage = new InMemoryStorage();
+  await storage.repos.create('repo');
+  const program = await storage.objects.write('repo', encodeEastIR(East.function([IntegerType], IntegerType, ($, value) => value.add(1n)).toIR()));
+  const lock = await storeLock(storage, WORKSPACE_LOCK);
+  const member = (subjects: string[], requires: string[] = [], of = lock) =>
+    storeSpec(storage, variant('workspace_python', { pyproject: 'a'.repeat(64), lock: of, subjects, sdists: [], requires }));
+  const rule = { eligible: true as const, size: 'large' as const, timeoutMinutes: 1440, memoryLimit: null };
+
+  // A project's own platform package, which asks for the datascience platform with its torch extra: the task's runner names it alone
+  const trainer = await member(['trainer'], ['elaraai-east-py']);
+  assert.deepEqual(await judgeTask(storage, program, trainer, ['trainer']), { ...rule, tier: 'py-datascience', gpu: false, environment: trainer },
+    'the image that holds the platform and torch, which no GPU is taken for');
+  assert.deepEqual(await judgeTask(storage, program, trainer, ['trainer'], { gpu: true }), { ...rule, tier: 'py-datascience', gpu: true, environment: trainer });
+  const scorer = await member(['scorer']);
+  assert.deepEqual(await judgeTask(storage, program, scorer, ['scorer']), { ...rule, tier: 'py', gpu: false, environment: scorer },
+    'a member that installs no datascience platform stays on the slim image');
+  const required = await member(['scorer'], ['elaraai-east-py-datascience']);
+  assert.deepEqual(await judgeTask(storage, program, required, ['scorer']), { ...rule, tier: 'py-datascience', gpu: false, environment: required },
+    'a platform required beside the member');
+  const project = await storeSpec(storage, variant('python', { pyproject: 'a'.repeat(64), lock, sdists: [] }));
+  assert.deepEqual(await judgeTask(storage, program, project, ['trainer']), { ...rule, tier: 'py-datascience', gpu: false, environment: project },
+    'a project that is its own root installs the whole of its lock');
+  const lost = await member(['trainer'], [], 'e'.repeat(64));
+  assert.deepEqual(await judgeTask(storage, program, lost, ['trainer']), { eligible: false, reason: 'unscannable' }, 'an environment whose lock the store lacks');
 });
 
 it('judges a call as a task is judged: its rule by fn:<name>, or every call under the flag, its runner, its environment and its program', async () => {
@@ -186,8 +256,13 @@ it('judges a call as a task is judged: its rule by fn:<name>, or every call unde
   const tools = await storage.objects.write('repo', encodeBeast2For(EnvironmentSpecType)(variant('tools', { files: [] })));
   assert.deepEqual(await flagged.evaluateCall(call(pure, { environment: tools }), storage), { eligible: false, reason: 'environment:tools' });
   if (process.platform !== 'win32') {
-    const python = await storage.objects.write('repo', encodeBeast2For(EnvironmentSpecType)(variant('python', { pyproject: 'a'.repeat(64), lock: 'b'.repeat(64), sdists: [] })));
+    const python = await storeSpec(storage, variant('python', { pyproject: 'a'.repeat(64), lock: await storeLock(storage, PROJECT_LOCK), sdists: [] }));
     assert.deepEqual(await flagged.evaluateCall(call(pure, { environment: python }), storage), { ...eligible, size: 'medium', environment: python });
+    // A call whose environment installs the datascience platform runs over the image that holds it, as a task does
+    const trainer = await storeSpec(storage, variant('workspace_python', { pyproject: 'a'.repeat(64), lock: await storeLock(storage, WORKSPACE_LOCK),
+      subjects: ['trainer'], sdists: [], requires: [] }));
+    assert.deepEqual(await flagged.evaluateCall(call(pure, { environment: trainer, runner: variant('east_py', { platforms: ['trainer'], decode: variant('lazy', null) }) }), storage),
+      { ...eligible, size: 'medium', tier: 'py-datascience', environment: trainer });
   }
 });
 
