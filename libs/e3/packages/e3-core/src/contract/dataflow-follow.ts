@@ -1672,4 +1672,62 @@ export function dataflowFollowCases(setup: BackendSetup): void {
     assert.equal(await held(storage, repo, 'tasks/budget/output'),
       made('budget', made('forecast', c1.state, rates), made('capacity', c1.state, rates), late));
   });
+
+  it('launches no task a failure skipped while its launch waited its turn for the run\'s state: it stays skipped, and is counted once', async (t) => {
+    const context = await setup(t);
+    const { repo } = context;
+    const paced = pacedStorage(context.storage);
+    const storage = paced.storage;
+    const tasks = await deployChain(t, context);
+    const runner = gatedRunner(context.storage, repo, tasks);
+    const lines = new RunLines();
+    const stateStore = stateStoreOf(context);
+    const orchestrator = new LocalOrchestrator(stateStore);
+    const v1 = (await held(storage, repo, 'inputs/sales'))!;
+    const handle = await orchestrator.start(storage, repo, 'ws', { runner, ...lines.callbacks });
+    // What the run has queued for its state has asked for it once a turn of the event loop has passed: no store is
+    // read between the steps the case places
+    const queued = (): Promise<void> => new Promise((resolve) => { setImmediate(resolve); });
+
+    try {
+      // An edit lands while clean runs. clean's result lands, made from the input as it was, and clean runs again:
+      // forecast is ready on the result clean holds, and is prepared, its look in the execution cache held
+      await runner.launched('clean');
+      await workspaceSetDataset(storage, repo, 'ws', inputPath('sales'), 5n, IntegerType);
+      assert.equal(await orchestrator.wake(storage, repo, 'ws'), handle.id);
+      const preparing = paced.hold('refs', 'executionListIds', (args) => args[1] === tasks.get('forecast') && args[2] === inputsHash([made('clean', v1)]));
+      runner.release('clean');
+      await runner.launched('clean');
+      await preparing.reached;
+
+      // A wake's look holds the run's state, its read of the input held, and clean fails: its failure waits its turn
+      // behind the look. Then forecast, decided ready, asks for the run's state to start, behind the failure
+      const look = paced.hold('datasets', 'read', (args) => args[2] === 'inputs/sales');
+      const waking = orchestrator.wake(storage, repo, 'ws');
+      try {
+        await look.reached;
+        runner.fail('clean', 'the source went away');
+        await queued();
+        preparing.open();
+        await queued();
+      } finally {
+        preparing.open();
+        look.open();
+      }
+      await waking;
+
+      // The failure is applied first, and skips forecast: its launch, whose turn comes next, launches nothing
+      const ended = orchestrator.wait(handle);
+      assert.equal(await Promise.race([ended.then(() => null), runner.launched('forecast')]), null, 'forecast was skipped, and is not launched');
+      const result = await ended;
+      assert.deepEqual([result.success, result.executed, result.cached, result.failed, result.skipped], [false, 0, 0, 1, 2],
+        'clean failed, forecast and report were skipped, each counted once');
+      assert.deepEqual(lines.printed.filter((line) => line.endsWith(' forecast')), ['[SKIPPED] forecast'], 'forecast is told skipped, and never started');
+      assert.equal((await stateStore.read(repo, 'ws', handle.id))?.tasks.get('forecast')?.status, 'skipped');
+    } finally {
+      // A run that launched what it should not have is let through to its end
+      for (const name of tasks.keys()) runner.pass(name);
+      for (const name of tasks.keys()) while (runner.holding(name) > 0) runner.release(name);
+    }
+  });
 }
