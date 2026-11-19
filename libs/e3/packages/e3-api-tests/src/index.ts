@@ -93,6 +93,7 @@ export { seriesRecordTests } from './suites/records-series.js';
 export { recordDeployTests } from './suites/record-deploy.js';
 export { inputDeployTests } from './suites/input-deploy.js';
 export { recordLoadTests } from './suites/records-load.js';
+export { recordLoadEditTests } from './suites/records-load-edits.js';
 export { objectUploadTests } from './suites/object-upload.js';
 export { platformTests } from './suites/platform.js';
 export { cliTests } from './suites/cli.js';
@@ -123,6 +124,7 @@ import { seriesRecordTests } from './suites/records-series.js';
 import { recordDeployTests } from './suites/record-deploy.js';
 import { inputDeployTests } from './suites/input-deploy.js';
 import { recordLoadTests } from './suites/records-load.js';
+import { recordLoadEditTests } from './suites/records-load-edits.js';
 import { objectUploadTests } from './suites/object-upload.js';
 import { platformTests } from './suites/platform.js';
 import { cliTests } from './suites/cli.js';
@@ -159,6 +161,7 @@ export const apiTestSuites: Readonly<Record<string, (setup: TestSetup<TestContex
   recordDeploy: recordDeployTests,
   inputDeploy: inputDeployTests,
   recordLoads: recordLoadTests,
+  recordLoadEdits: recordLoadEditTests,
   objectUpload: objectUploadTests,
   packageTransfer: packageTransferTests,
   platform: platformTests,

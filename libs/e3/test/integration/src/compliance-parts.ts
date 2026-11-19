@@ -50,7 +50,7 @@ export const COMPLIANCE_PARTS = {
     'functions', 'areaRecords', 'inputDeploy', 'packageTransfer', 'platform',
   ],
   dataflow: ['dataflow', 'calls', 'records', 'keyedRecords', 'recordDeploy'],
-  series: ['seriesRecords', 'placeRecords', 'functionDrafts', 'indexInputs', 'recordLoads', 'objectUpload'],
+  series: ['seriesRecords', 'placeRecords', 'functionDrafts', 'indexInputs', 'recordLoads', 'recordLoadEdits', 'objectUpload'],
 } as const satisfies Record<string, readonly string[]>;
 
 /** How a part's requests reach the server. */
